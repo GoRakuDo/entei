@@ -1,0 +1,77 @@
+---
+/**
+ * Site Footer — PHASE0.md Section 6.161-164.
+ * - External link back to GoRakuDo main site.
+ * - Privacy / Terms links only shown if the pages actually exist.
+ *   Phase 0: no legal pages exist yet, so those links are omitted.
+ * - Entei version / copyright shown modestly.
+ */
+import type { Dictionary } from '@i18n/types';
+
+interface Props {
+  dictionary: Dictionary;
+}
+
+const { dictionary } = Astro.props;
+const GORAKUDO_URL = 'https://gorakudo.org';
+const COPYRIGHT_YEAR = '2026';
+---
+
+<footer class="entei-footer" role="contentinfo">
+  <div class="entei-footer-inner">
+    <a
+      class="entei-footer-gorakudo"
+      href={GORAKUDO_URL}
+      rel="noopener noreferrer"
+      data-i18n="nav.backToGorakudo"
+    >
+      {dictionary.nav.backToGorakudo}
+    </a>
+    <p class="entei-footer-copyright">
+      &copy; {COPYRIGHT_YEAR} Entei · Phase 0
+    </p>
+  </div>
+</footer>
+
+<style>
+  .entei-footer {
+    padding: var(--entei-space-48) var(--entei-gutter)
+      calc(var(--entei-space-48) + var(--entei-safe-bottom));
+    border-top: 1px solid oklch(100% 0 0deg / 0.06);
+  }
+
+  .entei-footer-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--entei-space-16);
+    max-width: var(--entei-content-max);
+    margin-inline: auto;
+  }
+
+  /* PHASE0.md 12.328: DOM order stays same as mobile; layout can split */
+  .entei-footer-gorakudo {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--entei-touch-min);
+    padding: var(--entei-space-8) 0;
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--entei-text-secondary);
+    text-decoration: none;
+    transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+  }
+
+  .entei-footer-gorakudo:hover {
+    color: var(--entei-accent-hover);
+  }
+
+  .entei-footer-copyright {
+    font-family: var(--entei-font-system);
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    color: var(--entei-text-muted);
+  }
+</style>

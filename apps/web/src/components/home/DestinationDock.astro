@@ -1,0 +1,286 @@
+---
+/**
+ * Destination Dock — PHASE0.md Section 6.152-155 + Section 7.
+ *
+ * Two destinations, vertically stacked full-width on ALL viewports:
+ * 1. Audio & Video Player — primary, fully clickable <a> linking to /player/.
+ *    Horizontal row: [Icon] [status/title/short copy] [ArrowRight].
+ *    CTA is preview-phrased, not "play now" (7.174).
+ *
+ * 2. EPUB Reader — locked destination. No link, no click handler, no cursor
+ *    change, no hover lift, no arrow (7.181-183). "Coming Soon" shown as
+ *    text + gold accent. Status is readable, not hidden by low opacity (7.184).
+ *    Same horizontal geometry as Player for equal outer shape, but arrow slot
+ *    is empty (no arrow element in DOM).
+ *
+ * Layout: CSS Grid row interior — [Icon] [Text column] [Arrow slot].
+ * Both destinations share the same grid template, so the browser stretches
+ * them to equal height. No fixed height; compact is achieved through
+ * reduced padding and horizontal content flow.
+ */
+import PlayerIcon from '@components/icons/PlayerIcon.astro';
+import ReaderIcon from '@components/icons/ReaderIcon.astro';
+import { ArrowRight } from '@lucide/astro';
+import type { Dictionary } from '@i18n/types';
+
+interface Props {
+  dictionary: Dictionary;
+}
+
+const { dictionary } = Astro.props;
+---
+
+<section class="entei-destination-dock">
+  <div class="entei-destinations">
+    <!-- Primary destination: Audio & Video Player -->
+    <article class="entei-destination entei-destination--player">
+      <a class="entei-destination-link" href="/player/" data-entei-player-link>
+        <PlayerIcon />
+        <div class="entei-destination-text">
+          <span
+            class="entei-destination-status entei-destination-status--next"
+            data-i18n="player.status"
+          >
+            {dictionary.player.status}
+          </span>
+          <h2 class="entei-destination-title" data-i18n="player.title">
+            {dictionary.player.title}
+          </h2>
+          <p
+            class="entei-destination-description"
+            data-i18n="player.description"
+          >
+            {dictionary.player.description}
+          </p>
+          <span class="entei-destination-cta" data-i18n="player.cta">
+            {dictionary.player.cta}
+          </span>
+        </div>
+        <span class="entei-destination-arrow" aria-hidden="true">
+          <ArrowRight size={20} aria-hidden="true" focusable="false" />
+        </span>
+      </a>
+    </article>
+
+    <!-- Locked destination: EPUB Reader — no link, no handler, aria-disabled only.
+         Screen reader announces h2 title and Coming Soon status from visible text.
+         Same grid geometry as Player for equal outer shape. -->
+    <article
+      class="entei-destination entei-destination--reader"
+      aria-disabled="true"
+    >
+      <div class="entei-destination-content">
+        <ReaderIcon />
+        <div class="entei-destination-text">
+          <span
+            class="entei-destination-status entei-destination-status--locked"
+            data-i18n="reader.status"
+          >
+            {dictionary.reader.status}
+          </span>
+          <h2 class="entei-destination-title" data-i18n="reader.title">
+            {dictionary.reader.title}
+          </h2>
+          <p
+            class="entei-destination-description"
+            data-i18n="reader.description"
+          >
+            {dictionary.reader.description}
+          </p>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<style>
+  .entei-destination-dock {
+    padding: var(--entei-space-32) 0 var(--entei-space-48);
+  }
+
+  /* Full-width vertical stack on ALL viewports — no side-by-side grid.
+     grid-auto-rows: 1fr forces both rows to equal height (taller row wins). */
+  .entei-destinations {
+    display: grid;
+    gap: var(--entei-space-16);
+    grid-template-columns: 1fr;
+    grid-auto-rows: 1fr;
+  }
+
+  .entei-destination {
+    position: relative;
+    height: 100%;
+    border-radius: var(--entei-radius-card);
+    transition: transform var(--entei-duration-normal)
+      var(--entei-ease-productive);
+  }
+
+  /* Player tile — elevated surface, stronger border, higher contrast (10.275) */
+  .entei-destination--player {
+    background-color: var(--entei-surface-2);
+    border: 1px solid oklch(57.74% 0.209 273.85deg / 0.35);
+    box-shadow:
+      0 1px 0 oklch(100% 0 0deg / 0.08) inset,
+      0 8px 24px oklch(0% 0 0deg / 0.25);
+  }
+
+  /* Reader tile — quieter, but NOT low-opacity (7.184) */
+  .entei-destination--reader {
+    background-color: var(--entei-surface);
+    border: 1px solid oklch(85% 0.15 85deg / 0.25);
+    opacity: 1;
+  }
+
+  /* Hover lift on Player only — no layout reflow properties (13.348) */
+  @media (hover: hover) {
+    .entei-destination--player:hover {
+      transform: translateY(-3px);
+      border-color: oklch(65% 0.22 273.85deg / 0.55);
+    }
+  }
+
+  /* Player: full-tile <a> with CSS Grid row interior (7.172)
+     Grid: [Icon] [Text column] [Arrow slot] — horizontal layout */
+  .entei-destination-link {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: var(--entei-space-16);
+    height: 100%;
+    min-height: var(--entei-touch-min);
+    padding: var(--entei-space-16) var(--entei-space-24);
+    color: inherit;
+    text-decoration: none;
+    border-radius: var(--entei-radius-card);
+  }
+
+  .entei-destination-link:hover {
+    color: inherit;
+  }
+
+  /* Reader: same grid geometry as Player for equal outer shape.
+     Content is wrapped in .entei-destination-content which mirrors the link grid. */
+  .entei-destination--reader {
+    padding: var(--entei-space-16) var(--entei-space-24);
+  }
+
+  .entei-destination-content {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: var(--entei-space-16);
+    height: 100%;
+    min-width: 0;
+  }
+
+  /* Text column — stacks status, title, description, CTA vertically */
+  .entei-destination-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-4);
+    min-width: 0;
+  }
+
+  .entei-destination-status {
+    font-family: var(--entei-font-system);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: var(--entei-space-2) var(--entei-space-8);
+    border-radius: var(--entei-radius-sm);
+    width: fit-content;
+  }
+
+  /* Player status — purple accent (primary destination) */
+  .entei-destination-status--next {
+    color: var(--entei-accent-hover);
+    background-color: oklch(57.74% 0.209 273.85deg / 0.18);
+    border: 1px solid oklch(57.74% 0.209 273.85deg / 0.4);
+  }
+
+  /* Reader status — gold (locked, special state) (10.273-274) */
+  .entei-destination-status--locked {
+    color: var(--entei-status-locked);
+    background-color: oklch(85% 0.15 85deg / 0.12);
+    border: 1px solid oklch(85% 0.15 85deg / 0.35);
+  }
+
+  .entei-destination-title {
+    font-family: var(--entei-font-display);
+    font-size: clamp(1.1rem, 2.2vw, 1.5rem);
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--entei-text);
+    text-wrap: balance;
+  }
+
+  .entei-destination-description {
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--entei-text-secondary);
+    text-wrap: pretty;
+    max-width: 50ch;
+  }
+
+  .entei-destination-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-8);
+    margin-top: var(--entei-space-2);
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--entei-accent-hover);
+  }
+
+  /* Arrow — right-aligned row end, indicates movement (7.173) */
+  .entei-destination-arrow {
+    flex-shrink: 0;
+    color: var(--entei-accent-hover);
+    transition: transform var(--entei-duration-fast)
+      var(--entei-ease-productive);
+  }
+
+  @media (hover: hover) {
+    .entei-destination--player:hover .entei-destination-arrow {
+      transform: translateX(4px);
+    }
+  }
+
+  /* Reader: no arrow, no hover effects, cursor stays default (7.183) */
+  .entei-destination--reader,
+  .entei-destination--reader * {
+    cursor: default;
+  }
+
+  /* Reduced motion: disable hover lift and arrow movement (13.355) */
+  @media (prefers-reduced-motion: reduce) {
+    .entei-destination,
+    .entei-destination-arrow {
+      transition: none;
+    }
+
+    @media (hover: hover) {
+      .entei-destination--player:hover {
+        transform: none;
+      }
+
+      .entei-destination--player:hover .entei-destination-arrow {
+        transform: none;
+      }
+    }
+  }
+
+  /* High contrast: strengthen borders */
+  @media (prefers-contrast: more) {
+    .entei-destination--player {
+      border: 2px solid var(--entei-accent);
+    }
+
+    .entei-destination--reader {
+      border: 2px solid var(--entei-status-locked);
+    }
+  }
+</style>

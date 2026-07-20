@@ -1,0 +1,30 @@
+---
+/**
+ * Entei Home — the single canonical Home route at `/`.
+ * PHASE0.md Section 5: only `/` is the formal Home. No `/ja/`, `/en/`.
+ *
+ * Static HTML is Indonesian (PHASE0.md 5.129). The locale switcher module
+ * script (loaded by BaseLayout) applies the saved locale after first paint.
+ *
+ * Content order (PHASE0.md Section 6):
+ * 1. Skip link (in BaseLayout)
+ * 2. Top Bar (in BaseLayout)
+ * 3. Hub Identity
+ * 4. Destination Dock (Player + EPUB locked)
+ * 5. Local-first Note
+ * 6. Footer (in BaseLayout)
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import HubIdentity from '@components/home/HubIdentity.astro';
+import DestinationDock from '@components/home/DestinationDock.astro';
+import LocalFirstNote from '@components/home/LocalFirstNote.astro';
+import { getDictionary } from '@i18n/index';
+
+const dictionary = getDictionary('id');
+---
+
+<BaseLayout locale="id" path="/">
+  <HubIdentity dictionary={dictionary} />
+  <DestinationDock dictionary={dictionary} />
+  <LocalFirstNote dictionary={dictionary} />
+</BaseLayout>

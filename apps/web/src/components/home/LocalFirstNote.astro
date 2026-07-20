@@ -1,0 +1,34 @@
+---
+/**
+ * Local-first Note — PHASE0.md Section 6.157-159.
+ * Short reassurance: no account, media stays on device.
+ * Not a long technical explanation — detail pages can come later.
+ */
+import type { Dictionary } from '@i18n/types';
+
+interface Props {
+  dictionary: Dictionary;
+}
+
+const { dictionary } = Astro.props;
+---
+
+<aside class="entei-local-note entei-home-local-note">
+  <p data-i18n="privacy.local">{dictionary.privacy.local}</p>
+</aside>
+
+<style>
+  .entei-local-note {
+    padding: var(--entei-space-16) var(--entei-space-24);
+    background-color: oklch(17.8% 0.058 275.81deg / 0.4);
+    border: 1px solid oklch(100% 0 0deg / 0.06);
+    border-radius: var(--entei-radius-lg);
+  }
+
+  .entei-local-note p {
+    font-family: var(--entei-font-body);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+  }
+</style>

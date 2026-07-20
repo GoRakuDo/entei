@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Entei Hub Emblem — Favicon
+  Simple 1-color emblem. Works on light and dark backgrounds (PHASE0.md 18.475).
+  The hexagonal frame + flame mark is the same shape used inline in the site.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Transparent background so favicon works on any browser tab color -->
+  <!-- Hexagonal base -->
+  <path
+    d="M24 2 L42 12.5 L42 35.5 L24 46 L6 35.5 L6 12.5 Z"
+    fill="none"
+    stroke="#7a4ee5"
+    stroke-width="2.5"
+    stroke-linejoin="round"
+  />
+  <!-- Flame mark -->
+  <path
+    d="M24 14 C21 19 19 22 19 27 C19 31 21 34 24 34 C27 34 29 31 29 27 C29 22 27 19 24 14 Z"
+    fill="#7a4ee5"
+  />
+  <!-- Inner flame cutout -->
+  <path
+    d="M24 20 C22.5 23 21.5 25 21.5 28 C21.5 30.5 22.7 32 24 32 C25.3 32 26.5 30.5 26.5 28 C26.5 25 25.5 23 24 20 Z"
+    fill="#0d0d12"
+    opacity="0.5"
+  />
+</svg>

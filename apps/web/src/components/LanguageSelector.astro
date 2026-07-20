@@ -1,0 +1,121 @@
+---
+/**
+ * Language Selector — native <select> element with Lucide ChevronDown.
+ * PHASE0.md 8.202-208:
+ * - Native <select>, not custom popup.
+ * - Options shown in each language's own name: Bahasa Indonesia / 日本語 / English.
+ * - Visible label, no custom aria-current, no flags.
+ * - Keyboard and screen-reader friendly (native select semantics).
+ * - Does NOT change URL — switches in-page copy, <html lang>, title, description.
+ *
+ * PHASE0.md 14.378: native selector must communicate current value, options,
+ * and change result correctly to keyboard and screen reader.
+ *
+ * Chevron icon: Lucide ChevronDown for tree-shaken SVG.
+ */
+import { LOCALE_LABELS } from '@i18n/types';
+import type { Locale } from '@i18n/types';
+import { ChevronDown } from '@lucide/astro';
+
+interface Props {
+  currentLocale: Locale;
+  selectLabel: string;
+}
+
+const { currentLocale, selectLabel } = Astro.props;
+
+const localeOrder: Locale[] = ['id', 'ja', 'en'];
+---
+
+<div class="entei-language-selector">
+  <label
+    class="entei-sr-only"
+    for="entei-language-select"
+    data-i18n="language.selectLabel"
+  >
+    {selectLabel}
+  </label>
+  <div class="entei-language-select-wrapper">
+    <select
+      id="entei-language-select"
+      class="entei-language-select"
+      data-entei-language-select
+      autocomplete="off"
+    >
+      {
+        localeOrder.map((locale) => (
+          <option value={locale} selected={locale === currentLocale}>
+            {LOCALE_LABELS[locale]}
+          </option>
+        ))
+      }
+    </select>
+    <ChevronDown
+      class="entei-language-chevron"
+      size={14}
+      aria-hidden="true"
+      focusable="false"
+    />
+  </div>
+</div>
+
+<style>
+  .entei-language-selector {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .entei-language-select-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .entei-language-chevron {
+    position: absolute;
+    right: var(--entei-space-8);
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    color: var(--entei-muted);
+  }
+
+  .entei-language-select {
+    min-height: var(--entei-touch-min);
+    min-width: var(--entei-touch-min);
+    padding: var(--entei-space-8) var(--entei-space-32) var(--entei-space-8)
+      var(--entei-space-12);
+    background-color: var(--entei-surface);
+    color: var(--entei-text);
+    border: 1px solid var(--entei-surface-2);
+    border-radius: var(--entei-radius-md);
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition:
+      border-color var(--entei-duration-fast) var(--entei-ease-productive),
+      background-color var(--entei-duration-fast) var(--entei-ease-productive);
+  }
+
+  .entei-language-select:hover {
+    border-color: var(--entei-accent);
+    background-color: var(--entei-surface-2);
+  }
+
+  .entei-language-select:focus-visible {
+    outline: 3px solid var(--entei-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .entei-language-select option {
+    background-color: var(--entei-surface);
+    color: var(--entei-text);
+    padding: var(--entei-space-8);
+  }
+
+  /* The select's visible label shows the current language name.
+     Option list shows each language in its own name (8.205). */
+</style>

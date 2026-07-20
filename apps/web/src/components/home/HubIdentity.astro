@@ -1,0 +1,95 @@
+---
+/**
+ * Hub Identity — PHASE0.md Section 6.146-150.
+ * - System label: Pixelify Sans, short uppercase-style label.
+ * - h1: Fixed Japanese 「園庭」 in Noto Serif JP, the page's single h1.
+ * - Lead: 1-2 sentence explanation of what Entei helps with.
+ * - Decoration: CSS gradient + grid background, no large stock photo.
+ *
+ * PHASE0.md 11.297: h1 uses clamp() ~2.5rem → ~5.5rem on mobile→desktop.
+ * PHASE0.md 11.298: body text stays ≥1rem on mobile, line-height ~1.6.
+ * PHASE0.md 11.300: text-wrap: balance for headings (progressive enhancement).
+ */
+import type { Dictionary } from '@i18n/types';
+
+interface Props {
+  dictionary: Dictionary;
+}
+
+const { dictionary } = Astro.props;
+---
+
+<section class="entei-hub-identity" aria-labelledby="entei-hub-title">
+  <p class="entei-system-label" data-i18n="hub.systemLabel">
+    {dictionary.hub.systemLabel}
+  </p>
+  <h1 class="entei-hub-title" id="entei-hub-title" lang="ja">園庭</h1>
+  <p class="entei-hub-lead" data-i18n="hub.lead">
+    {dictionary.hub.lead}
+  </p>
+</section>
+
+<style>
+  .entei-hub-identity {
+    position: relative;
+    padding: var(--entei-space-32) 0 var(--entei-space-24);
+    isolation: isolate;
+  }
+
+  /* Background depth — gradient + subtle grid (PHASE0.md 6.150, 13.351) */
+  .entei-hub-identity::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(
+        ellipse 60% 80% at 20% 0%,
+        oklch(57.74% 0.209 273.85deg / 0.12),
+        transparent 60%
+      ),
+      linear-gradient(180deg, transparent 0%, oklch(5% 0.005 270deg / 0.6) 100%);
+    pointer-events: none;
+  }
+
+  .entei-system-label {
+    font-family: var(--entei-font-system);
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--entei-status-locked);
+    margin-bottom: var(--entei-space-16);
+  }
+
+  /* PHASE0.md 11.299: visually uppercase the label via CSS, not by
+     destructively uppercasing the translation data itself. The source
+     strings already use uppercase Latin where intended (e.g. "ENTEI //").
+     Japanese and Indonesian strings keep their natural casing. */
+
+  .entei-hub-title {
+    font-family: var(--entei-font-serif);
+    font-size: clamp(4.5rem, 14vw, 9rem);
+    font-weight: 400;
+    line-height: 1.05;
+    letter-spacing: 0.08em;
+    color: var(--entei-text);
+    margin-bottom: var(--entei-space-24);
+    text-wrap: balance;
+  }
+
+  .entei-hub-lead {
+    font-family: var(--entei-font-body);
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+    max-width: 38ch;
+    text-wrap: pretty;
+  }
+
+  @media (min-width: 48rem) {
+    .entei-hub-identity {
+      padding: var(--entei-space-64) 0 var(--entei-space-48);
+    }
+  }
+</style>

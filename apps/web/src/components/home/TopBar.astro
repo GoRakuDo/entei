@@ -1,0 +1,101 @@
+---
+/**
+ * Top Bar — PHASE0.md Section 6.142-144.
+ * Left: Entei wordmark (live text, also a Home link).
+ * Right: Language Selector (always visible, shows current language).
+ * No large site navigation — Phase 0 has too few destinations.
+ *
+ * Wordmark uses Gen Interface JP Display (font-display). If the webfont
+ * fails to load, the fallback (Gen Interface JP, then serif) keeps it
+ * readable (PHASE0.md 18.490).
+ */
+import HubEmblem from '@components/icons/HubEmblem.astro';
+import LanguageSelector from '@components/LanguageSelector.astro';
+import type { Dictionary, Locale } from '@i18n/types';
+
+interface Props {
+  locale: Locale;
+  dictionary: Dictionary;
+}
+
+const { locale, dictionary } = Astro.props;
+---
+
+<header class="entei-topbar" role="banner">
+  <div class="entei-topbar-inner">
+    <a class="entei-wordmark" href="/">
+      <HubEmblem class="entei-wordmark-emblem" />
+      <span class="entei-wordmark-text">Entei</span>
+    </a>
+    <LanguageSelector
+      currentLocale={locale}
+      selectLabel={dictionary.language.selectLabel}
+    />
+  </div>
+</header>
+
+<style>
+  .entei-topbar {
+    position: sticky;
+    top: 0;
+    z-index: var(--entei-z-topbar);
+    background-color: oklch(5% 0.005 270deg / 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
+  }
+
+  @media (forced-colors: active) {
+    .entei-topbar {
+      background-color: Canvas;
+      border-bottom: 1px solid ButtonText;
+    }
+  }
+
+  .entei-topbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--entei-space-16);
+    min-height: var(--entei-topbar-height);
+    padding: calc(var(--entei-safe-top) + var(--entei-space-8))
+      var(--entei-gutter) var(--entei-space-8);
+    max-width: var(--entei-content-max);
+    margin-inline: auto;
+  }
+
+  /* 320px — selector wraps below wordmark rather than truncating (12.312) */
+  @media (max-width: 360px) {
+    .entei-topbar-inner {
+      flex-wrap: wrap;
+      gap: var(--entei-space-8);
+    }
+  }
+
+  .entei-wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-12);
+    min-height: var(--entei-touch-min);
+    padding: var(--entei-space-8) 0;
+    color: var(--entei-text);
+    font-family: var(--entei-font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+  }
+
+  .entei-wordmark:hover {
+    color: var(--entei-text);
+  }
+
+  .entei-wordmark-emblem {
+    width: 28px;
+    height: 28px;
+  }
+
+  .entei-wordmark-text {
+    line-height: 1;
+  }
+</style>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Entei OG Image — 1200×630 (PHASE0.md 15.393).
+  Language-neutral: uses only the Entei emblem + GoRakuDo palette.
+  No text in the image itself (the page title is shared separately).
+  Pre-deploy TODO: rasterize to PNG/WebP for broader social-platform support.
+  Some platforms (e.g. Twitter, Slack) render SVG OG images inconsistently.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <radialGradient id="entei-og-bg" cx="30%" cy="20%" r="80%">
+      <stop offset="0%" stop-color="oklch(30.96% 0.150 271.29deg)" />
+      <stop offset="50%" stop-color="oklch(17.80% 0.058 275.81deg)" />
+      <stop offset="100%" stop-color="oklch(5% 0.005 270deg)" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#entei-og-bg)" />
+
+  <!-- Subtle hexagonal grid pattern -->
+  <g opacity="0.08" stroke="#ffffff" stroke-width="1" fill="none">
+    <path d="M 100 200 L 150 175 L 200 200 L 200 250 L 150 275 L 100 250 Z" />
+    <path d="M 900 350 L 950 325 L 1000 350 L 1000 400 L 950 425 L 900 400 Z" />
+    <path d="M 1050 150 L 1100 125 L 1150 150 L 1150 200 L 1100 225 L 1050 200 Z" />
+  </g>
+
+  <!-- Centered emblem (scaled up) -->
+  <g transform="translate(540, 215) scale(7)">
+    <path
+      d="M24 2 L42 12.5 L42 35.5 L24 46 L6 35.5 L6 12.5 Z"
+      fill="none"
+      stroke="#7a4ee5"
+      stroke-width="2"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M24 14 C21 19 19 22 19 27 C19 31 21 34 24 34 C27 34 29 31 29 27 C29 22 27 19 24 14 Z"
+      fill="#7a4ee5"
+    />
+    <path
+      d="M24 20 C22.5 23 21.5 25 21.5 28 C21.5 30.5 22.7 32 24 32 C25.3 32 26.5 30.5 26.5 28 C26.5 25 25.5 23 24 20 Z"
+      fill="#0d0d12"
+      opacity="0.4"
+    />
+  </g>
+
+  <!-- Bottom accent bar -->
+  <rect x="0" y="610" width="1200" height="20" fill="#7a4ee5" opacity="0.6" />
+</svg>

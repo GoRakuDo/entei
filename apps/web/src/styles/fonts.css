@@ -1,0 +1,29 @@
+/**
+ * Entei Font Imports
+ * -----------------------------------------------------------------------------
+ * Self-hosted font weights selected for Phase 0 scope.
+ * No remote CDN, no Google Fonts requests (PHASE0.md 16.408-409, 11.302).
+ *
+ * Font roles (snapshot from GoRakuDo src/styles/fonts.css and global.css:244-273):
+ *   Body / UI      → Gen Interface JP (400 regular, 600 semibold)
+ *   Display        → Gen Interface JP Display (700 bold)
+ *   System label   → Pixelify Sans (400, 700)
+ *   Serif accent   → Noto Serif JP (400, fixed 「園庭」 heading)
+ *
+ * GoRakuDo's global.css:1 imports an external Fluent Emoji webfont.
+ * Entei does NOT copy that import (PHASE0.md 16.409).
+ * ---------------------------------------------------------------------------*/
+
+/* Gen Interface JP — body / UI text */
+@import 'gen-interface-jp/400.css';
+@import 'gen-interface-jp/600.css';
+
+/* Gen Interface JP Display — headings, wordmark, destination titles */
+@import 'gen-interface-jp/display-700.css';
+
+/* Pixelify Sans — short system labels, status, phase notation */
+@import '@fontsource/pixelify-sans/400.css';
+@import '@fontsource/pixelify-sans/700.css';
+
+/* Noto Serif JP — fixed Japanese Hub heading */
+@import '@fontsource/noto-serif-jp/400.css';

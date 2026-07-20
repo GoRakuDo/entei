@@ -1,0 +1,139 @@
+/**
+ * Entei Design Tokens
+ * -----------------------------------------------------------------------------
+ * Snapshot of GoRakuDo's implemented palette and font roles.
+ * Source: D:\GoRakuDo\src\styles\global.css (lines 15-47, 244-273)
+ * Snapshot date: 2026-07-19
+ *
+ * These 9 color tokens were cross-checked against GoRakuDo's global.css.
+ * Numeric value match is confirmed; on-screen contrast must be measured
+ * after implementation (PHASE0.md Section 10).
+ *
+ * Entei does NOT runtime-import GoRakuDo CSS. This file is the independent
+ * source of truth for Entei's build.
+ * ---------------------------------------------------------------------------*/
+
+:root {
+  /* ===== COLOR TOKENS (snapshot from GoRakuDo global.css) ===== */
+
+  /* Strong text and prominent headings — global.css:15 */
+  --entei-white-base: oklch(95% 0.005 285deg);
+
+  /* Page background — global.css:27. NOT pure black (PHASE0.md 10.272). */
+  --entei-black-950: oklch(5% 0.005 270deg);
+
+  /* Top Bar, normal panels — global.css:29 (Discord Midnight Navy) */
+  --entei-surface: oklch(17.8% 0.058 275.81deg);
+
+  /* Player tile, elevated surfaces — global.css:30 (Discord Indigo Surface) */
+  --entei-surface-2: oklch(30.96% 0.15 271.29deg);
+
+  /* Primary accent, focus ring, active border — global.css:18 (Discord Blurple) */
+  --entei-purple-500: oklch(57.74% 0.209 273.85deg);
+
+  /* Hover state, lighter accent — global.css:17 */
+  --entei-purple-400: oklch(65% 0.22 273.85deg);
+
+  /* System label, locked status accent — global.css:22 */
+  --entei-gold-base: oklch(85% 0.15 85deg);
+
+  /* Secondary text — global.css:37 (Discord Muted Lavender) */
+  --entei-muted: oklch(85.99% 0.071 282.16deg);
+
+  /* Footer, supplementary text — global.css:41.
+     Small-text contrast must be re-verified at implementation (PHASE0.md 10.268). */
+  --entei-text-global-muted: oklch(70% 0.01 270deg);
+
+  /* ===== DERIVED SEMANTIC ROLES ===== */
+  /* These do not introduce new color values — they map the 9 snapshot tokens
+     to semantic roles used by Entei components. */
+
+  --entei-bg: var(--entei-black-950);
+  --entei-text: var(--entei-white-base);
+  --entei-text-secondary: var(--entei-muted);
+  --entei-text-muted: var(--entei-text-global-muted);
+  --entei-accent: var(--entei-purple-500);
+  --entei-accent-hover: var(--entei-purple-400);
+  --entei-status-locked: var(--entei-gold-base);
+
+  /* Focus ring — derived from --entei-purple-500 with alpha for AA 3:1 boundary.
+     Solid purple-500 is also acceptable for focus-visible. */
+  --entei-focus-ring: var(--entei-purple-500);
+
+  /* ===== FONT ROLES (snapshot from GoRakuDo global.css:244-273) ===== */
+
+  /* Body / UI — Gen Interface JP (400, 600 weights) */
+  --entei-font-body:
+    'Gen Interface JP', system-ui, -apple-system, 'Segoe UI', roboto, sans-serif;
+
+  /* Display — Gen Interface JP Display (700 weight). Headings and wordmark only. */
+  --entei-font-display: 'Gen Interface JP Display', 'Gen Interface JP', serif;
+
+  /* System / Game accent — Pixelify Sans (400, 700). Short labels only. */
+  --entei-font-system: 'Pixelify Sans', 'Gen Interface JP', monospace;
+
+  /* Serif accent — fixed Japanese 「園庭」 heading only. */
+  --entei-font-serif: 'Noto Serif JP', 'Gen Interface JP', serif;
+
+  /* ===== SPACING (8px grid, PHASE0.md Section 4 — Design System Principles) ===== */
+  --entei-space-2: 0.125rem; /* 2px */
+  --entei-space-4: 0.25rem; /* 4px */
+  --entei-space-8: 0.5rem; /* 8px */
+  --entei-space-12: 0.75rem; /* 12px */
+  --entei-space-16: 1rem; /* 16px */
+  --entei-space-24: 1.5rem; /* 24px */
+  --entei-space-32: 2rem; /* 32px */
+  --entei-space-48: 3rem; /* 48px */
+  --entei-space-64: 4rem; /* 64px */
+  --entei-space-96: 6rem; /* 96px */
+  --entei-space-128: 8rem; /* 128px */
+
+  /* Page gutter — PHASE0.md 12.314 */
+  --entei-gutter: clamp(1rem, 4vw, 1.5rem);
+
+  /* ===== TOUCH TARGET (PHASE0.md 12.313, global.css:299) ===== */
+  --entei-touch-min: 44px;
+
+  /* ===== RADIUS ===== */
+  --entei-radius-sm: 4px;
+  --entei-radius-md: 8px;
+  --entei-radius-lg: 12px;
+  --entei-radius-card: 20px;
+
+  /* ===== MOTION (PHASE0.md Section 13) ===== */
+  --entei-ease-productive: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --entei-ease-expressive: cubic-bezier(0.4, 0.14, 0.3, 1);
+
+  --entei-duration-fast: 150ms; /* hover/press feedback (13.347) */
+  --entei-duration-normal: 200ms; /* tile feedback upper bound */
+  --entei-duration-entrance: 400ms; /* entrance, within 300-500ms range (13.346) */
+  --entei-entrance-stagger: 80ms; /* max element delay (13.346) */
+
+  /* ===== LAYOUT ===== */
+  --entei-content-max: 72rem; /* desktop content ceiling (12.333) */
+  --entei-topbar-height: 64px;
+
+  /* ===== SAFE AREA (PHASE0.md 12.316) ===== */
+  --entei-safe-top: env(safe-area-inset-top, 0px);
+  --entei-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --entei-safe-left: env(safe-area-inset-left, 0px);
+  --entei-safe-right: env(safe-area-inset-right, 0px);
+
+  /* ===== Z-INDEX ===== */
+  --entei-z-skip-link: 1000;
+  --entei-z-topbar: 100;
+  --entei-z-content: 1;
+
+  /* ===== THEME COLOR (browser chrome, matches page bg) ===== */
+  --entei-theme-color: var(--entei-black-950);
+}
+
+/* In Windows High Contrast mode, allow the OS palette to override
+   our color tokens (PHASE0.md 14.377). The unconditional
+   forced-color-adjust: none was removed — it would have suppressed
+   the OS palette unconditionally, which is not the intent. */
+@media (forced-colors: active) {
+  :root {
+    forced-color-adjust: auto;
+  }
+}

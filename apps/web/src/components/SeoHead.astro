@@ -1,0 +1,97 @@
+---
+/**
+ * SeoHead — minimal SEO metadata for Entei Phase 0.
+ * PHASE0.md Section 15.
+ * - site: https://entei.gorakudo.org (canonical)
+ * - Initial HTML title/description: Indonesian
+ * - Selector-switched title/description updated by locale-switcher.ts
+ * - canonical always points to https://entei.gorakudo.org/
+ * - No hreflang (single URL, no locale routing)
+ * - /player/ and /404: noindex,follow
+ * - OG image: language-neutral SVG (pre-deploy TODO: raster version)
+ * - Structured data: WebSite only (not SoftwareApplication — Player not yet real)
+ */
+import { getMetadata } from '@i18n/index';
+import type { Locale } from '@i18n/types';
+
+interface Props {
+  locale: Locale;
+  /** Path relative to site root. Defaults to '/' (Home). */
+  path?: string;
+  /** Set true for /player/ and /404. They are noindex,follow. */
+  noindex?: boolean;
+  /** OG image path. Defaults to the language-neutral emblem. */
+  ogImage?: string;
+}
+
+const {
+  locale,
+  path = '/',
+  noindex = false,
+  ogImage = '/og/og-image.svg',
+} = Astro.props;
+
+const SITE = 'https://entei.gorakudo.org';
+const canonical = `${SITE}${path === '/' ? '/' : path}`;
+const metadata = getMetadata(locale);
+const ogImageUrl = `${SITE}${ogImage}`;
+---
+
+{
+  /* Canonical — always https://entei.gorakudo.org/ for Home (PHASE0.md 15.386) */
+}
+<link rel="canonical" href={canonical} />
+
+{/* Robots — Home is indexed; /player/ and /404 are noindex,follow (15.388) */}
+{
+  noindex ? (
+    <meta name="robots" content="noindex, follow" />
+  ) : (
+    <meta name="robots" content="index, follow" />
+  )
+}
+
+{/* Title and description — Indonesian by default, updated by JS (15.385) */}
+<title>{metadata.title}</title>
+<meta name="description" content={metadata.description} />
+
+{/* Open Graph — PHASE0.md 15.392-394 */}
+<meta property="og:type" content="website" />
+<meta property="og:url" content={canonical} />
+<meta property="og:title" content={metadata.title} />
+<meta property="og:description" content={metadata.description} />
+<meta property="og:image" content={ogImageUrl} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:site_name" content="Entei" />
+<meta
+  property="og:locale"
+  content={locale === 'ja' ? 'ja_JP' : locale === 'en' ? 'en_US' : 'id_ID'}
+/>
+
+{/* Twitter Card */}
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={metadata.title} />
+<meta name="twitter:description" content={metadata.description} />
+<meta name="twitter:image" content={ogImageUrl} />
+
+{/* Favicon — SVG emblem (PHASE0.md 18.475) */}
+<link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
+<link rel="mask-icon" href="/brand/favicon.svg" color="#7a4ee5" />
+
+{/* Theme color — matches page background (15.396) */}
+<meta name="theme-color" content="#0d0d12" />
+
+{/* Structured data — WebSite only (15.391). No SoftwareApplication claim. */}
+<script
+  type="application/ld+json"
+  is:inline
+  set:html={JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Entei',
+    url: SITE,
+    description: metadata.description,
+    inLanguage: locale,
+  })}
+/>

@@ -1,0 +1,30 @@
+---
+/**
+ * Reader Icon — Lucide BookMarked icon wrapper.
+ * PHASE0.md 7.183-186:
+ * - Coming Soon must be visible in text, not only by icon or color.
+ * - Lock icon is supplementary, not the sole indicator.
+ * - Cursor stays default (not pointer), no hover lift, no arrow.
+ *
+ * BookMarked communicates "reading room" meaning.
+ * Uses @lucide/astro BookMarked for tree-shaken SVG.
+ * `aria-hidden="true"` because the Reader title and
+ * "Coming Soon" status text carry the meaning.
+ */
+import { BookMarked } from '@lucide/astro';
+
+interface Props {
+  class?: string;
+}
+
+const { class: className = 'entei-reader-icon' } = Astro.props;
+---
+
+<BookMarked class={className} size={32} aria-hidden="true" focusable="false" />
+
+<style>
+  .entei-reader-icon {
+    color: var(--entei-status-locked);
+    flex-shrink: 0;
+  }
+</style>

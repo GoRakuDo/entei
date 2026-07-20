@@ -1,0 +1,26 @@
+---
+/**
+ * Hub Emblem — Lucide Flame icon wrapper.
+ * PHASE0.md 18.473: "1色でも成立するsimpleな専用図形を作る"
+ * Represents Entei's "game base" identity: flame mark (Entei = 炎帝 "flame emperor").
+ * Not emoji, not stock imagery. Uses @lucide/astro Flame for tree-shaken SVG.
+ *
+ * `aria-hidden="true"` because the wordmark (live text) carries the name.
+ */
+import { Flame } from '@lucide/astro';
+
+interface Props {
+  class?: string;
+}
+
+const { class: className = 'entei-emblem' } = Astro.props;
+---
+
+<Flame class={className} size={28} aria-hidden="true" focusable="false" />
+
+<style>
+  .entei-emblem {
+    color: var(--entei-accent);
+    flex-shrink: 0;
+  }
+</style>

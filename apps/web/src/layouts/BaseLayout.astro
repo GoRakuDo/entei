@@ -1,0 +1,152 @@
+---
+/**
+ * BaseLayout — PHASE0.md Sections 6, 8, 10-14.
+ *
+ * - Initial HTML: `lang="id"` (Indonesian), per PHASE0.md 5.129.
+ * - Inline <head> script reads localStorage preference and sets
+ *   `document.documentElement.lang` + `data-entei-locale` BEFORE body paint
+ *   to prevent FOUC (PHASE0.md 8.223, 20.541). Adds `entei-hydrating`
+ *   class ONLY when saved locale is non-id, so body is hidden until the
+ *   module script finishes updating copy.
+ * - Skip link is first in DOM (PHASE0.md 6.139, 14.365).
+ * - Landmarks: header / main / footer (PHASE0.md 14.363).
+ * - Security: no external scripts, no remote fonts, no tracking (16.403-411).
+ *
+ * IMPORTANT: this layout is used by both Home and /player/. The 404 page
+ * uses a simpler inline layout because it is always Indonesian + noindex
+ * and does not need the locale switcher.
+ */
+import '@styles/global.css';
+import SeoHead from '@components/SeoHead.astro';
+import TopBar from '@components/home/TopBar.astro';
+import SiteFooter from '@components/home/SiteFooter.astro';
+import { getDictionary } from '@i18n/index';
+import type { Dictionary, Locale } from '@i18n/types';
+
+interface Props {
+  /** Initial locale for static HTML. Always `id` for Home and /player/ (PHASE0.md 5.129). */
+  locale?: Locale;
+  /** Path for canonical URL. Defaults to '/'. */
+  path?: string;
+  /** Set true for /player/ (noindex). */
+  noindex?: boolean;
+  /** Whether to render the full Top Bar + Footer. Default true. */
+  showChrome?: boolean;
+}
+
+const {
+  locale = 'id',
+  path = '/',
+  noindex = false,
+  showChrome = true,
+} = Astro.props;
+
+const dictionary: Dictionary = getDictionary(locale);
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <SeoHead locale={locale} path={path} noindex={noindex} />
+
+    {
+      /*
+       * FOUC prevention inline script — PHASE0.md 8.223, 20.541.
+       * Runs synchronously in <head> before body paint.
+       * - Reads localStorage `entei.preferences.v1`.
+       * - Parses JSON safely (all exceptions caught).
+       * - Validates schemaVersion === 1 and locale ∈ {id, ja, en}.
+       * - If valid and locale ≠ 'id': sets <html lang> + data-entei-locale,
+       *   adds .entei-hydrating class (body hidden via CSS).
+       * - Safety timeout: reveal body after 2s if module script fails.
+       * - If localStorage unavailable or preference absent: no-op (Indonesian).
+       */
+    }
+    <script is:inline>
+      (function () {
+        try {
+          var raw = localStorage.getItem('entei.preferences.v1');
+          if (!raw) return;
+          var pref = JSON.parse(raw);
+          if (
+            pref &&
+            pref.schemaVersion === 1 &&
+            (pref.locale === 'ja' || pref.locale === 'en')
+          ) {
+            var el = document.documentElement;
+            el.lang = pref.locale;
+            el.dataset.enteiLocale = pref.locale;
+            el.classList.add('entei-hydrating');
+            setTimeout(function () {
+              el.classList.remove('entei-hydrating');
+            }, 2000);
+          }
+        } catch (e) {
+          /* localStorage unavailable or JSON corrupted — stay Indonesian */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="entei-skip-link" href="#entei-main" data-i18n="nav.skipToMain">
+      {dictionary.nav.skipToMain}
+    </a>
+    {showChrome && <TopBar locale={locale} dictionary={dictionary} />}
+    <main id="entei-main" class="entei-main" tabindex="-1">
+      <div class="entei-main-inner">
+        <slot />
+      </div>
+    </main>
+    {showChrome && <SiteFooter dictionary={dictionary} />}
+
+    {
+      /* Module script — deferred, runs after DOM parse.
+        Applies saved locale, wires up Language Selector, reveals page. */
+    }
+    <script>
+      import '../scripts/locale-switcher.ts';
+    </script>
+  </body>
+</html>
+
+<style>
+  .entei-main {
+    flex: 1 0 auto;
+    display: flex;
+    outline: none;
+  }
+
+  .entei-main-inner {
+    padding: var(--entei-space-32) var(--entei-gutter) var(--entei-space-64);
+    max-width: var(--entei-content-max);
+    margin-inline: auto;
+    width: 100%;
+  }
+
+  /* Desktop: asymmetric grid — Identity 5/12, Destinations 7/12 (12.332) */
+  @media (min-width: 1024px) {
+    .entei-main-inner {
+      display: grid;
+      grid-template-columns: 5fr 7fr;
+      grid-template-rows: auto 1fr;
+      flex: 1;
+      gap: var(--entei-space-64);
+      align-items: start;
+    }
+
+    :global(.entei-home-local-note) {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      align-self: end;
+      justify-self: center;
+      width: min(100%, 36rem);
+    }
+  }
+
+  /* Focus target for skip link — visible focus indicator */
+  #entei-main:focus-visible {
+    outline: none;
+  }
+</style>

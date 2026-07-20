@@ -1,0 +1,114 @@
+---
+/**
+ * Player Ready-State Page — `/player/`
+ * PHASE0.md Sections 5, 7.
+ *
+ * - Sole Player preview route.
+ * - noindex (PHASE0.md 5.119, 15.388).
+ * - Shares the exact same locale behaviour as Home: initial HTML is Indonesian,
+ *   Language Selector can switch to saved locale.
+ * - Small page: explains Player arrives in Phase 1, with a Home link.
+ * - No fake progress, no completion date, no waitlist (PHASE0.md 7.176).
+ * - No autoplay media, no Player UI shell yet (PHASE0.md 2.49).
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import { getDictionary } from '@i18n/index';
+
+const dictionary = getDictionary('id');
+---
+
+<BaseLayout locale="id" path="/player/" noindex={true}>
+  <section
+    class="entei-player-preview"
+    aria-labelledby="entei-player-preview-title"
+  >
+    <p class="entei-system-label" data-i18n="player.status">
+      {dictionary.player.status}
+    </p>
+    <h1
+      class="entei-player-preview-title"
+      id="entei-player-preview-title"
+      data-i18n="playerPage.title"
+    >
+      {dictionary.playerPage.title}
+    </h1>
+    <p class="entei-player-preview-lead" data-i18n="playerPage.lead">
+      {dictionary.playerPage.lead}
+    </p>
+    <a
+      class="entei-player-preview-back"
+      href="/"
+      data-i18n="playerPage.backToHome"
+    >
+      {dictionary.playerPage.backToHome}
+    </a>
+  </section>
+</BaseLayout>
+
+<style>
+  .entei-player-preview {
+    padding: var(--entei-space-64) 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-24);
+    max-width: 48rem;
+  }
+
+  .entei-system-label {
+    font-family: var(--entei-font-system);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--entei-status-locked);
+  }
+
+  .entei-player-preview-title {
+    font-family: var(--entei-font-display);
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--entei-text);
+    text-wrap: balance;
+  }
+
+  .entei-player-preview-lead {
+    font-family: var(--entei-font-body);
+    font-size: 1.125rem;
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+    max-width: 48ch;
+    text-wrap: pretty;
+  }
+
+  .entei-player-preview-back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-8);
+    align-self: flex-start;
+    min-height: var(--entei-touch-min);
+    padding: var(--entei-space-12) var(--entei-space-24);
+    background-color: var(--entei-surface-2);
+    color: var(--entei-text);
+    border: 1px solid var(--entei-accent);
+    border-radius: var(--entei-radius-md);
+    font-family: var(--entei-font-body);
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background-color var(--entei-duration-fast) var(--entei-ease-productive),
+      border-color var(--entei-duration-fast) var(--entei-ease-productive);
+  }
+
+  .entei-player-preview-back:hover {
+    color: var(--entei-text);
+    background-color: var(--entei-accent);
+    border-color: var(--entei-accent);
+  }
+
+  .entei-player-preview-back:focus-visible {
+    outline: 3px solid var(--entei-focus-ring);
+    outline-offset: 2px;
+  }
+</style>

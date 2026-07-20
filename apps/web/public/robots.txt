@@ -1,0 +1,9 @@
+# Entei robots.txt — PHASE0.md Section 15
+# Canonical: https://entei.gorakudo.org/
+
+User-agent: *
+Allow: /
+Disallow: /player/
+
+# Sitemap: only Home is indexed
+Sitemap: https://entei.gorakudo.org/sitemap-index.xml

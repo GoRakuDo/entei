@@ -1,0 +1,26 @@
+---
+/**
+ * Player Icon — Lucide AudioLines icon wrapper.
+ * PHASE0.md 18.474: "再生triangleだけでなく音声も感じる形にする"
+ * AudioLines communicates both video playback and audio learning.
+ * Uses @lucide/astro AudioLines for tree-shaken SVG.
+ *
+ * `aria-hidden="true"` because the Player title (live text) carries the name.
+ */
+import { AudioLines } from '@lucide/astro';
+
+interface Props {
+  class?: string;
+}
+
+const { class: className = 'entei-player-icon' } = Astro.props;
+---
+
+<AudioLines class={className} size={32} aria-hidden="true" focusable="false" />
+
+<style>
+  .entei-player-icon {
+    color: var(--entei-text);
+    flex-shrink: 0;
+  }
+</style>

@@ -1,0 +1,25 @@
+{
+  "name": "entei",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Entei — game-hub style home for the GoRakuDo local-first Japanese learning toolkit. Phase 0 home foundation.",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=web",
+    "build": "npm run build --workspace=web",
+    "preview": "npm run preview --workspace=web",
+    "check": "npm run check --workspace=web",
+    "test": "npm run test --workspace=web",
+    "format": "prettier --write \"apps/web/**/*.{ts,astro,css,md}\"",
+    "format:check": "prettier --check \"apps/web/**/*.{ts,astro,css,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.9.5",
+    "prettier-plugin-astro": "^0.14.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,81 @@
+/**
+ * Entei i18n — Type Definitions
+ * -----------------------------------------------------------------------------
+ * PHASE0.md 8.192: locale is fixed to `id | ja | en`. The same type is used by
+ * `<html lang>`, translation dictionaries, document metadata, and localStorage
+ * validation. URL is never used as a locale input.
+ * ---------------------------------------------------------------------------*/
+
+/** Allowed locale values. Initial / fallback locale is `id` (Bahasa Indonesia). */
+export type Locale = 'id' | 'ja' | 'en';
+
+/** Language Selector option labels, shown in each language's own name (8.205). */
+export const LOCALE_LABELS: Record<Locale, string> = {
+  id: 'Bahasa Indonesia',
+  ja: '日本語',
+  en: 'English',
+};
+
+/** Initial / fallback locale when preference is absent, invalid, or corrupted. */
+export const DEFAULT_LOCALE: Locale = 'id';
+
+/** localStorage key with schema version suffix (PHASE0.md 8.219). */
+export const PREFERENCES_KEY = 'entei.preferences.v1';
+
+/** Current Preference schema version. Bump when the shape changes. */
+export const PREFERENCES_SCHEMA_VERSION = 1;
+
+/** Shape of the persisted Preference JSON (PHASE0.md 8.212-217). */
+export interface LocalePreference {
+  schemaVersion: number;
+  locale: Locale;
+}
+
+/**
+ * Metadata shown in `<title>` and `<meta name="description">` per locale.
+ * Updated dynamically by the locale switcher when the user changes language.
+ */
+export interface DocumentMetadata {
+  title: string;
+  description: string;
+}
+
+/** Full dictionary shape. All three locales must have the same keys. */
+export interface Dictionary {
+  hub: {
+    systemLabel: string;
+    lead: string;
+  };
+  player: {
+    title: string;
+    description: string;
+    cta: string;
+    status: string;
+  };
+  reader: {
+    title: string;
+    description: string;
+    status: string;
+  };
+  privacy: {
+    local: string;
+  };
+  nav: {
+    backToGorakudo: string;
+    backToHome: string;
+    skipToMain: string;
+  };
+  language: {
+    selectLabel: string;
+  };
+  playerPage: {
+    title: string;
+    lead: string;
+    backToHome: string;
+  };
+  notFound: {
+    title: string;
+    lead: string;
+    backToHome: string;
+  };
+}

@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.npm/
+
+# Astro build output
+dist/
+.astro/
+
+# Test artifacts
+coverage/
+test-results/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Temp
+.tmp/
+tmp/
+
+# Local code analysis
+.codesight/

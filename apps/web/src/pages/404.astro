@@ -1,0 +1,118 @@
+---
+/**
+ * 404 Page — PHASE0.md Section 5.
+ *
+ * - Indonesian only (PHASE0.md 5.120).
+ * - noindex (PHASE0.md 5.120).
+ * - Simple inline layout: no locale switcher, no Top Bar.
+ * - JS-disabled mode: usable static Indonesian page with a Home link.
+ *
+ * Astro's static output emits 404.html at the site root, which GitHub Pages
+ * automatically serves for unknown URLs.
+ */
+import '@styles/global.css';
+import { getDictionary } from '@i18n/index';
+import HubEmblem from '@components/icons/HubEmblem.astro';
+
+const dictionary = getDictionary('id');
+---
+
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{dictionary.notFound.title}</title>
+    <meta name="description" content={dictionary.notFound.lead} />
+    <meta name="robots" content="noindex, follow" />
+    <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
+    <meta name="theme-color" content="#0d0d12" />
+  </head>
+  <body>
+    <main class="entei-404" role="main">
+      <a class="entei-404-wordmark" href="/">
+        <HubEmblem class="entei-404-emblem" />
+        <span>Entei</span>
+      </a>
+      <h1 class="entei-404-title">{dictionary.notFound.title}</h1>
+      <p class="entei-404-lead">{dictionary.notFound.lead}</p>
+      <a class="entei-404-back" href="/">{dictionary.notFound.backToHome}</a>
+    </main>
+  </body>
+</html>
+
+<style>
+  .entei-404 {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--entei-space-24);
+    min-height: 100dvh;
+    padding: var(--entei-space-64) var(--entei-gutter);
+    max-width: 48rem;
+    margin-inline: auto;
+  }
+
+  .entei-404-wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-12);
+    min-height: var(--entei-touch-min);
+    color: var(--entei-text);
+    font-family: var(--entei-font-display);
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .entei-404-emblem {
+    width: 32px;
+    height: 32px;
+  }
+
+  .entei-404-title {
+    font-family: var(--entei-font-display);
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--entei-text);
+    text-wrap: balance;
+  }
+
+  .entei-404-lead {
+    font-family: var(--entei-font-body);
+    font-size: 1.125rem;
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+    max-width: 48ch;
+    text-wrap: pretty;
+  }
+
+  .entei-404-back {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--entei-touch-min);
+    padding: var(--entei-space-12) var(--entei-space-24);
+    background-color: var(--entei-surface-2);
+    color: var(--entei-text);
+    border: 1px solid var(--entei-accent);
+    border-radius: var(--entei-radius-md);
+    font-family: var(--entei-font-body);
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background-color var(--entei-duration-fast) var(--entei-ease-productive),
+      border-color var(--entei-duration-fast) var(--entei-ease-productive);
+  }
+
+  .entei-404-back:hover {
+    color: var(--entei-text);
+    background-color: var(--entei-accent);
+  }
+
+  .entei-404-back:focus-visible {
+    outline: 3px solid var(--entei-focus-ring);
+    outline-offset: 2px;
+  }
+</style>
