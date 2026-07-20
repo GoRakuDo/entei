@@ -4,7 +4,7 @@
 
 | 項目 | 内容 |
 | --- | --- |
-| 文書状態 | Implementation Approved — Phase 0 code実装済み、Yosia code review待ち |
+| 文書状態 | Implementation Approved — Phase 0 code実装済み、runtime colors normalized to OKLCH、Yosia code review待ち |
 | 対象URL | `https://entei.gorakudo.org` |
 | 対象Phase | Phase 0 — ホームページと基盤のみ |
 | 初期表示言語 | Bahasa Indonesia |
@@ -681,12 +681,12 @@ Line番号は2026-07-19時点のsnapshot。参照元が更新された時は、�
 
 ## 25. Implementation gateとlog
 
-**現在のgate：`IMPLEMENTATION APPROVED`**
+**現在のgate：`IMPLEMENTATION COMPLETE`**
 
 - 許可済み：`Entei/docs/PHASE0.md`の作成・レビュー対応 + Phase 0 application code実装。code-reviewer reviewは完了し、最終判定は`APPROVE`。
 - 実施済み：Yosia承認済みの初回source commit / push（`8f54861`）。
 - 未許可：追加のgit commit / push、PR作成、DNS設定、deploy本番。
-- 次の状態：Definition of Doneの手動Chromium QAを完了して`IMPLEMENTATION COMPLETE`へ変更する。その後、Yosiaがpublishを明示承認し、本番deploy + smoke testを終えた時に`PHASE 0 COMPLETE`へ変更する。
+- 次の状態：Yosiaがpublishを明示承認し、本番deploy + smoke testを終えた時に`PHASE 0 COMPLETE`へ変更する。
 
 Implementation Logには、意図や予定ではなく実際に完了したことだけを書く。Commandは全文dumpではなく、実行command・終了code・重要なsummary・artifact pathを残す。
 
@@ -710,6 +710,10 @@ Implementation Logには、意図や予定ではなく実際に完了したこ�
 | 2026-07-20 | 0.4 | DestinationDock UI correction: tall vertical cards → compact horizontal row layout. CSS Grid row interior `[Icon] [Text column] [Arrow slot]` replaces column-stacked content. Reduced padding (`space-16/space-24` from `space-24/space-32`). Removed `.entei-destination-head` wrapper; icon is a direct grid child. Reader card uses `.entei-destination-content` div with matching grid for equal outer geometry. EPUB non-interactive constraints preserved: no `<a>`/`<button>`, `aria-disabled="true"`, `cursor: default` on all children, no hover lift, "Coming Soon" text visible. Hover lift moved from article to link element to avoid lifting the inert EPUB card. | `npm run format:check` → exit 0。`npm run test` → exit 0（57 tests / 3 files）。`npm run check` → exit 0（0 errors, 0 warnings, 0 hints, 24 files）。`npm run build` → exit 0（3 pages built in 6.78s, sitemap-index.xml created）。 | 未実施（Yosia別途review）。手動Chromium QAは未実施 | なし |
 | 2026-07-20 | 0.4 | Equal-height fix: added `grid-auto-rows: 1fr` to `.entei-destinations` and `height: 100%` to `.entei-destination`, `.entei-destination-link`, `.entei-destination-content`. Previous row heights were unequal (Player ~164px, EPUB ~116px) because grid children did not stretch to fill the `1fr` row. The `1fr` row height is now enforced, and `height: 100%` on each level propagates it to the visible background/border containers. | `npm run format:check` → exit 0（All matched files use Prettier code style）。`npm run test` → exit 0（57 tests / 3 files）。`npm run check` → exit 0（0 errors, 0 warnings, 0 hints, 24 files）。`npm run build` → exit 0（3 pages built in 5.57s, sitemap-index.xml created）。 | 未実施（Yosia別途review）。手動Chromium QA（row height一致確認）は未実施 | なし |
 
+| 2026-07-20 | 0.6 | Yosia提供の`E:\Libraries\Documents\logo_black.svg`を正式brand assetとして`public/brand/favicon.svg`と`public/brand/emblem.svg`へ反映。Top BarのHubEmblemもLucide Flameからbrand emblemへ置換。各pathの明示black fillがroot fillを上書きするため、両SVG内へ`path { fill: #f5f5f7 !important; }`を追加し、dark UIとbrowser chromeで明るく表示する。`viewBox="0 0 2048 2048"`も追加。Player / Reader / Arrow / Select chevronのLucide iconは維持し、OG WebP/PNGはYosia提供待ちのまま。 | source fileの存在とbrand asset directoryを確認後、2ファイルへ同一sourceをコピー。`npm run format:check` → exit 0。`npm run test` → exit 0（57 tests / 3 files）。`npm run check` → exit 0（0 errors / warnings / hints、24 files）。`npm run build` → exit 0（3 pages built、sitemap生成）。 | code-reviewer APPROVE。dark/light browser chrome上のfavicon視認性は手動QAで確認。 | 未commit |
+| 2026-07-20 | 0.7 | Color-format normalization: all shipped runtime color values normalized to OKLCH. Changes: (1) `public/og/og-image.svg` — converted `#ffffff`→`oklch(95% 0.005 285deg)`, `#7a4ee5`→`oklch(57.74% 0.209 273.85deg)`, `#0d0d12`→`oklch(5% 0.005 270deg)`. (2) `public/brand/favicon.svg` + `public/brand/emblem.svg` — converted internal style `#f5f5f7`→`oklch(95% 0.005 285deg) !important`, converted all path `fill="#000000"`→`fill="oklch(5% 0.005 270deg)"` (8 path attributes across 2 files). (3) `src/components/SeoHead.astro` — `theme-color` `#0d0d12`→`oklch(5% 0.005 270deg)`, mask-icon `color="#7a4ee5"`→`oklch(57.74% 0.209 273.85deg)`. (4) `src/pages/404.astro` — `theme-color` `#0d0d12`→`oklch(5% 0.005 270deg)`. Post-edit grep confirmed zero hex/rgb/rgba/hsl/hsla color values in shipped `apps/web/src` and `apps/web/public` (excluding non-color false positives like `white-space`, CSS system colors, `transparent`, URLs, hashes). | `grep "#[0-9a-fA-F]{3,8}" -g *.astro -g *.css -g *.svg -g *.ts -g *.js -g *.html apps/web/src apps/web/public` → no output (zero matches). `grep "rgba?\(\|hsla?\("` same scope → no output. `npm run format:check` → exit 0（Prettier reformatted SeoHead.astro）. `npm run test` → exit 0（57 tests passed, 3 test files）. `npm run check` → exit 0（0 errors, 0 warnings, 0 hints, 24 files）. `npm run build` → exit 0（3 pages built in 7.53s, sitemap-index.xml created）。Manual visual QA (OKLCH rendering in Chromium dark/light chrome, OG image color accuracy, favicon visibility) remains pending。 | code-reviewer APPROVE。手動Chromium QAは未実施 | なし |
+| 2026-07-20 | 0.8 | Yosia手動Chromium QA完了。操作・accessibility、Homeのresponsive visual、Header brand logo / faviconを確認済み。 | Yosia確認：すべてOK。 | Yosia確認済み。コード変更なし。 | 未commit |
+
 今後の追記template：
 
 ```md
@@ -730,10 +734,10 @@ Testをまだ実行していない時は`未実施`と書き、成功したよ�
 
 特に確認してほしい5点：
 
-- [ ] Player tileはPhase 0でも押せて、準備中ページへ進む形でよいか。
+- [x] Player tileはPhase 0でも押せて、準備中ページへ進む形でよい。
 - [x] Home URLは`/`だけにし、保存localeも同じ画面内で復元する。
-- [ ] Font名は`Noto Serif JP`の意味で合っているか。
-- [ ] Section 9のBahasa Indonesia / 日本語 / English copyは自然か。
-- [ ] Game hubを専用SVG emblem + CSS背景から始めてよいか。
+- [x] Font名は`Noto Serif JP`でよい。
+- [ ] Section 9のBahasa Indonesia / 日本語 / English copyは、公開前に改善する。
+- [x] Game hubは、Yosia提供のbrand SVGとCSS背景で開始する。
 
-修正したい箇所は本文を直接書き換えても、Section 23のdefault案へcommentを付けてもよい。内容が固まったあと、Yosiaから実装開始のタイミングを受け取ってUnit 0.1へ進む。
+copy以外のPhase 0実装・手動QAは完了。公開前にcopyとOG WebP/PNGを確定し、Yosiaがpublishを承認した後にdeployへ進む。
