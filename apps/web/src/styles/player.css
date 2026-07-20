@@ -1,0 +1,802 @@
+/**
+ * Entei Player — Tailwind CSS + Component Styles
+ * ---------------------------------------------------------------------------
+ * Scoped to Player components only. Home uses its own global.css tokens.
+ * Tailwind v4 uses @import "tailwindcss" instead of @tailwind directives.
+ * --------------------------------------------------------------------------- */
+
+@import 'tailwindcss';
+
+/*
+ * Map shadcn theme variables to Entei OKLCH design tokens.
+ * All colors use existing token values — no hex, rgb, hsl, or raw names.
+ */
+@theme {
+  --color-background: var(--entei-bg);
+  --color-foreground: var(--entei-text);
+  --color-muted: var(--entei-text-secondary);
+  --color-muted-foreground: var(--entei-text-muted);
+  --color-accent: var(--entei-accent);
+  --color-accent-hover: var(--entei-accent-hover);
+  --color-surface: var(--entei-surface);
+  --color-surface-2: var(--entei-surface-2);
+  --color-border: oklch(100% 0 0deg / 0.08);
+  --color-ring: var(--entei-focus-ring);
+  --color-input: oklch(100% 0 0deg / 0.08);
+  --color-primary: var(--entei-accent);
+  --color-primary-foreground: var(--entei-text);
+  --color-destructive: oklch(55% 0.2 25deg);
+  --color-destructive-foreground: var(--entei-text);
+
+  --radius-sm: var(--entei-radius-sm);
+  --radius-md: var(--entei-radius-md);
+  --radius-lg: var(--entei-radius-lg);
+
+  --font-sans: var(--entei-font-body);
+  --font-display: var(--entei-font-display);
+  --font-system: var(--entei-font-system);
+
+  --color-chart-1: var(--entei-accent);
+  --color-chart-2: var(--entei-accent-hover);
+  --color-chart-3: var(--entei-gold-base);
+  --color-chart-4: var(--entei-muted);
+  --color-chart-5: var(--entei-surface-2);
+
+  --color-sidebar: var(--entei-surface);
+  --color-sidebar-foreground: var(--entei-text);
+  --color-sidebar-primary: var(--entei-accent);
+  --color-sidebar-primary-foreground: var(--entei-text);
+  --color-sidebar-accent: var(--entei-surface-2);
+  --color-sidebar-accent-foreground: var(--entei-text);
+  --color-sidebar-border: oklch(100% 0 0deg / 0.08);
+  --color-sidebar-ring: var(--entei-focus-ring);
+
+  --color-popover: var(--entei-surface);
+  --color-popover-foreground: var(--entei-text);
+
+  --color-card: var(--entei-surface);
+  --color-card-foreground: var(--entei-text);
+}
+
+@layer base {
+  /* Only target elements inside [data-entei-player-root] to avoid Home leakage. */
+  [data-entei-player-root] *,
+  [data-entei-player-root] *::before,
+  [data-entei-player-root] *::after {
+    border-color: var(--color-border);
+  }
+}
+
+/* Body styling for the player page is handled by the existing global.css tokens.
+ * Tailwind's preflight is replaced by the scoped base layer above.
+ * NO body reset is injected here — Home is untouched. */
+
+/* ===========================================================================
+ * Player Component Styles
+ * ---------------------------------------------------------------------------
+ * These styles are scoped to Player components using BEM-like naming.
+ * They use Entei's OKLCH tokens exclusively.
+ * =========================================================================== */
+
+/* --- Container --- */
+.entei-player-container {
+  width: 100%;
+  min-height: calc(100dvh - var(--entei-topbar-height));
+}
+
+/* --- Empty State --- */
+.entei-player-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: var(--entei-space-32) var(--entei-gutter);
+}
+
+.entei-player-empty-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-24);
+  text-align: center;
+  max-width: 32rem;
+}
+
+.entei-player-empty-title {
+  font-family: var(--entei-font-display);
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--entei-text);
+}
+
+.entei-player-empty-desc {
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--entei-text-secondary);
+  max-width: 36ch;
+}
+
+.entei-player-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--entei-space-16);
+  justify-content: center;
+}
+
+/* --- Picker --- */
+.entei-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-8);
+}
+
+.entei-picker-btn {
+  min-height: var(--entei-touch-min);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.entei-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Player Layout (media + subtitles side by side on desktop) --- */
+.entei-player-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--entei-space-16);
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .entei-player-layout {
+    grid-template-columns: 1fr 320px;
+    gap: var(--entei-space-24);
+  }
+}
+
+@media (min-width: 1024px) {
+  .entei-player-layout {
+    grid-template-columns: 1fr 380px;
+  }
+}
+
+/* --- Media Area --- */
+.entei-player-media-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  min-width: 0;
+}
+
+.entei-player-video-wrapper {
+  position: relative;
+  width: 100%;
+  background-color: var(--entei-surface);
+  border-radius: var(--entei-radius-md);
+  overflow: hidden;
+}
+
+.entei-player-video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  background-color: var(--entei-black-950);
+}
+
+/* --- Audio Area --- */
+.entei-player-audio-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-32);
+  background-color: var(--entei-surface);
+  border-radius: var(--entei-radius-md);
+  position: relative;
+}
+
+.entei-player-audio-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-48) 0;
+}
+
+.entei-player-audio-icon {
+  color: var(--entei-accent);
+  opacity: 0.6;
+}
+
+.entei-player-audio-name {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: var(--entei-text-secondary);
+  text-align: center;
+  word-break: break-all;
+}
+
+.entei-player-audio-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-8) 0;
+}
+
+.entei-player-volume-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  flex-shrink: 0;
+}
+
+.entei-player-volume-slider {
+  flex: 1;
+  height: 4px;
+}
+
+/* --- Generic Player Button --- */
+.entei-player-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-16);
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+  border: 1px solid transparent;
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-player-btn:hover {
+  background-color: var(--entei-accent);
+}
+
+.entei-player-btn:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Subtitle Row --- */
+.entei-player-subtitle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  flex-wrap: wrap;
+}
+
+.entei-player-shortcuts-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-4) var(--entei-space-12);
+  background: none;
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text-muted);
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-player-shortcuts-btn:hover {
+  color: var(--entei-text-secondary);
+  border-color: var(--entei-text-secondary);
+}
+
+.entei-player-shortcuts-btn:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Subtitle Panel --- */
+.entei-subtitle-panel {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--entei-surface);
+  border-radius: var(--entei-radius-md);
+  overflow: hidden;
+  max-height: 70vh;
+}
+
+.entei-subtitle-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--entei-space-12) var(--entei-space-16);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+  flex-shrink: 0;
+}
+
+.entei-subtitle-panel-title {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--entei-text-secondary);
+}
+
+.entei-subtitle-panel-count {
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+}
+
+.entei-subtitle-scroll-area {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Radix ScrollArea viewport: ensure it fills available height. */
+[data-radix-scroll-area-viewport] {
+  height: 100%;
+}
+
+.entei-subtitle-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Subtitle Cue Item (li wrapper) --- */
+.entei-subtitle-cue-item {
+  list-style: none;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.04);
+}
+
+.entei-subtitle-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-48) var(--entei-space-16);
+  text-align: center;
+}
+
+.entei-subtitle-empty-text {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+}
+
+/* --- Subtitle Cue --- */
+.entei-subtitle-cue {
+  display: flex;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+  min-height: var(--entei-touch-min);
+}
+
+.entei-subtitle-cue:hover {
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+}
+
+.entei-subtitle-cue:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: -3px;
+}
+
+.entei-subtitle-cue--active {
+  background-color: oklch(57.74% 0.209 273.85deg / 0.15);
+  color: var(--entei-text);
+  border-left: 3px solid var(--entei-accent);
+}
+
+.entei-subtitle-cue--active:hover {
+  background-color: oklch(57.74% 0.209 273.85deg / 0.2);
+}
+
+.entei-subtitle-cue-time {
+  flex-shrink: 0;
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  min-width: 3.5rem;
+  padding-top: 2px;
+}
+
+.entei-subtitle-cue-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* --- Loading State (skeleton placeholder) --- */
+.entei-player-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--entei-surface);
+  overflow: hidden;
+}
+
+/* Loading overlay inside the audio area (position: relative is on parent). */
+.entei-player-audio-loading {
+  position: absolute;
+  inset: 0;
+}
+
+/* Video skeleton: 16:9 aspect ratio with shimmer. */
+.entei-player-skeleton {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-color: var(--entei-surface-2);
+  overflow: hidden;
+  border-radius: var(--entei-radius-md);
+}
+
+.entei-player-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(100% 0 0deg / 0.04) 50%,
+    transparent 100%
+  );
+  animation: entei-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes entei-skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Audio skeleton: narrower area for icon + text placeholders. */
+.entei-player-skeleton--audio {
+  aspect-ratio: auto;
+  width: 160px;
+  height: 80px;
+  border-radius: var(--entei-radius-sm);
+}
+
+/* Reduced motion: freeze the shimmer, keep visible. */
+@media (prefers-reduced-motion: reduce) {
+  .entei-player-skeleton::after {
+    animation: none;
+    opacity: 0.08;
+  }
+}
+
+/* --- Error State --- */
+.entei-player-error-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--entei-space-48);
+  background-color: var(--entei-surface);
+  border-radius: var(--entei-radius-md);
+  border: 1px solid oklch(55% 0.2 25deg / 0.3);
+}
+
+/* Inline icon in error warnings title (replaces inline style). */
+.entei-player-errors-icon {
+  display: inline;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+
+.entei-player-error-text {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: var(--entei-destructive-foreground);
+  text-align: center;
+}
+
+/* --- Errors List --- */
+.entei-player-errors {
+  padding: var(--entei-space-12) var(--entei-space-16);
+  background-color: oklch(55% 0.2 25deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  border: 1px solid oklch(55% 0.2 25deg / 0.2);
+}
+
+.entei-player-errors-title {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--entei-text);
+  margin-bottom: var(--entei-space-8);
+}
+
+.entei-player-errors-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+}
+
+.entei-player-errors-list li {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  line-height: 1.5;
+}
+
+/* --- Keyboard Shortcuts Help (Radix Dialog) --- */
+.entei-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background-color: oklch(5% 0.005 270deg / 0.8);
+}
+
+.entei-dialog-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 51;
+  width: 100%;
+  max-width: 24rem;
+  max-height: 85vh;
+  overflow-y: auto;
+  background-color: var(--entei-surface);
+  border-radius: var(--entei-radius-lg);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  box-shadow:
+    0 20px 25px -5px oklch(0% 0 0deg / 0.3),
+    0 8px 10px -6px oklch(0% 0 0deg / 0.2);
+  outline: none;
+  padding: 0;
+}
+
+.entei-dialog-content:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-dialog-close {
+  position: absolute;
+  top: var(--entei-space-12);
+  right: var(--entei-space-12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-sm);
+  color: var(--entei-text-muted);
+  cursor: pointer;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-dialog-close:hover {
+  color: var(--entei-text);
+}
+
+.entei-dialog-close:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-dialog-header {
+  padding: var(--entei-space-16) var(--entei-space-20);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-dialog-title {
+  font-family: var(--entei-font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--entei-text);
+}
+
+.entei-dialog-description {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  margin-top: var(--entei-space-4);
+}
+
+.entei-dialog-body {
+  display: flex;
+  flex-direction: column;
+  padding: var(--entei-space-12) var(--entei-space-20) var(--entei-space-20);
+}
+
+.entei-shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-8) 0;
+}
+
+.entei-shortcut-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  padding: var(--entei-space-4) var(--entei-space-8);
+  background-color: var(--entei-surface-2);
+  border-radius: var(--entei-radius-sm);
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.entei-shortcut-desc {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: var(--entei-text-secondary);
+}
+
+/* --- Screen reader only utility --- */
+.entei-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* --- Reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .entei-subtitle-cue,
+  .entei-player-btn,
+  .entei-player-shortcuts-btn,
+  .entei-dialog-close {
+    transition: none;
+  }
+}
+
+/* ===========================================================================
+ * Mobile Layout Corrections
+ * ---------------------------------------------------------------------------
+ * A. Portrait: video edge-to-edge below TopBar; pickers/subtitle panel below
+ *    retain normal gutters. Uses negative-margin breakout — no 100vw, no
+ *    horizontal overflow (overflow-x: hidden on main).
+ * B. Landscape immersive: orientation + short-height hides chrome; video fills
+ *    viewport. Restored on portrait/desktop automatically.
+ * C. Picker labels: min-width:0 + ellipsis prevents long filenames expanding
+ *    the viewport. title= attribute for full name access.
+ * E. overflow-x: hidden on main prevents safe-area scrollbar in portrait.
+ * =========================================================================== */
+
+/* --- Picker overflow containment (all viewports) --- */
+/* The entei-picker-btn already has min-width:0 + max-width:100% from above.
+ * The entei-picker container constrains its children. */
+.entei-picker {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* --- Portrait: video edge-to-edge --- */
+@media (orientation: portrait) and (max-width: 768px) {
+  /* Prevent any horizontal overflow from breakout technique (Fix E). */
+  .entei-player-main {
+    overflow-x: hidden;
+  }
+
+  /* Video wrapper breaks out of parent gutter for full-bleed. */
+  .entei-player-video-wrapper {
+    width: calc(100% + 2 * var(--entei-gutter));
+    margin-left: calc(-1 * var(--entei-gutter));
+    border-radius: 0;
+  }
+
+  /* Audio area also goes edge-to-edge in portrait. */
+  .entei-player-audio-area {
+    width: calc(100% + 2 * var(--entei-gutter));
+    margin-left: calc(-1 * var(--entei-gutter));
+    border-radius: 0;
+  }
+
+  /* Subtitle panel and subtitle row keep normal horizontal gutters. */
+  .entei-subtitle-panel,
+  .entei-player-subtitle-row,
+  .entei-player-empty {
+    width: 100%;
+  }
+}
+
+/* --- Landscape immersive: hide chrome, video fills viewport --- */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Hide TopBar, footer, pickers, subtitle panel, subtitle row, warnings. */
+  .entei-topbar,
+  .entei-footer,
+  .entei-player-empty,
+  .entei-player-subtitle-row,
+  .entei-subtitle-panel,
+  .entei-player-errors {
+    display: none !important;
+  }
+
+  /* Remove all main padding — video goes fully edge-to-edge. */
+  .entei-player-main {
+    padding: 0 !important;
+    overflow: hidden;
+    width: 100%;
+    min-height: 100dvh;
+  }
+
+  /* Layout grid no longer needed — single column, no gap. */
+  .entei-player-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+  }
+
+  /* Media area fills full viewport. */
+  .entei-player-media-area {
+    width: 100%;
+  }
+
+  /* Video wrapper: 100% width × 100dvh, native controls visible. */
+  .entei-player-video-wrapper {
+    width: 100%;
+    border-radius: 0;
+  }
+
+  .entei-player-video {
+    max-height: 100dvh;
+    width: 100%;
+    border-radius: 0;
+  }
+
+  /* Audio area: same treatment. */
+  .entei-player-audio-area {
+    width: 100%;
+    min-height: 100dvh;
+    justify-content: center;
+    border-radius: 0;
+  }
+}

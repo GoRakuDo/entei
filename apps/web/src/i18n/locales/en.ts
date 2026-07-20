@@ -16,6 +16,40 @@ export const en: Dictionary = {
     cta: 'Preview the Player space',
     status: 'Next phase',
   },
+  playerUI: {
+    selectMediaTitle: 'Select media to play',
+    selectMediaDesc:
+      'Choose a video or audio file from your device, then add SRT or VTT subtitles.',
+    chooseMedia: 'Choose Media',
+    chooseSubtitle: 'Choose Subtitles',
+    subtitles: 'Subtitles',
+    noSubtitlesLoaded: 'No subtitles loaded. Add an SRT or VTT file.',
+    shortcuts: 'Shortcuts',
+    shortcutsTitle: 'Keyboard Shortcuts',
+    shortcutsDesc:
+      'Keyboard shortcuts for controlling playback and navigating subtitles.',
+    showShortcutsAriaLabel: 'Show keyboard shortcuts',
+    dialogClose: 'Close',
+    subtitleWarnings: 'Warnings',
+    unsupportedFormat: 'Unsupported format',
+    failedToRead: 'Failed to read file',
+    failedToLoadAudio:
+      'Failed to load audio. The format may not be supported by your browser.',
+    failedToLoadVideo:
+      'Failed to load video. The format may not be supported by your browser.',
+    cuesCount: 'cues',
+    seekTo: 'Seek to',
+    playLabel: 'Play',
+    pauseLabel: 'Pause',
+    volumeLabel: 'Volume',
+    linePrefix: 'Line',
+    shortcutPlayPause: 'Play / Pause',
+    shortcutPrevCue: 'Previous cue',
+    shortcutNextCue: 'Next cue',
+    shortcutSeekHome: 'Seek to current cue start',
+    shortcutSlowDown: 'Decrease speed',
+    shortcutSpeedUp: 'Increase speed',
+  },
   reader: {
     title: 'EPUB Reader',
     description:

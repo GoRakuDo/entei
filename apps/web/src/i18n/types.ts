@@ -52,6 +52,36 @@ export interface Dictionary {
     cta: string;
     status: string;
   };
+  playerUI: {
+    selectMediaTitle: string;
+    selectMediaDesc: string;
+    chooseMedia: string;
+    chooseSubtitle: string;
+    subtitles: string;
+    noSubtitlesLoaded: string;
+    shortcuts: string;
+    shortcutsTitle: string;
+    shortcutsDesc: string;
+    showShortcutsAriaLabel: string;
+    dialogClose: string;
+    subtitleWarnings: string;
+    unsupportedFormat: string;
+    failedToRead: string;
+    failedToLoadAudio: string;
+    failedToLoadVideo: string;
+    cuesCount: string;
+    seekTo: string;
+    playLabel: string;
+    pauseLabel: string;
+    volumeLabel: string;
+    linePrefix: string;
+    shortcutPlayPause: string;
+    shortcutPrevCue: string;
+    shortcutNextCue: string;
+    shortcutSeekHome: string;
+    shortcutSlowDown: string;
+    shortcutSpeedUp: string;
+  };
   reader: {
     title: string;
     description: string;

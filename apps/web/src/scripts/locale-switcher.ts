@@ -1,6 +1,10 @@
 import { getDictionary, getMetadata, isLocale } from '@i18n/index';
 import { getSavedLocale, writePreference } from '@i18n/preferences';
 import type { Locale } from '@i18n/types';
+import {
+  type LocaleChangeDetail,
+  LOCALE_CHANGE_EVENT,
+} from '@i18n/locale-events';
 
 /**
  * Entei Locale Switcher
@@ -11,6 +15,8 @@ import type { Locale } from '@i18n/types';
  * 2. Updating `<html lang>`, `<title>`, and `<meta name="description">`.
  * 3. Syncing the Language Selector `<select>` to the current locale.
  * 4. Listening for user-initiated locale changes and persisting them.
+ * 5. Dispatching `entei:locale-change` CustomEvent after successful application
+ *    so client-side components (React Player) can react to locale changes.
  *
  * PHASE0.md 8.192-225 — single URL `/`, no locale routing.
  * PHASE0.md 8.223 — FOUC must not be visually noticeable.
@@ -24,8 +30,6 @@ function getCurrentLocale(): Locale {
   if (isLocale(signalled)) {
     return signalled;
   }
-  // No inline script ran (JS disabled in head but module loaded — unlikely)
-  // or preference was absent / invalid. Default is Indonesian.
   return 'id';
 }
 
@@ -38,10 +42,8 @@ export function applyLocale(locale: Locale): void {
   const dictionary = getDictionary(locale);
   const metadata = getMetadata(locale);
 
-  // Update <html lang> — PHASE0.md 5.130, 8.206
   ROOT.lang = locale;
 
-  // Update document title and description — PHASE0.md 8.206
   document.title = metadata.title;
   const descriptionMeta = document.querySelector<HTMLMetaElement>(
     'meta[name="description"]',
@@ -50,8 +52,6 @@ export function applyLocale(locale: Locale): void {
     descriptionMeta.content = metadata.description;
   }
 
-  // Update all `[data-i18n]` elements with their translated text.
-  // Text content only — no innerHTML (PHASE0.md 16.407).
   const translatable = document.querySelectorAll<HTMLElement>('[data-i18n]');
   translatable.forEach((element) => {
     const key = element.dataset.i18n;
@@ -64,13 +64,18 @@ export function applyLocale(locale: Locale): void {
     }
   });
 
-  // Sync the Language Selector <select> to the current locale.
   const select = document.querySelector<HTMLSelectElement>(
     '[data-entei-language-select]',
   );
   if (select) {
     select.value = locale;
   }
+
+  // Dispatch CustomEvent so React components can listen for locale changes.
+  const detail: LocaleChangeDetail = { locale, dictionary };
+  window.dispatchEvent(
+    new CustomEvent<LocaleChangeDetail>(LOCALE_CHANGE_EVENT, { detail }),
+  );
 }
 
 /**
@@ -113,7 +118,6 @@ function init(): void {
   const initialLocale = getCurrentLocale();
   applyLocale(initialLocale);
 
-  // Wire up the Language Selector.
   const select = document.querySelector<HTMLSelectElement>(
     '[data-entei-language-select]',
   );
@@ -138,9 +142,6 @@ if (document.readyState === 'loading') {
 
 // Re-apply locale on browser back/forward (single URL, no routing change,
 // but the page may be served from bfcache).
-// After revealPage() deletes dataset.enteiLocale, getCurrentLocale() would
-// fall back to 'id'. We must read the saved locale from localStorage instead
-// so a persisted pageshow does not revert JA/EN to Indonesian.
 window.addEventListener('pageshow', (event: PageTransitionEvent) => {
   if (event.persisted) {
     const locale = getSavedLocale();

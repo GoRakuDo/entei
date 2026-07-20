@@ -1,0 +1,99 @@
+---
+/**
+ * PlayerLayout — Full-width layout for the Player route.
+ *
+ * Unlike BaseLayout, this layout does NOT apply the desktop two-column grid
+ * that Home uses. The Player needs full width for video + subtitle panel.
+ *
+ * Preserved from BaseLayout:
+ * - Skip link
+ * - TopBar (sticky header with wordmark + locale switcher)
+ * - SiteFooter
+ * - noindex
+ * - FOUC prevention inline script
+ * - Locale switching module script
+ *
+ * Added:
+ * - Tailwind CSS via player.css (scoped to Player components)
+ */
+import '@styles/global.css';
+import '@styles/player.css';
+import SeoHead from '@components/SeoHead.astro';
+import TopBar from '@components/home/TopBar.astro';
+import SiteFooter from '@components/home/SiteFooter.astro';
+import { getDictionary } from '@i18n/index';
+import type { Dictionary, Locale } from '@i18n/types';
+
+interface Props {
+  locale?: Locale;
+  path?: string;
+  noindex?: boolean;
+}
+
+const { locale = 'id', path = '/player/', noindex = true } = Astro.props;
+const dictionary: Dictionary = getDictionary(locale);
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <SeoHead locale={locale} path={path} noindex={noindex} />
+
+    <script is:inline>
+      (function () {
+        try {
+          var raw = localStorage.getItem('entei.preferences.v1');
+          if (!raw) return;
+          var pref = JSON.parse(raw);
+          if (
+            pref &&
+            pref.schemaVersion === 1 &&
+            (pref.locale === 'ja' || pref.locale === 'en')
+          ) {
+            var el = document.documentElement;
+            el.lang = pref.locale;
+            el.dataset.enteiLocale = pref.locale;
+            el.classList.add('entei-hydrating');
+            setTimeout(function () {
+              el.classList.remove('entei-hydrating');
+            }, 2000);
+          }
+        } catch (e) {
+          /* localStorage unavailable or JSON corrupted — stay Indonesian */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="entei-skip-link" href="#entei-main" data-i18n="nav.skipToMain">
+      {dictionary.nav.skipToMain}
+    </a>
+    <TopBar locale={locale} dictionary={dictionary} />
+    <main id="entei-main" class="entei-player-main" tabindex="-1">
+      <slot />
+    </main>
+    <SiteFooter dictionary={dictionary} />
+
+    <script>
+      import '../scripts/locale-switcher.ts';
+    </script>
+  </body>
+</html>
+
+<style>
+  /*
+   * Player main: full-width, no desktop grid.
+   * The desktop two-column grid from BaseLayout is deliberately absent here.
+   * Player content fills the available width below the TopBar.
+   */
+  .entei-player-main {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    outline: none;
+    padding: var(--entei-space-16) var(--entei-gutter) var(--entei-space-32);
+  }
+</style>
