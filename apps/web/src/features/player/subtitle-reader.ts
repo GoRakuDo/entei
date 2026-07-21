@@ -513,3 +513,23 @@ export function validateSubtitle(content: string): SubtitleError[] {
   const result = parseSubtitle(content);
   return result.errors;
 }
+
+// --- P1.3a.1: Shared active-cue lookup --------------------------------------
+
+/**
+ * Find the active subtitle cue at a given time.
+ * Inclusive start (time >= cue.start), exclusive end (time < cue.end).
+ * Returns the matching cue, or null if no cue is active at `time`.
+ *
+ * This is the single source of truth for active-cue derivation, used by both
+ * the subtitle panel (highlighting) and the overlay (text rendering).
+ */
+export function findActiveCue(
+  cues: readonly SubtitleCue[],
+  time: number,
+): SubtitleCue | null {
+  for (const cue of cues) {
+    if (time >= cue.start && time < cue.end) return cue;
+  }
+  return null;
+}

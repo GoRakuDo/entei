@@ -34,6 +34,9 @@ import {
   Minimize2,
   Timeline,
   Settings,
+  ClosedCaption,
+  Captions,
+  CaptionsOff,
 } from 'lucide-react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from '@/components/player/ui/slider';
@@ -52,6 +55,7 @@ import {
   requestFullscreenCompat,
   exitFullscreenCompat,
   type VisibilityEvent,
+  type CaptionDisplayMode,
 } from '@/features/player/control-helpers';
 import { SubtitlePicker } from '@/components/player/SubtitlePicker';
 import { SUBTITLE_ACCEPT } from '@/features/player/media-url';
@@ -78,6 +82,9 @@ interface PlayerControlsProps {
   isSubtitlePanelVisible: boolean;
   onToggleSubtitlePanel: () => void;
   hasSubtitles: boolean;
+  // P1.3a.2: Caption display mode
+  captionDisplayMode: CaptionDisplayMode;
+  onCycleCaptionMode: () => void;
   volume: number;
   onVolumeChange: (volume: number) => void;
   playbackRate: number;
@@ -113,6 +120,8 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
       isSubtitlePanelVisible,
       onToggleSubtitlePanel,
       hasSubtitles,
+      captionDisplayMode,
+      onCycleCaptionMode,
       volume,
       onVolumeChange,
       playbackRate,
@@ -476,6 +485,34 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
           </span>
         )}
         <div className="entei-controls-top-right">
+          {/* P1.3a.2: Caption display mode cycle button — immediately LEFT of Timeline */}
+          <button
+            type="button"
+            className="entei-controls-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCycleCaptionMode();
+            }}
+            aria-label={
+              captionDisplayMode === 'visible'
+                ? dict.captionModeVisible
+                : captionDisplayMode === 'blurred'
+                  ? dict.captionModeBlurred
+                  : dict.captionModeHidden
+            }
+            title={
+              captionDisplayMode === 'visible'
+                ? dict.captionModeVisible
+                : captionDisplayMode === 'blurred'
+                  ? dict.captionModeBlurred
+                  : dict.captionModeHidden
+            }
+          >
+            {captionDisplayMode === 'visible' && <ClosedCaption size={18} />}
+            {captionDisplayMode === 'blurred' && <Captions size={18} />}
+            {captionDisplayMode === 'hidden' && <CaptionsOff size={18} />}
+          </button>
+
           {/* Fix #13: Timeline button hidden via CSS in landscape immersive */}
           <button
             type="button"

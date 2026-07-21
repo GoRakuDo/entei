@@ -1,5 +1,5 @@
 /**
- * Tests for player control-helpers (P1.1).
+ * Tests for player control-helpers (P1.1, P1.3a.2).
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -13,6 +13,10 @@ import {
   PLAYBACK_RATES,
   surfaceClickEffect,
   shouldScheduleAutoHide,
+  nextCaptionDisplayMode,
+  BLUR_RESTORE_TIMEOUT_MS,
+  shouldTriggerBlurHover,
+  isPlaybackResume,
 } from '@/features/player/control-helpers';
 
 describe('formatTime', () => {
@@ -268,5 +272,73 @@ describe('shouldScheduleAutoHide', () => {
 
   it('desktop + reduced motion: no auto-hide', () => {
     expect(shouldScheduleAutoHide(false, true)).toBe(false);
+  });
+});
+
+// --- P1.3a.2: nextCaptionDisplayMode ---
+
+describe('nextCaptionDisplayMode', () => {
+  it('visible → blurred', () => {
+    expect(nextCaptionDisplayMode('visible')).toBe('blurred');
+  });
+
+  it('blurred → hidden', () => {
+    expect(nextCaptionDisplayMode('blurred')).toBe('hidden');
+  });
+
+  it('hidden → visible (full cycle)', () => {
+    expect(nextCaptionDisplayMode('hidden')).toBe('visible');
+  });
+
+  it('cycles correctly through all three states', () => {
+    let mode: 'visible' | 'blurred' | 'hidden' = 'visible';
+    mode = nextCaptionDisplayMode(mode); // blurred
+    expect(mode).toBe('blurred');
+    mode = nextCaptionDisplayMode(mode); // hidden
+    expect(mode).toBe('hidden');
+    mode = nextCaptionDisplayMode(mode); // visible
+    expect(mode).toBe('visible');
+  });
+});
+
+describe('BLUR_RESTORE_TIMEOUT_MS', () => {
+  it('is 1000ms (1 second)', () => {
+    expect(BLUR_RESTORE_TIMEOUT_MS).toBe(1000);
+  });
+});
+
+describe('shouldTriggerBlurHover', () => {
+  it('returns true for mouse pointerType', () => {
+    expect(shouldTriggerBlurHover('mouse')).toBe(true);
+  });
+
+  it('returns false for touch pointerType', () => {
+    expect(shouldTriggerBlurHover('touch')).toBe(false);
+  });
+
+  it('returns false for pen pointerType', () => {
+    expect(shouldTriggerBlurHover('pen')).toBe(false);
+  });
+
+  it('returns false for empty string', () => {
+    expect(shouldTriggerBlurHover('')).toBe(false);
+  });
+});
+
+describe('isPlaybackResume', () => {
+  it('returns true for false→true transition (actual resume)', () => {
+    expect(isPlaybackResume(false, true)).toBe(true);
+  });
+
+  it('returns false when already playing (true→true — NOT a resume)', () => {
+    expect(isPlaybackResume(true, true)).toBe(false);
+  });
+
+  it('returns false for pause transition (true→false — NOT a resume)', () => {
+    expect(isPlaybackResume(true, false)).toBe(false);
+  });
+
+  it('returns false for idle (false→false)', () => {
+    expect(isPlaybackResume(false, false)).toBe(false);
   });
 });

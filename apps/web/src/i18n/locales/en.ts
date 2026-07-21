@@ -77,6 +77,10 @@ export const en: Dictionary = {
     fullscreenUnavailable: 'Fullscreen not available',
     controlsShow: 'Show controls',
     controlsHide: 'Hide controls',
+    // P1.3a.2: Caption display mode cycle
+    captionModeVisible: 'Subtitles: visible',
+    captionModeBlurred: 'Subtitles: blurred',
+    captionModeHidden: 'Subtitles: hidden',
   },
   reader: {
     title: 'EPUB Reader',

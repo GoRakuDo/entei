@@ -3,6 +3,8 @@ import {
   parseSubtitle,
   detectFormat,
   validateSubtitle,
+  findActiveCue,
+  type SubtitleCue,
 } from '../src/features/player/subtitle-reader';
 import { SUBTITLE_ACCEPT } from '../src/features/player/media-url';
 
@@ -484,5 +486,84 @@ describe('SUBTITLE_ACCEPT includes ASS', () => {
   it('still includes .srt and .vtt', () => {
     expect(SUBTITLE_ACCEPT).toContain('.srt');
     expect(SUBTITLE_ACCEPT).toContain('.vtt');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1.3a.1: findActiveCue — shared active-cue lookup
+// ---------------------------------------------------------------------------
+
+const cue = (
+  id: number,
+  start: number,
+  end: number,
+  text = '',
+): SubtitleCue => ({
+  id,
+  start,
+  end,
+  text,
+});
+
+describe('findActiveCue', () => {
+  it('returns null for empty cues array', () => {
+    expect(findActiveCue([], 5)).toBeNull();
+  });
+
+  it('returns null when time is before all cues', () => {
+    const cues = [cue(0, 2, 5, 'hello')];
+    expect(findActiveCue(cues, 0)).toBeNull();
+  });
+
+  it('returns null when time is after all cues', () => {
+    const cues = [cue(0, 2, 5, 'hello')];
+    expect(findActiveCue(cues, 6)).toBeNull();
+  });
+
+  it('finds cue at start boundary (inclusive start)', () => {
+    const cues = [cue(0, 2, 5, 'hello')];
+    const result = findActiveCue(cues, 2);
+    expect(result?.text).toBe('hello');
+  });
+
+  it('does NOT find cue at end boundary (exclusive end)', () => {
+    const cues = [cue(0, 2, 5, 'hello')];
+    expect(findActiveCue(cues, 5)).toBeNull();
+  });
+
+  it('finds cue in middle of range', () => {
+    const cues = [cue(0, 2, 5, 'hello')];
+    const result = findActiveCue(cues, 3.5);
+    expect(result?.text).toBe('hello');
+  });
+
+  it('finds first overlapping cue when multiple overlap', () => {
+    const cues = [cue(0, 0, 3, 'first'), cue(1, 1, 4, 'second')];
+    const result = findActiveCue(cues, 2);
+    expect(result?.text).toBe('first');
+  });
+
+  it('skips to later cue when earlier has ended', () => {
+    const cues = [cue(0, 0, 2, 'first'), cue(1, 3, 5, 'second')];
+    const result = findActiveCue(cues, 4);
+    expect(result?.text).toBe('second');
+  });
+
+  it('returns null between non-overlapping cues', () => {
+    const cues = [cue(0, 0, 2, 'first'), cue(1, 4, 6, 'second')];
+    expect(findActiveCue(cues, 3)).toBeNull();
+  });
+
+  it('handles zero start time', () => {
+    const cues = [cue(0, 0, 1, 'from start')];
+    const result = findActiveCue(cues, 0);
+    expect(result?.text).toBe('from start');
+  });
+
+  it('handles fractional timestamps', () => {
+    const cues = [cue(0, 1.5, 3.7, 'fractional')];
+    const result = findActiveCue(cues, 1.5);
+    expect(result?.text).toBe('fractional');
+    expect(findActiveCue(cues, 3.7)).toBeNull();
   });
 });

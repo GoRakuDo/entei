@@ -310,6 +310,57 @@
   outline-offset: 2px;
 }
 
+/* --- P1.3a.1: Subtitle Overlay (selectable text over video) ---
+ * Positioned inside .entei-player-surface.
+ * Above video AND above controls layer for pointer hit-testing.
+ * z-index: 15 (controls layer is z-index: 10).
+ * Uses normal DOM text — user-select: text for Yomitan scan compatibility.
+ * Pointer events enabled for text selection and content-script access. */
+.entei-subtitle-overlay {
+  position: absolute;
+  bottom: var(--entei-space-96);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  max-width: min(90%, 640px);
+  padding: var(--entei-space-4) var(--entei-space-8);
+  border-radius: var(--entei-radius-sm);
+  background-color: oklch(0% 0 0 / 0.72);
+  pointer-events: auto;
+  user-select: text;
+  /* Prevent overlay from obstructing controls touch targets */
+}
+
+.entei-subtitle-overlay-text {
+  margin: 0;
+  padding: 0;
+  font-family: var(--entei-font-ui);
+  font-size: var(--entei-text-body-lg);
+  line-height: 1.5;
+  color: oklch(98% 0 0deg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: center;
+  user-select: text;
+}
+
+/* P1.3a.2: Blurred overlay state — text blurred by default, revealed on hover/tap.
+   Uses filter: blur (no layout shift). Pointer events pass through to allow
+   selection while revealed. Reduced motion: blur changes are instant (no animation). */
+.entei-subtitle-overlay--blurred .entei-subtitle-overlay-text {
+  filter: blur(6px);
+  user-select: none;
+}
+
+/* When revealed (pointer over / tapped), clear the blur and allow selection. */
+.entei-subtitle-overlay:not(.entei-subtitle-overlay--blurred)
+  .entei-subtitle-overlay-text,
+.entei-subtitle-overlay--blurred[data-overlay-revealed]
+  .entei-subtitle-overlay-text {
+  filter: none;
+  user-select: text;
+}
+
 /* --- Subtitle Panel --- */
 .entei-subtitle-panel {
   display: flex;
@@ -824,7 +875,11 @@
   position: relative;
 }
 
-/* --- Controls Layer (overlay on media surface) --- */
+/* --- Controls Layer (overlay on media surface) ---
+   Container is pointer-events:none so it does not intercept pointer events
+   (hover/tap/selection) that should reach the subtitle overlay beneath it.
+   Individual interactive children (buttons, sliders, inputs) override with
+   pointer-events:auto to remain usable. */
 .entei-controls-layer {
   position: absolute;
   inset: 0;
@@ -832,12 +887,19 @@
   flex-direction: column;
   justify-content: space-between;
   padding: var(--entei-space-8) var(--entei-space-12);
-  pointer-events: auto;
+  pointer-events: none;
   z-index: 10;
   opacity: 1;
   transition:
     opacity var(--entei-duration-normal) var(--entei-ease-productive),
     transform var(--entei-duration-normal) var(--entei-ease-productive);
+}
+
+/* Interactive children of the controls layer must be clickable. */
+.entei-controls-layer button,
+.entei-controls-layer [role='slider'],
+.entei-controls-layer input {
+  pointer-events: auto;
 }
 
 .entei-controls-layer--hidden {

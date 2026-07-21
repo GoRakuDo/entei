@@ -78,6 +78,10 @@ export const id: Dictionary = {
     fullscreenUnavailable: 'Layar penuh tidak tersedia',
     controlsShow: 'Tampilkan kontrol',
     controlsHide: 'Sembunyikan kontrol',
+    // P1.3a.2: Caption display mode cycle
+    captionModeVisible: 'Subtitel: terlihat',
+    captionModeBlurred: 'Subtitel: buram',
+    captionModeHidden: 'Subtitel: tersembunyi',
   },
   reader: {
     title: 'Pembaca EPUB',

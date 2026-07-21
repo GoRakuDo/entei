@@ -22,6 +22,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   type SubtitleCue,
   parseSubtitle,
+  findActiveCue,
 } from '@/features/player/subtitle-reader';
 import {
   createMediaUrl,
@@ -39,7 +40,12 @@ import {
   readPlayerPreferences,
   writePlayerPreferences,
 } from '@/features/player/preferences';
-import { surfaceClickEffect } from '@/features/player/control-helpers';
+import {
+  surfaceClickEffect,
+  nextCaptionDisplayMode,
+  BLUR_RESTORE_TIMEOUT_MS,
+  type CaptionDisplayMode,
+} from '@/features/player/control-helpers';
 import {
   type LocaleChangeDetail,
   LOCALE_CHANGE_EVENT,
@@ -50,6 +56,7 @@ import { MediaPicker } from '@/components/player/MediaPicker';
 import { SubtitlePicker } from '@/components/player/SubtitlePicker';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
+import { SubtitleOverlay } from '@/components/player/SubtitleOverlay';
 import {
   PlayerControls,
   type PlayerControlsHandle,
@@ -105,6 +112,7 @@ export default function PlayerApp() {
 
   // --- Playback state ---
   const [isPlaying, setIsPlaying] = useState(false);
+  const prevIsPlayingRef = useRef(false);
   const [playbackRate, setPlaybackRate] = useState(
     prefsRef.current.playbackRate,
   );
@@ -112,6 +120,11 @@ export default function PlayerApp() {
 
   // --- P1.1: subtitle panel visibility ---
   const [isSubtitlePanelVisible, setIsSubtitlePanelVisible] = useState(true);
+
+  // --- P1.3a.2: caption display mode + overlay reveal state ---
+  const [captionDisplayMode, setCaptionDisplayMode] = useState<CaptionDisplayMode>(prefsRef.current.captionDisplayMode);
+  const [isOverlayRevealed, setIsOverlayRevealed] = useState(false);
+  const blurRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- P1.1: touch + reduced-motion detection ---
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -249,9 +262,87 @@ export default function PlayerApp() {
     controlsHandleRef.current?.show();
   }, []);
 
+  // --- P1.3a.2: Caption display mode handlers ---
+
+  const handleCycleCaptionMode = useCallback(() => {
+    setCaptionDisplayMode((prev) => {
+      const next = nextCaptionDisplayMode(prev);
+      // Persist the new mode together with current volume/rate
+      writePlayerPreferences({
+        volume: prefsRef.current.volume,
+        playbackRate: prefsRef.current.playbackRate,
+        captionDisplayMode: next,
+      });
+      // Keep prefsRef in sync to avoid stale reads in other callbacks
+      prefsRef.current = { ...prefsRef.current, captionDisplayMode: next };
+      return next;
+    });
+    // Reset reveal state when cycling modes
+    setIsOverlayRevealed(false);
+  }, []);
+
+  /** Clear the blur-restore timer if pending. */
+  const clearBlurRestoreTimer = useCallback(() => {
+    if (blurRestoreTimerRef.current !== null) {
+      clearTimeout(blurRestoreTimerRef.current);
+      blurRestoreTimerRef.current = null;
+    }
+  }, []);
+
+  // Desktop: pointer enter overlay → cancel pending restore, reveal immediately
+  const handleOverlayPointerEnter = useCallback(() => {
+    if (captionDisplayMode !== 'blurred') return;
+    clearBlurRestoreTimer();
+    setIsOverlayRevealed(true);
+  }, [captionDisplayMode, clearBlurRestoreTimer]);
+
+  // Desktop: pointer leave overlay → start 1s restore timer
+  const handleOverlayPointerLeave = useCallback(() => {
+    if (captionDisplayMode !== 'blurred') return;
+    blurRestoreTimerRef.current = setTimeout(() => {
+      setIsOverlayRevealed(false);
+      blurRestoreTimerRef.current = null;
+    }, BLUR_RESTORE_TIMEOUT_MS);
+  }, [captionDisplayMode]);
+
+  // Mobile: tap blurred overlay → pause media + reveal text
+  const handleOverlayTouchTap = useCallback(() => {
+    if (captionDisplayMode !== 'blurred') return;
+    const media = sharedMediaRef.current;
+    if (media && !media.paused) {
+      media.pause();
+    }
+    setIsOverlayRevealed(true);
+    controlsHandleRef.current?.show();
+  }, [captionDisplayMode]);
+
+  // Cleanup blur timer on unmount or mode change away from blurred
+  useEffect(() => {
+    if (captionDisplayMode !== 'blurred') {
+      clearBlurRestoreTimer();
+      setIsOverlayRevealed(false);
+    }
+    return clearBlurRestoreTimer;
+  }, [captionDisplayMode, clearBlurRestoreTimer]);
+
+  // P1.3a.2: Re-blur overlay ONLY on an actual resume transition (isPlaying: false→true).
+  // This prevents the race where a touch-tap pause sets isOverlayRevealed=true
+  // but isPlaying is still true (pause event not yet fired by React), which
+  // would cause an immediate spurious re-blur.
+  useEffect(() => {
+    const wasPlaying = prevIsPlayingRef.current;
+    prevIsPlayingRef.current = isPlaying;
+
+    if (!wasPlaying && isPlaying && captionDisplayMode === 'blurred' && isOverlayRevealed) {
+      clearBlurRestoreTimer();
+      setIsOverlayRevealed(false);
+    }
+    return clearBlurRestoreTimer;
+  }, [isPlaying, captionDisplayMode, isOverlayRevealed, clearBlurRestoreTimer]);
+
   const handleTimeUpdate = useCallback(
     (time: number) => {
-      const active = cues.find((cue) => time >= cue.start && time < cue.end);
+      const active = findActiveCue(cues, time);
       setActiveCueId(active?.id ?? null);
     },
     [cues],
@@ -275,6 +366,7 @@ export default function PlayerApp() {
     writePlayerPreferences({
       volume: val,
       playbackRate: prefsRef.current.playbackRate,
+      captionDisplayMode: prefsRef.current.captionDisplayMode,
     });
     prefsRef.current = { ...prefsRef.current, volume: val };
   }, []);
@@ -284,6 +376,7 @@ export default function PlayerApp() {
     writePlayerPreferences({
       volume: prefsRef.current.volume,
       playbackRate: rate,
+      captionDisplayMode: prefsRef.current.captionDisplayMode,
     });
     prefsRef.current = { ...prefsRef.current, playbackRate: rate };
   }, []);
@@ -291,9 +384,12 @@ export default function PlayerApp() {
   // --- P1.1: Surface click behavior ---
   const handleSurfaceClick = useCallback(
     (e: React.MouseEvent) => {
-      // Only handle clicks on the bare media area, not controls
+      // Only handle clicks on the bare media area, not controls or overlay
       const target = e.target as HTMLElement;
       if (target.closest('.entei-controls-layer')) return;
+      // P1.3a.1: Ignore overlay clicks — let Yomitan/content-script document
+      // listeners and text selection work without interference.
+      if (target.closest('[data-entei-subtitle-overlay]')) return;
       const media = sharedMediaRef.current;
       if (!media || isLoading || loadError || !mediaUrl) return;
 
@@ -466,6 +562,17 @@ export default function PlayerApp() {
                 </div>
               )}
 
+              {/* P1.3a.1: Selectable subtitle overlay over video */}
+              <SubtitleOverlay
+                cues={cues}
+                activeCueId={activeCueId}
+                displayMode={captionDisplayMode}
+                isRevealed={isOverlayRevealed}
+                onPointerEnter={handleOverlayPointerEnter}
+                onPointerLeave={handleOverlayPointerLeave}
+                onTouchTap={handleOverlayTouchTap}
+              />
+
               {/* P1.1 Custom Controls */}
               <PlayerControls
                 ref={controlsHandleRef}
@@ -484,6 +591,8 @@ export default function PlayerApp() {
                   setIsSubtitlePanelVisible((v) => !v)
                 }
                 hasSubtitles={cues.length > 0}
+                captionDisplayMode={captionDisplayMode}
+                onCycleCaptionMode={handleCycleCaptionMode}
                 volume={volume}
                 onVolumeChange={handleVolumeChange}
                 playbackRate={playbackRate}

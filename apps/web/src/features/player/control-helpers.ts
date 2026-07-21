@@ -249,3 +249,52 @@ export function isControlTarget(target: EventTarget | null): boolean {
     target.closest('button') !== null
   );
 }
+
+// --- P1.3a.2: Caption Display Mode ------------------------------------------
+
+/** Overlay display mode — cycled by the caption mode button. */
+export type CaptionDisplayMode = 'visible' | 'blurred' | 'hidden';
+
+/**
+ * Transition to the next caption display mode.
+ * Cycle: visible → blurred → hidden → visible.
+ */
+export function nextCaptionDisplayMode(
+  mode: CaptionDisplayMode,
+): CaptionDisplayMode {
+  switch (mode) {
+    case 'visible':
+      return 'blurred';
+    case 'blurred':
+      return 'hidden';
+    case 'hidden':
+      return 'visible';
+  }
+}
+
+/** Duration (ms) before a blurred overlay restores after pointer leaves. */
+export const BLUR_RESTORE_TIMEOUT_MS = 1000;
+
+/**
+ * P1.3a.2: Determine whether a pointer event should trigger desktop hover
+ * callbacks for the blurred overlay (cancel restore / schedule restore).
+ *
+ * Only `mouse` pointerType triggers these callbacks. Touch and pen events
+ * must not schedule or cancel the 1-second restore timer — on touch the
+ * overlay stays revealed until playback resumes.
+ */
+export function shouldTriggerBlurHover(pointerType: string): boolean {
+  return pointerType === 'mouse';
+}
+
+/**
+ * P1.3a.2: Detect an actual playback resume (isPlaying false→true transition).
+ * Used to re-blur the overlay only on user-initiated resume, not on renders
+ * where isPlaying is already true but the state hasn't caught up yet.
+ */
+export function isPlaybackResume(
+  wasPlaying: boolean,
+  isPlayingNow: boolean,
+): boolean {
+  return !wasPlaying && isPlayingNow;
+}

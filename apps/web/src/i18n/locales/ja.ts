@@ -77,6 +77,10 @@ export const ja: Dictionary = {
     fullscreenUnavailable: 'フルスクリーンは利用できません',
     controlsShow: 'コントロールを表示',
     controlsHide: 'コントロールを非表示',
+    // P1.3a.2: Caption display mode cycle
+    captionModeVisible: '字幕：表示',
+    captionModeBlurred: '字幕：ぼかし',
+    captionModeHidden: '字幕：非表示',
   },
   reader: {
     title: 'EPUBリーダー',

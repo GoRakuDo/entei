@@ -108,6 +108,10 @@ export interface Dictionary {
     fullscreenUnavailable: string;
     controlsShow: string;
     controlsHide: string;
+    // P1.3a.2: Caption display mode cycle
+    captionModeVisible: string;
+    captionModeBlurred: string;
+    captionModeHidden: string;
   };
   reader: {
     title: string;
