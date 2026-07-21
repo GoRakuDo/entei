@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from './ui/dialog';
 
-interface ShortcutEntry {
+export interface ShortcutEntry {
   key: string;
   desc: string;
 }
@@ -58,7 +58,10 @@ export function KeyboardShortcutsHelp({
           <span>{label}</span>
         </button>
       </DialogTrigger>
-      <DialogContent closeLabel={closeLabel} aria-describedby="shortcuts-dialog-desc">
+      <DialogContent
+        closeLabel={closeLabel}
+        aria-describedby="shortcuts-dialog-desc"
+      >
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
           <DialogDescription id="shortcuts-dialog-desc">

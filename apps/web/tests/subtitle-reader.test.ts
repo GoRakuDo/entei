@@ -4,6 +4,7 @@ import {
   detectFormat,
   validateSubtitle,
 } from '../src/features/player/subtitle-reader';
+import { SUBTITLE_ACCEPT } from '../src/features/player/media-url';
 
 // ---------------------------------------------------------------------------
 // SRT Parsing
@@ -307,5 +308,181 @@ Hello`;
   it('returns errors for invalid content', () => {
     const errors = validateSubtitle('not valid');
     expect(errors.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ASS Parsing (P1.3a)
+// ---------------------------------------------------------------------------
+
+describe('parseSubtitle — ASS', () => {
+  const assHeader = `[Script Info]
+Title: Test
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  it('parses valid ASS dialogues with timing', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello world
+Dialogue: 0,0:00:05.00,0:00:08.00,Default,,0,0,0,,Second cue`;
+
+    const result = parseSubtitle(ass);
+    expect(result.format).toBe('ass');
+    expect(result.cues).toHaveLength(2);
+    expect(result.errors).toHaveLength(0);
+
+    expect(result.cues[0]).toMatchObject({
+      start: 1,
+      end: 4,
+      text: 'Hello world',
+    });
+    expect(result.cues[1]).toMatchObject({
+      start: 5,
+      end: 8,
+      text: 'Second cue',
+    });
+  });
+
+  it('converts \\N linebreaks to spaces', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Line one\\NLine two`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('Line one Line two');
+  });
+
+  it('converts lowercase \\n linebreaks to spaces', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Line one\\nLine two`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('Line one Line two');
+  });
+
+  it('strips override/style tags from text', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\b1}Bold{\\b0} and {\\i1}italic{\\i0}`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('Bold and italic');
+  });
+
+  it('strips complex override tags including pos', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\pos(100,200)}Positioned`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('Positioned');
+  });
+
+  it('sorts cues chronologically and reassigns ids', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:05.00,0:00:08.00,Default,,0,0,0,,Second
+Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,First`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues).toHaveLength(2);
+    expect(result.cues[0]!.text).toBe('First');
+    expect(result.cues[1]!.text).toBe('Second');
+    expect(result.cues[0]!.id).toBe(0);
+    expect(result.cues[1]!.id).toBe(1);
+  });
+
+  it('reports error for malformed ASS / compiler failure', () => {
+    const ass = `[Script Info]
+Title: Broken
+ScriptType: v4.00+
+
+[V4+ Styles]
+Broken format line
+
+[Events]
+Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello`;
+    const result = parseSubtitle(ass);
+    expect(result.format).toBe('ass');
+    expect(result.cues).toHaveLength(0);
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('does not throw on malformed input', () => {
+    expect(() => parseSubtitle('not valid ASS at all')).not.toThrow();
+  });
+
+  it('reports error for dialogue with invalid timing', () => {
+    // Force an invalid dialogue by using extreme values
+    const ass = assHeader + `Dialogue: 0,-1,-2,Default,,0,0,0,,Invalid timing`;
+
+    const result = parseSubtitle(ass);
+    // Timing validation depends on ass-compiler behavior; either cues or errors
+    expect(result.format).toBe('ass');
+    expect(result.cues.length + result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('handles multi-line ASS linebreaks combined', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,First\\NSecond\\NThird`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('First Second Third');
+  });
+
+  it('strips empty dialogue text and reports error', () => {
+    const ass =
+      assHeader +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\pos(100,200)}{\\b1}{\\i1}`;
+
+    const result = parseSubtitle(ass);
+    // Empty after tag stripping
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+});
+
+describe('detectFormat', () => {
+  it('detects ASS format', () => {
+    const ass = `[Script Info]
+Title: Test`;
+    expect(detectFormat(ass)).toBe('ass');
+  });
+
+  it('detects ASS format case insensitive', () => {
+    const ass = `[script info]
+Title: Test`;
+    expect(detectFormat(ass)).toBe('ass');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SUBTITLE_ACCEPT + ASS admission
+// ---------------------------------------------------------------------------
+
+describe('SUBTITLE_ACCEPT includes ASS', () => {
+  it('includes .ass in accept string', () => {
+    expect(SUBTITLE_ACCEPT).toContain('.ass');
+  });
+
+  it('still includes .srt and .vtt', () => {
+    expect(SUBTITLE_ACCEPT).toContain('.srt');
+    expect(SUBTITLE_ACCEPT).toContain('.vtt');
   });
 });

@@ -702,12 +702,12 @@
  * ---------------------------------------------------------------------------
  * A. Portrait: video edge-to-edge below TopBar; pickers/subtitle panel below
  *    retain normal gutters. Uses negative-margin breakout — no 100vw, no
- *    horizontal overflow (overflow-x: hidden on main).
+ *    horizontal overflow (`overflow-x: clip` on main).
  * B. Landscape immersive: orientation + short-height hides chrome; video fills
  *    viewport. Restored on portrait/desktop automatically.
  * C. Picker labels: min-width:0 + ellipsis prevents long filenames expanding
  *    the viewport. title= attribute for full name access.
- * E. overflow-x: hidden on main prevents safe-area scrollbar in portrait.
+ * E. overflow-x: clip on main prevents safe-area scrollbar in portrait.
  * =========================================================================== */
 
 /* --- Picker overflow containment (all viewports) --- */
@@ -720,9 +720,10 @@
 
 /* --- Portrait: video edge-to-edge --- */
 @media (orientation: portrait) and (max-width: 768px) {
-  /* Prevent any horizontal overflow from breakout technique (Fix E). */
+  /* Focus-safe no-scroll: clip prevents horizontal overflow without
+     creating a scroll container or clipping focus-visible outlines. */
   .entei-player-main {
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   /* Video wrapper breaks out of parent gutter for full-bleed. */
@@ -749,13 +750,14 @@
 
 /* --- Landscape immersive: hide chrome, video fills viewport --- */
 @media (orientation: landscape) and (max-height: 500px) {
-  /* Hide TopBar, footer, pickers, subtitle panel, subtitle row, warnings. */
+  /* Hide TopBar, footer, pickers, subtitle panel, subtitle row, warnings, timeline button. */
   .entei-topbar,
   .entei-footer,
   .entei-player-empty,
   .entei-player-subtitle-row,
   .entei-subtitle-panel,
-  .entei-player-errors {
+  .entei-player-errors,
+  .entei-controls-timeline-btn {
     display: none !important;
   }
 
@@ -798,5 +800,528 @@
     min-height: 100dvh;
     justify-content: center;
     border-radius: 0;
+  }
+}
+
+/* ===========================================================================
+ * P1.1 Custom Control Layer
+ * ---------------------------------------------------------------------------
+ * Replaces native browser video controls. Uses Entei OKLCH tokens.
+ * Visibility auto-hides on idle (desktop + playing); always visible when
+ * paused, error, ended, or pointer/touch/keyboard active.
+ * =========================================================================== */
+
+/* --- Media Surface (wraps video/audio + controls overlay) --- */
+.entei-player-surface {
+  position: relative;
+  width: 100%;
+  border-radius: var(--entei-radius-md);
+  overflow: hidden;
+}
+
+/* For audio, surface is the whole audio area (not relative on wrapper). */
+.entei-player-audio-area {
+  position: relative;
+}
+
+/* --- Controls Layer (overlay on media surface) --- */
+.entei-controls-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  pointer-events: auto;
+  z-index: 10;
+  opacity: 1;
+  transition:
+    opacity var(--entei-duration-normal) var(--entei-ease-productive),
+    transform var(--entei-duration-normal) var(--entei-ease-productive);
+}
+
+.entei-controls-layer--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Gradient overlays for legibility */
+.entei-controls-layer::before,
+.entei-controls-layer::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.entei-controls-layer::before {
+  top: 0;
+  height: 40%;
+  background: linear-gradient(oklch(0% 0 0deg / 0.6), transparent);
+}
+
+.entei-controls-layer::after {
+  bottom: 0;
+  height: 50%;
+  background: linear-gradient(transparent, oklch(0% 0 0deg / 0.7));
+}
+
+/* Ensure all direct children are above gradients */
+.entei-controls-layer > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Top Bar --- */
+.entei-controls-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+}
+
+/* --- Controls Media Name (top-left, ellipsis) --- */
+.entei-controls-media-name {
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  color: oklch(100% 0 0deg / 0.9);
+  text-shadow: 0 1px 3px oklch(0% 0 0deg / 0.5);
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Controls Top Right --- */
+.entei-controls-top-right {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  margin-left: auto;
+}
+
+/* --- Controls Button (all icon buttons) --- */
+.entei-controls-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-sm);
+  color: oklch(100% 0 0deg / 0.9);
+  cursor: pointer;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+  flex-shrink: 0;
+}
+
+.entei-controls-btn:hover {
+  color: oklch(100% 0 0deg / 1);
+  background-color: oklch(100% 0 0deg / 0.15);
+}
+
+.entei-controls-btn:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Status dot for Settings when no subtitles loaded */
+.entei-controls-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--entei-gold-base);
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.entei-controls-settings-btn {
+  position: relative;
+}
+
+/* --- Two-row Bottom Bar ---
+   Upper row: seek timeline (full width).
+   Lower row: play/time/volume (left) | rate/fullscreen (right). */
+.entei-controls-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  /* Ensure the 44px seek thumb hit area and focus ring are never clipped */
+  overflow: visible;
+}
+
+.entei-controls-bottom-left {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  flex-shrink: 0;
+}
+
+.entei-controls-play-btn {
+  color: oklch(100% 0 0deg / 1);
+}
+
+.entei-controls-time {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: oklch(100% 0 0deg / 0.85);
+  white-space: nowrap;
+  text-shadow: 0 1px 2px oklch(0% 0 0deg / 0.5);
+  user-select: none;
+}
+
+.entei-controls-time-sep {
+  opacity: 0.6;
+}
+
+/* --- Seek Slider (upper row, full width) --- */
+.entei-controls-seek {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--entei-space-4);
+  /* Ensure the 44px hit-area pseudo-element on the thumb is not clipped */
+  overflow: visible;
+}
+
+/* --- Lower control row --- */
+.entei-controls-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+
+/* Req 4: Thinner seek track — 2px default, 3px on hover/focus. */
+.entei-controls-seek-slider > span:first-child {
+  height: 2px;
+  transition: height var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-controls-seek-slider:hover > span:first-child,
+.entei-controls-seek-slider:focus-within > span:first-child {
+  height: 3px;
+}
+
+/* Seek thumb hit target: the visual knob is a small solid purple circle (12px),
+   but its pointer interaction area is expanded to 44×44 via a transparent
+   pseudo-element. The hit area and visual size are intentionally separate. */
+.entei-controls-seek-slider [role='slider'] {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--entei-accent);
+  border: none;
+  box-shadow: none;
+  /* Ensure focus ring remains visible even without a border */
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-controls-seek-slider [role='slider']:focus-visible {
+  outline-color: var(--entei-accent-hover);
+}
+
+.entei-controls-seek-slider [role='slider']::after {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  /* Transparent — only extends the pointer hit area to 44×44. */
+}
+
+/* --- Bottom Right (rate, fullscreen) --- */
+.entei-controls-bottom-right {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  flex-shrink: 0;
+}
+
+/* --- Volume Group --- */
+.entei-controls-volume-group {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+/* Absolutely positioned popout — zero layout width when closed.
+   visibility:hidden prevents keyboard tabbing into hidden slider thumb.
+   overflow:visible ensures the Radix Slider thumb (20px) is never clipped
+   inside the 44px-tall interaction box. */
+.entei-controls-volume-popup {
+  position: absolute;
+  left: calc(100% + var(--entei-space-4));
+  top: 50%;
+  transform: translateY(-50%) scaleX(0);
+  transform-origin: left center;
+  width: 100px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  overflow: visible;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--entei-duration-normal) var(--entei-ease-productive),
+    transform var(--entei-duration-normal) var(--entei-ease-productive),
+    visibility 0s var(--entei-duration-normal);
+  z-index: 15;
+}
+
+.entei-controls-volume-popup--open,
+.entei-controls-volume-group:hover .entei-controls-volume-popup,
+.entei-controls-volume-group:focus-within .entei-controls-volume-popup {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) scaleX(1);
+  pointer-events: auto;
+  transition:
+    opacity var(--entei-duration-normal) var(--entei-ease-productive),
+    transform var(--entei-duration-normal) var(--entei-ease-productive),
+    visibility 0s 0s;
+}
+
+/* Volume slider — 2px track (3px on hover/focus), thumb fully visible.
+   The 44px height matches the touch target; padding controls the thin track. */
+.entei-controls-volume-slider {
+  width: 100px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.entei-controls-volume-slider > span:first-child {
+  height: 2px;
+}
+
+.entei-controls-volume-group:hover
+  .entei-controls-volume-slider
+  > span:first-child,
+.entei-controls-volume-slider:focus-within > span:first-child {
+  height: 3px;
+}
+
+/* Volume thumb hit target: the visual knob stays 20px, but its pointer
+   interaction area is expanded to 44×44 via a transparent pseudo-element.
+   This gives a touch-friendly target without bloating the visible control. */
+.entei-controls-volume-slider [role='slider'] {
+  position: relative;
+}
+
+.entei-controls-volume-slider [role='slider']::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  /* No visual styling — purely extends the pointer hit area to 44×44.
+     The actual visible thumb remains the Radix default 20px circle. */
+}
+
+/* --- Rate Button (icon only, no visible "1x" text — Req 3) --- */
+.entei-controls-rate-btn {
+  gap: 0;
+}
+
+/* --- Settings Popover --- */
+.entei-settings-popover {
+  width: 280px;
+  max-height: 360px;
+  overflow-y: auto;
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-lg);
+  box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.4);
+  padding: var(--entei-space-12);
+  z-index: 50;
+}
+
+.entei-settings-section {
+  padding: var(--entei-space-8) 0;
+}
+
+.entei-settings-section + .entei-settings-section {
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-settings-heading {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--entei-text-secondary);
+}
+
+.entei-settings-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  margin-bottom: var(--entei-space-8);
+}
+
+.entei-settings-status {
+  display: block;
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  margin-top: var(--entei-space-4);
+}
+
+.entei-settings-shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+}
+
+.entei-settings-shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-2) 0;
+}
+
+/* --- Rate Popover --- */
+.entei-rate-popover {
+  width: 200px;
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-lg);
+  box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.4);
+  padding: var(--entei-space-8);
+  z-index: 50;
+}
+
+.entei-rate-popover-title {
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--entei-text-muted);
+  margin-bottom: var(--entei-space-4);
+}
+
+.entei-rate-list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--entei-space-2);
+}
+
+.entei-rate-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 var(--entei-space-4);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--entei-radius-sm);
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--entei-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-rate-option:hover {
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+}
+
+.entei-rate-option:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-rate-option--active {
+  background-color: var(--entei-accent);
+  color: oklch(100% 0 0deg / 1);
+}
+
+.entei-rate-option--active:hover {
+  background-color: var(--entei-accent-hover);
+}
+
+/* --- Fullscreen Error Feedback --- */
+.entei-controls-feedback {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: var(--entei-space-4) var(--entei-space-12);
+  background-color: oklch(55% 0.2 25deg / 0.9);
+  color: oklch(100% 0 0deg / 1);
+  border-radius: var(--entei-radius-sm);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* --- Reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .entei-controls-layer {
+    transition: none;
+  }
+
+  .entei-controls-volume-popup {
+    transition: none;
+  }
+
+  .entei-controls-layer--hidden {
+    opacity: 0;
+  }
+
+  .entei-controls-feedback {
+    transition: none;
+  }
+}
+
+/* --- Landscape immersive: custom controls still work --- */
+@media (orientation: landscape) and (max-height: 500px) {
+  .entei-player-surface {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .entei-controls-layer {
+    padding: var(--entei-space-4) var(--entei-space-8);
+  }
+
+  .entei-controls-media-name {
+    max-width: 40%;
+  }
+}
+
+/* --- Layout variant: no panel --- */
+.entei-player-layout--no-panel .entei-player-media-area {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 768px) {
+  .entei-player-layout--no-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 1024px) {
+  .entei-player-layout--no-panel {
+    grid-template-columns: 1fr;
   }
 }

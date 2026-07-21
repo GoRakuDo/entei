@@ -9,12 +9,17 @@
  * - [ : decrease playback speed
  * - ] : increase playback speed
  *
- * Does not hijack typing/form controls.
+ * P1.1: Also excludes <button>, [role="button"], [role="slider"], [role="switch"],
+ * [role="checkbox"] from Space/Enter triggering global play/pause.
  * --------------------------------------------------------------------------- */
 'use client';
 
 import { useEffect, useCallback, useRef } from 'react';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
+import {
+  isControlTarget,
+  PLAYBACK_RATES,
+} from '@/features/player/control-helpers';
 
 interface UseKeyboardShortcutsOptions {
   videoRef: React.RefObject<HTMLMediaElement | null>;
@@ -26,12 +31,8 @@ interface UseKeyboardShortcutsOptions {
   enabled: boolean;
 }
 
-const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+export { PLAYBACK_RATES } from '@/features/player/control-helpers';
 
-/**
- * Check if the event target is an editable element that should not
- * trigger keyboard shortcuts.
- */
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName.toLowerCase();
@@ -52,25 +53,25 @@ export function useKeyboardShortcuts({
   onCueClick,
   enabled,
 }: UseKeyboardShortcutsOptions) {
-  // Track the current active cue ID for stable reference in event handler
   const activeCueIdRef = useRef(activeCueId);
   activeCueIdRef.current = activeCueId;
 
-  // Track cues for stable reference
   const cuesRef = useRef(cues);
   cuesRef.current = cues;
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!enabled) return;
-      if (isEditableTarget(e.target)) return;
+
+      // P1.1: Exclude editable targets AND control targets (button, slider, etc.)
+      // to prevent Space/Enter from double-firing play/pause.
+      if (isEditableTarget(e.target) || isControlTarget(e.target)) return;
 
       const media = videoRef.current;
       if (!media) return;
 
       switch (e.key) {
         case ' ': {
-          // Space: toggle play/pause
           e.preventDefault();
           if (media.paused) {
             media.play().catch(() => {});
@@ -81,14 +82,16 @@ export function useKeyboardShortcuts({
         }
 
         case 'ArrowLeft': {
-          // ArrowLeft: previous cue
           e.preventDefault();
           const currentId = activeCueIdRef.current;
           const currentCues = cuesRef.current;
           if (currentCues.length === 0) break;
 
-          // Clamp activeCueId to valid index range (handles stale/out-of-range
-          // IDs after subtitle file replacement).
+          // P3: Intentional direction-aware behavior — when there is no valid
+          // active cue (null, out-of-range), ArrowLeft always starts from the
+          // first cue (index 0). This is asymmetric with ArrowRight which
+          // starts from the last cue, matching the directional intent: Left
+          // means "go toward the beginning", Right means "go toward the end".
           const clampedId =
             currentId !== null &&
             currentId >= 0 &&
@@ -103,14 +106,13 @@ export function useKeyboardShortcuts({
         }
 
         case 'ArrowRight': {
-          // ArrowRight: next cue
           e.preventDefault();
           const currentId = activeCueIdRef.current;
           const currentCues = cuesRef.current;
           if (currentCues.length === 0) break;
 
-          // Clamp activeCueId to valid index range (handles stale/out-of-range
-          // IDs after subtitle file replacement).
+          // P3: ArrowRight starts from the last cue when active is invalid,
+          // matching directional intent — "go toward the end".
           const clampedId =
             currentId !== null &&
             currentId >= 0 &&
@@ -127,7 +129,6 @@ export function useKeyboardShortcuts({
         }
 
         case 'Home': {
-          // Home: seek to current cue start
           e.preventDefault();
           const currentId = activeCueIdRef.current;
           const currentCues = cuesRef.current;
@@ -139,7 +140,6 @@ export function useKeyboardShortcuts({
         }
 
         case '[': {
-          // [ : decrease playback speed
           e.preventDefault();
           const currentIdx = PLAYBACK_RATES.indexOf(playbackRate);
           if (currentIdx > 0) {
@@ -151,7 +151,6 @@ export function useKeyboardShortcuts({
         }
 
         case ']': {
-          // ] : increase playback speed
           e.preventDefault();
           const currentIdx = PLAYBACK_RATES.indexOf(playbackRate);
           if (currentIdx < PLAYBACK_RATES.length - 1) {

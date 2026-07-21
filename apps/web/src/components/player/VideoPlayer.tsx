@@ -1,15 +1,18 @@
 /**
- * VideoPlayer — Video element with native controls.
+ * VideoPlayer — Video element WITHOUT native controls (P1.1).
+ * Custom controls are provided by PlayerControls via PlayerApp.
  */
 'use client';
 
 import { forwardRef, useCallback } from 'react';
+import { classifyMediaError } from '@/features/player/media-url';
 
 interface VideoPlayerProps {
   src: string;
   isLoading: boolean;
   error: string | null;
-  fallbackErrorLabel?: string;
+  errorLabel?: string;
+  decodeErrorLabel?: string;
   onTimeUpdate: (time: number) => void;
   onPlay: () => void;
   onPause: () => void;
@@ -23,7 +26,8 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       src,
       isLoading,
       error,
-      fallbackErrorLabel = 'Failed to load video',
+      errorLabel = 'Failed to load video',
+      decodeErrorLabel = 'Video playback error',
       onTimeUpdate,
       onPlay,
       onPause,
@@ -46,9 +50,30 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const handleError = useCallback(
       (e: React.SyntheticEvent<HTMLVideoElement>) => {
         const mediaError = e.currentTarget.error;
-        onError(mediaError?.message ?? fallbackErrorLabel);
+        const classified = classifyMediaError(mediaError, 'video');
+        // P1.2: Never surface raw MediaError.message — use localized labels.
+        // Decode errors get a distinct label from network/unsupported errors.
+        if (classified?.kind === 'decode') {
+          onError(decodeErrorLabel);
+        } else {
+          onError(errorLabel);
+        }
       },
-      [onError, fallbackErrorLabel],
+      [onError, errorLabel, decodeErrorLabel],
+    );
+
+    /* Guard #4: Prevent Space/Enter on focused video element from
+       double-firing global play/pause or browser default behavior.
+       The custom PlayerControls handle playback; video focus is for
+       accessibility only. */
+    const handleKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLVideoElement>) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      [],
     );
 
     if (error) {
@@ -70,9 +95,10 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
           onPause={onPause}
           onLoadedData={handleLoadedData}
           onError={handleError}
+          onKeyDown={handleKeyDown}
           preload="metadata"
           playsInline
-          controls
+          tabIndex={0}
         />
         {isLoading && (
           <div className="entei-player-loading-overlay">

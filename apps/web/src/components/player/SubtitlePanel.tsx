@@ -12,6 +12,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { BookOpen } from 'lucide-react';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
+import { formatTime } from '@/features/player/control-helpers';
 import { ScrollArea } from './ui/scroll-area';
 
 interface SubtitlePanelProps {
@@ -127,14 +128,4 @@ export function SubtitlePanel({
       </ScrollArea>
     </div>
   );
-}
-
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  }
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }

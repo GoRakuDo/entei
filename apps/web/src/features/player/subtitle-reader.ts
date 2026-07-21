@@ -1,17 +1,20 @@
 /**
- * Subtitle Parser — SRT and VTT formats.
+ * Subtitle Parser — SRT, VTT, and ASS formats.
  * ---------------------------------------------------------------------------
- * P1 scope: SRT and VTT only. ASS/SSA has a dependency gate (PLAYER_PHASES.md 5.128).
+ * P1 scope: SRT, VTT, and ASS (P1.3a).
+ * NFVTT/XML/platform/PGS are P1.3b/P1.4 scope.
  *
  * Design:
  * - Returns validation errors instead of throwing to UI.
  * - Strips VTT headers, notes, and style blocks safely.
+ * - Strips ASS override tags ({\\...}) from dialogue text.
+ * - Converts ASS \\N and \\n linebreaks to spaces (single-line convention).
  * - Normalizes and sorts cues by start time.
  * - Handles malformed timing gracefully.
  * - Single shared tag-stripping helper (merged from duplicates).
  * --------------------------------------------------------------------------- */
 
-/** A single normalized subtitle cue. */
+import { compile as compileASS } from 'ass-compiler';
 export interface SubtitleCue {
   /** Unique identifier (index-based after normalization). */
   id: number;
@@ -38,11 +41,11 @@ export interface SubtitleParseResult {
   /** Any validation errors encountered during parsing. */
   errors: SubtitleError[];
   /** Detected format. */
-  format: 'srt' | 'vtt' | null;
+  format: 'srt' | 'vtt' | 'ass' | null;
 }
 
 /**
- * Parse a subtitle file (SRT or VTT).
+ * Parse a subtitle file (SRT, VTT, or ASS).
  * Auto-detects format based on content.
  */
 export function parseSubtitle(content: string): SubtitleParseResult {
@@ -57,6 +60,11 @@ export function parseSubtitle(content: string): SubtitleParseResult {
 
   if (trimmed.startsWith('WEBVTT')) {
     return parseVTT(trimmed);
+  }
+
+  // ASS detection: [Script Info] section header
+  if (/^\[Script Info\]/i.test(trimmed)) {
+    return parseASS(trimmed);
   }
 
   return parseSRT(trimmed);
@@ -258,6 +266,123 @@ function parseVTT(content: string): SubtitleParseResult {
 }
 
 // ---------------------------------------------------------------------------
+// ASS Parser (P1.3a — uses ass-compiler)
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip ASS override tags ({\...}) from text.
+ * These are inline styling directives like {\b1}, {\i1}, {\pos(x,y)} etc.
+ * Only strips brace-enclosed tags, not the text content.
+ */
+function stripASSTags(text: string): string {
+  return text.replace(/\{[^}]*\}/g, '');
+}
+
+/**
+ * Normalize ASS linebreaks (\N and \n) to spaces.
+ * ASS uses \N for hard line breaks and \n for soft breaks.
+ * Entei's panel convention is single-line (whitespace normalized).
+ */
+function normalizeASSLinebreaks(text: string): string {
+  return text.replace(/\\N/g, ' ').replace(/\\n/g, ' ');
+}
+
+/**
+ * Compile ASS content using ass-compiler, returning cues or errors.
+ * Wraps the compiler call to catch any thrown exceptions.
+ */
+function compileASSContent(
+  content: string,
+): { compiled: ReturnType<typeof compileASS> } | { error: string } {
+  try {
+    const compiled = compileASS(content, {}); // empty options — default behavior
+    return { compiled };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: `ASS compiler error: ${msg}` };
+  }
+}
+
+function parseASS(content: string): SubtitleParseResult {
+  const errors: SubtitleError[] = [];
+  const cues: SubtitleCue[] = [];
+
+  const result = compileASSContent(content);
+  if ('error' in result) {
+    errors.push({ line: 0, message: result.error });
+    return { cues, errors, format: 'ass' };
+  }
+
+  const dialogues = result.compiled.dialogues;
+  if (!Array.isArray(dialogues) || dialogues.length === 0) {
+    errors.push({ line: 0, message: 'No dialogue events found in ASS file' });
+    return { cues, errors, format: 'ass' };
+  }
+
+  for (let i = 0; i < dialogues.length; i++) {
+    const d = dialogues[i];
+    if (!d) continue;
+
+    const start = typeof d.start === 'number' ? d.start : NaN;
+    const end = typeof d.end === 'number' ? d.end : NaN;
+
+    if (isNaN(start) || isNaN(end)) {
+      errors.push({
+        line: 0,
+        message: `Dialogue #${i + 1}: invalid timing (start=${String(start)}, end=${String(end)})`,
+      });
+      continue;
+    }
+
+    if (end <= start) {
+      errors.push({
+        line: 0,
+        message: `Dialogue #${i + 1}: end time (${end}s) is not after start time (${start}s)`,
+      });
+    }
+
+    // Extract text from all slices/fragments
+    const textParts: string[] = [];
+    if (Array.isArray(d.slices)) {
+      for (const slice of d.slices) {
+        if (!slice || !Array.isArray(slice.fragments)) continue;
+        for (const frag of slice.fragments) {
+          if (frag && typeof frag.text === 'string') {
+            textParts.push(frag.text);
+          }
+        }
+      }
+    }
+
+    let text = textParts.join('');
+    // Strip ASS override tags and normalize linebreaks
+    text = stripASSTags(text);
+    text = normalizeASSLinebreaks(text);
+    // Apply shared whitespace normalization
+    text = stripTags(text);
+
+    if (text.length === 0) {
+      errors.push({ line: 0, message: `Dialogue #${i + 1}: empty text` });
+      continue;
+    }
+
+    cues.push({
+      id: cues.length,
+      start,
+      end,
+      text,
+    });
+  }
+
+  cues.sort((a, b) => a.start - b.start || a.end - b.end);
+  cues.forEach((cue, idx) => {
+    cue.id = idx;
+  });
+
+  return { cues, errors, format: 'ass' };
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -376,9 +501,10 @@ function stripVTTHeaders(content: string): string {
   return result.join('\n');
 }
 
-export function detectFormat(content: string): 'srt' | 'vtt' | null {
+export function detectFormat(content: string): 'srt' | 'vtt' | 'ass' | null {
   const trimmed = content.trim();
   if (trimmed.startsWith('WEBVTT')) return 'vtt';
+  if (/^\[Script Info\]/i.test(trimmed)) return 'ass';
   if (/^\d+\s*\n/.test(trimmed)) return 'srt';
   return null;
 }

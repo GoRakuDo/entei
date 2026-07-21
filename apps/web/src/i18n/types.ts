@@ -69,6 +69,9 @@ export interface Dictionary {
     failedToRead: string;
     failedToLoadAudio: string;
     failedToLoadVideo: string;
+    // P1.2: Distinct native decode error labels (never expose raw MediaError.message)
+    videoDecodeError: string;
+    audioDecodeError: string;
     cuesCount: string;
     seekTo: string;
     playLabel: string;
@@ -81,6 +84,30 @@ export interface Dictionary {
     shortcutSeekHome: string;
     shortcutSlowDown: string;
     shortcutSpeedUp: string;
+    // P1.1 Custom Controls
+    timelineToggle: string;
+    timelineShow: string;
+    timelineHide: string;
+    settingsLabel: string;
+    settingsTitle: string;
+    settingsSubtitles: string;
+    settingsShortcuts: string;
+    subtitlesLoadedStatus: string;
+    subtitlesNotLoadedStatus: string;
+    seekAriaLabel: string;
+    muteAriaLabel: string;
+    unmuteAriaLabel: string;
+    showVolume: string;
+    hideVolume: string;
+    volumeSliderAriaLabel: string;
+    rateLabel: string;
+    rateAriaLabel: string;
+    fullscreenEnter: string;
+    fullscreenExit: string;
+    fullscreenError: string;
+    fullscreenUnavailable: string;
+    controlsShow: string;
+    controlsHide: string;
   };
   reader: {
     title: string;
