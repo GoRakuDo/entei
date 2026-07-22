@@ -22,6 +22,7 @@ export const en: Dictionary = {
       'Choose a video or audio file from your device, then add SRT or VTT subtitles.',
     chooseMedia: 'Choose Media',
     chooseSubtitle: 'Choose Subtitles',
+    changeSubtitle: 'Change',
     subtitles: 'Subtitles',
     noSubtitlesLoaded: 'No subtitles loaded. Add an SRT or VTT file.',
     shortcuts: 'Shortcuts',

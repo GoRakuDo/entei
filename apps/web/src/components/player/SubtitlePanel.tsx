@@ -14,25 +14,34 @@ import { BookOpen } from 'lucide-react';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 import { formatTime } from '@/features/player/control-helpers';
 import { ScrollArea } from './ui/scroll-area';
+import { SubtitlePicker } from './SubtitlePicker';
 
 interface SubtitlePanelProps {
   cues: SubtitleCue[];
   activeCueId: number | null;
   onCueClick: (cue: SubtitleCue) => void;
+  onSubtitleSelect?: (file: File) => void;
+  subtitleAccept?: string;
   subtitlesLabel?: string;
   cuesCountLabel?: string;
   noSubtitlesLabel?: string;
   seekToLabel?: string;
+  chooseSubtitleLabel?: string;
+  changeSubtitleLabel?: string;
 }
 
 export function SubtitlePanel({
   cues,
   activeCueId,
   onCueClick,
+  onSubtitleSelect,
+  subtitleAccept,
   subtitlesLabel = 'Subtitles',
   cuesCountLabel = 'cues',
   noSubtitlesLabel = 'No subtitles loaded. Add an SRT or VTT file.',
   seekToLabel = 'Seek to',
+  chooseSubtitleLabel = 'Choose Subtitles',
+  changeSubtitleLabel = 'Change',
 }: SubtitlePanelProps) {
   // Ref on the ScrollArea root — query viewport inside for scroll checks.
   const scrollRootRef = useRef<HTMLDivElement>(null);
@@ -85,6 +94,13 @@ export function SubtitlePanel({
         <div className="entei-subtitle-empty">
           <BookOpen size={24} className="entei-player-audio-icon" />
           <p className="entei-subtitle-empty-text">{noSubtitlesLabel}</p>
+          {onSubtitleSelect && subtitleAccept && (
+            <SubtitlePicker
+              onSelect={onSubtitleSelect}
+              accept={subtitleAccept}
+              label={chooseSubtitleLabel}
+            />
+          )}
         </div>
       </div>
     );
@@ -93,11 +109,19 @@ export function SubtitlePanel({
   return (
     <div className="entei-subtitle-panel">
       <div className="entei-subtitle-panel-header">
-        <span className="entei-subtitle-panel-title">{subtitlesLabel}</span>
-        <span className="entei-subtitle-panel-count">
-          {cues.length} {cuesCountLabel}
-        </span>
-      </div>
+          <span className="entei-subtitle-panel-title">{subtitlesLabel}</span>
+          {onSubtitleSelect && subtitleAccept && (
+            <SubtitlePicker
+              onSelect={onSubtitleSelect}
+              accept={subtitleAccept}
+              label={changeSubtitleLabel}
+              compact
+            />
+          )}
+          <span className="entei-subtitle-panel-count">
+            {cues.length} {cuesCountLabel}
+          </span>
+        </div>
       <ScrollArea
         ref={scrollRootRef}
         className="entei-subtitle-scroll-area"

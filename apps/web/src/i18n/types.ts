@@ -57,6 +57,7 @@ export interface Dictionary {
     selectMediaDesc: string;
     chooseMedia: string;
     chooseSubtitle: string;
+    changeSubtitle: string;
     subtitles: string;
     noSubtitlesLoaded: string;
     shortcuts: string;

@@ -22,6 +22,7 @@ export const ja: Dictionary = {
       'デバイスから動画または音声ファイルを選択し、SRTまたはVTTの字幕を追加します。',
     chooseMedia: 'メディアを選択',
     chooseSubtitle: '字幕を選択',
+    changeSubtitle: '変更',
     subtitles: '字幕',
     noSubtitlesLoaded:
       '字幕が読み込まれていません。SRTまたはVTTファイルを追加してください。',

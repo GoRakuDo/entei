@@ -57,8 +57,6 @@ import {
   type VisibilityEvent,
   type CaptionDisplayMode,
 } from '@/features/player/control-helpers';
-import { SubtitlePicker } from '@/components/player/SubtitlePicker';
-import { SUBTITLE_ACCEPT } from '@/features/player/media-url';
 import type { ShortcutEntry } from '@/components/player/KeyboardShortcutsHelp';
 
 interface PlayerControlsProps {
@@ -81,7 +79,6 @@ interface PlayerControlsProps {
   mediaName: string;
   isSubtitlePanelVisible: boolean;
   onToggleSubtitlePanel: () => void;
-  hasSubtitles: boolean;
   // P1.3a.2: Caption display mode
   captionDisplayMode: CaptionDisplayMode;
   onCycleCaptionMode: () => void;
@@ -89,7 +86,6 @@ interface PlayerControlsProps {
   onVolumeChange: (volume: number) => void;
   playbackRate: number;
   onPlaybackRateChange: (rate: number) => void;
-  onSubtitleSelect: (file: File) => void;
   shortcuts: ShortcutEntry[];
   isTouchDevice: boolean;
   reducedMotion: boolean;
@@ -119,14 +115,12 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
       mediaName,
       isSubtitlePanelVisible,
       onToggleSubtitlePanel,
-      hasSubtitles,
       captionDisplayMode,
       onCycleCaptionMode,
       volume,
       onVolumeChange,
       playbackRate,
       onPlaybackRateChange,
-      onSubtitleSelect,
       shortcuts,
       isTouchDevice,
       reducedMotion,
@@ -544,12 +538,6 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
                 onClick={(e) => e.stopPropagation()}
               >
                 <Settings size={18} />
-                {!hasSubtitles && (
-                  <span
-                    className="entei-controls-status-dot"
-                    aria-label={dict.subtitlesNotLoadedStatus}
-                  />
-                )}
               </button>
             </PopoverTrigger>
             <PopoverContent
@@ -561,20 +549,6 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
             >
               <div className="entei-settings-section">
                 <h3 className="entei-settings-heading">{dict.settingsTitle}</h3>
-              </div>
-              <div className="entei-settings-section">
-                <p className="entei-settings-label">{dict.settingsSubtitles}</p>
-                <SubtitlePicker
-                  onSelect={onSubtitleSelect}
-                  accept={SUBTITLE_ACCEPT}
-                  label={dict.chooseSubtitle}
-                  compact
-                />
-                {hasSubtitles && (
-                  <span className="entei-settings-status">
-                    {dict.subtitlesLoadedStatus}
-                  </span>
-                )}
               </div>
               <div className="entei-settings-section">
                 <p className="entei-settings-label">{dict.settingsShortcuts}</p>

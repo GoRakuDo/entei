@@ -23,6 +23,7 @@ export const id: Dictionary = {
       'Pilih file video atau audio dari perangkat Anda, lalu tambahkan subtitle SRT atau VTT.',
     chooseMedia: 'Pilih Media',
     chooseSubtitle: 'Pilih Subtitle',
+    changeSubtitle: 'Ganti',
     subtitles: 'Subtitle',
     noSubtitlesLoaded: 'Belum ada subtitle. Tambahkan file SRT atau VTT.',
     shortcuts: 'Pintasan',

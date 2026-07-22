@@ -451,6 +451,24 @@ export default function PlayerApp() {
   const dict = dictRef.current.playerUI;
   const hasMedia = mediaUrl !== null;
 
+  // --- Desktop immersive layout ---
+  // When media is loaded on desktop (≥1024px), apply immersive class to <html>
+  // to hide TopBar/SiteFooter and make the player fill 100dvh.
+  useEffect(() => {
+    if (!hasMedia) return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const apply = (matches: boolean) => {
+      document.documentElement.classList.toggle('entei-player-immersive', matches);
+    };
+    apply(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => apply(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => {
+      mq.removeEventListener('change', onChange);
+      document.documentElement.classList.remove('entei-player-immersive');
+    };
+  }, [hasMedia]);
+
   // --- Shortcuts list for settings popover ---
   const shortcuts = [
     { key: 'Space', desc: dict.shortcutPlayPause },
@@ -590,14 +608,12 @@ export default function PlayerApp() {
                 onToggleSubtitlePanel={() =>
                   setIsSubtitlePanelVisible((v) => !v)
                 }
-                hasSubtitles={cues.length > 0}
                 captionDisplayMode={captionDisplayMode}
                 onCycleCaptionMode={handleCycleCaptionMode}
                 volume={volume}
                 onVolumeChange={handleVolumeChange}
                 playbackRate={playbackRate}
                 onPlaybackRateChange={handlePlaybackRateChange}
-                onSubtitleSelect={handleSubtitleSelect}
                 shortcuts={shortcuts}
                 isTouchDevice={isTouchDevice}
                 reducedMotion={reducedMotion}
@@ -611,10 +627,14 @@ export default function PlayerApp() {
               cues={cues}
               activeCueId={activeCueId}
               onCueClick={handleCueClick}
+              onSubtitleSelect={handleSubtitleSelect}
+              subtitleAccept={SUBTITLE_ACCEPT}
               subtitlesLabel={dict.subtitles}
               cuesCountLabel={dict.cuesCount}
               noSubtitlesLabel={dict.noSubtitlesLoaded}
               seekToLabel={dict.seekTo}
+              chooseSubtitleLabel={dict.chooseSubtitle}
+              changeSubtitleLabel={dict.changeSubtitle}
             />
           )}
 

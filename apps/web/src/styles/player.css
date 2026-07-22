@@ -1387,3 +1387,86 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Desktop Immersive Layout --- */
+/* Applied to <html> via JS when media is loaded on desktop (≥1024px).
+   Hides TopBar/SiteFooter, removes main padding, fills viewport. */
+html.entei-player-immersive body {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Hide TopBar and Footer in immersive mode */
+html.entei-player-immersive body > .entei-topbar,
+html.entei-player-immersive body > footer {
+  display: none !important;
+}
+
+/* Remove main padding in immersive mode */
+html.entei-player-immersive body > .entei-player-main {
+  padding: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* SubtitlePanel fills viewport height in immersive mode */
+html.entei-player-immersive .entei-subtitle-panel {
+  max-height: 100dvh;
+  overflow-y: auto;
+}
+
+/* No gap between video and panel in immersive mode */
+html.entei-player-immersive .entei-player-layout {
+  gap: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Panel fills remaining height when visible */
+html.entei-player-immersive
+  .entei-player-layout:not(.entei-player-layout--no-panel) {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-rows: 1fr;
+}
+
+html.entei-player-immersive
+  .entei-player-layout:not(.entei-player-layout--no-panel)
+  .entei-player-media-area {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+html.entei-player-immersive
+  .entei-player-layout:not(.entei-player-layout--no-panel)
+  .entei-subtitle-panel {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 0;
+}
+
+/* Media area fills height in immersive mode */
+html.entei-player-immersive .entei-player-media-area {
+  min-height: 0;
+  height: 100%;
+}
+
+/* Surface fills entire grid cell so controls span full viewport */
+html.entei-player-immersive .entei-player-surface {
+  height: 100%;
+}
+
+/* Video wrapper fills surface */
+html.entei-player-immersive .entei-player-video-wrapper {
+  height: 100%;
+}
+
+/* Video fills wrapper preserving aspect ratio */
+html.entei-player-immersive .entei-player-video {
+  height: 100%;
+  max-height: none;
+}
+
+/* Audio area fills and centers in immersive mode */
+html.entei-player-immersive .entei-player-audio-area {
+  height: 100%;
+}
