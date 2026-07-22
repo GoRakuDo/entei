@@ -82,6 +82,48 @@ export const ja: Dictionary = {
     captionModeVisible: '字幕：表示',
     captionModeBlurred: '字幕：ぼかし',
     captionModeHidden: '字幕：非表示',
+    // AM-1: Settings Modal tabs
+    settingsTabPlayer: 'プレイヤー',
+    settingsTabAnki: 'Anki フィールド',
+    // AM-5: Anki Fields tab
+    ankiConnect: 'Ankiに接続',
+    ankiConnectDesc:
+      'AnkiConnect経由でAnkiに接続し、カードをエクスポートします。Ankiをローカルで起動してください。',
+    ankiEndpointLabel: 'AnkiConnect URL',
+    ankiConnectButton: '接続',
+    ankiRetryButton: '再試行',
+    ankiConnecting: 'Ankiに接続中…',
+    ankiErrorUnavailable:
+      'Ankiに接続できません。Ankiが起動し、AnkiConnectがインストールされていることを確認してください。',
+    ankiErrorCors:
+      'ブラウザが接続をブロックしました。AnkiConnectのorigin許可設定を確認してください。',
+    ankiErrorPermission: 'AnkiConnectからの許可が拒否されました。',
+    ankiErrorApiKey: 'AnkiConnectはAPIキーを要求しています。',
+    ankiErrorUnknown: '予期しないエラーが発生しました。',
+    ankiApiKeyLabel: 'APIキー',
+    ankiApiKeyPlaceholder: 'AnkiConnect APIキーを入力',
+    ankiDeckLabel: 'デッキ',
+    ankiDeckPlaceholder: 'デッキを選択',
+    ankiNoDecks: 'デッキが見つかりません',
+    ankiNoteTypeLabel: 'ノートタイプ',
+    ankiNoteTypePlaceholder: 'ノートタイプを選択',
+    ankiNoNoteTypes: 'ノートタイプが見つかりません',
+    ankiFieldSentence: '文章',
+    ankiFieldDefinition: '意味',
+    ankiFieldImage: '画像',
+    ankiFieldAudio: '音声',
+    ankiFieldWord: '単語',
+    ankiFieldSource: '出典',
+    ankiFieldTags: 'タグ',
+    ankiFieldRequired: '必須',
+    ankiFieldOptional: '任意',
+    ankiSavePreset: 'デフォルトプリセットを保存',
+    ankiPresetSaved: 'プリセットを保存しました',
+    ankiPresetInvalid:
+      '保存するにはデッキ、ノートタイプ、文章フィールドを選択してください。',
+    ankiNoFields: 'このノートタイプにフィールドがありません',
+    ankiSelectNoteTypeFirst:
+      'フィールドを表示するにはノートタイプを選択してください',
   },
   reader: {
     title: 'EPUBリーダー',

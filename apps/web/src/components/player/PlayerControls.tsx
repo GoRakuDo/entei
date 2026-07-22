@@ -33,7 +33,6 @@ import {
   Maximize2,
   Minimize2,
   Timeline,
-  Settings,
   ClosedCaption,
   Captions,
   CaptionsOff,
@@ -45,6 +44,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/player/ui/popover';
+import { PlayerSettingsDialog } from '@/components/player/PlayerSettingsDialog';
 import {
   formatTime,
   clampSeek,
@@ -134,7 +134,7 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
   const [prevVolume, setPrevVolume] = useState(volume > 0 ? volume : 0.5);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [isRateOpen, setIsRateOpen] = useState(false);
-  // Fix #2: Dedicated controlled state for Settings popover
+  // AM-1: Dialog-based Settings Modal
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
@@ -524,45 +524,13 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
             <Timeline size={18} />
           </button>
 
-          {/* Fix #2: Settings with dedicated controlled state */}
-          <Popover
+          {/* AM-1: Settings Dialog replacing Popover */}
+          <PlayerSettingsDialog
+            dict={dict}
+            shortcuts={shortcuts}
             open={isSettingsOpen}
             onOpenChange={handleSettingsOpenChange}
-          >
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="entei-controls-btn entei-controls-settings-btn"
-                aria-label={dict.settingsLabel}
-                title={dict.settingsLabel}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Settings size={18} />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="entei-settings-popover"
-              side="bottom"
-              align="end"
-              onClick={stopProp}
-              onPointerDown={stopProp}
-            >
-              <div className="entei-settings-section">
-                <h3 className="entei-settings-heading">{dict.settingsTitle}</h3>
-              </div>
-              <div className="entei-settings-section">
-                <p className="entei-settings-label">{dict.settingsShortcuts}</p>
-                <div className="entei-settings-shortcuts-list">
-                  {shortcuts.map((s) => (
-                    <div key={s.key} className="entei-settings-shortcut-row">
-                      <kbd className="entei-shortcut-key">{s.key}</kbd>
-                      <span className="entei-shortcut-desc">{s.desc}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
+          />
         </div>
       </div>
 

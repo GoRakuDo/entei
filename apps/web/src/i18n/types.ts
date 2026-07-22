@@ -113,6 +113,43 @@ export interface Dictionary {
     captionModeVisible: string;
     captionModeBlurred: string;
     captionModeHidden: string;
+    // AM-1: Settings Modal tabs
+    settingsTabPlayer: string;
+    settingsTabAnki: string;
+    // AM-5: Anki Fields tab
+    ankiConnect: string;
+    ankiConnectDesc: string;
+    ankiEndpointLabel: string;
+    ankiConnectButton: string;
+    ankiRetryButton: string;
+    ankiConnecting: string;
+    ankiErrorUnavailable: string;
+    ankiErrorCors: string;
+    ankiErrorPermission: string;
+    ankiErrorApiKey: string;
+    ankiErrorUnknown: string;
+    ankiApiKeyLabel: string;
+    ankiApiKeyPlaceholder: string;
+    ankiDeckLabel: string;
+    ankiDeckPlaceholder: string;
+    ankiNoDecks: string;
+    ankiNoteTypeLabel: string;
+    ankiNoteTypePlaceholder: string;
+    ankiNoNoteTypes: string;
+    ankiFieldSentence: string;
+    ankiFieldDefinition: string;
+    ankiFieldImage: string;
+    ankiFieldAudio: string;
+    ankiFieldWord: string;
+    ankiFieldSource: string;
+    ankiFieldTags: string;
+    ankiFieldRequired: string;
+    ankiFieldOptional: string;
+    ankiSavePreset: string;
+    ankiPresetSaved: string;
+    ankiPresetInvalid: string;
+    ankiNoFields: string;
+    ankiSelectNoteTypeFirst: string;
   };
   reader: {
     title: string;

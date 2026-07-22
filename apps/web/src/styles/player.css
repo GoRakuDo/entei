@@ -616,7 +616,8 @@
 .entei-dialog-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  /* W5: z-[200] — explicit three-layer system above topbar z-100 */
+  z-index: 200;
   background-color: oklch(5% 0.005 270deg / 0.8);
 }
 
@@ -625,7 +626,8 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 51;
+  /* W5: z-[201] — above overlay z-[200], below select z-[202] */
+  z-index: 201;
   width: 100%;
   max-width: 24rem;
   max-height: 85vh;
@@ -673,7 +675,7 @@
 }
 
 .entei-dialog-header {
-  padding: var(--entei-space-16) var(--entei-space-20);
+  padding: var(--entei-space-16) var(--entei-space-24);
   border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
@@ -694,7 +696,7 @@
 .entei-dialog-body {
   display: flex;
   flex-direction: column;
-  padding: var(--entei-space-12) var(--entei-space-20) var(--entei-space-20);
+  padding: var(--entei-space-12) var(--entei-space-24) var(--entei-space-24);
 }
 
 .entei-shortcut-row {
@@ -743,7 +745,8 @@
   .entei-subtitle-cue,
   .entei-player-btn,
   .entei-player-shortcuts-btn,
-  .entei-dialog-close {
+  .entei-dialog-close,
+  .entei-anki-connect-btn {
     transition: none;
   }
 }
@@ -1195,62 +1198,561 @@
   gap: 0;
 }
 
-/* --- Settings Popover --- */
-.entei-settings-popover {
-  width: 280px;
-  max-height: 360px;
-  overflow-y: auto;
+/* ===========================================================================
+ * Settings Dialog Workspace (AM-1 Redesign)
+ * ---------------------------------------------------------------------------
+ * Desktop (>=768px): Horizontal tab strip below header + full-width scrollable
+ * content panel. No vertical rail.
+ * Mobile (<768px): Sheet-like near-full-width/height, horizontal tabs at top
+ * =========================================================================== */
+
+/* --- Base Dialog (mobile-first: sheet-like) --- */
+.entei-settings-dialog {
+  position: fixed;
+  inset: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background-color: var(--entei-surface);
-  border: 1px solid oklch(100% 0 0deg / 0.1);
-  border-radius: var(--entei-radius-lg);
-  box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.4);
-  padding: var(--entei-space-12);
-  z-index: 50;
+  border: none;
+  padding: 0;
+  box-shadow: none;
 }
 
-.entei-settings-section {
-  padding: var(--entei-space-8) 0;
+/* Desktop: centered content-responsive workspace */
+@media (min-width: 768px) {
+  .entei-settings-dialog {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    width: clamp(34rem, 46vw, 42rem);
+    height: auto;
+    max-height: calc(100dvh - 2rem);
+    border-radius: var(--entei-radius-lg);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    box-shadow:
+      0 20px 25px -5px oklch(0% 0 0deg / 0.3),
+      0 8px 10px -6px oklch(0% 0 0deg / 0.2);
+  }
 }
 
-.entei-settings-section + .entei-settings-section {
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+/* W6: Hide TopBar on mobile while Settings Dialog is open.
+ * Uses visibility:hidden + pointer-events:none to avoid layout reflow.
+ * Desktop TopBar is untouched (media query scopes to <768px). */
+@media (max-width: 767px) {
+  html.entei-settings-dialog-open .entei-topbar {
+    visibility: hidden;
+    pointer-events: none;
+  }
 }
 
-.entei-settings-heading {
-  font-family: var(--entei-font-system);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+/* Dialog header: fixed within dialog */
+.entei-settings-dialog .entei-dialog-header {
+  flex-shrink: 0;
+  padding: var(--entei-space-24);
+  padding-right: 3.5rem;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+/* --- Tabs Body Layout --- */
+.entei-settings-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.entei-settings-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* --- Horizontal Tab Strip (all viewports) ---
+ * W2 Redesign: neutralize shadcn TabsList pill defaults (w-fit, rounded-lg,
+ * p-[3px], bg-muted). The strip is now full-width, transparent, square-edged,
+ * with only a calm bottom divider. Active tab uses a 3px accent underline
+ * that sits on the shared divider — no background fill. */
+.entei-settings-tabs-list {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0;
+  /* W2: full modal width — kills shadcn w-fit pill */
+  width: 100%;
+  /* W8: override shadcn justify-center — anchor tabs at left edge */
+  justify-content: flex-start;
+  /* W7: override shadcn h-9 (36px) — child needs 44px */
+  height: auto;
+  /* W10: 44px child + 1px divider = 45px minimum */
+  min-height: calc(var(--entei-touch-min) + 1px);
+  /* W10: no vertical padding — flush alignment */
+  padding: 0 var(--entei-space-24);
+  /* W2: transparent — kills shadcn bg-muted pill fill */
+  background-color: transparent;
+  /* W2: square — kills shadcn rounded-lg pill rounding */
+  border-radius: 0;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+/* W2: desktop inline padding aligns with content panel (32px) */
+@media (min-width: 768px) {
+  .entei-settings-tabs-list {
+    padding: 0 var(--entei-space-32);
+  }
+}
+
+/* W2: Tab trigger — clean text nav item, no pill shape */
+.entei-settings-tabs-list [data-slot='tabs-trigger'] {
+  flex: none;
+  justify-content: flex-start;
+  height: auto;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  /* W2: neutralize shadcn rounded-lg on individual triggers */
+  border-radius: 0;
+  /* W12: kill all shadcn borders — only shared divider + pseudo line remain */
+  border: none;
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: normal;
+  color: var(--entei-text-muted);
+  /* W2: neutralize shadcn bg-muted on triggers */
+  background: none;
+  /* W2: neutralize shadcn p-[3px] — our padding above is authoritative */
+  box-shadow: none;
+  position: relative;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* W5: Active indicator — 3px purple line positioned just above shared divider.
+ * Hidden by default (display:none); shown only on active tab. */
+.entei-settings-tabs-list [data-slot='tabs-trigger']::after {
+  content: '';
+  display: none;
+  position: absolute;
+  /* W6: bottom:0 aligns 3px indicator flush with trigger bottom, sitting just above parent's 1px divider */
+  /* W11: 5px centered around divider: 0.5px up, 0.5px down */
+  bottom: -0.5px;
+  left: var(--entei-space-16);
+  right: var(--entei-space-16);
+  height: 5px;
+  background-color: var(--entei-accent);
+  border-radius: 3px 3px 0 0;
+  transition: opacity var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* W5: Show indicator on active tab */
+.entei-settings-tabs-list
+  [data-slot='tabs-trigger'][data-state='active']::after {
+  display: block;
+  opacity: 1;
+}
+
+.entei-settings-tabs-list [data-slot='tabs-trigger']:hover {
   color: var(--entei-text-secondary);
+  /* W2: very subtle surface tint only — no pill bg */
+  background-color: oklch(100% 0 0deg / 0.03);
+}
+
+.entei-settings-tabs-list [data-slot='tabs-trigger'][data-state='active'] {
+  color: var(--entei-text);
+  /* W12: ensure no border restored by shadcn dark active state */
+  border: none;
+  /* W5: indicator shown via ::after pseudo-element — no border-bottom */
+  background-color: transparent;
+}
+
+/* --- Content Panel --- */
+.entei-settings-panel {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  /* W1: mobile 24px inline/block */
+  padding: var(--entei-space-24);
+}
+
+@media (min-width: 768px) {
+  .entei-settings-panel {
+    padding: var(--entei-space-24) var(--entei-space-32);
+  }
+}
+
+.entei-settings-tab-content {
+  padding: 0;
+  overflow: visible;
+}
+
+/* --- Player Tab Shortcuts (Workspace Dense List) --- */
+.entei-settings-section {
+  display: flex;
+  flex-direction: column;
+  /* W1: clearer heading-to-list separation */
+  gap: var(--entei-space-24);
 }
 
 .entei-settings-label {
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--entei-text-muted);
-  margin-bottom: var(--entei-space-8);
-}
-
-.entei-settings-status {
-  display: block;
-  font-family: var(--entei-font-body);
-  font-size: 0.75rem;
-  color: var(--entei-text-muted);
-  margin-top: var(--entei-space-4);
+  margin: 0;
 }
 
 .entei-settings-shortcuts-list {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-4);
+  /* W1: replace contiguous spreadsheet rows with 8px rhythm */
+  gap: var(--entei-space-8);
 }
 
 .entei-settings-shortcut-row {
   display: flex;
   align-items: center;
   gap: var(--entei-space-12);
-  padding: var(--entei-space-2) 0;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  /* W1: replace edge-to-edge dividers with card-like rows */
+  min-height: var(--entei-touch-min);
+  background-color: oklch(100% 0 0deg / 0.02);
+  border: 1px solid oklch(100% 0 0deg / 0.06);
+  border-radius: var(--entei-radius-sm);
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-settings-shortcut-row:hover {
+  background-color: oklch(100% 0 0deg / 0.04);
+}
+
+.entei-settings-shortcut-row kbd.entei-shortcut-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  padding: var(--entei-space-4) var(--entei-space-8);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-sm);
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary);
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.entei-settings-shortcut-row .entei-shortcut-desc {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: var(--entei-text-secondary);
+}
+
+/* ===========================================================================
+ * Anki Fields Tab (AM-5 Redesign)
+ * =========================================================================== */
+
+.entei-anki-fields-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+}
+
+/* --- Connection Section --- */
+.entei-anki-connect-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+}
+
+@media (min-width: 768px) {
+  .entei-anki-connect-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: var(--entei-space-12);
+  }
+}
+
+.entei-anki-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-anki-heading {
+  font-family: var(--entei-font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--entei-text);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.entei-anki-desc {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  margin: 0;
+}
+
+.entei-anki-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--entei-text-secondary);
+}
+
+.entei-anki-input {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  outline: none;
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-anki-input:focus-visible {
+  border-color: var(--entei-focus-ring);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklch, var(--entei-focus-ring) 25%, transparent);
+}
+
+.entei-anki-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Scoped primary button accent styling */
+.entei-anki-connect-btn {
+  align-self: flex-start;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-24);
+  background-color: var(--entei-accent);
+  color: var(--entei-surface);
+  border: 1px solid var(--entei-accent);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    transform var(--entei-duration-fast) var(--entei-ease-productive),
+    opacity var(--entei-duration-fast) var(--entei-ease-productive),
+    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-anki-connect-btn:hover {
+  opacity: 0.92;
+  box-shadow: 0 4px 12px
+    color-mix(in oklch, var(--entei-accent) 20%, transparent);
+}
+
+.entei-anki-connect-btn:active {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.entei-anki-connect-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.entei-anki-connect-btn:focus-visible {
+  outline: 3px solid color-mix(in oklch, var(--entei-accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+@media (min-width: 768px) {
+  .entei-anki-connect-btn {
+    align-self: auto;
+  }
+}
+
+.entei-anki-status {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  margin: 0;
+}
+
+.entei-anki-error {
+  padding: var(--entei-space-12) var(--entei-space-16);
+  background-color: oklch(55% 0.2 25deg / 0.1);
+  border: 1px solid oklch(55% 0.2 25deg / 0.2);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: oklch(65% 0.18 25deg);
+}
+
+/* --- Mapping Section --- */
+.entei-anki-mapping {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+  padding-top: var(--entei-space-8);
+}
+
+.entei-anki-mapping-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  padding-bottom: var(--entei-space-12);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-anki-mapping-title {
+  font-family: var(--entei-font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--entei-text);
+  margin: 0;
+}
+
+.entei-anki-mapping-desc {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  margin: 0;
+}
+
+.entei-anki-mapping-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--entei-space-16);
+}
+
+@media (min-width: 768px) {
+  .entei-anki-mapping-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--entei-space-24) var(--entei-space-16);
+  }
+
+  /* Sentence is full-width and prominent */
+  .entei-anki-mapping-grid > .entei-anki-field-row:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+.entei-anki-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-anki-field-label {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--entei-text-secondary);
+}
+
+.entei-anki-field-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--entei-radius-sm);
+  font-family: var(--entei-font-system);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--entei-text-muted);
+  background-color: oklch(100% 0 0deg / 0.06);
+}
+
+.entei-anki-field-badge--required {
+  color: oklch(65% 0.18 25deg);
+  background-color: oklch(55% 0.2 25deg / 0.1);
+}
+
+.entei-anki-select-trigger {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  color: var(--entei-text);
+}
+
+/* --- Save Section --- */
+.entei-anki-save-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding-top: var(--entei-space-8);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-anki-save-btn {
+  align-self: flex-start;
+  min-height: var(--entei-touch-min);
+}
+
+.entei-anki-saved {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-accent);
+  margin: 0;
+}
+
+.entei-anki-hint {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  margin: 0;
+}
+
+/* --- Reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .entei-settings-tabs-list [data-slot='tabs-trigger'],
+  .entei-settings-tabs-list [data-slot='tabs-trigger']::after,
+  .entei-anki-input,
+  .entei-settings-shortcut-row {
+    transition: none;
+  }
+}
+
+/* ===========================================================================
+ * Select Dropdown (Radix) — Scroll Cap
+ * ---------------------------------------------------------------------------
+ * Retains standard shadcn Select visual classes from select.tsx.
+ * Only adds a bounded scroll capacity for long lists via data-slot selector.
+ * z-[202] on select-content is the sole stacking correction (Dialog = 201).
+ * =========================================================================== */
+
+/* Viewport: bounded scroll for long lists, natural height for short lists */
+[data-slot='select-viewport'] {
+  max-height: min(20rem, calc(100dvh - 4rem));
+  overflow-y: auto;
 }
 
 /* --- Rate Popover --- */

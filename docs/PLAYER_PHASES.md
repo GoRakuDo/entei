@@ -213,7 +213,7 @@ asbplayerではCondensedとFast-forwardが競合する（`play-mode-manager.ts:1
 
 ### 先にJPEG + audioを作る理由
 
-MediaRecorderは比較的広く使えるが、`HTMLMediaElement.captureStream()`はbrowser互換性が限定的。P3は壊れにくいJPEG + browser-native audioを先に通し、WebM **video** clipとMP3再encode（asbplayerの`lamejs`相当）はP5でcapability check付きにする。
+MediaRecorderは比較的広く使えるが、`HTMLMediaElement.captureStream()`はbrowser互換性が限定的。P3は壊れにくいJPEG + browser-native lightweight audioを先に通し、WebM **video** clipだけをP5でcapability check付きにする。MP3再encode（asbplayerの`lamejs`相当）は、余計な低速処理を増やすため園庭では実装しない。
 
 ### P3のDone条件
 
@@ -234,8 +234,8 @@ Ankiを明示的に許可した人だけが、preview済みのcardをAnkiへ送�
 
 ```text
 Player設定を開く
-  → requestPermission
-  → version確認
+  → version / reachability確認
+  → requestPermission（対応時）
   → API keyの要否（必須かどうか）を確認
   → deck / note type / field一覧を読込
   → userがmappingを確認
@@ -275,7 +275,7 @@ asbplayerはexport時にfield mapping・audio/image encoding・新規/更新mode
 - PGS/SUP image subtitles
 - NFIMSC、DFXP/TTML、BBJSON、downloaded YouTube subtitle formats
 - WebM clip capture（`MediaRecorder.isTypeSupported()`で検出）
-- MP3再encode preference（asbplayerの`lamejs`相当）。P3のbrowser-native audioを必要な人だけMP3へ変換できるようにする。
+- browser-native lightweight audioをそのまま維持する。MP3再encode preferenceは作らない。
 - audio track selection
 - File System Access APIによるsession reconnect
 - directory / multi-file drag & drop
