@@ -62,6 +62,8 @@ import {
   type PlayerControlsHandle,
 } from '@/components/player/PlayerControls';
 import { useKeyboardShortcuts } from '@/features/player/use-keyboard-shortcuts';
+import { captureVideoFrame } from '@/features/player/screenshot-capture';
+import { ScreenshotPreviewDialog } from '@/components/player/ScreenshotPreviewDialog';
 import { Music, AlertTriangle } from 'lucide-react';
 
 function getInitialLocale(): 'id' | 'ja' | 'en' {
@@ -126,6 +128,20 @@ export default function PlayerApp() {
   const [isOverlayRevealed, setIsOverlayRevealed] = useState(false);
   const blurRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // --- AM-2: Screenshot state ---
+  const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<string | null>(null);
+  const [isScreenshotDialogOpen, setIsScreenshotDialogOpen] = useState(false);
+  const [hasScreenshotError, setHasScreenshotError] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  // AM-2: synchronous guard against double-clicks (React state is async)
+  const isCapturingRef = useRef(false);
+  const screenshotUrlRef = useRef<string | null>(null);
+  const [isVideoMetadataReady, setIsVideoMetadataReady] = useState(false);
+  // AM-2: mounted ref for unmount safety under React Strict Mode
+  const mountedRef = useRef(true);
+  // AM-2: monotonic epoch to invalidate stale capture results
+  const captureEpochRef = useRef(0);
+
   // --- P1.1: touch + reduced-motion detection ---
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -152,9 +168,18 @@ export default function PlayerApp() {
 
   // Cleanup on unmount
   useEffect(() => {
+    // AM-2: Reset for React StrictMode double-invoke (setup→cleanup→setup).
+    // Without this, the second setup leaves mountedRef=false and discards all work.
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       revokeUrl(activeUrlRef.current);
       activeUrlRef.current = null;
+      // AM-2: Revoke any lingering screenshot object URL
+      if (screenshotUrlRef.current) {
+        URL.revokeObjectURL(screenshotUrlRef.current);
+        screenshotUrlRef.current = null;
+      }
     };
   }, []);
 
@@ -193,6 +218,31 @@ export default function PlayerApp() {
   }, [playbackRate, mediaUrl, mediaType]);
 
   // --- Handlers ---
+  /** AM-2: Revoke prior screenshot URL and update ref/state atomically. */
+  const replaceScreenshotUrl = useCallback((newUrl: string | null) => {
+    const prev = screenshotUrlRef.current;
+    if (prev && prev !== newUrl) {
+      URL.revokeObjectURL(prev);
+    }
+    screenshotUrlRef.current = newUrl;
+    setScreenshotPreviewUrl(newUrl);
+  }, []);
+
+  /** AM-2: Clear screenshot state when media changes or dialog closes. */
+  const clearScreenshot = useCallback(() => {
+    captureEpochRef.current += 1;
+    isCapturingRef.current = false;
+    setHasScreenshotError(false);
+    replaceScreenshotUrl(null);
+    setIsScreenshotDialogOpen(false);
+    setIsCapturing(false);
+  }, [replaceScreenshotUrl]);
+
+  /** AM-2: Reset video metadata readiness on new media. */
+  const resetVideoMetadata = useCallback(() => {
+    setIsVideoMetadataReady(false);
+  }, []);
+
   const handleMediaSelect = useCallback((file: File) => {
     const admission = classifyMediaFile(file);
 
@@ -207,6 +257,9 @@ export default function PlayerApp() {
     setIsLoading(true);
     setLoadError(null);
     setActiveCueId(null);
+    // AM-2: Invalidate any prior screenshot when selecting new media
+    clearScreenshot();
+    resetVideoMetadata();
 
     const oldUrl = activeUrlRef.current;
     const newUrl = createMediaUrl(file, oldUrl);
@@ -214,7 +267,7 @@ export default function PlayerApp() {
     setMediaUrl(newUrl);
     setMediaType(admission.kind);
     setMediaName(file.name);
-  }, []);
+  }, [clearScreenshot, resetVideoMetadata]);
 
   const handleSubtitleSelect = useCallback((file: File) => {
     setSubtitleErrors([]);
@@ -354,6 +407,8 @@ export default function PlayerApp() {
   const handleLoaded = useCallback(() => {
     setIsLoading(false);
     setLoadError(null);
+    // AM-2: Mark video metadata ready when loadeddata fires for video
+    setIsVideoMetadataReady(true);
   }, []);
 
   const handleError = useCallback((error: string) => {
@@ -380,6 +435,74 @@ export default function PlayerApp() {
     });
     prefsRef.current = { ...prefsRef.current, playbackRate: rate };
   }, []);
+
+  // --- AM-2: Screenshot capture ---
+  const handleScreenshot = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || mediaType !== 'video') return;
+    // Guard: synchronous ref prevents double-click within a single render cycle.
+    if (isCapturingRef.current) return;
+
+    const epoch = captureEpochRef.current + 1;
+    captureEpochRef.current = epoch;
+    isCapturingRef.current = true;
+    setIsCapturing(true);
+    setHasScreenshotError(false);
+
+    let result: Awaited<ReturnType<typeof captureVideoFrame>>;
+    try {
+      result = await captureVideoFrame(video);
+    } catch (e) {
+      // Defensive: captureVideoFrame should never reject, but if it does,
+      // treat it as a generic capture failure to avoid leaving UI locked.
+      result = {
+        ok: false,
+        error: {
+          code: 'BLOB_ENCODE_FAILED',
+          message: e instanceof Error ? e.message : 'Unexpected capture failure.',
+        },
+      };
+    }
+
+    // Guard: component unmounted → do not touch React state or create URLs.
+    if (!mountedRef.current) {
+      // Note: do NOT create a URL just to revoke it. Let the Blob be GC'd.
+      return;
+    }
+
+    // Guard: epoch changed (new media, dialog closed, retry superseded).
+    // A newer request or cleanup has taken over; discard this result silently.
+    if (captureEpochRef.current !== epoch) {
+      return;
+    }
+
+    isCapturingRef.current = false;
+    setIsCapturing(false);
+
+    if (!result.ok) {
+      setHasScreenshotError(true);
+      replaceScreenshotUrl(null);
+      setIsScreenshotDialogOpen(true);
+      return;
+    }
+
+    const url = URL.createObjectURL(result.blob);
+    replaceScreenshotUrl(url);
+    setIsScreenshotDialogOpen(true);
+  }, [mediaType, replaceScreenshotUrl]);
+
+  /** AM-2: Close dialog and revoke the object URL to free memory. */
+  const handleScreenshotDialogClose = useCallback(() => {
+    captureEpochRef.current += 1;
+    isCapturingRef.current = false;
+    setIsScreenshotDialogOpen(false);
+    setHasScreenshotError(false);
+    replaceScreenshotUrl(null);
+    setIsCapturing(false);
+  }, [replaceScreenshotUrl]);
+
+  /** AM-2: Screenshot is possible only when video metadata is ready. */
+  const canScreenshot = mediaType === 'video' && isVideoMetadataReady;
 
   // --- P1.1: Surface click behavior ---
   const handleSurfaceClick = useCallback(
@@ -617,6 +740,21 @@ export default function PlayerApp() {
                 shortcuts={shortcuts}
                 isTouchDevice={isTouchDevice}
                 reducedMotion={reducedMotion}
+                onScreenshot={handleScreenshot}
+                canScreenshot={canScreenshot}
+                isCapturing={isCapturing}
+              />
+
+              {/* AM-2: Screenshot Preview Dialog */}
+              <ScreenshotPreviewDialog
+                open={isScreenshotDialogOpen}
+                onOpenChange={handleScreenshotDialogClose}
+                imageUrl={screenshotPreviewUrl}
+                error={hasScreenshotError}
+                onRetry={handleScreenshot}
+                onClose={handleScreenshotDialogClose}
+                isCapturing={isCapturing}
+                dict={dict}
               />
             </div>
           </div>

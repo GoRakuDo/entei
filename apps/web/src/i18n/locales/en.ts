@@ -124,6 +124,15 @@ export const en: Dictionary = {
     ankiPresetInvalid: 'Select a deck, note type, and sentence field to save.',
     ankiNoFields: 'No fields found for this note type',
     ankiSelectNoteTypeFirst: 'Select a note type to view fields',
+    // AM-2: Screenshot capture
+    screenshotCaptureLabel: 'Capture screenshot',
+    screenshotPreviewTitle: 'Screenshot Preview',
+    screenshotRetry: 'Retry',
+    screenshotClose: 'Close',
+    screenshotError: 'Failed to capture screenshot.',
+    screenshotErrorMetadata: 'Video not ready. Wait for playback to start.',
+    screenshotNoPreview: 'No preview available.',
+    screenshotCapturing: 'Capturing screenshot…',
   },
   reader: {
     title: 'EPUB Reader',

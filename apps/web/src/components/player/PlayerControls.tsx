@@ -36,6 +36,7 @@ import {
   ClosedCaption,
   Captions,
   CaptionsOff,
+  Camera,
 } from 'lucide-react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from '@/components/player/ui/slider';
@@ -89,6 +90,12 @@ interface PlayerControlsProps {
   shortcuts: ShortcutEntry[];
   isTouchDevice: boolean;
   reducedMotion: boolean;
+  /** AM-2: Called when the screenshot camera button is pressed. */
+  onScreenshot?: () => void;
+  /** AM-2: Whether screenshot capture is currently possible (metadata ready). */
+  canScreenshot?: boolean;
+  /** AM-2: Whether a capture request is currently in flight. */
+  isCapturing?: boolean;
 }
 
 export interface PlayerControlsHandle {
@@ -124,6 +131,9 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
       shortcuts,
       isTouchDevice,
       reducedMotion,
+      onScreenshot,
+      canScreenshot,
+      isCapturing,
     },
     ref,
   ) {
@@ -479,6 +489,33 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
           </span>
         )}
         <div className="entei-controls-top-right">
+          {/* AM-2: Screenshot capture — only for video, before caption/timeline/settings */}
+          {mediaType === 'video' && (
+            <button
+              type="button"
+              className="entei-controls-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onScreenshot?.();
+              }}
+              aria-label={
+                isCapturing
+                  ? dict.screenshotCapturing
+                  : dict.screenshotCaptureLabel
+              }
+              title={
+                isCapturing
+                  ? dict.screenshotCapturing
+                  : canScreenshot === false
+                    ? dict.screenshotErrorMetadata
+                    : dict.screenshotCaptureLabel
+              }
+              disabled={canScreenshot === false || isCapturing === true}
+            >
+              <Camera size={18} />
+            </button>
+          )}
+
           {/* P1.3a.2: Caption display mode cycle button — immediately LEFT of Timeline */}
           <button
             type="button"

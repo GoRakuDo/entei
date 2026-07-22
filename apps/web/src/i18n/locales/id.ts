@@ -126,6 +126,16 @@ export const id: Dictionary = {
       'Pilih dek, tipe catatan, dan field kalimat untuk menyimpan.',
     ankiNoFields: 'Tidak ada field untuk tipe catatan ini',
     ankiSelectNoteTypeFirst: 'Pilih tipe catatan untuk melihat field',
+    // AM-2: Screenshot capture
+    screenshotCaptureLabel: 'Ambil gambar',
+    screenshotPreviewTitle: 'Pratinjau Gambar',
+    screenshotRetry: 'Coba lagi',
+    screenshotClose: 'Tutup',
+    screenshotError: 'Gagal mengambil gambar.',
+    screenshotErrorMetadata:
+      'Videonya belum siap. Tunggu sampai mulai diputar.',
+    screenshotNoPreview: 'Tidak ada pratinjau.',
+    screenshotCapturing: 'Sedang mengambil gambar…',
   },
   reader: {
     title: 'Pembaca EPUB',

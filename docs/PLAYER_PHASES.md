@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、AM-1 / AM-5 Anki read-only設定は完了。次の実装は`ANKI_MINER.md`のAM-2 Screenshot capture。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、AM-1 / AM-2 / AM-5 Anki read-only設定はコード完了。次の実装は`ANKI_MINER.md`のAM-3 Audio Clip。P2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -394,7 +394,7 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 | React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                             |
 | Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                   |
 | Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                    |
-| Unit tests                | ✅   | 377 tests（12 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle tests） |
+| Unit tests                | ✅   | 416 tests（14 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration tests） |
 
 ### Reviewer findings 修正状況
 
@@ -472,7 +472,7 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                    |
 | ---------- | ---- | ----------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                 |
-| test       | ✅   | 377 tests pass（12 files）                                  |
+| test       | ✅   | 416 tests pass（14 files）                                  |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)        |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）          |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |

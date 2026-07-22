@@ -126,6 +126,16 @@ export const ja: Dictionary = {
     ankiNoFields: 'このノートタイプにフィールドがありません',
     ankiSelectNoteTypeFirst:
       'フィールドを表示するにはノートタイプを選択してください',
+    // AM-2: Screenshot capture
+    screenshotCaptureLabel: 'スクリーンショットを撮影',
+    screenshotPreviewTitle: 'スクリーンショットのプレビュー',
+    screenshotRetry: '再試行',
+    screenshotClose: '閉じる',
+    screenshotError: 'スクリーンショットの撮影に失敗しました。',
+    screenshotErrorMetadata:
+      '動画の準備ができていません。再生が始まるまでお待ちください。',
+    screenshotNoPreview: 'プレビューがありません。',
+    screenshotCapturing: 'スクリーンショットを撮影中…',
   },
   reader: {
     title: 'EPUBリーダー',

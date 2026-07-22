@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1A（AM-1 + AM-5）完了・実AnkiConnect QA済み。次はAM-2 Screenshot capture。
+> **状態:** Stage 1A（AM-1 + AM-2 + AM-5）コード完了。AM-2はbrowser QA未実施。次はAM-3 Audio Clip。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -174,10 +174,78 @@ Stage 2のすべての書込みはMining Preview内の明示buttonからだけ�
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 12 files, 377 tests pass
+npm run test           ✅ 14 files, 416 tests pass
 npm run check          ✅ 0 errors, 0 warnings
 npm run build          ✅ static build complete
 ```
+
+---
+
+## 5.y Stage 1A 実装記録（AM-2 Screenshot capture）
+
+> 実装日: 2026-07-23
+> 実装範囲: AM-2 Screenshot capture のみ。Anki書込み（Stage 2）は未承認・未実施。browserでの実機QAは未実施。
+> 方針: 現在のvideo frame → local JPEG Blob → preview dialog。capture/retry/errorの閉路。pause/seek/subtitle状態は変更しない。
+
+### 実装済みファイル
+
+| ファイル                                                   | 目的                                                                                         |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `src/features/player/screenshot-capture.ts`                | Typed browser utility: video frame → canvas → JPEG Blob。canvas factory injectable for JSDOM |
+| `src/components/player/ScreenshotPreviewDialog.tsx`        | Radix Dialogベースのpreview。image / error / Retry / Close。mobile sheet + desktop modal対応 |
+| `src/components/player/PlayerControls.tsx`                 | Top-rightにCameraボタン追加（video-only）。`canScreenshot` disabled state対応               |
+| `src/components/player/PlayerApp.tsx`                      | Blob/object URL state + lifecycle管理。新規mediaでpreview無効化。unmount revoke            |
+| `src/i18n/types.ts` + `locales/{en,ja,id}.ts`              | AM-2用辞書キー6個追加                                                                        |
+| `src/styles/player.css`                                    | `.entei-screenshot-*` dialog + image + error + footer + button スタイル群                   |
+| `tests/screenshot-capture.test.ts`                         | Utility unit tests: dimensions / scale / no upscale / zero-dims / context-null / drawImage例外 / toBlob-null / BLOB_ENCODE_FAILED / MIME/quality（19 tests） |
+| `tests/screenshot-integration.test.tsx`                    | Component tests: Camera video-only visibility / disabled / capturing-disabled / click / dialog image/error/retry/close / no-preview placeholder / URL lifecycle / unmount safety / media invalidation / StrictMode lifecycle / sync double-click guard / no URL for stale result / caller-level rejection safety（20 tests） |
+
+### 設計遵守確認
+
+| 項目                                               | 状態 | 根拠                                                                                                               |
+| -------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ |
+| Cameraボタンはvideo-only                           | ✅   | `mediaType === 'video'` のみレンダリング。audio/nullでは非表示                                                     |
+| Top-right配置（caption/timeline/settingsの前）     | ✅   | `.entei-controls-top-right` 内で caption mode より前に配置                                                         |
+| Captureはpause/seek/subtitleを変更しない           | ✅   | `handleScreenshot` は `videoRef.current` から直接draw。playback stateは触らない                                   |
+| JPEG policy固定値                                  | ✅   | `MAX_CAPTURE_DIMENSION = 1920`、`JPEG_QUALITY = 0.9`。アスペクト比維持・upscaleなし。setting化なし               |
+| `toDataURL`不使用                                  | ✅   | `canvas.toBlob('image/jpeg', 0.9)` のみ使用                                                                        |
+| Canvas injectable                                  | ✅   | `CanvasFactory` interface + `defaultCanvasFactory`。JSDOMテストでmock factory注入                                  |
+| Blob null → typed error                            | ✅   | `ScreenshotError` に `BLOB_NULL` code。rejectではなくresult型で返す                                               |
+| PlayerAppがURL lifecycle所有                       | ✅   | `screenshotUrlRef` + `replaceScreenshotUrl` でrevoke-before-replace。`unmount` でcleanup                          |
+| localStorage/media永続化なし                       | ✅   | Blob/URLはReact stateのみ。localStorage/key/URL/logに残さない                                                     |
+| 新規mediaでpreview無効化                           | ✅   | `handleMediaSelect` で `clearScreenshot()` 呼び出し                                                                |
+| Metadata未 ready → disabled                        | ✅   | `isVideoMetadataReady` state。loadeddata後にtrue。button titleで `screenshotErrorMetadata` 表示                   |
+| `type='button'`                                    | ✅   | Camera・Retry・Close 全て `type="button"`                                                                           |
+| Lucide Cameraのみ                                  | ✅   | `lucide-react` の `Camera` icon。raw SVGなし                                                                       |
+| OKLCH tokenのみ                                    | ✅   | 新規CSSで `--entei-*` / `oklch()` / `color-mix()` のみ（hex/rgb/hsl/namedなし）                                   |
+| `prefers-reduced-motion`                           | ✅   | `.entei-screenshot-btn` / `.entei-screenshot-image` に `@media (prefers-reduced-motion: reduce)` で `transition: none` |
+| 既存Settings/Anki retry動作不変                    | ✅   | `PlayerControls`・`PlayerApp` の既存prop・handler・effectは変更なし                                               |
+| Unmount URL leak防止                               | ✅   | `mountedRef` でunmount後はstate更新・URL作成をスキップ。Strict Mode対応                                            |
+| 新規media race防止                                 | ✅   | `captureEpochRef` モノトニックepoch。media変更・dialog閉・retry置換でepoch進行。stale結果はdiscard                 |
+| 連続ダブルクリック防止                             | ✅   | `isCapturing` state/ref。Camera・Retryボタンをcapturing中disabled。title/ariaで `screenshotCapturing` 表示        |
+| error.message非表示                                | ✅   | Dialogでは `hasScreenshotError` booleanのみ。typed internal `ScreenshotError` はutility/tests/debug用に残存        |
+| `_screenshotBlob` state削除                        | ✅   | BlobはURL作成に必要な間だけlocal変数で保持。React stateには残さない                                                |
+| `screenshotNoPreview` ローカライズ                 | ✅   | placeholderテキストをhardcodeから辞書キーへ置き換え                                                                |
+
+### 検証結果
+
+```text
+npm run format:check   ✅ pass
+npm run test           ✅ 14 files, 416 tests pass
+npm run check          ✅ 0 errors, 0 warnings
+npm run build          ✅ static build complete
+```
+
+### 未解決・browser QA待ち
+
+| 項目                         | 理由                                           |
+| ---------------------------- | ---------------------------------------------- |
+| 4K動画での縮小動作確認       | `computeCaptureDimensions` の数学的検証は通過  |
+| `toBlob` callback実際のBlob  | jsdomではmock化。実ブラウザでのMIME/type確認   |
+| fullscreen/immersive表示     | CSSはmedia query対応済み。実機レイアウト未確認 |
+| 連続captureのURL revoke      | コードレビューと単体テストで確認。実機未確認   |
+
+---
 
 ### Stage 1A ビジュアルリデザイン（AM-1 Workspace）
 

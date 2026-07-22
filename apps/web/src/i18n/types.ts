@@ -151,6 +151,15 @@ export interface Dictionary {
     ankiPresetInvalid: string;
     ankiNoFields: string;
     ankiSelectNoteTypeFirst: string;
+    // AM-2: Screenshot capture
+    screenshotCaptureLabel: string;
+    screenshotPreviewTitle: string;
+    screenshotRetry: string;
+    screenshotClose: string;
+    screenshotError: string;
+    screenshotErrorMetadata: string;
+    screenshotNoPreview: string;
+    screenshotCapturing: string;
   };
   reader: {
     title: string;
