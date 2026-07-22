@@ -90,13 +90,15 @@ export const en: Dictionary = {
     ankiConnectDesc:
       'Connect to Anki via AnkiConnect to export cards. Anki must be running locally.',
     ankiEndpointLabel: 'AnkiConnect URL',
-    ankiConnectButton: 'Connect Anki',
-    ankiRetryButton: 'Retry',
+    ankiStatusConnected: 'Connected',
+    ankiStatusRetrying: 'Reconnecting',
     ankiConnecting: 'Connecting to Anki…',
     ankiErrorUnavailable:
       'Anki is not reachable. Ensure Anki is running with AnkiConnect installed.',
     ankiErrorCors:
       'Browser blocked the connection. Check AnkiConnect origin permission settings.',
+    ankiErrorCorsHint:
+      "Add https://entei.gorakudo.org to AnkiConnect's allowed CORS origins. Anki must be running.",
     ankiErrorPermission: 'Permission denied by AnkiConnect.',
     ankiErrorApiKey: 'AnkiConnect requires an API key.',
     ankiErrorUnknown: 'An unexpected error occurred.',

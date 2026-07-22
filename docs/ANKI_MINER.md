@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1A（AM-1 + AM-5）code-complete。手動実Anki QAは未実施。
+> **状態:** Stage 1A（AM-1 + AM-5）完了・実AnkiConnect QA済み。次はAM-2 Screenshot capture。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -62,8 +62,8 @@ Yomitan、annotation、streaming、複数profile、settings import/exportはこ�
 | 役割                            | shadcn component | 現在の状態 |
 | ------------------------------- | ---------------- | ---------- |
 | Settings / Mining Preview       | `Dialog`         | 導入済み   |
-| tab切替                         | `Tabs`           | 追加が必要 |
-| Deck / Note type / Field選択    | `Select`         | 追加が必要 |
+| tab切替                         | `Tabs`           | 導入済み   |
+| Deck / Note type / Field選択    | `Select`         | 導入済み   |
 | 任意fieldのON/OFF（必要時だけ） | `Switch`         | 追加が必要 |
 | field一覧・error一覧の長い領域  | `ScrollArea`     | 導入済み   |
 | action                          | `Button`         | 導入済み   |
@@ -126,14 +126,14 @@ Stage 2のすべての書込みはMining Preview内の明示buttonからだけ�
 
 > 実装日: 2026-07-22
 > 実装範囲: AM-1 Settings Modal、AM-5 Anki read-only connectionのみ。AM-2〜AM-4、Stage 2は未実装。
-> 実Anki手動QA: 未実施（`addNote` / `updateNoteFields`を含む実Anki書込みテストはYosiaの明示承認後に実施）。
+> 実AnkiConnect QA: 完了。auto-connect、接続失敗時の10秒連続retry、復帰後のDeck / Note type読込、CORS案内、設定Modalのdesktop / mobile表示を確認済み。`addNote` / `updateNoteFields`を含む実Anki書込みテストは未承認・未実施。
 
 ### 実装済みファイル
 
 | ファイル                                         | 目的                                                                                                     |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | `src/components/player/PlayerSettingsDialog.tsx` | Settings iconから開くDialog Modal本体（Player / Anki Fields 2 tab）                                      |
-| `src/components/player/AnkiFieldsTab.tsx`        | AnkiConnect接続、Deck/Note type/Field mapping、Preset保存                                                |
+| `src/components/player/AnkiFieldsTab.tsx`        | AnkiConnect auto-connect/retry、Deck/Note type/Field mapping、Preset保存                                 |
 | `src/components/player/ui/tabs.tsx`              | shadcn CLI生成 Tabs                                                                                      |
 | `src/components/player/ui/select.tsx`            | shadcn CLI生成 Select                                                                                    |
 | `src/features/player/anki-connect.ts`            | Typed read-only AnkiConnect client（version、requestPermission、deckNames、modelNames、modelFieldNames） |
@@ -141,7 +141,8 @@ Stage 2のすべての書込みはMining Preview内の明示buttonからだけ�
 | `src/i18n/types.ts` + `locales/{en,ja,id}.ts`    | 全UI状態のtyped翻訳                                                                                      |
 | `src/styles/player.css`                          | Dialog、Tabs、Anki Fieldsのスタイル（OKLCH token使用）                                                   |
 | `tests/anki-miner-preferences.test.ts`           | Preferences schema/privacyテスト（25 tests）                                                             |
-| `tests/anki-connect.test.ts`                     | Anki request/response/errorテスト + forbidden write action検証 + dependency absence（38 tests）          |
+| `tests/anki-connect.test.ts`                     | Anki request/response/errorテスト + forbidden write action検証 + dependency absence + W14 auto-connect lifecycle（59 tests）        |
+| `tests/anki-fields-tab-lifecycle.test.ts`         | Component lifecycle integration tests: auto-attempt, retry at 10s, success clears error, unmount blocks retry, endpoint change（5 tests） |
 
 ### 設計遵守確認
 
@@ -150,6 +151,7 @@ Stage 2のすべての書込みはMining Preview内の明示buttonからだけ�
 | Settings Popover → Dialog置換                  | ✅   | `PlayerControls.tsx`からPopover削除、Dialog再利用                                                                                         |
 | Player tabにshortcut移動                       | ✅   | `PlayerSettingsDialog.tsx`内 `TabsContent value="player"`                                                                                 |
 | Anki Fields tab: 読み込みのみ                  | ✅   | `anki-connect.ts`に `addNote` / `canAddNotes` / `updateNoteFields` / `storeMediaFile` / `findNotes` / `notesInfo` なし                    |
+| Auto-connect on mount + 10s retry              | ✅   | `AnkiFieldsTab.tsx` useEffect mount + scheduleRetry with RETRY_INTERVAL_MS = 10_000                                          |
 | API key: sessionのみ・非保存                   | ✅   | `AnkiFieldsTab.tsx`の `apiKey` stateのみ。localStorage/key/URL/log/toastに出さない                                                        |
 | localStorage key: `entei.player.anki-miner.v1` | ✅   | `anki-miner-preferences.ts` で定義                                                                                                        |
 | 保存しないものが保存されていない               | ✅   | testで `apiKey` / `blob` / `path` / `subtitle` / `file` を検証                                                                            |
@@ -172,7 +174,7 @@ Stage 2のすべての書込みはMining Preview内の明示buttonからだけ�
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 11 files, 351 tests pass
+npm run test           ✅ 12 files, 377 tests pass
 npm run check          ✅ 0 errors, 0 warnings
 npm run build          ✅ static build complete
 ```
@@ -184,24 +186,24 @@ npm run build          ✅ static build complete
 
 | 項目                               | 状態 | 根拠                                                                                                                                                                    |
 | ---------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Desktop workspace (34-42rem)       | ✅   | `clamp(34rem, 46vw, 42rem)` × `auto`（content-responsive）、`max-height: calc(100dvh - 2rem)`                                                                           |
-| Mobile sheet-like                  | ✅   | `width: 100%`、`height: 100dvh`、`border-radius: 0`、`inset: 0`                                                                                                         |
-| 水平Tabs strip（全viewport共通）   | ✅   | `.entei-settings-tabs-list` を常に `flex-direction: row` + `padding-left: var(--entei-space-20)`。左寄せcontent-width                                                   |
-| 下部アクセントunderline            | ✅   | Active tab に `border-bottom: 3px solid var(--entei-accent)`。白pillなし                                                                                                |
-| TabsTrigger overlap 修正           | ✅   | `.entei-settings-tabs-list` scope で `height: auto`、`min-height: var(--entei-touch-min)`、`line-height: 1.3`、`white-space: normal`。`h-[calc(100%-1px)]` を上書き     |
-| Content panel full-width           | ✅   | `.entei-settings-panel` に `overflow-y: auto` + 大きめpadding（`24px 28px`）。左railなし                                                                                |
+| Breakpoint別の固定Dialog高さ        | ✅   | mobileは`100dvh`、tabletは最大`36rem`、desktopは最大`34rem`。余った内容はpanel内scrollに限定                                                                            |
+| Mobile sheet-like                  | ✅   | `width: 100%`、`height: 100dvh`、`border-radius: 0`、`inset: 0`。open中はTopBarを非表示・非操作化してclose buttonを守る                                                 |
+| 水平Tabs strip（全viewport共通）   | ✅   | `.entei-settings-tabs-list` を常に`flex-direction: row`、mobileはinline 24px / desktopは32px。左寄せcontent-width                                                        |
+| 下部アクセントunderline            | ✅   | Active tabの`::after`で5px accent line。45px tab stripのshared dividerに0.5pxずつ跨げて配置。白pillなし                                                               |
+| TabsTrigger overlap 修正           | ✅   | 親は45px（44px tab + divider 1px）、上下paddingなし。`h-9` / `justify-center` / pill borderを上書き                                                                      |
+| Content panel full-width           | ✅   | `.entei-settings-panel` に`overflow-y: auto` + mobile 24px / desktop `24px 32px` padding。左railなし                                                                     |
 | Header固定 + close spacing         | ✅   | `.entei-dialog-header` に `flex-shrink: 0` + `padding-right: 3.5rem`                                                                                                    |
 | Player shortcuts dense list        | ✅   | `.entei-settings-shortcuts-list` を flex column + `.entei-settings-shortcut-row` を `border-bottom` 区切り + `hover background`。kbd は `surface` background + `border` |
 | Anki connection row (desktop grid) | ✅   | `.entei-anki-connect-row` を `grid-template-columns: 1fr auto` + `align-items: end`                                                                                     |
 | Anki mapping grid                  | ✅   | Desktop で `.entei-anki-mapping-grid` を `repeat(2, 1fr)`。Sentence は `:first-child` で `grid-column: 1 / -1`                                                          |
 | Save area分離                      | ✅   | `.entei-anki-save-area` で `border-top` 区切り + 明確なbottom action                                                                                                    |
-| Connect button primary             | ✅   | `.entei-anki-connect-btn` scoped で `background-color: var(--entei-accent)`、`color: var(--entei-surface)`、`border-radius`、hover shadow、focus outline                |
+| 接続status badge                   | ✅   | manual Connect buttonは廃止。成功はgreen `Plug` + text、失敗 / 再接続中はred `PlugZap` + text。失敗時は10秒ごとに連続retry                                               |
 | Input calm surface                 | ✅   | `background-color: var(--entei-surface)`、`border: 1px solid oklch(100% 0 0deg / 0.12)`                                                                                 |
 | 全タッチターゲット >=44px          | ✅   | `min-height: var(--entei-touch-min)`（44px）を input/button/select に適用                                                                                               |
 | 水平スクロールなし                 | ✅   | `min-width: 0` + `overflow-x: hidden`（Radix Portal 内は別）                                                                                                            |
 | reduced-motion                     | ✅   | `@media (prefers-reduced-motion: reduce)` で transition 無効化                                                                                                          |
 | OKLCH tokenのみ                    | ✅   | 新規CSSで `--entei-*` / `oklch()` / `color-mix()` のみ                                                                                                                  |
-| 手動ビジュアルQA                   | ⏳   | 未実施（実ブラウザでの表示確認は Yosia 承認後）                                                                                                                         |
+| 実ブラウザ / 実AnkiConnect QA       | ✅   | desktop / mobile Modal、Tab geometry、Dialog高さ固定、Dropdown scroll、connection failure（`ERR_CONNECTION_REFUSED`）、10秒retry、復帰後のgreen `Plug`を確認             |
 
 ---
 
@@ -227,9 +229,9 @@ Player frame右上のSettings iconを押すとModalを開く。現在のSettings
 
 | 状態                  | 表示                                                       | 書込み |
 | --------------------- | ---------------------------------------------------------- | ------ |
-| 未接続                | 接続説明、`Connect Anki` Button                            | なし   |
-| 接続中                | disabled Button、進捗文、Cancel                            | なし   |
-| 接続失敗              | localized原因、Retry、origin/CORS案内                      | なし   |
+| 未接続                | 接続説明、auto-connect開始                                | なし   |
+| 接続中                | status badge (connecting)、PlugZap icon                   | なし   |
+| 接続失敗              | localized原因、10秒retry、CORS案内                         | なし   |
 | 接続成功・mapping未完 | Deck / Note type / field Select、Save preset               | なし   |
 | 保存済み              | active `Default` preset、最後の検証時刻（session表示だけ） | なし   |
 
@@ -345,7 +347,7 @@ capability check
 ### 9.1 接続順序
 
 ```text
-Connect Anki
+Auto-connect on AnkiFieldsTab mount
   → version / reachability確認
   → requestPermission（対応時）
   → API key必須かを検出
@@ -355,6 +357,9 @@ Connect Anki
   → modelFieldNames
   → field mappingをvalidate
   → Save preset（local only）
+
+On failure: continuous retry every 10 seconds until connected or unmount
+On endpoint/API key change: immediate reconnect
 ```
 
 browser originのpermission実装差で`requestPermission`が失敗する時は、失敗を隠さず`version`でreachabilityを確認して原因を表示する。AnkiConnectのorigin許可やCORS設定を勝手に変更しない。
@@ -573,11 +578,7 @@ apps/web/src/
 
 ## 13. shadcn導入手順
 
-現在はDialog / Button / ScrollArea / Slider / Popoverだけが生成済み。ANKI_MINERの実装開始時に以下を`apps/web`からshadcn CLIで追加する。
-
-```text
-npx shadcn@latest add tabs select
-```
+Dialog / Button / ScrollArea / Slider / Popoverに加え、Tabs / Selectも導入済み。AM-2以降で既存componentを再利用する。
 
 `Switch`は任意field表示を本当にtoggle化する判断をした時だけ追加する。Stage 2でspecific update検索UIを実装する時だけ、`Input` / `Command`もshadcn CLIで追加する。
 
@@ -609,10 +610,10 @@ npx shadcn@latest add tabs select
 
 | 状況                  | pass条件                                                                               |
 | --------------------- | -------------------------------------------------------------------------------------- |
-| Settings Modal        | Settings icon → focusがModalへ、Escape → iconへ戻る                                    |
-| Anki未起動            | localized error、playerは壊れず、書込みなし                                            |
-| origin permission拒否 | 指示が読め、Retryしても勝手に設定を変えない                                            |
-| mapping               | Deck / Note type変更でfield一覧が正しく更新される                                      |
+| Settings Modal        | ✅ Settings icon → focusがModalへ、Escape → iconへ戻る                                 |
+| Anki未起動            | ✅ localized error、playerは壊れず、書込みなし                                         |
+| origin permission拒否 | ✅ CORS案内が読め、auto-retryで勝手に設定を変えない                                     |
+| mapping               | ✅ Deck / Note type変更でfield一覧が正しく更新される                                   |
 | Screenshot            | local videoでframe一致、Cancelでpreview URL解放                                        |
 | Audio                 | supported Chromiumでpreview再生、unsupported browserで正直な表示                       |
 | mining playback       | Cancel・成功・失敗の全てでcapture開始timestampへ戻りpauseのまま                        |
@@ -658,7 +659,7 @@ AM-1を始める前に、以下だけを確認する。
 
 | 事実                                                                  | 根拠                                                           | 設計への反映                                                                    |
 | --------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| 現在Settingsはshortcut用Popover                                       | `apps/web/src/components/player/PlayerControls.tsx:527-565`    | mappingはModalへ置換                                                            |
+| SettingsはDialog Modal + Player / Anki Fields tab                     | `apps/web/src/components/player/PlayerSettingsDialog.tsx:55-120` | mappingとread-only connectionをModalへ配置                                      |
 | 既存Dialogはfocus trap / Escape / return-focusを持つ                  | `apps/web/src/components/player/ui/dialog.tsx:1-6`             | Modal基盤を再利用                                                               |
 | asbplayerはAnki / Miningを別tabにする                                 | `A:\asbplayer\common\components\SettingsForm.tsx:433-489`      | Enteiは実需があるAnki Fieldsだけを初期Modalへ置く                               |
 | asbplayerはDeck→Note type→fieldを選択する                             | `A:\asbplayer\common\components\AnkiSettingsTab.tsx:486-558`   | mapping依存を同じ順で扱う                                                       |

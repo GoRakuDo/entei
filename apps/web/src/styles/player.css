@@ -1228,7 +1228,7 @@
   box-shadow: none;
 }
 
-/* Desktop: centered content-responsive workspace */
+/* Tablet (768-1023px): centered modal with stable height */
 @media (min-width: 768px) {
   .entei-settings-dialog {
     top: 50%;
@@ -1237,13 +1237,23 @@
     bottom: auto;
     transform: translate(-50%, -50%);
     width: clamp(34rem, 46vw, 42rem);
-    height: auto;
+    /* W13: stable tablet height — content scrolls in panel */
+    height: min(36rem, calc(100dvh - 2rem));
     max-height: calc(100dvh - 2rem);
     border-radius: var(--entei-radius-lg);
     border: 1px solid oklch(100% 0 0deg / 0.1);
     box-shadow:
       0 20px 25px -5px oklch(0% 0 0deg / 0.3),
       0 8px 10px -6px oklch(0% 0 0deg / 0.2);
+  }
+}
+
+/* Desktop (>=1024px): slightly shorter stable height */
+@media (min-width: 1024px) {
+  .entei-settings-dialog {
+    /* W13: stable desktop height — content scrolls in panel */
+    height: min(34rem, calc(100dvh - 4rem));
+    max-height: calc(100dvh - 4rem);
   }
 }
 
@@ -1613,6 +1623,54 @@
   color: oklch(65% 0.18 25deg);
 }
 
+.entei-anki-error p {
+  margin: 0;
+}
+
+.entei-anki-error-cors {
+  margin-top: var(--entei-space-8) !important;
+  color: var(--entei-text-muted);
+  font-size: 0.75rem;
+}
+
+/* W14: Status badge — non-clickable, accessible */
+.entei-anki-status-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  align-self: end;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-4) var(--entei-space-12);
+  border-radius: var(--entei-radius-sm);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.entei-anki-status-icon {
+  flex-shrink: 0;
+}
+
+.entei-anki-status-icon--connected {
+  color: oklch(65% 0.17 145deg);
+}
+
+.entei-anki-status-icon--disconnected {
+  color: oklch(60% 0.22 25deg);
+}
+
+.entei-anki-status-text {
+  color: var(--entei-text-secondary);
+}
+
+.entei-anki-status-text--connected {
+  color: oklch(65% 0.17 145deg);
+}
+
+.entei-anki-status-text--disconnected {
+  color: oklch(60% 0.22 25deg);
+}
+
 /* --- Mapping Section --- */
 .entei-anki-mapping {
   display: flex;
@@ -1747,12 +1805,19 @@
  * Retains standard shadcn Select visual classes from select.tsx.
  * Only adds a bounded scroll capacity for long lists via data-slot selector.
  * z-[202] on select-content is the sole stacking correction (Dialog = 201).
+ * Border is removed only for .entei-anki-select-content (Anki tab scope).
  * =========================================================================== */
 
 /* Viewport: bounded scroll for long lists, natural height for short lists */
 [data-slot='select-viewport'] {
   max-height: min(20rem, calc(100dvh - 4rem));
   overflow-y: auto;
+}
+
+/* W14: Remove white border from Player Select popup — keep Entei dark surface */
+/* Anki tab: scoped borderless Select popup for Player context only */
+.entei-anki-select-content {
+  border: none;
 }
 
 /* --- Rate Popover --- */

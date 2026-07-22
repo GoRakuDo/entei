@@ -120,11 +120,12 @@ export interface Dictionary {
     ankiConnect: string;
     ankiConnectDesc: string;
     ankiEndpointLabel: string;
-    ankiConnectButton: string;
-    ankiRetryButton: string;
+    ankiStatusConnected: string;
+    ankiStatusRetrying: string;
     ankiConnecting: string;
     ankiErrorUnavailable: string;
     ankiErrorCors: string;
+    ankiErrorCorsHint: string;
     ankiErrorPermission: string;
     ankiErrorApiKey: string;
     ankiErrorUnknown: string;

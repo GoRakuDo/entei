@@ -90,13 +90,15 @@ export const ja: Dictionary = {
     ankiConnectDesc:
       'AnkiConnect経由でAnkiに接続し、カードをエクスポートします。Ankiをローカルで起動してください。',
     ankiEndpointLabel: 'AnkiConnect URL',
-    ankiConnectButton: '接続',
-    ankiRetryButton: '再試行',
+    ankiStatusConnected: '接続済み',
+    ankiStatusRetrying: '再接続中',
     ankiConnecting: 'Ankiに接続中…',
     ankiErrorUnavailable:
       'Ankiに接続できません。Ankiが起動し、AnkiConnectがインストールされていることを確認してください。',
     ankiErrorCors:
       'ブラウザが接続をブロックしました。AnkiConnectのorigin許可設定を確認してください。',
+    ankiErrorCorsHint:
+      'AnkiConnectのCORS許可 originsに https://entei.gorakudo.org を追加してください。Ankiが起動している必要があります。',
     ankiErrorPermission: 'AnkiConnectからの許可が拒否されました。',
     ankiErrorApiKey: 'AnkiConnectはAPIキーを要求しています。',
     ankiErrorUnknown: '予期しないエラーが発生しました。',

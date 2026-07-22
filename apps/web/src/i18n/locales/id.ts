@@ -91,13 +91,15 @@ export const id: Dictionary = {
     ankiConnectDesc:
       'Hubungkan ke Anki melalui AnkiConnect untuk mengekspor kartu. Anki harus berjalan secara lokal.',
     ankiEndpointLabel: 'URL AnkiConnect',
-    ankiConnectButton: 'Hubungkan',
-    ankiRetryButton: 'Coba Lagi',
+    ankiStatusConnected: 'Terhubung',
+    ankiStatusRetrying: 'Menghubungkan',
     ankiConnecting: 'Menghubungkan ke Anki…',
     ankiErrorUnavailable:
       'Anki tidak dapat dijangkau. Pastikan Anki berjalan dengan AnkiConnect terpasang.',
     ankiErrorCors:
       'Browser memblokir koneksi. Periksa pengaturan izin origin AnkiConnect.',
+    ankiErrorCorsHint:
+      'Tambahkan https://entei.gorakudo.org ke origins CORS yang diizinkan AnkiConnect. Anki harus berjalan.',
     ankiErrorPermission: 'Izin ditolak oleh AnkiConnect.',
     ankiErrorApiKey: 'AnkiConnect memerlukan kunci API.',
     ankiErrorUnknown: 'Terjadi kesalahan tak terduga.',

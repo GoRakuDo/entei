@@ -2,7 +2,7 @@
  * AnkiFieldsTab — AnkiConnect read-only setup + field mapping (AM-5)
  * ---------------------------------------------------------------------------
  * - Default endpoint `http://127.0.0.1:8765`
- * - Explicit Connect / Retry; no automatic connection on mount
+ * - Auto-connect on mount; continuous retry every 10s on failure until connected/unmount
  * - API key field shown proactively when requestPermission signals requireApiKey
  *   or when a request returns api-key-required
  * - API key type=password; session-only; cleared when modal closes
@@ -36,7 +36,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/player/ui/select';
+import { Plug, PlugZap } from 'lucide-react';
 import type { Dictionary } from '@i18n/types';
+
+/** Retry interval in milliseconds. */
+const RETRY_INTERVAL_MS = 10_000;
 
 interface AnkiFieldsTabProps {
   dict: Dictionary['playerUI'];
@@ -105,12 +109,20 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
   // --- Preset state ---
   const [presetSaved, setPresetSaved] = useState(false);
 
+  // --- Preferences-ready gate ---
+  // Auto-connect and endpoint/API-key effects must not run until saved
+  // preferences have been applied, so the first attempt uses the saved URL.
+  const [prefsReady, setPrefsReady] = useState(false);
+
   // --- Abort controllers ---
   const connectAbortRef = useRef<AbortController | null>(null);
   const modelAbortRef = useRef<AbortController | null>(null);
 
   // --- Epoch for model-change race guard ---
   const modelEpochRef = useRef(0);
+
+  // --- Retry timer ref (no overlapping timers) ---
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- Load saved preferences on mount ---
   useEffect(() => {
@@ -122,18 +134,23 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
     if (isValidPreset(saved)) {
       setPresetSaved(true);
     }
+    setPrefsReady(true);
   }, []);
 
-  // --- Cleanup abort controllers on unmount ---
+  // --- Cleanup: abort in-flight requests + clear retry timer on unmount ---
   useEffect(() => {
     return () => {
       connectAbortRef.current?.abort();
       modelAbortRef.current?.abort();
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, []);
 
-  // --- Connect / Retry handler ---
-  const handleConnect = useCallback(async () => {
+  // --- Core connection flow (shared by auto-connect and retry) ---
+  const attemptConnect = useCallback(async () => {
     connectAbortRef.current?.abort();
     const controller = new AbortController();
     connectAbortRef.current = controller;
@@ -142,7 +159,8 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
     setConnectionState('connecting');
     setErrorMessage(null);
     setPresetSaved(false);
-    setShowApiKeyInput(false);
+    // W14: Do NOT clear showApiKeyInput here — it must persist across
+    // automated retries so the user can enter/correct the key.
 
     const client = new AnkiConnectClient(endpoint, apiKey || undefined);
 
@@ -174,22 +192,95 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
     } catch (e) {
       if (controller.signal.aborted) return;
 
+      let state: AnkiConnectionState;
+      let message: string;
       if (e instanceof AnkiConnectError) {
-        setConnectionState(e.state);
-        setErrorMessage(e.message);
+        state = e.state;
+        message = e.message;
         if (e.state === 'api-key-required') {
           setShowApiKeyInput(true);
         }
       } else {
-        setConnectionState('unknown-error');
-        setErrorMessage(e instanceof Error ? e.message : String(e));
+        state = 'unknown-error';
+        message = e instanceof Error ? e.message : String(e);
       }
+      setConnectionState(state);
+      setErrorMessage(message);
     } finally {
       if (!controller.signal.aborted) {
         setIsConnecting(false);
       }
     }
   }, [endpoint, apiKey, selectedModel]);
+
+  // --- Schedule continuous retry in 10s (no overlap) ---
+  const scheduleRetry = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+    }
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      attemptConnect();
+    }, RETRY_INTERVAL_MS);
+  }, [attemptConnect]);
+
+  // --- Auto-connect after preferences are loaded ---
+  useEffect(() => {
+    if (!prefsReady) return;
+    attemptConnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once after prefsReady
+  }, [prefsReady]);
+
+  // --- Schedule continuous retry after any non-abort failure ---
+  useEffect(() => {
+    const isError =
+      connectionState !== 'idle' &&
+      connectionState !== 'connecting' &&
+      connectionState !== 'connected';
+
+    if (isError) {
+      scheduleRetry();
+    }
+
+    return () => {
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, [connectionState, scheduleRetry]);
+
+  // --- Reconnect immediately when endpoint changes ---
+  // Always aborts in-flight request and starts fresh with the new endpoint.
+  // prevEndpointRef + prefsReady gate prevent false positive from initial prefs load.
+  const prevEndpointRef = useRef(endpoint);
+  useEffect(() => {
+    if (!prefsReady) return;
+    if (prevEndpointRef.current !== endpoint) {
+      prevEndpointRef.current = endpoint;
+      // Clear any pending retry and attempt immediately
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      attemptConnect();
+    }
+  }, [prefsReady, endpoint, attemptConnect]);
+
+  // --- Reconnect immediately when API key changes ---
+  // Same logic: always restart with the new key.
+  const prevApiKeyRef = useRef(apiKey);
+  useEffect(() => {
+    if (!prefsReady) return;
+    if (prevApiKeyRef.current !== apiKey) {
+      prevApiKeyRef.current = apiKey;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      attemptConnect();
+    }
+  }, [prefsReady, apiKey, attemptConnect]);
 
   // --- Handle note type change ---
   const handleModelChange = useCallback(
@@ -304,6 +395,22 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
     dict,
   );
 
+  // --- Is there a non-connected error state? ---
+  const isError =
+    connectionState !== 'idle' &&
+    connectionState !== 'connecting' &&
+    connectionState !== 'connected';
+
+  // --- Determine status badge text ---
+  const statusBadgeText =
+    connectionState === 'connected'
+      ? dict.ankiStatusConnected
+      : connectionState === 'connecting'
+        ? dict.ankiConnecting
+        : isError
+          ? dict.ankiStatusRetrying
+          : '';
+
   // --- Field mapping rows ---
   const fieldRows: {
     key: keyof AnkiFieldMapping;
@@ -321,7 +428,7 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
 
   return (
     <div className="entei-anki-fields-tab">
-      {/* Connection section: heading + endpoint + button */}
+      {/* Connection section: heading + endpoint + status badge */}
       <div className="entei-anki-section">
         <h3 className="entei-anki-heading">{dict.ankiConnect}</h3>
         <p className="entei-anki-desc">{dict.ankiConnectDesc}</p>
@@ -348,18 +455,24 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
               autoComplete="off"
             />
           </div>
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            onClick={handleConnect}
-            disabled={isConnecting}
-            className="entei-anki-connect-btn"
-          >
-            {connectionState === 'connected' || connectionState === 'idle'
-              ? dict.ankiConnectButton
-              : dict.ankiRetryButton}
-          </Button>
+
+          {/* Status badge (non-clickable, accessible) */}
+          <div className="entei-anki-status-badge" aria-live="polite">
+            {connectionState === 'connected' ? (
+              <Plug
+                size={18}
+                className="entei-anki-status-icon entei-anki-status-icon--connected"
+                aria-hidden="true"
+              />
+            ) : (
+              <PlugZap
+                size={18}
+                className="entei-anki-status-icon entei-anki-status-icon--disconnected"
+                aria-hidden="true"
+              />
+            )}
+            <span className={`entei-anki-status-text${connectionState === 'connected' ? ' entei-anki-status-text--connected' : ' entei-anki-status-text--disconnected'}`}>{statusBadgeText}</span>
+          </div>
         </div>
       </div>
 
@@ -386,20 +499,15 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
         </div>
       )}
 
-      {/* Connection status */}
-      {isConnecting && (
-        <p className="entei-anki-status" role="status">
-          {dict.ankiConnecting}
-        </p>
+      {/* Error surface (visible only while not connected) */}
+      {isError && (
+        <div className="entei-anki-error" role="alert">
+          <p>{errorDisplay}</p>
+          <p className="entei-anki-error-cors">
+            {dict.ankiErrorCorsHint}
+          </p>
+        </div>
       )}
-
-      {connectionState !== 'idle' &&
-        connectionState !== 'connecting' &&
-        connectionState !== 'connected' && (
-          <div className="entei-anki-error" role="alert">
-            {errorDisplay}
-          </div>
-        )}
 
       {/* Deck + Note Type + Field Mapping (only when connected) */}
       {connectionState === 'connected' && (
@@ -422,7 +530,7 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
               >
                 <SelectValue placeholder={dict.ankiDeckPlaceholder} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="entei-anki-select-content">
                 {decks.length === 0 && (
                   <SelectItem value="__none__" disabled>
                     {dict.ankiNoDecks}
@@ -451,7 +559,7 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
               >
                 <SelectValue placeholder={dict.ankiNoteTypePlaceholder} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="entei-anki-select-content">
                 {models.length === 0 && (
                   <SelectItem value="__none__" disabled>
                     {dict.ankiNoNoteTypes}
@@ -514,7 +622,7 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
                             >
                               <SelectValue placeholder="—" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent className="entei-anki-select-content">
                               <SelectItem value="__none__">—</SelectItem>
                               {modelFields.map((f) => (
                                 <SelectItem key={f} value={f}>

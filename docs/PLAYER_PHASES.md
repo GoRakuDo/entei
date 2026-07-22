@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 + P1.1 code implementation complete — 手動browser QA待ち。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、AM-1 / AM-5 Anki read-only設定は完了。次の実装は`ANKI_MINER.md`のAM-2 Screenshot capture。P2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -66,6 +66,10 @@
 | streaming screenshotのcrop / delay workaround | tab captureやsite構造に依存するため除外する。                                         |
 
 **含め続けるもの:** ダウンロード済みのYouTube字幕ファイル、WebSocket client、local file向けCondensed playbackはstreaming integrationではない。名前だけで一緒に捨てない。
+
+### 3.3 mining / Ankiの実装順
+
+mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ早く安全に到達するための実装順は`docs/ANKI_MINER.md`を正とする。現在はAM-1 Settings ModalとAM-5 read-only AnkiConnectが完了し、次はAM-2 Screenshot capture。`addNote` / note更新はStage 2の明示承認まで実装・実行しない。
 
 ---
 
@@ -390,7 +394,7 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 | React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                             |
 | Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                   |
 | Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                    |
-| Unit tests                | ✅   | 288 tests（既存Home 57 + Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / findActiveCue / caption display mode / pointer-type policy / playback resume detection / caption preference persistence tests） |
+| Unit tests                | ✅   | 377 tests（12 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle tests） |
 
 ### Reviewer findings 修正状況
 
@@ -468,10 +472,10 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                    |
 | ---------- | ---- | ----------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                 |
-| test       | ✅   | 288 tests pass（9 files）                                   |
+| test       | ✅   | 377 tests pass（12 files）                                  |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)        |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）          |
-| safety     | ✅   | No network request, no upload, no external dependency fetch |
+| safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
 | regression | ✅   | Home の 57 test すべて pass                                 |
 | browser    | ⬜   | 実 local media での手動確認が必要                           |
 | ASS QA     | ⬜   | 実 .ass ファイルでの browser 確認が必要                     |
