@@ -136,6 +136,19 @@ export const id: Dictionary = {
       'Videonya belum siap. Tunggu sampai mulai diputar.',
     screenshotNoPreview: 'Tidak ada pratinjau.',
     screenshotCapturing: 'Sedang mengambil gambar…',
+    // AM-3: Audio clip capture
+    audioClipCaptureLabel: 'Rekam klip audio',
+    audioClipPreviewTitle: 'Pratinjau Klip Audio',
+    audioClipRetry: 'Coba lagi',
+    audioClipClose: 'Tutup',
+    audioClipError: 'Gagal merekam klip audio.',
+    audioClipErrorNoCue: 'Tidak ada subtitle aktif.',
+    audioClipErrorUnsupported:
+      'Perekaman klip audio tidak didukung di browser ini.',
+    audioClipNoPreview: 'Tidak ada pratinjau.',
+    audioClipRecording: 'Sedang merekam klip audio…',
+    audioClipPlay: 'Putar',
+    audioClipPause: 'Jeda',
   },
   reader: {
     title: 'Pembaca EPUB',

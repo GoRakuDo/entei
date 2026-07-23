@@ -160,6 +160,18 @@ export interface Dictionary {
     screenshotErrorMetadata: string;
     screenshotNoPreview: string;
     screenshotCapturing: string;
+    // AM-3: Audio clip capture
+    audioClipCaptureLabel: string;
+    audioClipPreviewTitle: string;
+    audioClipRetry: string;
+    audioClipClose: string;
+    audioClipError: string;
+    audioClipErrorNoCue: string;
+    audioClipErrorUnsupported: string;
+    audioClipNoPreview: string;
+    audioClipRecording: string;
+    audioClipPlay: string;
+    audioClipPause: string;
   };
   reader: {
     title: string;

@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、AM-1 / AM-2 / AM-5 Anki read-only設定はコード完了。次の実装は`ANKI_MINER.md`のAM-3 Audio Clip。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、ANKI_MINERのAM-1 / AM-2 / AM-3 / AM-5はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。次の実装はAM-4 Mining Preview。P2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -381,19 +381,19 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 
 ### 実装サマリー
 
-| 項目                      | 状態 | 備考                                                                                                                                   |
-| ------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| React integration         | ✅   | `@astrojs/react`, `react`, `react-dom`                                                                                                 |
-| Tailwind CSS v4           | ✅   | `@tailwindcss/vite` plugin (scoped via `[data-entei-player-root]`)                                                                     |
-| shadcn/ui                 | ✅   | Button, Dialog (Radix), ScrollArea, Slider, Popover (Radix)                                                                            |
-| PlayerLayout.astro        | ✅   | BaseLayout の desktop grid を持たない full-width layout                                                                                |
-| Subtitle parser (SRT/VTT) | ✅   | Single `stripTags` helper (duplicate merged)                                                                                           |
-| Subtitle parser (ASS)     | ✅   | `ass-compiler` v0.1.1 (MIT) — dialogue timing + plain text extraction                                                                 |
-| Media URL lifecycle       | ✅   | Simplified: `createMediaUrl(file, prevUrl)` returns string, revokes inline                                                             |
-| Keyboard shortcuts        | ✅   | Shared `HTMLMediaElement` ref for both video/audio                                                                                     |
-| React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                             |
-| Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                   |
-| Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                    |
+| 項目                      | 状態 | 備考                                                                                                                                                                                                                                         |
+| ------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| React integration         | ✅   | `@astrojs/react`, `react`, `react-dom`                                                                                                                                                                                                       |
+| Tailwind CSS v4           | ✅   | `@tailwindcss/vite` plugin (scoped via `[data-entei-player-root]`)                                                                                                                                                                           |
+| shadcn/ui                 | ✅   | Button, Dialog (Radix), ScrollArea, Slider, Popover (Radix)                                                                                                                                                                                  |
+| PlayerLayout.astro        | ✅   | BaseLayout の desktop grid を持たない full-width layout                                                                                                                                                                                      |
+| Subtitle parser (SRT/VTT) | ✅   | Single `stripTags` helper (duplicate merged)                                                                                                                                                                                                 |
+| Subtitle parser (ASS)     | ✅   | `ass-compiler` v0.1.1 (MIT) — dialogue timing + plain text extraction                                                                                                                                                                        |
+| Media URL lifecycle       | ✅   | Simplified: `createMediaUrl(file, prevUrl)` returns string, revokes inline                                                                                                                                                                   |
+| Keyboard shortcuts        | ✅   | Shared `HTMLMediaElement` ref for both video/audio                                                                                                                                                                                           |
+| React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                                                                                                                                   |
+| Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                         |
+| Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                          |
 | Unit tests                | ✅   | 416 tests（14 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration tests） |
 
 ### Reviewer findings 修正状況
@@ -469,16 +469,16 @@ apps/web/src/
 
 ### P1 gate 準備
 
-| 種別       | 結果 | コメント                                                    |
-| ---------- | ---- | ----------------------------------------------------------- |
-| format     | ✅   | `npm run format:check` pass                                 |
-| test       | ✅   | 416 tests pass（14 files）                                  |
-| type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)        |
-| build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）          |
+| 種別       | 結果 | コメント                                                                                      |
+| ---------- | ---- | --------------------------------------------------------------------------------------------- |
+| format     | ✅   | `npm run format:check` pass                                                                   |
+| test       | ✅   | 416 tests pass（14 files）                                                                    |
+| type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)                                          |
+| build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
-| regression | ✅   | Home の 57 test すべて pass                                 |
-| browser    | ⬜   | 実 local media での手動確認が必要                           |
-| ASS QA     | ⬜   | 実 .ass ファイルでの browser 確認が必要                     |
+| regression | ✅   | Home の 57 test すべて pass                                                                   |
+| browser    | ⬜   | 実 local media での手動確認が必要                                                             |
+| ASS QA     | ⬜   | 実 .ass ファイルでの browser 確認が必要                                                       |
 
 ### 手動 QA が必要なもの（browser gate）
 
@@ -583,15 +583,15 @@ audioも同じ`PlayerControls`を使う。video専用はfullscreenとpointer上�
 | Reduced motion                    | ✅   | Transition: none on controls/volume popup; skeleton frozen                                                                              |
 | Landscape immersive               | ✅   | Custom controls render inside fullscreen surface                                                                                        |
 | Unit tests                        | ✅   | 35 new tests in `control-helpers.test.ts` (format, seek, mute, visibility, fullscreen, control target, rate)                            |
-| Verification                      | ✅   | format ✅ / test ✅ (176) / check ✅ (0/0/0) / build ✅（3 pages、最終再実行 13.33s）/ reviewer ✅                                       |
+| Verification                      | ✅   | format ✅ / test ✅ (176) / check ✅ (0/0/0) / build ✅（3 pages、最終再実行 13.33s）/ reviewer ✅                                      |
 
 ### P1.1 Reviewer Fixes (post-audit)
 
-| Item | 状態 | 内容 |
-| ---- | ---- | ---- |
-| P1 media listener reattachment | ✅ | `mediaKey` prop (media URL) added to PlayerControls; listener effect depends on it so listeners reattach on video↔audio switch or new file; `currentTime`/`duration` reset immediately |
-| P2 cue click reveals controls | ✅ | `PlayerControlsHandle` exposed via `forwardRef`/`useImperativeHandle`; `handleCueClick` calls `controlsHandleRef.current?.show()` |
-| P3 ArrowLeft/Right documented | ✅ | Source comment explains intentional direction-aware behavior: invalid cue → first (Left) / last (Right) |
+| Item                           | 状態 | 内容                                                                                                                                                                                   |
+| ------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1 media listener reattachment | ✅   | `mediaKey` prop (media URL) added to PlayerControls; listener effect depends on it so listeners reattach on video↔audio switch or new file; `currentTime`/`duration` reset immediately |
+| P2 cue click reveals controls  | ✅   | `PlayerControlsHandle` exposed via `forwardRef`/`useImperativeHandle`; `handleCueClick` calls `controlsHandleRef.current?.show()`                                                      |
+| P3 ArrowLeft/Right documented  | ✅   | Source comment explains intentional direction-aware behavior: invalid cue → first (Left) / last (Right)                                                                                |
 
 ### P1.1 手動 QA が必要なもの（browser gate）
 
@@ -616,13 +616,13 @@ audioも同じ`PlayerControls`を使う。video専用はfullscreenとpointer上�
 
 asbplayer自身はlocal fileをBlob URLとしてnative `<video>`へ渡している（`A:\asbplayer\common\app\components\VideoPlayer.tsx:1912-1920`）。MKVを独自decoderやFFmpegで変換しているわけではない。
 
-| browser / container | asbplayer公式compatibility | 園庭の扱い |
-|---|---|---|
-| Chromium + MP4 | ✓ | parity対象 |
-| Chromium + MKV | ✓ | parity対象。direct Blob playbackを試す |
-| Chromium + H.265/HEVC | modern GPU + hardware acceleration時 ✓ | direct Blob playbackを試す。software decodeを約束しない |
-| Firefox + MKV | 記載なし | ファイルは選択可能にするが、native playback failureを正直に表示する |
-| AC3 / DTS | 記載なし | codec非対応として扱う。変換はしない |
+| browser / container   | asbplayer公式compatibility             | 園庭の扱い                                                          |
+| --------------------- | -------------------------------------- | ------------------------------------------------------------------- |
+| Chromium + MP4        | ✓                                      | parity対象                                                          |
+| Chromium + MKV        | ✓                                      | parity対象。direct Blob playbackを試す                              |
+| Chromium + H.265/HEVC | modern GPU + hardware acceleration時 ✓ | direct Blob playbackを試す。software decodeを約束しない             |
+| Firefox + MKV         | 記載なし                               | ファイルは選択可能にするが、native playback failureを正直に表示する |
+| AC3 / DTS             | 記載なし                               | codec非対応として扱う。変換はしない                                 |
 
 これは「ファイル拡張子を受け入れる」と「browserがcontainer内codecをdecodeできる」を分ける契約。`canPlayType()`は選択前の補助ヒントに留め、実際の`loadedmetadata` / `error`を最終判定にする。
 
@@ -630,13 +630,13 @@ asbplayer自身はlocal fileをBlob URLとしてnative `<video>`へ渡してい�
 
 asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をsource of truthとする。
 
-| 種別 | extension | 園庭のstage |
-|---|---|---|
-| video | `.mkv`, `.mp4`, `.m4v`, `.avi`, `.webm` | P1.2 |
-| audio | `.mp3`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.wav`, `.opus`, `.m4b` | P1.2 |
-| basic text subtitle | `.srt`, `.ass`, `.vtt`, `.nfvtt` | P1.3a |
-| platform XML subtitle | `.ytxml`, `.ytsrv3`, `.dfxp`, `.ttml2`, `.nfimsc`, `.bbjson` | P1.3b |
-| image subtitle | `.sup` (PGS) | P1.4 |
+| 種別                  | extension                                                        | 園庭のstage |
+| --------------------- | ---------------------------------------------------------------- | ----------- |
+| video                 | `.mkv`, `.mp4`, `.m4v`, `.avi`, `.webm`                          | P1.2        |
+| audio                 | `.mp3`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.wav`, `.opus`, `.m4b` | P1.2        |
+| basic text subtitle   | `.srt`, `.ass`, `.vtt`, `.nfvtt`                                 | P1.3a       |
+| platform XML subtitle | `.ytxml`, `.ytsrv3`, `.dfxp`, `.ttml2`, `.nfimsc`, `.bbjson`     | P1.3b       |
+| image subtitle        | `.sup` (PGS)                                                     | P1.4        |
 
 園庭の現在P1はvideo `.mp4/.webm/.ogv/.ogg/.mkv`、audio `.mp3/.wav/.ogg/.flac/.aac/.m4a`、subtitle `.srt/.vtt`だけ。これはasbplayerと同一ではないため、P1.2-P1.4で追いつける。
 
@@ -665,7 +665,7 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 
 **P1.3a implementation record (2026-07-21):** ASS text subtitle parsing implemented. `ass-compiler` v0.1.1 (MIT license, author Zhenye Wei) installed via npm workspace. `subtitle-reader.ts` extended: `detectFormat` recognizes `[Script Info]` header; `parseASS` compiles dialogue timing, extracts plain text from `slices[].fragments[].text`, strips override tags (`{\...}`), normalizes `\\N`/`\\n` linebreaks to spaces, and applies shared whitespace/tag normalization. `SUBTITLE_EXTENSIONS` and `SUBTITLE_ACCEPT` in `media-url.ts` include `.ass` (case-insensitive). Compiler failures and malformed dialogue are caught and returned as `SubtitleParseResult.errors`. 246 automated tests (including 12 ASS-specific tests for timing, linebreaks, tag stripping, sort/id reassign, malformed input, `SUBTITLE_ACCEPT`, and direct `isSubtitleFile`/MIME assertions for ASS), `astro check` 0 diagnostics, and static build 3 pages passed. **Not implemented:** ASS visual typesetting (position/color/outline/shadow/karaoke/border), NFVTT/XML/PGS formats. Actual browser `.ass` file QA remains required and is not claimed complete.
 
-**P1.3a.1 implementation record (2026-07-21):** Selectable subtitle overlay over video implemented. `SubtitleOverlay` component renders active subtitle as normal DOM text inside `.entei-player-surface` with `data-entei-subtitle-overlay` attribute, `user-select: text`, and `pointer-events: auto` — compatible with user-installed Yomitan text scanner. PlayerApp surface click handler ignores events inside `[data-entei-subtitle-overlay]`, preserving document-level event propagation for content scripts. `findActiveCue(cues, time)` extracted as single source of truth for active-cue derivation (inclusive start, exclusive end); used by both `handleTimeUpdate` and the overlay. Overlay uses OKLCH token contrast (semi-transparent black background, white text), positioned bottom-center above controls (z-index 15; controls layer is z-index 10 with `pointer-events:none` container so overlay receives hover/tap/selection). 11 unit tests for `findActiveCue` covering boundary conditions, overlap behavior, and edge cases. 270 total tests, `astro check` 0 diagnostics, build 3 pages passed.   **Not implemented:** P6 word-status/dictionary integration, dictionary popup rendering, Anki mining. **Manual QA pending:** desktop Yomitan scan/selection, touch text selection behavior, fullscreen/landscape overlay visibility, non-Japanese subtitle scanning.
+**P1.3a.1 implementation record (2026-07-21):** Selectable subtitle overlay over video implemented. `SubtitleOverlay` component renders active subtitle as normal DOM text inside `.entei-player-surface` with `data-entei-subtitle-overlay` attribute, `user-select: text`, and `pointer-events: auto` — compatible with user-installed Yomitan text scanner. PlayerApp surface click handler ignores events inside `[data-entei-subtitle-overlay]`, preserving document-level event propagation for content scripts. `findActiveCue(cues, time)` extracted as single source of truth for active-cue derivation (inclusive start, exclusive end); used by both `handleTimeUpdate` and the overlay. Overlay uses OKLCH token contrast (semi-transparent black background, white text), positioned bottom-center above controls (z-index 15; controls layer is z-index 10 with `pointer-events:none` container so overlay receives hover/tap/selection). 11 unit tests for `findActiveCue` covering boundary conditions, overlap behavior, and edge cases. 270 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Not implemented:** P6 word-status/dictionary integration, dictionary popup rendering, Anki mining. **Manual QA pending:** desktop Yomitan scan/selection, touch text selection behavior, fullscreen/landscape overlay visibility, non-Japanese subtitle scanning.
 
 **P1.3a.2 implementation record (2026-07-21):** Caption display modes implemented. `CaptionDisplayMode` union type (`'visible' | 'blurred' | 'hidden'`) and `nextCaptionDisplayMode` pure transition function added to `control-helpers.ts`. `SubtitleOverlay` extended to accept `displayMode` — `hidden` renders no DOM, `blurred` applies CSS `filter: blur(6px)` and reveals on hover/tap. `SubtitleControls` cycle button added to top-right (left of Timeline): `ClosedCaption` (visible) → `Captions` (blurred) → `CaptionsOff` (hidden). Desktop: pointer hover reveals overlay text, pointer leave starts 1s restore timer; timer cancelled on re-entry. Mobile: tap blurred overlay pauses media + reveals text + shows controls; blur stays removed while paused; playback resume restores blur immediately. `SubtitleOverlay` filters pointer enter/leave by `event.pointerType === 'mouse'` via `shouldTriggerBlurHover()` — touch/pen events never schedule the 1s restore timer, preventing premature re-blur on mobile. Re-blur uses `isPlaybackResume(wasPlaying, isPlaying)` transition detection — only fires on actual false→true isPlaying transition (user-initiated resume), not during the render where isPlaying is still true after a touch-tap pause. `handleSurfaceClick` continues to ignore `[data-entei-subtitle-overlay]` targets. PlayerApp manages `captionDisplayMode` state and `isOverlayRevealed` with timer cleanup on unmount/mode change. Three locale dictionaries (id/ja/en) extended with `captionModeVisible`/`captionModeBlurred`/`captionModeHidden`. CSS: `.entei-subtitle-overlay--blurred .entei-subtitle-overlay-text` uses `filter: blur(6px)`, revealed state clears filter via `[data-overlay-revealed]` attribute. `prefers-reduced-motion`: blur state changes are instant (no animation). 16 new tests (transition cycle, constant value, pointer-type policy, playback resume detection). 278 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Manual QA pending:** desktop Yomitan scan through blurred/revealed text, mobile tap-to-reveal + pause + resume reblur, fullscreen/landscape overlay behavior, cycle button responsiveness.
 
@@ -695,12 +695,12 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 
 ### 17.7 恒久除外と将来候補
 
-| 項目 | 判定 | 理由 |
-|---|---|---|
-| Streaming Video Integration | 恒久除外 | 園庭のscope外 |
-| browser内MKV reencode / FFmpeg | 今回除外 | asbplayer現行Webの実装でもなく、大容量WASMとmemory costが別featureになる |
-| MKV内部subtitle track extraction | 今回除外 | asbplayer release noteでもfuture work。external `.sup` supportと混同しない |
-| browser extension / native player helper | 恒久除外 | local web Playerの独立性を壊す |
+| 項目                                     | 判定     | 理由                                                                       |
+| ---------------------------------------- | -------- | -------------------------------------------------------------------------- |
+| Streaming Video Integration              | 恒久除外 | 園庭のscope外                                                              |
+| browser内MKV reencode / FFmpeg           | 今回除外 | asbplayer現行Webの実装でもなく、大容量WASMとmemory costが別featureになる   |
+| MKV内部subtitle track extraction         | 今回除外 | asbplayer release noteでもfuture work。external `.sup` supportと混同しない |
+| browser extension / native player helper | 恒久除外 | local web Playerの独立性を壊す                                             |
 
 ### 17.8 移植とlicenseの契約
 

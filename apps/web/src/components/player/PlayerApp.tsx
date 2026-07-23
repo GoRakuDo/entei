@@ -64,6 +64,12 @@ import {
 import { useKeyboardShortcuts } from '@/features/player/use-keyboard-shortcuts';
 import { captureVideoFrame } from '@/features/player/screenshot-capture';
 import { ScreenshotPreviewDialog } from '@/components/player/ScreenshotPreviewDialog';
+import {
+  recordAudioClip,
+  cancelActiveRecording,
+  checkAudioClipCapabilities,
+} from '@/features/player/audio-clip';
+import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { Music, AlertTriangle } from 'lucide-react';
 
 function getInitialLocale(): 'id' | 'ja' | 'en' {
@@ -142,6 +148,20 @@ export default function PlayerApp() {
   // AM-2: monotonic epoch to invalidate stale capture results
   const captureEpochRef = useRef(0);
 
+  // --- AM-3: Audio clip state ---
+  const [audioClipUrl, setAudioClipUrl] = useState<string | null>(null);
+  const [isAudioClipDialogOpen, setIsAudioClipDialogOpen] = useState(false);
+  const [hasAudioClipError, setHasAudioClipError] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  // AM-3: expected cue duration for preview fallback when audio.duration is NaN/Infinity
+  const [audioClipExpectedDuration, setAudioClipExpectedDuration] = useState(0);
+  // AM-3: synchronous guard against double-clicks
+  const isRecordingAudioRef = useRef(false);
+  const audioClipUrlRef = useRef<string | null>(null);
+  const audioClipEpochRef = useRef(0);
+  // AM-3: capability check (stable per browser session)
+  const [audioClipCaps] = useState(() => checkAudioClipCapabilities());
+
   // --- P1.1: touch + reduced-motion detection ---
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -180,6 +200,13 @@ export default function PlayerApp() {
         URL.revokeObjectURL(screenshotUrlRef.current);
         screenshotUrlRef.current = null;
       }
+      // AM-3: Revoke any lingering audio clip object URL
+      if (audioClipUrlRef.current) {
+        URL.revokeObjectURL(audioClipUrlRef.current);
+        audioClipUrlRef.current = null;
+      }
+      // AM-3: Cancel any in-flight recording
+      cancelActiveRecording();
     };
   }, []);
 
@@ -238,6 +265,28 @@ export default function PlayerApp() {
     setIsCapturing(false);
   }, [replaceScreenshotUrl]);
 
+  /** AM-3: Revoke prior audio clip URL and update ref/state atomically. */
+  const replaceAudioClipUrl = useCallback((newUrl: string | null) => {
+    const prev = audioClipUrlRef.current;
+    if (prev && prev !== newUrl) {
+      URL.revokeObjectURL(prev);
+    }
+    audioClipUrlRef.current = newUrl;
+    setAudioClipUrl(newUrl);
+  }, []);
+
+  /** AM-3: Clear audio clip state when media changes or dialog closes. */
+  const clearAudioClip = useCallback(() => {
+    audioClipEpochRef.current += 1;
+    isRecordingAudioRef.current = false;
+    setHasAudioClipError(false);
+    setAudioClipExpectedDuration(0);
+    replaceAudioClipUrl(null);
+    setIsAudioClipDialogOpen(false);
+    setIsRecordingAudio(false);
+    cancelActiveRecording();
+  }, [replaceAudioClipUrl]);
+
   /** AM-2: Reset video metadata readiness on new media. */
   const resetVideoMetadata = useCallback(() => {
     setIsVideoMetadataReady(false);
@@ -259,6 +308,8 @@ export default function PlayerApp() {
     setActiveCueId(null);
     // AM-2: Invalidate any prior screenshot when selecting new media
     clearScreenshot();
+    // AM-3: Invalidate any prior audio clip when selecting new media
+    clearAudioClip();
     resetVideoMetadata();
 
     const oldUrl = activeUrlRef.current;
@@ -504,6 +555,73 @@ export default function PlayerApp() {
   /** AM-2: Screenshot is possible only when video metadata is ready. */
   const canScreenshot = mediaType === 'video' && isVideoMetadataReady;
 
+  // --- AM-3: Audio clip capture ---
+  const handleAudioClip = useCallback(async () => {
+    if (!mediaUrl || !activeCueId || !audioClipCaps.supported) return;
+    if (isRecordingAudioRef.current) return;
+
+    const activeCue = cues.find((c) => c.id === activeCueId);
+    if (!activeCue) return;
+
+    const expectedDuration = activeCue.end - activeCue.start;
+    setAudioClipExpectedDuration(expectedDuration > 0 ? expectedDuration : 0);
+
+    const epoch = audioClipEpochRef.current + 1;
+    audioClipEpochRef.current = epoch;
+    isRecordingAudioRef.current = true;
+    setIsRecordingAudio(true);
+    setHasAudioClipError(false);
+
+    const result = await recordAudioClip({
+      mediaUrl,
+      start: activeCue.start,
+      end: activeCue.end,
+      playbackRate,
+    });
+
+    // Guard: component unmounted → do not touch React state or create URLs.
+    if (!mountedRef.current) {
+      return;
+    }
+
+    // Guard: epoch changed (new media, dialog closed, retry superseded).
+    if (audioClipEpochRef.current !== epoch) {
+      return;
+    }
+
+    isRecordingAudioRef.current = false;
+    setIsRecordingAudio(false);
+
+    if (!result.ok) {
+      setHasAudioClipError(true);
+      replaceAudioClipUrl(null);
+      setIsAudioClipDialogOpen(true);
+      return;
+    }
+
+    const url = URL.createObjectURL(result.blob);
+    replaceAudioClipUrl(url);
+    setIsAudioClipDialogOpen(true);
+  }, [mediaUrl, activeCueId, audioClipCaps.supported, cues, playbackRate, replaceAudioClipUrl]);
+
+  /** AM-3: Close dialog and revoke the object URL to free memory. */
+  const handleAudioClipDialogClose = useCallback(() => {
+    audioClipEpochRef.current += 1;
+    isRecordingAudioRef.current = false;
+    setIsAudioClipDialogOpen(false);
+    setHasAudioClipError(false);
+    replaceAudioClipUrl(null);
+    setIsRecordingAudio(false);
+    cancelActiveRecording();
+  }, [replaceAudioClipUrl]);
+
+  /** AM-3: Audio clip is possible when media loaded, active cue exists, and APIs supported. */
+  const canAudioClip =
+    (mediaType === 'video' || mediaType === 'audio') &&
+    !!mediaUrl &&
+    !!activeCueId &&
+    audioClipCaps.supported;
+
   // --- P1.1: Surface click behavior ---
   const handleSurfaceClick = useCallback(
     (e: React.MouseEvent) => {
@@ -743,6 +861,9 @@ export default function PlayerApp() {
                 onScreenshot={handleScreenshot}
                 canScreenshot={canScreenshot}
                 isCapturing={isCapturing}
+                onAudioClip={handleAudioClip}
+                canAudioClip={canAudioClip}
+                isRecordingAudio={isRecordingAudio}
               />
 
               {/* AM-2: Screenshot Preview Dialog */}
@@ -754,6 +875,19 @@ export default function PlayerApp() {
                 onRetry={handleScreenshot}
                 onClose={handleScreenshotDialogClose}
                 isCapturing={isCapturing}
+                dict={dict}
+              />
+
+              {/* AM-3: Audio Clip Preview Dialog */}
+              <AudioClipPreviewDialog
+                open={isAudioClipDialogOpen}
+                onOpenChange={handleAudioClipDialogClose}
+                audioUrl={audioClipUrl}
+                expectedDuration={audioClipExpectedDuration}
+                error={hasAudioClipError}
+                onRetry={handleAudioClip}
+                onClose={handleAudioClipDialogClose}
+                isRecording={isRecordingAudio}
                 dict={dict}
               />
             </div>

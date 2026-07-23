@@ -133,6 +133,19 @@ export const en: Dictionary = {
     screenshotErrorMetadata: 'Video not ready. Wait for playback to start.',
     screenshotNoPreview: 'No preview available.',
     screenshotCapturing: 'Capturing screenshot…',
+    // AM-3: Audio clip capture
+    audioClipCaptureLabel: 'Capture audio clip',
+    audioClipPreviewTitle: 'Audio Clip Preview',
+    audioClipRetry: 'Retry',
+    audioClipClose: 'Close',
+    audioClipError: 'Failed to capture audio clip.',
+    audioClipErrorNoCue: 'No active subtitle cue.',
+    audioClipErrorUnsupported:
+      'Audio clip recording is not supported in this browser.',
+    audioClipNoPreview: 'No preview available.',
+    audioClipRecording: 'Recording audio clip…',
+    audioClipPlay: 'Play',
+    audioClipPause: 'Pause',
   },
   reader: {
     title: 'EPUB Reader',

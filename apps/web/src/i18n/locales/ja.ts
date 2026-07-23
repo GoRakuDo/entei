@@ -136,6 +136,19 @@ export const ja: Dictionary = {
       '動画の準備ができていません。再生が始まるまでお待ちください。',
     screenshotNoPreview: 'プレビューがありません。',
     screenshotCapturing: 'スクリーンショットを撮影中…',
+    // AM-3: Audio clip capture
+    audioClipCaptureLabel: '音声クリップを録音',
+    audioClipPreviewTitle: '音声クリップのプレビュー',
+    audioClipRetry: '再試行',
+    audioClipClose: '閉じる',
+    audioClipError: '音声クリップの録音に失敗しました。',
+    audioClipErrorNoCue: 'アクティブな字幕がありません。',
+    audioClipErrorUnsupported:
+      'このブラウザでは音声クリップの録音がサポートされていません。',
+    audioClipNoPreview: 'プレビューがありません。',
+    audioClipRecording: '音声クリップを録音中…',
+    audioClipPlay: '再生',
+    audioClipPause: '一時停止',
   },
   reader: {
     title: 'EPUBリーダー',

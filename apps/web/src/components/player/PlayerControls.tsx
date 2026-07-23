@@ -37,6 +37,7 @@ import {
   Captions,
   CaptionsOff,
   Camera,
+  AudioLines,
 } from 'lucide-react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from '@/components/player/ui/slider';
@@ -96,6 +97,12 @@ interface PlayerControlsProps {
   canScreenshot?: boolean;
   /** AM-2: Whether a capture request is currently in flight. */
   isCapturing?: boolean;
+  /** AM-3: Called when the audio clip button is pressed. */
+  onAudioClip?: () => void;
+  /** AM-3: Whether audio clip recording is currently possible (active cue + supported). */
+  canAudioClip?: boolean;
+  /** AM-3: Whether an audio clip recording is currently in flight. */
+  isRecordingAudio?: boolean;
 }
 
 export interface PlayerControlsHandle {
@@ -134,6 +141,9 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
       onScreenshot,
       canScreenshot,
       isCapturing,
+      onAudioClip,
+      canAudioClip,
+      isRecordingAudio,
     },
     ref,
   ) {
@@ -513,6 +523,33 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
               disabled={canScreenshot === false || isCapturing === true}
             >
               <Camera size={18} />
+            </button>
+          )}
+
+          {/* AM-3: Audio clip — for video/audio, directly after Camera, before caption mode */}
+          {(mediaType === 'video' || mediaType === 'audio') && (
+            <button
+              type="button"
+              className="entei-controls-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAudioClip?.();
+              }}
+              aria-label={
+                isRecordingAudio
+                  ? dict.audioClipRecording
+                  : dict.audioClipCaptureLabel
+              }
+              title={
+                isRecordingAudio
+                  ? dict.audioClipRecording
+                  : canAudioClip === false
+                    ? dict.audioClipErrorNoCue
+                    : dict.audioClipCaptureLabel
+              }
+              disabled={canAudioClip === false || isRecordingAudio === true}
+            >
+              <AudioLines size={18} />
             </button>
           )}
 

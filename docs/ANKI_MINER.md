@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1A（AM-1 + AM-2 + AM-5）コード完了。AM-2はbrowser QA未実施。次はAM-3 Audio Clip。
+> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-5）コード完了。AM-2 browser QA完了。AM-3: Dialogクリック伝播防止・Preview duration fallback修正済み、browser QA待ち。次はAM-4 Mining Preview。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -104,11 +104,11 @@ Ankiへ送る操作以外で、local mediaを外部へuploadしない。Screensh
 | ------------------- | ------------------------------------- | ----------------------- | ----------------------------------- |
 | AM-1 Settings Modal | Anki presetを安全に設定               | current Player controls | Dialog/tab/a11y・設定保存が通る     |
 | AM-2 Screenshot     | 現在frameをJPEGとしてpreviewできる    | AM-1なしでも可          | capture/retry/errorが通る           |
-| AM-3 Audio Clip     | 選択rangeの音声をpreviewできる        | capability検出          | unsupported browserで正直にfallback |
+| AM-3 Audio Clip     | active cueの音声をpreviewできる       | capability検出          | unsupported browserで正直にfallback |
 | AM-4 Mining Preview | 素材とfield payloadを確認する         | AM-2、AM-3              | CancelがAnkiへ何も送らない          |
 | AM-5 Anki read-only | permission/version/deck/fieldを読込む | AM-1                    | 書込みなしでmapping保存可能         |
 
-Stage 1ではAnkiConnectから読むだけで、`addNote` / `updateNoteFields`を一度も呼ばない。AM-1とAM-2は並列に進められる。AM-3〜AM-5は前段の結果を使うため、順番に進める。
+Stage 1ではAnkiConnectから読むだけで、`addNote` / `updateNoteFields`を一度も呼ばない。AM-1 / AM-2 / AM-5は完了済み。AM-3はactive cue音声の単独previewまでを担い、AM-4でrange調整とScreenshot / Audio / field payloadを1つのMining Previewへまとめる。
 
 ### Stage 2 — Anki Export & Update（明示書込み）
 
@@ -130,19 +130,19 @@ Stage 2のすべての書込みはMining Preview内の明示buttonからだけ�
 
 ### 実装済みファイル
 
-| ファイル                                         | 目的                                                                                                     |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `src/components/player/PlayerSettingsDialog.tsx` | Settings iconから開くDialog Modal本体（Player / Anki Fields 2 tab）                                      |
-| `src/components/player/AnkiFieldsTab.tsx`        | AnkiConnect auto-connect/retry、Deck/Note type/Field mapping、Preset保存                                 |
-| `src/components/player/ui/tabs.tsx`              | shadcn CLI生成 Tabs                                                                                      |
-| `src/components/player/ui/select.tsx`            | shadcn CLI生成 Select                                                                                    |
-| `src/features/player/anki-connect.ts`            | Typed read-only AnkiConnect client（version、requestPermission、deckNames、modelNames、modelFieldNames） |
-| `src/features/player/anki-miner-preferences.ts`  | `entei.player.anki-miner.v1` localStorage read/write + validation                                        |
-| `src/i18n/types.ts` + `locales/{en,ja,id}.ts`    | 全UI状態のtyped翻訳                                                                                      |
-| `src/styles/player.css`                          | Dialog、Tabs、Anki Fieldsのスタイル（OKLCH token使用）                                                   |
-| `tests/anki-miner-preferences.test.ts`           | Preferences schema/privacyテスト（25 tests）                                                             |
-| `tests/anki-connect.test.ts`                     | Anki request/response/errorテスト + forbidden write action検証 + dependency absence + W14 auto-connect lifecycle（59 tests）        |
-| `tests/anki-fields-tab-lifecycle.test.ts`         | Component lifecycle integration tests: auto-attempt, retry at 10s, success clears error, unmount blocks retry, endpoint change（5 tests） |
+| ファイル                                         | 目的                                                                                                                                      |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/components/player/PlayerSettingsDialog.tsx` | Settings iconから開くDialog Modal本体（Player / Anki Fields 2 tab）                                                                       |
+| `src/components/player/AnkiFieldsTab.tsx`        | AnkiConnect auto-connect/retry、Deck/Note type/Field mapping、Preset保存                                                                  |
+| `src/components/player/ui/tabs.tsx`              | shadcn CLI生成 Tabs                                                                                                                       |
+| `src/components/player/ui/select.tsx`            | shadcn CLI生成 Select                                                                                                                     |
+| `src/features/player/anki-connect.ts`            | Typed read-only AnkiConnect client（version、requestPermission、deckNames、modelNames、modelFieldNames）                                  |
+| `src/features/player/anki-miner-preferences.ts`  | `entei.player.anki-miner.v1` localStorage read/write + validation                                                                         |
+| `src/i18n/types.ts` + `locales/{en,ja,id}.ts`    | 全UI状態のtyped翻訳                                                                                                                       |
+| `src/styles/player.css`                          | Dialog、Tabs、Anki Fieldsのスタイル（OKLCH token使用）                                                                                    |
+| `tests/anki-miner-preferences.test.ts`           | Preferences schema/privacyテスト（25 tests）                                                                                              |
+| `tests/anki-connect.test.ts`                     | Anki request/response/errorテスト + forbidden write action検証 + dependency absence + W14 auto-connect lifecycle（59 tests）              |
+| `tests/anki-fields-tab-lifecycle.test.ts`        | Component lifecycle integration tests: auto-attempt, retry at 10s, success clears error, unmount blocks retry, endpoint change（5 tests） |
 
 ### 設計遵守確認
 
@@ -151,7 +151,7 @@ Stage 2のすべての書込みはMining Preview内の明示buttonからだけ�
 | Settings Popover → Dialog置換                  | ✅   | `PlayerControls.tsx`からPopover削除、Dialog再利用                                                                                         |
 | Player tabにshortcut移動                       | ✅   | `PlayerSettingsDialog.tsx`内 `TabsContent value="player"`                                                                                 |
 | Anki Fields tab: 読み込みのみ                  | ✅   | `anki-connect.ts`に `addNote` / `canAddNotes` / `updateNoteFields` / `storeMediaFile` / `findNotes` / `notesInfo` なし                    |
-| Auto-connect on mount + 10s retry              | ✅   | `AnkiFieldsTab.tsx` useEffect mount + scheduleRetry with RETRY_INTERVAL_MS = 10_000                                          |
+| Auto-connect on mount + 10s retry              | ✅   | `AnkiFieldsTab.tsx` useEffect mount + scheduleRetry with RETRY_INTERVAL_MS = 10_000                                                       |
 | API key: sessionのみ・非保存                   | ✅   | `AnkiFieldsTab.tsx`の `apiKey` stateのみ。localStorage/key/URL/log/toastに出さない                                                        |
 | localStorage key: `entei.player.anki-miner.v1` | ✅   | `anki-miner-preferences.ts` で定義                                                                                                        |
 | 保存しないものが保存されていない               | ✅   | testで `apiKey` / `blob` / `path` / `subtitle` / `file` を検証                                                                            |
@@ -184,48 +184,48 @@ npm run build          ✅ static build complete
 ## 5.y Stage 1A 実装記録（AM-2 Screenshot capture）
 
 > 実装日: 2026-07-23
-> 実装範囲: AM-2 Screenshot capture のみ。Anki書込み（Stage 2）は未承認・未実施。browserでの実機QAは未実施。
+> 実装範囲: AM-2 Screenshot capture のみ。Anki書込み（Stage 2）は未承認・未実施。desktop Chromiumでlocal MKVのcurrent frame → JPEG Previewの実機QAは完了。4K縮小などのedge caseは継続確認対象。
 > 方針: 現在のvideo frame → local JPEG Blob → preview dialog。capture/retry/errorの閉路。pause/seek/subtitle状態は変更しない。
 
 ### 実装済みファイル
 
-| ファイル                                                   | 目的                                                                                         |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `src/features/player/screenshot-capture.ts`                | Typed browser utility: video frame → canvas → JPEG Blob。canvas factory injectable for JSDOM |
-| `src/components/player/ScreenshotPreviewDialog.tsx`        | Radix Dialogベースのpreview。image / error / Retry / Close。mobile sheet + desktop modal対応 |
-| `src/components/player/PlayerControls.tsx`                 | Top-rightにCameraボタン追加（video-only）。`canScreenshot` disabled state対応               |
-| `src/components/player/PlayerApp.tsx`                      | Blob/object URL state + lifecycle管理。新規mediaでpreview無効化。unmount revoke            |
-| `src/i18n/types.ts` + `locales/{en,ja,id}.ts`              | AM-2用辞書キー6個追加                                                                        |
-| `src/styles/player.css`                                    | `.entei-screenshot-*` dialog + image + error + footer + button スタイル群                   |
-| `tests/screenshot-capture.test.ts`                         | Utility unit tests: dimensions / scale / no upscale / zero-dims / context-null / drawImage例外 / toBlob-null / BLOB_ENCODE_FAILED / MIME/quality（19 tests） |
-| `tests/screenshot-integration.test.tsx`                    | Component tests: Camera video-only visibility / disabled / capturing-disabled / click / dialog image/error/retry/close / no-preview placeholder / URL lifecycle / unmount safety / media invalidation / StrictMode lifecycle / sync double-click guard / no URL for stale result / caller-level rejection safety（20 tests） |
+| ファイル                                            | 目的                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/features/player/screenshot-capture.ts`         | Typed browser utility: video frame → canvas → JPEG Blob。canvas factory injectable for JSDOM                                                                                                                                                                                                                                 |
+| `src/components/player/ScreenshotPreviewDialog.tsx` | Radix Dialogベースのpreview。image / error / Retry / Close。mobile sheet + desktop modal対応                                                                                                                                                                                                                                 |
+| `src/components/player/PlayerControls.tsx`          | Top-rightにCameraボタン追加（video-only）。`canScreenshot` disabled state対応                                                                                                                                                                                                                                                |
+| `src/components/player/PlayerApp.tsx`               | Blob/object URL state + lifecycle管理。新規mediaでpreview無効化。unmount revoke                                                                                                                                                                                                                                              |
+| `src/i18n/types.ts` + `locales/{en,ja,id}.ts`       | AM-2用辞書キー6個追加                                                                                                                                                                                                                                                                                                        |
+| `src/styles/player.css`                             | `.entei-screenshot-*` dialog + image + error + footer + button スタイル群                                                                                                                                                                                                                                                    |
+| `tests/screenshot-capture.test.ts`                  | Utility unit tests: dimensions / scale / no upscale / zero-dims / context-null / drawImage例外 / toBlob-null / BLOB_ENCODE_FAILED / MIME/quality（19 tests）                                                                                                                                                                 |
+| `tests/screenshot-integration.test.tsx`             | Component tests: Camera video-only visibility / disabled / capturing-disabled / click / dialog image/error/retry/close / no-preview placeholder / URL lifecycle / unmount safety / media invalidation / StrictMode lifecycle / sync double-click guard / no URL for stale result / caller-level rejection safety（20 tests） |
 
 ### 設計遵守確認
 
-| 項目                                               | 状態 | 根拠                                                                                                               |
-| -------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ |
-| Cameraボタンはvideo-only                           | ✅   | `mediaType === 'video'` のみレンダリング。audio/nullでは非表示                                                     |
-| Top-right配置（caption/timeline/settingsの前）     | ✅   | `.entei-controls-top-right` 内で caption mode より前に配置                                                         |
-| Captureはpause/seek/subtitleを変更しない           | ✅   | `handleScreenshot` は `videoRef.current` から直接draw。playback stateは触らない                                   |
-| JPEG policy固定値                                  | ✅   | `MAX_CAPTURE_DIMENSION = 1920`、`JPEG_QUALITY = 0.9`。アスペクト比維持・upscaleなし。setting化なし               |
-| `toDataURL`不使用                                  | ✅   | `canvas.toBlob('image/jpeg', 0.9)` のみ使用                                                                        |
-| Canvas injectable                                  | ✅   | `CanvasFactory` interface + `defaultCanvasFactory`。JSDOMテストでmock factory注入                                  |
-| Blob null → typed error                            | ✅   | `ScreenshotError` に `BLOB_NULL` code。rejectではなくresult型で返す                                               |
-| PlayerAppがURL lifecycle所有                       | ✅   | `screenshotUrlRef` + `replaceScreenshotUrl` でrevoke-before-replace。`unmount` でcleanup                          |
-| localStorage/media永続化なし                       | ✅   | Blob/URLはReact stateのみ。localStorage/key/URL/logに残さない                                                     |
-| 新規mediaでpreview無効化                           | ✅   | `handleMediaSelect` で `clearScreenshot()` 呼び出し                                                                |
-| Metadata未 ready → disabled                        | ✅   | `isVideoMetadataReady` state。loadeddata後にtrue。button titleで `screenshotErrorMetadata` 表示                   |
-| `type='button'`                                    | ✅   | Camera・Retry・Close 全て `type="button"`                                                                           |
-| Lucide Cameraのみ                                  | ✅   | `lucide-react` の `Camera` icon。raw SVGなし                                                                       |
-| OKLCH tokenのみ                                    | ✅   | 新規CSSで `--entei-*` / `oklch()` / `color-mix()` のみ（hex/rgb/hsl/namedなし）                                   |
-| `prefers-reduced-motion`                           | ✅   | `.entei-screenshot-btn` / `.entei-screenshot-image` に `@media (prefers-reduced-motion: reduce)` で `transition: none` |
-| 既存Settings/Anki retry動作不変                    | ✅   | `PlayerControls`・`PlayerApp` の既存prop・handler・effectは変更なし                                               |
-| Unmount URL leak防止                               | ✅   | `mountedRef` でunmount後はstate更新・URL作成をスキップ。Strict Mode対応                                            |
-| 新規media race防止                                 | ✅   | `captureEpochRef` モノトニックepoch。media変更・dialog閉・retry置換でepoch進行。stale結果はdiscard                 |
-| 連続ダブルクリック防止                             | ✅   | `isCapturing` state/ref。Camera・Retryボタンをcapturing中disabled。title/ariaで `screenshotCapturing` 表示        |
-| error.message非表示                                | ✅   | Dialogでは `hasScreenshotError` booleanのみ。typed internal `ScreenshotError` はutility/tests/debug用に残存        |
-| `_screenshotBlob` state削除                        | ✅   | BlobはURL作成に必要な間だけlocal変数で保持。React stateには残さない                                                |
-| `screenshotNoPreview` ローカライズ                 | ✅   | placeholderテキストをhardcodeから辞書キーへ置き換え                                                                |
+| 項目                                           | 状態 | 根拠                                                                                                                   |
+| ---------------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------- |
+| Cameraボタンはvideo-only                       | ✅   | `mediaType === 'video'` のみレンダリング。audio/nullでは非表示                                                         |
+| Top-right配置（caption/timeline/settingsの前） | ✅   | `.entei-controls-top-right` 内で caption mode より前に配置                                                             |
+| Captureはpause/seek/subtitleを変更しない       | ✅   | `handleScreenshot` は `videoRef.current` から直接draw。playback stateは触らない                                        |
+| JPEG policy固定値                              | ✅   | `MAX_CAPTURE_DIMENSION = 1920`、`JPEG_QUALITY = 0.9`。アスペクト比維持・upscaleなし。setting化なし                     |
+| `toDataURL`不使用                              | ✅   | `canvas.toBlob('image/jpeg', 0.9)` のみ使用                                                                            |
+| Canvas injectable                              | ✅   | `CanvasFactory` interface + `defaultCanvasFactory`。JSDOMテストでmock factory注入                                      |
+| Blob null → typed error                        | ✅   | `ScreenshotError` に `BLOB_NULL` code。rejectではなくresult型で返す                                                    |
+| PlayerAppがURL lifecycle所有                   | ✅   | `screenshotUrlRef` + `replaceScreenshotUrl` でrevoke-before-replace。`unmount` でcleanup                               |
+| localStorage/media永続化なし                   | ✅   | Blob/URLはReact stateのみ。localStorage/key/URL/logに残さない                                                          |
+| 新規mediaでpreview無効化                       | ✅   | `handleMediaSelect` で `clearScreenshot()` 呼び出し                                                                    |
+| Metadata未 ready → disabled                    | ✅   | `isVideoMetadataReady` state。loadeddata後にtrue。button titleで `screenshotErrorMetadata` 表示                        |
+| `type='button'`                                | ✅   | Camera・Retry・Close 全て `type="button"`                                                                              |
+| Lucide Cameraのみ                              | ✅   | `lucide-react` の `Camera` icon。raw SVGなし                                                                           |
+| OKLCH tokenのみ                                | ✅   | 新規CSSで `--entei-*` / `oklch()` / `color-mix()` のみ（hex/rgb/hsl/namedなし）                                        |
+| `prefers-reduced-motion`                       | ✅   | `.entei-screenshot-btn` / `.entei-screenshot-image` に `@media (prefers-reduced-motion: reduce)` で `transition: none` |
+| 既存Settings/Anki retry動作不変                | ✅   | `PlayerControls`・`PlayerApp` の既存prop・handler・effectは変更なし                                                    |
+| Unmount URL leak防止                           | ✅   | `mountedRef` でunmount後はstate更新・URL作成をスキップ。Strict Mode対応                                                |
+| 新規media race防止                             | ✅   | `captureEpochRef` モノトニックepoch。media変更・dialog閉・retry置換でepoch進行。stale結果はdiscard                     |
+| 連続ダブルクリック防止                         | ✅   | `isCapturing` state/ref。Camera・Retryボタンをcapturing中disabled。title/ariaで `screenshotCapturing` 表示             |
+| error.message非表示                            | ✅   | Dialogでは `hasScreenshotError` booleanのみ。typed internal `ScreenshotError` はutility/tests/debug用に残存            |
+| `_screenshotBlob` state削除                    | ✅   | BlobはURL作成に必要な間だけlocal変数で保持。React stateには残さない                                                    |
+| `screenshotNoPreview` ローカライズ             | ✅   | placeholderテキストをhardcodeから辞書キーへ置き換え                                                                    |
 
 ### 検証結果
 
@@ -238,12 +238,40 @@ npm run build          ✅ static build complete
 
 ### 未解決・browser QA待ち
 
-| 項目                         | 理由                                           |
-| ---------------------------- | ---------------------------------------------- |
-| 4K動画での縮小動作確認       | `computeCaptureDimensions` の数学的検証は通過  |
-| `toBlob` callback実際のBlob  | jsdomではmock化。実ブラウザでのMIME/type確認   |
-| fullscreen/immersive表示     | CSSはmedia query対応済み。実機レイアウト未確認 |
-| 連続captureのURL revoke      | コードレビューと単体テストで確認。実機未確認   |
+| 項目                        | 理由                                           |
+| --------------------------- | ---------------------------------------------- |
+| 4K動画での縮小動作確認      | `computeCaptureDimensions` の数学的検証は通過  |
+| `toBlob` callback実際のBlob | jsdomではmock化。実ブラウザでのMIME/type確認   |
+| fullscreen/immersive表示    | CSSはmedia query対応済み。実機レイアウト未確認 |
+| 連続captureのURL revoke     | コードレビューと単体テストで確認。実機未確認   |
+
+---
+
+## 5.z Stage 1 実装記録（AM-3 Audio Clip）
+
+> 実装日: 2026-07-24
+> 実装範囲: 現在activeなsubtitle cueのstart / endだけを、asbplayer方式の別`HTMLAudioElement`からbrowser-native audio Blobへ録音してpreviewする。Anki書込み、range editor、MP3 / FFmpeg、download、historyは未実装。
+> browser QA: 未実施。`MediaRecorder`、`captureStream` / `mozCaptureStream`、enabled audio track、Opus MIMEが揃うbrowserでのみ有効化する。
+> 修正記録（2026-07-24）:
+> - Dialogクリック伝播防止: Radix Dialog portal内のクリックがReact treeをbubbleしてPlayerAppのsurface click handlerを発火していた。`DialogContent`で`onClick`に`stopPropagation`を挟んで全Dialog利用箇所を保護。
+> - Preview duration表示修正: `audio.duration`がNaN/Infinity/0の時にexpected cue duration `(end - start)` をfallback表示。`durationchange`イベントでbrowserが後から正しいdurationを報告した時に上書き。
+
+| 項目                       | 状態 | 根拠                                                                                                                              |
+| -------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------- |
+| visible Playerを変更しない | ✅   | detached audio elementだけをcue startへseekしてrecord。Playerのtimestamp / pause / rateを触らない                                 |
+| 軽量native formatのみ      | ✅   | `audio/webm;codecs=opus`を優先、`audio/ogg;codecs=opus`をfallback。MP3再encodeなし                                                |
+| capability fallback        | ✅   | API、MIME、enabled audio trackを確認し、失敗時はlocalized error / Retry。偽の成功Blobを作らない                                   |
+| cleanup                    | ✅   | stop / cancel / timeout / media変更 / Dialog close / unmountでrecorder、両stream track、timer、temporary audio、preview URLを解放 |
+| async race防止             | ✅   | recording ref、epoch、mounted guardでdouble click・stale完了・unmountを遮断                                                       |
+| 保存・外部送信なし         | ✅   | Blobとpreview object URLはmemoryのみ。localStorage / network / Anki writeなし                                                     |
+| Dialog click伝播防止       | ✅   | `DialogContent`で`e.stopPropagation()`。全Dialog（Settings / Screenshot / Audio clip）でsurface clickが発火しない                |
+| Preview duration fallback  | ✅   | `audio.duration`がNaN/Infinity/0の時、expected cue durationを表示。後続の`durationchange`で実際の値が上書きされる                  |
+
+```text
+npm run test           ✅ 18 files, 469 tests pass
+npm run check          ✅ 0 errors, 0 warnings, 0 hints
+npm run build          ✅ static build complete
+```
 
 ---
 
@@ -254,24 +282,24 @@ npm run build          ✅ static build complete
 
 | 項目                               | 状態 | 根拠                                                                                                                                                                    |
 | ---------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Breakpoint別の固定Dialog高さ        | ✅   | mobileは`100dvh`、tabletは最大`36rem`、desktopは最大`34rem`。余った内容はpanel内scrollに限定                                                                            |
+| Breakpoint別の固定Dialog高さ       | ✅   | mobileは`100dvh`、tabletは最大`36rem`、desktopは最大`34rem`。余った内容はpanel内scrollに限定                                                                            |
 | Mobile sheet-like                  | ✅   | `width: 100%`、`height: 100dvh`、`border-radius: 0`、`inset: 0`。open中はTopBarを非表示・非操作化してclose buttonを守る                                                 |
-| 水平Tabs strip（全viewport共通）   | ✅   | `.entei-settings-tabs-list` を常に`flex-direction: row`、mobileはinline 24px / desktopは32px。左寄せcontent-width                                                        |
-| 下部アクセントunderline            | ✅   | Active tabの`::after`で5px accent line。45px tab stripのshared dividerに0.5pxずつ跨げて配置。白pillなし                                                               |
-| TabsTrigger overlap 修正           | ✅   | 親は45px（44px tab + divider 1px）、上下paddingなし。`h-9` / `justify-center` / pill borderを上書き                                                                      |
-| Content panel full-width           | ✅   | `.entei-settings-panel` に`overflow-y: auto` + mobile 24px / desktop `24px 32px` padding。左railなし                                                                     |
+| 水平Tabs strip（全viewport共通）   | ✅   | `.entei-settings-tabs-list` を常に`flex-direction: row`、mobileはinline 24px / desktopは32px。左寄せcontent-width                                                       |
+| 下部アクセントunderline            | ✅   | Active tabの`::after`で5px accent line。45px tab stripのshared dividerに0.5pxずつ跨げて配置。白pillなし                                                                 |
+| TabsTrigger overlap 修正           | ✅   | 親は45px（44px tab + divider 1px）、上下paddingなし。`h-9` / `justify-center` / pill borderを上書き                                                                     |
+| Content panel full-width           | ✅   | `.entei-settings-panel` に`overflow-y: auto` + mobile 24px / desktop `24px 32px` padding。左railなし                                                                    |
 | Header固定 + close spacing         | ✅   | `.entei-dialog-header` に `flex-shrink: 0` + `padding-right: 3.5rem`                                                                                                    |
 | Player shortcuts dense list        | ✅   | `.entei-settings-shortcuts-list` を flex column + `.entei-settings-shortcut-row` を `border-bottom` 区切り + `hover background`。kbd は `surface` background + `border` |
 | Anki connection row (desktop grid) | ✅   | `.entei-anki-connect-row` を `grid-template-columns: 1fr auto` + `align-items: end`                                                                                     |
 | Anki mapping grid                  | ✅   | Desktop で `.entei-anki-mapping-grid` を `repeat(2, 1fr)`。Sentence は `:first-child` で `grid-column: 1 / -1`                                                          |
 | Save area分離                      | ✅   | `.entei-anki-save-area` で `border-top` 区切り + 明確なbottom action                                                                                                    |
-| 接続status badge                   | ✅   | manual Connect buttonは廃止。成功はgreen `Plug` + text、失敗 / 再接続中はred `PlugZap` + text。失敗時は10秒ごとに連続retry                                               |
+| 接続status badge                   | ✅   | manual Connect buttonは廃止。成功はgreen `Plug` + text、失敗 / 再接続中はred `PlugZap` + text。失敗時は10秒ごとに連続retry                                              |
 | Input calm surface                 | ✅   | `background-color: var(--entei-surface)`、`border: 1px solid oklch(100% 0 0deg / 0.12)`                                                                                 |
 | 全タッチターゲット >=44px          | ✅   | `min-height: var(--entei-touch-min)`（44px）を input/button/select に適用                                                                                               |
 | 水平スクロールなし                 | ✅   | `min-width: 0` + `overflow-x: hidden`（Radix Portal 内は別）                                                                                                            |
 | reduced-motion                     | ✅   | `@media (prefers-reduced-motion: reduce)` で transition 無効化                                                                                                          |
 | OKLCH tokenのみ                    | ✅   | 新規CSSで `--entei-*` / `oklch()` / `color-mix()` のみ                                                                                                                  |
-| 実ブラウザ / 実AnkiConnect QA       | ✅   | desktop / mobile Modal、Tab geometry、Dialog高さ固定、Dropdown scroll、connection failure（`ERR_CONNECTION_REFUSED`）、10秒retry、復帰後のgreen `Plug`を確認             |
+| 実ブラウザ / 実AnkiConnect QA      | ✅   | desktop / mobile Modal、Tab geometry、Dialog高さ固定、Dropdown scroll、connection failure（`ERR_CONNECTION_REFUSED`）、10秒retry、復帰後のgreen `Plug`を確認            |
 
 ---
 
@@ -297,8 +325,8 @@ Player frame右上のSettings iconを押すとModalを開く。現在のSettings
 
 | 状態                  | 表示                                                       | 書込み |
 | --------------------- | ---------------------------------------------------------- | ------ |
-| 未接続                | 接続説明、auto-connect開始                                | なし   |
-| 接続中                | status badge (connecting)、PlugZap icon                   | なし   |
+| 未接続                | 接続説明、auto-connect開始                                 | なし   |
+| 接続中                | status badge (connecting)、PlugZap icon                    | なし   |
 | 接続失敗              | localized原因、10秒retry、CORS案内                         | なし   |
 | 接続成功・mapping未完 | Deck / Note type / field Select、Save preset               | なし   |
 | 保存済み              | active `Default` preset、最後の検証時刻（session表示だけ） | なし   |
@@ -325,11 +353,11 @@ initial ANKI_MINERでは、capture format・post-mining playback・MP3再encode�
 
 ---
 
-## 7. mining中のplayer状態
+## 7. AM-4以降のmining中player状態
 
 ### 7.1 state snapshot
 
-Mine操作を開始した瞬間に次をmemory上でsnapshotする。これはlocalStorageへ保存しない。
+AM-4のMine操作を開始した瞬間に次をmemory上でsnapshotする。これはlocalStorageへ保存しない。AM-2 ScreenshotとAM-3 Audio Clipの単独previewではこのsnapshotを使わず、visible Playerを変更しない。
 
 ```ts
 type MiningPlaybackSnapshot = {
@@ -343,7 +371,7 @@ type MiningPlaybackSnapshot = {
 ### 7.2 開始から終了まで
 
 ```text
-1. Mine操作（将来の専用trigger）
+1. Mine操作（AM-4の専用trigger）
 2. active cue / selected rangeがあるかvalidate
 3. snapshotを作る
 4. media.pause()
@@ -353,9 +381,9 @@ type MiningPlaybackSnapshot = {
 8. snapshot currentTimeへseekしてpauseのまま戻す
 ```
 
-Modalを開く前にpauseする理由は、capture対象がpreviewを見ている間に変わらないようにするため。カメラで写真を撮る瞬間に被写体を止めるのと同じ。
+AM-4のPreviewを開く前にpauseする理由は、複数素材を同じ対象で確認する間にsceneが変わらないようにするため。カメラで写真を撮る瞬間に被写体を止めるのと同じ。AM-3単独clipはasbplayer方式の別audio elementを使うため、このvisible Player pauseは行わない。
 
-### 7.3 終了時は常にcapture開始位置でpause
+### 7.3 AM-4終了時は常にcapture開始位置でpause
 
 Cancel、Export成功、Export失敗、capture失敗の全てで、playerはsnapshotの`currentTime`へ戻してpauseのままにする。
 
@@ -391,22 +419,23 @@ active video element
 
 ### 8.2 Audio Clip（AM-3）
 
-Audio Clipは、Ankiへ送るselected rangeだけをbrowser-nativeの軽量formatで生成する。`MediaRecorder.isTypeSupported()`で実行browserの最適なMIME（例: `audio/webm;codecs=opus`）を検出し、余計なMP3変換・二重record・format toggleを行わない。
+AM-3は**現在activeなsubtitle cueだけ**をbrowser-nativeの軽量formatで生成する。range調整はAM-4へ残す。asbplayerと同じく、visible Playerをpause / seek / rate変更せず、同じlocal Blob URLを一時的な別`HTMLAudioElement`へ渡す。`MediaRecorder.isTypeSupported()`で実行browserの最適なMIME（優先`audio/webm;codecs=opus`、fallback `audio/ogg;codecs=opus`）を検出し、余計なMP3変換・二重record・format toggleを行わない。
 
 ```text
 capability check
-  → selected cue/rangeのstart/endを決める
-  → local media audioをcapture
+  → active cueのstart/endを決める
+  → 同じlocal Blob URLの別audio elementをcue startへseek
+  → detached audio streamのaudio trackだけをcapture
   → MediaRecorderでrecord
   → stop / Blob化
   → Previewで再生
 ```
 
-- `MediaRecorder`、capture API、対応MIMEがないbrowserではAudio Clip欄を「このbrowserでは利用不可」と表示し、Screenshot・text exportは続けられる
+- `MediaRecorder`、`captureStream` / `mozCaptureStream`、対応MIME、enabled audio trackのどれかがないbrowserではAudio Clip欄を「このbrowserでは利用不可」と表示し、Screenshot・text exportは続けられる
 - unsupported環境で空audioや偽の成功を作らない
 - MP3 re-encode、MP3再録音、WebM **video** clip、FFmpegは対象外
 - native recordingはclip durationぶんのcapture時間を必要とするが、終了後の追加encode passを作らない
-- capture中はselected range以外を処理しない。rangeが終わったらsnapshot timestampへseekしてpauseする
+- detached audioはclip終了、Cancel、失敗、media変更、unmountの全経路でpause / `src`解除 / `load()` / stream track停止を行う。visible Playerのtimestamp・pause・rateは変更しない
 
 ---
 
@@ -680,7 +709,7 @@ Dialog / Button / ScrollArea / Slider / Popoverに加え、Tabs / Selectも導�
 | --------------------- | -------------------------------------------------------------------------------------- |
 | Settings Modal        | ✅ Settings icon → focusがModalへ、Escape → iconへ戻る                                 |
 | Anki未起動            | ✅ localized error、playerは壊れず、書込みなし                                         |
-| origin permission拒否 | ✅ CORS案内が読め、auto-retryで勝手に設定を変えない                                     |
+| origin permission拒否 | ✅ CORS案内が読め、auto-retryで勝手に設定を変えない                                    |
 | mapping               | ✅ Deck / Note type変更でfield一覧が正しく更新される                                   |
 | Screenshot            | local videoでframe一致、Cancelでpreview URL解放                                        |
 | Audio                 | supported Chromiumでpreview再生、unsupported browserで正直な表示                       |
@@ -725,16 +754,16 @@ AM-1を始める前に、以下だけを確認する。
 
 ## 17. 根拠
 
-| 事実                                                                  | 根拠                                                           | 設計への反映                                                                    |
-| --------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 事実                                                                  | 根拠                                                             | 設計への反映                                                                    |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | SettingsはDialog Modal + Player / Anki Fields tab                     | `apps/web/src/components/player/PlayerSettingsDialog.tsx:55-120` | mappingとread-only connectionをModalへ配置                                      |
-| 既存Dialogはfocus trap / Escape / return-focusを持つ                  | `apps/web/src/components/player/ui/dialog.tsx:1-6`             | Modal基盤を再利用                                                               |
-| asbplayerはAnki / Miningを別tabにする                                 | `A:\asbplayer\common\components\SettingsForm.tsx:433-489`      | Enteiは実需があるAnki Fieldsだけを初期Modalへ置く                               |
-| asbplayerはDeck→Note type→fieldを選択する                             | `A:\asbplayer\common\components\AnkiSettingsTab.tsx:486-558`   | mapping依存を同じ順で扱う                                                       |
-| asbplayerはmining後のplayer状態やMP3再encodeを設定できる              | `A:\asbplayer\common\components\MiningSettingsTab.tsx:129-228` | Enteiでは両方を不採用にし、fixed pause restore + native lightweight audioにする |
-| asbplayerは`added:1`候補の最大note IDをupdate last対象にする          | `A:\asbplayer\common\anki\anki.ts:545-582`                     | Enteiもtarget表示・確認を挟んで採用                                             |
-| AnkiConnectは`findNotes` / `notesInfo` / `updateNoteFields`を提供する | AnkiConnect official docs（Context7, 2026-07-22）              | candidate確認後のspecific updateを実装                                          |
-| Anki公式の`added:1`は今日追加されたcard creation検索                  | Anki Manual Search（Exa, 2026-07-22）                          | ASBと同じlatest candidate発見に使い、candidateなしなら更新しない                |
-| audio captureはbrowser capability差がある                             | `A:\asbplayer\common\audio-clip\audio-clip.ts:61,317,436-440`  | capability gate + honest fallback                                               |
-| AnkiConnectは`version`、model / field APIを提供する                   | AnkiConnect official docs（Context7, 2026-07-22）              | read-only設定から開始し、`canAddNotes`を先に通す                                |
-| 現planもPreviewと明示Exportを安全条件にする                           | `docs/PLAYER_PHASES.md:235-263`                                | auto exportを禁止                                                               |
+| 既存Dialogはfocus trap / Escape / return-focusを持つ                  | `apps/web/src/components/player/ui/dialog.tsx:1-6`               | Modal基盤を再利用                                                               |
+| asbplayerはAnki / Miningを別tabにする                                 | `A:\asbplayer\common\components\SettingsForm.tsx:433-489`        | Enteiは実需があるAnki Fieldsだけを初期Modalへ置く                               |
+| asbplayerはDeck→Note type→fieldを選択する                             | `A:\asbplayer\common\components\AnkiSettingsTab.tsx:486-558`     | mapping依存を同じ順で扱う                                                       |
+| asbplayerはmining後のplayer状態やMP3再encodeを設定できる              | `A:\asbplayer\common\components\MiningSettingsTab.tsx:129-228`   | Enteiでは両方を不採用にし、fixed pause restore + native lightweight audioにする |
+| asbplayerは`added:1`候補の最大note IDをupdate last対象にする          | `A:\asbplayer\common\anki\anki.ts:545-582`                       | Enteiもtarget表示・確認を挟んで採用                                             |
+| AnkiConnectは`findNotes` / `notesInfo` / `updateNoteFields`を提供する | AnkiConnect official docs（Context7, 2026-07-22）                | candidate確認後のspecific updateを実装                                          |
+| Anki公式の`added:1`は今日追加されたcard creation検索                  | Anki Manual Search（Exa, 2026-07-22）                            | ASBと同じlatest candidate発見に使い、candidateなしなら更新しない                |
+| audio captureはbrowser capability差がある                             | `A:\asbplayer\common\audio-clip\audio-clip.ts:61,317,436-440`    | capability gate + honest fallback                                               |
+| AnkiConnectは`version`、model / field APIを提供する                   | AnkiConnect official docs（Context7, 2026-07-22）                | read-only設定から開始し、`canAddNotes`を先に通す                                |
+| 現planもPreviewと明示Exportを安全条件にする                           | `docs/PLAYER_PHASES.md:235-263`                                  | auto exportを禁止                                                               |

@@ -149,6 +149,17 @@ const mockDict = {
   screenshotErrorMetadata: 'Not ready',
   screenshotNoPreview: 'No preview available.',
   screenshotCapturing: 'Capturing screenshot…',
+  audioClipCaptureLabel: 'Capture audio clip',
+  audioClipPreviewTitle: 'Audio Clip Preview',
+  audioClipRetry: 'Retry',
+  audioClipClose: 'Close',
+  audioClipError: 'Failed to capture audio clip.',
+  audioClipErrorNoCue: 'No active subtitle cue.',
+  audioClipErrorUnsupported: 'Audio clip recording is not supported.',
+  audioClipNoPreview: 'No preview available.',
+  audioClipRecording: 'Recording audio clip…',
+  audioClipPlay: 'Play',
+  audioClipPause: 'Pause',
 };
 
 const baseControlsProps = {

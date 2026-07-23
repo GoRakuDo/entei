@@ -31,12 +31,16 @@ const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     closeLabel?: string;
   }
->(({ className, children, closeLabel = 'Close', ...props }, ref) => (
+>(({ className, children, closeLabel = 'Close', onClick, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
       className={`entei-dialog-content ${className ?? ''}`}
+      onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
       {...props}
     >
       {children}

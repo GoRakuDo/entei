@@ -2098,6 +2098,185 @@
   }
 }
 
+/* ===========================================================================
+ * AM-3: Audio Clip Preview Dialog
+ * ---------------------------------------------------------------------------
+ * Responsive preview dialog for recorded audio clips.
+ * Mobile: full-bleed sheet; Desktop: centered modal.
+ * =========================================================================== */
+
+.entei-audio-clip-dialog {
+  position: fixed;
+  inset: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--entei-surface);
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+@media (min-width: 768px) {
+  .entei-audio-clip-dialog {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    width: clamp(28rem, 50vw, 44rem);
+    height: auto;
+    max-height: calc(100dvh - 2rem);
+    border-radius: var(--entei-radius-lg);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    box-shadow:
+      0 20px 25px -5px oklch(0% 0 0deg / 0.3),
+      0 8px 10px -6px oklch(0% 0 0deg / 0.2);
+  }
+}
+
+.entei-audio-clip-dialog .entei-dialog-header {
+  flex-shrink: 0;
+  padding: var(--entei-space-16) var(--entei-space-24);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-audio-clip-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--entei-space-16) var(--entei-space-24);
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+}
+
+.entei-audio-clip-recording {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-48);
+  color: var(--entei-accent);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+}
+
+.entei-audio-clip-recording-icon {
+  animation: entei-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes entei-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-audio-clip-recording-icon {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.entei-audio-clip-error {
+  padding: var(--entei-space-12) var(--entei-space-16);
+  background-color: oklch(55% 0.2 25deg / 0.1);
+  border: 1px solid oklch(55% 0.2 25deg / 0.2);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: oklch(65% 0.18 25deg);
+}
+
+.entei-audio-clip-error p {
+  margin: 0;
+}
+
+.entei-audio-clip-player {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+}
+
+.entei-audio-clip-native {
+  display: none;
+}
+
+.entei-audio-clip-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  background-color: var(--entei-surface-2);
+  border-radius: var(--entei-radius-md);
+}
+
+.entei-audio-clip-play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  background-color: var(--entei-accent);
+  color: oklch(100% 0 0deg / 1);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: opacity var(--entei-duration-fast) var(--entei-ease-productive);
+  flex-shrink: 0;
+}
+
+.entei-audio-clip-play-btn:hover {
+  opacity: 0.92;
+}
+
+.entei-audio-clip-play-btn:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-audio-clip-time {
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  user-select: none;
+}
+
+.entei-audio-clip-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--entei-space-48);
+  color: var(--entei-text-muted);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+}
+
+.entei-audio-clip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--entei-space-12);
+  flex-shrink: 0;
+  padding: var(--entei-space-12) var(--entei-space-24) var(--entei-space-24);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
 /* --- Layout variant: no panel --- */
 .entei-player-layout--no-panel .entei-player-media-area {
   grid-column: 1 / -1;
