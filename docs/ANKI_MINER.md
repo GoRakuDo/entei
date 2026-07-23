@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-5）コード完了。AM-2 browser QA完了。AM-3: Dialogクリック伝播防止・Preview duration fallback修正済み、browser QA待ち。次はAM-4 Mining Preview。
+> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-5）コード完了。AM-2 / AM-3のChromium browser QA完了。AM-3のDialogクリック伝播防止・Preview duration fallbackも確認済み。次はAM-4 Mining Preview。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -251,8 +251,9 @@ npm run build          ✅ static build complete
 
 > 実装日: 2026-07-24
 > 実装範囲: 現在activeなsubtitle cueのstart / endだけを、asbplayer方式の別`HTMLAudioElement`からbrowser-native audio Blobへ録音してpreviewする。Anki書込み、range editor、MP3 / FFmpeg、download、historyは未実装。
-> browser QA: 未実施。`MediaRecorder`、`captureStream` / `mozCaptureStream`、enabled audio track、Opus MIMEが揃うbrowserでのみ有効化する。
+> browser QA: Chromiumでactive cue → local Audio Preview、Preview内clickが背後Playerをresumeしないこと、Preview durationのcue-duration fallbackを確認済み。unsupported browserの表示は実機未確認で、unit / integration testで検証済み。
 > 修正記録（2026-07-24）:
+>
 > - Dialogクリック伝播防止: Radix Dialog portal内のクリックがReact treeをbubbleしてPlayerAppのsurface click handlerを発火していた。`DialogContent`で`onClick`に`stopPropagation`を挟んで全Dialog利用箇所を保護。
 > - Preview duration表示修正: `audio.duration`がNaN/Infinity/0の時にexpected cue duration `(end - start)` をfallback表示。`durationchange`イベントでbrowserが後から正しいdurationを報告した時に上書き。
 
@@ -264,8 +265,8 @@ npm run build          ✅ static build complete
 | cleanup                    | ✅   | stop / cancel / timeout / media変更 / Dialog close / unmountでrecorder、両stream track、timer、temporary audio、preview URLを解放 |
 | async race防止             | ✅   | recording ref、epoch、mounted guardでdouble click・stale完了・unmountを遮断                                                       |
 | 保存・外部送信なし         | ✅   | Blobとpreview object URLはmemoryのみ。localStorage / network / Anki writeなし                                                     |
-| Dialog click伝播防止       | ✅   | `DialogContent`で`e.stopPropagation()`。全Dialog（Settings / Screenshot / Audio clip）でsurface clickが発火しない                |
-| Preview duration fallback  | ✅   | `audio.duration`がNaN/Infinity/0の時、expected cue durationを表示。後続の`durationchange`で実際の値が上書きされる                  |
+| Dialog click伝播防止       | ✅   | `DialogContent`で`e.stopPropagation()`。全Dialog（Settings / Screenshot / Audio clip）でsurface clickが発火しない                 |
+| Preview duration fallback  | ✅   | `audio.duration`がNaN/Infinity/0の時、expected cue durationを表示。後続の`durationchange`で実際の値が上書きされる                 |
 
 ```text
 npm run test           ✅ 18 files, 469 tests pass
@@ -695,9 +696,9 @@ Dialog / Button / ScrollArea / Slider / Popoverに加え、Tabs / Selectも導�
 | ---------------- | --------------------------------------------------------------------------------------------------------- |
 | Anki preference  | default、旧version、壊れたJSON、invalid enum、API key非保存                                               |
 | field mapping    | required sentence、存在しないfield、optional field、payload生成                                           |
-| mining playback  | capture後にsnapshot timestampへ戻りpause、Cancel / success / failureで同じ、二重完了なし                  |
-| screenshot       | metadataなし、canvas不可、`toBlob` null、成功Blob cleanup                                                 |
-| audio capability | MediaRecorderなし、MIMEなし、supported MIME、range終了、cleanup                                           |
+| mining playback  | AM-4: capture後にsnapshot timestampへ戻りpause、Cancel / success / failureで同じ、二重完了なし            |
+| screenshot       | metadataなし、canvas不可、`toBlob` null / throw、成功Blob cleanup、stale / unmount / double-click guard   |
+| audio capability | MediaRecorderなし、MIMEなし、enabled trackなし、active cue終端、seek順序、duration fallback、cleanup      |
 | Anki request     | version error、permission/API key、deck/model/field load、`canAddNotes` false、`addNote` error            |
 | latest target    | 当日candidate、candidateなし、最大note ID、target Note type不一致、`notesInfo` error、更新button disabled |
 | specific target  | query escape、候補上限、未選択target、`noteId`欠落、`notesInfo` mismatch                                  |
@@ -705,19 +706,19 @@ Dialog / Button / ScrollArea / Slider / Popoverに加え、Tabs / Selectも導�
 
 ### 14.2 browser manual gate
 
-| 状況                  | pass条件                                                                               |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| Settings Modal        | ✅ Settings icon → focusがModalへ、Escape → iconへ戻る                                 |
-| Anki未起動            | ✅ localized error、playerは壊れず、書込みなし                                         |
-| origin permission拒否 | ✅ CORS案内が読め、auto-retryで勝手に設定を変えない                                    |
-| mapping               | ✅ Deck / Note type変更でfield一覧が正しく更新される                                   |
-| Screenshot            | local videoでframe一致、Cancelでpreview URL解放                                        |
-| Audio                 | supported Chromiumでpreview再生、unsupported browserで正直な表示                       |
-| mining playback       | Cancel・成功・失敗の全てでcapture開始timestampへ戻りpauseのまま                        |
-| Export                | `canAddNotes` falseで`addNote`ゼロ回、成功response後だけ成功表示                       |
-| Update latest         | targetのdeck / note type / fieldsを見て明示確認後だけ更新。candidateなしなら書込みゼロ |
-| Update specific       | 検索結果から1 noteを選んだ時だけ更新。別Note typeは更新不可                            |
-| privacy               | DevTools Networkでmedia / Blob / subtitle本文が外部送信されない                        |
+| 状況                  | pass条件                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Settings Modal        | ✅ Settings icon → focusがModalへ、Escape → iconへ戻る                                                                                |
+| Anki未起動            | ✅ localized error、playerは壊れず、書込みなし                                                                                        |
+| origin permission拒否 | ✅ CORS案内が読め、auto-retryで勝手に設定を変えない                                                                                   |
+| mapping               | ✅ Deck / Note type変更でfield一覧が正しく更新される                                                                                  |
+| Screenshot            | ✅ local videoでframe一致、Closeでpreview URL解放                                                                                     |
+| Audio                 | ✅ Chromiumでactive cue Preview再生、Modal clickで背後Playerをresumeしない、cue duration表示が正しい。unsupported browser実機は未確認 |
+| mining playback       | ⬜ AM-4: Cancel・成功・失敗の全てでcapture開始timestampへ戻りpauseのまま                                                              |
+| Export                | ⬜ Stage 2: `canAddNotes` falseで`addNote`ゼロ回、成功response後だけ成功表示                                                          |
+| Update latest         | ⬜ Stage 2: targetのdeck / note type / fieldsを見て明示確認後だけ更新。candidateなしなら書込みゼロ                                    |
+| Update specific       | ⬜ Stage 2: 検索結果から1 noteを選んだ時だけ更新。別Note typeは更新不可                                                               |
+| privacy               | DevTools Networkでmedia / Blob / subtitle本文が外部送信されない                                                                       |
 
 ### 14.3 実Anki gate
 
