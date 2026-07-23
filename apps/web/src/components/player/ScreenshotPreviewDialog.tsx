@@ -93,7 +93,7 @@ export function ScreenshotPreviewDialog({
           {hasError && (
             <button
               type="button"
-              className="entei-screenshot-btn entei-screenshot-btn--primary"
+              className="entei-dialog-footer-btn entei-dialog-footer-btn--primary"
               onClick={onRetry}
               disabled={isCapturing}
               aria-label={isCapturing ? dict.screenshotCapturing : dict.screenshotRetry}
@@ -104,7 +104,7 @@ export function ScreenshotPreviewDialog({
           )}
           <button
             type="button"
-            className="entei-screenshot-btn"
+            className="entei-dialog-footer-btn"
             onClick={onClose}
           >
             {dict.screenshotClose}

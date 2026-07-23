@@ -789,6 +789,289 @@ describe('recordAudioClip', () => {
     const result2 = await result2Promise;
     expect(result2.ok).toBe(true);
   });
+
+  it('returns RECORDING_CANCELLED when aborted before starting', async () => {
+    stubMediaRecorder(true);
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await recordAudioClip(
+      { mediaUrl: 'blob:test', start: 0, end: 0.1, signal: controller.signal },
+      {
+        audioFactory: createMockAudioFactory(),
+        recorderFactory: createMockRecorderFactory(),
+        timer: createMockTimer(),
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('RECORDING_CANCELLED');
+    }
+  });
+
+  it('returns RECORDING_CANCELLED when aborted during canplay wait', async () => {
+    stubMediaRecorder(true);
+    const mockAudio = createMockAudio({ canPlayImmediately: false });
+    const controller = new AbortController();
+
+    const resultPromise = recordAudioClip(
+      { mediaUrl: 'blob:test', start: 0, end: 0.1, signal: controller.signal },
+      {
+        audioFactory: createMockAudioFactory(mockAudio),
+        recorderFactory: createMockRecorderFactory(),
+        timer: createMockTimer(),
+      },
+    );
+
+    // Abort before canplay fires
+    controller.abort();
+
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('RECORDING_CANCELLED');
+    }
+  });
+
+  it('returns RECORDING_CANCELLED when aborted during seek wait', async () => {
+    stubMediaRecorder(true);
+    const mockAudio = createMockAudio({ canPlayImmediately: true });
+    // Override currentTime so seek edge-case check fails and seek waits
+    Object.defineProperty(mockAudio, 'currentTime', {
+      get() {
+        return 0;
+      },
+      set() {
+        // Intentionally do NOT fire seeked
+      },
+      configurable: true,
+    });
+
+    const controller = new AbortController();
+
+    const resultPromise = recordAudioClip(
+      { mediaUrl: 'blob:test', start: 1, end: 1.1, signal: controller.signal },
+      {
+        audioFactory: createMockAudioFactory(mockAudio),
+        recorderFactory: createMockRecorderFactory(),
+        timer: createMockTimer(),
+      },
+    );
+
+    // Give a tick for canplay to resolve
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Abort during seek wait
+    controller.abort();
+
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('RECORDING_CANCELLED');
+    }
+  });
+
+  it('cleans up audio and removes listeners after abort during canplay', async () => {
+    stubMediaRecorder(true);
+    const mockAudio = createMockAudio({ canPlayImmediately: false });
+    const controller = new AbortController();
+
+    const resultPromise = recordAudioClip(
+      { mediaUrl: 'blob:test', start: 0, end: 0.1, signal: controller.signal },
+      {
+        audioFactory: createMockAudioFactory(mockAudio),
+        recorderFactory: createMockRecorderFactory(),
+        timer: createMockTimer(),
+      },
+    );
+
+    controller.abort();
+    await resultPromise;
+
+    // Audio src should be removed
+    expect(mockAudio.getAttribute('src')).toBeNull();
+  });
+});
+
+it('returns RECORDING_CANCELLED when standalone cancelActiveRecording during canplay wait', async () => {
+  stubMediaRecorder(true);
+  const mockAudio = createMockAudio({ canPlayImmediately: false });
+
+  const resultPromise = recordAudioClip(
+    { mediaUrl: 'blob:test', start: 0, end: 0.1 },
+    {
+      audioFactory: createMockAudioFactory(mockAudio),
+      recorderFactory: createMockRecorderFactory(),
+      timer: createMockTimer(),
+    },
+  );
+
+  // Give a tick so the Promise constructor runs and the abort controller is registered
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Standalone cancel (no external signal)
+  cancelActiveRecording();
+
+  const result = await resultPromise;
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error.code).toBe('RECORDING_CANCELLED');
+  }
+});
+
+it('returns RECORDING_CANCELLED when standalone cancelActiveRecording during seek wait', async () => {
+  stubMediaRecorder(true);
+  const mockAudio = createMockAudio({ canPlayImmediately: true });
+  Object.defineProperty(mockAudio, 'currentTime', {
+    get() {
+      return 0;
+    },
+    set() {
+      // Intentionally do NOT fire seeked
+    },
+    configurable: true,
+  });
+
+  const resultPromise = recordAudioClip(
+    { mediaUrl: 'blob:test', start: 1, end: 1.1 },
+    {
+      audioFactory: createMockAudioFactory(mockAudio),
+      recorderFactory: createMockRecorderFactory(),
+      timer: createMockTimer(),
+    },
+  );
+
+  // Give a tick for canplay to resolve
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Standalone cancel during seek wait
+  cancelActiveRecording();
+
+  const result = await resultPromise;
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error.code).toBe('RECORDING_CANCELLED');
+  }
+});
+
+it('cleans up timer and listeners after standalone cancel during canplay', async () => {
+  stubMediaRecorder(true);
+  const mockAudio = createMockAudio({ canPlayImmediately: false });
+
+  const resultPromise = recordAudioClip(
+    { mediaUrl: 'blob:test', start: 0, end: 0.1 },
+    {
+      audioFactory: createMockAudioFactory(mockAudio),
+      recorderFactory: createMockRecorderFactory(),
+      timer: createMockTimer(),
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+  cancelActiveRecording();
+  await resultPromise;
+
+  // Audio src should be removed (fullCleanup ran)
+  expect(mockAudio.getAttribute('src')).toBeNull();
+});
+
+it('identity-aware cleanup: recording A finally does not clear recording B controller', async () => {
+  stubMediaRecorder(true);
+  const mockAudioA = createMockAudio({ canPlayImmediately: false });
+  const mockAudioB = createMockAudio({ canPlayImmediately: false });
+
+  // Recording A starts and hangs in canplay
+  const promiseA = recordAudioClip(
+    { mediaUrl: 'blob:test-a', start: 0, end: 0.1 },
+    {
+      audioFactory: createMockAudioFactory(mockAudioA),
+      recorderFactory: createMockRecorderFactory(),
+      timer: createMockTimer(),
+    },
+  );
+
+  // Recording B starts before A can finish; B's internal cancelActiveRecording
+  // aborts A, then B sets its own controller.
+  const promiseB = recordAudioClip(
+    { mediaUrl: 'blob:test-b', start: 0, end: 0.1 },
+    {
+      audioFactory: createMockAudioFactory(mockAudioB),
+      recorderFactory: createMockRecorderFactory(),
+      timer: createMockTimer(),
+    },
+  );
+
+  // Wait for both to settle (A was cancelled by B's start, B is still pending)
+  await new Promise((r) => setTimeout(r, 10));
+
+  // A should have returned RECORDING_CANCELLED
+  const resultA = await promiseA;
+  expect(resultA.ok).toBe(false);
+  if (!resultA.ok) expect(resultA.error.code).toBe('RECORDING_CANCELLED');
+
+  // A's finally should NOT have cleared B's controller (identity-aware cleanup)
+  // Verify by cancelling B — it must still work
+  cancelActiveRecording();
+  const resultB = await promiseB;
+  expect(resultB.ok).toBe(false);
+  if (!resultB.ok) expect(resultB.error.code).toBe('RECORDING_CANCELLED');
+
+  // Both audio elements cleaned up
+  expect(mockAudioA.getAttribute('src')).toBeNull();
+  expect(mockAudioB.getAttribute('src')).toBeNull();
+});
+
+it('does not let a stale finally clear a newer recording controller (A→B race)', async () => {
+  stubMediaRecorder(true);
+
+  // Recording A: blocks on canplay, aborted via external signal
+  const abortA = new AbortController();
+  const mockAudioA = createMockAudio({ canPlayImmediately: false });
+  const promiseA = recordAudioClip(
+    { mediaUrl: 'blob:a', start: 0, end: 0.1, signal: abortA.signal },
+    {
+      audioFactory: createMockAudioFactory(mockAudioA),
+      recorderFactory: createMockRecorderFactory(),
+      timer: createMockTimer(),
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Abort A externally
+  abortA.abort();
+  const resultA = await promiseA;
+  expect(resultA.ok).toBe(false);
+  if (!resultA.ok) {
+    expect(resultA.error.code).toBe('RECORDING_CANCELLED');
+  }
+
+  // IMMEDIATELY start recording B before A's finally has a chance to run
+  const mockAudioB = createMockAudio({ canPlayImmediately: false });
+  const promiseB = recordAudioClip(
+    { mediaUrl: 'blob:b', start: 0, end: 0.1 },
+    {
+      audioFactory: createMockAudioFactory(mockAudioB),
+      recorderFactory: createMockRecorderFactory(),
+      timer: createMockTimer(),
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Standalone cancel must abort B (proves A's finally did not clear B's controller)
+  cancelActiveRecording();
+
+  const resultB = await promiseB;
+  expect(resultB.ok).toBe(false);
+  if (!resultB.ok) {
+    expect(resultB.error.code).toBe('RECORDING_CANCELLED');
+  }
+
+  // Neither audio element should retain a src
+  expect(mockAudioA.getAttribute('src')).toBeNull();
+  expect(mockAudioB.getAttribute('src')).toBeNull();
 });
 
 describe('cancelActiveRecording', () => {

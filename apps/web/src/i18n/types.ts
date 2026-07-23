@@ -172,6 +172,27 @@ export interface Dictionary {
     audioClipRecording: string;
     audioClipPlay: string;
     audioClipPause: string;
+    // AM-4: Mining Preview
+    mineButtonLabel: string;
+    mineButtonCapturing: string;
+    mineButtonDisabled: string;
+    miningPreviewTitle: string;
+    miningPreviewSentence: string;
+    miningPreviewSource: string;
+    miningPreviewScreenshot: string;
+    miningPreviewAudio: string;
+    miningPreviewRange: string;
+    miningPreviewUpdateMaterials: string;
+    miningPreviewCancel: string;
+    miningPreviewClose: string;
+    miningPreviewScreenshotUnavailable: string;
+    miningPreviewAudioError: string;
+    miningPreviewScreenshotError: string;
+    miningPreviewCapturing: string;
+    miningPreviewUpdatingMaterials: string;
+    miningPreviewRangeInvalid: string;
+    miningZoomIn: string;
+    miningZoomOut: string;
   };
   reader: {
     title: string;

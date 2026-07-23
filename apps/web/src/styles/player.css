@@ -2056,9 +2056,9 @@
   border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
-.entei-screenshot-btn {
+.entei-dialog-footer-btn {
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-20);
+  padding: var(--entei-space-8) var(--entei-space-24);
   background-color: var(--entei-surface-2);
   color: var(--entei-text);
   border: 1px solid oklch(100% 0 0deg / 0.12);
@@ -2072,27 +2072,27 @@
     opacity var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-screenshot-btn:hover {
+.entei-dialog-footer-btn:hover {
   background-color: oklch(100% 0 0deg / 0.06);
 }
 
-.entei-screenshot-btn:focus-visible {
+.entei-dialog-footer-btn:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
 }
 
-.entei-screenshot-btn--primary {
+.entei-dialog-footer-btn--primary {
   background-color: var(--entei-accent);
   color: oklch(100% 0 0deg / 1);
   border-color: var(--entei-accent);
 }
 
-.entei-screenshot-btn--primary:hover {
+.entei-dialog-footer-btn--primary:hover {
   opacity: 0.92;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .entei-screenshot-btn,
+  .entei-dialog-footer-btn,
   .entei-screenshot-image {
     transition: none;
   }
@@ -2375,4 +2375,492 @@ html.entei-player-immersive .entei-player-video {
 /* Audio area fills and centers in immersive mode */
 html.entei-player-immersive .entei-player-audio-area {
   height: 100%;
+}
+
+/* ===========================================================================
+ * AM-4: Mining Preview Dialog
+ * ---------------------------------------------------------------------------
+ * Responsive preview dialog for mined subtitle material.
+ * Mobile: full-bleed sheet; Desktop: centered modal.
+ * =========================================================================== */
+
+.entei-mining-dialog {
+  position: fixed;
+  inset: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--entei-surface);
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+@media (min-width: 768px) {
+  .entei-mining-dialog {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    width: clamp(28rem, 50vw, 44rem);
+    height: auto;
+    max-height: calc(100dvh - 2rem);
+    border-radius: var(--entei-radius-lg);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    box-shadow:
+      0 20px 25px -5px oklch(0% 0 0deg / 0.3),
+      0 8px 10px -6px oklch(0% 0 0deg / 0.2);
+  }
+}
+
+.entei-mining-dialog .entei-dialog-header {
+  flex-shrink: 0;
+  padding: var(--entei-space-16) var(--entei-space-24);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-mining-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--entei-space-16) var(--entei-space-24);
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+}
+
+.entei-mining-processing-overlay {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  border: 1px solid oklch(72% 0.17 285deg / 0.28);
+  border-radius: var(--entei-radius-sm);
+  background: oklch(20% 0.06 285deg / 0.72);
+  box-shadow: 0 8px 20px oklch(0% 0 0deg / 0.18);
+  color: var(--entei-text-secondary);
+  font-size: 0.875rem;
+}
+
+.entei-mining-processing-spinner {
+  width: var(--entei-space-12);
+  height: var(--entei-space-12);
+  border: 2px solid oklch(82% 0.14 285deg / 0.28);
+  border-top-color: var(--entei-accent);
+  border-radius: 50%;
+  animation: entei-mining-spin 0.8s linear infinite;
+}
+
+@keyframes entei-mining-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.entei-mining-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-mining-label {
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--entei-text-muted);
+  margin: 0;
+}
+
+/* --- AM-4: Editable draft field inputs --- */
+.entei-mining-input {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  outline: none;
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-mining-input:focus-visible {
+  border-color: var(--entei-focus-ring);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklch, var(--entei-focus-ring) 25%, transparent);
+}
+
+.entei-mining-textarea {
+  min-height: auto;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* --- Legacy sentence/source display (kept for backward compat in tests) --- */
+.entei-mining-sentence {
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--entei-text);
+  margin: 0;
+}
+
+.entei-mining-source {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  margin: 0;
+}
+
+.entei-mining-image-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background-color: var(--entei-black-950);
+  border-radius: var(--entei-radius-md);
+  overflow: hidden;
+}
+
+.entei-mining-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.entei-mining-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-24);
+  color: var(--entei-text-muted);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+}
+
+.entei-mining-skeleton {
+  display: block;
+  width: 100%;
+  border-radius: var(--entei-radius-sm);
+  background: linear-gradient(
+    90deg,
+    oklch(20% 0.035 285deg / 0.65),
+    oklch(29% 0.05 285deg / 0.8),
+    oklch(20% 0.035 285deg / 0.65)
+  );
+  background-size: 200% 100%;
+  animation: entei-mining-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.entei-mining-skeleton--image {
+  aspect-ratio: 16 / 9;
+}
+
+.entei-mining-skeleton--audio {
+  height: var(--entei-touch-min);
+}
+
+@keyframes entei-mining-skeleton-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.entei-mining-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--entei-space-24);
+  color: var(--entei-text-muted);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+}
+
+.entei-mining-error {
+  padding: var(--entei-space-12) var(--entei-space-16);
+  background-color: oklch(55% 0.2 25deg / 0.1);
+  border: 1px solid oklch(55% 0.2 25deg / 0.2);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: oklch(65% 0.18 25deg);
+}
+
+.entei-mining-error p {
+  margin: 0;
+}
+
+/* --- Audio preview inside Mining Preview --- */
+.entei-mining-audio-player {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+}
+
+.entei-mining-audio-native {
+  display: none;
+}
+
+.entei-mining-audio-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  background-color: var(--entei-surface-2);
+  border-radius: var(--entei-radius-md);
+}
+
+.entei-mining-audio-play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  background-color: var(--entei-accent);
+  color: oklch(100% 0 0deg / 1);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: opacity var(--entei-duration-fast) var(--entei-ease-productive);
+  flex-shrink: 0;
+}
+
+.entei-mining-audio-play-btn:hover {
+  opacity: 0.92;
+}
+
+.entei-mining-audio-play-btn:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-mining-audio-time {
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  user-select: none;
+}
+
+/* --- Range dock (outside scrolling body, always visible) --- */
+.entei-mining-range-dock {
+  flex-shrink: 0;
+  padding: var(--entei-space-12) var(--entei-space-24) var(--entei-space-16);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+}
+
+.entei-mining-range-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+}
+
+.entei-mining-range-controls {
+  display: grid;
+  grid-template-columns: var(--entei-touch-min) minmax(0, 1fr) var(
+      --entei-touch-min
+    );
+  align-items: center;
+  gap: var(--entei-space-16);
+}
+
+.entei-mining-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8);
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-md);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    opacity var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-mining-zoom-btn:hover:not(:disabled) {
+  background-color: oklch(100% 0 0deg / 0.06);
+}
+
+.entei-mining-zoom-btn:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-mining-zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.entei-mining-range-time {
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  user-select: none;
+}
+
+.entei-mining-range-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+}
+
+/* Slider + markers share a positioning context */
+.entei-mining-range-slider-container {
+  position: relative;
+  width: 100%;
+}
+
+.entei-mining-range-slider {
+  width: 100%;
+  overflow: visible;
+}
+
+/* Track: substantial enough to balance the primary action below it. */
+.entei-mining-range-slider > span:first-child {
+  height: 4px;
+  background-color: oklch(100% 0 0deg / 0.1);
+  border-radius: 2px;
+}
+
+/* Selected range: accent highlight between thumbs */
+.entei-mining-range-slider > span:first-child > span:first-child {
+  background-color: var(--entei-accent);
+  height: 4px;
+  border-radius: 2px;
+}
+
+/* Thumbs: accent dots with 44px hit targets via ::after pseudo-element */
+.entei-mining-range-slider [role='slider'] {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--entei-accent);
+  border: none;
+  box-shadow: none;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-mining-range-slider [role='slider']:focus-visible {
+  outline-color: var(--entei-accent-hover);
+}
+
+.entei-mining-range-slider [role='slider']::after {
+  content: '';
+  position: absolute;
+  inset: -15px;
+}
+
+/* Subtitle-boundary marker ticks */
+.entei-mining-range-markers {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 12px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.entei-mining-range-marker {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 12px;
+  background-color: oklch(100% 0 0deg / 0.25);
+  transform: translateX(-0.5px);
+}
+
+.entei-mining-range-invalid {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: oklch(65% 0.18 25deg);
+  margin: 0;
+}
+
+.entei-mining-range-disabled {
+  padding: var(--entei-space-8) 0;
+}
+
+/* Update materials button — centered primary */
+.entei-mining-update-btn {
+  width: min(100%, 20rem);
+  justify-self: center;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-24);
+  background-color: var(--entei-accent);
+  color: oklch(100% 0 0deg / 1);
+  border: 1px solid var(--entei-accent);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    opacity var(--entei-duration-fast) var(--entei-ease-productive),
+    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-mining-update-btn:hover:not(:disabled) {
+  opacity: 0.92;
+  box-shadow: 0 4px 12px
+    color-mix(in oklch, var(--entei-accent) 20%, transparent);
+}
+
+.entei-mining-update-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.entei-mining-update-btn:focus-visible {
+  outline: 3px solid color-mix(in oklch, var(--entei-accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+/* --- Reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .entei-mining-dialog .entei-dialog-header,
+  .entei-mining-body,
+  .entei-mining-range-dock,
+  .entei-mining-processing-spinner,
+  .entei-mining-skeleton,
+  .entei-mining-zoom-btn {
+    transition: none;
+    animation: none;
+  }
 }

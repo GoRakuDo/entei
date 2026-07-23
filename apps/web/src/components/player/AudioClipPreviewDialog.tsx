@@ -200,7 +200,7 @@ export function AudioClipPreviewDialog({
           {hasError && !isRecording && (
             <button
               type="button"
-              className="entei-screenshot-btn entei-screenshot-btn--primary"
+              className="entei-dialog-footer-btn entei-dialog-footer-btn--primary"
               onClick={onRetry}
               disabled={isRecording}
               aria-label={isRecording ? dict.audioClipRecording : dict.audioClipRetry}
@@ -212,7 +212,7 @@ export function AudioClipPreviewDialog({
           )}
           <button
             type="button"
-            className="entei-screenshot-btn"
+            className="entei-dialog-footer-btn"
             onClick={onClose}
           >
             {dict.audioClipClose}

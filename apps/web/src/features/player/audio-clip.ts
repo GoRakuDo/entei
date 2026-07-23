@@ -11,6 +11,10 @@
  * Cleanup is mandatory on every terminal path: recorder stop, temporary audio
  * pause/remove src/load, all capture stream tracks stop, timers/listeners
  * removed, temporary audio object URL removed/revoked on close.
+ *
+ * Cancellation works during ALL phases (canplay wait, seek wait, pre-play,
+ * active recording). An internal AbortController is created per recording so
+ * `cancelActiveRecording()` works even before `activeSession` is set.
  * --------------------------------------------------------------------------- */
 
 // ---------------------------------------------------------------------------
@@ -44,6 +48,8 @@ export interface AudioClipOptions {
   end: number;
   /** Playback rate (affects actual recording duration). */
   playbackRate?: number;
+  /** Optional AbortSignal to cancel this specific recording without affecting others. */
+  signal?: AbortSignal;
 }
 
 export interface AudioClipCapabilities {
@@ -169,8 +175,29 @@ interface RecordingSession {
 
 let activeSession: RecordingSession | null = null;
 
+/** Internal AbortController for the current recording.
+ *  Allows `cancelActiveRecording()` to abort during canplay/seek phases
+ *  before `activeSession` is constructed. */
+let currentRecordingAbortController: AbortController | null = null;
+
+function setCurrentRecordingAbortController(
+  controller: AbortController | null,
+): void {
+  currentRecordingAbortController = controller;
+}
+
 /** Cancel any in-flight recording and clean up all resources. */
 export function cancelActiveRecording(): void {
+  // Phase 1: early-phase cancellation (canplay/seek/pre-play)
+  const controller = currentRecordingAbortController;
+  if (controller) {
+    controller.abort();
+    // The abort handler in recordAudioClip handles cleanup and Promise rejection.
+    // Do NOT clear currentRecordingAbortController here;
+    // the recordAudioClip finally block clears it.
+  }
+
+  // Phase 2: recording-phase cancellation via activeSession
   const session = activeSession;
   if (!session) return;
 
@@ -258,6 +285,66 @@ function buildAudioOnlyStream(sourceStream: MediaStream): MediaStream {
 // ---------------------------------------------------------------------------
 
 /**
+ * Mutable state that tracks resources as they are created.
+ * Used by abort handler to clean up whatever exists at cancellation time.
+ */
+interface RecordingLifecycle {
+  audio: HTMLAudioElement;
+  timerId: number | null;
+  sourceStream: MediaStream | null;
+  stream: MediaStream | null;
+  recorder: MediaRecorder | null;
+  /** Remove the abort listener. */
+  removeAbortListener: (() => void) | null;
+  aborted: boolean;
+  /** Reject function for the currently awaiting phase Promise. */
+  rejectPhase?: ((reason: Error) => void) | null;
+}
+
+function makeRecordingLifecycle(audio: HTMLAudioElement): RecordingLifecycle {
+  return {
+    audio,
+    timerId: null,
+    sourceStream: null,
+    stream: null,
+    recorder: null,
+    removeAbortListener: null,
+    aborted: false,
+  };
+}
+
+function fullCleanup(lifecycle: RecordingLifecycle, timer: TimerService): void {
+  if (lifecycle.timerId !== null) {
+    timer.clearTimeout(lifecycle.timerId);
+    lifecycle.timerId = null;
+  }
+  if (lifecycle.recorder && lifecycle.recorder.state !== 'inactive') {
+    try {
+      lifecycle.recorder.stop();
+    } catch {
+      // ignore
+    }
+  }
+  if (lifecycle.stream) {
+    for (const track of lifecycle.stream.getTracks()) track.stop();
+  }
+  if (lifecycle.sourceStream) {
+    for (const track of lifecycle.sourceStream.getTracks()) track.stop();
+  }
+  try {
+    lifecycle.audio.pause();
+  } catch {
+    // ignore
+  }
+  lifecycle.audio.removeAttribute('src');
+  lifecycle.audio.load();
+  if (lifecycle.removeAbortListener) {
+    lifecycle.removeAbortListener();
+    lifecycle.removeAbortListener = null;
+  }
+}
+
+/**
  * Record an audio clip from `start` to `end` seconds using a detached
  * HTMLAudioElement. The visible player is never touched.
  *
@@ -272,10 +359,76 @@ export async function recordAudioClip(
     timer?: TimerService;
   } = {},
 ): Promise<AudioClipResult> {
-  const { mediaUrl, start, end, playbackRate = 1 } = options;
+  const { mediaUrl, start, end, playbackRate = 1, signal } = options;
   const audioFactory = deps.audioFactory ?? defaultAudioFactory;
   const recorderFactory = deps.recorderFactory ?? defaultMediaRecorderFactory;
   const timer = deps.timer ?? defaultTimerService;
+
+  // Cancel any prior recording BEFORE creating our controller,
+  // so we don't accidentally abort the fresh controller we're about to make.
+  cancelActiveRecording();
+
+  // Create an internal AbortController so `cancelActiveRecording()` can
+  // abort during canplay/seek phases before `activeSession` exists.
+  const internalController = new AbortController();
+  setCurrentRecordingAbortController(internalController);
+
+  // Wire external signal to internal controller
+  let externalCleanup: (() => void) | null = null;
+  if (signal) {
+    if (signal.aborted) {
+      internalController.abort();
+    } else {
+      const onExternalAbort = () => internalController.abort();
+      signal.addEventListener('abort', onExternalAbort);
+      externalCleanup = () =>
+        signal.removeEventListener('abort', onExternalAbort);
+    }
+  }
+
+  // Use internal signal for all lifecycle cancellation checks
+  const effectiveSignal = internalController.signal;
+
+  try {
+    return await recordAudioClipInternal(
+      { mediaUrl, start, end, playbackRate },
+      { audioFactory, recorderFactory, timer },
+      effectiveSignal,
+    );
+  } finally {
+    if (externalCleanup) externalCleanup();
+    // Identity-aware cleanup: only clear the global if it still points to
+    // this invocation's controller. Prevents a slow "finally" from recording
+    // A from clearing a newer controller set by recording B.
+    if (currentRecordingAbortController === internalController) {
+      setCurrentRecordingAbortController(null);
+    }
+  }
+}
+
+/** Internal implementation — does not manage the AbortController wrapper. */
+async function recordAudioClipInternal(
+  options: Omit<AudioClipOptions, 'signal'>,
+  deps: {
+    audioFactory: AudioElementFactory;
+    recorderFactory: MediaRecorderFactory;
+    timer: TimerService;
+  },
+  signal: AbortSignal,
+): Promise<AudioClipResult> {
+  const { mediaUrl, start, end, playbackRate = 1 } = options;
+  const { audioFactory, recorderFactory, timer } = deps;
+
+  // Early abort check
+  if (signal.aborted) {
+    return {
+      ok: false,
+      error: {
+        code: 'RECORDING_CANCELLED',
+        message: 'Recording was cancelled before it started.',
+      },
+    };
+  }
 
   // Capability guard
   const caps = checkAudioClipCapabilities();
@@ -301,22 +454,61 @@ export async function recordAudioClip(
     };
   }
 
-  // Cancel any prior recording before starting a new one
-  cancelActiveRecording();
-
   const audio = audioFactory.createAudio();
   audio.src = mediaUrl;
   audio.playbackRate = playbackRate;
 
+  const lifecycle = makeRecordingLifecycle(audio);
+
+  // Register abort listener at the TOP so cancellation works during
+  // canplay wait, seek wait, pre-play, and active recording.
+  if (signal) {
+    const onAbort = () => {
+      if (lifecycle.aborted) return;
+      lifecycle.aborted = true;
+      if (lifecycle.rejectPhase) {
+        lifecycle.rejectPhase(new Error('Cancelled'));
+        lifecycle.rejectPhase = null;
+      } else {
+        fullCleanup(lifecycle, timer);
+      }
+    };
+    signal.addEventListener('abort', onAbort);
+    lifecycle.removeAbortListener = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
+  }
+
+  // Helper: check abort after any await and return early
+  const checkAborted = (): AudioClipResult | null => {
+    if (lifecycle.aborted) {
+      fullCleanup(lifecycle, timer);
+      return {
+        ok: false,
+        error: {
+          code: 'RECORDING_CANCELLED',
+          message: 'Recording was cancelled.',
+        },
+      };
+    }
+    return null;
+  };
+
   // Wait for audio to be ready to seek
   try {
     await new Promise<void>((resolve, reject) => {
+      lifecycle.rejectPhase = reject;
+      if (lifecycle.aborted) {
+        lifecycle.rejectPhase = null;
+        reject(new Error('Cancelled'));
+        return;
+      }
       const onCanPlay = () => {
-        cleanup();
+        cleanupLocal();
         resolve();
       };
       const onError = () => {
-        cleanup();
+        cleanupLocal();
         reject(
           new Error(
             audio.error?.message ?? 'Failed to load audio for clipping',
@@ -324,12 +516,19 @@ export async function recordAudioClip(
         );
       };
       const t0 = timer.setTimeout(() => {
-        cleanup();
+        cleanupLocal();
+        if (lifecycle.aborted) {
+          reject(new Error('Cancelled'));
+          return;
+        }
         reject(new Error('Audio load timeout'));
       }, 5000);
+      lifecycle.timerId = t0;
 
-      const cleanup = () => {
+      const cleanupLocal = () => {
+        lifecycle.rejectPhase = null;
         timer.clearTimeout(t0);
+        lifecycle.timerId = null;
         audio.removeEventListener('canplay', onCanPlay);
         audio.removeEventListener('error', onError);
       };
@@ -343,9 +542,16 @@ export async function recordAudioClip(
       }
     });
   } catch (e) {
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    fullCleanup(lifecycle, timer);
+    if (lifecycle.aborted) {
+      return {
+        ok: false,
+        error: {
+          code: 'RECORDING_CANCELLED',
+          message: 'Recording was cancelled.',
+        },
+      };
+    }
     return {
       ok: false,
       error: {
@@ -356,25 +562,41 @@ export async function recordAudioClip(
     };
   }
 
+  const afterCanplay = checkAborted();
+  if (afterCanplay) return afterCanplay;
+
   // Seek to start and wait for seeked event
   try {
     await new Promise<void>((resolve, reject) => {
+      lifecycle.rejectPhase = reject;
+      if (lifecycle.aborted) {
+        lifecycle.rejectPhase = null;
+        reject(new Error('Cancelled'));
+        return;
+      }
       let settled = false;
       const onSeeked = () => {
         if (settled) return;
         settled = true;
-        cleanup();
+        cleanupLocal();
         resolve();
       };
       const seekTimeout = timer.setTimeout(() => {
         if (settled) return;
         settled = true;
-        cleanup();
+        cleanupLocal();
+        if (lifecycle.aborted) {
+          reject(new Error('Cancelled'));
+          return;
+        }
         reject(new Error('Seek timeout'));
       }, 3000);
+      lifecycle.timerId = seekTimeout;
 
-      const cleanup = () => {
+      const cleanupLocal = () => {
+        lifecycle.rejectPhase = null;
         timer.clearTimeout(seekTimeout);
+        lifecycle.timerId = null;
         audio.removeEventListener('seeked', onSeeked);
       };
 
@@ -387,9 +609,16 @@ export async function recordAudioClip(
       }
     });
   } catch (e) {
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    fullCleanup(lifecycle, timer);
+    if (lifecycle.aborted) {
+      return {
+        ok: false,
+        error: {
+          code: 'RECORDING_CANCELLED',
+          message: 'Recording was cancelled.',
+        },
+      };
+    }
     return {
       ok: false,
       error: {
@@ -399,6 +628,9 @@ export async function recordAudioClip(
       },
     };
   }
+
+  const afterSeek = checkAborted();
+  if (afterSeek) return afterSeek;
 
   // Capture source stream ONCE
   let sourceStream: MediaStream;
@@ -415,9 +647,7 @@ export async function recordAudioClip(
       throw new Error('Stream capture API unavailable');
     }
   } catch (e) {
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    fullCleanup(lifecycle, timer);
     return {
       ok: false,
       error: {
@@ -428,15 +658,17 @@ export async function recordAudioClip(
     };
   }
 
+  lifecycle.sourceStream = sourceStream;
+
+  const afterCapture = checkAborted();
+  if (afterCapture) return afterCapture;
+
   // Build audio-only stream from the captured source stream
   let stream: MediaStream;
   try {
     stream = buildAudioOnlyStream(sourceStream);
   } catch (e) {
-    for (const track of sourceStream.getTracks()) track.stop();
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    fullCleanup(lifecycle, timer);
     return {
       ok: false,
       error: {
@@ -447,6 +679,11 @@ export async function recordAudioClip(
     };
   }
 
+  lifecycle.stream = stream;
+
+  const afterBuild = checkAborted();
+  if (afterBuild) return afterBuild;
+
   // Create recorder
   let recorder: MediaRecorder;
   try {
@@ -454,11 +691,7 @@ export async function recordAudioClip(
       mimeType,
     });
   } catch (e) {
-    for (const track of stream.getTracks()) track.stop();
-    for (const track of sourceStream.getTracks()) track.stop();
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    fullCleanup(lifecycle, timer);
     return {
       ok: false,
       error: {
@@ -469,15 +702,25 @@ export async function recordAudioClip(
     };
   }
 
+  lifecycle.recorder = recorder;
+
+  const afterRecorder = checkAborted();
+  if (afterRecorder) return afterRecorder;
+
   // Start playback BEFORE entering the Promise lifecycle
   try {
     await audio.play();
   } catch {
-    for (const track of stream.getTracks()) track.stop();
-    for (const track of sourceStream.getTracks()) track.stop();
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    fullCleanup(lifecycle, timer);
+    if (lifecycle.aborted) {
+      return {
+        ok: false,
+        error: {
+          code: 'RECORDING_CANCELLED',
+          message: 'Recording was cancelled.',
+        },
+      };
+    }
     return {
       ok: false,
       error: {
@@ -486,6 +729,9 @@ export async function recordAudioClip(
       },
     };
   }
+
+  const afterPlay = checkAborted();
+  if (afterPlay) return afterPlay;
 
   // Recording lifecycle
   return new Promise<AudioClipResult>((resolve) => {
@@ -510,6 +756,17 @@ export async function recordAudioClip(
 
       if (activeSession === session) {
         activeSession = null;
+      }
+
+      if (lifecycle.aborted) {
+        resolve({
+          ok: false,
+          error: {
+            code: 'RECORDING_CANCELLED',
+            message: 'Recording was cancelled.',
+          },
+        });
+        return;
       }
 
       if (recorderError) {
@@ -557,6 +814,8 @@ export async function recordAudioClip(
       }
     }, durationMs + 100);
 
+    lifecycle.timerId = timerId;
+
     function cleanupSession() {
       timer.clearTimeout(timerId);
       recorder.removeEventListener('dataavailable', onDataAvailable);
@@ -573,6 +832,11 @@ export async function recordAudioClip(
       }
       audio.removeAttribute('src');
       audio.load();
+
+      if (lifecycle.removeAbortListener) {
+        lifecycle.removeAbortListener();
+        lifecycle.removeAbortListener = null;
+      }
     }
 
     const session: RecordingSession = {

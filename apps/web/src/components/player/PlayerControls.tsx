@@ -38,6 +38,7 @@ import {
   CaptionsOff,
   Camera,
   AudioLines,
+  Pickaxe,
 } from 'lucide-react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from '@/components/player/ui/slider';
@@ -103,6 +104,12 @@ interface PlayerControlsProps {
   canAudioClip?: boolean;
   /** AM-3: Whether an audio clip recording is currently in flight. */
   isRecordingAudio?: boolean;
+  /** AM-4: Called when the Mine button is pressed. */
+  onMine?: () => void;
+  /** AM-4: Whether mining is currently possible (active cue + not already mining/capturing). */
+  canMine?: boolean;
+  /** AM-4: Whether a mining capture is currently in flight. */
+  isMining?: boolean;
 }
 
 export interface PlayerControlsHandle {
@@ -144,6 +151,9 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
       onAudioClip,
       canAudioClip,
       isRecordingAudio,
+      onMine,
+      canMine,
+      isMining,
     },
     ref,
   ) {
@@ -550,6 +560,31 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
               disabled={canAudioClip === false || isRecordingAudio === true}
             >
               <AudioLines size={18} />
+            </button>
+          )}
+
+          {/* AM-4: Mine — for video/audio, after AudioLines, before caption mode */}
+          {(mediaType === 'video' || mediaType === 'audio') && (
+            <button
+              type="button"
+              className="entei-controls-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMine?.();
+              }}
+              aria-label={
+                isMining ? dict.mineButtonCapturing : dict.mineButtonLabel
+              }
+              title={
+                isMining
+                  ? dict.mineButtonCapturing
+                  : canMine === false
+                    ? dict.mineButtonDisabled
+                    : dict.mineButtonLabel
+              }
+              disabled={canMine === false || isMining === true}
+            >
+              <Pickaxe size={18} />
             </button>
           )}
 

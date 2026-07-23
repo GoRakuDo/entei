@@ -18,7 +18,7 @@
  * --------------------------------------------------------------------------- */
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   type SubtitleCue,
   parseSubtitle,
@@ -71,6 +71,13 @@ import {
 } from '@/features/player/audio-clip';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { Music, AlertTriangle } from 'lucide-react';
+import { formatTime } from '@/features/player/control-helpers';
+import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
+import {
+  readAnkiMinerPreferences,
+  type AnkiFieldMapping,
+} from '@/features/player/anki-miner-preferences';
+import { selectCueTextInRange } from '@/features/player/subtitle-interval';
 
 function getInitialLocale(): 'id' | 'ja' | 'en' {
   const lang = document.documentElement.lang;
@@ -80,6 +87,50 @@ function getInitialLocale(): 'id' | 'ja' | 'en' {
 
 function getDictionaryFor(locale: 'id' | 'ja' | 'en'): Dictionary {
   return getDictionary(locale);
+}
+
+/** AM-4: Seek a video element to a target time and wait for the seek to
+ *  complete. Aborts on signal or 5-second timeout. Never leaves the video
+ *  playing — always pauses after seek. */
+const SEEK_TIMEOUT_MS = 5000;
+
+function seekVideoSafely(
+  video: HTMLVideoElement,
+  targetTime: number,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new DOMException('Seek timeout', 'TimeoutError'));
+    }, SEEK_TIMEOUT_MS);
+
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    const onSeeked = () => {
+      cleanup();
+      video.pause();
+      resolve();
+    };
+
+    function cleanup() {
+      clearTimeout(timeoutId);
+      signal.removeEventListener('abort', onAbort);
+      video.removeEventListener('seeked', onSeeked);
+    }
+
+    signal.addEventListener('abort', onAbort);
+    video.addEventListener('seeked', onSeeked);
+    video.currentTime = targetTime;
+  });
 }
 
 export default function PlayerApp() {
@@ -130,12 +181,17 @@ export default function PlayerApp() {
   const [isSubtitlePanelVisible, setIsSubtitlePanelVisible] = useState(true);
 
   // --- P1.3a.2: caption display mode + overlay reveal state ---
-  const [captionDisplayMode, setCaptionDisplayMode] = useState<CaptionDisplayMode>(prefsRef.current.captionDisplayMode);
+  const [captionDisplayMode, setCaptionDisplayMode] =
+    useState<CaptionDisplayMode>(prefsRef.current.captionDisplayMode);
   const [isOverlayRevealed, setIsOverlayRevealed] = useState(false);
-  const blurRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blurRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // --- AM-2: Screenshot state ---
-  const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<string | null>(null);
+  const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<
+    string | null
+  >(null);
   const [isScreenshotDialogOpen, setIsScreenshotDialogOpen] = useState(false);
   const [hasScreenshotError, setHasScreenshotError] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -161,6 +217,35 @@ export default function PlayerApp() {
   const audioClipEpochRef = useRef(0);
   // AM-3: capability check (stable per browser session)
   const [audioClipCaps] = useState(() => checkAudioClipCapabilities());
+
+  // --- AM-4: Mining Preview state ---
+  const [isMiningPreviewOpen, setIsMiningPreviewOpen] = useState(false);
+  // AM-4: Mapped draft fields (controlled by Anki field mapping)
+  const [miningDraftFields, setMiningDraftFields] = useState<
+    { key: string; physicalName: string; value: string }[]
+  >([]);
+  const [miningHasScreenshotError, setMiningHasScreenshotError] =
+    useState(false);
+  const [miningHasAudioError, setMiningHasAudioError] = useState(false);
+  const [miningScreenshotUrl, setMiningScreenshotUrl] = useState<string | null>(
+    null,
+  );
+  const [miningAudioUrl, setMiningAudioUrl] = useState<string | null>(null);
+  const [miningAudioExpectedDuration, setMiningAudioExpectedDuration] =
+    useState(0);
+  const [miningRangeStart, setMiningRangeStart] = useState(0);
+  const [miningRangeEnd, setMiningRangeEnd] = useState(0);
+  const [miningMediaDuration, setMiningMediaDuration] = useState(0);
+  const [isMiningCapturing, setIsMiningCapturing] = useState(false);
+  const [isMiningUpdatingMaterials, setIsMiningUpdatingMaterials] = useState(false);
+  // AM-4: synchronous guard against double-clicks
+  const isMiningRef = useRef(false);
+  const isMiningUpdatingMaterialsRef = useRef(false);
+  const miningEpochRef = useRef(0);
+  const miningScreenshotUrlRef = useRef<string | null>(null);
+  const miningAudioUrlRef = useRef<string | null>(null);
+  const miningAbortControllerRef = useRef<AbortController | null>(null);
+  const miningSnapshotTimeRef = useRef(0);
 
   // --- P1.1: touch + reduced-motion detection ---
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -207,6 +292,17 @@ export default function PlayerApp() {
       }
       // AM-3: Cancel any in-flight recording
       cancelActiveRecording();
+      // AM-4: Revoke any lingering mining object URLs
+      if (miningScreenshotUrlRef.current) {
+        URL.revokeObjectURL(miningScreenshotUrlRef.current);
+        miningScreenshotUrlRef.current = null;
+      }
+      if (miningAudioUrlRef.current) {
+        URL.revokeObjectURL(miningAudioUrlRef.current);
+        miningAudioUrlRef.current = null;
+      }
+      // AM-4: Abort any in-flight mining recording
+      miningAbortControllerRef.current?.abort();
     };
   }, []);
 
@@ -287,38 +383,146 @@ export default function PlayerApp() {
     cancelActiveRecording();
   }, [replaceAudioClipUrl]);
 
+  /** AM-4: Revoke prior mining screenshot URL and update ref/state atomically. */
+  const replaceMiningScreenshotUrl = useCallback((newUrl: string | null) => {
+    const prev = miningScreenshotUrlRef.current;
+    if (prev && prev !== newUrl) {
+      URL.revokeObjectURL(prev);
+    }
+    miningScreenshotUrlRef.current = newUrl;
+    setMiningScreenshotUrl(newUrl);
+  }, []);
+
+  /** AM-4: Revoke prior mining audio URL and update ref/state atomically. */
+  const replaceMiningAudioUrl = useCallback((newUrl: string | null) => {
+    const prev = miningAudioUrlRef.current;
+    if (prev && prev !== newUrl) {
+      URL.revokeObjectURL(prev);
+    }
+    miningAudioUrlRef.current = newUrl;
+    setMiningAudioUrl(newUrl);
+  }, []);
+
+  /** AM-4: Clear mining preview state when media changes or dialog closes. */
+  const clearMiningPreview = useCallback(() => {
+    miningEpochRef.current += 1;
+    isMiningRef.current = false;
+    isMiningUpdatingMaterialsRef.current = false;
+    setIsMiningCapturing(false);
+    setIsMiningUpdatingMaterials(false);
+    setMiningHasScreenshotError(false);
+    setMiningHasAudioError(false);
+    setMiningDraftFields([]);
+    setMiningRangeStart(0);
+    setMiningRangeEnd(0);
+    setMiningMediaDuration(0);
+    setMiningAudioExpectedDuration(0);
+    replaceMiningScreenshotUrl(null);
+    replaceMiningAudioUrl(null);
+    setIsMiningPreviewOpen(false);
+    miningAbortControllerRef.current?.abort();
+    miningAbortControllerRef.current = null;
+  }, [replaceMiningScreenshotUrl, replaceMiningAudioUrl]);
+
+  /** AM-4: Build draft fields from Anki field mapping.
+   *  Semantic order: sentence, definition, image, audio, word, source, tags.
+   *  Omit fields with empty/null mapping. If sentence mapping is empty,
+   *  return empty array (no draft fields at all).
+   *  Dedupe by physical field name — keep first semantic entry. */
+  const buildDraftFields = useCallback(
+    (
+      mapping: AnkiFieldMapping,
+      cueText: string,
+      sourceLabel: string,
+    ): { key: string; physicalName: string; value: string }[] => {
+      // If sentence mapping is empty, show no draft fields
+      if (!mapping.sentence) return [];
+
+      // Semantic order with defaults
+      const entries: {
+        key: string;
+        physicalName: string;
+        value: string;
+      }[] = [
+        { key: 'sentence', physicalName: mapping.sentence, value: cueText },
+        ...(mapping.definition
+          ? [{ key: 'definition', physicalName: mapping.definition, value: '' }]
+          : []),
+        ...(mapping.image
+          ? [{ key: 'image', physicalName: mapping.image, value: '' }]
+          : []),
+        ...(mapping.audio
+          ? [{ key: 'audio', physicalName: mapping.audio, value: '' }]
+          : []),
+        ...(mapping.word
+          ? [{ key: 'word', physicalName: mapping.word, value: '' }]
+          : []),
+        ...(mapping.source
+          ? [{ key: 'source', physicalName: mapping.source, value: sourceLabel }]
+          : []),
+        ...(mapping.tags
+          ? [{ key: 'tags', physicalName: mapping.tags, value: '' }]
+          : []),
+      ];
+
+      // Dedupe by physical field name — keep first semantic entry
+      const seen = new Set<string>();
+      return entries.filter((e) => {
+        if (seen.has(e.physicalName)) return false;
+        seen.add(e.physicalName);
+        return true;
+      });
+    },
+    [],
+  );
+
+  /** AM-4: Handler for draft field value changes. */
+  const handleDraftFieldChange = useCallback(
+    (index: number, newValue: string) => {
+      setMiningDraftFields((prev) =>
+        prev.map((f, i) => (i === index ? { ...f, value: newValue } : f)),
+      );
+    },
+    [],
+  );
+
   /** AM-2: Reset video metadata readiness on new media. */
   const resetVideoMetadata = useCallback(() => {
     setIsVideoMetadataReady(false);
   }, []);
 
-  const handleMediaSelect = useCallback((file: File) => {
-    const admission = classifyMediaFile(file);
+  const handleMediaSelect = useCallback(
+    (file: File) => {
+      const admission = classifyMediaFile(file);
 
-    if (admission.kind === 'rejected') {
-      setLoadError(
-        `${dictRef.current.playerUI.unsupportedFormat}: .${admission.ext}`,
-      );
-      setIsLoading(false);
-      return;
-    }
+      if (admission.kind === 'rejected') {
+        setLoadError(
+          `${dictRef.current.playerUI.unsupportedFormat}: .${admission.ext}`,
+        );
+        setIsLoading(false);
+        return;
+      }
 
-    setIsLoading(true);
-    setLoadError(null);
-    setActiveCueId(null);
-    // AM-2: Invalidate any prior screenshot when selecting new media
-    clearScreenshot();
-    // AM-3: Invalidate any prior audio clip when selecting new media
-    clearAudioClip();
-    resetVideoMetadata();
+      setIsLoading(true);
+      setLoadError(null);
+      setActiveCueId(null);
+      // AM-2: Invalidate any prior screenshot when selecting new media
+      clearScreenshot();
+      // AM-3: Invalidate any prior audio clip when selecting new media
+      clearAudioClip();
+      // AM-4: Invalidate any prior mining preview when selecting new media
+      clearMiningPreview();
+      resetVideoMetadata();
 
-    const oldUrl = activeUrlRef.current;
-    const newUrl = createMediaUrl(file, oldUrl);
-    activeUrlRef.current = newUrl;
-    setMediaUrl(newUrl);
-    setMediaType(admission.kind);
-    setMediaName(file.name);
-  }, [clearScreenshot, resetVideoMetadata]);
+      const oldUrl = activeUrlRef.current;
+      const newUrl = createMediaUrl(file, oldUrl);
+      activeUrlRef.current = newUrl;
+      setMediaUrl(newUrl);
+      setMediaType(admission.kind);
+      setMediaName(file.name);
+    },
+    [clearScreenshot, clearAudioClip, clearMiningPreview, resetVideoMetadata],
+  );
 
   const handleSubtitleSelect = useCallback((file: File) => {
     setSubtitleErrors([]);
@@ -437,7 +641,12 @@ export default function PlayerApp() {
     const wasPlaying = prevIsPlayingRef.current;
     prevIsPlayingRef.current = isPlaying;
 
-    if (!wasPlaying && isPlaying && captionDisplayMode === 'blurred' && isOverlayRevealed) {
+    if (
+      !wasPlaying &&
+      isPlaying &&
+      captionDisplayMode === 'blurred' &&
+      isOverlayRevealed
+    ) {
       clearBlurRestoreTimer();
       setIsOverlayRevealed(false);
     }
@@ -510,7 +719,8 @@ export default function PlayerApp() {
         ok: false,
         error: {
           code: 'BLOB_ENCODE_FAILED',
-          message: e instanceof Error ? e.message : 'Unexpected capture failure.',
+          message:
+            e instanceof Error ? e.message : 'Unexpected capture failure.',
         },
       };
     }
@@ -558,6 +768,8 @@ export default function PlayerApp() {
   // --- AM-3: Audio clip capture ---
   const handleAudioClip = useCallback(async () => {
     if (!mediaUrl || !activeCueId || !audioClipCaps.supported) return;
+    // Guard: refuse if AM-4 mining is in flight to prevent cross-cancellation
+    if (isMiningRef.current || isMiningUpdatingMaterialsRef.current) return;
     if (isRecordingAudioRef.current) return;
 
     const activeCue = cues.find((c) => c.id === activeCueId);
@@ -602,7 +814,14 @@ export default function PlayerApp() {
     const url = URL.createObjectURL(result.blob);
     replaceAudioClipUrl(url);
     setIsAudioClipDialogOpen(true);
-  }, [mediaUrl, activeCueId, audioClipCaps.supported, cues, playbackRate, replaceAudioClipUrl]);
+  }, [
+    mediaUrl,
+    activeCueId,
+    audioClipCaps.supported,
+    cues,
+    playbackRate,
+    replaceAudioClipUrl,
+  ]);
 
   /** AM-3: Close dialog and revoke the object URL to free memory. */
   const handleAudioClipDialogClose = useCallback(() => {
@@ -615,12 +834,325 @@ export default function PlayerApp() {
     cancelActiveRecording();
   }, [replaceAudioClipUrl]);
 
-  /** AM-3: Audio clip is possible when media loaded, active cue exists, and APIs supported. */
+  /** AM-3: Audio clip is possible when media loaded, active cue exists, APIs supported,
+   *  AND no AM-4 mining capture/update is in flight. */
   const canAudioClip =
     (mediaType === 'video' || mediaType === 'audio') &&
     !!mediaUrl &&
     !!activeCueId &&
-    audioClipCaps.supported;
+    audioClipCaps.supported &&
+    !isMiningCapturing &&
+    !isMiningUpdatingMaterials;
+
+  // --- AM-4: Mining capture ---
+  const handleMine = useCallback(async () => {
+    if (!mediaUrl || activeCueId == null) return;
+    // Guard: refuse if any standalone capture (AM-2 screenshot / AM-3 audio) or AM-4 mining is in flight
+    if (
+      isCapturingRef.current ||
+      isRecordingAudioRef.current ||
+      isMiningRef.current
+    )
+      return;
+    const activeCue = cues.find((c) => c.id === activeCueId);
+    if (!activeCue) return;
+
+    const media = sharedMediaRef.current;
+    const snapshotTime = media?.currentTime ?? 0;
+    miningSnapshotTimeRef.current = snapshotTime;
+    media?.pause();
+
+    const epoch = miningEpochRef.current + 1;
+    miningEpochRef.current = epoch;
+    isMiningRef.current = true;
+    setIsMiningCapturing(true);
+    setMiningHasScreenshotError(false);
+    setMiningHasAudioError(false);
+
+    // AM-4: Read field mapping from saved preferences on every Mine start
+    const prefs = readAnkiMinerPreferences();
+    const sourceLabel = `${mediaName} (${formatTime(activeCue.start)} – ${formatTime(activeCue.end)})`;
+    const draftFields = buildDraftFields(
+      prefs.fields,
+      activeCue.text,
+      sourceLabel,
+    );
+    setMiningDraftFields(draftFields);
+
+    setMiningRangeStart(activeCue.start);
+    setMiningRangeEnd(activeCue.end);
+    setMiningAudioExpectedDuration(
+      Math.max(0, activeCue.end - activeCue.start),
+    );
+    const duration = media?.duration ?? 0;
+    setMiningMediaDuration(Number.isFinite(duration) ? duration : 0);
+    // Open immediately: materials stream into the workspace independently.
+    // Waiting for real-time audio recording here made Mine appear unresponsive
+    // for the full cue duration.
+    setIsMiningPreviewOpen(true);
+
+    const abortController = new AbortController();
+    miningAbortControllerRef.current = abortController;
+
+    // Screenshot: video only
+    let screenshotResult: Awaited<ReturnType<typeof captureVideoFrame>> | null =
+      null;
+    if (mediaType === 'video' && videoRef.current) {
+      try {
+        screenshotResult = await captureVideoFrame(videoRef.current);
+      } catch (e) {
+        screenshotResult = {
+          ok: false,
+          error: {
+            code: 'BLOB_ENCODE_FAILED',
+            message:
+              e instanceof Error ? e.message : 'Unexpected capture failure.',
+          },
+        };
+      }
+    }
+
+    // Screenshot resolves before audio recording. Show it immediately instead
+    // of holding a completed frame behind the still-recording audio task.
+    if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+    if (mediaType === 'video') {
+      if (screenshotResult && !screenshotResult.ok) {
+        setMiningHasScreenshotError(true);
+        replaceMiningScreenshotUrl(null);
+      } else if (screenshotResult && screenshotResult.ok) {
+        replaceMiningScreenshotUrl(URL.createObjectURL(screenshotResult.blob));
+      }
+    }
+
+    // Audio
+    const audioResult = await recordAudioClip({
+      mediaUrl,
+      start: activeCue.start,
+      end: activeCue.end,
+      playbackRate,
+      signal: abortController.signal,
+    });
+
+    // Guards
+    if (!mountedRef.current) return;
+    if (miningEpochRef.current !== epoch) return;
+
+    isMiningRef.current = false;
+    setIsMiningCapturing(false);
+
+    // Audio result
+    if (!audioResult.ok) {
+      setMiningHasAudioError(true);
+      replaceMiningAudioUrl(null);
+    } else {
+      const url = URL.createObjectURL(audioResult.blob);
+      replaceMiningAudioUrl(url);
+    }
+  }, [
+    mediaUrl,
+    activeCueId,
+    cues,
+    mediaType,
+    mediaName,
+    playbackRate,
+    replaceMiningScreenshotUrl,
+    replaceMiningAudioUrl,
+  ]);
+
+  /** AM-4: Close mining preview, revoke URLs, seek back to snapshot, pause. */
+  const handleMiningPreviewClose = useCallback(() => {
+    miningEpochRef.current += 1;
+    isMiningRef.current = false;
+    isMiningUpdatingMaterialsRef.current = false;
+    setIsMiningPreviewOpen(false);
+    setIsMiningCapturing(false);
+    setIsMiningUpdatingMaterials(false);
+    setMiningHasScreenshotError(false);
+    setMiningHasAudioError(false);
+    replaceMiningScreenshotUrl(null);
+    replaceMiningAudioUrl(null);
+    miningAbortControllerRef.current?.abort();
+    miningAbortControllerRef.current = null;
+
+    const media = sharedMediaRef.current;
+    if (media) {
+      media.currentTime = miningSnapshotTimeRef.current;
+      media.pause();
+    }
+  }, [replaceMiningScreenshotUrl, replaceMiningAudioUrl]);
+
+  const handleMiningRangeChange = useCallback((value: number[]) => {
+    const [start, end] = value;
+    if (start !== undefined) setMiningRangeStart(start);
+    if (end !== undefined) setMiningRangeEnd(end);
+  }, []);
+
+  /** AM-4: Update all range-derived materials (sentence, source, screenshot, audio).
+   *  Explicit button action — not continuous. Only sentence/source/image/audio
+   *  are overwritten; user-edited definition/word/tags are preserved. */
+  const handleUpdateMiningMaterials = useCallback(async () => {
+    if (
+      !mediaUrl ||
+      !Number.isFinite(miningRangeStart) ||
+      !Number.isFinite(miningRangeEnd)
+    )
+      return;
+    if (miningRangeStart >= miningRangeEnd || miningRangeStart < 0) return;
+    if (isMiningUpdatingMaterialsRef.current) return;
+
+    // Determine which fields are mapped
+    const prefs = readAnkiMinerPreferences();
+    const hasSentence = !!prefs.fields.sentence;
+    const hasSource = !!prefs.fields.source;
+    const hasImage = !!prefs.fields.image;
+    const hasAudio = !!prefs.fields.audio;
+    const hasVideo = mediaType === 'video' && !!videoRef.current;
+
+    // If literally no mapped fields, nothing to do
+    if (!hasSentence && !hasSource && !hasImage && !hasAudio) return;
+
+    const epoch = miningEpochRef.current + 1;
+    miningEpochRef.current = epoch;
+    isMiningUpdatingMaterialsRef.current = true;
+    setIsMiningUpdatingMaterials(true);
+    setMiningHasScreenshotError(false);
+    setMiningHasAudioError(false);
+
+    const abortController = new AbortController();
+    miningAbortControllerRef.current = abortController;
+
+    // Phase 1: Update sentence and source (synchronous, no async work)
+    if (hasSentence || hasSource) {
+      const newSentence = hasSentence
+        ? selectCueTextInRange(cues, miningRangeStart, miningRangeEnd)
+        : '';
+      const newSource = hasSource
+        ? `${mediaName} (${formatTime(miningRangeStart)} – ${formatTime(miningRangeEnd)})`
+        : '';
+
+      setMiningDraftFields((prev) =>
+        prev.map((f) => {
+          if (f.key === 'sentence' && hasSentence) {
+            return { ...f, value: newSentence };
+          }
+          if (f.key === 'source' && hasSource) {
+            return { ...f, value: newSource };
+          }
+          return f;
+        }),
+      );
+    }
+
+    // Phase 2: Screenshot — seek visible video to rangeStart, capture, restore
+    if (hasImage && hasVideo) {
+      const video = videoRef.current!;
+      const snapshotTime = miningSnapshotTimeRef.current;
+
+      try {
+        await seekVideoSafely(video, miningRangeStart, abortController.signal);
+
+        if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+        if (abortController.signal.aborted) return;
+
+        const screenshotResult = await captureVideoFrame(video);
+
+        if (!mountedRef.current || miningEpochRef.current !== epoch) {
+          // Restore snapshot time even on stale
+          video.currentTime = snapshotTime;
+          video.pause();
+          return;
+        }
+
+        if (!screenshotResult.ok) {
+          setMiningHasScreenshotError(true);
+          replaceMiningScreenshotUrl(null);
+        } else {
+          replaceMiningScreenshotUrl(
+            URL.createObjectURL(screenshotResult.blob),
+          );
+        }
+      } catch {
+        // Seek failed or timed out — set screenshot error
+        if (mountedRef.current && miningEpochRef.current === epoch) {
+          setMiningHasScreenshotError(true);
+          replaceMiningScreenshotUrl(null);
+        }
+      } finally {
+        // Always restore snapshot time and pause visible video
+        video.currentTime = miningSnapshotTimeRef.current;
+        video.pause();
+      }
+    }
+
+    // Guard before audio phase
+    if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+    if (abortController.signal.aborted) return;
+
+    // Phase 3: Audio — record new range via detached element
+    if (hasAudio && audioClipCaps.supported) {
+      const result = await recordAudioClip({
+        mediaUrl,
+        start: miningRangeStart,
+        end: miningRangeEnd,
+        playbackRate,
+        signal: abortController.signal,
+      });
+
+      if (!mountedRef.current) return;
+      if (miningEpochRef.current !== epoch) return;
+
+      if (!result.ok) {
+        setMiningHasAudioError(true);
+        replaceMiningAudioUrl(null);
+      } else {
+        const url = URL.createObjectURL(result.blob);
+        replaceMiningAudioUrl(url);
+      }
+    }
+
+    // Final guard
+    if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+
+    isMiningUpdatingMaterialsRef.current = false;
+    setIsMiningUpdatingMaterials(false);
+  }, [
+    mediaUrl,
+    miningRangeStart,
+    miningRangeEnd,
+    mediaType,
+    mediaName,
+    cues,
+    audioClipCaps.supported,
+    playbackRate,
+    replaceMiningScreenshotUrl,
+    replaceMiningAudioUrl,
+  ]);
+
+  /** AM-4: Mine is possible when media loaded and active cue exists,
+   *  AND no standalone AM-2 screenshot or AM-3 audio capture is in flight.
+   *  Prevents Mine from cancelling an in-progress standalone capture. */
+  const canMine =
+    (mediaType === 'video' || mediaType === 'audio') &&
+    !!mediaUrl &&
+    activeCueId != null &&
+    !isCapturing &&
+    !isRecordingAudio &&
+    !isMiningCapturing &&
+    !isMiningUpdatingMaterials;
+
+  const isMining = isMiningCapturing || isMiningUpdatingMaterials;
+
+  // AM-4: canUpdateMaterials — true if ANY mapped field can be updated.
+  // Not just audio capability; sentence/source always updatable if mapped.
+  const canUpdateMaterials = useMemo(() => {
+    const prefs = readAnkiMinerPreferences();
+    const hasSentence = !!prefs.fields.sentence;
+    const hasSource = !!prefs.fields.source;
+    const hasImage = !!prefs.fields.image && mediaType === 'video';
+    const hasAudio =
+      !!prefs.fields.audio && audioClipCaps.supported;
+    return hasSentence || hasSource || hasImage || hasAudio;
+  }, [mediaType, audioClipCaps.supported]);
 
   // --- P1.1: Surface click behavior ---
   const handleSurfaceClick = useCallback(
@@ -699,7 +1231,10 @@ export default function PlayerApp() {
     if (!hasMedia) return;
     const mq = window.matchMedia('(min-width: 1024px)');
     const apply = (matches: boolean) => {
-      document.documentElement.classList.toggle('entei-player-immersive', matches);
+      document.documentElement.classList.toggle(
+        'entei-player-immersive',
+        matches,
+      );
     };
     apply(mq.matches);
     const onChange = (e: MediaQueryListEvent) => apply(e.matches);
@@ -864,6 +1399,9 @@ export default function PlayerApp() {
                 onAudioClip={handleAudioClip}
                 canAudioClip={canAudioClip}
                 isRecordingAudio={isRecordingAudio}
+                onMine={handleMine}
+                canMine={canMine}
+                isMining={isMining}
               />
 
               {/* AM-2: Screenshot Preview Dialog */}
@@ -888,6 +1426,31 @@ export default function PlayerApp() {
                 onRetry={handleAudioClip}
                 onClose={handleAudioClipDialogClose}
                 isRecording={isRecordingAudio}
+                dict={dict}
+              />
+
+              {/* AM-4: Mining Preview Dialog */}
+              <MiningPreviewDialog
+                open={isMiningPreviewOpen}
+                onOpenChange={handleMiningPreviewClose}
+                draftFields={miningDraftFields}
+                onDraftFieldChange={handleDraftFieldChange}
+                screenshotUrl={miningScreenshotUrl}
+                hasScreenshotError={miningHasScreenshotError}
+                isScreenshotUnavailable={mediaType !== 'video'}
+                audioUrl={miningAudioUrl}
+                audioExpectedDuration={miningAudioExpectedDuration}
+                hasAudioError={miningHasAudioError}
+                rangeStart={miningRangeStart}
+                rangeEnd={miningRangeEnd}
+                mediaDuration={miningMediaDuration}
+                cues={cues}
+                isCapturing={isMiningCapturing}
+                isUpdatingMaterials={isMiningUpdatingMaterials}
+                canUpdateMaterials={canUpdateMaterials}
+                onRangeChange={handleMiningRangeChange}
+                onUpdateMaterials={handleUpdateMiningMaterials}
+                onCancel={handleMiningPreviewClose}
                 dict={dict}
               />
             </div>

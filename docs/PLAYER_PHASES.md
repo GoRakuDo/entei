@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、ANKI_MINERのAM-1 / AM-2 / AM-3 / AM-5はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。次の実装はAM-4 Mining Preview。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、ANKI_MINERのAM-1 / AM-2 / AM-3 / AM-4 / AM-5はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。AM-4はbrowser QA待ち。次の実装はStage 2（AM-6a/b/c Anki Export & Update）。P2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -69,7 +69,7 @@
 
 ### 3.3 mining / Ankiの実装順
 
-mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ早く安全に到達するための実装順は`docs/ANKI_MINER.md`を正とする。現在はAM-1 Settings ModalとAM-5 read-only AnkiConnectが完了し、次はAM-2 Screenshot capture。`addNote` / note更新はStage 2の明示承認まで実装・実行しない。
+mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ早く安全に到達するための実装順は`docs/ANKI_MINER.md`を正とする。現在はAM-1 Settings Modal、AM-2 Screenshot capture、AM-3 Audio Clip、AM-4 Mining Preview、AM-5 read-only AnkiConnectが完了。`addNote` / note更新はStage 2の明示承認まで実装・実行しない。
 
 ---
 
@@ -206,14 +206,14 @@ asbplayerではCondensedとFast-forwardが競合する（`play-mode-manager.ts:1
 
 ### 含めるもの
 
-- mining dialog（shadcn Dialog）
-- selected rangeのslider
-- sentence / track / definition / word / source / tagsの編集
-- JPEG screenshot capture
-- browser-native WebM/Opus audio clip生成とpreview/download。P3では再encodeを増やさない。
-- surrounding subtitles
-- IndexedDB mining history
-- historyから再選択、audio/image download、SRT section export
+- mining dialog（shadcn Dialog）— AM-4で基盤完成
+- selected rangeのslider — AM-4でactive cue範囲のみ対応。arbitrary sentence selectionは将来
+- sentence / track / definition / word / source / tagsの編集 — AM-4ではsentenceはread-only。field editingはStage 2以降
+- JPEG screenshot capture — AM-2で完了
+- browser-native WebM/Opus audio clip生成とpreview — AM-3/AM-4で完了。downloadは未実装
+- surrounding subtitles — 未実装
+- IndexedDB mining history — 未実装
+- historyから再選択、audio/image download、SRT section export — 未実装
 
 ### 先にJPEG + audioを作る理由
 
@@ -381,20 +381,20 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 
 ### 実装サマリー
 
-| 項目                      | 状態 | 備考                                                                                                                                                                                                                                         |
-| ------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| React integration         | ✅   | `@astrojs/react`, `react`, `react-dom`                                                                                                                                                                                                       |
-| Tailwind CSS v4           | ✅   | `@tailwindcss/vite` plugin (scoped via `[data-entei-player-root]`)                                                                                                                                                                           |
-| shadcn/ui                 | ✅   | Button, Dialog (Radix), ScrollArea, Slider, Popover (Radix)                                                                                                                                                                                  |
-| PlayerLayout.astro        | ✅   | BaseLayout の desktop grid を持たない full-width layout                                                                                                                                                                                      |
-| Subtitle parser (SRT/VTT) | ✅   | Single `stripTags` helper (duplicate merged)                                                                                                                                                                                                 |
-| Subtitle parser (ASS)     | ✅   | `ass-compiler` v0.1.1 (MIT) — dialogue timing + plain text extraction                                                                                                                                                                        |
-| Media URL lifecycle       | ✅   | Simplified: `createMediaUrl(file, prevUrl)` returns string, revokes inline                                                                                                                                                                   |
-| Keyboard shortcuts        | ✅   | Shared `HTMLMediaElement` ref for both video/audio                                                                                                                                                                                           |
-| React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                                                                                                                                   |
-| Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                         |
-| Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                          |
-| Unit tests                | ✅   | 416 tests（14 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration tests） |
+| 項目                      | 状態 | 備考                                                                                                                                                                                                                                                                                            |
+| ------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| React integration         | ✅   | `@astrojs/react`, `react`, `react-dom`                                                                                                                                                                                                                                                          |
+| Tailwind CSS v4           | ✅   | `@tailwindcss/vite` plugin (scoped via `[data-entei-player-root]`)                                                                                                                                                                                                                              |
+| shadcn/ui                 | ✅   | Button, Dialog (Radix), ScrollArea, Slider, Popover (Radix)                                                                                                                                                                                                                                     |
+| PlayerLayout.astro        | ✅   | BaseLayout の desktop grid を持たない full-width layout                                                                                                                                                                                                                                         |
+| Subtitle parser (SRT/VTT) | ✅   | Single `stripTags` helper (duplicate merged)                                                                                                                                                                                                                                                    |
+| Subtitle parser (ASS)     | ✅   | `ass-compiler` v0.1.1 (MIT) — dialogue timing + plain text extraction                                                                                                                                                                                                                           |
+| Media URL lifecycle       | ✅   | Simplified: `createMediaUrl(file, prevUrl)` returns string, revokes inline                                                                                                                                                                                                                      |
+| Keyboard shortcuts        | ✅   | Shared `HTMLMediaElement` ref for both video/audio                                                                                                                                                                                                                                              |
+| React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                                                                                                                                                                                      |
+| Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                                                                            |
+| Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                                                                             |
+| Unit tests                | ✅   | 587 tests（23 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval tests） |
 
 ### Reviewer findings 修正状況
 
@@ -472,7 +472,7 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                                                      |
 | ---------- | ---- | --------------------------------------------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                                                   |
-| test       | ✅   | 416 tests pass（14 files）                                                                    |
+| test       | ✅   | 587 tests pass（23 files）                                                                    |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)                                          |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
@@ -497,6 +497,12 @@ apps/web/src/
 13. **mobile portrait** → videoがTopBarの下でedge-to-edge表示; picker/subtitle panelはgutter付き
 14. **mobile landscape** (955×400 emulation) → TopBar/footer/picker/subtitle非表示; videoが100vw×100dvh表示; portraitに戻すと全要素復帰
 15. **long filename** → 長いmedia/subtitleファイル名でhorizontal scrollが発生しない; labelがellipsis表示; button title属性で全名を確認可能
+16. **Mineボタン** → active cueなしでdisabled; video/audioで表示; クリックでPlayer pause
+17. **Mining Preview** → sentence/source/screenshot/audioが正しく表示; Cancelでsnapshot timeへseek+pause
+18. **Range slider** → 0.1秒stepで動作; Update materialsで明示的re-record; 無効rangeでdisabled
+19. **Mining Preview 音声** → Play/Pauseがvisible Playerに影響しない; duration fallback表示
+20. **Range zoom** → Mine開始時に選択範囲周辺へviewport自動focus; ZoomIn/ZoomOut 44px buttonで半減/倍増; 選択範囲は不変; capture/update中はdisabled
+21. **Update materials** → Range変更後のexplicit button動作; sentence/source/screenshot/audio全て更新; definition/word/tagsは保持; unmapped fieldはskip; visible video seek→capture→restore
 
 ---
 
