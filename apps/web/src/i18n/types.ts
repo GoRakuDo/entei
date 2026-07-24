@@ -204,6 +204,21 @@ export interface Dictionary {
     exportSendDisabledNoSentence: string;
     exportSendDisabledRequestActive: string;
     exportRejectedCanAdd: string;
+    appendSelectLabel: string;
+    appendDialogTitle: string;
+    appendDialogDescription: string;
+    appendSearchPlaceholder: string;
+    appendSearchButton: string;
+    appendSearching: string;
+    appendNoResults: string;
+    appendSearchError: string;
+    appendNoteIdLabel: string;
+    appendNoteTypeLabel: string;
+    appendIncompatibleType: string;
+    appendSuccess: string;
+    appendPartialFailure: string;
+    appendAllFailed: string;
+    appendSelectedCount: (count: number) => string;
   };
   reader: {
     title: string;

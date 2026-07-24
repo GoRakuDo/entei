@@ -78,12 +78,8 @@ export function PlayerSettingsDialog({
         <Tabs defaultValue="player" className="entei-settings-tabs">
           <div className="entei-settings-body">
             <TabsList className="entei-settings-tabs-list">
-              <TabsTrigger value="player">
-                {dict.settingsTabPlayer}
-              </TabsTrigger>
-              <TabsTrigger value="anki">
-                {dict.settingsTabAnki}
-              </TabsTrigger>
+              <TabsTrigger value="player">{dict.settingsTabPlayer}</TabsTrigger>
+              <TabsTrigger value="anki">{dict.settingsTabAnki}</TabsTrigger>
             </TabsList>
             <div className="entei-settings-panel">
               <TabsContent
@@ -96,23 +92,15 @@ export function PlayerSettingsDialog({
                   </p>
                   <div className="entei-settings-shortcuts-list">
                     {shortcuts.map((s) => (
-                      <div
-                        key={s.key}
-                        className="entei-settings-shortcut-row"
-                      >
+                      <div key={s.key} className="entei-settings-shortcut-row">
                         <kbd className="entei-shortcut-key">{s.key}</kbd>
-                        <span className="entei-shortcut-desc">
-                          {s.desc}
-                        </span>
+                        <span className="entei-shortcut-desc">{s.desc}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               </TabsContent>
-              <TabsContent
-                value="anki"
-                className="entei-settings-tab-content"
-              >
+              <TabsContent value="anki" className="entei-settings-tab-content">
                 <AnkiFieldsTab
                   dict={dict}
                   onSessionCredentials={onSessionCredentials}

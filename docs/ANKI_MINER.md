@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）+ Stage 2 AM-6a/AM-6b（new note / update latest）はコード完了・検証済み。実AnkiConnect手動QA待ち。AM-6c Specific updateは後段。
+> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）+ Stage 2 AM-6a/AM-6b（new note / update latest）+ AM-6c（append to specific cards）はコード完了・検証済み。実AnkiConnect手動QA待ち。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -360,7 +360,7 @@ npm run build          ✅ static build complete
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 26 files, 647 tests pass
+npm run test           ✅ 27 files, 686 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```

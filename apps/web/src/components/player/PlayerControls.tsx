@@ -111,7 +111,9 @@ interface PlayerControlsProps {
   /** AM-4: Whether a mining capture is currently in flight. */
   isMining?: boolean;
   /** Stage 2: Session credentials bridge from AnkiFieldsTab to PlayerApp. */
-  onSessionCredentials?: (creds: { endpoint: string; apiKey: string } | null) => void;
+  onSessionCredentials?: (
+    creds: { endpoint: string; apiKey: string } | null,
+  ) => void;
 }
 
 export interface PlayerControlsHandle {
@@ -123,43 +125,45 @@ export interface PlayerControlsHandle {
   getVisible: () => boolean;
 }
 
-export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsProps>(
-  function PlayerControls(
-    {
-      mediaRef,
-      surfaceRef,
-      isPlaying,
-      isLoading,
-      error,
-      hasMedia,
-      mediaType,
-      mediaKey,
-      dict,
-      mediaName,
-      isSubtitlePanelVisible,
-      onToggleSubtitlePanel,
-      captionDisplayMode,
-      onCycleCaptionMode,
-      volume,
-      onVolumeChange,
-      playbackRate,
-      onPlaybackRateChange,
-      shortcuts,
-      isTouchDevice,
-      reducedMotion,
-      onScreenshot,
-      canScreenshot,
-      isCapturing,
-      onAudioClip,
-      canAudioClip,
-      isRecordingAudio,
-      onMine,
-      canMine,
-      isMining,
-      onSessionCredentials,
-    },
-    ref,
-  ) {
+export const PlayerControls = forwardRef<
+  PlayerControlsHandle,
+  PlayerControlsProps
+>(function PlayerControls(
+  {
+    mediaRef,
+    surfaceRef,
+    isPlaying,
+    isLoading,
+    error,
+    hasMedia,
+    mediaType,
+    mediaKey,
+    dict,
+    mediaName,
+    isSubtitlePanelVisible,
+    onToggleSubtitlePanel,
+    captionDisplayMode,
+    onCycleCaptionMode,
+    volume,
+    onVolumeChange,
+    playbackRate,
+    onPlaybackRateChange,
+    shortcuts,
+    isTouchDevice,
+    reducedMotion,
+    onScreenshot,
+    canScreenshot,
+    isCapturing,
+    onAudioClip,
+    canAudioClip,
+    isRecordingAudio,
+    onMine,
+    canMine,
+    isMining,
+    onSessionCredentials,
+  },
+  ref,
+) {
   // --- Local state ---
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -272,7 +276,8 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
 
   const startHideTimer = useCallback(() => {
     clearHideTimer();
-    if (!isPlaying || !shouldScheduleAutoHide(isTouchDevice, reducedMotion)) return;
+    if (!isPlaying || !shouldScheduleAutoHide(isTouchDevice, reducedMotion))
+      return;
     timerRef.current = setTimeout(() => {
       const next = nextControlsVisibility(
         { type: 'timer-expired' },
@@ -288,7 +293,8 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
     show: () => {
       setIsVisible(true);
       clearHideTimer();
-      if (isPlaying && shouldScheduleAutoHide(isTouchDevice, reducedMotion)) startHideTimer();
+      if (isPlaying && shouldScheduleAutoHide(isTouchDevice, reducedMotion))
+        startHideTimer();
     },
     hide: () => {
       setIsVisible(false);
@@ -298,13 +304,24 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
   }));
 
   useEffect(() => {
-    if (isPlaying && isVisible && shouldScheduleAutoHide(isTouchDevice, reducedMotion)) {
+    if (
+      isPlaying &&
+      isVisible &&
+      shouldScheduleAutoHide(isTouchDevice, reducedMotion)
+    ) {
       startHideTimer();
     } else {
       clearHideTimer();
     }
     return clearHideTimer;
-  }, [isPlaying, isVisible, isTouchDevice, reducedMotion, startHideTimer, clearHideTimer]);
+  }, [
+    isPlaying,
+    isVisible,
+    isTouchDevice,
+    reducedMotion,
+    startHideTimer,
+    clearHideTimer,
+  ]);
 
   // --- Show controls helper ---
   const showControls = useCallback(
@@ -316,7 +333,8 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
       );
       if (next.visible) {
         setIsVisible(true);
-        if (isPlaying && shouldScheduleAutoHide(isTouchDevice, reducedMotion)) startHideTimer();
+        if (isPlaying && shouldScheduleAutoHide(isTouchDevice, reducedMotion))
+          startHideTimer();
       }
     },
     [isPlaying, isVisible, isTouchDevice, reducedMotion, startHideTimer],
@@ -388,9 +406,10 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
   );
 
   // Compute seek slider value: during drag use seekValueRef, otherwise media currentTime
-  const seekSliderValue = isSeeking && seekValueRef.current !== null
-    ? seekValueRef.current
-    : currentTime;
+  const seekSliderValue =
+    isSeeking && seekValueRef.current !== null
+      ? seekValueRef.current
+      : currentTime;
 
   // --- Volume (Fix #2: touch = disclosure only; desktop = mute/unmute + hover) ---
   const handleVolumeButtonClick = useCallback(
@@ -690,13 +709,21 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
                 onClick={handleVolumeButtonClick}
                 aria-label={
                   isTouchDevice
-                    ? (isVolumeOpen ? dict.hideVolume : dict.showVolume)
-                    : (volume > 0 ? dict.muteAriaLabel : dict.unmuteAriaLabel)
+                    ? isVolumeOpen
+                      ? dict.hideVolume
+                      : dict.showVolume
+                    : volume > 0
+                      ? dict.muteAriaLabel
+                      : dict.unmuteAriaLabel
                 }
                 title={
                   isTouchDevice
-                    ? (isVolumeOpen ? dict.hideVolume : dict.showVolume)
-                    : (volume > 0 ? dict.muteAriaLabel : dict.unmuteAriaLabel)
+                    ? isVolumeOpen
+                      ? dict.hideVolume
+                      : dict.showVolume
+                    : volume > 0
+                      ? dict.muteAriaLabel
+                      : dict.unmuteAriaLabel
                 }
               >
                 {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
@@ -773,9 +800,15 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
                 aria-label={
                   isFullscreen ? dict.fullscreenExit : dict.fullscreenEnter
                 }
-                title={isFullscreen ? dict.fullscreenExit : dict.fullscreenEnter}
+                title={
+                  isFullscreen ? dict.fullscreenExit : dict.fullscreenEnter
+                }
               >
-                {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                {isFullscreen ? (
+                  <Minimize2 size={18} />
+                ) : (
+                  <Maximize2 size={18} />
+                )}
               </button>
             )}
           </div>

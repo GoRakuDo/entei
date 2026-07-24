@@ -10,11 +10,15 @@
  * No bottom footer — uses the top-right Dialog X close only.
  * Range area lives in a bottom dock outside the scrolling body.
  * Controlled via Dialog onOpenChange. No nested dialogs.
+ *
+ * AM-6c: Single 3-item ToggleGroup (New / Update / Append).
+ * Third mode is ephemeral — not persisted to localStorage.
+ * Send routes to onAppend when in third mode.
  * --------------------------------------------------------------------------- */
 
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useId } from 'react';
 import {
   Play,
   Pause,
@@ -23,7 +27,10 @@ import {
   Send,
   FilePlusCorner,
   FileUp,
+  Search,
 } from 'lucide-react';
+import { AnkiAppendPanel } from '@/components/player/AnkiAppendPanel';
+import type { AnkiNoteInfo } from '@/features/player/anki-export-client';
 import {
   Dialog,
   DialogContent,
@@ -55,6 +62,8 @@ interface DraftField {
   value: string;
 }
 
+type ToggleValue = 'new' | 'update' | 'append';
+
 interface MiningPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -85,6 +94,20 @@ interface MiningPreviewDialogProps {
   exportError: string | null;
   exportSuccess: boolean;
   onExportSend: () => void;
+  // AM-6c: Append panel (inline, not sibling Dialog)
+  onAppendSearch: (query: string) => Promise<AnkiNoteInfo[]>;
+  onAppend: (
+    noteIds: number[],
+  ) => Promise<{ succeeded: number[]; failed: number[] }>;
+  isAppending: boolean;
+  appendResult: {
+    succeeded: number[];
+    failed: number[];
+  } | null;
+  appendSendDisabledReason: string | null;
+  savedDeck: string;
+  savedNoteType: string;
+  sentenceFieldName: string | null;
   dict: {
     miningPreviewTitle: string;
     miningPreviewRange: string;
@@ -112,6 +135,22 @@ interface MiningPreviewDialogProps {
     exportSendDisabledInvalidPreset: string;
     exportSendDisabledNoSentence: string;
     exportSendDisabledRequestActive: string;
+    appendSelectLabel: string;
+    // Append panel dict keys (forwarded to AnkiAppendPanel)
+    appendDialogTitle: string;
+    appendDialogDescription: string;
+    appendSearchPlaceholder: string;
+    appendSearchButton: string;
+    appendSearching: string;
+    appendNoResults: string;
+    appendSearchError: string;
+    appendNoteIdLabel: string;
+    appendNoteTypeLabel: string;
+    appendIncompatibleType: string;
+    appendSuccess: string;
+    appendPartialFailure: string;
+    appendAllFailed: string;
+    appendSelectedCount: (count: number) => string;
   };
 }
 
@@ -148,6 +187,14 @@ export function MiningPreviewDialog({
   exportError,
   exportSuccess,
   onExportSend,
+  onAppendSearch,
+  onAppend,
+  isAppending,
+  appendResult,
+  appendSendDisabledReason,
+  savedDeck,
+  savedNoteType,
+  sentenceFieldName,
   dict,
 }: MiningPreviewDialogProps) {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
@@ -158,6 +205,14 @@ export function MiningPreviewDialog({
   const [audioDuration, setAudioDuration] = useState(() =>
     isValidDuration(audioExpectedDuration) ? audioExpectedDuration : 0,
   );
+
+  // AM-6c: Ephemeral toggle value — 'append' is never persisted
+  const [toggleValue, setToggleValue] = useState<ToggleValue>(() => exportMode);
+  const isAppendMode = toggleValue === 'append';
+  const appendPanelId = useId();
+
+  // AM-6c: Lifted selection state (memory-only, ephemeral)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const durationKnown = Number.isFinite(mediaDuration) && mediaDuration > 0;
 
@@ -215,7 +270,12 @@ export function MiningPreviewDialog({
   }, [cues, viewport, durationKnown]);
 
   const sliderDisabled =
-    !durationKnown || isCapturing || isRefreshing || !canRefresh || isExporting;
+    !durationKnown ||
+    isCapturing ||
+    isRefreshing ||
+    !canRefresh ||
+    isExporting ||
+    isAppending;
   const zoomDisabled =
     !durationKnown || isCapturing || isRefreshing || isExporting;
   const zoomInDisabled =
@@ -282,8 +342,11 @@ export function MiningPreviewDialog({
       if (audioElement) {
         audioElement.currentTime = 0;
       }
+      // Reset toggle to persisted mode on open
+      setToggleValue(exportMode);
+      setSelectedIds(new Set());
     }
-  }, [open, audioUrl, audioExpectedDuration, audioElement]);
+  }, [open, audioUrl, audioExpectedDuration, audioElement, exportMode]);
 
   const toggleAudioPlay = useCallback(() => {
     const audio = audioElement;
@@ -294,6 +357,63 @@ export function MiningPreviewDialog({
       audio.pause();
     }
   }, [audioElement]);
+
+  /** AM-6c: Handle toggle value change within the single 3-item group. */
+  const handleToggleChange = useCallback(
+    (value: string) => {
+      if (!value) return; // empty string = no selection (Radix deselection)
+      if (value === 'new' || value === 'update') {
+        setToggleValue(value);
+        onExportModeChange(value);
+      } else if (value === 'append') {
+        setToggleValue('append');
+      }
+    },
+    [onExportModeChange],
+  );
+
+  /** AM-6c: Send button — routes based on current mode. */
+  const handleSendClick = useCallback(() => {
+    if (isAppendMode) {
+      const compatibleIds = Array.from(selectedIds).filter((id) => {
+        // The panel filters compatible at selection time, but double-check
+        return id > 0;
+      });
+      if (compatibleIds.length > 0) {
+        onAppend(compatibleIds.sort((a, b) => a - b));
+      }
+    } else {
+      onExportSend();
+    }
+  }, [isAppendMode, selectedIds, onAppend, onExportSend]);
+
+  /** AM-6c: Determine Send button disabled state. */
+  const sendDisabled = useMemo(() => {
+    if (isAppendMode) {
+      return (
+        selectedIds.size === 0 || isAppending || !!appendSendDisabledReason
+      );
+    }
+    return !canExport;
+  }, [
+    isAppendMode,
+    selectedIds.size,
+    isAppending,
+    appendSendDisabledReason,
+    canExport,
+  ]);
+
+  const sendLabel = useMemo(() => {
+    if (isAppendMode) {
+      return appendSendDisabledReason ?? dict.exportSendNew;
+    }
+    return exportDisabledReason ?? dict.exportSendNew;
+  }, [
+    isAppendMode,
+    appendSendDisabledReason,
+    exportDisabledReason,
+    dict.exportSendNew,
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -467,24 +587,20 @@ export function MiningPreviewDialog({
             );
           })}
 
-          {/* Stage 2: Export mode toggle — in scroll body, centered */}
-          <div className="entei-mining-export-mode-section">
+          {/* AM-6c: Single 3-item centered ToggleGroup — New + Update + Append */}
+          <div className="entei-mining-controls-row">
             <ToggleGroup
               type="single"
-              value={exportMode}
-              onValueChange={(value) => {
-                if (value === 'new' || value === 'update') {
-                  onExportModeChange(value);
-                }
-              }}
-              disabled={isExporting}
-              className="entei-mining-export-toggle"
+              value={toggleValue}
+              onValueChange={handleToggleChange}
+              disabled={isExporting || isAppending}
+              variant="outline"
               aria-label="Export mode"
             >
               <ToggleGroupItem
                 value="new"
                 aria-label={dict.exportModeNew}
-                disabled={isExporting}
+                disabled={isExporting || isAppending}
               >
                 <FilePlusCorner size={16} aria-hidden />
                 <span>{dict.exportModeNew}</span>
@@ -492,13 +608,59 @@ export function MiningPreviewDialog({
               <ToggleGroupItem
                 value="update"
                 aria-label={dict.exportModeUpdate}
-                disabled={isExporting}
+                disabled={isExporting || isAppending}
               >
                 <FileUp size={16} aria-hidden />
                 <span>{dict.exportModeUpdate}</span>
               </ToggleGroupItem>
+              <ToggleGroupItem
+                value="append"
+                aria-label={dict.appendSelectLabel}
+                disabled={isExporting || isAppending}
+              >
+                <Search size={16} aria-hidden />
+                <span>{dict.appendSelectLabel}</span>
+              </ToggleGroupItem>
             </ToggleGroup>
           </div>
+
+          {/* AM-6c: Inline append panel (collapsible, ephemeral) */}
+          <AnkiAppendPanel
+            open={isAppendMode}
+            dict={dict}
+            savedNoteType={savedNoteType}
+            savedDeck={savedDeck}
+            sentenceFieldName={sentenceFieldName}
+            onSearch={onAppendSearch}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+            id={appendPanelId}
+          />
+
+          {/* Append result feedback */}
+          {appendResult && (
+            <div
+              className="entei-mining-append-result"
+              role="status"
+              aria-live="polite"
+            >
+              {appendResult.failed.length > 0 &&
+              appendResult.succeeded.length > 0 ? (
+                <p className="entei-mining-append-partial">
+                  {dict.appendPartialFailure} ({appendResult.succeeded.length}/
+                  {appendResult.succeeded.length + appendResult.failed.length})
+                </p>
+              ) : appendResult.failed.length > 0 ? (
+                <p className="entei-mining-append-error">
+                  {dict.appendAllFailed}
+                </p>
+              ) : (
+                <p className="entei-mining-append-success">
+                  {dict.appendSuccess}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* --- AM-4: Range dock — outside scrolling body, always visible --- */}
@@ -567,12 +729,10 @@ export function MiningPreviewDialog({
                 <button
                   type="button"
                   className="entei-mining-export-send-btn"
-                  onClick={onExportSend}
-                  disabled={!canExport}
+                  onClick={handleSendClick}
+                  disabled={sendDisabled}
                   aria-label={dict.exportSendNew}
-                  title={
-                    exportDisabledReason ?? dict.exportSendNew
-                  }
+                  title={sendLabel}
                 >
                   <Send size={16} aria-hidden />
                   <span>{dict.exportSendNew}</span>

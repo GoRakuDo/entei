@@ -402,15 +402,10 @@ export function AnkiFieldsTab({
     exportMode: 'new',
   };
   const canSave =
-    isValidPreset(prefsForValidation) &&
-    modelFields.includes(fields.sentence);
+    isValidPreset(prefsForValidation) && modelFields.includes(fields.sentence);
 
   // --- Determine error display text ---
-  const errorDisplay = getLocalizedError(
-    connectionState,
-    errorMessage,
-    dict,
-  );
+  const errorDisplay = getLocalizedError(connectionState, errorMessage, dict);
 
   // --- Is there a non-connected error state? ---
   const isError =
@@ -488,7 +483,11 @@ export function AnkiFieldsTab({
                 aria-hidden="true"
               />
             )}
-            <span className={`entei-anki-status-text${connectionState === 'connected' ? ' entei-anki-status-text--connected' : ' entei-anki-status-text--disconnected'}`}>{statusBadgeText}</span>
+            <span
+              className={`entei-anki-status-text${connectionState === 'connected' ? ' entei-anki-status-text--connected' : ' entei-anki-status-text--disconnected'}`}
+            >
+              {statusBadgeText}
+            </span>
           </div>
         </div>
       </div>
@@ -520,9 +519,7 @@ export function AnkiFieldsTab({
       {isError && (
         <div className="entei-anki-error" role="alert">
           <p>{errorDisplay}</p>
-          <p className="entei-anki-error-cors">
-            {dict.ankiErrorCorsHint}
-          </p>
+          <p className="entei-anki-error-cors">{dict.ankiErrorCorsHint}</p>
         </div>
       )}
 
@@ -566,10 +563,7 @@ export function AnkiFieldsTab({
             <label id={noteTypeLabelId} className="entei-anki-label">
               {dict.ankiNoteTypeLabel}
             </label>
-            <Select
-              value={selectedModel}
-              onValueChange={handleModelChange}
-            >
+            <Select value={selectedModel} onValueChange={handleModelChange}>
               <SelectTrigger
                 className="entei-anki-select-trigger"
                 aria-labelledby={noteTypeLabelId}
@@ -607,10 +601,7 @@ export function AnkiFieldsTab({
                     {fieldRows.map((row) => {
                       const triggerId = `${fieldBaseId}-${row.key}`;
                       return (
-                        <div
-                          key={row.key}
-                          className="entei-anki-field-row"
-                        >
+                        <div key={row.key} className="entei-anki-field-row">
                           <label
                             id={triggerId}
                             className="entei-anki-field-label"

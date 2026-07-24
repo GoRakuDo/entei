@@ -58,7 +58,9 @@ export function AudioClipPreviewDialog({
   isRecording,
   dict,
 }: AudioClipPreviewDialogProps) {
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
+    null,
+  );
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(() =>
@@ -144,8 +146,15 @@ export function AudioClipPreviewDialog({
 
         <div className="entei-audio-clip-body">
           {isRecording && (
-            <div className="entei-audio-clip-recording" role="status" aria-live="polite">
-              <AudioLines className="entei-audio-clip-recording-icon" aria-hidden />
+            <div
+              className="entei-audio-clip-recording"
+              role="status"
+              aria-live="polite"
+            >
+              <AudioLines
+                className="entei-audio-clip-recording-icon"
+                aria-hidden
+              />
               <span>{dict.audioClipRecording}</span>
             </div>
           )}
@@ -172,7 +181,9 @@ export function AudioClipPreviewDialog({
                   type="button"
                   className="entei-audio-clip-play-btn"
                   onClick={togglePlay}
-                  aria-label={isPlaying ? dict.audioClipPause : dict.audioClipPlay}
+                  aria-label={
+                    isPlaying ? dict.audioClipPause : dict.audioClipPlay
+                  }
                   title={isPlaying ? dict.audioClipPause : dict.audioClipPlay}
                 >
                   {isPlaying ? (
@@ -203,8 +214,12 @@ export function AudioClipPreviewDialog({
               className="entei-dialog-footer-btn entei-dialog-footer-btn--primary"
               onClick={onRetry}
               disabled={isRecording}
-              aria-label={isRecording ? dict.audioClipRecording : dict.audioClipRetry}
-              title={isRecording ? dict.audioClipRecording : dict.audioClipRetry}
+              aria-label={
+                isRecording ? dict.audioClipRecording : dict.audioClipRetry
+              }
+              title={
+                isRecording ? dict.audioClipRecording : dict.audioClipRetry
+              }
             >
               <RotateCcw size={16} aria-hidden />
               {dict.audioClipRetry}

@@ -45,7 +45,10 @@ interface SubtitleOverlayProps {
 /**
  * Find the cue text for the active cue ID.
  */
-function getCueText(cues: readonly SubtitleCue[], activeId: number | null): string {
+function getCueText(
+  cues: readonly SubtitleCue[],
+  activeId: number | null,
+): string {
   if (activeId === null) return '';
   const cue = cues.find((c) => c.id === activeId);
   return cue?.text ?? '';
@@ -60,7 +63,10 @@ export function SubtitleOverlay({
   onPointerLeave,
   onTouchTap,
 }: SubtitleOverlayProps) {
-  const text = useMemo(() => getCueText(cues, activeCueId), [cues, activeCueId]);
+  const text = useMemo(
+    () => getCueText(cues, activeCueId),
+    [cues, activeCueId],
+  );
 
   // hidden mode: render nothing
   if (!text || displayMode === 'hidden') return null;
@@ -68,7 +74,9 @@ export function SubtitleOverlay({
   // Build class list
   const className = [
     'entei-subtitle-overlay',
-    displayMode === 'blurred' && !isRevealed ? 'entei-subtitle-overlay--blurred' : '',
+    displayMode === 'blurred' && !isRevealed
+      ? 'entei-subtitle-overlay--blurred'
+      : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -77,7 +85,9 @@ export function SubtitleOverlay({
     <div
       className={className}
       data-entei-subtitle-overlay=""
-      data-overlay-revealed={displayMode === 'blurred' && isRevealed ? '' : undefined}
+      data-overlay-revealed={
+        displayMode === 'blurred' && isRevealed ? '' : undefined
+      }
       onPointerEnter={(e) => {
         // Only mouse hover triggers the cancel-restore callback.
         // Touch/pen must not schedule or cancel the 1-second restore timer.

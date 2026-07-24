@@ -61,6 +61,21 @@ const mockDict = {
   exportSendDisabledNoSentence: 'Sentence is empty.',
   exportSendDisabledRequestActive: 'Request in progress.',
   exportRejectedCanAdd: 'Anki rejected this note.',
+  appendSelectLabel: 'Select card to append',
+  appendDialogTitle: 'Search & Append',
+  appendDialogDescription: 'Search Anki.',
+  appendSearchPlaceholder: 'Search query',
+  appendSearchButton: 'Search',
+  appendSearching: 'Searching…',
+  appendNoResults: 'No results.',
+  appendSearchError: 'Search failed.',
+  appendNoteIdLabel: 'Note ID',
+  appendNoteTypeLabel: 'Note type',
+  appendIncompatibleType: 'Incompatible',
+  appendSuccess: 'Done.',
+  appendPartialFailure: 'Partial.',
+  appendAllFailed: 'Failed.',
+  appendSelectedCount: (count: number) => `${count} selected`,
 };
 
 const baseProps = {
@@ -99,6 +114,14 @@ const baseProps = {
   exportError: null,
   exportSuccess: false,
   onExportSend: vi.fn(),
+  onAppendSearch: vi.fn().mockResolvedValue([]),
+  onAppend: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
+  isAppending: false,
+  appendResult: null,
+  appendSendDisabledReason: null,
+  savedDeck: 'Japanese',
+  savedNoteType: 'Basic',
+  sentenceFieldName: 'Front',
   dict: mockDict,
 };
 
@@ -823,10 +846,12 @@ describe('MiningPreviewDialog', () => {
 
   it('disables ToggleGroup during export', () => {
     render(<MiningPreviewDialog {...baseProps} isExporting />);
-    const toggle = document.body.querySelector('.entei-mining-export-toggle');
-    expect(toggle).not.toBeNull();
+    const toggleGroup = document.body.querySelector(
+      '[data-slot="toggle-group"]',
+    );
+    expect(toggleGroup).not.toBeNull();
     // ToggleGroup items should be disabled
-    const items = toggle!.querySelectorAll('button');
+    const items = toggleGroup!.querySelectorAll('button');
     items.forEach((item) => {
       expect((item as HTMLButtonElement).disabled).toBe(true);
     });
@@ -836,37 +861,52 @@ describe('MiningPreviewDialog', () => {
     render(<MiningPreviewDialog {...baseProps} />);
     const body = document.body.querySelector('.entei-mining-body');
     const dock = document.body.querySelector('.entei-mining-range-dock');
-    const toggle = document.body.querySelector('.entei-mining-export-toggle');
-    expect(toggle).not.toBeNull();
-    // Toggle should be inside body, NOT inside dock
-    expect(body!.contains(toggle!)).toBe(true);
-    expect(dock!.contains(toggle!)).toBe(false);
-  });
-
-  it('ToggleGroup is centered via CSS class', () => {
-    render(<MiningPreviewDialog {...baseProps} />);
-    const section = document.body.querySelector(
-      '.entei-mining-export-mode-section',
+    const toggleGroup = document.body.querySelector(
+      '[data-slot="toggle-group"]',
     );
-    expect(section).not.toBeNull();
-    // CSS class provides centering; verify class is present
-    expect(
-      section!.classList.contains('entei-mining-export-mode-section'),
-    ).toBe(true);
+    expect(toggleGroup).not.toBeNull();
+    // Toggle should be inside body, NOT inside dock
+    expect(body!.contains(toggleGroup!)).toBe(true);
+    expect(dock!.contains(toggleGroup!)).toBe(false);
   });
 
-  it('ToggleGroup has scoped hover override class', () => {
+  it('ToggleGroup is in controls row via CSS class', () => {
     render(<MiningPreviewDialog {...baseProps} />);
-    const toggle = document.body.querySelector('.entei-mining-export-toggle');
-    expect(toggle).not.toBeNull();
-    // The scoped CSS overrides use this class selector
-    expect(toggle!.classList.contains('entei-mining-export-toggle')).toBe(true);
+    const section = document.body.querySelector('.entei-mining-controls-row');
+    expect(section).not.toBeNull();
+    // CSS class provides layout; verify class is present
+    expect(section!.classList.contains('entei-mining-controls-row')).toBe(true);
+  });
+
+  it('controls row centers all three items', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const row = document.body.querySelector('.entei-mining-controls-row');
+    expect(row).not.toBeNull();
+    // Verify single ToggleGroup contains all 3 items inside the centered row
+    const toggleGroup = row!.querySelector('[data-slot="toggle-group"]');
+    expect(toggleGroup).not.toBeNull();
+    const items = toggleGroup!.querySelectorAll('[data-slot="toggle-group-item"]');
+    expect(items.length).toBe(3);
+  });
+
+  it('Append is the third ToggleGroupItem alongside New and Update', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const toggleGroup = document.body.querySelector(
+      '[data-slot="toggle-group"]',
+    );
+    expect(toggleGroup).not.toBeNull();
+    const items = toggleGroup!.querySelectorAll(
+      '[data-slot="toggle-group-item"]',
+    );
+    expect(items.length).toBe(3);
+    // Third item has Search icon + append label
+    expect(items[2]!.textContent).toContain('Select card to append');
   });
 
   it('ToggleGroup active item has high-contrast via scoped CSS', () => {
     render(<MiningPreviewDialog {...baseProps} exportMode="update" />);
     const activeItem = document.body.querySelector(
-      '.entei-mining-export-toggle button[data-state="on"]',
+      '[data-slot="toggle-group"] button[data-state="on"]',
     );
     expect(activeItem).not.toBeNull();
     // data-state="on" is the active toggle item; scoped CSS sets

@@ -188,6 +188,21 @@ const mockDict = {
   exportSendDisabledNoSentence: 'Sentence is empty.',
   exportSendDisabledRequestActive: 'Request in progress.',
   exportRejectedCanAdd: 'Anki rejected this note.',
+  appendSelectLabel: 'Select card to append',
+  appendDialogTitle: 'Search & Append',
+  appendDialogDescription: 'Search Anki.',
+  appendSearchPlaceholder: 'Search query',
+  appendSearchButton: 'Search',
+  appendSearching: 'Searching…',
+  appendNoResults: 'No results.',
+  appendSearchError: 'Search failed.',
+  appendNoteIdLabel: 'Note ID',
+  appendNoteTypeLabel: 'Note type',
+  appendIncompatibleType: 'Incompatible',
+  appendSuccess: 'Done.',
+  appendPartialFailure: 'Partial.',
+  appendAllFailed: 'Failed.',
+  appendSelectedCount: (count: number) => `${count} selected`,
 };
 
 const baseControlsProps = {

@@ -183,6 +183,22 @@ export const id: Dictionary = {
     exportSendDisabledRequestActive: 'Permintaan sedang berlangsung.',
     exportRejectedCanAdd:
       'Anki menolak catatan ini (kemungkinan duplikat). Periksa deck dan field mapping di Pengaturan.',
+    appendSelectLabel: 'Pilih kartu untuk ditambahkan',
+    appendDialogTitle: 'Cari & Tambahkan ke Kartu Anki',
+    appendDialogDescription:
+      'Cari Anki dan pilih kartu untuk menambahkan materi tambang.',
+    appendSearchPlaceholder: 'Kueri pencarian (mis. deck:Japanese test)',
+    appendSearchButton: 'Cari',
+    appendSearching: 'Mencari…',
+    appendNoResults: 'Tidak ada catatan yang cocok ditemukan.',
+    appendSearchError: 'Pencarian gagal. Periksa AnkiConnect.',
+    appendNoteIdLabel: 'ID Catatan',
+    appendNoteTypeLabel: 'Tipe catatan',
+    appendIncompatibleType: 'Tipe catatan tidak cocok — tidak dapat dipilih',
+    appendSuccess: 'Penambahan selesai.',
+    appendPartialFailure: 'Beberapa kartu gagal ditambahkan.',
+    appendAllFailed: 'Semua penambahan gagal.',
+    appendSelectedCount: (count: number) => `${count} terpilih`,
   },
   reader: {
     title: 'Pembaca EPUB',

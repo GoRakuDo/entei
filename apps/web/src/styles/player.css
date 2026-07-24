@@ -2413,8 +2413,7 @@ html.entei-player-immersive .entei-player-audio-area {
     bottom: auto;
     transform: translate(-50%, -50%);
     width: clamp(28rem, 50vw, 44rem);
-    height: auto;
-    max-height: calc(100dvh - 2rem);
+    height: calc(100dvh - 2rem);
     border-radius: var(--entei-radius-lg);
     border: 1px solid oklch(100% 0 0deg / 0.1);
     box-shadow:
@@ -2827,25 +2826,6 @@ html.entei-player-immersive .entei-player-audio-area {
   gap: var(--entei-space-8);
 }
 
-/* --- Stage 2: Export mode toggle (in scroll body, centered) --- */
-.entei-mining-export-mode-section {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: var(--entei-space-12) 0;
-}
-
-/* --- Stage 2: Export toggle (in scroll body, centered) --- */
-.entei-mining-export-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--entei-space-4);
-}
-
-.entei-mining-export-toggle button {
-  min-height: var(--entei-touch-min);
-}
-
 .entei-mining-export-error {
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
@@ -2907,24 +2887,208 @@ html.entei-player-immersive .entei-player-audio-area {
 /* --- Scoped ToggleGroup hover/contrast overrides --- */
 /* Fix low-contrast shadcn default hover by using accent-tinted surface
    and high-contrast text for inactive items. */
-.entei-mining-export-toggle button[data-state='off']:hover:not(:disabled) {
+[data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled) {
   background-color: color-mix(in oklch, var(--entei-accent) 12%, transparent);
   color: var(--entei-text);
 }
 
-.entei-mining-export-toggle button[data-state='on']:hover:not(:disabled) {
+[data-slot='toggle-group'] button[data-state='on']:hover:not(:disabled) {
   background-color: color-mix(in oklch, var(--entei-accent) 25%, transparent);
   color: var(--entei-text);
 }
 
-.entei-mining-export-toggle button[data-state='on'] {
+[data-slot='toggle-group'] button[data-state='on'] {
   background-color: color-mix(in oklch, var(--entei-accent) 18%, transparent);
   color: var(--entei-text);
 }
 
-.entei-mining-export-toggle button:disabled {
+[data-slot='toggle-group'] button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ===========================================================================
+ * AM-6c: Append-to-specific-card
+ * ---------------------------------------------------------------------------
+ * Single 3-item ToggleGroup (New + Update + Append) inside
+ * MiningPreviewDialog, with inline TanStack Data Table panel.
+ * No overlay/focus-trap issues. Ephemeral state resets on collapse/close.
+ * =========================================================================== */
+
+/* --- Controls row: centered wrapping group — New + Update + Append --- */
+.entei-mining-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-8) 0;
+}
+
+/* --- Inline Append Panel (collapsible, ephemeral) --- */
+.entei-append-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  gap: 0;
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-lg);
+  background-color: var(--entei-surface-1, oklch(18% 0 0deg));
+  overflow: hidden;
+}
+
+.entei-append-panel-search {
+  display: flex;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-10) var(--entei-space-12);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-append-panel-search input {
+  flex: 1;
+  min-width: 0;
+}
+
+.entei-append-panel-results {
+  max-height: 400px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.entei-append-panel-error {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: oklch(65% 0.18 25deg);
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  margin: 0;
+}
+
+/* --- Data Table --- */
+.entei-data-table {
+  width: 100%;
+}
+
+.entei-data-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+}
+
+.entei-data-table thead th {
+  text-align: left;
+  padding: var(--entei-space-6) var(--entei-space-8);
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary, oklch(60% 0 0deg));
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
+  white-space: nowrap;
+}
+
+.entei-data-table tbody td {
+  padding: var(--entei-space-6) var(--entei-space-8);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.04);
+  vertical-align: top;
+}
+
+.entei-data-table tbody tr:hover {
+  background-color: oklch(100% 0 0deg / 0.03);
+}
+
+.entei-data-table tbody tr[data-state='selected'] {
+  background-color: color-mix(in oklch, var(--entei-accent) 8%, transparent);
+}
+
+.entei-data-table-row-incompatible {
+  opacity: 0.45;
+}
+
+.entei-data-table-row-incompatible:hover {
+  background-color: transparent;
+}
+
+.entei-data-table-empty {
+  text-align: center;
+  padding: var(--entei-space-16) var(--entei-space-8);
+  color: var(--entei-text-secondary, oklch(70% 0 0deg));
+}
+
+.entei-data-table-sentence {
+  min-width: 0;
+}
+
+.entei-data-table-empty-sentence {
+  color: var(--entei-text-secondary, oklch(50% 0 0deg));
+}
+
+.entei-data-table-incompatible-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-3);
+  margin-top: var(--entei-space-2);
+  font-size: 0.6875rem;
+  color: oklch(65% 0.18 25deg);
+}
+
+.entei-data-table-note-type,
+.entei-data-table-note-id {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Pagination --- */
+.entei-data-table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--etei-space-8, 8px);
+  padding: var(--entei-space-6) var(--entei-space-8);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-data-table-page-info {
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary, oklch(60% 0 0deg));
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Selection status --- */
+.entei-append-panel-selection-status {
+  padding: var(--entei-space-4) var(--entei-space-12);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-append-panel-count {
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary, oklch(60% 0 0deg));
+}
+
+/* --- Append result feedback --- */
+.entei-mining-append-result {
+  padding: var(--entei-space-4) 0;
+}
+
+.entei-mining-append-success {
+  font-size: 0.8125rem;
+  color: oklch(70% 0.14 155deg);
+  margin: 0;
+}
+
+.entei-mining-append-partial {
+  font-size: 0.8125rem;
+  color: oklch(70% 0.16 80deg);
+  margin: 0;
+}
+
+.entei-mining-append-error {
+  font-size: 0.8125rem;
+  color: oklch(65% 0.18 25deg);
+  margin: 0;
 }
 
 /* --- Reduced motion --- */

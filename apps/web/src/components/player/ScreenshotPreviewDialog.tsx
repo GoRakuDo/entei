@@ -96,8 +96,12 @@ export function ScreenshotPreviewDialog({
               className="entei-dialog-footer-btn entei-dialog-footer-btn--primary"
               onClick={onRetry}
               disabled={isCapturing}
-              aria-label={isCapturing ? dict.screenshotCapturing : dict.screenshotRetry}
-              title={isCapturing ? dict.screenshotCapturing : dict.screenshotRetry}
+              aria-label={
+                isCapturing ? dict.screenshotCapturing : dict.screenshotRetry
+              }
+              title={
+                isCapturing ? dict.screenshotCapturing : dict.screenshotRetry
+              }
             >
               {dict.screenshotRetry}
             </button>

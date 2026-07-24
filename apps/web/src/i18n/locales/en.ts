@@ -180,6 +180,22 @@ export const en: Dictionary = {
     exportSendDisabledRequestActive: 'A request is already in progress.',
     exportRejectedCanAdd:
       'Anki rejected this note (possibly a duplicate). Check the deck and field mapping in Settings.',
+    appendSelectLabel: 'Select card to append',
+    appendDialogTitle: 'Search & Append to Anki Cards',
+    appendDialogDescription:
+      'Search Anki and select cards to append mining material to.',
+    appendSearchPlaceholder: 'Search query (e.g., deck:Japanese test)',
+    appendSearchButton: 'Search',
+    appendSearching: 'Searching…',
+    appendNoResults: 'No matching notes found.',
+    appendSearchError: 'Search failed. Check AnkiConnect.',
+    appendNoteIdLabel: 'Note ID',
+    appendNoteTypeLabel: 'Note type',
+    appendIncompatibleType: 'Incompatible note type — cannot select',
+    appendSuccess: 'Append completed.',
+    appendPartialFailure: 'Some cards failed to append.',
+    appendAllFailed: 'All appends failed.',
+    appendSelectedCount: (count: number) => `${count} selected`,
   },
   reader: {
     title: 'EPUB Reader',

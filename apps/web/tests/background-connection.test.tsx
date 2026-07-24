@@ -154,6 +154,10 @@ vi.mock('@/components/player/MiningPreviewDialog', () => ({
   MiningPreviewDialog: vi.fn(() => null),
 }));
 
+vi.mock('@/components/player/AnkiAppendPanel', () => ({
+  AnkiAppendPanel: vi.fn(() => null),
+}));
+
 vi.mock('@/components/player/SubtitlePanel', () => ({
   SubtitlePanel: vi.fn(() => null),
 }));

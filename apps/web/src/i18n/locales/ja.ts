@@ -183,6 +183,22 @@ export const ja: Dictionary = {
     exportSendDisabledRequestActive: 'リクエスト処理中です。',
     exportRejectedCanAdd:
       'Ankiがこのノートを拒否しました（重複の可能性があります）。設定でデッキとフィールドマッピングを確認してください。',
+    appendSelectLabel: '特定cardを選んで追記',
+    appendDialogTitle: 'Ankiカード検索・追記',
+    appendDialogDescription:
+      'Ankiを検索し、追記対象のカードを選択してください。',
+    appendSearchPlaceholder: '検索クエリ（例: deck:Japanese テスト）',
+    appendSearchButton: '検索',
+    appendSearching: '検索中…',
+    appendNoResults: '該当するノートが見つかりません。',
+    appendSearchError: '検索に失敗しました。AnkiConnectを確認してください。',
+    appendNoteIdLabel: 'ノートID',
+    appendNoteTypeLabel: 'ノートタイプ',
+    appendIncompatibleType: 'このノートタイプは選択できません',
+    appendSuccess: '追記が完了しました。',
+    appendPartialFailure: '一部のカード追記に失敗しました。',
+    appendAllFailed: 'すべての追記に失敗しました。',
+    appendSelectedCount: (count) => `${count}件選択中`,
   },
   reader: {
     title: 'EPUBリーダー',

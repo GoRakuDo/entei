@@ -62,13 +62,10 @@ export function SubtitlePanel({
 
     // Radix ScrollArea viewport is the actual scrollable element.
     const viewport =
-      root.querySelector<HTMLElement>(
-        '[data-radix-scroll-area-viewport]',
-      ) ?? root;
+      root.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]') ??
+      root;
 
-    const activeEl = viewport.querySelector(
-      `[data-cue-id="${activeCueId}"]`,
-    );
+    const activeEl = viewport.querySelector(`[data-cue-id="${activeCueId}"]`);
     if (!activeEl) return;
 
     const containerRect = viewport.getBoundingClientRect();
@@ -109,23 +106,20 @@ export function SubtitlePanel({
   return (
     <div className="entei-subtitle-panel">
       <div className="entei-subtitle-panel-header">
-          <span className="entei-subtitle-panel-title">{subtitlesLabel}</span>
-          {onSubtitleSelect && subtitleAccept && (
-            <SubtitlePicker
-              onSelect={onSubtitleSelect}
-              accept={subtitleAccept}
-              label={changeSubtitleLabel}
-              compact
-            />
-          )}
-          <span className="entei-subtitle-panel-count">
-            {cues.length} {cuesCountLabel}
-          </span>
-        </div>
-      <ScrollArea
-        ref={scrollRootRef}
-        className="entei-subtitle-scroll-area"
-      >
+        <span className="entei-subtitle-panel-title">{subtitlesLabel}</span>
+        {onSubtitleSelect && subtitleAccept && (
+          <SubtitlePicker
+            onSelect={onSubtitleSelect}
+            accept={subtitleAccept}
+            label={changeSubtitleLabel}
+            compact
+          />
+        )}
+        <span className="entei-subtitle-panel-count">
+          {cues.length} {cuesCountLabel}
+        </span>
+      </div>
+      <ScrollArea ref={scrollRootRef} className="entei-subtitle-scroll-area">
         <ul className="entei-subtitle-list">
           {cues.map((cue) => {
             const isActive = cue.id === activeCueId;

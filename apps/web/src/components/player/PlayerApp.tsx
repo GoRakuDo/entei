@@ -279,6 +279,14 @@ export default function PlayerApp() {
   const [exportSuccess, setExportSuccess] = useState(false);
   const exportEpochRef = useRef(0);
   const exportAbortControllerRef = useRef<AbortController | null>(null);
+  // AM-6c: Append-to-specific state
+  const [isAppending, setIsAppending] = useState(false);
+  const [appendResult, setAppendResult] = useState<{
+    succeeded: number[];
+    failed: number[];
+  } | null>(null);
+  const appendEpochRef = useRef(0);
+  const appendAbortControllerRef = useRef<AbortController | null>(null);
   // Refs for Blobs (kept separately from preview URLs)
   const miningScreenshotBlobRef = useRef<Blob | null>(null);
   const miningAudioBlobRef = useRef<Blob | null>(null);
@@ -1373,6 +1381,18 @@ export default function PlayerApp() {
   const canExport =
     exportDisabledReason === null && !isMiningCapturing && !isMiningRefreshing;
 
+  /** AM-6c: Disabled reason for append Send button (selectedIds checked in MiningPreviewDialog). */
+  const appendSendDisabledReason = useMemo(() => {
+    const d = dictRef.current.playerUI;
+    if (isAppending) return d.exportSendDisabledRequestActive;
+    if (!ankiSession) return d.exportSendDisabledNoConnection;
+    const prefs = readAnkiMinerPreferences();
+    if (!prefs.noteType || !prefs.fields.sentence) {
+      return d.exportSendDisabledInvalidPreset;
+    }
+    return null;
+  }, [isAppending, ankiSession]);
+
   /** Stage 2 AM-6a: Send new note to Anki. */
   const handleExportSend = useCallback(async () => {
     const d = dictRef.current.playerUI;
@@ -1536,11 +1556,7 @@ export default function PlayerApp() {
           const filename = generateMediaFilename('entei_screenshot', 'jpg');
           const base64 = await blobToBase64(miningScreenshotBlobRef.current);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
-          await client.storeMediaFile(
-            filename,
-            base64,
-            abortController.signal,
-          );
+          await client.storeMediaFile(filename, base64, abortController.signal);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (prefs.fields.image) {
             updateFields[prefs.fields.image] = `<img src="${filename}">`;
@@ -1551,11 +1567,7 @@ export default function PlayerApp() {
           const filename = generateMediaFilename('entei_audio', 'webm');
           const base64 = await blobToBase64(miningAudioBlobRef.current);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
-          await client.storeMediaFile(
-            filename,
-            base64,
-            abortController.signal,
-          );
+          await client.storeMediaFile(filename, base64, abortController.signal);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (prefs.fields.audio) {
             updateFields[prefs.fields.audio] = `[sound:${filename}]`;
@@ -1600,6 +1612,188 @@ export default function PlayerApp() {
     exportMode,
     miningDraftFields,
   ]);
+
+  // --- AM-6c: Append-to-specific handlers ---
+  const handleAppendSearch = useCallback(
+    async (query: string) => {
+      if (!ankiSession) throw new Error('No session');
+      const client = new AnkiExportClient(
+        ankiSession.endpoint,
+        ankiSession.apiKey || undefined,
+      );
+      const noteIds = await client.findNotes(query);
+      const bounded = noteIds
+        .filter((id) => id > 0)
+        .sort((a, b) => b - a)
+        .slice(0, 100);
+      if (bounded.length === 0) return [];
+      return client.notesInfo(bounded);
+    },
+    [ankiSession],
+  );
+
+  const handleAppend = useCallback(
+    async (selectedIds: number[]) => {
+      if (!ankiSession || isAppending || selectedIds.length === 0) {
+        return { succeeded: [] as number[], failed: [] as number[] };
+      }
+
+      const prefs = readAnkiMinerPreferences();
+      if (!prefs.noteType || !prefs.fields.sentence) {
+        return { succeeded: [] as number[], failed: selectedIds };
+      }
+
+      const epoch = appendEpochRef.current + 1;
+      appendEpochRef.current = epoch;
+      setIsAppending(true);
+      setAppendResult(null);
+
+      const abortController = new AbortController();
+      appendAbortControllerRef.current = abortController;
+
+      const client = new AnkiExportClient(
+        ankiSession.endpoint,
+        ankiSession.apiKey || undefined,
+      );
+
+      const succeeded: number[] = [];
+      const failed: number[] = [];
+      let validNotes: Awaited<ReturnType<AnkiExportClient['notesInfo']>> = [];
+
+      try {
+        // Re-fetch and revalidate selected notes
+        const refreshed = await client.notesInfo(
+          selectedIds,
+          abortController.signal,
+        );
+        if (!mountedRef.current || appendEpochRef.current !== epoch)
+          return { succeeded, failed };
+        if (abortController.signal.aborted) return { succeeded, failed };
+
+        validNotes = refreshed.filter(
+          (n) => n.noteId > 0 && n.modelName === prefs.noteType,
+        );
+        const validIds = new Set(validNotes.map((n) => n.noteId));
+        for (const id of selectedIds) {
+          if (!validIds.has(id)) failed.push(id);
+        }
+
+        if (validNotes.length === 0) {
+          return { succeeded, failed };
+        }
+
+        // Upload media once per operation, then reuse markup
+        let imageMarkup: string | null = null;
+        let audioMarkup: string | null = null;
+
+        if (prefs.fields.image && miningScreenshotBlobRef.current) {
+          const filename = generateMediaFilename('entei_screenshot', 'jpg');
+          const base64 = await blobToBase64(miningScreenshotBlobRef.current);
+          if (!mountedRef.current || appendEpochRef.current !== epoch)
+            return { succeeded, failed };
+          if (abortController.signal.aborted) return { succeeded, failed };
+          await client.storeMediaFile(filename, base64, abortController.signal);
+          if (!mountedRef.current || appendEpochRef.current !== epoch)
+            return { succeeded, failed };
+          imageMarkup = `<img src="${filename}">`;
+        }
+
+        if (prefs.fields.audio && miningAudioBlobRef.current) {
+          const filename = generateMediaFilename('entei_audio', 'webm');
+          const base64 = await blobToBase64(miningAudioBlobRef.current);
+          if (!mountedRef.current || appendEpochRef.current !== epoch)
+            return { succeeded, failed };
+          if (abortController.signal.aborted) return { succeeded, failed };
+          await client.storeMediaFile(filename, base64, abortController.signal);
+          if (!mountedRef.current || appendEpochRef.current !== epoch)
+            return { succeeded, failed };
+          audioMarkup = `[sound:${filename}]`;
+        }
+
+        // For each valid note, append mapped fields
+        for (const note of validNotes) {
+          if (!mountedRef.current || appendEpochRef.current !== epoch) break;
+          if (abortController.signal.aborted) break;
+
+          const updates: Record<string, string> = {};
+
+          for (const draft of miningDraftFields) {
+            if (draft.key === 'image' || draft.key === 'audio') continue;
+            const fieldName = draft.physicalName;
+            const existing = note.fields[fieldName]?.value ?? '';
+            const incoming = draft.value;
+            if (!incoming) continue;
+            updates[fieldName] = existing
+              ? `${existing}<br>${incoming}`
+              : incoming;
+          }
+
+          // Append image markup if available
+          if (prefs.fields.image && imageMarkup) {
+            const existing = note.fields[prefs.fields.image]?.value ?? '';
+            updates[prefs.fields.image] = existing
+              ? `${existing}<br>${imageMarkup}`
+              : imageMarkup;
+          }
+
+          // Append audio markup if available
+          if (prefs.fields.audio && audioMarkup) {
+            const existing = note.fields[prefs.fields.audio]?.value ?? '';
+            updates[prefs.fields.audio] = existing
+              ? `${existing}<br>${audioMarkup}`
+              : audioMarkup;
+          }
+
+          if (Object.keys(updates).length === 0) {
+            succeeded.push(note.noteId);
+            continue;
+          }
+
+          try {
+            await client.updateNoteFields(
+              note.noteId,
+              updates,
+              abortController.signal,
+            );
+            if (
+              mountedRef.current &&
+              appendEpochRef.current === epoch &&
+              !abortController.signal.aborted
+            ) {
+              succeeded.push(note.noteId);
+            }
+          } catch {
+            if (
+              mountedRef.current &&
+              appendEpochRef.current === epoch &&
+              !abortController.signal.aborted
+            ) {
+              failed.push(note.noteId);
+            }
+          }
+        }
+      } catch {
+        // All remaining valid notes are considered failed
+        for (const note of validNotes ?? []) {
+          if (
+            !succeeded.includes(note.noteId) &&
+            !failed.includes(note.noteId)
+          ) {
+            failed.push(note.noteId);
+          }
+        }
+      } finally {
+        if (mountedRef.current && appendEpochRef.current === epoch) {
+          setIsAppending(false);
+          setAppendResult({ succeeded, failed });
+        }
+        appendAbortControllerRef.current = null;
+      }
+
+      return { succeeded, failed };
+    },
+    [ankiSession, isAppending, miningDraftFields],
+  );
 
   // --- P1.1: Surface click behavior ---
   const handleSurfaceClick = useCallback(
@@ -1670,6 +1864,7 @@ export default function PlayerApp() {
 
   const dict = dictRef.current.playerUI;
   const hasMedia = mediaUrl !== null;
+  const ankiPrefs = readAnkiMinerPreferences();
 
   // --- Desktop immersive layout ---
   // When media is loaded on desktop (≥1024px), apply immersive class to <html>
@@ -1908,6 +2103,14 @@ export default function PlayerApp() {
                 exportError={exportError}
                 exportSuccess={exportSuccess}
                 onExportSend={handleExportSend}
+                onAppendSearch={handleAppendSearch}
+                onAppend={handleAppend}
+                isAppending={isAppending}
+                appendResult={appendResult}
+                appendSendDisabledReason={appendSendDisabledReason}
+                savedDeck={ankiPrefs?.deck ?? ''}
+                savedNoteType={ankiPrefs?.noteType ?? ''}
+                sentenceFieldName={ankiPrefs?.fields.sentence ?? null}
               />
             </div>
           </div>
