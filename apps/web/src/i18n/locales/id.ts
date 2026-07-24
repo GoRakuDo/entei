@@ -159,7 +159,6 @@ export const id: Dictionary = {
     miningPreviewScreenshot: 'Gambar',
     miningPreviewAudio: 'Audio',
     miningPreviewRange: 'Rentang',
-    miningPreviewUpdateMaterials: 'Perbarui materi',
     miningPreviewCancel: 'Batal',
     miningPreviewClose: 'Tutup',
     miningPreviewScreenshotUnavailable:
@@ -167,7 +166,7 @@ export const id: Dictionary = {
     miningPreviewAudioError: 'Pengambilan audio gagal',
     miningPreviewScreenshotError: 'Pengambilan gambar gagal',
     miningPreviewCapturing: 'Mengambil…',
-    miningPreviewUpdatingMaterials: 'Memperbarui materi…',
+    miningPreviewRefreshing: 'Menyegarkan materi…',
     miningPreviewRangeInvalid: 'Rentang tidak valid',
     miningZoomIn: 'Perbesar',
     miningZoomOut: 'Perkecil',

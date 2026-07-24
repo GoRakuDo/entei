@@ -182,14 +182,13 @@ export interface Dictionary {
     miningPreviewScreenshot: string;
     miningPreviewAudio: string;
     miningPreviewRange: string;
-    miningPreviewUpdateMaterials: string;
     miningPreviewCancel: string;
     miningPreviewClose: string;
     miningPreviewScreenshotUnavailable: string;
     miningPreviewAudioError: string;
     miningPreviewScreenshotError: string;
     miningPreviewCapturing: string;
-    miningPreviewUpdatingMaterials: string;
+    miningPreviewRefreshing: string;
     miningPreviewRangeInvalid: string;
     miningZoomIn: string;
     miningZoomOut: string;

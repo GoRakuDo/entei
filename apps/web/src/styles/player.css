@@ -2816,40 +2816,8 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: var(--entei-space-8) 0;
 }
 
-/* Update materials button — centered primary */
-.entei-mining-update-btn {
-  width: min(100%, 20rem);
-  justify-self: center;
-  min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-24);
-  background-color: var(--entei-accent);
-  color: oklch(100% 0 0deg / 1);
-  border: 1px solid var(--entei-accent);
-  border-radius: var(--entei-radius-md);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    opacity var(--entei-duration-fast) var(--entei-ease-productive),
-    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-.entei-mining-update-btn:hover:not(:disabled) {
-  opacity: 0.92;
-  box-shadow: 0 4px 12px
-    color-mix(in oklch, var(--entei-accent) 20%, transparent);
-}
-
-.entei-mining-update-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.entei-mining-update-btn:focus-visible {
-  outline: 3px solid color-mix(in oklch, var(--entei-accent) 40%, transparent);
-  outline-offset: 2px;
+.entei-mining-range-controls-spacer {
+  flex: 1;
 }
 
 /* --- Reduced motion --- */

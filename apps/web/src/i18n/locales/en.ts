@@ -156,7 +156,6 @@ export const en: Dictionary = {
     miningPreviewScreenshot: 'Screenshot',
     miningPreviewAudio: 'Audio',
     miningPreviewRange: 'Range',
-    miningPreviewUpdateMaterials: 'Update materials',
     miningPreviewCancel: 'Cancel',
     miningPreviewClose: 'Close',
     miningPreviewScreenshotUnavailable:
@@ -164,7 +163,7 @@ export const en: Dictionary = {
     miningPreviewAudioError: 'Audio capture failed',
     miningPreviewScreenshotError: 'Screenshot capture failed',
     miningPreviewCapturing: 'Capturing…',
-    miningPreviewUpdatingMaterials: 'Updating materials…',
+    miningPreviewRefreshing: 'Refreshing materials…',
     miningPreviewRangeInvalid: 'Invalid range',
     miningZoomIn: 'Zoom in',
     miningZoomOut: 'Zoom out',

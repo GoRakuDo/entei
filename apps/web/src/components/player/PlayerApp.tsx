@@ -237,10 +237,10 @@ export default function PlayerApp() {
   const [miningRangeEnd, setMiningRangeEnd] = useState(0);
   const [miningMediaDuration, setMiningMediaDuration] = useState(0);
   const [isMiningCapturing, setIsMiningCapturing] = useState(false);
-  const [isMiningUpdatingMaterials, setIsMiningUpdatingMaterials] = useState(false);
+  const [isMiningRefreshing, setIsMiningRefreshing] = useState(false);
   // AM-4: synchronous guard against double-clicks
   const isMiningRef = useRef(false);
-  const isMiningUpdatingMaterialsRef = useRef(false);
+  const isMiningRefreshingRef = useRef(false);
   const miningEpochRef = useRef(0);
   const miningScreenshotUrlRef = useRef<string | null>(null);
   const miningAudioUrlRef = useRef<string | null>(null);
@@ -407,9 +407,9 @@ export default function PlayerApp() {
   const clearMiningPreview = useCallback(() => {
     miningEpochRef.current += 1;
     isMiningRef.current = false;
-    isMiningUpdatingMaterialsRef.current = false;
+    isMiningRefreshingRef.current = false;
     setIsMiningCapturing(false);
-    setIsMiningUpdatingMaterials(false);
+    setIsMiningRefreshing(false);
     setMiningHasScreenshotError(false);
     setMiningHasAudioError(false);
     setMiningDraftFields([]);
@@ -769,7 +769,7 @@ export default function PlayerApp() {
   const handleAudioClip = useCallback(async () => {
     if (!mediaUrl || !activeCueId || !audioClipCaps.supported) return;
     // Guard: refuse if AM-4 mining is in flight to prevent cross-cancellation
-    if (isMiningRef.current || isMiningUpdatingMaterialsRef.current) return;
+    if (isMiningRef.current || isMiningRefreshingRef.current) return;
     if (isRecordingAudioRef.current) return;
 
     const activeCue = cues.find((c) => c.id === activeCueId);
@@ -842,7 +842,7 @@ export default function PlayerApp() {
     !!activeCueId &&
     audioClipCaps.supported &&
     !isMiningCapturing &&
-    !isMiningUpdatingMaterials;
+    !isMiningRefreshing;
 
   // --- AM-4: Mining capture ---
   const handleMine = useCallback(async () => {
@@ -963,10 +963,10 @@ export default function PlayerApp() {
   const handleMiningPreviewClose = useCallback(() => {
     miningEpochRef.current += 1;
     isMiningRef.current = false;
-    isMiningUpdatingMaterialsRef.current = false;
+    isMiningRefreshingRef.current = false;
     setIsMiningPreviewOpen(false);
     setIsMiningCapturing(false);
-    setIsMiningUpdatingMaterials(false);
+    setIsMiningRefreshing(false);
     setMiningHasScreenshotError(false);
     setMiningHasAudioError(false);
     replaceMiningScreenshotUrl(null);
@@ -987,146 +987,153 @@ export default function PlayerApp() {
     if (end !== undefined) setMiningRangeEnd(end);
   }, []);
 
-  /** AM-4: Update all range-derived materials (sentence, source, screenshot, audio).
-   *  Explicit button action — not continuous. Only sentence/source/image/audio
-   *  are overwritten; user-edited definition/word/tags are preserved. */
-  const handleUpdateMiningMaterials = useCallback(async () => {
-    if (
-      !mediaUrl ||
-      !Number.isFinite(miningRangeStart) ||
-      !Number.isFinite(miningRangeEnd)
-    )
-      return;
-    if (miningRangeStart >= miningRangeEnd || miningRangeStart < 0) return;
-    if (isMiningUpdatingMaterialsRef.current) return;
+  /** AM-4 Stage 1.1: Auto-refresh range-derived materials on slider commit.
+   *  Uses the exact committed [start, end] values — not stale React state.
+   *  Only sentence/source/image/audio are overwritten; user-edited
+   *  definition/word/tags are preserved. */
+  const handleRangeCommit = useCallback(
+    async (committedValue: number[]) => {
+      const start = committedValue[0];
+      const end = committedValue[1];
+      if (
+        !mediaUrl ||
+        start == null ||
+        end == null ||
+        !Number.isFinite(start) ||
+        !Number.isFinite(end)
+      )
+        return;
+      if (start >= end || start < 0) return;
+      if (isMiningRefreshingRef.current) return;
 
-    // Determine which fields are mapped
-    const prefs = readAnkiMinerPreferences();
-    const hasSentence = !!prefs.fields.sentence;
-    const hasSource = !!prefs.fields.source;
-    const hasImage = !!prefs.fields.image;
-    const hasAudio = !!prefs.fields.audio;
-    const hasVideo = mediaType === 'video' && !!videoRef.current;
+      // Determine which fields are mapped
+      const prefs = readAnkiMinerPreferences();
+      const hasSentence = !!prefs.fields.sentence;
+      const hasSource = !!prefs.fields.source;
+      const hasImage = !!prefs.fields.image;
+      const hasAudio = !!prefs.fields.audio;
+      const hasVideo = mediaType === 'video' && !!videoRef.current;
 
-    // If literally no mapped fields, nothing to do
-    if (!hasSentence && !hasSource && !hasImage && !hasAudio) return;
+      // If literally no mapped fields, nothing to do
+      if (!hasSentence && !hasSource && !hasImage && !hasAudio) return;
 
-    const epoch = miningEpochRef.current + 1;
-    miningEpochRef.current = epoch;
-    isMiningUpdatingMaterialsRef.current = true;
-    setIsMiningUpdatingMaterials(true);
-    setMiningHasScreenshotError(false);
-    setMiningHasAudioError(false);
+      const epoch = miningEpochRef.current + 1;
+      miningEpochRef.current = epoch;
+      isMiningRefreshingRef.current = true;
+      setIsMiningRefreshing(true);
+      setMiningHasScreenshotError(false);
+      setMiningHasAudioError(false);
 
-    const abortController = new AbortController();
-    miningAbortControllerRef.current = abortController;
+      // Use the committed values — not stale state
+      const committedStart = start;
+      const committedEnd = end;
 
-    // Phase 1: Update sentence and source (synchronous, no async work)
-    if (hasSentence || hasSource) {
-      const newSentence = hasSentence
-        ? selectCueTextInRange(cues, miningRangeStart, miningRangeEnd)
-        : '';
-      const newSource = hasSource
-        ? `${mediaName} (${formatTime(miningRangeStart)} – ${formatTime(miningRangeEnd)})`
-        : '';
+      const abortController = new AbortController();
+      miningAbortControllerRef.current = abortController;
 
-      setMiningDraftFields((prev) =>
-        prev.map((f) => {
-          if (f.key === 'sentence' && hasSentence) {
-            return { ...f, value: newSentence };
+      // Phase 1: Update sentence and source (synchronous)
+      if (hasSentence || hasSource) {
+        const newSentence = hasSentence
+          ? selectCueTextInRange(cues, committedStart, committedEnd)
+          : '';
+        const newSource = hasSource
+          ? `${mediaName} (${formatTime(committedStart)} – ${formatTime(committedEnd)})`
+          : '';
+
+        setMiningDraftFields((prev) =>
+          prev.map((f) => {
+            if (f.key === 'sentence' && hasSentence) {
+              return { ...f, value: newSentence };
+            }
+            if (f.key === 'source' && hasSource) {
+              return { ...f, value: newSource };
+            }
+            return f;
+          }),
+        );
+      }
+
+      // Phase 2: Screenshot — seek visible video to committedStart, capture, restore
+      if (hasImage && hasVideo) {
+        const video = videoRef.current!;
+        const snapshotTime = miningSnapshotTimeRef.current;
+
+        try {
+          await seekVideoSafely(video, committedStart, abortController.signal);
+
+          if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+          if (abortController.signal.aborted) return;
+
+          const screenshotResult = await captureVideoFrame(video);
+
+          if (!mountedRef.current || miningEpochRef.current !== epoch) {
+            video.currentTime = snapshotTime;
+            video.pause();
+            return;
           }
-          if (f.key === 'source' && hasSource) {
-            return { ...f, value: newSource };
+
+          if (!screenshotResult.ok) {
+            setMiningHasScreenshotError(true);
+            replaceMiningScreenshotUrl(null);
+          } else {
+            replaceMiningScreenshotUrl(
+              URL.createObjectURL(screenshotResult.blob),
+            );
           }
-          return f;
-        }),
-      );
-    }
-
-    // Phase 2: Screenshot — seek visible video to rangeStart, capture, restore
-    if (hasImage && hasVideo) {
-      const video = videoRef.current!;
-      const snapshotTime = miningSnapshotTimeRef.current;
-
-      try {
-        await seekVideoSafely(video, miningRangeStart, abortController.signal);
-
-        if (!mountedRef.current || miningEpochRef.current !== epoch) return;
-        if (abortController.signal.aborted) return;
-
-        const screenshotResult = await captureVideoFrame(video);
-
-        if (!mountedRef.current || miningEpochRef.current !== epoch) {
-          // Restore snapshot time even on stale
-          video.currentTime = snapshotTime;
+        } catch {
+          if (mountedRef.current && miningEpochRef.current === epoch) {
+            setMiningHasScreenshotError(true);
+            replaceMiningScreenshotUrl(null);
+          }
+        } finally {
+          video.currentTime = miningSnapshotTimeRef.current;
           video.pause();
-          return;
         }
+      }
 
-        if (!screenshotResult.ok) {
-          setMiningHasScreenshotError(true);
-          replaceMiningScreenshotUrl(null);
+      // Guard before audio phase
+      if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+      if (abortController.signal.aborted) return;
+
+      // Phase 3: Audio — record new range via detached element
+      if (hasAudio && audioClipCaps.supported) {
+        const result = await recordAudioClip({
+          mediaUrl,
+          start: committedStart,
+          end: committedEnd,
+          playbackRate,
+          signal: abortController.signal,
+        });
+
+        if (!mountedRef.current) return;
+        if (miningEpochRef.current !== epoch) return;
+
+        if (!result.ok) {
+          setMiningHasAudioError(true);
+          replaceMiningAudioUrl(null);
         } else {
-          replaceMiningScreenshotUrl(
-            URL.createObjectURL(screenshotResult.blob),
-          );
+          const url = URL.createObjectURL(result.blob);
+          replaceMiningAudioUrl(url);
         }
-      } catch {
-        // Seek failed or timed out — set screenshot error
-        if (mountedRef.current && miningEpochRef.current === epoch) {
-          setMiningHasScreenshotError(true);
-          replaceMiningScreenshotUrl(null);
-        }
-      } finally {
-        // Always restore snapshot time and pause visible video
-        video.currentTime = miningSnapshotTimeRef.current;
-        video.pause();
       }
-    }
 
-    // Guard before audio phase
-    if (!mountedRef.current || miningEpochRef.current !== epoch) return;
-    if (abortController.signal.aborted) return;
+      // Final guard
+      if (!mountedRef.current || miningEpochRef.current !== epoch) return;
 
-    // Phase 3: Audio — record new range via detached element
-    if (hasAudio && audioClipCaps.supported) {
-      const result = await recordAudioClip({
-        mediaUrl,
-        start: miningRangeStart,
-        end: miningRangeEnd,
-        playbackRate,
-        signal: abortController.signal,
-      });
-
-      if (!mountedRef.current) return;
-      if (miningEpochRef.current !== epoch) return;
-
-      if (!result.ok) {
-        setMiningHasAudioError(true);
-        replaceMiningAudioUrl(null);
-      } else {
-        const url = URL.createObjectURL(result.blob);
-        replaceMiningAudioUrl(url);
-      }
-    }
-
-    // Final guard
-    if (!mountedRef.current || miningEpochRef.current !== epoch) return;
-
-    isMiningUpdatingMaterialsRef.current = false;
-    setIsMiningUpdatingMaterials(false);
-  }, [
-    mediaUrl,
-    miningRangeStart,
-    miningRangeEnd,
-    mediaType,
-    mediaName,
-    cues,
-    audioClipCaps.supported,
-    playbackRate,
-    replaceMiningScreenshotUrl,
-    replaceMiningAudioUrl,
-  ]);
+      isMiningRefreshingRef.current = false;
+      setIsMiningRefreshing(false);
+    },
+    [
+      mediaUrl,
+      mediaType,
+      mediaName,
+      cues,
+      audioClipCaps.supported,
+      playbackRate,
+      replaceMiningScreenshotUrl,
+      replaceMiningAudioUrl,
+    ],
+  );
 
   /** AM-4: Mine is possible when media loaded and active cue exists,
    *  AND no standalone AM-2 screenshot or AM-3 audio capture is in flight.
@@ -1138,13 +1145,12 @@ export default function PlayerApp() {
     !isCapturing &&
     !isRecordingAudio &&
     !isMiningCapturing &&
-    !isMiningUpdatingMaterials;
+    !isMiningRefreshing;
 
-  const isMining = isMiningCapturing || isMiningUpdatingMaterials;
+  const isMining = isMiningCapturing || isMiningRefreshing;
 
-  // AM-4: canUpdateMaterials — true if ANY mapped field can be updated.
-  // Not just audio capability; sentence/source always updatable if mapped.
-  const canUpdateMaterials = useMemo(() => {
+  // AM-4: canRefresh — true if ANY mapped field can be refreshed.
+  const canRefresh = useMemo(() => {
     const prefs = readAnkiMinerPreferences();
     const hasSentence = !!prefs.fields.sentence;
     const hasSource = !!prefs.fields.source;
@@ -1446,10 +1452,10 @@ export default function PlayerApp() {
                 mediaDuration={miningMediaDuration}
                 cues={cues}
                 isCapturing={isMiningCapturing}
-                isUpdatingMaterials={isMiningUpdatingMaterials}
-                canUpdateMaterials={canUpdateMaterials}
+                isRefreshing={isMiningRefreshing}
+                canRefresh={canRefresh}
                 onRangeChange={handleMiningRangeChange}
-                onUpdateMaterials={handleUpdateMiningMaterials}
+                onRangeCommit={handleRangeCommit}
                 onCancel={handleMiningPreviewClose}
                 dict={dict}
               />

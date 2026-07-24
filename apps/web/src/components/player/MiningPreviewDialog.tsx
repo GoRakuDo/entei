@@ -1,13 +1,14 @@
 /**
  * MiningPreviewDialog — AM-4 preview workspace for mined subtitle material.
  * ---------------------------------------------------------------------------
- * Shows mapped editable draft fields (from Anki field mapping), screenshot
- * preview, audio preview, range slider with explicit Update materials, and
- * per-material errors.
- * No bottom footer button — uses the top-right Dialog X close only.
- * Range area lives in a bottom dock outside the scrolling body so it is
- * always visible. Subtitle-boundary marker ticks render along the slider
- * track for cues within the current zoom viewport.
+ * Stage 1.1: Range slider commit auto-refreshes range-derived materials.
+ * No manual Update materials button — refresh fires on Radix onValueCommit
+ * (thumb release / keyboard commit). No Send/export button (Stage 2).
+ *
+ * Shows mapped editable draft fields, screenshot/audio preview, range slider
+ * with subtitle-boundary markers, and per-material errors.
+ * No bottom footer — uses the top-right Dialog X close only.
+ * Range area lives in a bottom dock outside the scrolling body.
  * Controlled via Dialog onOpenChange. No nested dialogs.
  * --------------------------------------------------------------------------- */
 
@@ -58,22 +59,21 @@ interface MiningPreviewDialogProps {
   mediaDuration: number;
   cues: readonly SubtitleCue[];
   isCapturing: boolean;
-  isUpdatingMaterials: boolean;
-  canUpdateMaterials: boolean;
+  isRefreshing: boolean;
+  canRefresh: boolean;
   onRangeChange: (value: number[]) => void;
-  onUpdateMaterials: () => void;
+  onRangeCommit: (value: number[]) => void;
   onCancel: () => void;
   dict: {
     miningPreviewTitle: string;
     miningPreviewRange: string;
-    miningPreviewUpdateMaterials: string;
     miningPreviewCancel: string;
     miningPreviewClose: string;
     miningPreviewScreenshotUnavailable: string;
     miningPreviewAudioError: string;
     miningPreviewScreenshotError: string;
     miningPreviewCapturing: string;
-    miningPreviewUpdatingMaterials: string;
+    miningPreviewRefreshing: string;
     miningPreviewRangeInvalid: string;
     miningZoomIn: string;
     miningZoomOut: string;
@@ -104,11 +104,11 @@ export function MiningPreviewDialog({
   mediaDuration,
   cues,
   isCapturing,
-  isUpdatingMaterials,
-  canUpdateMaterials,
+  isRefreshing,
+  canRefresh,
   onRangeChange,
-  onUpdateMaterials,
-  onCancel: _onCancel, // Kept for API compat; Dialog X close uses onOpenChange
+  onRangeCommit,
+  onCancel: _onCancel,
   dict,
 }: MiningPreviewDialogProps) {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
@@ -170,7 +170,9 @@ export function MiningPreviewDialog({
       }));
   }, [cues, viewport, durationKnown]);
 
-  const zoomDisabled = !durationKnown || isCapturing || isUpdatingMaterials;
+  const sliderDisabled =
+    !durationKnown || isCapturing || isRefreshing || !canRefresh;
+  const zoomDisabled = !durationKnown || isCapturing || isRefreshing;
   const zoomInDisabled =
     zoomDisabled || !canZoomIn(viewport, rangeStart, rangeEnd);
   const zoomOutDisabled =
@@ -243,9 +245,7 @@ export function MiningPreviewDialog({
     const audio = audioElement;
     if (!audio) return;
     if (audio.paused) {
-      audio.play().catch(() => {
-        // ignore autoplay restriction
-      });
+      audio.play().catch(() => {});
     } else {
       audio.pause();
     }
@@ -260,19 +260,27 @@ export function MiningPreviewDialog({
         <DialogHeader>
           <DialogTitle>{dict.miningPreviewTitle}</DialogTitle>
           <DialogDescription>
-            {isCapturing ? dict.miningPreviewCapturing : ''}
+            {isCapturing
+              ? dict.miningPreviewCapturing
+              : isRefreshing
+                ? dict.miningPreviewRefreshing
+                : ''}
           </DialogDescription>
         </DialogHeader>
 
         <div className="entei-mining-body">
-          {isCapturing && (
+          {(isCapturing || isRefreshing) && (
             <div
               className="entei-mining-processing-overlay"
               role="status"
               aria-live="polite"
             >
               <span className="entei-mining-processing-spinner" aria-hidden />
-              <span>{dict.miningPreviewCapturing}</span>
+              <span>
+                {isRefreshing
+                  ? dict.miningPreviewRefreshing
+                  : dict.miningPreviewCapturing}
+              </span>
             </div>
           )}
 
@@ -287,7 +295,7 @@ export function MiningPreviewDialog({
             const hasImageUnavailable =
               field.key === 'image' && isScreenshotUnavailable;
             const hasImageSkeleton =
-              field.key === 'image' && (isCapturing || isUpdatingMaterials);
+              field.key === 'image' && (isCapturing || isRefreshing);
             const hasAudio = field.key === 'audio' && audioUrl !== null;
             const hasAudioErr = field.key === 'audio' && hasAudioError;
 
@@ -395,18 +403,18 @@ export function MiningPreviewDialog({
                 {field.key === 'audio' &&
                   !hasAudio &&
                   !hasAudioErr &&
-                  (isCapturing || isUpdatingMaterials) && (
+                  (isCapturing || isRefreshing) && (
                     <div
                       className="entei-mining-placeholder"
-                      aria-busy={isCapturing || isUpdatingMaterials}
+                      aria-busy={isCapturing || isRefreshing}
                     >
                       <span
                         className="entei-mining-skeleton entei-mining-skeleton--audio"
                         aria-hidden
                       />
                       <p>
-                        {isUpdatingMaterials
-                          ? dict.miningPreviewUpdatingMaterials
+                        {isRefreshing
+                          ? dict.miningPreviewRefreshing
                           : dict.miningPreviewCapturing}
                       </p>
                     </div>
@@ -442,8 +450,9 @@ export function MiningPreviewDialog({
                     max={viewport.viewEnd}
                     step={0.1}
                     onValueChange={onRangeChange}
+                    onValueCommit={onRangeCommit}
                     aria-label={dict.miningPreviewRange}
-                    disabled={isCapturing || isUpdatingMaterials}
+                    disabled={sliderDisabled}
                   />
                   {/* Subtitle-boundary marker ticks — noninteractive, aria-hidden */}
                   <div
@@ -466,7 +475,7 @@ export function MiningPreviewDialog({
                 )}
               </div>
 
-              {/* Control row: ZoomOut LEFT, Update materials CENTER, ZoomIn RIGHT */}
+              {/* Control row: ZoomOut LEFT, ZoomIn RIGHT — balanced */}
               <div className="entei-mining-range-controls">
                 <button
                   type="button"
@@ -478,31 +487,7 @@ export function MiningPreviewDialog({
                 >
                   <ZoomOut size={18} aria-hidden />
                 </button>
-                <button
-                  type="button"
-                  className="entei-mining-update-btn"
-                  onClick={onUpdateMaterials}
-                  disabled={
-                    !canUpdateMaterials ||
-                    rangeInvalid ||
-                    isUpdatingMaterials ||
-                    isCapturing
-                  }
-                  aria-label={
-                    isUpdatingMaterials
-                      ? dict.miningPreviewUpdatingMaterials
-                      : dict.miningPreviewUpdateMaterials
-                  }
-                  title={
-                    isUpdatingMaterials
-                      ? dict.miningPreviewUpdatingMaterials
-                      : dict.miningPreviewUpdateMaterials
-                  }
-                >
-                  {isUpdatingMaterials
-                    ? dict.miningPreviewUpdatingMaterials
-                    : dict.miningPreviewUpdateMaterials}
-                </button>
+                <div className="entei-mining-range-controls-spacer" />
                 <button
                   type="button"
                   className="entei-mining-zoom-btn"

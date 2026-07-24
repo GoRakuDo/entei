@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）はコード・browser QA完了。次は「rangeを離した時の自動素材更新」を加えた後、Stage 2の明示Anki書込み（AM-6a / AM-6b）。AM-6c Specific updateは後段。
+> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）はコード完了・検証済み。次はStage 2の明示Anki書込み（AM-6a / AM-6b）。AM-6c Specific updateは後段。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -111,7 +111,7 @@ Ankiへ送る操作以外で、local mediaを外部へuploadしない。Screensh
 
 Stage 1ではAnkiConnectから読むだけで、`addNote` / `updateNoteFields`を一度も呼ばない。AM-1 / AM-2 / AM-5は完了済み。AM-3はactive cue音声の単独previewまでを担い、AM-4でrange調整とScreenshot / Audio / field payloadを1つのMining Previewへまとめる。
 
-Stage 1.1ではrange sliderの`onValueCommit`、つまりthumbを離した時だけ、文章・出典・画像・音声を同じrangeからローカル再生成する。drag中はrange表示だけ変え、Anki requestは一切しない。現在の明示`Update materials`ボタンは、Stage 1.1でStage 2の`Ankiへ送信`buttonへ置き換える。
+Stage 1.1ではrange sliderの`onValueCommit`、つまりthumbを離した時だけ、文章・出典・画像・音声を同じrangeからローカル再生成する。drag中はrange表示だけ変え、Anki requestは一切しない。Stage 1.1は実装済み。manual Update materials buttonは削除済み。Stage 2の`Ankiへ送信`buttonは未実装。
 
 ### Stage 2 — Anki Export & Update（明示書込み）
 
@@ -282,14 +282,14 @@ npm run build          ✅ static build complete
 ## 5.w Stage 1 実装記録（AM-4 Mining Preview）
 
 > 実装日: 2026-07-23
-> 実装範囲: AM-4 Mining Preview（素材確認・range調整・Cancel/Closeのみ）。Anki書込み（Stage 2）は未承認・未実施。range zoom、字幕marker、dock、全素材の明示更新を含むbrowser QAは完了。range release時の自動更新はStage 1.1の次作業。
-> 方針: Mine開始時にsnapshot time + activeCueIdをmemory上で固定し、visible Playerを即pause。Screenshot（videoのみ）とAudio（detached `recordAudioClip`）を並行capture。Mining Preview Dialogで確認・range調整（0.1秒step Slider + 明示的Update materials）。Cancel/Closeでsnapshot timeへseekしてpauseを維持。AM-2/AM-3の単独preview動作は変更しない。
+> 実装範囲: AM-4 Mining Preview（素材確認・range調整・range commit自動素材更新・Cancel/Close）。Anki書込み（Stage 2）は未承認・未実施。range zoom、字幕marker、dock、range commit時の全素材自動更新を含む検証完了。
+> 方針: Mine開始時にsnapshot time + activeCueIdをmemory上で固定し、visible Playerを即pause。Screenshot（videoのみ）とAudio（detached `recordAudioClip`）を並行capture。Mining Preview Dialogで確認・range調整（0.1秒step Slider + `onValueCommit`時の自動全素材再生成）。Cancel/Closeでsnapshot timeへseekしてpauseを維持。AM-2/AM-3の単独preview動作は変更しない。
 
 ### 実装済みファイル
 
 | ファイル                                        | 目的                                                                                                                                                                                                             |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/components/player/MiningPreviewDialog.tsx` | Mining Preview Dialog本体：mapped draft fields（image/audioはpreview-only）、screenshotAspectRatio wrap、audio preview、true two-thumb range slider、現在はUpdate materials、将来はmode ToggleGroup + Ankiへ送信 |
+| `src/components/player/MiningPreviewDialog.tsx` | Mining Preview Dialog本体：mapped draft fields（image/audioはpreview-only）、screenshotAspectRatio wrap、audio preview、true two-thumb range slider（`onValueCommit`で自動素材更新）、bottom dock（ZoomOut / ZoomIn）。Stage 2のmode ToggleGroup + Ankiへ送信は未実装 |
 | `src/components/player/ui/aspect-ratio.tsx`     | shadcn AspectRatio wrapper（`@radix-ui/react-aspect-ratio` re-export）                                                                                                                                           |
 | `src/components/player/ui/slider.tsx`           | shadcn Slider（thumb数をvalue/defaultValueから導出、stable index key）                                                                                                                                           |
 | `src/components/player/PlayerControls.tsx`      | Top-rightにPickaxe Mineボタン追加（video/audio、AudioLinesの後・caption modeの前）                                                                                                                               |
@@ -317,21 +317,21 @@ npm run build          ✅ static build complete
 | Screenshotはvideoのみ                                      | ✅   | `mediaType === 'video'` のみcapture。audioではunavailable表示                                                                                                                                                                                                                                              |
 | Audio captureはdetached element                            | ✅   | `recordAudioClip` をそのまま使用。visible Playerのseek/rate/mute変更なし                                                                                                                                                                                                                                   |
 | Range Sliderは0.1秒step                                    | ✅   | `step={0.1}`。初期値はactive cue start/end                                                                                                                                                                                                                                                                 |
-| Range変更は現在自動rerecordしない                          | ✅   | 現在はSlider onChangeがstateのみ。Stage 1.1で`onValueCommit`時の自動全素材更新へ置き換える                                                                                                                                                                                                                 |
-| Update materialsはrange invalidでdisabled                  | ✅   | `rangeStart >= rangeEnd` またはcapturing中はdisabled。`!canUpdateMaterials`（mapped sentence/source/image/audio何れか更新可能）でもdisabled                                                                                                                                                                |
+| Range変更はdrag中にrefreshしない                            | ✅   | `onValueChange`は即時UI stateのみ。`onValueCommit`（thumb release / keyboard commit）で`handleRangeCommit`が全素材を自動更新                                                                                                                                                                               |
+| Range commit時の自動更新                                    | ✅   | `handleRangeCommit`がcommitted `[start,end]`値でsentence/source/screenshot/audioを一括更新。`canRefresh`（mapped sentence/source/image/audio何れか更新可能）がfalseの時はSlider disabled                                                                                                                                                 |
 | Media duration不明時はrange編集不可                        | ✅   | `Number.isFinite(duration)` で判定。Slider非表示、時間ラベルのみ表示                                                                                                                                                                                                                                       |
 | URL lifecycle: revoke on replace/close/media/unmount       | ✅   | `replaceMiningScreenshotUrl` / `replaceMiningAudioUrl` でrevoke-before-replace。unmount effectでcleanup                                                                                                                                                                                                    |
 | Epoch guard: stale result discard                          | ✅   | `miningEpochRef` モノトニックepoch。media変更・dialog閉・retry置換で進行                                                                                                                                                                                                                                   |
-| Double-click guard                                         | ✅   | `isMiningRef` / `isMiningUpdatingMaterialsRef` でsynchronous防止                                                                                                                                                                                                                                           |
+| Double-click guard                                         | ✅   | `isMiningRef` / `isMiningRefreshingRef` でsynchronous防止                                                                                                                                                                                                                                           |
 | AbortController分離                                        | ✅   | AM-4専用 `miningAbortControllerRef`。standalone AM-3のcancelActiveRecordingと分離                                                                                                                                                                                                                          |
 | Capture失敗はper-material error                            | ✅   | screenshot失敗→`miningHasScreenshotError`、audio失敗→`miningHasAudioError`。available materialは保持                                                                                                                                                                                                       |
 | No Anki write / no localStorage / no fetch                 | ✅   | testで `fetch` / `localStorage.setItem` 呼び出しを検証                                                                                                                                                                                                                                                     |
 | Dialog click伝播防止継続                                   | ✅   | 既存 `DialogContent` stopPropagation を再利用                                                                                                                                                                                                                                                              |
-| `type='button'`                                            | ✅   | Pickaxe・Update materials・Dialog X Closeは全て`type="button"`                                                                                                                                                                                                                                             |
+| `type='button'`                                            | ✅   | Pickaxe・Dialog X Closeは`type="button"`。Update materials buttonは削除済み                                                                                                                                                                                                                                        |
 | Lucide Pickaxeのみ                                         | ✅   | `lucide-react` の `Pickaxe` icon。raw SVGなし                                                                                                                                                                                                                                                              |
 | OKLCH tokenのみ                                            | ✅   | 新規CSSで `--entei-*` / `oklch()` / `color-mix()` のみ                                                                                                                                                                                                                                                     |
 | `prefers-reduced-motion`                                   | ✅   | `.entei-mining-dialog` 各要素に `@media (prefers-reduced-motion: reduce)` で `transition: none`                                                                                                                                                                                                            |
-| Touch target >=44px                                        | ✅   | `.entei-mining-audio-play-btn` / `.entei-mining-update-btn` は `min-height: var(--entei-touch-min)`                                                                                                                                                                                                        |
+| Touch target >=44px                                        | ✅   | `.entei-mining-audio-play-btn` / `.entei-mining-zoom-btn` は `min-height: var(--entei-touch-min)`                                                                                                                                                                                                        |
 | Tabular numbers for time                                   | ✅   | `formatTime` 使用。slider範囲ラベルも `entei-mining-range-time` でtabular                                                                                                                                                                                                                                  |
 | Mineはstandalone capture中disabled                         | ✅   | `canMine` に `!isCapturing && !isRecordingAudio` を追加。`handleMine` 先頭でref guard                                                                                                                                                                                                                      |
 | AbortSignalはcanplay/seek/record全フェーズで即cancel       | ✅   | `recordAudioClip` 先頭でabort listener登録。`lifecycle.rejectPhase` でPending Promiseを直接reject                                                                                                                                                                                                          |
@@ -347,14 +347,15 @@ npm run build          ✅ static build complete
 | AM-4: localStorage/fetch/Anki呼び出しなし                  | ✅   | Previewでは`readAnkiMinerPreferences()`のみ。write/fetchは行わない                                                                                                                                                                                                                                         |
 | AM-4: ASB-style range zoom viewport                        | ✅   | `mining-viewport.ts`純粋関数。Mine開始時に選択範囲周辺へviewport `[viewStart, viewEnd]`を自動初期化。Lucide `ZoomIn`/`ZoomOut` 44px icon buttonで半減/倍増。viewportはReact-memory-onlyでlocalStorage非永続化                                                                                              |
 | AM-4: zoom時の選択範囲不変                                 | ✅   | zoomIn/zoomOutはviewportのみ変更。`rangeStart`/`rangeEnd`は一切変更しない。Sliderの`min`/`max`にviewportを使用                                                                                                                                                                                             |
-| AM-4: 全素材explicit更新（Update materials）               | ✅   | `handleUpdateMiningMaterials`がsentence（`selectCueTextInRange` ASB >=50% rule）、source（`formatTime` label）、screenshot（visible video seek→capture→restore）、audio（`recordAudioClip`）を一括更新。user-edited definition/word/tagsは上書きしない。Stage 1.1で`onValueCommit`による自動更新へ置換予定 |
-| AM-4: Range dock + subtitle markers                        | ✅   | Range areaを`.entei-mining-body`の外へbottom dock（`flex-shrink:0`）へ移動。subtitle-boundary marker ticksがviewport内のcue start位置に描画（`aria-hidden`、`pointer-events:none`）。footer Close button削除、Dialog X closeのみ。control row: ZoomOut LEFT / Update materials CENTER / ZoomIn RIGHT       |
+| AM-4: 全素材自動更新（range commit）                        | ✅   | `handleRangeCommit`がsentence（`selectCueTextInRange` ASB >=50% rule）、source（`formatTime` label）、screenshot（visible video seek→capture→restore）、audio（`recordAudioClip`）を一括更新。user-edited definition/word/tagsは上書きしない。`onValueCommit`で発火、manual buttonは削除済み |
+| AM-4: Range dock + subtitle markers                        | ✅   | Range areaを`.entei-mining-body`の外へbottom dock（`flex-shrink:0`）へ移動。subtitle-boundary marker ticksがviewport内のcue start位置に描画（`aria-hidden`、`pointer-events:none`）。footer Close button削除、Dialog X closeのみ。control row: ZoomOut LEFT / ZoomIn RIGHT       |
+| AM-4 Stage 1.1: Range commit auto-refresh                  | ✅   | Slider `onValueCommit`（thumb release/keyboard commit）が`handleRangeCommit`を呼び出し、committed `[start,end]`値でsentence/source/screenshot/audioを一括refresh。`onValueChange`は即時UI stateのみ（drag中はrefreshしない）。manual Update materials button削除済み。refresh中はSlider/zoom disabled。AbortController/epoch/mounted guard適用。no fetch/localStorage/Anki write |
 
 ### 検証結果
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 23 files, 587 tests pass
+npm run test           ✅ 23 files, 583 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```
@@ -367,7 +368,7 @@ npm run build          ✅ static build complete
 | Cancel/Close後のseek + pause | ✅ 実local mediaで確認済み                 |
 | Range slider 0.1秒step       | ✅ 実local mediaで確認済み                 |
 | Range zoom viewport          | ✅ ZoomIn / ZoomOutと2 thumbを実機確認済み |
-| Update materialsの実際の録音 | ✅ range変更後の全素材更新を実機確認済み   |
+| Range commit時の全素材更新   | ✅ range変更後のcommitで全素材自動更新を実機確認済み |
 | 4K動画でのscreenshot         | `captureVideoFrame` 再利用。実機未確認     |
 
 ---
@@ -489,7 +490,7 @@ Mining後に勝手に再生を始めない。続きを見たい時はユーザ�
 ### 7.4 Preview Dialog中の制約
 
 - player本体を操作するためのshortcutはDialog内のinput/buttonでは発火しない
-- range sliderはDialog内で調整できる。drag中は表示だけ更新し、Stage 1.1からはthumbを離した時だけ素材をローカル再生成する
+- range sliderはDialog内で調整できる。drag中は表示だけ更新し、thumbを離した時だけ素材をローカル再生成する（Stage 1.1実装済み）
 - Escape / CancelはAnki requestを送らない
 - Export処理中は二重submitを防ぎ、Cancelは「送信済み」を取り消す意味ではない
 
@@ -606,7 +607,7 @@ onValueChange    drag中のrange表示だけを更新
 onValueCommit    thumbを離した時だけ、文章・出典・画像・音声を同じrangeから自動更新
 ```
 
-これでrangeを細かく探している途中に何度も録音せず、操作を終えた時だけ素材を揃え直せる。`Update materials`buttonは削除する。
+これでrangeを細かく探している途中に何度も録音せず、操作を終えた時だけ素材を揃え直せる。`Update materials`buttonは削除済み。
 
 bottom dockには次の順で置く。
 

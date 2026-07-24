@@ -159,7 +159,6 @@ export const ja: Dictionary = {
     miningPreviewScreenshot: 'スクリーンショット',
     miningPreviewAudio: '音声',
     miningPreviewRange: '範囲',
-    miningPreviewUpdateMaterials: '素材を更新',
     miningPreviewCancel: 'キャンセル',
     miningPreviewClose: '閉じる',
     miningPreviewScreenshotUnavailable:
@@ -167,7 +166,7 @@ export const ja: Dictionary = {
     miningPreviewAudioError: '音声の取得に失敗しました',
     miningPreviewScreenshotError: 'スクリーンショットの取得に失敗しました',
     miningPreviewCapturing: '取得中…',
-    miningPreviewUpdatingMaterials: '素材を更新中…',
+    miningPreviewRefreshing: '素材を再取得中…',
     miningPreviewRangeInvalid: '無効な範囲',
     miningZoomIn: '拡大',
     miningZoomOut: '縮小',

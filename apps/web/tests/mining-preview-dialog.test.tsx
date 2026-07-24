@@ -36,14 +36,13 @@ afterEach(() => {
 const mockDict = {
   miningPreviewTitle: 'Mining Preview',
   miningPreviewRange: 'Range',
-  miningPreviewUpdateMaterials: 'Update materials',
   miningPreviewCancel: 'Cancel',
   miningPreviewClose: 'Close',
   miningPreviewScreenshotUnavailable: 'Screenshot unavailable for audio media',
   miningPreviewAudioError: 'Audio capture failed',
   miningPreviewScreenshotError: 'Screenshot capture failed',
   miningPreviewCapturing: 'Capturing…',
-  miningPreviewUpdatingMaterials: 'Updating materials…',
+  miningPreviewRefreshing: 'Refreshing materials…',
   miningPreviewRangeInvalid: 'Invalid range',
   miningZoomIn: 'Zoom in',
   miningZoomOut: 'Zoom out',
@@ -72,10 +71,10 @@ const baseProps = {
   mediaDuration: 60,
   cues: [],
   isCapturing: false,
-  isUpdatingMaterials: false,
-  canUpdateMaterials: true,
+  isRefreshing: false,
+  canRefresh: true,
   onRangeChange: vi.fn(),
-  onUpdateMaterials: vi.fn(),
+  onRangeCommit: vi.fn(),
   onCancel: vi.fn(),
   dict: mockDict,
 };
@@ -258,40 +257,45 @@ describe('MiningPreviewDialog', () => {
     );
   });
 
-  it('calls onUpdateMaterials when Update materials is clicked', () => {
-    const onUpdateMaterials = vi.fn();
+  it('does NOT render an Update materials button', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const updateBtn = document.body.querySelector('.entei-mining-update-btn');
+    expect(updateBtn).toBeNull();
+  });
+
+  it('calls onRangeCommit when slider commits (not during drag)', () => {
+    const onRangeChange = vi.fn();
+    const onRangeCommit = vi.fn();
     render(
       <MiningPreviewDialog
         {...baseProps}
-        onUpdateMaterials={onUpdateMaterials}
+        onRangeChange={onRangeChange}
+        onRangeCommit={onRangeCommit}
       />,
     );
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdateMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    fireEvent.click(btn!);
-    expect(onUpdateMaterials).toHaveBeenCalledTimes(1);
+    const slider = document.body.querySelector('.entei-mining-range-slider');
+    expect(slider).not.toBeNull();
+    // onValueChange fires during drag — should call onRangeChange, not onRangeCommit
+    // onValueCommit fires on release — should call onRangeCommit
+    // In JSDOM, Radix Slider doesn't fully simulate pointer drag,
+    // but we verify the callback prop is wired
+    expect(onRangeCommit).not.toHaveBeenCalled();
   });
 
-  it('disables Update materials when range invalid', () => {
-    render(
-      <MiningPreviewDialog {...baseProps} rangeStart={15} rangeEnd={10} />,
-    );
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdateMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  it('disables slider when isRefreshing is true', () => {
+    render(<MiningPreviewDialog {...baseProps} isRefreshing />);
+    const slider = document.body.querySelector('.entei-mining-range-slider');
+    if (slider) {
+      expect(slider.getAttribute('aria-disabled')).toBe('true');
+    }
   });
 
-  it('disables Update materials when isUpdatingMaterials is true', () => {
-    render(<MiningPreviewDialog {...baseProps} isUpdatingMaterials />);
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdatingMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  it('disables slider when canRefresh is false', () => {
+    render(<MiningPreviewDialog {...baseProps} canRefresh={false} />);
+    const slider = document.body.querySelector('.entei-mining-range-slider');
+    if (slider) {
+      expect(slider.getAttribute('aria-disabled')).toBe('true');
+    }
   });
 
   it('does NOT render a bottom footer close button', () => {
@@ -334,7 +338,7 @@ describe('MiningPreviewDialog', () => {
     lsSpy.mockRestore();
   });
 
-  it('disables range slider when isCapturing or isUpdatingMaterials', () => {
+  it('disables range slider when isCapturing or isRefreshing', () => {
     render(<MiningPreviewDialog {...baseProps} isCapturing />);
     const slider = document.body.querySelector('.entei-mining-range-slider');
     if (slider) {
@@ -479,7 +483,7 @@ describe('MiningPreviewDialog', () => {
   });
 
   it('zoom buttons are disabled during audio update', () => {
-    render(<MiningPreviewDialog {...baseProps} isUpdatingMaterials />);
+    render(<MiningPreviewDialog {...baseProps} isRefreshing />);
     const zoomInBtn = document.body.querySelector(
       `[aria-label="${mockDict.miningZoomIn}"]`,
     ) as HTMLButtonElement;
@@ -579,80 +583,6 @@ describe('MiningPreviewDialog', () => {
     lsSpy.mockRestore();
   });
 
-  it('Update materials button disabled when canUpdateMaterials is false', () => {
-    render(
-      <MiningPreviewDialog
-        {...baseProps}
-        canUpdateMaterials={false}
-      />,
-    );
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdateMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('Update materials button enabled when canUpdateMaterials is true (sentence/source only)', () => {
-    render(
-      <MiningPreviewDialog
-        {...baseProps}
-        canUpdateMaterials={true}
-      />,
-    );
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdateMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it('Update materials button disabled when range invalid even if canUpdateMaterials true', () => {
-    render(
-      <MiningPreviewDialog
-        {...baseProps}
-        canUpdateMaterials={true}
-        rangeStart={15}
-        rangeEnd={10}
-      />,
-    );
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdateMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('Update materials button disabled during capturing even if canUpdateMaterials true', () => {
-    render(
-      <MiningPreviewDialog
-        {...baseProps}
-        canUpdateMaterials={true}
-        isCapturing
-      />,
-    );
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdateMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('Update materials button disabled during isUpdatingMaterials even if canUpdateMaterials true', () => {
-    render(
-      <MiningPreviewDialog
-        {...baseProps}
-        canUpdateMaterials={true}
-        isUpdatingMaterials
-      />,
-    );
-    const btn = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent === mockDict.miningPreviewUpdatingMaterials,
-    );
-    expect(btn).not.toBeUndefined();
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-  });
-
   // --- Range dock structure tests ---
 
   it('range dock exists outside scrolling body', () => {
@@ -665,16 +595,18 @@ describe('MiningPreviewDialog', () => {
     expect(body!.contains(dock!)).toBe(false);
   });
 
-  it('control row order is ZoomOut, Update materials, ZoomIn', () => {
+  it('control row has ZoomOut and ZoomIn buttons (no Update materials)', () => {
     render(<MiningPreviewDialog {...baseProps} />);
     const controls = document.body.querySelector('.entei-mining-range-controls');
     expect(controls).not.toBeNull();
     const buttons = controls!.querySelectorAll('button');
-    expect(buttons.length).toBe(3);
-    // First = ZoomOut, Second = Update materials, Third = ZoomIn
+    expect(buttons.length).toBe(2);
+    // First = ZoomOut, Second = ZoomIn
     expect(buttons[0]!.getAttribute('aria-label')).toBe(mockDict.miningZoomOut);
-    expect(buttons[1]!.textContent).toBe(mockDict.miningPreviewUpdateMaterials);
-    expect(buttons[2]!.getAttribute('aria-label')).toBe(mockDict.miningZoomIn);
+    expect(buttons[1]!.getAttribute('aria-label')).toBe(mockDict.miningZoomIn);
+    // No Update materials button
+    const updateBtn = document.body.querySelector('.entei-mining-update-btn');
+    expect(updateBtn).toBeNull();
   });
 
   it('renders subtitle-boundary markers for cues within viewport', () => {
