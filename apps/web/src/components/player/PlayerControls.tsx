@@ -110,6 +110,8 @@ interface PlayerControlsProps {
   canMine?: boolean;
   /** AM-4: Whether a mining capture is currently in flight. */
   isMining?: boolean;
+  /** Stage 2: Session credentials bridge from AnkiFieldsTab to PlayerApp. */
+  onSessionCredentials?: (creds: { endpoint: string; apiKey: string } | null) => void;
 }
 
 export interface PlayerControlsHandle {
@@ -154,6 +156,7 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
       onMine,
       canMine,
       isMining,
+      onSessionCredentials,
     },
     ref,
   ) {
@@ -639,6 +642,7 @@ export const PlayerControls = forwardRef<PlayerControlsHandle, PlayerControlsPro
             shortcuts={shortcuts}
             open={isSettingsOpen}
             onOpenChange={handleSettingsOpenChange}
+            onSessionCredentials={onSessionCredentials}
           />
         </div>
       </div>

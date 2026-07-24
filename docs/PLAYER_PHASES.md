@@ -255,6 +255,7 @@ Player設定を開く
 - deck / note type / field mapping
 - add note、Open in Anki、update last、update specific
 - audio / image / WebM media upload
+- duplicate許可ポリシー: 新カードはdeck scopeで重複許可（`allowDuplicate: true`, `duplicateScope: 'deck'`, `checkChildren: false`）。Update modeは重複オプションなし
 - duplicate・field mismatch・Anki未起動・CORS denialの表示
 - failed exportで生成済みmediaを残さないcleanup
 - actual Anki profileを使うintegration test（Yosia承認後のみ）
@@ -394,7 +395,7 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 | React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                                                                                                                                                                                      |
 | Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                                                                            |
 | Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                                                                             |
-| Unit tests                | ✅   | 583 tests（23 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval tests） |
+| Unit tests                | ✅   | 647 tests（26 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection tests） |
 
 ### Reviewer findings 修正状況
 
@@ -472,7 +473,7 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                                                      |
 | ---------- | ---- | --------------------------------------------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                                                   |
-| test       | ✅   | 583 tests pass（23 files）                                                                    |
+| test       | ✅   | 647 tests pass（26 files）                                                                    |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)                                          |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |

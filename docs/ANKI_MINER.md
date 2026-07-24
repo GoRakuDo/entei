@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）はコード完了・検証済み。次はStage 2の明示Anki書込み（AM-6a / AM-6b）。AM-6c Specific updateは後段。
+> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）+ Stage 2 AM-6a/AM-6b（new note / update latest）はコード完了・検証済み。実AnkiConnect手動QA待ち。AM-6c Specific updateは後段。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -111,7 +111,7 @@ Ankiへ送る操作以外で、local mediaを外部へuploadしない。Screensh
 
 Stage 1ではAnkiConnectから読むだけで、`addNote` / `updateNoteFields`を一度も呼ばない。AM-1 / AM-2 / AM-5は完了済み。AM-3はactive cue音声の単独previewまでを担い、AM-4でrange調整とScreenshot / Audio / field payloadを1つのMining Previewへまとめる。
 
-Stage 1.1ではrange sliderの`onValueCommit`、つまりthumbを離した時だけ、文章・出典・画像・音声を同じrangeからローカル再生成する。drag中はrange表示だけ変え、Anki requestは一切しない。Stage 1.1は実装済み。manual Update materials buttonは削除済み。Stage 2の`Ankiへ送信`buttonは未実装。
+Stage 1.1ではrange sliderの`onValueCommit`、つまりthumbを離した時だけ、文章・出典・画像・音声を同じrangeからローカル再生成する。drag中はrange表示だけ変え、Anki requestは一切しない。Stage 1.1は実装済み。manual Update materials buttonは削除済み。Stage 2の`Ankiへ送信`button（`ToggleGroup` + `Send`）はAM-6a/AM-6bとして実装済み。実AnkiConnect手動書込みQAは未実施。
 
 ### Stage 2 — Anki Export & Update（明示書込み）
 
@@ -128,7 +128,7 @@ Stage 2のmodeはMining Preview内のshadcn `ToggleGroup type="single"`で選ぶ
 ## 5.x Stage 1A 実装記録（AM-1 + AM-5）
 
 > 実装日: 2026-07-22
-> 実装範囲: AM-1 Settings Modal、AM-5 Anki read-only connectionのみ。AM-2〜AM-4、Stage 2は未実装。
+> 実装範囲: AM-1 Settings Modal、AM-5 Anki read-only connectionのみ。当時AM-2〜AM-4、Stage 2は未実装であった（後に実装済み、後続の各実装記録を参照）。
 > 実AnkiConnect QA: 完了。auto-connect、接続失敗時の10秒連続retry、復帰後のDeck / Note type読込、CORS案内、設定Modalのdesktop / mobile表示を確認済み。`addNote` / `updateNoteFields`を含む実Anki書込みテストは未承認・未実施。
 
 ### 実装済みファイル
@@ -282,14 +282,14 @@ npm run build          ✅ static build complete
 ## 5.w Stage 1 実装記録（AM-4 Mining Preview）
 
 > 実装日: 2026-07-23
-> 実装範囲: AM-4 Mining Preview（素材確認・range調整・range commit自動素材更新・Cancel/Close）。Anki書込み（Stage 2）は未承認・未実施。range zoom、字幕marker、dock、range commit時の全素材自動更新を含む検証完了。
+> 実装範囲: AM-4 Mining Preview（素材確認・range調整・range commit自動素材更新・Cancel/Close）。Stage 2（AM-6a/AM-6b）のコードは実装済み。実AnkiConnect手動書込みQAは未実施・未承認。range zoom、字幕marker、dock、range commit時の全素材自動更新を含む検証完了。
 > 方針: Mine開始時にsnapshot time + activeCueIdをmemory上で固定し、visible Playerを即pause。Screenshot（videoのみ）とAudio（detached `recordAudioClip`）を並行capture。Mining Preview Dialogで確認・range調整（0.1秒step Slider + `onValueCommit`時の自動全素材再生成）。Cancel/Closeでsnapshot timeへseekしてpauseを維持。AM-2/AM-3の単独preview動作は変更しない。
 
 ### 実装済みファイル
 
 | ファイル                                        | 目的                                                                                                                                                                                                             |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/components/player/MiningPreviewDialog.tsx` | Mining Preview Dialog本体：mapped draft fields（image/audioはpreview-only）、screenshotAspectRatio wrap、audio preview、true two-thumb range slider（`onValueCommit`で自動素材更新）、bottom dock（ZoomOut / ZoomIn）。Stage 2のmode ToggleGroup + Ankiへ送信は未実装 |
+| `src/components/player/MiningPreviewDialog.tsx` | Mining Preview Dialog本体：mapped draft fields（image/audioはpreview-only）、screenshotAspectRatio wrap、audio preview、true two-thumb range slider（`onValueCommit`で自動素材更新）、bottom dock（ZoomOut / ZoomIn）。Stage 2の`ToggleGroup`（new/update）+ `Send` buttonは実装済み。AM-6c specific searchは未実装（後段） |
 | `src/components/player/ui/aspect-ratio.tsx`     | shadcn AspectRatio wrapper（`@radix-ui/react-aspect-ratio` re-export）                                                                                                                                           |
 | `src/components/player/ui/slider.tsx`           | shadcn Slider（thumb数をvalue/defaultValueから導出、stable index key）                                                                                                                                           |
 | `src/components/player/PlayerControls.tsx`      | Top-rightにPickaxe Mineボタン追加（video/audio、AudioLinesの後・caption modeの前）                                                                                                                               |
@@ -297,6 +297,7 @@ npm run build          ✅ static build complete
 | `src/features/player/audio-clip.ts`             | `recordAudioClip`に`signal?: AbortSignal`追加。AM-4のcancelがstandalone AM-3に影響しない                                                                                                                         |
 | `src/features/player/mining-viewport.ts`        | ASB-style range zoom純粋関数：`computeInitialViewport`、`zoomIn`、`zoomOut`、`canZoomIn`、`canZoomOut`、`reframeIfNeeded`                                                                                        |
 | `src/features/player/subtitle-interval.ts`      | ASB-style >=50% overlap rule純粋関数：`selectCueTextInRange`。zero-length skip、blank filter、newline join                                                                                                       |
+| `src/features/player/anki-export-client.ts`     | Stage 2 typed write client：`canAddNotes`、`addNote`、`storeMediaFile`、`findNotes`、`notesInfo`、`updateNoteFields`。read-only `AnkiConnectClient`とは構造分離。`blobToBase64`、`generateMediaFilename` helper付き |
 | `src/i18n/types.ts` + `locales/{en,ja,id}.ts`   | AM-4用辞書キー20個追加                                                                                                                                                                                           |
 | `src/styles/player.css`                         | `.entei-mining-*` dialog + image + audio player + range slider（accent selected range）+ bottom dock + input/textarea スタイル群                                                                                 |
 | `tests/mining-preview-dialog.test.tsx`          | Component tests: draft fields表示、physical name labels、image/audio preview-only（入力欄なし）、full mapping 5 text controls、true two-thumb slider、Close、no external calls                                   |
@@ -304,6 +305,8 @@ npm run build          ✅ static build complete
 | `tests/slider-thumb-count.test.tsx`             | Slider thumb count derivation: controlled value、defaultValue、fallback 1、mining 2-thumb（7 tests）                                                                                                             |
 | `tests/mining-viewport.test.ts`                 | Pure helper unit tests: initial viewport、zoom in/out、media boundaries、short media、min span、selection invariance、reframe（29 tests）                                                                        |
 | `tests/subtitle-interval.test.ts`               | Pure helper unit tests: >=50% overlap rule、boundary、zero-length skip、blank filter、newline join、ordering（15 tests）                                                                                         |
+| `tests/anki-export-client.test.ts`              | Stage 2 export client unit tests: all 6 actions request shape、result parsing、error handling（HTTP/malformed/abort/network/api-key/permission）、blobToBase64、generateMediaFilename helpers                        |
+| `tests/anki-export-integration.test.ts`         | Stage 2 export lifecycle integration tests: canAddNotes false→zero write、new success order、update first Send zero write、invalid target、confirm update mapped fields only、missing media、session key security、abort |
 
 ### 設計遵守確認
 
@@ -348,14 +351,16 @@ npm run build          ✅ static build complete
 | AM-4: ASB-style range zoom viewport                        | ✅   | `mining-viewport.ts`純粋関数。Mine開始時に選択範囲周辺へviewport `[viewStart, viewEnd]`を自動初期化。Lucide `ZoomIn`/`ZoomOut` 44px icon buttonで半減/倍増。viewportはReact-memory-onlyでlocalStorage非永続化                                                                                              |
 | AM-4: zoom時の選択範囲不変                                 | ✅   | zoomIn/zoomOutはviewportのみ変更。`rangeStart`/`rangeEnd`は一切変更しない。Sliderの`min`/`max`にviewportを使用                                                                                                                                                                                             |
 | AM-4: 全素材自動更新（range commit）                        | ✅   | `handleRangeCommit`がsentence（`selectCueTextInRange` ASB >=50% rule）、source（`formatTime` label）、screenshot（visible video seek→capture→restore）、audio（`recordAudioClip`）を一括更新。user-edited definition/word/tagsは上書きしない。`onValueCommit`で発火、manual buttonは削除済み |
-| AM-4: Range dock + subtitle markers                        | ✅   | Range areaを`.entei-mining-body`の外へbottom dock（`flex-shrink:0`）へ移動。subtitle-boundary marker ticksがviewport内のcue start位置に描画（`aria-hidden`、`pointer-events:none`）。footer Close button削除、Dialog X closeのみ。control row: ZoomOut LEFT / ZoomIn RIGHT       |
+| AM-4: Range dock + subtitle markers                        | ✅   | Range areaを`.entei-mining-body`の外へbottom dock（`flex-shrink:0`）へ移動。subtitle-boundary marker ticksがviewport内のcue start位置に描画（`aria-hidden`、`pointer-events:none`）。footer Close button削除、Dialog X closeのみ。control row: ZoomOut LEFT / Send CENTER / ZoomIn RIGHT       |
 | AM-4 Stage 1.1: Range commit auto-refresh                  | ✅   | Slider `onValueCommit`（thumb release/keyboard commit）が`handleRangeCommit`を呼び出し、committed `[start,end]`値でsentence/source/screenshot/audioを一括refresh。`onValueChange`は即時UI stateのみ（drag中はrefreshしない）。manual Update materials button削除済み。refresh中はSlider/zoom disabled。AbortController/epoch/mounted guard適用。no fetch/localStorage/Anki write |
+| AM-6a Stage 2: New note export                             | ✅   | `AnkiExportClient`（write専用）。`handleExportSend`が`canAddNotes`→`storeMediaFile`（image/audio Blob base64）→`addNote`の順で実行。canAddNotes false→upload/addNoteしない。**新カード重複許可**: `options: { allowDuplicate: true, duplicateScope: 'deck', duplicateScopeOptions: { deckName: prefs.deck, checkChildren: false } }`をcanAddNotes/addNote両方へ送信（asbplayer互換）。Update modeは重複オプションなし。API keyはpage-lifetime React memory（localStorage非永続化）。`ToggleGroup type="single"`（new/update）。Lucide `Send` button。abort/epoch/double-submit guard。AM-6c specific searchは未実装 |
+| AM-6b Stage 2: Update latest note                           | ✅   | Update mode one-click Send: `findNotes('added:1')`→max noteId→`notesInfo`→model validation→`storeMediaFile`（if available）→`updateNoteFields`。候補確認ステップ削除（candidate UI/state/i18n全削除）。missing mediaは既存fieldをwipeしない。target model mismatch/no candidate/notesInfo malformed→zero write。Send labelはNew/Update両モードで`Ankiへ送信`固定 |
 
 ### 検証結果
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 23 files, 583 tests pass
+npm run test           ✅ 26 files, 647 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```
@@ -878,7 +883,7 @@ AM-1を始める前に、以下だけを確認する。
 | asbplayerはAnki / Miningを別tabにする                                 | `A:\asbplayer\common\components\SettingsForm.tsx:433-489`        | Enteiは実需があるAnki Fieldsだけを初期Modalへ置く                               |
 | asbplayerはDeck→Note type→fieldを選択する                             | `A:\asbplayer\common\components\AnkiSettingsTab.tsx:486-558`     | mapping依存を同じ順で扱う                                                       |
 | asbplayerはmining後のplayer状態やMP3再encodeを設定できる              | `A:\asbplayer\common\components\MiningSettingsTab.tsx:129-228`   | Enteiでは両方を不採用にし、fixed pause restore + native lightweight audioにする |
-| asbplayerは`added:1`候補の最大note IDをupdate last対象にする          | `A:\asbplayer\common\anki\anki.ts:545-582`                       | Enteiもtarget表示・確認を挟んで採用                                             |
+| asbplayerは`added:1`候補の最大note IDをupdate last対象にする          | `A:\asbplayer\common\anki\anki.ts:545-582`                       | Enteiも`added:1`最大noteIdを採用。候補確認ステップは廃止、one-click update   |
 | AnkiConnectは`findNotes` / `notesInfo` / `updateNoteFields`を提供する | AnkiConnect official docs（Context7, 2026-07-22）                | candidate確認後のspecific updateを実装                                          |
 | Anki公式の`added:1`は今日追加されたcard creation検索                  | Anki Manual Search（Exa, 2026-07-22）                            | ASBと同じlatest candidate発見に使い、candidateなしなら更新しない                |
 | audio captureはbrowser capability差がある                             | `A:\asbplayer\common\audio-clip\audio-clip.ts:61,317,436-440`    | capability gate + honest fallback                                               |

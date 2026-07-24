@@ -15,7 +15,15 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Play, Pause, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  Play,
+  Pause,
+  ZoomIn,
+  ZoomOut,
+  Send,
+  FilePlusCorner,
+  FileUp,
+} from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +33,10 @@ import {
 } from '@/components/player/ui/dialog';
 import { Slider } from '@/components/player/ui/slider';
 import { AspectRatio } from '@/components/player/ui/aspect-ratio';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/player/ui/toggle-group';
 import { formatTime } from '@/features/player/control-helpers';
 import {
   computeInitialViewport,
@@ -64,6 +76,15 @@ interface MiningPreviewDialogProps {
   onRangeChange: (value: number[]) => void;
   onRangeCommit: (value: number[]) => void;
   onCancel: () => void;
+  // Stage 2: Export controls
+  exportMode: 'new' | 'update';
+  onExportModeChange: (mode: 'new' | 'update') => void;
+  isExporting: boolean;
+  canExport: boolean;
+  exportDisabledReason: string | null;
+  exportError: string | null;
+  exportSuccess: boolean;
+  onExportSend: () => void;
   dict: {
     miningPreviewTitle: string;
     miningPreviewRange: string;
@@ -81,6 +102,16 @@ interface MiningPreviewDialogProps {
     audioClipPause: string;
     audioClipNoPreview: string;
     dialogClose: string;
+    exportModeNew: string;
+    exportModeUpdate: string;
+    exportSendNew: string;
+    exportNoCandidate: string;
+    exportSuccess: string;
+    exportError: string;
+    exportSendDisabledNoConnection: string;
+    exportSendDisabledInvalidPreset: string;
+    exportSendDisabledNoSentence: string;
+    exportSendDisabledRequestActive: string;
   };
 }
 
@@ -109,6 +140,14 @@ export function MiningPreviewDialog({
   onRangeChange,
   onRangeCommit,
   onCancel: _onCancel,
+  exportMode,
+  onExportModeChange,
+  isExporting,
+  canExport,
+  exportDisabledReason,
+  exportError,
+  exportSuccess,
+  onExportSend,
   dict,
 }: MiningPreviewDialogProps) {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
@@ -139,9 +178,7 @@ export function MiningPreviewDialog({
       setViewportInitialized(true);
       return;
     }
-    setViewport(
-      computeInitialViewport(rangeStart, rangeEnd, mediaDuration),
-    );
+    setViewport(computeInitialViewport(rangeStart, rangeEnd, mediaDuration));
     setViewportInitialized(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -151,7 +188,14 @@ export function MiningPreviewDialog({
     setViewport((prev) =>
       reframeIfNeeded(prev, rangeStart, rangeEnd, mediaDuration),
     );
-  }, [rangeStart, rangeEnd, mediaDuration, open, durationKnown, viewportInitialized]);
+  }, [
+    rangeStart,
+    rangeEnd,
+    mediaDuration,
+    open,
+    durationKnown,
+    viewportInitialized,
+  ]);
 
   // --- AM-4: Subtitle-boundary marker ticks within current viewport ---
   const markers = useMemo(() => {
@@ -171,12 +215,12 @@ export function MiningPreviewDialog({
   }, [cues, viewport, durationKnown]);
 
   const sliderDisabled =
-    !durationKnown || isCapturing || isRefreshing || !canRefresh;
-  const zoomDisabled = !durationKnown || isCapturing || isRefreshing;
+    !durationKnown || isCapturing || isRefreshing || !canRefresh || isExporting;
+  const zoomDisabled =
+    !durationKnown || isCapturing || isRefreshing || isExporting;
   const zoomInDisabled =
     zoomDisabled || !canZoomIn(viewport, rangeStart, rangeEnd);
-  const zoomOutDisabled =
-    zoomDisabled || !canZoomOut(viewport, mediaDuration);
+  const zoomOutDisabled = zoomDisabled || !canZoomOut(viewport, mediaDuration);
 
   const handleZoomIn = useCallback(() => {
     setViewport((prev) =>
@@ -422,6 +466,39 @@ export function MiningPreviewDialog({
               </div>
             );
           })}
+
+          {/* Stage 2: Export mode toggle — in scroll body, centered */}
+          <div className="entei-mining-export-mode-section">
+            <ToggleGroup
+              type="single"
+              value={exportMode}
+              onValueChange={(value) => {
+                if (value === 'new' || value === 'update') {
+                  onExportModeChange(value);
+                }
+              }}
+              disabled={isExporting}
+              className="entei-mining-export-toggle"
+              aria-label="Export mode"
+            >
+              <ToggleGroupItem
+                value="new"
+                aria-label={dict.exportModeNew}
+                disabled={isExporting}
+              >
+                <FilePlusCorner size={16} aria-hidden />
+                <span>{dict.exportModeNew}</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="update"
+                aria-label={dict.exportModeUpdate}
+                disabled={isExporting}
+              >
+                <FileUp size={16} aria-hidden />
+                <span>{dict.exportModeUpdate}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </div>
 
         {/* --- AM-4: Range dock — outside scrolling body, always visible --- */}
@@ -475,7 +552,7 @@ export function MiningPreviewDialog({
                 )}
               </div>
 
-              {/* Control row: ZoomOut LEFT, ZoomIn RIGHT — balanced */}
+              {/* Control row: ZoomOut LEFT, Send CENTER, ZoomIn RIGHT */}
               <div className="entei-mining-range-controls">
                 <button
                   type="button"
@@ -487,7 +564,19 @@ export function MiningPreviewDialog({
                 >
                   <ZoomOut size={18} aria-hidden />
                 </button>
-                <div className="entei-mining-range-controls-spacer" />
+                <button
+                  type="button"
+                  className="entei-mining-export-send-btn"
+                  onClick={onExportSend}
+                  disabled={!canExport}
+                  aria-label={dict.exportSendNew}
+                  title={
+                    exportDisabledReason ?? dict.exportSendNew
+                  }
+                >
+                  <Send size={16} aria-hidden />
+                  <span>{dict.exportSendNew}</span>
+                </button>
                 <button
                   type="button"
                   className="entei-mining-zoom-btn"
@@ -498,6 +587,25 @@ export function MiningPreviewDialog({
                 >
                   <ZoomIn size={18} aria-hidden />
                 </button>
+              </div>
+
+              {/* Stage 2: Export status (error/success) */}
+              <div className="entei-mining-export-status">
+                {/* Error/success status */}
+                {exportError && (
+                  <p className="entei-mining-export-error" role="alert">
+                    {exportError}
+                  </p>
+                )}
+                {exportSuccess && (
+                  <p
+                    className="entei-mining-export-success"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {dict.exportSuccess}
+                  </p>
+                )}
               </div>
             </>
           ) : (

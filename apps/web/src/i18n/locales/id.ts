@@ -170,6 +170,19 @@ export const id: Dictionary = {
     miningPreviewRangeInvalid: 'Rentang tidak valid',
     miningZoomIn: 'Perbesar',
     miningZoomOut: 'Perkecil',
+    exportModeNew: 'Kartu baru',
+    exportModeUpdate: 'Perbarui kartu',
+    exportSendNew: 'Kirim ke Anki',
+    exportNoCandidate: 'Tidak ada catatan terbaru ditemukan.',
+    exportSuccess: 'Berhasil dikirim.',
+    exportError: 'Ekspor gagal.',
+    exportSendDisabledNoConnection: 'AnkiConnect tidak terhubung.',
+    exportSendDisabledInvalidPreset:
+      'Dek, tipe catatan, dan mapping kalimat diperlukan.',
+    exportSendDisabledNoSentence: 'Field kalimat kosong.',
+    exportSendDisabledRequestActive: 'Permintaan sedang berlangsung.',
+    exportRejectedCanAdd:
+      'Anki menolak catatan ini (kemungkinan duplikat). Periksa deck dan field mapping di Pengaturan.',
   },
   reader: {
     title: 'Pembaca EPUB',

@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from './ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
-import { AnkiFieldsTab } from './AnkiFieldsTab';
+import { AnkiFieldsTab, type AnkiSessionCredentials } from './AnkiFieldsTab';
 import type { Dictionary } from '@i18n/types';
 import type { ShortcutEntry } from './KeyboardShortcutsHelp';
 
@@ -29,6 +29,7 @@ interface PlayerSettingsDialogProps {
   shortcuts: ShortcutEntry[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSessionCredentials?: (creds: AnkiSessionCredentials | null) => void;
 }
 
 export function PlayerSettingsDialog({
@@ -36,6 +37,7 @@ export function PlayerSettingsDialog({
   shortcuts,
   open,
   onOpenChange,
+  onSessionCredentials,
 }: PlayerSettingsDialogProps) {
   /* W6: Toggle root class to hide TopBar on mobile while Settings is open.
    * Cleanup removes class on close and unmount. */
@@ -111,7 +113,10 @@ export function PlayerSettingsDialog({
                 value="anki"
                 className="entei-settings-tab-content"
               >
-                <AnkiFieldsTab dict={dict} />
+                <AnkiFieldsTab
+                  dict={dict}
+                  onSessionCredentials={onSessionCredentials}
+                />
               </TabsContent>
             </div>
           </div>

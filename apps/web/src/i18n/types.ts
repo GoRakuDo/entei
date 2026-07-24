@@ -192,6 +192,18 @@ export interface Dictionary {
     miningPreviewRangeInvalid: string;
     miningZoomIn: string;
     miningZoomOut: string;
+    // AM-6a/b: Export controls
+    exportModeNew: string;
+    exportModeUpdate: string;
+    exportSendNew: string;
+    exportNoCandidate: string;
+    exportSuccess: string;
+    exportError: string;
+    exportSendDisabledNoConnection: string;
+    exportSendDisabledInvalidPreset: string;
+    exportSendDisabledNoSentence: string;
+    exportSendDisabledRequestActive: string;
+    exportRejectedCanAdd: string;
   };
   reader: {
     title: string;

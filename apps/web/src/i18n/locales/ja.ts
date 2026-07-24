@@ -170,6 +170,19 @@ export const ja: Dictionary = {
     miningPreviewRangeInvalid: '無効な範囲',
     miningZoomIn: '拡大',
     miningZoomOut: '縮小',
+    exportModeNew: '新カード',
+    exportModeUpdate: 'カード更新',
+    exportSendNew: 'Ankiへ送信',
+    exportNoCandidate: '最近のノートが見つかりません。',
+    exportSuccess: '送信完了。',
+    exportError: '送信に失敗しました。',
+    exportSendDisabledNoConnection: 'AnkiConnectに接続されていません。',
+    exportSendDisabledInvalidPreset:
+      'デッキ・ノートタイプ・文章マッピングが必要です。',
+    exportSendDisabledNoSentence: '文章フィールドが空です。',
+    exportSendDisabledRequestActive: 'リクエスト処理中です。',
+    exportRejectedCanAdd:
+      'Ankiがこのノートを拒否しました（重複の可能性があります）。設定でデッキとフィールドマッピングを確認してください。',
   },
   reader: {
     title: 'EPUBリーダー',

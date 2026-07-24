@@ -2820,6 +2820,113 @@ html.entei-player-immersive .entei-player-audio-area {
   flex: 1;
 }
 
+/* --- Stage 2: Export status (candidate/error/success below control row) --- */
+.entei-mining-export-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+/* --- Stage 2: Export mode toggle (in scroll body, centered) --- */
+.entei-mining-export-mode-section {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--entei-space-12) 0;
+}
+
+/* --- Stage 2: Export toggle (in scroll body, centered) --- */
+.entei-mining-export-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+}
+
+.entei-mining-export-toggle button {
+  min-height: var(--entei-touch-min);
+}
+
+.entei-mining-export-error {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: oklch(65% 0.18 25deg);
+  margin: 0;
+}
+
+.entei-mining-export-success {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: oklch(72% 0.17 145deg);
+  margin: 0;
+}
+
+.entei-mining-export-send-btn {
+  width: min(100%, 20rem);
+  max-width: 20rem;
+  min-width: 0;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-16);
+  background-color: var(--entei-accent);
+  color: oklch(100% 0 0deg / 1);
+  border: 1px solid var(--entei-accent);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    opacity var(--entei-duration-fast) var(--entei-ease-productive),
+    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-mining-export-send-btn:hover:not(:disabled) {
+  opacity: 0.92;
+  box-shadow: 0 4px 12px
+    color-mix(in oklch, var(--entei-accent) 20%, transparent);
+}
+
+.entei-mining-export-send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.entei-mining-export-send-btn:focus-visible {
+  outline: 3px solid color-mix(in oklch, var(--entei-accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+/* --- Scoped ToggleGroup hover/contrast overrides --- */
+/* Fix low-contrast shadcn default hover by using accent-tinted surface
+   and high-contrast text for inactive items. */
+.entei-mining-export-toggle button[data-state='off']:hover:not(:disabled) {
+  background-color: color-mix(in oklch, var(--entei-accent) 12%, transparent);
+  color: var(--entei-text);
+}
+
+.entei-mining-export-toggle button[data-state='on']:hover:not(:disabled) {
+  background-color: color-mix(in oklch, var(--entei-accent) 25%, transparent);
+  color: var(--entei-text);
+}
+
+.entei-mining-export-toggle button[data-state='on'] {
+  background-color: color-mix(in oklch, var(--entei-accent) 18%, transparent);
+  color: var(--entei-text);
+}
+
+.entei-mining-export-toggle button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* --- Reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
   .entei-mining-dialog .entei-dialog-header,
@@ -2827,7 +2934,8 @@ html.entei-player-immersive .entei-player-audio-area {
   .entei-mining-range-dock,
   .entei-mining-processing-spinner,
   .entei-mining-skeleton,
-  .entei-mining-zoom-btn {
+  .entei-mining-zoom-btn,
+  .entei-mining-export-send-btn {
     transition: none;
     animation: none;
   }

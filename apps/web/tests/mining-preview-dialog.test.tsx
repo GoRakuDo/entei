@@ -50,6 +50,17 @@ const mockDict = {
   audioClipPause: 'Pause',
   audioClipNoPreview: 'No preview available.',
   dialogClose: 'Close',
+  exportModeNew: 'New card',
+  exportModeUpdate: 'Update card',
+  exportSendNew: 'Send to Anki',
+  exportNoCandidate: 'No recent note found.',
+  exportSuccess: 'Sent successfully.',
+  exportError: 'Export failed.',
+  exportSendDisabledNoConnection: 'AnkiConnect is not connected.',
+  exportSendDisabledInvalidPreset: 'Invalid preset.',
+  exportSendDisabledNoSentence: 'Sentence is empty.',
+  exportSendDisabledRequestActive: 'Request in progress.',
+  exportRejectedCanAdd: 'Anki rejected this note.',
 };
 
 const baseProps = {
@@ -57,7 +68,11 @@ const baseProps = {
   onOpenChange: vi.fn(),
   draftFields: [
     { key: 'sentence', physicalName: 'SentenceField', value: 'テスト文章' },
-    { key: 'source', physicalName: 'SourceField', value: 'test.mp4 (00:10 – 00:15)' },
+    {
+      key: 'source',
+      physicalName: 'SourceField',
+      value: 'test.mp4 (00:10 – 00:15)',
+    },
   ],
   onDraftFieldChange: vi.fn(),
   screenshotUrl: null,
@@ -76,6 +91,14 @@ const baseProps = {
   onRangeChange: vi.fn(),
   onRangeCommit: vi.fn(),
   onCancel: vi.fn(),
+  exportMode: 'new' as const,
+  onExportModeChange: vi.fn(),
+  isExporting: false,
+  canExport: true,
+  exportDisabledReason: null,
+  exportError: null,
+  exportSuccess: false,
+  onExportSend: vi.fn(),
   dict: mockDict,
 };
 
@@ -137,16 +160,16 @@ describe('MiningPreviewDialog', () => {
         onDraftFieldChange={onDraftFieldChange}
       />,
     );
-    const input = document.body.querySelector('textarea') as HTMLTextAreaElement;
+    const input = document.body.querySelector(
+      'textarea',
+    ) as HTMLTextAreaElement;
     expect(input).not.toBeNull();
     fireEvent.change(input, { target: { value: 'new value' } });
     expect(onDraftFieldChange).toHaveBeenCalledWith(0, 'new value');
   });
 
   it('renders empty draft fields array with no field sections', () => {
-    render(
-      <MiningPreviewDialog {...baseProps} draftFields={[]} />,
-    );
+    render(<MiningPreviewDialog {...baseProps} draftFields={[]} />);
     // Should only have the Range section, no field sections
     expect(document.body.textContent).toContain(mockDict.miningPreviewRange);
     expect(document.body.querySelector('.entei-mining-input')).toBeNull();
@@ -156,9 +179,7 @@ describe('MiningPreviewDialog', () => {
     render(
       <MiningPreviewDialog
         {...baseProps}
-        draftFields={[
-          { key: 'image', physicalName: 'fld_Image', value: '' },
-        ]}
+        draftFields={[{ key: 'image', physicalName: 'fld_Image', value: '' }]}
         screenshotUrl="blob:screenshot"
       />,
     );
@@ -185,9 +206,7 @@ describe('MiningPreviewDialog', () => {
     render(
       <MiningPreviewDialog
         {...baseProps}
-        draftFields={[
-          { key: 'image', physicalName: 'fld_Image', value: '' },
-        ]}
+        draftFields={[{ key: 'image', physicalName: 'fld_Image', value: '' }]}
         hasScreenshotError
       />,
     );
@@ -200,9 +219,7 @@ describe('MiningPreviewDialog', () => {
     render(
       <MiningPreviewDialog
         {...baseProps}
-        draftFields={[
-          { key: 'image', physicalName: 'fld_Image', value: '' },
-        ]}
+        draftFields={[{ key: 'image', physicalName: 'fld_Image', value: '' }]}
         isScreenshotUnavailable
       />,
     );
@@ -215,9 +232,7 @@ describe('MiningPreviewDialog', () => {
     render(
       <MiningPreviewDialog
         {...baseProps}
-        draftFields={[
-          { key: 'audio', physicalName: 'fld_Audio', value: '' },
-        ]}
+        draftFields={[{ key: 'audio', physicalName: 'fld_Audio', value: '' }]}
         audioUrl="blob:audio"
         audioExpectedDuration={5}
       />,
@@ -246,9 +261,7 @@ describe('MiningPreviewDialog', () => {
     render(
       <MiningPreviewDialog
         {...baseProps}
-        draftFields={[
-          { key: 'audio', physicalName: 'fld_Audio', value: '' },
-        ]}
+        draftFields={[{ key: 'audio', physicalName: 'fld_Audio', value: '' }]}
         hasAudioError
       />,
     );
@@ -311,12 +324,7 @@ describe('MiningPreviewDialog', () => {
 
   it('triggers onOpenChange when Dialog close is invoked', () => {
     const onOpenChange = vi.fn();
-    render(
-      <MiningPreviewDialog
-        {...baseProps}
-        onOpenChange={onOpenChange}
-      />,
-    );
+    render(<MiningPreviewDialog {...baseProps} onOpenChange={onOpenChange} />);
     // Simulate the Dialog X / Escape by calling onOpenChange(false)
     // Radix Dialog routes both through onOpenChange
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -445,9 +453,7 @@ describe('MiningPreviewDialog', () => {
     render(
       <MiningPreviewDialog
         {...baseProps}
-        draftFields={[
-          { key: 'image', physicalName: 'fld_Image', value: '' },
-        ]}
+        draftFields={[{ key: 'image', physicalName: 'fld_Image', value: '' }]}
         isCapturing
       />,
     );
@@ -595,15 +601,18 @@ describe('MiningPreviewDialog', () => {
     expect(body!.contains(dock!)).toBe(false);
   });
 
-  it('control row has ZoomOut and ZoomIn buttons (no Update materials)', () => {
+  it('control row DOM order is ZoomOut, Send, ZoomIn', () => {
     render(<MiningPreviewDialog {...baseProps} />);
-    const controls = document.body.querySelector('.entei-mining-range-controls');
+    const controls = document.body.querySelector(
+      '.entei-mining-range-controls',
+    );
     expect(controls).not.toBeNull();
     const buttons = controls!.querySelectorAll('button');
-    expect(buttons.length).toBe(2);
-    // First = ZoomOut, Second = ZoomIn
+    expect(buttons.length).toBe(3);
+    // First = ZoomOut, Second = Send, Third = ZoomIn
     expect(buttons[0]!.getAttribute('aria-label')).toBe(mockDict.miningZoomOut);
-    expect(buttons[1]!.getAttribute('aria-label')).toBe(mockDict.miningZoomIn);
+    expect(buttons[1]!.textContent).toContain(mockDict.exportSendNew);
+    expect(buttons[2]!.getAttribute('aria-label')).toBe(mockDict.miningZoomIn);
     // No Update materials button
     const updateBtn = document.body.querySelector('.entei-mining-update-btn');
     expect(updateBtn).toBeNull();
@@ -624,7 +633,9 @@ describe('MiningPreviewDialog', () => {
         mediaDuration={60}
       />,
     );
-    const markers = document.body.querySelectorAll('.entei-mining-range-marker');
+    const markers = document.body.querySelectorAll(
+      '.entei-mining-range-marker',
+    );
     // cue at 11s and 13s should be in viewport (0-60 initially);
     // cue at 50s should also be in viewport (0-60)
     // but the initial viewport is computed around 10-15, so likely 0-~25
@@ -646,15 +657,15 @@ describe('MiningPreviewDialog', () => {
         mediaDuration={600}
       />,
     );
-    const markers = document.body.querySelectorAll('.entei-mining-range-marker');
+    const markers = document.body.querySelectorAll(
+      '.entei-mining-range-marker',
+    );
     // Only cue at 12s should be in the focused viewport around 10-15
     expect(markers.length).toBe(1);
   });
 
   it('markers container has pointer-events none via class', () => {
-    const cues = [
-      { id: 1, start: 12, end: 14, text: 'cue1' },
-    ];
+    const cues = [{ id: 1, start: 12, end: 14, text: 'cue1' }];
     render(
       <MiningPreviewDialog
         {...baseProps}
@@ -664,17 +675,19 @@ describe('MiningPreviewDialog', () => {
         mediaDuration={60}
       />,
     );
-    const markerContainer = document.body.querySelector('.entei-mining-range-markers');
+    const markerContainer = document.body.querySelector(
+      '.entei-mining-range-markers',
+    );
     expect(markerContainer).not.toBeNull();
     // The CSS class .entei-mining-range-markers sets pointer-events: none
     // JSDOM does not compute CSS, so we verify the class is present
-    expect(markerContainer!.classList.contains('entei-mining-range-markers')).toBe(true);
+    expect(
+      markerContainer!.classList.contains('entei-mining-range-markers'),
+    ).toBe(true);
   });
 
   it('markers are aria-hidden', () => {
-    const cues = [
-      { id: 1, start: 12, end: 14, text: 'cue1' },
-    ];
+    const cues = [{ id: 1, start: 12, end: 14, text: 'cue1' }];
     render(
       <MiningPreviewDialog
         {...baseProps}
@@ -684,15 +697,15 @@ describe('MiningPreviewDialog', () => {
         mediaDuration={60}
       />,
     );
-    const markerContainer = document.body.querySelector('.entei-mining-range-markers');
+    const markerContainer = document.body.querySelector(
+      '.entei-mining-range-markers',
+    );
     expect(markerContainer).not.toBeNull();
     expect(markerContainer!.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('range slider still has 2 role=slider thumbs with cues', () => {
-    const cues = [
-      { id: 1, start: 10, end: 15, text: 'cue1' },
-    ];
+    const cues = [{ id: 1, start: 10, end: 15, text: 'cue1' }];
     render(
       <MiningPreviewDialog
         {...baseProps}
@@ -706,5 +719,158 @@ describe('MiningPreviewDialog', () => {
       '.entei-mining-range-slider [role="slider"]',
     );
     expect(thumbs.length).toBe(2);
+  });
+
+  // --- Stage 2: Export controls ---
+
+  it('renders ToggleGroup with New and Update mode items', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const newBtn = document.body.querySelector(
+      `[aria-label="${mockDict.exportModeNew}"]`,
+    );
+    const updateBtn = document.body.querySelector(
+      `[aria-label="${mockDict.exportModeUpdate}"]`,
+    );
+    expect(newBtn).not.toBeNull();
+    expect(updateBtn).not.toBeNull();
+  });
+
+  it('calls onExportModeChange when toggling mode (ignores empty value)', () => {
+    const onExportModeChange = vi.fn();
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        onExportModeChange={onExportModeChange}
+      />,
+    );
+    const updateBtn = document.body.querySelector(
+      `[aria-label="${mockDict.exportModeUpdate}"]`,
+    ) as HTMLElement;
+    expect(updateBtn).not.toBeNull();
+    fireEvent.click(updateBtn);
+    expect(onExportModeChange).toHaveBeenCalledWith('update');
+  });
+
+  it('renders Send button with localized label', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const sendBtn = document.body.querySelector(
+      '.entei-mining-export-send-btn',
+    );
+    expect(sendBtn).not.toBeNull();
+    expect(sendBtn!.textContent).toContain(mockDict.exportSendNew);
+  });
+
+  it('keeps the Send label stable in update mode (no candidate step)', () => {
+    render(<MiningPreviewDialog {...baseProps} exportMode="update" />);
+    const sendBtn = document.body.querySelector(
+      '.entei-mining-export-send-btn',
+    );
+    expect(sendBtn).not.toBeNull();
+    expect(sendBtn!.textContent).toContain(mockDict.exportSendNew);
+  });
+
+  it('calls onExportSend when Send button is clicked', () => {
+    const onExportSend = vi.fn();
+    render(<MiningPreviewDialog {...baseProps} onExportSend={onExportSend} />);
+    const sendBtn = document.body.querySelector(
+      '.entei-mining-export-send-btn',
+    ) as HTMLButtonElement;
+    fireEvent.click(sendBtn);
+    expect(onExportSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Send button when canExport is false', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        canExport={false}
+        exportDisabledReason={mockDict.exportSendDisabledNoConnection}
+      />,
+    );
+    const sendBtn = document.body.querySelector(
+      '.entei-mining-export-send-btn',
+    ) as HTMLButtonElement;
+    expect(sendBtn.disabled).toBe(true);
+  });
+
+  it('shows localized error with role=alert when exportError is set', () => {
+    render(
+      <MiningPreviewDialog {...baseProps} exportError={mockDict.exportError} />,
+    );
+    const alert = document.body.querySelector(
+      '.entei-mining-export-error[role="alert"]',
+    );
+    expect(alert).not.toBeNull();
+    expect(alert!.textContent).toContain(mockDict.exportError);
+  });
+
+  it('shows localized success with role=status when exportSuccess is true', () => {
+    render(<MiningPreviewDialog {...baseProps} exportSuccess />);
+    const status = document.body.querySelector(
+      '.entei-mining-export-success[role="status"]',
+    );
+    expect(status).not.toBeNull();
+    expect(status!.textContent).toContain(mockDict.exportSuccess);
+  });
+
+  it('does not render candidate info (one-click update, no candidate UI)', () => {
+    render(<MiningPreviewDialog {...baseProps} exportMode="update" />);
+    const candidate = document.body.querySelector(
+      '.entei-mining-export-candidate',
+    );
+    expect(candidate).toBeNull();
+  });
+
+  it('disables ToggleGroup during export', () => {
+    render(<MiningPreviewDialog {...baseProps} isExporting />);
+    const toggle = document.body.querySelector('.entei-mining-export-toggle');
+    expect(toggle).not.toBeNull();
+    // ToggleGroup items should be disabled
+    const items = toggle!.querySelectorAll('button');
+    items.forEach((item) => {
+      expect((item as HTMLButtonElement).disabled).toBe(true);
+    });
+  });
+
+  it('ToggleGroup is inside scrollable body, not in range dock', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const body = document.body.querySelector('.entei-mining-body');
+    const dock = document.body.querySelector('.entei-mining-range-dock');
+    const toggle = document.body.querySelector('.entei-mining-export-toggle');
+    expect(toggle).not.toBeNull();
+    // Toggle should be inside body, NOT inside dock
+    expect(body!.contains(toggle!)).toBe(true);
+    expect(dock!.contains(toggle!)).toBe(false);
+  });
+
+  it('ToggleGroup is centered via CSS class', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const section = document.body.querySelector(
+      '.entei-mining-export-mode-section',
+    );
+    expect(section).not.toBeNull();
+    // CSS class provides centering; verify class is present
+    expect(
+      section!.classList.contains('entei-mining-export-mode-section'),
+    ).toBe(true);
+  });
+
+  it('ToggleGroup has scoped hover override class', () => {
+    render(<MiningPreviewDialog {...baseProps} />);
+    const toggle = document.body.querySelector('.entei-mining-export-toggle');
+    expect(toggle).not.toBeNull();
+    // The scoped CSS overrides use this class selector
+    expect(toggle!.classList.contains('entei-mining-export-toggle')).toBe(true);
+  });
+
+  it('ToggleGroup active item has high-contrast via scoped CSS', () => {
+    render(<MiningPreviewDialog {...baseProps} exportMode="update" />);
+    const activeItem = document.body.querySelector(
+      '.entei-mining-export-toggle button[data-state="on"]',
+    );
+    expect(activeItem).not.toBeNull();
+    // data-state="on" is the active toggle item; scoped CSS sets
+    // accent-tinted background + high-contrast text
+    expect(activeItem!.getAttribute('data-state')).toBe('on');
   });
 });

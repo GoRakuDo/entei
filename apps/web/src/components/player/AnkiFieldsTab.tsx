@@ -42,8 +42,15 @@ import type { Dictionary } from '@i18n/types';
 /** Retry interval in milliseconds. */
 const RETRY_INTERVAL_MS = 10_000;
 
+/** Session credentials bridge to PlayerApp for export. */
+export interface AnkiSessionCredentials {
+  endpoint: string;
+  apiKey: string;
+}
+
 interface AnkiFieldsTabProps {
   dict: Dictionary['playerUI'];
+  onSessionCredentials?: (creds: AnkiSessionCredentials | null) => void;
 }
 
 /** Return a localized error string for a given connection state. */
@@ -69,7 +76,10 @@ function getLocalizedError(
   }
 }
 
-export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
+export function AnkiFieldsTab({
+  dict,
+  onSessionCredentials,
+}: AnkiFieldsTabProps) {
   // --- Accessibility IDs ---
   const endpointLabelId = useId();
   const apiKeyLabelId = useId();
@@ -173,6 +183,9 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
       setModels(result.models);
       setConnectionState('connected');
 
+      // Stage 2: Export session credentials to PlayerApp
+      onSessionCredentials?.({ endpoint, apiKey });
+
       if (result.requireApiKey) {
         setShowApiKeyInput(true);
       }
@@ -206,12 +219,14 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
       }
       setConnectionState(state);
       setErrorMessage(message);
+      // Clear session credentials on connection failure
+      onSessionCredentials?.(null);
     } finally {
       if (!controller.signal.aborted) {
         setIsConnecting(false);
       }
     }
-  }, [endpoint, apiKey, selectedModel]);
+  }, [endpoint, apiKey, selectedModel, onSessionCredentials]);
 
   // --- Schedule continuous retry in 10s (no overlap) ---
   const scheduleRetry = useCallback(() => {
@@ -368,6 +383,7 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
       deck: selectedDeck || null,
       noteType: selectedModel || null,
       fields: { ...fields },
+      exportMode: readAnkiMinerPreferences().exportMode,
     };
 
     if (!isValidPreset(prefs)) return;
@@ -383,6 +399,7 @@ export function AnkiFieldsTab({ dict }: AnkiFieldsTabProps) {
     deck: selectedDeck || null,
     noteType: selectedModel || null,
     fields,
+    exportMode: 'new',
   };
   const canSave =
     isValidPreset(prefsForValidation) &&

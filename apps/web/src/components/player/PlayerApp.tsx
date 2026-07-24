@@ -75,9 +75,19 @@ import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
   readAnkiMinerPreferences,
+  writeAnkiMinerPreferences,
   type AnkiFieldMapping,
 } from '@/features/player/anki-miner-preferences';
 import { selectCueTextInRange } from '@/features/player/subtitle-interval';
+import {
+  AnkiExportClient,
+  blobToBase64,
+  generateMediaFilename,
+} from '@/features/player/anki-export-client';
+import {
+  AnkiConnectClient,
+  runAnkiConnectionFlow,
+} from '@/features/player/anki-connect';
 
 function getInitialLocale(): 'id' | 'ja' | 'en' {
   const lang = document.documentElement.lang;
@@ -247,6 +257,32 @@ export default function PlayerApp() {
   const miningAbortControllerRef = useRef<AbortController | null>(null);
   const miningSnapshotTimeRef = useRef(0);
 
+  // --- Stage 2: AnkiConnect session credentials (page-lifetime, memory-only) ---
+  const [ankiSession, setAnkiSession] = useState<{
+    endpoint: string;
+    apiKey: string;
+  } | null>(null);
+  // Background connection: epoch to detect supersession by Settings connection
+  const bgConnEpochRef = useRef(0);
+  const bgConnAbortRef = useRef<AbortController | null>(null);
+  const bgConnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track whether Settings has established a session (prevents background overwrite)
+  const settingsSessionActiveRef = useRef(false);
+  // Ref to allow handleSessionCredentials to trigger background restart
+  const attemptBgRef = useRef<() => void>(() => {});
+  // Export state
+  const [exportMode, setExportModeState] = useState<'new' | 'update'>(
+    () => readAnkiMinerPreferences().exportMode,
+  );
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState(false);
+  const exportEpochRef = useRef(0);
+  const exportAbortControllerRef = useRef<AbortController | null>(null);
+  // Refs for Blobs (kept separately from preview URLs)
+  const miningScreenshotBlobRef = useRef<Blob | null>(null);
+  const miningAudioBlobRef = useRef<Blob | null>(null);
+
   // --- P1.1: touch + reduced-motion detection ---
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -303,6 +339,18 @@ export default function PlayerApp() {
       }
       // AM-4: Abort any in-flight mining recording
       miningAbortControllerRef.current?.abort();
+      // Stage 2: Clear session credentials + abort pending export
+      setAnkiSession(null);
+      // Background connection cleanup
+      bgConnEpochRef.current += 1;
+      bgConnAbortRef.current?.abort();
+      if (bgConnTimerRef.current !== null) {
+        clearTimeout(bgConnTimerRef.current);
+        bgConnTimerRef.current = null;
+      }
+      exportAbortControllerRef.current?.abort();
+      miningScreenshotBlobRef.current = null;
+      miningAudioBlobRef.current = null;
     };
   }, []);
 
@@ -417,11 +465,18 @@ export default function PlayerApp() {
     setMiningRangeEnd(0);
     setMiningMediaDuration(0);
     setMiningAudioExpectedDuration(0);
+    miningScreenshotBlobRef.current = null;
+    miningAudioBlobRef.current = null;
+    // Stage 2: Clear export state
+    setExportError(null);
+    setExportSuccess(false);
     replaceMiningScreenshotUrl(null);
     replaceMiningAudioUrl(null);
     setIsMiningPreviewOpen(false);
     miningAbortControllerRef.current?.abort();
     miningAbortControllerRef.current = null;
+    exportAbortControllerRef.current?.abort();
+    exportAbortControllerRef.current = null;
   }, [replaceMiningScreenshotUrl, replaceMiningAudioUrl]);
 
   /** AM-4: Build draft fields from Anki field mapping.
@@ -458,7 +513,13 @@ export default function PlayerApp() {
           ? [{ key: 'word', physicalName: mapping.word, value: '' }]
           : []),
         ...(mapping.source
-          ? [{ key: 'source', physicalName: mapping.source, value: sourceLabel }]
+          ? [
+              {
+                key: 'source',
+                physicalName: mapping.source,
+                value: sourceLabel,
+              },
+            ]
           : []),
         ...(mapping.tags
           ? [{ key: 'tags', physicalName: mapping.tags, value: '' }]
@@ -919,7 +980,9 @@ export default function PlayerApp() {
       if (screenshotResult && !screenshotResult.ok) {
         setMiningHasScreenshotError(true);
         replaceMiningScreenshotUrl(null);
+        miningScreenshotBlobRef.current = null;
       } else if (screenshotResult && screenshotResult.ok) {
+        miningScreenshotBlobRef.current = screenshotResult.blob;
         replaceMiningScreenshotUrl(URL.createObjectURL(screenshotResult.blob));
       }
     }
@@ -944,7 +1007,9 @@ export default function PlayerApp() {
     if (!audioResult.ok) {
       setMiningHasAudioError(true);
       replaceMiningAudioUrl(null);
+      miningAudioBlobRef.current = null;
     } else {
+      miningAudioBlobRef.current = audioResult.blob;
       const url = URL.createObjectURL(audioResult.blob);
       replaceMiningAudioUrl(url);
     }
@@ -969,6 +1034,15 @@ export default function PlayerApp() {
     setIsMiningRefreshing(false);
     setMiningHasScreenshotError(false);
     setMiningHasAudioError(false);
+    miningScreenshotBlobRef.current = null;
+    miningAudioBlobRef.current = null;
+    // Stage 2: Clear export state + abort pending export
+    exportEpochRef.current += 1;
+    setIsExporting(false);
+    setExportError(null);
+    setExportSuccess(false);
+    exportAbortControllerRef.current?.abort();
+    exportAbortControllerRef.current = null;
     replaceMiningScreenshotUrl(null);
     replaceMiningAudioUrl(null);
     miningAbortControllerRef.current?.abort();
@@ -1075,7 +1149,9 @@ export default function PlayerApp() {
           if (!screenshotResult.ok) {
             setMiningHasScreenshotError(true);
             replaceMiningScreenshotUrl(null);
+            miningScreenshotBlobRef.current = null;
           } else {
+            miningScreenshotBlobRef.current = screenshotResult.blob;
             replaceMiningScreenshotUrl(
               URL.createObjectURL(screenshotResult.blob),
             );
@@ -1084,6 +1160,7 @@ export default function PlayerApp() {
           if (mountedRef.current && miningEpochRef.current === epoch) {
             setMiningHasScreenshotError(true);
             replaceMiningScreenshotUrl(null);
+            miningScreenshotBlobRef.current = null;
           }
         } finally {
           video.currentTime = miningSnapshotTimeRef.current;
@@ -1111,7 +1188,9 @@ export default function PlayerApp() {
         if (!result.ok) {
           setMiningHasAudioError(true);
           replaceMiningAudioUrl(null);
+          miningAudioBlobRef.current = null;
         } else {
+          miningAudioBlobRef.current = result.blob;
           const url = URL.createObjectURL(result.blob);
           replaceMiningAudioUrl(url);
         }
@@ -1155,10 +1234,372 @@ export default function PlayerApp() {
     const hasSentence = !!prefs.fields.sentence;
     const hasSource = !!prefs.fields.source;
     const hasImage = !!prefs.fields.image && mediaType === 'video';
-    const hasAudio =
-      !!prefs.fields.audio && audioClipCaps.supported;
+    const hasAudio = !!prefs.fields.audio && audioClipCaps.supported;
     return hasSentence || hasSource || hasImage || hasAudio;
   }, [mediaType, audioClipCaps.supported]);
+
+  // --- Stage 2: Export handlers ---
+  /** Handle session credentials from AnkiFieldsTab (page-lifetime, memory-only). */
+  const handleSessionCredentials = useCallback(
+    (creds: { endpoint: string; apiKey: string } | null) => {
+      // Advance epoch so any in-flight background request is superseded
+      bgConnEpochRef.current += 1;
+      bgConnAbortRef.current?.abort();
+
+      if (creds) {
+        settingsSessionActiveRef.current = true;
+        setAnkiSession({ endpoint: creds.endpoint, apiKey: creds.apiKey });
+      } else {
+        // Settings disconnected — allow background to try again
+        settingsSessionActiveRef.current = false;
+        setAnkiSession(null);
+        // Resume background connection attempts after a brief delay
+        if (bgConnTimerRef.current !== null) {
+          clearTimeout(bgConnTimerRef.current);
+        }
+        bgConnTimerRef.current = setTimeout(() => {
+          bgConnTimerRef.current = null;
+          attemptBgRef.current();
+        }, 1_000);
+      }
+    },
+    [],
+  );
+
+  /** Stage 2: Background read-only AnkiConnect connection from saved endpoint.
+   *  Enables Mining Preview Send without opening Settings. Retries every 10s
+   *  on failure only — never retries after a successful connection. Resumes
+   *  when Settings disconnects (via handleSessionCredentials). Never calls
+   *  write APIs, never stores API key. Settings connection supersedes via
+   *  epoch guard. */
+  const attemptBackgroundConnect = useCallback(async () => {
+    if (settingsSessionActiveRef.current) return;
+
+    const prefs = readAnkiMinerPreferences();
+    const endpoint = prefs.ankiConnectUrl || 'http://127.0.0.1:8765';
+
+    const epoch = bgConnEpochRef.current;
+    const controller = new AbortController();
+    bgConnAbortRef.current = controller;
+
+    const client = new AnkiConnectClient(endpoint, undefined);
+
+    try {
+      const result = await runAnkiConnectionFlow(client, controller.signal);
+
+      // Guard: superseded by Settings or unmounted
+      if (epoch !== bgConnEpochRef.current) return;
+      if (!mountedRef.current) return;
+      if (settingsSessionActiveRef.current) return;
+      if (controller.signal.aborted) return;
+
+      if (result.requireApiKey) {
+        // Background cannot provide API key — Settings must handle this
+        return;
+      }
+
+      // Success: set session (no API key for background)
+      setAnkiSession({ endpoint, apiKey: '' });
+      // ponytail: No retry on success — stop here. Resume only when
+      // Settings disconnects (handleSessionCredentials clears the epoch).
+      return;
+    } catch {
+      // Silently fail — will retry
+      if (epoch !== bgConnEpochRef.current) return;
+      if (!mountedRef.current) return;
+      if (settingsSessionActiveRef.current) return;
+    }
+
+    // Schedule retry on failure only
+    if (epoch !== bgConnEpochRef.current) return;
+    if (!mountedRef.current) return;
+    if (settingsSessionActiveRef.current) return;
+
+    if (bgConnTimerRef.current !== null) {
+      clearTimeout(bgConnTimerRef.current);
+    }
+    bgConnTimerRef.current = setTimeout(() => {
+      bgConnTimerRef.current = null;
+      attemptBackgroundConnect();
+    }, 10_000);
+  }, []);
+
+  // Keep ref in sync for handleSessionCredentials to trigger background restart
+  attemptBgRef.current = attemptBackgroundConnect;
+
+  // Mount: start background connection
+  useEffect(() => {
+    attemptBackgroundConnect();
+
+    return () => {
+      bgConnEpochRef.current += 1;
+      bgConnAbortRef.current?.abort();
+      if (bgConnTimerRef.current !== null) {
+        clearTimeout(bgConnTimerRef.current);
+        bgConnTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, []);
+
+  /** Stage 2: Persist export mode preference when user changes it. */
+  const handleExportModeChange = useCallback((mode: 'new' | 'update') => {
+    setExportModeState(mode);
+    // Persist only the mode — preserve all other existing prefs
+    try {
+      const prefs = readAnkiMinerPreferences();
+      writeAnkiMinerPreferences({ ...prefs, exportMode: mode });
+    } catch {
+      // localStorage failure is non-fatal
+    }
+  }, []);
+
+  /** Determine if export is possible and the localized disabled reason. */
+  const exportDisabledReason = useMemo(() => {
+    const d = dictRef.current.playerUI;
+    if (isExporting) return d.exportSendDisabledRequestActive;
+    if (!ankiSession) return d.exportSendDisabledNoConnection;
+    const prefs = readAnkiMinerPreferences();
+    if (!prefs.deck || !prefs.noteType || !prefs.fields.sentence) {
+      return d.exportSendDisabledInvalidPreset;
+    }
+    const sentenceField = miningDraftFields.find((f) => f.key === 'sentence');
+    if (!sentenceField || sentenceField.value.trim().length === 0) {
+      return d.exportSendDisabledNoSentence;
+    }
+    return null;
+  }, [isExporting, ankiSession, miningDraftFields]);
+
+  const canExport =
+    exportDisabledReason === null && !isMiningCapturing && !isMiningRefreshing;
+
+  /** Stage 2 AM-6a: Send new note to Anki. */
+  const handleExportSend = useCallback(async () => {
+    const d = dictRef.current.playerUI;
+    if (!ankiSession || isExporting) return;
+    if (exportDisabledReason) return;
+
+    const prefs = readAnkiMinerPreferences();
+    if (!prefs.deck || !prefs.noteType || !prefs.fields.sentence) return;
+
+    const epoch = exportEpochRef.current + 1;
+    exportEpochRef.current = epoch;
+    setIsExporting(true);
+    setExportError(null);
+    setExportSuccess(false);
+
+    const abortController = new AbortController();
+    exportAbortControllerRef.current = abortController;
+
+    const client = new AnkiExportClient(
+      ankiSession.endpoint,
+      ankiSession.apiKey || undefined,
+    );
+
+    try {
+      if (exportMode === 'new') {
+        // Build note fields from draft
+        const noteFields: Record<string, string> = {};
+        const seen = new Set<string>();
+        for (const f of miningDraftFields) {
+          if (f.key === 'image' || f.key === 'audio') continue;
+          if (seen.has(f.physicalName)) continue;
+          seen.add(f.physicalName);
+          noteFields[f.physicalName] = f.value;
+        }
+
+        // canAddNotes check — new card allows duplicates within the target deck
+        const noteOptions = {
+          allowDuplicate: true,
+          duplicateScope: 'deck' as const,
+          duplicateScopeOptions: {
+            deckName: prefs.deck,
+            checkChildren: false,
+          },
+        };
+        const canAddResult = await client.canAddNotes(
+          [
+            {
+              deckName: prefs.deck,
+              modelName: prefs.noteType,
+              fields: noteFields,
+              tags: [],
+              options: noteOptions,
+            },
+          ],
+          abortController.signal,
+        );
+
+        if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+        if (abortController.signal.aborted) return;
+
+        if (!canAddResult[0]) {
+          setExportError(d.exportRejectedCanAdd);
+          return;
+        }
+
+        // Upload media (screenshot/audio) if mapped
+        const fieldMapping = prefs.fields;
+        if (fieldMapping.image && miningScreenshotBlobRef.current) {
+          const filename = generateMediaFilename('entei_screenshot', 'jpg');
+          const base64 = await blobToBase64(miningScreenshotBlobRef.current);
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          await client.storeMediaFile(filename, base64, abortController.signal);
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          if (fieldMapping.image && !noteFields[fieldMapping.image]) {
+            noteFields[fieldMapping.image] = `<img src="${filename}">`;
+          }
+        }
+
+        if (fieldMapping.audio && miningAudioBlobRef.current) {
+          const filename = generateMediaFilename('entei_audio', 'webm');
+          const base64 = await blobToBase64(miningAudioBlobRef.current);
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          await client.storeMediaFile(filename, base64, abortController.signal);
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          if (fieldMapping.audio && !noteFields[fieldMapping.audio]) {
+            noteFields[fieldMapping.audio] = `[sound:${filename}]`;
+          }
+        }
+
+        if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+        if (abortController.signal.aborted) return;
+
+        // addNote — includes duplicate-allowing options for new card
+        const noteId = await client.addNote(
+          {
+            deckName: prefs.deck,
+            modelName: prefs.noteType,
+            fields: noteFields,
+            tags: [],
+            options: noteOptions,
+          },
+          abortController.signal,
+        );
+
+        if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+
+        if (typeof noteId !== 'number' || noteId <= 0) {
+          setExportError(d.exportError);
+          return;
+        }
+
+        setExportSuccess(true);
+      } else if (exportMode === 'update') {
+        // One-click update: findNotes → notesInfo → validate → media → updateNoteFields
+        const noteIds = await client.findNotes(
+          'added:1',
+          abortController.signal,
+        );
+        if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+        if (abortController.signal.aborted) return;
+
+        if (!noteIds || noteIds.length === 0) {
+          setExportError(d.exportNoCandidate);
+          return;
+        }
+
+        const maxId = Math.max(...noteIds);
+        const info = await client.notesInfo([maxId], abortController.signal);
+        if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+        if (abortController.signal.aborted) return;
+
+        if (!info || info.length === 0) {
+          setExportError(d.exportNoCandidate);
+          return;
+        }
+
+        const candidate = info[0];
+        if (!candidate) {
+          setExportError(d.exportNoCandidate);
+          return;
+        }
+
+        // Validate target model matches saved note type
+        if (candidate.modelName !== prefs.noteType) {
+          setExportError(d.exportError);
+          return;
+        }
+
+        // Build update fields from draft (text fields only)
+        const updateFields: Record<string, string> = {};
+        const seen = new Set<string>();
+        for (const f of miningDraftFields) {
+          if (f.key === 'image' || f.key === 'audio') continue;
+          if (seen.has(f.physicalName)) continue;
+          seen.add(f.physicalName);
+          updateFields[f.physicalName] = f.value;
+        }
+
+        // Upload media if available (never wipe existing)
+        if (prefs.fields.image && miningScreenshotBlobRef.current) {
+          const filename = generateMediaFilename('entei_screenshot', 'jpg');
+          const base64 = await blobToBase64(miningScreenshotBlobRef.current);
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          if (prefs.fields.image) {
+            updateFields[prefs.fields.image] = `<img src="${filename}">`;
+          }
+        }
+
+        if (prefs.fields.audio && miningAudioBlobRef.current) {
+          const filename = generateMediaFilename('entei_audio', 'webm');
+          const base64 = await blobToBase64(miningAudioBlobRef.current);
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
+          if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+          if (prefs.fields.audio) {
+            updateFields[prefs.fields.audio] = `[sound:${filename}]`;
+          }
+        }
+
+        if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+        if (abortController.signal.aborted) return;
+
+        await client.updateNoteFields(
+          candidate.noteId,
+          updateFields,
+          abortController.signal,
+        );
+
+        if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+
+        setExportSuccess(true);
+      }
+    } catch (e) {
+      if (!mountedRef.current || exportEpochRef.current !== epoch) return;
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        // Aborted — don't set error
+        return;
+      }
+      setExportError(d.exportError);
+    } finally {
+      if (mountedRef.current && exportEpochRef.current === epoch) {
+        setIsExporting(false);
+      }
+      // Restore player to snapshot time/pause after export
+      const media = sharedMediaRef.current;
+      if (media) {
+        media.currentTime = miningSnapshotTimeRef.current;
+        media.pause();
+      }
+    }
+  }, [
+    ankiSession,
+    isExporting,
+    exportDisabledReason,
+    exportMode,
+    miningDraftFields,
+  ]);
 
   // --- P1.1: Surface click behavior ---
   const handleSurfaceClick = useCallback(
@@ -1408,6 +1849,7 @@ export default function PlayerApp() {
                 onMine={handleMine}
                 canMine={canMine}
                 isMining={isMining}
+                onSessionCredentials={handleSessionCredentials}
               />
 
               {/* AM-2: Screenshot Preview Dialog */}
@@ -1458,6 +1900,14 @@ export default function PlayerApp() {
                 onRangeCommit={handleRangeCommit}
                 onCancel={handleMiningPreviewClose}
                 dict={dict}
+                exportMode={exportMode}
+                onExportModeChange={handleExportModeChange}
+                isExporting={isExporting}
+                canExport={canExport}
+                exportDisabledReason={exportDisabledReason}
+                exportError={exportError}
+                exportSuccess={exportSuccess}
+                onExportSend={handleExportSend}
               />
             </div>
           </div>

@@ -21,7 +21,10 @@ import { captureVideoFrame } from '@/features/player/screenshot-capture';
 
 // Mocks
 vi.mock('@/features/player/audio-clip', () => ({
-  checkAudioClipCapabilities: vi.fn(() => ({ supported: true, mimeType: 'audio/webm;codecs=opus' })),
+  checkAudioClipCapabilities: vi.fn(() => ({
+    supported: true,
+    mimeType: 'audio/webm;codecs=opus',
+  })),
   recordAudioClip: vi.fn(),
   cancelActiveRecording: vi.fn(),
 }));
@@ -177,6 +180,17 @@ const mockDict = {
   miningPreviewRangeInvalid: 'Invalid range',
   miningZoomIn: 'Zoom in',
   miningZoomOut: 'Zoom out',
+  exportModeNew: 'New card',
+  exportModeUpdate: 'Update card',
+  exportSendNew: 'Send to Anki',
+  exportNoCandidate: 'No recent note found.',
+  exportSuccess: 'Sent successfully.',
+  exportError: 'Export failed.',
+  exportSendDisabledNoConnection: 'AnkiConnect is not connected.',
+  exportSendDisabledInvalidPreset: 'Invalid preset.',
+  exportSendDisabledNoSentence: 'Sentence is empty.',
+  exportSendDisabledRequestActive: 'Request in progress.',
+  exportRejectedCanAdd: 'Anki rejected this note.',
 };
 
 const baseControlsProps = {
@@ -206,7 +220,9 @@ const baseControlsProps = {
 describe('PlayerControls — Mine button', () => {
   it('renders Pickaxe button for video', () => {
     const { container } = render(<PlayerControls {...baseControlsProps} />);
-    const btn = container.querySelector(`[aria-label="${mockDict.mineButtonLabel}"]`);
+    const btn = container.querySelector(
+      `[aria-label="${mockDict.mineButtonLabel}"]`,
+    );
     expect(btn).not.toBeNull();
   });
 
@@ -214,15 +230,23 @@ describe('PlayerControls — Mine button', () => {
     const { container } = render(
       <PlayerControls {...baseControlsProps} mediaType="audio" />,
     );
-    const btn = container.querySelector(`[aria-label="${mockDict.mineButtonLabel}"]`);
+    const btn = container.querySelector(
+      `[aria-label="${mockDict.mineButtonLabel}"]`,
+    );
     expect(btn).not.toBeNull();
   });
 
   it('does NOT render Pickaxe button when no media', () => {
     const { container } = render(
-      <PlayerControls {...baseControlsProps} hasMedia={false} mediaType={null} />,
+      <PlayerControls
+        {...baseControlsProps}
+        hasMedia={false}
+        mediaType={null}
+      />,
     );
-    const btn = container.querySelector(`[aria-label="${mockDict.mineButtonLabel}"]`);
+    const btn = container.querySelector(
+      `[aria-label="${mockDict.mineButtonLabel}"]`,
+    );
     expect(btn).toBeNull();
   });
 
@@ -231,7 +255,9 @@ describe('PlayerControls — Mine button', () => {
     const { container } = render(
       <PlayerControls {...baseControlsProps} onMine={onMine} canMine />,
     );
-    const btn = container.querySelector(`[aria-label="${mockDict.mineButtonLabel}"]`) as HTMLButtonElement;
+    const btn = container.querySelector(
+      `[aria-label="${mockDict.mineButtonLabel}"]`,
+    ) as HTMLButtonElement;
     expect(btn).not.toBeNull();
     fireEvent.click(btn);
     expect(onMine).toHaveBeenCalledTimes(1);
@@ -242,7 +268,9 @@ describe('PlayerControls — Mine button', () => {
     const { container } = render(
       <PlayerControls {...baseControlsProps} onMine={onMine} canMine={false} />,
     );
-    const btn = container.querySelector(`[aria-label="${mockDict.mineButtonLabel}"]`) as HTMLButtonElement;
+    const btn = container.querySelector(
+      `[aria-label="${mockDict.mineButtonLabel}"]`,
+    ) as HTMLButtonElement;
     expect(btn).not.toBeNull();
     expect(btn.disabled).toBe(true);
   });
@@ -250,9 +278,16 @@ describe('PlayerControls — Mine button', () => {
   it('disables Pickaxe when isMining is true', () => {
     const onMine = vi.fn();
     const { container } = render(
-      <PlayerControls {...baseControlsProps} onMine={onMine} canMine isMining />,
+      <PlayerControls
+        {...baseControlsProps}
+        onMine={onMine}
+        canMine
+        isMining
+      />,
     );
-    const btn = container.querySelector(`[aria-label="${mockDict.mineButtonCapturing}"]`) as HTMLButtonElement;
+    const btn = container.querySelector(
+      `[aria-label="${mockDict.mineButtonCapturing}"]`,
+    ) as HTMLButtonElement;
     expect(btn).not.toBeNull();
     expect(btn.disabled).toBe(true);
   });
@@ -342,7 +377,11 @@ describe('Mining session — snapshot pause/restore', () => {
       configurable: true,
     });
     const pauseSpy = vi.spyOn(video, 'pause').mockImplementation(() => {
-      Object.defineProperty(video, 'paused', { value: true, writable: true, configurable: true });
+      Object.defineProperty(video, 'paused', {
+        value: true,
+        writable: true,
+        configurable: true,
+      });
     });
 
     const mockBlob = new Blob(['audio'], { type: 'audio/webm' });
@@ -386,7 +425,11 @@ describe('Mining session — URL lifecycle guards', () => {
 
   it('does not create URLs when unmounted before capture resolves', async () => {
     const { promise, resolve } = (() => {
-      let res: (value: { ok: true; blob: Blob; mimeType: string }) => void = () => {};
+      let res: (value: {
+        ok: true;
+        blob: Blob;
+        mimeType: string;
+      }) => void = () => {};
       const p = new Promise<{ ok: true; blob: Blob; mimeType: string }>((r) => {
         res = r;
       });
@@ -405,7 +448,11 @@ describe('Mining session — URL lifecycle guards', () => {
       }, []);
 
       const capture = useCallback(async () => {
-        const result = await recordAudioClip({ mediaUrl: 'blob:test', start: 0, end: 1 });
+        const result = await recordAudioClip({
+          mediaUrl: 'blob:test',
+          start: 0,
+          end: 1,
+        });
         if (!mountedRef.current) return;
         if (result.ok) {
           URL.createObjectURL(result.blob);

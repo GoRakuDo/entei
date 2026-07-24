@@ -12,13 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, fireEvent, act } from '@testing-library/react';
-import {
-  useRef,
-  useEffect,
-  useCallback,
-  useState,
-  StrictMode,
-} from 'react';
+import { useRef, useEffect, useCallback, useState, StrictMode } from 'react';
 import { PlayerControls } from '@/components/player/PlayerControls';
 import { ScreenshotPreviewDialog } from '@/components/player/ScreenshotPreviewDialog';
 import { captureVideoFrame } from '@/features/player/screenshot-capture';
@@ -179,6 +173,17 @@ const mockDict = {
   miningPreviewRangeInvalid: 'Invalid range',
   miningZoomIn: 'Zoom in',
   miningZoomOut: 'Zoom out',
+  exportModeNew: 'New card',
+  exportModeUpdate: 'Update card',
+  exportSendNew: 'Send to Anki',
+  exportNoCandidate: 'No recent note found.',
+  exportSuccess: 'Sent successfully.',
+  exportError: 'Export failed.',
+  exportSendDisabledNoConnection: 'AnkiConnect is not connected.',
+  exportSendDisabledInvalidPreset: 'Invalid preset.',
+  exportSendDisabledNoSentence: 'Sentence is empty.',
+  exportSendDisabledRequestActive: 'Request in progress.',
+  exportRejectedCanAdd: 'Anki rejected this note.',
 };
 
 const baseControlsProps = {
@@ -226,7 +231,11 @@ describe('PlayerControls — Camera button', () => {
 
   it('does NOT render Camera button when no media', () => {
     const { container } = render(
-      <PlayerControls {...baseControlsProps} hasMedia={false} mediaType={null} />,
+      <PlayerControls
+        {...baseControlsProps}
+        hasMedia={false}
+        mediaType={null}
+      />,
     );
     const btn = container.querySelector(
       `[aria-label="${mockDict.screenshotCaptureLabel}"]`,
@@ -305,9 +314,7 @@ describe('ScreenshotPreviewDialog', () => {
   });
 
   it('renders error state when error is true', () => {
-    render(
-      <ScreenshotPreviewDialog {...baseProps} imageUrl={null} error />,
-    );
+    render(<ScreenshotPreviewDialog {...baseProps} imageUrl={null} error />);
     const alert = document.body.querySelector('[role="alert"]');
     expect(alert).not.toBeNull();
     expect(alert!.textContent).toContain(mockDict.screenshotError);

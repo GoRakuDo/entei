@@ -14,11 +14,17 @@ import { render, cleanup, fireEvent } from '@testing-library/react';
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { PlayerControls } from '@/components/player/PlayerControls';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
-import { recordAudioClip, cancelActiveRecording } from '@/features/player/audio-clip';
+import {
+  recordAudioClip,
+  cancelActiveRecording,
+} from '@/features/player/audio-clip';
 
 // Mock recordAudioClip so we don't need real MediaRecorder
 vi.mock('@/features/player/audio-clip', () => ({
-  checkAudioClipCapabilities: vi.fn(() => ({ supported: true, mimeType: 'audio/webm;codecs=opus' })),
+  checkAudioClipCapabilities: vi.fn(() => ({
+    supported: true,
+    mimeType: 'audio/webm;codecs=opus',
+  })),
   recordAudioClip: vi.fn(),
   cancelActiveRecording: vi.fn(),
 }));
@@ -171,6 +177,17 @@ const mockDict = {
   miningPreviewRangeInvalid: 'Invalid range',
   miningZoomIn: 'Zoom in',
   miningZoomOut: 'Zoom out',
+  exportModeNew: 'New card',
+  exportModeUpdate: 'Update card',
+  exportSendNew: 'Send to Anki',
+  exportNoCandidate: 'No recent note found.',
+  exportSuccess: 'Sent successfully.',
+  exportError: 'Export failed.',
+  exportSendDisabledNoConnection: 'AnkiConnect is not connected.',
+  exportSendDisabledInvalidPreset: 'Invalid preset.',
+  exportSendDisabledNoSentence: 'Sentence is empty.',
+  exportSendDisabledRequestActive: 'Request in progress.',
+  exportRejectedCanAdd: 'Anki rejected this note.',
 };
 
 const baseControlsProps = {
@@ -218,7 +235,11 @@ describe('PlayerControls — Audio Clip button', () => {
 
   it('does NOT render AudioLines button when no media', () => {
     const { container } = render(
-      <PlayerControls {...baseControlsProps} hasMedia={false} mediaType={null} />,
+      <PlayerControls
+        {...baseControlsProps}
+        hasMedia={false}
+        mediaType={null}
+      />,
     );
     const btn = container.querySelector(
       `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
@@ -291,14 +312,14 @@ describe('AudioClipPreviewDialog', () => {
   };
 
   it('renders recording state when isRecording is true', () => {
-    render(<AudioClipPreviewDialog {...baseProps} audioUrl={null} isRecording />);
+    render(
+      <AudioClipPreviewDialog {...baseProps} audioUrl={null} isRecording />,
+    );
     expect(document.body.textContent).toContain(mockDict.audioClipRecording);
   });
 
   it('renders error state when error is true', () => {
-    render(
-      <AudioClipPreviewDialog {...baseProps} audioUrl={null} error />,
-    );
+    render(<AudioClipPreviewDialog {...baseProps} audioUrl={null} error />);
     const alert = document.body.querySelector('[role="alert"]');
     expect(alert).not.toBeNull();
     expect(alert!.textContent).toContain(mockDict.audioClipError);
@@ -422,7 +443,11 @@ describe('URL lifecycle', () => {
 describe('Stale/unmount safeguards', () => {
   it('does not create a URL when the result is discarded (epoch mismatch)', async () => {
     const { promise, resolve } = (() => {
-      let res: (value: { ok: true; blob: Blob; mimeType: string }) => void = () => {};
+      let res: (value: {
+        ok: true;
+        blob: Blob;
+        mimeType: string;
+      }) => void = () => {};
       const p = new Promise<{ ok: true; blob: Blob; mimeType: string }>((r) => {
         res = r;
       });
@@ -478,7 +503,9 @@ describe('Stale/unmount safeguards', () => {
 
     const { container } = render(<TestStaleDiscard />);
     const captureBtn = container.querySelector('.capture') as HTMLButtonElement;
-    const invalidateBtn = container.querySelector('.invalidate') as HTMLButtonElement;
+    const invalidateBtn = container.querySelector(
+      '.invalidate',
+    ) as HTMLButtonElement;
 
     fireEvent.click(captureBtn);
     fireEvent.click(invalidateBtn);
@@ -492,7 +519,11 @@ describe('Stale/unmount safeguards', () => {
 
   it('does not create a URL when unmounted before recording resolves', async () => {
     const { promise, resolve } = (() => {
-      let res: (value: { ok: true; blob: Blob; mimeType: string }) => void = () => {};
+      let res: (value: {
+        ok: true;
+        blob: Blob;
+        mimeType: string;
+      }) => void = () => {};
       const p = new Promise<{ ok: true; blob: Blob; mimeType: string }>((r) => {
         res = r;
       });
@@ -555,7 +586,9 @@ describe('Stale/unmount safeguards', () => {
 describe('cancelActiveRecording integration', () => {
   it('cancels a pending recording cleanly', async () => {
     const { promise } = (() => {
-      const p = new Promise<{ ok: true; blob: Blob; mimeType: string }>(() => {});
+      const p = new Promise<{ ok: true; blob: Blob; mimeType: string }>(
+        () => {},
+      );
       return { promise: p };
     })();
 
@@ -571,7 +604,11 @@ describe('cancelActiveRecording integration', () => {
           <button type="button" className="capture" onClick={handleCapture}>
             Capture
           </button>
-          <button type="button" className="cancel" onClick={cancelActiveRecording}>
+          <button
+            type="button"
+            className="cancel"
+            onClick={cancelActiveRecording}
+          >
             Cancel
           </button>
         </div>

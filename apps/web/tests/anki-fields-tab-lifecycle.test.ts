@@ -15,14 +15,14 @@ import { dictionaries } from '../src/i18n';
 // Use the real en dictionary as a base
 const dict: Dictionary['playerUI'] = dictionaries.en.playerUI;
 
-// Helper to build a valid AnkiConnect JSON-RPC response
+// Helper to build a valid AnkiConnect response: { result, error: null }
 function ankiResult(result: unknown) {
-  return { jsonrpc: '2.0', result, id: 1 };
+  return { result, error: null };
 }
 
-// Helper to build an AnkiConnect error response
-function ankiError(message: string, code = -1) {
-  return { jsonrpc: '2.0', error: { code, message }, id: 1 };
+// Helper to build an AnkiConnect error response: { result: null, error }
+function ankiError(message: string) {
+  return { result: null, error: message };
 }
 
 beforeEach(() => {
@@ -101,7 +101,10 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     let failFirstAttempt = true;
     const fetchSpy = vi
       .fn()
-      .mockImplementation((_url: string, _init?: RequestInit) => {
+      .mockImplementation((_url: string, init?: RequestInit) => {
+        if (init?.signal?.aborted) {
+          return Promise.reject(new DOMException('Aborted', 'AbortError'));
+        }
         if (failFirstAttempt) {
           failFirstAttempt = false;
           return Promise.resolve(
@@ -111,13 +114,54 @@ describe('AnkiFieldsTab lifecycle integration', () => {
             }),
           );
         }
-        // All subsequent calls succeed (returns version=6)
-        return Promise.resolve(
-          new Response(JSON.stringify(ankiResult(6)), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
-        );
+        // Parse request body to return appropriate response per action
+        let action = 'version';
+        try {
+          const body = JSON.parse(init?.body as string);
+          action = body.action;
+        } catch {
+          // default to version
+        }
+        switch (action) {
+          case 'version':
+            return Promise.resolve(
+              new Response(JSON.stringify(ankiResult(6)), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            );
+          case 'requestPermission':
+            return Promise.resolve(
+              new Response(
+                JSON.stringify(ankiResult({ permission: 'granted' })),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            );
+          case 'deckNames':
+            return Promise.resolve(
+              new Response(JSON.stringify(ankiResult(['Japanese'])), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            );
+          case 'modelNames':
+            return Promise.resolve(
+              new Response(JSON.stringify(ankiResult(['Basic'])), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            );
+          default:
+            return Promise.resolve(
+              new Response(JSON.stringify(ankiError('unknown')), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            );
+        }
       });
     global.fetch = fetchSpy;
 
@@ -125,7 +169,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
       render(createElement(AnkiFieldsTab, { dict }));
     });
     await act(async () => {
-      vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
     });
 
     expect(fetchSpy).toHaveBeenCalled();

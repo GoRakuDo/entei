@@ -167,6 +167,19 @@ export const en: Dictionary = {
     miningPreviewRangeInvalid: 'Invalid range',
     miningZoomIn: 'Zoom in',
     miningZoomOut: 'Zoom out',
+    exportModeNew: 'New card',
+    exportModeUpdate: 'Update card',
+    exportSendNew: 'Send to Anki',
+    exportNoCandidate: 'No recent note found.',
+    exportSuccess: 'Sent successfully.',
+    exportError: 'Export failed.',
+    exportSendDisabledNoConnection: 'AnkiConnect is not connected.',
+    exportSendDisabledInvalidPreset:
+      'Deck, note type, and sentence mapping are required.',
+    exportSendDisabledNoSentence: 'Sentence field is empty.',
+    exportSendDisabledRequestActive: 'A request is already in progress.',
+    exportRejectedCanAdd:
+      'Anki rejected this note (possibly a duplicate). Check the deck and field mapping in Settings.',
   },
   reader: {
     title: 'EPUB Reader',

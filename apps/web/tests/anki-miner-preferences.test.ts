@@ -494,3 +494,152 @@ describe('readAnkiMinerPreferences with throwing localStorage', () => {
     Storage.prototype.getItem = originalGetItem;
   });
 });
+
+// ---------------------------------------------------------------------------
+// exportMode persistence (Stage 2 UI preference)
+// ---------------------------------------------------------------------------
+
+describe('exportMode persistence', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('defaults to "new" when no data stored', () => {
+    const prefs = readAnkiMinerPreferences();
+    expect(prefs.exportMode).toBe('new');
+  });
+
+  it('defaults to "new" when exportMode is missing from stored v1 data', () => {
+    // Old stored data without exportMode field (backward compat)
+    const oldData = {
+      schemaVersion: 1,
+      presetName: 'Default',
+      ankiConnectUrl: 'http://localhost:8765',
+      deck: 'Test',
+      noteType: 'Basic',
+      fields: {
+        sentence: 'Front',
+        definition: null,
+        image: null,
+        audio: null,
+        word: null,
+        source: null,
+        tags: null,
+      },
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(oldData));
+
+    const prefs = readAnkiMinerPreferences();
+    expect(prefs.exportMode).toBe('new');
+    // Other prefs preserved
+    expect(prefs.deck).toBe('Test');
+    expect(prefs.noteType).toBe('Basic');
+  });
+
+  it('defaults to "new" when exportMode is corrupted', () => {
+    const data = {
+      schemaVersion: 1,
+      presetName: 'Default',
+      ankiConnectUrl: 'http://localhost:8765',
+      deck: 'Test',
+      noteType: 'Basic',
+      fields: {
+        sentence: 'Front',
+        definition: null,
+        image: null,
+        audio: null,
+        word: null,
+        source: null,
+        tags: null,
+      },
+      exportMode: 'invalid_mode',
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    const prefs = readAnkiMinerPreferences();
+    expect(prefs.exportMode).toBe('new');
+  });
+
+  it('defaults to "new" when exportMode is null', () => {
+    const data = {
+      schemaVersion: 1,
+      presetName: 'Default',
+      ankiConnectUrl: 'http://localhost:8765',
+      deck: 'Test',
+      noteType: 'Basic',
+      fields: {
+        sentence: 'Front',
+        definition: null,
+        image: null,
+        audio: null,
+        word: null,
+        source: null,
+        tags: null,
+      },
+      exportMode: null,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    const prefs = readAnkiMinerPreferences();
+    expect(prefs.exportMode).toBe('new');
+  });
+
+  it('reads "update" when stored', () => {
+    const data = {
+      schemaVersion: 1,
+      presetName: 'Default',
+      ankiConnectUrl: 'http://localhost:8765',
+      deck: 'Test',
+      noteType: 'Basic',
+      fields: {
+        sentence: 'Front',
+        definition: null,
+        image: null,
+        audio: null,
+        word: null,
+        source: null,
+        tags: null,
+      },
+      exportMode: 'update',
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    const prefs = readAnkiMinerPreferences();
+    expect(prefs.exportMode).toBe('update');
+  });
+
+  it('writes exportMode preserving other prefs', () => {
+    // First write a full preset
+    writeAnkiMinerPreferences({
+      presetName: 'Default',
+      ankiConnectUrl: 'http://localhost:8765',
+      deck: 'Japanese',
+      noteType: 'Basic',
+      fields: {
+        sentence: 'Front',
+        definition: 'Back',
+        image: null,
+        audio: null,
+        word: null,
+        source: null,
+        tags: null,
+      },
+      exportMode: 'new',
+    });
+
+    // Now change only exportMode, preserving existing prefs
+    const existing = readAnkiMinerPreferences();
+    writeAnkiMinerPreferences({ ...existing, exportMode: 'update' });
+
+    const prefs = readAnkiMinerPreferences();
+    expect(prefs.exportMode).toBe('update');
+    expect(prefs.deck).toBe('Japanese');
+    expect(prefs.noteType).toBe('Basic');
+    expect(prefs.fields.sentence).toBe('Front');
+    expect(prefs.fields.definition).toBe('Back');
+  });
+});

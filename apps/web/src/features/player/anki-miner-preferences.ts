@@ -6,6 +6,7 @@
  * Persists ONLY:
  *   - endpoint (only after user explicitly saves)
  *   - deck, note type, field mapping
+ *   - exportMode UI preference ('new' | 'update', optional, defaults to 'new')
  *
  * Does NOT persist:
  *   - API key
@@ -13,6 +14,7 @@
  *   - subtitle text, active cue, timestamp
  *   - screenshot / audio Blob
  *   - Anki response payload / card ID
+ *   - export status, candidate note ID/details, draft values
  *
  * Exception-safe: never throws to caller; returns defaults on any failure.
  * --------------------------------------------------------------------------- */
@@ -28,7 +30,7 @@ export interface AnkiFieldMapping {
   tags: string | null;
 }
 
-/** Persisted schema shape. */
+/** Persisted schema shape. exportMode is optional for backward compat. */
 export interface AnkiMinerPreferencesV1 {
   schemaVersion: 1;
   presetName: 'Default';
@@ -36,15 +38,22 @@ export interface AnkiMinerPreferencesV1 {
   deck: string | null;
   noteType: string | null;
   fields: AnkiFieldMapping;
+  exportMode?: 'new' | 'update';
 }
 
-/** Public read interface. */
+/** Public read interface. exportMode defaults to 'new' when absent. */
 export interface AnkiMinerPreferences {
   presetName: 'Default';
   ankiConnectUrl: string;
   deck: string | null;
   noteType: string | null;
   fields: AnkiFieldMapping;
+  exportMode?: 'new' | 'update';
+}
+
+/** Read result always includes exportMode (defaults to 'new'). */
+export interface AnkiMinerPreferencesRead extends AnkiMinerPreferences {
+  exportMode: 'new' | 'update';
 }
 
 /** localStorage key. */
@@ -68,16 +77,17 @@ const DEFAULT_MAPPING: AnkiFieldMapping = {
 };
 
 /** Default preferences when nothing is stored or data is invalid. */
-const DEFAULT_PREFERENCES: AnkiMinerPreferences = {
+const DEFAULT_PREFERENCES: AnkiMinerPreferencesRead = {
   presetName: 'Default',
   ankiConnectUrl: DEFAULT_ENDPOINT,
   deck: null,
   noteType: null,
   fields: { ...DEFAULT_MAPPING },
+  exportMode: 'new',
 };
 
-/** Read Anki miner preferences from localStorage. */
-export function readAnkiMinerPreferences(): AnkiMinerPreferences {
+/** Read Anki miner preferences from localStorage. Always returns exportMode. */
+export function readAnkiMinerPreferences(): AnkiMinerPreferencesRead {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) {
@@ -100,6 +110,7 @@ export function readAnkiMinerPreferences(): AnkiMinerPreferences {
       deck: typeof parsed.deck === 'string' ? parsed.deck : null,
       noteType: typeof parsed.noteType === 'string' ? parsed.noteType : null,
       fields: sanitizeFieldMapping(parsed.fields),
+      exportMode: sanitizeExportMode(parsed.exportMode),
     };
   } catch {
     return { ...DEFAULT_PREFERENCES, fields: { ...DEFAULT_MAPPING } };
@@ -116,6 +127,7 @@ export function writeAnkiMinerPreferences(prefs: AnkiMinerPreferences): void {
       deck: prefs.deck,
       noteType: prefs.noteType,
       fields: sanitizeFieldMapping(prefs.fields),
+      exportMode: prefs.exportMode,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
@@ -173,6 +185,12 @@ function sanitizeFieldMapping(value: unknown): AnkiFieldMapping {
     source: value.source ?? null,
     tags: value.tags ?? null,
   };
+}
+
+/** Sanitize exportMode: only 'new' or 'update' allowed; default 'new'. */
+function sanitizeExportMode(value: unknown): 'new' | 'update' {
+  if (value === 'new' || value === 'update') return value;
+  return 'new';
 }
 
 /** Check whether a preset is valid for saving/export. */
