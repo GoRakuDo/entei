@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、ANKI_MINERのAM-1 / AM-2 / AM-3 / AM-4 / AM-5はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。AM-4はbrowser QA待ち。次の実装はStage 2（AM-6a/b/c Anki Export & Update）。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。次の実装候補はP1.3b（XML / platform subtitle parity）。P2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -69,7 +69,7 @@
 
 ### 3.3 mining / Ankiの実装順
 
-mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ早く安全に到達するための実装順は`docs/ANKI_MINER.md`を正とする。現在はAM-1 Settings Modal、AM-2 Screenshot capture、AM-3 Audio Clip、AM-4 Mining Preview、AM-5 read-only AnkiConnectが完了。`addNote` / note更新はStage 2の明示承認まで実装・実行しない。
+mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ早く安全に到達するための実装順は`docs/ANKI_MINER.md`を正とする。現在はAM-1〜AM-6cがコード完了している。`addNote` / note更新はMining Preview内の明示した`Ankiへ送信`でのみ実行し、実AnkiConnect書込みの残る手動QAは専用test deckで行う。
 
 ---
 
@@ -725,7 +725,6 @@ asbplayerはMIT（`A:\asbplayer\LICENSE.md:1-13`）。純粋parser codeを直接
 
 ## 18. 次のアクション
 
-1. YosiaがP1.2 Media admission parityを実装承認する
-2. P1.2を実装・review・actual MKV/MP4/WebM/audio QAする
-3. P1.3a-P1.4を各format gateごとに進める
-4. YosiaがP2実装を明示承認した時だけ、学習再生modeと設定へ進む
+1. P1.3bを実装・reviewし、YTXML / YTSRV3 / DFXP / TTML / IMSC / BBJSONを各format gateでbrowser QAする
+2. P1.4を実装・reviewし、PGS/SUP Worker image subtitleをbrowser QAする
+3. P1の残るformat QAを確認した後、YosiaがP2実装を明示承認した時だけ学習再生modeと設定へ進む
