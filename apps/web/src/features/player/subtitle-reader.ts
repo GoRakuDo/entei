@@ -150,12 +150,10 @@ function parseSRT(content: string): SubtitleParseResult {
     });
   }
 
-  cues.sort((a, b) => a.start - b.start || a.end - b.end);
-  cues.forEach((cue, idx) => {
-    cue.id = idx;
-  });
+  cues.sort((a, b) => a.start - b.start);
+  const normalized = normalizeCues(cues);
 
-  return { cues, errors, format: 'srt' };
+  return { cues: normalized, errors, format: 'srt' };
 }
 
 // ---------------------------------------------------------------------------
@@ -257,12 +255,10 @@ function parseVTT(content: string): SubtitleParseResult {
     });
   }
 
-  cues.sort((a, b) => a.start - b.start || a.end - b.end);
-  cues.forEach((cue, idx) => {
-    cue.id = idx;
-  });
+  cues.sort((a, b) => a.start - b.start);
+  const normalized = normalizeCues(cues);
 
-  return { cues, errors, format: 'vtt' };
+  return { cues: normalized, errors, format: 'vtt' };
 }
 
 // ---------------------------------------------------------------------------
@@ -374,12 +370,10 @@ function parseASS(content: string): SubtitleParseResult {
     });
   }
 
-  cues.sort((a, b) => a.start - b.start || a.end - b.end);
-  cues.forEach((cue, idx) => {
-    cue.id = idx;
-  });
+  cues.sort((a, b) => a.start - b.start);
+  const normalized = normalizeCues(cues);
 
-  return { cues, errors, format: 'ass' };
+  return { cues: normalized, errors, format: 'ass' };
 }
 
 // ---------------------------------------------------------------------------
@@ -464,13 +458,68 @@ function parseTimestamp(timestamp: string): number | null {
   return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
 }
 
-/** Strip HTML/VTT tags and normalize whitespace. Used for both SRT and VTT. */
+/**
+ * Strip HTML/VTT tags and normalize whitespace.
+ * Used for both SRT and VTT.
+ * Literal <br>, <br/>, <br /> are normalized to a single space BEFORE
+ * generic tag stripping, preventing words from gluing together.
+ */
 function stripTags(text: string): string {
   return text
+    .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<[^>]*>/g, '')
     .replace(/\n/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Merge adjacent cues sharing the exact same start time into a single cue.
+ * - Preserves source order for equal-start inputs (no sort-by-end).
+ * - Joins nonempty text with a single space.
+ * - Ends at max(end) of the group.
+ * - Reindexes IDs after merge.
+ * - Does NOT merge cues with different start times.
+ */
+function normalizeCues(cues: SubtitleCue[]): SubtitleCue[] {
+  if (cues.length === 0) return [];
+
+  const merged: SubtitleCue[] = [];
+  let groupStart = cues[0]!.start;
+  let groupEnd = cues[0]!.end;
+  const groupTexts: string[] = [];
+  if (cues[0]!.text.length > 0) groupTexts.push(cues[0]!.text);
+
+  for (let i = 1; i < cues.length; i++) {
+    const current = cues[i]!;
+    if (current.start === groupStart) {
+      // Same start time — merge into current group
+      groupEnd = Math.max(groupEnd, current.end);
+      if (current.text.length > 0) groupTexts.push(current.text);
+    } else {
+      // Different start — flush previous group
+      merged.push({
+        id: merged.length,
+        start: groupStart,
+        end: groupEnd,
+        text: groupTexts.join(' '),
+      });
+      groupStart = current.start;
+      groupEnd = current.end;
+      groupTexts.length = 0;
+      if (current.text.length > 0) groupTexts.push(current.text);
+    }
+  }
+
+  // Flush last group
+  merged.push({
+    id: merged.length,
+    start: groupStart,
+    end: groupEnd,
+    text: groupTexts.join(' '),
+  });
+
+  return merged;
 }
 
 /** Strip VTT file header. */

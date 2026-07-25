@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。次の実装候補はP1.3b（XML / platform subtitle parity）。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。次のgate通過後に別途承認すること。P2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -395,7 +395,7 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 | React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                                                                                                                                                                                      |
 | Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                                                                            |
 | Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                                                                             |
-| Unit tests                | ✅   | 694 tests（27 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests） |
+| Unit tests                | ✅   | 713 tests（27 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests） |
 
 ### Reviewer findings 修正状況
 
@@ -473,7 +473,7 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                                                      |
 | ---------- | ---- | --------------------------------------------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                                                   |
-| test       | ✅   | 694 tests pass（27 files）                                                                    |
+| test       | ✅   | 713 tests pass（27 files）                                                                    |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)                                          |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
@@ -680,9 +680,14 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 
 **Subtitle selection relocation (2026-07-21):** Moved subtitle file picker from Settings popover into SubtitlePanel. When no subtitles loaded: empty state includes actionable "Choose Subtitles" button. When subtitles loaded: compact "Change" picker in panel header. Removed SubtitlePicker and status dot from Settings popover (Settings retains keyboard shortcut reference only). SubtitlePanel accepts `onSubtitleSelect`, `subtitleAccept`, `chooseSubtitleLabel`, `changeSubtitleLabel` props. i18n: added `changeSubtitle` key (en: "Change", id: "Ganti", ja: "変更"). PlayerControls no longer receives `hasSubtitles` or `onSubtitleSelect` props. **Manual QA pending:** empty state button works, change button in header works, Settings popover has no subtitle section.
 
+**P1 same-start cue merge maintenance fix (2026-07-25):** Two subtitle bugs fixed. (1) `normalizeCues()` added — adjacent source cues sharing the exact same start time are merged into one cue, preserving source order, joining nonempty text with a single space, ending at max(end). This fixes exporter-created `<br>`/multi-cue splits where two lines at the same displayed time (e.g. `お母さん 来てたんだ。` + `ああ…。` at 02:30) produced separate cues, but `findActiveCue()` only returned the first. Applied to all three parsers (SRT/VTT/ASS) after sort. Sort changed from `start || end` to `start` only, preserving source order for equal-start inputs. (2) Literal `<br>`, `<br/>`, `<br />` in SRT/VTT now normalized to a single space BEFORE generic HTML tag stripping, preventing words from gluing together. `stripTags()` now applies `<br>` normalization first (case-insensitive). ASS `\\N`/`\\n` handling unaffected (separate normalizer runs before `stripTags`). 19 new tests (same-start merge × 9, `<br>` normalization × 8, findActiveCue merged text, three-cue merge). 713 total tests, `astro check` 0 diagnostics, build 3 pages passed. **P1.3b/P1.4 deferred** at this gate: XML/platform subtitles and PGS/SUP image subtitles removed from immediate roadmap (see sections 17.5/17.6 for rationale). **Manual QA pending:** verify merged cue text appears correctly in subtitle panel and overlay for multi-line same-start SRT/VTT files.
+
 **Desktop immersive layout (2026-07-22):** When media is loaded on desktop (≥1024px), `entei-player-immersive` class is applied to `<html>` via `useEffect` + `matchMedia`. CSS hides TopBar/SiteFooter, removes main padding, fills `100dvh`, and removes gap between video and panel. The active two-column grid explicitly places media at `minmax(0, 1fr)` / column 1 and SubtitlePanel at `380px` / column 2; when the panel is hidden, media spans the only column. The full-height chain is `media-area → surface → video-wrapper → video`, with `object-fit: contain`, so controls reach the viewport bottom without cropping the source. SubtitlePanel fills viewport height with independent scroll. Empty picker state remains normal. Cleans up on unmount/no media. Mobile portrait and short-height landscape unaffected. **Manual QA pending:** desktop video fills viewport, panel scrolls, no blank footer/scroll region, fullscreen/overlay selection works.
 
-### 17.5 P1.3b — XML / platform subtitle parity
+### 17.5 P1.3b — XML / platform subtitle parity（deferred）
+
+> **判定:** 2026-07-25 P1 same-start cue merge完了時にdeferred。P1.3bとP1.4は現在のプロダクト範囲から外す。
+> **理由:** XML/platform形式（`.ytxml`, `.ytsrv3`, `.dfxp`, `.ttml2`, `.nfimsc`, `.bbjson`）はasbplayerのstreaming ecosystemに依存する形式であり、local file-only Playerの範囲では使用頻度が極めて低い。PGS/SUP（P1.4）は画像字幕であり、text-selectableでもYomitan-scannableでもない。両者とも将来の yt-dlp によるlocal file acquisitionとの組み合わせで再評価する。
 
 **対象:** `.ytxml`, `.ytsrv3`, `.dfxp`, `.ttml2`, `.nfimsc`, `.bbjson`。
 
@@ -691,7 +696,12 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 - malformed XML / JSONはcueを半端に作らず、file名とformatを含むlocalized errorへ落とす。
 - formatごとのfixtureとtimestamp / linebreak / overlapping cue testを追加する。
 
-### 17.6 P1.4 — PGS/SUP image subtitle parity
+**将来の再評価条件:** browser-only Playerではyt-dlpを直接呼び出せない。yt-dlpとの連携にはlocal companion / desktop boundaryが必要。このacquisition pathが確立された時に、対応するsubtitle形式の実装を再開する。
+
+### 17.6 P1.4 — PGS/SUP image subtitle parity（deferred）
+
+> **判定:** 2026-07-25 P1 same-start cue merge完了時にdeferred。PGS image cuesはtext-selectableではなく、Yomitan text scannerのscan対象にもならないため、local text-focused Playerの範囲では実装しない。
+> **理由:** PGS/SUPは画像字幕。EnteiのPlayerはtext-selectable subtitle + Yomitan overlay scanを主目的としており、画像字幕はこのuse-caseに合致しない。将来のyt-dlp acquisitionとの組み合わせで再評価する。
 
 **対象:** `.sup`のみ。
 
@@ -725,6 +735,6 @@ asbplayerはMIT（`A:\asbplayer\LICENSE.md:1-13`）。純粋parser codeを直接
 
 ## 18. 次のアクション
 
-1. P1.3bを実装・reviewし、YTXML / YTSRV3 / DFXP / TTML / IMSC / BBJSONを各format gateでbrowser QAする
-2. P1.4を実装・reviewし、PGS/SUP Worker image subtitleをbrowser QAする
-3. P1の残るformat QAを確認した後、YosiaがP2実装を明示承認した時だけ学習再生modeと設定へ進む
+1. P1.3b / P1.4はdeferred — 現在のプロダクト範囲外。将来のyt-dlp acquisition path確立時に再開。
+2. P1 same-start cue merge maintenance fix完了（713 tests）。次のgate通過後にP2実装を明示承認した時だけ学習再生modeと設定へ進む。
+3. P1の残るformat QA（SRT/VTT/ASS + cue merge確認）をbrowser gateで実施する。

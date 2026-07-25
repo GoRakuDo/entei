@@ -276,6 +276,291 @@ One hour to two and a half hours`;
 });
 
 // ---------------------------------------------------------------------------
+// Same-start cue normalization (P1 maintenance fix)
+// ---------------------------------------------------------------------------
+
+describe('parseSubtitle — same-start cue normalization', () => {
+  it('merges SRT cues sharing same start time into one cue', () => {
+    const srt = `1
+00:02:30,000 --> 00:02:32,000
+お母さん 来てたんだ。
+
+2
+00:02:30,000 --> 00:02:33,500
+ああ…。`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('お母さん 来てたんだ。 ああ…。');
+    expect(result.cues[0]!.start).toBe(150);
+    expect(result.cues[0]!.end).toBe(153.5);
+    expect(result.cues[0]!.id).toBe(0);
+  });
+
+  it('uses max(end) when merging same-start cues with different ends', () => {
+    const srt = `1
+00:00:05,000 --> 00:00:08,000
+First line
+
+2
+00:00:05,000 --> 00:00:10,000
+Second line
+
+3
+00:00:05,000 --> 00:00:07,000
+Third line`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('First line Second line Third line');
+    expect(result.cues[0]!.end).toBe(10);
+  });
+
+  it('preserves source order for equal-start inputs', () => {
+    const srt = `3
+00:00:01,000 --> 00:00:04,000
+Third
+
+1
+00:00:01,000 --> 00:00:03,000
+First
+
+2
+00:00:01,000 --> 00:00:05,000
+Second`;
+
+    const result = parseSubtitle(srt);
+    // Same start → merged into one cue, text preserves file order
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('Third First Second');
+  });
+
+  it('merges VTT cues sharing same start time', () => {
+    const vtt = `WEBVTT
+
+00:02:30.000 --> 00:02:32.000
+お母さん 来てたんだ。
+
+00:02:30.000 --> 00:02:33.500
+ああ…。`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('お母さん 来てたんだ。 ああ…。');
+    expect(result.cues[0]!.end).toBe(153.5);
+  });
+
+  it('merges ASS cues sharing same start time', () => {
+    const header = `[Script Info]
+Title: Test
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+    const ass =
+      header +
+      `Dialogue: 0,0:02:30.00,0:02:32.00,Default,,0,0,0,,お母さん 来てたんだ。
+Dialogue: 0,0:02:30.00,0:02:33.50,Default,,0,0,0,,ああ…。`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('お母さん 来てたんだ。 ああ…。');
+    expect(result.cues[0]!.end).toBe(153.5);
+  });
+
+  it('does NOT merge cues with different start times', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+First
+
+2
+00:00:05,000 --> 00:00:08,000
+Second`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues).toHaveLength(2);
+    expect(result.cues[0]!.text).toBe('First');
+    expect(result.cues[1]!.text).toBe('Second');
+  });
+
+  it('reindexes IDs after merge', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Standalone
+
+2
+00:00:05,000 --> 00:00:08,000
+A
+
+3
+00:00:05,000 --> 00:00:09,000
+B`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues).toHaveLength(2);
+    expect(result.cues[0]!.id).toBe(0);
+    expect(result.cues[1]!.id).toBe(1);
+  });
+
+  it('skips empty text during merge (only nonempty text is joined)', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+First
+
+2
+00:00:01,000 --> 00:00:03,000
+Second`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('First Second');
+  });
+
+  it('findActiveCue returns merged text for same-start cues', () => {
+    const srt = `1
+00:02:30,000 --> 00:02:32,000
+お母さん 来てたんだ。
+
+2
+00:02:30,000 --> 00:02:33,500
+ああ…。`;
+
+    const result = parseSubtitle(srt);
+    const active = findActiveCue(result.cues, 151);
+    expect(active).not.toBeNull();
+    expect(active!.text).toBe('お母さん 来てたんだ。 ああ…。');
+  });
+
+  it('handles three same-start cues', () => {
+    const srt = `1
+00:00:10,000 --> 00:00:12,000
+A
+
+2
+00:00:10,000 --> 00:00:13,000
+B
+
+3
+00:00:10,000 --> 00:00:11,500
+C`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('A B C');
+    expect(result.cues[0]!.end).toBe(13);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Literal <br> normalization (P1 maintenance fix)
+// ---------------------------------------------------------------------------
+
+describe('parseSubtitle — literal <br> normalization', () => {
+  it('converts <br> to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello<br>world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts <br/> to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello<br/>world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts <br /> to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello<br />world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts <BR> (uppercase) to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello<BR>world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts <Br> (mixed case) to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello<Br>world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts <br> to space in VTT', () => {
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Hello<br>world`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts <br/> to space in VTT', () => {
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Hello<br/>world`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('does not affect ASS \\N (handled by separate ASS normalizer)', () => {
+    const header = `[Script Info]
+Title: Test
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+    const ass =
+      header +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Line one\\NLine two`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues[0]!.text).toBe('Line one Line two');
+  });
+
+  it('preserves other HTML tags while normalizing <br>', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+<b>Bold</b><br><i>italic</i>`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Bold italic');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // detectFormat
 // ---------------------------------------------------------------------------
 

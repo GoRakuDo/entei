@@ -367,7 +367,7 @@ npm run build          ✅ static build complete
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 27 files, 694 tests pass
+npm run test           ✅ 27 files, 713 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```
@@ -800,7 +800,7 @@ apps/web/src/
 │   ├── mining-payload.ts              # mapping → preview / canAddNotes payload
 │   ├── mining-viewport.ts             # ASB-style range zoom
 │   └── subtitle-interval.ts           # ASB-style >=50% overlap rule
-└── tests/                             # 27 test files, 694 tests
+└── tests/                             # 27 test files, 713 tests
 ```
 
 `PlayerApp`はmedia / playback stateの唯一の所有者のままにする。Anki tabやMining Previewがvideo refを直接勝手に操作しない。必要な操作はtyped callbackで`PlayerApp`へ依頼する。
