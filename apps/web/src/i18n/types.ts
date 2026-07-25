@@ -218,6 +218,9 @@ export interface Dictionary {
     appendPartialFailure: string;
     appendAllFailed: string;
     appendSelectedCount: (count: number) => string;
+    mediaModeImage: string;
+    mediaModeVideo: string;
+    mediaModeUnsupported: string;
   };
   reader: {
     title: string;

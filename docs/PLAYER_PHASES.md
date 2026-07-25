@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping / 744 tests）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。次のgate通過後に別途承認すること。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。次のgate通過後に別途承認すること。P2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -395,7 +395,7 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 | React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                                                                                                                                                                                      |
 | Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                                                                            |
 | Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                                                                             |
-| Unit tests                | ✅   | 744 tests（28 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests / denchou-scene tests / anki-miner-preferences tests） |
+| Unit tests                | ✅   | 795 tests（30 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests / denchou-scene tests / anki-miner-preferences tests / video-clip tests / media-mode-switch tests） |
 
 ### Reviewer findings 修正状況
 
@@ -473,7 +473,7 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                                                      |
 | ---------- | ---- | --------------------------------------------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                                                   |
-| test       | ✅   | 744 tests pass（28 files）                                                                    |
+| test       | ✅   | 795 tests pass（30 files）                                                                    |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)                                          |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
@@ -719,7 +719,7 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 | MKV内部subtitle track extraction         | 今回除外 | asbplayer release noteでもfuture work。external `.sup` supportと混同しない |
 | browser extension / native player helper | 恒久除外 | local web Playerの独立性を壊す                                             |
 
-DenChouのmulti-scene card向けHTML wrapperは、字幕format parityや複数profileではなく、Mining / Anki export拡張として別管理する。code-side自動固定wrapper / payload wrapping / testsは実装済み。詳細は[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を参照。
+DenChouのmulti-scene card向けHTML wrapperは、字幕format parityや複数profileではなく、Mining / Anki export拡張として別管理する。code-side自動固定wrapper / payload wrapping / testsは実装済み。詳細は[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を参照。無音WebM Video Clipは[VIDEO_CLIP.md](./VIDEO_CLIP.md)で実装済み（Image/Video ToggleGroup、自動JPEG/WebMキャプチャ）。
 
 ### 17.8 移植とlicenseの契約
 

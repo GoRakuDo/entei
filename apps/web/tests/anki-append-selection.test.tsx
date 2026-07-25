@@ -61,7 +61,6 @@ const dict = {
   appendNoteIdLabel: 'Note ID',
   appendNoteTypeLabel: 'Note type',
   appendSelectedCount: (count: number) => `${count} selected`,
-
 };
 
 function makeNote(

@@ -195,6 +195,9 @@ export const en: Dictionary = {
     appendPartialFailure: 'Some cards failed to append.',
     appendAllFailed: 'All appends failed.',
     appendSelectedCount: (count: number) => `${count} selected`,
+    mediaModeImage: 'Image',
+    mediaModeVideo: 'Video',
+    mediaModeUnsupported: 'Video Clip is not supported in this browser.',
   },
   reader: {
     title: 'EPUB Reader',

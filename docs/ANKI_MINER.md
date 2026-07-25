@@ -89,8 +89,9 @@ ANKI_MINERは次を含まない。
 
 - Anki noteの削除、tag一括変更、deck移動、model変更
 - 複数profile / named preset
-- WebM video clip、MP3 re-encode、FFmpeg
+- MP3 re-encode、FFmpeg
 - PGS/SUP、TTML/DFXPなど追加subtitle format
+- 無音WebM Video Clip（実装済み: [VIDEO_CLIP.md](./VIDEO_CLIP.md)）
 - Yomitan dictionary popup、word status、WaniKani、statistics
 - Streaming Video Integration、browser extension、WebTorrent、server
 - local media / subtitle / filepath / Blob URLの永続保存・外部送信
@@ -299,6 +300,8 @@ npm run build          ✅ static build complete
 | `src/features/player/subtitle-interval.ts`      | ASB-style >=50% overlap rule純粋関数：`selectCueTextInRange`。zero-length skip、blank filter、newline join                                                                                                       |
 | `src/features/player/anki-export-client.ts`     | Stage 2 typed write client：`canAddNotes`、`addNote`、`storeMediaFile`、`findNotes`、`notesInfo`、`updateNoteFields`。read-only `AnkiConnectClient`とは構造分離。`blobToBase64`、`generateMediaFilename` helper付き |
 | `src/components/player/AnkiAppendPanel.tsx`     | AM-6c inline append panel: deck-auto-load on expand, explicit search, TanStack/shadcn Data Table with checkbox multi-select, pre-filtered saved note type, 100-bound, selection count/pagination footer, 44px checkbox containment |
+| `src/features/player/video-clip.ts`            | Video Clip recording: pure capability detection, codec order (AV1→VP8→VP9→generic), 45s center-clamp, 60s watchdog, Canvas frame capture → captureStream → silent WebM MediaRecorder, abort/epoch/mounted guards, full lifecycle cleanup |
+| `src/components/player/ui/toggle-group.tsx`    | shadcn ToggleGroup/Item (Mining Image/Video mode selection) |
 | `src/components/player/ui/data-table.tsx`       | Generic TanStack Data Table wrapper: column defs, sorting, pagination, checkbox row selection, `getRowState` / `footerStart` slots |
 | `src/components/player/ui/table.tsx`            | shadcn Table primitives (Table, TableHeader, TableBody, TableRow, TableHead, TableCell) |
 | `src/components/player/ui/checkbox.tsx`         | shadcn Checkbox (`@radix-ui/react-checkbox`) |
@@ -367,7 +370,7 @@ npm run build          ✅ static build complete
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 28 files, 744 tests pass
+npm run test           ✅ 30 files, 795 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```
@@ -800,7 +803,7 @@ apps/web/src/
 │   ├── mining-payload.ts              # mapping → preview / canAddNotes payload
 │   ├── mining-viewport.ts             # ASB-style range zoom
 │   └── subtitle-interval.ts           # ASB-style >=50% overlap rule
-└── tests/                             # 28 test files, 744 tests
+└── tests/                             # 30 test files, 795 tests
 ```
 
 `PlayerApp`はmedia / playback stateの唯一の所有者のままにする。Anki tabやMining Previewがvideo refを直接勝手に操作しない。必要な操作はtyped callbackで`PlayerApp`へ依頼する。
@@ -873,7 +876,7 @@ Stage 1.1、Stage 2、AM-6cの実AnkiConnect QAはYosia確認済み。今後の�
 
 ### 15.1 将来候補: DenChou Scenes
 
-DenChouのmulti-scene cardへ新しいsceneだけをHTML group wrapperで追記する拡張は、複数profileとは別の機能として扱う。通常note typeのraw export / `<br>` appendは変えない。code-side自動固定wrapper（`<span class="group">…</span>`）、New note/Append payload wrapping、744 testsが実装済み。活用形を扱うWord Highlightはdeferred。詳細な適用範囲、export契約、実装gateは[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を正とする。
+DenChouのmulti-scene cardへ新しいsceneだけをHTML group wrapperで追記する拡張は、複数profileとは別の機能として扱う。通常note typeのraw export / `<br>` appendは変えない。code-side自動固定wrapper（`<span class="group">…</span>`）、New note/Append payload wrapping、795 testsが実装済み。活用形を扱うWord Highlightはdeferred。詳細な適用範囲、export契約、実装gateは[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を正とする。
 
 ## 16. 実装開始gate
 

@@ -35,6 +35,8 @@ import {
   FilePlusCorner,
   FileUp,
   Search,
+  Image as ImageIcon,
+  Video,
 } from 'lucide-react';
 import { AnkiAppendPanel } from '@/components/player/AnkiAppendPanel';
 import type { AnkiNoteInfo } from '@/features/player/anki-export-client';
@@ -115,6 +117,13 @@ interface MiningPreviewDialogProps {
   savedDeck: string;
   savedNoteType: string;
   sentenceFieldName: string | null;
+  // Video Clip: media mode toggle
+  mediaMode: 'image' | 'video';
+  onMediaModeChange: (mode: 'image' | 'video') => void;
+  mediaPreviewUrl: string | null;
+  mediaPreviewType: 'image' | 'video';
+  mediaUnsupported: string | null;
+  isMediaRecapturing: boolean;
   dict: {
     miningPreviewTitle: string;
     miningPreviewRange: string;
@@ -157,6 +166,9 @@ interface MiningPreviewDialogProps {
     appendPartialFailure: string;
     appendAllFailed: string;
     appendSelectedCount: (count: number) => string;
+    mediaModeImage: string;
+    mediaModeVideo: string;
+    mediaModeUnsupported: string;
   };
 }
 
@@ -201,6 +213,12 @@ export function MiningPreviewDialog({
   savedDeck,
   savedNoteType,
   sentenceFieldName,
+  mediaMode,
+  onMediaModeChange,
+  mediaPreviewUrl,
+  mediaPreviewType,
+  mediaUnsupported,
+  isMediaRecapturing,
   dict,
 }: MiningPreviewDialogProps) {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
@@ -440,14 +458,46 @@ export function MiningPreviewDialog({
         closeLabel={dict.dialogClose}
       >
         <DialogHeader>
-          <DialogTitle>{dict.miningPreviewTitle}</DialogTitle>
-          <DialogDescription>
+          {/* Visually hidden title for accessible dialog naming */}
+          <DialogTitle className="entei-sr-only">
+            {dict.miningPreviewTitle}
+          </DialogTitle>
+          <DialogDescription className="entei-sr-only">
             {isCapturing
               ? dict.miningPreviewCapturing
               : isRefreshing
                 ? dict.miningPreviewRefreshing
                 : ''}
           </DialogDescription>
+          {/* Image/Video media mode toggle — fixed in header, left-aligned */}
+          <div className="entei-mining-header-media-toggle">
+            <ToggleGroup
+              type="single"
+              value={mediaMode}
+              onValueChange={(v) => {
+                if (v === 'image' || v === 'video') onMediaModeChange(v);
+              }}
+              variant="outline"
+              aria-label={dict.mediaModeImage + ' / ' + dict.mediaModeVideo}
+            >
+              <ToggleGroupItem
+                value="image"
+                aria-label={dict.mediaModeImage}
+                title={dict.mediaModeImage}
+                disabled={isExporting || isAppending}
+              >
+                <ImageIcon size={16} aria-hidden />
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="video"
+                aria-label={dict.mediaModeVideo}
+                title={dict.mediaModeVideo}
+                disabled={isExporting || isAppending}
+              >
+                <Video size={16} aria-hidden />
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </DialogHeader>
 
         <div className="entei-mining-body">
@@ -503,12 +553,28 @@ export function MiningPreviewDialog({
                   />
                 ) : null}
 
-                {hasImage && (
+                {hasImage &&
+                  mediaPreviewType === 'video' &&
+                  mediaPreviewUrl && (
+                    <AspectRatio ratio={16 / 9}>
+                      <div className="entei-mining-image-wrap">
+                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                        <video
+                          src={mediaPreviewUrl}
+                          muted
+                          controls
+                          playsInline
+                          className="entei-mining-media-video"
+                        />
+                      </div>
+                    </AspectRatio>
+                  )}
+                {hasImage && mediaPreviewType !== 'video' && (
                   <AspectRatio ratio={16 / 9}>
                     <div className="entei-mining-image-wrap">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={screenshotUrl}
+                        src={mediaPreviewUrl || screenshotUrl}
                         alt={field.physicalName}
                         className="entei-mining-image"
                         loading="eager"
@@ -516,7 +582,7 @@ export function MiningPreviewDialog({
                     </div>
                   </AspectRatio>
                 )}
-                {hasImageSkeleton && !hasImage && (
+                {(hasImageSkeleton || isMediaRecapturing) && !hasImage && (
                   <AspectRatio ratio={16 / 9}>
                     <div className="entei-mining-placeholder" aria-busy>
                       <span
@@ -604,6 +670,13 @@ export function MiningPreviewDialog({
               </div>
             );
           })}
+
+          {/* Video unsupported warning */}
+          {mediaMode === 'video' && mediaUnsupported && (
+            <div className="entei-mining-warning" role="status">
+              <p>{mediaUnsupported}</p>
+            </div>
+          )}
 
           {/* AM-6c: Single 3-item centered ToggleGroup — New + Update + Append */}
           <div className="entei-mining-controls-row">

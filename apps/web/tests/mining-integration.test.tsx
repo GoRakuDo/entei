@@ -205,7 +205,9 @@ const mockDict = {
   appendPartialFailure: 'Partial.',
   appendAllFailed: 'Failed.',
   appendSelectedCount: (count: number) => `${count} selected`,
-
+  mediaModeImage: 'Image',
+  mediaModeVideo: 'Video',
+  mediaModeUnsupported: 'Video Clip is not supported.',
 };
 
 const baseControlsProps = {

@@ -198,6 +198,9 @@ export const id: Dictionary = {
     appendPartialFailure: 'Beberapa kartu gagal ditambahkan.',
     appendAllFailed: 'Semua penambahan gagal.',
     appendSelectedCount: (count: number) => `${count} terpilih`,
+    mediaModeImage: 'Gambar',
+    mediaModeVideo: 'Video',
+    mediaModeUnsupported: 'Video Clip tidak didukung di browser ini.',
   },
   reader: {
     title: 'Pembaca EPUB',

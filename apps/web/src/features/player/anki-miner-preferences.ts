@@ -39,6 +39,7 @@ export interface AnkiMinerPreferencesV1 {
   noteType: string | null;
   fields: AnkiFieldMapping;
   exportMode?: 'new' | 'update';
+  mediaMode?: 'image' | 'video';
 }
 
 /** Public read interface. exportMode defaults to 'new' when absent. */
@@ -49,11 +50,13 @@ export interface AnkiMinerPreferences {
   noteType: string | null;
   fields: AnkiFieldMapping;
   exportMode?: 'new' | 'update';
+  mediaMode?: 'image' | 'video';
 }
 
 /** Read result always includes exportMode (defaults to 'new'). */
 export interface AnkiMinerPreferencesRead extends AnkiMinerPreferences {
   exportMode: 'new' | 'update';
+  mediaMode: 'image' | 'video';
 }
 
 /** localStorage key. */
@@ -84,6 +87,7 @@ const DEFAULT_PREFERENCES: AnkiMinerPreferencesRead = {
   noteType: null,
   fields: { ...DEFAULT_MAPPING },
   exportMode: 'new',
+  mediaMode: 'image',
 };
 
 /** Read Anki miner preferences from localStorage. Always returns exportMode. */
@@ -111,6 +115,7 @@ export function readAnkiMinerPreferences(): AnkiMinerPreferencesRead {
       noteType: typeof parsed.noteType === 'string' ? parsed.noteType : null,
       fields: sanitizeFieldMapping(parsed.fields),
       exportMode: sanitizeExportMode(parsed.exportMode),
+      mediaMode: sanitizeMediaMode(parsed.mediaMode),
     };
   } catch {
     return { ...DEFAULT_PREFERENCES, fields: { ...DEFAULT_MAPPING } };
@@ -128,6 +133,7 @@ export function writeAnkiMinerPreferences(prefs: AnkiMinerPreferences): void {
       noteType: prefs.noteType,
       fields: sanitizeFieldMapping(prefs.fields),
       exportMode: prefs.exportMode,
+      mediaMode: prefs.mediaMode,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
@@ -191,6 +197,12 @@ function sanitizeFieldMapping(value: unknown): AnkiFieldMapping {
 function sanitizeExportMode(value: unknown): 'new' | 'update' {
   if (value === 'new' || value === 'update') return value;
   return 'new';
+}
+
+/** Sanitize mediaMode: only 'image' or 'video' allowed; default 'image'. */
+function sanitizeMediaMode(value: unknown): 'image' | 'video' {
+  if (value === 'image' || value === 'video') return value;
+  return 'image';
 }
 
 /** Check whether a preset is valid for saving/export. */

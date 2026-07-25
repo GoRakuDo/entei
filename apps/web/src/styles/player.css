@@ -2424,8 +2424,23 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-mining-dialog .entei-dialog-header {
   flex-shrink: 0;
-  padding: var(--entei-space-16) var(--entei-space-24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-8) var(--entei-space-16);
   border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-mining-header-media-toggle {
+  flex-shrink: 0;
+}
+
+.entei-mining-header-media-toggle [data-slot='toggle-group-item'] {
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  display: inline-grid;
+  place-items: center;
 }
 
 .entei-mining-body {
@@ -2543,6 +2558,14 @@ html.entei-player-immersive .entei-player-audio-area {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.entei-mining-media-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--entei-radius-sm);
 }
 
 .entei-mining-placeholder {

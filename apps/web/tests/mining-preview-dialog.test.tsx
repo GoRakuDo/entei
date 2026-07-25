@@ -15,7 +15,7 @@
  * --------------------------------------------------------------------------- */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup, fireEvent, screen } from '@testing-library/react';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 
 beforeEach(() => {
@@ -75,7 +75,9 @@ const mockDict = {
   appendPartialFailure: 'Partial.',
   appendAllFailed: 'Failed.',
   appendSelectedCount: (count: number) => `${count} selected`,
-
+  mediaModeImage: 'Image',
+  mediaModeVideo: 'Video',
+  mediaModeUnsupported: 'Video Clip is not supported.',
 };
 
 const baseProps = {
@@ -122,6 +124,12 @@ const baseProps = {
   savedDeck: 'Japanese',
   savedNoteType: 'Basic',
   sentenceFieldName: 'Front',
+  mediaMode: 'image' as const,
+  onMediaModeChange: vi.fn(),
+  mediaPreviewUrl: null,
+  mediaPreviewType: 'image' as const,
+  mediaUnsupported: null,
+  isMediaRecapturing: false,
   dict: mockDict,
 };
 
@@ -857,17 +865,22 @@ describe('MiningPreviewDialog', () => {
     });
   });
 
-  it('ToggleGroup is inside scrollable body, not in range dock', () => {
+  it('Export mode ToggleGroup is inside scrollable body, not in range dock', () => {
     render(<MiningPreviewDialog {...baseProps} />);
     const body = document.body.querySelector('.entei-mining-body');
     const dock = document.body.querySelector('.entei-mining-range-dock');
-    const toggleGroup = document.body.querySelector(
-      '[data-slot="toggle-group"]',
+    const header = document.body.querySelector(
+      '.entei-mining-header-media-toggle',
     );
-    expect(toggleGroup).not.toBeNull();
-    // Toggle should be inside body, NOT inside dock
-    expect(body!.contains(toggleGroup!)).toBe(true);
-    expect(dock!.contains(toggleGroup!)).toBe(false);
+    // The export mode ToggleGroup is in the controls row inside the body
+    const exportGroup = document.body.querySelector(
+      '.entei-mining-controls-row [data-slot="toggle-group"]',
+    );
+    expect(exportGroup).not.toBeNull();
+    // Export toggle should be inside body, NOT inside dock or header
+    expect(body!.contains(exportGroup!)).toBe(true);
+    expect(dock!.contains(exportGroup!)).toBe(false);
+    if (header) expect(header!.contains(exportGroup!)).toBe(false);
   });
 
   it('ToggleGroup is in controls row via CSS class', () => {
@@ -893,11 +906,15 @@ describe('MiningPreviewDialog', () => {
 
   it('Append is the third ToggleGroupItem alongside New and Update', () => {
     render(<MiningPreviewDialog {...baseProps} />);
-    const toggleGroup = document.body.querySelector(
+    // Find ALL toggle groups; the export mode one has 3 items (New/Update/Append)
+    const toggleGroups = document.body.querySelectorAll(
       '[data-slot="toggle-group"]',
     );
-    expect(toggleGroup).not.toBeNull();
-    const items = toggleGroup!.querySelectorAll(
+    const exportGroup = Array.from(toggleGroups).find(
+      (g) => g.querySelectorAll('[data-slot="toggle-group-item"]').length === 3,
+    );
+    expect(exportGroup).not.toBeNull();
+    const items = exportGroup!.querySelectorAll(
       '[data-slot="toggle-group-item"]',
     );
     expect(items.length).toBe(3);
@@ -919,8 +936,176 @@ describe('MiningPreviewDialog', () => {
       '[data-slot="toggle-group"] button[data-state="on"]',
     );
     expect(activeItem).not.toBeNull();
-    // data-state="on" is the active toggle item; scoped CSS sets
-    // accent-tinted background + high-contrast text
     expect(activeItem!.getAttribute('data-state')).toBe('on');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Media mode switch tests
+// ---------------------------------------------------------------------------
+
+describe('Media mode switch', () => {
+  afterEach(cleanup);
+
+  // Shared props so image field has hasImage = true (needs screenshotUrl + field.key=image)
+  const mediaFields = {
+    draftFields: [
+      { key: 'sentence', physicalName: 'S', value: 'text' },
+      { key: 'image', physicalName: 'PictureField', value: 'screenshot.jpg' },
+    ],
+    screenshotUrl: 'blob:http://localhost/existing-screenshot',
+  };
+
+  /** Find the 2-item media ToggleGroup (not the 3-item export ToggleGroup) */
+  function findMediaToggleItems() {
+    const toggleGroups = document.body.querySelectorAll(
+      '[data-slot="toggle-group"]',
+    );
+    const mediaGroup = Array.from(toggleGroups).find(
+      (g) => g.querySelectorAll('[data-slot="toggle-group-item"]').length === 2,
+    );
+    return mediaGroup!.querySelectorAll('[data-slot="toggle-group-item"]');
+  }
+
+  it('calls onMediaModeChange when Image/Video toggle is clicked', () => {
+    const onMediaModeChange = vi.fn();
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...mediaFields}
+        onMediaModeChange={onMediaModeChange}
+      />,
+    );
+    const items = findMediaToggleItems();
+    // Click Video (second item)
+    fireEvent.click(items[1]!);
+    expect(onMediaModeChange).toHaveBeenCalledWith('video');
+  });
+
+  it('Video mode renders <video> inside image field AspectRatio', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...mediaFields}
+        mediaMode="video"
+        mediaPreviewType="video"
+        mediaPreviewUrl="blob:http://localhost/fake-webm"
+      />,
+    );
+    // Should render a <video> inside the image field's AspectRatio
+    const video = document.body.querySelector('.entei-mining-media-video');
+    expect(video).not.toBeNull();
+    expect(video!.tagName).toBe('VIDEO');
+    expect(video!.getAttribute('src')).toBe('blob:http://localhost/fake-webm');
+    // React-DOM may not set muted as HTML attribute; check the property
+    expect((video as HTMLVideoElement).muted).toBe(true);
+    // No separate out-of-field video
+    const outOfFieldVideos = document.body.querySelectorAll(
+      '.entei-mining-fields ~ video, .entei-dialog-footer ~ video',
+    );
+    expect(outOfFieldVideos.length).toBe(0);
+  });
+
+  it('Image mode renders <img> inside image field AspectRatio', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...mediaFields}
+        mediaMode="image"
+        mediaPreviewType="image"
+        mediaPreviewUrl="blob:http://localhost/fake-jpeg"
+      />,
+    );
+    const img = document.body.querySelector('.entei-mining-image');
+    expect(img).not.toBeNull();
+    expect(img!.tagName).toBe('IMG');
+    expect(img!.getAttribute('src')).toBe('blob:http://localhost/fake-jpeg');
+  });
+
+  it('isMediaRecapturing shows skeleton in image AspectRatio', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        // screenshotUrl null → hasImage=false, skeleton path activates
+        draftFields={[
+          { key: 'sentence', physicalName: 'S', value: 'text' },
+          {
+            key: 'image',
+            physicalName: 'PictureField',
+            value: 'screenshot.jpg',
+          },
+        ]}
+        screenshotUrl={null}
+        isMediaRecapturing={true}
+      />,
+    );
+    // Skeleton should be visible inside the picture field area
+    const skeletons = document.body.querySelectorAll('.entei-mining-skeleton');
+    expect(skeletons.length).toBeGreaterThan(0);
+  });
+
+  it('unsupported video mode shows fallback explanation in picture field', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...mediaFields}
+        mediaMode="video"
+        mediaUnsupported="MediaRecorder not available"
+      />,
+    );
+    // Should show the unsupported explanation (uses mediaUnsupported prop text)
+    const warning = screen.getByText(/MediaRecorder not available/);
+    expect(warning).toBeTruthy();
+  });
+
+  it('no separate out-of-field video element exists', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...mediaFields}
+        mediaMode="video"
+        mediaPreviewType="video"
+        mediaPreviewUrl="blob:http://localhost/fake"
+      />,
+    );
+    // ALL video elements should be inside the picture field area
+    const allVideos = document.body.querySelectorAll('video');
+    for (const v of allVideos) {
+      // Each video should be inside a shadcn AspectRatio or image-wrap container
+      const parent = v.closest(
+        '[data-slot="aspect-ratio"], .entei-mining-image-wrap, .entei-mining-placeholder',
+      );
+      expect(parent).not.toBeNull();
+    }
+  });
+
+  it('mediaModeToggle has accessible attributes', () => {
+    render(
+      <MiningPreviewDialog {...baseProps} {...mediaFields} mediaMode="image" />,
+    );
+    const items = findMediaToggleItems();
+    expect(items.length).toBe(2);
+    // Image item — aria-label and title
+    expect(items[0]!.getAttribute('aria-label')).toBe('Image');
+    expect(items[0]!.getAttribute('title')).toBe('Image');
+    // Video item — aria-label and title
+    expect(items[1]!.getAttribute('aria-label')).toBe('Video');
+    expect(items[1]!.getAttribute('title')).toBe('Video');
+  });
+
+  it('onMediaModeChange fires when switching modes', () => {
+    const onMediaModeChange = vi.fn();
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...mediaFields}
+        mediaMode="image"
+        onMediaModeChange={onMediaModeChange}
+      />,
+    );
+    const items = findMediaToggleItems();
+    // Click Video (second item) — switches mode
+    fireEvent.click(items[1]!);
+    expect(onMediaModeChange).toHaveBeenCalledWith('video');
   });
 });

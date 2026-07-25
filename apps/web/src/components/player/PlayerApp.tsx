@@ -63,6 +63,7 @@ import {
 } from '@/components/player/PlayerControls';
 import { useKeyboardShortcuts } from '@/features/player/use-keyboard-shortcuts';
 import { captureVideoFrame } from '@/features/player/screenshot-capture';
+import { recordVideoClip } from '@/features/player/video-clip';
 import { ScreenshotPreviewDialog } from '@/components/player/ScreenshotPreviewDialog';
 import {
   recordAudioClip,
@@ -278,6 +279,25 @@ export default function PlayerApp() {
   const [exportMode, setExportModeState] = useState<'new' | 'update'>(
     () => readAnkiMinerPreferences().exportMode,
   );
+  const [mediaMode, setMediaMode] = useState<'image' | 'video'>(
+    () => readAnkiMinerPreferences().mediaMode ?? 'image',
+  );
+  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+  const [mediaPreviewType, setMediaPreviewType] = useState<'image' | 'video'>(
+    'image',
+  );
+  const [mediaUnsupported, setMediaUnsupported] = useState<string | null>(null);
+  const mediaBlobRef = useRef<Blob | null>(null);
+  const mediaBlobUrlRef = useRef<string | null>(null);
+  const mediaEpochRef = useRef(0);
+  const [isMediaRecapturing, setIsMediaRecapturing] = useState(false);
+  /** Dedicated AbortController for media-mode re-capture. Superseded on each
+   *  new toggle, aborted on dialog close / media change / unmount. */
+  const mediaRecaptureAbortRef = useRef<AbortController | null>(null);
+  /** Records the actual captured media artifact type at capture time.
+   * Export uses this instead of the live mediaMode toggle, so toggling
+   * Image/Video after capture but before Send does not corrupt markup. */
+  const capturedMediaTypeRef = useRef<'image' | 'video' | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
@@ -361,8 +381,24 @@ export default function PlayerApp() {
         bgConnTimerRef.current = null;
       }
       exportAbortControllerRef.current?.abort();
+      // Media-mode recapture abort + cleanup
+      mediaRecaptureAbortRef.current?.abort();
+      mediaRecaptureAbortRef.current = null;
+      if (mediaBlobUrlRef.current) {
+        URL.revokeObjectURL(mediaBlobUrlRef.current);
+        mediaBlobUrlRef.current = null;
+      }
       miningScreenshotBlobRef.current = null;
       miningAudioBlobRef.current = null;
+      mediaBlobRef.current = null;
+      capturedMediaTypeRef.current = null;
+      setIsMediaRecapturing(false);
+      if (mediaBlobUrlRef.current) {
+        URL.revokeObjectURL(mediaBlobUrlRef.current);
+        mediaBlobUrlRef.current = null;
+      }
+      setMediaPreviewUrl(null);
+      setMediaUnsupported(null);
     };
   }, []);
 
@@ -970,18 +1006,45 @@ export default function PlayerApp() {
     // Screenshot: video only
     let screenshotResult: Awaited<ReturnType<typeof captureVideoFrame>> | null =
       null;
+    let videoClipResult: Awaited<ReturnType<typeof recordVideoClip>> | null =
+      null;
     if (mediaType === 'video' && videoRef.current) {
-      try {
-        screenshotResult = await captureVideoFrame(videoRef.current);
-      } catch (e) {
-        screenshotResult = {
-          ok: false,
-          error: {
-            code: 'BLOB_ENCODE_FAILED',
-            message:
-              e instanceof Error ? e.message : 'Unexpected capture failure.',
-          },
-        };
+      if (mediaMode === 'video') {
+        // Video Clip mode: record silent WebM instead of JPEG screenshot
+        try {
+          videoClipResult = await recordVideoClip({
+            mediaUrl,
+            start: activeCue.start,
+            end: activeCue.end,
+            playbackRate,
+            signal: abortController.signal,
+          });
+        } catch (e) {
+          videoClipResult = {
+            ok: false,
+            error: {
+              code: 'RECORDER_ERROR',
+              message:
+                e instanceof Error
+                  ? e.message
+                  : 'Unexpected video clip failure.',
+            },
+          };
+        }
+      } else {
+        // Image mode: capture JPEG screenshot
+        try {
+          screenshotResult = await captureVideoFrame(videoRef.current);
+        } catch (e) {
+          screenshotResult = {
+            ok: false,
+            error: {
+              code: 'BLOB_ENCODE_FAILED',
+              message:
+                e instanceof Error ? e.message : 'Unexpected capture failure.',
+            },
+          };
+        }
       }
     }
 
@@ -989,13 +1052,65 @@ export default function PlayerApp() {
     // of holding a completed frame behind the still-recording audio task.
     if (!mountedRef.current || miningEpochRef.current !== epoch) return;
     if (mediaType === 'video') {
-      if (screenshotResult && !screenshotResult.ok) {
-        setMiningHasScreenshotError(true);
-        replaceMiningScreenshotUrl(null);
-        miningScreenshotBlobRef.current = null;
-      } else if (screenshotResult && screenshotResult.ok) {
-        miningScreenshotBlobRef.current = screenshotResult.blob;
-        replaceMiningScreenshotUrl(URL.createObjectURL(screenshotResult.blob));
+      if (mediaMode === 'video') {
+        // Video Clip result handling
+        if (videoClipResult && !videoClipResult.ok) {
+          // Unsupported video — fall back to JPEG
+          setMediaUnsupported(dictRef.current.playerUI.mediaModeUnsupported);
+          setMediaPreviewType('image');
+          setMediaPreviewUrl(null);
+          mediaBlobRef.current = null;
+          capturedMediaTypeRef.current = null;
+          // Fall through to screenshot capture as fallback
+          if (videoRef.current) {
+            try {
+              screenshotResult = await captureVideoFrame(videoRef.current);
+            } catch (e) {
+              screenshotResult = {
+                ok: false,
+                error: {
+                  code: 'BLOB_ENCODE_FAILED',
+                  message:
+                    e instanceof Error
+                      ? e.message
+                      : 'Unexpected capture failure.',
+                },
+              };
+            }
+          }
+        } else if (videoClipResult && videoClipResult.ok) {
+          setMediaUnsupported(null);
+          setMediaPreviewType('video');
+          mediaBlobRef.current = videoClipResult.blob;
+          capturedMediaTypeRef.current = 'video';
+          // Revoke old URL
+          if (mediaBlobUrlRef.current)
+            URL.revokeObjectURL(mediaBlobUrlRef.current);
+          const newUrl = URL.createObjectURL(videoClipResult.blob);
+          mediaBlobUrlRef.current = newUrl;
+          setMediaPreviewUrl(newUrl);
+          // Store for export — do NOT route through screenshotUrl
+          miningScreenshotBlobRef.current = videoClipResult.blob;
+        }
+      } else {
+        // Image mode result handling
+        if (screenshotResult && !screenshotResult.ok) {
+          setMiningHasScreenshotError(true);
+          replaceMiningScreenshotUrl(null);
+          miningScreenshotBlobRef.current = null;
+          mediaBlobRef.current = null;
+          capturedMediaTypeRef.current = null;
+          setMediaPreviewUrl(null);
+        } else if (screenshotResult && screenshotResult.ok) {
+          miningScreenshotBlobRef.current = screenshotResult.blob;
+          replaceMiningScreenshotUrl(
+            URL.createObjectURL(screenshotResult.blob),
+          );
+          mediaBlobRef.current = screenshotResult.blob;
+          capturedMediaTypeRef.current = 'image';
+          setMediaPreviewType('image');
+          setMediaPreviewUrl(miningScreenshotUrl);
+        }
       }
     }
 
@@ -1031,6 +1146,7 @@ export default function PlayerApp() {
     cues,
     mediaType,
     mediaName,
+    mediaMode,
     playbackRate,
     replaceMiningScreenshotUrl,
     replaceMiningAudioUrl,
@@ -1059,6 +1175,9 @@ export default function PlayerApp() {
     replaceMiningAudioUrl(null);
     miningAbortControllerRef.current?.abort();
     miningAbortControllerRef.current = null;
+    // Abort any in-flight media-mode recapture
+    mediaRecaptureAbortRef.current?.abort();
+    mediaRecaptureAbortRef.current = null;
 
     const media = sharedMediaRef.current;
     if (media) {
@@ -1366,6 +1485,153 @@ export default function PlayerApp() {
     }
   }, []);
 
+  const handleMediaModeChange = useCallback(
+    (mode: 'image' | 'video') => {
+      if (mode === mediaMode) return; // no-op if already selected
+      setMediaMode(mode);
+      try {
+        const prefs = readAnkiMinerPreferences();
+        writeAnkiMinerPreferences({ ...prefs, mediaMode: mode });
+      } catch {
+        // localStorage failure is non-fatal
+      }
+      // Abort any prior media recapture
+      mediaRecaptureAbortRef.current?.abort();
+      setIsMediaRecapturing(true);
+      const epoch = ++mediaEpochRef.current;
+      const abortCtrl = new AbortController();
+      mediaRecaptureAbortRef.current = abortCtrl;
+      const signal = abortCtrl.signal;
+      const videoEl = videoRef.current;
+      const currentRange: [number, number] = [miningRangeStart, miningRangeEnd];
+
+      const run = async () => {
+        // Save visible player state for restoration after capture
+        const savedTime = videoEl?.currentTime ?? 0;
+        const savedPaused = videoEl?.paused ?? true;
+        try {
+          // Clear old screenshot/URL state so skeleton appears in AspectRatio
+          if (mediaBlobUrlRef.current) {
+            URL.revokeObjectURL(mediaBlobUrlRef.current);
+            mediaBlobUrlRef.current = null;
+          }
+          mediaBlobRef.current = null;
+          capturedMediaTypeRef.current = null;
+          setMediaPreviewUrl(null);
+          setMediaPreviewType(mode);
+          setMediaUnsupported(null);
+          miningScreenshotBlobRef.current = null;
+          replaceMiningScreenshotUrl(null);
+
+          // Seek to range start for accurate capture
+          if (videoEl) {
+            videoEl.currentTime = currentRange[0];
+            await new Promise<void>((resolve) => {
+              if (!videoEl) {
+                resolve();
+                return;
+              }
+              const onSeeked = () => {
+                videoEl.removeEventListener('seeked', onSeeked);
+                resolve();
+              };
+              videoEl.addEventListener('seeked', onSeeked);
+              // Timeout to avoid hanging if seeked never fires
+              setTimeout(resolve, 2000);
+            });
+          }
+
+          if (signal.aborted || epoch !== mediaEpochRef.current) return;
+
+          if (mode === 'video') {
+            const clipResult = await recordVideoClip({
+              mediaUrl: mediaUrl!,
+              start: currentRange[0],
+              end: currentRange[1],
+              signal,
+            });
+            if (signal.aborted || epoch !== mediaEpochRef.current) return;
+            if (clipResult.ok) {
+              const newUrl = URL.createObjectURL(clipResult.blob);
+              mediaBlobUrlRef.current = newUrl;
+              mediaBlobRef.current = clipResult.blob;
+              capturedMediaTypeRef.current = 'video';
+              setMediaPreviewType('video');
+              setMediaPreviewUrl(newUrl);
+              miningScreenshotBlobRef.current = clipResult.blob;
+              replaceMiningScreenshotUrl(newUrl);
+            } else {
+              // Fallback to JPEG on video failure
+              setMediaUnsupported(clipResult.error.message);
+              if (videoEl) {
+                videoEl.currentTime = currentRange[0];
+                await new Promise<void>((resolve) => {
+                  if (!videoEl) {
+                    resolve();
+                    return;
+                  }
+                  const onSeeked = () => {
+                    videoEl.removeEventListener('seeked', onSeeked);
+                    resolve();
+                  };
+                  videoEl.addEventListener('seeked', onSeeked);
+                  setTimeout(resolve, 2000);
+                });
+              }
+              if (signal.aborted || epoch !== mediaEpochRef.current) return;
+              const fallback = videoEl
+                ? await captureVideoFrame(videoEl)
+                : null;
+              if (signal.aborted || epoch !== mediaEpochRef.current) return;
+              if (fallback && fallback.ok) {
+                const imgUrl = URL.createObjectURL(fallback.blob);
+                mediaBlobUrlRef.current = imgUrl;
+                mediaBlobRef.current = fallback.blob;
+                capturedMediaTypeRef.current = 'image';
+                setMediaPreviewType('image');
+                setMediaPreviewUrl(imgUrl);
+                miningScreenshotBlobRef.current = fallback.blob;
+                replaceMiningScreenshotUrl(imgUrl);
+              }
+            }
+          } else if (videoEl) {
+            // Image mode: capture JPEG at range start
+            const result = await captureVideoFrame(videoEl);
+            if (signal.aborted || epoch !== mediaEpochRef.current) return;
+            if (result.ok) {
+              const imgUrl = URL.createObjectURL(result.blob);
+              mediaBlobUrlRef.current = imgUrl;
+              mediaBlobRef.current = result.blob;
+              capturedMediaTypeRef.current = 'image';
+              setMediaPreviewType('image');
+              setMediaPreviewUrl(imgUrl);
+              miningScreenshotBlobRef.current = result.blob;
+              replaceMiningScreenshotUrl(imgUrl);
+            }
+          }
+        } finally {
+          // Restore visible player time/pause state
+          if (videoEl) {
+            videoEl.currentTime = savedTime;
+            if (savedPaused) videoEl.pause();
+          }
+          if (epoch === mediaEpochRef.current) {
+            setIsMediaRecapturing(false);
+            mediaRecaptureAbortRef.current = null;
+          }
+        }
+      };
+      void run();
+    },
+    [
+      mediaMode,
+      miningRangeStart,
+      miningRangeEnd,
+      replaceMiningScreenshotUrl,
+      mediaUrl,
+    ],
+  );
+
   /** Determine if export is possible and the localized disabled reason. */
   const exportDisabledReason = useMemo(() => {
     const d = dictRef.current.playerUI;
@@ -1466,16 +1732,22 @@ export default function PlayerApp() {
           return;
         }
 
-        // Upload media (screenshot/audio) if mapped
+        // Upload media (screenshot/video) if mapped — branch on captured blob type
         const fieldMapping = prefs.fields;
         if (fieldMapping.image && miningScreenshotBlobRef.current) {
-          const filename = generateMediaFilename('entei_screenshot', 'jpg');
+          const isVideo = capturedMediaTypeRef.current === 'video';
+          const filename = generateMediaFilename(
+            isVideo ? 'entei_video' : 'entei_screenshot',
+            isVideo ? 'webm' : 'jpg',
+          );
           const base64 = await blobToBase64(miningScreenshotBlobRef.current);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           await client.storeMediaFile(filename, base64, abortController.signal);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (fieldMapping.image && !noteFields[fieldMapping.image]) {
-            noteFields[fieldMapping.image] = `<img src="${filename}">`;
+            noteFields[fieldMapping.image] = isVideo
+              ? `<video autoplay loop muted playsinline src="${filename}"></video>`
+              : `<img src="${filename}">`;
           }
         }
 
@@ -1559,15 +1831,21 @@ export default function PlayerApp() {
           updateFields[f.physicalName] = f.value;
         }
 
-        // Upload media if available (never wipe existing)
+        // Upload media if available (never wipe existing) — branch on captured type
         if (prefs.fields.image && miningScreenshotBlobRef.current) {
-          const filename = generateMediaFilename('entei_screenshot', 'jpg');
+          const isVideo = capturedMediaTypeRef.current === 'video';
+          const filename = generateMediaFilename(
+            isVideo ? 'entei_video' : 'entei_screenshot',
+            isVideo ? 'webm' : 'jpg',
+          );
           const base64 = await blobToBase64(miningScreenshotBlobRef.current);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           await client.storeMediaFile(filename, base64, abortController.signal);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (prefs.fields.image) {
-            updateFields[prefs.fields.image] = `<img src="${filename}">`;
+            updateFields[prefs.fields.image] = isVideo
+              ? `<video autoplay loop muted playsinline src="${filename}"></video>`
+              : `<img src="${filename}">`;
           }
         }
 
@@ -1695,7 +1973,11 @@ export default function PlayerApp() {
         let audioMarkup: string | null = null;
 
         if (prefs.fields.image && miningScreenshotBlobRef.current) {
-          const filename = generateMediaFilename('entei_screenshot', 'jpg');
+          const isVideo = capturedMediaTypeRef.current === 'video';
+          const filename = generateMediaFilename(
+            isVideo ? 'entei_video' : 'entei_screenshot',
+            isVideo ? 'webm' : 'jpg',
+          );
           const base64 = await blobToBase64(miningScreenshotBlobRef.current);
           if (!mountedRef.current || appendEpochRef.current !== epoch)
             return { succeeded, failed };
@@ -1703,7 +1985,9 @@ export default function PlayerApp() {
           await client.storeMediaFile(filename, base64, abortController.signal);
           if (!mountedRef.current || appendEpochRef.current !== epoch)
             return { succeeded, failed };
-          imageMarkup = `<img src="${filename}">`;
+          imageMarkup = isVideo
+            ? `<video autoplay loop muted playsinline src="${filename}"></video>`
+            : `<img src="${filename}">`;
         }
 
         if (prefs.fields.audio && miningAudioBlobRef.current) {
@@ -2133,6 +2417,12 @@ export default function PlayerApp() {
                 savedDeck={ankiPrefs?.deck ?? ''}
                 savedNoteType={ankiPrefs?.noteType ?? ''}
                 sentenceFieldName={ankiPrefs?.fields.sentence ?? null}
+                mediaMode={mediaMode}
+                onMediaModeChange={handleMediaModeChange}
+                mediaPreviewUrl={mediaPreviewUrl}
+                mediaPreviewType={mediaPreviewType}
+                mediaUnsupported={mediaUnsupported}
+                isMediaRecapturing={isMediaRecapturing}
               />
             </div>
           </div>

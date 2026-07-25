@@ -198,6 +198,10 @@ export const ja: Dictionary = {
     appendPartialFailure: '一部のカード追記に失敗しました。',
     appendAllFailed: 'すべての追記に失敗しました。',
     appendSelectedCount: (count) => `${count}件選択中`,
+    mediaModeImage: '画像',
+    mediaModeVideo: '動画',
+    mediaModeUnsupported:
+      'このブラウザではVideo Clipがサポートされていません。',
   },
   reader: {
     title: 'EPUBリーダー',
