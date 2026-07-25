@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）+ Stage 2 AM-6a/AM-6b（new note / update latest）+ AM-6c（inline append panel with Data Table）はコード完了・検証済み。実AnkiConnect手動QA待ち。
+> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）+ Stage 2 AM-6a/AM-6b（new note / update latest）+ AM-6c（inline append panel with Data Table）はコード完了・実AnkiConnect QA確認済み。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -111,7 +111,7 @@ Ankiへ送る操作以外で、local mediaを外部へuploadしない。Screensh
 
 Stage 1ではAnkiConnectから読むだけで、`addNote` / `updateNoteFields`を一度も呼ばない。AM-1 / AM-2 / AM-5は完了済み。AM-3はactive cue音声の単独previewまでを担い、AM-4でrange調整とScreenshot / Audio / field payloadを1つのMining Previewへまとめる。
 
-Stage 1.1ではrange sliderの`onValueCommit`、つまりthumbを離した時だけ、文章・出典・画像・音声を同じrangeからローカル再生成する。drag中はrange表示だけ変え、Anki requestは一切しない。Stage 1.1は実装済み。manual Update materials buttonは削除済み。Stage 2の`Ankiへ送信`button（`ToggleGroup` + `Send`）はAM-6a/AM-6bとして実装済み。実AnkiConnect手動書込みQAは未実施。
+Stage 1.1ではrange sliderの`onValueCommit`、つまりthumbを離した時だけ、文章・出典・画像・音声を同じrangeからローカル再生成する。drag中はrange表示だけ変え、Anki requestは一切しない。manual Update materials buttonは削除済み。Stage 2の`Ankiへ送信`button（`ToggleGroup` + `Send`）はAM-6a/AM-6b/AM-6cとして実装済み。Stage 1.1、Stage 2、AM-6cの実AnkiConnect QAはYosia確認済み。
 
 ### Stage 2 — Anki Export & Update（明示書込み）
 
@@ -282,7 +282,7 @@ npm run build          ✅ static build complete
 ## 5.w Stage 1 実装記録（AM-4 Mining Preview）
 
 > 実装日: 2026-07-23
-> 実装範囲: AM-4 Mining Preview（素材確認・range調整・range commit自動素材更新・Cancel/Close）。Stage 2（AM-6a/AM-6b）のコードは実装済み。実AnkiConnect手動書込みQAは未実施・未承認。range zoom、字幕marker、dock、range commit時の全素材自動更新を含む検証完了。
+> 実装範囲: AM-4 Mining Preview（素材確認・range調整・range commit自動素材更新・Cancel/Close）。当時はStage 2（AM-6a/AM-6b）のコードまで実装済みで、実AnkiConnect手動書込みQAは未実施だった。後にAM-6cまで実装し、Stage 1.1 / Stage 2 / AM-6cの実AnkiConnect QAもYosia確認済み。range zoom、字幕marker、dock、range commit時の全素材自動更新を含む検証完了。
 > 方針: Mine開始時にsnapshot time + activeCueIdをmemory上で固定し、visible Playerを即pause。Screenshot（videoのみ）とAudio（detached `recordAudioClip`）を並行capture。Mining Preview Dialogで確認・range調整（0.1秒step Slider + `onValueCommit`時の自動全素材再生成）。Cancel/Closeでsnapshot timeへseekしてpauseを維持。AM-2/AM-3の単独preview動作は変更しない。
 
 ### 実装済みファイル
@@ -850,17 +850,15 @@ Dialog / Button / ScrollArea / Slider / Popover / Tabs / Selectに加え、Toggl
 | Screenshot            | ✅ local videoでframe一致、Closeでpreview URL解放                                                                                     |
 | Audio                 | ✅ Chromiumでactive cue Preview再生、Modal clickで背後Playerをresumeしない、cue duration表示が正しい。unsupported browser実機は未確認 |
 | mining preview        | ✅ AM-4: range zoom / marker / dock / Update materials、Cancelでcapture開始timestampへ戻りpauseを実機確認                             |
-| range commit          | ⬜ Stage 1.1: thumbを離した時だけ全素材を自動更新。drag中は録音・Anki requestなし                                                     |
-| Export                | ⬜ Stage 2: `canAddNotes` falseで`addNote`ゼロ回、成功response後だけ成功表示                                                          |
+| range commit          | ✅ Stage 1.1: thumbを離した時だけ全素材を自動更新。drag中は録音・Anki requestなし                                                     |
+| Export                | ✅ Stage 2: `canAddNotes` falseで`addNote`ゼロ回、成功response後だけ成功表示                                                          |
 | Update latest         | ✅ AM-6b: `findNotes('added:1')` → max noteId → one-click update。candidateなしなら書込みゼロ |
-| Append panel          | ⬜ AM-6c: inline Data Table、deck auto-load、explicit search、checkbox multi-select、append-only、成功ID自動除去 |
+| Append panel          | ✅ AM-6c: inline Data Table、deck auto-load、explicit search、checkbox multi-select、append-only、成功ID自動除去 |
 | privacy               | DevTools Networkでmedia / Blob / subtitle本文が外部送信されない                                                                       |
 
 ### 14.3 実Anki gate
 
-実Anki profileへの`addNote` / `updateNoteFields`は、Yosiaが明示的に承認した後だけ行う。
-
-test用Deck / test用Note typeを作り、production deckへ試験noteを送らない。これは削除やcleanupを伴うため、実行直前に対象Deckを再確認する。
+Stage 1.1、Stage 2、AM-6cの実AnkiConnect QAはYosia確認済み。今後の新しいAnki書込み機能は、実装前に対象Deckと書込み範囲を再確認する。
 
 ## 15. 採用しない選択肢
 
@@ -872,6 +870,10 @@ test用Deck / test用Note typeを作り、production deckへ試験noteを送ら�
 | 複数presetを最初から実装              | active mapping 1つの実需確認前にprofile managerを増やす |
 | Audio Clipを全browser必須にする       | native capture API / codec対応に差がある                |
 | Screenshot / audioを外部serviceへ送る | local-firstとprivacy契約に反する                        |
+
+### 15.1 将来候補: DenChou Scenes
+
+DenChouのmulti-scene cardへ新しいsceneだけをHTML group wrapperで追記する拡張は、複数profileとは別の機能として扱う。通常note typeのraw export / `<br>` appendは変えない。詳細な適用範囲、export契約、Settings案、実装gateは[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を正とする。これは設計承認済み・未実装である。
 
 ## 16. 実装開始gate
 

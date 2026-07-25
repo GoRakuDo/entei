@@ -719,6 +719,8 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 | MKV内部subtitle track extraction         | 今回除外 | asbplayer release noteでもfuture work。external `.sup` supportと混同しない |
 | browser extension / native player helper | 恒久除外 | local web Playerの独立性を壊す                                             |
 
+DenChouのmulti-scene card向けHTML wrapperは、字幕format parityや複数profileではなく、将来のMining / Anki export拡張として別管理する。実装前の設計は[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を参照。
+
 ### 17.8 移植とlicenseの契約
 
 asbplayerはMIT（`A:\asbplayer\LICENSE.md:1-13`）。純粋parser codeを直接移植する場合は、該当fileにMIT copyright / permission noticeを残す。園庭全体のMPL-2.0を置換しない。
