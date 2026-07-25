@@ -302,7 +302,6 @@ export function AnkiFieldsTab({
     async (modelName: string) => {
       setSelectedModel(modelName);
       setPresetSaved(false);
-
       // Cancel any in-flight modelFieldNames request
       modelAbortRef.current?.abort();
       const controller = new AbortController();

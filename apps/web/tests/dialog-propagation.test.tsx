@@ -38,10 +38,7 @@ function TestDialogParent() {
   const [open, setOpen] = useState(true);
 
   return (
-    <div
-      data-testid="parent"
-      onClick={() => setParentClicks((c) => c + 1)}
-    >
+    <div data-testid="parent" onClick={() => setParentClicks((c) => c + 1)}>
       <p data-testid="click-count">{parentClicks}</p>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent closeLabel="Close">

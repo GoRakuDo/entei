@@ -78,6 +78,10 @@ import {
   writeAnkiMinerPreferences,
   type AnkiFieldMapping,
 } from '@/features/player/anki-miner-preferences';
+import {
+  wrapDenChouField,
+  isDenChouActiveTarget,
+} from '@/features/player/denchou-scene';
 import { selectCueTextInRange } from '@/features/player/subtitle-interval';
 import {
   AnkiExportClient,
@@ -1421,11 +1425,15 @@ export default function PlayerApp() {
         // Build note fields from draft
         const noteFields: Record<string, string> = {};
         const seen = new Set<string>();
+        const isDenChou = prefs.noteType === 'DenChou';
         for (const f of miningDraftFields) {
           if (f.key === 'image' || f.key === 'audio') continue;
           if (seen.has(f.physicalName)) continue;
           seen.add(f.physicalName);
-          noteFields[f.physicalName] = f.value;
+          // DenChou: auto-wrap sentence/source in <span class="group">
+          noteFields[f.physicalName] = isDenChou
+            ? wrapDenChouField(f.key, f.value)
+            : f.value;
         }
 
         // canAddNotes check — new card allows duplicates within the target deck
@@ -1721,14 +1729,28 @@ export default function PlayerApp() {
             if (draft.key === 'image' || draft.key === 'audio') continue;
             const fieldName = draft.physicalName;
             const existing = note.fields[fieldName]?.value ?? '';
-            const incoming = draft.value;
+            let incoming = draft.value;
             if (!incoming) continue;
-            updates[fieldName] = existing
-              ? `${existing}<br>${incoming}`
-              : incoming;
+            // DenChou: wrap incoming with scene HTML
+            const isDenChou = prefs.noteType === 'DenChou';
+            const skipBr = isDenChou && isDenChouActiveTarget(draft.key);
+            if (isDenChou) {
+              incoming = wrapDenChouField(draft.key, incoming);
+            }
+            if (skipBr) {
+              // DenChou sentence/source: no <br> (scene groups own layout)
+              updates[fieldName] = existing
+                ? `${existing}${incoming}`
+                : incoming;
+            } else {
+              // All other cases: <br> separator
+              updates[fieldName] = existing
+                ? `${existing}<br>${incoming}`
+                : incoming;
+            }
           }
 
-          // Append image markup if available
+          // Append image markup if available — always use <br> (not a wrapper target)
           if (prefs.fields.image && imageMarkup) {
             const existing = note.fields[prefs.fields.image]?.value ?? '';
             updates[prefs.fields.image] = existing
@@ -1736,7 +1758,7 @@ export default function PlayerApp() {
               : imageMarkup;
           }
 
-          // Append audio markup if available
+          // Append audio markup if available — always use <br> (not a wrapper target)
           if (prefs.fields.audio && audioMarkup) {
             const existing = note.fields[prefs.fields.audio]?.value ?? '';
             updates[prefs.fields.audio] = existing

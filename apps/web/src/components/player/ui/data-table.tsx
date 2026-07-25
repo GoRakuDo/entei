@@ -125,7 +125,9 @@ export function DataTable<TData>({
                 <TableRow
                   key={row.id}
                   data-state={isSelected ? 'selected' : undefined}
-                  className={isSelected ? 'entei-data-table-row-selected' : undefined}
+                  className={
+                    isSelected ? 'entei-data-table-row-selected' : undefined
+                  }
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -145,9 +147,7 @@ export function DataTable<TData>({
       {showFooter && (
         <div className="entei-data-table-footer">
           {footerStart && (
-            <span className="entei-data-table-footer-start">
-              {footerStart}
-            </span>
+            <span className="entei-data-table-footer-start">{footerStart}</span>
           )}
           {table.getPageCount() > 1 && (
             <div className="entei-data-table-pagination">

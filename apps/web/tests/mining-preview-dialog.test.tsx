@@ -75,6 +75,7 @@ const mockDict = {
   appendPartialFailure: 'Partial.',
   appendAllFailed: 'Failed.',
   appendSelectedCount: (count: number) => `${count} selected`,
+
 };
 
 const baseProps = {
@@ -884,7 +885,9 @@ describe('MiningPreviewDialog', () => {
     // Verify single ToggleGroup contains all 3 items inside the centered row
     const toggleGroup = row!.querySelector('[data-slot="toggle-group"]');
     expect(toggleGroup).not.toBeNull();
-    const items = toggleGroup!.querySelectorAll('[data-slot="toggle-group-item"]');
+    const items = toggleGroup!.querySelectorAll(
+      '[data-slot="toggle-group-item"]',
+    );
     expect(items.length).toBe(3);
   });
 

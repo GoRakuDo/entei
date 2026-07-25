@@ -227,8 +227,7 @@ export function AnkiAppendPanel({
     filteredResults.length > 0 &&
     filteredResults.every((r) => selectedIds.has(r.noteId));
   const someSelected =
-    !allSelected &&
-    filteredResults.some((r) => selectedIds.has(r.noteId));
+    !allSelected && filteredResults.some((r) => selectedIds.has(r.noteId));
 
   // TanStack table columns
   const columns = useMemo<ColumnDef<EnrichedNote, unknown>[]>(
@@ -385,7 +384,10 @@ export function AnkiAppendPanel({
             getRowState={getRowState}
             ariaLabel={dict.appendDialogTitle}
             footerStart={
-              <span className="entei-data-table-footer-count" aria-live="polite">
+              <span
+                className="entei-data-table-footer-count"
+                aria-live="polite"
+              >
                 {dict.appendSelectedCount(
                   Array.from(selectedIds).filter((id) =>
                     filteredResults.some((r) => r.noteId === id),

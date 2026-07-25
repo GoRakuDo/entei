@@ -42,7 +42,9 @@ function getTimeText(): string | null {
 }
 
 function setAudioDuration(value: number) {
-  vi.spyOn(HTMLMediaElement.prototype, 'duration', 'get').mockReturnValue(value);
+  vi.spyOn(HTMLMediaElement.prototype, 'duration', 'get').mockReturnValue(
+    value,
+  );
 }
 
 describe('AudioClipPreviewDialog duration fallback', () => {
@@ -61,7 +63,9 @@ describe('AudioClipPreviewDialog duration fallback', () => {
       />,
     );
 
-    const audio = document.body.querySelector('[data-testid="audio-clip-audio"]') as HTMLAudioElement;
+    const audio = document.body.querySelector(
+      '[data-testid="audio-clip-audio"]',
+    ) as HTMLAudioElement;
     expect(audio).not.toBeNull();
 
     // Simulate NaN duration (before metadata)
@@ -88,7 +92,9 @@ describe('AudioClipPreviewDialog duration fallback', () => {
       />,
     );
 
-    const audio = document.body.querySelector('[data-testid="audio-clip-audio"]') as HTMLAudioElement;
+    const audio = document.body.querySelector(
+      '[data-testid="audio-clip-audio"]',
+    ) as HTMLAudioElement;
     setAudioDuration(Infinity);
     act(() => {
       audio.dispatchEvent(new Event('loadedmetadata'));
@@ -112,7 +118,9 @@ describe('AudioClipPreviewDialog duration fallback', () => {
       />,
     );
 
-    const audio = document.body.querySelector('[data-testid="audio-clip-audio"]') as HTMLAudioElement;
+    const audio = document.body.querySelector(
+      '[data-testid="audio-clip-audio"]',
+    ) as HTMLAudioElement;
     setAudioDuration(0);
     act(() => {
       audio.dispatchEvent(new Event('loadedmetadata'));
@@ -136,7 +144,9 @@ describe('AudioClipPreviewDialog duration fallback', () => {
       />,
     );
 
-    const audio = document.body.querySelector('[data-testid="audio-clip-audio"]') as HTMLAudioElement;
+    const audio = document.body.querySelector(
+      '[data-testid="audio-clip-audio"]',
+    ) as HTMLAudioElement;
     setAudioDuration(4.5);
     act(() => {
       audio.dispatchEvent(new Event('loadedmetadata'));
@@ -160,7 +170,9 @@ describe('AudioClipPreviewDialog duration fallback', () => {
       />,
     );
 
-    const audio = document.body.querySelector('[data-testid="audio-clip-audio"]') as HTMLAudioElement;
+    const audio = document.body.querySelector(
+      '[data-testid="audio-clip-audio"]',
+    ) as HTMLAudioElement;
 
     // First: bad duration
     setAudioDuration(NaN);
@@ -192,7 +204,9 @@ describe('AudioClipPreviewDialog duration fallback', () => {
       />,
     );
 
-    const audio = document.body.querySelector('[data-testid="audio-clip-audio"]') as HTMLAudioElement;
+    const audio = document.body.querySelector(
+      '[data-testid="audio-clip-audio"]',
+    ) as HTMLAudioElement;
 
     // Start with NaN → fallback
     setAudioDuration(NaN);
@@ -224,7 +238,9 @@ describe('AudioClipPreviewDialog duration fallback', () => {
       />,
     );
 
-    const audio = document.body.querySelector('[data-testid="audio-clip-audio"]') as HTMLAudioElement;
+    const audio = document.body.querySelector(
+      '[data-testid="audio-clip-audio"]',
+    ) as HTMLAudioElement;
     setAudioDuration(NaN);
     act(() => {
       audio.dispatchEvent(new Event('loadedmetadata'));

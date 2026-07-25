@@ -367,7 +367,7 @@ npm run build          ✅ static build complete
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 27 files, 713 tests pass
+npm run test           ✅ 28 files, 744 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```
@@ -800,7 +800,7 @@ apps/web/src/
 │   ├── mining-payload.ts              # mapping → preview / canAddNotes payload
 │   ├── mining-viewport.ts             # ASB-style range zoom
 │   └── subtitle-interval.ts           # ASB-style >=50% overlap rule
-└── tests/                             # 27 test files, 713 tests
+└── tests/                             # 28 test files, 744 tests
 ```
 
 `PlayerApp`はmedia / playback stateの唯一の所有者のままにする。Anki tabやMining Previewがvideo refを直接勝手に操作しない。必要な操作はtyped callbackで`PlayerApp`へ依頼する。
@@ -873,7 +873,7 @@ Stage 1.1、Stage 2、AM-6cの実AnkiConnect QAはYosia確認済み。今後の�
 
 ### 15.1 将来候補: DenChou Scenes
 
-DenChouのmulti-scene cardへ新しいsceneだけをHTML group wrapperで追記する拡張は、複数profileとは別の機能として扱う。通常note typeのraw export / `<br>` appendは変えない。詳細な適用範囲、export契約、Settings案、実装gateは[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を正とする。これは設計承認済み・未実装である。
+DenChouのmulti-scene cardへ新しいsceneだけをHTML group wrapperで追記する拡張は、複数profileとは別の機能として扱う。通常note typeのraw export / `<br>` appendは変えない。code-side自動固定wrapper（`<span class="group">…</span>`）、New note/Append payload wrapping、744 testsが実装済み。活用形を扱うWord Highlightはdeferred。詳細な適用範囲、export契約、実装gateは[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を正とする。
 
 ## 16. 実装開始gate
 

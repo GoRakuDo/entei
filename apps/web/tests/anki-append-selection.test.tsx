@@ -61,6 +61,7 @@ const dict = {
   appendNoteIdLabel: 'Note ID',
   appendNoteTypeLabel: 'Note type',
   appendSelectedCount: (count: number) => `${count} selected`,
+
 };
 
 function makeNote(
@@ -340,11 +341,13 @@ describe('AnkiAppendPanel — AM-6c', () => {
   });
 
   it('allows checking multiple compatible notes', async () => {
-    const onSearch = vi.fn().mockResolvedValue([
-      makeNote(401, 'Basic'),
-      makeNote(402, 'Basic'),
-      makeNote(403, 'Basic'),
-    ]);
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([
+        makeNote(401, 'Basic'),
+        makeNote(402, 'Basic'),
+        makeNote(403, 'Basic'),
+      ]);
 
     render(
       <ControlledPanel
@@ -414,11 +417,13 @@ describe('AnkiAppendPanel — AM-6c', () => {
   // ── Note type pre-filtering ──
 
   it('mismatched note types are absent from table (not merely disabled)', async () => {
-    const onSearch = vi.fn().mockResolvedValue([
-      makeNote(600, 'Basic'),
-      makeNote(601, 'Cloze'),
-      makeNote(602, 'Basic'),
-    ]);
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([
+        makeNote(600, 'Basic'),
+        makeNote(601, 'Cloze'),
+        makeNote(602, 'Basic'),
+      ]);
     renderPanel({ onSearch });
 
     await waitFor(() => {
@@ -434,11 +439,13 @@ describe('AnkiAppendPanel — AM-6c', () => {
   });
 
   it('select-all checks all visible (matching) rows', async () => {
-    const onSearch = vi.fn().mockResolvedValue([
-      makeNote(801, 'Basic'),
-      makeNote(802, 'Cloze'),
-      makeNote(803, 'Basic'),
-    ]);
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([
+        makeNote(801, 'Basic'),
+        makeNote(802, 'Cloze'),
+        makeNote(803, 'Basic'),
+      ]);
     renderPanel({ onSearch });
 
     await waitFor(() => {
@@ -458,10 +465,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
   });
 
   it('no results shown when all notes are wrong type', async () => {
-    const onSearch = vi.fn().mockResolvedValue([
-      makeNote(900, 'Cloze'),
-      makeNote(901, 'Cloze'),
-    ]);
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([makeNote(900, 'Cloze'), makeNote(901, 'Cloze')]);
     renderPanel({ onSearch });
 
     await waitFor(() => {
@@ -1038,7 +1044,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
     const checkbox = screen.getByRole('checkbox', { name: 'Note 6003' });
 
     // Unchecked: indicator is absent (Radix unmounts it)
-    expect(checkbox.querySelector('[data-slot="checkbox-indicator"]')).toBeNull();
+    expect(
+      checkbox.querySelector('[data-slot="checkbox-indicator"]'),
+    ).toBeNull();
 
     // Check it — indicator appears
     await act(async () => {
@@ -1047,7 +1055,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
     await waitFor(() => {
       const checked = screen.getByRole('checkbox', { name: 'Note 6003' });
       expect(checked.getAttribute('data-state')).toBe('checked');
-      const indicator = checked.querySelector('[data-slot="checkbox-indicator"]');
+      const indicator = checked.querySelector(
+        '[data-slot="checkbox-indicator"]',
+      );
       expect(indicator).not.toBeNull();
     });
   });
@@ -1078,7 +1088,11 @@ describe('AnkiAppendPanel — AM-6c', () => {
     });
     // Re-query inside waitFor: React re-render replaces the DOM element
     await waitFor(() => {
-      expect(screen.getByRole('checkbox', { name: 'Note 8001' }).getAttribute('data-state')).toBe('checked');
+      expect(
+        screen
+          .getByRole('checkbox', { name: 'Note 8001' })
+          .getAttribute('data-state'),
+      ).toBe('checked');
     });
   });
 });
