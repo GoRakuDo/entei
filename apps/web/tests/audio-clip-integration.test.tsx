@@ -198,7 +198,6 @@ const mockDict = {
   appendSearchError: 'Search failed.',
   appendNoteIdLabel: 'Note ID',
   appendNoteTypeLabel: 'Note type',
-  appendIncompatibleType: 'Incompatible',
   appendSuccess: 'Done.',
   appendPartialFailure: 'Partial.',
   appendAllFailed: 'Failed.',

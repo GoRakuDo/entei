@@ -18,7 +18,7 @@
 
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useId } from 'react';
+import { useEffect, useState, useCallback, useMemo, useId, useRef } from 'react';
 import {
   Play,
   Pause,
@@ -146,7 +146,6 @@ interface MiningPreviewDialogProps {
     appendSearchError: string;
     appendNoteIdLabel: string;
     appendNoteTypeLabel: string;
-    appendIncompatibleType: string;
     appendSuccess: string;
     appendPartialFailure: string;
     appendAllFailed: string;
@@ -372,16 +371,28 @@ export function MiningPreviewDialog({
     [onExportModeChange],
   );
 
-  /** AM-6c: Send button — routes based on current mode. */
+  /** AM-6c: Operation identity to prevent stale completion from clearing newer selection. */
+  const appendOpIdRef = useRef(0);
+
+  /** AM-6c: Send button — routes based on current mode. After append, auto-remove only succeeded IDs. */
   const handleSendClick = useCallback(() => {
     if (isAppendMode) {
-      const compatibleIds = Array.from(selectedIds).filter((id) => {
-        // The panel filters compatible at selection time, but double-check
-        return id > 0;
+      const idsToSend = Array.from(selectedIds).filter((id) => id > 0);
+      if (idsToSend.length === 0) return;
+      const opId = ++appendOpIdRef.current;
+      onAppend(idsToSend.sort((a, b) => a - b)).then((result) => {
+        // Guard: stale operation — a newer send was initiated, don't touch state
+        if (appendOpIdRef.current !== opId) return;
+        if (result.succeeded.length > 0) {
+          setSelectedIds((prev) => {
+            const next = new Set(prev);
+            for (const id of result.succeeded) {
+              next.delete(id);
+            }
+            return next;
+          });
+        }
       });
-      if (compatibleIds.length > 0) {
-        onAppend(compatibleIds.sort((a, b) => a - b));
-      }
     } else {
       onExportSend();
     }
@@ -616,10 +627,10 @@ export function MiningPreviewDialog({
               <ToggleGroupItem
                 value="append"
                 aria-label={dict.appendSelectLabel}
+                title={dict.appendSelectLabel}
                 disabled={isExporting || isAppending}
               >
                 <Search size={16} aria-hidden />
-                <span>{dict.appendSelectLabel}</span>
               </ToggleGroupItem>
             </ToggleGroup>
           </div>

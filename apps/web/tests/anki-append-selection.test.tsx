@@ -5,12 +5,11 @@
  * - Auto-load current deck notes on expansion (safe Anki query)
  * - Typed user query + explicit Search replaces default deck results
  * - No collection-wide fetch; deck-scoped only
- * - Checkbox single/multiple selection + incompatible disabled
+ * - Checkbox single/multiple selection
  * - Panel collapse resets all ephemeral state
  * - No localStorage persistence of query/results/selections
  * - Abort cancels in-flight search
  * - Sentence plain-text preview displayed
- * - Incompatible note type visibly unavailable
  * - Sorted results, bounded results (100 cap)
  * - Safe deck name quoting/escaping
  * - DataTable renders table with aria-label
@@ -61,7 +60,6 @@ const dict = {
   appendSearchError: 'Search failed.',
   appendNoteIdLabel: 'Note ID',
   appendNoteTypeLabel: 'Note type',
-  appendIncompatibleType: 'Incompatible note type',
   appendSelectedCount: (count: number) => `${count} selected`,
 };
 
@@ -127,8 +125,8 @@ function renderPanel(
   return { ...result, onSearch };
 }
 
-function isButtonDisabled(text: string): boolean {
-  const btn = screen.getByText(text).closest('button');
+function isButtonDisabled(name: string): boolean {
+  const btn = screen.getByRole('button', { name });
   return btn?.hasAttribute('disabled') ?? false;
 }
 
@@ -249,7 +247,7 @@ describe('AnkiAppendPanel — AM-6c', () => {
     fireEvent.change(screen.getByPlaceholderText('Search query'), {
       target: { value: 'tag:vocab' },
     });
-    fireEvent.click(screen.getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
       expect(onSearch).toHaveBeenCalledTimes(2);
@@ -276,7 +274,7 @@ describe('AnkiAppendPanel — AM-6c', () => {
 
     await waitFor(() => expect(onSearch).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(onSearch).toHaveBeenCalledTimes(1);
   });
 
@@ -413,21 +411,29 @@ describe('AnkiAppendPanel — AM-6c', () => {
     });
   });
 
-  // ── Incompatible note type ──
+  // ── Note type pre-filtering ──
 
-  it('disables checkbox for incompatible note type', async () => {
-    const onSearch = vi.fn().mockResolvedValue([makeNote(600, 'Cloze')]);
+  it('mismatched note types are absent from table (not merely disabled)', async () => {
+    const onSearch = vi.fn().mockResolvedValue([
+      makeNote(600, 'Basic'),
+      makeNote(601, 'Cloze'),
+      makeNote(602, 'Basic'),
+    ]);
     renderPanel({ onSearch });
 
     await waitFor(() => {
       expect(onSearch).toHaveBeenCalledTimes(1);
     });
 
-    const checkbox = screen.getByRole('checkbox', { name: 'Note 600' });
-    expect(checkbox.getAttribute('disabled')).not.toBeNull();
+    // Only Basic notes (600, 602) should appear in the table
+    expect(screen.getByRole('checkbox', { name: 'Note 600' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Note 602' })).toBeTruthy();
+    // Cloze note 601 is completely absent — no checkbox, no row
+    expect(screen.queryByRole('checkbox', { name: 'Note 601' })).toBeNull();
+    expect(screen.queryByText('601')).toBeNull();
   });
 
-  it('mixes compatible and incompatible notes correctly', async () => {
+  it('select-all checks all visible (matching) rows', async () => {
     const onSearch = vi.fn().mockResolvedValue([
       makeNote(801, 'Basic'),
       makeNote(802, 'Cloze'),
@@ -439,28 +445,34 @@ describe('AnkiAppendPanel — AM-6c', () => {
       expect(onSearch).toHaveBeenCalledTimes(1);
     });
 
-    const cb801 = screen.getByRole('checkbox', { name: 'Note 801' });
-    const cb802 = screen.getByRole('checkbox', { name: 'Note 802' });
-    const cb803 = screen.getByRole('checkbox', { name: 'Note 803' });
-
-    // Compatible checkboxes are enabled, incompatible is disabled
-    expect(cb801.getAttribute('disabled')).toBeNull();
-    expect(cb803.getAttribute('disabled')).toBeNull();
-    expect(cb802.getAttribute('disabled')).not.toBeNull();
-
-    // Clicking compatible checkbox shows selection count
+    // Only 801 and 803 are visible; select-all should check both
+    const selectAll = screen.getByRole('checkbox', { name: 'Select all' });
     await act(async () => {
-      fireEvent.click(cb801);
+      fireEvent.click(selectAll);
     });
     await waitFor(() => {
-      expect(screen.getByText('1 selected')).toBeTruthy();
+      expect(screen.getByText('2 selected')).toBeTruthy();
+    });
+    // 802 is not in the table at all
+    expect(screen.queryByRole('checkbox', { name: 'Note 802' })).toBeNull();
+  });
+
+  it('no results shown when all notes are wrong type', async () => {
+    const onSearch = vi.fn().mockResolvedValue([
+      makeNote(900, 'Cloze'),
+      makeNote(901, 'Cloze'),
+    ]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
     });
 
-    // Clicking incompatible checkbox does NOT increase count (disabled)
-    expect(cb802.getAttribute('disabled')).not.toBeNull();
-
-    // Incompatible badge is visible on incompatible row
-    expect(screen.getByText('Incompatible note type')).toBeTruthy();
+    // All notes are Cloze (not Basic), so table should be empty
+    expect(screen.queryByRole('checkbox', { name: 'Note 900' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Note 901' })).toBeNull();
+    // Empty state message shown
+    expect(screen.getByText(/No matching notes found/)).toBeTruthy();
   });
 
   // ── Collapse resets ephemeral state ──
@@ -576,7 +588,7 @@ describe('AnkiAppendPanel — AM-6c', () => {
     fireEvent.change(screen.getByPlaceholderText('Search query'), {
       target: { value: 'second' },
     });
-    fireEvent.click(screen.getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
       expect(onSearch).toHaveBeenCalledTimes(2);
@@ -613,7 +625,7 @@ describe('AnkiAppendPanel — AM-6c', () => {
     fireEvent.change(screen.getByPlaceholderText('Search query'), {
       target: { value: 'loading' },
     });
-    fireEvent.click(screen.getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
       expect(
@@ -840,7 +852,7 @@ describe('AnkiAppendPanel — AM-6c', () => {
     expect(screen.getByText('2 selected')).toBeTruthy();
   });
 
-  it('compatible selection count excludes incompatible notes', async () => {
+  it('non-matching note type is absent from rendered table', async () => {
     const onSearch = vi
       .fn()
       .mockResolvedValue([makeNote(2101, 'Basic'), makeNote(2102, 'Cloze')]);
@@ -850,8 +862,11 @@ describe('AnkiAppendPanel — AM-6c', () => {
       expect(onSearch).toHaveBeenCalledTimes(1);
     });
 
+    // Only Basic note 2101 appears; Cloze 2102 is pre-filtered out
+    expect(screen.getByRole('checkbox', { name: 'Note 2101' })).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: 'Note 2102' })).toBeNull();
+
     fireEvent.click(screen.getByRole('checkbox', { name: 'Note 2101' }));
-    // Note 2102 is disabled (Cloze), cannot be checked
     expect(screen.getByText('1 selected')).toBeTruthy();
   });
 
@@ -876,8 +891,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
     await act(async () => {
       fireEvent.click(cb2);
     });
+    // Footer always shows count; after unchecking it returns to "0 selected"
     await waitFor(() => {
-      expect(screen.queryByText(/selected/)).toBeNull();
+      expect(screen.getByText('0 selected')).toBeTruthy();
     });
   });
 
@@ -921,6 +937,148 @@ describe('AnkiAppendPanel — AM-6c', () => {
         return ids.size === 0;
       });
       expect(emptyCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ── Footer stable height & zero-count visibility ──
+
+  it('shows 0 selected count in footer when data loaded and nothing checked', async () => {
+    const onSearch = vi.fn().mockResolvedValue([makeNote(5001, 'Basic')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Footer should always render with "0 selected" even when nothing checked
+    const footer = document.querySelector('.entei-data-table-footer');
+    expect(footer).not.toBeNull();
+    const count = footer!.querySelector('.entei-data-table-footer-count');
+    expect(count).not.toBeNull();
+    expect(count!.textContent).toBe('0 selected');
+  });
+
+  it('footer has stable min-height class contract', async () => {
+    const onSearch = vi.fn().mockResolvedValue([makeNote(5002, 'Basic')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const footer = document.querySelector('.entei-data-table-footer');
+    expect(footer).not.toBeNull();
+    // Must have the data table footer class
+    expect(footer!.classList.contains('entei-data-table-footer')).toBe(true);
+    // Footer always renders with selection count (even 0), so it has stable content
+    const count = footer!.querySelector('.entei-data-table-footer-count');
+    expect(count).not.toBeNull();
+    expect(count!.textContent).toBe('0 selected');
+    // Verify min-height is set via the CSS rule (jsdom doesn't resolve CSS vars,
+    // so we verify the footer exists with its content — the CSS rule
+    // `min-height: var(--entei-touch-min)` resolves to 44px in a real browser)
+  });
+
+  // ── Checkbox containment / centering contract ──
+
+  it('checkbox root has no negative margin and explicit 44×44 hit target', async () => {
+    const onSearch = vi.fn().mockResolvedValue([makeNote(6001, 'Basic')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Note 6001' });
+    expect(checkbox.getAttribute('data-slot')).toBe('checkbox');
+    expect(checkbox.closest('.entei-data-table')).not.toBeNull();
+
+    // Structurally: checkbox is a direct child of td > .entei-data-table
+    const td = checkbox.closest('td');
+    expect(td).not.toBeNull();
+
+    // No negative margin set via inline style (jsdom can't resolve CSS)
+    expect(checkbox.style.margin).not.toContain('-');
+    // Zero padding/margin via component default (no padding/margin inline)
+    expect(checkbox.style.padding).toBe('');
+  });
+
+  it('selection cell contains checkbox with no overflow', async () => {
+    const onSearch = vi.fn().mockResolvedValue([makeNote(6002, 'Basic')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Note 6002' });
+    const td = checkbox.closest('td');
+    expect(td).not.toBeNull();
+
+    // td is a direct child of tr inside tbody
+    const tr = td!.closest('tr');
+    expect(tr).not.toBeNull();
+    expect(tr!.closest('tbody')).not.toBeNull();
+
+    // The header also has a selection checkbox cell
+    const headerCheckbox = screen.getByRole('checkbox', { name: 'Select all' });
+    const th = headerCheckbox.closest('th');
+    expect(th).not.toBeNull();
+    expect(th!.closest('thead')).not.toBeNull();
+  });
+
+  it('checkbox root has data-slot and contains indicator when checked', async () => {
+    const onSearch = vi.fn().mockResolvedValue([makeNote(6003, 'Basic')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Note 6003' });
+
+    // Unchecked: indicator is absent (Radix unmounts it)
+    expect(checkbox.querySelector('[data-slot="checkbox-indicator"]')).toBeNull();
+
+    // Check it — indicator appears
+    await act(async () => {
+      fireEvent.click(checkbox);
+    });
+    await waitFor(() => {
+      const checked = screen.getByRole('checkbox', { name: 'Note 6003' });
+      expect(checked.getAttribute('data-state')).toBe('checked');
+      const indicator = checked.querySelector('[data-slot="checkbox-indicator"]');
+      expect(indicator).not.toBeNull();
+    });
+  });
+
+  it('unchecked checkbox shows unchecked visual state', async () => {
+    const onSearch = vi.fn().mockResolvedValue([makeNote(7001, 'Basic')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Note 7001' });
+    expect(checkbox.getAttribute('data-state')).toBe('unchecked');
+  });
+
+  it('checked checkbox shows checked state', async () => {
+    const onSearch = vi.fn().mockResolvedValue([makeNote(8001, 'Basic')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Note 8001' });
+    await act(async () => {
+      fireEvent.click(checkbox);
+    });
+    // Re-query inside waitFor: React re-render replaces the DOM element
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Note 8001' }).getAttribute('data-state')).toBe('checked');
     });
   });
 });

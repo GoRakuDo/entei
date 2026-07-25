@@ -214,7 +214,6 @@ export interface Dictionary {
     appendSearchError: string;
     appendNoteIdLabel: string;
     appendNoteTypeLabel: string;
-    appendIncompatibleType: string;
     appendSuccess: string;
     appendPartialFailure: string;
     appendAllFailed: string;

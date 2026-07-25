@@ -194,7 +194,6 @@ export const ja: Dictionary = {
     appendSearchError: '検索に失敗しました。AnkiConnectを確認してください。',
     appendNoteIdLabel: 'ノートID',
     appendNoteTypeLabel: 'ノートタイプ',
-    appendIncompatibleType: 'このノートタイプは選択できません',
     appendSuccess: '追記が完了しました。',
     appendPartialFailure: '一部のカード追記に失敗しました。',
     appendAllFailed: 'すべての追記に失敗しました。',

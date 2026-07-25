@@ -3,9 +3,9 @@
  * ---------------------------------------------------------------------------
  * Renders as a collapsible panel INSIDE MiningPreviewDialog (not a Dialog).
  * Auto-loads current deck notes on expansion; typed search replaces results.
- * Selection is controlled (lifted state) — no internal selectedIds tracking.
- * Abort/cleanup on collapse. No in-panel append button; Send routes from
- * the Mining Preview range dock.
+ * Results are pre-filtered to savedNoteType only — all visible rows are
+ * selectable. Selection is controlled (lifted state). Abort/cleanup on collapse.
+ * No in-panel append button; Send routes from the Mining Preview range dock.
  * --------------------------------------------------------------------------- */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
@@ -13,7 +13,7 @@ import { Search, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
 import { Input } from '@/components/player/ui/input';
 import { Checkbox } from '@/components/player/ui/checkbox';
-import { DataTable } from '@/components/player/ui/data-table';
+import { DataTable, type RowState } from '@/components/player/ui/data-table';
 import type { AnkiNoteInfo } from '@/features/player/anki-export-client';
 import type { ColumnDef } from '@tanstack/react-table';
 
@@ -34,6 +34,11 @@ export function escapeAnkiDeckQuery(deckName: string): string {
   return `deck:"${escaped}"`;
 }
 
+/** A search result row enriched for display. All rows are selectable. */
+interface EnrichedNote extends AnkiNoteInfo {
+  sentencePreview: string;
+}
+
 interface AnkiAppendPanelProps {
   open: boolean;
   id?: string;
@@ -47,7 +52,6 @@ interface AnkiAppendPanelProps {
     appendSearchError: string;
     appendNoteIdLabel: string;
     appendNoteTypeLabel: string;
-    appendIncompatibleType: string;
     appendSelectedCount: (count: number) => string;
   };
   savedNoteType: string;
@@ -87,6 +91,29 @@ export function AnkiAppendPanel({
     };
   }, []);
 
+  /** Filter + bound + sort raw results to savedNoteType only. */
+  const filterAndBound = useCallback(
+    (notes: AnkiNoteInfo[]): EnrichedNote[] => {
+      return notes
+        .filter(
+          (n) =>
+            n.noteId > 0 &&
+            n.modelName === savedNoteType &&
+            // Strip notes with empty fields entirely
+            Object.keys(n.fields).length > 0,
+        )
+        .sort((a, b) => b.noteId - a.noteId)
+        .slice(0, 100)
+        .map((note) => ({
+          ...note,
+          sentencePreview: sentenceFieldName
+            ? stripHtml(note.fields[sentenceFieldName]?.value ?? '')
+            : '',
+        }));
+    },
+    [savedNoteType, sentenceFieldName],
+  );
+
   // Auto-load current deck notes on expansion
   useEffect(() => {
     if (!open || !savedDeck) return;
@@ -108,11 +135,7 @@ export function AnkiAppendPanel({
       try {
         const notes = await onSearch(deckQuery);
         if (controller.signal.aborted || !mountedRef.current) return;
-        const bounded = notes
-          .filter((n) => n.noteId > 0)
-          .sort((a, b) => b.noteId - a.noteId)
-          .slice(0, 100);
-        setResults(bounded);
+        setResults(notes);
         setHasSearched(true);
       } catch {
         if (controller.signal.aborted || !mountedRef.current) return;
@@ -174,11 +197,7 @@ export function AnkiAppendPanel({
     try {
       const notes = await onSearch(q);
       if (controller.signal.aborted) return;
-      const bounded = notes
-        .filter((n) => n.noteId > 0)
-        .sort((a, b) => b.noteId - a.noteId)
-        .slice(0, 100);
-      setResults(bounded);
+      setResults(notes);
     } catch {
       if (controller.signal.aborted) return;
       setSearchError(dict.appendSearchError);
@@ -189,52 +208,53 @@ export function AnkiAppendPanel({
     }
   }, [query, onSearch, dict.appendSearchError, onSelectedIdsChange]);
 
-  // Compatible notes only
-  const compatibleResults = useMemo(() => {
-    return results.map((note) => ({
-      ...note,
-      isCompatible: note.modelName === savedNoteType,
-      sentencePreview: sentenceFieldName
-        ? stripHtml(note.fields[sentenceFieldName]?.value ?? '')
-        : '',
-    }));
-  }, [results, savedNoteType, sentenceFieldName]);
+  // Pre-filtered results: only savedNoteType rows are displayed
+  const filteredResults = useMemo(
+    () => filterAndBound(results),
+    [results, filterAndBound],
+  );
+
+  // Row state provider — selected only (no incompatible concept)
+  const getRowState = useCallback(
+    (_rowIndex: number, original: EnrichedNote): RowState => {
+      return { selected: selectedIds.has(original.noteId) };
+    },
+    [selectedIds],
+  );
+
+  // Select-all / indeterminate
+  const allSelected =
+    filteredResults.length > 0 &&
+    filteredResults.every((r) => selectedIds.has(r.noteId));
+  const someSelected =
+    !allSelected &&
+    filteredResults.some((r) => selectedIds.has(r.noteId));
 
   // TanStack table columns
-  const columns = useMemo<
-    ColumnDef<(typeof compatibleResults)[number], unknown>[]
-  >(
+  const columns = useMemo<ColumnDef<EnrichedNote, unknown>[]>(
     () => [
       {
         id: 'select',
-        size: 40,
-        header: ({ table }) => {
-          const compatibleRows = table
-            .getRowModel()
-            .rows.filter((r) => r.original.isCompatible);
-          const allCompatibleSelected =
-            compatibleRows.length > 0 &&
-            compatibleRows.every((r) => r.getIsSelected());
-          return (
-            <Checkbox
-              checked={allCompatibleSelected}
-              onCheckedChange={(checked) => {
-                const newIds = new Set(selectedIds);
-                for (const row of table.getRowModel().rows) {
-                  if (row.original.isCompatible) {
-                    if (checked) {
-                      newIds.add(row.original.noteId);
-                    } else {
-                      newIds.delete(row.original.noteId);
-                    }
-                  }
+        size: 48,
+        header: () => (
+          <Checkbox
+            checked={
+              allSelected ? true : someSelected ? 'indeterminate' : false
+            }
+            onCheckedChange={(checked) => {
+              const newIds = new Set(selectedIds);
+              for (const row of filteredResults) {
+                if (checked) {
+                  newIds.add(row.noteId);
+                } else {
+                  newIds.delete(row.noteId);
                 }
-                onSelectedIdsChange(newIds);
-              }}
-              aria-label="Select all compatible"
-            />
-          );
-        },
+              }
+              onSelectedIdsChange(newIds);
+            }}
+            aria-label="Select all"
+          />
+        ),
         cell: ({ row }) => {
           const note = row.original;
           return (
@@ -249,7 +269,6 @@ export function AnkiAppendPanel({
                 }
                 onSelectedIdsChange(newIds);
               }}
-              disabled={!note.isCompatible}
               aria-label={`Note ${note.noteId}`}
             />
           );
@@ -259,22 +278,13 @@ export function AnkiAppendPanel({
         accessorKey: 'sentencePreview',
         header: 'Sentence',
         size: 0,
-        cell: ({ row }) => {
-          const note = row.original;
-          return (
-            <div className="entei-data-table-sentence">
-              {note.sentencePreview || (
-                <span className="entei-data-table-empty-sentence">—</span>
-              )}
-              {!note.isCompatible && (
-                <span className="entei-data-table-incompatible-badge">
-                  <AlertCircle size={12} aria-hidden />
-                  {dict.appendIncompatibleType}
-                </span>
-              )}
-            </div>
-          );
-        },
+        cell: ({ row }) => (
+          <div className="entei-data-table-sentence">
+            {row.original.sentencePreview || (
+              <span className="entei-data-table-empty-sentence">—</span>
+            )}
+          </div>
+        ),
       },
       {
         accessorKey: 'modelName',
@@ -300,18 +310,15 @@ export function AnkiAppendPanel({
     [
       selectedIds,
       onSelectedIdsChange,
-      dict.appendIncompatibleType,
       dict.appendNoteTypeLabel,
       dict.appendNoteIdLabel,
+      allSelected,
+      someSelected,
+      filteredResults,
     ],
   );
 
   if (!open) return null;
-
-  const validSelectedCount = Array.from(selectedIds).filter((id) => {
-    const note = results.find((r) => r.noteId === id);
-    return note && note.modelName === savedNoteType;
-  }).length;
 
   return (
     <div
@@ -322,32 +329,36 @@ export function AnkiAppendPanel({
       aria-label={dict.appendDialogTitle}
       tabIndex={-1}
     >
-      {/* Search bar */}
+      {/* Search bar — icon-only submit visually attached to input */}
       <div className="entei-append-panel-search">
-        <Input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={dict.appendSearchPlaceholder}
-          aria-label={dict.appendSearchPlaceholder}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              handleSearch();
-            }
-          }}
-          disabled={isSearching}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleSearch}
-          disabled={!query.trim() || isSearching}
-          aria-label={dict.appendSearchButton}
-        >
-          <Search size={16} aria-hidden />
-          <span>{dict.appendSearchButton}</span>
-        </Button>
+        <div className="entei-append-panel-search-group">
+          <Input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={dict.appendSearchPlaceholder}
+            aria-label={dict.appendSearchPlaceholder}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSearch();
+              }
+            }}
+            disabled={isSearching}
+            className="entei-append-panel-search-input"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleSearch}
+            disabled={!query.trim() || isSearching}
+            aria-label={dict.appendSearchButton}
+            className="entei-append-panel-search-btn"
+          >
+            <Search size={16} aria-hidden />
+          </Button>
+        </div>
       </div>
 
       {/* Data Table */}
@@ -362,16 +373,26 @@ export function AnkiAppendPanel({
         {!searchError && (
           <DataTable
             columns={columns}
-            data={compatibleResults}
+            data={filteredResults}
             pageSize={10}
             isLoading={isSearching}
             loadingContent={dict.appendSearching}
             emptyContent={
-              hasSearched && results.length === 0
+              hasSearched && filteredResults.length === 0
                 ? dict.appendNoResults
                 : dict.appendSearching
             }
-            aria-label={dict.appendDialogTitle}
+            getRowState={getRowState}
+            ariaLabel={dict.appendDialogTitle}
+            footerStart={
+              <span className="entei-data-table-footer-count" aria-live="polite">
+                {dict.appendSelectedCount(
+                  Array.from(selectedIds).filter((id) =>
+                    filteredResults.some((r) => r.noteId === id),
+                  ).length,
+                )}
+              </span>
+            }
             paginationLabels={{
               previous: '←',
               next: '→',
@@ -380,15 +401,6 @@ export function AnkiAppendPanel({
           />
         )}
       </div>
-
-      {/* Selection count */}
-      {validSelectedCount > 0 && (
-        <div className="entei-append-panel-selection-status">
-          <span className="entei-append-panel-count" aria-live="polite">
-            {dict.appendSelectedCount(validSelectedCount)}
-          </span>
-        </div>
-      )}
     </div>
   );
 }

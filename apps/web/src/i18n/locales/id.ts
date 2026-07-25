@@ -194,7 +194,6 @@ export const id: Dictionary = {
     appendSearchError: 'Pencarian gagal. Periksa AnkiConnect.',
     appendNoteIdLabel: 'ID Catatan',
     appendNoteTypeLabel: 'Tipe catatan',
-    appendIncompatibleType: 'Tipe catatan tidak cocok — tidak dapat dipilih',
     appendSuccess: 'Penambahan selesai.',
     appendPartialFailure: 'Beberapa kartu gagal ditambahkan.',
     appendAllFailed: 'Semua penambahan gagal.',

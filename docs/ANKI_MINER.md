@@ -1,6 +1,6 @@
 # ANKI_MINER — ローカル採掘とAnki Exportの設計
 
-> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）+ Stage 2 AM-6a/AM-6b（new note / update latest）+ AM-6c（append to specific cards）はコード完了・検証済み。実AnkiConnect手動QA待ち。
+> **状態:** Stage 1（AM-1 / AM-2 / AM-3 / AM-4 / AM-5）+ Stage 1.1（range commit自動素材更新）+ Stage 2 AM-6a/AM-6b（new note / update latest）+ AM-6c（inline append panel with Data Table）はコード完了・検証済み。実AnkiConnect手動QA待ち。
 > **対象:** `Entei/apps/web` の `/player/` React islandだけ。Home、公開配信、Streaming Video Integrationは対象外。
 > **前提:** local media・字幕・custom controls・選択可能なplayer内字幕はすでにある。
 > **決定日:** 2026-07-22
@@ -21,7 +21,7 @@ Mine
   → rangeを離した時だけ素材をローカル再生成
   → modeを選び、Ankiへ送信をユーザーが明示操作
   → New: canAddNotes → addNote
-  → Update: latest candidate確認 → userが最終確認 → updateNoteFields
+  → Update latest: candidateを検証 → updateNoteFields
   → mining前のplayer状態へ戻す
 ```
 
@@ -65,7 +65,7 @@ Yomitan、annotation、streaming、複数profile、settings import/exportはこ�
 | Settings / Mining Preview      | `Dialog`         | 導入済み      |
 | tab切替                        | `Tabs`           | 導入済み      |
 | Deck / Note type / Field選択   | `Select`         | 導入済み      |
-| 新規 / 更新modeの排他的選択    | `ToggleGroup`    | Stage 2で追加 |
+| 新規 / 更新 / append mode選択     | `ToggleGroup`    | 導入済み      |
 | field一覧・error一覧の長い領域 | `ScrollArea`     | 導入済み      |
 | action                         | `Button`         | 導入済み      |
 
@@ -118,10 +118,10 @@ Stage 1.1ではrange sliderの`onValueCommit`、つまりthumbを離した時だ
 | Work unit                     | 目的                                                 | 前提        | 完了条件                            |
 | ----------------------------- | ---------------------------------------------------- | ----------- | ----------------------------------- |
 | AM-6a New note                | 新カードmodeで`canAddNotes`後に`addNote`する         | Stage 1.1   | user操作以外では書込まない          |
-| AM-6b Update latest Anki note | 更新modeでlatest candidateを表示し、確認後に更新する | AM-5 / AM-4 | target noteの内容を見ずに更新しない |
-| AM-6c Update specific note    | 検索・選択したnoteだけを確認後に更新する             | AM-5 / AM-4 | `noteId`なしにupdateしない          |
+| AM-6b Update latest Anki note | 更新modeでlatest candidateをone-click更新する | AM-5 / AM-4 | target noteの内容を見ずに更新しない |
+| AM-6c Append to existing cards | inline Data Tableで選択カードに追記する | AM-5 / AM-4 | append-only（上書きしない） |
 
-Stage 2のmodeはMining Preview内のshadcn `ToggleGroup type="single"`で選ぶ。新カードは`FilePlusCorner`、カード更新は`FileUp`を使う。どちらの場合もLucide `Send`付きの「Ankiへ送信」を明示操作した時だけ処理を始める。Settings Modalを開いた、mappingを保存した、Mineを開始した、rangeを調整しただけでは書き込まない。
+Stage 2のmodeはMining Preview内のshadcn `ToggleGroup type="single"`で選ぶ。New / Updateはpersistent（localStorage保存）。Appendはsession-only icon-only（再openで復帰）。`Send` button: New/Updateは新規作成/更新、Appendは選択カードへの追記。Settings Modalを開いた、mappingを保存した、Mineを開始した、rangeを調整しただけでは書き込まない。
 
 ---
 
@@ -289,7 +289,7 @@ npm run build          ✅ static build complete
 
 | ファイル                                        | 目的                                                                                                                                                                                                             |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/components/player/MiningPreviewDialog.tsx` | Mining Preview Dialog本体：mapped draft fields（image/audioはpreview-only）、screenshotAspectRatio wrap、audio preview、true two-thumb range slider（`onValueCommit`で自動素材更新）、bottom dock（ZoomOut / ZoomIn）。Stage 2の`ToggleGroup`（new/update）+ `Send` buttonは実装済み。AM-6c specific searchは未実装（後段） |
+| `src/components/player/MiningPreviewDialog.tsx` | Mining Preview Dialog本体：mapped draft fields（image/audioはpreview-only）、screenshotAspectRatio wrap、audio preview、true two-thumb range slider（`onValueCommit`で自動素材更新）、bottom dock（ZoomOut / ZoomIn）。Stage 2の`ToggleGroup`（New / Update / icon-only Append session-only）+ `Send` button（New/Updateは新規/更新、Appendは選択カードへの追記）。AM-6c inline Data Table: pre-filtered saved note type, checkbox multi-select, 100-bound, selection count/pagination footer, 44px checkbox containment |
 | `src/components/player/ui/aspect-ratio.tsx`     | shadcn AspectRatio wrapper（`@radix-ui/react-aspect-ratio` re-export）                                                                                                                                           |
 | `src/components/player/ui/slider.tsx`           | shadcn Slider（thumb数をvalue/defaultValueから導出、stable index key）                                                                                                                                           |
 | `src/components/player/PlayerControls.tsx`      | Top-rightにPickaxe Mineボタン追加（video/audio、AudioLinesの後・caption modeの前）                                                                                                                               |
@@ -298,7 +298,12 @@ npm run build          ✅ static build complete
 | `src/features/player/mining-viewport.ts`        | ASB-style range zoom純粋関数：`computeInitialViewport`、`zoomIn`、`zoomOut`、`canZoomIn`、`canZoomOut`、`reframeIfNeeded`                                                                                        |
 | `src/features/player/subtitle-interval.ts`      | ASB-style >=50% overlap rule純粋関数：`selectCueTextInRange`。zero-length skip、blank filter、newline join                                                                                                       |
 | `src/features/player/anki-export-client.ts`     | Stage 2 typed write client：`canAddNotes`、`addNote`、`storeMediaFile`、`findNotes`、`notesInfo`、`updateNoteFields`。read-only `AnkiConnectClient`とは構造分離。`blobToBase64`、`generateMediaFilename` helper付き |
-| `src/i18n/types.ts` + `locales/{en,ja,id}.ts`   | AM-4用辞書キー20個追加                                                                                                                                                                                           |
+| `src/components/player/AnkiAppendPanel.tsx`     | AM-6c inline append panel: deck-auto-load on expand, explicit search, TanStack/shadcn Data Table with checkbox multi-select, pre-filtered saved note type, 100-bound, selection count/pagination footer, 44px checkbox containment |
+| `src/components/player/ui/data-table.tsx`       | Generic TanStack Data Table wrapper: column defs, sorting, pagination, checkbox row selection, `getRowState` / `footerStart` slots |
+| `src/components/player/ui/table.tsx`            | shadcn Table primitives (Table, TableHeader, TableBody, TableRow, TableHead, TableCell) |
+| `src/components/player/ui/checkbox.tsx`         | shadcn Checkbox (`@radix-ui/react-checkbox`) |
+| `src/components/player/ui/input.tsx`            | shadcn Input |
+| `src/i18n/types.ts` + `locales/{en,ja,id}.ts`   | AM-4用辞書キー20個追加 + AM-6c append panel keys |
 | `src/styles/player.css`                         | `.entei-mining-*` dialog + image + audio player + range slider（accent selected range）+ bottom dock + input/textarea スタイル群                                                                                 |
 | `tests/mining-preview-dialog.test.tsx`          | Component tests: draft fields表示、physical name labels、image/audio preview-only（入力欄なし）、full mapping 5 text controls、true two-thumb slider、Close、no external calls                                   |
 | `tests/mining-integration.test.tsx`             | Integration tests: Mine button表示/非表示、disabled、click、snapshot pause/restore、unmount guard、no fetch/localStorage（12 tests）                                                                             |
@@ -307,6 +312,7 @@ npm run build          ✅ static build complete
 | `tests/subtitle-interval.test.ts`               | Pure helper unit tests: >=50% overlap rule、boundary、zero-length skip、blank filter、newline join、ordering（15 tests）                                                                                         |
 | `tests/anki-export-client.test.ts`              | Stage 2 export client unit tests: all 6 actions request shape、result parsing、error handling（HTTP/malformed/abort/network/api-key/permission）、blobToBase64、generateMediaFilename helpers                        |
 | `tests/anki-export-integration.test.ts`         | Stage 2 export lifecycle integration tests: canAddNotes false→zero write、new success order、update first Send zero write、invalid target、confirm update mapped fields only、missing media、session key security、abort |
+| `tests/anki-append-selection.test.tsx`          | AM-6c append panel: auto-load saved deck, explicit search, pre-filter saved note type, checkbox select/select-all, indeterminate, append success/partial/fail, abort/double-submit guard, no persistence, CSS contract (46 tests) |
 
 ### 設計遵守確認
 
@@ -353,14 +359,15 @@ npm run build          ✅ static build complete
 | AM-4: 全素材自動更新（range commit）                        | ✅   | `handleRangeCommit`がsentence（`selectCueTextInRange` ASB >=50% rule）、source（`formatTime` label）、screenshot（visible video seek→capture→restore）、audio（`recordAudioClip`）を一括更新。user-edited definition/word/tagsは上書きしない。`onValueCommit`で発火、manual buttonは削除済み |
 | AM-4: Range dock + subtitle markers                        | ✅   | Range areaを`.entei-mining-body`の外へbottom dock（`flex-shrink:0`）へ移動。subtitle-boundary marker ticksがviewport内のcue start位置に描画（`aria-hidden`、`pointer-events:none`）。footer Close button削除、Dialog X closeのみ。control row: ZoomOut LEFT / Send CENTER / ZoomIn RIGHT       |
 | AM-4 Stage 1.1: Range commit auto-refresh                  | ✅   | Slider `onValueCommit`（thumb release/keyboard commit）が`handleRangeCommit`を呼び出し、committed `[start,end]`値でsentence/source/screenshot/audioを一括refresh。`onValueChange`は即時UI stateのみ（drag中はrefreshしない）。manual Update materials button削除済み。refresh中はSlider/zoom disabled。AbortController/epoch/mounted guard適用。no fetch/localStorage/Anki write |
-| AM-6a Stage 2: New note export                             | ✅   | `AnkiExportClient`（write専用）。`handleExportSend`が`canAddNotes`→`storeMediaFile`（image/audio Blob base64）→`addNote`の順で実行。canAddNotes false→upload/addNoteしない。**新カード重複許可**: `options: { allowDuplicate: true, duplicateScope: 'deck', duplicateScopeOptions: { deckName: prefs.deck, checkChildren: false } }`をcanAddNotes/addNote両方へ送信（asbplayer互換）。Update modeは重複オプションなし。API keyはpage-lifetime React memory（localStorage非永続化）。`ToggleGroup type="single"`（new/update）。Lucide `Send` button。abort/epoch/double-submit guard。AM-6c specific searchは未実装 |
+| AM-6a Stage 2: New note export                             | ✅   | `AnkiExportClient`（write専用）。`handleExportSend`が`canAddNotes`→`storeMediaFile`（image/audio Blob base64）→`addNote`の順で実行。canAddNotes false→upload/addNoteしない。**新カード重複許可**: `options: { allowDuplicate: true, duplicateScope: 'deck', duplicateScopeOptions: { deckName: prefs.deck, checkChildren: false } }`をcanAddNotes/addNote両方へ送信（asbplayer互換）。Update modeは重複オプションなし。API keyはpage-lifetime React memory（localStorage非永続化）。`ToggleGroup type="single"`（New/Update/Append）。Lucide `Send` button。abort/epoch/double-submit guard |
 | AM-6b Stage 2: Update latest note                           | ✅   | Update mode one-click Send: `findNotes('added:1')`→max noteId→`notesInfo`→model validation→`storeMediaFile`（if available）→`updateNoteFields`。候補確認ステップ削除（candidate UI/state/i18n全削除）。missing mediaは既存fieldをwipeしない。target model mismatch/no candidate/notesInfo malformed→zero write。Send labelはNew/Update両モードで`Ankiへ送信`固定 |
+| AM-6c Stage 2: Append to existing cards                     | ✅   | 3つ目icon-only session-only ToggleGroupItem。選択で`AnkiAppendPanel`inline展開。saved deck auto-load → explicit typed search → TanStack/shadcn Data Table (checkbox multi-select, Sentence/Note type/Note ID)。saved note type pre-filter（不一致noteは非表示）。100件bounded。成功ID自動除去、失敗ID保持。append-only: `existing<br>incoming`。media Blob 1回upload再利用。AbortController/epoch/mounted/double-submit guard。no api/media/card/selection persistence |
 
 ### 検証結果
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 27 files, 686 tests pass
+npm run test           ✅ 27 files, 694 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```
@@ -617,24 +624,17 @@ onValueCommit    thumbを離した時だけ、文章・出典・画像・音声�
 bottom dockには次の順で置く。
 
 ```text
-[ FilePlusCorner 新カード ] [ FileUp カード更新 ]
-                 [ Send Ankiへ送信 ]
+[ ToggleGroup: New | Update | 🔍 Append ]    [ Send Ankiへ送信 ]
 ```
 
-2つのmode controlは独立Toggleではなく、shadcn `ToggleGroup type="single"`にする。必ずどちらか1つだけを選び、初期値は新カード。`Send`buttonはcurrent mapping、Deck、Note type、Anki connectionが検証済みの時だけenabledにする。
+3つのmode controlはshadcn `ToggleGroup type="single"`にする。New/Updateはpersistent（localStorage保存）。Appendはsession-only（icon-only、再openでNew/Updateへ復帰）。Append選択時は`AnkiAppendPanel`がinlineで展開し、auto-load→explicit search→Data Table表示。`Send`buttonはcurrent mapping、Deck、Note type、Anki connectionが検証済みの時だけenabledにする。
 
 `Ankiへ送信`を押した時の意味はmodeごとに異なる。
 
 ```text
 新カード: canAddNotes → media upload → addNote
-カード更新: findNotes('added:1') → notesInfo → target preview
-```
-
-更新modeの最初のSendは**targetを探して見せるだけ**で、まだ書き込まない。targetを確認した後だけ、buttonを「このカードを更新」に変え、2回目の明示操作で`updateNoteFields`を呼ぶ。
-
-```text
-「Deck: ReCall Deck / Note type: 語義 に新規noteを追加します」
-「Ankiで最後に追加された note #123… を更新します」
+カード更新: findNotes('added:1') → max noteId → notesInfo → media upload → updateNoteFields
+Append: checked note IDs → revalidate notesInfo → append existing<br>incoming mapped fields → media once
 ```
 
 ### 10.3 新規noteのExport順序（AM-6a）
@@ -653,15 +653,14 @@ Ankiへ送信（新カードmode、user gesture）
 
 ### 10.4 最後に追加されたAnki noteを更新（AM-6b）
 
-これは「Entei sessionで最後に送ったnote」ではない。AnkiConnectへqueryして、Anki側で最後に追加されたcandidateを見つけ、何のcardかを確認してから更新する。
+これは「Entei sessionで最後に送ったnote」ではない。AnkiConnectへqueryして、Anki側で最後に追加されたcandidateを見つける。
 
 ```text
 Update latest
-  → findNotesでrecently-added candidateを検索
-  → candidate IDの順序を確定
-  → notesInfoでdeck / note type / mapped fields / tagsを読む
-  → Mining Previewにtarget cardを表示
-  → userが「このnoteを更新」を明示
+  → findNotes('added:1')
+  → 最大note IDをcandidateにする
+  → notesInfoでcurrent Note typeを検証
+  → 必要ならmediaをupload
   → updateNoteFields
 ```
 
@@ -672,37 +671,40 @@ asbplayerと同じく、`findNotes('added:1')`の結果から最大note IDを選
 - `findNotes('added:1')`で候補を読む
 - 結果があれば最大note IDをlatest candidateにする
 - 結果がなければ「今日追加されたAnki cardはない」と表示し、書込みは行わない
-- `notesInfo`でdeck / note type / mapped fields / tagsを読み、candidateがcurrent Note typeと必要なSentence fieldを満たさない時は更新をdisabledにする
-- targetをMining Previewで確認するまで`updateNoteFields`を呼ばない
+- `notesInfo`でcandidateがcurrent Note typeを満たさない時は書込みを行わない
+- 候補表示や2回目の確認buttonは持たない。`Ankiへ送信`の1クリックで完了する
 
-この仕様はASBの“Update last card”と同じ発見方法を保ちつつ、園庭ではtarget内容を見せずに更新しないためのUI境界を追加する。
+### 10.5 AM-6c inline append panel
 
-### 10.5 specific Anki noteを更新（AM-6c）
+AM-6cは、New / Update latestと同じToggleGroupの3つ目にある、icon-only・session-onlyのAppend modeである。Modalを閉じて開き直すと、保存済みのNewまたはUpdate latestへ戻る。
 
-AM-6cは、新カード / 最新カード更新の2 modeが実運用で通った後に追加する。最初のToggleGroupへSpecific modeは入れない。
-
-specific updateはuserの検索語またはnote IDから始める。
+**実際の実装**（inline panel）:
 
 ```text
-Search existing note
-  → findNotes(query)
-  → bounded candidate list
-  → notesInfo
-  → userが1 noteを選択
-  → targetのdeck / note type / mapped field preview
-  → 「このnoteを更新」button
-  → updateNoteFields(noteId, mapped fields)
+Append mode selected → AnkiAppendPanel expands inline
+  → auto-load: deck:"<escaped deck>" → bounded 100 results → saved-note-type pre-filter
+  → Data Table: checkbox multi-select, Sentence/Note type/Note ID columns
+  → explicit typed search replaces default deck results
+  → Send: checked note IDs → revalidate notesInfo → append existing<br>incoming
+  → append-only: existing + <br> + incoming; empty target = incoming; no overwrite
+  → media: Blob stored once, reused markup across cards; upload only if target field exists
+  → success: remove succeeded IDs from selection; failed remain for retry
 ```
 
-- `noteId`がない、複数candidateのどれもuserが選んでいない、target Note typeが非互換ならupdate buttonを出さない
+- saved Note typeと違うnoteはData Tableへ表示しない。表示されたnoteは全て選択できる
+- `noteId`がない、または選択済みnoteがない時はSendをdisabledにする
 - Search queryはAnki query syntaxとして扱う。deck名 / field名 / user textを連結する時はescapeし、raw queryを勝手に書き換えない
 - candidate listはページングまたは安全な上限を持ち、巨大collectionの全note detailを一括で取らない
 
 ### 10.6 update payloadの契約
 
+> **設計時の記録。** 以下は旧仕様（replace-only policy）。AM-6c appendはappend-only (`existing<br>incoming`) に変更済み。AM-6a/AM-6bは置換動作のまま。
+
 `updateNoteFields`へ渡すのはcurrent previewでmapping済みのfieldだけ。Audio / screenshot captureが失敗したからといって既存fieldを空文字で消さない。
 
-初期policyは**mapped fieldを現在のpreview値で置換**する。append、field clear、tag置換、deck移動は別の明示機能が必要なのでStage 2には含めない。
+- AM-6a（新カード）: `addNote`で新規作成（overwrite概念なし）
+- AM-6b（更新）: `updateNoteFields`で既存fieldを**置換**
+- AM-6c（append）: `updateNoteFields`で既存fieldに`<br>` + incomingを**追記**（置換しない）
 
 ### 10.7 cleanup
 
@@ -767,38 +769,51 @@ apps/web/src/
 ├── components/player/
 │   ├── PlayerSettingsDialog.tsx       # Settings iconのModal本体
 │   ├── AnkiFieldsTab.tsx              # read-only接続 + mapping
-│   ├── MiningPreviewDialog.tsx        # capture結果、range commit、自動素材更新、明示Export
-│   ├── AnkiNoteTargetPicker.tsx       # Stage 2: latest / specific target確認
+│   ├── MiningPreviewDialog.tsx        # capture結果、range commit、自動素材更新、明示Export + AM-6c ToggleGroup/inline panel
+│   ├── AnkiAppendPanel.tsx            # AM-6c inline Data Table: deck-auto-load, search, checkbox multi-select
+│   ├── PlayerControls.tsx             # Top-right controls: Mine button etc.
 │   └── ui/
 │       ├── tabs.tsx                   # shadcn CLI生成
 │       ├── select.tsx                 # shadcn CLI生成
-│       ├── toggle-group.tsx           # Stage 2: 新カード / カード更新の排他的mode選択
-│       ├── input.tsx                  # Stage 2: specific note query
-│       ├── command.tsx                # Stage 2: bounded candidate list
+│       ├── toggle-group.tsx           # shadcn CLI生成: New / Update / Append mode選択
+│       ├── toggle.tsx                 # shadcn CLI生成
+│       ├── input.tsx                  # shadcn CLI生成: append search
+│       ├── checkbox.tsx               # shadcn CLI生成: Data Table row selection
+│       ├── dialog.tsx                 # shadcn CLI生成
+│       ├── data-table.tsx             # TanStack Data Table wrapper
+│       ├── table.tsx                  # shadcn CLI生成: Table/TableHeader/TableBody/TableRow/TableHead/TableCell
+│       ├── scroll-area.tsx            # shadcn CLI生成
+│       ├── slider.tsx                 # shadcn CLI生成: range slider
+│       ├── aspect-ratio.tsx           # shadcn CLI生成: screenshot 16:9
+│       ├── badge.tsx                  # shadcn CLI生成
+│       ├── button.tsx                 # shadcn CLI生成
+│       ├── popover.tsx                # shadcn CLI生成
+│       ├── toast.tsx                  # shadcn CLI生成
+│       └── separator.tsx              # shadcn CLI生成
 ├── features/player/
 │   ├── anki-miner-preferences.ts      # localStorage schema / validation
 │   ├── anki-connect.ts                # typed request client、read/write分離
+│   ├── anki-export-client.ts          # Stage 2 write client: addNote/updateNoteFields/findNotes/notesInfo
 │   ├── screenshot-capture.ts          # canvas → JPEG Blob
 │   ├── audio-clip.ts                  # capability / MediaRecorder
 │   ├── mining-session.ts              # snapshot / fixed pause restore
 │   ├── mining-payload.ts              # mapping → preview / canAddNotes payload
-│   └── anki-note-target.ts            # Stage 2: candidate discovery / validation
-└── tests/
-    ├── anki-miner-preferences.test.ts
-    ├── mining-session.test.ts
-    ├── mining-payload.test.ts
-    ├── screenshot-capture.test.ts
-    ├── audio-clip.test.ts
-    └── anki-note-target.test.ts
+│   ├── mining-viewport.ts             # ASB-style range zoom
+│   └── subtitle-interval.ts           # ASB-style >=50% overlap rule
+└── tests/                             # 27 test files, 694 tests
 ```
 
 `PlayerApp`はmedia / playback stateの唯一の所有者のままにする。Anki tabやMining Previewがvideo refを直接勝手に操作しない。必要な操作はtyped callbackで`PlayerApp`へ依頼する。
 
 ## 13. shadcn導入手順
 
-Dialog / Button / ScrollArea / Slider / Popoverに加え、Tabs / Selectも導入済み。Stage 2では`ToggleGroup`をshadcn CLIで追加し、New / Updateの排他的mode選択に使う。
+Dialog / Button / ScrollArea / Slider / Popover / Tabs / Selectに加え、ToggleGroup / Input / Checkbox / Tableも導入済み。
 
-Stage 2でspecific update検索UIを実装する時だけ、`Input` / `Command`もshadcn CLIで追加する。独立した`Toggle` 2個でmodeを作らず、両方ON / 両方OFFを防ぐ`ToggleGroup type="single"`を使う。
+- `ToggleGroup`: New / Update / Append mode選択
+- `Input`: AM-6c append search
+- `Checkbox`: AM-6c Data Table row selection
+- `Table`: shadcn Table primitives (Table / TableHeader / TableBody / TableRow / TableHead / TableCell)
+- `Badge`: status display
 
 生成後に行うこと:
 
@@ -820,9 +835,9 @@ Stage 2でspecific update検索UIを実装する時だけ、`Input` / `Command`�
 | screenshot       | metadataなし、canvas不可、`toBlob` null / throw、成功Blob cleanup、stale / unmount / double-click guard   |
 | audio capability | MediaRecorderなし、MIMEなし、enabled trackなし、active cue終端、seek順序、duration fallback、cleanup      |
 | Anki request     | version error、permission/API key、deck/model/field load、`canAddNotes` false、`addNote` error            |
-| latest target    | 当日candidate、candidateなし、最大note ID、target Note type不一致、`notesInfo` error、更新button disabled |
-| specific target  | query escape、候補上限、未選択target、`noteId`欠落、`notesInfo` mismatch                                  |
-| update request   | target preview必須、mapped fieldsだけ送信、`updateNoteFields` error、既存fieldを空で消さない              |
+| latest target    | 当日candidate、candidateなし、最大note ID、target Note type不一致、`notesInfo` error、one-click update（確認ステップなし） |
+| append panel    | deck auto-load、explicit search、saved note type pre-filter、checkbox select/select-all、append success/partial/fail、abort guard、no persistence |
+| update request   | mapped fieldsだけ送信、`updateNoteFields` error、既存fieldを空で消さない |
 
 ### 14.2 browser manual gate
 
@@ -837,8 +852,8 @@ Stage 2でspecific update検索UIを実装する時だけ、`Input` / `Command`�
 | mining preview        | ✅ AM-4: range zoom / marker / dock / Update materials、Cancelでcapture開始timestampへ戻りpauseを実機確認                             |
 | range commit          | ⬜ Stage 1.1: thumbを離した時だけ全素材を自動更新。drag中は録音・Anki requestなし                                                     |
 | Export                | ⬜ Stage 2: `canAddNotes` falseで`addNote`ゼロ回、成功response後だけ成功表示                                                          |
-| Update latest         | ⬜ Stage 2: targetのdeck / note type / fieldsを見て明示確認後だけ更新。candidateなしなら書込みゼロ                                    |
-| Update specific       | ⬜ Stage 2: 検索結果から1 noteを選んだ時だけ更新。別Note typeは更新不可                                                               |
+| Update latest         | ✅ AM-6b: `findNotes('added:1')` → max noteId → one-click update。candidateなしなら書込みゼロ |
+| Append panel          | ⬜ AM-6c: inline Data Table、deck auto-load、explicit search、checkbox multi-select、append-only、成功ID自動除去 |
 | privacy               | DevTools Networkでmedia / Blob / subtitle本文が外部送信されない                                                                       |
 
 ### 14.3 実Anki gate
@@ -883,7 +898,7 @@ AM-1を始める前に、以下だけを確認する。
 | asbplayerはAnki / Miningを別tabにする                                 | `A:\asbplayer\common\components\SettingsForm.tsx:433-489`        | Enteiは実需があるAnki Fieldsだけを初期Modalへ置く                               |
 | asbplayerはDeck→Note type→fieldを選択する                             | `A:\asbplayer\common\components\AnkiSettingsTab.tsx:486-558`     | mapping依存を同じ順で扱う                                                       |
 | asbplayerはmining後のplayer状態やMP3再encodeを設定できる              | `A:\asbplayer\common\components\MiningSettingsTab.tsx:129-228`   | Enteiでは両方を不採用にし、fixed pause restore + native lightweight audioにする |
-| asbplayerは`added:1`候補の最大note IDをupdate last対象にする          | `A:\asbplayer\common\anki\anki.ts:545-582`                       | Enteiも`added:1`最大noteIdを採用。候補確認ステップは廃止、one-click update   |
+| asbplayerは`added:1`候補の最大note IDをupdate last対象にする          | `A:\asbplayer\common\anki\anki.ts:545-582`                       | Enteiも`added:1`最大noteIdを採用。候補確認ステップは廃止、one-click update。AM-6cはinline Data Table + checkbox multi-select |
 | AnkiConnectは`findNotes` / `notesInfo` / `updateNoteFields`を提供する | AnkiConnect official docs（Context7, 2026-07-22）                | candidate確認後のspecific updateを実装                                          |
 | Anki公式の`added:1`は今日追加されたcard creation検索                  | Anki Manual Search（Exa, 2026-07-22）                            | ASBと同じlatest candidate発見に使い、candidateなしなら更新しない                |
 | audio captureはbrowser capability差がある                             | `A:\asbplayer\common\audio-clip\audio-clip.ts:61,317,436-440`    | capability gate + honest fallback                                               |

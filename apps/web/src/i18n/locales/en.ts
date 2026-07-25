@@ -191,7 +191,6 @@ export const en: Dictionary = {
     appendSearchError: 'Search failed. Check AnkiConnect.',
     appendNoteIdLabel: 'Note ID',
     appendNoteTypeLabel: 'Note type',
-    appendIncompatibleType: 'Incompatible note type — cannot select',
     appendSuccess: 'Append completed.',
     appendPartialFailure: 'Some cards failed to append.',
     appendAllFailed: 'All appends failed.',

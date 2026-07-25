@@ -71,7 +71,6 @@ const mockDict = {
   appendSearchError: 'Search failed.',
   appendNoteIdLabel: 'Note ID',
   appendNoteTypeLabel: 'Note type',
-  appendIncompatibleType: 'Incompatible',
   appendSuccess: 'Done.',
   appendPartialFailure: 'Partial.',
   appendAllFailed: 'Failed.',
@@ -899,8 +898,16 @@ describe('MiningPreviewDialog', () => {
       '[data-slot="toggle-group-item"]',
     );
     expect(items.length).toBe(3);
-    // Third item has Search icon + append label
-    expect(items[2]!.textContent).toContain('Select card to append');
+    // Third item is icon-only: has Search SVG, localized aria-label + title, no text span
+    expect(items[2]!.getAttribute('aria-label')).toBe('Select card to append');
+    expect(items[2]!.getAttribute('title')).toBe('Select card to append');
+    const svg = items[2]!.querySelector('svg');
+    expect(svg).not.toBeNull();
+    expect(svg!.classList.toString()).toContain('lucide');
+    // Icon-only: no visible text node or span child
+    const span = items[2]!.querySelector('span');
+    expect(span).toBeNull();
+    expect(items[2]!.textContent?.trim()).toBe('');
   });
 
   it('ToggleGroup active item has high-contrast via scoped CSS', () => {

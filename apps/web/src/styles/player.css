@@ -2933,20 +2933,66 @@ html.entei-player-immersive .entei-player-audio-area {
   gap: 0;
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-lg);
-  background-color: var(--entei-surface-1, oklch(18% 0 0deg));
+  background-color: var(--entei-surface);
+  box-shadow:
+    0 0 0 1px oklch(100% 0 0deg / 0.04),
+    0 4px 12px oklch(0% 0 0deg / 0.25);
   overflow: hidden;
 }
 
 .entei-append-panel-search {
-  display: flex;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-10) var(--entei-space-12);
+  padding: var(--entei-space-8) var(--entei-space-12);
   border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
-.entei-append-panel-search input {
+.entei-append-panel-search-group {
+  display: flex;
+  align-items: center;
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-md);
+  background-color: oklch(100% 0 0deg / 0.04);
+  overflow: hidden;
+  transition: border-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-append-panel-search-group:focus-within {
+  border-color: var(--entei-accent);
+}
+
+.entei-append-panel-search-input {
   flex: 1;
   min-width: 0;
+  height: 36px;
+  font-size: 0.8125rem;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.entei-append-panel-search-btn {
+  flex: 0 0 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  border-left: 1px solid oklch(100% 0 0deg / 0.08);
+  color: var(--entei-text-secondary);
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-append-panel-search-btn:hover:not(:disabled) {
+  color: var(--entei-accent);
+  background-color: oklch(100% 0 0deg / 0.04);
+}
+
+.entei-append-panel-search-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .entei-append-panel-results {
@@ -2970,6 +3016,8 @@ html.entei-player-immersive .entei-player-audio-area {
 /* --- Data Table --- */
 .entei-data-table {
   width: 100%;
+  overflow: hidden;
+  border-radius: 0 0 var(--entei-radius-lg) var(--entei-radius-lg);
 }
 
 .entei-data-table table {
@@ -2980,41 +3028,41 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-data-table thead th {
+  height: 40px;
   text-align: left;
-  padding: var(--entei-space-6) var(--entei-space-8);
+  vertical-align: middle;
+  padding: 0 var(--entei-space-8);
   font-weight: 600;
   font-size: 0.75rem;
-  color: var(--entei-text-secondary, oklch(60% 0 0deg));
+  color: var(--entei-text-secondary);
   border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
   white-space: nowrap;
+  background-color: oklch(100% 0 0deg / 0.02);
 }
 
 .entei-data-table tbody td {
-  padding: var(--entei-space-6) var(--entei-space-8);
+  height: 40px;
+  padding: 0 var(--entei-space-8);
   border-bottom: 1px solid oklch(100% 0 0deg / 0.04);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
+/* Accent-tinted hover */
 .entei-data-table tbody tr:hover {
-  background-color: oklch(100% 0 0deg / 0.03);
+  background-color: color-mix(in oklch, var(--entei-accent) 5%, transparent);
 }
 
-.entei-data-table tbody tr[data-state='selected'] {
+/* Selected row: accent tint + left accent bar */
+.entei-data-table tbody tr[data-state='selected'],
+.entei-data-table-row-selected {
   background-color: color-mix(in oklch, var(--entei-accent) 8%, transparent);
-}
-
-.entei-data-table-row-incompatible {
-  opacity: 0.45;
-}
-
-.entei-data-table-row-incompatible:hover {
-  background-color: transparent;
+  box-shadow: inset 3px 0 0 var(--entei-accent);
 }
 
 .entei-data-table-empty {
   text-align: center;
   padding: var(--entei-space-16) var(--entei-space-8);
-  color: var(--entei-text-secondary, oklch(70% 0 0deg));
+  color: var(--entei-text-secondary);
 }
 
 .entei-data-table-sentence {
@@ -3022,16 +3070,7 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-data-table-empty-sentence {
-  color: var(--entei-text-secondary, oklch(50% 0 0deg));
-}
-
-.entei-data-table-incompatible-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--entei-space-3);
-  margin-top: var(--entei-space-2);
-  font-size: 0.6875rem;
-  color: oklch(65% 0.18 25deg);
+  color: oklch(50% 0 0deg);
 }
 
 .entei-data-table-note-type,
@@ -3040,32 +3079,133 @@ html.entei-player-immersive .entei-player-audio-area {
   font-variant-numeric: tabular-nums;
 }
 
-/* --- Pagination --- */
+/* --- Data Table: selection column 44px containment --- */
+
+/* Selection cells: fixed 44px column, zero padding, centered */
+.entei-data-table th:has([data-slot='checkbox']),
+.entei-data-table td:has([data-slot='checkbox']) {
+  width: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+  max-width: var(--entei-touch-min);
+  padding: 0;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Row height: 44px for selection rows to match hit target */
+.entei-data-table tr:has([data-slot='checkbox']) {
+  min-height: var(--entei-touch-min);
+}
+
+/* Checkbox root: explicit 44×44 transparent hit target, fully contained */
+.entei-data-table [data-slot='checkbox'] {
+  position: relative;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--entei-radius-md);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  /* Prevent any overflow beyond the cell */
+  overflow: hidden;
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+/* Visual 16×16 box: optically centered via 50% + translate */
+.entei-data-table [data-slot='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  border-radius: 4px;
+  border: 1px solid oklch(100% 0 0deg / 0.25);
+  background-color: oklch(100% 0 0deg / 0.05);
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+  pointer-events: none;
+}
+
+/* Checked/indeterminate: purple fill on visual box */
+.entei-data-table [data-slot='checkbox'][data-state='checked']::before,
+.entei-data-table [data-slot='checkbox'][data-state='indeterminate']::before {
+  border-color: var(--entei-accent);
+  background-color: var(--entei-accent);
+}
+
+/* Focus ring on hit target */
+.entei-data-table [data-slot='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px
+    color-mix(in oklch, var(--entei-accent) 40%, transparent);
+}
+
+/* Hover: subtle fill inside hit area */
+.entei-data-table [data-slot='checkbox']:hover::before {
+  background-color: oklch(100% 0 0deg / 0.08);
+}
+.entei-data-table [data-slot='checkbox'][data-state='checked']:hover::before {
+  background-color: var(--entei-accent-hover);
+}
+
+/* Indicator (check/minus icon): optically centered on the 16px visual box */
+.entei-data-table [data-slot='checkbox'] [data-slot='checkbox-indicator'] {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-content: center;
+  color: oklch(98% 0 0deg);
+  pointer-events: none;
+}
+
+/* Disabled: reduce hit target priority */
+.entei-data-table [data-slot='checkbox']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- Unified footer: selection count + pagination --- */
+.entei-data-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+  padding: 0 var(--entei-space-12);
+  min-height: var(--entei-touch-min);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+  flex-wrap: wrap;
+}
+
+.entei-data-table-footer-start {
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--entei-accent);
+  white-space: nowrap;
+}
+
 .entei-data-table-pagination {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--etei-space-8, 8px);
-  padding: var(--entei-space-6) var(--entei-space-8);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+  gap: var(--entei-space-8);
 }
 
 .entei-data-table-page-info {
   font-size: 0.75rem;
-  color: var(--entei-text-secondary, oklch(60% 0 0deg));
+  color: var(--entei-text-secondary);
   font-variant-numeric: tabular-nums;
-}
-
-/* --- Selection status --- */
-.entei-append-panel-selection-status {
-  padding: var(--entei-space-4) var(--entei-space-12);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
-}
-
-.entei-append-panel-count {
-  font-family: var(--entei-font-body);
-  font-size: 0.75rem;
-  color: var(--entei-text-secondary, oklch(60% 0 0deg));
 }
 
 /* --- Append result feedback --- */
@@ -3102,5 +3242,41 @@ html.entei-player-immersive .entei-player-audio-area {
   .entei-mining-export-send-btn {
     transition: none;
     animation: none;
+  }
+}
+
+/* --- Data Table: mobile responsive --- */
+@media (max-width: 640px) {
+  .entei-data-table table {
+    font-size: 0.75rem;
+  }
+
+  .entei-data-table thead th {
+    height: 36px;
+    padding: 0 var(--entei-space-8);
+    font-size: 0.6875rem;
+  }
+
+  .entei-data-table tbody td {
+    height: 36px;
+    padding: 0 var(--entei-space-8);
+  }
+
+  .entei-append-panel-search {
+    flex-direction: column;
+    gap: var(--entei-space-8);
+    padding: var(--entei-space-8);
+  }
+
+  .entei-append-panel-results {
+    max-height: 300px;
+  }
+}
+
+/* --- Mining Preview: controls row responsive --- */
+@media (max-width: 480px) {
+  .entei-mining-controls-row {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 }
