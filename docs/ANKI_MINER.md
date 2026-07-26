@@ -370,7 +370,7 @@ npm run build          ✅ static build complete
 
 ```text
 npm run format:check   ✅ pass
-npm run test           ✅ 30 files, 816 tests pass
+npm run test           ✅ 34 files, 861 tests pass
 npm run check          ✅ 0 errors, 0 warnings, 0 hints
 npm run build          ✅ static build complete
 ```
@@ -765,6 +765,8 @@ screenshot / audio Blob
 Anki response payload / card ID
 ```
 
+**Panel layout persistence (`entei.player.panel-layout.v1`):** Desktop side-panel width ratios are persisted separately as two percentage numbers (mainPct, sidePct). No media name/path, subtitle data, history data, Anki data, credentials, or active tab is stored. Corrupt/out-of-range values default to 76%/24%. See `src/features/player/panel-layout.ts`.
+
 ## 12. component / module構成
 
 ```text
@@ -803,7 +805,7 @@ apps/web/src/
 │   ├── mining-payload.ts              # mapping → preview / canAddNotes payload
 │   ├── mining-viewport.ts             # ASB-style range zoom
 │   └── subtitle-interval.ts           # ASB-style >=50% overlap rule
-└── tests/                             # 30 test files, 816 tests
+└── tests/                             # 34 test files, 861 tests
 ```
 
 `PlayerApp`はmedia / playback stateの唯一の所有者のままにする。Anki tabやMining Previewがvideo refを直接勝手に操作しない。必要な操作はtyped callbackで`PlayerApp`へ依頼する。
@@ -876,7 +878,7 @@ Stage 1.1、Stage 2、AM-6cの実AnkiConnect QAはYosia確認済み。今後の�
 
 ### 15.1 将来候補: DenChou Scenes
 
-DenChouのmulti-scene cardへ新しいsceneだけをHTML group wrapperで追記する拡張は、複数profileとは別の機能として扱う。通常note typeのraw export / `<br>` appendは変えない。code-side自動固定wrapper（`<span class="group">…</span>`）、New note/Append payload wrapping、816 testsが実装済み。活用形を扱うWord Highlightはdeferred。詳細な適用範囲、export契約、実装gateは[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を正とする。
+DenChouのmulti-scene cardへ新しいsceneだけをHTML group wrapperで追記する拡張は、複数profileとは別の機能として扱う。通常note typeのraw export / `<br>` appendは変えない。code-side自動固定wrapper（`<span class="group">…</span>`）、New note/Append payload wrapping、861 testsが実装済み。活用形を扱うWord Highlightはdeferred。詳細な適用範囲、export契約、実装gateは[DENCHOU_SCENES.md](./DENCHOU_SCENES.md)を正とする。
 
 ## 16. 実装開始gate
 

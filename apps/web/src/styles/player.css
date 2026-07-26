@@ -809,6 +809,7 @@
   .entei-footer,
   .entei-player-empty,
   .entei-player-subtitle-row,
+  .entei-right-panel-inner,
   .entei-subtitle-panel,
   .entei-player-errors,
   .entei-controls-timeline-btn {
@@ -3301,5 +3302,273 @@ html.entei-player-immersive .entei-player-audio-area {
   .entei-mining-controls-row {
     flex-wrap: wrap;
     justify-content: center;
+  }
+}
+
+/* ===========================================================================
+   Right Panel — Resizable layout + tab selector + Mining History
+   =========================================================================== */
+
+/* --- Desktop resizable layout (>=768px) --- */
+.entei-player-layout--with-panel {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.entei-player-layout--with-panel .entei-player-media-area {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* --- Right panel inner container ---
+   Rendered by RightPanel.tsx as <div class="entei-right-panel-inner">.
+   Inside a ResizablePanel (desktop) the library applies our className to a
+   nested div, so min-width:0 (not 200px) is required to avoid horizontal
+   overflow when the panel is resized to its 20% minimum. height:100% fills
+   the panel cell so the scrollable content area can flex. */
+.entei-right-panel-inner {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--entei-surface);
+  border-left: 1px solid oklch(0% 0 0deg / 0.08);
+  container-type: inline-size;
+  container-name: right-panel;
+}
+
+/* --- Tab selector bar --- */
+.entei-right-panel-tabs {
+  display: flex;
+  align-self: flex-start;
+  gap: 0;
+  margin: var(--entei-space-8) var(--entei-space-12);
+  padding: 0;
+  border: 1px solid oklch(1 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  background-color: oklch(1 0 0deg / 0.02);
+  flex-shrink: 0;
+}
+
+.entei-right-panel-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-12);
+  border: 0;
+  border-right: 1px solid oklch(1 0 0deg / 0.1);
+  border-radius: 0;
+  background: transparent;
+  color: oklch(0.7 0.02 265deg);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+  white-space: nowrap;
+}
+
+.entei-right-panel-tab:first-child {
+  border-radius: calc(var(--entei-radius-md) - 1px) 0 0
+    calc(var(--entei-radius-md) - 1px);
+}
+
+.entei-right-panel-tab:last-child {
+  border-right: 0;
+  border-radius: 0 calc(var(--entei-radius-md) - 1px)
+    calc(var(--entei-radius-md) - 1px) 0;
+}
+
+.entei-right-panel-tab:hover {
+  background-color: oklch(0.58 0.15 270deg / 0.2);
+  color: oklch(0.94 0.015 265deg);
+}
+
+.entei-right-panel-tab[aria-pressed='true'] {
+  background-color: oklch(0.62 0.19 275deg / 0.34);
+  color: oklch(0.97 0.01 265deg);
+  font-weight: 600;
+}
+
+.entei-right-panel-tab[aria-pressed='true']:hover {
+  background-color: oklch(0.66 0.18 275deg / 0.42);
+}
+
+.entei-right-panel-tab:focus-visible {
+  outline: 2px solid var(--entei-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-right-panel-tab {
+    transition: none;
+  }
+}
+
+/* --- Right panel content area (scrollable) --- */
+.entei-right-panel-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+/* RightPanel adds a flex wrapper around SubtitlePanel. Give the panel the
+   wrapper's remaining height so its own Radix ScrollArea—not the outer
+   wrapper—owns the full cue list scroll range. */
+.entei-right-panel-content > .entei-subtitle-panel {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+/* --- Compact panel: hide tab labels, keep icon-only buttons accessible --- */
+@container right-panel (max-width: 120px) {
+  .entei-right-panel-tab-label {
+    display: none;
+  }
+  .entei-right-panel-tabs {
+    justify-content: center;
+    align-self: stretch;
+    margin: var(--entei-space-4);
+    gap: 0;
+    padding: 0;
+  }
+  .entei-right-panel-tab {
+    padding: 0;
+  }
+}
+
+/* --- Mining History styles --- */
+.entei-history-list {
+  display: flex;
+  flex-direction: column;
+  padding: var(--entei-space-4);
+  gap: var(--entei-space-4);
+}
+
+.entei-history-item {
+  padding: var(--entei-space-8) var(--entei-space-12);
+  border-radius: var(--entei-radius-sm);
+  background-color: oklch(100% 0 0deg);
+  border: 1px solid oklch(0% 0 0deg / 0.06);
+}
+
+.entei-history-sentence {
+  margin: 0 0 var(--entei-space-4);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: oklch(0.2 0 0deg);
+}
+
+.entei-history-range {
+  margin: 0;
+  font-size: 0.75rem;
+  color: oklch(0.5 0 0deg);
+}
+
+.entei-history-label {
+  font-weight: 600;
+  color: oklch(0.4 0 0deg);
+}
+
+.entei-history-empty,
+.entei-history-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--entei-space-24) var(--entei-space-12);
+  text-align: center;
+}
+
+.entei-history-empty p,
+.entei-history-unavailable p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: oklch(0.5 0 0deg);
+}
+
+.entei-history-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--entei-space-24);
+}
+
+/* --- Mobile (<768px) --- */
+@media (max-width: 767px) {
+  .entei-player-layout--with-panel {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+    height: auto;
+    max-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  .entei-right-panel-inner {
+    max-width: 100%;
+    border-left: none;
+    border-top: 1px solid oklch(0% 0 0deg / 0.08);
+    min-height: 200px;
+    max-height: 50dvh;
+  }
+}
+
+/* --- Resizable handle (shadcn Resizable) --- */
+.entei-resizable-handle {
+  position: relative;
+  width: 1px;
+  background-color: oklch(0% 0 0deg / 0.08);
+  cursor: col-resize;
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.entei-resizable-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 24px;
+  border-radius: 2px;
+  background-color: oklch(0.75 0 0deg);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.entei-resizable-handle:hover::after,
+.entei-resizable-handle:active::after {
+  opacity: 1;
+}
+
+.entei-resizable-handle[data-entei-resize-active='true']::after {
+  opacity: 1;
+  background-color: var(--entei-accent);
+}
+
+@media (max-width: 767px) {
+  .entei-resizable-handle {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-resizable-handle::after {
+    transition: none;
   }
 }

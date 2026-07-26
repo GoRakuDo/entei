@@ -201,7 +201,14 @@ export const ja: Dictionary = {
     mediaModeImage: '画像',
     mediaModeVideo: '動画',
     mediaModeUnsupported:
-      'このブラウザではVideo Clipがサポートされていません。',
+      'このブラウザでは動画クリップがサポートされていません。',
+    rightPanelTabsLabel: 'パネル',
+    rightPanelTabCaptions: '字幕',
+    rightPanelTabHistory: '履歴',
+    historyEmpty: '履歴はまだありません',
+    historyUnavailable: '履歴は利用できません',
+    historySentence: '文',
+    historyRange: '範囲',
   },
   reader: {
     title: 'EPUBリーダー',

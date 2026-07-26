@@ -221,6 +221,13 @@ export interface Dictionary {
     mediaModeImage: string;
     mediaModeVideo: string;
     mediaModeUnsupported: string;
+    rightPanelTabsLabel: string;
+    rightPanelTabCaptions: string;
+    rightPanelTabHistory: string;
+    historyEmpty: string;
+    historyUnavailable: string;
+    historySentence: string;
+    historyRange: string;
   };
   reader: {
     title: string;

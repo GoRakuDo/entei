@@ -201,6 +201,13 @@ export const id: Dictionary = {
     mediaModeImage: 'Gambar',
     mediaModeVideo: 'Video',
     mediaModeUnsupported: 'Video Clip tidak didukung di browser ini.',
+    rightPanelTabsLabel: 'Panel',
+    rightPanelTabCaptions: 'Subtitle',
+    rightPanelTabHistory: 'Riwayat',
+    historyEmpty: 'Belum ada riwayat',
+    historyUnavailable: 'Riwayat tidak tersedia',
+    historySentence: 'Kalimat',
+    historyRange: 'Rentang',
   },
   reader: {
     title: 'Pembaca EPUB',

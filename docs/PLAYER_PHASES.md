@@ -394,8 +394,9 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 | Keyboard shortcuts        | ✅   | Shared `HTMLMediaElement` ref for both video/audio                                                                                                                                                                                                                                              |
 | React PlayerApp           | ✅   | Full i18n (id/ja/en) via `entei:locale-change` CustomEvent                                                                                                                                                                                                                                      |
 | Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                                                                            |
+| Panel layout persistence  | ✅   | Typed, schema-validated, exception-safe localStorage for desktop panel widths (main/side %); `entei.player.panel-layout.v1` key; no media/subtitle/anki/credential data stored                                                                                                                 |
 | Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                                                                             |
-| Unit tests                | ✅   | 816 tests（30 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests / denchou-scene tests / anki-miner-preferences tests / video-clip tests / media-mode-switch tests） |
+| Unit tests                | ✅   | 861 tests（34 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests / denchou-scene tests / anki-miner-preferences tests / video-clip tests / media-mode-switch tests / right-panel-resizable tests / panel-layout tests） |
 
 ### Reviewer findings 修正状況
 
@@ -458,6 +459,7 @@ apps/web/src/
 │   ├── subtitle-reader.ts              # SRT/VTT/ASS parser (single stripTags + ass-compiler)
 │   ├── media-url.ts                    # Object URL lifecycle (simplified API)
 │   ├── preferences.ts                  # Typed localStorage (vol/rate, schema v1)
+│   ├── panel-layout.ts                 # Desktop panel width persistence (main/side %, schema v1)
 │   ├── control-helpers.ts              # P1.1: formatTime, clampSeek, toggleMute, visibility, fullscreen, isControlTarget
 │   └── use-keyboard-shortcuts.ts       # Keyboard shortcut hook (excludes control targets)
 ├── lib/utils.ts                        # cn() utility
@@ -473,7 +475,7 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                                                      |
 | ---------- | ---- | --------------------------------------------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                                                   |
-| test       | ✅   | 816 tests pass（30 files）                                                                    |
+| test       | ✅   | 861 tests pass（34 files）                                                                    |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)                                          |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
@@ -572,7 +574,7 @@ audioも同じ`PlayerControls`を使う。video専用はfullscreenとpointer上�
 | desktop manual | playback、seek、volume hover/focus、rate、subtitle toggle、settings、fullscreen enter/exit、keyboard shortcutを確認                                      |
 | mobile manual  | portrait controls/touch、landscape immersive、no horizontal overflow、字幕panel非overlayを確認                                                           |
 | a11y manual    | Tab順、Slider keyboard操作、focus-visible、popover Escape/return focus、reduced-motionを確認                                                             |
-| privacy        | local Blob URL以外へmedia/metadataを送らない                                                                                                             |
+| privacy        | local Blob URL以外へmedia/metadataを送らない。panel layoutは2つのpercentage数値のみ保存（media/subtitle/anki/credential dataなし）                                                                                             |
 
 ### P1.1 実装状況
 

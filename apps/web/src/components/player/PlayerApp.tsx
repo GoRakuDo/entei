@@ -41,6 +41,11 @@ import {
   writePlayerPreferences,
 } from '@/features/player/preferences';
 import {
+  readPanelLayout,
+  writePanelLayout,
+  DEFAULT_LAYOUT,
+} from '@/features/player/panel-layout';
+import {
   surfaceClickEffect,
   nextCaptionDisplayMode,
   BLUR_RESTORE_TIMEOUT_MS,
@@ -55,7 +60,13 @@ import { getDictionary } from '@i18n/index';
 import { MediaPicker } from '@/components/player/MediaPicker';
 import { SubtitlePicker } from '@/components/player/SubtitlePicker';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
-import { SubtitlePanel } from '@/components/player/SubtitlePanel';
+import { RightPanel } from '@/components/player/RightPanel';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/player/ui/resizable';
+import { recordMiningHistory } from '@/features/player/mining-history';
 import { SubtitleOverlay } from '@/components/player/SubtitleOverlay';
 import {
   PlayerControls,
@@ -195,6 +206,38 @@ export default function PlayerApp() {
   // --- P1.1: subtitle panel visibility ---
   const [isSubtitlePanelVisible, setIsSubtitlePanelVisible] = useState(true);
 
+  // --- Resizable panel responsive breakpoint ---
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [isLandscapeImmersive, setIsLandscapeImmersive] = useState(false);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+
+  // --- Panel layout persistence (desktop only) ---
+  const [panelLayout, setPanelLayout] = useState(DEFAULT_LAYOUT);
+  const [panelLayoutKey, setPanelLayoutKey] = useState(0);
+
+  useEffect(() => {
+    const desktopMql = window.matchMedia('(min-width: 768px)');
+    const landscapeImmersiveMql = window.matchMedia(
+      '(orientation: landscape) and (max-height: 500px)',
+    );
+    setIsDesktop(desktopMql.matches);
+    setIsLandscapeImmersive(landscapeImmersiveMql.matches);
+    const desktopHandler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    const landscapeHandler = (e: MediaQueryListEvent) =>
+      setIsLandscapeImmersive(e.matches);
+    desktopMql.addEventListener('change', desktopHandler);
+    landscapeImmersiveMql.addEventListener('change', landscapeHandler);
+    return () => {
+      desktopMql.removeEventListener('change', desktopHandler);
+      landscapeImmersiveMql.removeEventListener('change', landscapeHandler);
+    };
+  }, []);
+
+  // Restore saved panel layout on mount
+  useEffect(() => {
+    setPanelLayout(readPanelLayout());
+  }, []);
+
   // --- P1.3a.2: caption display mode + overlay reveal state ---
   const [captionDisplayMode, setCaptionDisplayMode] =
     useState<CaptionDisplayMode>(prefsRef.current.captionDisplayMode);
@@ -283,9 +326,9 @@ export default function PlayerApp() {
     () => readAnkiMinerPreferences().mediaMode ?? 'image',
   );
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
-  const [mediaPreviewType, setMediaPreviewType] = useState<'image' | 'video' | null>(
-    'image',
-  );
+  const [mediaPreviewType, setMediaPreviewType] = useState<
+    'image' | 'video' | null
+  >('image');
   const [mediaUnsupported, setMediaUnsupported] = useState<string | null>(null);
   const mediaBlobRef = useRef<Blob | null>(null);
   const mediaBlobUrlRef = useRef<string | null>(null);
@@ -1831,6 +1874,24 @@ export default function PlayerApp() {
     return null;
   }, [isAppending, ankiSession]);
 
+  /** Mining History: write only after a successful Anki mutation. */
+  const writeHistory = useCallback(async () => {
+    try {
+      const sentence = miningDraftFields.find(
+        (f) => f.key === 'sentence',
+      )?.value;
+      const written = await recordMiningHistory({
+        filename: mediaName,
+        rangeStart: miningRangeStart,
+        rangeEnd: miningRangeEnd,
+        sentence: sentence ?? '',
+      });
+      if (written) setHistoryRefreshKey((key) => key + 1);
+    } catch {
+      // IndexedDB failures must never alter an already successful Anki mutation.
+    }
+  }, [mediaName, miningDraftFields, miningRangeEnd, miningRangeStart]);
+
   /** Stage 2 AM-6a: Send new note to Anki. */
   const handleExportSend = useCallback(async () => {
     const d = dictRef.current.playerUI;
@@ -1953,6 +2014,8 @@ export default function PlayerApp() {
         }
 
         setExportSuccess(true);
+        // Fire-and-forget: IndexedDB write must never block/fail Anki success
+        void writeHistory();
       } else if (exportMode === 'update') {
         // One-click update: findNotes → notesInfo → validate → media → updateNoteFields
         const noteIds = await client.findNotes(
@@ -2040,6 +2103,8 @@ export default function PlayerApp() {
         if (!mountedRef.current || exportEpochRef.current !== epoch) return;
 
         setExportSuccess(true);
+        // Fire-and-forget: IndexedDB write must never block/fail Anki success
+        void writeHistory();
       }
     } catch (e) {
       if (!mountedRef.current || exportEpochRef.current !== epoch) return;
@@ -2065,6 +2130,7 @@ export default function PlayerApp() {
     exportDisabledReason,
     exportMode,
     miningDraftFields,
+    writeHistory,
   ]);
 
   // --- AM-6c: Append-to-specific handlers ---
@@ -2260,13 +2326,17 @@ export default function PlayerApp() {
         if (mountedRef.current && appendEpochRef.current === epoch) {
           setIsAppending(false);
           setAppendResult({ succeeded, failed });
+          // Fire-and-forget: IndexedDB write must never block/fail Anki success
+          if (succeeded.length > 0) {
+            void writeHistory();
+          }
         }
         appendAbortControllerRef.current = null;
       }
 
       return { succeeded, failed };
     },
-    [ankiSession, isAppending, miningDraftFields],
+    [ankiSession, isAppending, miningDraftFields, writeHistory],
   );
 
   // --- P1.1: Surface click behavior ---
@@ -2374,6 +2444,200 @@ export default function PlayerApp() {
   // --- Layout class ---
   const layoutClass = `entei-player-layout${isSubtitlePanelVisible ? '' : ' entei-player-layout--no-panel'}`;
 
+  // --- Shared media area content (extracted to avoid duplication) ---
+  const mediaArea = (
+    <div
+      ref={surfaceRef}
+      className="entei-player-surface"
+      onClick={handleSurfaceClick}
+    >
+      {mediaType === 'video' && (
+        <VideoPlayer
+          ref={videoCallbackRef}
+          src={mediaUrl!}
+          isLoading={isLoading}
+          error={loadError}
+          errorLabel={dict.failedToLoadVideo}
+          decodeErrorLabel={dict.videoDecodeError}
+          onTimeUpdate={handleTimeUpdate}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onLoaded={handleLoaded}
+          onError={handleError}
+        />
+      )}
+      {mediaType === 'audio' && (
+        <div className="entei-player-audio-area">
+          <div className="entei-player-audio-visual">
+            <div className="entei-player-audio-icon">
+              <Music size={64} />
+            </div>
+            <p className="entei-player-audio-name">{mediaName}</p>
+          </div>
+          <audio
+            ref={audioCallbackRef}
+            src={mediaUrl!}
+            onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget.currentTime)}
+            onPlay={handlePlay}
+            onPause={handlePause}
+            onLoadedData={handleLoaded}
+            onError={(e) => {
+              const mediaError = e.currentTarget.error;
+              const classified = classifyMediaError(mediaError, 'audio');
+              if (classified?.kind === 'decode')
+                handleError(dict.audioDecodeError);
+              else handleError(dict.failedToLoadAudio);
+            }}
+            preload="metadata"
+          />
+          {isLoading && (
+            <div className="entei-player-loading-overlay entei-player-audio-loading">
+              <div className="entei-player-skeleton entei-player-skeleton--audio" />
+            </div>
+          )}
+        </div>
+      )}
+      <SubtitleOverlay
+        cues={cues}
+        activeCueId={activeCueId}
+        displayMode={captionDisplayMode}
+        isRevealed={isOverlayRevealed}
+        onPointerEnter={handleOverlayPointerEnter}
+        onPointerLeave={handleOverlayPointerLeave}
+        onTouchTap={handleOverlayTouchTap}
+      />
+      <PlayerControls
+        ref={controlsHandleRef}
+        mediaRef={sharedMediaRef}
+        surfaceRef={surfaceRef}
+        isPlaying={isPlaying}
+        isLoading={isLoading}
+        error={loadError}
+        hasMedia={hasMedia}
+        mediaType={mediaType}
+        mediaKey={mediaUrl!}
+        mediaName={mediaName}
+        dict={dict}
+        isSubtitlePanelVisible={isSubtitlePanelVisible}
+        onToggleSubtitlePanel={() => {
+          setIsSubtitlePanelVisible((v) => {
+            const next = !v;
+            if (next) {
+              // Re-read layout from storage when showing panel
+              setPanelLayout(readPanelLayout());
+              setPanelLayoutKey((k) => k + 1);
+            }
+            return next;
+          });
+        }}
+        captionDisplayMode={captionDisplayMode}
+        onCycleCaptionMode={handleCycleCaptionMode}
+        volume={volume}
+        onVolumeChange={handleVolumeChange}
+        playbackRate={playbackRate}
+        onPlaybackRateChange={handlePlaybackRateChange}
+        shortcuts={shortcuts}
+        isTouchDevice={isTouchDevice}
+        reducedMotion={reducedMotion}
+        onScreenshot={handleScreenshot}
+        canScreenshot={canScreenshot}
+        isCapturing={isCapturing}
+        onAudioClip={handleAudioClip}
+        canAudioClip={canAudioClip}
+        isRecordingAudio={isRecordingAudio}
+        onMine={handleMine}
+        canMine={canMine}
+        isMining={isMining}
+        onSessionCredentials={handleSessionCredentials}
+      />
+      <ScreenshotPreviewDialog
+        open={isScreenshotDialogOpen}
+        onOpenChange={handleScreenshotDialogClose}
+        imageUrl={screenshotPreviewUrl}
+        error={hasScreenshotError}
+        onRetry={handleScreenshot}
+        onClose={handleScreenshotDialogClose}
+        isCapturing={isCapturing}
+        dict={dict}
+      />
+      <AudioClipPreviewDialog
+        open={isAudioClipDialogOpen}
+        onOpenChange={handleAudioClipDialogClose}
+        audioUrl={audioClipUrl}
+        expectedDuration={audioClipExpectedDuration}
+        error={hasAudioClipError}
+        onRetry={handleAudioClip}
+        onClose={handleAudioClipDialogClose}
+        isRecording={isRecordingAudio}
+        dict={dict}
+      />
+      <MiningPreviewDialog
+        open={isMiningPreviewOpen}
+        onOpenChange={handleMiningPreviewClose}
+        draftFields={miningDraftFields}
+        onDraftFieldChange={handleDraftFieldChange}
+        screenshotUrl={miningScreenshotUrl}
+        hasScreenshotError={miningHasScreenshotError}
+        isScreenshotUnavailable={mediaType !== 'video'}
+        audioUrl={miningAudioUrl}
+        audioExpectedDuration={miningAudioExpectedDuration}
+        hasAudioError={miningHasAudioError}
+        rangeStart={miningRangeStart}
+        rangeEnd={miningRangeEnd}
+        mediaDuration={miningMediaDuration}
+        cues={cues}
+        isCapturing={isMiningCapturing}
+        isRefreshing={isMiningRefreshing}
+        canRefresh={canRefresh}
+        onRangeChange={handleMiningRangeChange}
+        onRangeCommit={handleRangeCommit}
+        onCancel={handleMiningPreviewClose}
+        dict={dict}
+        exportMode={exportMode}
+        onExportModeChange={handleExportModeChange}
+        isExporting={isExporting}
+        canExport={canExport}
+        exportDisabledReason={exportDisabledReason}
+        exportError={exportError}
+        exportSuccess={exportSuccess}
+        onExportSend={handleExportSend}
+        onAppendSearch={handleAppendSearch}
+        onAppend={handleAppend}
+        isAppending={isAppending}
+        appendResult={appendResult}
+        appendSendDisabledReason={appendSendDisabledReason}
+        savedDeck={ankiPrefs?.deck ?? ''}
+        savedNoteType={ankiPrefs?.noteType ?? ''}
+        sentenceFieldName={ankiPrefs?.fields.sentence ?? null}
+        mediaMode={mediaMode}
+        onMediaModeChange={handleMediaModeChange}
+        mediaPreviewUrl={mediaPreviewUrl}
+        mediaPreviewType={mediaPreviewType}
+        mediaUnsupported={mediaUnsupported}
+        isMediaRecapturing={isMediaRecapturing}
+      />
+    </div>
+  );
+
+  // --- Errors block (shared between desktop/mobile) ---
+  const subtitleErrorsBlock =
+    subtitleErrors.length > 0 ? (
+      <div className="entei-player-errors">
+        <p className="entei-player-errors-title">
+          <AlertTriangle size={14} className="entei-player-errors-icon" />
+          {dict.subtitleWarnings}:
+        </p>
+        <ul className="entei-player-errors-list">
+          {subtitleErrors.map((err, i) => (
+            <li key={i}>
+              {err.line > 0 ? `${dict.linePrefix} ${err.line}: ` : ''}
+              {err.message}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
   return (
     <div
       ref={mediaContainerRef}
@@ -2408,229 +2672,83 @@ export default function PlayerApp() {
       )}
 
       {/* --- Active state --- */}
-      {hasMedia && (
-        <div className={layoutClass}>
-          {/* Media area + controls */}
-          <div className="entei-player-media-area">
-            <div
-              ref={surfaceRef}
-              className="entei-player-surface"
-              onClick={handleSurfaceClick}
-            >
-              {mediaType === 'video' && (
-                <VideoPlayer
-                  ref={videoCallbackRef}
-                  src={mediaUrl}
-                  isLoading={isLoading}
-                  error={loadError}
-                  errorLabel={dict.failedToLoadVideo}
-                  decodeErrorLabel={dict.videoDecodeError}
-                  onTimeUpdate={handleTimeUpdate}
-                  onPlay={handlePlay}
-                  onPause={handlePause}
-                  onLoaded={handleLoaded}
-                  onError={handleError}
-                />
-              )}
-              {mediaType === 'audio' && (
-                <div className="entei-player-audio-area">
-                  <div className="entei-player-audio-visual">
-                    <div className="entei-player-audio-icon">
-                      <Music size={64} />
-                    </div>
-                    <p className="entei-player-audio-name">{mediaName}</p>
-                  </div>
-                  <audio
-                    ref={audioCallbackRef}
-                    src={mediaUrl}
-                    onTimeUpdate={(e) =>
-                      handleTimeUpdate(e.currentTarget.currentTime)
-                    }
-                    onPlay={handlePlay}
-                    onPause={handlePause}
-                    onLoadedData={handleLoaded}
-                    onError={(e) => {
-                      const mediaError = e.currentTarget.error;
-                      const classified = classifyMediaError(
-                        mediaError,
-                        'audio',
-                      );
-                      // P1.2: Never surface raw MediaError.message — use localized labels.
-                      if (classified?.kind === 'decode') {
-                        handleError(dict.audioDecodeError);
-                      } else {
-                        handleError(dict.failedToLoadAudio);
-                      }
-                    }}
-                    preload="metadata"
-                  />
-                  {isLoading && (
-                    <div className="entei-player-loading-overlay entei-player-audio-loading">
-                      <div className="entei-player-skeleton entei-player-skeleton--audio" />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* P1.3a.1: Selectable subtitle overlay over video */}
-              <SubtitleOverlay
-                cues={cues}
-                activeCueId={activeCueId}
-                displayMode={captionDisplayMode}
-                isRevealed={isOverlayRevealed}
-                onPointerEnter={handleOverlayPointerEnter}
-                onPointerLeave={handleOverlayPointerLeave}
-                onTouchTap={handleOverlayTouchTap}
-              />
-
-              {/* P1.1 Custom Controls */}
-              <PlayerControls
-                ref={controlsHandleRef}
-                mediaRef={sharedMediaRef}
-                surfaceRef={surfaceRef}
-                isPlaying={isPlaying}
-                isLoading={isLoading}
-                error={loadError}
-                hasMedia={hasMedia}
-                mediaType={mediaType}
-                mediaKey={mediaUrl}
-                mediaName={mediaName}
-                dict={dict}
-                isSubtitlePanelVisible={isSubtitlePanelVisible}
-                onToggleSubtitlePanel={() =>
-                  setIsSubtitlePanelVisible((v) => !v)
-                }
-                captionDisplayMode={captionDisplayMode}
-                onCycleCaptionMode={handleCycleCaptionMode}
-                volume={volume}
-                onVolumeChange={handleVolumeChange}
-                playbackRate={playbackRate}
-                onPlaybackRateChange={handlePlaybackRateChange}
-                shortcuts={shortcuts}
-                isTouchDevice={isTouchDevice}
-                reducedMotion={reducedMotion}
-                onScreenshot={handleScreenshot}
-                canScreenshot={canScreenshot}
-                isCapturing={isCapturing}
-                onAudioClip={handleAudioClip}
-                canAudioClip={canAudioClip}
-                isRecordingAudio={isRecordingAudio}
-                onMine={handleMine}
-                canMine={canMine}
-                isMining={isMining}
-                onSessionCredentials={handleSessionCredentials}
-              />
-
-              {/* AM-2: Screenshot Preview Dialog */}
-              <ScreenshotPreviewDialog
-                open={isScreenshotDialogOpen}
-                onOpenChange={handleScreenshotDialogClose}
-                imageUrl={screenshotPreviewUrl}
-                error={hasScreenshotError}
-                onRetry={handleScreenshot}
-                onClose={handleScreenshotDialogClose}
-                isCapturing={isCapturing}
-                dict={dict}
-              />
-
-              {/* AM-3: Audio Clip Preview Dialog */}
-              <AudioClipPreviewDialog
-                open={isAudioClipDialogOpen}
-                onOpenChange={handleAudioClipDialogClose}
-                audioUrl={audioClipUrl}
-                expectedDuration={audioClipExpectedDuration}
-                error={hasAudioClipError}
-                onRetry={handleAudioClip}
-                onClose={handleAudioClipDialogClose}
-                isRecording={isRecordingAudio}
-                dict={dict}
-              />
-
-              {/* AM-4: Mining Preview Dialog */}
-              <MiningPreviewDialog
-                open={isMiningPreviewOpen}
-                onOpenChange={handleMiningPreviewClose}
-                draftFields={miningDraftFields}
-                onDraftFieldChange={handleDraftFieldChange}
-                screenshotUrl={miningScreenshotUrl}
-                hasScreenshotError={miningHasScreenshotError}
-                isScreenshotUnavailable={mediaType !== 'video'}
-                audioUrl={miningAudioUrl}
-                audioExpectedDuration={miningAudioExpectedDuration}
-                hasAudioError={miningHasAudioError}
-                rangeStart={miningRangeStart}
-                rangeEnd={miningRangeEnd}
-                mediaDuration={miningMediaDuration}
-                cues={cues}
-                isCapturing={isMiningCapturing}
-                isRefreshing={isMiningRefreshing}
-                canRefresh={canRefresh}
-                onRangeChange={handleMiningRangeChange}
-                onRangeCommit={handleRangeCommit}
-                onCancel={handleMiningPreviewClose}
-                dict={dict}
-                exportMode={exportMode}
-                onExportModeChange={handleExportModeChange}
-                isExporting={isExporting}
-                canExport={canExport}
-                exportDisabledReason={exportDisabledReason}
-                exportError={exportError}
-                exportSuccess={exportSuccess}
-                onExportSend={handleExportSend}
-                onAppendSearch={handleAppendSearch}
-                onAppend={handleAppend}
-                isAppending={isAppending}
-                appendResult={appendResult}
-                appendSendDisabledReason={appendSendDisabledReason}
-                savedDeck={ankiPrefs?.deck ?? ''}
-                savedNoteType={ankiPrefs?.noteType ?? ''}
-                sentenceFieldName={ankiPrefs?.fields.sentence ?? null}
-                mediaMode={mediaMode}
-                onMediaModeChange={handleMediaModeChange}
-                mediaPreviewUrl={mediaPreviewUrl}
-                mediaPreviewType={mediaPreviewType}
-                mediaUnsupported={mediaUnsupported}
-                isMediaRecapturing={isMediaRecapturing}
-              />
+      {hasMedia &&
+      isDesktop &&
+      !isLandscapeImmersive &&
+      isSubtitlePanelVisible ? (
+        <ResizablePanelGroup
+          key={panelLayoutKey}
+          id="entei-player-layout"
+          orientation="horizontal"
+          className="entei-resizable-group"
+          defaultLayout={{
+            'entei-main': panelLayout.mainPct,
+            'entei-side': panelLayout.sidePct,
+          }}
+          onLayoutChanged={(layout, { isUserInteraction }) => {
+            if (!isUserInteraction) return;
+            const main = layout['entei-main'];
+            const side = layout['entei-side'];
+            if (typeof main === 'number' && typeof side === 'number') {
+              const next = { mainPct: main, sidePct: side };
+              setPanelLayout(next);
+              writePanelLayout(next);
+            }
+          }}
+        >
+          <ResizablePanel
+            id="entei-main"
+            defaultSize={`${panelLayout.mainPct}%`}
+            minSize="45%"
+            className="entei-resizable-panel-main"
+          >
+            <div className="entei-player-layout entei-player-layout--no-panel">
+              <div className="entei-player-media-area">{mediaArea}</div>
+              {subtitleErrorsBlock}
             </div>
-          </div>
-
-          {/* Subtitle panel */}
-          {isSubtitlePanelVisible && (
-            <SubtitlePanel
+          </ResizablePanel>
+          <ResizableHandle withHandle className="entei-resizable-handle" />
+          <ResizablePanel
+            id="entei-side"
+            defaultSize={`${panelLayout.sidePct}%`}
+            minSize="10%"
+            maxSize="45%"
+            className="entei-resizable-panel-side"
+          >
+            <RightPanel
+              visible={isSubtitlePanelVisible}
+              dict={dict}
               cues={cues}
               activeCueId={activeCueId}
               onCueClick={handleCueClick}
-              onSubtitleSelect={handleSubtitleSelect}
+              onSubtitleSelect={(f: File | null) =>
+                f && handleSubtitleSelect(f)
+              }
               subtitleAccept={SUBTITLE_ACCEPT}
-              subtitlesLabel={dict.subtitles}
-              cuesCountLabel={dict.cuesCount}
-              noSubtitlesLabel={dict.noSubtitlesLoaded}
-              seekToLabel={dict.seekTo}
-              chooseSubtitleLabel={dict.chooseSubtitle}
-              changeSubtitleLabel={dict.changeSubtitle}
+              historyRefreshKey={historyRefreshKey}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : hasMedia ? (
+        <div className={layoutClass}>
+          <div className="entei-player-media-area">{mediaArea}</div>
+          {isSubtitlePanelVisible && (
+            <RightPanel
+              visible={isSubtitlePanelVisible}
+              dict={dict}
+              cues={cues}
+              activeCueId={activeCueId}
+              onCueClick={handleCueClick}
+              onSubtitleSelect={(f: File | null) =>
+                f && handleSubtitleSelect(f)
+              }
+              subtitleAccept={SUBTITLE_ACCEPT}
+              historyRefreshKey={historyRefreshKey}
             />
           )}
-
-          {/* Subtitle errors */}
-          {subtitleErrors.length > 0 && (
-            <div className="entei-player-errors">
-              <p className="entei-player-errors-title">
-                <AlertTriangle size={14} className="entei-player-errors-icon" />
-                {dict.subtitleWarnings}:
-              </p>
-              <ul className="entei-player-errors-list">
-                {subtitleErrors.map((err, i) => (
-                  <li key={i}>
-                    {err.line > 0 ? `${dict.linePrefix} ${err.line}: ` : ''}
-                    {err.message}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {subtitleErrorsBlock}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

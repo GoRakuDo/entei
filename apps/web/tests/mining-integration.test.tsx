@@ -225,6 +225,13 @@ const mockDict = {
   mediaModeImage: 'Image',
   mediaModeVideo: 'Video',
   mediaModeUnsupported: 'Video Clip is not supported.',
+  rightPanelTabsLabel: 'Panel',
+  rightPanelTabCaptions: 'Captions',
+  rightPanelTabHistory: 'History',
+  historyEmpty: 'No history yet',
+  historyUnavailable: 'History unavailable',
+  historySentence: 'Sentence',
+  historyRange: 'Range',
 };
 
 const baseControlsProps = {
@@ -814,7 +821,11 @@ describe('Range refresh deferred publish', () => {
 
     // Run both captures concurrently
     const mediaResult = captureVideoFrame(document.createElement('video'));
-    const audioResult = recordAudioClip({ mediaUrl: 'blob:test', start: 0, end: 5 });
+    const audioResult = recordAudioClip({
+      mediaUrl: 'blob:test',
+      start: 0,
+      end: 5,
+    });
 
     const [media, audio] = await Promise.all([mediaResult, audioResult]);
 
@@ -879,7 +890,9 @@ describe('Range refresh deferred publish', () => {
     });
     expect(videoResult.ok).toBe(false);
 
-    const fallbackResult = await captureVideoFrame(document.createElement('video'));
+    const fallbackResult = await captureVideoFrame(
+      document.createElement('video'),
+    );
     expect(fallbackResult.ok).toBe(true);
 
     if (fallbackResult.ok) {

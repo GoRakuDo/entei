@@ -205,6 +205,13 @@ const mockDict = {
   mediaModeImage: 'Image',
   mediaModeVideo: 'Video',
   mediaModeUnsupported: 'Video Clip is not supported.',
+  rightPanelTabsLabel: 'Panel',
+  rightPanelTabCaptions: 'Captions',
+  rightPanelTabHistory: 'History',
+  historyEmpty: 'No history yet',
+  historyUnavailable: 'History unavailable',
+  historySentence: 'Sentence',
+  historyRange: 'Range',
 };
 
 const baseControlsProps = {

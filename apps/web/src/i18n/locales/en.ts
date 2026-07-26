@@ -198,6 +198,13 @@ export const en: Dictionary = {
     mediaModeImage: 'Image',
     mediaModeVideo: 'Video',
     mediaModeUnsupported: 'Video Clip is not supported in this browser.',
+    rightPanelTabsLabel: 'Panel',
+    rightPanelTabCaptions: 'Captions',
+    rightPanelTabHistory: 'History',
+    historyEmpty: 'No history yet',
+    historyUnavailable: 'History unavailable',
+    historySentence: 'Sentence',
+    historyRange: 'Range',
   },
   reader: {
     title: 'EPUB Reader',
