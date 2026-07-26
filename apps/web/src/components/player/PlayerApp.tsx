@@ -1092,6 +1092,39 @@ export default function PlayerApp() {
           // Store for export — do NOT route through screenshotUrl
           miningScreenshotBlobRef.current = videoClipResult.blob;
         }
+        // Video clip failed → JPEG fallback was captured above; consume it
+        // exactly like the image-mode handler so Picture field shows the frame.
+        if (
+          videoClipResult &&
+          !videoClipResult.ok &&
+          screenshotResult &&
+          screenshotResult.ok
+        ) {
+          // Revoke old media preview URL
+          if (mediaBlobUrlRef.current)
+            URL.revokeObjectURL(mediaBlobUrlRef.current);
+          miningScreenshotBlobRef.current = screenshotResult.blob;
+          const fallbackUrl = URL.createObjectURL(screenshotResult.blob);
+          mediaBlobUrlRef.current = fallbackUrl;
+          replaceMiningScreenshotUrl(fallbackUrl);
+          mediaBlobRef.current = screenshotResult.blob;
+          capturedMediaTypeRef.current = 'image';
+          setMediaPreviewType('image');
+          setMediaPreviewUrl(fallbackUrl);
+        } else if (
+          videoClipResult &&
+          !videoClipResult.ok &&
+          screenshotResult &&
+          !screenshotResult.ok
+        ) {
+          // Both video and JPEG fallback failed — surface error
+          setMiningHasScreenshotError(true);
+          replaceMiningScreenshotUrl(null);
+          miningScreenshotBlobRef.current = null;
+          mediaBlobRef.current = null;
+          capturedMediaTypeRef.current = null;
+          setMediaPreviewUrl(null);
+        }
       } else {
         // Image mode result handling
         if (screenshotResult && !screenshotResult.ok) {
@@ -1258,7 +1291,7 @@ export default function PlayerApp() {
         );
       }
 
-      // Phase 2: Screenshot — seek visible video to committedStart, capture, restore
+      // Phase 2: Media capture — Video or Image from newly committed range
       if (hasImage && hasVideo) {
         const video = videoRef.current!;
         const snapshotTime = miningSnapshotTimeRef.current;
@@ -1269,23 +1302,81 @@ export default function PlayerApp() {
           if (!mountedRef.current || miningEpochRef.current !== epoch) return;
           if (abortController.signal.aborted) return;
 
-          const screenshotResult = await captureVideoFrame(video);
+          if (mediaMode === 'video') {
+            // Video mode: attempt silent WebM clip from committed range
+            const clipResult = await recordVideoClip({
+              mediaUrl: mediaUrl!,
+              start: committedStart,
+              end: committedEnd,
+              signal: abortController.signal,
+            });
 
-          if (!mountedRef.current || miningEpochRef.current !== epoch) {
-            video.currentTime = snapshotTime;
-            video.pause();
-            return;
-          }
+            if (!mountedRef.current || miningEpochRef.current !== epoch) {
+              video.currentTime = snapshotTime;
+              video.pause();
+              return;
+            }
 
-          if (!screenshotResult.ok) {
-            setMiningHasScreenshotError(true);
-            replaceMiningScreenshotUrl(null);
-            miningScreenshotBlobRef.current = null;
+            if (clipResult.ok) {
+              // Revoke old media URL
+              if (mediaBlobUrlRef.current) {
+                URL.revokeObjectURL(mediaBlobUrlRef.current);
+              }
+              const newUrl = URL.createObjectURL(clipResult.blob);
+              mediaBlobUrlRef.current = newUrl;
+              mediaBlobRef.current = clipResult.blob;
+              capturedMediaTypeRef.current = 'video';
+              setMediaPreviewType('video');
+              setMediaPreviewUrl(newUrl);
+              miningScreenshotBlobRef.current = clipResult.blob;
+              replaceMiningScreenshotUrl(newUrl);
+            } else {
+              // Video failed — JPEG fallback from committed range
+              setMediaUnsupported(clipResult.error.message);
+              const fallback = await captureVideoFrame(video);
+              if (!mountedRef.current || miningEpochRef.current !== epoch) {
+                video.currentTime = snapshotTime;
+                video.pause();
+                return;
+              }
+              if (fallback.ok) {
+                if (mediaBlobUrlRef.current) {
+                  URL.revokeObjectURL(mediaBlobUrlRef.current);
+                }
+                const imgUrl = URL.createObjectURL(fallback.blob);
+                mediaBlobUrlRef.current = imgUrl;
+                mediaBlobRef.current = fallback.blob;
+                capturedMediaTypeRef.current = 'image';
+                setMediaPreviewType('image');
+                setMediaPreviewUrl(imgUrl);
+                miningScreenshotBlobRef.current = fallback.blob;
+                replaceMiningScreenshotUrl(imgUrl);
+              } else {
+                setMiningHasScreenshotError(true);
+                replaceMiningScreenshotUrl(null);
+                miningScreenshotBlobRef.current = null;
+              }
+            }
           } else {
-            miningScreenshotBlobRef.current = screenshotResult.blob;
-            replaceMiningScreenshotUrl(
-              URL.createObjectURL(screenshotResult.blob),
-            );
+            // Image mode: existing JPEG capture
+            const screenshotResult = await captureVideoFrame(video);
+
+            if (!mountedRef.current || miningEpochRef.current !== epoch) {
+              video.currentTime = snapshotTime;
+              video.pause();
+              return;
+            }
+
+            if (!screenshotResult.ok) {
+              setMiningHasScreenshotError(true);
+              replaceMiningScreenshotUrl(null);
+              miningScreenshotBlobRef.current = null;
+            } else {
+              miningScreenshotBlobRef.current = screenshotResult.blob;
+              replaceMiningScreenshotUrl(
+                URL.createObjectURL(screenshotResult.blob),
+              );
+            }
           }
         } catch {
           if (mountedRef.current && miningEpochRef.current === epoch) {

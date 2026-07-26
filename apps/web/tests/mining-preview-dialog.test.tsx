@@ -1109,3 +1109,100 @@ describe('Media mode switch', () => {
     expect(onMediaModeChange).toHaveBeenCalledWith('video');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Picture field rendering: single resolved media source
+// ---------------------------------------------------------------------------
+
+describe('Picture field — single media source', () => {
+  afterEach(cleanup);
+
+  const imageFieldProps = {
+    draftFields: [
+      { key: 'sentence', physicalName: 'S', value: 'text' },
+      { key: 'image', physicalName: 'PictureField', value: 'screenshot.jpg' },
+    ],
+  };
+
+  it('Chrome video success: screenshotUrl=null, mediaPreviewUrl set → renders video', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...imageFieldProps}
+        screenshotUrl={null}
+        mediaPreviewType="video"
+        mediaPreviewUrl="blob:http://localhost/video-webm"
+      />,
+    );
+    const video = document.body.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video!.getAttribute('src')).toBe('blob:http://localhost/video-webm');
+    // React boolean attrs may not appear as HTML attributes in jsdom
+    expect((video as HTMLVideoElement).muted).toBe(true);
+    // No separate out-of-field video
+    expect(video!.closest('.entei-mining-section')).not.toBeNull();
+  });
+
+  it('JPEG fallback: screenshotUrl set, mediaPreviewType=image → renders img', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...imageFieldProps}
+        screenshotUrl="blob:http://localhost/fallback-jpeg"
+        mediaPreviewType="image"
+      />,
+    );
+    const img = document.body.querySelector('.entei-mining-image');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('src')).toBe(
+      'blob:http://localhost/fallback-jpeg',
+    );
+  });
+
+  it('fallback explanation visible inside Picture field when video unsupported', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...imageFieldProps}
+        screenshotUrl="blob:http://localhost/fallback"
+        mediaMode="video"
+        mediaUnsupported="MediaRecorder not available"
+      />,
+    );
+    // Warning should be inside the image field area, not after fields
+    const warning = screen.getByText(/MediaRecorder not available/);
+    expect(warning).not.toBeNull();
+    const imageField = warning.closest('.entei-mining-section');
+    expect(imageField).not.toBeNull();
+  });
+
+  it('both failures: no screenshotUrl, no mediaPreviewUrl → error state visible', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...imageFieldProps}
+        screenshotUrl={null}
+        mediaMode="video"
+        mediaUnsupported="Canvas capture not supported"
+      />,
+    );
+    // Error should be visible
+    const error = screen.getByText(/Canvas capture not supported/);
+    expect(error).not.toBeNull();
+  });
+
+  it('mediaPreviewUrl takes precedence over screenshotUrl when both set', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        {...imageFieldProps}
+        screenshotUrl="blob:http://localhost/old-screenshot"
+        mediaPreviewType="video"
+        mediaPreviewUrl="blob:http://localhost/new-video"
+      />,
+    );
+    const video = document.body.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video!.getAttribute('src')).toBe('blob:http://localhost/new-video');
+  });
+});

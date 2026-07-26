@@ -522,12 +522,16 @@ export function MiningPreviewDialog({
               field.key === 'image' || field.key === 'audio';
             const isTextarea =
               field.key === 'sentence' || field.key === 'definition';
-            const hasImage = field.key === 'image' && screenshotUrl !== null;
+            // Single resolved media source: prefer mediaPreviewUrl, fall back to screenshotUrl
+            const mediaSrc =
+              field.key === 'image' ? (mediaPreviewUrl ?? screenshotUrl) : null;
+            const hasImage = field.key === 'image' && mediaSrc !== null;
             const hasImageError = field.key === 'image' && hasScreenshotError;
             const hasImageUnavailable =
               field.key === 'image' && isScreenshotUnavailable;
             const hasImageSkeleton =
-              field.key === 'image' && (isCapturing || isRefreshing);
+              field.key === 'image' &&
+              (isCapturing || isRefreshing || isMediaRecapturing);
             const hasAudio = field.key === 'audio' && audioUrl !== null;
             const hasAudioErr = field.key === 'audio' && hasAudioError;
 
@@ -569,20 +573,22 @@ export function MiningPreviewDialog({
                       </div>
                     </AspectRatio>
                   )}
-                {hasImage && mediaPreviewType !== 'video' && (
-                  <AspectRatio ratio={16 / 9}>
-                    <div className="entei-mining-image-wrap">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={mediaPreviewUrl || screenshotUrl}
-                        alt={field.physicalName}
-                        className="entei-mining-image"
-                        loading="eager"
-                      />
-                    </div>
-                  </AspectRatio>
-                )}
-                {(hasImageSkeleton || isMediaRecapturing) && !hasImage && (
+                {hasImage &&
+                  (mediaPreviewType !== 'video' || !mediaPreviewUrl) &&
+                  mediaSrc && (
+                    <AspectRatio ratio={16 / 9}>
+                      <div className="entei-mining-image-wrap">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={mediaSrc}
+                          alt={field.physicalName}
+                          className="entei-mining-image"
+                          loading="eager"
+                        />
+                      </div>
+                    </AspectRatio>
+                  )}
+                {hasImageSkeleton && !hasImage && (
                   <AspectRatio ratio={16 / 9}>
                     <div className="entei-mining-placeholder" aria-busy>
                       <span
@@ -603,6 +609,14 @@ export function MiningPreviewDialog({
                     <p>{dict.miningPreviewScreenshotError}</p>
                   </div>
                 )}
+                {/* Video fallback explanation — inside Picture field so it's always visible */}
+                {field.key === 'image' &&
+                  mediaMode === 'video' &&
+                  mediaUnsupported && (
+                    <div className="entei-media-unsupported" role="status">
+                      <p>{mediaUnsupported}</p>
+                    </div>
+                  )}
 
                 {hasAudio && (
                   <div className="entei-mining-audio-player">
@@ -670,13 +684,6 @@ export function MiningPreviewDialog({
               </div>
             );
           })}
-
-          {/* Video unsupported warning */}
-          {mediaMode === 'video' && mediaUnsupported && (
-            <div className="entei-mining-warning" role="status">
-              <p>{mediaUnsupported}</p>
-            </div>
-          )}
 
           {/* AM-6c: Single 3-item centered ToggleGroup — New + Update + Append */}
           <div className="entei-mining-controls-row">

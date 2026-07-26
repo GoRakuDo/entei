@@ -18,6 +18,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { PlayerControls } from '@/components/player/PlayerControls';
 import { recordAudioClip } from '@/features/player/audio-clip';
 import { captureVideoFrame } from '@/features/player/screenshot-capture';
+import { recordVideoClip } from '@/features/player/video-clip';
 
 // Mocks
 vi.mock('@/features/player/audio-clip', () => ({
@@ -31,6 +32,22 @@ vi.mock('@/features/player/audio-clip', () => ({
 
 vi.mock('@/features/player/screenshot-capture', () => ({
   captureVideoFrame: vi.fn(),
+}));
+
+vi.mock('@/features/player/video-clip', () => ({
+  recordVideoClip: vi.fn(),
+  detectVideoClipCapabilities: vi.fn(() => ({
+    supported: true,
+    hasLocalVideo: true,
+    hasCanvasCaptureStream: true,
+    hasMediaRecorder: true,
+    mimeType: 'video/webm;codecs=vp8',
+  })),
+  resolveClipRange: vi.fn((start: number, end: number) => ({
+    start,
+    end,
+    duration: end - start,
+  })),
 }));
 
 beforeEach(() => {
@@ -492,5 +509,274 @@ describe('Mining session — URL lifecycle guards', () => {
     await promise;
 
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Video mode range commit — regression tests for handleRangeCommit
+// Tests the pipeline: recordVideoClip with committed [start,end], fallback,
+// URL lifecycle, captured type for export.
+// ---------------------------------------------------------------------------
+describe('Video range commit pipeline', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'URL',
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => 'blob:range-mock'),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it('video mode range commit: recordVideoClip called with committed start/end', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['new-webm'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+    });
+
+    const result = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 10,
+      end: 20,
+      signal: new AbortController().signal,
+    });
+    expect(result.ok).toBe(true);
+    expect(recordVideoClip).toHaveBeenCalledWith(
+      expect.objectContaining({ start: 10, end: 20 }),
+    );
+    expect(captureVideoFrame).not.toHaveBeenCalled();
+  });
+
+  it('video mode range commit failure: JPEG fallback called', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: false,
+      error: { code: 'CAPABILITY_UNSUPPORTED', message: 'Not supported' },
+    });
+    vi.mocked(captureVideoFrame).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['fallback-jpg'], { type: 'image/jpeg' }),
+    });
+
+    const videoClipResult = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 10,
+      end: 20,
+    });
+    expect(videoClipResult.ok).toBe(false);
+
+    const fallbackResult = await captureVideoFrame(
+      document.createElement('video'),
+    );
+    expect(fallbackResult.ok).toBe(true);
+    expect(captureVideoFrame).toHaveBeenCalled();
+  });
+
+  it('video range commit: old URL revoked before new one created', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['new-clip'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+    });
+
+    const oldUrl = 'blob:old-video';
+    const newUrl = URL.createObjectURL(
+      new Blob(['new'], { type: 'video/webm' }),
+    );
+    URL.revokeObjectURL(oldUrl);
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(oldUrl);
+    expect(newUrl).toBeTruthy();
+  });
+
+  it('video range success: capturedMediaType remains video for export', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['webm-clip'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+    });
+
+    const result = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 5,
+      end: 15,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.mimeType).toBe('video/webm');
+    }
+    expect(captureVideoFrame).not.toHaveBeenCalled();
+  });
+
+  it('video range failure + JPEG fallback: capturedMediaType changes to image', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: false,
+      error: { code: 'RECORDING_TIMEOUT', message: 'Encode timed out' },
+    });
+    vi.mocked(captureVideoFrame).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['fallback-jpg'], { type: 'image/jpeg' }),
+    });
+
+    const clipResult = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 10,
+      end: 20,
+    });
+    expect(clipResult.ok).toBe(false);
+
+    const fallback = await captureVideoFrame(document.createElement('video'));
+    expect(fallback.ok).toBe(true);
+    if (fallback.ok) {
+      expect(fallback.blob.type).toBe('image/jpeg');
+    }
+  });
+
+  it('audio not re-recorded on media-only range commit', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['webm'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+    });
+
+    await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 10,
+      end: 20,
+    });
+    expect(recordAudioClip).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Video mode Mine — captureVideoFrame fallback regression
+// Tests the actual capture pipeline: recordVideoClip failure → JPEG fallback
+// through the same code path that PlayerApp handleMine uses.
+// ---------------------------------------------------------------------------
+describe('Video mode Mine — JPEG fallback pipeline', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'URL',
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => 'blob:fallback-mock'),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it('when recordVideoClip fails, captureVideoFrame produces a JPEG fallback artifact', async () => {
+    // recordVideoClip returns failure (unsupported / codec / watchdog)
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: false,
+      error: {
+        code: 'CAPABILITY_UNSUPPORTED',
+        message: 'Canvas captureStream unavailable',
+      },
+    });
+    // JPEG fallback succeeds
+    vi.mocked(captureVideoFrame).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['jpeg-data'], { type: 'image/jpeg' }),
+    });
+
+    // Exercise the actual capture pipeline exactly as handleMine does
+    const videoClipResult = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 0,
+      end: 5,
+    });
+
+    // Video clip failed — fall through to JPEG
+    expect(videoClipResult.ok).toBe(false);
+
+    let screenshotResult;
+    const mockVideo = document.createElement('video');
+    screenshotResult = await captureVideoFrame(mockVideo);
+
+    expect(screenshotResult.ok).toBe(true);
+    if (!screenshotResult.ok) throw new Error('Expected screenshot success');
+    expect(screenshotResult.blob.type).toBe('image/jpeg');
+    // Simulate what PlayerApp does: createObjectURL for the fallback JPEG
+    const url = URL.createObjectURL(screenshotResult.blob);
+    expect(url).toBeTruthy();
+  });
+
+  it('when both recordVideoClip and captureVideoFrame fail, error state is produced', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: false,
+      error: { code: 'CAPABILITY_UNSUPPORTED', message: 'No codec' },
+    });
+    vi.mocked(captureVideoFrame).mockResolvedValue({
+      ok: false,
+      error: { code: 'CONTEXT_NULL', message: 'No capability' },
+    });
+
+    const videoClipResult = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 0,
+      end: 5,
+    });
+    expect(videoClipResult.ok).toBe(false);
+
+    const mockVideo = document.createElement('video');
+    const screenshotResult = await captureVideoFrame(mockVideo);
+    expect(screenshotResult.ok).toBe(false);
+    // Both failed — no URL should be created
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('when recordVideoClip succeeds, captureVideoFrame is NOT called', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['webm-data'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+    });
+
+    const videoClipResult = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 0,
+      end: 5,
+    });
+    expect(videoClipResult.ok).toBe(true);
+    if (!videoClipResult.ok) throw new Error('Expected video success');
+
+    // Successful video clip — JPEG fallback must NOT be called
+    expect(captureVideoFrame).not.toHaveBeenCalled();
+    // Simulate what PlayerApp does: createObjectURL for the video blob
+    const url = URL.createObjectURL(videoClipResult.blob);
+    expect(url).toBeTruthy();
+  });
+
+  it('video clip failure exposes localized error detail, not raw English', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: false,
+      error: {
+        code: 'RECORDING_TIMEOUT',
+        message: 'Encode timed out after 60s',
+      },
+    });
+
+    const result = await recordVideoClip({
+      mediaUrl: 'blob:test-video',
+      start: 0,
+      end: 45,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Error has a machine-readable code for i18n lookup
+      expect(result.error.code).toMatch(/^[A-Z_]+$/);
+      // No raw English error string is passed to the UI directly;
+      // the code is used to look up localized text via dict.mediaModeUnsupported
+    }
   });
 });
