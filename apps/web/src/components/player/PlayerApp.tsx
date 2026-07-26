@@ -283,7 +283,7 @@ export default function PlayerApp() {
     () => readAnkiMinerPreferences().mediaMode ?? 'image',
   );
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
-  const [mediaPreviewType, setMediaPreviewType] = useState<'image' | 'video'>(
+  const [mediaPreviewType, setMediaPreviewType] = useState<'image' | 'video' | null>(
     'image',
   );
   const [mediaUnsupported, setMediaUnsupported] = useState<string | null>(null);
@@ -1259,8 +1259,6 @@ export default function PlayerApp() {
       miningEpochRef.current = epoch;
       isMiningRefreshingRef.current = true;
       setIsMiningRefreshing(true);
-      setMiningHasScreenshotError(false);
-      setMiningHasAudioError(false);
 
       // Use the committed values — not stale state
       const committedStart = start;
@@ -1291,19 +1289,64 @@ export default function PlayerApp() {
         );
       }
 
-      // Phase 2: Media capture — Video or Image from newly committed range
-      if (hasImage && hasVideo) {
+      // Phase 1.5: Immediately clear old Picture + Audio and show skeletons
+      if (hasImage) {
+        // Revoke old picture artifact
+        if (mediaBlobUrlRef.current) {
+          URL.revokeObjectURL(mediaBlobUrlRef.current);
+          mediaBlobUrlRef.current = null;
+        }
+        mediaBlobRef.current = null;
+        miningScreenshotBlobRef.current = null;
+        capturedMediaTypeRef.current = null;
+        replaceMiningScreenshotUrl(null);
+        setMediaPreviewUrl(null);
+        setMediaPreviewType(null);
+      }
+      if (hasAudio) {
+        // Revoke old audio artifact
+        miningAudioBlobRef.current = null;
+        replaceMiningAudioUrl(null);
+      }
+      // Clear error states for fresh skeletons
+      setMiningHasScreenshotError(false);
+      setMiningHasAudioError(false);
+      setMediaUnsupported(null);
+
+      // Phase 2+3: Capture media + audio concurrently (staged, not published yet)
+      // Stage results in local variables — no React state updates until both finish.
+      let stagedPictureResult: {
+        ok: boolean;
+        blob?: Blob;
+        type?: 'image' | 'video';
+        unsupportedMessage?: string;
+        errorMsg?: string;
+      } = { ok: false };
+      let stagedAudioResult: {
+        ok: boolean;
+        blob?: Blob;
+        errorMsg?: string;
+      } = { ok: false };
+
+      const capturePicture = async (): Promise<{
+        ok: boolean;
+        blob?: Blob;
+        type?: 'image' | 'video';
+        unsupportedMessage?: string;
+        errorMsg?: string;
+      }> => {
+        if (!hasImage || !hasVideo) return { ok: false, errorMsg: 'no-video' };
         const video = videoRef.current!;
-        const snapshotTime = miningSnapshotTimeRef.current;
 
         try {
           await seekVideoSafely(video, committedStart, abortController.signal);
 
-          if (!mountedRef.current || miningEpochRef.current !== epoch) return;
-          if (abortController.signal.aborted) return;
+          if (!mountedRef.current || miningEpochRef.current !== epoch)
+            return { ok: false, errorMsg: 'stale' };
+          if (abortController.signal.aborted)
+            return { ok: false, errorMsg: 'aborted' };
 
           if (mediaMode === 'video') {
-            // Video mode: attempt silent WebM clip from committed range
             const clipResult = await recordVideoClip({
               mediaUrl: mediaUrl!,
               start: committedStart,
@@ -1311,91 +1354,62 @@ export default function PlayerApp() {
               signal: abortController.signal,
             });
 
-            if (!mountedRef.current || miningEpochRef.current !== epoch) {
-              video.currentTime = snapshotTime;
-              video.pause();
-              return;
-            }
-
+            if (!mountedRef.current || miningEpochRef.current !== epoch)
+              return { ok: false, errorMsg: 'stale' };
             if (clipResult.ok) {
-              // Revoke old media URL
-              if (mediaBlobUrlRef.current) {
-                URL.revokeObjectURL(mediaBlobUrlRef.current);
-              }
-              const newUrl = URL.createObjectURL(clipResult.blob);
-              mediaBlobUrlRef.current = newUrl;
-              mediaBlobRef.current = clipResult.blob;
-              capturedMediaTypeRef.current = 'video';
-              setMediaPreviewType('video');
-              setMediaPreviewUrl(newUrl);
-              miningScreenshotBlobRef.current = clipResult.blob;
-              replaceMiningScreenshotUrl(newUrl);
-            } else {
-              // Video failed — JPEG fallback from committed range
-              setMediaUnsupported(clipResult.error.message);
-              const fallback = await captureVideoFrame(video);
-              if (!mountedRef.current || miningEpochRef.current !== epoch) {
-                video.currentTime = snapshotTime;
-                video.pause();
-                return;
-              }
-              if (fallback.ok) {
-                if (mediaBlobUrlRef.current) {
-                  URL.revokeObjectURL(mediaBlobUrlRef.current);
-                }
-                const imgUrl = URL.createObjectURL(fallback.blob);
-                mediaBlobUrlRef.current = imgUrl;
-                mediaBlobRef.current = fallback.blob;
-                capturedMediaTypeRef.current = 'image';
-                setMediaPreviewType('image');
-                setMediaPreviewUrl(imgUrl);
-                miningScreenshotBlobRef.current = fallback.blob;
-                replaceMiningScreenshotUrl(imgUrl);
-              } else {
-                setMiningHasScreenshotError(true);
-                replaceMiningScreenshotUrl(null);
-                miningScreenshotBlobRef.current = null;
-              }
+              return {
+                ok: true,
+                blob: clipResult.blob,
+                type: 'video',
+              };
             }
+
+            // Video failed — JPEG fallback
+            const fallback = await captureVideoFrame(video);
+            if (!mountedRef.current || miningEpochRef.current !== epoch)
+              return { ok: false, errorMsg: 'stale' };
+            if (fallback.ok) {
+              return {
+                ok: true,
+                blob: fallback.blob,
+                type: 'image',
+                unsupportedMessage: clipResult.error.message,
+              };
+            }
+            return {
+              ok: false,
+              errorMsg: 'both-failed',
+              unsupportedMessage: clipResult.error.message,
+            };
           } else {
-            // Image mode: existing JPEG capture
+            // Image mode: JPEG capture
             const screenshotResult = await captureVideoFrame(video);
-
-            if (!mountedRef.current || miningEpochRef.current !== epoch) {
-              video.currentTime = snapshotTime;
-              video.pause();
-              return;
+            if (!mountedRef.current || miningEpochRef.current !== epoch)
+              return { ok: false, errorMsg: 'stale' };
+            if (screenshotResult.ok) {
+              return {
+                ok: true,
+                blob: screenshotResult.blob,
+                type: 'image',
+              };
             }
-
-            if (!screenshotResult.ok) {
-              setMiningHasScreenshotError(true);
-              replaceMiningScreenshotUrl(null);
-              miningScreenshotBlobRef.current = null;
-            } else {
-              miningScreenshotBlobRef.current = screenshotResult.blob;
-              replaceMiningScreenshotUrl(
-                URL.createObjectURL(screenshotResult.blob),
-              );
-            }
+            return { ok: false, errorMsg: 'capture-failed' };
           }
         } catch {
-          if (mountedRef.current && miningEpochRef.current === epoch) {
-            setMiningHasScreenshotError(true);
-            replaceMiningScreenshotUrl(null);
-            miningScreenshotBlobRef.current = null;
-          }
+          return { ok: false, errorMsg: 'exception' };
         } finally {
           video.currentTime = miningSnapshotTimeRef.current;
           video.pause();
         }
-      }
+      };
 
-      // Guard before audio phase
-      if (!mountedRef.current || miningEpochRef.current !== epoch) return;
-      if (abortController.signal.aborted) return;
-
-      // Phase 3: Audio — record new range via detached element
-      if (hasAudio && audioClipCaps.supported) {
+      const captureAudio = async (): Promise<{
+        ok: boolean;
+        blob?: Blob;
+        errorMsg?: string;
+      }> => {
+        if (!hasAudio || !audioClipCaps.supported)
+          return { ok: false, errorMsg: 'unsupported' };
         const result = await recordAudioClip({
           mediaUrl,
           start: committedStart,
@@ -1403,18 +1417,80 @@ export default function PlayerApp() {
           playbackRate,
           signal: abortController.signal,
         });
+        if (result.ok) {
+          return { ok: true, blob: result.blob };
+        }
+        return { ok: false, errorMsg: 'audio-failed' };
+      };
 
-        if (!mountedRef.current) return;
-        if (miningEpochRef.current !== epoch) return;
+      // Run both captures concurrently
+      const [pictureOutcome, audioOutcome] = await Promise.allSettled([
+        capturePicture(),
+        captureAudio(),
+      ]);
 
-        if (!result.ok) {
+      // Staged results
+      stagedPictureResult =
+        pictureOutcome.status === 'fulfilled'
+          ? pictureOutcome.value
+          : { ok: false, errorMsg: 'promise-rejected' };
+      stagedAudioResult =
+        audioOutcome.status === 'fulfilled'
+          ? audioOutcome.value
+          : { ok: false, errorMsg: 'promise-rejected' };
+
+      // Final guard before publishing
+      if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+      if (abortController.signal.aborted) return;
+
+      // Phase 4: Single React update boundary — publish both results together
+      // Picture
+      if (hasImage) {
+        if (stagedPictureResult.ok && stagedPictureResult.blob) {
+          const blob = stagedPictureResult.blob;
+          const url = URL.createObjectURL(blob);
+          if (stagedPictureResult.type === 'video') {
+            mediaBlobUrlRef.current = url;
+            mediaBlobRef.current = blob;
+            capturedMediaTypeRef.current = 'video';
+            setMediaPreviewType('video');
+            setMediaPreviewUrl(url);
+            miningScreenshotBlobRef.current = blob;
+            replaceMiningScreenshotUrl(url);
+          } else {
+            mediaBlobUrlRef.current = url;
+            mediaBlobRef.current = blob;
+            capturedMediaTypeRef.current = 'image';
+            setMediaPreviewType('image');
+            setMediaPreviewUrl(url);
+            miningScreenshotBlobRef.current = blob;
+            replaceMiningScreenshotUrl(url);
+          }
+          if (stagedPictureResult.unsupportedMessage) {
+            setMediaUnsupported(stagedPictureResult.unsupportedMessage);
+          }
+        } else {
+          setMiningHasScreenshotError(true);
+          replaceMiningScreenshotUrl(null);
+          miningScreenshotBlobRef.current = null;
+          mediaBlobUrlRef.current = null;
+          mediaBlobRef.current = null;
+          capturedMediaTypeRef.current = null;
+          if (stagedPictureResult.unsupportedMessage) {
+            setMediaUnsupported(stagedPictureResult.unsupportedMessage);
+          }
+        }
+      }
+      // Audio
+      if (hasAudio) {
+        if (stagedAudioResult.ok && stagedAudioResult.blob) {
+          miningAudioBlobRef.current = stagedAudioResult.blob;
+          const audioUrl = URL.createObjectURL(stagedAudioResult.blob);
+          replaceMiningAudioUrl(audioUrl);
+        } else {
           setMiningHasAudioError(true);
           replaceMiningAudioUrl(null);
           miningAudioBlobRef.current = null;
-        } else {
-          miningAudioBlobRef.current = result.blob;
-          const url = URL.createObjectURL(result.blob);
-          replaceMiningAudioUrl(url);
         }
       }
 
@@ -1431,6 +1507,7 @@ export default function PlayerApp() {
       cues,
       audioClipCaps.supported,
       playbackRate,
+      mediaMode,
       replaceMiningScreenshotUrl,
       replaceMiningAudioUrl,
     ],

@@ -121,7 +121,7 @@ interface MiningPreviewDialogProps {
   mediaMode: 'image' | 'video';
   onMediaModeChange: (mode: 'image' | 'video') => void;
   mediaPreviewUrl: string | null;
-  mediaPreviewType: 'image' | 'video';
+  mediaPreviewType: 'image' | 'video' | null;
   mediaUnsupported: string | null;
   isMediaRecapturing: boolean;
   dict: {

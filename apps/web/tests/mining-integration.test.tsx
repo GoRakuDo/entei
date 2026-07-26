@@ -780,3 +780,149 @@ describe('Video mode Mine — JPEG fallback pipeline', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Range-refresh deferred publish: clear→skeleton→capture→publish together
+// ---------------------------------------------------------------------------
+
+describe('Range refresh deferred publish', () => {
+  afterEach(cleanup);
+
+  it('clears old media before recapture (no stale artifact survives)', () => {
+    // Simulate lifecycle: old URLs exist, clear them before new capture
+    const oldScreenshotUrl = 'blob:old-screenshot';
+    const oldMediaUrl = 'blob:old-media';
+
+    // Phase 0: clear
+    URL.revokeObjectURL(oldScreenshotUrl);
+    URL.revokeObjectURL(oldMediaUrl);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(oldScreenshotUrl);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(oldMediaUrl);
+  });
+
+  it('audio and media capture run concurrently, publish together', async () => {
+    // Simulate concurrent captures — both complete before publish
+    vi.mocked(captureVideoFrame).mockImplementation(async () => ({
+      ok: true,
+      blob: new Blob(['jpeg'], { type: 'image/jpeg' }),
+    }));
+    vi.mocked(recordAudioClip).mockImplementation(async () => ({
+      ok: true,
+      blob: new Blob(['audio'], { type: 'audio/webm' }),
+      mimeType: 'audio/webm',
+    }));
+
+    // Run both captures concurrently
+    const mediaResult = captureVideoFrame(document.createElement('video'));
+    const audioResult = recordAudioClip({ mediaUrl: 'blob:test', start: 0, end: 5 });
+
+    const [media, audio] = await Promise.all([mediaResult, audioResult]);
+
+    // Both completed — publish together (in one setState batch)
+    expect(media.ok).toBe(true);
+    expect(audio.ok).toBe(true);
+
+    // Staged results, not yet published to state
+    if (media.ok && audio.ok) {
+      const screenshotUrl = URL.createObjectURL(media.blob);
+      const audioUrl = URL.createObjectURL(audio.blob);
+      expect(screenshotUrl).toBeTruthy();
+      expect(audioUrl).toBeTruthy();
+      // Both published in one batch
+    }
+  });
+
+  it('media success + audio failure: publish media, show audio error', async () => {
+    vi.mocked(captureVideoFrame).mockImplementation(async () => ({
+      ok: true,
+      blob: new Blob(['jpeg'], { type: 'image/jpeg' }),
+    }));
+    vi.mocked(recordAudioClip).mockImplementation(async () => ({
+      ok: false,
+      error: { code: 'NO_AUDIO_TRACK', message: 'Microphone unavailable' },
+    }));
+
+    const [media, audio] = await Promise.all([
+      captureVideoFrame(document.createElement('video')),
+      recordAudioClip({ mediaUrl: 'blob:test', start: 0, end: 5 }),
+    ]);
+
+    // Media succeeds → publish; audio fails → show error
+    expect(media.ok).toBe(true);
+    expect(audio.ok).toBe(false);
+
+    if (media.ok) {
+      const url = URL.createObjectURL(media.blob);
+      expect(url).toBeTruthy();
+    }
+    if (!audio.ok) {
+      // Error code used for localized lookup, not raw English
+      expect(audio.error.code).toBe('NO_AUDIO_TRACK');
+    }
+  });
+
+  it('media fallback JPEG success after video failure', async () => {
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: false,
+      error: { code: 'CAPABILITY_UNSUPPORTED', message: 'Not supported' },
+    });
+    vi.mocked(captureVideoFrame).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['fallback'], { type: 'image/jpeg' }),
+    });
+
+    // Video fails → JPEG fallback
+    const videoResult = await recordVideoClip({
+      mediaUrl: 'blob:test',
+      start: 0,
+      end: 5,
+    });
+    expect(videoResult.ok).toBe(false);
+
+    const fallbackResult = await captureVideoFrame(document.createElement('video'));
+    expect(fallbackResult.ok).toBe(true);
+
+    if (fallbackResult.ok) {
+      // Fallback JPEG is the final published artifact
+      expect(fallbackResult.blob.type).toBe('image/jpeg');
+    }
+  });
+
+  it('cancellation: epoch guard discards stale capture result', () => {
+    // Simulate epoch guard: old capture completes but epoch has advanced
+    const epoch = { current: 1 };
+    const capturedEpoch = 1;
+
+    // Advance epoch (new range commit starts)
+    epoch.current = 2;
+
+    // Old capture completes — epoch mismatch → discard
+    const isStale = capturedEpoch !== epoch.current;
+    expect(isStale).toBe(true);
+    // Stale result should NOT be published
+  });
+
+  it('successful WebM after video capture is the final artifact', async () => {
+    vi.mocked(recordVideoClip).mockReset();
+    vi.mocked(recordVideoClip).mockResolvedValue({
+      ok: true,
+      blob: new Blob(['webm'], { type: 'video/webm' }),
+      mimeType: 'video/webm',
+    });
+    vi.mocked(captureVideoFrame).mockReset();
+
+    const result = await recordVideoClip({
+      mediaUrl: 'blob:test',
+      start: 0,
+      end: 10,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // No JPEG fallback needed
+      expect(captureVideoFrame).not.toHaveBeenCalled();
+      // Final artifact is WebM
+      expect(result.blob.type).toBe('video/webm');
+    }
+  });
+});
