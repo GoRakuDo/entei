@@ -1,6 +1,6 @@
 # WebTorrent — Phase 3 Local Peer Streaming 設計
 
-> **状態:** 設計承認済み・未実装。
+> **状態:** WT-1 コードコンプリート・Chromium実機の基本streaming確認済み。公式Sintel magnetで5 WebRTC peer、単一`Sintel.mp4`の14:48再生を確認。production-browser QAとprivacy copy reviewは別gate。
 > **対象:** original proposalのPhase 3。`PLAYER_PHASES.md`のP3 Miningとは別の番号体系なので、以後は`WT-1`〜`WT-5`で呼ぶ。
 > **境界:** torrent内のローカルメディアをbrowserで再生する機能。外部配信siteへの注入、tab capture、browser extensionは永久に対象外。
 
@@ -10,15 +10,14 @@
 
 ユーザーがmagnet URIを貼ると、園庭はbrowserから実際に接続できたWebRTC peerを確認する。
 
-3 peer以上なら、torrent内の動画と字幕を選び、既存Playerで再生する。動画が1本、字幕が0本または1本だけなら選択画面を挟まず、そのまま再生を始める。
+3 peer以上なら、torrent内の再生可能mediaを既存Playerで再生する。WT-1は再生可能mediaが1本の場合だけ選択画面を挟まず、そのまま再生を始める。torrent内字幕の読込みと複数media選択はWT-2で追加する。
 
 ```text
 magnet URI
   → WebRTC peer確認（3以上）
-  → torrent内ファイルを列挙
-  → video + subtitleを決定
-  → 既存 <video> へstreamTo
-  → 既存の字幕表示 / Mine / Anki exportを使う
+  → torrent内mediaを判定
+  → 既存 <video> / <audio> へstream URLを渡す
+  → 既存Player controlsを使う
 ```
 
 これは「動画サイトから取る」機能ではない。ユーザーが指定したtorrentのpeerとbrowserが直接通信する機能。
@@ -37,39 +36,41 @@ magnet URI
 
 browserはpeerの実装種別を安全に識別できない。そのため、`WebTorrent Desktop`、`webtorrent-hybrid`、browser seed、WebRTC対応web seedという**候補種別を数える**のではなく、実際にbrowserが接続できたWebRTC peerを`torrent.numPeers`で数える。
 
-| 条件 | 動作 |
-| --- | --- |
-| WebRTC非対応 | 接続を開始しない。local file Playerを案内する |
-| 接続済みpeerが0〜2 | 接続確認中を表示し、ファイル一覧や再生は出さない |
-| 接続済みpeerが3以上 | torrent内容の判定へ進む |
-| peer不足 / tracker失敗 / no-peer | torrentをdestroyし、エラーを表示する |
+| 条件                             | 動作                                             |
+| -------------------------------- | ------------------------------------------------ |
+| WebRTC非対応                     | 接続を開始しない。local file Playerを案内する    |
+| 接続済みpeerが0〜2（30秒以内）   | 接続確認中を表示し、ファイル一覧や再生は出さない |
+| 接続済みpeerが0〜2（30秒超過）   | peer不足エラー。torrent sessionをdestroy         |
+| 接続済みpeerが3以上              | torrent内容の判定へ進む                          |
+| peer不足 / tracker失敗 / no-peer | torrentをdestroyし、エラーを表示する             |
+
+**Peer gate deadline:** torrent metadata取得後に30秒のpeer gate timerが開始する。この時間内に`numPeers >= 3`に到達しない場合、`PEER_INSUFFICIENT` codeでdestroyし、正確なpeer不足copyを表示する。
 
 peer数は「その瞬間に接続できた共有相手」の数であり、3つの**完全seed**や特定pieceの保有を保証しない。開始後にpeerが減った時は再生を壊さずbuffering状態として表示する。
 
 peer不足時のcopy:
 
-| Locale | 表示文 |
-| --- | --- |
-| id | `Maaf, jumlah pembagi file ini tidak mencukupi. Coba magnet URI lain.` |
-| ja | `すみません、そのファイルの共有者数が足りません。別のmagnet URIを試してください。` |
-| en | `Sorry, this file does not have enough sharers. Try another magnet URI.` |
+| Locale | 表示文                                                                             |
+| ------ | ---------------------------------------------------------------------------------- |
+| id     | `Maaf, jumlah pembagi file ini tidak mencukupi. Coba magnet URI lain.`             |
+| ja     | `すみません、そのファイルの共有者数が足りません。別のmagnet URIを試してください。` |
+| en     | `Sorry, this file does not have enough sharers. Try another magnet URI.`           |
 
 ### 2.3 torrent内容の決定
 
-| torrent内容 | 動作 |
-| --- | --- |
-| 再生可能mediaが0本 | mediaなしエラー。torrent sessionを破棄 |
-| video/audioが1本、字幕が0本 | 直ちにmediaをstreamする。Subtitle panelは既存empty state |
-| video/audioが1本、字幕が1本 | 直ちにmediaをstreamし、その字幕を既存parserへ渡す |
-| video/audioまたは字幕が複数 | 内容選択Modalを出し、mediaは1本、字幕は0または1本をユーザーが決める |
+| torrent内容        | 動作                                                     |
+| ------------------ | -------------------------------------------------------- |
+| 再生可能mediaが0本 | mediaなしエラー。torrent sessionを破棄                   |
+| video/audioが1本   | 直ちにmediaをstreamする。Subtitle panelは既存empty state |
+| video/audioが複数  | WT-1では停止し、WT-2の内容選択を案内する                 |
 
 - media候補は現在の`media-url.ts`のadmission matrixを正とする。torrentだから対応formatを広げない。
-- 字幕候補は現在のSRT / VTT / ASSだけ。torrent内字幕もtextとして読める形式だけを既存`subtitle-reader`へ渡す。
+- torrent内字幕の取得・既存`subtitle-reader`への受渡しはWT-2の範囲。WT-1では右Panelの既存字幕file pickerを使う。
 - browser codecが非対応なら、torrent接続が成功しても既存のdecode errorを表示する。torrent containerをbrowser内変換しない。
 
 ### 2.4 再生開始
 
-WebTorrentのService Worker serverを起動し、選択されたfileを既存のvisible `<video>` / `<audio>`へ`streamTo()`する。
+WebTorrentのService Worker serverを起動し、選択されたfileの公開`streamURL`を既存のvisible `<video>` / `<audio>`へ渡す。
 
 - 完全downloadを待たず、browserのrange requestに応じて必要pieceを取得する。
 - seekは既存Playerのseek sliderを使う。必要なpieceの取得待ちはbuffering UIで表現する。
@@ -79,7 +80,7 @@ WebTorrentのService Worker serverを起動し、選択されたfileを既存の
 
 ## 3. 現在の園庭からのアーキテクチャ
 
-現在の`/player/`は`client:only="react"`のbrowser-only islandであり、WebRTC、Service Worker、media APIをSSRへ持ち込まずに追加できる。一方で、現dependencyには`webtorrent`もService Workerもまだない。
+現在の`/player/`は`client:only="react"`のbrowser-only islandであり、WebRTC、Service Worker、media APIをSSRへ持ち込まずに追加できる。WT-1では`webtorrent`とService Workerをこのbrowser境界に追加した。
 
 ```text
 PlayerApp
@@ -89,7 +90,7 @@ PlayerApp
     ├── magnet URI → WebTorrent client
     ├── Service Worker stream server
     ├── peer / progress / buffering state
-    ├── torrent file selection
+    ├── WT-2: torrent file selection
     └── stream URL → 同じ <video>/<audio>
 ```
 
@@ -102,12 +103,14 @@ PlayerApp
 ### WT-1 — 接続とstreaming最小版
 
 1. `npm install webtorrent`で依存を追加する。
-2. 園庭origin上のService Workerをbundle / registerし、WebTorrentのbrowser stream serverを初期化する。
+2. 園庭origin上でWebTorrent公式browser ESM bundleをraw static assetとして配り、Service Workerをregisterする。
 3. magnet inputとWebRTC support / peer count / tracker error UIを作る。
-4. `numPeers >= 3`を通過したtorrentだけから、1本のmediaを`streamTo()`する。
+4. `numPeers >= 3`を通過したtorrentだけから、1本のmediaの公開`streamURL`を既存Playerへ渡す。
 5. local mediaへ切り替えた時にtorrentを停止・破棄する。
 
-**Done:** WebRTC対応の短い合法test torrentで、再生開始・pause・seek・media切替・peerなしerror・page leave cleanupを実機確認する。
+**実機確認済み:** 公式Sintel magnetで5 WebRTC peerを確認し、単一`Sintel.mp4`の再生開始と14:48動画の途中再生をChromiumで確認。
+
+**残留gate:** pause / seek / media切替 / 0〜2 peer copy / page leave cleanup / production browser。
 
 ### WT-2 — torrent内字幕と内容選択
 
@@ -152,27 +155,35 @@ WebTorrent開始は、現在のlocal-only copyを再レビューしてからに�
 
 ## 6. Done gate / 実機QA
 
-| ケース | 確認すること |
-| --- | --- |
-| WebRTC非対応 | 接続しない、local fallback copy |
-| 0〜2 peer | file listを出さず、所定のpeer不足copy |
-| 3 peer以上 + media 1本 + subtitle 1本 | 自動stream、字幕自動load |
-| media/subtitle複数 | Modalで選んだものだけ使用 |
-| seek | 該当区間をbufferし、既存subtitleとMineの時刻が一致 |
-| peer離脱 | 再生停止ではなくbuffering / recovery表示 |
-| media切替 / page leave | torrent destroy、通信とWorker参照のcleanup |
-| privacy | peer通信 / uploadの事前説明と明示開始操作 |
+**WT-1 コードコンプリート:** `webtorrent`公式browser ESMをraw static assetとしてVite dev / static buildの両方で配信し、Service Workerのcontrol確立後にbrowser stream serverを開始する。937 tests、astro check 0 errors、static build成功。
+
+**実機確認済み:** Chromiumで公式Sintel magnetが5 WebRTC peerに到達し、Service Worker経由で`Sintel.mp4`（14:48）を実再生した。1つのWSS tracker失敗は他tracker経由のpeer接続と再生を止めなかった。
+
+**残留gate:** 以下は未確認または後続WTの範囲:
+
+| ケース                   | 確認すること                                             |
+| ------------------------ | -------------------------------------------------------- |
+| WebRTC非対応             | 接続しない、local fallback copy                          |
+| 0〜2 peer（30秒超過）    | peer不足エラーcopy、session破棄                          |
+| 3 peer以上 + media 1本   | ✅ ChromiumでSintel.mp4を実再生                          |
+| media/subtitle複数       | WT-2: Modalで選んだものだけ使用                          |
+| seek                     | 該当区間をbufferし、既存subtitleとMineの時刻が一致       |
+| peer離脱                 | 再生停止ではなくbuffering / recovery表示                 |
+| media切替 / page leave   | torrent destroy、通信とWorker参照のcleanup               |
+| privacy                  | peer通信 / uploadの事前説明と明示開始操作                |
+| Service Worker streaming | ✅ localhost Chromiumで`file.streamURL` + SWが動画を返す |
+| GitHub Pages初回訪問     | 新規Service Worker登録直後のtab controlとstreaming       |
 
 ---
 
 ## 7. 根拠
 
-| 事実 | 根拠 | 意味 |
-| --- | --- | --- |
-| original Phase 3はWebTorrent→字幕→buffer→IndexedDB→PWAの順 | `園庭プロジェクトの書き下ろし.md:560-565` | peer streamingをlocal Playerの後段として追加する |
-| `/player/`はbrowser-only React island | `apps/web/src/pages/player/index.astro:14-15` | WebRTC / Service WorkerをSSRから隔離できる |
-| static GitHub Pages向け構成 | `apps/web/astro.config.mjs:13-25` | Service Workerをstatic assetとしてhostでき、serverは不要 |
-| WebTorrent browser streamingはService Worker + `createServer()` + `file.streamTo()`が必要 | [WebTorrent公式API](https://webtorrent.io/docs) | package追加だけではstreamingにならない |
-| browser版はWebRTC peerだけに接続 | [WebTorrent公式 Get Started](https://github.com/webtorrent/webtorrent/blob/HEAD/docs/get-started.md) | 通常BitTorrent seedだけのmagnetは受入対象にできない |
-| 動画は完全download前に再生・seekでき、必要pieceをon-demand取得する | 同公式Get Started | WT-3はon-demandを基礎にしてから優先bufferを足す |
-| local-only copyはWebTorrent前に再レビューする | `docs/PHASE0.md:632,652` | peer通信を隠してlocal-onlyとは言わない |
+| 事実                                                                                      | 根拠                                                                                                 | 意味                                                     |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| original Phase 3はWebTorrent→字幕→buffer→IndexedDB→PWAの順                                | `園庭プロジェクトの書き下ろし.md:560-565`                                                            | peer streamingをlocal Playerの後段として追加する         |
+| `/player/`はbrowser-only React island                                                     | `apps/web/src/pages/player/index.astro:14-15`                                                        | WebRTC / Service WorkerをSSRから隔離できる               |
+| static GitHub Pages向け構成                                                               | `apps/web/astro.config.mjs:13-25`                                                                    | Service Workerをstatic assetとしてhostでき、serverは不要 |
+| WebTorrent browser streamingはService Worker + `createServer()` + `file.streamTo()`が必要 | [WebTorrent公式API](https://webtorrent.io/docs)                                                      | package追加だけではstreamingにならない                   |
+| browser版はWebRTC peerだけに接続                                                          | [WebTorrent公式 Get Started](https://github.com/webtorrent/webtorrent/blob/HEAD/docs/get-started.md) | 通常BitTorrent seedだけのmagnetは受入対象にできない      |
+| 動画は完全download前に再生・seekでき、必要pieceをon-demand取得する                        | 同公式Get Started                                                                                    | WT-3はon-demandを基礎にしてから優先bufferを足す          |
+| local-only copyはWebTorrent前に再レビューする                                             | `docs/PHASE0.md:632,652`                                                                             | peer通信を隠してlocal-onlyとは言わない                   |

@@ -209,6 +209,29 @@ export const en: Dictionary = {
     historyUnavailable: 'History unavailable',
     historySentence: 'Sentence',
     historyRange: 'Range',
+    // WT-1: Torrent streaming
+    magnetInputLabel: 'Magnet URI',
+    magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
+    magnetInputLabelTitle: 'Open Torrent Stream',
+    magnetConnect: 'Connect',
+    magnetConnecting: 'Connecting to peers…',
+    magnetWaitingForPeers: 'Waiting for peers…',
+    magnetPeerCount: (count: number) => `${count} peers`,
+    magnetErrorInvalid: 'Invalid magnet URI. Please enter a valid magnet link.',
+    magnetErrorWebRTC:
+      'Your browser does not support WebRTC. Torrent streaming is not available.',
+    magnetErrorPeerInsufficient:
+      'Sorry, this file does not have enough sharers. Try another magnet URI.',
+    magnetErrorTracker: 'Tracker connection failed.',
+    magnetErrorNoPeer: 'No peers found for this torrent.',
+    magnetErrorNoMedia: 'No playable media found in this torrent.',
+    magnetErrorMultipleMedia:
+      'This torrent has multiple playable files. File selection will be available soon.',
+    magnetErrorStreamUnavailable:
+      'Streaming URL unavailable. The torrent file may be incomplete.',
+    magnetErrorGeneric: 'An unexpected error occurred.',
+    magnetBuffering: 'Buffering…',
+    torrentDisconnect: 'Disconnect',
   },
   reader: {
     title: 'EPUB Reader',

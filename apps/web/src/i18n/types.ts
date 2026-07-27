@@ -232,6 +232,25 @@ export interface Dictionary {
     historyUnavailable: string;
     historySentence: string;
     historyRange: string;
+    // WT-1: Torrent streaming
+    magnetInputLabel: string;
+    magnetInputPlaceholder: string;
+    magnetInputLabelTitle: string;
+    magnetConnect: string;
+    magnetConnecting: string;
+    magnetWaitingForPeers: string;
+    magnetPeerCount: (count: number) => string;
+    magnetErrorInvalid: string;
+    magnetErrorWebRTC: string;
+    magnetErrorPeerInsufficient: string;
+    magnetErrorTracker: string;
+    magnetErrorNoPeer: string;
+    magnetErrorNoMedia: string;
+    magnetErrorMultipleMedia: string;
+    magnetErrorStreamUnavailable: string;
+    magnetErrorGeneric: string;
+    magnetBuffering: string;
+    torrentDisconnect: string;
   };
   reader: {
     title: string;

@@ -211,6 +211,28 @@ const mockDict = {
   historyUnavailable: 'History unavailable',
   historySentence: 'Sentence',
   historyRange: 'Range',
+  // WT-1: Torrent streaming
+  magnetInputLabel: 'Magnet URI',
+  magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
+  magnetInputLabelTitle: 'Open Torrent Stream',
+  magnetConnect: 'Connect',
+  magnetCancel: 'Cancel',
+  magnetConnecting: 'Connecting to peers…',
+  magnetWaitingForPeers: 'Waiting for peers…',
+  magnetPeerCount: (count: number) => `${count} peers`,
+  magnetStreamStarting: 'Starting stream…',
+  magnetErrorInvalid: 'Invalid magnet URI.',
+  magnetErrorWebRTC: 'WebRTC unsupported.',
+  magnetErrorPeerInsufficient: 'Not enough peers.',
+  magnetErrorTracker: 'Tracker failed.',
+  magnetErrorNoPeer: 'No peers found.',
+  magnetErrorNoMedia: 'No playable media.',
+  magnetErrorMultipleMedia: 'Multiple playable files.',
+  magnetErrorStreamUnavailable: 'Stream unavailable.',
+  magnetErrorGeneric: 'Unexpected error.',
+  magnetBuffering: 'Buffering…',
+  torrentLabel: 'Torrent',
+  torrentDisconnect: 'Disconnect',
 };
 
 const baseControlsProps = {

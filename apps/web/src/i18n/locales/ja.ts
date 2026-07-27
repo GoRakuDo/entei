@@ -213,6 +213,30 @@ export const ja: Dictionary = {
     historyUnavailable: '履歴は利用できません',
     historySentence: '文',
     historyRange: '範囲',
+    // WT-1: Torrent streaming
+    magnetInputLabel: 'マグネットURI',
+    magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
+    magnetInputLabelTitle: 'トレントストリームを開く',
+    magnetConnect: '接続',
+    magnetConnecting: 'ピアに接続中…',
+    magnetWaitingForPeers: 'ピアを待っています…',
+    magnetPeerCount: (count: number) => `${count}ピア`,
+    magnetErrorInvalid:
+      '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
+    magnetErrorWebRTC:
+      'このブラウザはWebRTCに対応していません。トレントストリームは利用できません。',
+    magnetErrorPeerInsufficient:
+      'すみません、そのファイルの共有者数が足りません。別のmagnet URIを試してください。',
+    magnetErrorTracker: 'トラッカーへの接続に失敗しました。',
+    magnetErrorNoPeer: 'このトレントのピアが見つかりませんでした。',
+    magnetErrorNoMedia: 'このトレントに再生可能なメディアがありません。',
+    magnetErrorMultipleMedia:
+      'このトレントには再生可能なファイルが複数あります。ファイル選択は後ほど利用できます。',
+    magnetErrorStreamUnavailable:
+      'ストリーミングURLが利用できません。トレントファイルが不完全な可能性があります。',
+    magnetErrorGeneric: '予期しないエラーが発生しました。',
+    magnetBuffering: 'バッファリング中…',
+    torrentDisconnect: '切断',
   },
   reader: {
     title: 'EPUBリーダー',

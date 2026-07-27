@@ -180,10 +180,6 @@ vi.mock('@/components/player/MediaPicker', () => ({
   }),
 }));
 
-vi.mock('@/components/player/SubtitlePicker', () => ({
-  SubtitlePicker: vi.fn(() => null),
-}));
-
 vi.mock('@i18n/index', () => ({
   getDictionary: vi.fn(() => ({
     hub: { systemLabel: '', lead: '' },

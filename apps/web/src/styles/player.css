@@ -3636,3 +3636,87 @@ html.entei-player-immersive .entei-player-audio-area {
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * WT-1: Torrent streaming UI
+ * --------------------------------------------------------------------------- */
+
+/* Icon-only magnet opener: extends shadcn Button variant="outline" size="icon"
+   with 44px hit target to match picker buttons' min-height. */
+.entei-player-magnet-icon-btn {
+  min-height: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+}
+
+.entei-player-magnet-icon-btn:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-torrent-status {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  border-radius: var(--entei-radius-md);
+  background: var(--entei-surface);
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+}
+
+.entei-torrent-error {
+  padding: var(--entei-space-12) var(--entei-space-16);
+  border-radius: var(--entei-radius-md);
+  background: oklch(55% 0.2 25deg / 0.1);
+  color: oklch(55% 0.2 25deg);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+}
+
+.entei-magnet-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  padding-right: var(--entei-space-8);
+}
+
+.entei-magnet-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-16) var(--entei-space-24);
+}
+
+/* Submit button stays fixed width; input grows to fill */
+.entei-magnet-submit-btn {
+  flex-shrink: 0;
+  min-height: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+}
+
+.entei-magnet-input {
+  flex: 1;
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+}
+
+.entei-magnet-error {
+  padding: 0 var(--entei-space-24);
+  color: oklch(55% 0.2 25deg);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.entei-magnet-spinner {
+  animation: entei-spin 1s linear infinite;
+}
+
+@keyframes entei-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -235,10 +235,6 @@ vi.mock('@/components/player/MediaPicker', () => ({
   }),
 }));
 
-vi.mock('@/components/player/SubtitlePicker', () => ({
-  SubtitlePicker: vi.fn(() => null),
-}));
-
 vi.mock('@/components/player/RightPanel', () => ({
   RightPanel: vi.fn((props: Record<string, unknown>) => {
     if (!props.visible) return null;
@@ -296,9 +292,11 @@ beforeEach(() => {
   // Mock matchMedia for mobile (< 768px)
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
     matches:
-      query === '(min-width: 768px)' ? false : // not desktop
-      query === '(orientation: landscape) and (max-height: 500px)' ? false :
-      false,
+      query === '(min-width: 768px)'
+        ? false // not desktop
+        : query === '(orientation: landscape) and (max-height: 500px)'
+          ? false
+          : false,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }));

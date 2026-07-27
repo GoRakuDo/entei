@@ -58,7 +58,7 @@ import {
 import type { Dictionary } from '@i18n/types';
 import { getDictionary } from '@i18n/index';
 import { MediaPicker } from '@/components/player/MediaPicker';
-import { SubtitlePicker } from '@/components/player/SubtitlePicker';
+import { Button } from '@/components/player/ui/button';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
 import { RightPanel } from '@/components/player/RightPanel';
 import {
@@ -82,7 +82,18 @@ import {
   checkAudioClipCapabilities,
 } from '@/features/player/audio-clip';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
-import { Music, AlertTriangle } from 'lucide-react';
+import { Music, AlertTriangle, Magnet, Loader2 } from 'lucide-react';
+import { MagnetInput } from '@/components/player/MagnetInput';
+import {
+  createWebTorrentAdapter,
+  isWebRTCSupported,
+  type WebTorrentAdapter,
+} from '@/features/player/webtorrent-adapter';
+import type {
+  TorrentSessionPhase,
+  PeerStatus,
+  TorrentAdapterError,
+} from '@/features/player/webtorrent-types';
 import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
@@ -377,6 +388,40 @@ export default function PlayerApp() {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
 
+  // --- WT-1: Torrent session state ---
+  const [torrentPhase, setTorrentPhase] = useState<TorrentSessionPhase>('idle');
+  const [torrentPeerStatus, setTorrentPeerStatus] = useState<PeerStatus>({
+    numPeers: 0,
+    downloadSpeed: 0,
+    uploadSpeed: 0,
+    progress: 0,
+  });
+  const [torrentError, setTorrentError] = useState<string | null>(null);
+  const [isMagnetDialogOpen, setIsMagnetDialogOpen] = useState(false);
+  const torrentAdapterRef = useRef<WebTorrentAdapter | null>(null);
+  const torrentMediaNameRef = useRef<string>('');
+  const [torrentMediaName, setTorrentMediaName] = useState('');
+  const [isBuffering, setIsBuffering] = useState(false);
+  const isBufferingRef = useRef(false);
+  const torrentPeerBelowThresholdRef = useRef(false);
+  // WT-1: Per-connection ref to track whether onError already set a specific
+  // error. Used by the outer catch to avoid overwriting with a generic message.
+  const torrentErrorSetRef = useRef(false);
+  // Refs to avoid stale closures in adapter callbacks
+  const torrentPhaseRef = useRef<TorrentSessionPhase>('idle');
+
+  /** Sync torrent phase to both React state and ref (avoids stale closures). */
+  const setTorrentPhaseSync = useCallback((phase: TorrentSessionPhase) => {
+    torrentPhaseRef.current = phase;
+    setTorrentPhase(phase);
+  }, []);
+
+  /** Sync isBuffering to both React state and ref (avoids stale closures). */
+  const setIsBufferingSync = useCallback((value: boolean) => {
+    isBufferingRef.current = value;
+    setIsBuffering(value);
+  }, []);
+
   useEffect(() => {
     setIsTouchDevice(
       typeof window !== 'undefined' &&
@@ -406,6 +451,12 @@ export default function PlayerApp() {
       mountedRef.current = false;
       revokeUrl(activeUrlRef.current);
       activeUrlRef.current = null;
+      // WT-1: Destroy torrent session on unmount
+      if (torrentAdapterRef.current) {
+        torrentAdapterRef.current.destroy();
+        torrentAdapterRef.current = null;
+      }
+      torrentMediaNameRef.current = '';
       // AM-2: Revoke any lingering screenshot object URL
       if (screenshotUrlRef.current) {
         URL.revokeObjectURL(screenshotUrlRef.current);
@@ -665,6 +716,25 @@ export default function PlayerApp() {
         return;
       }
 
+      // WT-1: Destroy any active torrent when switching to local media
+      if (torrentAdapterRef.current) {
+        torrentAdapterRef.current.destroy();
+        torrentAdapterRef.current = null;
+        setTorrentPhaseSync('idle');
+        setTorrentPeerStatus({
+          numPeers: 0,
+          downloadSpeed: 0,
+          uploadSpeed: 0,
+          progress: 0,
+        });
+        setTorrentError(null);
+        setIsMagnetDialogOpen(false);
+        torrentMediaNameRef.current = '';
+        setTorrentMediaName('');
+        setIsBufferingSync(false);
+        torrentPeerBelowThresholdRef.current = false;
+      }
+
       setIsLoading(true);
       setLoadError(null);
       setActiveCueId(null);
@@ -733,6 +803,186 @@ export default function PlayerApp() {
     },
     [handleSubtitleSelect, handleMediaSelect],
   );
+
+  // --- WT-1: Torrent session handlers ---
+  const destroyTorrentSession = useCallback(() => {
+    if (torrentAdapterRef.current) {
+      torrentAdapterRef.current.destroy();
+      torrentAdapterRef.current = null;
+    }
+    setTorrentPhaseSync('idle');
+    setTorrentPeerStatus({
+      numPeers: 0,
+      downloadSpeed: 0,
+      uploadSpeed: 0,
+      progress: 0,
+    });
+    setTorrentError(null);
+    torrentMediaNameRef.current = '';
+    setTorrentMediaName('');
+    setIsBufferingSync(false);
+    torrentPeerBelowThresholdRef.current = false;
+  }, [setTorrentPhaseSync, setIsBufferingSync]);
+
+  const handleMagnetSubmit = useCallback(
+    async (magnetUri: string) => {
+      const dict = dictRef.current.playerUI;
+
+      // Check WebRTC support first
+      if (!isWebRTCSupported()) {
+        setTorrentError(dict.magnetErrorWebRTC);
+        setTorrentPhaseSync('error');
+        return;
+      }
+
+      // Destroy any existing session
+      destroyTorrentSession();
+      // Reset per-connection error guard before any async work
+      torrentErrorSetRef.current = false;
+
+      const adapter = createWebTorrentAdapter();
+      torrentAdapterRef.current = adapter;
+
+      /**
+       * Map a typed TorrentAdapterError code to the correct localized message.
+       * The adapter emits codes, not prose — PlayerApp owns all i18n.
+       */
+      const mapErrorCode = (code: string): string => {
+        switch (code) {
+          case 'PEER_INSUFFICIENT':
+            return dict.magnetErrorPeerInsufficient;
+          case 'TRACKER_ERROR':
+            return dict.magnetErrorTracker;
+          case 'NO_PEERS':
+            return dict.magnetErrorNoPeer;
+          case 'NO_PLAYABLE_MEDIA':
+            return dict.magnetErrorNoMedia;
+          case 'STREAM_UNAVAILABLE':
+            return dict.magnetErrorStreamUnavailable;
+          case 'WEBRTC_UNSUPPORTED':
+            return dict.magnetErrorWebRTC;
+          case 'INVALID_MAGNET':
+            return dict.magnetErrorInvalid;
+          default:
+            return dict.magnetErrorGeneric;
+        }
+      };
+
+      try {
+        await adapter.connect(magnetUri, {
+          onPhaseChange: (phase) => {
+            if (!mountedRef.current) return;
+            setTorrentPhaseSync(phase);
+          },
+          onPeerStatus: (status) => {
+            if (!mountedRef.current) return;
+            setTorrentPeerStatus(status);
+
+            // Use refs to avoid stale closures
+            const currentPhase = torrentPhaseRef.current;
+
+            // WT-1: Gate logic — wait for >= 3 peers
+            if (currentPhase === 'gate' || currentPhase === 'streaming') {
+              if (status.numPeers >= 3 && currentPhase === 'gate') {
+                // Peer gate passed — evaluate content
+                let result: ReturnType<typeof adapter.selectContent>;
+                try {
+                  result = adapter.selectContent();
+                } catch (e) {
+                  const err = e as TorrentAdapterError;
+                  setTorrentError(mapErrorCode(err.code));
+                  setTorrentPhaseSync('error');
+                  adapter.destroy();
+                  return;
+                }
+                if (result.status === 'single-playable') {
+                  torrentMediaNameRef.current = result.file.name;
+                  setTorrentMediaName(result.file.name);
+
+                  // Determine media kind
+                  const kind: 'video' | 'audio' =
+                    result.file.kind === 'audio' ? 'audio' : 'video';
+
+                  // WT-1: Set file.streamURL as the media source.
+                  // The Service Worker intercepts the request and serves torrent data.
+                  setMediaType(kind);
+                  setMediaUrl(result.streamUrl);
+                  setTorrentPhaseSync('streaming');
+                  setIsBufferingSync(true);
+                } else if (result.status === 'no-playable') {
+                  setTorrentError(dict.magnetErrorNoMedia);
+                  setTorrentPhaseSync('error');
+                  adapter.destroy();
+                } else {
+                  // Multiple playable — not yet supported in WT-1
+                  setTorrentError(dict.magnetErrorMultipleMedia);
+                  setTorrentPhaseSync('error');
+                  adapter.destroy();
+                }
+              } else if (
+                status.numPeers < 3 &&
+                currentPhase === 'streaming' &&
+                torrentPeerBelowThresholdRef.current
+              ) {
+                // Peers dropped below threshold after streaming started
+                setIsBufferingSync(true);
+              }
+            }
+
+            // Track if peers were ever >= 3 (for buffering recovery)
+            if (status.numPeers >= 3) {
+              torrentPeerBelowThresholdRef.current = true;
+              if (isBufferingRef.current) setIsBufferingSync(false);
+            }
+          },
+          onError: (error) => {
+            if (!mountedRef.current) return;
+            // Preserve typed error code → localized message mapping
+            // Do NOT overwrite specific adapter errors with generic catch copy
+            torrentErrorSetRef.current = true;
+            setTorrentError(mapErrorCode(error.code));
+            setTorrentPhaseSync('error');
+          },
+        });
+      } catch (error) {
+        if (!mountedRef.current) return;
+        // Only reach here if connect() threw something unexpected
+        // (adapter.onError already handled specific errors above)
+        if (!torrentErrorSetRef.current) {
+          if (import.meta.env.DEV) {
+            // Deliberately omit the magnet URI: it may contain tracker URLs.
+            console.error('[Entei WebTorrent] setup failed', error);
+          }
+          setTorrentError(dict.magnetErrorGeneric);
+          setTorrentPhaseSync('error');
+        }
+      }
+    },
+    [destroyTorrentSession, setTorrentPhaseSync, setIsBufferingSync],
+  );
+
+  const handleTorrentDisconnect = useCallback(() => {
+    // If media is currently playing from torrent, switch to no media
+    if (torrentPhase === 'streaming') {
+      revokeUrl(activeUrlRef.current);
+      activeUrlRef.current = null;
+      setMediaUrl(null);
+      setMediaType(null);
+      setMediaName('');
+      setIsLoading(false);
+      setLoadError(null);
+      clearScreenshot();
+      clearAudioClip();
+      clearMiningPreview();
+    }
+    destroyTorrentSession();
+  }, [
+    torrentPhase,
+    destroyTorrentSession,
+    clearScreenshot,
+    clearAudioClip,
+    clearMiningPreview,
+  ]);
 
   const handleCueClick = useCallback((cue: SubtitleCue) => {
     const media = sharedMediaRef.current;
@@ -1006,260 +1256,265 @@ export default function PlayerApp() {
   /** Mine a cue. When `overrideCue` is provided (row mining), the media is
    *  paused and seeked to cue.start before capture. Without override, mines
    *  the current active cue at whatever time the media is at. */
-  const handleMine = useCallback(async (overrideCue?: SubtitleCue) => {
-    if (!mediaUrl) return;
-    // Guard: refuse if any standalone capture (AM-2 screenshot / AM-3 audio) or AM-4 mining is in flight
-    if (
-      isCapturingRef.current ||
-      isRecordingAudioRef.current ||
-      isMiningRef.current
-    )
-      return;
+  const handleMine = useCallback(
+    async (overrideCue?: SubtitleCue) => {
+      if (!mediaUrl) return;
+      // Guard: refuse if any standalone capture (AM-2 screenshot / AM-3 audio) or AM-4 mining is in flight
+      if (
+        isCapturingRef.current ||
+        isRecordingAudioRef.current ||
+        isMiningRef.current
+      )
+        return;
 
-    const targetCue =
-      overrideCue ?? cues.find((c) => c.id === activeCueId);
-    if (!targetCue) return;
+      const targetCue = overrideCue ?? cues.find((c) => c.id === activeCueId);
+      if (!targetCue) return;
 
-    const media = sharedMediaRef.current;
+      const media = sharedMediaRef.current;
 
-    // Row mining: seek the visible media to the target cue start so
-    // the screenshot/video-clip frame reflects the mined timestamp.
-    if (overrideCue && media) {
-      media.pause();
-      if (mediaType === 'video' && videoRef.current) {
-        const seekController = new AbortController();
-        try {
-          await seekVideoSafely(
-            videoRef.current,
-            targetCue.start,
-            seekController.signal,
-          );
-        } catch {
-          // Seek failed or aborted — abort mining
-          return;
-        }
-      } else {
-        media.currentTime = targetCue.start;
-      }
-    }
-
-    const snapshotTime = media?.currentTime ?? 0;
-    miningSnapshotTimeRef.current = snapshotTime;
-    media?.pause();
-
-    const epoch = miningEpochRef.current + 1;
-    miningEpochRef.current = epoch;
-    isMiningRef.current = true;
-    setIsMiningCapturing(true);
-    setMiningHasScreenshotError(false);
-    setMiningHasAudioError(false);
-
-    // AM-4: Read field mapping from saved preferences on every Mine start
-    const prefs = readAnkiMinerPreferences();
-    const sourceLabel = `${mediaName} (${formatTime(targetCue.start)} – ${formatTime(targetCue.end)})`;
-    const draftFields = buildDraftFields(
-      prefs.fields,
-      targetCue.text,
-      sourceLabel,
-    );
-    setMiningDraftFields(draftFields);
-
-    setMiningRangeStart(targetCue.start);
-    setMiningRangeEnd(targetCue.end);
-    setMiningAudioExpectedDuration(
-      Math.max(0, targetCue.end - targetCue.start),
-    );
-    const duration = media?.duration ?? 0;
-    setMiningMediaDuration(Number.isFinite(duration) ? duration : 0);
-    // Open immediately: materials stream into the workspace independently.
-    // Waiting for real-time audio recording here made Mine appear unresponsive
-    // for the full cue duration.
-    setIsMiningPreviewOpen(true);
-
-    const abortController = new AbortController();
-    miningAbortControllerRef.current = abortController;
-
-    // Screenshot: video only
-    let screenshotResult: Awaited<ReturnType<typeof captureVideoFrame>> | null =
-      null;
-    let videoClipResult: Awaited<ReturnType<typeof recordVideoClip>> | null =
-      null;
-    if (mediaType === 'video' && videoRef.current) {
-      if (mediaMode === 'video') {
-        // Video Clip mode: record silent WebM instead of JPEG screenshot
-        try {
-          videoClipResult = await recordVideoClip({
-            mediaUrl,
-            start: targetCue.start,
-            end: targetCue.end,
-            playbackRate,
-            signal: abortController.signal,
-          });
-        } catch (e) {
-          videoClipResult = {
-            ok: false,
-            error: {
-              code: 'RECORDER_ERROR',
-              message:
-                e instanceof Error
-                  ? e.message
-                  : 'Unexpected video clip failure.',
-            },
-          };
-        }
-      } else {
-        // Image mode: capture JPEG screenshot
-        try {
-          screenshotResult = await captureVideoFrame(videoRef.current);
-        } catch (e) {
-          screenshotResult = {
-            ok: false,
-            error: {
-              code: 'BLOB_ENCODE_FAILED',
-              message:
-                e instanceof Error ? e.message : 'Unexpected capture failure.',
-            },
-          };
-        }
-      }
-    }
-
-    // Screenshot resolves before audio recording. Show it immediately instead
-    // of holding a completed frame behind the still-recording audio task.
-    if (!mountedRef.current || miningEpochRef.current !== epoch) return;
-    if (mediaType === 'video') {
-      if (mediaMode === 'video') {
-        // Video Clip result handling
-        if (videoClipResult && !videoClipResult.ok) {
-          // Unsupported video — fall back to JPEG
-          setMediaUnsupported(dictRef.current.playerUI.mediaModeUnsupported);
-          setMediaPreviewType('image');
-          setMediaPreviewUrl(null);
-          mediaBlobRef.current = null;
-          capturedMediaTypeRef.current = null;
-          // Fall through to screenshot capture as fallback
-          if (videoRef.current) {
-            try {
-              screenshotResult = await captureVideoFrame(videoRef.current);
-            } catch (e) {
-              screenshotResult = {
-                ok: false,
-                error: {
-                  code: 'BLOB_ENCODE_FAILED',
-                  message:
-                    e instanceof Error
-                      ? e.message
-                      : 'Unexpected capture failure.',
-                },
-              };
-            }
+      // Row mining: seek the visible media to the target cue start so
+      // the screenshot/video-clip frame reflects the mined timestamp.
+      if (overrideCue && media) {
+        media.pause();
+        if (mediaType === 'video' && videoRef.current) {
+          const seekController = new AbortController();
+          try {
+            await seekVideoSafely(
+              videoRef.current,
+              targetCue.start,
+              seekController.signal,
+            );
+          } catch {
+            // Seek failed or aborted — abort mining
+            return;
           }
-        } else if (videoClipResult && videoClipResult.ok) {
-          setMediaUnsupported(null);
-          setMediaPreviewType('video');
-          mediaBlobRef.current = videoClipResult.blob;
-          capturedMediaTypeRef.current = 'video';
-          // Revoke old URL
-          if (mediaBlobUrlRef.current)
-            URL.revokeObjectURL(mediaBlobUrlRef.current);
-          const newUrl = URL.createObjectURL(videoClipResult.blob);
-          mediaBlobUrlRef.current = newUrl;
-          setMediaPreviewUrl(newUrl);
-          // Store for export — do NOT route through screenshotUrl
-          miningScreenshotBlobRef.current = videoClipResult.blob;
-        }
-        // Video clip failed → JPEG fallback was captured above; consume it
-        // exactly like the image-mode handler so Picture field shows the frame.
-        if (
-          videoClipResult &&
-          !videoClipResult.ok &&
-          screenshotResult &&
-          screenshotResult.ok
-        ) {
-          // Revoke old media preview URL
-          if (mediaBlobUrlRef.current)
-            URL.revokeObjectURL(mediaBlobUrlRef.current);
-          miningScreenshotBlobRef.current = screenshotResult.blob;
-          const fallbackUrl = URL.createObjectURL(screenshotResult.blob);
-          mediaBlobUrlRef.current = fallbackUrl;
-          replaceMiningScreenshotUrl(fallbackUrl);
-          mediaBlobRef.current = screenshotResult.blob;
-          capturedMediaTypeRef.current = 'image';
-          setMediaPreviewType('image');
-          setMediaPreviewUrl(fallbackUrl);
-        } else if (
-          videoClipResult &&
-          !videoClipResult.ok &&
-          screenshotResult &&
-          !screenshotResult.ok
-        ) {
-          // Both video and JPEG fallback failed — surface error
-          setMiningHasScreenshotError(true);
-          replaceMiningScreenshotUrl(null);
-          miningScreenshotBlobRef.current = null;
-          mediaBlobRef.current = null;
-          capturedMediaTypeRef.current = null;
-          setMediaPreviewUrl(null);
-        }
-      } else {
-        // Image mode result handling
-        if (screenshotResult && !screenshotResult.ok) {
-          setMiningHasScreenshotError(true);
-          replaceMiningScreenshotUrl(null);
-          miningScreenshotBlobRef.current = null;
-          mediaBlobRef.current = null;
-          capturedMediaTypeRef.current = null;
-          setMediaPreviewUrl(null);
-        } else if (screenshotResult && screenshotResult.ok) {
-          miningScreenshotBlobRef.current = screenshotResult.blob;
-          replaceMiningScreenshotUrl(
-            URL.createObjectURL(screenshotResult.blob),
-          );
-          mediaBlobRef.current = screenshotResult.blob;
-          capturedMediaTypeRef.current = 'image';
-          setMediaPreviewType('image');
-          setMediaPreviewUrl(miningScreenshotUrl);
+        } else {
+          media.currentTime = targetCue.start;
         }
       }
-    }
 
-    // Audio
-    const audioResult = await recordAudioClip({
+      const snapshotTime = media?.currentTime ?? 0;
+      miningSnapshotTimeRef.current = snapshotTime;
+      media?.pause();
+
+      const epoch = miningEpochRef.current + 1;
+      miningEpochRef.current = epoch;
+      isMiningRef.current = true;
+      setIsMiningCapturing(true);
+      setMiningHasScreenshotError(false);
+      setMiningHasAudioError(false);
+
+      // AM-4: Read field mapping from saved preferences on every Mine start
+      const prefs = readAnkiMinerPreferences();
+      const sourceLabel = `${mediaName} (${formatTime(targetCue.start)} – ${formatTime(targetCue.end)})`;
+      const draftFields = buildDraftFields(
+        prefs.fields,
+        targetCue.text,
+        sourceLabel,
+      );
+      setMiningDraftFields(draftFields);
+
+      setMiningRangeStart(targetCue.start);
+      setMiningRangeEnd(targetCue.end);
+      setMiningAudioExpectedDuration(
+        Math.max(0, targetCue.end - targetCue.start),
+      );
+      const duration = media?.duration ?? 0;
+      setMiningMediaDuration(Number.isFinite(duration) ? duration : 0);
+      // Open immediately: materials stream into the workspace independently.
+      // Waiting for real-time audio recording here made Mine appear unresponsive
+      // for the full cue duration.
+      setIsMiningPreviewOpen(true);
+
+      const abortController = new AbortController();
+      miningAbortControllerRef.current = abortController;
+
+      // Screenshot: video only
+      let screenshotResult: Awaited<
+        ReturnType<typeof captureVideoFrame>
+      > | null = null;
+      let videoClipResult: Awaited<ReturnType<typeof recordVideoClip>> | null =
+        null;
+      if (mediaType === 'video' && videoRef.current) {
+        if (mediaMode === 'video') {
+          // Video Clip mode: record silent WebM instead of JPEG screenshot
+          try {
+            videoClipResult = await recordVideoClip({
+              mediaUrl,
+              start: targetCue.start,
+              end: targetCue.end,
+              playbackRate,
+              signal: abortController.signal,
+            });
+          } catch (e) {
+            videoClipResult = {
+              ok: false,
+              error: {
+                code: 'RECORDER_ERROR',
+                message:
+                  e instanceof Error
+                    ? e.message
+                    : 'Unexpected video clip failure.',
+              },
+            };
+          }
+        } else {
+          // Image mode: capture JPEG screenshot
+          try {
+            screenshotResult = await captureVideoFrame(videoRef.current);
+          } catch (e) {
+            screenshotResult = {
+              ok: false,
+              error: {
+                code: 'BLOB_ENCODE_FAILED',
+                message:
+                  e instanceof Error
+                    ? e.message
+                    : 'Unexpected capture failure.',
+              },
+            };
+          }
+        }
+      }
+
+      // Screenshot resolves before audio recording. Show it immediately instead
+      // of holding a completed frame behind the still-recording audio task.
+      if (!mountedRef.current || miningEpochRef.current !== epoch) return;
+      if (mediaType === 'video') {
+        if (mediaMode === 'video') {
+          // Video Clip result handling
+          if (videoClipResult && !videoClipResult.ok) {
+            // Unsupported video — fall back to JPEG
+            setMediaUnsupported(dictRef.current.playerUI.mediaModeUnsupported);
+            setMediaPreviewType('image');
+            setMediaPreviewUrl(null);
+            mediaBlobRef.current = null;
+            capturedMediaTypeRef.current = null;
+            // Fall through to screenshot capture as fallback
+            if (videoRef.current) {
+              try {
+                screenshotResult = await captureVideoFrame(videoRef.current);
+              } catch (e) {
+                screenshotResult = {
+                  ok: false,
+                  error: {
+                    code: 'BLOB_ENCODE_FAILED',
+                    message:
+                      e instanceof Error
+                        ? e.message
+                        : 'Unexpected capture failure.',
+                  },
+                };
+              }
+            }
+          } else if (videoClipResult && videoClipResult.ok) {
+            setMediaUnsupported(null);
+            setMediaPreviewType('video');
+            mediaBlobRef.current = videoClipResult.blob;
+            capturedMediaTypeRef.current = 'video';
+            // Revoke old URL
+            if (mediaBlobUrlRef.current)
+              URL.revokeObjectURL(mediaBlobUrlRef.current);
+            const newUrl = URL.createObjectURL(videoClipResult.blob);
+            mediaBlobUrlRef.current = newUrl;
+            setMediaPreviewUrl(newUrl);
+            // Store for export — do NOT route through screenshotUrl
+            miningScreenshotBlobRef.current = videoClipResult.blob;
+          }
+          // Video clip failed → JPEG fallback was captured above; consume it
+          // exactly like the image-mode handler so Picture field shows the frame.
+          if (
+            videoClipResult &&
+            !videoClipResult.ok &&
+            screenshotResult &&
+            screenshotResult.ok
+          ) {
+            // Revoke old media preview URL
+            if (mediaBlobUrlRef.current)
+              URL.revokeObjectURL(mediaBlobUrlRef.current);
+            miningScreenshotBlobRef.current = screenshotResult.blob;
+            const fallbackUrl = URL.createObjectURL(screenshotResult.blob);
+            mediaBlobUrlRef.current = fallbackUrl;
+            replaceMiningScreenshotUrl(fallbackUrl);
+            mediaBlobRef.current = screenshotResult.blob;
+            capturedMediaTypeRef.current = 'image';
+            setMediaPreviewType('image');
+            setMediaPreviewUrl(fallbackUrl);
+          } else if (
+            videoClipResult &&
+            !videoClipResult.ok &&
+            screenshotResult &&
+            !screenshotResult.ok
+          ) {
+            // Both video and JPEG fallback failed — surface error
+            setMiningHasScreenshotError(true);
+            replaceMiningScreenshotUrl(null);
+            miningScreenshotBlobRef.current = null;
+            mediaBlobRef.current = null;
+            capturedMediaTypeRef.current = null;
+            setMediaPreviewUrl(null);
+          }
+        } else {
+          // Image mode result handling
+          if (screenshotResult && !screenshotResult.ok) {
+            setMiningHasScreenshotError(true);
+            replaceMiningScreenshotUrl(null);
+            miningScreenshotBlobRef.current = null;
+            mediaBlobRef.current = null;
+            capturedMediaTypeRef.current = null;
+            setMediaPreviewUrl(null);
+          } else if (screenshotResult && screenshotResult.ok) {
+            miningScreenshotBlobRef.current = screenshotResult.blob;
+            replaceMiningScreenshotUrl(
+              URL.createObjectURL(screenshotResult.blob),
+            );
+            mediaBlobRef.current = screenshotResult.blob;
+            capturedMediaTypeRef.current = 'image';
+            setMediaPreviewType('image');
+            setMediaPreviewUrl(miningScreenshotUrl);
+          }
+        }
+      }
+
+      // Audio
+      const audioResult = await recordAudioClip({
+        mediaUrl,
+        start: targetCue.start,
+        end: targetCue.end,
+        playbackRate,
+        signal: abortController.signal,
+      });
+
+      // Guards
+      if (!mountedRef.current) return;
+      if (miningEpochRef.current !== epoch) return;
+
+      isMiningRef.current = false;
+      setIsMiningCapturing(false);
+
+      // Audio result
+      if (!audioResult.ok) {
+        setMiningHasAudioError(true);
+        replaceMiningAudioUrl(null);
+        miningAudioBlobRef.current = null;
+      } else {
+        miningAudioBlobRef.current = audioResult.blob;
+        const url = URL.createObjectURL(audioResult.blob);
+        replaceMiningAudioUrl(url);
+      }
+    },
+    [
       mediaUrl,
-      start: targetCue.start,
-      end: targetCue.end,
+      activeCueId,
+      cues,
+      mediaType,
+      mediaName,
+      mediaMode,
       playbackRate,
-      signal: abortController.signal,
-    });
-
-    // Guards
-    if (!mountedRef.current) return;
-    if (miningEpochRef.current !== epoch) return;
-
-    isMiningRef.current = false;
-    setIsMiningCapturing(false);
-
-    // Audio result
-    if (!audioResult.ok) {
-      setMiningHasAudioError(true);
-      replaceMiningAudioUrl(null);
-      miningAudioBlobRef.current = null;
-    } else {
-      miningAudioBlobRef.current = audioResult.blob;
-      const url = URL.createObjectURL(audioResult.blob);
-      replaceMiningAudioUrl(url);
-    }
-  }, [
-    mediaUrl,
-    activeCueId,
-    cues,
-    mediaType,
-    mediaName,
-    mediaMode,
-    playbackRate,
-    replaceMiningScreenshotUrl,
-    replaceMiningAudioUrl,
-  ]);
+      replaceMiningScreenshotUrl,
+      replaceMiningAudioUrl,
+    ],
+  );
 
   /** AM-4: Close mining preview, revoke URLs, seek back to snapshot, pause. */
   const handleMiningPreviewClose = useCallback(() => {
@@ -1591,7 +1846,7 @@ export default function PlayerApp() {
 
   /** AM-4: Mine is possible when media loaded and active cue exists,
    *  AND no standalone AM-2 screenshot or AM-3 audio capture is in flight.
-   *  Prevents Mine from cancelling an in-progress standalone capture. */
+   *  WT-1: Disabled when torrent source active (mining compatibility unverified). */
   const canMine =
     (mediaType === 'video' || mediaType === 'audio') &&
     !!mediaUrl &&
@@ -1599,19 +1854,22 @@ export default function PlayerApp() {
     !isCapturing &&
     !isRecordingAudio &&
     !isMiningCapturing &&
-    !isMiningRefreshing;
+    !isMiningRefreshing &&
+    !torrentMediaName;
 
   const isMining = isMiningCapturing || isMiningRefreshing;
 
   /** Row mining: possible whenever media is loaded, regardless of active cue.
-   *  Same capture-in-flight guard as canMine. */
+   *  Same capture-in-flight guard as canMine.
+   *  WT-1: Disabled when torrent source active. */
   const canMineRow =
     (mediaType === 'video' || mediaType === 'audio') &&
     !!mediaUrl &&
     !isCapturing &&
     !isRecordingAudio &&
     !isMiningCapturing &&
-    !isMiningRefreshing;
+    !isMiningRefreshing &&
+    !torrentMediaName;
 
   // AM-4: canRefresh — true if ANY mapped field can be refreshed.
   const canRefresh = useMemo(() => {
@@ -2450,7 +2708,7 @@ export default function PlayerApp() {
   );
 
   const dict = dictRef.current.playerUI;
-  const hasMedia = mediaUrl !== null;
+  const hasMedia = mediaUrl !== null || torrentPhase === 'streaming';
   const ankiPrefs = readAnkiMinerPreferences();
 
   // --- Desktop immersive layout ---
@@ -2494,6 +2752,34 @@ export default function PlayerApp() {
       className="entei-player-surface"
       onClick={handleSurfaceClick}
     >
+      {/* WT-1: Torrent streaming status bar */}
+      {(torrentPhase === 'streaming' ||
+        (torrentPhase === 'gate' && !hasMedia)) && (
+        <div className="entei-torrent-status" role="status">
+          {torrentPhase === 'streaming' ? (
+            <>
+              <Magnet size={14} className="entei-magnet-icon" />
+              {isBuffering
+                ? dict.magnetBuffering
+                : dict.magnetPeerCount(torrentPeerStatus.numPeers)}
+              <button
+                type="button"
+                className="entei-controls-btn entei-torrent-disconnect-btn"
+                onClick={handleTorrentDisconnect}
+                aria-label={dict.torrentDisconnect}
+              >
+                {dict.torrentDisconnect}
+              </button>
+            </>
+          ) : (
+            <>
+              <Loader2 size={16} className="entei-magnet-spinner" />
+              {dict.magnetWaitingForPeers}{' '}
+              {dict.magnetPeerCount(torrentPeerStatus.numPeers)}
+            </>
+          )}
+        </div>
+      )}
       {mediaType === 'video' && (
         <VideoPlayer
           ref={videoCallbackRef}
@@ -2559,7 +2845,7 @@ export default function PlayerApp() {
         hasMedia={hasMedia}
         mediaType={mediaType}
         mediaKey={mediaUrl!}
-        mediaName={mediaName}
+        mediaName={torrentMediaName || mediaName}
         dict={dict}
         isSubtitlePanelVisible={isSubtitlePanelVisible}
         onToggleSubtitlePanel={() => {
@@ -2701,16 +2987,61 @@ export default function PlayerApp() {
                 accept={MEDIA_ACCEPT}
                 label={dict.chooseMedia}
               />
-              <SubtitlePicker
-                onSelect={handleSubtitleSelect}
-                accept={SUBTITLE_ACCEPT}
-                label={dict.chooseSubtitle}
-                disabled
-              />
+              <Button
+                variant="outline"
+                size="icon"
+                type="button"
+                className="entei-player-magnet-icon-btn"
+                onClick={() => setIsMagnetDialogOpen(true)}
+                aria-label={dict.magnetInputLabel}
+                title={dict.magnetInputLabel}
+              >
+                <Magnet />
+              </Button>
             </div>
+            {/* WT-1: Torrent connection status in empty state */}
+            {torrentPhase === 'connecting' && (
+              <div className="entei-torrent-status" role="status">
+                <Loader2 size={16} className="entei-magnet-spinner" />
+                {dict.magnetConnecting}
+              </div>
+            )}
+            {torrentPhase === 'gate' && (
+              <div className="entei-torrent-status" role="status">
+                <Loader2 size={16} className="entei-magnet-spinner" />
+                {dict.magnetWaitingForPeers}{' '}
+                {dict.magnetPeerCount(torrentPeerStatus.numPeers)}
+              </div>
+            )}
+            {torrentPhase === 'error' && torrentError && (
+              <div className="entei-torrent-error" role="alert">
+                {torrentError}
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* WT-1: Magnet input dialog */}
+      <MagnetInput
+        open={isMagnetDialogOpen}
+        onOpenChange={setIsMagnetDialogOpen}
+        onSubmit={handleMagnetSubmit}
+        isConnecting={torrentPhase === 'connecting' || torrentPhase === 'gate'}
+        dict={{
+          magnetErrorInvalid: dict.magnetErrorInvalid,
+          magnetErrorWebRTC: dict.magnetErrorWebRTC,
+          magnetErrorPeerInsufficient: dict.magnetErrorPeerInsufficient,
+          magnetErrorTracker: dict.magnetErrorTracker,
+          magnetErrorNoPeer: dict.magnetErrorNoPeer,
+          magnetErrorNoMedia: dict.magnetErrorNoMedia,
+          magnetErrorGeneric: dict.magnetErrorGeneric,
+          magnetInputLabel: dict.magnetInputLabel,
+          magnetInputPlaceholder: dict.magnetInputPlaceholder,
+          magnetInputLabelTitle: dict.magnetInputLabelTitle,
+          magnetConnect: dict.magnetConnect,
+        }}
+      />
 
       {/* --- Active state --- */}
       {hasMedia &&

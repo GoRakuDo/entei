@@ -212,6 +212,30 @@ export const id: Dictionary = {
     historyUnavailable: 'Riwayat tidak tersedia',
     historySentence: 'Kalimat',
     historyRange: 'Rentang',
+    // WT-1: Torrent streaming
+    magnetInputLabel: 'URI Magnet',
+    magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
+    magnetInputLabelTitle: 'Buka Streaming Torrent',
+    magnetConnect: 'Hubungkan',
+    magnetConnecting: 'Menghubungkan ke peer…',
+    magnetWaitingForPeers: 'Menunggu peer…',
+    magnetPeerCount: (count: number) => `${count} peer`,
+    magnetErrorInvalid:
+      'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
+    magnetErrorWebRTC:
+      'Browser Anda tidak mendukung WebRTC. Streaming torrent tidak tersedia.',
+    magnetErrorPeerInsufficient:
+      'Maaf, jumlah pembagi file ini tidak mencukupi. Coba magnet URI lain.',
+    magnetErrorTracker: 'Koneksi tracker gagal.',
+    magnetErrorNoPeer: 'Tidak ditemukan peer untuk torrent ini.',
+    magnetErrorNoMedia: 'Tidak ada media yang dapat diputar di torrent ini.',
+    magnetErrorMultipleMedia:
+      'Torrent ini memiliki beberapa file yang dapat diputar. Pemilihan file akan segera tersedia.',
+    magnetErrorStreamUnavailable:
+      'URL streaming tidak tersedia. File torrent mungkin tidak lengkap.',
+    magnetErrorGeneric: 'Terjadi kesalahan tak terduga.',
+    magnetBuffering: 'Buffering…',
+    torrentDisconnect: 'Putuskan',
   },
   reader: {
     title: 'Pembaca EPUB',
