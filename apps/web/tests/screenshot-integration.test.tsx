@@ -157,6 +157,9 @@ const mockDict = {
   mineButtonLabel: 'Mine',
   mineButtonCapturing: 'Mining…',
   mineButtonDisabled: 'No active subtitle cue',
+  mineRowLabel: 'Mine this cue',
+  mineRowDisabled: 'Mining unavailable',
+  fileOpenLabel: 'Open file',
   miningPreviewTitle: 'Mining Preview',
   miningPreviewSentence: 'Sentence',
   miningPreviewSource: 'Source',
@@ -234,87 +237,21 @@ const baseControlsProps = {
   reducedMotion: false,
 };
 
-describe('PlayerControls — Camera button', () => {
-  it('renders Camera button for video', () => {
+describe('PlayerControls — Camera/AudioLines removed', () => {
+  it('does NOT render Camera button', () => {
     const { container } = render(<PlayerControls {...baseControlsProps} />);
     const btn = container.querySelector(
       `[aria-label="${mockDict.screenshotCaptureLabel}"]`,
     );
-    expect(btn).not.toBeNull();
-  });
-
-  it('does NOT render Camera button for audio', () => {
-    const { container } = render(
-      <PlayerControls {...baseControlsProps} mediaType="audio" />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.screenshotCaptureLabel}"]`,
-    );
     expect(btn).toBeNull();
   });
 
-  it('does NOT render Camera button when no media', () => {
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        hasMedia={false}
-        mediaType={null}
-      />,
-    );
+  it('does NOT render AudioLines button', () => {
+    const { container } = render(<PlayerControls {...baseControlsProps} />);
     const btn = container.querySelector(
-      `[aria-label="${mockDict.screenshotCaptureLabel}"]`,
+      `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
     );
     expect(btn).toBeNull();
-  });
-
-  it('calls onScreenshot when Camera is clicked', () => {
-    const onScreenshot = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onScreenshot={onScreenshot}
-        canScreenshot
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.screenshotCaptureLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    fireEvent.click(btn);
-    expect(onScreenshot).toHaveBeenCalledTimes(1);
-  });
-
-  it('disables Camera when canScreenshot is false', () => {
-    const onScreenshot = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onScreenshot={onScreenshot}
-        canScreenshot={false}
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.screenshotCaptureLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(true);
-  });
-
-  it('disables Camera when isCapturing is true', () => {
-    const onScreenshot = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onScreenshot={onScreenshot}
-        canScreenshot
-        isCapturing
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.screenshotCapturing}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(true);
   });
 });
 

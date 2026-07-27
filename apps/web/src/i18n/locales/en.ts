@@ -150,6 +150,10 @@ export const en: Dictionary = {
     mineButtonLabel: 'Mine',
     mineButtonCapturing: 'Mining…',
     mineButtonDisabled: 'No active subtitle cue',
+    mineRowLabel: 'Mine this cue',
+    mineRowDisabled: 'Mining unavailable',
+    // File open
+    fileOpenLabel: 'Open file',
     miningPreviewTitle: 'Mining Preview',
     miningPreviewSentence: 'Sentence',
     miningPreviewSource: 'Source',

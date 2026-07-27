@@ -7,11 +7,13 @@
  *
  * Preserved from BaseLayout:
  * - Skip link
- * - TopBar (sticky header with wordmark + locale switcher)
- * - SiteFooter
+ * - TopBar (sticky header with wordmark, no language selector on Player)
  * - noindex
  * - FOUC prevention inline script
  * - Locale switching module script
+ *
+ * Omitted (Player-specific):
+ * - SiteFooter (not needed in Player chrome)
  *
  * Added:
  * - Tailwind CSS via player.css (scoped to Player components)
@@ -20,7 +22,6 @@ import '@styles/global.css';
 import '@styles/player.css';
 import SeoHead from '@components/SeoHead.astro';
 import TopBar from '@components/home/TopBar.astro';
-import SiteFooter from '@components/home/SiteFooter.astro';
 import { getDictionary } from '@i18n/index';
 import type { Dictionary, Locale } from '@i18n/types';
 
@@ -70,11 +71,14 @@ const dictionary: Dictionary = getDictionary(locale);
     <a class="entei-skip-link" href="#entei-main" data-i18n="nav.skipToMain">
       {dictionary.nav.skipToMain}
     </a>
-    <TopBar locale={locale} dictionary={dictionary} />
+    <TopBar
+      locale={locale}
+      dictionary={dictionary}
+      showLanguageSelector={false}
+    />
     <main id="entei-main" class="entei-player-main" tabindex="-1">
       <slot />
     </main>
-    <SiteFooter dictionary={dictionary} />
 
     <script>
       import '../scripts/locale-switcher.ts';

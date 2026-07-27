@@ -208,6 +208,7 @@ export default function PlayerApp() {
 
   // --- Resizable panel responsive breakpoint ---
   const [isDesktop, setIsDesktop] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isLandscapeImmersive, setIsLandscapeImmersive] = useState(false);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
@@ -220,16 +221,31 @@ export default function PlayerApp() {
     const landscapeImmersiveMql = window.matchMedia(
       '(orientation: landscape) and (max-height: 500px)',
     );
+    const mobileWidthMql = window.matchMedia('(max-width: 767px)');
+    const coarsePointerMql = window.matchMedia('(pointer: coarse)');
+    const setMobileViewport = () =>
+      setIsMobileViewport(
+        mobileWidthMql.matches ||
+          (landscapeImmersiveMql.matches && coarsePointerMql.matches),
+      );
     setIsDesktop(desktopMql.matches);
     setIsLandscapeImmersive(landscapeImmersiveMql.matches);
+    setMobileViewport();
     const desktopHandler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
     const landscapeHandler = (e: MediaQueryListEvent) =>
       setIsLandscapeImmersive(e.matches);
+    const mobileHandler = () => setMobileViewport();
     desktopMql.addEventListener('change', desktopHandler);
     landscapeImmersiveMql.addEventListener('change', landscapeHandler);
+    landscapeImmersiveMql.addEventListener('change', mobileHandler);
+    mobileWidthMql.addEventListener('change', mobileHandler);
+    coarsePointerMql.addEventListener('change', mobileHandler);
     return () => {
       desktopMql.removeEventListener('change', desktopHandler);
       landscapeImmersiveMql.removeEventListener('change', landscapeHandler);
+      landscapeImmersiveMql.removeEventListener('change', mobileHandler);
+      mobileWidthMql.removeEventListener('change', mobileHandler);
+      coarsePointerMql.removeEventListener('change', mobileHandler);
     };
   }, []);
 
@@ -256,7 +272,6 @@ export default function PlayerApp() {
   // AM-2: synchronous guard against double-clicks (React state is async)
   const isCapturingRef = useRef(false);
   const screenshotUrlRef = useRef<string | null>(null);
-  const [isVideoMetadataReady, setIsVideoMetadataReady] = useState(false);
   // AM-2: mounted ref for unmount safety under React Strict Mode
   const mountedRef = useRef(true);
   // AM-2: monotonic epoch to invalidate stale capture results
@@ -469,8 +484,8 @@ export default function PlayerApp() {
   useEffect(() => {
     const media = mediaType === 'video' ? videoRef.current : audioRef.current;
     if (!media) return;
-    media.volume = volume;
-  }, [volume, mediaUrl, mediaType]);
+    media.volume = isMobileViewport ? 1 : volume;
+  }, [volume, mediaUrl, mediaType, isMobileViewport]);
 
   // Fix #4: Apply playback rate using direct element refs
   useEffect(() => {
@@ -638,11 +653,6 @@ export default function PlayerApp() {
     [],
   );
 
-  /** AM-2: Reset video metadata readiness on new media. */
-  const resetVideoMetadata = useCallback(() => {
-    setIsVideoMetadataReady(false);
-  }, []);
-
   const handleMediaSelect = useCallback(
     (file: File) => {
       const admission = classifyMediaFile(file);
@@ -664,7 +674,6 @@ export default function PlayerApp() {
       clearAudioClip();
       // AM-4: Invalidate any prior mining preview when selecting new media
       clearMiningPreview();
-      resetVideoMetadata();
 
       const oldUrl = activeUrlRef.current;
       const newUrl = createMediaUrl(file, oldUrl);
@@ -673,7 +682,7 @@ export default function PlayerApp() {
       setMediaType(admission.kind);
       setMediaName(file.name);
     },
-    [clearScreenshot, clearAudioClip, clearMiningPreview, resetVideoMetadata],
+    [clearScreenshot, clearAudioClip, clearMiningPreview],
   );
 
   const handleSubtitleSelect = useCallback((file: File) => {
@@ -712,6 +721,18 @@ export default function PlayerApp() {
     };
     reader.readAsText(file);
   }, []);
+
+  // File open handler: routes subtitle files to handleSubtitleSelect, everything else to handleMediaSelect.
+  const handleFileOpen = useCallback(
+    (file: File) => {
+      if (isSubtitleFile(file)) {
+        handleSubtitleSelect(file);
+      } else {
+        handleMediaSelect(file);
+      }
+    },
+    [handleSubtitleSelect, handleMediaSelect],
+  );
 
   const handleCueClick = useCallback((cue: SubtitleCue) => {
     const media = sharedMediaRef.current;
@@ -819,8 +840,6 @@ export default function PlayerApp() {
   const handleLoaded = useCallback(() => {
     setIsLoading(false);
     setLoadError(null);
-    // AM-2: Mark video metadata ready when loadeddata fires for video
-    setIsVideoMetadataReady(true);
   }, []);
 
   const handleError = useCallback((error: string) => {
@@ -914,9 +933,6 @@ export default function PlayerApp() {
     setIsCapturing(false);
   }, [replaceScreenshotUrl]);
 
-  /** AM-2: Screenshot is possible only when video metadata is ready. */
-  const canScreenshot = mediaType === 'video' && isVideoMetadataReady;
-
   // --- AM-3: Audio clip capture ---
   const handleAudioClip = useCallback(async () => {
     if (!mediaUrl || !activeCueId || !audioClipCaps.supported) return;
@@ -986,19 +1002,12 @@ export default function PlayerApp() {
     cancelActiveRecording();
   }, [replaceAudioClipUrl]);
 
-  /** AM-3: Audio clip is possible when media loaded, active cue exists, APIs supported,
-   *  AND no AM-4 mining capture/update is in flight. */
-  const canAudioClip =
-    (mediaType === 'video' || mediaType === 'audio') &&
-    !!mediaUrl &&
-    !!activeCueId &&
-    audioClipCaps.supported &&
-    !isMiningCapturing &&
-    !isMiningRefreshing;
-
   // --- AM-4: Mining capture ---
-  const handleMine = useCallback(async () => {
-    if (!mediaUrl || activeCueId == null) return;
+  /** Mine a cue. When `overrideCue` is provided (row mining), the media is
+   *  paused and seeked to cue.start before capture. Without override, mines
+   *  the current active cue at whatever time the media is at. */
+  const handleMine = useCallback(async (overrideCue?: SubtitleCue) => {
+    if (!mediaUrl) return;
     // Guard: refuse if any standalone capture (AM-2 screenshot / AM-3 audio) or AM-4 mining is in flight
     if (
       isCapturingRef.current ||
@@ -1006,10 +1015,34 @@ export default function PlayerApp() {
       isMiningRef.current
     )
       return;
-    const activeCue = cues.find((c) => c.id === activeCueId);
-    if (!activeCue) return;
+
+    const targetCue =
+      overrideCue ?? cues.find((c) => c.id === activeCueId);
+    if (!targetCue) return;
 
     const media = sharedMediaRef.current;
+
+    // Row mining: seek the visible media to the target cue start so
+    // the screenshot/video-clip frame reflects the mined timestamp.
+    if (overrideCue && media) {
+      media.pause();
+      if (mediaType === 'video' && videoRef.current) {
+        const seekController = new AbortController();
+        try {
+          await seekVideoSafely(
+            videoRef.current,
+            targetCue.start,
+            seekController.signal,
+          );
+        } catch {
+          // Seek failed or aborted — abort mining
+          return;
+        }
+      } else {
+        media.currentTime = targetCue.start;
+      }
+    }
+
     const snapshotTime = media?.currentTime ?? 0;
     miningSnapshotTimeRef.current = snapshotTime;
     media?.pause();
@@ -1023,18 +1056,18 @@ export default function PlayerApp() {
 
     // AM-4: Read field mapping from saved preferences on every Mine start
     const prefs = readAnkiMinerPreferences();
-    const sourceLabel = `${mediaName} (${formatTime(activeCue.start)} – ${formatTime(activeCue.end)})`;
+    const sourceLabel = `${mediaName} (${formatTime(targetCue.start)} – ${formatTime(targetCue.end)})`;
     const draftFields = buildDraftFields(
       prefs.fields,
-      activeCue.text,
+      targetCue.text,
       sourceLabel,
     );
     setMiningDraftFields(draftFields);
 
-    setMiningRangeStart(activeCue.start);
-    setMiningRangeEnd(activeCue.end);
+    setMiningRangeStart(targetCue.start);
+    setMiningRangeEnd(targetCue.end);
     setMiningAudioExpectedDuration(
-      Math.max(0, activeCue.end - activeCue.start),
+      Math.max(0, targetCue.end - targetCue.start),
     );
     const duration = media?.duration ?? 0;
     setMiningMediaDuration(Number.isFinite(duration) ? duration : 0);
@@ -1057,8 +1090,8 @@ export default function PlayerApp() {
         try {
           videoClipResult = await recordVideoClip({
             mediaUrl,
-            start: activeCue.start,
-            end: activeCue.end,
+            start: targetCue.start,
+            end: targetCue.end,
             playbackRate,
             signal: abortController.signal,
           });
@@ -1193,8 +1226,8 @@ export default function PlayerApp() {
     // Audio
     const audioResult = await recordAudioClip({
       mediaUrl,
-      start: activeCue.start,
-      end: activeCue.end,
+      start: targetCue.start,
+      end: targetCue.end,
       playbackRate,
       signal: abortController.signal,
     });
@@ -1569,6 +1602,16 @@ export default function PlayerApp() {
     !isMiningRefreshing;
 
   const isMining = isMiningCapturing || isMiningRefreshing;
+
+  /** Row mining: possible whenever media is loaded, regardless of active cue.
+   *  Same capture-in-flight guard as canMine. */
+  const canMineRow =
+    (mediaType === 'video' || mediaType === 'audio') &&
+    !!mediaUrl &&
+    !isCapturing &&
+    !isRecordingAudio &&
+    !isMiningCapturing &&
+    !isMiningRefreshing;
 
   // AM-4: canRefresh — true if ANY mapped field can be refreshed.
   const canRefresh = useMemo(() => {
@@ -2442,7 +2485,7 @@ export default function PlayerApp() {
   ];
 
   // --- Layout class ---
-  const layoutClass = `entei-player-layout${isSubtitlePanelVisible ? '' : ' entei-player-layout--no-panel'}`;
+  const layoutClass = `entei-player-layout${isSubtitlePanelVisible ? ' entei-player-layout--with-panel' : ' entei-player-layout--no-panel'}`;
 
   // --- Shared media area content (extracted to avoid duplication) ---
   const mediaArea = (
@@ -2538,16 +2581,14 @@ export default function PlayerApp() {
         onPlaybackRateChange={handlePlaybackRateChange}
         shortcuts={shortcuts}
         isTouchDevice={isTouchDevice}
+        isMobileViewport={isMobileViewport}
         reducedMotion={reducedMotion}
-        onScreenshot={handleScreenshot}
-        canScreenshot={canScreenshot}
-        isCapturing={isCapturing}
-        onAudioClip={handleAudioClip}
-        canAudioClip={canAudioClip}
-        isRecordingAudio={isRecordingAudio}
         onMine={handleMine}
         canMine={canMine}
         isMining={isMining}
+        onFileOpen={handleFileOpen}
+        fileAccept={`${MEDIA_ACCEPT},${SUBTITLE_ACCEPT}`}
+        fileOpenLabel={dict.fileOpenLabel}
         onSessionCredentials={handleSessionCredentials}
       />
       <ScreenshotPreviewDialog
@@ -2721,11 +2762,12 @@ export default function PlayerApp() {
               cues={cues}
               activeCueId={activeCueId}
               onCueClick={handleCueClick}
-              onSubtitleSelect={(f: File | null) =>
-                f && handleSubtitleSelect(f)
-              }
+              onSubtitleSelect={handleSubtitleSelect}
               subtitleAccept={SUBTITLE_ACCEPT}
               historyRefreshKey={historyRefreshKey}
+              onMineCue={handleMine}
+              canMineRow={canMineRow}
+              isMining={isMining}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -2739,11 +2781,12 @@ export default function PlayerApp() {
               cues={cues}
               activeCueId={activeCueId}
               onCueClick={handleCueClick}
-              onSubtitleSelect={(f: File | null) =>
-                f && handleSubtitleSelect(f)
-              }
+              onSubtitleSelect={handleSubtitleSelect}
               subtitleAccept={SUBTITLE_ACCEPT}
               historyRefreshKey={historyRefreshKey}
+              onMineCue={handleMine}
+              canMineRow={canMineRow}
+              isMining={isMining}
             />
           )}
           {subtitleErrorsBlock}

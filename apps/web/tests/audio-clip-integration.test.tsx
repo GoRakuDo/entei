@@ -161,6 +161,9 @@ const mockDict = {
   mineButtonLabel: 'Mine',
   mineButtonCapturing: 'Mining…',
   mineButtonDisabled: 'No active subtitle cue',
+  mineRowLabel: 'Mine this cue',
+  mineRowDisabled: 'Mining unavailable',
+  fileOpenLabel: 'Open file',
   miningPreviewTitle: 'Mining Preview',
   miningPreviewSentence: 'Sentence',
   miningPreviewSource: 'Source',
@@ -238,87 +241,23 @@ const baseControlsProps = {
   reducedMotion: false,
 };
 
-describe('PlayerControls — Audio Clip button', () => {
-  it('renders AudioLines button for video', () => {
+describe('PlayerControls — AudioLines removed', () => {
+  it('does NOT render AudioLines button for video', () => {
     const { container } = render(<PlayerControls {...baseControlsProps} />);
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
-    );
-    expect(btn).not.toBeNull();
-  });
-
-  it('renders AudioLines button for audio', () => {
-    const { container } = render(
-      <PlayerControls {...baseControlsProps} mediaType="audio" />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
-    );
-    expect(btn).not.toBeNull();
-  });
-
-  it('does NOT render AudioLines button when no media', () => {
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        hasMedia={false}
-        mediaType={null}
-      />,
-    );
     const btn = container.querySelector(
       `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
     );
     expect(btn).toBeNull();
   });
 
-  it('calls onAudioClip when AudioLines is clicked', () => {
-    const onAudioClip = vi.fn();
+  it('does NOT render AudioLines button for audio', () => {
     const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onAudioClip={onAudioClip}
-        canAudioClip
-      />,
+      <PlayerControls {...baseControlsProps} mediaType="audio" />,
     );
     const btn = container.querySelector(
       `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    fireEvent.click(btn);
-    expect(onAudioClip).toHaveBeenCalledTimes(1);
-  });
-
-  it('disables AudioLines when canAudioClip is false', () => {
-    const onAudioClip = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onAudioClip={onAudioClip}
-        canAudioClip={false}
-      />,
     );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(true);
-  });
-
-  it('disables AudioLines when isRecordingAudio is true', () => {
-    const onAudioClip = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onAudioClip={onAudioClip}
-        canAudioClip
-        isRecordingAudio
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.audioClipRecording}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(true);
+    expect(btn).toBeNull();
   });
 });
 

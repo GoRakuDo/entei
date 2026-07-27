@@ -36,9 +36,8 @@ import {
   ClosedCaption,
   Captions,
   CaptionsOff,
-  Camera,
-  AudioLines,
   Pickaxe,
+  FolderOpenDot,
 } from 'lucide-react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from '@/components/player/ui/slider';
@@ -91,25 +90,21 @@ interface PlayerControlsProps {
   onPlaybackRateChange: (rate: number) => void;
   shortcuts: ShortcutEntry[];
   isTouchDevice: boolean;
+  /** Mobile viewport hides volume controls; desktop touch devices stay unchanged. */
+  isMobileViewport?: boolean;
   reducedMotion: boolean;
-  /** AM-2: Called when the screenshot camera button is pressed. */
-  onScreenshot?: () => void;
-  /** AM-2: Whether screenshot capture is currently possible (metadata ready). */
-  canScreenshot?: boolean;
-  /** AM-2: Whether a capture request is currently in flight. */
-  isCapturing?: boolean;
-  /** AM-3: Called when the audio clip button is pressed. */
-  onAudioClip?: () => void;
-  /** AM-3: Whether audio clip recording is currently possible (active cue + supported). */
-  canAudioClip?: boolean;
-  /** AM-3: Whether an audio clip recording is currently in flight. */
-  isRecordingAudio?: boolean;
   /** AM-4: Called when the Mine button is pressed. */
   onMine?: () => void;
   /** AM-4: Whether mining is currently possible (active cue + not already mining/capturing). */
   canMine?: boolean;
   /** AM-4: Whether a mining capture is currently in flight. */
   isMining?: boolean;
+  /** Called when the file-open button selects a file (routed by PlayerApp). */
+  onFileOpen?: (file: File) => void;
+  /** Accept attribute for the file input. */
+  fileAccept?: string;
+  /** Localized aria-label for the file-open button. */
+  fileOpenLabel?: string;
   /** Stage 2: Session credentials bridge from AnkiFieldsTab to PlayerApp. */
   onSessionCredentials?: (
     creds: { endpoint: string; apiKey: string } | null,
@@ -150,16 +145,14 @@ export const PlayerControls = forwardRef<
     onPlaybackRateChange,
     shortcuts,
     isTouchDevice,
+    isMobileViewport = false,
     reducedMotion,
-    onScreenshot,
-    canScreenshot,
-    isCapturing,
-    onAudioClip,
-    canAudioClip,
-    isRecordingAudio,
     onMine,
     canMine,
     isMining,
+    onFileOpen,
+    fileAccept,
+    fileOpenLabel,
     onSessionCredentials,
   },
   ref,
@@ -187,6 +180,25 @@ export const PlayerControls = forwardRef<
   // --- Refs ---
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- File open handler ---
+  const handleFileOpenClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file && onFileOpen) {
+        onFileOpen(file);
+      }
+      // Reset so selecting the same file again triggers onChange
+      e.target.value = '';
+    },
+    [onFileOpen],
+  );
 
   // --- Sync media time to state (paused during seek) ---
   // P1: mediaKey is the media URL — a stable identity for the current media.
@@ -531,61 +543,7 @@ export const PlayerControls = forwardRef<
           </span>
         )}
         <div className="entei-controls-top-right">
-          {/* AM-2: Screenshot capture — only for video, before caption/timeline/settings */}
-          {mediaType === 'video' && (
-            <button
-              type="button"
-              className="entei-controls-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onScreenshot?.();
-              }}
-              aria-label={
-                isCapturing
-                  ? dict.screenshotCapturing
-                  : dict.screenshotCaptureLabel
-              }
-              title={
-                isCapturing
-                  ? dict.screenshotCapturing
-                  : canScreenshot === false
-                    ? dict.screenshotErrorMetadata
-                    : dict.screenshotCaptureLabel
-              }
-              disabled={canScreenshot === false || isCapturing === true}
-            >
-              <Camera size={18} />
-            </button>
-          )}
-
-          {/* AM-3: Audio clip — for video/audio, directly after Camera, before caption mode */}
-          {(mediaType === 'video' || mediaType === 'audio') && (
-            <button
-              type="button"
-              className="entei-controls-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAudioClip?.();
-              }}
-              aria-label={
-                isRecordingAudio
-                  ? dict.audioClipRecording
-                  : dict.audioClipCaptureLabel
-              }
-              title={
-                isRecordingAudio
-                  ? dict.audioClipRecording
-                  : canAudioClip === false
-                    ? dict.audioClipErrorNoCue
-                    : dict.audioClipCaptureLabel
-              }
-              disabled={canAudioClip === false || isRecordingAudio === true}
-            >
-              <AudioLines size={18} />
-            </button>
-          )}
-
-          {/* AM-4: Mine — for video/audio, after AudioLines, before caption mode */}
+          {/* AM-4: Mine — for video/audio, before caption mode */}
           {(mediaType === 'video' || mediaType === 'audio') && (
             <button
               type="button"
@@ -610,33 +568,29 @@ export const PlayerControls = forwardRef<
             </button>
           )}
 
-          {/* P1.3a.2: Caption display mode cycle button — immediately LEFT of Timeline */}
-          <button
-            type="button"
-            className="entei-controls-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCycleCaptionMode();
-            }}
-            aria-label={
-              captionDisplayMode === 'visible'
-                ? dict.captionModeVisible
-                : captionDisplayMode === 'blurred'
-                  ? dict.captionModeBlurred
-                  : dict.captionModeHidden
-            }
-            title={
-              captionDisplayMode === 'visible'
-                ? dict.captionModeVisible
-                : captionDisplayMode === 'blurred'
-                  ? dict.captionModeBlurred
-                  : dict.captionModeHidden
-            }
-          >
-            {captionDisplayMode === 'visible' && <ClosedCaption size={18} />}
-            {captionDisplayMode === 'blurred' && <Captions size={18} />}
-            {captionDisplayMode === 'hidden' && <CaptionsOff size={18} />}
-          </button>
+          {/* File open — opens native picker, routes via PlayerApp */}
+          {onFileOpen && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={fileAccept}
+                onChange={handleFileInputChange}
+                className="entei-sr-only"
+                aria-label={fileOpenLabel}
+                tabIndex={-1}
+              />
+              <button
+                type="button"
+                className="entei-controls-btn"
+                onClick={handleFileOpenClick}
+                aria-label={fileOpenLabel}
+                title={fileOpenLabel}
+              >
+                <FolderOpenDot size={18} />
+              </button>
+            </>
+          )}
 
           {/* Fix #13: Timeline button hidden via CSS in landscape immersive */}
           <button
@@ -701,52 +655,54 @@ export const PlayerControls = forwardRef<
               </span>
             </span>
 
-            {/* Volume — lower-row volume icon, popup anchored here */}
-            <div className="entei-controls-volume-group">
-              <button
-                type="button"
-                className="entei-controls-btn"
-                onClick={handleVolumeButtonClick}
-                aria-label={
-                  isTouchDevice
-                    ? isVolumeOpen
-                      ? dict.hideVolume
-                      : dict.showVolume
-                    : volume > 0
-                      ? dict.muteAriaLabel
-                      : dict.unmuteAriaLabel
-                }
-                title={
-                  isTouchDevice
-                    ? isVolumeOpen
-                      ? dict.hideVolume
-                      : dict.showVolume
-                    : volume > 0
-                      ? dict.muteAriaLabel
-                      : dict.unmuteAriaLabel
-                }
-              >
-                {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
-              </button>
-              {/* Absolutely positioned popout — zero layout space when closed */}
-              <div
-                className={`entei-controls-volume-popup${isVolumeOpen ? ' entei-controls-volume-popup--open' : ''}`}
-                onMouseEnter={() => !isTouchDevice && setIsVolumeOpen(true)}
-                onMouseLeave={() => !isTouchDevice && setIsVolumeOpen(false)}
-                onFocus={() => setIsVolumeOpen(true)}
-                onBlur={() => setIsVolumeOpen(false)}
-              >
-                <Slider
-                  className="entei-controls-volume-slider"
-                  value={[volume]}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  onValueChange={handleVolumeChange}
-                  aria-label={dict.volumeSliderAriaLabel}
-                />
+            {/* Volume — desktop only; mobile media is always full volume. */}
+            {!isMobileViewport && (
+              <div className="entei-controls-volume-group">
+                <button
+                  type="button"
+                  className="entei-controls-btn"
+                  onClick={handleVolumeButtonClick}
+                  aria-label={
+                    isTouchDevice
+                      ? isVolumeOpen
+                        ? dict.hideVolume
+                        : dict.showVolume
+                      : volume > 0
+                        ? dict.muteAriaLabel
+                        : dict.unmuteAriaLabel
+                  }
+                  title={
+                    isTouchDevice
+                      ? isVolumeOpen
+                        ? dict.hideVolume
+                        : dict.showVolume
+                      : volume > 0
+                        ? dict.muteAriaLabel
+                        : dict.unmuteAriaLabel
+                  }
+                >
+                  {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                </button>
+                {/* Absolutely positioned popout — zero layout space when closed */}
+                <div
+                  className={`entei-controls-volume-popup${isVolumeOpen ? ' entei-controls-volume-popup--open' : ''}`}
+                  onMouseEnter={() => !isTouchDevice && setIsVolumeOpen(true)}
+                  onMouseLeave={() => !isTouchDevice && setIsVolumeOpen(false)}
+                  onFocus={() => setIsVolumeOpen(true)}
+                  onBlur={() => setIsVolumeOpen(false)}
+                >
+                  <Slider
+                    className="entei-controls-volume-slider"
+                    value={[volume]}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    onValueChange={handleVolumeChange}
+                    aria-label={dict.volumeSliderAriaLabel}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="entei-controls-bottom-right">
@@ -790,6 +746,34 @@ export const PlayerControls = forwardRef<
                 </div>
               </PopoverContent>
             </Popover>
+
+            {/* P1.3a.2: Caption display mode cycle button — bottom-right. */}
+            <button
+              type="button"
+              className="entei-controls-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCycleCaptionMode();
+              }}
+              aria-label={
+                captionDisplayMode === 'visible'
+                  ? dict.captionModeVisible
+                  : captionDisplayMode === 'blurred'
+                    ? dict.captionModeBlurred
+                    : dict.captionModeHidden
+              }
+              title={
+                captionDisplayMode === 'visible'
+                  ? dict.captionModeVisible
+                  : captionDisplayMode === 'blurred'
+                    ? dict.captionModeBlurred
+                    : dict.captionModeHidden
+              }
+            >
+              {captionDisplayMode === 'visible' && <ClosedCaption size={18} />}
+              {captionDisplayMode === 'blurred' && <Captions size={18} />}
+              {captionDisplayMode === 'hidden' && <CaptionsOff size={18} />}
+            </button>
 
             {/* Fullscreen — only for video */}
             {mediaType === 'video' && (

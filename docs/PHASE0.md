@@ -285,7 +285,7 @@ Phase 0では、GoRakuDoの現在の実装値をEntei側の`tokens.css`へ写す
 | Role | Font | 使用箇所 |
 | --- | --- | --- |
 | Body / UI | `Gen Interface JP` | 説明、navigation、button、3言語共通の本文 |
-| Display | `Gen Interface JP Display` | Entei wordmark、Playerなどのdestination title。Hub H1は除く |
+| Display | `Gen Interface JP Display` | Playerなどのdestination title。Hub H1は除く |
 | System / Game accent | `Pixelify Sans` | 短いsystem label、status、Phase表記 |
 | Serif accent | `Noto Serif JP` | 全言語で固定表示する`園庭`のH1だけ |
 
@@ -308,7 +308,7 @@ GoRakuDoの実装は、Display・JP・Pixel用aliasを既に分けている（`D
 **Base — 320px以上**
 
 - 1 column。
-- Top BarはwordmarkとLanguage Selectorだけを1行に置く。収まらない時はSelectorの文字を消さず、下段へ回す。
+- HomeのTop BarはwordmarkとLanguage Selectorだけを1行に置く。収まらない時はSelectorの文字を消さず、下段へ回す。PlayerではSelectorを出さず、Homeで保存した言語設定を読む。
 - Hub Identityの後にPlayer、EPUBの順で縦配置する。
 - Tileの主要操作領域は最低44×44 CSS pxを確保する。
 - 左右paddingは`clamp(1rem, 4vw, 1.5rem)`を出発点にする。
@@ -469,7 +469,7 @@ Phase 0で必要なasset：
 
 | Asset | 最初の形式 | 用途 | Phase 0方針 |
 | --- | --- | --- | --- |
-| Entei wordmark | Text + font | Top Bar / Hub Identity | Gen Interface JP Displayで開始可能 |
+| Entei wordmark | Text + font | Top Bar / Hub Identity | Pixelify Sansで開始可能 |
 | Hub emblem | Lucide Flame icon via `@lucide/astro` | Top Bar / Hub Identity | `@lucide/astro` Flame component, tree-shaken SVG |
 | Player icon | Lucide AudioLines via `@lucide/astro` | 主目的地 | AudioLines communicates both audio and video |
 | EPUB icon | Lucide BookMarked via `@lucide/astro` | Coming Soon目的地 | BookMarked communicates reading, gold accent for locked |

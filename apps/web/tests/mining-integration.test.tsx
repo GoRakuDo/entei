@@ -181,6 +181,9 @@ const mockDict = {
   mineButtonLabel: 'Mine',
   mineButtonCapturing: 'Mining…',
   mineButtonDisabled: 'No active subtitle cue',
+  mineRowLabel: 'Mine this cue',
+  mineRowDisabled: 'Mining unavailable',
+  fileOpenLabel: 'Open file',
   miningPreviewTitle: 'Mining Preview',
   miningPreviewSentence: 'Sentence',
   miningPreviewSource: 'Source',
@@ -331,75 +334,6 @@ describe('PlayerControls — Mine button', () => {
     ) as HTMLButtonElement;
     expect(btn).not.toBeNull();
     expect(btn.disabled).toBe(true);
-  });
-
-  it('disables Pickaxe when standalone AM-3 audio recording is in flight', () => {
-    const onMine = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onMine={onMine}
-        canMine={false}
-        isRecordingAudio
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.mineButtonLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(true);
-  });
-
-  it('disables Pickaxe when standalone AM-2 screenshot capture is in flight', () => {
-    const onMine = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onMine={onMine}
-        canMine={false}
-        isCapturing
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.mineButtonLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(true);
-  });
-});
-
-describe('PlayerControls — Audio Clip disabled during AM-4 mining', () => {
-  it('disables AudioLines when canAudioClip is false (mining in progress)', () => {
-    const onAudioClip = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onAudioClip={onAudioClip}
-        canAudioClip={false}
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(true);
-  });
-
-  it('does NOT call onAudioClip when canAudioClip is false', () => {
-    const onAudioClip = vi.fn();
-    const { container } = render(
-      <PlayerControls
-        {...baseControlsProps}
-        onAudioClip={onAudioClip}
-        canAudioClip={false}
-      />,
-    );
-    const btn = container.querySelector(
-      `[aria-label="${mockDict.audioClipCaptureLabel}"]`,
-    ) as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    fireEvent.click(btn);
-    expect(onAudioClip).not.toHaveBeenCalled();
   });
 });
 

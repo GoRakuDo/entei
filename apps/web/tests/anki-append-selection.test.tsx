@@ -660,10 +660,11 @@ describe('AnkiAppendPanel — AM-6c', () => {
       expect(onSearch).toHaveBeenCalledTimes(1);
     });
 
-    // DataTable renders rows; verify rows are in desc order via table rows
-    const rows = screen.getAllByRole('row');
-    // First row is header, rest are data rows
-    expect(rows.length).toBeGreaterThanOrEqual(4); // header + 3 data rows
+    // DataTable rows commit after the async search result state update.
+    await waitFor(() => {
+      // First row is header, rest are data rows.
+      expect(screen.getAllByRole('row').length).toBeGreaterThanOrEqual(4);
+    });
   });
 
   // ── Bounded results ──

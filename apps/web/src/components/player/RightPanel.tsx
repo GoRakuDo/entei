@@ -26,10 +26,16 @@ interface RightPanelProps {
   cues: SubtitleCue[];
   activeCueId: number | null;
   onCueClick: (cue: SubtitleCue) => void;
-  onSubtitleSelect: (file: File | null) => void;
+  onSubtitleSelect: (file: File) => void;
   subtitleAccept: string;
   /** History panel refresh trigger — increment after a successful Anki send. */
   historyRefreshKey?: number;
+  /** AM-4 Row Mining: callback to mine a specific cue. */
+  onMineCue?: (cue: SubtitleCue) => void;
+  /** AM-4 Row Mining: whether row mining is available (media loaded, not capturing). */
+  canMineRow?: boolean;
+  /** AM-4 Row Mining: whether mining capture is currently in flight. */
+  isMining?: boolean;
 }
 
 export function RightPanel({
@@ -41,6 +47,9 @@ export function RightPanel({
   onSubtitleSelect,
   subtitleAccept,
   historyRefreshKey,
+  onMineCue,
+  canMineRow,
+  isMining,
 }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>('captions');
 
@@ -109,12 +118,15 @@ export function RightPanel({
             onCueClick={onCueClick}
             onSubtitleSelect={onSubtitleSelect}
             subtitleAccept={subtitleAccept}
-            subtitlesLabel={dict.subtitles}
-            cuesCountLabel={dict.cuesCount}
             noSubtitlesLabel={dict.noSubtitlesLoaded}
             seekToLabel={dict.seekTo}
             chooseSubtitleLabel={dict.chooseSubtitle}
-            changeSubtitleLabel={dict.changeSubtitle}
+            onMineCue={onMineCue}
+            canMineRow={canMineRow}
+            isMining={isMining}
+            mineRowLabel={dict.mineRowLabel}
+            mineRowDisabledLabel={dict.mineRowDisabled}
+            mineCapturingLabel={dict.mineButtonCapturing}
           />
         </div>
       )}

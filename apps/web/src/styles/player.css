@@ -422,6 +422,7 @@
 
 .entei-subtitle-empty {
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -488,6 +489,62 @@
   flex: 1;
   min-width: 0;
   word-break: break-word;
+}
+
+/* --- Subtitle Cue Row (flex container for seek button + mine button) --- */
+.entei-subtitle-cue-row {
+  display: flex;
+  align-items: stretch;
+}
+
+/* Seek button fills remaining space */
+.entei-subtitle-cue-row .entei-subtitle-cue {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- Subtitle Cue Mine Button (row mining) --- */
+.entei-subtitle-cue-mine {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  padding: 0;
+  margin-left: var(--entei-space-4);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--entei-radius-sm);
+  color: var(--entei-text-muted);
+  cursor: pointer;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-subtitle-cue-mine:hover {
+  color: var(--entei-accent);
+  background-color: var(--entei-surface-2);
+  border-color: oklch(100% 0 0deg / 0.08);
+}
+
+.entei-subtitle-cue-mine:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-subtitle-cue-mine:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.entei-subtitle-cue-mine:disabled:hover {
+  color: var(--entei-text-muted);
+  background-color: transparent;
+  border-color: transparent;
 }
 
 /* --- Loading State (skeleton placeholder) --- */
@@ -743,6 +800,7 @@
 /* --- Reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
   .entei-subtitle-cue,
+  .entei-subtitle-cue-mine,
   .entei-player-btn,
   .entei-player-shortcuts-btn,
   .entei-dialog-close,
@@ -3345,7 +3403,7 @@ html.entei-player-immersive .entei-player-audio-area {
 /* --- Tab selector bar --- */
 .entei-right-panel-tabs {
   display: flex;
-  align-self: flex-start;
+  align-self: stretch;
   gap: 0;
   margin: var(--entei-space-8) var(--entei-space-12);
   padding: 0;
@@ -3357,6 +3415,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-right-panel-tab {
   display: inline-flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
   gap: var(--entei-space-8);
@@ -3512,18 +3571,23 @@ html.entei-player-immersive .entei-player-audio-area {
 @media (max-width: 767px) {
   .entei-player-layout--with-panel {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-    height: auto;
-    max-height: 100dvh;
-    overflow-y: auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: calc(100dvh - var(--entei-topbar-height) - var(--entei-space-48));
+    max-height: none;
+    overflow: hidden;
   }
 
   .entei-right-panel-inner {
     max-width: 100%;
     border-left: none;
     border-top: 1px solid oklch(0% 0 0deg / 0.08);
-    min-height: 200px;
-    max-height: 50dvh;
+    border-radius: var(--entei-radius-md);
+    min-height: 0;
+    max-height: none;
+  }
+
+  .entei-right-panel-tabs {
+    min-width: 0;
   }
 }
 

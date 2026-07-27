@@ -2,12 +2,12 @@
 /**
  * Top Bar — PHASE0.md Section 6.142-144.
  * Left: Entei wordmark (live text, also a Home link).
- * Right: Language Selector (always visible, shows current language).
+ * Right: Language Selector (optional, controlled by `showLanguageSelector`).
  * No large site navigation — Phase 0 has too few destinations.
  *
- * Wordmark uses Gen Interface JP Display (font-display). If the webfont
- * fails to load, the fallback (Gen Interface JP, then serif) keeps it
- * readable (PHASE0.md 18.490).
+ * Wordmark uses Pixelify Sans (font-system) for a consistent game-accent
+ * feel across all pages. If the webfont fails to load, the fallback
+ * (Gen Interface JP, then monospace) keeps it readable.
  */
 import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
@@ -16,9 +16,11 @@ import type { Dictionary, Locale } from '@i18n/types';
 interface Props {
   locale: Locale;
   dictionary: Dictionary;
+  /** Whether to render the Language Selector. Default true (Home). Player passes false. */
+  showLanguageSelector?: boolean;
 }
 
-const { locale, dictionary } = Astro.props;
+const { locale, dictionary, showLanguageSelector = true } = Astro.props;
 ---
 
 <header class="entei-topbar" role="banner">
@@ -27,10 +29,14 @@ const { locale, dictionary } = Astro.props;
       <HubEmblem class="entei-wordmark-emblem" />
       <span class="entei-wordmark-text">Entei</span>
     </a>
-    <LanguageSelector
-      currentLocale={locale}
-      selectLabel={dictionary.language.selectLabel}
-    />
+    {
+      showLanguageSelector && (
+        <LanguageSelector
+          currentLocale={locale}
+          selectLabel={dictionary.language.selectLabel}
+        />
+      )
+    }
   </div>
 </header>
 
@@ -79,7 +85,7 @@ const { locale, dictionary } = Astro.props;
     min-height: var(--entei-touch-min);
     padding: var(--entei-space-8) 0;
     color: var(--entei-text);
-    font-family: var(--entei-font-display);
+    font-family: var(--entei-font-system);
     font-size: 1.25rem;
     font-weight: 700;
     letter-spacing: 0.02em;

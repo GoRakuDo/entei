@@ -176,6 +176,10 @@ export interface Dictionary {
     mineButtonLabel: string;
     mineButtonCapturing: string;
     mineButtonDisabled: string;
+    mineRowLabel: string;
+    mineRowDisabled: string;
+    // File open
+    fileOpenLabel: string;
     miningPreviewTitle: string;
     miningPreviewSentence: string;
     miningPreviewSource: string;

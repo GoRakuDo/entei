@@ -153,6 +153,10 @@ export const ja: Dictionary = {
     mineButtonLabel: '採掘',
     mineButtonCapturing: '採掘中…',
     mineButtonDisabled: 'アクティブな字幕がありません',
+    mineRowLabel: 'この字幕を採掘',
+    mineRowDisabled: '採掘できません',
+    // File open
+    fileOpenLabel: 'ファイルを開く',
     miningPreviewTitle: '採掘プレビュー',
     miningPreviewSentence: '文章',
     miningPreviewSource: '出典',

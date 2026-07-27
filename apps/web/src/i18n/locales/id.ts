@@ -153,6 +153,10 @@ export const id: Dictionary = {
     mineButtonLabel: 'Tambang',
     mineButtonCapturing: 'Menambang…',
     mineButtonDisabled: 'Tidak ada subtitle aktif',
+    mineRowLabel: 'Tambang cue ini',
+    mineRowDisabled: 'Tambang tidak tersedia',
+    // File open
+    fileOpenLabel: 'Buka berkas',
     miningPreviewTitle: 'Pratinjau Tambang',
     miningPreviewSentence: 'Kalimat',
     miningPreviewSource: 'Sumber',

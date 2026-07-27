@@ -396,7 +396,7 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 | Player preferences        | ✅   | Typed, schema-validated, exception-safe localStorage for volume/rate                                                                                                                                                                                                                            |
 | Panel layout persistence  | ✅   | Typed, schema-validated, exception-safe localStorage for desktop panel widths (main/side %); `entei.player.panel-layout.v1` key; no media/subtitle/anki/credential data stored                                                                                                                 |
 | Radix Dialog              | ✅   | KeyboardShortcutsHelp uses `@radix-ui/react-dialog`                                                                                                                                                                                                                                             |
-| Unit tests                | ✅   | 861 tests（34 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests / denchou-scene tests / anki-miner-preferences tests / video-clip tests / media-mode-switch tests / right-panel-resizable tests / panel-layout tests） |
+| Unit tests                | ✅   | 872 tests（37 files：既存Home、Player parser / URL lifecycle / preference / locale event / keyboard cue navigation / control-helpers / caption mode、AnkiConnect read-only / lifecycle / screenshot capture / screenshot integration / audio clip / mining preview / mining integration / slider thumb count / mining viewport / subtitle interval / anki export client / anki export integration / background connection / anki-append-panel tests / denchou-scene tests / anki-miner-preferences tests / video-clip tests / media-mode-switch tests / right-panel-resizable tests / panel-layout tests / file-open-integration tests / player-layout-class tests / subtitle-panel-row-mining tests） |
 
 ### Reviewer findings 修正状況
 
@@ -475,7 +475,7 @@ apps/web/src/
 | 種別       | 結果 | コメント                                                                                      |
 | ---------- | ---- | --------------------------------------------------------------------------------------------- |
 | format     | ✅   | `npm run format:check` pass                                                                   |
-| test       | ✅   | 861 tests pass（34 files）                                                                    |
+| test       | ✅   | 872 tests pass（37 files）                                                                    |
 | type       | ✅   | `npm run check` pass (0 errors, 0 warnings, 0 hints)                                          |
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
