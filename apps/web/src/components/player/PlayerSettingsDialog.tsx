@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Settings } from 'lucide-react';
 import {
   Dialog,
@@ -21,8 +21,10 @@ import {
 } from './ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { AnkiFieldsTab, type AnkiSessionCredentials } from './AnkiFieldsTab';
+import { SubtitleAppearanceTab } from './SubtitleAppearanceTab';
 import type { Dictionary } from '@i18n/types';
 import type { ShortcutEntry } from './KeyboardShortcutsHelp';
+import { readPlayerPreferences, writePlayerPreferences } from '@/features/player/preferences';
 
 interface PlayerSettingsDialogProps {
   dict: Dictionary['playerUI'];
@@ -30,6 +32,22 @@ interface PlayerSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSessionCredentials?: (creds: AnkiSessionCredentials | null) => void;
+  /** Current subtitle overlay appearance settings (live from PlayerApp). */
+  subtitleSettings?: {
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  };
+  /** Callback when subtitle appearance settings change (live update). */
+  onSubtitleSettingsChange?: (settings: Partial<{
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  }>) => void;
 }
 
 export function PlayerSettingsDialog({
@@ -38,6 +56,8 @@ export function PlayerSettingsDialog({
   open,
   onOpenChange,
   onSessionCredentials,
+  subtitleSettings,
+  onSubtitleSettingsChange,
 }: PlayerSettingsDialogProps) {
   /* W6: Toggle root class to hide TopBar on mobile while Settings is open.
    * Cleanup removes class on close and unmount. */
@@ -52,6 +72,65 @@ export function PlayerSettingsDialog({
       root.classList.remove('entei-settings-dialog-open');
     };
   }, [open]);
+
+  // Load subtitle settings synchronously from passed prefs or localStorage.
+  // No null → effect pattern: state is populated on first render to avoid flash.
+  const [localSubtitleSettings, setLocalSubtitleSettings] = useState<{
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  }>(() => {
+    if (subtitleSettings) return subtitleSettings;
+    const prefs = readPlayerPreferences();
+    return {
+      fontSize: prefs.subtitleFontSize,
+      textColor: prefs.subtitleTextColor,
+      backgroundColor: prefs.subtitleBackgroundColor,
+      backgroundPadding: prefs.subtitleBackgroundPadding,
+      verticalPosition: prefs.subtitleVerticalPosition,
+    };
+  });
+
+  // Sync when parent-controlled subtitleSettings prop changes (e.g., from PlayerApp state)
+  useEffect(() => {
+    if (subtitleSettings) {
+      setLocalSubtitleSettings(subtitleSettings);
+    }
+  }, [subtitleSettings]);
+
+  const handleSubtitleSettingsChange = useCallback((settings: Partial<{
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  }>) => {
+    // Update local state for live preview
+    setLocalSubtitleSettings((prev) => ({ ...prev, ...settings }));
+    // Persist to localStorage
+    const prefs = readPlayerPreferences();
+    writePlayerPreferences({ ...prefs, ...settings });
+    // Notify parent for live overlay update
+    onSubtitleSettingsChange?.(settings);
+  }, [onSubtitleSettingsChange]);
+
+  const handleSubtitleReset = useCallback(() => {
+    const defaults = {
+      fontSize: 18,
+      textColor: 'oklch(98% 0 0deg)',
+      backgroundColor: 'oklch(0% 0 0 / 0.72)',
+      backgroundPadding: 8,
+      verticalPosition: 96,
+    };
+    setLocalSubtitleSettings(defaults);
+    const prefs = readPlayerPreferences();
+    writePlayerPreferences({ ...prefs, ...defaults });
+    onSubtitleSettingsChange?.(defaults);
+  }, [onSubtitleSettingsChange]);
+
+  const effectiveSubtitleSettings = subtitleSettings ?? localSubtitleSettings;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -79,6 +158,7 @@ export function PlayerSettingsDialog({
           <div className="entei-settings-body">
             <TabsList className="entei-settings-tabs-list">
               <TabsTrigger value="player">{dict.settingsTabPlayer}</TabsTrigger>
+              <TabsTrigger value="subtitle">{dict.settingsTabSubtitle}</TabsTrigger>
               <TabsTrigger value="anki">{dict.settingsTabAnki}</TabsTrigger>
             </TabsList>
             <div className="entei-settings-panel">
@@ -99,6 +179,14 @@ export function PlayerSettingsDialog({
                     ))}
                   </div>
                 </div>
+              </TabsContent>
+              <TabsContent value="subtitle" className="entei-settings-tab-content">
+                <SubtitleAppearanceTab
+                  dict={dict}
+                  settings={effectiveSubtitleSettings}
+                  onChange={handleSubtitleSettingsChange}
+                  onReset={handleSubtitleReset}
+                />
               </TabsContent>
               <TabsContent value="anki" className="entei-settings-tab-content">
                 <AnkiFieldsTab

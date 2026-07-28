@@ -3,6 +3,7 @@
  * ---------------------------------------------------------------------------
  * P1.3a.1: Yomitan-compatible selectable overlay.
  * P1.3a.2: Caption display modes (visible / blurred / hidden).
+ * P2.1: Configurable appearance (font size, colors, padding, position).
  *
  * Design:
  * - Renders inside .entei-player-surface, above video, below custom controls.
@@ -13,6 +14,7 @@
  * - No hardcoded lang; subtitle language is unknown.
  * - Renders nothing when no active cue OR mode is 'hidden'.
  * - 'blurred': CSS filter blur applied; pointer/touch reveal managed by PlayerApp.
+ * - All colors are canonical oklch(...) strings.
  * --------------------------------------------------------------------------- */
 'use client';
 
@@ -20,6 +22,14 @@ import { useMemo } from 'react';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 import type { CaptionDisplayMode } from '@/features/player/control-helpers';
 import { shouldTriggerBlurHover } from '@/features/player/control-helpers';
+
+interface SubtitleAppearanceSettings {
+  fontSize: number; // px
+  textColor: string; // oklch(...) string
+  backgroundColor: string; // oklch(...) string with alpha
+  backgroundPadding: number; // px (uniform)
+  verticalPosition: number; // px (bottom offset)
+}
 
 interface SubtitleOverlayProps {
   /** All parsed subtitle cues. */
@@ -40,6 +50,8 @@ interface SubtitleOverlayProps {
   onPointerLeave?: (e: React.PointerEvent) => void;
   /** Touch tap on overlay (mobile — pauses media and reveals text). */
   onTouchTap?: () => void;
+  /** P2.1: Configurable appearance settings. */
+  appearance: SubtitleAppearanceSettings;
 }
 
 /**
@@ -62,6 +74,7 @@ export function SubtitleOverlay({
   onPointerEnter,
   onPointerLeave,
   onTouchTap,
+  appearance,
 }: SubtitleOverlayProps) {
   const text = useMemo(
     () => getCueText(cues, activeCueId),
@@ -81,6 +94,18 @@ export function SubtitleOverlay({
     .filter(Boolean)
     .join(' ');
 
+  // Inline styles for configurable appearance (all oklch values)
+  const overlayStyle: React.CSSProperties = {
+    bottom: `${appearance.verticalPosition}px`,
+    padding: `${appearance.backgroundPadding}px ${appearance.backgroundPadding * 2}px`,
+    backgroundColor: appearance.backgroundColor,
+  };
+
+  const textStyle: React.CSSProperties = {
+    fontSize: `${appearance.fontSize}px`,
+    color: appearance.textColor,
+  };
+
   return (
     <div
       className={className}
@@ -88,6 +113,7 @@ export function SubtitleOverlay({
       data-overlay-revealed={
         displayMode === 'blurred' && isRevealed ? '' : undefined
       }
+      style={overlayStyle}
       onPointerEnter={(e) => {
         // Only mouse hover triggers the cancel-restore callback.
         // Touch/pen must not schedule or cancel the 1-second restore timer.
@@ -100,7 +126,9 @@ export function SubtitleOverlay({
       }}
       onTouchStart={onTouchTap}
     >
-      <p className="entei-subtitle-overlay-text">{text}</p>
+      <p className="entei-subtitle-overlay-text" style={textStyle}>
+        {text}
+      </p>
     </div>
   );
 }

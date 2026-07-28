@@ -243,6 +243,17 @@ export const id: Dictionary = {
     playModeCondensed: 'Disingkat',
     playModeFastForward: 'Percepat',
     playModeLabel: 'Mode pemutaran',
+    // P2.1: Subtitle Appearance Settings
+    settingsTabSubtitle: 'Subtitle',
+    subtitleAppearance: 'Tampilan Subtitle',
+    subtitleFontSize: 'Ukuran font',
+    subtitleTextColor: 'Warna teks',
+    subtitleBackgroundColor: 'Warna latar',
+    subtitleBackgroundOpacity: 'Opasitas latar',
+    subtitleBackgroundPadding: 'Padding latar',
+    subtitleVerticalPosition: 'Posisi vertikal',
+    subtitlePreview: 'Pratinjau',
+    subtitleReset: 'Kembalikan ke default',
   },
   reader: {
     title: 'Pembaca EPUB',

@@ -244,6 +244,17 @@ export const ja: Dictionary = {
     playModeCondensed: '短縮',
     playModeFastForward: '早送り',
     playModeLabel: '再生モード',
+    // P2.1: Subtitle Appearance Settings
+    settingsTabSubtitle: '字幕',
+    subtitleAppearance: '字幕の見た目',
+    subtitleFontSize: 'フォントサイズ',
+    subtitleTextColor: '文字色',
+    subtitleBackgroundColor: '背景色',
+    subtitleBackgroundOpacity: '背景の不透明度',
+    subtitleBackgroundPadding: '背景の余白',
+    subtitleVerticalPosition: '垂直位置',
+    subtitlePreview: 'プレビュー',
+    subtitleReset: 'デフォルトに戻す',
   },
   reader: {
     title: 'EPUBリーダー',

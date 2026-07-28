@@ -288,6 +288,37 @@ export default function PlayerApp() {
     null,
   );
 
+  // --- P2.1: Subtitle appearance settings (persisted in prefs) ---
+  const [subtitleSettings, setSubtitleSettings] = useState<{
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  }>({
+    fontSize: prefsRef.current.subtitleFontSize,
+    textColor: prefsRef.current.subtitleTextColor,
+    backgroundColor: prefsRef.current.subtitleBackgroundColor,
+    backgroundPadding: prefsRef.current.subtitleBackgroundPadding,
+    verticalPosition: prefsRef.current.subtitleVerticalPosition,
+  });
+
+  const handleSubtitleSettingsChange = useCallback(
+    (settings: Partial<{
+      fontSize: number;
+      textColor: string;
+      backgroundColor: string;
+      backgroundPadding: number;
+      verticalPosition: number;
+    }>) => {
+      setSubtitleSettings((prev) => ({ ...prev, ...settings }));
+      const prefs = readPlayerPreferences();
+      writePlayerPreferences({ ...prefs, ...settings });
+      prefsRef.current = { ...prefsRef.current, ...settings };
+    },
+    [],
+  );
+
   // --- AM-2: Screenshot state ---
   const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<
     string | null
@@ -1029,6 +1060,11 @@ export default function PlayerApp() {
         volume: prefsRef.current.volume,
         playbackRate: prefsRef.current.playbackRate,
         captionDisplayMode: next,
+        subtitleFontSize: prefsRef.current.subtitleFontSize,
+        subtitleTextColor: prefsRef.current.subtitleTextColor,
+        subtitleBackgroundColor: prefsRef.current.subtitleBackgroundColor,
+        subtitleBackgroundPadding: prefsRef.current.subtitleBackgroundPadding,
+        subtitleVerticalPosition: prefsRef.current.subtitleVerticalPosition,
       });
       // Keep prefsRef in sync to avoid stale reads in other callbacks
       prefsRef.current = { ...prefsRef.current, captionDisplayMode: next };
@@ -1129,6 +1165,11 @@ export default function PlayerApp() {
       volume: val,
       playbackRate: prefsRef.current.playbackRate,
       captionDisplayMode: prefsRef.current.captionDisplayMode,
+      subtitleFontSize: prefsRef.current.subtitleFontSize,
+      subtitleTextColor: prefsRef.current.subtitleTextColor,
+      subtitleBackgroundColor: prefsRef.current.subtitleBackgroundColor,
+      subtitleBackgroundPadding: prefsRef.current.subtitleBackgroundPadding,
+      subtitleVerticalPosition: prefsRef.current.subtitleVerticalPosition,
     });
     prefsRef.current = { ...prefsRef.current, volume: val };
   }, []);
@@ -1140,6 +1181,11 @@ export default function PlayerApp() {
       volume: prefsRef.current.volume,
       playbackRate: rate,
       captionDisplayMode: prefsRef.current.captionDisplayMode,
+      subtitleFontSize: prefsRef.current.subtitleFontSize,
+      subtitleTextColor: prefsRef.current.subtitleTextColor,
+      subtitleBackgroundColor: prefsRef.current.subtitleBackgroundColor,
+      subtitleBackgroundPadding: prefsRef.current.subtitleBackgroundPadding,
+      subtitleVerticalPosition: prefsRef.current.subtitleVerticalPosition,
     });
     prefsRef.current = { ...prefsRef.current, playbackRate: rate };
   }, []);
@@ -2999,6 +3045,7 @@ export default function PlayerApp() {
         onPointerEnter={handleOverlayPointerEnter}
         onPointerLeave={handleOverlayPointerLeave}
         onTouchTap={handleOverlayTouchTap}
+        appearance={subtitleSettings}
       />
       <PlayerControls
         ref={controlsHandleRef}
@@ -3043,6 +3090,8 @@ export default function PlayerApp() {
         fileAccept={`${MEDIA_ACCEPT},${SUBTITLE_ACCEPT}`}
         fileOpenLabel={dict.fileOpenLabel}
         onSessionCredentials={handleSessionCredentials}
+        subtitleSettings={subtitleSettings}
+        onSubtitleSettingsChange={handleSubtitleSettingsChange}
       />
       <ScreenshotPreviewDialog
         open={isScreenshotDialogOpen}

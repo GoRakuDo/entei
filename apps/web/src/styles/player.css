@@ -315,17 +315,22 @@
  * Above video AND above controls layer for pointer hit-testing.
  * z-index: 15 (controls layer is z-index: 10).
  * Uses normal DOM text — user-select: text for Yomitan scan compatibility.
- * Pointer events enabled for text selection and content-script access. */
+ * Pointer events enabled for text selection and content-script access.
+ * P2.1: Inline styles from SubtitleOverlay component now drive:
+ *   - bottom (verticalPosition)
+ *   - padding (backgroundPadding)
+ *   - background-color (backgroundColor)
+ *   - font-size / color on .entei-subtitle-overlay-text (fontSize, textColor) */
 .entei-subtitle-overlay {
   position: absolute;
-  bottom: var(--entei-space-96);
+  bottom: var(--entei-space-96); /* fallback default; inline style overrides */
   left: 50%;
   transform: translateX(-50%);
   z-index: 15;
   max-width: min(90%, 640px);
-  padding: var(--entei-space-4) var(--entei-space-8);
+  padding: var(--entei-space-4) var(--entei-space-8); /* fallback; inline style overrides */
   border-radius: var(--entei-radius-sm);
-  background-color: oklch(0% 0 0 / 0.72);
+  background-color: oklch(0% 0 0 / 0.72); /* fallback; inline style overrides */
   pointer-events: auto;
   user-select: text;
   /* Prevent overlay from obstructing controls touch targets */
@@ -335,9 +340,9 @@
   margin: 0;
   padding: 0;
   font-family: var(--entei-font-ui);
-  font-size: var(--entei-text-body-lg);
+  font-size: var(--entei-text-body-lg); /* fallback; inline style overrides */
   line-height: 1.5;
-  color: oklch(98% 0 0deg);
+  color: oklch(98% 0 0deg); /* fallback; inline style overrides */
   white-space: pre-wrap;
   word-break: break-word;
   text-align: center;
@@ -1848,12 +1853,199 @@
   margin: 0;
 }
 
-/* --- Reduced motion --- */
+/* ===========================================================================
+ * Subtitle Appearance Tab (P2.1)
+ * ---------------------------------------------------------------------------
+ * Focused controls for subtitle overlay appearance:
+ * - Font size slider (16-48px)
+ * - Text color picker (native input[type=color] → oklch)
+ * - Background color picker with alpha (native input[type=color] → oklch)
+ * - Uniform background padding slider (0-32px)
+ * - Vertical position slider (0-200px bottom offset)
+ * - Live preview area
+ * - Reset button
+ * All colors use Entei OKLCH tokens; inputs convert to oklch before state/persist. */
+
+.entei-subtitle-appearance-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+}
+
+.entei-subtitle-appearance-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+}
+
+.entei-subtitle-control-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+@media (min-width: 768px) {
+  .entei-subtitle-control-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.entei-subtitle-control-label {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--entei-text-secondary);
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.entei-subtitle-control-label svg {
+  color: var(--entei-text-muted);
+  flex-shrink: 0;
+}
+
+.entei-subtitle-control-input {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  flex: 1;
+  min-width: 0;
+}
+
+.entei-subtitle-slider {
+  flex: 1;
+  min-width: 120px;
+}
+
+.entei-subtitle-value-display {
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  min-width: 50px;
+  text-align: right;
+}
+
+.entei-subtitle-color-input {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: var(--entei-radius-sm);
+  cursor: pointer;
+  background: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.entei-subtitle-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.entei-subtitle-color-input::-webkit-color-swatch {
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-sm);
+}
+
+.entei-subtitle-color-input::-moz-color-swatch {
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-sm);
+}
+
+.oklch-display {
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  color: var(--entei-text-muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Preview Section --- */
+.entei-subtitle-preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding-top: var(--entei-space-12);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-subtitle-preview-container {
+  position: relative;
+  background-color: var(--entei-surface-2);
+  border-radius: var(--entei-radius-md);
+  padding: var(--entei-space-24);
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.entei-subtitle-preview-surface {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  background: linear-gradient(180deg, oklch(10% 0.02 270deg), oklch(5% 0.005 270deg));
+  border-radius: var(--entei-radius-sm);
+  padding: var(--entei-space-16);
+  overflow: hidden;
+}
+
+.entei-subtitle-preview-text {
+  margin: 0;
+  word-break: break-word;
+}
+
+/* --- Reset Section --- */
+.entei-subtitle-reset-section {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: var(--entei-space-8);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-subtitle-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-16);
+  background: none;
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: var(--entei-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-subtitle-reset-btn:hover {
+  background-color: var(--entei-surface-2);
+  border-color: var(--entei-text-muted);
+  color: var(--entei-text);
+}
+
+.entei-subtitle-reset-btn:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-subtitle-reset-btn svg {
+  flex-shrink: 0;
+}
+
+/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .entei-settings-tabs-list [data-slot='tabs-trigger'],
-  .entei-settings-tabs-list [data-slot='tabs-trigger']::after,
-  .entei-anki-input,
-  .entei-settings-shortcut-row {
+  .entei-subtitle-reset-btn,
+  .entei-subtitle-slider {
     transition: none;
   }
 }

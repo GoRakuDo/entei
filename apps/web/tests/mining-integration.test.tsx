@@ -262,6 +262,17 @@ const mockDict = {
   magnetBuffering: 'Buffering…',
   torrentLabel: 'Torrent',
   torrentDisconnect: 'Disconnect',
+  // P2.1: Subtitle Appearance Settings
+  settingsTabSubtitle: 'Subtitle',
+  subtitleAppearance: 'Appearance',
+  subtitleFontSize: 'Font size',
+  subtitleTextColor: 'Text color',
+  subtitleBackgroundColor: 'Background color',
+  subtitleBackgroundOpacity: 'Background opacity',
+  subtitleBackgroundPadding: 'Padding',
+  subtitleVerticalPosition: 'Vertical position',
+  subtitlePreview: 'Preview',
+  subtitleReset: 'Reset',
 };
 
 const baseControlsProps = {

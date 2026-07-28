@@ -116,6 +116,17 @@ export interface Dictionary {
     // AM-1: Settings Modal tabs
     settingsTabPlayer: string;
     settingsTabAnki: string;
+    // P2.1: Subtitle Appearance Settings tab
+    settingsTabSubtitle: string;
+    subtitleAppearance: string;
+    subtitleFontSize: string;
+    subtitleTextColor: string;
+    subtitleBackgroundColor: string;
+    subtitleBackgroundOpacity: string;
+    subtitleBackgroundPadding: string;
+    subtitleVerticalPosition: string;
+    subtitlePreview: string;
+    subtitleReset: string;
     // AM-5: Anki Fields tab
     ankiConnect: string;
     ankiConnectDesc: string;

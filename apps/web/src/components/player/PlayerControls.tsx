@@ -117,6 +117,21 @@ interface PlayerControlsProps {
   onSessionCredentials?: (
     creds: { endpoint: string; apiKey: string } | null,
   ) => void;
+  // P2.1: Subtitle appearance settings
+  subtitleSettings?: {
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  };
+  onSubtitleSettingsChange?: (settings: Partial<{
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  }>) => void;
 }
 
 export interface PlayerControlsHandle {
@@ -164,6 +179,8 @@ export const PlayerControls = forwardRef<
     fileAccept,
     fileOpenLabel,
     onSessionCredentials,
+    subtitleSettings,
+    onSubtitleSettingsChange,
   },
   ref,
 ) {
@@ -626,6 +643,8 @@ export const PlayerControls = forwardRef<
             open={isSettingsOpen}
             onOpenChange={handleSettingsOpenChange}
             onSessionCredentials={onSessionCredentials}
+            subtitleSettings={subtitleSettings}
+            onSubtitleSettingsChange={onSubtitleSettingsChange}
           />
         </div>
       </div>

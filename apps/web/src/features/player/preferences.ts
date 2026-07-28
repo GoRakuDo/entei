@@ -1,17 +1,23 @@
 /**
- * Player Preferences — Volume, Playback Rate, and Caption Display Mode
+ * Player Preferences — Volume, Playback Rate, Caption Display Mode, and Subtitle Appearance
  * ---------------------------------------------------------------------------
- * P1 scope: only safe UI preferences in localStorage.
+ * P1/P2 scope: only safe UI preferences in localStorage.
  * - volume (0–1, number)
  * - playbackRate (0.25–2, number)
  * - captionDisplayMode ('visible' | 'blurred' | 'hidden')
+ * - subtitleFontSize (16–48, number, px)
+ * - subtitleTextColor (string, canonical oklch(...))
+ * - subtitleBackgroundColor (string, canonical oklch(...) with alpha)
+ * - subtitleBackgroundPadding (0–32, number, px, uniform)
+ * - subtitleVerticalPosition (0–200, number, px, bottom offset)
  *
  * Design:
  * - Typed with schema version for future migration.
  * - Exception-safe: never throws to caller; returns defaults on any failure.
  * - Validates ranges before persisting.
  * - Never stores File, path, blob URL, subtitle, or media data.
- * - Backwards-compatible: old v1 payloads without captionDisplayMode read as 'visible'.
+ * - Backwards-compatible: old v1 payloads without new fields read as defaults.
+ * - ALL saved/applied colors are canonical oklch(...) strings. No hex/rgb/hsl/named.
  * --------------------------------------------------------------------------- */
 
 import type { CaptionDisplayMode } from './control-helpers';
@@ -37,12 +43,29 @@ const DEFAULT_VOLUME = 1;
 const DEFAULT_PLAYBACK_RATE = 1;
 const DEFAULT_CAPTION_DISPLAY_MODE: CaptionDisplayMode = 'visible';
 
-/** Persisted player preference shape (v1, extended with optional captionDisplayMode). */
+// Subtitle appearance defaults — match current CSS appearance:
+// - fontSize: body-lg (~1.125rem ≈ 18px), clamped to 16–48px range
+// - textColor: oklch(98% 0 0deg) — near white
+// - backgroundColor: oklch(0% 0 0 / 0.72) — black 72% opacity
+// - backgroundPadding: 8px uniform (was 4px vertical / 8px horizontal; unified to 8px)
+// - verticalPosition: 96px (was --entei-space-96 bottom offset)
+const DEFAULT_SUBTITLE_FONT_SIZE = 18;
+const DEFAULT_SUBTITLE_TEXT_COLOR = 'oklch(98% 0 0deg)';
+const DEFAULT_SUBTITLE_BACKGROUND_COLOR = 'oklch(0% 0 0 / 0.72)';
+const DEFAULT_SUBTITLE_BACKGROUND_PADDING = 8;
+const DEFAULT_SUBTITLE_VERTICAL_POSITION = 96;
+
+/** Persisted player preference shape (v1, extended with optional subtitle appearance fields). */
 interface PlayerPreferenceData {
   schemaVersion: number;
   volume: number;
   playbackRate: number;
   captionDisplayMode?: CaptionDisplayMode;
+  subtitleFontSize?: number;
+  subtitleTextColor?: string;
+  subtitleBackgroundColor?: string;
+  subtitleBackgroundPadding?: number;
+  subtitleVerticalPosition?: number;
 }
 
 /** Public interface. */
@@ -50,47 +73,58 @@ export interface PlayerPreferences {
   volume: number;
   playbackRate: number;
   captionDisplayMode: CaptionDisplayMode;
+  subtitleFontSize: number;
+  subtitleTextColor: string;
+  subtitleBackgroundColor: string;
+  subtitleBackgroundPadding: number;
+  subtitleVerticalPosition: number;
 }
 
 /**
  * Read player preferences from localStorage.
  * Returns defaults if absent, corrupted, or if localStorage throws.
- * Old v1 payloads without captionDisplayMode default to 'visible'.
+ * Old v1 payloads without new fields default to current appearance values.
  */
 export function readPlayerPreferences(): PlayerPreferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) {
-      return {
-        volume: DEFAULT_VOLUME,
-        playbackRate: DEFAULT_PLAYBACK_RATE,
-        captionDisplayMode: DEFAULT_CAPTION_DISPLAY_MODE,
-      };
+      return getDefaultPreferences();
     }
 
     const parsed: unknown = JSON.parse(raw);
 
     if (!isValidPreferenceData(parsed)) {
-      return {
-        volume: DEFAULT_VOLUME,
-        playbackRate: DEFAULT_PLAYBACK_RATE,
-        captionDisplayMode: DEFAULT_CAPTION_DISPLAY_MODE,
-      };
+      return getDefaultPreferences();
     }
 
     return {
       volume: clampVolume(parsed.volume),
       playbackRate: clampPlaybackRate(parsed.playbackRate),
       captionDisplayMode: parseCaptionDisplayMode(parsed.captionDisplayMode),
+      subtitleFontSize: parseSubtitleFontSize(parsed.subtitleFontSize),
+      subtitleTextColor: parseSubtitleTextColor(parsed.subtitleTextColor),
+      subtitleBackgroundColor: parseSubtitleBackgroundColor(parsed.subtitleBackgroundColor),
+      subtitleBackgroundPadding: parseSubtitleBackgroundPadding(parsed.subtitleBackgroundPadding),
+      subtitleVerticalPosition: parseSubtitleVerticalPosition(parsed.subtitleVerticalPosition),
     };
   } catch {
     // localStorage unavailable or JSON corrupted
-    return {
-      volume: DEFAULT_VOLUME,
-      playbackRate: DEFAULT_PLAYBACK_RATE,
-      captionDisplayMode: DEFAULT_CAPTION_DISPLAY_MODE,
-    };
+    return getDefaultPreferences();
   }
+}
+
+function getDefaultPreferences(): PlayerPreferences {
+  return {
+    volume: DEFAULT_VOLUME,
+    playbackRate: DEFAULT_PLAYBACK_RATE,
+    captionDisplayMode: DEFAULT_CAPTION_DISPLAY_MODE,
+    subtitleFontSize: DEFAULT_SUBTITLE_FONT_SIZE,
+    subtitleTextColor: DEFAULT_SUBTITLE_TEXT_COLOR,
+    subtitleBackgroundColor: DEFAULT_SUBTITLE_BACKGROUND_COLOR,
+    subtitleBackgroundPadding: DEFAULT_SUBTITLE_BACKGROUND_PADDING,
+    subtitleVerticalPosition: DEFAULT_SUBTITLE_VERTICAL_POSITION,
+  };
 }
 
 /**
@@ -104,6 +138,11 @@ export function writePlayerPreferences(prefs: PlayerPreferences): void {
       volume: clampVolume(prefs.volume),
       playbackRate: clampPlaybackRate(prefs.playbackRate),
       captionDisplayMode: parseCaptionDisplayMode(prefs.captionDisplayMode),
+      subtitleFontSize: parseSubtitleFontSize(prefs.subtitleFontSize),
+      subtitleTextColor: parseSubtitleTextColor(prefs.subtitleTextColor),
+      subtitleBackgroundColor: parseSubtitleBackgroundColor(prefs.subtitleBackgroundColor),
+      subtitleBackgroundPadding: parseSubtitleBackgroundPadding(prefs.subtitleBackgroundPadding),
+      subtitleVerticalPosition: parseSubtitleVerticalPosition(prefs.subtitleVerticalPosition),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
@@ -113,7 +152,7 @@ export function writePlayerPreferences(prefs: PlayerPreferences): void {
 
 /**
  * Type guard for preference data shape.
- * captionDisplayMode is optional for backwards compatibility with old v1 payloads.
+ * All new fields are optional for backwards compatibility with old v1 payloads.
  */
 function isValidPreferenceData(value: unknown): value is PlayerPreferenceData {
   if (typeof value !== 'object' || value === null) return false;
@@ -128,6 +167,16 @@ function isValidPreferenceData(value: unknown): value is PlayerPreferenceData {
   ) {
     return false;
   }
+  // subtitleFontSize: optional, if present must be number
+  if (obj.subtitleFontSize !== undefined && typeof obj.subtitleFontSize !== 'number') return false;
+  // subtitleTextColor: optional, if present must be string
+  if (obj.subtitleTextColor !== undefined && typeof obj.subtitleTextColor !== 'string') return false;
+  // subtitleBackgroundColor: optional, if present must be string
+  if (obj.subtitleBackgroundColor !== undefined && typeof obj.subtitleBackgroundColor !== 'string') return false;
+  // subtitleBackgroundPadding: optional, if present must be number
+  if (obj.subtitleBackgroundPadding !== undefined && typeof obj.subtitleBackgroundPadding !== 'number') return false;
+  // subtitleVerticalPosition: optional, if present must be number
+  if (obj.subtitleVerticalPosition !== undefined && typeof obj.subtitleVerticalPosition !== 'number') return false;
   return true;
 }
 
@@ -164,4 +213,78 @@ function parseCaptionDisplayMode(value: unknown): CaptionDisplayMode {
     return value as CaptionDisplayMode;
   }
   return DEFAULT_CAPTION_DISPLAY_MODE;
+}
+
+/** Parse subtitleFontSize with fallback to default (clamped to [16, 48]. */
+function parseSubtitleFontSize(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const clamped = Math.round(Math.max(16, Math.min(48, value)));
+    return clamped;
+  }
+  return DEFAULT_SUBTITLE_FONT_SIZE;
+}
+
+/** Parse subtitleTextColor - repair legacy outside-alpha, then validate oklch, fallback to default. */
+function parseSubtitleTextColor(value: unknown): string {
+  if (typeof value === 'string') {
+    const repaired = repairOklchOutsideAlpha(value.trim());
+    if (isValidOklch(repaired)) {
+      return repaired;
+    }
+  }
+  return DEFAULT_SUBTITLE_TEXT_COLOR;
+}
+
+/** Parse subtitleBackgroundColor - repair legacy outside-alpha, then validate oklch, fallback to default. */
+function parseSubtitleBackgroundColor(value: unknown): string {
+  if (typeof value === 'string') {
+    // Repair malformed legacy outside-alpha format from short-lived broken build
+    // "oklch(L% C Hdeg) / alpha" → "oklch(L% C Hdeg / alpha)"
+    const repaired = repairOklchOutsideAlpha(value.trim());
+    if (isValidOklch(repaired)) {
+      return repaired;
+    }
+  }
+  return DEFAULT_SUBTITLE_BACKGROUND_COLOR;
+}
+
+/** Parse subtitleBackgroundPadding with fallback to default, clamped to [0, 32]. */
+function parseSubtitleBackgroundPadding(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.min(32, Math.round(value)));
+  }
+  return DEFAULT_SUBTITLE_BACKGROUND_PADDING;
+}
+
+/** Parse subtitleVerticalPosition with fallback to default, clamped to [0, 200]. */
+function parseSubtitleVerticalPosition(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.min(200, Math.round(value)));
+  }
+  return DEFAULT_SUBTITLE_VERTICAL_POSITION;
+}
+
+/**
+ * Repair a malformed oklch string where alpha is OUTSIDE the closing parenthesis:
+ *   "oklch(L% C Hdeg) / alpha" → "oklch(L% C Hdeg / alpha)"
+ * Returns the original string if no outside-alpha pattern is found.
+ */
+function repairOklchOutsideAlpha(value: string): string {
+  const match = value.match(/^oklch\(([^)]+)\)\s*\/\s*([\d.]+)%?\s*$/);
+  if (match && match[1] && match[2]) {
+    return `oklch(${match[1]} / ${match[2]})`;
+  }
+  return value;
+}
+
+/** Basic validation that a string is a canonical oklch(...) color. */
+function isValidOklch(value: string): boolean {
+  // Use RegExp constructor to avoid OXC parse issues with regex literal escapes.
+  // Tightened: numeric components use \d+(\.\d+)? to reject malformed decimals
+  // like "1.2.3". Each component is a non-negative integer or decimal.
+  const num = String.raw`\d+(?:\.\d+)?`;
+  const angle = String.raw`(?:deg|rad|turn)`;
+  const oklchPattern = String.raw`^oklch\(\s*${num}%?\s+${num}\s+${num}${angle}?\s*(?:/\s*${num}%?)?\s*\)$`;
+  const oklchRegex = new RegExp(oklchPattern, 'i');
+  return oklchRegex.test(value.trim());
 }

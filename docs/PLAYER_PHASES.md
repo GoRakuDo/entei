@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P2.1（Normal / Condensed / Fast-forward）はコード完了、手動browser QA待ち。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。P2.2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P2.1（Normal / Condensed / Fast-forward + Subtitle Appearance Settings tab）はコード完了、手動browser QA待ち。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。P2.2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -200,6 +200,8 @@ P1を終えても、「機能を増やす」前に実local mediaで以下が通�
 
 > **実装記録（2026-07-28）:** Shadcn Radio Groupをrate Popoverのrate grid下へ追加。Normal / Condensed / Fast-forwardはsession-only stateで、Condensedは1,000ms超の無音gapをseek、Fast-forwardは字幕中/端600ms以内を1x、その他を3xにする。秒の浮動小数誤差を避けるためgap差はmsへ丸めてstrict `>`比較する。unit test 33件、全test / check / buildは通過。実mediaでの操作・spacing QAは残る。
 
+**Subtitle Appearance Settings tab implementation record (2026-07-28):** Third horizontal Settings tab "Subtitle" added between "Player" and "Anki Fields" in `PlayerSettingsDialog.tsx`. `SubtitleAppearanceTab` component renders 6 live-previewing controls: font size (Slider 16–48px, step 1, default 18px), text color (`<input type="color">` → oklch), background color (`<input type="color">` → oklch), background opacity (Slider 0–100%, step 1, default 72%), uniform background padding (Slider 0–32px, step 1, default 8px), and vertical bottom position (Slider 0–200px, step 4, default 96px ≈ `var(--entei-space-96)`). All colors are stored/applied as canonical `oklch(...)` strings with alpha inside the parentheses. Native color input only displays hex; its change is converted to OKLCH while preserving the current opacity. The short-lived legacy `oklch(...) / alpha` format is repaired on read. `SubtitleOverlay` applies appearance via inline styles (bottom offset, padding, background-color, font-size, color) without affecting Yomitan text selection, blur mode, controls z-index, or touch handling. Every control change and Reset immediately writes the merged safe preference to existing `entei.player.prefs.v1`; old payloads without appearance fields load safe defaults, invalid/out-of-range values are repaired or clamped, and localStorage failure does not break player. No media, subtitle text, file/path, Blob, or API credential is stored. 3-language i18n labels (en/id/ja) for all controls. `player.css` styled with Entei OKLCH tokens, 44px touch targets, calm form rhythm. Focused component/preference tests cover rendering, live preview, canonical alpha, immediate persistence, rapid sequential updates, reset, and reload restoration. Manual QA pending: live slider adjustment visible on video overlay; color picker/opacity round-trip; vertical position responsiveness at different player heights.
+
 ### P2.2以降の拡張候補
 
 ### 含めるもの
@@ -210,7 +212,7 @@ P1を終えても、「機能を増やす」前に実local mediaで以下が通�
 - subtitle trackごとの対象指定
 - subtitle offsetの保存とreset
 - custom keyboard shortcutと競合表示
-- subtitle appearance（位置・size・alignment）
+- subtitle text alignment とtrackごとのappearance設定
 - settings profile、settings import/exportの土台
 - clipboardへcurrent subtitleをcopyする機能
 
