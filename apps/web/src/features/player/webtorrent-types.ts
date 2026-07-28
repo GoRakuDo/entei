@@ -14,7 +14,7 @@ export type MagnetValidation =
 export type TorrentSessionPhase =
   | 'idle'
   | 'connecting'
-  | 'gate' // waiting for peers >= 3
+  | 'gate' // waiting for the configured minimum peer count
   | 'streaming'
   | 'error'
   | 'destroyed';

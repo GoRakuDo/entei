@@ -33,6 +33,9 @@ type WebTorrentClient = {
 
 type WebTorrentConstructor = new () => WebTorrentClient;
 
+export const MIN_WEBRTC_PEERS = 1;
+const SERVICE_WORKER_CONTROL_TIMEOUT_MS = 5_000;
+
 let webTorrentLoadPromise: Promise<WebTorrentConstructor> | null = null;
 const webTorrentBundleUrl = '/webtorrent.min.js';
 
@@ -143,21 +146,38 @@ export async function registerWebTorrentServiceWorker(): Promise<ServiceWorkerRe
 export function waitForWebTorrentServiceWorkerControl(): Promise<void> {
   if (navigator.serviceWorker.controller) return Promise.resolve();
 
-  return new Promise((resolve) => {
-    const onControllerChange = () => {
+  return new Promise((resolve, reject) => {
+    let pollInterval: number | null = null;
+    let timeout: number | null = null;
+    const cleanup = () => {
+      if (pollInterval !== null) window.clearInterval(pollInterval);
+      if (timeout !== null) window.clearTimeout(timeout);
       navigator.serviceWorker.removeEventListener(
         'controllerchange',
-        onControllerChange,
+        checkController,
       );
+    };
+    const finish = () => {
+      cleanup();
       resolve();
+    };
+    const checkController = () => {
+      if (navigator.serviceWorker.controller) finish();
     };
     navigator.serviceWorker.addEventListener(
       'controllerchange',
-      onControllerChange,
-      {
-        once: true,
-      },
+      checkController,
     );
+    pollInterval = window.setInterval(checkController, 50);
+    timeout = window.setTimeout(() => {
+      cleanup();
+      reject(
+        Object.assign(new Error('Service Worker did not control this tab.'), {
+          code: 'WORKER_NOT_CONTROLLING' as const,
+        }),
+      );
+    }, SERVICE_WORKER_CONTROL_TIMEOUT_MS);
+    checkController();
   });
 }
 
@@ -184,7 +204,7 @@ export interface WebTorrentAdapter {
 // Live adapter implementation (wraps WebTorrent)
 // ---------------------------------------------------------------------------
 
-/** Default peer-gate deadline (ms). If 3 WebRTC-connected peers are never
+/** Default peer-gate deadline (ms). If the minimum WebRTC peer count is never
  *  reached within this window, the session is destroyed with a typed error. */
 const PEER_GATE_TIMEOUT_MS = 30_000;
 
@@ -203,6 +223,10 @@ class LiveWebTorrentAdapter implements WebTorrentAdapter {
     magnetUri: string,
     callbacks: TorrentAdapterCallbacks,
   ): Promise<void> {
+    // Reflect the explicit user action immediately, including while a newly
+    // registered Service Worker is taking control of this tab.
+    callbacks.onPhaseChange('connecting');
+
     // Browser bundle is loaded only when a magnet URI is submitted.
     const WebTorrentConstructor = await loadWebTorrentBrowserBundle();
 
@@ -214,8 +238,6 @@ class LiveWebTorrentAdapter implements WebTorrentAdapter {
 
     // Create server using the Service Worker controller
     this.client.createServer({ controller: this.registration });
-
-    callbacks.onPhaseChange('connecting');
 
     return new Promise<void>((resolve, reject) => {
       // Metadata can only arrive through a WebRTC-accessible peer. Treat a
@@ -261,7 +283,7 @@ class LiveWebTorrentAdapter implements WebTorrentAdapter {
           // Start peer monitoring
           this.startPeerMonitoring(callbacks);
 
-          // Start peer-gate deadline: 30s to reach 3 peers
+          // Start peer-gate deadline: 30s to reach the minimum peer count
           this.startPeerGateTimer(callbacks);
 
           callbacks.onPhaseChange('gate');
@@ -286,7 +308,7 @@ class LiveWebTorrentAdapter implements WebTorrentAdapter {
     this.peerGateTimer = setTimeout(() => {
       if (!this._connected || !this.torrent) return;
       const peers = this.torrent.numPeers ?? 0;
-      if (peers < 3) {
+      if (peers < MIN_WEBRTC_PEERS) {
         // Emit typed error; PlayerApp maps code → localized message
         callbacks.onError({
           code: 'PEER_INSUFFICIENT',

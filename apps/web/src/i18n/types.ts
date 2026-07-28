@@ -232,6 +232,11 @@ export interface Dictionary {
     historyUnavailable: string;
     historySentence: string;
     historyRange: string;
+    // P2.1: Play mode
+    playModeNormal: string;
+    playModeCondensed: string;
+    playModeFastForward: string;
+    playModeLabel: string;
     // WT-1: Torrent streaming
     magnetInputLabel: string;
     magnetInputPlaceholder: string;
@@ -242,6 +247,7 @@ export interface Dictionary {
     magnetPeerCount: (count: number) => string;
     magnetErrorInvalid: string;
     magnetErrorWebRTC: string;
+    magnetErrorWorkerNotControlling: string;
     magnetErrorPeerInsufficient: string;
     magnetErrorTracker: string;
     magnetErrorNoPeer: string;

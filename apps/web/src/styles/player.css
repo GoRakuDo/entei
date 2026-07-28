@@ -1881,7 +1881,7 @@
 
 /* --- Rate Popover --- */
 .entei-rate-popover {
-  width: 200px;
+  width: 220px;
   background-color: var(--entei-surface);
   border: 1px solid oklch(100% 0 0deg / 0.1);
   border-radius: var(--entei-radius-lg);
@@ -1942,6 +1942,102 @@
 
 .entei-rate-option--active:hover {
   background-color: var(--entei-accent-hover);
+}
+
+/* P2.1: Playback mode radio group inside rate popover
+ * ---------------------------------------------------------------------------
+ * Responsive: Desktop (pointer:fine) = compact standard shadcn-like group.
+ *             Mobile  (pointer:coarse) = spacious 44px touch targets.
+ * Checked dot is hollow/transparent — accent border only, no solid fill.
+ * Hover uses existing Entei OKLCH tokens exclusively. */
+
+/* --- Divider --- */
+.entei-rate-popover-divider {
+  height: 1px;
+  background-color: oklch(100% 0 0deg / 0.08);
+  /* Mobile default: 12px vertical margins */
+  margin: var(--entei-space-12) 0;
+}
+
+/* --- Radio group container --- */
+.entei-play-mode-group {
+  display: flex;
+  flex-direction: column;
+  /* Mobile default: 8px row gap */
+  gap: var(--entei-space-8);
+}
+
+/* --- Radio row (label wrapper) --- */
+.entei-play-mode-option {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  /* Mobile default: 44px touch target, 12px horizontal padding */
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-12);
+  border-radius: var(--entei-radius-sm);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-play-mode-option:hover {
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+}
+
+/* Desktop only: compact layout — no full-row focus outline.
+ * Focus-visible is preserved on the actual RadioGroupItem. */
+@media (pointer: fine) {
+  .entei-rate-popover-divider {
+    margin: var(--entei-space-8) 0;
+  }
+
+  .entei-play-mode-group {
+    gap: var(--entei-space-4);
+  }
+
+  .entei-play-mode-option {
+    min-height: 36px;
+    padding: 0 var(--entei-space-8);
+  }
+}
+
+/* --- Radio item: unchecked state --- */
+.entei-play-mode-option [data-slot='radio-group-item'] {
+  border-color: oklch(100% 0 0deg / 0.25);
+  background-color: oklch(100% 0 0deg / 0.05);
+}
+
+/* Hover: accent-tinted border for visible distinction */
+.entei-play-mode-option [data-slot='radio-group-item']:hover {
+  border-color: color-mix(in oklch, var(--entei-accent) 40%, transparent);
+  background-color: oklch(100% 0 0deg / 0.08);
+}
+
+/* --- Radio item: checked state — accent border, NO solid background fill --- */
+.entei-play-mode-option [data-slot='radio-group-item'][data-state='checked'] {
+  border-width: 2.5px;
+  border-color: var(--entei-accent);
+  background-color: transparent;
+}
+
+/* Checked state uses the item's accent outline only — no center mark or fill. */
+.entei-play-mode-option
+  [data-slot='radio-group-item'][data-state='checked']
+  [data-slot='radio-group-indicator'] {
+  display: none;
+}
+
+/* P2.1: Reduced motion — freeze hover/checked transitions */
+@media (prefers-reduced-motion: reduce) {
+  .entei-play-mode-option {
+    transition: none;
+  }
 }
 
 /* --- Fullscreen Error Feedback --- */

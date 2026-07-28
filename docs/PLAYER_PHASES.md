@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。次のgate通過後に別途承認すること。P2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P2.1（Normal / Condensed / Fast-forward）はコード完了、手動browser QA待ち。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。P2.2-P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -73,7 +73,7 @@ mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ�
 
 ### 3.4 original Phase 3 — WebTorrent local peer streaming
 
-original proposalのWebTorrent Phaseは、ここでいうP3 Miningとは別の後続Phase。WT-1は実装済みで、magnet URIだけを受け、実際に接続できたWebRTC peerが3以上の場合だけ単一torrent mediaの公開stream URLを既存Playerへ渡す。Chromiumで公式Sintel magnet（5 peer、14:48動画）を実再生済み。torrent内字幕・複数media選択はWT-2、privacy copy reviewとproduction browser QAは残留gate。詳細なpeer gate、Service Worker、cache / PWAの順序は[WEBTORRENT_STREAMING.md](./WEBTORRENT_STREAMING.md)を正とする。これは外部配信siteへ注入するStreaming Video Integrationではない。
+original proposalのWebTorrent Phaseは、ここでいうP3 Miningとは別の後続Phase。WT-1は実装済みで、magnet URIだけを受け、実際に接続できたWebRTC peerが1以上の場合だけ単一torrent mediaの公開stream URLを既存Playerへ渡す。Chromiumで公式Sintel magnet（5 peer、14:48動画）を実再生済み。torrent内字幕・複数media選択はWT-2、privacy copy reviewとproduction browser QAは残留gate。詳細なpeer gate、Service Worker、cache / PWAの順序は[WEBTORRENT_STREAMING.md](./WEBTORRENT_STREAMING.md)を正とする。これは外部配信siteへ注入するStreaming Video Integrationではない。
 
 ---
 
@@ -175,6 +175,32 @@ P1を終えても、「機能を増やす」前に実local mediaで以下が通�
 ### 目標
 
 「字幕の空白を飛ばす」「一文ごとに止める」「一文を繰り返す」が、再生状態を壊さず使える。
+
+### P2.1 — 最初の実装範囲（3モード）
+
+最初はASBの全5 modeを一度に移植しない。Normal / Condensed / Fast-forwardだけを実装し、Auto-pause / RepeatはP2.2以降へ残す。これによりcue終了時のpause / repeat状態機械を初回scopeから外し、字幕のない区間の扱いを先に安定させる。
+
+| mode         | 契約                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Normal       | Condensed / Fast-forwardを解除する。既存の手動playback rateへ戻す。                                                   |
+| Condensed    | 再生中に次cueまでのgapが**1,000ms超**なら、次cue開始へseekする。pause中、Mine / media capture中、seek中はjumpしない。 |
+| Fast-forward | 字幕が表示中または字幕端から600ms以内は**1x**。字幕のないgapでは**3x**。解除時は既存の手動playback rateへ戻す。       |
+
+- CondensedとFast-forwardは排他。片方を有効にするともう片方を解除する。
+- Normalは常に選べるリセット状態。Condensed / Fast-forwardを両方OFFにした時もNormalへ戻す。
+- mode stateのlocalStorage保存、shortcut、Auto-pause、RepeatはこのP2.1実装には含めない。必要性を実機確認してからP2.2で決める。
+
+### P2.1のDone条件
+
+- Normal / Condensed / Fast-forwardをそれぞれ実media + subtitleで確認する
+- Condensedが1,000ms以下のgapをseekしないこと、Fast-forwardが字幕中に必ず1xへ戻ることをunit testで固定する
+- Condensed / Fast-forward同時ONを許さない
+- Mine / capture中、pause中にCondensedがseekしない
+- Fast-forward解除後に既存の手動playback rateへ戻る
+
+> **実装記録（2026-07-28）:** Shadcn Radio Groupをrate Popoverのrate grid下へ追加。Normal / Condensed / Fast-forwardはsession-only stateで、Condensedは1,000ms超の無音gapをseek、Fast-forwardは字幕中/端600ms以内を1x、その他を3xにする。秒の浮動小数誤差を避けるためgap差はmsへ丸めてstrict `>`比較する。unit test 33件、全test / check / buildは通過。実mediaでの操作・spacing QAは残る。
+
+### P2.2以降の拡張候補
 
 ### 含めるもの
 

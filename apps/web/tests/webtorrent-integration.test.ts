@@ -181,7 +181,7 @@ describe('WebRTC unsupported detection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Peer gate: blocks under 3, passes at 3
+// Peer gate: blocks at 0, passes at 1
 // ---------------------------------------------------------------------------
 
 describe('Peer gate', () => {
@@ -197,33 +197,33 @@ describe('Peer gate', () => {
     };
   });
 
-  it('phase stays "gate" when peers < 3', async () => {
+  it('phase stays "gate" when no peers are connected', async () => {
     await adapter.connect('magnet:?xt=urn:btih:abc123', callbacks);
     expect(callbacks.onPhaseChange).toHaveBeenCalledWith('gate');
 
     adapter.setPeerStatus({
-      numPeers: 2,
+      numPeers: 0,
       downloadSpeed: 0,
       uploadSpeed: 0,
       progress: 0,
     });
     const status = adapter.getPeerStatus();
-    expect(status.numPeers).toBe(2);
-    // In PlayerApp, onPeerStatus handler checks numPeers < 3 → stays gate
-    expect(status.numPeers).toBeLessThan(3);
+    expect(status.numPeers).toBe(0);
+    // In PlayerApp, onPeerStatus handler checks numPeers < minimum → stays gate
+    expect(status.numPeers).toBeLessThan(1);
   });
 
-  it('phase transitions when peers >= 3 (PlayerApp logic)', async () => {
+  it('phase transitions when at least one peer connects (PlayerApp logic)', async () => {
     await adapter.connect('magnet:?xt=urn:btih:abc123', callbacks);
 
     adapter.setPeerStatus({
-      numPeers: 3,
+      numPeers: 1,
       downloadSpeed: 1000,
       uploadSpeed: 500,
       progress: 0.1,
     });
     const status = adapter.getPeerStatus();
-    expect(status.numPeers).toBeGreaterThanOrEqual(3);
+    expect(status.numPeers).toBeGreaterThanOrEqual(1);
 
     // PlayerApp should call selectContent → single-playable
     adapter.setFiles([
@@ -270,10 +270,10 @@ describe('Peer gate', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Peer gate 0-2 deadline (simulated)
+// Peer gate 0-peer deadline (simulated)
 // ---------------------------------------------------------------------------
 
-describe('Peer gate deadline (0-2 peers timeout)', () => {
+describe('Peer gate deadline (0 peers timeout)', () => {
   let adapter: MockWebTorrentAdapter;
   let callbacks: TorrentAdapterCallbacks;
 
@@ -340,19 +340,19 @@ describe('Buffering drop/recovery (isBuffering ref pattern)', () => {
     // Initial state: no peers, not buffering
     expect(isBuffering).toBe(false);
 
-    // Peers reach 3 → gate passes → streaming starts → buffering=true
+    // One peer connects → gate passes → streaming starts → buffering=true
     isBuffering = true;
-    peerBelowThreshold = true; // peers were >= 3 at least once
+    peerBelowThreshold = true; // minimum peer count was reached at least once
     expect(isBuffering).toBe(true);
 
-    // Peers drop below 3 → buffering=true (still)
-    // The logic: if phase === 'streaming' && numPeers < 3 && peerBelowThreshold
+    // Peers drop to zero → buffering=true (still)
+    // The logic: if streaming has no peers after reaching the minimum
     if (peerBelowThreshold) {
       isBuffering = true;
     }
     expect(isBuffering).toBe(true);
 
-    // Peers recover to >= 3 → buffering=false
+    // One peer recovers → buffering=false
     if (isBuffering) {
       isBuffering = false;
     }
@@ -363,7 +363,7 @@ describe('Buffering drop/recovery (isBuffering ref pattern)', () => {
     let isBuffering = false;
     let peerBelowThreshold = false;
 
-    // Peers at 1 → gate still waiting
+    // No peers → gate still waiting
     // Should NOT set buffering
     if (peerBelowThreshold) {
       isBuffering = true;
@@ -376,7 +376,7 @@ describe('Buffering drop/recovery (isBuffering ref pattern)', () => {
     let isBuffering = false;
     let peerBelowThreshold = false;
 
-    // Peers reach 3 → streaming
+    // One peer connects → streaming
     isBuffering = true;
     peerBelowThreshold = true;
 

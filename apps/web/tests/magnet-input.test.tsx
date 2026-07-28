@@ -14,6 +14,11 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 const baseDict = {
   magnetErrorInvalid: 'Invalid magnet URI.',
   magnetErrorWebRTC: 'WebRTC unsupported.',
+  playModeLabel: 'Play mode',
+  playModeNormal: 'Normal',
+  playModeCondensed: 'Condensed',
+  playModeFastForward: 'Fast-forward',
+  magnetErrorWorkerNotControlling: 'Reload the page, then try again.',
   magnetErrorPeerInsufficient: 'Not enough peers.',
   magnetErrorTracker: 'Tracker failed.',
   magnetErrorNoPeer: 'No peers found.',

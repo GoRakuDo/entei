@@ -250,6 +250,111 @@ export function isControlTarget(target: EventTarget | null): boolean {
   );
 }
 
+// --- P2.1: Play Mode --------------------------------------------------------
+
+/** Playback mode — mutually exclusive. */
+export type PlayMode = 'normal' | 'condensed' | 'fast-forward';
+
+/** P2.1: Constants for play mode behavior. */
+export const CONDENSED_SKIP_THRESHOLD_MS = 1000;
+export const FAST_FORWARD_GAP_THRESHOLD_MS = 600;
+export const FAST_FORWARD_RATE = 3;
+
+function roundedMilliseconds(seconds: number): number {
+  return Math.round(seconds * 1000);
+}
+
+/**
+ * P2.1: Find the next cue after the given time.
+ * Returns undefined if no cue starts after `time`.
+ */
+export function findNextCue(
+  cues: { start: number; end: number; id: number }[],
+  time: number,
+): { start: number; end: number; id: number } | undefined {
+  return cues.find((c) => c.start > time);
+}
+
+/**
+ * P2.1: Determine whether Condensed mode should seek to the next cue.
+ * Conditions: playing, cues loaded, no active cue, next cue exists,
+ * gap > 1000ms, not paused, not mining/capturing, not seeking.
+ */
+export function shouldCondensedSeek(
+  mode: PlayMode,
+  isPlaying: boolean,
+  isPaused: boolean,
+  isMiningOrCapturing: boolean,
+  isSeeking: boolean,
+  isCondensedSeekInFlight: boolean,
+  cues: { start: number; end: number; id: number }[],
+  currentTime: number,
+): boolean {
+  if (mode !== 'condensed') return false;
+  if (!isPlaying || isPaused) return false;
+  if (isMiningOrCapturing) return false;
+  if (isSeeking || isCondensedSeekInFlight) return false;
+  if (cues.length === 0) return false;
+
+  const active = cues.find(
+    (c) => c.start <= currentTime && c.end > currentTime,
+  );
+  if (active) return false;
+
+  const next = findNextCue(cues, currentTime);
+  if (!next) return false;
+
+  const gapMs = roundedMilliseconds(next.start - currentTime);
+  return gapMs > CONDENSED_SKIP_THRESHOLD_MS;
+}
+
+/**
+ * P2.1: Determine whether Fast-forward mode should apply 3x rate.
+ * Conditions: mode is fast-forward, no cue is active,
+ * both nearest previous cue end AND next cue start are > 600ms away.
+ * During/within 600ms of subtitles → 1x.
+ */
+export function shouldFastForward(
+  mode: PlayMode,
+  cues: { start: number; end: number; id: number }[],
+  currentTime: number,
+): boolean {
+  if (mode !== 'fast-forward') return false;
+  if (cues.length === 0) return false;
+
+  const active = cues.find(
+    (c) => c.start <= currentTime && c.end > currentTime,
+  );
+  if (active) return false;
+
+  // Find nearest previous cue end
+  let prevCueEnd: number | undefined;
+  for (let i = cues.length - 1; i >= 0; i--) {
+    if (cues[i]!.end <= currentTime) {
+      prevCueEnd = cues[i]!.end;
+      break;
+    }
+  }
+
+  // Find nearest next cue start
+  const nextCue = findNextCue(cues, currentTime);
+  const nextCueStart = nextCue?.start;
+
+  const previousOffsetMs =
+    prevCueEnd !== undefined
+      ? roundedMilliseconds(currentTime - prevCueEnd)
+      : Infinity;
+  const nextOffsetMs =
+    nextCueStart !== undefined
+      ? roundedMilliseconds(nextCueStart - currentTime)
+      : Infinity;
+
+  return (
+    previousOffsetMs > FAST_FORWARD_GAP_THRESHOLD_MS &&
+    nextOffsetMs > FAST_FORWARD_GAP_THRESHOLD_MS
+  );
+}
+
 // --- P1.3a.2: Caption Display Mode ------------------------------------------
 
 /** Overlay display mode — cycled by the caption mode button. */

@@ -629,7 +629,7 @@ FirefoxはこのPhase 0の正式pass gateへ入れない。Chromium版の完了�
 | Browser          | Chromiumを先に保証         | Test matrixを深く回せる                       | Firefox差分は後続Unitとして明示的に返済する                           |
 | Security headers | Hosting responseで設定     | CSP等を正しい層で強制できる                   | Hosting先未決のため、具体設定は0.6までblockされる                     |
 
-注意点として、`Media stays on your device` はLocal File中心のPhaseでは正しいが、将来WebTorrentを追加するとpeer通信の説明が別途必要になる。WebTorrent Phaseへ入る時にprivacy copyを再レビューし、Phase 0の短い約束が広すぎないか確認する。WebRTC peer 3以上をgateにするlocal peer streamingの詳細は[WEBTORRENT_STREAMING.md](./WEBTORRENT_STREAMING.md)を正とする。
+注意点として、`Media stays on your device` はLocal File中心のPhaseでは正しいが、将来WebTorrentを追加するとpeer通信の説明が別途必要になる。WebTorrent Phaseへ入る時にprivacy copyを再レビューし、Phase 0の短い約束が広すぎないか確認する。WebRTC peer 1以上をgateにするlocal peer streamingの詳細は[WEBTORRENT_STREAMING.md](./WEBTORRENT_STREAMING.md)を正とする。
 
 現時点でPhase 0の技術実現性は約90%と見る。根拠は、元企画にstatic shellとclient-side機能の境界が既にあること、Astroが静的HTMLを中心にclient-side scriptを追加できること。残る10%は、hostingのsecurity header対応、保存locale切替時のちらつき、実font payload、実機contrast、3言語copyの自然さをまだ測っていない分。
 

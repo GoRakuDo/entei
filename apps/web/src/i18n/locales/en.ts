@@ -220,6 +220,8 @@ export const en: Dictionary = {
     magnetErrorInvalid: 'Invalid magnet URI. Please enter a valid magnet link.',
     magnetErrorWebRTC:
       'Your browser does not support WebRTC. Torrent streaming is not available.',
+    magnetErrorWorkerNotControlling:
+      'Torrent streaming is getting ready. Reload the page, then try again.',
     magnetErrorPeerInsufficient:
       'Sorry, this file does not have enough sharers. Try another magnet URI.',
     magnetErrorTracker: 'Tracker connection failed.',
@@ -232,6 +234,11 @@ export const en: Dictionary = {
     magnetErrorGeneric: 'An unexpected error occurred.',
     magnetBuffering: 'Buffering…',
     torrentDisconnect: 'Disconnect',
+    // P2.1: Play mode
+    playModeNormal: 'Normal',
+    playModeCondensed: 'Condensed',
+    playModeFastForward: 'Fast-forward',
+    playModeLabel: 'Playback mode',
   },
   reader: {
     title: 'EPUB Reader',

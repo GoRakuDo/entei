@@ -1,6 +1,6 @@
 # WebTorrent — Phase 3 Local Peer Streaming 設計
 
-> **状態:** WT-1 コードコンプリート・Chromium実機の基本streaming確認済み。公式Sintel magnetで5 WebRTC peer、単一`Sintel.mp4`の14:48再生を確認。production-browser QAとprivacy copy reviewは別gate。
+> **状態:** WT-1 コードコンプリート・Chromium実機の基本streaming確認済み。公式Sintel magnetで5 WebRTC peer、単一`Sintel.mp4`の14:48再生を確認。最低1 WebRTC peerで再生開始する。production-browser QAとprivacy copy reviewは別gate。
 > **対象:** original proposalのPhase 3。`PLAYER_PHASES.md`のP3 Miningとは別の番号体系なので、以後は`WT-1`〜`WT-5`で呼ぶ。
 > **境界:** torrent内のローカルメディアをbrowserで再生する機能。外部配信siteへの注入、tab capture、browser extensionは永久に対象外。
 
@@ -10,11 +10,11 @@
 
 ユーザーがmagnet URIを貼ると、園庭はbrowserから実際に接続できたWebRTC peerを確認する。
 
-3 peer以上なら、torrent内の再生可能mediaを既存Playerで再生する。WT-1は再生可能mediaが1本の場合だけ選択画面を挟まず、そのまま再生を始める。torrent内字幕の読込みと複数media選択はWT-2で追加する。
+1 WebRTC peer以上なら、torrent内の再生可能mediaを既存Playerで再生する。WT-1は再生可能mediaが1本の場合だけ選択画面を挟まず、そのまま再生を始める。torrent内字幕の読込みと複数media選択はWT-2で追加する。
 
 ```text
 magnet URI
-  → WebRTC peer確認（3以上）
+  → WebRTC peer確認（1以上）
   → torrent内mediaを判定
   → 既存 <video> / <audio> へstream URLを渡す
   → 既存Player controlsを使う
@@ -32,19 +32,19 @@ magnet URI
 - 入力値をlocalStorage、URL、Analytics、ログへ保存しない。
 - `magnet:`形式でない値は接続を始めず、3言語の入力エラーを表示する。
 
-### 2.2 3-peer 接続gate
+### 2.2 1-peer 接続gate
 
 browserはpeerの実装種別を安全に識別できない。そのため、`WebTorrent Desktop`、`webtorrent-hybrid`、browser seed、WebRTC対応web seedという**候補種別を数える**のではなく、実際にbrowserが接続できたWebRTC peerを`torrent.numPeers`で数える。
 
 | 条件                             | 動作                                             |
 | -------------------------------- | ------------------------------------------------ |
 | WebRTC非対応                     | 接続を開始しない。local file Playerを案内する    |
-| 接続済みpeerが0〜2（30秒以内）   | 接続確認中を表示し、ファイル一覧や再生は出さない |
-| 接続済みpeerが0〜2（30秒超過）   | peer不足エラー。torrent sessionをdestroy         |
-| 接続済みpeerが3以上              | torrent内容の判定へ進む                          |
+| 接続済みpeerが0（30秒以内）      | 接続確認中を表示し、ファイル一覧や再生は出さない |
+| 接続済みpeerが0（30秒超過）      | peer不足エラー。torrent sessionをdestroy         |
+| 接続済みpeerが1以上              | torrent内容の判定へ進む                          |
 | peer不足 / tracker失敗 / no-peer | torrentをdestroyし、エラーを表示する             |
 
-**Peer gate deadline:** torrent metadata取得後に30秒のpeer gate timerが開始する。この時間内に`numPeers >= 3`に到達しない場合、`PEER_INSUFFICIENT` codeでdestroyし、正確なpeer不足copyを表示する。
+**Peer gate deadline:** torrent metadata取得後に30秒のpeer gate timerが開始する。この時間内に`numPeers >= 1`に到達しない場合、`PEER_INSUFFICIENT` codeでdestroyし、正確なpeer不足copyを表示する。
 
 peer数は「その瞬間に接続できた共有相手」の数であり、3つの**完全seed**や特定pieceの保有を保証しない。開始後にpeerが減った時は再生を壊さずbuffering状態として表示する。
 
@@ -75,6 +75,7 @@ WebTorrentのService Worker serverを起動し、選択されたfileの公開`st
 - 完全downloadを待たず、browserのrange requestに応じて必要pieceを取得する。
 - seekは既存Playerのseek sliderを使う。必要なpieceの取得待ちはbuffering UIで表現する。
 - sessionの停止、media変更、page leave、unmountではtorrent / Worker communication / object URL相当の参照を確実に破棄する。
+- 新規Service Workerが5秒以内に現在のtabをcontrolできない場合は、spinnerを無期限に残さず、再読み込みして再試行する3言語copyを表示する。
 
 ---
 
@@ -105,12 +106,12 @@ PlayerApp
 1. `npm install webtorrent`で依存を追加する。
 2. 園庭origin上でWebTorrent公式browser ESM bundleをraw static assetとして配り、Service Workerをregisterする。
 3. magnet inputとWebRTC support / peer count / tracker error UIを作る。
-4. `numPeers >= 3`を通過したtorrentだけから、1本のmediaの公開`streamURL`を既存Playerへ渡す。
+4. `numPeers >= 1`を通過したtorrentだけから、1本のmediaの公開`streamURL`を既存Playerへ渡す。
 5. local mediaへ切り替えた時にtorrentを停止・破棄する。
 
 **実機確認済み:** 公式Sintel magnetで5 WebRTC peerを確認し、単一`Sintel.mp4`の再生開始と14:48動画の途中再生をChromiumで確認。
 
-**残留gate:** pause / seek / media切替 / 0〜2 peer copy / page leave cleanup / production browser。
+**残留gate:** pause / seek / media切替 / 0 peer copy / page leave cleanup / production browser。
 
 ### WT-2 — torrent内字幕と内容選択
 
@@ -164,8 +165,8 @@ WebTorrent開始は、現在のlocal-only copyを再レビューしてからに�
 | ケース                   | 確認すること                                             |
 | ------------------------ | -------------------------------------------------------- |
 | WebRTC非対応             | 接続しない、local fallback copy                          |
-| 0〜2 peer（30秒超過）    | peer不足エラーcopy、session破棄                          |
-| 3 peer以上 + media 1本   | ✅ ChromiumでSintel.mp4を実再生                          |
+| 0 peer（30秒超過）       | peer不足エラーcopy、session破棄                          |
+| 1 peer以上 + media 1本   | ✅ ChromiumでSintel.mp4を実再生                          |
 | media/subtitle複数       | WT-2: Modalで選んだものだけ使用                          |
 | seek                     | 該当区間をbufferし、既存subtitleとMineの時刻が一致       |
 | peer離脱                 | 再生停止ではなくbuffering / recovery表示                 |
@@ -173,6 +174,7 @@ WebTorrent開始は、現在のlocal-only copyを再レビューしてからに�
 | privacy                  | peer通信 / uploadの事前説明と明示開始操作                |
 | Service Worker streaming | ✅ localhost Chromiumで`file.streamURL` + SWが動画を返す |
 | GitHub Pages初回訪問     | 新規Service Worker登録直後のtab controlとstreaming       |
+| Worker control timeout   | 5秒後に無期限spinnerではなく再読み込み案内を表示         |
 
 ---
 

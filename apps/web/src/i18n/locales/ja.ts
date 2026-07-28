@@ -225,6 +225,8 @@ export const ja: Dictionary = {
       '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
     magnetErrorWebRTC:
       'このブラウザはWebRTCに対応していません。トレントストリームは利用できません。',
+    magnetErrorWorkerNotControlling:
+      'Torrent streamingを準備中です。ページを再読み込みしてから、もう一度試してください。',
     magnetErrorPeerInsufficient:
       'すみません、そのファイルの共有者数が足りません。別のmagnet URIを試してください。',
     magnetErrorTracker: 'トラッカーへの接続に失敗しました。',
@@ -237,6 +239,11 @@ export const ja: Dictionary = {
     magnetErrorGeneric: '予期しないエラーが発生しました。',
     magnetBuffering: 'バッファリング中…',
     torrentDisconnect: '切断',
+    // P2.1: Play mode
+    playModeNormal: '通常',
+    playModeCondensed: '短縮',
+    playModeFastForward: '早送り',
+    playModeLabel: '再生モード',
   },
   reader: {
     title: 'EPUBリーダー',

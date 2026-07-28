@@ -224,6 +224,8 @@ export const id: Dictionary = {
       'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
     magnetErrorWebRTC:
       'Browser Anda tidak mendukung WebRTC. Streaming torrent tidak tersedia.',
+    magnetErrorWorkerNotControlling:
+      'Streaming torrent sedang disiapkan. Muat ulang halaman, lalu coba lagi.',
     magnetErrorPeerInsufficient:
       'Maaf, jumlah pembagi file ini tidak mencukupi. Coba magnet URI lain.',
     magnetErrorTracker: 'Koneksi tracker gagal.',
@@ -236,6 +238,11 @@ export const id: Dictionary = {
     magnetErrorGeneric: 'Terjadi kesalahan tak terduga.',
     magnetBuffering: 'Buffering…',
     torrentDisconnect: 'Putuskan',
+    // P2.1: Play mode
+    playModeNormal: 'Normal',
+    playModeCondensed: 'Disingkat',
+    playModeFastForward: 'Percepat',
+    playModeLabel: 'Mode pemutaran',
   },
   reader: {
     title: 'Pembaca EPUB',

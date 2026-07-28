@@ -46,6 +46,10 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/player/ui/popover';
+import {
+  RadioGroup,
+  RadioGroupItem,
+} from '@/components/player/ui/radio-group';
 import { PlayerSettingsDialog } from '@/components/player/PlayerSettingsDialog';
 import {
   formatTime,
@@ -58,6 +62,7 @@ import {
   exitFullscreenCompat,
   type VisibilityEvent,
   type CaptionDisplayMode,
+  type PlayMode,
 } from '@/features/player/control-helpers';
 import type { ShortcutEntry } from '@/components/player/KeyboardShortcutsHelp';
 
@@ -88,6 +93,9 @@ interface PlayerControlsProps {
   onVolumeChange: (volume: number) => void;
   playbackRate: number;
   onPlaybackRateChange: (rate: number) => void;
+  // P2.1: Playback mode
+  playMode?: PlayMode;
+  onPlayModeChange?: (mode: PlayMode) => void;
   shortcuts: ShortcutEntry[];
   isTouchDevice: boolean;
   /** Mobile viewport hides volume controls; desktop touch devices stay unchanged. */
@@ -143,6 +151,8 @@ export const PlayerControls = forwardRef<
     onVolumeChange,
     playbackRate,
     onPlaybackRateChange,
+    playMode = 'normal',
+    onPlayModeChange = () => {},
     shortcuts,
     isTouchDevice,
     isMobileViewport = false,
@@ -744,6 +754,40 @@ export const PlayerControls = forwardRef<
                     </button>
                   ))}
                 </div>
+                {/* P2.1: Playback mode radio group */}
+                <div className="entei-rate-popover-divider" />
+                <p className="entei-rate-popover-title">
+                  {dict.playModeLabel}
+                </p>
+                <RadioGroup
+                  value={playMode}
+                  onValueChange={(value) => {
+                    onPlayModeChange(value as PlayMode);
+                  }}
+                  className="entei-play-mode-group"
+                >
+                  <label className="entei-play-mode-option">
+                    <RadioGroupItem
+                      value="normal"
+                      aria-label={dict.playModeNormal}
+                    />
+                    <span>{dict.playModeNormal}</span>
+                  </label>
+                  <label className="entei-play-mode-option">
+                    <RadioGroupItem
+                      value="condensed"
+                      aria-label={dict.playModeCondensed}
+                    />
+                    <span>{dict.playModeCondensed}</span>
+                  </label>
+                  <label className="entei-play-mode-option">
+                    <RadioGroupItem
+                      value="fast-forward"
+                      aria-label={dict.playModeFastForward}
+                    />
+                    <span>{dict.playModeFastForward}</span>
+                  </label>
+                </RadioGroup>
               </PopoverContent>
             </Popover>
 

@@ -50,6 +50,10 @@ import {
   nextCaptionDisplayMode,
   BLUR_RESTORE_TIMEOUT_MS,
   type CaptionDisplayMode,
+  type PlayMode,
+  shouldCondensedSeek,
+  shouldFastForward,
+  FAST_FORWARD_RATE,
 } from '@/features/player/control-helpers';
 import {
   type LocaleChangeDetail,
@@ -87,6 +91,7 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 import {
   createWebTorrentAdapter,
   isWebRTCSupported,
+  MIN_WEBRTC_PEERS,
   type WebTorrentAdapter,
 } from '@/features/player/webtorrent-adapter';
 import type {
@@ -213,6 +218,16 @@ export default function PlayerApp() {
     prefsRef.current.playbackRate,
   );
   const [volume, setVolume] = useState(prefsRef.current.volume);
+
+  // P2.1: Play mode — default normal, not persisted
+  const [playMode, setPlayMode] = useState<PlayMode>('normal');
+  // P2.1: Manual rate selected by user (separate from fast-forward effective rate)
+  const manualPlaybackRateRef = useRef(prefsRef.current.playbackRate);
+  // P2.1: Condensed seek in-flight guard
+  const isCondensedSeekingRef = useRef(false);
+  const condensedSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // --- P1.1: subtitle panel visibility ---
   const [isSubtitlePanelVisible, setIsSubtitlePanelVisible] = useState(true);
@@ -861,6 +876,8 @@ export default function PlayerApp() {
             return dict.magnetErrorStreamUnavailable;
           case 'WEBRTC_UNSUPPORTED':
             return dict.magnetErrorWebRTC;
+          case 'WORKER_NOT_CONTROLLING':
+            return dict.magnetErrorWorkerNotControlling;
           case 'INVALID_MAGNET':
             return dict.magnetErrorInvalid;
           default:
@@ -881,9 +898,12 @@ export default function PlayerApp() {
             // Use refs to avoid stale closures
             const currentPhase = torrentPhaseRef.current;
 
-            // WT-1: Gate logic — wait for >= 3 peers
+            // WT-1: Gate logic — wait for the minimum peer count
             if (currentPhase === 'gate' || currentPhase === 'streaming') {
-              if (status.numPeers >= 3 && currentPhase === 'gate') {
+              if (
+                status.numPeers >= MIN_WEBRTC_PEERS &&
+                currentPhase === 'gate'
+              ) {
                 // Peer gate passed — evaluate content
                 let result: ReturnType<typeof adapter.selectContent>;
                 try {
@@ -920,7 +940,7 @@ export default function PlayerApp() {
                   adapter.destroy();
                 }
               } else if (
-                status.numPeers < 3 &&
+                status.numPeers < MIN_WEBRTC_PEERS &&
                 currentPhase === 'streaming' &&
                 torrentPeerBelowThresholdRef.current
               ) {
@@ -929,8 +949,8 @@ export default function PlayerApp() {
               }
             }
 
-            // Track if peers were ever >= 3 (for buffering recovery)
-            if (status.numPeers >= 3) {
+            // Track whether the minimum peer count was reached (for recovery)
+            if (status.numPeers >= MIN_WEBRTC_PEERS) {
               torrentPeerBelowThresholdRef.current = true;
               if (isBufferingRef.current) setIsBufferingSync(false);
             }
@@ -953,7 +973,13 @@ export default function PlayerApp() {
             // Deliberately omit the magnet URI: it may contain tracker URLs.
             console.error('[Entei WebTorrent] setup failed', error);
           }
-          setTorrentError(dict.magnetErrorGeneric);
+          const code =
+            typeof error === 'object' && error !== null && 'code' in error
+              ? String(error.code)
+              : null;
+          setTorrentError(
+            code ? mapErrorCode(code) : dict.magnetErrorGeneric,
+          );
           setTorrentPhaseSync('error');
         }
       }
@@ -1109,6 +1135,7 @@ export default function PlayerApp() {
 
   const handlePlaybackRateChange = useCallback((rate: number) => {
     setPlaybackRate(rate);
+    manualPlaybackRateRef.current = rate;
     writePlayerPreferences({
       volume: prefsRef.current.volume,
       playbackRate: rate,
@@ -1116,6 +1143,144 @@ export default function PlayerApp() {
     });
     prefsRef.current = { ...prefsRef.current, playbackRate: rate };
   }, []);
+
+  // P2.1: Play mode change handler
+  const handlePlayModeChange = useCallback(
+    (mode: PlayMode) => {
+      const prevMode = playMode;
+      setPlayMode(mode);
+
+      // When switching away from fast-forward, restore manual rate
+      if (prevMode === 'fast-forward' && mode !== 'fast-forward') {
+        const restored = manualPlaybackRateRef.current;
+        setPlaybackRate(restored);
+        const media =
+          mediaType === 'video' ? videoRef.current : audioRef.current;
+        if (media) media.playbackRate = restored;
+      }
+
+      // When switching to fast-forward, evaluate immediately
+      if (mode === 'fast-forward') {
+        const media =
+          mediaType === 'video' ? videoRef.current : audioRef.current;
+        if (media) {
+          const useFast = shouldFastForward(mode, cues, media.currentTime);
+          const targetRate = useFast ? FAST_FORWARD_RATE : 1;
+          setPlaybackRate(targetRate);
+          media.playbackRate = targetRate;
+        }
+      }
+    },
+    [playMode, mediaType, cues],
+  );
+
+  // P2.1: Condensed mode — seek to next cue during subtitle-free gaps
+  useEffect(() => {
+    const media =
+      mediaType === 'video' ? videoRef.current : audioRef.current;
+    if (!media || playMode !== 'condensed') return;
+
+    const onTimeUpdate = () => {
+      const isMiningOrCapturing =
+        isMiningRef.current ||
+        isMiningRefreshingRef.current ||
+        isCapturingRef.current ||
+        isRecordingAudioRef.current;
+
+      if (
+        shouldCondensedSeek(
+          playMode,
+          isPlaying,
+          media.paused,
+          isMiningOrCapturing,
+          media.seeking,
+          isCondensedSeekingRef.current,
+          cues,
+          media.currentTime,
+        )
+      ) {
+        const next = cues.find((c) => c.start > media.currentTime);
+        if (next) {
+          isCondensedSeekingRef.current = true;
+          media.currentTime = next.start;
+          // Fall back to a bounded release if this browser does not dispatch seeked.
+          condensedSeekTimeoutRef.current = setTimeout(() => {
+            isCondensedSeekingRef.current = false;
+            condensedSeekTimeoutRef.current = null;
+          }, 500);
+        }
+      }
+    };
+
+    const onSeeked = () => {
+      isCondensedSeekingRef.current = false;
+      if (condensedSeekTimeoutRef.current !== null) {
+        clearTimeout(condensedSeekTimeoutRef.current);
+        condensedSeekTimeoutRef.current = null;
+      }
+    };
+
+    media.addEventListener('timeupdate', onTimeUpdate);
+    media.addEventListener('seeked', onSeeked);
+    return () => {
+      media.removeEventListener('timeupdate', onTimeUpdate);
+      media.removeEventListener('seeked', onSeeked);
+      onSeeked();
+    };
+  }, [
+    playMode,
+    mediaType,
+    cues,
+    isPlaying,
+  ]);
+
+  // P2.1: Fast-forward mode — adjust playback rate based on subtitle proximity
+  useEffect(() => {
+    const media =
+      mediaType === 'video' ? videoRef.current : audioRef.current;
+    if (!media || playMode !== 'fast-forward') return;
+
+    const onTimeUpdate = () => {
+      if (!isPlaying) {
+        if (media.playbackRate !== 1) {
+          media.playbackRate = 1;
+          setPlaybackRate(1);
+        }
+        return;
+      }
+
+      const isMiningOrCapturing =
+        isMiningRef.current ||
+        isMiningRefreshingRef.current ||
+        isCapturingRef.current ||
+        isRecordingAudioRef.current;
+
+      // Never fast-forward during mining/capture
+      if (isMiningOrCapturing) {
+        if (media.playbackRate !== 1) {
+          media.playbackRate = 1;
+          setPlaybackRate(1);
+        }
+        return;
+      }
+
+      const useFast = shouldFastForward(
+        playMode,
+        cues,
+        media.currentTime,
+      );
+      const targetRate = useFast ? FAST_FORWARD_RATE : 1;
+      if (media.playbackRate !== targetRate) {
+        media.playbackRate = targetRate;
+        setPlaybackRate(targetRate);
+      }
+    };
+
+    media.addEventListener('timeupdate', onTimeUpdate);
+    // Evaluate immediately on mount / mode change
+    onTimeUpdate();
+    return () => media.removeEventListener('timeupdate', onTimeUpdate);
+  }, [playMode, mediaType, cues, isPlaying]);
 
   // --- AM-2: Screenshot capture ---
   const handleScreenshot = useCallback(async () => {
@@ -2865,6 +3030,8 @@ export default function PlayerApp() {
         onVolumeChange={handleVolumeChange}
         playbackRate={playbackRate}
         onPlaybackRateChange={handlePlaybackRateChange}
+        playMode={playMode}
+        onPlayModeChange={handlePlayModeChange}
         shortcuts={shortcuts}
         isTouchDevice={isTouchDevice}
         isMobileViewport={isMobileViewport}
