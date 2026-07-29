@@ -71,6 +71,10 @@ import {
   ResizableHandle,
 } from '@/components/player/ui/resizable';
 import { recordMiningHistory } from '@/features/player/mining-history';
+import {
+  useTrackerRuntime,
+  recordTrackerMiningArchive,
+} from '@/features/player/tracker';
 import { SubtitleOverlay } from '@/components/player/SubtitleOverlay';
 import {
   PlayerControls,
@@ -203,6 +207,10 @@ export default function PlayerApp() {
   const [mediaName, setMediaName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Stage 2a: Track local file for tracker fingerprint computation
+  const mediaFileRef = useRef<File | null>(null);
+  // Stage 2a: Track subtitle text content for tracker digest computation
+  const subtitleTextRef = useRef<string | null>(null);
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -489,6 +497,41 @@ export default function PlayerApp() {
   const mediaContainerRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const sharedMediaRef = useRef<HTMLMediaElement | null>(null);
+
+  // --- Stage 2a: Tracker runtime (non-visual, side-effect only) ---
+  const trackerFlush = useCallback(
+    async (
+      cells: Map<string, import('@/features/player/tracker/types').ExposureCell>,
+      totals: import('@/features/player/tracker/types').TimeTotals,
+      learningSetId: string,
+    ) => {
+      // Stage 2a: Flush is a placeholder — the actual DB write per-segment
+      // will be implemented in a later stage. For now this is a no-op that
+      // prevents the hook from crashing.
+      void cells;
+      void totals;
+      void learningSetId;
+    },
+    [],
+  );
+
+  const trackerRuntime = useTrackerRuntime({
+    isTorrentSource: !!torrentMediaName,
+    isLocalFile: !!mediaFileRef.current && !torrentMediaName,
+    mediaFile: mediaFileRef.current,
+    mediaName,
+    hasSubtitles: cues.length > 0,
+    subtitleText: subtitleTextRef.current,
+    playMode: playMode === 'condensed' || playMode === 'fast-forward'
+      ? playMode
+      : 'normal',
+    playbackRate,
+    isPlaying,
+    isPaused: !isPlaying && !!mediaUrl,
+    isBuffering,
+    mediaRef: sharedMediaRef,
+    onFlush: trackerFlush,
+  });
 
   // Cleanup on unmount
   useEffect(() => {
@@ -786,6 +829,8 @@ export default function PlayerApp() {
       setIsLoading(true);
       setLoadError(null);
       setActiveCueId(null);
+      // Stage 2a: Clear subtitle text on media change (subtitles are media-specific)
+      subtitleTextRef.current = null;
       // AM-2: Invalidate any prior screenshot when selecting new media
       clearScreenshot();
       // AM-3: Invalidate any prior audio clip when selecting new media
@@ -799,6 +844,9 @@ export default function PlayerApp() {
       setMediaUrl(newUrl);
       setMediaType(admission.kind);
       setMediaName(file.name);
+      // Stage 2a: Store local file reference for tracker fingerprint computation.
+      // Only set for actual File objects (not blob URLs from torrents).
+      mediaFileRef.current = file;
     },
     [clearScreenshot, clearAudioClip, clearMiningPreview],
   );
@@ -831,6 +879,8 @@ export default function PlayerApp() {
       setCues(result.cues);
       setSubtitleErrors(result.errors);
       setActiveCueId(null);
+      // Stage 2a: Store raw subtitle text for tracker digest computation
+      subtitleTextRef.current = content;
     };
     reader.onerror = () => {
       setSubtitleErrors([
@@ -951,6 +1001,8 @@ export default function PlayerApp() {
                 if (result.status === 'single-playable') {
                   torrentMediaNameRef.current = result.file.name;
                   setTorrentMediaName(result.file.name);
+                  // Stage 2a: Torrent source is not a local file — clear ref
+                  mediaFileRef.current = null;
 
                   // Determine media kind
                   const kind: 'video' | 'audio' =
@@ -2388,10 +2440,30 @@ export default function PlayerApp() {
         sentence: sentence ?? '',
       });
       if (written) setHistoryRefreshKey((key) => key + 1);
+
+      // Stage 2a: Also write to tracker mining_archive when enabled and
+      // local-file identity is available. Fire-and-forget: errors swallowed.
+      void recordTrackerMiningArchive({
+        mediaId: trackerRuntime.mediaId,
+        subtitleId: trackerRuntime.subtitleId,
+        learningSetId: trackerRuntime.learningSetId,
+        displayName: mediaName,
+        rangeStart: miningRangeStart,
+        rangeEnd: miningRangeEnd,
+        sentence: sentence ?? '',
+      });
     } catch {
       // IndexedDB failures must never alter an already successful Anki mutation.
     }
-  }, [mediaName, miningDraftFields, miningRangeEnd, miningRangeStart]);
+  }, [
+    mediaName,
+    miningDraftFields,
+    miningRangeEnd,
+    miningRangeStart,
+    trackerRuntime.mediaId,
+    trackerRuntime.subtitleId,
+    trackerRuntime.learningSetId,
+  ]);
 
   /** Stage 2 AM-6a: Send new note to Anki. */
   const handleExportSend = useCallback(async () => {
@@ -3327,6 +3399,9 @@ export default function PlayerApp() {
               onMineCue={handleMine}
               canMineRow={canMineRow}
               isMining={isMining}
+              trackerAccumulator={trackerRuntime.accumulator}
+              onTrackerFlush={trackerRuntime.onFlush}
+              trackerLearningSetId={trackerRuntime.learningSetId ?? undefined}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -3346,6 +3421,9 @@ export default function PlayerApp() {
               onMineCue={handleMine}
               canMineRow={canMineRow}
               isMining={isMining}
+              trackerAccumulator={trackerRuntime.accumulator}
+              onTrackerFlush={trackerRuntime.onFlush}
+              trackerLearningSetId={trackerRuntime.learningSetId ?? undefined}
             />
           )}
           {subtitleErrorsBlock}

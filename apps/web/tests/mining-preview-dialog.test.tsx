@@ -125,6 +125,8 @@ const baseProps = {
   savedDeck: 'Japanese',
   savedNoteType: 'Basic',
   sentenceFieldName: 'Front',
+  wordFieldName: null,
+  onFetchDeckNames: vi.fn().mockResolvedValue(new Map<number, string>()),
   mediaMode: 'image' as const,
   onMediaModeChange: vi.fn(),
   mediaPreviewUrl: null,

@@ -269,6 +269,13 @@ export interface Dictionary {
     magnetErrorGeneric: string;
     magnetBuffering: string;
     torrentDisconnect: string;
+    // Tracker (IMMERSION_TRACKER Stage 2b)
+    trackerLabel: string;
+    trackerOn: string;
+    trackerOff: string;
+    trackerAriaLabel: string;
+    trackerEnabledAriaDescription: string;
+    trackerDisabledAriaDescription: string;
   };
   reader: {
     title: string;

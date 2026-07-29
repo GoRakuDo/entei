@@ -203,4 +203,11 @@ export const baseMockDict = {
   magnetBuffering: 'Buffering…',
   torrentLabel: 'Torrent',
   torrentDisconnect: 'Disconnect',
+  // Tracker (IMMERSION_TRACKER Stage 2b)
+  trackerLabel: 'Tracker',
+  trackerOn: 'ON',
+  trackerOff: 'OFF',
+  trackerAriaLabel: 'Immersion tracker enabled',
+  trackerEnabledAriaDescription: 'Recording watch time and mining history',
+  trackerDisabledAriaDescription: 'Tracker is off — no new recording, existing history preserved',
 } as const;

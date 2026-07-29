@@ -3858,6 +3858,58 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: var(--entei-space-24);
 }
 
+/* --- Tracker ON/OFF Switch (IMMERSION_TRACKER Stage 2b) ---
+   Placed at top of History tab. Uses shadcn Switch + explicit ON/OFF labels.
+   Follows Entei's dark segmented/right-panel aesthetic. */
+.entei-tracker-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+  background-color: oklch(100% 0 0deg / 0.02);
+  border-radius: var(--entei-radius-sm) var(--entei-radius-sm) 0 0;
+  flex-shrink: 0;
+}
+
+.entei-tracker-switch-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--entei-text-secondary);
+}
+
+.entei-tracker-switch-control {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+}
+
+.entei-tracker-switch-state {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  min-width: 2.25rem;
+  text-align: right;
+}
+
+.entei-tracker-switch-row [data-slot='switch'] {
+  flex-shrink: 0;
+}
+
+/* Reduced motion: instant switch transition */
+@media (prefers-reduced-motion: reduce) {
+  .entei-tracker-switch-row [data-slot='switch'] {
+    transition: none;
+  }
+  .entei-tracker-switch-row [data-slot='switch-thumb'] {
+    transition: none;
+  }
+}
+
 /* --- Mobile (<768px) --- */
 @media (max-width: 767px) {
   .entei-player-layout--with-panel {

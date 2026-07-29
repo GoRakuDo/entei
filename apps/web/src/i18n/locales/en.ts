@@ -251,6 +251,13 @@ export const en: Dictionary = {
     subtitleVerticalPosition: 'Vertical position',
     subtitlePreview: 'Preview',
     subtitleReset: 'Reset to defaults',
+    // Tracker (IMMERSION_TRACKER Stage 2b)
+    trackerLabel: 'Tracker',
+    trackerOn: 'ON',
+    trackerOff: 'OFF',
+    trackerAriaLabel: 'Immersion tracker enabled',
+    trackerEnabledAriaDescription: 'Recording watch time and mining history',
+    trackerDisabledAriaDescription: 'Tracker is off — no new recording, existing history preserved',
   },
   reader: {
     title: 'EPUB Reader',

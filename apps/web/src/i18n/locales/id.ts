@@ -255,6 +255,13 @@ export const id: Dictionary = {
     subtitleVerticalPosition: 'Posisi vertikal',
     subtitlePreview: 'Pratinjau',
     subtitleReset: 'Kembalikan ke default',
+    // Tracker (IMMERSION_TRACKER Stage 2b)
+    trackerLabel: 'Tracker',
+    trackerOn: 'HIDUP',
+    trackerOff: 'MATI',
+    trackerAriaLabel: 'Tracker imersi aktif',
+    trackerEnabledAriaDescription: 'Mencatat waktu tontonan dan riwayat tambang',
+    trackerDisabledAriaDescription: 'Tracker mati — tidak ada rekaman baru, riwayat tetap tersimpan',
   },
   reader: {
     title: 'Pembaca EPUB',

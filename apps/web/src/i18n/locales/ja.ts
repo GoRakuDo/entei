@@ -256,6 +256,13 @@ export const ja: Dictionary = {
     subtitleVerticalPosition: '垂直位置',
     subtitlePreview: 'プレビュー',
     subtitleReset: 'デフォルトに戻す',
+    // Tracker (IMMERSION_TRACKER Stage 2b)
+    trackerLabel: 'トラッカー',
+    trackerOn: 'オン',
+    trackerOff: 'オフ',
+    trackerAriaLabel: '没入トラッカーを有効化',
+    trackerEnabledAriaDescription: '視聴時間と採掘履歴を記録中',
+    trackerDisabledAriaDescription: 'トラッカーはオフ — 新規記録は停止、既存履歴は保持',
   },
   reader: {
     title: 'EPUBリーダー',
