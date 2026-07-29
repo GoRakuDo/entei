@@ -304,13 +304,15 @@ export default function PlayerApp() {
   });
 
   const handleSubtitleSettingsChange = useCallback(
-    (settings: Partial<{
-      fontSize: number;
-      textColor: string;
-      backgroundColor: string;
-      backgroundPadding: number;
-      verticalPosition: number;
-    }>) => {
+    (
+      settings: Partial<{
+        fontSize: number;
+        textColor: string;
+        backgroundColor: string;
+        backgroundPadding: number;
+        verticalPosition: number;
+      }>,
+    ) => {
       setSubtitleSettings((prev) => ({ ...prev, ...settings }));
       const prefs = readPlayerPreferences();
       writePlayerPreferences({ ...prefs, ...settings });
@@ -1008,9 +1010,7 @@ export default function PlayerApp() {
             typeof error === 'object' && error !== null && 'code' in error
               ? String(error.code)
               : null;
-          setTorrentError(
-            code ? mapErrorCode(code) : dict.magnetErrorGeneric,
-          );
+          setTorrentError(code ? mapErrorCode(code) : dict.magnetErrorGeneric);
           setTorrentPhaseSync('error');
         }
       }
@@ -1222,8 +1222,7 @@ export default function PlayerApp() {
 
   // P2.1: Condensed mode — seek to next cue during subtitle-free gaps
   useEffect(() => {
-    const media =
-      mediaType === 'video' ? videoRef.current : audioRef.current;
+    const media = mediaType === 'video' ? videoRef.current : audioRef.current;
     if (!media || playMode !== 'condensed') return;
 
     const onTimeUpdate = () => {
@@ -1273,17 +1272,11 @@ export default function PlayerApp() {
       media.removeEventListener('seeked', onSeeked);
       onSeeked();
     };
-  }, [
-    playMode,
-    mediaType,
-    cues,
-    isPlaying,
-  ]);
+  }, [playMode, mediaType, cues, isPlaying]);
 
   // P2.1: Fast-forward mode — adjust playback rate based on subtitle proximity
   useEffect(() => {
-    const media =
-      mediaType === 'video' ? videoRef.current : audioRef.current;
+    const media = mediaType === 'video' ? videoRef.current : audioRef.current;
     if (!media || playMode !== 'fast-forward') return;
 
     const onTimeUpdate = () => {
@@ -1310,11 +1303,7 @@ export default function PlayerApp() {
         return;
       }
 
-      const useFast = shouldFastForward(
-        playMode,
-        cues,
-        media.currentTime,
-      );
+      const useFast = shouldFastForward(playMode, cues, media.currentTime);
       const targetRate = useFast ? FAST_FORWARD_RATE : 1;
       if (media.playbackRate !== targetRate) {
         media.playbackRate = targetRate;
@@ -2664,6 +2653,27 @@ export default function PlayerApp() {
     [ankiSession],
   );
 
+  /** AM-6c: Batch-fetch deck names for card IDs via cardsInfo. */
+  const handleFetchDeckNames = useCallback(
+    async (
+      cardIds: number[],
+      signal?: AbortSignal,
+    ): Promise<Map<number, string>> => {
+      if (!ankiSession || cardIds.length === 0) return new Map();
+      const client = new AnkiExportClient(
+        ankiSession.endpoint,
+        ankiSession.apiKey || undefined,
+      );
+      const cards = await client.cardsInfo(cardIds, signal);
+      const map = new Map<number, string>();
+      for (const card of cards) {
+        map.set(card.cardId, card.deckName);
+      }
+      return map;
+    },
+    [ankiSession],
+  );
+
   const handleAppend = useCallback(
     async (selectedIds: number[]) => {
       if (!ankiSession || isAppending || selectedIds.length === 0) {
@@ -3152,6 +3162,8 @@ export default function PlayerApp() {
         savedDeck={ankiPrefs?.deck ?? ''}
         savedNoteType={ankiPrefs?.noteType ?? ''}
         sentenceFieldName={ankiPrefs?.fields.sentence ?? null}
+        wordFieldName={ankiPrefs?.fields.word ?? null}
+        onFetchDeckNames={handleFetchDeckNames}
         mediaMode={mediaMode}
         onMediaModeChange={handleMediaModeChange}
         mediaPreviewUrl={mediaPreviewUrl}

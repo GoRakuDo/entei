@@ -130,7 +130,7 @@ PlayerApp
 
 ### WT-4 — IndexedDB cache
 
-Mining HistoryのIndexedDBと、torrent piece cacheは別物。
+IMMERSION_TRACKERのIndexedDB（将来のMining archiveを含む）と、torrent piece cacheは別物。
 
 - v1 streamingはmemory-only。media Blob全体をIndexedDBへ保存しない。
 - 永続cacheを足す時はchunk store、quota、LRU eviction、容量表示、userによる全削除をまとめて設計する。

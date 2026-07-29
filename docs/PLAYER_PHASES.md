@@ -49,7 +49,7 @@
 | Anki                   | connection permission、deck/note type/field mapping、新規・update last・specific update、media upload                                    |        P4 |
 | settings               | profile、shortcut、subtitle appearance、import/export、resume preference                                                                 |   P2 / P5 |
 | annotation             | Yomitan、local/Anki/WaniKani word status、reading、pitch、frequency                                                                      |        P6 |
-| analytics for learning | Word Browser、comprehension/statistics、media内の理解度                                                                                  |        P6 |
+| analytics for learning | Word Browser、comprehension/statistics、media内の理解度、local-first視聴・没入記録                                                       |        P6 |
 | standalone extras      | copy history、SRT export、WebSocket client、online subtitle sources                                                                      |        P7 |
 
 ### 3.2 永久に入れないもの — Streaming Video Integration
@@ -244,7 +244,7 @@ asbplayerではCondensedとFast-forwardが競合する（`play-mode-manager.ts:1
 - JPEG screenshot capture — AM-2で完了
 - browser-native WebM/Opus audio clip生成とpreview — AM-3/AM-4で完了。downloadは未実装
 - surrounding subtitles — 未実装
-- IndexedDB mining history — 未実装
+- IndexedDB mining history — 現在は実装済み。successful Anki exportのfilename / range / sentenceだけをlocal IndexedDBへ記録し、RightPanelのHistoryで読む。P6 IMMERSION_TRACKER実装時に、Tracker内の`mining_archive`へnon-destructive migrationしてRecent miningの簡易listとして維持する。詳細は将来の`/tracker/` pageへ分離する。再選択は未実装
 - historyから再選択、audio/image download、SRT section export — 未実装
 
 ### 先にJPEG + audioを作る理由
@@ -344,6 +344,8 @@ WebMを「あるはず」と決め打ちしない。利用可能なcodecをrunti
 - Word Browser
 - media内comprehension / statistics
 - statistics generationとlarge subtitle collectionの性能対策
+
+視聴・再生速度・Condensed / Fast-forwardを混ぜないlocal-firstの集計契約は、[IMMERSION_TRACKER.md](./IMMERSION_TRACKER.md)を正とする。media別・日別集計、Review hotspots、Mining archive、privacy、IndexedDB migration / deletion / export境界をこのPhaseで実装する。RightPanelのHistoryはTrackerに属するRecent miningの簡易listだけを維持し、詳細分析は将来の`/tracker/` pageへ分離する。
 
 ### 注意
 
@@ -571,7 +573,7 @@ native `<video controls>`は撤去する。browserが描くcontrol UIをCSSで�
 ```
 
 - 左上: 選択中media名。overflowはellipsis、full nameは`title`で参照可能にする。
-- 右上: `Timeline`は`entei-subtitle-panel`の表示を切替える。desktopで隠した時は空白columnを残さずmedia areaを拡幅する。`Settings`は字幕ファイル差し替えとshortcut一覧をまとめる。字幕未読込時はSettings iconに小さな状態dotを表示する。Timelineは無効化せず、empty panelを表示できる。
+- 右上: `Timeline`は`entei-subtitle-panel`の表示を切替える。desktopで隠した時は空白columnを残さずmedia areaを拡幅する。`Settings`はshortcut一覧を表示する。字幕未読込時はSubtitlePanel empty stateの「字幕を選択」buttonから字幕fileを選ぶ。Timelineは無効化せず、empty panelを表示できる。
 - 下端: custom seek Slider。pointer/keyboard操作で現在位置を更新し、現在時間とmetadata由来の総時間をtabular numeralで表示する。
 - 右下: `Volume2`/`VolumeX`でmute toggle。desktopはhover/focusでvolume Sliderを表示し、touchではicon activationでSliderを開く。`Gauge`は既存shortcut/preferenceと同じ0.25 / 0.5 / 0.75 / 1 / 1.25 / 1.5 / 1.75 / 2xのrate popover。`Maximize2`/`Minimize2`は実fullscreen stateを表す。
 - mobile portraitはcontrol layerをvideo内に重ねるが、字幕panelは動画下のまま。short-height landscapeは既存immersive規則を維持し、字幕panel toggleは表示しない。
@@ -637,12 +639,12 @@ audioも同じ`PlayerControls`を使う。video専用はfullscreenとpointer上�
 ### P1.1 手動 QA が必要なもの（browser gate）
 
 1. playback/seek/volume hover→reveal/rate/subtitle toggle → desktop
-2. Settings popover → subtitle replacement + shortcut inline list
+2. Settings Modal → shortcut一覧。字幕未読込時はSubtitlePanel empty stateの「字幕を選択」button、読込後はtoolbarのFolderOpenDotから字幕を差し替え
 3. fullscreen enter/exit (Esc/F11) → icon sync (Maximize2↔Minimize2)
 4. keyboard shortcut → Space/Enter on Slider/ボタンでplay/pause二重発火なし
 5. portrait controls → video内に重ね表示、subtitle panelは動画下
 6. landscape immersive (955×400) → controls visible、subtitle panel非表示、Timeline button非表示
-7. settings dot → subtitle未読込時にdot表示、subtitle読込後に消失
+7. subtitle empty state → 「字幕を選択」でSRT / VTT / ASSを選べ、読込後はcue listだけを表示
 8. reduced motion → controls fade即時切替、skeleton静止
 
 ---

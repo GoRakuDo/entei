@@ -6,6 +6,9 @@
  * Results are pre-filtered to savedNoteType only — all visible rows are
  * selectable. Selection is controlled (lifted state). Abort/cleanup on collapse.
  * No in-panel append button; Send routes from the Mining Preview range dock.
+ *
+ * AM-6c v2: Word column (from mapped field), Deck column (from cardsInfo),
+ *            Card ID column removed.
  * --------------------------------------------------------------------------- */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
@@ -37,6 +40,9 @@ export function escapeAnkiDeckQuery(deckName: string): string {
 /** A search result row enriched for display. All rows are selectable. */
 interface EnrichedNote extends AnkiNoteInfo {
   sentencePreview: string;
+  wordPreview: string;
+  /** Unique deck names from cardsInfo, sorted deterministically. */
+  deckNames: string[];
 }
 
 interface AnkiAppendPanelProps {
@@ -50,14 +56,25 @@ interface AnkiAppendPanelProps {
     appendSearching: string;
     appendNoResults: string;
     appendSearchError: string;
-    appendNoteIdLabel: string;
-    appendNoteTypeLabel: string;
+    appendWordLabel: string;
+    appendSentenceLabel: string;
+    appendDeckLabel: string;
     appendSelectedCount: (count: number) => string;
   };
   savedNoteType: string;
   savedDeck: string;
   sentenceFieldName: string | null;
+  /** Semantic word field name from user's Anki field mapping. */
+  wordFieldName: string | null;
   onSearch: (query: string) => Promise<AnkiNoteInfo[]>;
+  /**
+   * Batch-fetch deck names for card IDs via cardsInfo.
+   * Returns a Map from cardId → deckName.
+   */
+  onFetchDeckNames: (
+    cardIds: number[],
+    signal?: AbortSignal,
+  ) => Promise<Map<number, string>>;
   /** Controlled selection state — lifted to parent */
   selectedIds: Set<number>;
   onSelectedIdsChange: (ids: Set<number>) => void;
@@ -70,7 +87,9 @@ export function AnkiAppendPanel({
   savedNoteType,
   savedDeck,
   sentenceFieldName,
+  wordFieldName,
   onSearch,
+  onFetchDeckNames,
   selectedIds,
   onSelectedIdsChange,
 }: AnkiAppendPanelProps) {
@@ -79,6 +98,9 @@ export function AnkiAppendPanel({
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [deckNameMap, setDeckNameMap] = useState<Map<number, string>>(
+    new Map(),
+  );
   const abortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -93,7 +115,7 @@ export function AnkiAppendPanel({
 
   /** Filter + bound + sort raw results to savedNoteType only. */
   const filterAndBound = useCallback(
-    (notes: AnkiNoteInfo[]): EnrichedNote[] => {
+    (notes: AnkiNoteInfo[], dMap: Map<number, string>): EnrichedNote[] => {
       return notes
         .filter(
           (n) =>
@@ -104,14 +126,47 @@ export function AnkiAppendPanel({
         )
         .sort((a, b) => b.noteId - a.noteId)
         .slice(0, 100)
-        .map((note) => ({
-          ...note,
-          sentencePreview: sentenceFieldName
-            ? stripHtml(note.fields[sentenceFieldName]?.value ?? '')
-            : '',
-        }));
+        .map((note) => {
+          // Collect unique deck names from cardsInfo for this note's cards
+          const cardIds = note.cards ?? [];
+          const uniqueDecks = [
+            ...new Set(
+              cardIds.map((cid) => dMap.get(cid)).filter(Boolean) as string[],
+            ),
+          ].sort();
+
+          return {
+            ...note,
+            sentencePreview: sentenceFieldName
+              ? stripHtml(note.fields[sentenceFieldName]?.value ?? '')
+              : '',
+            wordPreview: wordFieldName
+              ? stripHtml(note.fields[wordFieldName]?.value ?? '')
+              : '',
+            deckNames: uniqueDecks,
+          };
+        });
     },
-    [savedNoteType, sentenceFieldName],
+    [savedNoteType, sentenceFieldName, wordFieldName],
+  );
+
+  /** Fetch deck names for all notes' card IDs in batch. */
+  const fetchDeckNamesForNotes = useCallback(
+    async (
+      notes: AnkiNoteInfo[],
+      signal: AbortSignal,
+    ): Promise<Map<number, string>> => {
+      // Collect all card IDs from all notes
+      const allCardIds = notes.flatMap((n) => n.cards ?? []);
+      if (allCardIds.length === 0) return new Map();
+      try {
+        return await onFetchDeckNames(allCardIds, signal);
+      } catch {
+        // Deck name fetch failure is non-fatal; display without deck info
+        return new Map();
+      }
+    },
+    [onFetchDeckNames],
   );
 
   // Auto-load current deck notes on expansion
@@ -125,6 +180,7 @@ export function AnkiAppendPanel({
     setIsSearching(true);
     setSearchError(null);
     setResults([]);
+    setDeckNameMap(new Map());
     onSelectedIdsChange(new Set());
     setHasSearched(false);
     setQuery('');
@@ -136,6 +192,10 @@ export function AnkiAppendPanel({
         const notes = await onSearch(deckQuery);
         if (controller.signal.aborted || !mountedRef.current) return;
         setResults(notes);
+        // Fetch deck names in batch
+        const dMap = await fetchDeckNamesForNotes(notes, controller.signal);
+        if (controller.signal.aborted || !mountedRef.current) return;
+        setDeckNameMap(dMap);
         setHasSearched(true);
       } catch {
         if (controller.signal.aborted || !mountedRef.current) return;
@@ -150,7 +210,14 @@ export function AnkiAppendPanel({
     return () => {
       controller.abort();
     };
-  }, [open, savedDeck, onSearch, dict.appendSearchError, onSelectedIdsChange]);
+  }, [
+    open,
+    savedDeck,
+    onSearch,
+    dict.appendSearchError,
+    onSelectedIdsChange,
+    fetchDeckNamesForNotes,
+  ]);
 
   // Reset ephemeral state on collapse
   useEffect(() => {
@@ -158,6 +225,7 @@ export function AnkiAppendPanel({
       abortRef.current?.abort();
       setQuery('');
       setResults([]);
+      setDeckNameMap(new Map());
       onSelectedIdsChange(new Set());
       setSearchError(null);
       setHasSearched(false);
@@ -191,27 +259,38 @@ export function AnkiAppendPanel({
     setIsSearching(true);
     setSearchError(null);
     setResults([]);
+    setDeckNameMap(new Map());
     onSelectedIdsChange(new Set());
     setHasSearched(true);
 
     try {
       const notes = await onSearch(q);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !mountedRef.current) return;
       setResults(notes);
+      // Fetch deck names in batch
+      const dMap = await fetchDeckNamesForNotes(notes, controller.signal);
+      if (controller.signal.aborted || !mountedRef.current) return;
+      setDeckNameMap(dMap);
     } catch {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !mountedRef.current) return;
       setSearchError(dict.appendSearchError);
     } finally {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && mountedRef.current) {
         setIsSearching(false);
       }
     }
-  }, [query, onSearch, dict.appendSearchError, onSelectedIdsChange]);
+  }, [
+    query,
+    onSearch,
+    dict.appendSearchError,
+    onSelectedIdsChange,
+    fetchDeckNamesForNotes,
+  ]);
 
   // Pre-filtered results: only savedNoteType rows are displayed
   const filteredResults = useMemo(
-    () => filterAndBound(results),
-    [results, filterAndBound],
+    () => filterAndBound(results, deckNameMap),
+    [results, deckNameMap, filterAndBound],
   );
 
   // Row state provider — selected only (no incompatible concept)
@@ -274,43 +353,64 @@ export function AnkiAppendPanel({
         },
       },
       {
-        accessorKey: 'sentencePreview',
-        header: 'Sentence',
-        size: 0,
+        accessorKey: 'wordPreview',
+        header: dict.appendWordLabel,
+        size: 120,
         cell: ({ row }) => (
-          <div className="entei-data-table-sentence">
-            {row.original.sentencePreview || (
-              <span className="entei-data-table-empty-sentence">—</span>
+          <div
+            className="entei-data-table-field-preview"
+            title={row.original.wordPreview}
+          >
+            {row.original.wordPreview || (
+              <span className="entei-data-table-empty-field">—</span>
             )}
           </div>
         ),
       },
       {
-        accessorKey: 'modelName',
-        header: dict.appendNoteTypeLabel,
-        size: 140,
+        accessorKey: 'sentencePreview',
+        header: dict.appendSentenceLabel,
+        size: 0,
         cell: ({ row }) => (
-          <span className="entei-data-table-note-type">
-            {row.original.modelName}
-          </span>
+          <div
+            className="entei-data-table-field-preview"
+            title={row.original.sentencePreview}
+          >
+            {row.original.sentencePreview || (
+              <span className="entei-data-table-empty-field">—</span>
+            )}
+          </div>
         ),
       },
       {
-        accessorKey: 'noteId',
-        header: dict.appendNoteIdLabel,
-        size: 90,
-        cell: ({ row }) => (
-          <span className="entei-data-table-note-id">
-            {row.original.noteId}
-          </span>
-        ),
+        id: 'deckNames',
+        accessorFn: (row) => row.deckNames.join(', '),
+        header: dict.appendDeckLabel,
+        size: 140,
+        cell: ({ row }) => {
+          const decks = row.original.deckNames;
+          if (decks.length === 0) {
+            return (
+              <span className="entei-data-table-note-type">
+                <span className="entei-data-table-empty-field">—</span>
+              </span>
+            );
+          }
+          const display = decks.join(', ');
+          return (
+            <span className="entei-data-table-note-type" title={display}>
+              {display}
+            </span>
+          );
+        },
       },
     ],
     [
       selectedIds,
       onSelectedIdsChange,
-      dict.appendNoteTypeLabel,
-      dict.appendNoteIdLabel,
+      dict.appendWordLabel,
+      dict.appendSentenceLabel,
+      dict.appendDeckLabel,
       allSelected,
       someSelected,
       filteredResults,

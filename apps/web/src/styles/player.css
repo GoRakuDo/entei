@@ -1989,7 +1989,11 @@
   position: relative;
   width: 100%;
   max-width: 640px;
-  background: linear-gradient(180deg, oklch(10% 0.02 270deg), oklch(5% 0.005 270deg));
+  background: linear-gradient(
+    180deg,
+    oklch(10% 0.02 270deg),
+    oklch(5% 0.005 270deg)
+  );
   border-radius: var(--entei-radius-sm);
   padding: var(--entei-space-16);
   overflow: hidden;
@@ -3435,16 +3439,15 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
 }
 
-.entei-data-table-sentence {
+.entei-data-table-field-preview {
   min-width: 0;
 }
 
-.entei-data-table-empty-sentence {
+.entei-data-table-empty-field {
   color: oklch(50% 0 0deg);
 }
 
-.entei-data-table-note-type,
-.entei-data-table-note-id {
+.entei-data-table-note-type {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }

@@ -117,6 +117,16 @@ interface MiningPreviewDialogProps {
   savedDeck: string;
   savedNoteType: string;
   sentenceFieldName: string | null;
+  /** Semantic word field name from user's Anki field mapping. */
+  wordFieldName: string | null;
+  /**
+   * Batch-fetch deck names for card IDs via cardsInfo.
+   * Returns a Map from cardId → deckName.
+   */
+  onFetchDeckNames: (
+    cardIds: number[],
+    signal?: AbortSignal,
+  ) => Promise<Map<number, string>>;
   // Video Clip: media mode toggle
   mediaMode: 'image' | 'video';
   onMediaModeChange: (mode: 'image' | 'video') => void;
@@ -160,8 +170,9 @@ interface MiningPreviewDialogProps {
     appendSearching: string;
     appendNoResults: string;
     appendSearchError: string;
-    appendNoteIdLabel: string;
-    appendNoteTypeLabel: string;
+    appendWordLabel: string;
+    appendSentenceLabel: string;
+    appendDeckLabel: string;
     appendSuccess: string;
     appendPartialFailure: string;
     appendAllFailed: string;
@@ -213,6 +224,8 @@ export function MiningPreviewDialog({
   savedDeck,
   savedNoteType,
   sentenceFieldName,
+  wordFieldName,
+  onFetchDeckNames,
   mediaMode,
   onMediaModeChange,
   mediaPreviewUrl,
@@ -729,7 +742,9 @@ export function MiningPreviewDialog({
             savedNoteType={savedNoteType}
             savedDeck={savedDeck}
             sentenceFieldName={sentenceFieldName}
+            wordFieldName={wordFieldName}
             onSearch={onAppendSearch}
+            onFetchDeckNames={onFetchDeckNames}
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
             id={appendPanelId}

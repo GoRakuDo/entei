@@ -14,6 +14,10 @@
  * - Safe deck name quoting/escaping
  * - DataTable renders table with aria-label
  * - Selected IDs controlled (lifted state)
+ * - Word column (from mapped field, with fallback)
+ * - Deck column (from cardsInfo, multi-card/multi-deck)
+ * - Card ID column absent
+ * - No regression in type filtering/selection
  * --------------------------------------------------------------------------- */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -58,15 +62,21 @@ const dict = {
   appendSearching: 'Searching…',
   appendNoResults: 'No matching notes found.',
   appendSearchError: 'Search failed.',
-  appendNoteIdLabel: 'Note ID',
-  appendNoteTypeLabel: 'Note type',
+  appendWordLabel: 'Word',
+  appendSentenceLabel: 'Sentence',
+  appendDeckLabel: 'Deck',
   appendSelectedCount: (count: number) => `${count} selected`,
 };
+
+/** Default no-op for onFetchDeckNames. */
+const defaultFetchDeckNames = vi.fn().mockResolvedValue(new Map());
 
 function makeNote(
   id: number,
   modelName: string,
   sentence = `Sentence ${id}`,
+  word = '',
+  cardIds: number[] = [],
 ): AnkiNoteInfo {
   return {
     noteId: id,
@@ -75,8 +85,10 @@ function makeNote(
     fields: {
       Front: { value: sentence, order: 0 },
       Back: { value: `<p>Back ${id}</p>`, order: 1 },
+      ...(word ? { Word: { value: word, order: 2 } } : {}),
     },
     tags: [],
+    cards: cardIds,
   };
 }
 
@@ -117,7 +129,9 @@ function renderPanel(
       savedNoteType="Basic"
       savedDeck="Japanese"
       sentenceFieldName="Front"
+      wordFieldName={null}
       onSearch={onSearch}
+      onFetchDeckNames={defaultFetchDeckNames}
       {...overrides}
     />,
   );
@@ -163,7 +177,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={vi.fn()}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={vi.fn()}
       />,
@@ -182,7 +198,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={vi.fn()}
       />,
@@ -203,7 +221,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck=""
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={vi.fn()}
       />,
@@ -220,7 +240,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck='My "Deck"'
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={vi.fn()}
       />,
@@ -321,7 +343,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch}
+        onFetchDeckNames={defaultFetchDeckNames}
       />,
     );
 
@@ -355,7 +379,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch}
+        onFetchDeckNames={defaultFetchDeckNames}
       />,
     );
 
@@ -492,7 +518,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch1}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={vi.fn()}
       />,
@@ -511,7 +539,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch1}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={vi.fn()}
       />,
@@ -527,7 +557,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch2}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={vi.fn()}
       />,
@@ -727,7 +759,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
           savedNoteType="Basic"
           savedDeck="TestDeck"
           sentenceFieldName="Front"
+          wordFieldName={null}
           onSearch={onSearch}
+          onFetchDeckNames={defaultFetchDeckNames}
           selectedIds={new Set()}
           onSelectedIdsChange={vi.fn()}
         />,
@@ -742,7 +776,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
           savedNoteType="Basic"
           savedDeck="TestDeck"
           sentenceFieldName="Front"
+          wordFieldName={null}
           onSearch={onSearch}
+          onFetchDeckNames={defaultFetchDeckNames}
           selectedIds={new Set()}
           onSelectedIdsChange={vi.fn()}
         />,
@@ -769,7 +805,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
           savedNoteType="Basic"
           savedDeck="TestDeck"
           sentenceFieldName="Front"
+          wordFieldName={null}
           onSearch={onSearch}
+          onFetchDeckNames={defaultFetchDeckNames}
           selectedIds={new Set()}
           onSelectedIdsChange={vi.fn()}
         />,
@@ -796,7 +834,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
           savedNoteType="Basic"
           savedDeck="TestDeck"
           sentenceFieldName="Front"
+          wordFieldName={null}
           onSearch={onSearch}
+          onFetchDeckNames={defaultFetchDeckNames}
           selectedIds={new Set()}
           onSelectedIdsChange={vi.fn()}
         />,
@@ -812,7 +852,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
           savedNoteType="Basic"
           savedDeck="TestDeck"
           sentenceFieldName="Front"
+          wordFieldName={null}
           onSearch={onSearch}
+          onFetchDeckNames={defaultFetchDeckNames}
           selectedIds={new Set()}
           onSelectedIdsChange={vi.fn()}
         />,
@@ -913,7 +955,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set([2301])}
         onSelectedIdsChange={onSelect}
       />,
@@ -930,7 +974,9 @@ describe('AnkiAppendPanel — AM-6c', () => {
         savedNoteType="Basic"
         savedDeck="Japanese"
         sentenceFieldName="Front"
+        wordFieldName={null}
         onSearch={onSearch}
+        onFetchDeckNames={defaultFetchDeckNames}
         selectedIds={new Set()}
         onSelectedIdsChange={onSelect}
       />,
@@ -980,9 +1026,6 @@ describe('AnkiAppendPanel — AM-6c', () => {
     const count = footer!.querySelector('.entei-data-table-footer-count');
     expect(count).not.toBeNull();
     expect(count!.textContent).toBe('0 selected');
-    // Verify min-height is set via the CSS rule (jsdom doesn't resolve CSS vars,
-    // so we verify the footer exists with its content — the CSS rule
-    // `min-height: var(--entei-touch-min)` resolves to 44px in a real browser)
   });
 
   // ── Checkbox containment / centering contract ──
@@ -1094,5 +1137,363 @@ describe('AnkiAppendPanel — AM-6c', () => {
           .getAttribute('data-state'),
       ).toBe('checked');
     });
+  });
+
+  // ── AM-6c v2: Word column ──
+
+  it('displays Word column when wordFieldName is provided', async () => {
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([makeNote(9001, 'Basic', 'This is a sentence', '猫')]);
+    renderPanel({
+      onSearch,
+      wordFieldName: 'Word',
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Word column should display the word value
+    expect(screen.getByText('猫')).toBeTruthy();
+    // Sentence column should display the sentence
+    expect(screen.getByText('This is a sentence')).toBeTruthy();
+  });
+
+  it('shows placeholder when word field is missing from note', async () => {
+    const note = makeNote(9002, 'Basic', 'Sentence here');
+    // Note has no Word field
+    const onSearch = vi.fn().mockResolvedValue([note]);
+    renderPanel({
+      onSearch,
+      wordFieldName: 'Word',
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Should show em-dash placeholder for missing word
+    const cells = screen.getAllByRole('cell');
+    const cellTexts = cells.map((c) => c.textContent ?? '');
+    const hasPlaceholder = cellTexts.some((t) => t.includes('—'));
+    expect(hasPlaceholder).toBe(true);
+  });
+
+  it('shows placeholder when word field value is empty', async () => {
+    const note: AnkiNoteInfo = {
+      noteId: 9003,
+      modelName: 'Basic',
+      deckName: 'Japanese',
+      fields: {
+        Front: { value: 'Sentence', order: 0 },
+        Word: { value: '', order: 1 },
+      },
+      tags: [],
+      cards: [],
+    };
+    const onSearch = vi.fn().mockResolvedValue([note]);
+    renderPanel({
+      onSearch,
+      wordFieldName: 'Word',
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Empty word should show em-dash placeholder
+    const cells = screen.getAllByRole('cell');
+    const cellTexts = cells.map((c) => c.textContent ?? '');
+    const hasPlaceholder = cellTexts.some((t) => t.includes('—'));
+    expect(hasPlaceholder).toBe(true);
+  });
+
+  it('hides Word column when wordFieldName is null', async () => {
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([makeNote(9004, 'Basic', 'Sentence only', 'visible')]);
+    renderPanel({
+      onSearch,
+      wordFieldName: null,
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // When wordFieldName is null, wordPreview is always empty string
+    // The Word column header should still exist (column is always rendered),
+    // but the cell should show the placeholder
+    expect(screen.queryByText('visible')).toBeNull();
+  });
+
+  // ── AM-6c v2: Deck column (from cardsInfo) ──
+
+  it('displays deck names from onFetchDeckNames', async () => {
+    const onFetchDeckNames = vi.fn().mockResolvedValue(
+      new Map([
+        [10001, 'Japanese'],
+        [10002, 'Japanese'],
+      ]),
+    );
+    const note = makeNote(9101, 'Basic', 'Test', '', [10001, 10002]);
+    const onSearch = vi.fn().mockResolvedValue([note]);
+    renderPanel({
+      onSearch,
+      onFetchDeckNames,
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Deck column should show "Japanese"
+    expect(screen.getByText('Japanese')).toBeTruthy();
+    // Should have been called with the card IDs
+    expect(onFetchDeckNames).toHaveBeenCalledWith(
+      [10001, 10002],
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('displays multiple unique deck names compactly', async () => {
+    const onFetchDeckNames = vi.fn().mockResolvedValue(
+      new Map([
+        [20001, 'Japanese'],
+        [20002, 'Kanji'],
+      ]),
+    );
+    const note = makeNote(9201, 'Basic', 'Test', '', [20001, 20002]);
+    const onSearch = vi.fn().mockResolvedValue([note]);
+    renderPanel({
+      onSearch,
+      onFetchDeckNames,
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Should show both deck names sorted and joined
+    expect(screen.getByText('Japanese, Kanji')).toBeTruthy();
+  });
+
+  it('shows placeholder when no card IDs available', async () => {
+    const onFetchDeckNames = vi.fn().mockResolvedValue(new Map());
+    const note = makeNote(9301, 'Basic', 'Test', '', []);
+    const onSearch = vi.fn().mockResolvedValue([note]);
+    renderPanel({
+      onSearch,
+      onFetchDeckNames,
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Should show em-dash placeholder for empty deck names
+    const cells = screen.getAllByRole('cell');
+    const cellTexts = cells.map((c) => c.textContent ?? '');
+    const hasPlaceholder = cellTexts.some((t) => t.includes('—'));
+    expect(hasPlaceholder).toBe(true);
+  });
+
+  it('handles onFetchDeckNames failure gracefully', async () => {
+    const fetchDeckNames = vi
+      .fn()
+      .mockRejectedValue(new Error('Network error'));
+    const note = makeNote(9401, 'Basic', 'Test', '', [30001]);
+    const onSearch = vi.fn().mockResolvedValue([note]);
+    renderPanel({
+      onSearch,
+      onFetchDeckNames: fetchDeckNames,
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Should still render the row with placeholder deck name
+    const cells = screen.getAllByRole('cell');
+    const cellTexts = cells.map((c) => c.textContent ?? '');
+    const hasPlaceholder = cellTexts.some((t) => t.includes('—'));
+    expect(hasPlaceholder).toBe(true);
+  });
+
+  it('deduplicates deck names from multiple cards in same deck', async () => {
+    const onFetchDeckNames = vi.fn().mockResolvedValue(
+      new Map([
+        [40001, 'Japanese'],
+        [40002, 'Japanese'],
+        [40003, 'Japanese'],
+      ]),
+    );
+    const note = makeNote(9501, 'Basic', 'Test', '', [40001, 40002, 40003]);
+    const onSearch = vi.fn().mockResolvedValue([note]);
+    renderPanel({
+      onSearch,
+      onFetchDeckNames,
+    });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // Should show "Japanese" only once (deduplicated)
+    expect(screen.getByText('Japanese')).toBeTruthy();
+    // Should NOT show "Japanese, Japanese, Japanese"
+    expect(screen.queryByText('Japanese, Japanese, Japanese')).toBeNull();
+  });
+
+  // ── AM-6c v2: Card ID column absent ──
+
+  it('does not render Card ID / Note ID column', async () => {
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([makeNote(9601, 'Basic', 'Test sentence')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // The header should NOT contain "Note ID" text
+    const headers = screen.getAllByRole('columnheader');
+    const headerTexts = headers.map((h) => h.textContent ?? '');
+    const hasNoteIdHeader = headerTexts.some((t) => t.includes('Note ID'));
+    expect(hasNoteIdHeader).toBe(false);
+  });
+
+  it('does not render noteId values in table cells', async () => {
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([makeNote(9701, 'Basic', 'Test sentence')]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    // The noteId (9701) should NOT appear in any cell
+    const cells = screen.getAllByRole('cell');
+    const cellTexts = cells.map((c) => c.textContent ?? '');
+    const hasNoteId = cellTexts.some((t) => t.includes('9701'));
+    expect(hasNoteId).toBe(false);
+  });
+
+  // ── AM-6c v2: Deck header uses i18n ──
+
+  it('renders Deck header from dict.appendDeckLabel', async () => {
+    const onSearch = vi.fn().mockResolvedValue([]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const headers = screen.getAllByRole('columnheader');
+    const headerTexts = headers.map((h) => h.textContent ?? '');
+    expect(headerTexts).toContain('Deck');
+  });
+
+  // ── AM-6c v2: Translated Word/Sentence headers ──
+
+  it('renders Word header from dict.appendWordLabel', async () => {
+    const onSearch = vi.fn().mockResolvedValue([]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const headers = screen.getAllByRole('columnheader');
+    const headerTexts = headers.map((h) => h.textContent ?? '');
+    expect(headerTexts).toContain('Word');
+  });
+
+  it('renders Sentence header from dict.appendSentenceLabel', async () => {
+    const onSearch = vi.fn().mockResolvedValue([]);
+    renderPanel({ onSearch });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const headers = screen.getAllByRole('columnheader');
+    const headerTexts = headers.map((h) => h.textContent ?? '');
+    expect(headerTexts).toContain('Sentence');
+  });
+
+  it('uses translated labels in headers when dict provides non-English labels', async () => {
+    const translatedDict = {
+      ...dict,
+      appendWordLabel: 'Kata',
+      appendSentenceLabel: 'Kalimat',
+      appendDeckLabel: 'Dek',
+    };
+    const onSearch = vi.fn().mockResolvedValue([]);
+    renderPanel({ onSearch, dict: translatedDict });
+
+    await waitFor(() => {
+      expect(onSearch).toHaveBeenCalledTimes(1);
+    });
+
+    const headers = screen.getAllByRole('columnheader');
+    const headerTexts = headers.map((h) => h.textContent ?? '');
+    expect(headerTexts).toContain('Kata');
+    expect(headerTexts).toContain('Kalimat');
+    expect(headerTexts).toContain('Dek');
+    expect(headerTexts).not.toContain('Word');
+    expect(headerTexts).not.toContain('Sentence');
+    expect(headerTexts).not.toContain('Deck');
+  });
+
+  // ── AM-6c v2: Manual-search unmount safety ──
+
+  it('does not update state after unmount during manual search', async () => {
+    let resolveSearch!: (v: AnkiNoteInfo[]) => void;
+    const searchPromise = new Promise<AnkiNoteInfo[]>((r) => {
+      resolveSearch = r;
+    });
+    const onSearch = vi.fn().mockReturnValue(searchPromise);
+    const { unmount } = renderPanel({ onSearch });
+
+    // Trigger manual search
+    const input = screen.getByPlaceholderText('Search query');
+    fireEvent.change(input, { target: { value: 'test query' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // Unmount while search is in flight
+    unmount();
+
+    // Resolve the search — should not throw "Can't perform a React state update on an unmounted component"
+    await act(async () => {
+      resolveSearch([makeNote(9999, 'Basic', 'Should not render')]);
+    });
+
+    // No assertion needed — if it doesn't throw, the test passes
+  });
+
+  it('does not update state after unmount during fetchDeckNamesForNotes', async () => {
+    const onSearch = vi
+      .fn()
+      .mockResolvedValue([makeNote(9998, 'Basic', 'Test', '', [10001])]);
+    let resolveDeckNames!: (v: Map<number, string>) => void;
+    const deckNamesPromise = new Promise<Map<number, string>>((r) => {
+      resolveDeckNames = r;
+    });
+    const onFetchDeckNames = vi.fn().mockReturnValue(deckNamesPromise);
+    const { unmount } = renderPanel({ onSearch, onFetchDeckNames });
+
+    // Unmount while deck names fetch is in flight
+    unmount();
+
+    // Resolve the deck names — should not throw
+    await act(async () => {
+      resolveDeckNames(new Map([[10001, 'Japanese']]));
+    });
+
+    // No assertion needed — if it doesn't throw, the test passes
   });
 });

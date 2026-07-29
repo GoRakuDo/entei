@@ -19,7 +19,9 @@ type WriteAction =
   | 'storeMediaFile'
   | 'findNotes'
   | 'notesInfo'
-  | 'updateNoteFields';
+  | 'updateNoteFields'
+  | 'cardsInfo'
+  | 'findCards';
 
 interface WriteRequest {
   action: WriteAction;
@@ -85,12 +87,26 @@ export interface AnkiNoteInfo {
   deckName: string;
   fields: Record<string, { value: string; order: number }>;
   tags: string[];
+  /** Card IDs associated with this note (returned by notesInfo). */
+  cards?: number[];
 }
 
 /** Result of updateNoteFields — AnkiConnect returns an object with note info. */
 export interface UpdateNoteFieldsResult {
   noteId: number;
 }
+
+/** A single card's info from cardsInfo. */
+export interface AnkiCardInfo {
+  cardId: number;
+  deckName: string;
+  modelName: string;
+  question: string;
+  answer: string;
+}
+
+/** Result of findCards — array of card IDs. */
+export type FindCardsResult = number[];
 
 /** Validate that a parsed JSON value matches the AnkiResponse shape. */
 function isAnkiResponseShape(
@@ -260,6 +276,26 @@ export class AnkiExportClient {
       { note: { id: noteId, fields } },
       signal,
     );
+  }
+
+  /** Get info for specific card IDs (batched). Returns deckName per card. */
+  async cardsInfo(
+    cardIds: number[],
+    signal?: AbortSignal,
+  ): Promise<AnkiCardInfo[]> {
+    return this.request<AnkiCardInfo[]>(
+      'cardsInfo',
+      { cards: cardIds },
+      signal,
+    );
+  }
+
+  /** Find card IDs by a search query (e.g., 'nid:12345'). */
+  async findCards(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<FindCardsResult> {
+    return this.request<FindCardsResult>('findCards', { query }, signal);
   }
 }
 

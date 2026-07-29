@@ -227,8 +227,9 @@ export interface Dictionary {
     appendSearching: string;
     appendNoResults: string;
     appendSearchError: string;
-    appendNoteIdLabel: string;
-    appendNoteTypeLabel: string;
+    appendWordLabel: string;
+    appendSentenceLabel: string;
+    appendDeckLabel: string;
     appendSuccess: string;
     appendPartialFailure: string;
     appendAllFailed: string;
