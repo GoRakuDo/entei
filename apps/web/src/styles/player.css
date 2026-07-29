@@ -4063,3 +4063,606 @@ html.entei-player-immersive .entei-player-audio-area {
     transform: rotate(360deg);
   }
 }
+
+/* ===========================================================================
+ * IMMERSION_TRACKER Stage 3B — Tracker Dashboard
+ * ---------------------------------------------------------------------------
+ * Calm local-first study record. No streaks, no ranking, no invented stats.
+ * Sections separated by spacing + subtle dividers, not cards.
+ * Foreground watch is the visual hero of the Today summary.
+ * All colors use existing Entei OKLCH tokens. All numbers are tabular.
+ * =========================================================================== */
+
+/* --- Root: break out of BaseLayout desktop 5fr/7fr grid --- */
+.entei-tracker-dashboard {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-32);
+  min-width: 0;
+}
+
+/* --- Tracker page root: fill viewport below TopBar, above footer --- */
+.entei-tracker-root {
+  grid-column: 1 / -1;
+  min-height: calc(100dvh - var(--entei-topbar-height) - 200px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Empty/unavailable states: center vertically in available space */
+.entei-tracker-root > .entei-tracker-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Skeleton: keep top-aligned but fill width */
+.entei-tracker-root > .entei-tracker-skeleton {
+  width: 100%;
+}
+
+/* Populated dashboard: top-aligned (default flex behavior) */
+.entei-tracker-root > .entei-tracker-dashboard {
+  width: 100%;
+}
+
+/* --- Header (restrained, left-aligned, no hero) --- */
+.entei-tracker-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  align-items: flex-start;
+}
+
+.entei-tracker-header-top {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  flex-wrap: wrap;
+}
+
+.entei-tracker-title {
+  font-family: var(--entei-font-display);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--entei-text);
+  margin: 0;
+}
+
+.entei-tracker-local-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  padding: var(--entei-space-2) var(--entei-space-8);
+  border-radius: var(--entei-radius-sm);
+  background-color: oklch(100% 0 0deg / 0.06);
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--entei-text-muted);
+  white-space: nowrap;
+}
+
+.entei-tracker-local-badge svg {
+  color: var(--entei-gold-base);
+  flex-shrink: 0;
+}
+
+.entei-tracker-subtitle {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  margin: 0;
+  max-width: 60ch;
+}
+
+/* --- Section wrapper --- */
+.entei-tracker-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+}
+
+.entei-tracker-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+}
+
+.entei-tracker-section-icon {
+  color: var(--entei-text-muted);
+  flex-shrink: 0;
+}
+
+.entei-tracker-section-title {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--entei-text-secondary);
+  margin: 0;
+}
+
+/* --- Today summary --- */
+.entei-tracker-today {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+}
+
+/* Hero metric: foreground watch */
+.entei-tracker-today-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+}
+
+.entei-tracker-today-hero-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--entei-text-secondary);
+}
+
+.entei-tracker-today-hero-value {
+  font-family: var(--entei-font-system);
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--entei-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Secondary metrics grid */
+.entei-tracker-today-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--entei-space-16) var(--entei-space-24);
+  padding-top: var(--entei-space-16);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-tracker-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-2);
+}
+
+.entei-tracker-metric-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  line-height: 1.3;
+}
+
+.entei-tracker-metric-value {
+  font-family: var(--entei-font-system);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--entei-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.entei-tracker-metric-value--muted {
+  color: var(--entei-text-muted);
+}
+
+/* --- Media list --- */
+.entei-tracker-media-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entei-tracker-media-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-16) 0;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-tracker-media-item:first-child {
+  padding-top: 0;
+}
+
+.entei-tracker-media-item:last-child {
+  border-bottom: none;
+}
+
+.entei-tracker-media-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--entei-space-12);
+  flex-wrap: wrap;
+}
+
+.entei-tracker-media-name {
+  font-family: var(--entei-font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--entei-text);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.entei-tracker-media-meta {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Nested learning sets */
+.entei-tracker-ls-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  padding-left: var(--entei-space-16);
+  border-left: 2px solid oklch(100% 0 0deg / 0.08);
+}
+
+.entei-tracker-ls-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--entei-space-8);
+  flex-wrap: wrap;
+}
+
+.entei-tracker-ls-id {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.entei-tracker-ls-total {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.entei-tracker-ls-icon {
+  color: var(--entei-text-muted);
+  flex-shrink: 0;
+}
+
+/* --- i+1 Moments --- */
+.entei-tracker-moments-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+}
+
+.entei-tracker-moment-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-tracker-moment-group-header {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--entei-text-secondary);
+  word-break: break-all;
+}
+
+.entei-tracker-bucket-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entei-tracker-bucket {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) 1fr;
+  align-items: center;
+  gap: var(--entei-space-12) var(--entei-space-16);
+  padding: var(--entei-space-8) 0;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.04);
+}
+
+.entei-tracker-bucket:last-child {
+  border-bottom: none;
+}
+
+.entei-tracker-bucket-range {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--entei-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.entei-tracker-bucket-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--entei-space-12) var(--entei-space-16);
+}
+
+.entei-tracker-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entei-tracker-signal svg {
+  color: var(--entei-text-muted);
+  flex-shrink: 0;
+}
+
+.entei-tracker-signal--zero {
+  opacity: 0.4;
+}
+
+/* --- Mining archive --- */
+.entei-tracker-archive-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entei-tracker-archive-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  padding: var(--entei-space-12) 0;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-tracker-archive-item:first-child {
+  padding-top: 0;
+}
+
+.entei-tracker-archive-item:last-child {
+  border-bottom: none;
+}
+
+.entei-tracker-archive-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--entei-space-8);
+  flex-wrap: wrap;
+}
+
+.entei-tracker-archive-name {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--entei-text);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.entei-tracker-archive-range {
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.entei-tracker-archive-date {
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  color: var(--entei-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.entei-tracker-archive-sentence {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--entei-text-secondary);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* --- Empty section message --- */
+.entei-tracker-empty-section {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  padding: var(--entei-space-8) 0;
+}
+
+/* --- Composed states (unavailable / ready-empty) ---
+   Vertically centered in the available content area (between BaseLayout
+   chrome and footer). The populated/ready dashboard is NOT affected —
+   it uses .entei-tracker-dashboard which stays top-aligned. */
+.entei-tracker-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-48) var(--entei-space-16);
+  text-align: center;
+  max-width: 36rem;
+  margin-inline: auto;
+  /* Span full desktop grid (break out of 5fr/7fr like the ready dashboard) */
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  /* Stretch to fill grid area height on desktop */
+  align-self: stretch;
+  /* Fill parent content height on mobile (block context, no grid) */
+  min-height: 100%;
+  /* Center content vertically within the filled area */
+  justify-content: center;
+}
+
+.entei-tracker-state-icon {
+  color: var(--entei-text-muted);
+  flex-shrink: 0;
+}
+
+.entei-tracker-state-title {
+  font-family: var(--entei-font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--entei-text);
+  margin: 0;
+}
+
+.entei-tracker-state-desc {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--entei-text-muted);
+  margin: 0;
+  max-width: 48ch;
+}
+
+.entei-tracker-state-reason {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+/* --- Skeleton loading (matches final page layout) --- */
+.entei-tracker-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-32);
+}
+
+.entei-tracker-skeleton-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-tracker-skeleton-line {
+  border-radius: var(--entei-radius-sm);
+  background: linear-gradient(
+    90deg,
+    oklch(20% 0.035 285deg / 0.5),
+    oklch(29% 0.05 285deg / 0.7),
+    oklch(20% 0.035 285deg / 0.5)
+  );
+  background-size: 200% 100%;
+  animation: entei-tracker-shimmer 1.6s ease-in-out infinite;
+}
+
+.entei-tracker-skeleton-line--title {
+  width: 14rem;
+  height: 2rem;
+}
+
+.entei-tracker-skeleton-line--subtitle {
+  width: 20rem;
+  height: 0.875rem;
+}
+
+.entei-tracker-skeleton-line--section {
+  width: 8rem;
+  height: 0.75rem;
+}
+
+.entei-tracker-skeleton-line--hero {
+  width: 8rem;
+  height: 2.5rem;
+}
+
+.entei-tracker-skeleton-line--metric {
+  width: 6rem;
+  height: 1.125rem;
+}
+
+.entei-tracker-skeleton-line--row {
+  width: 100%;
+  height: 1rem;
+}
+
+.entei-tracker-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--entei-space-16) var(--entei-space-24);
+}
+
+.entei-tracker-skeleton-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+@keyframes entei-tracker-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* --- Press feedback on interactive elements --- */
+.entei-tracker-dashboard button:active {
+  transform: scale(0.96);
+  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* --- Reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .entei-tracker-skeleton-line {
+    animation: none;
+    opacity: 0.5;
+  }
+
+  .entei-tracker-dashboard button:active {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* --- Mobile responsive --- */
+@media (max-width: 767px) {
+  .entei-tracker-dashboard {
+    gap: var(--entei-space-24);
+  }
+
+  .entei-tracker-today-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--entei-space-12) var(--entei-space-16);
+  }
+
+  .entei-tracker-bucket {
+    grid-template-columns: 1fr;
+    gap: var(--entei-space-4);
+  }
+
+  .entei-tracker-archive-date {
+    margin-left: 0;
+  }
+}

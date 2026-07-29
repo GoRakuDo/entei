@@ -37,6 +37,7 @@ import type {
   DailyAggregate,
 } from './types';
 import { mergeTotals } from './engine';
+import { getLocalDay } from './local-day';
 
 /* ------------------------------------------------------------------------ */
 /* Public types                                                             */
@@ -55,19 +56,6 @@ export interface FlushContext {
   byteSize: number;
   /** MIME type string (empty if unavailable). */
   mimeType: string;
-}
-
-/* ------------------------------------------------------------------------ */
-/* Local day helper                                                         */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Get the current local day as YYYY-MM-DD.
- * Uses 'en-CA' locale which produces ISO date format.
- * This is the canonical local-day key for media_daily and daily stores.
- */
-export function getLocalDay(): string {
-  return new Date().toLocaleDateString('en-CA');
 }
 
 /* ------------------------------------------------------------------------ */

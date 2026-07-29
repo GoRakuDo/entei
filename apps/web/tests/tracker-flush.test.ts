@@ -66,8 +66,11 @@ vi.mock('@/features/player/tracker/db', () => ({
 }));
 
 // Import after mock setup
-const { flushTrackerData, getLocalDay } = await import(
+const { flushTrackerData } = await import(
   '@/features/player/tracker/tracker-flush'
+);
+const { getLocalDay } = await import(
+  '@/features/player/tracker/local-day'
 );
 
 /* ------------------------------------------------------------------------ */

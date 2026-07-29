@@ -303,4 +303,61 @@ export interface Dictionary {
     lead: string;
     backToHome: string;
   };
+  trackerDashboard: {
+    title: string;
+    subtitle: string;
+    localOnlyBadge: string;
+    todayLabel: string;
+    todayDate: (date: string) => string;
+    foregroundWatch: string;
+    mediaProgress: string;
+    subtitleExposure: string;
+    condensedSkipped: string;
+    fastForwardWall: string;
+    fastForwardMedia: string;
+    mediaLabel: string;
+    mediaEmpty: string;
+    learningSetLabel: string;
+    momentsLabel: string;
+    momentsEmpty: string;
+    bucketPasses: string;
+    bucketPauses: string;
+    bucketSeeks: string;
+    bucketMines: string;
+    archiveLabel: string;
+    archiveEmpty: string;
+    // Loading / unavailable / empty states
+    loadingAriaBusy: string;
+    unavailableTitle: string;
+    unavailableDesc: string;
+    unavailableIconLabel: string;
+    emptyTitle: string;
+    emptyDesc: string;
+    emptyIconLabel: string;
+    // Table headers / labels
+    mediaColumnFile: string;
+    mediaColumnFirstSeen: string;
+    mediaColumnLastSeen: string;
+    mediaColumnWatchTime: string;
+    mediaColumnProgress: string;
+    mediaColumnSubtitleExp: string;
+    momentsColumnBucket: string;
+    momentsColumnWatch: string;
+    momentsColumnPasses: string;
+    momentsColumnPauses: string;
+    momentsColumnSeeks: string;
+    momentsColumnMines: string;
+    archiveColumnFile: string;
+    archiveColumnRange: string;
+    archiveColumnSentence: string;
+    archiveColumnDate: string;
+    // Units / formatting
+    unitMs: string;
+    unitSec: string;
+    // Accessibility
+    todaySectionLabel: string;
+    mediaSectionLabel: string;
+    momentsSectionLabel: string;
+    archiveSectionLabel: string;
+  };
 }

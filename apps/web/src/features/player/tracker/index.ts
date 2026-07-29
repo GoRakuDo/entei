@@ -124,6 +124,29 @@ export {
 // Flush persistence (Stage 2b)
 export {
   flushTrackerData,
-  getLocalDay,
   type FlushContext,
 } from './tracker-flush';
+
+// Shared local-day helper (pure, no DB dependency)
+export { getLocalDay } from './local-day';
+
+// Dashboard read model (Stage 3A — /tracker/ page)
+export {
+  getTrackerDashboard,
+  type TrackerDashboardReadModel,
+  type TodaySummary,
+  type MediaWithLearningSets,
+  type LearningSetItem,
+  type MomentGroup,
+  type MomentBucket,
+  type ArchiveReadEntry,
+} from './tracker-dashboard-read';
+
+// Dashboard React hook (Stage 3A — /tracker/ page)
+export {
+  useTrackerDashboard,
+  type TrackerDashboardState,
+  type TrackerDashboardPending,
+  type TrackerDashboardReady,
+  type TrackerDashboardUnavailable,
+} from './useTrackerDashboard';

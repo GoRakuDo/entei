@@ -1,0 +1,19 @@
+---
+/**
+ * Tracker Page — `/tracker/`
+ *
+ * IMMERSION_TRACKER Stage 3A: Read-only dashboard route.
+ *
+ * - Uses BaseLayout (two-column grid for desktop, standard chrome).
+ * - noindex (not public-facing; local-only learning dashboard).
+ * - React client-only island for IndexedDB data lifecycle.
+ * - No SSR IndexedDB access (client:only="react" skips SSR entirely).
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import '@styles/player.css';
+import TrackerDashboard from '@/components/player/TrackerDashboard';
+---
+
+<BaseLayout locale="id" path="/tracker/" noindex={true} showChrome={true}>
+  <TrackerDashboard client:only="react" />
+</BaseLayout>
