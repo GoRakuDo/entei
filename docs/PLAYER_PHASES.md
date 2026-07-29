@@ -244,7 +244,7 @@ asbplayerではCondensedとFast-forwardが競合する（`play-mode-manager.ts:1
 - JPEG screenshot capture — AM-2で完了
 - browser-native WebM/Opus audio clip生成とpreview — AM-3/AM-4で完了。downloadは未実装
 - surrounding subtitles — 未実装
-- IndexedDB mining history — 現在は実装済み。successful Anki exportのfilename / range / sentenceだけをlocal IndexedDBへ記録し、RightPanelのHistoryで読む。P6 IMMERSION_TRACKER実装時に、Tracker内の`mining_archive`へnon-destructive migrationしてRecent miningの簡易listとして維持する。詳細は将来の`/tracker/` pageへ分離する。再選択は未実装
+- IndexedDB mining history — 現在は実装済み。successful Anki exportのfilename / range / sentenceだけをlocal IndexedDBへ記録し、RightPanelのHistoryで読む。P6 IMMERSION_TRACKERの記録は実装切替時から新規開始する。旧Historyの削除方針は2026-07-30にユーザー承認済みだが、実装時も新DB初期化成功後に削除対象を示して直前確認を得てから削除する。以後はTracker内の`mining_archive`をRecent miningの簡易listとして維持し、詳細は将来の`/tracker/` pageへ分離する。再選択は未実装
 - historyから再選択、audio/image download、SRT section export — 未実装
 
 ### 先にJPEG + audioを作る理由
@@ -345,7 +345,7 @@ WebMを「あるはず」と決め打ちしない。利用可能なcodecをrunti
 - media内comprehension / statistics
 - statistics generationとlarge subtitle collectionの性能対策
 
-視聴・再生速度・Condensed / Fast-forwardを混ぜないlocal-firstの集計契約は、[IMMERSION_TRACKER.md](./IMMERSION_TRACKER.md)を正とする。media別・日別集計、Review hotspots、Mining archive、privacy、IndexedDB migration / deletion / export境界をこのPhaseで実装する。RightPanelのHistoryはTrackerに属するRecent miningの簡易listだけを維持し、詳細分析は将来の`/tracker/` pageへ分離する。
+視聴・再生速度・Condensed / Fast-forwardを混ぜないlocal-firstの集計契約は、[IMMERSION_TRACKER.md](./IMMERSION_TRACKER.md)を正とする。v1はlocal fileだけを対象にし、video sample fingerprint + subtitle digest、media / subtitle版 / 日別集計、1秒cellを30秒へまとめるi+1 Moments、Mining archive、privacy、IndexedDB deletion境界をこのPhaseで実装する。RightPanelのHistoryはdefault ON / persisted OFF SwitchとRecent miningの簡易listだけを維持し、詳細分析は将来の`/tracker/` pageへ分離する。backup / import、WebTorrent tracking、Passive Listeningはdeferred。
 
 ### 注意
 

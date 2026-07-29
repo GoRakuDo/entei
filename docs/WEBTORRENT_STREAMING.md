@@ -130,7 +130,7 @@ PlayerApp
 
 ### WT-4 — IndexedDB cache
 
-IMMERSION_TRACKERのIndexedDB（将来のMining archiveを含む）と、torrent piece cacheは別物。
+IMMERSION_TRACKER v1はlocal fileだけを対象とし、WebTorrent再生を計測しない。将来WebTorrent trackingを設計する場合も、Tracker IndexedDB（Mining archiveを含む）とtorrent piece cacheは別物として維持する。
 
 - v1 streamingはmemory-only。media Blob全体をIndexedDBへ保存しない。
 - 永続cacheを足す時はchunk store、quota、LRU eviction、容量表示、userによる全削除をまとめて設計する。
