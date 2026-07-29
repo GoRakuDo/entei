@@ -1,7 +1,7 @@
 /**
  * MiningHistoryPanel — Read-only display of successful Anki send history.
  * ---------------------------------------------------------------------------
- * Reads from IndexedDB via mining-history helper.
+ * Reads from the tracker's mining_archive via tracker-archive-read helper.
  * Newest-first, no delete, no media preview, no re-export.
  * Pass `refreshKey` to re-fetch after a new write.
  * Distinguishes empty history from IndexedDB unavailable.
@@ -11,9 +11,9 @@
 
 import { useState, useEffect } from 'react';
 import {
-  getAllHistoryEntries,
-  type HistoryReadResult,
-} from '@/features/player/mining-history';
+  getTrackerHistoryEntries,
+  type TrackerHistoryReadResult,
+} from '@/features/player/tracker/tracker-archive-read';
 
 interface MiningHistoryPanelProps {
   emptyLabel: string;
@@ -31,11 +31,11 @@ export function MiningHistoryPanel({
   rangeLabel,
   refreshKey,
 }: MiningHistoryPanelProps) {
-  const [result, setResult] = useState<HistoryReadResult | null>(null);
+  const [result, setResult] = useState<TrackerHistoryReadResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getAllHistoryEntries()
+    getTrackerHistoryEntries()
       .then((r) => {
         if (!cancelled) setResult(r);
       })

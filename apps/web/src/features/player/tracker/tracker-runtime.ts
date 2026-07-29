@@ -23,7 +23,7 @@ import {
   computeVideoFingerprint,
   computeSubtitleDigestFromText,
 } from './identity';
-import { makeLearningSetId, noSubtitleLearningSetId } from './types';
+import { makeLearningSetId, noSubtitleLearningSetId, cellKey } from './types';
 import type { PlaybackMode } from './types';
 import {
   createAccumulatorState,
@@ -53,6 +53,19 @@ export interface TrackerRuntimeState {
   sessionSeenCells: Set<string>;
   /** Callback invoked when tracker needs to flush data. */
   onFlush: OnTrackerFlush;
+  /**
+   * Increment mineCount on the cell covering the given media time.
+   * Called after successful Anki export to track mining events.
+   * Fire-and-forget: no return value, no error propagation.
+   *
+   * TODO(STAGE-3): manualBackwardSeekCount increment — the current
+   * segment-based architecture doesn't expose intermediate seek events.
+   * To support this, the runtime would need to poll media.currentTime
+   * during playback and detect backward jumps via isManualBackwardSeek().
+   * That polling approach is deferred to Stage 3 when playback monitoring
+   * is added to the runtime.
+   */
+  recordMine: (mediaTimeSeconds: number) => void;
 }
 
 /** Callback invoked when the tracker needs to flush accumulated data. */
@@ -158,6 +171,9 @@ export function useTrackerRuntime({
   const segmentModeRef = useRef<PlaybackMode>('normal');
   const segmentRateRef = useRef<number>(1);
   const hasActiveSegmentRef = useRef(false);
+  // Captured learningSetId at segment start — used by endSegment to avoid
+  // misattributing accumulated data when subtitle/media changes mid-session.
+  const segmentLearningSetIdRef = useRef<string | null>(null);
 
   // --- Previous state for transition detection ---
   const prevIsPlayingRef = useRef(false);
@@ -241,6 +257,7 @@ export function useTrackerRuntime({
     segmentStartMediaRef.current = media.currentTime;
     segmentModeRef.current = playMode;
     segmentRateRef.current = playbackRate;
+    segmentLearningSetIdRef.current = learningSetIdRef.current;
     hasActiveSegmentRef.current = true;
   }, [isTorrentSource, mediaRef, playMode, playbackRate]);
 
@@ -248,7 +265,10 @@ export function useTrackerRuntime({
   const endSegment = useCallback(() => {
     if (!hasActiveSegmentRef.current) return;
     if (!mediaRef.current) return;
-    if (!learningSetIdRef.current) return;
+    // Use the CAPTURED learningSetId from segment start, not the current one.
+    // This prevents misattribution when subtitle/media changes mid-session.
+    const capturedLsid = segmentLearningSetIdRef.current;
+    if (!capturedLsid) return;
 
     const media = mediaRef.current;
     const wallEndMs = performance.now();
@@ -261,7 +281,7 @@ export function useTrackerRuntime({
       mediaEnd,
       segmentRateRef.current,
       segmentModeRef.current,
-      learningSetIdRef.current,
+      capturedLsid,
     );
 
     // Distribute to cells
@@ -276,7 +296,7 @@ export function useTrackerRuntime({
     applyContributions(
       accumulatorRef.current,
       contributions,
-      learningSetIdRef.current,
+      capturedLsid,
       segmentModeRef.current,
       isPause,
       sessionSeenCellsRef.current,
@@ -329,13 +349,14 @@ export function useTrackerRuntime({
 
     const onPageHide = () => {
       endSegment();
-      // Flush accumulator
-      if (accumulatorRef.current.cells.size > 0 && learningSetIdRef.current) {
+      // Flush accumulator under the CAPTURED learningSetId
+      const flushLsid = segmentLearningSetIdRef.current ?? learningSetIdRef.current;
+      if (accumulatorRef.current.cells.size > 0 && flushLsid) {
         try {
           onFlush(
             accumulatorRef.current.cells,
             accumulatorRef.current.totals,
-            learningSetIdRef.current,
+            flushLsid,
           );
         } catch {
           // Flush failure is non-fatal
@@ -359,16 +380,18 @@ export function useTrackerRuntime({
     if (prevFile === null && mediaFile === null) return;
     if (prevFile === mediaFile) return;
 
-    // End any active segment
+    // End any active segment (uses captured learningSetId internally)
     endSegment();
 
-    // Flush accumulator if it has data
-    if (accumulatorRef.current.cells.size > 0 && learningSetIdRef.current) {
+    // Flush accumulator under the CAPTURED learningSetId (the old one),
+    // not the current learningSetId which may have already changed.
+    const flushLsid = segmentLearningSetIdRef.current ?? learningSetIdRef.current;
+    if (accumulatorRef.current.cells.size > 0 && flushLsid) {
       try {
         onFlush(
           accumulatorRef.current.cells,
           accumulatorRef.current.totals,
-          learningSetIdRef.current,
+          flushLsid,
         );
       } catch {
         // Flush failure is non-fatal
@@ -390,16 +413,18 @@ export function useTrackerRuntime({
     if (prevSubtitle === null && subtitleId === null) return;
     if (prevSubtitle === subtitleId) return;
 
-    // End any active segment
+    // End any active segment (uses captured learningSetId internally)
     endSegment();
 
-    // Flush accumulator (different learning set context)
-    if (accumulatorRef.current.cells.size > 0 && learningSetIdRef.current) {
+    // Flush accumulator under the CAPTURED learningSetId (the old one),
+    // not the current learningSetId which may have already changed.
+    const flushLsid = segmentLearningSetIdRef.current ?? learningSetIdRef.current;
+    if (accumulatorRef.current.cells.size > 0 && flushLsid) {
       try {
         onFlush(
           accumulatorRef.current.cells,
           accumulatorRef.current.totals,
-          learningSetIdRef.current,
+          flushLsid,
         );
       } catch {
         // Flush failure is non-fatal
@@ -420,12 +445,14 @@ export function useTrackerRuntime({
   useEffect(() => {
     return () => {
       endSegment();
-      if (accumulatorRef.current.cells.size > 0 && learningSetIdRef.current) {
+      // Flush under the CAPTURED learningSetId
+      const flushLsid = segmentLearningSetIdRef.current ?? learningSetIdRef.current;
+      if (accumulatorRef.current.cells.size > 0 && flushLsid) {
         try {
           onFlush(
             accumulatorRef.current.cells,
             accumulatorRef.current.totals,
-            learningSetIdRef.current,
+            flushLsid,
           );
         } catch {
           // Flush failure is non-fatal
@@ -433,6 +460,23 @@ export function useTrackerRuntime({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on unmount
+  }, []);
+
+  // --- mineCount increment (called after successful Anki export) ---
+  const recordMine = useCallback((mediaTimeSeconds: number) => {
+    if (!hasActiveSegmentRef.current) return;
+    const lsid = segmentLearningSetIdRef.current;
+    if (!lsid) return;
+
+    const roundedSecond = Math.round(mediaTimeSeconds);
+    const rk = cellKey(lsid, roundedSecond);
+    const cell = accumulatorRef.current.cells.get(rk);
+    if (cell) {
+      cell.mineCount += 1;
+    }
+    // If cell doesn't exist yet in accumulator, skip — the mine event
+    // happened outside the tracked segment window. This is correct:
+    // mineCount only tracks cells that have actual watch-time exposure.
   }, []);
 
   return {
@@ -443,5 +487,6 @@ export function useTrackerRuntime({
     accumulator: accumulatorRef.current,
     sessionSeenCells: sessionSeenCellsRef.current,
     onFlush,
+    recordMine,
   };
 }

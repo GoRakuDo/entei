@@ -74,6 +74,7 @@ import { recordMiningHistory } from '@/features/player/mining-history';
 import {
   useTrackerRuntime,
   recordTrackerMiningArchive,
+  flushTrackerData,
 } from '@/features/player/tracker';
 import { SubtitleOverlay } from '@/components/player/SubtitleOverlay';
 import {
@@ -499,18 +500,29 @@ export default function PlayerApp() {
   const sharedMediaRef = useRef<HTMLMediaElement | null>(null);
 
   // --- Stage 2a: Tracker runtime (non-visual, side-effect only) ---
+  // Refs to carry latest media identity into the flush callback (defined
+  // before trackerFlush so the stable callback can read ref.current).
+  const flushMediaIdRef = useRef<string | null>(null);
+  const flushMediaNameRef = useRef('');
+
   const trackerFlush = useCallback(
     async (
       cells: Map<string, import('@/features/player/tracker/types').ExposureCell>,
       totals: import('@/features/player/tracker/types').TimeTotals,
       learningSetId: string,
     ) => {
-      // Stage 2a: Flush is a placeholder — the actual DB write per-segment
-      // will be implemented in a later stage. For now this is a no-op that
-      // prevents the hook from crashing.
-      void cells;
-      void totals;
-      void learningSetId;
+      // Stage 2b: Real IndexedDB persistence. Fire-and-forget: failures
+      // are swallowed and never block playback or Anki export.
+      const mediaId = flushMediaIdRef.current;
+      if (!mediaId) return;
+
+      const file = mediaFileRef.current;
+      flushTrackerData(cells, totals, learningSetId, {
+        mediaId,
+        mediaName: flushMediaNameRef.current,
+        byteSize: file?.size ?? 0,
+        mimeType: file?.type ?? '',
+      }).catch(() => {});
     },
     [],
   );
@@ -532,6 +544,10 @@ export default function PlayerApp() {
     mediaRef: sharedMediaRef,
     onFlush: trackerFlush,
   });
+
+  // Stage 2b: Sync latest media identity into flush callback refs
+  flushMediaIdRef.current = trackerRuntime.mediaId;
+  flushMediaNameRef.current = mediaName;
 
   // Cleanup on unmount
   useEffect(() => {
@@ -2433,17 +2449,20 @@ export default function PlayerApp() {
       const sentence = miningDraftFields.find(
         (f) => f.key === 'sentence',
       )?.value;
-      const written = await recordMiningHistory({
+
+      // Transitional: keep old mining-history write as side-effect.
+      // Fire-and-forget: its success no longer controls the visible History panel
+      // because the panel now reads from the tracker mining_archive.
+      void recordMiningHistory({
         filename: mediaName,
         rangeStart: miningRangeStart,
         rangeEnd: miningRangeEnd,
         sentence: sentence ?? '',
       });
-      if (written) setHistoryRefreshKey((key) => key + 1);
 
-      // Stage 2a: Also write to tracker mining_archive when enabled and
-      // local-file identity is available. Fire-and-forget: errors swallowed.
-      void recordTrackerMiningArchive({
+      // Authoritative: write to tracker mining_archive.
+      // The visible History panel reads from here, so refresh depends on this.
+      const archiveWritten = await recordTrackerMiningArchive({
         mediaId: trackerRuntime.mediaId,
         subtitleId: trackerRuntime.subtitleId,
         learningSetId: trackerRuntime.learningSetId,
@@ -2452,6 +2471,15 @@ export default function PlayerApp() {
         rangeEnd: miningRangeEnd,
         sentence: sentence ?? '',
       });
+      if (archiveWritten) setHistoryRefreshKey((key) => key + 1);
+
+      // Stage 2b: Increment mineCount on the cell covering the mined timestamp.
+      // Uses the start of the mined range as the representative media time.
+      // NOTE: recordMine is synchronous (in-memory cell mutation). It runs after
+      // the archive write completes so the mine is recorded even if a flush
+      // happens immediately after. The cell will be persisted on the next
+      // lifecycle event (pause / visibility change / pagehide).
+      trackerRuntime.recordMine(miningRangeStart);
     } catch {
       // IndexedDB failures must never alter an already successful Anki mutation.
     }
@@ -2463,6 +2491,7 @@ export default function PlayerApp() {
     trackerRuntime.mediaId,
     trackerRuntime.subtitleId,
     trackerRuntime.learningSetId,
+    trackerRuntime.recordMine,
   ]);
 
   /** Stage 2 AM-6a: Send new note to Anki. */

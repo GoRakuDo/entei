@@ -113,3 +113,17 @@ export {
   recordTrackerMiningArchive,
   type RecordTrackerArchiveParams,
 } from './tracker-archive-write';
+
+// Mining archive read helper (Stage 3 — History panel)
+export {
+  getTrackerHistoryEntries,
+  type TrackerHistoryEntry,
+  type TrackerHistoryReadResult,
+} from './tracker-archive-read';
+
+// Flush persistence (Stage 2b)
+export {
+  flushTrackerData,
+  getLocalDay,
+  type FlushContext,
+} from './tracker-flush';

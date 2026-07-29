@@ -173,6 +173,8 @@ export interface MiningArchiveEntry {
   rangeEnd: number;
   sentence: string;
   localDay: string;
+  /** Wall-clock timestamp (Date.now()) at write time. Used for newest-first sorting. */
+  createdAt: number;
 }
 
 /* ------------------------------------------------------------------------ */

@@ -71,6 +71,7 @@ export async function recordTrackerMiningArchive(
       rangeEnd: params.rangeEnd,
       sentence: params.sentence,
       localDay,
+      createdAt: Date.now(),
     };
 
     return await putMiningArchiveEntry(entry);
