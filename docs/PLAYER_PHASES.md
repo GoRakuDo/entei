@@ -216,6 +216,26 @@ P1を終えても、「機能を増やす」前に実local mediaで以下が通�
 - settings profile、settings import/exportの土台
 - clipboardへcurrent subtitleをcopyする機能
 
+### Resume Playback — local-only 再生位置の継続
+
+未完了のlocal videoを後で再選択した時、同じvideoだけを最後に止めた位置へ**pauseしたまま**静かに戻す。これはnavigation機能ではなくPlayerのpersistence契約であり、Home / Trackerへのroute離脱は保存を試みる契機の一つに過ぎない。
+
+- identityはIMMERSION_TRACKERと同じinstallation-local sample fingerprint（byte size + first 1MiB + last 1MiB + local salt）だけを使う。filenameはdisplay用であり、判定へ使わない。
+- `pause`のたび、現在の`currentTime`を直ちにlocal-onlyへ保存する。manual pause、miningなどのPlayer内pauseを区別せず、最後に止まった位置を正とする。
+- 再生中は**1分ごと**にcheckpointを保存する。5秒ごとの頻繁な書込みはしない。route離脱、unmount、`pagehide`でもbest-effortで最後のcheckpointを試みるが、browser終了だけに依存しない。
+- userが同じfileを再選択した時、fingerprint計算と`loadedmetadata`の両方が完了してから、保存位置がduration内である場合だけseekする。seek後は必ずpauseを維持し、自動再生、toast、resume dialogは出さない。
+- `ended`で再生を完了したvideoはresume checkpointを消す。fingerprint不一致、保存位置が無効、別video、media metadata未取得では先頭から開始する。
+- subtitle digestの違いはresume判定へ含めない。file path、File System Access handle、media / subtitle Blobは保存しない。
+
+**Done条件**
+
+1. pause後のsame-file再選択で位置を復元し、playを開始しない。
+2. 連続再生中は60秒ごとにだけcheckpointを更新する。
+3. route離脱 / refresh / `pagehide`で最後のcheckpointをbest-effort保存する。
+4. `ended`後、同じfileは先頭から開始する。
+5. fingerprint不一致、破損値、duration外position、storage failureでPlayerが起動不能にならない。
+6. sample fingerprint計算とmetadata読込のraceをtestし、早いseekや別fileへの誤適用を防ぐ。
+
 ### 根拠と注意
 
 asbplayerではCondensedとFast-forwardが競合する（`play-mode-manager.ts:15-16`）。さらにAuto-pause/Repeat/Condensedはcue終了時に相互作用するため、`playback-mode-effects.test.ts:127-256`のように状態遷移をunit testで固定する。
