@@ -117,6 +117,7 @@ Phase 0で達成すること：
 | ----------- | ------------------------------------------------------------ | --------------------- | --------- |
 | `/`         | 初期値: Indonesian。PreferenceによりJapanese / Englishへ切替 | 唯一の正式Home        | index     |
 | `/player/`  | 初期値: Indonesian。PreferenceによりJapanese / Englishへ切替 | Player準備中          | noindex   |
+| `/tracker/` | 初期値: Indonesian。PreferenceによりJapanese / Englishへ切替 | local-first記録の閲覧 | noindex   |
 | `/404.html` | Indonesian                                                   | 未知URLからHomeへ戻す | noindex   |
 
 ルート契約は次のように固定する。
@@ -140,8 +141,10 @@ Astro公式はlocale prefixを使うroutingを提供しているが、それは�
 
 2. **Top Bar**
    - 左：Entei wordmark。Homeへのリンクも兼ねる。
-   - 右：現在言語が常に見えるLanguage Selector。
-   - 大きなサイトナビゲーションは置かない。Phase 0には移動先がまだ少ないため。
+   - desktopでは、Home / Player / Trackerの共通navigationをwordmarkと同じ横長pill groupへ置く。
+   - 右：Home / Trackerでは現在言語が常に見えるLanguage Selector。Playerはimmersiveを優先してSelectorを出さない。
+   - mobileでは、Top Barはwordmarkと必要なSelectorだけにし、3 destinationはsafe-area対応のfloating bottom Dockへ移す。
+   - 詳細なroute、responsive、accessibilityの契約は[`NAVIGATION_BAR.md`](./NAVIGATION_BAR.md)を正とする。
 
 3. **Hub Identity**
    - Pixelify Sansによる短いsystem label。
@@ -153,6 +156,7 @@ Astro公式はlocale prefixを使うroutingを提供しているが、それは�
    - Audio & Video Playerを、最初・最大・高contrastの主目的地として置く。
    - EPUB Readerを、落ち着いたlocked destinationとして縦に並べる。
    - 両destinationは同じfull-width rectangular shapeで縦に積み、優先度は色・border・内容で示す。
+   - Trackerは共通navigationの目的地であり、このDockへ3枚目のtileとして複製しない。
 
 5. **Local-first Note**
    - `No account`、`Media stays on your device` に相当する短い安心材料を置く。
@@ -308,7 +312,7 @@ GoRakuDoの実装は、Display・JP・Pixel用aliasを既に分けている（`D
 **Base — 320px以上**
 
 - 1 column。
-- HomeのTop BarはwordmarkとLanguage Selectorだけを1行に置く。収まらない時はSelectorの文字を消さず、下段へ回す。PlayerではSelectorを出さず、Homeで保存した言語設定を読む。
+- Home / TrackerのTop Barはwordmark、desktop navigation、Language Selectorを1行に置く。収まらない時はSelectorの文字を消さず、layoutを安全にwrapする。PlayerではSelectorを出さず、Homeで保存した言語設定を読む。mobileではdestinationをfloating Dockへ移す。
 - Hub Identityの後にPlayer、EPUBの順で縦配置する。
 - Tileの主要操作領域は最低44×44 CSS pxを確保する。
 - 左右paddingは`clamp(1rem, 4vw, 1.5rem)`を出発点にする。
@@ -361,6 +365,7 @@ GoRakuDoの実装は、Display・JP・Pixel用aliasを既に分けている（`D
 目標はWCAG 2.2 AA。最低でも次を満たすまでPhase 0完了としない。
 
 - `header` / `nav` / `main` / `footer` のlandmark構造を保つ。
+- 共通navigationの現在routeは`aria-current="page"`で示す。desktop navigationとmobile Dockを同時表示せず、同じdestinationを二重に読上げさせない。
 - `h1`は1つだけにし、見た目の都合でheading levelを飛ばさない。
 - Skip linkをキーボードfocus時に表示する。
 - すべての操作を`Tab` / `Shift+Tab` / `Enter` / `Space` / 必要な矢印keyだけで完了できる。
@@ -385,7 +390,7 @@ GoRakuDoの実装は、Display・JP・Pixel用aliasを既に分けている（`D
 - 初期HTMLの`title`と`description`はIndonesianで用意する。Selector切替後のbrowser tabとdescriptionは現在localeへ更新する。
 - Canonicalは常に `https://entei.gorakudo.org/` を指す。
 - 言語別URLがないため`hreflang`は出さない。
-- `/player/`系の準備中ページと404は`noindex,follow`にする。
+- `/player/`、`/tracker/`、404は`noindex,follow`にする。
 - `sitemap.xml`にはindex可能なHome `/`だけを載せる。
 - `robots.txt`を静的に配信し、build previewでも内容を確認する。
 - Structured dataはPhase 0の実態に合わせて`WebSite`を使う。Playerが未提供のうちから`SoftwareApplication`として機能を宣伝しない。
@@ -713,6 +718,7 @@ Implementation Logには、意図や予定ではなく実際に完了したこ�
 | 2026-07-20 | 0.6 | Yosia提供の`E:\Libraries\Documents\logo_black.svg`を正式brand assetとして`public/brand/favicon.svg`と`public/brand/emblem.svg`へ反映。Top BarのHubEmblemもLucide Flameからbrand emblemへ置換。各pathの明示black fillがroot fillを上書きするため、両SVG内へ`path { fill: #f5f5f7 !important; }`を追加し、dark UIとbrowser chromeで明るく表示する。`viewBox="0 0 2048 2048"`も追加。Player / Reader / Arrow / Select chevronのLucide iconは維持し、OG WebP/PNGはYosia提供待ちのまま。 | source fileの存在とbrand asset directoryを確認後、2ファイルへ同一sourceをコピー。`npm run format:check` → exit 0。`npm run test` → exit 0（57 tests / 3 files）。`npm run check` → exit 0（0 errors / warnings / hints、24 files）。`npm run build` → exit 0（3 pages built、sitemap生成）。 | code-reviewer APPROVE。dark/light browser chrome上のfavicon視認性は手動QAで確認。 | `e3f685f` |
 | 2026-07-20 | 0.7 | Color-format normalization: all shipped runtime color values normalized to OKLCH. Changes: (1) `public/og/og-image.svg` — converted `#ffffff`→`oklch(95% 0.005 285deg)`, `#7a4ee5`→`oklch(57.74% 0.209 273.85deg)`, `#0d0d12`→`oklch(5% 0.005 270deg)`. (2) `public/brand/favicon.svg` + `public/brand/emblem.svg` — converted internal style `#f5f5f7`→`oklch(95% 0.005 285deg) !important`, converted all path `fill="#000000"`→`fill="oklch(5% 0.005 270deg)"` (8 path attributes across 2 files). (3) `src/components/SeoHead.astro` — `theme-color` `#0d0d12`→`oklch(5% 0.005 270deg)`, mask-icon `color="#7a4ee5"`→`oklch(57.74% 0.209 273.85deg)`. (4) `src/pages/404.astro` — `theme-color` `#0d0d12`→`oklch(5% 0.005 270deg)`. Post-edit grep confirmed zero hex/rgb/rgba/hsl/hsla color values in shipped `apps/web/src` and `apps/web/public` (excluding non-color false positives like `white-space`, CSS system colors, `transparent`, URLs, hashes). | `grep "#[0-9a-fA-F]{3,8}" -g *.astro -g *.css -g *.svg -g *.ts -g *.js -g *.html apps/web/src apps/web/public` → no output (zero matches). `grep "rgba?\(\|hsla?\("` same scope → no output. `npm run format:check` → exit 0（Prettier reformatted SeoHead.astro）. `npm run test` → exit 0（57 tests passed, 3 test files）. `npm run check` → exit 0（0 errors, 0 warnings, 0 hints, 24 files）. `npm run build` → exit 0（3 pages built in 7.53s, sitemap-index.xml created）。Manual visual QA (OKLCH rendering in Chromium dark/light chrome, OG image color accuracy, favicon visibility) remains pending。 | code-reviewer APPROVE。手動Chromium QAは未実施 | `e3f685f` |
 | 2026-07-20 | 0.8 | Yosia手動Chromium QA完了。操作・accessibility、Homeのresponsive visual、Header brand logo / faviconを確認済み。 | Yosia確認：すべてOK。 | Yosia確認済み。コード変更なし。 | `e3f685f` |
+| 2026-07-30 | navigation design | 共通navigation設計を[`NAVIGATION_BAR.md`](./NAVIGATION_BAR.md)へ新設。`TopBar.astro`をdesktop pill nav / mobile floating Dockを持つ単一componentへ育てる方針、Home / Player / Trackerの3 destination、TrackerをHome Destination Dockへ複製しない境界、Player short-height landscape / fullscreenでDockを隠す契約を固定。 | 現行`TopBar.astro`、`BaseLayout.astro`、`PlayerLayout.astro`、GoRakuDoのdesktop / bottom nav source、Player landscape契約を照合。アプリケーション実装・testは未実施。 | document review待ち。 |
 
 今後の追記template：
 

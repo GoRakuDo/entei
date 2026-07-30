@@ -531,8 +531,8 @@ apps/web/src/
 10. 44px touch target → ボタンのタップサイズ確認
 11. media metadata読込中 → video/audio skeletonとreduced-motion時の静止状態を確認
 12. shortcut Dialog → focus trap、Escapeで閉じる、triggerへfocusが戻るか
-13. **mobile portrait** → videoがTopBarの下でedge-to-edge表示; picker/subtitle panelはgutter付き
-14. **mobile landscape** (955×400 emulation) → TopBar/footer/picker/subtitle非表示; videoが100vw×100dvh表示; portraitに戻すと全要素復帰
+13. **mobile portrait** → videoがTopBarの下でedge-to-edge表示; picker/subtitle panelはgutter付き。共通navigation実装後はfloating bottom Dockもsafe areaを避けて表示され、contentを覆わない
+14. **mobile landscape** (955×400 emulation) → TopBar/footer/picker/subtitle/**floating bottom Dock**非表示; videoが100vw×100dvh表示; portraitに戻すと全要素復帰
 15. **long filename** → 長いmedia/subtitleファイル名でhorizontal scrollが発生しない; labelがellipsis表示; button title属性で全名を確認可能
 16. **Mineボタン** → active cueなしでdisabled; video/audioで表示; クリックでPlayer pause
 17. **Mining Preview** → sentence/source/screenshot/audioが正しく表示; Cancelでsnapshot timeへseek+pause
@@ -576,7 +576,7 @@ native `<video controls>`は撤去する。browserが描くcontrol UIをCSSで�
 - 右上: `Timeline`は`entei-subtitle-panel`の表示を切替える。desktopで隠した時は空白columnを残さずmedia areaを拡幅する。`Settings`はshortcut一覧を表示する。字幕未読込時はSubtitlePanel empty stateの「字幕を選択」buttonから字幕fileを選ぶ。Timelineは無効化せず、empty panelを表示できる。
 - 下端: custom seek Slider。pointer/keyboard操作で現在位置を更新し、現在時間とmetadata由来の総時間をtabular numeralで表示する。
 - 右下: `Volume2`/`VolumeX`でmute toggle。desktopはhover/focusでvolume Sliderを表示し、touchではicon activationでSliderを開く。`Gauge`は既存shortcut/preferenceと同じ0.25 / 0.5 / 0.75 / 1 / 1.25 / 1.5 / 1.75 / 2xのrate popover。`Maximize2`/`Minimize2`は実fullscreen stateを表す。
-- mobile portraitはcontrol layerをvideo内に重ねるが、字幕panelは動画下のまま。short-height landscapeは既存immersive規則を維持し、字幕panel toggleは表示しない。
+- mobile portraitはcontrol layerをvideo内に重ねるが、字幕panelは動画下のまま。共通navigation実装後はfloating bottom Dockがsafe areaを避けて表示される。short-height landscapeは既存immersive規則を維持し、字幕panel toggleとfloating bottom Dockは表示しない。詳細は[`NAVIGATION_BAR.md`](./NAVIGATION_BAR.md)を正とする。
 
 ### 16.3 interactionとaccessibility
 
