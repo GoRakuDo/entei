@@ -71,9 +71,9 @@
 
 mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ早く安全に到達するための実装順は`docs/ANKI_MINER.md`を正とする。現在はAM-1〜AM-6cがコード完了している。`addNote` / note更新はMining Preview内の明示した`Ankiへ送信`でのみ実行し、実AnkiConnect書込みの残る手動QAは専用test deckで行う。
 
-### 3.4 original Phase 3 — WebTorrent local peer streaming
+### 3.4 original Phase 3 — WebTorrent local peer streaming（withdrawal planned）
 
-original proposalのWebTorrent Phaseは、ここでいうP3 Miningとは別の後続Phase。WT-1は実装済みで、magnet URIだけを受け、実際に接続できたWebRTC peerが1以上の場合だけ単一torrent mediaの公開stream URLを既存Playerへ渡す。Chromiumで公式Sintel magnet（5 peer、14:48動画）を実再生済み。torrent内字幕・複数media選択はWT-2、privacy copy reviewとproduction browser QAは残留gate。詳細なpeer gate、Service Worker、cache / PWAの順序は[WEBTORRENT_STREAMING.md](./WEBTORRENT_STREAMING.md)を正とする。これは外部配信siteへ注入するStreaming Video Integrationではない。
+original proposalのWebTorrent Phaseは、ここでいうP3 Miningとは別の後続Phase。WT-1はbrowser WebRTC peer向けに実装・検証済みだが、EizouDendenshi採用により**withdrawal planned**。WT-2、browser cache、PWA、production browser QAへは進まない。ED-1でbrowser WebTorrentを撤去し、YouTube / regular BitTorrentはWindows / Termux localhost companionへ移す。詳細な段階とPoC gateは[EizouDendenshi](./EIZOU_DENDENSHI.md)を正とする。
 
 ---
 
@@ -752,7 +752,7 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 - malformed XML / JSONはcueを半端に作らず、file名とformatを含むlocalized errorへ落とす。
 - formatごとのfixtureとtimestamp / linebreak / overlapping cue testを追加する。
 
-**将来の再評価条件:** browser-only Playerではyt-dlpを直接呼び出せない。yt-dlpとの連携にはlocal companion / desktop boundaryが必要。このacquisition pathが確立された時に、対応するsubtitle形式の実装を再開する。
+**将来の再評価条件:** browser-only Playerではyt-dlpを直接呼び出せない。yt-dlpとの連携にはlocal companion / desktop boundaryが必要。具体的なWindows x64 / Android Termux arm64 companionの設計・PoC gateは[EizouDendenshi](./EIZOU_DENDENSHI.md)を正とする。このacquisition pathが確立された時に、対応するsubtitle形式の実装を再開する。
 
 ### 17.6 P1.4 — PGS/SUP image subtitle parity（deferred）
 

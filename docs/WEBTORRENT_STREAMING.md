@@ -1,12 +1,12 @@
 # WebTorrent — Phase 3 Local Peer Streaming 設計
 
-> **状態:** WT-1 コードコンプリート・Chromium実機の基本streaming確認済み。公式Sintel magnetで5 WebRTC peer、単一`Sintel.mp4`の14:48再生を確認。最低1 WebRTC peerで再生開始する。production-browser QAとprivacy copy reviewは別gate。
+> **状態:** **withdrawal planned (ED-1)。** ED-1の内容は[EizouDendenshi staged delivery](./EIZOU_DENDENSHI.md#staged-delivery)を参照。WT-1 codeはまだrepositoryに残るが、browser WebTorrentをこれ以上拡張しない。regular BitTorrent / YouTubeは[EizouDendenshi](./EIZOU_DENDENSHI.md)のWindows / Termux localhost companionへ移す。以下はWT-1のhistorical record。
 > **対象:** original proposalのPhase 3。`PLAYER_PHASES.md`のP3 Miningとは別の番号体系なので、以後は`WT-1`〜`WT-5`で呼ぶ。
 > **境界:** torrent内のローカルメディアをbrowserで再生する機能。外部配信siteへの注入、tab capture、browser extensionは永久に対象外。
 
 ---
 
-## 1. 人間語でいうと
+## 1. 人間語でいうと（historical）
 
 ユーザーがmagnet URIを貼ると、園庭はbrowserから実際に接続できたWebRTC peerを確認する。
 
@@ -178,7 +178,7 @@ WebTorrent開始は、現在のlocal-only copyを再レビューしてからに�
 
 ---
 
-## 7. 根拠
+## 7. 根拠（historical）
 
 | 事実                                                                                      | 根拠                                                                                                 | 意味                                                     |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
@@ -189,3 +189,5 @@ WebTorrent開始は、現在のlocal-only copyを再レビューしてからに�
 | browser版はWebRTC peerだけに接続                                                          | [WebTorrent公式 Get Started](https://github.com/webtorrent/webtorrent/blob/HEAD/docs/get-started.md) | 通常BitTorrent seedだけのmagnetは受入対象にできない      |
 | 動画は完全download前に再生・seekでき、必要pieceをon-demand取得する                        | 同公式Get Started                                                                                    | WT-3はon-demandを基礎にしてから優先bufferを足す          |
 | local-only copyはWebTorrent前に再レビューする                                             | `docs/PHASE0.md:632,652`                                                                             | peer通信を隠してlocal-onlyとは言わない                   |
+
+通常BitTorrent swarmをWindows / Termuxのlocalhost companionから扱う後継案は[EizouDendenshi](./EIZOU_DENDENSHI.md)を参照する。browser-only WT-1/WT-2を置き換え、WebRTC非対応magnetを含む手入力sourceの別boundaryとして扱う。
