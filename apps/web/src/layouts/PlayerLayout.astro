@@ -75,6 +75,7 @@ const dictionary: Dictionary = getDictionary(locale);
       locale={locale}
       dictionary={dictionary}
       showLanguageSelector={false}
+      currentPath={path}
     />
     <main id="entei-main" class="entei-player-main" tabindex="-1">
       <slot />
@@ -99,5 +100,14 @@ const dictionary: Dictionary = getDictionary(locale);
     width: 100%;
     outline: none;
     padding: var(--entei-space-16) var(--entei-gutter) var(--entei-space-32);
+  }
+
+  /* Mobile: reserve bottom space so the floating Dock cannot cover
+     player content (NAVIGATION_BAR.md 4.2). Landscape immersive and
+     desktop immersive override this to padding:0 via player.css. */
+  @media (max-width: 767px) {
+    .entei-player-main {
+      padding-bottom: calc(var(--entei-space-32) + var(--entei-dock-height));
+    }
   }
 </style>

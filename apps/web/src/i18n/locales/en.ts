@@ -272,9 +272,15 @@ export const en: Dictionary = {
     backToGorakudo: 'Back to GoRakuDo',
     backToHome: 'Back to Home',
     skipToMain: 'Skip to main content',
+    destinationHome: 'Home',
+    destinationPlayer: 'Player',
+    destinationTracker: 'Tracker',
+    desktopNavLabel: 'Page navigation',
+    mobileDockLabel: 'Page navigation',
   },
   language: {
     selectLabel: 'Language',
+    comboboxLabel: 'Select language',
   },
   playerPage: {
     title: 'Player — Next phase',

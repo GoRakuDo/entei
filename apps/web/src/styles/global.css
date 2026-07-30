@@ -181,6 +181,182 @@ svg {
   }
 }
 
+/* ===== MOBILE DOCK CONTENT SPACING (NAVIGATION_BAR.md 4.2) =====
+ * Reserve bottom space so the fixed Dock never covers content/footer.
+ * Dock height = 4px top pad + link height (~58px: 44px min + 16px padding)
+ * + 4px bottom pad + safe-area-inset-bottom ≈ 66px + safe-area.
+ * We use a CSS variable for the dock height so it can be referenced elsewhere.
+ */
+:root {
+  --entei-dock-height: calc(
+    var(--entei-touch-min) + var(--entei-space-24) + var(--entei-safe-bottom)
+  );
+}
+
+@media (max-width: 767px) {
+  /* Main content bottom padding */
+  .entei-main-inner {
+    padding-bottom: calc(var(--entei-space-64) + var(--entei-dock-height));
+  }
+
+  /* Footer also needs space above the dock if it's near the bottom */
+  .entei-footer {
+    padding-bottom: calc(var(--entei-space-32) + var(--entei-dock-height));
+  }
+}
+
+/* ===== DESKTOP LANGUAGE COMBOBOX (NAVIGATION_BAR.md §3) =====
+ * Scoped to .entei-language-combobox to avoid leakage.
+ * Uses Entei OKLCH tokens only — no raw hex/rgb/hsl. */
+
+.entei-language-combobox {
+  display: inline-flex;
+  align-items: center;
+}
+
+.entei-combobox-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  min-width: 120px;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  background-color: var(--entei-surface);
+  color: var(--entei-text);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  justify-content: space-between;
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-combobox-trigger:hover {
+  border-color: var(--entei-accent);
+  background-color: var(--entei-surface-2);
+}
+
+.entei-combobox-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-combobox-trigger-label {
+  line-height: 1;
+}
+
+.entei-combobox-trigger-chevron {
+  color: var(--entei-muted);
+  flex-shrink: 0;
+}
+
+/* Popover content */
+.entei-combobox-content {
+  width: var(--radix-popover-trigger-width);
+  padding: var(--entei-space-4);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+  box-shadow:
+    0 10px 15px -3px oklch(0% 0 0deg / 0.2),
+    0 4px 6px -4px oklch(0% 0 0deg / 0.15);
+}
+
+/* Command list */
+.entei-command {
+  overflow: hidden;
+}
+
+.entei-command-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.entei-command-input {
+  width: 100%;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  background: transparent;
+  color: var(--entei-text);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  border: none;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
+  outline: none;
+}
+
+.entei-command-input::placeholder {
+  color: var(--entei-text-muted);
+}
+
+/* Command items */
+.entei-command-item {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  min-height: var(--entei-touch-min);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--entei-text);
+  border-radius: var(--entei-radius-md);
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-command-item:hover,
+.entei-command-item[data-selected="true"] {
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+}
+
+.entei-command-item[data-selected="true"][aria-selected="true"],
+.entei-command-item[aria-selected="true"] {
+  background-color: oklch(57.74% 0.209 273.85deg / 0.12);
+  border-radius: var(--entei-radius-card);
+}
+
+.entei-command-item:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Empty state */
+.entei-command-empty {
+  padding: var(--entei-space-12);
+  text-align: center;
+  color: var(--entei-text-muted);
+  font-size: 0.875rem;
+}
+
+/* Forced colors */
+@media (forced-colors: active) {
+  .entei-combobox-trigger {
+    background-color: Canvas;
+    border-color: ButtonText;
+  }
+  .entei-combobox-trigger:hover {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+  .entei-combobox-content {
+    background-color: Canvas;
+    border-color: ButtonText;
+  }
+  .entei-command-item:hover,
+  .entei-command-item[data-selected="true"],
+  .entei-command-item[aria-selected="true"] {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}
+
 /* ===== HIGH CONTRAST (PHASE0.md 14.377) ===== */
 @media (prefers-contrast: more) {
   :root {

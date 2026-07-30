@@ -867,15 +867,16 @@
 
 /* --- Landscape immersive: hide chrome, video fills viewport --- */
 @media (orientation: landscape) and (max-height: 500px) {
-  /* Hide TopBar, footer, pickers, subtitle panel, subtitle row, warnings, timeline button. */
-  .entei-topbar,
+  /* Hide TopBar, footer, pickers, subtitle panel, subtitle row, warnings, timeline button, AND mobile dock. */
+  .entei-topbar-mobile,
   .entei-footer,
   .entei-player-empty,
   .entei-player-subtitle-row,
   .entei-right-panel-inner,
   .entei-subtitle-panel,
   .entei-player-errors,
-  .entei-controls-timeline-btn {
+  .entei-controls-timeline-btn,
+  .entei-mobile-dock {
     display: none !important;
   }
 
@@ -1325,7 +1326,7 @@
  * Uses visibility:hidden + pointer-events:none to avoid layout reflow.
  * Desktop TopBar is untouched (media query scopes to <768px). */
 @media (max-width: 767px) {
-  html.entei-settings-dialog-open .entei-topbar {
+  html.entei-settings-dialog-open .entei-topbar-mobile {
     visibility: hidden;
     pointer-events: none;
   }
@@ -2653,9 +2654,17 @@ html.entei-player-immersive body {
   overflow: hidden;
 }
 
-/* Hide TopBar and Footer in immersive mode */
-html.entei-player-immersive body > .entei-topbar,
-html.entei-player-immersive body > footer {
+/* Hide TopBar, Footer, AND mobile dock in immersive mode */
+html.entei-player-immersive body > .entei-topbar-mobile,
+html.entei-player-immersive body > footer,
+html.entei-player-immersive body > .entei-mobile-dock {
+  display: none !important;
+}
+
+/* Fullscreen: hide mobile dock (NAVIGATION_BAR.md 4.3).
+   PlayerControls.tsx toggles body.entei-fullscreen-active on
+   fullscreenchange. Does not move focus or scroll — pure CSS hide. */
+body.entei-fullscreen-active .entei-mobile-dock {
   display: none !important;
 }
 

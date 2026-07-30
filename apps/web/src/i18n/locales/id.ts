@@ -275,9 +275,15 @@ export const id: Dictionary = {
     backToGorakudo: 'Kembali ke GoRakuDo',
     backToHome: 'Kembali ke Home',
     skipToMain: 'Lewati ke konten utama',
+    destinationHome: 'Home',
+    destinationPlayer: 'Player',
+    destinationTracker: 'Tracker',
+    desktopNavLabel: 'Navigasi halaman',
+    mobileDockLabel: 'Navigasi halaman',
   },
   language: {
     selectLabel: 'Bahasa',
+    comboboxLabel: 'Pilih bahasa',
   },
   playerPage: {
     title: 'Player — Tahap berikutnya',

@@ -99,6 +99,7 @@
   --entei-radius-md: 8px;
   --entei-radius-lg: 12px;
   --entei-radius-card: 20px;
+  --entei-radius-pill: 999px;
 
   /* ===== MOTION (PHASE0.md Section 13) ===== */
   --entei-ease-productive: cubic-bezier(0.2, 0, 0.38, 0.9);

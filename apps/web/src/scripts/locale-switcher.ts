@@ -4,6 +4,8 @@ import type { Locale } from '@i18n/types';
 import {
   type LocaleChangeDetail,
   LOCALE_CHANGE_EVENT,
+  type LocaleRequestDetail,
+  LOCALE_REQUEST_EVENT,
 } from '@i18n/locale-events';
 
 /**
@@ -61,6 +63,21 @@ export function applyLocale(locale: Locale): void {
     const text = resolveKey(dictionary, key);
     if (text !== null) {
       element.textContent = text;
+    }
+  });
+
+  // Update aria-label on elements with data-i18n-aria-label (nav landmarks).
+  const ariaLabelElements = document.querySelectorAll<HTMLElement>(
+    '[data-i18n-aria-label]',
+  );
+  ariaLabelElements.forEach((element) => {
+    const key = element.dataset.i18nAriaLabel;
+    if (key === undefined) {
+      return;
+    }
+    const text = resolveKey(dictionary, key);
+    if (text !== null) {
+      element.setAttribute('aria-label', text);
     }
   });
 
@@ -129,6 +146,15 @@ function init(): void {
       }
     });
   }
+
+  // Listen for locale-request events from React islands (LanguageCombobox).
+  // This is the single source of truth for locale switching — islands
+  // dispatch a request, we own applyLocale + writePreference + event dispatch.
+  window.addEventListener(LOCALE_REQUEST_EVENT, ((event: CustomEvent<LocaleRequestDetail>) => {
+    if (event.detail?.locale && isLocale(event.detail.locale)) {
+      switchLocale(event.detail.locale);
+    }
+  }) as EventListener);
 
   revealPage();
 }

@@ -23,6 +23,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getTrackerDashboard } from '@/features/player/tracker/tracker-dashboard-read';
 import * as db from '@/features/player/tracker/db';
+import { getLocalDay } from '@/features/player/tracker/local-day';
 import type {
   MediaRecord,
   LearningSetRecord,
@@ -30,6 +31,18 @@ import type {
   ExposureCell,
   MiningArchiveEntry,
 } from '@/features/player/tracker/types';
+
+/**
+ * Mock getLocalDay to return a fixed date matching the test fixtures.
+ * Without this, getLocalDay() calls new Date().toLocaleDateString('en-CA')
+ * which returns the real system date — making "today" tests fail once
+ * the calendar moves past the hardcoded fixture date (2026-07-29).
+ */
+vi.mock('@/features/player/tracker/local-day', () => ({
+  getLocalDay: vi.fn(() => '2026-07-29'),
+}));
+
+const FIXED_TODAY = '2026-07-29';
 
 /* ------------------------------------------------------------------------ */
 /* Fake data helpers                                                         */
@@ -148,6 +161,10 @@ describe('tracker-dashboard-read', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    // Restore getLocalDay mock — resetAllMocks clears the vi.fn() implementation
+    // set by the module-level vi.mock() factory, so we must re-establish it.
+    vi.mocked(getLocalDay).mockReturnValue(FIXED_TODAY);
+
     getAllMediaSpy = vi.spyOn(db, 'getAllMedia');
     getAllLearningSetsSpy = vi.spyOn(db, 'getAllLearningSets');
     getAllDailySpy = vi.spyOn(db, 'getAllDaily');

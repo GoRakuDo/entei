@@ -1,47 +1,205 @@
 ---
 /**
- * Top Bar — PHASE0.md Section 6.142-144.
- * Left: Entei wordmark (live text, also a Home link).
- * Right: Language Selector (optional, controlled by `showLanguageSelector`).
- * No large site navigation — Phase 0 has too few destinations.
+ * Top Bar — NAVIGATION_BAR.md full desktop redesign (Stage N1+2).
+ *
+ * Architecture per NAVIGATION_BAR.md §3, §4:
+ *
+ * Desktop (≥768px):
+ * - NO sticky black TopBar strip (removed per spec).
+ * - Home / Tracker: always-visible pill in normal document flow (scrolls out).
+ *   Pill = [HubEmblem + "Entei" (Home link) | Player | Tracker].
+ *   LanguageCombobox at right edge. Both scroll out naturally.
+ * - Player: pill + Combobox hidden by default. Top-edge hover zone and
+ *   keyboard focus reveal both, shared containment, 200ms dismiss delay.
+ *   Closed state uses opacity + transform + pointer-events only.
+ *
+ * Mobile (<768px):
+ * - Sticky header with brand + optional native LanguageSelector.
+ * - Floating bottom Dock: Home / Player / Tracker.
+ *   Unchanged from previous implementation.
  *
  * Wordmark uses Pixelify Sans (font-system) for a consistent game-accent
- * feel across all pages. If the webfont fails to load, the fallback
- * (Gen Interface JP, then monospace) keeps it readable.
+ * feel across all pages.
  */
 import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
+import { LanguageCombobox } from '@components/home/LanguageCombobox';
+import { House, Clapperboard, ChartNoAxesCombined } from '@lucide/astro';
 import type { Dictionary, Locale } from '@i18n/types';
+
+/** Single destination definition — desktop pill and mobile dock read from this. */
+const DESTINATIONS = [
+  { route: '/', labelKey: 'destinationHome' as const, Icon: House },
+  { route: '/player/', labelKey: 'destinationPlayer' as const, Icon: Clapperboard },
+  { route: '/tracker/', labelKey: 'destinationTracker' as const, Icon: ChartNoAxesCombined },
+] as const;
 
 interface Props {
   locale: Locale;
   dictionary: Dictionary;
-  /** Whether to render the Language Selector. Default true (Home). Player passes false. */
+  /** Whether to render the mobile Language Selector. Default true (Home). Player passes false. */
   showLanguageSelector?: boolean;
+  /** Current route path for aria-current="page". Defaults to '/'. */
+  currentPath?: string;
 }
 
-const { locale, dictionary, showLanguageSelector = true } = Astro.props;
+const {
+  locale,
+  dictionary,
+  showLanguageSelector = true,
+  currentPath = '/',
+} = Astro.props;
+
+/**
+ * Normalise currentPath: strip trailing slash except for root '/',
+ * so '/player/' matches '/player' and '/' stays '/'.
+ */
+function normalisePath(p: string): string {
+  if (p === '/') return '/';
+  return p.endsWith('/') ? p.slice(0, -1) : p;
+}
+const activePath = normalisePath(currentPath);
+const isPlayer = activePath === '/player';
 ---
 
-<header class="entei-topbar" role="banner">
-  <div class="entei-topbar-inner">
-    <a class="entei-wordmark" href="/">
-      <HubEmblem class="entei-wordmark-emblem" />
-      <span class="entei-wordmark-text">Entei</span>
+<!--
+  ============================================================
+  MOBILE: sticky header with brand + optional LanguageSelector
+  Hidden on desktop via CSS (display:none ≥768px).
+  Not rendered on Player mobile (Player has no top chrome).
+  ============================================================
+-->
+{!isPlayer && (
+  <header class="entei-topbar-mobile" role="banner">
+    <div class="entei-topbar-mobile-inner">
+      <a class="entei-wordmark" href="/">
+        <HubEmblem class="entei-wordmark-emblem" />
+        <span class="entei-wordmark-text">Entei</span>
+      </a>
+      {
+        showLanguageSelector && (
+          <LanguageSelector
+            currentLocale={locale}
+            selectLabel={dictionary.language.selectLabel}
+          />
+        )
+      }
+    </div>
+  </header>
+)}
+
+<!--
+  ============================================================
+  DESKTOP: pill zone — pill + LanguageCombobox
+  Hidden on mobile via CSS (display:none <768px).
+
+  Home / Tracker (.entei-desktop-pill-zone):
+    Normal document flow, centered pill, Combobox at right edge.
+    Both always visible; scroll out naturally.
+
+  Player (.entei-desktop-pill-zone--player):
+    Fixed at viewport top. pill + Combobox hidden by default.
+    Revealed on hover (fine pointer) and keyboard focus-within.
+    Shared containment, 200ms dismiss delay.
+  ============================================================
+-->
+<div
+  class:list={[
+    'entei-desktop-pill-zone',
+    { 'entei-desktop-pill-zone--player': isPlayer },
+  ]}
+  data-entei-desktop-nav-zone
+>
+  {
+    isPlayer && (
+      <div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone />
+    )
+  }
+  <nav
+    class="entei-desktop-pill"
+    aria-label={dictionary.nav.desktopNavLabel}
+    data-entei-desktop-nav
+    data-i18n-aria-label="nav.desktopNavLabel"
+  >
+    <!-- Brand = Home link (NAVIGATION_BAR.md: brandはpillの最初のHome link) -->
+    <a
+      class="entei-desktop-pill-brand"
+      href="/"
+      aria-current={activePath === '/' ? 'page' : undefined}
+      data-entei-nav-destination="/"
+    >
+      <HubEmblem class="entei-desktop-pill-icon" />
+      <span>Entei</span>
     </a>
     {
-      showLanguageSelector && (
-        <LanguageSelector
-          currentLocale={locale}
-          selectLabel={dictionary.language.selectLabel}
-        />
+      DESTINATIONS.filter((d) => d.route !== '/').map(
+        ({ route, labelKey, Icon }) => {
+          const isActive = normalisePath(route) === activePath;
+          return (
+            <a
+              class="entei-desktop-pill-link"
+              href={route}
+              aria-current={isActive ? 'page' : undefined}
+              data-entei-nav-destination={route}
+            >
+              <Icon class="entei-desktop-pill-icon" aria-hidden="true" />
+              <span data-i18n={`nav.${labelKey}`}>
+                {dictionary.nav[labelKey]}
+              </span>
+            </a>
+          );
+        },
       )
     }
-  </div>
-</header>
+  </nav>
+  {!isPlayer && (
+    <div class="entei-desktop-combobox" data-entei-desktop-combobox>
+      <LanguageCombobox
+        client:load
+        currentLocale={locale}
+        selectLabel={dictionary.language.comboboxLabel}
+      />
+    </div>
+  )}
+</div>
+
+<!--
+  ============================================================
+  MOBILE: floating bottom Dock — all routes.
+  Hidden on desktop via CSS (display:none ≥768px).
+  ============================================================
+-->
+<nav
+  class="entei-mobile-dock"
+  aria-label={dictionary.nav.mobileDockLabel}
+  data-entei-mobile-dock
+  data-i18n-aria-label="nav.mobileDockLabel"
+>
+  {
+    DESTINATIONS.map(({ route, labelKey, Icon }) => {
+      const isActive = normalisePath(route) === activePath;
+      return (
+        <a
+          class="entei-mobile-dock-link"
+          href={route}
+          aria-current={isActive ? 'page' : undefined}
+          data-entei-nav-destination={route}
+        >
+          <Icon class="entei-mobile-dock-icon" aria-hidden="true" />
+          <span data-i18n={`nav.${labelKey}`}>
+            {dictionary.nav[labelKey]}
+          </span>
+        </a>
+      );
+    })
+  }
+</nav>
 
 <style>
-  .entei-topbar {
+  /* ===========================================================================
+   * MOBILE STICKY HEADER — <768px only
+   * =========================================================================== */
+  .entei-topbar-mobile {
     position: sticky;
     top: 0;
     z-index: var(--entei-z-topbar);
@@ -52,13 +210,13 @@ const { locale, dictionary, showLanguageSelector = true } = Astro.props;
   }
 
   @media (forced-colors: active) {
-    .entei-topbar {
+    .entei-topbar-mobile {
       background-color: Canvas;
       border-bottom: 1px solid ButtonText;
     }
   }
 
-  .entei-topbar-inner {
+  .entei-topbar-mobile-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -70,14 +228,21 @@ const { locale, dictionary, showLanguageSelector = true } = Astro.props;
     margin-inline: auto;
   }
 
-  /* 320px — selector wraps below wordmark rather than truncating (12.312) */
   @media (max-width: 360px) {
-    .entei-topbar-inner {
+    .entei-topbar-mobile-inner {
       flex-wrap: wrap;
       gap: var(--entei-space-8);
     }
   }
 
+  /* Hide mobile header on desktop */
+  @media (min-width: 768px) {
+    .entei-topbar-mobile {
+      display: none;
+    }
+  }
+
+  /* Wordmark */
   .entei-wordmark {
     display: inline-flex;
     align-items: center;
@@ -103,5 +268,375 @@ const { locale, dictionary, showLanguageSelector = true } = Astro.props;
 
   .entei-wordmark-text {
     line-height: 1;
+  }
+
+  /* ===========================================================================
+   * DESKTOP PILL ZONE — ≥768px only
+   * Contains: pill (centered) + Combobox (right edge).
+   * =========================================================================== */
+
+  /* Hide pill zone on mobile */
+  @media (max-width: 767px) {
+    .entei-desktop-pill-zone {
+      display: none;
+    }
+  }
+
+  /* --- Home / Tracker: normal flow, always visible --- */
+  @media (min-width: 768px) {
+    .entei-desktop-pill-zone {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      width: 100%;
+      padding: var(--entei-space-16) 0 var(--entei-space-4) 0;
+    }
+
+    /* Pill — centered horizontal nav */
+    .entei-desktop-pill {
+      display: flex;
+      align-items: center;
+      gap: var(--entei-space-2);
+      padding: var(--entei-space-2) var(--entei-space-4);
+      background-color: var(--entei-surface);
+      border: 1px solid oklch(100% 0 0deg / 0.08);
+      border-radius: var(--entei-radius-card);
+      box-shadow:
+        0 4px 6px -1px oklch(0% 0 0deg / 0.15),
+        0 2px 4px -2px oklch(0% 0 0deg / 0.1);
+    }
+
+    /* Brand = first Home link */
+    .entei-desktop-pill-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--entei-space-8);
+      min-height: var(--entei-touch-min);
+      padding: var(--entei-space-4) var(--entei-space-8);
+      color: var(--entei-text);
+      font-family: var(--entei-font-system);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-decoration: none;
+      border-radius: var(--entei-radius-card);
+      transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+    }
+
+    .entei-desktop-pill-brand:hover {
+      color: var(--entei-text);
+    }
+
+    .entei-desktop-pill-brand:focus-visible {
+      outline: 3px solid var(--entei-focus-ring);
+      outline-offset: 2px;
+      color: var(--entei-text);
+    }
+
+    /* Brand text stays white (matches SVG emblem) — no accent purple override */
+
+    /* Destination links (Player, Tracker) */
+    .entei-desktop-pill-link {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--entei-space-8);
+      min-height: var(--entei-touch-min);
+      padding: var(--entei-space-4) var(--entei-space-12);
+      color: var(--entei-text-secondary);
+      font-family: var(--entei-font-body);
+      font-size: 0.875rem;
+      font-weight: 500;
+      border-radius: var(--entei-radius-card);
+      text-decoration: none;
+      transition:
+        color var(--entei-duration-fast) var(--entei-ease-productive),
+        background-color var(--entei-duration-fast) var(--entei-ease-productive);
+    }
+
+    .entei-desktop-pill-link:hover {
+      color: var(--entei-text);
+      background-color: oklch(100% 0 0deg / 0.06);
+      border-radius: var(--entei-radius-pill);
+    }
+
+    .entei-desktop-pill-link:focus-visible {
+      outline: 3px solid var(--entei-focus-ring);
+      outline-offset: 2px;
+      color: var(--entei-text);
+    }
+
+    .entei-desktop-pill-link[aria-current="page"] {
+      color: var(--entei-accent);
+      font-weight: 600;
+      background-color: oklch(57.74% 0.209 273.85deg / 0.12);
+      border-radius: var(--entei-radius-card);
+    }
+
+    .entei-desktop-pill-link[aria-current="page"]:hover {
+      color: var(--entei-accent-hover);
+    }
+
+    /* Icon sizing */
+    .entei-desktop-pill-icon {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    /* Combobox — positioned at right edge of pill zone */
+    .entei-desktop-combobox {
+      position: absolute;
+      right: var(--entei-gutter);
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    /* Forced colors */
+    @media (forced-colors: active) {
+      .entei-desktop-pill {
+        background-color: Canvas;
+        border-color: ButtonText;
+      }
+      .entei-desktop-pill-brand,
+      .entei-desktop-pill-link {
+        color: LinkText;
+      }
+      .entei-desktop-pill-brand:hover,
+      .entei-desktop-pill-link:hover,
+      .entei-desktop-pill-brand:focus-visible,
+      .entei-desktop-pill-link:focus-visible {
+        background-color: Highlight;
+        color: HighlightText;
+      }
+      .entei-desktop-pill-brand[aria-current="page"],
+      .entei-desktop-pill-link[aria-current="page"] {
+        background-color: Highlight;
+        color: HighlightText;
+      }
+      .entei-desktop-pill-brand:focus-visible,
+      .entei-desktop-pill-link:focus-visible {
+        outline-color: HighlightText;
+      }
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .entei-desktop-pill-brand,
+      .entei-desktop-pill-link {
+        transition: none;
+      }
+    }
+  }
+
+  /* ===========================================================================
+   * DESKTOP PLAYER — pill hidden, revealed on hover / focus
+   * ---------------------------------------------------------------------------
+   * - Fixed at viewport top (above media content).
+   * - Hover reveal: a transparent trigger-zone child (360px centered) receives
+   *   pointer events while the outer zone stays pointer-events:none (so it
+   *   never blocks wordmark / controls outside its region). :hover propagates
+   *   from the trigger-zone child to the parent zone via DOM tree.
+   *   Pointer must dwell 1.5s continuously before pill reveals.
+   *   Shared containment ensures pointer travel from trigger
+   *   to pill never dismisses.
+   * - Keyboard reveal: focus-within on the zone (immediate, no dwell delay).
+   * - Dismiss: 200ms delay on pointer leave.
+   * - Closed state: opacity + transform + pointer-events on children only
+   *   (no display:none, no visibility:hidden, no inert, no aria-hidden) —
+   *   tab order preserved.
+   * =========================================================================== */
+  @media (min-width: 768px) {
+    .entei-desktop-pill-zone--player {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: var(--entei-z-topbar);
+      justify-content: center;
+      padding-top: var(--entei-space-16);
+      /* Outer zone is pointer-events:none so it never blocks anything
+         outside its region. The inner trigger-zone child handles hover. */
+      pointer-events: none;
+    }
+
+    /* Transparent trigger zone: 360px centered at top edge.
+       Receives pointer events → :hover propagates to parent zone via DOM. */
+    .entei-desktop-pill-trigger-zone {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 360px;
+      height: var(--entei-topbar-height);
+      pointer-events: auto;
+      /* No visual styling — invisible hover target */
+    }
+
+    /* Children hidden by default.
+       200ms dismiss delay on leaving containment. */
+    .entei-desktop-pill-zone--player .entei-desktop-pill {
+      opacity: 0;
+      transform: translateY(calc(var(--entei-space-2) * -1));
+      pointer-events: none;
+      transition:
+        opacity var(--entei-duration-normal) var(--entei-ease-productive) 200ms,
+        transform var(--entei-duration-normal) var(--entei-ease-productive) 200ms;
+    }
+
+    /* Hover reveal (fine pointer devices only).
+       Pointer must dwell for 1.5s before reveal begins.
+       :hover propagates from trigger-zone child to parent zone. */
+    @media (hover: hover) and (pointer: fine) {
+      .entei-desktop-pill-zone--player:hover .entei-desktop-pill {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+        /* 1.5s dwell delay, then 150ms reveal */
+        transition:
+          opacity var(--entei-duration-normal) var(--entei-ease-productive) 1.5s,
+          transform var(--entei-duration-normal) var(--entei-ease-productive) 1.5s;
+      }
+    }
+
+    /* Keyboard focus-within reveal */
+    .entei-desktop-pill-zone--player:focus-within .entei-desktop-pill {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+      /* Revealed state: no delay */
+      transition:
+        opacity var(--entei-duration-normal) var(--entei-ease-productive),
+        transform var(--entei-duration-normal) var(--entei-ease-productive);
+    }
+
+    /* Reduced motion: no transform offset */
+    @media (prefers-reduced-motion: reduce) {
+      .entei-desktop-pill-zone--player .entei-desktop-pill {
+        transform: none;
+      }
+      .entei-desktop-pill-zone--player:hover .entei-desktop-pill,
+      .entei-desktop-pill-zone--player:focus-within .entei-desktop-pill {
+        transform: none;
+      }
+    }
+  }
+
+  /* ===========================================================================
+   * MOBILE FLOATING DOCK — <768px only
+   * =========================================================================== */
+  @media (max-width: 767px) {
+    .entei-mobile-dock {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      padding: var(--entei-space-4)
+        max(var(--entei-safe-left), var(--entei-space-8))
+        calc(var(--entei-safe-bottom) + var(--entei-space-4))
+        max(var(--entei-safe-right), var(--entei-space-8));
+      background-color: var(--entei-surface);
+      border-top: 1px solid oklch(100% 0 0deg / 0.08);
+      box-shadow:
+        0 -4px 6px -1px oklch(0% 0 0deg / 0.15),
+        0 -2px 4px -2px oklch(0% 0 0deg / 0.1);
+      z-index: calc(var(--entei-z-topbar) + 10);
+    }
+
+    .entei-mobile-dock-link {
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: var(--entei-space-4);
+      min-height: var(--entei-touch-min);
+      min-width: 0;
+      padding: var(--entei-space-8) var(--entei-space-4);
+      color: var(--entei-text-secondary);
+      font-family: var(--entei-font-body);
+      font-size: 0.75rem;
+      font-weight: 500;
+      line-height: 1.2;
+      text-decoration: none;
+      border-radius: var(--entei-radius-md);
+      transition:
+        color var(--entei-duration-fast) var(--entei-ease-productive),
+        background-color var(--entei-duration-fast) var(--entei-ease-productive);
+    }
+
+    .entei-mobile-dock-link:hover {
+      color: var(--entei-text);
+      background-color: var(--entei-surface-2);
+    }
+
+    .entei-mobile-dock-link:focus-visible {
+      outline: 3px solid var(--entei-focus-ring);
+      outline-offset: 2px;
+      color: var(--entei-text);
+      background-color: var(--entei-surface-2);
+    }
+
+    .entei-mobile-dock-link:active {
+      background-color: oklch(100% 0 0deg / 0.06);
+    }
+
+    /* Active page state */
+    .entei-mobile-dock-link[aria-current="page"] {
+      color: var(--entei-accent);
+      background-color: oklch(57.74% 0.209 273.85deg / 0.12);
+    }
+
+    .entei-mobile-dock-link[aria-current="page"]:hover {
+      color: var(--entei-accent-hover);
+      background-color: oklch(57.74% 0.209 273.85deg / 0.18);
+    }
+
+    /* Icon sizing */
+    .entei-mobile-dock-icon {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .entei-mobile-dock-link {
+        transition: none;
+      }
+    }
+
+    /* Forced colors */
+    @media (forced-colors: active) {
+      .entei-mobile-dock {
+        background-color: Canvas;
+        border-top-color: ButtonText;
+      }
+      .entei-mobile-dock-link {
+        color: LinkText;
+      }
+      .entei-mobile-dock-link:hover,
+      .entei-mobile-dock-link:focus-visible {
+        background-color: Highlight;
+        color: HighlightText;
+      }
+      .entei-mobile-dock-link[aria-current="page"] {
+        background-color: Highlight;
+        color: HighlightText;
+      }
+      .entei-mobile-dock-link:focus-visible {
+        outline-color: HighlightText;
+      }
+    }
+  }
+
+  /* Hide mobile dock on desktop */
+  @media (min-width: 768px) {
+    .entei-mobile-dock {
+      display: none;
+    }
   }
 </style>

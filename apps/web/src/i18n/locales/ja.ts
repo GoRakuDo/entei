@@ -276,9 +276,15 @@ export const ja: Dictionary = {
     backToGorakudo: 'GoRakuDoへ戻る',
     backToHome: 'Homeへ戻る',
     skipToMain: 'メインコンテンツへスキップ',
+    destinationHome: 'Home',
+    destinationPlayer: 'Player',
+    destinationTracker: 'Tracker',
+    desktopNavLabel: 'ページナビゲーション',
+    mobileDockLabel: 'ページナビゲーション',
   },
   language: {
     selectLabel: '言語',
+    comboboxLabel: '言語を選択',
   },
   playerPage: {
     title: 'Player — 次のPhase',

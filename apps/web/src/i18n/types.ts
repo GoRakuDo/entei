@@ -289,9 +289,21 @@ export interface Dictionary {
     backToGorakudo: string;
     backToHome: string;
     skipToMain: string;
+    /** Visible label for Home destination in nav */
+    destinationHome: string;
+    /** Visible label for Player destination in nav */
+    destinationPlayer: string;
+    /** Visible label for Tracker destination in nav */
+    destinationTracker: string;
+    /** Accessible name for desktop reveal-pill nav landmark */
+    desktopNavLabel: string;
+    /** Accessible name for mobile floating dock nav landmark */
+    mobileDockLabel: string;
   };
   language: {
     selectLabel: string;
+    /** Label for the desktop Language Combobox trigger */
+    comboboxLabel: string;
   };
   playerPage: {
     title: string;

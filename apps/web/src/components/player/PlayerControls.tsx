@@ -280,11 +280,17 @@ export const PlayerControls = forwardRef<
   useEffect(() => {
     const onFullscreenChange = () => {
       if (typeof document === 'undefined') return;
-      setIsFullscreen(
+      const isFs =
         document.fullscreenElement != null ||
           (document as unknown as { webkitFullscreenElement?: Element | null })
-            .webkitFullscreenElement != null,
-      );
+            .webkitFullscreenElement != null;
+      setIsFullscreen(isFs);
+      // Add/remove class on document.body for CSS to hide mobile dock during fullscreen
+      if (isFs) {
+        document.body.classList.add('entei-fullscreen-active');
+      } else {
+        document.body.classList.remove('entei-fullscreen-active');
+      }
     };
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener(
@@ -297,6 +303,8 @@ export const PlayerControls = forwardRef<
         'webkitfullscreenchange',
         onFullscreenChange as EventListener,
       );
+      // Clean up body class on unmount so it cannot leak after component removal.
+      document.body.classList.remove('entei-fullscreen-active');
     };
   }, []);
 

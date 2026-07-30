@@ -26,7 +26,7 @@ import type { Dictionary, Locale } from '@i18n/types';
 interface Props {
   /** Initial locale for static HTML. Always `id` for Home and /player/ (PHASE0.md 5.129). */
   locale?: Locale;
-  /** Path for canonical URL. Defaults to '/'. */
+  /** Path for canonical URL and nav aria-current. Defaults to '/'. */
   path?: string;
   /** Set true for /player/ (noindex). */
   noindex?: boolean;
@@ -93,7 +93,7 @@ const dictionary: Dictionary = getDictionary(locale);
     <a class="entei-skip-link" href="#entei-main" data-i18n="nav.skipToMain">
       {dictionary.nav.skipToMain}
     </a>
-    {showChrome && <TopBar locale={locale} dictionary={dictionary} />}
+    {showChrome && <TopBar locale={locale} dictionary={dictionary} currentPath={path} />}
     <main id="entei-main" class="entei-main" tabindex="-1">
       <div class="entei-main-inner">
         <slot />
