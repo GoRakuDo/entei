@@ -1,6 +1,6 @@
 # EizouDendenshi — validated local companion plan
 
-> **状態:** 設計検証済み・未実装。実装開始は下記PoC checkpointを通過してから。
+> **状態:** ED-1完了、ED-2A/ED-2BのWindows Chrome manual QA完了、Termux runtime smoke部分完了。Android Chrome・growing media・Minisign deliveryは未実装。
 > **Readiness:** Ready with checkpoints
 
 ## Outcome
@@ -17,10 +17,12 @@ Enteiは静的・local-firstのまま。source URL、cookie、media dataをGoRak
 | 項目            | 決定                                                                                                                                       |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | companion名     | `EizouDendenshi`                                                                                                                           |
+| core runtime    | Go standard library。localhost API、pairing、Range bridge、cleanupを担い、yt-dlp / torrent engineは将来のversion固定helperとして呼ぶ     |
 | 正式target      | Windows x64、Android / Termux arm64                                                                                                        |
 | 導入            | platform別の署名済みreleaseを初回commandが取得・検証し、そのまま起動してpairing codeを出す                                                 |
 | release検証     | launcherへ固定したMinisign公開鍵でassetとmanifestを検証する                                                                                |
 | 更新            | release manifest内のcore / yt-dlp / torrent engine versionを固定する。yt-dlp単体の自動更新はしない。更新は新しいEizouDendenshi releaseのみ |
+| source配置      | Entei repositoryの`companion/eizoudendenshi/`をcanonical source rootにする。`scripts/`はbuild / release補助だけに使う                   |
 | 接続            | `127.0.0.1`だけでlisten。初回pairing code + Entei origin allowlist + local capability token                                                |
 | YouTube cookie  | Enteiの初回YouTube URL入力時、Default Cookie未登録なら`cookies.txt` upload modalを出す。upload直後に保存し、同じjobを直ちに開始する        |
 | cookie profile  | Default 1個。新uploadは確認後に置換。削除は1操作                                                                                           |
@@ -118,34 +120,49 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 
 ## Delivery contract
 
-各releaseはplatformごとにversion固定のmanifestを持つ。
+各releaseはplatformごとにversion固定のmanifestを持つ。一般ユーザーはTermux APKを入れた後、1つのbootstrap commandだけを実行する。Go compilerはQA / 開発用であり、一般ユーザーへ導入しない。
 
 | platform               | artifact                                                | installer responsibility                  |
 | ---------------------- | ------------------------------------------------------- | ----------------------------------------- |
-| Windows x64            | Windows companion binary + pinned helper set            | Minisign検証、user-scoped install、即起動 |
-| Android arm64 / Termux | Termux companion binary + validated helper/runtime path | Minisign検証、Termux環境検査、即起動      |
+| Windows x64            | Minisign署名済みcore binary                             | signature / manifest検証、user-scoped install、即起動 |
+| Android / Termux arm64 | Minisign署名済み`android/arm64` core binary             | Termux確認、bootstrap dependency導入、signature / manifest検証、即起動 |
 
-core、yt-dlp、torrent engineのversionはrelease manifestへ固定する。YouTube側の変更で更新が必要な時は、新しいEizouDendenshi releaseをMinisign署名で配布する。起動時のsilent self-updateはしない。
+### Termux general-user bootstrap
+
+bootstrapはTermux上で次を順に行う。
+
+1. Termux環境と`aarch64`を確認する。
+2. `curl`と`minisign`をTermux公式repoから自動導入する。
+3. bootstrapへ固定したMinisign公開鍵でrelease manifestと`android/arm64` core binaryを検証する。
+4. 検証済みcoreをTermux app-private storageへ置き、pairing codeを表示して起動する。
+5. `termux-wake-lock`を要求する。Androidのbattery unrestricted / wake-lock許可はOS画面でユーザーが承認する必要があるため、silentに迂回しない。
+
+core binaryはMinisignで**厳密にversion固定**する。一方、将来のYouTube / torrent helperはTermux公式repoから`pkg install -y python-yt-dlp aria2 ffmpeg`で自動導入し、bootstrapが最低versionを検査する。Termux repoのcurrent packageを使うためhelperを完全固定したrelease assetとしては扱わない。yt-dlp側の互換性変更が必要になった時は、新しいEizouDendenshi releaseで必要最低version / 導入条件を更新する。起動時のsilent self-updateはしない。
+
+最初のbootstrap command自身はMinisign verifierの導入前に実行されるtrust bootstrapである。`curl | sh`で未検証remote shellを実行する形にはせず、公開鍵を含む短いcopy-paste commandとして配布する。
 
 ## Required PoC checkpoints
 
 この5つは実装の前提。どれかが失敗したら、full implementationへ進まず設計を戻す。
 
-1. **Cross-origin loopback:** Windows ChromeとAndroid Chromeから、HTTPS Entei / localhost devの両方でpairing済み`127.0.0.1` APIを呼べる。CORS・mixed-content・preflightを実測する。
-2. **CORS-clean media:** companionのRange responseを既存`<video>`へ渡し、canvas screenshot / Video Clip / audio miningがtaintなしで動く。`Range`、`Content-Range`、origin header、`crossOrigin`を実機確認する。
+1. **Cross-origin loopback:** Windows Chrome manual QAで`http://localhost:4321`からpairing済み`127.0.0.1:4322` APIを実測済み。HTTPS Entei本番originとAndroid ChromeはED-2Cで確認する。
+2. **CORS-clean media:** Windows Chrome manual QAで静的fixtureのRange responseを`<video crossOrigin="anonymous">`へ渡し、canvas `toBlob`、captureStream、MediaRecorderがtaintなしで動くことを実測済み。growing mediaとAndroidはED-2Cで確認する。
 3. **YouTube cookie path:** user-uploaded Netscape cookie fileで最大1080p videoを取得し、手動日本語→自動日本語のfallbackと「字幕なしvideo」を検証する。cookie削除・job失敗・cancel後にcookieをlog / browser storageへ残さない。
 4. **Forward torrent:** public regular BitTorrent swarmで冒頭再生、未取得後方seek時のbuffer、順方向piece到達後のresume、stop後のmedia cleanupをWindows / Androidで確認する。
 5. **Delivery:** Minisign不一致releaseを拒否する。Windows x64 / Termux arm64でclean install→自動start→pairingを実測する。
 
 ## Staged delivery
 
-| Stage | 内容                                                                                                                                           | hard gate                                                                            |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| ED-0  | この設計書・既存WebTorrent文書をwithdrawal planへ同期                                                                                          | documentation review                                                                 |
+| Stage | 内容                                                                                                                                                                                                                                                     | hard gate                                                                                     |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| ED-0  | この設計書・既存WebTorrent文書をwithdrawal planへ同期                                                                                                                                                                                                    | documentation review                                                                          |
 | ED-1  | **完了済み:** browser WebTorrent runtime、Service Worker、`webtorrent` dependency、browser peer UIを撤去。Magnet URI dialogのvisual shellは残し、submit時はEizouDendenshi未接続の案内を表示する（接続は開始しない）。ED-3で共通source dialogへ切り替える | browser WebTorrent runtime / dependency / peer testが残らない。接続を偽装するsubmitを作らない |
-| ED-2  | Windows x64 / Termux arm64のloopback、Range、CORS-clean media、Minisign delivery PoC                                                           | Required PoC checkpoints 1, 2, 5                                                     |
-| ED-3  | 3-button source entry、共通Magnet / YouTube dialog、shadcn Input OTP pairing、Default Cookie modalを実装                                       | pairing済みlocalhost companionとの実機接続                                           |
-| ED-4  | YouTube source / Japanese subtitle、forward torrent file selection / buffer / cleanupを順に接続                                                | Required PoC checkpoints 3, 4                                                        |
+| ED-2A | **完了済み:** Go stdlibのloopback-only companion skeleton。6桁pairing code、memory-only token、exact CORS、health / pair API、Windows x64 / Android arm64 cross-build                                                                                      | Windows / Android cross-build、unit / vet、Mimo review APPROVE                                  |
+| ED-2B | **完了済み:** token query付き静的fixture Range endpoint。Windows Chromeからpairing、206 Range、exact ACAO、no-store、canvas `toBlob`、captureStream、MediaRecorderを実測                                                                                 | background server cleanup、fixture削除、Mimo review APPROVE                                   |
+| ED-2C | **部分完了:** Termux `go1.26.5 android/arm64`でpure-Go binaryを実行し、background loopback pairing / Range `206` smokeとcleanupを実測。Android Chrome、HTTPS Entei origin、growing media、Minisign deliveryは未実装 | Checkpoint 1 / 2のAndroid・HTTPS・growing部分と、checkpoint 5                            |
+| ED-2D | Entei内`companion/eizoudendenshi/`へのsource移動、Minisign manifest / core release、general-user Termux bootstrap | clean TermuxでAPK後のbootstrap commandだけからpairing code表示まで到達 |
+| ED-3  | 3-button source entry、共通Magnet / YouTube dialog、shadcn Input OTP pairing、Default Cookie modalを実装                                                                                                                                                 | pairing済みlocalhost companionとの実機接続                                                    |
+| ED-4  | YouTube source / Japanese subtitle、forward torrent file selection / buffer / cleanupを順に接続                                                                                                                                                          | Required PoC checkpoints 3, 4                                                                 |
 
 ED-1のMagnet URI buttonはvisual shellとして表示し、submit時はEizouDendenshi未接続の案内を表示する（送信先のない接続を偽装しない）。source entryの本機能はED-3でcompanionと同時に有効化する。YouTube buttonはED-3まで追加しない。
 
@@ -171,8 +188,8 @@ WT-1はbrowser WebRTC peerだけを対象にしていた。EizouDendenshiをregu
 
 **Ready with checkpoints.**
 
-product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。一方、Android / Windowsのloopback CORS、growing Range mediaとcapture API、Termuxでversion固定helperを配布する実現性はまだ実証されていない。最初にPoCだけを独立して通す。
+product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。Windows Chromeの静的fixtureではloopback CORS、Range、canvas capture、MediaRecorderまで実証済み。TermuxではAndroid arm64 binaryのloopback pairing / Range smokeまで通過した。一方、Android Chrome / HTTPS Entei origin、growing Range media、Minisignでversion固定helperを配布する実現性はまだ実証されていない。
 
 ## Next action
 
-`EizouDendenshi`のrepository / runtimeを作る前に、Cross-origin loopback + CORS-clean mediaの小さなWindows / Android PoCを作り、既存Entei Playerのcapture機能がlocalhost streamでも維持されるかを確認する。
+ED-2Cの残りとしてAndroid Chrome / HTTPS Entei origin、growing media、Minisign deliveryをPoCし、その後にED-3のInput OTPと共通source UIへ進む。
