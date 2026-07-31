@@ -133,6 +133,25 @@ function Static-Checks {
     Check 'static: foreground pairing start' (
         $boot.Contains('exec "') -and $boot.IndexOf('pairing', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) 'bootstrap must exec the core in the foreground'
     Check 'static: helper contract fails closed' ($boot.Contains('fails closed') -and $boot.Contains('minimumVersions')) 'unknown contract must be refused'
+    # The production fetch must follow GitHub Release 302 redirects (release
+    # asset URLs redirect to the CDN; an unfollowed redirect would save the
+    # 302 response body and fail Minisign verification — hit live on the
+    # rc.1 Termux clean-install). Every curl invocation must use --location
+    # with a positive bounded --max-redirs and --proto-redir =https (no
+    # silent HTTPS->HTTP redirect downgrade) and keep --fail plus the
+    # timeout/retry flags.
+    $curlInvocations = @($code -split "`n" | Where-Object { $_ -match 'curl\s+-\S' })
+    $curlFollowsRedirects = $curlInvocations.Count -gt 0
+    foreach ($cl in $curlInvocations) {
+        if ($cl -notmatch '--location' -or
+            $cl -notmatch '--max-redirs\s+[1-9]\d*' -or
+            $cl -notmatch '--proto-redir\s*=\s*https' -or
+            $cl -notmatch '(-fsS\b|--fail(?!-))' -or
+            $cl -notmatch '--connect-timeout' -or
+            $cl -notmatch '--max-time' -or
+            $cl -notmatch '--retry') { $curlFollowsRedirects = $false }
+    }
+    Check 'static: curl fetch follows redirects (--location, bounded --max-redirs, --proto-redir =https) and keeps --fail/timeout/retry' $curlFollowsRedirects 'GitHub Release assets answer 302; a bootstrap that stops following redirects cannot regress unnoticed'
     Check 'static: release.ps1 takes key via explicit arg/env only' (
         (Get-Content -Raw (Join-Path $PSScriptRoot 'release.ps1')).Contains('EIZOUDEN_MINISIGN_KEY')) 'no key file inside the repo'
 }

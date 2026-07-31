@@ -181,6 +181,33 @@ Entei is currently in the **Testing & Refinement** phase. The core features for 
 
 ---
 
+## EizouDendenshi Companion — Delivery Status
+
+[EizouDendenshi (映像電伝師)](./companion/eizoudendenshi/README.md) is Entei's
+planned loopback-only Windows / Termux companion. It will hand user-entered
+YouTube and magnet sources to the player without server involvement; that
+source integration remains in later ED-3 / ED-4 stages. See
+[docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md) for the full plan.
+
+**Delivery is not complete.**
+
+- ED-2D Stage A tooling (release helper, Termux bootstrap template,
+  automated release test harness) is implemented; the harness is green
+  (63/63).
+- **rc.1** (`eizoudendenshi-v0.2.0-rc.1`, GitHub pre-release) failed a
+  Termux clean-install: release artifacts are hosted as GitHub Release
+  assets whose URLs answer `302` and redirect to the release CDN, and the
+  rc.1 bootstrap's `curl -fsS` fetch did not follow redirects — so the 302
+  response body was saved and Minisign verification failed.
+- The fixed candidate needs a **new, immutable rc.2 release** (GitHub
+  release assets are immutable; rc.1 cannot be repaired in place). The
+  bootstrap now follows redirects (`--location`, bounded `--max-redirs`,
+  HTTPS-only redirect targets) and the test harness statically enforces
+  this so the regression cannot return.
+- **ED-2D Stage B (clean-Termux device gate) is not complete.** Do not
+  treat delivery as done until a clean Termux install reaches the pairing
+  code from the bootstrap command alone.
+
 ## Lineage & Inspiration
 
 Entei's local playback modes and media extraction capabilities are inspired by the standalone local-media features of [asbplayer](https://github.com/giahung2201/asbplayer) (MIT License). While Entei borrows logic patterns for precise subtitle timing and range capture, it operates independently of asbplayer, features no shared package dependencies, and implements a completely custom React and shadcn/ui interface.

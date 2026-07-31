@@ -24,6 +24,10 @@ using only the standard library.
 > **Delivery is NOT complete:** HTTPS deployed Entei origin, growing media,
 > audio listening/decode, and the **ED-2D Stage B clean-Termux device gate**
 > (real device, real pinned key, real HTTPS release base) remain outstanding.
+> The **rc.1** clean-Termux trial failed the fetch step: GitHub Release
+> asset URLs answer `302`, and the rc.1 fetch did not follow redirects, so
+> Minisign verification failed before install. The fixed candidate needs a
+> **new immutable rc.2 release**; it has not passed the Stage B gate.
 
 ## ED-2A scope (retained)
 
@@ -275,6 +279,14 @@ unreplaced template refuses to run. Test-only hooks (`EIZOU_TEST`,
 harness and never relax signature/SHA-256 verification or install
 permissions.
 
+The production fetch follows redirects on purpose: GitHub Release asset
+URLs answer `302` and redirect to the release CDN, so the curl invocation
+uses `--location` with a bounded `--max-redirs 5` and `--proto-redir =https`
+(no silent HTTPS→HTTP downgrade) while keeping `--fail`, the
+connect/max-timeouts, and `--retry 2`. The **rc.1** clean-Termux trial
+failed because the fetch saved the unfollowed 302 response; the harness
+statically asserts this contract so it cannot regress.
+
 ### `scripts/test-release.ps1` — automated harness
 
 Runs the whole pipeline against **temporary Minisign keys/material in
@@ -287,8 +299,9 @@ explicitly conditioned out and static fail-closed checks still run.
   rejected, HTTPS-only URL validation, verify-before-install ordering,
   prerequisites limited to verifier/download tools, no privilege escalation,
   private temp dir + cleanup, app-private atomic install path, foreground
-  pairing start, helper contract fails closed, key via explicit arg/env
-  only.
+  pairing start, helper contract fails closed, redirect-following curl
+  fetch (`--location`, bounded `--max-redirs`, `--proto-redir =https`) with
+  `--fail`/timeout/retry retained, key via explicit arg/env only.
 - **Dynamic cases** (sh + minisign available):
   - release helper: manifest format/contract/targets/SHA-256 fields and
     detached-signature verification;
@@ -324,6 +337,12 @@ can be executed and observed in tests; the actual android/arm64 ELF install
 + exec remains a Stage B device-gate item, together with the Windows
 installer, HTTPS deployed Entei origin, growing media, and audio
 listen/decode verification.
+
+The **rc.1** clean-Termux trial already exercised this gate once and failed
+at the fetch step (GitHub Release asset 302 redirects were not followed, so
+the saved redirect body failed Minisign verification — the fail-closed
+ordering worked; the missing `--location` was the bug). The fixed candidate
+is a **new immutable rc.2 release**, which must pass this gate.
 
 ## Build and run
 
@@ -374,7 +393,7 @@ powershell -File scripts/release.ps1 build -OutDir <temp-dir>   # windows/amd64 
 ```
 
 The release-delivery test harness is `scripts/test-release.ps1` (all
-checks pass 2026-07-31: 62/62 with temporary Minisign keys in
+checks pass 2026-07-31: 63/63 with temporary Minisign keys in
 `A:\Temp\opencode`). ED-2A cross-builds `windows/amd64` and
 `android/arm64`. ED-2C verified the pure-Go `android/arm64` binary's Termux
 loopback runtime; Android Chrome media behavior and the ED-2D Stage B

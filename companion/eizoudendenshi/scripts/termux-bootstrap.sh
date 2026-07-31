@@ -173,6 +173,12 @@ make_private_tmp() {
 
 # Fetch one release file. Test mirror mode copies from EIZOU_MIRROR_DIR
 # (harness only); production always uses curl over the validated HTTPS URL.
+# GitHub Release asset URLs respond 302 and redirect to the release CDN, so
+# --location is required: without it curl saves the redirect response body
+# and every later verification step fails (hit live on the rc.1 Termux
+# clean-install). --max-redirs 5 bounds the chain and --proto-redir =https
+# keeps redirect targets HTTPS-only (no silent downgrade); --fail still
+# rejects any final HTTP >= 400 response, so the fetch stays fail-closed.
 fetch() {
     url="$1"
     dest="$2"
@@ -180,7 +186,7 @@ fetch() {
         name="${url##*/}"
         cp "$MIRROR_DIR/$name" "$dest" || fail "download failed (test mirror): ${name} is missing"
     else
-        curl -fsS --connect-timeout 10 --max-time 60 --retry 2 -o "$dest" "$url" || fail "download failed: $url"
+        curl -fsS --location --max-redirs 5 --proto-redir =https --connect-timeout 10 --max-time 60 --retry 2 -o "$dest" "$url" || fail "download failed: $url"
     fi
 }
 
