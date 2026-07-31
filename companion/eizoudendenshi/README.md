@@ -22,19 +22,21 @@ using only the standard library.
 > Android Chrome LAN-origin browser QA is also complete (see
 > [ED-2C verification](#ed-2c-verification-android-chrome-lan-origin)).
 > **Delivery is NOT complete:** HTTPS deployed Entei origin, growing media,
-> audio listening/decode, a Windows installer, and a build-time version
-> identity fix remain outstanding. **ED-2D Stage B (clean-Termux device
-> gate) PASSED on 2026-07-31** with the GitHub prerelease
-> `eizoudendenshi-v0.2.0-rc.2` — see
+> audio listening/decode, a Windows installer, and the release-identity
+> display fix's on-device verification remain outstanding. **ED-2D Stage B
+> (clean-Termux device gate) PASSED on 2026-07-31** with the GitHub
+> prerelease `eizoudendenshi-v0.2.0-rc.2` — see
 > [Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
 > The **rc.1** trial failed the fetch step (GitHub Release asset URLs answer
 > `302`, and the rc.1 fetch did not follow redirects, so Minisign
 > verification failed before install); the rc.2 fetch fixed it and passed
-> the gate — rc.1 itself did not pass. A known release-identity display bug
-> remains: the rc.2 manifest/release version is `0.2.0-rc.2` but the binary
-> banner prints `EizouDendenshi ED-2B (0.2.0)`. It does not invalidate the
-> signature / install / pairing gate, but must be fixed with build-time
-> version injection before a general-availability release.
+> the gate — rc.1 itself did not pass. The rc.2 **release-identity display
+> bug** (manifest `0.2.0-rc.2` vs banner `EizouDendenshi ED-2B (0.2.0)`) is
+> **fixed in the tooling**: `scripts/release.ps1` now injects the validated
+> `-Version` into both binaries at link time, with Go + harness tests
+> pinning the contract. The fix is uncommitted as of 2026-07-31 and the
+> **next `rc.3` release candidate will verify it on device** — completion
+> is not yet claimed.
 
 ## ED-2A scope (retained)
 
@@ -243,8 +245,13 @@ delivery is complete** — see [Stage B gate](#stage-b-clean-termux-device-gate)
 
 - `build` verb: cross-builds `eizouden-windows-amd64.exe`
   (`windows/amd64`) and `eizouden-android-arm64` (`android/arm64`) with
-  `CGO_ENABLED=0`, `-trimpath`, and `-ldflags "-s -w"`.
-- `release` verb: additionally writes the single-line versioned manifest
+  `CGO_ENABLED=0`, `-trimpath`, and `-ldflags "-s -w"`. The binaries keep
+  the `api.Version` dev default (`0.2.0`).
+- `release` verb: builds the binaries with the validated `-Version`
+  **injected at link time** (`-ldflags -X
+  eizoudendenshi/internal/api.Version=<semver>`) so both binaries report
+  exactly the manifest version in the startup banner and `/v1/health`;
+  additionally writes the single-line versioned manifest
   `eizouden-manifest.json` — `format`, `formatVersion`, `version`,
   `helperContract` (placeholder, fails closed: only contract v1 with zero
   helper requirements is accepted), and one `artifacts` entry per binary
@@ -315,10 +322,14 @@ explicitly conditioned out and static fail-closed checks still run.
   `--fail`/timeout/retry retained, key via explicit arg/env only.
 - **Dynamic cases** (sh + minisign available):
   - release helper: manifest format/contract/targets/SHA-256 fields and
-    detached-signature verification;
+    detached-signature verification; the release under test uses a
+    test-only version (`9.9.9`);
+  - plain `build` (no `-Version`): the built windows binary's startup
+    banner keeps the dev default `0.2.0`;
   - **T1 success**: verified install → foreground start → real companion
     binary prints a 6-digit pairing code; installed bytes match the signed
-    manifest;
+    manifest; the startup banner reports the requested release version and
+    agrees with the manifest version;
   - **T2/T3**: tampered manifest / tampered binary → signature verification
     failure **before install**;
   - **T4a/T4b**: missing core / manifest signature → failure before install;
@@ -357,18 +368,23 @@ results:
   **rc.1 itself did not pass** (only the fail-closed ordering was proven
   there).
 
-**Known release-identity display bug (recorded; does not block this gate):**
-the manifest/release version is `0.2.0-rc.2` but the binary banner prints
-`EizouDendenshi ED-2B (0.2.0)`. Signatures, install, and pairing are
-unaffected, but this must be fixed via **build-time version injection**
-before a general-availability release.
+**Release-identity display bug — fixed in tooling, pending rc.3
+verification:** the rc.2 manifest/release version was `0.2.0-rc.2` while the
+binary banner printed `EizouDendenshi ED-2B (0.2.0)` (rc.2 predates version
+injection). The fix is implemented uncommitted (2026-07-31):
+`scripts/release.ps1` injects the validated `-Version` into both binaries
+at link time, Go tests pin the `api.Version` dev default and the banner
+contract, and the test harness asserts the startup banner reports the
+requested release version and agrees with the manifest version. **The next
+`rc.3` release candidate will verify the fix on device**; completion of the
+fix is not yet claimed.
 
 The harness still substitutes a Windows build for the android/arm64
 artifact (so the real companion binary can be executed and observed in
 tests; the real android/arm64 ELF install + exec is now covered by the
 Stage B record above). Remaining delivery gates: **HTTPS deployed Entei
-origin, growing media, audio listening/decode, the build-time version
-identity fix, and the Windows installer**.
+origin, growing media, audio listening/decode, on-device verification of
+the version-identity fix (rc.3 candidate), and the Windows installer**.
 
 ## Build and run
 
@@ -419,14 +435,16 @@ powershell -File scripts/release.ps1 build -OutDir <temp-dir>   # windows/amd64 
 ```
 
 The release-delivery test harness is `scripts/test-release.ps1` (all
-checks pass 2026-07-31: 63/63 with temporary Minisign keys in
+checks pass 2026-07-31 with temporary Minisign keys in
 `A:\Temp\opencode`). ED-2A cross-builds `windows/amd64` and
 `android/arm64`. ED-2C verified the pure-Go `android/arm64` binary's Termux
 loopback runtime. **ED-2D Stage B (clean-Termux device gate) PASSED
 2026-07-31 with rc.2** (see
-[Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2));
-Android Chrome media behavior, the HTTPS deployed Entei origin, growing
-media, audio listening/decode, the version-identity display fix, and the
+[Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2)).
+The release-identity display fix is implemented in the tooling
+(uncommitted); the **next rc.3 release candidate will verify it on device**
+— completion is not claimed. Android Chrome media behavior, the HTTPS
+deployed Entei origin, growing media, audio listening/decode, and the
 Windows installer remain later checkpoints.
 
 ## Layout

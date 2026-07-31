@@ -9,13 +9,16 @@
 #
 # Contract:
 #   - `build`  cross-compiles the companion for windows/amd64 and
-#              android/arm64 (CGO_ENABLED=0). No manifest, no signatures.
-#   - `release` builds the binaries, writes the single-line versioned JSON
-#              manifest (canonical field order, see bootstrap parse contract),
-#              and creates detached Minisign signatures (file.minisig) for the
-#              manifest and every artifact. It fails closed if no Minisign
-#              key is provided or Minisign itself is unavailable — an
-#              unsigned "release" is never produced.
+#              android/arm64 (CGO_ENABLED=0). No manifest, no signatures;
+#              the binaries keep the dev-default version (0.2.0).
+#   - `release` builds the binaries with the validated -Version injected at
+#              link time (-ldflags -X eizoudendenshi/internal/api.Version),
+#              writes the single-line versioned JSON manifest (canonical
+#              field order, see bootstrap parse contract), and creates
+#              detached Minisign signatures (file.minisig) for the manifest
+#              and every artifact. It fails closed if no Minisign key is
+#              provided or Minisign itself is unavailable — an unsigned
+#              "release" is never produced.
 #   - The Minisign secret key path is passed EXPLICITLY as -MinisignKeyPath
 #     or via the EIZOUDEN_MINISIGN_KEY environment variable only. No secret
 #     file is ever written into, read from, or defaulted inside the repo.
@@ -101,7 +104,16 @@ function Build-Binary {
         $env:GOARCH = $Goarch
         Push-Location $RepoRoot
         try {
-            $goOut = & go build -trimpath -ldflags '-s -w' -o $out $CoreCmd 2>&1
+            $ldflags = '-s -w'
+            if ($Verb -eq 'release') {
+                # Link-time version injection: the release binary must report
+                # exactly the validated -Version that the manifest carries.
+                # `build` deliberately omits this so dev binaries keep the
+                # api.Version dev default (0.2.0). $Version is validated
+                # semver (no quotes/spaces), so embedding it is safe.
+                $ldflags = "$ldflags -X eizoudendenshi/internal/api.Version=$Version"
+            }
+            $goOut = & go build -trimpath -ldflags $ldflags -o $out $CoreCmd 2>&1
             if ($LASTEXITCODE -ne 0) {
                 throw "go build $Goos/$Goarch failed (exit $LASTEXITCODE): $($goOut -join ' ')"
             }

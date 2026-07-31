@@ -44,8 +44,13 @@ import (
 	"eizoudendenshi/internal/pairing"
 )
 
-// Version is the release version reported by /v1/health.
-const Version = "0.2.0"
+// Version is the release version reported by /v1/health and the startup
+// banner. The dev default is 0.2.0; release builds override it at link time
+// (-ldflags -X eizoudendenshi/internal/api.Version=<semver>, wired by
+// scripts/release.ps1) so a compiled release binary always reports exactly
+// the manifest version. It must stay a var (never a const) for -X
+// injection; plain go run / go test builds keep the dev default.
+var Version = "0.2.0"
 
 // apiVersion is the stable API namespace.
 const apiVersion = "v1"

@@ -2,7 +2,10 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"eizoudendenshi/internal/api"
 )
 
 func TestResolveBindAddress(t *testing.T) {
@@ -124,5 +127,22 @@ func TestParseAllowOrigins(t *testing.T) {
 				t.Errorf("parseAllowOrigins(%v) = %v, want %v", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestBannerCarriesVersion pins the startup-line contract: the banner must
+// carry the same api.Version that /v1/health reports, so a release build's
+// startup line cannot diverge from the manifest version injected at link
+// time (asserted end-to-end by scripts/test-release.ps1).
+func TestBannerCarriesVersion(t *testing.T) {
+	const addr = "127.0.0.1:4322"
+	got := banner(addr)
+	for _, want := range []string{
+		"EizouDendenshi ED-2B (" + api.Version + ")",
+		"listening on http://" + addr,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("banner = %q, missing %q", got, want)
+		}
 	}
 }

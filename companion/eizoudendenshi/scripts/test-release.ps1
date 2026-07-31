@@ -12,6 +12,10 @@
 #   binary; the harness provisions the official minisign 0.12 win64 build
 #   into A:\Temp\opencode when it is not already available):
 #     - successful verified install -> foreground start -> pairing code
+#     - release-identity: startup banner reports the requested release
+#       version and agrees with the manifest version
+#     - plain `build` (no -Version) keeps the dev default (0.2.0) in the
+#       binary banner
 #     - tampered manifest      -> failure BEFORE install
 #     - tampered binary        -> failure BEFORE install
 #     - missing signature      -> failure BEFORE install
@@ -29,6 +33,11 @@
 # label) so the real companion binary can be exec'd and observed printing a
 # pairing code on this machine. Signature/SHA/manifest logic is identical;
 # real android/arm64 ELF execution remains the Stage B clean-Termux gate.
+#
+# The release under test uses a test-only version ($script:ReleaseVersion,
+# 9.9.9) distinct from the api.Version dev default (0.2.0): the banner checks
+# only prove something if the injected version is observable as different
+# from what an uninjected build would print.
 
 [CmdletBinding()]
 param(
@@ -197,8 +206,16 @@ function Invoke-BootstrapCase {
         $out = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue) +
             (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
         Check "${Name}: foreground pairing code printed" $sawPairing ($out -replace '\s+', ' ')
-        Check "${Name}: verified-install message printed" ($out -match 'verified EizouDendenshi 0\.2\.0 installed') ($out -replace '\s+', ' ')
+        Check "${Name}: verified-install message printed" ($out -match ('verified EizouDendenshi {0} installed' -f [regex]::Escape($script:ManifestVersion))) ($out -replace '\s+', ' ')
         Check "${Name}: core installed in app-private storage" (Test-Path -LiteralPath $installed) "expected $installed"
+        # Release-identity display contract: the startup banner must report
+        # the version the release was requested with, and it must agree with
+        # the version parsed from the signed manifest. With the test-only
+        # version 9.9.9, an uninjected (dev-default 0.2.0) binary fails here.
+        $bannerVersion = $null
+        if ($out -match 'EizouDendenshi ED-2B \(([^)]+)\) listening on http') { $bannerVersion = $Matches[1] }
+        Check "${Name}: startup banner reports the requested release version" ($bannerVersion -eq $script:ReleaseVersion) "banner version '$bannerVersion' vs requested '$($script:ReleaseVersion)'"
+        Check "${Name}: startup banner version agrees with manifest version" ($bannerVersion -eq $script:ManifestVersion) "banner '$bannerVersion' vs manifest '$($script:ManifestVersion)'"
         if (Test-Path -LiteralPath $installed) {
             $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $installed).Hash.ToLowerInvariant()
             $want = $script:ManifestAndroidSha
@@ -294,6 +311,10 @@ function New-CaseEnv {
 }
 
 function Dynamic-Suite {
+    # Test-only version, distinct from the api.Version dev default (0.2.0):
+    # the release-identity banner checks are only meaningful when the
+    # injected version is observable as different from an uninjected build.
+    $script:ReleaseVersion = '9.9.9'
     $script:WorkDir = Join-Path $script:WorkRoot ("run-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $script:KeysDir = Join-Path $script:WorkDir 'keys'
     $script:MirrorDir = Join-Path $script:WorkDir 'mirror'
@@ -318,7 +339,7 @@ function Dynamic-Suite {
     $releaseFailed = $false
     try {
         $dist = Join-Path $script:WorkDir 'dist'
-        & $ReleasePs1 release -Version 0.2.0 -OutDir $dist -MinisignKeyPath $script:KeyPath -PublicKeyFile $script:PubPath
+        & $ReleasePs1 release -Version $script:ReleaseVersion -OutDir $dist -MinisignKeyPath $script:KeyPath -PublicKeyFile $script:PubPath
     }
     catch {
         $releaseFailed = $true
@@ -328,6 +349,38 @@ function Dynamic-Suite {
         $env:PATH = $oldPath
     }
     if ($releaseFailed) { return }
+
+    # 2b. Plain `build` (no -Version) must keep the dev default in the
+    #     binaries: only `release` injects the version at link time. Run the
+    #     built windows binary and read its startup banner.
+    $buildFailed = $false
+    $buildBanner = ''
+    try {
+        $buildDir = Join-Path $script:WorkDir 'build'
+        & $ReleasePs1 build -OutDir $buildDir
+        $builtExe = Join-Path $buildDir 'eizouden-windows-amd64.exe'
+        $bannerLog = Join-Path $script:LogsDir 'build-banner.log'
+        $bp = Start-Process -FilePath $builtExe -RedirectStandardOutput $bannerLog `
+            -RedirectStandardError "$bannerLog.err" -PassThru -NoNewWindow
+        $bDeadline = [DateTime]::UtcNow.AddSeconds(45)
+        while ([DateTime]::UtcNow -lt $bDeadline -and -not $bp.HasExited) {
+            $buildBanner = if (Test-Path -LiteralPath $bannerLog) { Get-Content -Raw -LiteralPath $bannerLog -ErrorAction SilentlyContinue } else { '' }
+            if ($buildBanner -match 'listening on http') { break }
+            Start-Sleep -Milliseconds 300
+        }
+        if (-not $bp.HasExited) {
+            & 'C:\Windows\System32\taskkill.exe' /T /F /PID $bp.Id 2>&1 | Out-Null
+        }
+        $bp.WaitForExit()
+    }
+    catch {
+        $buildFailed = $true
+        Check 'dynamic: plain build ran cleanly and keeps dev default version' $false $_.Exception.Message
+    }
+    if (-not $buildFailed) {
+        Check 'dynamic: plain build keeps dev default 0.2.0 in banner' `
+            ($buildBanner -match 'EizouDendenshi ED-2B \(0\.2\.0\) listening on http') ($buildBanner -replace '\s+', ' ')
+    }
 
     $manifestFile = Join-Path $dist 'eizouden-manifest.json'
     Check 'dynamic: release helper produced manifest + signatures' (
@@ -340,10 +393,11 @@ function Dynamic-Suite {
 
     # 3. Manifest content and SHA-256 integrity.
     $man = Get-Content -Raw -LiteralPath $manifestFile | ConvertFrom-Json
+    $script:ManifestVersion = $man.version
     Check 'dynamic: manifest format/version/helper contract' (
         $man.format -eq 'eizoudendenshi-release-manifest' -and
         $man.formatVersion -eq 1 -and
-        $man.version -eq '0.2.0' -and
+        $man.version -eq $script:ReleaseVersion -and
         $man.helperContract.version -eq 1 -and
         @($man.helperContract.minimumVersions.PSObject.Properties).Count -eq 0) (Get-ManifestText $dist)
     Check 'dynamic: manifest lists both targets' (
@@ -388,7 +442,7 @@ function Dynamic-Suite {
         TMPDIR                   = $script:TempDir
         PATH                     = $script:GitBins + ';' + (Split-Path $script:Minisign) + ';' + $env:PATH
     }
-    $baseUrl = 'https://release.example.test/eizouden/releases/0.2.0'
+    $baseUrl = "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)"
 
     # T1: success (verified install -> foreground pairing code).
     $p = New-Prefix 'T1'

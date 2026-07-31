@@ -105,8 +105,7 @@ func main() {
 
 	// Terminal-only handoff. The pairing code is printed on purpose; the
 	// capability token is never printed or logged.
-	fmt.Fprintf(os.Stdout, "EizouDendenshi ED-2B (%s) listening on http://%s\n",
-		api.Version, ln.Addr())
+	fmt.Fprintln(os.Stdout, banner(ln.Addr().String()))
 	fmt.Fprintf(os.Stdout, "Pairing code: %s\n", srv.PairingCode())
 	if *fixture == "" {
 		fmt.Fprintln(os.Stdout, "Media fixture: disabled (--fixture not set)")
@@ -118,6 +117,14 @@ func main() {
 		!errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+// banner is the startup line printed to the terminal. It carries the same
+// api.Version that /v1/health reports; release builds inject the manifest
+// version into api.Version at link time, so the banner cannot diverge from
+// the release manifest (asserted by scripts/test-release.ps1).
+func banner(addr string) string {
+	return fmt.Sprintf("EizouDendenshi ED-2B (%s) listening on http://%s", api.Version, addr)
 }
 
 // resolveBindAddress enforces the loopback-only binding policy. Only literal

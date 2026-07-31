@@ -193,7 +193,9 @@ source integration remains in later ED-3 / ED-4 stages. See
 
 - ED-2D Stage A tooling (release helper, Termux bootstrap template,
   automated release test harness) is implemented; the harness is green
-  (63/63).
+  (66/66), including release-identity checks (startup banner reports the
+  requested release version and agrees with the manifest; plain `build`
+  keeps the dev default).
 - **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
   the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2`: on a fresh Termux
   reinstall the bootstrap downloaded from the GitHub release; the
@@ -212,14 +214,17 @@ source integration remains in later ED-3 / ED-4 stages. See
   (`--location`, bounded `--max-redirs`, HTTPS-only redirect targets), and
   the test harness statically enforces this so the regression cannot
   return. **rc.1 itself did not pass.**
-- **Known issue to fix before general availability:** the rc.2
-  manifest/release version is `0.2.0-rc.2` but the binary banner prints
-  `EizouDendenshi ED-2B (0.2.0)` — a release-identity display consistency
-  bug requiring build-time version injection. It does not invalidate the
-  signature / install / pairing gate.
+- **Release-identity display fix — implemented in tooling, uncommitted
+  (2026-07-31), pending on-device verification:** the rc.2 release showed
+  `0.2.0-rc.2` in the manifest but `EizouDendenshi ED-2B (0.2.0)` in the
+  binary banner — a display consistency bug (it did not invalidate the
+  signature / install / pairing gate). `scripts/release.ps1` now injects
+  the validated `-Version` into both release binaries at link time, and Go
+  + harness tests pin the contract. The **next `rc.3` release candidate
+  will verify this display fix on device**; completion is not yet claimed.
 - **Delivery is still not complete:** HTTPS deployed Entei origin, growing
-  media, audio listening/decode, the build-time version identity fix, and
-  the Windows installer remain.
+  media, audio listening/decode, on-device verification of the
+  version-identity fix (rc.3 candidate), and the Windows installer remain.
 
 ## Lineage & Inspiration
 

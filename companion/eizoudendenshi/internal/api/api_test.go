@@ -24,6 +24,17 @@ const (
 
 var tokenShape = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+// TestVersionDevDefault pins the dev-build version. Release builds override
+// api.Version at link time (-ldflags -X, wired by scripts/release.ps1), so a
+// plain `go run` / `go test` build must keep reporting the known dev default;
+// only the release path may change it. Bumping the dev default is a deliberate
+// decision and must update this test together with the api.Version comment.
+func TestVersionDevDefault(t *testing.T) {
+	if Version != "0.2.0" {
+		t.Fatalf("Version = %q, want dev default 0.2.0 (release builds inject the manifest version at link time)", Version)
+	}
+}
+
 func newTestServer(t *testing.T, extraOrigins ...string) *Server {
 	t.Helper()
 	s, err := New(Config{AllowOrigins: extraOrigins})
