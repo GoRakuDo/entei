@@ -3021,39 +3021,41 @@ export default function PlayerApp() {
       {/* --- Empty state --- */}
       {!hasMedia && (
         <div className="entei-player-empty">
-          <div className="entei-player-empty-inner">
-            <h2 className="entei-player-empty-title">
-              {dict.selectMediaTitle}
-            </h2>
-            <p className="entei-player-empty-desc">{dict.selectMediaDesc}</p>
-            <div className="entei-player-pickers">
-              <MediaPicker
-                onSelect={handleMediaSelect}
-                accept={MEDIA_ACCEPT}
-                label={dict.chooseMedia}
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                type="button"
-                className="entei-player-magnet-icon-btn"
-                onClick={() => setIsMagnetDialogOpen(true)}
-                aria-label={dict.magnetInputLabel}
-                title={dict.magnetInputLabel}
-              >
-                <Magnet />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                type="button"
-                className="entei-player-youtube-icon-btn"
-                onClick={() => setIsYouTubeDialogOpen(true)}
-                aria-label={dict.youtubeInputLabel}
-                title={dict.youtubeInputLabel}
-              >
-                <Link />
-              </Button>
+          <div className="entei-player-empty-cta">
+              <div className="entei-player-empty-inner">
+                <h2 className="entei-player-empty-title">
+                  {dict.selectMediaTitle}
+                </h2>
+                <p className="entei-player-empty-desc">{dict.selectMediaDesc}</p>
+                <div className="entei-player-pickers">
+                  <MediaPicker
+                    onSelect={handleMediaSelect}
+                    accept={MEDIA_ACCEPT}
+                    label={dict.chooseMedia}
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    type="button"
+                    className="entei-player-magnet-icon-btn"
+                    onClick={() => setIsMagnetDialogOpen(true)}
+                    aria-label={dict.magnetInputLabel}
+                    title={dict.magnetInputLabel}
+                  >
+                    <Magnet />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    type="button"
+                    className="entei-player-youtube-icon-btn"
+                    onClick={() => setIsYouTubeDialogOpen(true)}
+                    aria-label={dict.youtubeInputLabel}
+                    title={dict.youtubeInputLabel}
+                  >
+                    <Link />
+                  </Button>
+                </div>
             </div>
           </div>
           {/* ED-3: EizouDendenshi setup section — pairing state only; the

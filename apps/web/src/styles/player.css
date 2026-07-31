@@ -102,10 +102,24 @@
 /* --- Empty State --- */
 .entei-player-empty {
   display: flex;
+  /* Column of two independent blocks: the local-media CTA (its own centered
+     60vh upper zone) and the ED-3 EizouDendenshi setup section (separate
+     full-width block beneath, with deliberate token-based spacing). */
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: var(--entei-space-32) var(--entei-gutter);
+}
+
+/* Local-media CTA is a complete upper block, vertically centered in its own
+   60vh zone — visually independent from the setup section below. */
+.entei-player-empty-cta {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  width: 100%;
   min-height: 60vh;
-  padding: var(--entei-space-32) var(--entei-gutter);
 }
 
 .entei-player-empty-inner {
@@ -4172,6 +4186,8 @@ html.entei-player-immersive .entei-player-audio-area {
     justify-content: center;
     gap: var(--entei-space-32);
     max-width: 42rem;
+    /* Clear vertical gap beneath the local-media empty state (row 1). */
+    margin-top: var(--entei-space-48);
   }
 
   .entei-eizou-body {
