@@ -22,12 +22,19 @@ using only the standard library.
 > Android Chrome LAN-origin browser QA is also complete (see
 > [ED-2C verification](#ed-2c-verification-android-chrome-lan-origin)).
 > **Delivery is NOT complete:** HTTPS deployed Entei origin, growing media,
-> audio listening/decode, and the **ED-2D Stage B clean-Termux device gate**
-> (real device, real pinned key, real HTTPS release base) remain outstanding.
-> The **rc.1** clean-Termux trial failed the fetch step: GitHub Release
-> asset URLs answer `302`, and the rc.1 fetch did not follow redirects, so
-> Minisign verification failed before install. The fixed candidate needs a
-> **new immutable rc.2 release**; it has not passed the Stage B gate.
+> audio listening/decode, a Windows installer, and a build-time version
+> identity fix remain outstanding. **ED-2D Stage B (clean-Termux device
+> gate) PASSED on 2026-07-31** with the GitHub prerelease
+> `eizoudendenshi-v0.2.0-rc.2` — see
+> [Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
+> The **rc.1** trial failed the fetch step (GitHub Release asset URLs answer
+> `302`, and the rc.1 fetch did not follow redirects, so Minisign
+> verification failed before install); the rc.2 fetch fixed it and passed
+> the gate — rc.1 itself did not pass. A known release-identity display bug
+> remains: the rc.2 manifest/release version is `0.2.0-rc.2` but the binary
+> banner prints `EizouDendenshi ED-2B (0.2.0)`. It does not invalidate the
+> signature / install / pairing gate, but must be fixed with build-time
+> version injection before a general-availability release.
 
 ## ED-2A scope (retained)
 
@@ -168,8 +175,9 @@ This verifies the native runtime and loopback API, not Android Chrome.
   smoke, the PID was stopped, wake lock released, and the device/local fixture
   and temporary binary were deleted.
 
-Android Chrome from `https://entei.gorakudo.org`, growing media, and Minisign
-delivery remain separate gates.
+Android Chrome from `https://entei.gorakudo.org`, growing media, and audio
+listening/decode remain separate gates; Minisign delivery itself is now
+proven on the Termux path (ED-2D Stage B, 2026-07-31).
 
 ## ED-2C verification (Android Chrome LAN origin)
 
@@ -191,14 +199,17 @@ one-off process received that exact LAN origin through the development-only
   binaries were deleted.
 
 This verifies Android Chrome only for the temporary HTTP LAN dev origin. HTTPS
-deployed Entei origin, growing media, audio listening/decode, and Minisign
-delivery remain separate gates.
+deployed Entei origin, growing media, audio listening/decode remain separate
+gates; Minisign delivery is proven on the Termux path only (ED-2D Stage B,
+2026-07-31).
 
-## Planned general-user Termux setup (ED-2D)
+## General-user Termux setup (ED-2D)
 
 General users install the Termux APK once, then run one documented bootstrap
 command. They do **not** install Go: the bootstrap downloads the signed
-`android/arm64` Eizou core binary.
+`android/arm64` Eizou core binary. The end-to-end clean-Termux device gate
+(Stage B) **passed on 2026-07-31 with `eizoudendenshi-v0.2.0-rc.2`** — see
+[Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
 
 **ED-2D Stage A ships the tooling for this** — see
 [ED-2D Stage A](#ed-2d-stage-a-release-delivery-tooling) below. The Stage A
@@ -326,23 +337,38 @@ powershell -File scripts/test-release.ps1        # all checks, temp keys
 powershell -File scripts/test-release.ps1 -Keep  # keep the run dir for inspection
 ```
 
-### Stage B clean-Termux device gate (remaining)
+### Stage B clean-Termux device gate (PASSED 2026-07-31, rc.2)
 
-Delivery is **not** claimed complete until a clean Termux aarch64 device
-passes the real end-to-end gate: real HTTPS release base, real pinned key,
-`pkg`-only prerequisites, signed manifest + core verification, app-private
-install, foreground pairing. The harness deliberately substitutes a
-Windows build for the android/arm64 artifact so the real companion binary
-can be executed and observed in tests; the actual android/arm64 ELF install
-+ exec remains a Stage B device-gate item, together with the Windows
-installer, HTTPS deployed Entei origin, growing media, and audio
-listen/decode verification.
+**PASSED for Android / Termux arm64** on 2026-07-31 with the GitHub
+prerelease `eizoudendenshi-v0.2.0-rc.2`, on a fresh Termux reinstall where
+the bootstrap downloaded everything from the GitHub release. Observed
+results:
 
-The **rc.1** clean-Termux trial already exercised this gate once and failed
-at the fetch step (GitHub Release asset 302 redirects were not followed, so
-the saved redirect body failed Minisign verification — the fail-closed
-ordering worked; the missing `--location` was the bug). The fixed candidate
-is a **new immutable rc.2 release**, which must pass this gate.
+- Manifest **Minisign verify PASS**; `android/arm64` core binary **Minisign
+  verify PASS**; **SHA-256 against the signed manifest PASS**.
+- The verified core installed at
+  `/data/data/com.termux/files/usr/var/lib/eizouden/eizouden-android-arm64`
+  and launched in the foreground, emitting the pairing code.
+- Via SSH, installed bytes `6291752` and SHA-256
+  `d4cf15b544cffbaf60b1f1a35b8d0751436ef6456edca3a31e921fd9f15046b7` were
+  confirmed to match the GitHub asset digest; zero `eizouden-bootstrap`
+  temp dirs were left behind.
+- The rc.1 fetch defect (302 redirects not followed) is fixed by rc.2 —
+  **rc.1 itself did not pass** (only the fail-closed ordering was proven
+  there).
+
+**Known release-identity display bug (recorded; does not block this gate):**
+the manifest/release version is `0.2.0-rc.2` but the binary banner prints
+`EizouDendenshi ED-2B (0.2.0)`. Signatures, install, and pairing are
+unaffected, but this must be fixed via **build-time version injection**
+before a general-availability release.
+
+The harness still substitutes a Windows build for the android/arm64
+artifact (so the real companion binary can be executed and observed in
+tests; the real android/arm64 ELF install + exec is now covered by the
+Stage B record above). Remaining delivery gates: **HTTPS deployed Entei
+origin, growing media, audio listening/decode, the build-time version
+identity fix, and the Windows installer**.
 
 ## Build and run
 
@@ -396,8 +422,12 @@ The release-delivery test harness is `scripts/test-release.ps1` (all
 checks pass 2026-07-31: 63/63 with temporary Minisign keys in
 `A:\Temp\opencode`). ED-2A cross-builds `windows/amd64` and
 `android/arm64`. ED-2C verified the pure-Go `android/arm64` binary's Termux
-loopback runtime; Android Chrome media behavior and the ED-2D Stage B
-clean-Termux gate remain later checkpoints.
+loopback runtime. **ED-2D Stage B (clean-Termux device gate) PASSED
+2026-07-31 with rc.2** (see
+[Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2));
+Android Chrome media behavior, the HTTPS deployed Entei origin, growing
+media, audio listening/decode, the version-identity display fix, and the
+Windows installer remain later checkpoints.
 
 ## Layout
 

@@ -1,6 +1,6 @@
 # EizouDendenshi — validated local companion plan
 
-> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 63/63 green。**rc.1（`eizoudendenshi-v0.2.0-rc.1` pre-release）のTermux clean-installで、GitHub Release assetの302 redirectを追わないbootstrap不具合が判明し、修正済み候補は新規immutableなrc.2 releaseが必要。** **deliveryは未完了**: HTTPS Entei origin・growing media・Minisign実release配布・ED-2D Stage Bのclean Termux gate（rc.2で再実施）が残っている。
+> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 63/63 green。**ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2` pre-releaseで通過済み**（rc.1の302 redirect不追従はrc.2のfetch修正で解決。rc.1自体はgate未通過）。**既知issue: manifest / release versionは0.2.0-rc.2だがbinary bannerは`EizouDendenshi ED-2B (0.2.0)`を表示するrelease identity表示不整合** — 署名・install・pairing gateを無効化しないが、GA前にbuild-time version injectionで修正が必要。**deliveryは未完了**: HTTPS Entei origin・growing media・audio listening/decode・build-time version identity修正・Windows x64 installerが残っている。
 > **Readiness:** Ready with checkpoints
 
 ## Outcome
@@ -130,7 +130,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 
 ### Termux general-user bootstrap
 
-**ED-2D Stage A** のbootstrap template（`companion/eizoudendenshi/scripts/termux-bootstrap.sh`）はTermux上で次を順に行う。実装は済み、clean Termux実機でのgate（Stage B）は未実施。
+**ED-2D Stage A** のbootstrap template（`companion/eizoudendenshi/scripts/termux-bootstrap.sh`）はTermux上で次を順に行う。実装は済み、**clean Termux実機でのgate（Stage B）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2`で通過済み**（実測記録は後述の[「ED-2D Stage B gate 実測記録」](#ed-2d-stage-b-gate-実測記録2026-07-31-eizoudendenshi-v020-rc2)）。
 
 1. Termux環境と`aarch64`を確認する（実Termux prefix、Linux、aarch64、`pkg`存在）。
 2. verifier / download前提のみ（`minisign`・`curl`・`coreutils`）をTermux公式repoから導入する。
@@ -139,11 +139,24 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 5. `android/arm64` core binaryの**署名**と、signed manifestに対する**SHA-256**を検証してから、検証済みcoreをTermux app-private storage（`$PREFIX/var/lib/eizouden`）へatomicに置き、pairing codeを表示してforeground起動する。全downloadはprivate temp dir（mode 700、exit時cleanup）経由。
 6. `termux-wake-lock`要求は **Stage B以降の項目**として延期した。実装時もAndroidのbattery unrestricted / wake-lock許可はOS画面でユーザーが承認する必要があり、silentに迂回しない。
 
-release assetはGitHub Release assetとして配布され、そのURLは**302 redirect**（release CDNへ）を返す。bootstrapのfetchはcurl `--location`でredirectを追い、`--max-redirs 5`で上限を固定し、`--proto-redir =https`でredirect先もHTTPSのみに制限する（fail-closed維持）。redirectを追わないcurlは302の応答bodyをそのまま保存するため、続くMinisign検証が必ず失敗する — rc.1のTermux clean-installで実証済み。test harnessはこの契約をstatic checkで固定している（`scripts/test-release.ps1`）。
+release assetはGitHub Release assetとして配布され、そのURLは**302 redirect**（release CDNへ）を返す。bootstrapのfetchはcurl `--location`でredirectを追い、`--max-redirs 5`で上限を固定し、`--proto-redir =https`でredirect先もHTTPSのみに制限する（fail-closed維持）。redirectを追わないcurlは302の応答bodyをそのまま保存するため、続くMinisign検証が必ず失敗する — rc.1のTermux clean-installで実証済み、rc.2のclean Termux gate（2026-07-31）でredirect追随経路の通過を実証済み。test harnessはこの契約をstatic checkで固定している（`scripts/test-release.ps1`）。
 
 core binaryはMinisignで**厳密にversion固定**する。将来のYouTube / torrent helperはTermux公式repoから導入し、release manifestのhelper contractで最低versionを検査する（helper要求のあるmanifestは現行templateが拒否するため、導入機能はhelper対応stageで追加する）。Termux repoのcurrent packageを使うためhelperを完全固定したrelease assetとしては扱わない。yt-dlp側の互換性変更が必要になった時は、新しいEizouDendenshi releaseで必要最低version / 導入条件を更新する。起動時のsilent self-updateはしない。
 
 最初のbootstrap command自身はMinisign verifierの導入前に実行されるtrust bootstrapである。`curl | sh`で未検証remote shellを実行する形にはせず、公開鍵を含む短いcopy-paste commandとして配布する。
+
+### ED-2D Stage B gate 実測記録（2026-07-31, `eizoudendenshi-v0.2.0-rc.2`）
+
+**PASS（Android / Termux arm64）:** GitHub pre-release `eizoudendenshi-v0.2.0-rc.2`をfresh Termux reinstallで実施。bootstrapはGitHub releaseから全物を取得し、以下をすべて確認した。
+
+- release manifestのMinisign検証 **PASS**、`android/arm64` core binaryのMinisign検証 **PASS**、signed manifestに対するSHA-256検証 **PASS**。
+- 検証済みcoreが`/data/data/com.termux/files/usr/var/lib/eizouden/eizouden-android-arm64`へinstallされ、foreground起動でpairing codeを表示した。
+- SSHでinstall済みbytes=6291752、SHA-256=`d4cf15b544cffbaf60b1f1a35b8d0751436ef6456edca3a31e921fd9f15046b7`を確認し、GitHub asset digestと一致。`eizouden-bootstrap`のtemp dir残存は0。
+- rc.1の302 redirect不追従はrc.2で修正済み。**rc.1自体はgateを通過していない**（fail-closedの順序のみ実証された）。
+
+**既知issue（release identity表示不整合）:** manifest / release versionは`0.2.0-rc.2`だが、binary bannerは`EizouDendenshi ED-2B (0.2.0)`を表示する。署名・install・pairing gateを無効化しないが、GA release前に**build-time version injection**での修正が必要。
+
+**残りのdelivery gate:** HTTPSでdeployされたEntei origin、growing media、audio listening/decode、build-time version identity修正、Windows x64 installer。Stage B（Android / Termux clean install）自体は通過済み。
 
 ## Required PoC checkpoints
 
@@ -153,7 +166,7 @@ core binaryはMinisignで**厳密にversion固定**する。将来のYouTube / t
 2. **CORS-clean media:** Windows ChromeとAndroid Chromeで静的fixtureのRange responseを`<video crossOrigin="anonymous">`へ渡し、canvas `toBlob`、captureStream、MediaRecorderがtaintなしで動くことを実測済み。growing mediaはED-2Cで確認する。
 3. **YouTube cookie path:** user-uploaded Netscape cookie fileで最大1080p videoを取得し、手動日本語→自動日本語のfallbackと「字幕なしvideo」を検証する。cookie削除・job失敗・cancel後にcookieをlog / browser storageへ残さない。
 4. **Forward torrent:** public regular BitTorrent swarmで冒頭再生、未取得後方seek時のbuffer、順方向piece到達後のresume、stop後のmedia cleanupをWindows / Androidで確認する。
-5. **Delivery:** Minisign不一致releaseを拒否する。Windows x64 / Termux arm64でclean install→自動start→pairingを実測する。
+5. **Delivery:** Minisign不一致releaseを拒否する。Windows x64 / Termux arm64でclean install→自動start→pairingを実測する。**Termux arm64側は2026-07-31にrc.2で通過済み。Windows x64はinstaller未実装のため未実測。**
 
 ## Staged delivery
 
@@ -164,7 +177,7 @@ core binaryはMinisignで**厳密にversion固定**する。将来のYouTube / t
 | ED-2A | **完了済み:** Go stdlibのloopback-only companion skeleton。6桁pairing code、memory-only token、exact CORS、health / pair API、Windows x64 / Android arm64 cross-build                                                                                                                                                                                                                                                                                                                  | Windows / Android cross-build、unit / vet、Mimo review APPROVE                                |
 | ED-2B | **完了済み:** token query付き静的fixture Range endpoint。Windows Chromeからpairing、206 Range、exact ACAO、no-store、canvas `toBlob`、captureStream、MediaRecorderを実測                                                                                                                                                                                                                                                                                                               | background server cleanup、fixture削除、Mimo review APPROVE                                   |
 | ED-2C | **部分完了:** Termux `go1.26.5 android/arm64`でpure-Go binaryを実行し、background loopback pairing / Range `206` smokeとcleanupを実測。Android Chrome LAN dev originからpair / Range `206` / detached video / canvas `toBlob` / captureStream / MediaRecorderを実測。`--allow-origin`は開発専用でrelease allowlistへ入れない。HTTPS Entei origin、growing media、Minisign deliveryは未実装 | Checkpoint 1 / 2のHTTPS・growing部分と、checkpoint 5                                         |
-| ED-2D | **Stage A 部分完了（tooling実装済み）:** `companion/eizoudendenshi/`でrelease helper（`scripts/release.ps1`: windows/amd64 + android/arm64 build、version付きmanifest、detached Minisign署名、keyは明示arg/envのみ）、Termux bootstrap template（`scripts/termux-bootstrap.sh`: HTTPS限定・pinned key fail-closed・Termux/aarch64検証・前提pkgのみ導入・private temp・署名/SHA-256検証後にapp-private atomic install・foreground pairing・helper contract fail-closed・GitHub Release assetの302 redirectを追うfetch）、自動test harness（`scripts/test-release.ps1`: 一時Minisign鍵のみ`A:\Temp\opencode`使用、成功install + tampered manifest/binary/missing sig/wrong arch/unsafe URL等のfailure-before-installを63/63 greenで検証）。Windows x64 installerは未実装。**rc.1 clean Termux installでGitHub Release assetの302 redirect不追従を実証→fetch修正済み（`--location` + `--max-redirs 5` + `--proto-redir =https`）、新規immutable rc.2が必要** | **Stage B（残）: clean Termux aarch64実機でAPK後のbootstrap commandだけからpairing code表示まで到達**（実HTTPS release base・実pinned key・実ELF install + exec）。rc.1はredirect不追従で失敗済みのため、修正済みの新規immutable rc.2で再実施する。実機gate通過までdelivery完了と主張しない |
+| ED-2D | **Stage A 完了・Stage B（Android/Termux arm64）通過済み（2026-07-31）:** `companion/eizoudendenshi/`でrelease helper（`scripts/release.ps1`: windows/amd64 + android/arm64 build、version付きmanifest、detached Minisign署名、keyは明示arg/envのみ）、Termux bootstrap template（`scripts/termux-bootstrap.sh`: HTTPS限定・pinned key fail-closed・Termux/aarch64検証・前提pkgのみ導入・private temp・署名/SHA-256検証後にapp-private atomic install・foreground pairing・helper contract fail-closed・GitHub Release assetの302 redirectを追うfetch）、自動test harness（`scripts/test-release.ps1`: 一時Minisign鍵のみ`A:\Temp\opencode`使用、成功install + tampered manifest/binary/missing sig/wrong arch/unsafe URL等のfailure-before-installを63/63 greenで検証）。Windows x64 installerは未実装。**rc.1 clean Termux installでGitHub Release assetの302 redirect不追従を実証→fetch修正済み（`--location` + `--max-redirs 5` + `--proto-redir =https`）→新規immutable rc.2でStage B通過済み（2026-07-31）** | **Stage B（Android/Termux arm64通過済み・2026-07-31・rc.2）: clean Termux aarch64実機でAPK後のbootstrap commandだけからpairing code表示まで到達**（実HTTPS release base・実pinned key・実ELF install + exec・manifest / binary Minisign verify PASS・signed manifestに対するSHA-256 PASS・install bytes 6291752 / SHA-256 `d4cf15b544cffbaf60b1f1a35b8d0751436ef6456edca3a31e921fd9f15046b7`がGitHub asset digestと一致・`eizouden-bootstrap` temp dir残存なし）。rc.1はredirect不追従で失敗（gate未通過）。**既知issue: manifest 0.2.0-rc.2 vs binary banner `EizouDendenshi ED-2B (0.2.0)`のrelease identity表示不整合** — gateを無効化しないがGA前にbuild-time version injectionで修正必須。**delivery完了は主張しない**: Windows x64 installer・HTTPS Entei origin・growing media・audio listening/decodeが残る |
 | ED-3  | 3-button source entry、共通Magnet / YouTube dialog、shadcn Input OTP pairing、Default Cookie modalを実装                                                                                                                                                                                                                                                                                                                                                                               | pairing済みlocalhost companionとの実機接続                                                    |
 | ED-4  | YouTube source / Japanese subtitle、forward torrent file selection / buffer / cleanupを順に接続                                                                                                                                                                                                                                                                                                                                                                                        | Required PoC checkpoints 3, 4                                                                 |
 
@@ -192,8 +205,8 @@ WT-1はbrowser WebRTC peerだけを対象にしていた。EizouDendenshiをregu
 
 **Ready with checkpoints.**
 
-product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。Windows / Android Chromeの静的fixtureではloopback CORS、Range、canvas capture、MediaRecorderまで実証済み。TermuxではAndroid arm64 binaryのloopback pairing / Range smokeまで通過した。ED-2D Stage Aではrelease helper / Termux bootstrap template / 自動test harnessを実装し、tampered manifest / binary、署名欠落、wrong arch、unsafe URL、helper contract不一致がinstall前に拒否されることを一時鍵で63/63検証した。ただし**rc.1のTermux clean-installでGitHub Release assetの302 redirectを追わないbootstrap不具合が判明**し、fetchを`--location` + bounded `--max-redirs` + HTTPS-only redirectへ修正した（修正候補は新規immutableなrc.2 releaseが必要）。一方、HTTPS Entei origin、growing Range media、Minisign実release配布、および**clean Termux実機でのbootstrap→pairing到達（ED-2D Stage B gate）**はまだ実証されていない — **delivery完了は主張しない**。
+product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。Windows / Android Chromeの静的fixtureではloopback CORS、Range、canvas capture、MediaRecorderまで実証済み。TermuxではAndroid arm64 binaryのloopback pairing / Range smokeまで通過した。ED-2D Stage Aではrelease helper / Termux bootstrap template / 自動test harnessを実装し、tampered manifest / binary、署名欠落、wrong arch、unsafe URL、helper contract不一致がinstall前に拒否されることを一時鍵で63/63検証した。**rc.1のTermux clean-installでGitHub Release assetの302 redirectを追わないbootstrap不具合が判明**し、fetchを`--location` + bounded `--max-redirs` + HTTPS-only redirectへ修正した。**修正後の`eizoudendenshi-v0.2.0-rc.2`でED-2D Stage B（clean Termux aarch64実機のbootstrap→pairing到達）は2026-07-31に通過済み**（manifest / binaryのMinisign検証・signed manifestに対するSHA-256検証・app-private install・foreground pairing・install bytesとdigestがGitHub assetと一致）。ただしrelease manifest（0.2.0-rc.2）とbinary banner（`EizouDendenshi ED-2B (0.2.0)`）の**release identity表示不整合**を確認しており、gateを無効化しないがGA前にbuild-time version injectionで修正が必要。HTTPS Entei origin、growing Range media、audio listening/decode、Windows x64 installerは未実証 — **delivery完了は主張しない**。
 
 ## Next action
 
-修正済みbootstrapの候補を**新規immutableなrc.2 release**として作成し、ED-2D Stage Bのclean Termux gate（実HTTPS release base・実pinned key・実ELF install + exec）を再実施する。その後にED-2Cの残り（HTTPS Entei origin、growing media）とED-3のInput OTP / 共通source UIへ進む。
+ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2`で通過済み。次のactionは、①**build-time version injection**でbinary bannerのrelease identity表示不整合（manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）を修正し、GA候補releaseで再検証する、②ED-2C残りのHTTPS Entei origin・growing media・audio listening/decodeを検証する、③Windows x64 installerを実装する。その後ED-3のInput OTP / 共通source UIへ進む。

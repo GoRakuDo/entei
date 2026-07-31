@@ -194,19 +194,32 @@ source integration remains in later ED-3 / ED-4 stages. See
 - ED-2D Stage A tooling (release helper, Termux bootstrap template,
   automated release test harness) is implemented; the harness is green
   (63/63).
-- **rc.1** (`eizoudendenshi-v0.2.0-rc.1`, GitHub pre-release) failed a
-  Termux clean-install: release artifacts are hosted as GitHub Release
-  assets whose URLs answer `302` and redirect to the release CDN, and the
-  rc.1 bootstrap's `curl -fsS` fetch did not follow redirects — so the 302
-  response body was saved and Minisign verification failed.
-- The fixed candidate needs a **new, immutable rc.2 release** (GitHub
-  release assets are immutable; rc.1 cannot be repaired in place). The
-  bootstrap now follows redirects (`--location`, bounded `--max-redirs`,
-  HTTPS-only redirect targets) and the test harness statically enforces
-  this so the regression cannot return.
-- **ED-2D Stage B (clean-Termux device gate) is not complete.** Do not
-  treat delivery as done until a clean Termux install reaches the pairing
-  code from the bootstrap command alone.
+- **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
+  the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2`: on a fresh Termux
+  reinstall the bootstrap downloaded from the GitHub release; the
+  manifest Minisign verify, the `android/arm64` binary Minisign verify,
+  and the SHA-256 check against the signed manifest all passed; the
+  verified core installed into Termux app-private storage and launched in
+  the foreground, emitting the pairing code. Installed bytes (6291752) and
+  SHA-256
+  (`d4cf15b544cffbaf60b1f1a35b8d0751436ef6456edca3a31e921fd9f15046b7`)
+  matched the GitHub asset digest, with no bootstrap temp dirs left
+  behind.
+- The earlier **rc.1** (`eizoudendenshi-v0.2.0-rc.1`) Termux clean-install
+  failed because the bootstrap's `curl -fsS` fetch did not follow the
+  GitHub Release asset `302` redirects, so Minisign verification failed
+  before install (fail-closed ordering worked). The rc.2 fetch fixes it
+  (`--location`, bounded `--max-redirs`, HTTPS-only redirect targets), and
+  the test harness statically enforces this so the regression cannot
+  return. **rc.1 itself did not pass.**
+- **Known issue to fix before general availability:** the rc.2
+  manifest/release version is `0.2.0-rc.2` but the binary banner prints
+  `EizouDendenshi ED-2B (0.2.0)` — a release-identity display consistency
+  bug requiring build-time version injection. It does not invalidate the
+  signature / install / pairing gate.
+- **Delivery is still not complete:** HTTPS deployed Entei origin, growing
+  media, audio listening/decode, the build-time version identity fix, and
+  the Windows installer remain.
 
 ## Lineage & Inspiration
 
