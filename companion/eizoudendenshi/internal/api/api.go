@@ -41,6 +41,7 @@ import (
 	"strings"
 	"sync"
 
+	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/pairing"
 )
 
@@ -128,6 +129,14 @@ type Config struct {
 	// The endpoint never scans directories.
 	FixturePath string
 
+	// GrowSource, when set, serves /v1/media/fixture with the ED-2C
+	// growing-media contract: availability-aware Range semantics with an
+	// explicit 503+Retry-After buffering response for ranges touching
+	// bytes not yet available (see serveGrowingMedia). It is mutually
+	// exclusive with FixturePath — exactly one media source may be
+	// configured.
+	GrowSource media.GrowingSource
+
 	// AllowOrigins are additional exact HTTP(S) origins permitted by CORS
 	// for this process only — a development/QA override (ED-2C). Each entry
 	// is validated and normalized with ParseOrigin; an invalid entry makes
@@ -140,7 +149,8 @@ type Server struct {
 	mu             sync.Mutex
 	code           string              // 6-digit pairing code; consumed after a successful pair
 	token          string              // opaque capability token; never logged or persisted
-	fixturePath    string              // ED-2B: media fixture served at /v1/media/fixture
+	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
+	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 }
 
@@ -148,6 +158,9 @@ type Server struct {
 // combined exact origin allowlist: the fixed production origins plus any
 // validated Config.AllowOrigins extras.
 func New(cfg Config) (*Server, error) {
+	if cfg.FixturePath != "" && cfg.GrowSource != nil {
+		return nil, errors.New("fixture path and growing source are mutually exclusive")
+	}
 	code, err := pairing.GenerateCode()
 	if err != nil {
 		return nil, err
@@ -171,6 +184,7 @@ func New(cfg Config) (*Server, error) {
 		code:           code,
 		token:          token,
 		fixturePath:    cfg.FixturePath,
+		growSource:     cfg.GrowSource,
 		allowedOrigins: allowed,
 	}, nil
 }
@@ -291,6 +305,14 @@ func (s *Server) handleMediaFixture(w http.ResponseWriter, r *http.Request) {
 	// Capability gate: constant-time token comparison.
 	if !s.tokenValid(r) {
 		writeJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
+		return
+	}
+
+	// ED-2C: a growing source (when configured) serves the same URL with
+	// the availability-aware contract. Mutual exclusivity with FixturePath
+	// is enforced by New.
+	if s.growSource != nil {
+		s.serveGrowingMedia(w, r)
 		return
 	}
 

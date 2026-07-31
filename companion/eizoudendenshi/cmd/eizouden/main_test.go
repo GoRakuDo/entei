@@ -1,11 +1,14 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"eizoudendenshi/internal/api"
+	"eizoudendenshi/internal/media"
 )
 
 func TestResolveBindAddress(t *testing.T) {
@@ -144,5 +147,92 @@ func TestBannerCarriesVersion(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("banner = %q, missing %q", got, want)
 		}
+	}
+}
+
+// TestResolveGrowSource covers the ED-2C --grow-fixture/--grow-total pair:
+// neither flag → nil source; a partial pair → error; a valid pair builds a
+// file-backed growing source with the declared total, failing fast on a
+// missing file, a directory, or a size beyond the declared total. main
+// calls resolveGrowSource before net.Listen, so a malformed configuration
+// is rejected before the server starts.
+func TestResolveGrowSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grow.mp4")
+	payload := make([]byte, 100)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("neither flag", func(t *testing.T) {
+		src, err := resolveGrowSource("", 0)
+		if err != nil || src != nil {
+			t.Fatalf("resolveGrowSource(\"\", 0) = %v, %v; want nil, nil", src, err)
+		}
+	})
+
+	t.Run("total without fixture rejected", func(t *testing.T) {
+		if _, err := resolveGrowSource("", 100); err == nil {
+			t.Fatal("want error for --grow-total without --grow-fixture")
+		}
+	})
+
+	t.Run("fixture without total rejected", func(t *testing.T) {
+		if _, err := resolveGrowSource(path, 0); err == nil {
+			t.Fatal("want error for --grow-fixture without --grow-total")
+		}
+	})
+
+	t.Run("missing file rejected", func(t *testing.T) {
+		if _, err := resolveGrowSource(filepath.Join(dir, "nope.mp4"), 100); err == nil {
+			t.Fatal("want error for missing file")
+		}
+	})
+
+	t.Run("size beyond total rejected", func(t *testing.T) {
+		if _, err := resolveGrowSource(path, 50); err == nil {
+			t.Fatal("want error when current size exceeds declared total")
+		}
+	})
+
+	t.Run("valid pair builds growing source", func(t *testing.T) {
+		src, err := resolveGrowSource(path, 300)
+		if err != nil {
+			t.Fatalf("resolveGrowSource: %v", err)
+		}
+		if src == nil {
+			t.Fatal("want non-nil growing source")
+		}
+		if got := src.Total(); got != 300 {
+			t.Errorf("Total = %d, want 300", got)
+		}
+		if got := src.Available(); got != 100 {
+			t.Errorf("Available = %d, want 100", got)
+		}
+		src.(*media.FileSource).Close()
+	})
+}
+
+func TestMediaStatusLine(t *testing.T) {
+	grow := media.NewMemSource(make([]byte, 10), 4)
+	tests := []struct {
+		name    string
+		fixture string
+		grow    media.GrowingSource
+		want    string
+	}{
+		{"disabled", "", nil, "Media fixture: disabled (--fixture not set)"},
+		{"static", `C:\tmp\fixture.mp4`, nil, "Media fixture: enabled (fixture.mp4)"},
+		{"growing", "", grow, "Media fixture: growing (total 10 bytes, available 4)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mediaStatusLine(tt.fixture, tt.grow); got != tt.want {
+				t.Errorf("mediaStatusLine = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

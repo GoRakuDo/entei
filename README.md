@@ -227,7 +227,8 @@ source integration remains in later ED-3 / ED-4 stages. See
   matching the manifest version. The rc.2 identity display mismatch is
   closed.
 - **Delivery is still not complete:** HTTPS deployed Entei origin, growing
-  media, audio listening/decode, and the Windows installer remain.
+  media progressive playback in a real browser, audio listening/decode,
+  and the Windows installer remain.
 
 ## Lineage & Inspiration
 

@@ -5,9 +5,11 @@
 // /v1 API. Pairing code and capability token live only in process memory;
 // nothing is written to disk, storage, or logs. With --fixture, a single
 // media file is served at /v1/media/fixture with byte Range semantics. With
-// --allow-origin, one or more exact HTTP(S) origins are additionally
-// permitted by CORS for this process only (ED-2C development/QA override;
-// never used in production).
+// --grow-fixture/--grow-total, a file still being appended is served at the
+// same URL with the ED-2C growing-media contract (availability-aware 206 /
+// 503+Retry-After buffering; see internal/api). With --allow-origin, one or
+// more exact HTTP(S) origins are additionally permitted by CORS for this
+// process only (ED-2C development/QA override; never used in production).
 package main
 
 import (
@@ -22,6 +24,7 @@ import (
 	"strconv"
 
 	"eizoudendenshi/internal/api"
+	"eizoudendenshi/internal/media"
 )
 
 // originList collects repeatable --allow-origin values. The values are never
@@ -55,12 +58,36 @@ func parseAllowOrigins(values []string) ([]string, error) {
 	return out, nil
 }
 
+// resolveGrowSource validates the --grow-fixture/--grow-total pair and
+// builds the file-backed growing source. main calls it before net.Listen,
+// so a malformed configuration fails before the server starts. Returns nil
+// when neither flag was given.
+func resolveGrowSource(path string, total int64) (media.GrowingSource, error) {
+	if path == "" && total == 0 {
+		return nil, nil // neither flag given: media stays disabled or static
+	}
+	if path == "" {
+		return nil, errors.New("--grow-total requires --grow-fixture")
+	}
+	if total <= 0 {
+		return nil, errors.New("--grow-total must be a positive byte count")
+	}
+	return media.NewFileSource(path, total)
+}
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:0",
 		"loopback bind address host:port (default port 0 = ephemeral)")
 	fixture := flag.String("fixture", "",
 		"path to a media file served at /v1/media/fixture (ED-2B PoC; "+
 			"empty = media endpoint disabled)")
+	growFixture := flag.String("grow-fixture", "",
+		"path to a media file still being appended (growing), served at "+
+			"/v1/media/fixture with the ED-2C growing-media contract; "+
+			"requires --grow-total; writers must be append-only")
+	growTotal := flag.Int64("grow-total", 0,
+		"known final size in bytes of --grow-fixture (ED-2C PoC; the file "+
+			"itself is the source of truth for available bytes)")
 	var extraOrigins originList
 	flag.Var(&extraOrigins, "allow-origin",
 		"additional exact HTTP(S) origin permitted by CORS for this process "+
@@ -90,8 +117,19 @@ func main() {
 		log.Fatalf("invalid --allow-origin: %v", err)
 	}
 
+	// ED-2C: growing-media source. Fail fast on a malformed pair or an
+	// unusable file; --fixture and --grow-fixture are mutually exclusive.
+	growSource, err := resolveGrowSource(*growFixture, *growTotal)
+	if err != nil {
+		log.Fatalf("--grow-fixture/--grow-total: %v", err)
+	}
+	if growSource != nil && *fixture != "" {
+		log.Fatal("--fixture and --grow-fixture are mutually exclusive")
+	}
+
 	srv, err := api.New(api.Config{
 		FixturePath:  *fixture,
+		GrowSource:   growSource,
 		AllowOrigins: allowOrigins,
 	})
 	if err != nil {
@@ -107,11 +145,7 @@ func main() {
 	// capability token is never printed or logged.
 	fmt.Fprintln(os.Stdout, banner(ln.Addr().String()))
 	fmt.Fprintf(os.Stdout, "Pairing code: %s\n", srv.PairingCode())
-	if *fixture == "" {
-		fmt.Fprintln(os.Stdout, "Media fixture: disabled (--fixture not set)")
-	} else {
-		fmt.Fprintf(os.Stdout, "Media fixture: enabled (%s)\n", filepath.Base(*fixture))
-	}
+	fmt.Fprintln(os.Stdout, mediaStatusLine(*fixture, growSource))
 
 	if err := http.Serve(ln, srv.Handler()); err != nil &&
 		!errors.Is(err, http.ErrServerClosed) {
@@ -125,6 +159,21 @@ func main() {
 // the release manifest (asserted by scripts/test-release.ps1).
 func banner(addr string) string {
 	return fmt.Sprintf("EizouDendenshi ED-2B (%s) listening on http://%s", api.Version, addr)
+}
+
+// mediaStatusLine is the terminal handoff line for the media endpoint. The
+// growing line reports total and current availability so a QA operator can
+// see the simulated download progress; nothing sensitive is printed.
+func mediaStatusLine(fixturePath string, grow media.GrowingSource) string {
+	switch {
+	case grow != nil:
+		return fmt.Sprintf("Media fixture: growing (total %d bytes, available %d)",
+			grow.Total(), grow.Available())
+	case fixturePath != "":
+		return fmt.Sprintf("Media fixture: enabled (%s)", filepath.Base(fixturePath))
+	default:
+		return "Media fixture: disabled (--fixture not set)"
+	}
 }
 
 // resolveBindAddress enforces the loopback-only binding policy. Only literal
