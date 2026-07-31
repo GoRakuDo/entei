@@ -13,6 +13,12 @@
 //     valid capability token via the `token` query parameter (video
 //     elements cannot set request headers; query-token is PoC-only).
 //     OPTIONS preflight is strictly origin-gated.
+//   - GET/HEAD /v1/media/status — metadata-only availability snapshot for
+//     the configured media source (ED-2E buffering bridge). Same Origin +
+//     capability gates as /v1/media/fixture. The body carries only
+//     state/available/total/headReady/retryAfter — never a path, token,
+//     pairing code, or media bytes. HEAD mirrors GET; OPTIONS preflight is
+//     origin-gated.
 //   - Unknown routes → 404; known routes with unknown methods → 405.
 //
 // Security boundaries:
@@ -203,6 +209,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/health", s.handleHealth)
 	mux.HandleFunc("/v1/pair", s.handlePair)
 	mux.HandleFunc("/v1/media/fixture", s.handleMediaFixture)
+	mux.HandleFunc("/v1/media/status", s.handleMediaStatus)
 	mux.HandleFunc("/", handleNotFound)
 	return mux
 }

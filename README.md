@@ -236,14 +236,19 @@ source integration remains in later ED-3 / ED-4 stages. See
   and a post-reload seek worked. Android Chrome growing playback and the
   production bridge are **not** measured/implemented. Full record in
   [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
-- **ED-2E buffering bridge contract — DESIGNED (docs only, 2026-07-31):**
-  the bridge contract for reacting to a growing source safely
-  (status/progress endpoint with `state`/`available`/`total`/`headReady`/
-  `retryAfter`; memory-only session state; single-flight bounded backoff
-  polling; explicit `src`/`load()`/`play()` reset gated on `complete`;
-  pending-seek/play-intent preservation; disconnect/re-pair; separate
-  headed Windows Chrome (PSMUX detached-session rule) and Android Chrome QA
-  gates). Implementation is ED-3 / ED-4 — no code yet. See
+- **ED-2E buffering bridge — IMPLEMENTED (2026-07-31):** companion
+  `GET/HEAD /v1/media/status` (Origin + token gate, no-store, HEAD/OPTIONS
+  parity, metadata-only `state`/`available`/`total`/`headReady`/
+  `retryAfter`; static-fixture semantics unchanged; Go tests green) plus
+  the Entei bridge controller + React hook (single-flight chained poll
+  with epoch/AbortController cancellation, `max(Retry-After,1s)`→×2→30s
+  backoff reset on availability progress, bounded failures →
+  disconnected/error, 401/403 → re-pair, `complete`-gated explicit
+  `src`/`load()`/`play()` with pending-seek/play-intent preservation,
+  media-error re-check with bounded explicit reset; all state page-memory
+  only; web tests green). Source-dialog UX, buffering UI, `headReady`
+  byte-level detection, and headed Windows Chrome / Android Chrome browser
+  QA remain unimplemented/unrun. See
   [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
 - **Delivery is still not complete:** HTTPS deployed Entei origin, Android
   Chrome growing-media progressive playback, audio listening/decode, and

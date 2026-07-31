@@ -32,16 +32,22 @@ using only the standard library.
 > `load()`+`play()` gets `206` and plays to the end, post-reload seek
 > works) — see
 > [Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file).
-> Android Chrome growing-media playback, the bridge implementation, and
-> yt-dlp/aria2 remain **unverified / unimplemented** and are not claimed.
-> **The ED-2E buffering bridge contract is DESIGNED (docs only, not
-> implemented)** — status/progress endpoint, memory-only session state,
-> single-flight bounded backoff polling, `complete`-gated explicit
-> `src`/`load()`/`play()` reset, seek/play intent preservation,
-> disconnect/re-pair, and headed Windows Chrome (PSMUX rule) + Android
-> Chrome QA gates; see
-> [ED-2E bridge contract](#ed-2e-buffering-bridge-contract-design-not-implemented)
-> below. Implementation is ED-3 / ED-4.
+> Android Chrome growing-media playback and yt-dlp/aria2 remain
+> **unverified / unimplemented** and are not claimed.
+> **The ED-2E buffering bridge is IMPLEMENTED (2026-07-31)** — companion
+> `GET/HEAD /v1/media/status` (Origin + token gate, `no-store`, HEAD
+> mirror, origin-gated OPTIONS preflight, metadata-only body:
+> `state`/`available`/`total`/`headReady`/`retryAfter`; 11 Go tests) plus
+> the Entei bridge controller + React hook (single-flight chained poll,
+> epoch/AbortController cancellation, `max(Retry-After,1s)`→×2→30s backoff
+> with progress reset, bounded failures → disconnected/error, 401/403 →
+> re-pair, `complete`-gated explicit `src`/`load()`/`play()` with
+> pendingSeek/play-intent preservation, media-error re-check with bounded
+> explicit reset; all state page-memory only; 17 web tests) — see
+> [ED-2E bridge contract](#ed-2e-buffering-bridge-contract-implemented-status-endpoint--bridge-controller)
+> below. Source-dialog UX, buffering UI, `headReady` byte-level detection,
+> and headed Windows Chrome / Android Chrome browser QA remain
+> unimplemented / unrun.
 > **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
 > the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2` — see
 > [Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
@@ -73,6 +79,13 @@ using only the standard library.
     Origin, returns the capability token only on a correct code. The code is
     single-use and never echoed in errors.
   - `OPTIONS /v1/pair` — correct CORS preflight.
+  - `GET/HEAD /v1/media/status` — metadata-only availability snapshot for
+    the configured media source (`state`: `disabled`/`buffering`/
+    `complete`/`error`, `available`, `total`, `headReady`, `retryAfter`),
+    same Origin + token gate as `/v1/media/fixture`, `Cache-Control:
+    no-store`, HEAD mirror, origin-gated OPTIONS preflight; never contains
+    paths/filenames/tokens/pairing data (ED-2E; see
+    [status endpoint](#statusprogress-endpoint-companion--implemented)).
   - Unknown routes → 404; unknown methods → 405; all errors are non-secret.
 - Strict CORS: only exactly `https://entei.gorakudo.org` and
   `http://localhost:4321`. No `*`. Disallowed Origin is rejected on state
@@ -287,18 +300,30 @@ byte to be served. No disk paths appear in error responses or logs.
 - The **production bridge is not implemented** and must not rely on Chrome
   auto-retry: it needs buffering + availability-based retry/backoff and an
   explicit `src`/`load()` reset once a playable prefix exists. The
-  contract for that bridge is designed below.
+  contract for that bridge is implemented below (companion status endpoint
+  + Entei bridge controller; browser QA still pending).
 
-## ED-2E buffering bridge contract (design, not implemented)
+## ED-2E buffering bridge contract (implemented: status endpoint + bridge controller)
 
-Design document only — no code. The full record (with the Windows Chrome
+**Implemented on 2026-07-31** — the companion status endpoint
+(`internal/api/status.go`, `internal/api/status_test.go`) and the Entei
+bridge controller + React hook
+(`apps/web/src/features/player/companion-bridge.ts`,
+`apps/web/src/features/player/use-companion-bridge.ts`,
+`apps/web/tests/companion-bridge.test.ts`) exist and their automated tests
+are green (Go 11, web 17). The full record (with the Windows Chrome
 measurement evidence) is in
 [`docs/EIZOU_DENDENSHI.md`](../../docs/EIZOU_DENDENSHI.md). It defines how
 Entei reacts to a growing source safely, given the measured fact that
 Chrome's media element does not auto-retry a growing-file `503` (fails once
 with `error` code 4; only an explicit `load()`+`play()` recovers).
 
-### Status/progress endpoint (companion, to be added at implementation)
+**Not implemented (intentional scope):** source-dialog UX (the bridge is a
+narrow internal hook, not wired into the normal local-file flow), buffering
+UI, the `headReady` byte-level moov check, yt-dlp/aria2, and browser QA
+(headed Windows Chrome / Android Chrome gates below).
+
+### Status/progress endpoint (companion — implemented)
 
 `GET /v1/media/status?token=<capability token>` — same Origin gate + token
 gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
@@ -308,21 +333,24 @@ gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
 ```
 
 - `state`: `disabled` (no source) / `buffering` (`available < total`) /
-  `complete` (`available == total`) / `error`.
+  `complete` (`available == total`) / `error` (fail-closed, generic — e.g.
+  a static fixture file that cannot be opened).
 - `available` / `total`: monotonic availability snapshot (same source as
-  the 503 body in `internal/api/growing.go`).
+  the 503 body in `internal/api/growing.go`); growing status never exceeds
+  the known total.
 - `headReady`: **informational only, never a `src` gate.** Whether the
   faststart MP4 moov + codec init lie fully inside the available prefix
-  (byte-level check, no downloader). This check is not implemented or
-  measured yet. Separately, the 77%-available fixture still fails
+  (byte-level check, no downloader). **Always `false` in the current
+  implementation.** Separately, the 77%-available fixture still fails
   (`bytes=0-` → `503` → `error` code 4); for direct `<video>` the only safe
   readiness is `complete`.
-- `retryAfter`: same hint as the current 503 responses (PoC `1`).
+- `retryAfter`: same hint as the current 503 responses (PoC `1`; present
+  only while buffering).
 - `Cache-Control: no-store`; HEAD mirrors GET; OPTIONS preflight
   (GET/HEAD/OPTIONS). Never includes paths, filenames, tokens, or pairing
   data. Token invalid → 401; Origin not allowed → 403 (existing gates).
 
-### Bridge rules (Entei side, ED-3/ED-4)
+### Bridge rules (Entei side — implemented)
 
 - **Persistence:** token + session state (state/available/total/pendingSeek/
   phase) are page-memory only. Nothing goes to localStorage / IndexedDB /
