@@ -1,6 +1,6 @@
 # EizouDendenshi — validated local companion plan
 
-> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。HTTPS Entei origin・growing media・Minisign deliveryは未実装。
+> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 62/62 green。**deliveryは未完了**: HTTPS Entei origin・growing media・Minisign実release配布・ED-2D Stage Bのclean Termux gateが残っている。
 > **Readiness:** Ready with checkpoints
 
 ## Outcome
@@ -130,15 +130,16 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 
 ### Termux general-user bootstrap
 
-bootstrapはTermux上で次を順に行う。
+**ED-2D Stage A** のbootstrap template（`companion/eizoudendenshi/scripts/termux-bootstrap.sh`）はTermux上で次を順に行う。実装は済み、clean Termux実機でのgate（Stage B）は未実施。
 
-1. Termux環境と`aarch64`を確認する。
-2. `curl`と`minisign`をTermux公式repoから自動導入する。
-3. bootstrapへ固定したMinisign公開鍵でrelease manifestと`android/arm64` core binaryを検証する。
-4. 検証済みcoreをTermux app-private storageへ置き、pairing codeを表示して起動する。
-5. `termux-wake-lock`を要求する。Androidのbattery unrestricted / wake-lock許可はOS画面でユーザーが承認する必要があるため、silentに迂回しない。
+1. Termux環境と`aarch64`を確認する（実Termux prefix、Linux、aarch64、`pkg`存在）。
+2. verifier / download前提のみ（`minisign`・`curl`・`coreutils`）をTermux公式repoから導入する。
+3. release base URL（明示入力・**HTTPS限定**）からrelease manifestを取得し、bootstrapへ固定したMinisign公開鍵で**manifest署名**を検証する。未固定のtemplate（`REPLACE_ME...`）はfail closed。
+4. manifestを検証する（format / formatVersion / version / helper contract / `android/arm64` artifact）。helper contractがこのtemplateの対応範囲（v1・helper要求なし）と厳密一致しないmanifestは**install前に拒否（fail closed）**。helper（`python-yt-dlp`等）は本templateでは導入しない。
+5. `android/arm64` core binaryの**署名**と、signed manifestに対する**SHA-256**を検証してから、検証済みcoreをTermux app-private storage（`$PREFIX/var/lib/eizouden`）へatomicに置き、pairing codeを表示してforeground起動する。全downloadはprivate temp dir（mode 700、exit時cleanup）経由。
+6. `termux-wake-lock`要求は **Stage B以降の項目**として延期した。実装時もAndroidのbattery unrestricted / wake-lock許可はOS画面でユーザーが承認する必要があり、silentに迂回しない。
 
-core binaryはMinisignで**厳密にversion固定**する。一方、将来のYouTube / torrent helperはTermux公式repoから`pkg install -y python-yt-dlp aria2 ffmpeg`で自動導入し、bootstrapが最低versionを検査する。Termux repoのcurrent packageを使うためhelperを完全固定したrelease assetとしては扱わない。yt-dlp側の互換性変更が必要になった時は、新しいEizouDendenshi releaseで必要最低version / 導入条件を更新する。起動時のsilent self-updateはしない。
+core binaryはMinisignで**厳密にversion固定**する。将来のYouTube / torrent helperはTermux公式repoから導入し、release manifestのhelper contractで最低versionを検査する（helper要求のあるmanifestは現行templateが拒否するため、導入機能はhelper対応stageで追加する）。Termux repoのcurrent packageを使うためhelperを完全固定したrelease assetとしては扱わない。yt-dlp側の互換性変更が必要になった時は、新しいEizouDendenshi releaseで必要最低version / 導入条件を更新する。起動時のsilent self-updateはしない。
 
 最初のbootstrap command自身はMinisign verifierの導入前に実行されるtrust bootstrapである。`curl | sh`で未検証remote shellを実行する形にはせず、公開鍵を含む短いcopy-paste commandとして配布する。
 
@@ -161,7 +162,7 @@ core binaryはMinisignで**厳密にversion固定**する。一方、将来のYo
 | ED-2A | **完了済み:** Go stdlibのloopback-only companion skeleton。6桁pairing code、memory-only token、exact CORS、health / pair API、Windows x64 / Android arm64 cross-build                                                                                                                                                                                                                                                                                                                  | Windows / Android cross-build、unit / vet、Mimo review APPROVE                                |
 | ED-2B | **完了済み:** token query付き静的fixture Range endpoint。Windows Chromeからpairing、206 Range、exact ACAO、no-store、canvas `toBlob`、captureStream、MediaRecorderを実測                                                                                                                                                                                                                                                                                                               | background server cleanup、fixture削除、Mimo review APPROVE                                   |
 | ED-2C | **部分完了:** Termux `go1.26.5 android/arm64`でpure-Go binaryを実行し、background loopback pairing / Range `206` smokeとcleanupを実測。Android Chrome LAN dev originからpair / Range `206` / detached video / canvas `toBlob` / captureStream / MediaRecorderを実測。`--allow-origin`は開発専用でrelease allowlistへ入れない。HTTPS Entei origin、growing media、Minisign deliveryは未実装 | Checkpoint 1 / 2のHTTPS・growing部分と、checkpoint 5                                         |
-| ED-2D | Entei内`companion/eizoudendenshi/`へのsource移動、Minisign manifest / core release、general-user Termux bootstrap                                                                                                                                                                                                                                                                                                                                                                      | clean TermuxでAPK後のbootstrap commandだけからpairing code表示まで到達                        |
+| ED-2D | **Stage A 部分完了（tooling実装済み）:** `companion/eizoudendenshi/`でrelease helper（`scripts/release.ps1`: windows/amd64 + android/arm64 build、version付きmanifest、detached Minisign署名、keyは明示arg/envのみ）、Termux bootstrap template（`scripts/termux-bootstrap.sh`: HTTPS限定・pinned key fail-closed・Termux/aarch64検証・前提pkgのみ導入・private temp・署名/SHA-256検証後にapp-private atomic install・foreground pairing・helper contract fail-closed）、自動test harness（`scripts/test-release.ps1`: 一時Minisign鍵のみ`A:\Temp\opencode`使用、成功install + tampered manifest/binary/missing sig/wrong arch/unsafe URL等のfailure-before-installを62/62 greenで検証）。Windows x64 installerは未実装 | **Stage B（残）: clean Termux aarch64実機でAPK後のbootstrap commandだけからpairing code表示まで到達**（実HTTPS release base・実pinned key・実ELF install + exec）。実機gate通過までdelivery完了と主張しない |
 | ED-3  | 3-button source entry、共通Magnet / YouTube dialog、shadcn Input OTP pairing、Default Cookie modalを実装                                                                                                                                                                                                                                                                                                                                                                               | pairing済みlocalhost companionとの実機接続                                                    |
 | ED-4  | YouTube source / Japanese subtitle、forward torrent file selection / buffer / cleanupを順に接続                                                                                                                                                                                                                                                                                                                                                                                        | Required PoC checkpoints 3, 4                                                                 |
 
@@ -189,7 +190,7 @@ WT-1はbrowser WebRTC peerだけを対象にしていた。EizouDendenshiをregu
 
 **Ready with checkpoints.**
 
-product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。Windows / Android Chromeの静的fixtureではloopback CORS、Range、canvas capture、MediaRecorderまで実証済み。TermuxではAndroid arm64 binaryのloopback pairing / Range smokeまで通過した。一方、HTTPS Entei origin、growing Range media、Minisignでversion固定helperを配布する実現性はまだ実証されていない。
+product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。Windows / Android Chromeの静的fixtureではloopback CORS、Range、canvas capture、MediaRecorderまで実証済み。TermuxではAndroid arm64 binaryのloopback pairing / Range smokeまで通過した。ED-2D Stage Aではrelease helper / Termux bootstrap template / 自動test harnessを実装し、tampered manifest / binary、署名欠落、wrong arch、unsafe URL、helper contract不一致がinstall前に拒否されることを一時鍵で62/62検証した。一方、HTTPS Entei origin、growing Range media、Minisign実release配布、および**clean Termux実機でのbootstrap→pairing到達（ED-2D Stage B gate）**はまだ実証されていない — **delivery完了は主張しない**。
 
 ## Next action
 

@@ -11,16 +11,19 @@ prove the loopback CORS + Range path. Both stages are dependency-free Go
 using only the standard library.
 
 > **Status:** ED-2B PoC with the **ED-2C developer-origin override**
-> (`--allow-origin`) implemented. This is **not** a media server and is
-> **not** integrated with Entei. A **manual Windows Chrome static-fixture
-> verification was performed on 2026-07-31** (see
-> [ED-2B verification](#ed-2b-verification-manual-windows-chrome)); it is a
-> manual browser check, **not** an automated Go test. Termux runtime smoke is
-> also complete (see [ED-2C verification](#ed-2c-verification-termux-runtime)).
+> (`--allow-origin`) implemented, plus **ED-2D Stage A release-delivery
+> tooling** (release helper, Termux bootstrap template, automated test
+> harness) — see [ED-2D Stage A](#ed-2d-stage-a-release-delivery-tooling).
+> This is **not** a media server and is **not** integrated with Entei. A
+> **manual Windows Chrome static-fixture verification was performed on
+> 2026-07-31** (see [ED-2B verification](#ed-2b-verification-manual-windows-chrome));
+> it is a manual browser check, **not** an automated Go test. Termux runtime
+> smoke is also complete (see [ED-2C verification](#ed-2c-verification-termux-runtime)).
 > Android Chrome LAN-origin browser QA is also complete (see
-> [ED-2C verification](#ed-2c-verification-android-chrome-lan-origin)). HTTPS
-> deployed Entei origin, growing media, audio listening/decode, and Minisign
-> delivery remain outstanding gates.
+> [ED-2C verification](#ed-2c-verification-android-chrome-lan-origin)).
+> **Delivery is NOT complete:** HTTPS deployed Entei origin, growing media,
+> audio listening/decode, and the **ED-2D Stage B clean-Termux device gate**
+> (real device, real pinned key, real HTTPS release base) remain outstanding.
 
 ## ED-2A scope (retained)
 
@@ -193,23 +196,134 @@ General users install the Termux APK once, then run one documented bootstrap
 command. They do **not** install Go: the bootstrap downloads the signed
 `android/arm64` Eizou core binary.
 
-The bootstrap will install `curl` and `minisign` from the official Termux
-repository, verify a release manifest and core asset using a public key pinned
-in the copied command, then install the verified core into Termux app-private
-storage and start it for pairing.
+**ED-2D Stage A ships the tooling for this** — see
+[ED-2D Stage A](#ed-2d-stage-a-release-delivery-tooling) below. The Stage A
+bootstrap template installs only the verifier/download prerequisites
+(`curl`, `minisign`, `coreutils`) from the official Termux repository,
+verifies a release manifest and the core asset with a Minisign public key
+pinned inside the copied command, verifies SHA-256 against the signed
+manifest, then installs the verified core into Termux app-private storage
+(`$PREFIX/var/lib/eizouden`) and starts it in the foreground for pairing.
 
-Future source helpers are automatic too: `python-yt-dlp`, `aria2`, and `ffmpeg`
-will be installed from the official Termux repository and checked against
-minimum compatible versions. They are deliberately not frozen release assets;
-the Minisign-fixed Eizou core remains the compatibility control point.
+Future source helpers (`python-yt-dlp`, `aria2`, `ffmpeg`) are deliberately
+**not** installed by this template. They belong to a later stage; a release
+manifest that demands helpers (a `helperContract` this template does not
+exactly support) is **refused before install (fail closed)**.
 
-Android permission prompts cannot be silently bypassed. The bootstrap can ask
-for `termux-wake-lock`, but the user must approve wake-lock / unrestricted
-battery behavior in Android when prompted.
+Android permission prompts cannot be silently bypassed. The Stage A template
+does not request wake-lock; a future stage may ask for `termux-wake-lock`,
+but the user must always approve wake-lock / unrestricted battery behavior
+in Android when prompted.
 
-The bootstrap must not use an unverified `curl | sh` remote script. It will be
-distributed as a short copy-paste command containing the pinned Minisign public
-key; only verified release files run after the verifier is installed.
+The bootstrap must not use an unverified `curl | sh` remote script. It is a
+plain copy-paste script containing the pinned Minisign public key; only
+verified release files run after the verifier is installed.
+
+## ED-2D Stage A (release-delivery tooling)
+
+ED-2D Stage A implements the release-delivery pipeline. **It does not claim
+delivery is complete** — see [Stage B gate](#stage-b-clean-termux-device-gate).
+
+### `scripts/release.ps1` — build/release helper
+
+- `build` verb: cross-builds `eizouden-windows-amd64.exe`
+  (`windows/amd64`) and `eizouden-android-arm64` (`android/arm64`) with
+  `CGO_ENABLED=0`, `-trimpath`, and `-ldflags "-s -w"`.
+- `release` verb: additionally writes the single-line versioned manifest
+  `eizouden-manifest.json` — `format`, `formatVersion`, `version`,
+  `helperContract` (placeholder, fails closed: only contract v1 with zero
+  helper requirements is accepted), and one `artifacts` entry per binary
+  (`name`, `target`, lowercase `sha256`) — then creates detached Minisign
+  signatures (`<file>.minisig`) for the manifest and every artifact, and
+  emits a key-pinned `bootstrap.sh` copy when the public key file is given.
+- The signing key is supplied **explicitly** via `-MinisignKeyPath` or the
+  `EIZOUDEN_MINISIGN_KEY` environment variable; the public key file via
+  `-PublicKeyFile` or `EIZOUDEN_MINISIGN_PUBKEY_FILE`. A release run without
+  a key fails (no unsigned release). No secret material ever lives in the
+  repository.
+
+```powershell
+# binaries only
+powershell -File scripts/release.ps1 build -OutDir dist
+
+# full release (manifest + detached signatures + pinned bootstrap copy)
+powershell -File scripts/release.ps1 release -Version 0.2.0 -OutDir dist `
+  -MinisignKeyPath C:\secrets\eizouden.minisign.key `
+  -PublicKeyFile C:\secrets\eizouden.minisign.pub
+```
+
+### `scripts/termux-bootstrap.sh` — Termux bootstrap template
+
+A plain POSIX sh template (distributed as a copy-paste command, **no
+`curl | sh`**) that, in order: validates the explicit HTTPS release base URL
+(non-HTTPS / userinfo / query / fragment are rejected), validates the pinned
+Minisign public key (an unreplaced template placeholder fails closed),
+validates the environment (real Termux prefix, Linux, aarch64, `pkg`
+present), installs only `minisign`/`curl`/`coreutils` from the official
+Termux repository, creates a private mode-700 temp dir (trapped for cleanup
+on every exit), fetches and verifies the manifest signature, validates the
+manifest (format, version, helper contract — fail closed, android/arm64
+artifact), fetches and verifies the core signature, verifies SHA-256
+against the signed manifest, atomically installs the verified core into
+`$PREFIX/var/lib/eizouden`, removes the download cache, and finally `exec`s
+the core in the foreground to print the pairing code.
+
+The template ships with `PINNED_PUBKEY='REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'`.
+The release helper substitutes the real key into the distributed copy; the
+unreplaced template refuses to run. Test-only hooks (`EIZOU_TEST`,
+`EIZOU_BOOTSTRAP_SKIP_PKG`, `EIZOU_MIRROR_DIR`) exist solely for the test
+harness and never relax signature/SHA-256 verification or install
+permissions.
+
+### `scripts/test-release.ps1` — automated harness
+
+Runs the whole pipeline against **temporary Minisign keys/material in
+`A:\Temp\opencode` only** (never in the repo). It requires a POSIX `sh`
+(git-bash) and a `minisign` binary (PATH, `A:\Temp\opencode\minisign-bin\…`,
+or an auto-fetched official win64 build). Without either, dynamic cases are
+explicitly conditioned out and static fail-closed checks still run.
+
+- **Static checks** (always run): no pipe-to-shell, placeholder must be
+  rejected, HTTPS-only URL validation, verify-before-install ordering,
+  prerequisites limited to verifier/download tools, no privilege escalation,
+  private temp dir + cleanup, app-private atomic install path, foreground
+  pairing start, helper contract fails closed, key via explicit arg/env
+  only.
+- **Dynamic cases** (sh + minisign available):
+  - release helper: manifest format/contract/targets/SHA-256 fields and
+    detached-signature verification;
+  - **T1 success**: verified install → foreground start → real companion
+    binary prints a 6-digit pairing code; installed bytes match the signed
+    manifest;
+  - **T2/T3**: tampered manifest / tampered binary → signature verification
+    failure **before install**;
+  - **T4a/T4b**: missing core / manifest signature → failure before install;
+  - **T5**: wrong architecture (no `android/arm64` artifact) → failure
+    before install;
+  - **T6**: unsafe (non-HTTPS) base URL → rejected before any download;
+  - **T7**: unpinned template key → fail closed;
+  - **T8**: unsupported helper contract → fail closed;
+  - **T9**: non-Termux environment → rejected before install;
+  - **T10**: SHA-256 mismatch with valid signatures → failure before install.
+  - Every failure case also asserts: nonzero exit, nothing installed, and
+    the private temp dir was cleaned up.
+
+```powershell
+powershell -File scripts/test-release.ps1        # all checks, temp keys
+powershell -File scripts/test-release.ps1 -Keep  # keep the run dir for inspection
+```
+
+### Stage B clean-Termux device gate (remaining)
+
+Delivery is **not** claimed complete until a clean Termux aarch64 device
+passes the real end-to-end gate: real HTTPS release base, real pinned key,
+`pkg`-only prerequisites, signed manifest + core verification, app-private
+install, foreground pairing. The harness deliberately substitutes a
+Windows build for the android/arm64 artifact so the real companion binary
+can be executed and observed in tests; the actual android/arm64 ELF install
++ exec remains a Stage B device-gate item, together with the Windows
+installer, HTTPS deployed Entei origin, growing media, and audio
+listen/decode verification.
 
 ## Build and run
 
@@ -250,14 +364,21 @@ The capability token is never printed or logged; it is returned once by
 gofmt -l .        # formatting check (must print nothing)
 go test ./...     # unit + httptest API tests (ED-2A + ED-2B media suite + ED-2C origin override)
 go vet ./...      # static checks
-
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ed2b-win-amd64.exe ./cmd/eizouden
-CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o ed2b-android-arm64  ./cmd/eizouden
 ```
 
-ED-2A cross-builds `windows/amd64` and `android/arm64`. ED-2C verified the
-pure-Go `android/arm64` binary's Termux loopback runtime; Android Chrome media
-behavior remains a later checkpoint.
+Cross builds go through the release helper (see
+[ED-2D Stage A](#ed-2d-stage-a-release-delivery-tooling)):
+
+```powershell
+powershell -File scripts/release.ps1 build -OutDir <temp-dir>   # windows/amd64 + android/arm64
+```
+
+The release-delivery test harness is `scripts/test-release.ps1` (all
+checks pass 2026-07-31: 62/62 with temporary Minisign keys in
+`A:\Temp\opencode`). ED-2A cross-builds `windows/amd64` and
+`android/arm64`. ED-2C verified the pure-Go `android/arm64` binary's Termux
+loopback runtime; Android Chrome media behavior and the ED-2D Stage B
+clean-Termux gate remain later checkpoints.
 
 ## Layout
 
@@ -265,4 +386,7 @@ behavior remains a later checkpoint.
 cmd/eizouden/        executable: flags, loopback guard, bootstrap, handoff
 internal/api/        HTTP API: /v1/health, /v1/pair, /v1/media/fixture, CORS
 internal/pairing/    crypto/rand pairing code + capability token
+scripts/release.ps1        ED-2D Stage A: build/release helper (manifest + Minisign)
+scripts/termux-bootstrap.sh ED-2D Stage A: Termux bootstrap template (pinned key)
+scripts/test-release.ps1   ED-2D Stage A: automated release test harness
 ```
