@@ -18,7 +18,10 @@
 // Security boundaries:
 //   - Binding is loopback-only (enforced by the command, not here).
 //   - CORS allows exactly https://entei.gorakudo.org and
-//     http://localhost:4321 — no wildcard.
+//     http://localhost:4321 — no wildcard. A per-process development
+//     override (Config.AllowOrigins, e.g. --allow-origin) may add further
+//     exact origins for QA; it never replaces the fixed set and is never
+//     persisted.
 //   - Pairing code and capability token exist only in process memory and
 //     are never logged, echoed, or exposed in errors.
 //   - No fixture configured → the media endpoint is honestly disabled
@@ -29,8 +32,13 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"eizoudendenshi/internal/pairing"
@@ -42,11 +50,70 @@ const Version = "0.2.0"
 // apiVersion is the stable API namespace.
 const apiVersion = "v1"
 
-// allowedOrigins are the only Origins accepted for pairing. Exact string
-// match only — no wildcards, no suffix/prefix matching.
-var allowedOrigins = map[string]struct{}{
+// fixedOrigins are the only production Origins accepted for pairing. Exact
+// string match only — no wildcards, no suffix/prefix matching. Per-process
+// development origins (Config.AllowOrigins) are added to the combined set
+// at New time; the fixed set itself never changes.
+var fixedOrigins = map[string]struct{}{
 	"https://entei.gorakudo.org": {},
 	"http://localhost:4321":      {},
+}
+
+// ParseOrigin validates s as an exact HTTP(S) origin and returns its
+// normalized form, or an error if it is not usable as an allowlist entry.
+//
+// Accepted shape: scheme http or https, host required, optional numeric
+// port. Userinfo, path, query, fragment, wildcards, and empty hosts are
+// rejected. Normalization lowercases the scheme and host and drops default
+// ports (http:80, https:443), matching how browsers serialize Origin.
+// Errors are generic and never echo the input value.
+func ParseOrigin(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", errors.New("empty origin")
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", errors.New("invalid origin")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", errors.New("origin scheme must be http or https")
+	}
+	if u.Host == "" {
+		return "", errors.New("origin host is required")
+	}
+	if u.User != nil {
+		return "", errors.New("origin must not contain userinfo")
+	}
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("origin must not contain a path, query, or fragment")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return "", errors.New("origin host is required")
+	}
+	if strings.ContainsAny(host, "*") {
+		return "", errors.New("origin must not contain wildcards")
+	}
+	port := u.Port()
+	if port != "" {
+		p, err := strconv.Atoi(port)
+		if err != nil || p < 1 || p > 65535 {
+			return "", errors.New("origin has an invalid port")
+		}
+		if (scheme == "http" && p == 80) || (scheme == "https" && p == 443) {
+			port = "" // default ports are implicit in the Origin serialization
+		}
+	}
+	// Rebuild canonical form: bracketed IPv6, explicit non-default port.
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return scheme + "://" + host, nil
 }
 
 // Config carries options for New.
@@ -55,17 +122,26 @@ type Config struct {
 	// Empty means the media endpoint is honestly disabled (generic 404).
 	// The endpoint never scans directories.
 	FixturePath string
+
+	// AllowOrigins are additional exact HTTP(S) origins permitted by CORS
+	// for this process only — a development/QA override (ED-2C). Each entry
+	// is validated and normalized with ParseOrigin; an invalid entry makes
+	// New fail. The fixed production origins always remain.
+	AllowOrigins []string
 }
 
 // Server holds in-memory pairing state for one process lifetime.
 type Server struct {
-	mu          sync.Mutex
-	code        string // 6-digit pairing code; consumed after a successful pair
-	token       string // opaque capability token; never logged or persisted
-	fixturePath string // ED-2B: media fixture served at /v1/media/fixture
+	mu             sync.Mutex
+	code           string              // 6-digit pairing code; consumed after a successful pair
+	token          string              // opaque capability token; never logged or persisted
+	fixturePath    string              // ED-2B: media fixture served at /v1/media/fixture
+	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 }
 
-// New generates fresh pairing credentials for the process.
+// New generates fresh pairing credentials for the process and builds the
+// combined exact origin allowlist: the fixed production origins plus any
+// validated Config.AllowOrigins extras.
 func New(cfg Config) (*Server, error) {
 	code, err := pairing.GenerateCode()
 	if err != nil {
@@ -75,7 +151,23 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{code: code, token: token, fixturePath: cfg.FixturePath}, nil
+	allowed := make(map[string]struct{}, len(fixedOrigins)+len(cfg.AllowOrigins))
+	for o := range fixedOrigins {
+		allowed[o] = struct{}{}
+	}
+	for _, o := range cfg.AllowOrigins {
+		norm, err := ParseOrigin(o)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allow origin: %w", err)
+		}
+		allowed[norm] = struct{}{}
+	}
+	return &Server{
+		code:           code,
+		token:          token,
+		fixturePath:    cfg.FixturePath,
+		allowedOrigins: allowed,
+	}, nil
 }
 
 // PairingCode returns the current pairing code. Used by the command to
@@ -103,7 +195,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	// Non-sensitive read: data is always served; CORS headers only for
 	// allowed origins so a browser can read it.
-	setOriginHeaders(w, r)
+	s.setOriginHeaders(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":     "ready",
 		"version":    Version,
@@ -124,7 +216,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	// Pairing is a state change: missing or disallowed Origin is rejected.
 	// The error is returned without CORS headers, so a disallowed browser
 	// origin cannot read it either.
-	origin, ok := originAllowed(r)
+	origin, ok := s.originAllowed(r)
 	if !ok {
 		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
 		return
@@ -183,7 +275,7 @@ func (s *Server) handleMediaFixture(w http.ResponseWriter, r *http.Request) {
 
 	// Origin gate first: missing / disallowed Origin is rejected without
 	// CORS headers, so a disallowed browser origin cannot read the body.
-	origin, ok := originAllowed(r)
+	origin, ok := s.originAllowed(r)
 	if !ok {
 		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
 		return
@@ -228,7 +320,7 @@ func (s *Server) handleMediaFixture(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMediaPreflight(w http.ResponseWriter, r *http.Request) {
-	origin, ok := originAllowed(r)
+	origin, ok := s.originAllowed(r)
 	if !ok {
 		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
 		return
@@ -256,7 +348,7 @@ func (s *Server) tokenValid(r *http.Request) bool {
 }
 
 func (s *Server) handlePairPreflight(w http.ResponseWriter, r *http.Request) {
-	origin, ok := originAllowed(r)
+	origin, ok := s.originAllowed(r)
 	if !ok {
 		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
 		return
@@ -270,22 +362,23 @@ func (s *Server) handlePairPreflight(w http.ResponseWriter, r *http.Request) {
 }
 
 // originAllowed returns the request Origin only when it is exactly one of
-// the allowlisted origins. Missing and disallowed origins both return false
-// without leaking which case occurred.
-func originAllowed(r *http.Request) (string, bool) {
+// the server's allowlisted origins (fixed set plus per-process extras).
+// Missing and disallowed origins both return false without leaking which
+// case occurred.
+func (s *Server) originAllowed(r *http.Request) (string, bool) {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return "", false
 	}
-	if _, ok := allowedOrigins[origin]; !ok {
+	if _, ok := s.allowedOrigins[origin]; !ok {
 		return "", false
 	}
 	return origin, true
 }
 
 // setOriginHeaders adds CORS headers when the request Origin is allowed.
-func setOriginHeaders(w http.ResponseWriter, r *http.Request) {
-	if origin, ok := originAllowed(r); ok {
+func (s *Server) setOriginHeaders(w http.ResponseWriter, r *http.Request) {
+	if origin, ok := s.originAllowed(r); ok {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Add("Vary", "Origin")
 	}

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestResolveBindAddress(t *testing.T) {
 	tests := []struct {
@@ -42,6 +45,83 @@ func TestResolveBindAddress(t *testing.T) {
 			}
 			if got != tt.addr {
 				t.Errorf("resolveBindAddress(%q) = %q, want input preserved", tt.addr, got)
+			}
+		})
+	}
+}
+
+// TestParseAllowOrigins covers the ED-2C --allow-origin contract: nonempty
+// values must parse as exact HTTP(S) origins (and are normalized), empty
+// values are ignored, and any malformed value makes the whole flag set
+// invalid. main calls parseAllowOrigins before net.Listen, so a malformed
+// value is rejected before the server starts listening.
+func TestParseAllowOrigins(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      []string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "empty list",
+			in:   nil,
+			want: nil,
+		},
+		{
+			name: "empty values ignored",
+			in:   []string{"", ""},
+			want: nil,
+		},
+		{
+			name:    "whitespace-only value rejected as malformed",
+			in:      []string{"   "},
+			wantErr: true,
+		},
+		{
+			name: "single valid origin normalized",
+			in:   []string{"HTTP://EXAMPLE.COM:80"},
+			want: []string{"http://example.com"},
+		},
+		{
+			name: "single valid origin with port",
+			in:   []string{"http://192.0.2.10:4321"},
+			want: []string{"http://192.0.2.10:4321"},
+		},
+		{
+			name: "multiple origins preserved in order",
+			in:   []string{"https://a.example", "http://b.example:8080"},
+			want: []string{"https://a.example", "http://b.example:8080"},
+		},
+		{
+			name: "duplicate values deduplicated by New, kept here",
+			in:   []string{"http://a.example", "http://a.example"},
+			want: []string{"http://a.example", "http://a.example"},
+		},
+		{
+			name:    "malformed origin rejected",
+			in:      []string{"http://example.com/path"},
+			wantErr: true,
+		},
+		{
+			name:    "malformed origin among valid rejected",
+			in:      []string{"http://a.example", "ftp://b.example"},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseAllowOrigins(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseAllowOrigins(%v) = %v, want error", tt.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseAllowOrigins(%v) error: %v", tt.in, err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseAllowOrigins(%v) = %v, want %v", tt.in, got, tt.want)
 			}
 		})
 	}

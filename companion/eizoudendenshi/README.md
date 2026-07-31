@@ -10,14 +10,17 @@ foundations. **ED-2B** adds a single-fixture byte-Range media endpoint to
 prove the loopback CORS + Range path. Both stages are dependency-free Go
 using only the standard library.
 
-> **Status:** ED-2B PoC. This is **not** a media server and is **not**
-> integrated with Entei. A **manual Windows Chrome static-fixture
+> **Status:** ED-2B PoC with the **ED-2C developer-origin override**
+> (`--allow-origin`) implemented. This is **not** a media server and is
+> **not** integrated with Entei. A **manual Windows Chrome static-fixture
 > verification was performed on 2026-07-31** (see
 > [ED-2B verification](#ed-2b-verification-manual-windows-chrome)); it is a
 > manual browser check, **not** an automated Go test. Termux runtime smoke is
 > also complete (see [ED-2C verification](#ed-2c-verification-termux-runtime)).
-> Android Chrome, HTTPS deployed Entei origin, growing media, audio
-> listening/decode, and Minisign delivery remain outstanding gates.
+> Android Chrome LAN-origin browser QA is also complete (see
+> [ED-2C verification](#ed-2c-verification-android-chrome-lan-origin)). HTTPS
+> deployed Entei origin, growing media, audio listening/decode, and Minisign
+> delivery remain outstanding gates.
 
 ## ED-2A scope (retained)
 
@@ -36,7 +39,9 @@ using only the standard library.
   - Unknown routes → 404; unknown methods → 405; all errors are non-secret.
 - Strict CORS: only exactly `https://entei.gorakudo.org` and
   `http://localhost:4321`. No `*`. Disallowed Origin is rejected on state
-  change without CORS headers.
+  change without CORS headers. (ED-2C: a per-process `--allow-origin`
+  development override may add further exact origins; see below. It never
+  replaces this fixed set.)
 - Loopback guard: `--addr` must be a **literal loopback IP** — IPv4
   `127.0.0.0/8` or IPv6 `::1` — with a valid numeric port (0–65535).
   Hostnames (including `localhost`), the empty host (`:port`, which binds
@@ -68,6 +73,31 @@ Content-Range, Accept-Ranges, Content-Length`.
 - `OPTIONS /v1/media/fixture` preflight (GET/HEAD/OPTIONS), strictly
   origin-gated.
 - Version bumped to `0.2.0`.
+
+## ED-2C additions (developer-origin override)
+
+- Repeatable `--allow-origin <origin>` flag: an explicit one-off development
+  origin permitted by CORS **for this process only** — e.g. the LAN
+  dev-server origin (`location.origin`) seen by Android Chrome during
+  on-device DevTools QA, which is not in the fixed production/development
+  allowlist.
+- Each nonempty value must be an **exact HTTP(S) origin**: scheme `http` or
+  `https` only, host required, optional numeric port; no userinfo, no path,
+  query, or fragment, no wildcards. Values are normalized (lowercase scheme
+  and host, default ports `:80`/`:443` dropped, whitespace trimmed) or
+  rejected **before the listener starts**. Empty values are ignored.
+- The fixed origins (`https://entei.gorakudo.org`, `http://localhost:4321`)
+  always remain; the override only adds exact entries to the combined
+  allowlist. The allowlist lives in process memory only — the setting is
+  never persisted — and every CORS decision (health / pair / media /
+  preflight) uses the combined exact set. The Origin header is echoed only
+  when it exactly matches an allowlisted entry; there is no wildcard and no
+  reflection.
+- Allowed origins are never printed to the terminal or logs, and the
+  capability token / pairing code are never logged. Errors stay generic.
+- **Development-only override. Never use it for production, and never add
+  its value to the built-in allowlist.** It exists for one-off QA origins;
+  it must not become a release allowlist entry.
 
 ## Deferred boundaries (out of scope through ED-2B)
 
@@ -108,8 +138,6 @@ test. Non-secret observed results:
 
 ### Outstanding gates (not claimed by this verification)
 
-- **Android Chrome** — only the Termux loopback process/API smoke is proven;
-  browser CORS/canvas/media capture on the device is not yet verified.
 - **HTTPS deployed Entei origin** (`https://entei.gorakudo.org`) — QA used
   the local HTTP dev origin only.
 - **Growing media** — the fixture was a static ~3s file; growing-file
@@ -134,6 +162,29 @@ This verifies the native runtime and loopback API, not Android Chrome.
   and temporary binary were deleted.
 
 Android Chrome from `https://entei.gorakudo.org`, growing media, and Minisign
+delivery remain separate gates.
+
+## ED-2C verification (Android Chrome LAN origin)
+
+Performed manually on 2026-07-31 from Android Chrome at a temporary LAN dev
+origin. The Termux companion bound only to the phone's `127.0.0.1:4322`; the
+one-off process received that exact LAN origin through the development-only
+`--allow-origin` flag. The fixed release allowlist was not changed.
+
+- Pairing succeeded with `200 OK`; the token stayed in page memory only.
+- `Range: bytes=100-199` returned `206` with exactly 100 bytes and
+  `Content-Range: bytes 100-199/120760`.
+- A detached, muted video loaded at 320x180.
+- `canvas.drawImage` plus `toBlob` produced a 34,246-byte PNG without a
+  `SecurityError`.
+- `captureStream()` exposed one video and one audio track. `MediaRecorder`
+  produced a non-empty 62,346-byte `video/webm;codecs=vp8,opus` Blob.
+- The companion stayed backgrounded under a retained PID. Afterwards its PID
+  was stopped, wake lock released, and the phone/local fixture and temporary
+  binaries were deleted.
+
+This verifies Android Chrome only for the temporary HTTP LAN dev origin. HTTPS
+deployed Entei origin, growing media, audio listening/decode, and Minisign
 delivery remain separate gates.
 
 ## Planned general-user Termux setup (ED-2D)
@@ -168,6 +219,12 @@ go run ./cmd/eizouden
 
 # or pin a port, with the ED-2B media fixture enabled
 go run ./cmd/eizouden --addr 127.0.0.1:4322 --fixture /path/to/media.mp4
+
+# ED-2C: additionally permit one explicit development origin for this
+# process (Android Chrome LAN DevTools QA). Placeholder origin only —
+# replace <lan-dev-origin> with the exact location.origin seen on-device.
+go run ./cmd/eizouden --addr 127.0.0.1:4322 --fixture /path/to/media.mp4 \
+  --allow-origin http://<lan-dev-origin>:4321
 ```
 
 > **Port note:** the companion must **not** be bound to `127.0.0.1:4321` —
@@ -191,7 +248,8 @@ The capability token is never printed or logged; it is returned once by
 
 ```sh
 gofmt -l .        # formatting check (must print nothing)
-go test ./...     # unit + httptest API tests (ED-2A + ED-2B media suite)
+go test ./...     # unit + httptest API tests (ED-2A + ED-2B media suite + ED-2C origin override)
+go vet ./...      # static checks
 
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ed2b-win-amd64.exe ./cmd/eizouden
 CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o ed2b-android-arm64  ./cmd/eizouden

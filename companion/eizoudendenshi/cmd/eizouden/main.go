@@ -4,7 +4,10 @@
 // freshly generated 6-digit pairing code to the terminal, then serves the
 // /v1 API. Pairing code and capability token live only in process memory;
 // nothing is written to disk, storage, or logs. With --fixture, a single
-// media file is served at /v1/media/fixture with byte Range semantics.
+// media file is served at /v1/media/fixture with byte Range semantics. With
+// --allow-origin, one or more exact HTTP(S) origins are additionally
+// permitted by CORS for this process only (ED-2C development/QA override;
+// never used in production).
 package main
 
 import (
@@ -21,12 +24,47 @@ import (
 	"eizoudendenshi/internal/api"
 )
 
+// originList collects repeatable --allow-origin values. The values are never
+// printed: String is only used for the flag default display and always
+// reports an empty default.
+type originList []string
+
+func (o *originList) String() string { return "" }
+
+func (o *originList) Set(v string) error {
+	*o = append(*o, v)
+	return nil
+}
+
+// parseAllowOrigins validates each value with api.ParseOrigin and returns
+// the normalized allowlist entries. Empty values are ignored (the contract
+// is that every *nonempty* value must parse). main calls this before
+// net.Listen, so malformed values are rejected before the server starts.
+func parseAllowOrigins(values []string) ([]string, error) {
+	var out []string
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		norm, err := api.ParseOrigin(v)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, norm)
+	}
+	return out, nil
+}
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:0",
 		"loopback bind address host:port (default port 0 = ephemeral)")
 	fixture := flag.String("fixture", "",
 		"path to a media file served at /v1/media/fixture (ED-2B PoC; "+
 			"empty = media endpoint disabled)")
+	var extraOrigins originList
+	flag.Var(&extraOrigins, "allow-origin",
+		"additional exact HTTP(S) origin permitted by CORS for this process "+
+			"(development/QA override, repeatable; fixed origins always remain)")
 	flag.Parse()
 
 	bind, err := resolveBindAddress(*addr)
@@ -46,7 +84,16 @@ func main() {
 		}
 	}
 
-	srv, err := api.New(api.Config{FixturePath: *fixture})
+	// Reject malformed --allow-origin values before the listener starts.
+	allowOrigins, err := parseAllowOrigins(extraOrigins)
+	if err != nil {
+		log.Fatalf("invalid --allow-origin: %v", err)
+	}
+
+	srv, err := api.New(api.Config{
+		FixturePath:  *fixture,
+		AllowOrigins: allowOrigins,
+	})
 	if err != nil {
 		log.Fatalf("init api: %v", err)
 	}

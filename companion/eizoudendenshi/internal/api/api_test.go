@@ -16,13 +16,17 @@ const (
 	allowedOriginEntei = "https://entei.gorakudo.org"
 	allowedOriginLocal = "http://localhost:4321"
 	disallowedOrigin   = "https://evil.example.com"
+	// extraOrigin is a stand-in for a runtime-specific LAN dev-server origin
+	// (TEST-NET-1 documentation address; Android Chrome DevTools QA origin
+	// shape). It must never be needed in production.
+	extraOrigin = "http://192.0.2.10:4321"
 )
 
 var tokenShape = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-func newTestServer(t *testing.T) *Server {
+func newTestServer(t *testing.T, extraOrigins ...string) *Server {
 	t.Helper()
-	s, err := New(Config{})
+	s, err := New(Config{AllowOrigins: extraOrigins})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -31,7 +35,7 @@ func newTestServer(t *testing.T) *Server {
 
 // newTestServerWithFixture returns a server configured with a disposable
 // media file (ED-2B). Returns the server and the fixture path.
-func newTestServerWithFixture(t *testing.T) (*Server, string) {
+func newTestServerWithFixture(t *testing.T, extraOrigins ...string) (*Server, string) {
 	t.Helper()
 	fixture := filepath.Join(t.TempDir(), "fixture.mp4")
 	payload := make([]byte, 2048)
@@ -41,7 +45,7 @@ func newTestServerWithFixture(t *testing.T) (*Server, string) {
 	if err := os.WriteFile(fixture, payload, 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	s, err := New(Config{FixturePath: fixture})
+	s, err := New(Config{FixturePath: fixture, AllowOrigins: extraOrigins})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -553,6 +557,280 @@ func TestMediaNoCORSWildcard(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if got := rec.Header().Get("Access-Control-Allow-Origin"); got == "*" {
 			t.Errorf("response used wildcard ACAO")
+		}
+	}
+}
+
+// --- ED-2C: developer-origin override (--allow-origin) ---
+
+func TestParseOrigin(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		// Valid: normalized or preserved.
+		{"https hostname", "https://example.com", "https://example.com", false},
+		{"http hostname", "http://example.com", "http://example.com", false},
+		{"http with port", "http://192.0.2.10:4321", "http://192.0.2.10:4321", false},
+		{"https with port", "https://example.com:8443", "https://example.com:8443", false},
+		{"uppercase scheme and host normalized", "HTTP://EXAMPLE.COM", "http://example.com", false},
+		{"default http port dropped", "http://example.com:80", "http://example.com", false},
+		{"default https port dropped", "https://Example.COM:443", "https://example.com", false},
+		{"whitespace trimmed", "  http://example.com  ", "http://example.com", false},
+		{"ipv6 with port", "http://[::1]:4321", "http://[::1]:4321", false},
+		{"ipv6 bare", "https://[2001:db8::1]", "https://[2001:db8::1]", false},
+		{"empty port dropped like default", "http://example.com:", "http://example.com", false},
+
+		// Invalid: rejected.
+		{"empty", "", "", true},
+		{"only whitespace", "   ", "", true},
+		{"bare wildcard", "*", "", true},
+		{"no scheme", "example.com", "", true},
+		{"no scheme with port", "localhost:4321", "", true},
+		{"scheme only", "http://", "", true},
+		{"non-http scheme", "ftp://example.com", "", true},
+		{"websocket scheme", "ws://example.com", "", true},
+		{"file scheme", "file:///etc/passwd", "", true},
+		{"userinfo", "http://user:pass@example.com", "", true},
+		{"trailing slash path", "http://example.com/", "", true},
+		{"path", "http://example.com/path", "", true},
+		{"query", "http://example.com?q=1", "", true},
+		{"fragment", "http://example.com#frag", "", true},
+		{"wildcard host", "http://*.example.com", "", true},
+		{"wildcard port", "http://example.com:*", "", true},
+		{"non-numeric port", "http://example.com:abc", "", true},
+		{"port zero", "http://example.com:0", "", true},
+		{"port out of range", "http://example.com:65536", "", true},
+		{"empty host with port", "http://:4321", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseOrigin(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ParseOrigin(%q) = %q, want error", tt.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseOrigin(%q) error: %v", tt.in, err)
+			}
+			if got != tt.want {
+				t.Errorf("ParseOrigin(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// Rejected values must never appear in error messages (nothing about the
+// allowlist input is echoed to terminal/logs).
+func TestParseOriginErrorsAreGeneric(t *testing.T) {
+	for _, in := range []string{"http://secret-host.example/path",
+		"ftp://secret-host.example", "secret-token.example"} {
+		_, err := ParseOrigin(in)
+		if err == nil {
+			t.Fatalf("ParseOrigin(%q): want error", in)
+		}
+		if strings.Contains(err.Error(), in) || strings.Contains(err.Error(), "secret") {
+			t.Errorf("ParseOrigin(%q) error echoes input: %v", in, err)
+		}
+	}
+}
+
+func TestNewRejectsInvalidAllowOrigin(t *testing.T) {
+	for _, o := range []string{"", "ftp://example.com", "http://example.com/",
+		"http://*.example.com", "http://example.com:0", "*"} {
+		if _, err := New(Config{AllowOrigins: []string{o}}); err == nil {
+			t.Errorf("New with AllowOrigins %q: want error", o)
+		}
+	}
+}
+
+// A runtime-specific extra origin (passed non-normalized to prove New
+// normalizes) must be able to pair, and the code stays single-use.
+func TestExtraOriginAllowsPair(t *testing.T) {
+	s := newTestServer(t, "HTTP://192.0.2.10:4321")
+	code := s.PairingCode()
+
+	rec := doRequest(t, s.Handler(), http.MethodPost, "/v1/pair", extraOrigin,
+		`{"code":"`+code+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != extraOrigin {
+		t.Errorf("ACAO = %q, want %q", got, extraOrigin)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if !tokenShape.MatchString(body["token"]) {
+		t.Fatalf("token %q does not match 64-hex shape", body["token"])
+	}
+	if strings.Contains(rec.Body.String(), code) {
+		t.Fatal("pair response echoes the pairing code")
+	}
+
+	// Replay must fail: the code is consumed regardless of origin.
+	rec2 := doRequest(t, s.Handler(), http.MethodPost, "/v1/pair", extraOrigin,
+		`{"code":"`+code+`"}`)
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("replay status = %d, want 403", rec2.Code)
+	}
+}
+
+// Extra origin must be able to fetch media with a Range and pass preflight,
+// with exact ACAO and no wildcard.
+func TestExtraOriginAllowsMediaAndPreflight(t *testing.T) {
+	s, _ := newTestServerWithFixture(t, extraOrigin)
+	h := s.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, mediaURL(s.token), nil)
+	req.Header.Set("Origin", extraOrigin)
+	req.Header.Set("Range", "bytes=0-99")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("status = %d, want 206", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != extraOrigin {
+		t.Errorf("ACAO = %q, want %q", got, extraOrigin)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got == "*" {
+		t.Error("media response used wildcard ACAO")
+	}
+	if !hasVary(rec, "Origin") {
+		t.Error("missing Vary: Origin")
+	}
+
+	req = httptest.NewRequest(http.MethodOptions, "/v1/media/fixture", nil)
+	req.Header.Set("Origin", extraOrigin)
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want 204", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != extraOrigin {
+		t.Errorf("preflight ACAO = %q, want %q", got, extraOrigin)
+	}
+	if !hasVary(rec, "Origin") {
+		t.Error("preflight missing Vary: Origin")
+	}
+}
+
+// Without the override the extra origin is denied everywhere: pair, media,
+// and both preflights, with no CORS headers on the rejection.
+func TestExtraOriginWithoutFlagDenied(t *testing.T) {
+	s, _ := newTestServerWithFixture(t)
+	h := s.Handler()
+
+	// Pair.
+	code := s.PairingCode()
+	rec := doRequest(t, h, http.MethodPost, "/v1/pair", extraOrigin,
+		`{"code":"`+code+`"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("pair status = %d, want 403", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("pair rejection sent ACAO = %q, want empty", got)
+	}
+
+	// Media.
+	rec = doRequest(t, h, http.MethodGet, mediaURL(s.token), extraOrigin, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("media status = %d, want 403", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("media rejection sent ACAO = %q, want empty", got)
+	}
+
+	// Preflights.
+	for _, path := range []string{"/v1/pair", "/v1/media/fixture"} {
+		req := httptest.NewRequest(http.MethodOptions, path, nil)
+		req.Header.Set("Origin", extraOrigin)
+		req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("preflight %s status = %d, want 403", path, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("preflight %s rejection sent ACAO = %q, want empty", path, got)
+		}
+	}
+}
+
+// The fixed two origins keep working unchanged when an extra origin is
+// configured (combined exact set, fixed set never replaced).
+func TestFixedOriginsRemainWithExtra(t *testing.T) {
+	for _, origin := range []string{allowedOriginEntei, allowedOriginLocal} {
+		t.Run(origin, func(t *testing.T) {
+			s, _ := newTestServerWithFixture(t, extraOrigin)
+			h := s.Handler()
+
+			// Health CORS.
+			rec := doRequest(t, h, http.MethodGet, "/v1/health", origin, "")
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
+				t.Errorf("health ACAO = %q, want %q", got, origin)
+			}
+
+			// Pair.
+			code := s.PairingCode()
+			rec = doRequest(t, h, http.MethodPost, "/v1/pair", origin,
+				`{"code":"`+code+`"}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("pair status = %d, want 200", rec.Code)
+			}
+
+			// Media.
+			rec = doRequest(t, h, http.MethodGet, mediaURL(s.token), origin, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("media status = %d, want 200", rec.Code)
+			}
+		})
+	}
+}
+
+// No wildcard and no reflection: origins that merely resemble allowlisted
+// entries (prefix/suffix, wildcards, null) are denied without CORS headers.
+func TestNoWildcardOrReflectionWithExtra(t *testing.T) {
+	s, _ := newTestServerWithFixture(t, extraOrigin)
+	h := s.Handler()
+
+	attacks := []string{
+		"*",
+		"null",
+		"http://*:4321",
+		"http://192.0.2.10.evil.example:4321",
+		"http://192.0.2.10:4321.evil.example",
+		"https://entei.gorakudo.org.evil.example",
+		"http://localhost:4321.evil.example",
+		disallowedOrigin,
+	}
+	for _, origin := range attacks {
+		// Pair preflight.
+		req := httptest.NewRequest(http.MethodOptions, "/v1/pair", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("origin %q: pair preflight status = %d, want 403", origin, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("origin %q: pair preflight ACAO = %q, want empty", origin, got)
+		}
+
+		// Media GET.
+		rec = doRequest(t, h, http.MethodGet, mediaURL(s.token), origin, "")
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("origin %q: media status = %d, want 403", origin, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("origin %q: media ACAO = %q, want empty", origin, got)
 		}
 	}
 }
