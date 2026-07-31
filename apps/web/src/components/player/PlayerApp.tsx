@@ -91,19 +91,8 @@ import {
   checkAudioClipCapabilities,
 } from '@/features/player/audio-clip';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
-import { Music, AlertTriangle, Magnet, Loader2 } from 'lucide-react';
 import { MagnetInput } from '@/components/player/MagnetInput';
-import {
-  createWebTorrentAdapter,
-  isWebRTCSupported,
-  MIN_WEBRTC_PEERS,
-  type WebTorrentAdapter,
-} from '@/features/player/webtorrent-adapter';
-import type {
-  TorrentSessionPhase,
-  PeerStatus,
-  TorrentAdapterError,
-} from '@/features/player/webtorrent-types';
+import { Music, AlertTriangle, Magnet } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
@@ -445,40 +434,6 @@ export default function PlayerApp() {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
 
-  // --- WT-1: Torrent session state ---
-  const [torrentPhase, setTorrentPhase] = useState<TorrentSessionPhase>('idle');
-  const [torrentPeerStatus, setTorrentPeerStatus] = useState<PeerStatus>({
-    numPeers: 0,
-    downloadSpeed: 0,
-    uploadSpeed: 0,
-    progress: 0,
-  });
-  const [torrentError, setTorrentError] = useState<string | null>(null);
-  const [isMagnetDialogOpen, setIsMagnetDialogOpen] = useState(false);
-  const torrentAdapterRef = useRef<WebTorrentAdapter | null>(null);
-  const torrentMediaNameRef = useRef<string>('');
-  const [torrentMediaName, setTorrentMediaName] = useState('');
-  const [isBuffering, setIsBuffering] = useState(false);
-  const isBufferingRef = useRef(false);
-  const torrentPeerBelowThresholdRef = useRef(false);
-  // WT-1: Per-connection ref to track whether onError already set a specific
-  // error. Used by the outer catch to avoid overwriting with a generic message.
-  const torrentErrorSetRef = useRef(false);
-  // Refs to avoid stale closures in adapter callbacks
-  const torrentPhaseRef = useRef<TorrentSessionPhase>('idle');
-
-  /** Sync torrent phase to both React state and ref (avoids stale closures). */
-  const setTorrentPhaseSync = useCallback((phase: TorrentSessionPhase) => {
-    torrentPhaseRef.current = phase;
-    setTorrentPhase(phase);
-  }, []);
-
-  /** Sync isBuffering to both React state and ref (avoids stale closures). */
-  const setIsBufferingSync = useCallback((value: boolean) => {
-    isBufferingRef.current = value;
-    setIsBuffering(value);
-  }, []);
-
   useEffect(() => {
     setIsTouchDevice(
       typeof window !== 'undefined' &&
@@ -490,6 +445,9 @@ export default function PlayerApp() {
     mql.addEventListener('change', handler);
     return () => mql.removeEventListener('change', handler);
   }, []);
+
+  // ED-1: Magnet URI dialog visibility — visual shell only, no torrent runtime.
+  const [isMagnetDialogOpen, setIsMagnetDialogOpen] = useState(false);
 
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -528,8 +486,9 @@ export default function PlayerApp() {
   );
 
   const trackerRuntime = useTrackerRuntime({
-    isTorrentSource: !!torrentMediaName,
-    isLocalFile: !!mediaFileRef.current && !torrentMediaName,
+    // Browser torrent source was removed in ED-1; tracker stays local-file only.
+    isTorrentSource: false,
+    isLocalFile: !!mediaFileRef.current,
     mediaFile: mediaFileRef.current,
     mediaName,
     hasSubtitles: cues.length > 0,
@@ -540,7 +499,7 @@ export default function PlayerApp() {
     playbackRate,
     isPlaying,
     isPaused: !isPlaying && !!mediaUrl,
-    isBuffering,
+    isBuffering: false,
     mediaRef: sharedMediaRef,
     onFlush: trackerFlush,
   });
@@ -558,12 +517,6 @@ export default function PlayerApp() {
       mountedRef.current = false;
       revokeUrl(activeUrlRef.current);
       activeUrlRef.current = null;
-      // WT-1: Destroy torrent session on unmount
-      if (torrentAdapterRef.current) {
-        torrentAdapterRef.current.destroy();
-        torrentAdapterRef.current = null;
-      }
-      torrentMediaNameRef.current = '';
       // AM-2: Revoke any lingering screenshot object URL
       if (screenshotUrlRef.current) {
         URL.revokeObjectURL(screenshotUrlRef.current);
@@ -823,25 +776,6 @@ export default function PlayerApp() {
         return;
       }
 
-      // WT-1: Destroy any active torrent when switching to local media
-      if (torrentAdapterRef.current) {
-        torrentAdapterRef.current.destroy();
-        torrentAdapterRef.current = null;
-        setTorrentPhaseSync('idle');
-        setTorrentPeerStatus({
-          numPeers: 0,
-          downloadSpeed: 0,
-          uploadSpeed: 0,
-          progress: 0,
-        });
-        setTorrentError(null);
-        setIsMagnetDialogOpen(false);
-        torrentMediaNameRef.current = '';
-        setTorrentMediaName('');
-        setIsBufferingSync(false);
-        torrentPeerBelowThresholdRef.current = false;
-      }
-
       setIsLoading(true);
       setLoadError(null);
       setActiveCueId(null);
@@ -861,7 +795,6 @@ export default function PlayerApp() {
       setMediaType(admission.kind);
       setMediaName(file.name);
       // Stage 2a: Store local file reference for tracker fingerprint computation.
-      // Only set for actual File objects (not blob URLs from torrents).
       mediaFileRef.current = file;
     },
     [clearScreenshot, clearAudioClip, clearMiningPreview],
@@ -917,197 +850,6 @@ export default function PlayerApp() {
     },
     [handleSubtitleSelect, handleMediaSelect],
   );
-
-  // --- WT-1: Torrent session handlers ---
-  const destroyTorrentSession = useCallback(() => {
-    if (torrentAdapterRef.current) {
-      torrentAdapterRef.current.destroy();
-      torrentAdapterRef.current = null;
-    }
-    setTorrentPhaseSync('idle');
-    setTorrentPeerStatus({
-      numPeers: 0,
-      downloadSpeed: 0,
-      uploadSpeed: 0,
-      progress: 0,
-    });
-    setTorrentError(null);
-    torrentMediaNameRef.current = '';
-    setTorrentMediaName('');
-    setIsBufferingSync(false);
-    torrentPeerBelowThresholdRef.current = false;
-  }, [setTorrentPhaseSync, setIsBufferingSync]);
-
-  const handleMagnetSubmit = useCallback(
-    async (magnetUri: string) => {
-      const dict = dictRef.current.playerUI;
-
-      // Check WebRTC support first
-      if (!isWebRTCSupported()) {
-        setTorrentError(dict.magnetErrorWebRTC);
-        setTorrentPhaseSync('error');
-        return;
-      }
-
-      // Destroy any existing session
-      destroyTorrentSession();
-      // Reset per-connection error guard before any async work
-      torrentErrorSetRef.current = false;
-
-      const adapter = createWebTorrentAdapter();
-      torrentAdapterRef.current = adapter;
-
-      /**
-       * Map a typed TorrentAdapterError code to the correct localized message.
-       * The adapter emits codes, not prose — PlayerApp owns all i18n.
-       */
-      const mapErrorCode = (code: string): string => {
-        switch (code) {
-          case 'PEER_INSUFFICIENT':
-            return dict.magnetErrorPeerInsufficient;
-          case 'TRACKER_ERROR':
-            return dict.magnetErrorTracker;
-          case 'NO_PEERS':
-            return dict.magnetErrorNoPeer;
-          case 'NO_PLAYABLE_MEDIA':
-            return dict.magnetErrorNoMedia;
-          case 'STREAM_UNAVAILABLE':
-            return dict.magnetErrorStreamUnavailable;
-          case 'WEBRTC_UNSUPPORTED':
-            return dict.magnetErrorWebRTC;
-          case 'WORKER_NOT_CONTROLLING':
-            return dict.magnetErrorWorkerNotControlling;
-          case 'INVALID_MAGNET':
-            return dict.magnetErrorInvalid;
-          default:
-            return dict.magnetErrorGeneric;
-        }
-      };
-
-      try {
-        await adapter.connect(magnetUri, {
-          onPhaseChange: (phase) => {
-            if (!mountedRef.current) return;
-            setTorrentPhaseSync(phase);
-          },
-          onPeerStatus: (status) => {
-            if (!mountedRef.current) return;
-            setTorrentPeerStatus(status);
-
-            // Use refs to avoid stale closures
-            const currentPhase = torrentPhaseRef.current;
-
-            // WT-1: Gate logic — wait for the minimum peer count
-            if (currentPhase === 'gate' || currentPhase === 'streaming') {
-              if (
-                status.numPeers >= MIN_WEBRTC_PEERS &&
-                currentPhase === 'gate'
-              ) {
-                // Peer gate passed — evaluate content
-                let result: ReturnType<typeof adapter.selectContent>;
-                try {
-                  result = adapter.selectContent();
-                } catch (e) {
-                  const err = e as TorrentAdapterError;
-                  setTorrentError(mapErrorCode(err.code));
-                  setTorrentPhaseSync('error');
-                  adapter.destroy();
-                  return;
-                }
-                if (result.status === 'single-playable') {
-                  torrentMediaNameRef.current = result.file.name;
-                  setTorrentMediaName(result.file.name);
-                  // Stage 2a: Torrent source is not a local file — clear ref
-                  mediaFileRef.current = null;
-
-                  // Determine media kind
-                  const kind: 'video' | 'audio' =
-                    result.file.kind === 'audio' ? 'audio' : 'video';
-
-                  // WT-1: Set file.streamURL as the media source.
-                  // The Service Worker intercepts the request and serves torrent data.
-                  setMediaType(kind);
-                  setMediaUrl(result.streamUrl);
-                  setTorrentPhaseSync('streaming');
-                  setIsBufferingSync(true);
-                } else if (result.status === 'no-playable') {
-                  setTorrentError(dict.magnetErrorNoMedia);
-                  setTorrentPhaseSync('error');
-                  adapter.destroy();
-                } else {
-                  // Multiple playable — not yet supported in WT-1
-                  setTorrentError(dict.magnetErrorMultipleMedia);
-                  setTorrentPhaseSync('error');
-                  adapter.destroy();
-                }
-              } else if (
-                status.numPeers < MIN_WEBRTC_PEERS &&
-                currentPhase === 'streaming' &&
-                torrentPeerBelowThresholdRef.current
-              ) {
-                // Peers dropped below threshold after streaming started
-                setIsBufferingSync(true);
-              }
-            }
-
-            // Track whether the minimum peer count was reached (for recovery)
-            if (status.numPeers >= MIN_WEBRTC_PEERS) {
-              torrentPeerBelowThresholdRef.current = true;
-              if (isBufferingRef.current) setIsBufferingSync(false);
-            }
-          },
-          onError: (error) => {
-            if (!mountedRef.current) return;
-            // Preserve typed error code → localized message mapping
-            // Do NOT overwrite specific adapter errors with generic catch copy
-            torrentErrorSetRef.current = true;
-            setTorrentError(mapErrorCode(error.code));
-            setTorrentPhaseSync('error');
-          },
-        });
-      } catch (error) {
-        if (!mountedRef.current) return;
-        // Only reach here if connect() threw something unexpected
-        // (adapter.onError already handled specific errors above)
-        if (!torrentErrorSetRef.current) {
-          if (import.meta.env.DEV) {
-            // Deliberately omit the magnet URI: it may contain tracker URLs.
-            console.error('[Entei WebTorrent] setup failed', error);
-          }
-          const code =
-            typeof error === 'object' && error !== null && 'code' in error
-              ? String(error.code)
-              : null;
-          setTorrentError(code ? mapErrorCode(code) : dict.magnetErrorGeneric);
-          setTorrentPhaseSync('error');
-        }
-      }
-    },
-    [destroyTorrentSession, setTorrentPhaseSync, setIsBufferingSync],
-  );
-
-  const handleTorrentDisconnect = useCallback(() => {
-    // If media is currently playing from torrent, switch to no media
-    if (torrentPhase === 'streaming') {
-      revokeUrl(activeUrlRef.current);
-      activeUrlRef.current = null;
-      setMediaUrl(null);
-      setMediaType(null);
-      setMediaName('');
-      setIsLoading(false);
-      setLoadError(null);
-      clearScreenshot();
-      clearAudioClip();
-      clearMiningPreview();
-    }
-    destroyTorrentSession();
-  }, [
-    torrentPhase,
-    destroyTorrentSession,
-    clearScreenshot,
-    clearAudioClip,
-    clearMiningPreview,
-  ]);
 
   const handleCueClick = useCallback((cue: SubtitleCue) => {
     const media = sharedMediaRef.current;
@@ -2113,8 +1855,7 @@ export default function PlayerApp() {
   );
 
   /** AM-4: Mine is possible when media loaded and active cue exists,
-   *  AND no standalone AM-2 screenshot or AM-3 audio capture is in flight.
-   *  WT-1: Disabled when torrent source active (mining compatibility unverified). */
+   *  AND no standalone AM-2 screenshot or AM-3 audio capture is in flight. */
   const canMine =
     (mediaType === 'video' || mediaType === 'audio') &&
     !!mediaUrl &&
@@ -2122,22 +1863,19 @@ export default function PlayerApp() {
     !isCapturing &&
     !isRecordingAudio &&
     !isMiningCapturing &&
-    !isMiningRefreshing &&
-    !torrentMediaName;
+    !isMiningRefreshing;
 
   const isMining = isMiningCapturing || isMiningRefreshing;
 
   /** Row mining: possible whenever media is loaded, regardless of active cue.
-   *  Same capture-in-flight guard as canMine.
-   *  WT-1: Disabled when torrent source active. */
+   *  Same capture-in-flight guard as canMine. */
   const canMineRow =
     (mediaType === 'video' || mediaType === 'audio') &&
     !!mediaUrl &&
     !isCapturing &&
     !isRecordingAudio &&
     !isMiningCapturing &&
-    !isMiningRefreshing &&
-    !torrentMediaName;
+    !isMiningRefreshing;
 
   // AM-4: canRefresh — true if ANY mapped field can be refreshed.
   const canRefresh = useMemo(() => {
@@ -3030,7 +2768,7 @@ export default function PlayerApp() {
   );
 
   const dict = dictRef.current.playerUI;
-  const hasMedia = mediaUrl !== null || torrentPhase === 'streaming';
+  const hasMedia = mediaUrl !== null;
   const ankiPrefs = readAnkiMinerPreferences();
 
   // --- Desktop immersive layout ---
@@ -3074,34 +2812,6 @@ export default function PlayerApp() {
       className="entei-player-surface"
       onClick={handleSurfaceClick}
     >
-      {/* WT-1: Torrent streaming status bar */}
-      {(torrentPhase === 'streaming' ||
-        (torrentPhase === 'gate' && !hasMedia)) && (
-        <div className="entei-torrent-status" role="status">
-          {torrentPhase === 'streaming' ? (
-            <>
-              <Magnet size={14} className="entei-magnet-icon" />
-              {isBuffering
-                ? dict.magnetBuffering
-                : dict.magnetPeerCount(torrentPeerStatus.numPeers)}
-              <button
-                type="button"
-                className="entei-controls-btn entei-torrent-disconnect-btn"
-                onClick={handleTorrentDisconnect}
-                aria-label={dict.torrentDisconnect}
-              >
-                {dict.torrentDisconnect}
-              </button>
-            </>
-          ) : (
-            <>
-              <Loader2 size={16} className="entei-magnet-spinner" />
-              {dict.magnetWaitingForPeers}{' '}
-              {dict.magnetPeerCount(torrentPeerStatus.numPeers)}
-            </>
-          )}
-        </div>
-      )}
       {mediaType === 'video' && (
         <VideoPlayer
           ref={videoCallbackRef}
@@ -3168,7 +2878,7 @@ export default function PlayerApp() {
         hasMedia={hasMedia}
         mediaType={mediaType}
         mediaKey={mediaUrl!}
-        mediaName={torrentMediaName || mediaName}
+        mediaName={mediaName}
         dict={dict}
         isSubtitlePanelVisible={isSubtitlePanelVisible}
         onToggleSubtitlePanel={() => {
@@ -3328,47 +3038,22 @@ export default function PlayerApp() {
                 <Magnet />
               </Button>
             </div>
-            {/* WT-1: Torrent connection status in empty state */}
-            {torrentPhase === 'connecting' && (
-              <div className="entei-torrent-status" role="status">
-                <Loader2 size={16} className="entei-magnet-spinner" />
-                {dict.magnetConnecting}
-              </div>
-            )}
-            {torrentPhase === 'gate' && (
-              <div className="entei-torrent-status" role="status">
-                <Loader2 size={16} className="entei-magnet-spinner" />
-                {dict.magnetWaitingForPeers}{' '}
-                {dict.magnetPeerCount(torrentPeerStatus.numPeers)}
-              </div>
-            )}
-            {torrentPhase === 'error' && torrentError && (
-              <div className="entei-torrent-error" role="alert">
-                {torrentError}
-              </div>
-            )}
           </div>
         </div>
       )}
 
-      {/* WT-1: Magnet input dialog */}
+      {/* ED-1: Magnet URI dialog — visual shell only, no torrent runtime */}
       <MagnetInput
         open={isMagnetDialogOpen}
         onOpenChange={setIsMagnetDialogOpen}
-        onSubmit={handleMagnetSubmit}
-        isConnecting={torrentPhase === 'connecting' || torrentPhase === 'gate'}
         dict={{
-          magnetErrorInvalid: dict.magnetErrorInvalid,
-          magnetErrorWebRTC: dict.magnetErrorWebRTC,
-          magnetErrorPeerInsufficient: dict.magnetErrorPeerInsufficient,
-          magnetErrorTracker: dict.magnetErrorTracker,
-          magnetErrorNoPeer: dict.magnetErrorNoPeer,
-          magnetErrorNoMedia: dict.magnetErrorNoMedia,
-          magnetErrorGeneric: dict.magnetErrorGeneric,
           magnetInputLabel: dict.magnetInputLabel,
           magnetInputPlaceholder: dict.magnetInputPlaceholder,
           magnetInputLabelTitle: dict.magnetInputLabelTitle,
           magnetConnect: dict.magnetConnect,
+          magnetErrorInvalid: dict.magnetErrorInvalid,
+          magnetNotConnectedTitle: dict.magnetNotConnectedTitle,
+          magnetNotConnectedBody: dict.magnetNotConnectedBody,
         }}
       />
 

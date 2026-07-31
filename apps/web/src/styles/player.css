@@ -3990,7 +3990,7 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 /* ---------------------------------------------------------------------------
- * WT-1: Torrent streaming UI
+ * ED-1: Magnet URI dialog — visual shell only (no torrent runtime)
  * --------------------------------------------------------------------------- */
 
 /* Icon-only magnet opener: extends shadcn Button variant="outline" size="icon"
@@ -4003,27 +4003,6 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-player-magnet-icon-btn:focus-visible {
   outline: 2px solid var(--entei-focus-ring);
   outline-offset: 2px;
-}
-
-.entei-torrent-status {
-  display: flex;
-  align-items: center;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-12) var(--entei-space-16);
-  border-radius: var(--entei-radius-md);
-  background: var(--entei-surface);
-  color: var(--entei-text-secondary);
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
-}
-
-.entei-torrent-error {
-  padding: var(--entei-space-12) var(--entei-space-16);
-  border-radius: var(--entei-radius-md);
-  background: oklch(55% 0.2 25deg / 0.1);
-  color: oklch(55% 0.2 25deg);
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
 }
 
 .entei-magnet-dialog-title {
@@ -4060,17 +4039,23 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
-.entei-magnet-spinner {
-  animation: entei-spin 1s linear infinite;
+.entei-magnet-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  padding: var(--entei-space-12) var(--entei-space-24) var(--entei-space-16);
 }
 
-@keyframes entei-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.entei-magnet-notice-title {
+  color: var(--entei-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.entei-magnet-notice-body {
+  color: var(--entei-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
 /* ===========================================================================

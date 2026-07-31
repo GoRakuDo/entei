@@ -249,26 +249,14 @@ export interface Dictionary {
     playModeCondensed: string;
     playModeFastForward: string;
     playModeLabel: string;
-    // WT-1: Torrent streaming
+    // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
     magnetInputLabel: string;
     magnetInputPlaceholder: string;
     magnetInputLabelTitle: string;
     magnetConnect: string;
-    magnetConnecting: string;
-    magnetWaitingForPeers: string;
-    magnetPeerCount: (count: number) => string;
     magnetErrorInvalid: string;
-    magnetErrorWebRTC: string;
-    magnetErrorWorkerNotControlling: string;
-    magnetErrorPeerInsufficient: string;
-    magnetErrorTracker: string;
-    magnetErrorNoPeer: string;
-    magnetErrorNoMedia: string;
-    magnetErrorMultipleMedia: string;
-    magnetErrorStreamUnavailable: string;
-    magnetErrorGeneric: string;
-    magnetBuffering: string;
-    torrentDisconnect: string;
+    magnetNotConnectedTitle: string;
+    magnetNotConnectedBody: string;
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: string;
     trackerOn: string;

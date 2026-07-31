@@ -48,8 +48,7 @@
     "react-dom": "^19.2.7",
     "react-resizable-panels": "^4.12.2",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.3",
-    "webtorrent": "^3.0.16"
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",

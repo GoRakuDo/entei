@@ -634,7 +634,7 @@ FirefoxはこのPhase 0の正式pass gateへ入れない。Chromium版の完了�
 | Browser          | Chromiumを先に保証         | Test matrixを深く回せる                       | Firefox差分は後続Unitとして明示的に返済する                           |
 | Security headers | Hosting responseで設定     | CSP等を正しい層で強制できる                   | Hosting先未決のため、具体設定は0.6までblockされる                     |
 
-注意点として、`Media stays on your device` はLocal File中心のPhaseでは正しいが、将来EizouDendenshiのregular BitTorrentを追加するとpeer通信の説明が別途必要になる。EizouDendenshi Phaseへ入る時にprivacy copyを再レビューし、Phase 0の短い約束が広すぎないか確認する。browser WebTorrentはwithdrawal plannedであり、後継のWindows / Termux localhost companionは[EizouDendenshi](./EIZOU_DENDENSHI.md)を正とする。
+注意点として、`Media stays on your device` はLocal File中心のPhaseでは正しいが、将来EizouDendenshiのregular BitTorrentを追加するとpeer通信の説明が別途必要になる。EizouDendenshi Phaseへ入る時にprivacy copyを再レビューし、Phase 0の短い約束が広すぎないか確認する。browser WebTorrentはED-1で撤去済みであり、後継のWindows / Termux localhost companionは[EizouDendenshi](./EIZOU_DENDENSHI.md)を正とする。
 
 現時点でPhase 0の技術実現性は約90%と見る。根拠は、元企画にstatic shellとclient-side機能の境界が既にあること、Astroが静的HTMLを中心にclient-side scriptを追加できること。残る10%は、hostingのsecurity header対応、保存locale切替時のちらつき、実font payload、実機contrast、3言語copyの自然さをまだ測っていない分。
 
@@ -654,7 +654,7 @@ FirefoxはこのPhase 0の正式pass gateへ入れない。Chromium版の完了�
 | Important                            | 3言語copy                  | Section 9をYosiaが自然な表現へ調整する。現在はdraft copyを実装に反映済み                                                                                                                                                                                                                                                  | Unit 0.4前 → Yosia review待ち  |
 | Before publish                       | Footerのlegal links        | 実在するGoRakuDo側pageだけをlinkする。Phase 0ではGoRakuDo外部linkのみ配置、legal page linkは未配置                                                                                                                                                                                                                        | Unit 0.6前                     |
 | Before publish                       | Security header設定方法    | Hostingのresponse headerで設定し、stagingで実測する。CSP `default-src 'self'`、`frame-ancestors 'none'`、`base-uri 'self'`、`object-src 'none'`を候補。GitHub Pagesではresponse header制御が限定的なため、`<meta>` tagでのCSPも検討                                                                                       | Unit 0.6前                     |
-| Before WebTorrent production release | `privacy.local` copy       | WebTorrent WT-1は実装済みだが、peer通信の実態に合わせて`Media stays on your device`をそのまま残せるか再レビューする                                                                                                                                                                                                       | production release前の残留gate |
+| ~~Before WebTorrent production release~~（ED-1で撤去） | `privacy.local` copy       | browser WebTorrentはED-1で撤去済みのため当該gateは解除。EizouDendenshi（ED-2+）導入時にloopback peer通信の説明を再レビューする                                                                                                                                                                                     | ED-1で解除                    |
 
 Review時は各行のdefault案をそのまま承認するか、右側へ変更案を書けばよい。全部を同時に決める必要はなく、`決める期限`に達する前までに確定すれば作業を止めずに進められる。
 

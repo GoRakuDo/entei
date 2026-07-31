@@ -6,7 +6,9 @@
  * - Repeated flush merges rather than overwrites incorrectly
  * - Local day aggregation works
  * - Learning-set totals and media totals both update
- * - WebTorrent exclusion still prevents writes (tested via tracker-runtime)
+ * - Torrent-source exclusion still prevents writes (tested via tracker-runtime;
+ *   browser WebTorrent removed in ED-1 — isTorrentSource is always false,
+ *   reserved for EizouDendenshi / non-local sources after ED-2)
  * - Write failures are swallowed/non-fatal
  * - Old DB deletion helper still uncalled
  * ---------------------------------------------------------------------------
@@ -724,15 +726,18 @@ describe('tracker-flush', () => {
   });
 
   /* -------------------------------------------------------------------- */
-  /* WebTorrent exclusion (integration-level, not in flush itself)          */
+  /* Torrent-source exclusion contract (integration-level, not in flush)    */
   /* -------------------------------------------------------------------- */
 
-  describe('WebTorrent exclusion', () => {
+  describe('torrent-source exclusion (isTorrentSource always false since ED-1)', () => {
     it('flushTrackerData does not check isTrackerEnabled (caller must gate)', async () => {
       // The flush function itself does not check isTrackerEnabled —
       // that responsibility is in tracker-runtime.ts which skips
-      // tracking entirely for torrent sources. The flush function
-      // trusts its caller to provide valid data.
+      // tracking for torrent sources. Since ED-1 removed browser
+      // WebTorrent, PlayerApp passes isTorrentSource: false; the
+      // exclusion path stays reserved for EizouDendenshi / non-local
+      // sources after ED-2. The flush function trusts its caller to
+      // provide valid data.
       //
       // This test verifies that flushTrackerData writes regardless
       // of tracker-enabled state (the gate is upstream).

@@ -33,7 +33,7 @@ Enteiは静的・local-firstのまま。source URL、cookie、media dataをGoRak
 
 ## Territory findings
 
-1. [`WEBTORRENT_STREAMING.md`](./WEBTORRENT_STREAMING.md) のWT-1はbrowser WebRTC peerだけを対象にする。通常TCP/uTP BitTorrent swarmはbrowserだけでは接続できない。EizouDendenshiはこの不足を端末内のtorrent clientで補う。
+1. [`WEBTORRENT_STREAMING.md`](./WEBTORRENT_STREAMING.md) のWT-1はbrowser WebRTC peerだけを対象にしていた。通常TCP/uTP BitTorrent swarmはbrowserだけでは接続できない。EizouDendenshiはこの不足を端末内のtorrent clientで補う。
 2. aria2公式はBitTorrent downloadと`--stream-piece-selector=inorder` / `geom`を提供する。一方でmedia HTTP serverやseek地点へのon-demand piece priorityは提供しない。companionのRange bridgeが必要になる。
 3. yt-dlp公式はformat URL、request header、stdout出力、Netscape cookie file（`--cookies`）を扱えるが、HTTP streaming serverではない。companionがupstream取得とlocalhost Range responseを担う。
 4. Androidのapp sandboxはTermuxからChromeのprivate cookie DBを読ませない。したがって`--cookies-from-browser`を共通契約にせず、両platformでユーザー選択の`cookies.txt`を使う。
@@ -63,10 +63,10 @@ Enteiは静的・local-firstのまま。source URL、cookie、media dataをGoRak
 EizouDendenshiがPoCを通過してから、Player empty stateは次の3つの入口を並べる。
 
 1. `Pilih Media`: 既存local file picker
-2. `Magnet URI`: 既存Magnet dialogのvisual shellを再利用し、magnet URI fieldを出す
-3. `YouTube`: Lucide `Youtube` iconの新button。同じdialog shellを再利用し、YouTube URL fieldへ切り替える
+2. `Magnet URI`: ED-1のMagnet dialog visual shellを表示し、magnet URI fieldを出す
+3. `YouTube`: Lucide `Youtube` iconの新button。同じ共通source dialogへ切り替えてYouTube URL fieldを出す
 
-browser WebTorrentのMagnet dialogをそのままconnection UIとして残してはいけない。dialogはEizouDendenshiの共通source entryへ名前とsubmit contractを切り替える。
+ED-1のMagnet dialogはvisual shellのみで、submit時にEizouDendenshi未接続の案内を表示する。ED-3で共通source entry dialogへ切り替え、browser WebTorrent endpointやpeer gateは再利用しない。
 
 ### Pairing UI
 
@@ -142,12 +142,12 @@ core、yt-dlp、torrent engineのversionはrelease manifestへ固定する。You
 | Stage | 内容                                                                                                                                           | hard gate                                                                            |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | ED-0  | この設計書・既存WebTorrent文書をwithdrawal planへ同期                                                                                          | documentation review                                                                 |
-| ED-1  | browser WebTorrent runtime、Service Worker、dependency、browser peer UIを撤去する。Magnet dialogはreusable visual shellとしてadapter依存を外す | browser WebTorrent code / dependency / testが残らない。未接続source submitを作らない |
+| ED-1  | **完了済み:** browser WebTorrent runtime、Service Worker、`webtorrent` dependency、browser peer UIを撤去。Magnet URI dialogのvisual shellは残し、submit時はEizouDendenshi未接続の案内を表示する（接続は開始しない）。ED-3で共通source dialogへ切り替える | browser WebTorrent runtime / dependency / peer testが残らない。接続を偽装するsubmitを作らない |
 | ED-2  | Windows x64 / Termux arm64のloopback、Range、CORS-clean media、Minisign delivery PoC                                                           | Required PoC checkpoints 1, 2, 5                                                     |
 | ED-3  | 3-button source entry、共通Magnet / YouTube dialog、shadcn Input OTP pairing、Default Cookie modalを実装                                       | pairing済みlocalhost companionとの実機接続                                           |
 | ED-4  | YouTube source / Japanese subtitle、forward torrent file selection / buffer / cleanupを順に接続                                                | Required PoC checkpoints 3, 4                                                        |
 
-ED-1からED-3の間は、Magnet / YouTube buttonを見せて送信先のないplaceholderにしない。source entry UIはED-3でcompanionと同時に有効化する。
+ED-1のMagnet URI buttonはvisual shellとして表示し、submit時はEizouDendenshi未接続の案内を表示する（送信先のない接続を偽装しない）。source entryの本機能はED-3でcompanionと同時に有効化する。YouTube buttonはED-3まで追加しない。
 
 ## Deferred
 
@@ -161,11 +161,10 @@ ED-1からED-3の間は、Magnet / YouTube buttonを見せて送信先のないp
 
 ## Browser WebTorrent withdrawal
 
-現在のWT-1はbrowser WebRTC peerだけを対象にしている。EizouDendenshiをregular BitTorrent / YouTubeのlocal companionとして採用するため、browser WebTorrentを拡張しない。
+WT-1はbrowser WebRTC peerだけを対象にしていた。EizouDendenshiをregular BitTorrent / YouTubeのlocal companionとして採用するため、browser WebTorrentを拡張せずED-1で撤去した（完了済み）。
 
-- ED-0時点ではWT-1 codeはまだrepositoryに残る。実装済みと誤認して新機能を追加しない。
-- ED-1で`webtorrent` dependency、browser ESM bundle、Service Worker、adapter / types、browser peer lifecycle、WT-specific tests / i18nを撤去する。
-- Magnet dialogのvisual shellだけはED-3のcommon source dialogに再利用する。browser WebTorrent endpointやpeer gateは再利用しない。
+- ED-1で`webtorrent` dependency、browser ESM bundle、Service Worker、adapter / types、browser peer lifecycle、WT-specific tests / i18n（runtime / peer系）を撤去した。
+- Magnet URI dialogのvisual shellはED-1でも残す。submitはmagnet URIをlocal検証するだけで接続を開始せず、EizouDendenshi未接続の案内を表示する。ED-3で共通source entry dialogへ切り替える。browser WebTorrent endpointやpeer gateは再利用しない。
 - [WEBTORRENT_STREAMING.md](./WEBTORRENT_STREAMING.md)はhistorical withdrawal recordとして残し、browser WT-2以降は実装しない。
 
 ## Readiness verdict

@@ -71,9 +71,9 @@
 
 mining素材とAnki exportの大枠はP3 / P4に残す。ただし、元MVPへ早く安全に到達するための実装順は`docs/ANKI_MINER.md`を正とする。現在はAM-1〜AM-6cがコード完了している。`addNote` / note更新はMining Preview内の明示した`Ankiへ送信`でのみ実行し、実AnkiConnect書込みの残る手動QAは専用test deckで行う。
 
-### 3.4 original Phase 3 — WebTorrent local peer streaming（withdrawal planned）
+### 3.4 original Phase 3 — WebTorrent local peer streaming（withdrawn — ED-1で撤去済み）
 
-original proposalのWebTorrent Phaseは、ここでいうP3 Miningとは別の後続Phase。WT-1はbrowser WebRTC peer向けに実装・検証済みだが、EizouDendenshi採用により**withdrawal planned**。WT-2、browser cache、PWA、production browser QAへは進まない。ED-1でbrowser WebTorrentを撤去し、YouTube / regular BitTorrentはWindows / Termux localhost companionへ移す。詳細な段階とPoC gateは[EizouDendenshi](./EIZOU_DENDENSHI.md)を正とする。
+original proposalのWebTorrent Phaseは、ここでいうP3 Miningとは別の後続Phase。WT-1はbrowser WebRTC peer向けに実装・検証されたが、EizouDendenshi採用により**ED-1で撤去完了**。browser WebTorrentのcode / dependency / testはrepositoryから削除済み。WT-2、browser cache、PWA、production browser QAへは進まない。YouTube / regular BitTorrentはWindows / Termux localhost companionへ移す。詳細な段階とPoC gateは[EizouDendenshi](./EIZOU_DENDENSHI.md)を正とする。
 
 ---
 

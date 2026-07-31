@@ -213,37 +213,21 @@ export const id: Dictionary = {
     historyUnavailable: 'Riwayat tidak tersedia',
     historySentence: 'Kalimat',
     historyRange: 'Rentang',
-    // WT-1: Torrent streaming
-    magnetInputLabel: 'URI Magnet',
-    magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
-    magnetInputLabelTitle: 'Buka Streaming Torrent',
-    magnetConnect: 'Hubungkan',
-    magnetConnecting: 'Menghubungkan ke peer…',
-    magnetWaitingForPeers: 'Menunggu peer…',
-    magnetPeerCount: (count: number) => `${count} peer`,
-    magnetErrorInvalid:
-      'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
-    magnetErrorWebRTC:
-      'Browser Anda tidak mendukung WebRTC. Streaming torrent tidak tersedia.',
-    magnetErrorWorkerNotControlling:
-      'Streaming torrent sedang disiapkan. Muat ulang halaman, lalu coba lagi.',
-    magnetErrorPeerInsufficient:
-      'Maaf, jumlah pembagi file ini tidak mencukupi. Coba magnet URI lain.',
-    magnetErrorTracker: 'Koneksi tracker gagal.',
-    magnetErrorNoPeer: 'Tidak ditemukan peer untuk torrent ini.',
-    magnetErrorNoMedia: 'Tidak ada media yang dapat diputar di torrent ini.',
-    magnetErrorMultipleMedia:
-      'Torrent ini memiliki beberapa file yang dapat diputar. Pemilihan file akan segera tersedia.',
-    magnetErrorStreamUnavailable:
-      'URL streaming tidak tersedia. File torrent mungkin tidak lengkap.',
-    magnetErrorGeneric: 'Terjadi kesalahan tak terduga.',
-    magnetBuffering: 'Buffering…',
-    torrentDisconnect: 'Putuskan',
     // P2.1: Play mode
     playModeNormal: 'Normal',
     playModeCondensed: 'Disingkat',
     playModeFastForward: 'Percepat',
     playModeLabel: 'Mode pemutaran',
+    // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
+    magnetInputLabel: 'URI Magnet',
+    magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
+    magnetInputLabelTitle: 'Buka Streaming Torrent',
+    magnetConnect: 'Hubungkan',
+    magnetErrorInvalid:
+      'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
+    magnetNotConnectedTitle: 'EizouDendenshi belum terhubung',
+    magnetNotConnectedBody:
+      'Streaming torrent memerlukan companion EizouDendenshi yang belum tersedia. Fitur ini akan diaktifkan pada pembaruan mendatang.',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Tampilan Subtitle',

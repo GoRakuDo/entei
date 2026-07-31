@@ -2,40 +2,6 @@ import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 import react from '@astrojs/react';
 import tailwindcss from '@tailwindcss/vite';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const webTorrentBrowserBundlePath = require.resolve(
-  'webtorrent/dist/webtorrent.min.js',
-);
-
-/**
- * WebTorrent's browser distribution is an ESM module. Emit and serve it raw
- * so the Player can dynamically import it without Vite selecting the Node
- * package entry in either dev or static production output.
- */
-function webTorrentBrowserBundle() {
-  const assetPath = '/webtorrent.min.js';
-
-  return {
-    name: 'entei-webtorrent-browser-bundle',
-    configureServer(server) {
-      server.middlewares.use(assetPath, (request, response, next) => {
-        if (request.method !== 'GET') return next();
-        response.setHeader('Content-Type', 'application/javascript');
-        response.end(readFileSync(webTorrentBrowserBundlePath));
-      });
-    },
-    generateBundle() {
-      this.emitFile({
-        type: 'asset',
-        fileName: assetPath.slice(1),
-        source: readFileSync(webTorrentBrowserBundlePath),
-      });
-    },
-  };
-}
 
 // Entei — game-hub home for the GoRakuDo local-first Japanese learning toolkit.
 // Phase 0 scope: static Home `/`, Player ready-state `/player/` (noindex), 404 (noindex).
@@ -73,7 +39,7 @@ export default defineConfig({
   ],
 
   vite: {
-    plugins: [tailwindcss(), webTorrentBrowserBundle()],
+    plugins: [tailwindcss()],
     build: {
       target: 'es2022',
       cssCodeSplit: true,

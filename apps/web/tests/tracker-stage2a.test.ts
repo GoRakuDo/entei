@@ -5,7 +5,9 @@
  * - Tracker enabled default ON / persisted OFF restoration / corrupt fallback
  * - Successful Anki export writes tracker mining archive only when enabled
  *   and local-file identity is available
- * - WebTorrent path does not produce tracker archive/runtime identity
+ * - Torrent-source path produces no tracker archive/runtime identity
+ *   (browser WebTorrent removed in ED-1 — isTorrentSource is always false,
+ *   reserved for EizouDendenshi / non-local sources after ED-2)
  * - Subtitle switch updates learning set identity for future tracking context
  * - Old DB deletion helper remains uncalled in current integration
  * - Current visible MiningHistory behavior is not broken by new wiring

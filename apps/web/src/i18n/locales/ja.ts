@@ -214,37 +214,21 @@ export const ja: Dictionary = {
     historyUnavailable: '履歴は利用できません',
     historySentence: '文',
     historyRange: '範囲',
-    // WT-1: Torrent streaming
-    magnetInputLabel: 'マグネットURI',
-    magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
-    magnetInputLabelTitle: 'トレントストリームを開く',
-    magnetConnect: '接続',
-    magnetConnecting: 'ピアに接続中…',
-    magnetWaitingForPeers: 'ピアを待っています…',
-    magnetPeerCount: (count: number) => `${count}ピア`,
-    magnetErrorInvalid:
-      '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
-    magnetErrorWebRTC:
-      'このブラウザはWebRTCに対応していません。トレントストリームは利用できません。',
-    magnetErrorWorkerNotControlling:
-      'Torrent streamingを準備中です。ページを再読み込みしてから、もう一度試してください。',
-    magnetErrorPeerInsufficient:
-      'すみません、そのファイルの共有者数が足りません。別のmagnet URIを試してください。',
-    magnetErrorTracker: 'トラッカーへの接続に失敗しました。',
-    magnetErrorNoPeer: 'このトレントのピアが見つかりませんでした。',
-    magnetErrorNoMedia: 'このトレントに再生可能なメディアがありません。',
-    magnetErrorMultipleMedia:
-      'このトレントには再生可能なファイルが複数あります。ファイル選択は後ほど利用できます。',
-    magnetErrorStreamUnavailable:
-      'ストリーミングURLが利用できません。トレントファイルが不完全な可能性があります。',
-    magnetErrorGeneric: '予期しないエラーが発生しました。',
-    magnetBuffering: 'バッファリング中…',
-    torrentDisconnect: '切断',
     // P2.1: Play mode
     playModeNormal: '通常',
     playModeCondensed: '短縮',
     playModeFastForward: '早送り',
     playModeLabel: '再生モード',
+    // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
+    magnetInputLabel: 'マグネットURI',
+    magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
+    magnetInputLabelTitle: 'トレントストリームを開く',
+    magnetConnect: '接続',
+    magnetErrorInvalid:
+      '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
+    magnetNotConnectedTitle: 'EizouDendenshiが接続されていません',
+    magnetNotConnectedBody:
+      'トレント再生にはEizouDendenshi companionが必要ですが、まだ利用できません。今後のアップデートで有効になります。',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: '字幕',
     subtitleAppearance: '字幕の見た目',

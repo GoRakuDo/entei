@@ -1,9 +1,11 @@
 /**
- * MagnetInput — Component Tests
+ * MagnetInput — Component Tests (ED-1 visual shell)
  * ---------------------------------------------------------------------------
- * WT-1: Tests for the magnet URI input dialog.
- * Validates submission, validation errors, and callback behavior.
- * Verifies icon-only accessible names and no SubtitlePicker / no Cancel footer.
+ * ED-1: Browser WebTorrent runtime was removed. This dialog is the retained
+ * visual shell: local validation + EizouDendenshi not-connected status only.
+ * It has no onSubmit / isConnecting props and imports no torrent runtime, so
+ * a connection is structurally impossible — valid submit shows the localized
+ * notice instead. URI stays in React state; nothing is persisted or sent.
  * --------------------------------------------------------------------------- */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -12,36 +14,25 @@ import '@testing-library/jest-dom/vitest';
 import { MagnetInput } from '@/components/player/MagnetInput';
 
 const baseDict = {
-  magnetErrorInvalid: 'Invalid magnet URI.',
-  magnetErrorWebRTC: 'WebRTC unsupported.',
-  playModeLabel: 'Play mode',
-  playModeNormal: 'Normal',
-  playModeCondensed: 'Condensed',
-  playModeFastForward: 'Fast-forward',
-  magnetErrorWorkerNotControlling: 'Reload the page, then try again.',
-  magnetErrorPeerInsufficient: 'Not enough peers.',
-  magnetErrorTracker: 'Tracker failed.',
-  magnetErrorNoPeer: 'No peers found.',
-  magnetErrorNoMedia: 'No playable media.',
-  magnetErrorMultipleMedia: 'Multiple playable files.',
-  magnetErrorStreamUnavailable: 'Stream unavailable.',
-  magnetErrorGeneric: 'Unexpected error.',
   magnetInputLabel: 'Magnet URI',
   magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
   magnetInputLabelTitle: 'Open Torrent Stream',
   magnetConnect: 'Connect',
+  magnetErrorInvalid: 'Invalid magnet URI.',
+  magnetNotConnectedTitle: 'EizouDendenshi not connected',
+  magnetNotConnectedBody: 'Torrent streaming will be enabled in a future update.',
 };
+
+const VALID_HEX_URI = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
 
 afterEach(() => {
   cleanup();
 });
 
-describe('MagnetInput', () => {
+describe('MagnetInput — modal open/close', () => {
   const defaultProps = {
     open: true,
     onOpenChange: vi.fn(),
-    onSubmit: vi.fn(),
-    isConnecting: false,
     dict: baseDict,
   };
 
@@ -60,99 +51,138 @@ describe('MagnetInput', () => {
     expect(screen.queryByText('Open Torrent Stream')).not.toBeInTheDocument();
   });
 
-  it('description is visually hidden but accessible', () => {
+  it('close control reports onOpenChange(false)', () => {
     render(<MagnetInput {...defaultProps} />);
-    const desc = screen.getByText('Magnet URI', { selector: 'p' });
-    // entei-sr-only hides visually
-    expect(desc.className).toContain('entei-sr-only');
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(defaultProps.onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('shows error for empty submission (Enter on empty input)', () => {
+  it('reopening starts with a clean input (state is not persisted)', () => {
+    const { rerender } = render(<MagnetInput {...defaultProps} />);
+    const input = screen.getByLabelText('Magnet URI');
+    fireEvent.change(input, { target: { value: VALID_HEX_URI } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByRole('status')).toBeInTheDocument();
+
+    // Close, then reopen
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    rerender(<MagnetInput {...defaultProps} open={false} />);
+    rerender(<MagnetInput {...defaultProps} open={true} />);
+    expect(screen.getByLabelText('Magnet URI')).toHaveValue('');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('MagnetInput — local validation', () => {
+  const defaultProps = {
+    open: true,
+    onOpenChange: vi.fn(),
+    dict: baseDict,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows localized error for empty submission', () => {
     render(<MagnetInput {...defaultProps} />);
     const input = screen.getByLabelText('Magnet URI');
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid magnet URI.');
-    expect(defaultProps.onSubmit).not.toHaveBeenCalled();
   });
 
-  it('shows error for non-magnet input', () => {
+  it('shows localized error for non-magnet input', () => {
     render(<MagnetInput {...defaultProps} />);
     const input = screen.getByLabelText('Magnet URI');
     fireEvent.change(input, { target: { value: 'https://example.com' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid magnet URI.');
-    expect(defaultProps.onSubmit).not.toHaveBeenCalled();
   });
 
-  it('shows error for malformed magnet (no xt=urn:btih)', () => {
+  it('shows localized error for malformed magnet (no xt=urn:btih)', () => {
     render(<MagnetInput {...defaultProps} />);
     const input = screen.getByLabelText('Magnet URI');
     fireEvent.change(input, { target: { value: 'magnet:?dn=test' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid magnet URI.');
-    expect(defaultProps.onSubmit).not.toHaveBeenCalled();
   });
 
-  it('submits valid magnet URI', () => {
+  it('shows localized error for btih with invalid info hash length', () => {
     render(<MagnetInput {...defaultProps} />);
     const input = screen.getByLabelText('Magnet URI');
-    const uri = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
-    fireEvent.change(input, { target: { value: uri } });
+    fireEvent.change(input, {
+      target: { value: 'magnet:?xt=urn:btih:abc123' },
+    });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(defaultProps.onSubmit).toHaveBeenCalledWith(uri);
+    expect(screen.getByRole('alert')).toHaveTextContent('Invalid magnet URI.');
   });
 
   it('clears error when input changes', () => {
     render(<MagnetInput {...defaultProps} />);
     const input = screen.getByLabelText('Magnet URI');
-    // Trigger an error first
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.getByRole('alert')).toBeInTheDocument();
 
-    // Typing clears it
     fireEvent.change(input, { target: { value: 'm' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('submit button is icon-only with accessible name', () => {
+  it('submit button is disabled while input is empty', () => {
     render(<MagnetInput {...defaultProps} />);
-    const submitBtn = screen.getByRole('button', { name: /connect/i });
-    // Icon-only: no visible text children, only SVG
-    expect(submitBtn).toBeInTheDocument();
-    expect(submitBtn).toHaveAttribute('aria-label', 'Connect');
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
   });
 
-  it('no Cancel footer button exists', () => {
+  it('no Cancel footer button exists — the X close is the only cancel affordance', () => {
     render(<MagnetInput {...defaultProps} />);
-    // Only the close X button should provide cancel affordance
-    const allBtns = screen.getAllByRole('button');
-    const cancelBtns = allBtns.filter(
-      (b) => b.textContent?.trim().toLowerCase() === 'cancel',
-    );
+    const cancelBtns = screen
+      .getAllByRole('button')
+      .filter((b) => b.textContent?.trim().toLowerCase() === 'cancel');
     expect(cancelBtns).toHaveLength(0);
   });
+});
 
-  it('disables input and submit when connecting', () => {
-    render(<MagnetInput {...defaultProps} isConnecting={true} />);
-    const input = screen.getByLabelText('Magnet URI');
-    expect(input).toBeDisabled();
-    const submitBtn = screen.getByRole('button', { name: /connect/i });
-    expect(submitBtn).toBeDisabled();
-  });
+describe('MagnetInput — no torrent runtime on valid submit', () => {
+  const defaultProps = {
+    open: true,
+    onOpenChange: vi.fn(),
+    dict: baseDict,
+  };
 
-  it('disables submit button when input is empty', () => {
+  it('valid 40-hex btih URI shows the EizouDendenshi not-connected notice', () => {
     render(<MagnetInput {...defaultProps} />);
-    const submitBtn = screen.getByRole('button', { name: /connect/i });
-    expect(submitBtn).toBeDisabled();
+    const input = screen.getByLabelText('Magnet URI');
+    fireEvent.change(input, { target: { value: VALID_HEX_URI } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // Honest unavailable state — no connection, no adapter call
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('EizouDendenshi not connected');
+    expect(status).toHaveTextContent(
+      'Torrent streaming will be enabled in a future update.',
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('enables submit button when input has valid prefix', () => {
+  it('valid 32-char base32 btih URI also shows the not-connected notice', () => {
     render(<MagnetInput {...defaultProps} />);
     const input = screen.getByLabelText('Magnet URI');
     fireEvent.change(input, {
-      target: { value: 'magnet:?xt=urn:btih:abc' },
+      target: {
+        value: 'magnet:?xt=urn:btih:4c7p3fge3fge3fge3fge3fge3fge3fge',
+      },
     });
-    const submitBtn = screen.getByRole('button', { name: /connect/i });
-    expect(submitBtn).not.toBeDisabled();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'EizouDendenshi not connected',
+    );
+  });
+
+  it('valid submit keeps the dialog open and never closes itself', () => {
+    render(<MagnetInput {...defaultProps} />);
+    const input = screen.getByLabelText('Magnet URI');
+    fireEvent.change(input, { target: { value: VALID_HEX_URI } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(defaultProps.onOpenChange).not.toHaveBeenCalled();
   });
 });

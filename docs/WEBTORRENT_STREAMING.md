@@ -1,6 +1,6 @@
 # WebTorrent — Phase 3 Local Peer Streaming 設計
 
-> **状態:** **withdrawal planned (ED-1)。** ED-1の内容は[EizouDendenshi staged delivery](./EIZOU_DENDENSHI.md#staged-delivery)を参照。WT-1 codeはまだrepositoryに残るが、browser WebTorrentをこれ以上拡張しない。regular BitTorrent / YouTubeは[EizouDendenshi](./EIZOU_DENDENSHI.md)のWindows / Termux localhost companionへ移す。以下はWT-1のhistorical record。
+> **状態:** **withdrawn — ED-1で撤去完了（2026-07-31）。** `webtorrent` dependency、browser ESM bundle、Service Worker、adapter / types、browser peer UI、WT-specific tests / i18n（runtime / peer系）はrepositoryから削除済み。Magnet URI dialogのvisual shellはunavailable state（EizouDendenshi未接続案内）付きで残る。撤去内容は[EizouDendenshi staged delivery](./EIZOU_DENDENSHI.md#staged-delivery)を参照。regular BitTorrent / YouTubeは[EizouDendenshi](./EIZOU_DENDENSHI.md)のWindows / Termux localhost companionへ移す。以下はWT-1のhistorical record。
 > **対象:** original proposalのPhase 3。`PLAYER_PHASES.md`のP3 Miningとは別の番号体系なので、以後は`WT-1`〜`WT-5`で呼ぶ。
 > **境界:** torrent内のローカルメディアをbrowserで再生する機能。外部配信siteへの注入、tab capture、browser extensionは永久に対象外。
 
