@@ -1,6 +1,6 @@
 # EizouDendenshi — validated local companion plan
 
-> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 66/66 green。**ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2` pre-releaseで通過済み**（rc.1の302 redirect不追従はrc.2のfetch修正で解決。rc.1自体はgate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング修正（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink time注入、Go + harnessテストでdev default `0.2.0` / banner契約 / manifest-banner一致を固定）の上、`eizoudendenshi-v0.2.0-rc.3`で2026-07-31に実機検証済み** — Termuxでmanifest署名・core署名・signed manifestに対するSHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示（manifest versionと一致、rc.2の表示不整合はclosed）。**ED-2C growing-media Range contractはWindows / Termux loopbackで通過済み（2026-07-31・実companion binary実測、`503`/`Retry-After` buffering）。Windows Chromeでのgrowing progressive再生も計測済み（2026-07-31・headless Chrome 151、503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。** **Android Chromeのgrowing playback・bridge実装・yt-dlp/aria2・production bridgeは未検証/未実装。** **deliveryは未完了**: HTTPS Entei origin・Android Chromeのgrowing再生・audio listening/decode・Windows x64 installerが残っている。
+> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 66/66 green。**ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2` pre-releaseで通過済み**（rc.1の302 redirect不追従はrc.2のfetch修正で解決。rc.1自体はgate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング修正（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink time注入、Go + harnessテストでdev default `0.2.0` / banner契約 / manifest-banner一致を固定）の上、`eizoudendenshi-v0.2.0-rc.3`で2026-07-31に実機検証済み** — Termuxでmanifest署名・core署名・signed manifestに対するSHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示（manifest versionと一致、rc.2の表示不整合はclosed）。**ED-2C growing-media Range contractはWindows / Termux loopbackで通過済み（2026-07-31・実companion binary実測、`503`/`Retry-After` buffering）。Windows Chromeでのgrowing progressive再生も計測済み（2026-07-31・headless Chrome 151、503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。** **Android Chromeのgrowing playback・bridge実装・yt-dlp/aria2・production bridgeは未検証/未実装。** **ED-2E buffering bridge契約は設計済み（docsのみ・実装はED-3/ED-4）。** **deliveryは未完了**: HTTPS Entei origin・Android Chromeのgrowing再生・audio listening/decode・Windows x64 installerが残っている。
 > **Readiness:** Ready with checkpoints
 
 ## Outcome
@@ -248,6 +248,96 @@ Goテストは契約全体（境界exact end・跨ぎ・完全unavailable・suff
 - downloaderなし（yt-dlp / aria2 / ffmpegのinstall・実行・呼出なし）。
 - production bridgeは未実装。**Windows Chromeのgrowing progressive再生は2026-07-31に計測済み**（503→error code 4・自動再試行なし・追記のみでは回復しない・明示`load()`+`play()`で206再生・reload後seek成功）。**Android Chromeのgrowing playbackは未計測**。bridgeは「Chromeの自動再試行に依存できない」前提で、buffering表示 + availabilityベースのretry/backoff + playable prefix到達時の明示`src`/`load()`リセットが必要。
 
+## ED-2E companion buffering bridge（契約設計・実装前）
+
+ED-2CのWindows Chrome実測（2026-07-31）は、growing fileを直接`<video>`へ渡す契約に**実ブラウザの制約**を追加した: media elementは`503`を自動再試行せず、一度`error` code 4でfailし、ファイル完了後も自力では回復しない（明示`load()`+`play()`でのみ回復）。本節はこの事実を前提に、Entei側がgrowing sourceを安全に扱うための**bridge契約を定義する設計文書**である。実装はED-3 / ED-4で行う。yt-dlp / aria2 / downloader、Entei UI、releaseは対象外。
+
+### 目的と境界
+
+- bridge = Entei player内のsource session層。companionのstatusをpollし、playableになった時点で明示的にvideo要素をリセットして再生を開始する。
+- 対象はlocalhost companion sourceのみ。**Streaming Video Integration除外は維持**（browser extension / site DOM / tab capture / LAN・public listen / GoRakuDo proxy / persistent media cacheは引き続き永久除外 — 「Permanently excluded」節のまま）。
+
+### 状態遷移
+
+| state | 意味 | 遷移 |
+|---|---|---|
+| `idle` | source未投入 | source submit → `pairing` |
+| `pairing` | 未pair | pair成功 → `buffering` |
+| `buffering` | growing中。status pollで進捗表示 | `complete`検出 → `ready` / poll・source error → `error` / user cancel → `idle` / companion不達 → `disconnected` |
+| `ready` | ファイル完了。src割当 | loadedmetadata後、intentに応じてplay → `playing` |
+| `playing` | 再生中 | pause / 完了 / error |
+| `error` | 失敗 | 明示再試行 → `buffering` / cancel → `idle` |
+| `disconnected` | companion不達 | 復旧検知 → `buffering` / 経過上限 → `error` |
+
+**不変条件:** `buffering → ready`は**statusが`complete`を報告した時だけ**。`ready`以降のvideo errorはstatusを再確認し、`complete`なら明示`load()`リセット（実測済みの唯一の回復経路）、未完なら`buffering`へ戻す。
+
+### status/progress endpoint契約（companion新設・実装時）
+
+`GET /v1/media/status?token=<capability token>` — `/v1/media/fixture`と同一のOrigin gate + token gate。200 JSON bodyは**metadataのみ**:
+
+```json
+{"state":"buffering","available":124479,"total":161958,"headReady":false,"retryAfter":1}
+```
+
+| field | 型 | 意味 |
+|---|---|---|
+| `state` | string | `disabled`（source未設定）/ `buffering`（`available < total`）/ `complete`（`available == total`）/ `error` |
+| `available` | int64 | 現在availableなbyte数（monotonic、`0 <= n <= total`） |
+| `total` | int64 | 既知の最終byte数 |
+| `headReady` | bool | **情報提供のみ・src割当のgateにしない。** faststart MP4のmoov + codec initがavailable prefix内に完全収まるか（byte-level検査、downloader不要）。この検査は未実装・未計測であり、77% available時にChromeの`bytes=0-`が503でfailした実測からも、direct `<video>`のreadinessは**`complete`のみ**が安全 |
+| `retryAfter` | int | 現在の503応答と同じRetry-Afterヒント（PoCでは1） |
+
+- `Cache-Control: no-store`、HEADはGET mirror、OPTIONS preflight（GET / HEAD / OPTIONS）。
+- **path / filename / token / pairing情報は一切含めない**（既存503 bodyと同じ非secret原則、`growing.go`の`bufferingBody`を拡張した形）。
+- token無効 → 401、Origin不一致 → 403（既存gate準拠・CORS headerなし）。
+
+### ポーリング / backoff規則
+
+- **単一in-flight poll（並行retry禁止）**: setTimeout連鎖（setInterval不使用）+ epoch guard + in-flight ref。source切替・cancelはAbortControllerでabort（PlayerApp既存のepoch / AbortController supersessionパターンを再利用 — `miningEpochRef`等）。
+- 間隔: `max(Retry-After, 1s)`から指数backoff（2倍、cap 30s）。`available`が前回より増えたらbase間隔へリセット。
+- 上限: 連続失敗（poll error / `error` state）が上限回数、または経過上限（例: 10分）で`error`へ遷移（定数はQAで確定）。
+- 503 bodyのavailable / totalとstatus endpointは同一情報源（companionのavailability snapshot）。
+
+### ready遷移（明示src reset / load / play）
+
+1. `complete`確認 → `src = media URL（token query付き）`を設定（既存`mediaUrl` state → `VideoPlayer`の`src` propへ流す経路をそのまま使う）。
+2. `load()` → `loadedmetadata`（または`canplay`）を待つ。
+3. pendingSeekがあれば適用（`currentTime`設定・`seeked`待ち — 既存`seekVideoSafely`パターン）。
+4. 再生intentがplayなら`play()`。
+
+**ユーザーintent保存:** source submitは「再生したい」intent（t=0から）。buffering中にpause → ready後も自動再生しない。buffering中にplay → ready後自動再生。buffering中のseek操作（cue click等）はpendingSeekとして保持し、loadedmetadata後に適用して**失わない**。buffering中はControls disabled（既存`isLoading || error`ガードに`buffering`を追加）。
+
+### 永続化制限（Entei側）
+
+- token・source session state（state / available / total / pendingSeek / phase）は**ページメモリのみ**。
+- localStorage / IndexedDB / sessionStorage / cookiesへtoken・media URL・進捗を保存しない。reload後は再pair（既存契約）。既存prefs（volume / playbackRate / layout等）へbridge状態を混ぜない。
+
+### disconnect / re-pair
+
+- poll失敗（network error / refused）→ `disconnected`。statusを低頻度（例: 5s固定）で再試行し、復旧検知で`buffering`へ。長時間不達で`error`。
+- 401 / 403（token無効 = companion再起動 or 再pair）→ 既存pairing UIで再pairし、source sessionを再投入（ユーザー操作）。
+- companion死亡時は再生中メディアも停止（session mediaはcompanionプロセス内 — 既存契約どおり）。
+
+### QA / test gates（実装時・本タスクでは未実施）
+
+**Go（companion）:** status endpointのunit + httptest — state遷移（disabled / buffering / complete / error）、secrets非漏洩、HEAD mirror、preflight、401 / 403、monotonic availability。既存growingテスト（`growing_test.go`）に追加。
+
+**ポーリング（Entei側）:** backoff数列・並行pollゼロ・cancel / epoch supersession・disconnect→re-pair遷移をfake status serverでテスト。
+
+**Windows headed Chrome（実装後の実機QA）:**
+- 実companion + 決定growing fixture（total 161958 / 初期available 124479等）で**headed Chrome**の実ユーザー操作QA — buffering表示 → complete検出 → 自動load/play、seek intent保持、disconnect/re-pair、cancel。**headedは未計測**（これまでの計測はheadless — headedでの挙動確認が本gateの目的）。
+- **スクリプト / 自動実行するブラウザQAはPSMUX detached-session規則に従う**: セッション名`entei-qa-chrome-<short-id>`、`psmux new-session -d -s <name> -- pwsh -NoProfile -File <runner>`（即時return）、進捗は`psmux capture-pane -p -t <name>`、完了後`psmux kill-session -t <name>` + セッション不在・temp dir削除・PID残留なしを検証。runnerは自分が起動したPIDのみtry/finallyで終了。agent terminalでpersistent processをforeground起動しない。
+- 終了後: companion PID停止・fixture削除・一時Chrome profile削除。
+
+**Android Chrome:** Termux aarch64 + LAN dev origin（`--allow-origin`は開発専用・release allowlistへ入れない）+ DevTools手動手順。growing fixtureでbuffering→ready遷移、disconnect/re-pairを確認。cleanup: companion PID停止・wake lock解放・fixture削除。**Windows Chromeと同一挙動かは未計測** — bridgeは自動再試行に依存しない設計のため挙動差は許容し、QAでパリティを確認する。
+
+### 未決定事項（open decisions）
+
+- `headReady`のbyte-level検査（moov parse）をPoC companionへ実装するか、downloader-backed sourceの段階で導入するか。
+- ポーリング定数（base 1s / cap 30s / 失敗上限 / 経過上限）は実装時QAで確定。
+- audio source（m4a等）も同一契約で扱うか（契約はmedia一般だがQAはvideo先行）。
+- future fast-path（`headReady`を活かすMSE等）は503契約下で未検証 — out of scope。
+
 ## Required PoC checkpoints
 
 この5つは実装の前提。どれかが失敗したら、full implementationへ進まず設計を戻す。
@@ -268,6 +358,7 @@ Goテストは契約全体（境界exact end・跨ぎ・完全unavailable・suff
 | ED-2B | **完了済み:** token query付き静的fixture Range endpoint。Windows Chromeからpairing、206 Range、exact ACAO、no-store、canvas `toBlob`、captureStream、MediaRecorderを実測                                                                                                                                                                                                                                                                                                               | background server cleanup、fixture削除、Mimo review APPROVE                                   |
 | ED-2C | **部分完了:** Termux `go1.26.5 android/arm64`でpure-Go binaryを実行し、background loopback pairing / Range `206` smokeとcleanupを実測。Android Chrome LAN dev originからpair / Range `206` / detached video / canvas `toBlob` / captureStream / MediaRecorderを実測（静的fixture）。`--allow-origin`は開発専用でrelease allowlistへ入れない。**growing mediaのRange contractはWindows / Termux loopbackで通過済み（2026-07-31・downloaderなし・`503`/`Retry-After` buffering）。Windows Chromeのgrowing progressive再生も計測済み（2026-07-31・503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206再生・reload後seek成功）。Android Chromeのgrowing再生・bridge実装は未検証/未実装**。HTTPS Entei origin、Minisign deliveryは未実装 | Checkpoint 1 / 2のHTTPS部分・Android Chromeでのgrowing progressive検証と、checkpoint 5 |
 | ED-2D | **Stage A 完了・Stage B（Android/Termux arm64）通過済み（2026-07-31）:** `companion/eizoudendenshi/`でrelease helper（`scripts/release.ps1`: windows/amd64 + android/arm64 build、version付きmanifest、detached Minisign署名、keyは明示arg/envのみ）、Termux bootstrap template（`scripts/termux-bootstrap.sh`: HTTPS限定・pinned key fail-closed・Termux/aarch64検証・前提pkgのみ導入・private temp・署名/SHA-256検証後にapp-private atomic install・foreground pairing・helper contract fail-closed・GitHub Release assetの302 redirectを追うfetch）、自動test harness（`scripts/test-release.ps1`: 一時Minisign鍵のみ`A:\Temp\opencode`使用、成功install + release identity（banner version = manifest version / plain buildはdev default維持）+ tampered manifest/binary/missing sig/wrong arch/unsafe URL等のfailure-before-installを66/66 greenで検証）。Windows x64 installerは未実装。**rc.1 clean Termux installでGitHub Release assetの302 redirect不追従を実証→fetch修正済み（`--location` + `--max-redirs 5` + `--proto-redir =https`）→新規immutable rc.2でStage B通過済み（2026-07-31）** | **Stage B（Android/Termux arm64通過済み・2026-07-31・rc.2）: clean Termux aarch64実機でAPK後のbootstrap commandだけからpairing code表示まで到達**（実HTTPS release base・実pinned key・実ELF install + exec・manifest / binary Minisign verify PASS・signed manifestに対するSHA-256 PASS・install bytes 6291752 / SHA-256 `d4cf15b544cffbaf60b1f1a35b8d0751436ef6456edca3a31e921fd9f15046b7`がGitHub asset digestと一致・`eizouden-bootstrap` temp dir残存なし）。rc.1はredirect不追従で失敗（gate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング側で修正済み**（`scripts/release.ps1`がvalidated `-Version`を両binaryへlink time注入、Go + harnessテストでdev default / banner契約を固定）**。`rc.3`（2026-07-31）の実機検証でclosed**（banner `EizouDendenshi ED-2B (0.2.0-rc.3)`がmanifest versionと一致）。**delivery完了は主張しない**: Windows x64 installer・HTTPS Entei origin・growing media・audio listening/decodeが残る |
+| ED-2E | **契約設計のみ（docs・実装前）:** companion buffering bridge契約 — status/progress endpoint（`state` / `available` / `total` / `headReady` / `retryAfter`、secretなし）、Entei永続化はmemory-only、単一in-flight backoff poll（並行retry禁止・cancel bound）、`complete`ゲートの明示src reset/load/play、pendingSeek / 再生intent保持、disconnect / re-pair、Windows headed Chrome（PSMUX detached-session規則）とAndroid ChromeのQA gates。実装はED-3 / ED-4 | 設計文書更新のみ（コードなし） |
 | ED-3  | 3-button source entry、共通Magnet / YouTube dialog、shadcn Input OTP pairing、Default Cookie modalを実装                                                                                                                                                                                                                                                                                                                                                                               | pairing済みlocalhost companionとの実機接続                                                    |
 | ED-4  | YouTube source / Japanese subtitle、forward torrent file selection / buffer / cleanupを順に接続                                                                                                                                                                                                                                                                                                                                                                                        | Required PoC checkpoints 3, 4                                                                 |
 
@@ -295,8 +386,8 @@ WT-1はbrowser WebRTC peerだけを対象にしていた。EizouDendenshiをregu
 
 **Ready with checkpoints.**
 
-product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。Windows / Android Chromeの静的fixtureではloopback CORS、Range、canvas capture、MediaRecorderまで実証済み。TermuxではAndroid arm64 binaryのloopback pairing / Range smokeまで通過した。ED-2D Stage Aではrelease helper / Termux bootstrap template / 自動test harnessを実装し、tampered manifest / binary、署名欠落、wrong arch、unsafe URL、helper contract不一致がinstall前に拒否されることを一時鍵で66/66検証した。**rc.1のTermux clean-installでGitHub Release assetの302 redirectを追わないbootstrap不具合が判明**し、fetchを`--location` + bounded `--max-redirs` + HTTPS-only redirectへ修正した。**修正後の`eizoudendenshi-v0.2.0-rc.2`でED-2D Stage B（clean Termux aarch64実機のbootstrap→pairing到達）は2026-07-31に通過済み**（manifest / binaryのMinisign検証・signed manifestに対するSHA-256検証・app-private install・foreground pairing・install bytesとdigestがGitHub assetと一致）。ただしrelease manifest（0.2.0-rc.2）とbinary banner（`EizouDendenshi ED-2B (0.2.0)`）の**release identity表示不整合**を確認した。この表示不整合はツーリング側で修正し（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink timeに注入、Go + harnessテストでdev default `0.2.0`・banner契約・manifestとbannerの一致を固定）、**`rc.3`（2026-07-31）の実機検証でclosed** — Termuxでmanifest署名・core署名・signed SHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3)`を表示してmanifest versionと一致した。HTTPS Entei origin、Android Chromeのgrowing progressive再生、audio listening/decode、Windows x64 installerは未実証 — **delivery完了は主張しない**。growing mediaのRange contractは**ED-2CでWindows / Termux loopback実測通過済み（2026-07-31）**（downloaderなし・`503`/`Retry-After` buffering）。**Windows Chromeでのgrowing progressive再生計測は2026-07-31に通過済み**（503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。**Android Chromeのgrowing再生・bridge実装・yt-dlp/aria2・production bridgeは未検証/未実装**。
+product boundary、platform target、credential lifecycle、release検証、YouTube字幕、torrentのforward-only seek contractは決定済み。Windows / Android Chromeの静的fixtureではloopback CORS、Range、canvas capture、MediaRecorderまで実証済み。TermuxではAndroid arm64 binaryのloopback pairing / Range smokeまで通過した。ED-2D Stage Aではrelease helper / Termux bootstrap template / 自動test harnessを実装し、tampered manifest / binary、署名欠落、wrong arch、unsafe URL、helper contract不一致がinstall前に拒否されることを一時鍵で66/66検証した。**rc.1のTermux clean-installでGitHub Release assetの302 redirectを追わないbootstrap不具合が判明**し、fetchを`--location` + bounded `--max-redirs` + HTTPS-only redirectへ修正した。**修正後の`eizoudendenshi-v0.2.0-rc.2`でED-2D Stage B（clean Termux aarch64実機のbootstrap→pairing到達）は2026-07-31に通過済み**（manifest / binaryのMinisign検証・signed manifestに対するSHA-256検証・app-private install・foreground pairing・install bytesとdigestがGitHub assetと一致）。ただしrelease manifest（0.2.0-rc.2）とbinary banner（`EizouDendenshi ED-2B (0.2.0)`）の**release identity表示不整合**を確認した。この表示不整合はツーリング側で修正し（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink timeに注入、Go + harnessテストでdev default `0.2.0`・banner契約・manifestとbannerの一致を固定）、**`rc.3`（2026-07-31）の実機検証でclosed** — Termuxでmanifest署名・core署名・signed SHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3)`を表示してmanifest versionと一致した。HTTPS Entei origin、Android Chromeのgrowing progressive再生、audio listening/decode、Windows x64 installerは未実証 — **delivery完了は主張しない**。growing mediaのRange contractは**ED-2CでWindows / Termux loopback実測通過済み（2026-07-31）**（downloaderなし・`503`/`Retry-After` buffering）。**Windows Chromeでのgrowing progressive再生計測は2026-07-31に通過済み**（503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。**Android Chromeのgrowing再生・bridge実装・yt-dlp/aria2・production bridgeは未検証/未実装**。**ED-2E buffering bridge契約は設計済み**（status/progress endpoint・memory-only永続化・単一in-flight backoff poll・`complete`ゲートの明示src reset/load/play・pendingSeek/intent保持・disconnect/re-pair・headed Windows Chrome / Android Chrome QA gates + PSMUX規則 — 実装はED-3/ED-4）。
 
 ## Next action
 
-ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2`で通過済み。**release identity表示不整合（manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）の修正はbuild-time version injection（`scripts/release.ps1`のlink time `-Version`注入 + Go / harnessテスト）で実装し、`eizoudendenshi-v0.2.0-rc.3`の実機検証（2026-07-31）でclosed** — Termuxでmanifest署名・core署名・signed SHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示した。次のactionは、①ED-2C残りのHTTPS Entei origin・**Android Chromeでのgrowing progressive再生**・audio listening/decodeを検証する（growingのRange contractはloopback通過済み、**Windows Chromeのgrowing計測は2026-07-31に完了**、Android Chromeの実ブラウザ計測とbridge実装が残る）、②Windows x64 installerを実装する。その後ED-3のInput OTP / 共通source UIへ進む。
+ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2`で通過済み。**release identity表示不整合（manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）の修正はbuild-time version injection（`scripts/release.ps1`のlink time `-Version`注入 + Go / harnessテスト）で実装し、`eizoudendenshi-v0.2.0-rc.3`の実機検証（2026-07-31）でclosed** — Termuxでmanifest署名・core署名・signed SHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示した。次のactionは、①ED-2C残りのHTTPS Entei origin・**Android Chromeでのgrowing progressive再生**・audio listening/decodeを検証する（growingのRange contractはloopback通過済み、**Windows Chromeのgrowing計測は2026-07-31に完了**、Android Chromeの実ブラウザ計測とbridge実装が残る）、②Windows x64 installerを実装する、③**ED-2E bridge設計に基づき、companionのstatus/progress endpoint → Entei側bridge（poll・intent保持・srcリセット）の順で実装する（ED-3）**。その後ED-3のInput OTP / 共通source UIへ進む。

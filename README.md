@@ -236,6 +236,15 @@ source integration remains in later ED-3 / ED-4 stages. See
   and a post-reload seek worked. Android Chrome growing playback and the
   production bridge are **not** measured/implemented. Full record in
   [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
+- **ED-2E buffering bridge contract — DESIGNED (docs only, 2026-07-31):**
+  the bridge contract for reacting to a growing source safely
+  (status/progress endpoint with `state`/`available`/`total`/`headReady`/
+  `retryAfter`; memory-only session state; single-flight bounded backoff
+  polling; explicit `src`/`load()`/`play()` reset gated on `complete`;
+  pending-seek/play-intent preservation; disconnect/re-pair; separate
+  headed Windows Chrome (PSMUX detached-session rule) and Android Chrome QA
+  gates). Implementation is ED-3 / ED-4 — no code yet. See
+  [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
 - **Delivery is still not complete:** HTTPS deployed Entei origin, Android
   Chrome growing-media progressive playback, audio listening/decode, and
   the Windows installer remain. The production bridge is unimplemented and

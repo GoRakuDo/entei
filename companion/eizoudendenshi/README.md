@@ -34,6 +34,14 @@ using only the standard library.
 > [Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file).
 > Android Chrome growing-media playback, the bridge implementation, and
 > yt-dlp/aria2 remain **unverified / unimplemented** and are not claimed.
+> **The ED-2E buffering bridge contract is DESIGNED (docs only, not
+> implemented)** — status/progress endpoint, memory-only session state,
+> single-flight bounded backoff polling, `complete`-gated explicit
+> `src`/`load()`/`play()` reset, seek/play intent preservation,
+> disconnect/re-pair, and headed Windows Chrome (PSMUX rule) + Android
+> Chrome QA gates; see
+> [ED-2E bridge contract](#ed-2e-buffering-bridge-contract-design-not-implemented)
+> below. Implementation is ED-3 / ED-4.
 > **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
 > the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2` — see
 > [Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
@@ -278,7 +286,106 @@ byte to be served. No disk paths appear in error responses or logs.
   **Android Chrome** growing playback is **not** measured.
 - The **production bridge is not implemented** and must not rely on Chrome
   auto-retry: it needs buffering + availability-based retry/backoff and an
-  explicit `src`/`load()` reset once a playable prefix exists.
+  explicit `src`/`load()` reset once a playable prefix exists. The
+  contract for that bridge is designed below.
+
+## ED-2E buffering bridge contract (design, not implemented)
+
+Design document only — no code. The full record (with the Windows Chrome
+measurement evidence) is in
+[`docs/EIZOU_DENDENSHI.md`](../../docs/EIZOU_DENDENSHI.md). It defines how
+Entei reacts to a growing source safely, given the measured fact that
+Chrome's media element does not auto-retry a growing-file `503` (fails once
+with `error` code 4; only an explicit `load()`+`play()` recovers).
+
+### Status/progress endpoint (companion, to be added at implementation)
+
+`GET /v1/media/status?token=<capability token>` — same Origin gate + token
+gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
+
+```json
+{"state":"buffering","available":124479,"total":161958,"headReady":false,"retryAfter":1}
+```
+
+- `state`: `disabled` (no source) / `buffering` (`available < total`) /
+  `complete` (`available == total`) / `error`.
+- `available` / `total`: monotonic availability snapshot (same source as
+  the 503 body in `internal/api/growing.go`).
+- `headReady`: **informational only, never a `src` gate.** Whether the
+  faststart MP4 moov + codec init lie fully inside the available prefix
+  (byte-level check, no downloader). This check is not implemented or
+  measured yet. Separately, the 77%-available fixture still fails
+  (`bytes=0-` → `503` → `error` code 4); for direct `<video>` the only safe
+  readiness is `complete`.
+- `retryAfter`: same hint as the current 503 responses (PoC `1`).
+- `Cache-Control: no-store`; HEAD mirrors GET; OPTIONS preflight
+  (GET/HEAD/OPTIONS). Never includes paths, filenames, tokens, or pairing
+  data. Token invalid → 401; Origin not allowed → 403 (existing gates).
+
+### Bridge rules (Entei side, ED-3/ED-4)
+
+- **Persistence:** token + session state (state/available/total/pendingSeek/
+  phase) are page-memory only. Nothing goes to localStorage / IndexedDB /
+  sessionStorage / cookies; a reload means re-pairing (existing contract).
+  Bridge state never mixes into the existing persisted prefs
+  (volume/playbackRate/layout).
+- **Polling:** single in-flight poll (no parallel retries) via chained
+  setTimeout + epoch/AbortController supersession (existing PlayerApp
+  patterns). Interval = `max(Retry-After, 1s)` with exponential backoff
+  (×2, cap 30s), reset to base when `available` advances. Failure/timeout
+  caps (constants confirmed in QA) move to `error`.
+- **Readiness transition:** only on `state == "complete"`: set `src`
+  (token query), `load()`, wait `loadedmetadata`/`canplay`, apply a pending
+  seek if any, then `play()` only when the user's intent was play.
+- **User intent:** source submit implies play-from-0; pause during
+  buffering suppresses auto-play; play during buffering restores it; seek
+  during buffering (cue click) becomes a pending seek applied after
+  `loadedmetadata`. Controls stay disabled while buffering (existing
+  `isLoading || error` guard extended with `buffering`).
+- **Disconnect / re-pair:** poll failure → `disconnected`, low-frequency
+  retry (e.g. 5 s fixed), recovery → `buffering`; 401/403 → re-pair via the
+  existing pairing UI, then the user re-submits the source. Companion death
+  stops even playing media (session media lives in the companion process).
+- **Boundary:** localhost companion source only. The permanent Streaming
+  Video Integration exclusions (browser extension, site DOM, tab capture,
+  LAN/public listeners, GoRakuDo proxy, persistent media cache) stay
+  intact.
+
+### QA gates (implementation time; not run in this task)
+
+- **Go:** status endpoint unit + httptest (state transitions, secrets-not-
+  leaked, HEAD mirror, preflight, 401/403, monotonic availability) added to
+  the existing growing tests.
+- **Polling:** fake status server tests — backoff sequence, zero parallel
+  polls, cancel/epoch supersession, disconnect→re-pair.
+- **Windows headed Chrome:** real companion + deterministic growing fixture
+  (161958 total / 124479 initial), headed (not headless — unmeasured so
+  far), manual-user QA: buffering UI → complete → auto load/play, seek
+  intent, disconnect/re-pair, cancel. Any scripted/automated browser QA
+  must follow the **PSMUX detached-session rule**: session
+  `entei-qa-chrome-<short-id>`, `psmux new-session -d -s <name> -- pwsh
+  -NoProfile -File <runner>` (returns immediately), progress via
+  `psmux capture-pane -p -t <name>`, then `psmux kill-session -t <name>`
+  and verify session absent / temp dir deleted / no leftover PIDs; the
+  runner terminates only its own PIDs in try/finally. No persistent
+  foreground processes from an agent terminal. Cleanup after: companion PID
+  stopped, fixture and temporary Chrome profile removed.
+- **Android Chrome:** Termux aarch64 + LAN dev origin
+  (`--allow-origin`, development-only) + manual DevTools steps, same
+  fixture scenario; parity with Windows (no auto-retry) is expected but
+  unmeasured — the bridge design does not depend on it. Cleanup: stop
+  companion PID, release wake lock, remove fixture.
+
+### Open decisions
+
+- Whether the PoC companion implements the `headReady` moov byte-level
+  check or it arrives with the downloader-backed source.
+- Polling constants (1 s base / 30 s cap / failure & elapsed caps) to be
+  fixed during implementation QA.
+- Whether audio sources (m4a etc.) share the contract (contract is
+  media-generic; QA starts with video).
+- A future `headReady`-based fast path (e.g. MSE) is unverified under the
+  503 contract — out of scope.
 
 ## Deferred boundaries (out of scope through ED-2B)
 
