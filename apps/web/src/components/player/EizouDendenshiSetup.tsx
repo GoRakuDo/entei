@@ -76,7 +76,7 @@ export function EizouDendenshiSetup({
         )}
         <Button
           type="button"
-          variant="default"
+          variant="outline"
           className="entei-eizou-setup-btn"
           onClick={() => setIsPairingDialogOpen(true)}
         >

@@ -4190,6 +4190,11 @@ html.entei-player-immersive .entei-player-audio-area {
     margin-top: var(--entei-space-48);
   }
 
+  .entei-eizou-visual {
+    width: 12.5rem; /* 200px desktop square (1:1), optically balanced against
+                       the title/desc/button column; mobile keeps 10rem. */
+  }
+
   .entei-eizou-body {
     align-items: flex-start;
     margin-top: 0;
