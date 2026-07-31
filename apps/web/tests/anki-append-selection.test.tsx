@@ -1173,11 +1173,12 @@ describe('AnkiAppendPanel — AM-6c', () => {
       expect(onSearch).toHaveBeenCalledTimes(1);
     });
 
-    // Should show em-dash placeholder for missing word
-    const cells = screen.getAllByRole('cell');
-    const cellTexts = cells.map((c) => c.textContent ?? '');
-    const hasPlaceholder = cellTexts.some((t) => t.includes('—'));
-    expect(hasPlaceholder).toBe(true);
+    // Should show em-dash placeholder for missing word. The panel renders
+    // results only after an async multi-stage pipeline (onSearch → setResults
+    // → deck-name batch), so await the rendered placeholder rather than
+    // reading the DOM immediately after the call.
+    const placeholders = await screen.findAllByText('—');
+    expect(placeholders.length).toBeGreaterThan(0);
   });
 
   it('shows placeholder when word field value is empty', async () => {
@@ -1202,11 +1203,10 @@ describe('AnkiAppendPanel — AM-6c', () => {
       expect(onSearch).toHaveBeenCalledTimes(1);
     });
 
-    // Empty word should show em-dash placeholder
-    const cells = screen.getAllByRole('cell');
-    const cellTexts = cells.map((c) => c.textContent ?? '');
-    const hasPlaceholder = cellTexts.some((t) => t.includes('—'));
-    expect(hasPlaceholder).toBe(true);
+    // Empty word should show em-dash placeholder — await the rendered
+    // placeholder (same async multi-stage pipeline as above).
+    const placeholders = await screen.findAllByText('—');
+    expect(placeholders.length).toBeGreaterThan(0);
   });
 
   it('hides Word column when wordFieldName is null', async () => {

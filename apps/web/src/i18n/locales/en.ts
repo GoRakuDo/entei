@@ -224,6 +224,29 @@ export const en: Dictionary = {
     magnetNotConnectedTitle: 'EizouDendenshi not connected',
     magnetNotConnectedBody:
       'Torrent streaming requires the EizouDendenshi companion, which is not available yet. It will be enabled in a future update.',
+    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
+    eizouSetupLabel: 'Set up',
+    eizouSetupTitle: 'EizouDendenshi',
+    eizouSetupDesc: 'Assists with videos shared over YouTube and P2P.',
+    eizouSetupImageAlt: 'EizouDendenshi illustration',
+    eizouConnected: 'Connected',
+    eizouPairingTitle: 'Pair EizouDendenshi',
+    eizouPairingDesc:
+      'Enter the 6-digit code shown in the companion app.',
+    eizouPairingOtpLabel: '6-digit pairing code',
+    eizouPairingOtpInvalid: 'Enter the 6-digit code.',
+    eizouPairingSubmit: 'Pair',
+    eizouPairingConnecting: 'Pairing…',
+    eizouPairingErrorNetwork:
+      'Could not reach EizouDendenshi. Make sure the companion app is running.',
+    eizouPairingErrorInvalidCode:
+      'Invalid code. Check the code shown in the companion app.',
+    eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
+    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+    youtubeInputLabel: 'YouTube URL',
+    youtubeInputTitle: 'YouTube streaming',
+    youtubeInputBody:
+      'YouTube streaming is not available yet. Set up EizouDendenshi first; YouTube support arrives in a later stage.',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Subtitle Appearance',

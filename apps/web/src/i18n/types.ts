@@ -257,6 +257,25 @@ export interface Dictionary {
     magnetErrorInvalid: string;
     magnetNotConnectedTitle: string;
     magnetNotConnectedBody: string;
+    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
+    eizouSetupLabel: string;
+    eizouSetupTitle: string;
+    eizouSetupDesc: string;
+    eizouSetupImageAlt: string;
+    eizouConnected: string;
+    eizouPairingTitle: string;
+    eizouPairingDesc: string;
+    eizouPairingOtpLabel: string;
+    eizouPairingOtpInvalid: string;
+    eizouPairingSubmit: string;
+    eizouPairingConnecting: string;
+    eizouPairingErrorNetwork: string;
+    eizouPairingErrorInvalidCode: string;
+    eizouPairingErrorGeneric: string;
+    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+    youtubeInputLabel: string;
+    youtubeInputTitle: string;
+    youtubeInputBody: string;
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: string;
     trackerOn: string;

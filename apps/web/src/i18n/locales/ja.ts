@@ -229,6 +229,30 @@ export const ja: Dictionary = {
     magnetNotConnectedTitle: 'EizouDendenshiが接続されていません',
     magnetNotConnectedBody:
       'トレント再生にはEizouDendenshi companionが必要ですが、まだ利用できません。今後のアップデートで有効になります。',
+    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
+    eizouSetupLabel: 'セットアップ',
+    eizouSetupTitle: '映像伝電子',
+    eizouSetupDesc: 'YouTubeとP2Pで共有された動画を補助する機能。',
+    eizouSetupImageAlt: '映像伝電子のイメージ',
+    eizouConnected: '接続済み',
+    eizouPairingTitle: '映像伝電子をペアリングしましょう',
+    eizouPairingDesc:
+      'アプリに表示された6桁のコードを入力してください。',
+    eizouPairingOtpLabel: '6桁のペアリングコード',
+    eizouPairingOtpInvalid: '6桁のコードを入力してください。',
+    eizouPairingSubmit: 'ペアリングする',
+    eizouPairingConnecting: '接続中…',
+    eizouPairingErrorNetwork:
+      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
+    eizouPairingErrorInvalidCode:
+      'コードが正しくありません。アプリの表示コードを確認してください。',
+    eizouPairingErrorGeneric:
+      '接続に失敗しました。もう一度お試しください。',
+    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+    youtubeInputLabel: 'YouTube URL',
+    youtubeInputTitle: 'YouTubeストリーミング',
+    youtubeInputBody:
+      'YouTubeのストリーミングはまだ利用できません。先にEizouDendenshiをセットアップしてください。YouTube対応は後のステージで追加されます。',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: '字幕',
     subtitleAppearance: '字幕の見た目',

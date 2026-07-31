@@ -92,7 +92,9 @@ import {
 } from '@/features/player/audio-clip';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { MagnetInput } from '@/components/player/MagnetInput';
-import { Music, AlertTriangle, Magnet } from 'lucide-react';
+import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
+import { YouTubeInput } from '@/components/player/YouTubeInput';
+import { Music, AlertTriangle, Magnet, Link } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
@@ -448,6 +450,10 @@ export default function PlayerApp() {
 
   // ED-1: Magnet URI dialog visibility — visual shell only, no torrent runtime.
   const [isMagnetDialogOpen, setIsMagnetDialogOpen] = useState(false);
+  // ED-3: EizouDendenshi local-companion pairing — page memory only.
+  const [eizouConnected, setEizouConnected] = useState(false);
+  const eizouTokenRef = useRef<string | null>(null);
+  const [isYouTubeDialogOpen, setIsYouTubeDialogOpen] = useState(false);
 
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -3037,8 +3043,45 @@ export default function PlayerApp() {
               >
                 <Magnet />
               </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                type="button"
+                className="entei-player-youtube-icon-btn"
+                onClick={() => setIsYouTubeDialogOpen(true)}
+                aria-label={dict.youtubeInputLabel}
+                title={dict.youtubeInputLabel}
+              >
+                <Link />
+              </Button>
             </div>
           </div>
+          {/* ED-3: EizouDendenshi setup section — pairing state only; the
+              local-file player flow above is untouched by it. */}
+          <EizouDendenshiSetup
+            isConnected={eizouConnected}
+            onPairSuccess={(token) => {
+              eizouTokenRef.current = token;
+              setEizouConnected(true);
+            }}
+            dict={{
+              eizouSetupLabel: dict.eizouSetupLabel,
+              eizouSetupTitle: dict.eizouSetupTitle,
+              eizouSetupDesc: dict.eizouSetupDesc,
+              eizouSetupImageAlt: dict.eizouSetupImageAlt,
+              eizouConnected: dict.eizouConnected,
+              eizouPairingTitle: dict.eizouPairingTitle,
+              eizouPairingDesc: dict.eizouPairingDesc,
+              eizouPairingOtpLabel: dict.eizouPairingOtpLabel,
+              eizouPairingOtpInvalid: dict.eizouPairingOtpInvalid,
+              eizouPairingSubmit: dict.eizouPairingSubmit,
+              eizouPairingConnecting: dict.eizouPairingConnecting,
+              eizouPairingErrorNetwork: dict.eizouPairingErrorNetwork,
+              eizouPairingErrorInvalidCode: dict.eizouPairingErrorInvalidCode,
+              eizouPairingErrorGeneric: dict.eizouPairingErrorGeneric,
+              dialogClose: dict.dialogClose,
+            }}
+          />
         </div>
       )}
 
@@ -3054,6 +3097,18 @@ export default function PlayerApp() {
           magnetErrorInvalid: dict.magnetErrorInvalid,
           magnetNotConnectedTitle: dict.magnetNotConnectedTitle,
           magnetNotConnectedBody: dict.magnetNotConnectedBody,
+        }}
+      />
+
+      {/* ED-3: YouTube URL entrance — honest unimplemented state, no input */}
+      <YouTubeInput
+        open={isYouTubeDialogOpen}
+        onOpenChange={setIsYouTubeDialogOpen}
+        dict={{
+          youtubeInputLabel: dict.youtubeInputLabel,
+          youtubeInputTitle: dict.youtubeInputTitle,
+          youtubeInputBody: dict.youtubeInputBody,
+          dialogClose: dict.dialogClose,
         }}
       />
 

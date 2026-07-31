@@ -56,6 +56,21 @@
 
   --color-card: var(--entei-surface);
   --color-card-foreground: var(--entei-text);
+
+  /* InputOTP fake caret (ED-3, input-otp.tsx) */
+  --animate-caret-blink: caret-blink 1s ease-out infinite;
+
+  @keyframes caret-blink {
+    0%,
+    70%,
+    100% {
+      opacity: 1;
+    }
+    20%,
+    50% {
+      opacity: 0;
+    }
+  }
 }
 
 @layer base {
@@ -4056,6 +4071,170 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
   font-size: 0.75rem;
   line-height: 1.4;
+}
+
+/* ===========================================================================
+ * ED-3 — EizouDendenshi setup section + pairing dialog
+ * ---------------------------------------------------------------------------
+ * Local-companion pairing UI (no yt-dlp/aria2/downloads). OKLCH tokens only.
+ * Mocks: desktop = image left (200x140-ish) / content right (48px heading,
+ * 18px desc, 132x40 Setup left-aligned); mobile = image above, Setup button
+ * overlapping the image lower edge halfway, centered 36px heading + 18px
+ * desc below; pairing modal = 320x200 density, 6-slot OTP (260x52), centered
+ * 132x40 pair button.
+ * =========================================================================== */
+
+.entei-eizou-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 32rem;
+  margin-top: var(--entei-space-32);
+  padding-top: var(--entei-space-24);
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+/* 1:1 art placeholder (real square art ships later). The brand-outline
+   surface must look intentional — no broken-image glyph, ever. */
+.entei-eizou-visual {
+  position: relative;
+  width: 10rem; /* 160px — 1:1, within the mock's 200x140-ish band */
+}
+
+.entei-eizou-image {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--entei-surface-2);
+  border: 2px solid var(--entei-accent);
+  border-radius: var(--entei-radius-lg);
+  color: var(--entei-accent);
+}
+
+.entei-eizou-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-12);
+  width: 100%;
+  /* Mobile: pull the Setup button up so it overlaps the visual's lower edge
+     halfway (44px touch target -> 22px overlap), matching the mock. */
+  margin-top: calc(-1 * 1.375rem); /* -22px */
+}
+
+.entei-eizou-setup-btn {
+  width: 132px;
+  min-height: var(--entei-touch-min); /* 44px touch, 40px visual grid */
+  position: relative; /* paints above the visual on mobile */
+  border-radius: var(--entei-radius-md);
+  font-size: 0.875rem;
+}
+
+.entei-eizou-title {
+  font-family: var(--entei-font-display);
+  font-size: 2.25rem; /* 36px — mobile mock */
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--entei-text);
+}
+
+.entei-eizou-desc {
+  font-family: var(--entei-font-body);
+  font-size: 1.125rem; /* 18px — mock */
+  line-height: 1.6;
+  color: var(--entei-text-secondary);
+  text-align: center;
+  max-width: 36ch;
+}
+
+.entei-eizou-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  color: var(--entei-accent);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.entei-eizou-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--entei-radius-pill);
+  background-color: var(--entei-accent);
+}
+
+@media (min-width: 768px) {
+  .entei-eizou-section {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: var(--entei-space-32);
+    max-width: 42rem;
+  }
+
+  .entei-eizou-body {
+    align-items: flex-start;
+    margin-top: 0;
+    gap: var(--entei-space-16);
+    max-width: 24rem;
+  }
+
+  .entei-eizou-title {
+    font-size: 3rem; /* 48px — desktop mock */
+  }
+
+  .entei-eizou-desc {
+    text-align: left;
+  }
+}
+
+/* --- Pairing dialog (mock: 320x200 density) --- */
+.entei-eizou-pair-dialog {
+  max-width: 320px;
+}
+
+.entei-eizou-pair-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
+}
+
+/* 6 slots, 36px each + 8px gaps = 256px within the 320px dialog (mock 260x52) */
+.entei-eizou-pair-otp-slot {
+  width: 36px;
+  height: 52px; /* >= 44px touch, mock visual grid */
+  font-size: 1.25rem;
+  border-radius: var(--entei-radius-sm);
+}
+
+.entei-eizou-pair-error {
+  color: oklch(55% 0.2 25deg);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.entei-eizou-pair-submit {
+  width: 132px;
+  min-height: var(--entei-touch-min);
+  border-radius: var(--entei-radius-md);
+  font-size: 0.875rem;
+}
+
+/* Icon-only YouTube opener: same 44px hit-target treatment as the magnet
+   icon button, same outline style. */
+.entei-player-youtube-icon-btn {
+  min-height: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+}
+
+.entei-player-youtube-icon-btn:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: 2px;
 }
 
 /* ===========================================================================

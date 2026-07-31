@@ -228,6 +228,29 @@ export const id: Dictionary = {
     magnetNotConnectedTitle: 'EizouDendenshi belum terhubung',
     magnetNotConnectedBody:
       'Streaming torrent memerlukan companion EizouDendenshi yang belum tersedia. Fitur ini akan diaktifkan pada pembaruan mendatang.',
+    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
+    eizouSetupLabel: 'Pengaturan',
+    eizouSetupTitle: 'EizouDendenshi',
+    eizouSetupDesc:
+      'Fitur pendamping untuk video yang dibagikan lewat YouTube dan P2P.',
+    eizouSetupImageAlt: 'Ilustrasi EizouDendenshi',
+    eizouConnected: 'Terhubung',
+    eizouPairingTitle: 'Hubungkan EizouDendenshi',
+    eizouPairingDesc: 'Masukkan kode 6 digit yang ditampilkan di aplikasi.',
+    eizouPairingOtpLabel: 'Kode pasangan 6 digit',
+    eizouPairingOtpInvalid: 'Masukkan kode 6 digit.',
+    eizouPairingSubmit: 'Pasangkan',
+    eizouPairingConnecting: 'Menghubungkan…',
+    eizouPairingErrorNetwork:
+      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
+    eizouPairingErrorInvalidCode:
+      'Kode tidak valid. Periksa kode yang ditampilkan di aplikasi.',
+    eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
+    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+    youtubeInputLabel: 'URL YouTube',
+    youtubeInputTitle: 'Streaming YouTube',
+    youtubeInputBody:
+      'Streaming YouTube belum tersedia. Set up EizouDendenshi terlebih dahulu; dukungan YouTube hadir di tahap berikutnya.',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Tampilan Subtitle',
