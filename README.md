@@ -226,9 +226,21 @@ source integration remains in later ED-3 / ED-4 stages. See
   showed `EizouDendenshi ED-2B (0.2.0-rc.3)` on `http://127.0.0.1:36441`,
   matching the manifest version. The rc.2 identity display mismatch is
   closed.
-- **Delivery is still not complete:** HTTPS deployed Entei origin, growing
-  media progressive playback in a real browser, audio listening/decode,
-  and the Windows installer remain.
+- **ED-2C growing-media browser measurement — Windows headless Chrome MEASURED
+  (2026-07-31):** against the real companion and a valid 4s H.264/AAC
+  faststart MP4 (161958 bytes total, 124479 initially available = 77%),
+  Windows headless Chrome 151 issued one `Range: bytes=0-` request, got
+  `503` + `Retry-After: 1`, failed with media `error` code 4 and did
+  **not** auto-retry (no recovery after the file completed either); an
+  explicit `video.load()` + `play()` then got `206` and played to the end,
+  and a post-reload seek worked. Android Chrome growing playback and the
+  production bridge are **not** measured/implemented. Full record in
+  [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
+- **Delivery is still not complete:** HTTPS deployed Entei origin, Android
+  Chrome growing-media progressive playback, audio listening/decode, and
+  the Windows installer remain. The production bridge is unimplemented and
+  cannot rely on Chrome auto-retry (it needs buffering + availability-based
+  retry/backoff + an explicit `src`/`load()` reset once playable).
 
 ## Lineage & Inspiration
 

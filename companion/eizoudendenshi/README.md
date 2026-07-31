@@ -21,13 +21,19 @@ using only the standard library.
 > smoke is also complete (see [ED-2C verification](#ed-2c-verification-termux-runtime)).
 > Android Chrome LAN-origin browser QA is also complete (see
 > [ED-2C verification](#ed-2c-verification-android-chrome-lan-origin)).
-> **Delivery is NOT complete:** HTTPS deployed Entei origin, growing media
-> progressive playback in a real browser, audio listening/decode, and a
+> **Delivery is NOT complete:** HTTPS deployed Entei origin, Android Chrome
+> growing-media progressive playback, audio listening/decode, and a
 > Windows installer remain outstanding. The **ED-2C growing-media Range
 > contract is PASSED on Windows and Termux loopback (2026-07-31)** —
 > measured through real companion binaries (`503 + Retry-After` buffering,
-> no fabricated bytes); real-browser progressive playback is **not**
-> verified and is not claimed.
+> no fabricated bytes). **Windows Chrome growing-media progressive playback
+> was MEASURED on 2026-07-31** (headless Chrome 151: `503` → media `error`
+> code 4, no auto-retry, appending alone does not recover, explicit
+> `load()`+`play()` gets `206` and plays to the end, post-reload seek
+> works) — see
+> [Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file).
+> Android Chrome growing-media playback, the bridge implementation, and
+> yt-dlp/aria2 remain **unverified / unimplemented** and are not claimed.
 > **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
 > the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2` — see
 > [Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
@@ -122,7 +128,7 @@ Content-Range, Accept-Ranges, Content-Length`.
   its value to the built-in allowlist.** It exists for one-off QA origins;
   it must not become a release allowlist entry.
 
-## ED-2C growing-media Range PoC (contract, not browser-verified)
+## ED-2C growing-media Range PoC (contract and Windows Chrome measured)
 
 A media file that is **still growing** (e.g. a download in progress) has a
 known final size plus a current available prefix. This PoC establishes the
@@ -132,7 +138,9 @@ time, and the endpoint never fabricates data. It is implemented, tested,
 and **measured on both Windows and Termux Android/arm64 loopback through
 real companion binaries (2026-07-31)** — see
 [measurement record](#measured-on-windows-and-termux-loopback-2026-07-31).
-It is **not** measured in a real browser yet (see gates below).
+It is **measured in Windows Chrome** (2026-07-31 — see
+[Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file));
+it is **not** measured in Android Chrome yet (see gates below).
 
 ### Source abstraction (`internal/media`)
 
@@ -217,6 +225,40 @@ availability-change test; `go test -race ./...` is green. The **`503`-vs-
 and a crossing or wholly-unavailable range is always an explicit retryable
 `503` — never a truncated `206`, a zero-byte fake success, or a block.
 
+### Measured in Windows headless Chrome (2026-07-31, growing file)
+
+Browser measurement of real growing-file progressive playback. The probe
+page was served from the Entei dev-server origin `http://localhost:4321`
+(development-only; the page and its service worker were removed after the
+measurement) against the real companion binary on `127.0.0.1:4322`. The
+fixture was a valid 4-second H.264/AAC faststart MP4 (161958 bytes total,
+124479 bytes initially available = 77%); the video element used
+`crossOrigin="anonymous"` with the capability token as a query parameter,
+and pairing succeeded from `http://localhost:4321`. Browser: Windows
+headless Chrome 151 (UA `HeadlessChrome/151.0.0.0`). Headed Windows Chrome
+has not been separately measured.
+
+| Step | Observed |
+|---|---|
+| `Range: bytes=0-` (fetch probe) | `503` + `Retry-After: 1`, JSON body `available: 124479 / total: 161958` |
+| `video.load()` while 77% available | exactly one request (`Range: bytes=0-`) → `503` → `error` code 4 (`MEDIA_ELEMENT_ERROR: Format error`), `networkState` 3 (NETWORK_NO_SOURCE) |
+| 30 s no-op observation | **no further requests — Chrome does not auto-retry media `503`s** (the `Retry-After` hint is not honored by the media stack) |
+| file completed (tail appended), 12+ s observation | still `error` code 4, no request — **appending alone does not recover the element** |
+| `currentTime = 1.5` while errored (duration NaN) | no request, no `seeked` event (the value is stored, nothing is fetched) |
+| explicit `video.load()` + `play()` after completion | `206` → `loadedmetadata` (dur 4) → `seeked` → `canplay` → `playing` → played to the end |
+| page reload, then seek to 1.5 s (file complete) | `206` → seek succeeded (`seeked`, playback OK) |
+
+**Bridge implication (explicit):** Chrome's media element neither auto-retries
+the growing-file `503` nor honors `Retry-After`; it fails once with `error`
+code 4 and does not self-recover when the file completes. A production
+bridge therefore **cannot rely on Chrome auto-retry**: it must show
+buffering while the prefix is unavailable, retry with backoff based on the
+`503` body's `available`/`total`, and **explicitly reset `src`/`load()`**
+once a playable prefix is available.
+
+All temporary probe pages, servers, binaries, fixtures, and Chrome profiles
+were removed after the measurement.
+
 ### TOCTOU
 
 `Available()` is snapshotted **once per request**; the served window is
@@ -229,11 +271,14 @@ byte to be served. No disk paths appear in error responses or logs.
 
 - No downloader (yt-dlp / aria2 / ffmpeg are not installed, run, or
   called).
-- Real-browser progressive playback (Chrome seek policy, `<video>`
-  behavior against a growing file) and the production bridge are **not**
-  implemented or measured — the loopback contract pass above does **not**
-  extend to them. Separate Windows/Termux **browser** measurements are
-  required before any gate completion is claimed.
+- Real-browser progressive playback (`<video>` behavior against a growing
+  file) is **measured in Windows Chrome** (2026-07-31 — `503` → `error`
+  code 4, no auto-retry, appending alone does not recover, explicit
+  `load()`+`play()` gets `206` and plays, post-reload seek works);
+  **Android Chrome** growing playback is **not** measured.
+- The **production bridge is not implemented** and must not rely on Chrome
+  auto-retry: it needs buffering + availability-based retry/backoff and an
+  explicit `src`/`load()` reset once a playable prefix exists.
 
 ## Deferred boundaries (out of scope through ED-2B)
 
@@ -242,9 +287,9 @@ byte to be served. No disk paths appear in error responses or logs.
 - Cookie storage and transmission
 - Growing-media capture / real media URL plumbing (the ED-2C growing source
   is a no-downloader contract PoC — see
-  [growing-media PoC](#ed-2c-growing-media-range-poc-contract-not-browser-verified);
-  loopback PASSED 2026-07-31; no real downloader and no Entei-side
-  integration)
+  [growing-media PoC](#ed-2c-growing-media-range-poc-contract-and-windows-chrome-measured);
+  loopback + Windows Chrome PASSED 2026-07-31; no real downloader, no
+  Android Chrome measurement, and no Entei-side integration)
 - Input OTP UI and any Entei browser integration
 - Minisign installer / signing / distribution
 - Production endpoint/port contract (only the `--addr` PoC control exists)
@@ -283,7 +328,9 @@ test. Non-secret observed results:
   Range behavior has an ED-2C **contract measurement PASS on Windows and
   Termux loopback (2026-07-31 — see
   [measurement record](#measured-on-windows-and-termux-loopback-2026-07-31))**
-  but is **not browser-measured**.
+  and a **Windows Chrome measurement PASS (2026-07-31 — see
+  [Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file))**;
+  **Android Chrome growing playback is not browser-measured**.
 - **Audio listening / decode verification** — muted playback only; audio
   output was not listened to or decoded.
 - **Minisign installer / delivery** — out of scope through ED-2C.
@@ -303,13 +350,18 @@ This verifies the native runtime and loopback API, not Android Chrome.
   smoke, the PID was stopped, wake lock released, and the device/local fixture
   and temporary binary were deleted.
 
-Android Chrome from `https://entei.gorakudo.org`, growing media progressive
-playback, and audio listening/decode remain separate gates; Minisign
+Android Chrome from `https://entei.gorakudo.org`, Android Chrome
+growing-media progressive playback, and audio listening/decode remain
+separate gates; Minisign
 delivery itself is now proven on the Termux path (ED-2D Stage B,
 2026-07-31). The growing-media Range **contract PASSED the Termux loopback
 measurement on 2026-07-31** (see
 [measurement record](#measured-on-windows-and-termux-loopback-2026-07-31));
-real-browser progressive-playback measurements are still required.
+**Windows Chrome** growing progressive playback was measured on 2026-07-31
+(see
+[Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file)),
+while **Android Chrome** growing playback and the production bridge remain
+unverified.
 
 ## ED-2C verification (Android Chrome LAN origin)
 
@@ -330,13 +382,18 @@ one-off process received that exact LAN origin through the development-only
   was stopped, wake lock released, and the phone/local fixture and temporary
   binaries were deleted.
 
-This verifies Android Chrome only for the temporary HTTP LAN dev origin. HTTPS
-deployed Entei origin, growing media progressive playback, audio
+This verifies Android Chrome only for the temporary HTTP LAN dev origin
+(static fixture). HTTPS
+deployed Entei origin, Android Chrome growing-media progressive playback,
+audio
 listening/decode remain separate gates; Minisign delivery is proven on the
 Termux path only (ED-2D Stage B, 2026-07-31). The growing-media Range
 **contract PASSED the loopback measurements on 2026-07-31** (see
 [measurement record](#measured-on-windows-and-termux-loopback-2026-07-31));
-it is **not** browser-verified.
+growing media is browser-measured **only in Windows Chrome** (2026-07-31 —
+see
+[Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file)),
+not in Android Chrome.
 
 ## General-user Termux setup (ED-2D)
 
@@ -517,8 +574,10 @@ The harness still substitutes a Windows build for the android/arm64
 artifact (so the real companion binary can be executed and observed in
 tests; the real android/arm64 ELF install + exec is now covered by the
 Stage B record above). Remaining delivery gates: **HTTPS deployed Entei
-origin, growing media progressive playback in a real browser, audio
-listening/decode, and the Windows installer**.
+origin, Android Chrome growing-media progressive playback, audio
+listening/decode, and the Windows installer** (Windows Chrome growing-media
+progressive playback was measured 2026-07-31 — see
+[Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file)).
 
 ### Release-identity display fix verified on device (rc.3, 2026-07-31)
 
@@ -550,7 +609,8 @@ go run ./cmd/eizouden --addr 127.0.0.1:4322 --fixture /path/to/media.mp4 \
 # ED-2C growing media: a file still being appended by another process.
 # --grow-total declares the known final size; the file's current size is
 # the source of truth for available bytes (writers must be append-only).
-# Contract PoC only — not a browser-verified feature (see below).
+# Contract PoC — browser-measured in Windows Chrome (2026-07-31); Android
+# Chrome and the bridge are not (see below).
 go run ./cmd/eizouden --addr 127.0.0.1:4322 \
   --grow-fixture /path/to/growing.mp4 --grow-total 104857600
 ```
@@ -607,9 +667,12 @@ The release-identity display fix was **verified on device with rc.3 on
 — the banner now reports the manifest version. The ED-2C growing-media
 Range contract has a no-downloader PoC whose **Windows + Termux loopback
 measurements PASSED on 2026-07-31** (see
-[measurement record](#measured-on-windows-and-termux-loopback-2026-07-31));
-Android Chrome media behavior, the HTTPS deployed Entei origin, growing
-media progressive playback, audio listening/decode, and the Windows
+[measurement record](#measured-on-windows-and-termux-loopback-2026-07-31)).
+Windows Chrome growing-media progressive playback was **measured on
+2026-07-31** (see
+[Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file));
+Android Chrome media behavior, the HTTPS deployed Entei origin, the bridge
+implementation, audio listening/decode, and the Windows
 installer remain later checkpoints.
 
 ## Layout
