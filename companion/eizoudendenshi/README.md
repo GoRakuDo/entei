@@ -748,6 +748,18 @@ acquires ONLY the verifier safely:
   download-unavailable case.
 - **rc.6 is planned with these fixes; the clean real Windows gate is NOT
   claimed until a fixed re-release is gate-tested.**
+- **rc.6 clean Windows gate: PASSED (measured 2026-08-02).** Against the
+  published immutable `eizoudendenshi-v0.2.0-rc.6` GitHub assets (no local
+  mirror, no preinstalled minisign on PATH, no mirror env, fresh private
+  root): the true first run downloaded the official pinned verifier
+  (Minisign 0.12), verified and private-installed manifest + core + all
+  three helpers, and started the core with absolute runtime helper paths;
+  installed versions matched the manifest contract (yt-dlp 2026.07.04,
+  aria2 1.37.0, ffmpeg `2026-07-27-git-a757b708ae-essentials_build-www.gyan.dev`);
+  helpers physically carry their runtime names (`aria2c.exe`, `ffmpeg.exe`;
+  no archive-name executables at the root); a second invocation on the same
+  root reused the verifier and helpers with no re-acquisition; no
+  persistent PATH / global install changes; full cleanup verified.
 
 ### Remaining gates (not claimed)
 
