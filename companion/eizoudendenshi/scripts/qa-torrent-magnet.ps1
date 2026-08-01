@@ -55,6 +55,7 @@ $ProgressPreference = 'SilentlyContinue'
 $script:TransientRoot = ''
 $script:OwnedCorePid = $null
 $script:CtrlC = $false
+$script:CancelHandler = $null
 
 # Expected private-install layout (from the windows-bootstrap contract).
 $script:ExpectedCore = 'eizouden-windows-amd64.exe'
@@ -231,11 +232,11 @@ function Invoke-SelfTest {
     $src = Get-Content -Raw -LiteralPath $PSCommandPath
     $code = ($src -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
     # The self-test's own forbidden-pattern list must not flag itself, so
-    # its function body is excluded from the scan (the '# --- main ---'
-    # comment is stripped above; the next code marker is CancelKeyPress,
-    # built from parts so this validator does not self-match it).
+    # its function body is excluded from the scan. The next code marker is
+    # the concrete Ctrl+C registration outside this function. Build it from
+    # pieces so the validator does not match its own marker assignment.
     $start = $code.IndexOf('function Invoke-SelfTest')
-    $marker = '[Console]::CancelKeyPress' + '.Add({'
+    $marker = '[Console]::add_' + 'CancelKeyPress('
     $end = $code.IndexOf($marker)
     if ($start -ge 0 -and $end -gt $start) {
         $code = $code.Substring(0, $start) + $code.Substring($end)
@@ -282,11 +283,17 @@ function Invoke-SelfTest {
 
 # --- main -------------------------------------------------------------------
 
-[Console]::CancelKeyPress.Add({
+# Console.CancelKeyPress is a .NET event, not a collection. Calling `.Add()`
+# on its value returns a null-reference error before the QA flow begins. Keep
+# the concrete delegate so it can be removed again during normal cleanup.
+$script:CancelHandler = [ConsoleCancelEventHandler]{
+    param($sender, $eventArgs)
+    $eventArgs.Cancel = $true
     $script:CtrlC = $true
     Write-Host ''
     Write-Host '[qa] Ctrl+C received — cleaning up owned resources'
-}) | Out-Null
+}
+[Console]::add_CancelKeyPress($script:CancelHandler)
 
 if ($SelfTest) { Invoke-SelfTest }
 
@@ -396,4 +403,8 @@ finally {
     }
     Remove-TransientRoot
     Assert-Cleanup
+    if ($null -ne $script:CancelHandler) {
+        [Console]::remove_CancelKeyPress($script:CancelHandler)
+        $script:CancelHandler = $null
+    }
 }

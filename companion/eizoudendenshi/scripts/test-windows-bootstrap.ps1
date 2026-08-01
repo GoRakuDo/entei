@@ -120,7 +120,7 @@ function Static-Checks {
     $qaSrc = Get-Content -Raw -LiteralPath $qaFile
     $qaCode = ($qaSrc -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
     $qaStart = $qaCode.IndexOf('function Invoke-SelfTest')
-    $qaMarker = '[Console]::CancelKeyPress' + '.Add({'
+    $qaMarker = '[Console]::add_' + 'CancelKeyPress('
     $qaEnd = $qaCode.IndexOf($qaMarker)
     if ($qaStart -ge 0 -and $qaEnd -gt $qaStart) { $qaCode = $qaCode.Substring(0, $qaStart) + $qaCode.Substring($qaEnd) }
     $qaBad = @()
