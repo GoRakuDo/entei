@@ -111,6 +111,33 @@ function Static-Checks {
         $code -match '\$null\s+-ne\s+\$mirror' -and
         $code -match 'Test-Path -LiteralPath \$mirror' -and
         -not ($code -match 'Test-Path\s+-LiteralPath\s+\$env:EIZOU_WIN_MINISIGN_MIRROR')) 'undefined mirror env must fall through to the pinned download, not crash'
+
+    # --- qa-torrent-magnet.ps1 static contract (user-run torrent QA script) ---
+    $qaFile = Join-Path $PSScriptRoot 'qa-torrent-magnet.ps1'
+    $qaErrors = $null
+    $null = [System.Management.Automation.Language.Parser]::ParseFile($qaFile, [ref]$null, [ref]$qaErrors)
+    Check 'static: qa-torrent-magnet.ps1 parses' ($qaErrors.Count -eq 0) "parse errors: $($qaErrors.Count)"
+    $qaSrc = Get-Content -Raw -LiteralPath $qaFile
+    $qaCode = ($qaSrc -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    $qaStart = $qaCode.IndexOf('function Invoke-SelfTest')
+    $qaMarker = '[Console]::CancelKeyPress' + '.Add({'
+    $qaEnd = $qaCode.IndexOf($qaMarker)
+    if ($qaStart -ge 0 -and $qaEnd -gt $qaStart) { $qaCode = $qaCode.Substring(0, $qaStart) + $qaCode.Substring($qaEnd) }
+    $qaBad = @()
+    foreach ($pat in @('Invoke-Expression', 'Start-Job', '[Environment]::SetEnvironmentVariable',
+            'ConvertTo-SecureString', 'Get-Command', 'New-ItemProperty', 'Set-ItemProperty')) {
+        if ($qaCode -match [regex]::Escape($pat)) { $qaBad += $pat }
+    }
+    Check 'static: qa-torrent-magnet.ps1 has no forbidden persistence/unsafe commands' ($qaBad.Count -eq 0) ($qaBad -join ', ')
+    $qaLeaks = 0
+    foreach ($line in ($qaCode -split "`n")) {
+        if ($line -match 'Write-(Output|Host|Error|Warning)|Write-Information' -and $line -match '\$magnet') { $qaLeaks++ }
+    }
+    Check 'static: qa-torrent-magnet.ps1 never echoes the magnet' ($qaLeaks -eq 0) "$qaLeaks leak(s)"
+    Check 'static: qa-torrent-magnet.ps1 uses secure magnet input + loopback-only' (
+        $qaCode.Contains('Read-Host -AsSecureString') -and
+        $qaCode.Contains('ZeroFreeBSTR') -and
+        $qaCode.Contains('literal loopback')) 'SecureString input + loopback enforcement present'
 }
 
 # --- Dynamic suite ----------------------------------------------------------
