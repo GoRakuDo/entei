@@ -516,27 +516,27 @@ network, no real yt-dlp). Run with `go test -race ./...`.
 
 ### Real-download QA record (2026-08-01, PSMUX detached session)
 
-Real companion (`--ytdlp` pinned) + real public URL job API QA. **Helper
-environment failure class**: the machine's Python 3.14 `yt-dlp.exe` shim is
-broken (its interpreter is missing) and the existing Python 3.11 + yt_dlp
-2025.03.31 predates the current YouTube player's nsig/SSAP changes
-(`No video formats found!`), so every real download ends in the redacted
-`error: "download failed"`. This is NOT a YouTube block — extraction
-starts successfully. Verified live with real runs: job acceptance (201,
-URL validation), state sequence (`queued → downloading → error`), the
-fixed helper argv policy (1080p-cap selector, `--no-playlist`, URL as the
-final argv element, no shell — parent chain `eizouden → wrapper → python`),
-`/v1/media/status` buffering mapping + `/v1/media/fixture` 503 while a job
-is downloading, cancel (session freed, process tree killed, zero orphan
-helpers), the broken-helper spawn-failure path (status `error`, fixture
-404), and **zero redaction leaks** (no URL/token/path/stderr in any
-response). **A real defect was found and fixed**: on Windows the open
-helper-stderr handle made `os.RemoveAll` fail, leaking the private job
-temp dir (with raw helper output) on error/cancel — the log handle is now
-closed before every cleanup, pinned by `TestNoJobTempDirLeakOnError` /
-`TestNoJobTempDirLeakOnCancel`. Unverified (needs a current helper; none
-was installed/updated): complete media (`available==total`, real Range 206
-bytes), growing `available` while buffering, cookies/subtitles, and the UI
+**Helper update (authorized, Python 3.11 only):** `python311 -m pip install
+--upgrade yt-dlp` moved `2025.03.31 → 2026.07.04` (nothing else touched).
+**The real-download QA then fully passed** against a short public test video:
+job accepted (201), state `downloading → complete` with `available == total`
+(474489 B), the fixed helper argv policy confirmed live (1080p-cap selector,
+`--no-playlist`, URL as the final argv element, no shell — parent chain
+`eizouden → wrapper → python`), `/v1/media/status` complete, `/v1/media/fixture`
+**200 (474489 real bytes) and Range 206** (head + mid ranges), ffprobe of the
+produced media (**AV1 320×240 + Opus, 19.028s** — the ffmpeg merge worked),
+and **Chrome playback of the fixture-served media** (loadedmetadata/canplay/
+playing, currentTime advancing, no error). Cancel verified for both a
+completed job and a mid-download job: 200, session freed, GET-after 404,
+**zero orphan helpers/ffmpeg**, job dir removed. Redaction sweep: zero
+URL/token/path/stderr leaks. **A second real race was found and fixed**: a
+mid-download cancel could leak the job dir because the dying helper tree
+still held open media handles when `os.RemoveAll` ran — all cleanup paths
+now use a bounded-retry removal (`removeAllBestEffort`, 5s), and the fake
+helper's hold mode was strengthened to keep a media handle open with
+regression tests (`TestNoJobTempDirLeakOnError`/`TestNoJobTempDirLeakOnCancel`).
+Remaining gates: the user-facing YouTube URL UI, cookies/saved profiles,
+subtitles, Android/headed-Windows browser QA, and the production bridge
 connection.
 
 ### Remaining gates (not claimed)

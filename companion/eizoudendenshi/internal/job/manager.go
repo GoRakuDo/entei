@@ -191,7 +191,7 @@ func (m *Manager) Cancel(id string) (Snapshot, error) {
 		_ = j.src.Close()
 	}
 	if j.dir != "" {
-		_ = os.RemoveAll(j.dir)
+		removeAllBestEffort(j.dir)
 	}
 	return Snapshot{ID: id, State: StateCancelled}, nil
 }
@@ -216,7 +216,7 @@ func (m *Manager) Close() error {
 			_ = j.src.Close()
 		}
 		if j.dir != "" {
-			_ = os.RemoveAll(j.dir)
+			removeAllBestEffort(j.dir)
 		}
 	}
 	return nil
@@ -279,14 +279,14 @@ func (m *Manager) run(j *job, ctx context.Context) {
 		if ctx.Err() != nil {
 			// Cancelled before the helper launched (CommandContext Start
 			// returns the context error in that race): treat as cancelled.
-			_ = os.RemoveAll(dir)
+			removeAllBestEffort(dir)
 			j.setState(StateCancelled)
 			m.clear(j)
 			return
 		}
 		j.errMsg = "download failed"
 		j.setState(StateError)
-		_ = os.RemoveAll(dir)
+		removeAllBestEffort(dir)
 		// The errored job stays current (redacted) until explicitly
 		// cancelled, so the status endpoint can surface the failure.
 		return
@@ -305,7 +305,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			killTree(cmd)
 			<-waitCh
 			closeLog()
-			_ = os.RemoveAll(dir)
+			removeAllBestEffort(dir)
 			if j.timedOut.Load() {
 				// A timeout is a failure: the redacted error job stays
 				// current until explicitly cancelled (like other errors).
@@ -322,7 +322,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 				// The process finished at the same moment as a cancel/timeout;
 				// the cancel path wins so no media survives a cancelled session.
 				closeLog()
-				_ = os.RemoveAll(dir)
+				removeAllBestEffort(dir)
 				if j.timedOut.Load() {
 					j.errMsg = "timed out"
 					j.setState(StateError)
@@ -336,7 +336,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 				j.errMsg = "download failed"
 				j.setState(StateError)
 				closeLog()
-				_ = os.RemoveAll(dir)
+				removeAllBestEffort(dir)
 				return // errored job stays current until cancelled
 			}
 			closeLog() // helper exited; no more stderr writes. Required before
@@ -360,14 +360,14 @@ func (m *Manager) finalize(j *job, dir string) bool {
 	if !ok || size <= 0 {
 		j.errMsg = "no media produced"
 		j.setState(StateError)
-		_ = os.RemoveAll(dir)
+		removeAllBestEffort(dir)
 		return false // errored job stays current until cancelled
 	}
 	src, err := NewJobSource(path, size)
 	if err != nil {
 		j.errMsg = "media unavailable"
 		j.setState(StateError)
-		_ = os.RemoveAll(dir)
+		removeAllBestEffort(dir)
 		return false // errored job stays current until cancelled
 	}
 	j.src = src
@@ -408,6 +408,32 @@ func mediaBytes(dir string) int64 {
 		return 0
 	}
 	return size
+}
+
+// removeAllBestEffort removes the private job dir, retrying briefly.
+//
+// After a cancel the killed helper tree (python/ffmpeg children of the
+// wrapper) may still hold open media-file handles for a few hundred
+// milliseconds, and on Windows os.RemoveAll fails while any file inside
+// the directory is open. The retry absorbs that termination tail so the
+// private job dir (with raw helper output inside) does not leak. All job
+// material is manager-owned; user files are never touched.
+func removeAllBestEffort(dir string) {
+	// Killed helper children (python/ffmpeg) can hold open media-file
+	// handles for a few seconds while they terminate; give the removal a
+	// generous margin (5s) before giving up.
+	const attempts = 25
+	for i := 0; i < attempts; i++ {
+		if err := os.RemoveAll(dir); err == nil || !pathExists(dir) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func pathExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // atomicInt64 is a tiny atomic int64 wrapper (sync/atomic has typed

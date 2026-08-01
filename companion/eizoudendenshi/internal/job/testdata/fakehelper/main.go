@@ -69,11 +69,16 @@ func main() {
 	hold := os.Getenv("EIZOU_FAKE_HOLD") == "1"
 	aliveFile := os.Getenv("EIZOU_FAKE_ALIVE_FILE")
 
+	// The media file is opened up front and, in hold mode, KEPT open while
+	// holding — reproducing the Windows cancel race where a killed helper
+	// still holds an open handle when the job dir is removed.
+	f, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		os.Exit(4)
+	}
+	defer f.Close()
+
 	if size > 0 {
-		f, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			os.Exit(4)
-		}
 		data := bytes.Repeat([]byte{0x41}, chunk)
 		written := 0
 		for written < size {
@@ -89,11 +94,10 @@ func main() {
 				time.Sleep(time.Duration(delay) * time.Millisecond)
 			}
 		}
-		_ = f.Close()
 	} else if hold {
-		// No media bytes; ensure an empty media file exists so the job dir
-		// still looks like a download in progress.
-		_ = os.WriteFile(outPath, nil, 0o600)
+		// Ensure an empty media file exists; the handle stays open while
+		// holding (the file is closed only at process exit).
+		_ = f
 	}
 
 	if fail {
