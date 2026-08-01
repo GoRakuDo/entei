@@ -61,12 +61,16 @@ export function useCompanionFixtureSession(): UseCompanionFixtureSessionResult {
   const intentCleanupRef = useRef<(() => void) | null>(null);
 
   // Complete gate: the media URL is derived at render time — it exists ONLY
-  // when the controller reports `ready` (never while buffering) and the
-  // session is active. The player then renders the video element, and
-  // attachMediaElement hands it to the controller.
+  // once the controller reports `ready` or `playing` (never while buffering)
+  // and the session is active, and is cleared when the session ends or the
+  // source fails/re-pairs (the element unmounts with it). The player then
+  // renders the video element, and attachMediaElement hands it to the
+  // controller. Keeping it through `playing` matters: dropping it on the
+  // play transition would unmount the element mid-playback (found by headed
+  // Chrome QA).
   const fixtureMediaUrl = useMemo(() => {
     if (!active || !sourceRef.current) return null;
-    if (bridge.phase !== 'ready') return null;
+    if (bridge.phase !== 'ready' && bridge.phase !== 'playing') return null;
     const src = sourceRef.current;
     return `${src.baseUrl}/v1/media/fixture?token=${encodeURIComponent(src.token)}`;
   }, [active, bridge.phase]);

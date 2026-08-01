@@ -151,6 +151,8 @@ describe('useCompanionFixtureSession — fixture integration contract', () => {
 
     // The element mounts and the controller attaches: src + load.
     const video = screen.getByTestId('video') as HTMLVideoElement;
+    // ED-2C contract: the media gate needs a CORS-mode request.
+    expect(video.crossOrigin).toBe('anonymous');
     expect(video.src).toBe('http://127.0.0.1:4322/v1/media/fixture?token=tok123');
     const playSpy = vi.fn(() => Promise.resolve());
     video.play = playSpy;
@@ -158,6 +160,12 @@ describe('useCompanionFixtureSession — fixture integration contract', () => {
     expect(playSpy).toHaveBeenCalledTimes(1);
     fireEvent(video, new Event('playing'));
     expect(screen.getByTestId('phase').textContent).toBe('playing');
+    // The media URL must persist through `playing` (dropping it would
+    // unmount the element mid-playback — found by headed Chrome QA).
+    expect(screen.getByTestId('url').textContent).toBe(
+      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
+    );
+    expect(screen.getByTestId('video')).toBeInTheDocument();
 
     // Polling stopped: no further status requests.
     const callsAfterReady = calls.length;
