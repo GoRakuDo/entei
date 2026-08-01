@@ -27,17 +27,26 @@
 #     pinned public key substituted into the repo template. The repo
 #     template itself always keeps the unpinned placeholder (fails closed).
 #
-# Manifest (one line, canonical order — the bootstrap parses it):
-#   {"format":"eizoudendenshi-release-manifest","formatVersion":1,
-#    "version":"<VERSION>",
-#    "helperContract":{"version":1,"minimumVersions":{}},
-#    "artifacts":[{"name":"...","target":"windows/amd64","sha256":"..."},
-#                 {"name":"...","target":"android/arm64","sha256":"..."}]}
-#   helperContract is the placeholder for future yt-dlp/aria2/ffmpeg minimum
-#   versions. It fails closed: the bootstrap only accepts exactly
-#   {"version":1,"minimumVersions":{}}; anything else (including future
-#   contract versions or non-empty minimumVersions) is refused before
-#   install, because this template provisions no helpers.
+# Manifest (one line, canonical order — the bootstraps parse it):
+#   Core-only (Termux path, unchanged):
+#     {"format":"eizoudendenshi-release-manifest","formatVersion":1,
+#      "version":"<VERSION>",
+#      "helperContract":{"version":1,"minimumVersions":{}},
+#      "artifacts":[{"name":"...","target":"windows/amd64","sha256":"..."},
+#                   {"name":"...","target":"android/arm64","sha256":"..."}]}
+#   Windows helper-enabled (when -HelpersFile is given):
+#     helperContract.version = 2 with a "helpers" map, e.g.
+#       {"version":2,"helpers":{"yt-dlp":{"required":true,"version":"…",
+#        "artifact":"yt-dlp-windows-amd64.exe"},
+#        "aria2":{"required":true,"version":"…","artifact":"aria2-windows-amd64.zip",
+#         "archive":true,"expectedFile":"aria2c.exe"}, …}}
+#     plus one artifacts entry per helper artifact (target windows/amd64).
+#   The Termux bootstrap ONLY accepts exactly {"version":1,
+#   "minimumVersions":{}} (fails closed on anything else), so helper-enabled
+#   releases are refused there — Termux stays helper-none. The Windows
+#   bootstrap ONLY accepts version 2 with the helpers map (fails closed on
+#   version 1). The v1 contract output is byte-for-byte unchanged when no
+#   helper inputs are given.
 
 [CmdletBinding()]
 param(
@@ -51,7 +60,9 @@ param(
 
     [string]$MinisignKeyPath = '',
 
-    [string]$PublicKeyFile = ''
+    [string]$PublicKeyFile = '',
+
+    [string]$HelpersFile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,6 +94,77 @@ if ($Verb -eq 'release') {
     if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
         throw "invalid -Version '$Version'; expected semver (e.g. 0.2.0)"
     }
+}
+
+# --- Windows helper inputs (ED-2D helper-enabled release) -------------------
+# Helpers are supplied ONLY as explicit local artifact paths via -HelpersFile
+# (a JSON file). The release tool NEVER downloads vendor code: it validates,
+# copies, hashes, and signs the supplied artifacts. Without -HelpersFile the
+# release is core-only and the manifest keeps the exact v1 Termux contract.
+$script:HelperSpecs = @()   # ordered list of validated helper specs
+$script:HelperNames = @{}   # key -> artifactName (duplicate detection)
+
+function Assert-SafeArtifactName {
+    param([string]$Name, [string]$What)
+    if ($Name -eq '' -or $Name -match '[/\\]' -or $Name -match '\.\.' -or $Name -match '[\s"<>|:*?]' -or $Name -notmatch '^[A-Za-z0-9._-]+$') {
+        throw "unsafe $What artifact name '$Name' (fails closed)"
+    }
+    return $Name
+}
+
+function Load-HelperSpecs {
+    if ($script:HelpersFile -eq '') {
+        return $false
+    }
+    $path = [System.IO.Path]::GetFullPath($script:HelpersFile)
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "helper inputs file not found: $path"
+    }
+    $specs = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    if ($null -eq $specs.helpers -or @($specs.helpers).Count -eq 0) {
+        throw 'helper inputs file has no "helpers" array (fails closed)'
+    }
+    foreach ($h in $specs.helpers) {
+        $key = [string]$h.key
+        if ($key -notin @('yt-dlp', 'aria2', 'ffmpeg')) {
+            throw "unknown helper key '$key' (only yt-dlp / aria2 / ffmpeg are supported)"
+        }
+        if ($script:HelperNames.ContainsKey($key)) {
+            throw "duplicate helper key '$key' (fails closed)"
+        }
+        $artifact = Assert-SafeArtifactName ([string]$h.artifactName) 'helper'
+        $version = [string]$h.version
+        if ($version -eq '' -or $version -notmatch '^[0-9A-Za-z][0-9A-Za-z._-]*$') {
+            throw "invalid version '$version' for helper '$key'"
+        }
+        $src = [System.IO.Path]::GetFullPath([string]$h.path)
+        if (-not (Test-Path -LiteralPath $src)) {
+            throw "helper artifact '$artifact' (key '$key') not found at the explicit local path: $src"
+        }
+        if ((Get-Item -LiteralPath $src).PSIsContainer) {
+            throw "helper artifact '$artifact' is a directory; a single file is required"
+        }
+        if ((Get-Item -LiteralPath $src).Length -eq 0) {
+            throw "helper artifact '$artifact' is empty (reject zero-byte helpers)"
+        }
+        $required = [bool]$h.required
+        $archive = [bool]$h.archive
+        $expectedFile = ''
+        if ($archive) {
+            $expectedFile = Assert-SafeArtifactName ([string]$h.expectedFile) 'archive target'
+        }
+        $script:HelperNames[$key] = $artifact
+        $script:HelperSpecs += [ordered]@{
+            key          = $key
+            required     = $required
+            version      = $version
+            artifactName = $artifact
+            srcPath      = $src
+            archive      = $archive
+            expectedFile = $expectedFile
+        }
+    }
+    return $true
 }
 
 # --- Build binaries ---
@@ -166,6 +248,22 @@ function Get-Sha256Lower {
     return (Get-FileHash -Algorithm SHA256 -Path $Path).Hash.ToLowerInvariant()
 }
 
+# Load + copy the Windows helper artifacts (explicit local inputs only).
+$helperEnabled = Load-HelperSpecs
+$helperArtifacts = @()
+if ($helperEnabled) {
+    foreach ($h in $script:HelperSpecs) {
+        $dest = Join-Path $OutDir $h.artifactName
+        Copy-Item -LiteralPath $h.srcPath -Destination $dest -Force
+        $helperArtifacts += [ordered]@{
+            name   = $h.artifactName
+            target = 'windows/amd64'
+            sha256 = Get-Sha256Lower $dest
+        }
+        Write-Host "helper  $($h.key) -> $($h.artifactName) ($([string]$h.version))"
+    }
+}
+
 $ManifestName = 'eizouden-manifest.json'
 $ManifestPath = Join-Path $OutDir $ManifestName
 
@@ -178,19 +276,43 @@ foreach ($a in $Artifacts) {
         sha256 = Get-Sha256Lower $p
     }
 }
+# Helper artifacts follow the core entries (canonical order: cores first).
+$artifactEntries += $helperArtifacts
+
+$helperContract = [ordered]@{
+    version         = 1
+    minimumVersions = @{}   # placeholder: Termux bootstrap fails closed on any non-empty value
+}
+if ($helperEnabled) {
+    $helpersMap = [ordered]@{}
+    foreach ($h in $script:HelperSpecs) {
+        $entry = [ordered]@{
+            required = $h.required
+            version  = $h.version
+            artifact = $h.artifactName
+        }
+        if ($h.archive) {
+            $entry.archive = $true
+            $entry.expectedFile = $h.expectedFile
+        }
+        $helpersMap[$h.key] = $entry
+    }
+    $helperContract = [ordered]@{
+        version = 2
+        helpers = $helpersMap
+    }
+}
+
 $manifest = [ordered]@{
     format        = 'eizoudendenshi-release-manifest'
     formatVersion = 1
     version       = $Version
-    helperContract = [ordered]@{
-        version         = 1
-        minimumVersions = @{}   # placeholder: bootstrap fails closed on any non-empty value
-    }
+    helperContract = $helperContract
     artifacts     = $artifactEntries
 }
-# Single-line canonical JSON (the Termux bootstrap parses it with grep/sed
-# against this exact compact form; changing the layout fails closed there).
-$manifestJson = ($manifest | ConvertTo-Json -Depth 6 -Compress)
+# Single-line canonical JSON (the bootstraps parse it against this exact
+# compact form; changing the layout fails closed there).
+$manifestJson = ($manifest | ConvertTo-Json -Depth 8 -Compress)
 [System.IO.File]::WriteAllText($ManifestPath, $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "wrote  $ManifestName (v$Version)"
 
@@ -215,8 +337,11 @@ Sign-File $ManifestPath
 foreach ($a in $Artifacts) {
     Sign-File (Join-Path $OutDir $a.Name)
 }
+foreach ($h in $helperArtifacts) {
+    Sign-File (Join-Path $OutDir $h.name)
+}
 
-# --- Optional: emit distribution-ready bootstrap with the pinned key ---
+# --- Optional: emit distribution-ready bootstraps with the pinned key ---
 if ($PublicKeyFile -eq '') {
     $PublicKeyFile = $env:EIZOUDEN_MINISIGN_PUBKEY_FILE
 }
@@ -226,16 +351,20 @@ if ($PublicKeyFile -ne '') {
     if (-not $pubLine) {
         throw "no RW... Minisign public key line found in $PublicKeyFile"
     }
-    $template = Join-Path $PSScriptRoot 'termux-bootstrap.sh'
-    $text = [System.IO.File]::ReadAllText($template)
     $placeholder = 'REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
-    if (-not $text.Contains($placeholder)) {
-        throw 'bootstrap template does not contain the pinned-key placeholder (template changed?)'
+    foreach ($pair in @(
+            @('termux-bootstrap.sh', 'eizouden-bootstrap.sh'),
+            @('windows-bootstrap.ps1', 'eizouden-bootstrap.ps1'))) {
+        $template = Join-Path $PSScriptRoot $pair[0]
+        $text = [System.IO.File]::ReadAllText($template)
+        if (-not $text.Contains($placeholder)) {
+            throw "bootstrap template $($pair[0]) does not contain the pinned-key placeholder (template changed?)"
+        }
+        $text = $text.Replace($placeholder, $pubLine)
+        $outBoot = Join-Path $OutDir $pair[1]
+        [System.IO.File]::WriteAllText($outBoot, $text, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "wrote  $($pair[1]) (public key pinned, distribution-ready)"
     }
-    $text = $text.Replace($placeholder, $pubLine)
-    $outBoot = Join-Path $OutDir 'eizouden-bootstrap.sh'
-    [System.IO.File]::WriteAllText($outBoot, $text, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host "wrote  eizouden-bootstrap.sh (public key pinned, distribution-ready)"
 }
 else {
     Write-Host 'skipped bootstrap emission (no -PublicKeyFile / EIZOUDEN_MINISIGN_PUBKEY_FILE)'

@@ -196,6 +196,18 @@ source integration remains in later ED-3 / ED-4 stages. See
   (66/66), including release-identity checks (startup banner reports the
   requested release version and agrees with the manifest; plain `build`
   keeps the dev default).
+- **ED-2D Windows x64 helper-enabled release + bootstrap (tooling
+  complete):** `scripts/release.ps1` now supports an explicit-local-input
+  helper contract (v2 manifest, per-helper Minisign + signed-manifest
+  SHA-256; the Termux v1 core-only path is byte-for-byte unchanged and
+  still 66/66 green), a new `scripts/windows-bootstrap.ps1` (HTTPS-only,
+  pinned-key fail-closed, user-private install root, verify-before-atomic-
+  replace with reuse-by-version+hash, archives extracted only after
+  verification, explicit absolute `--ytdlp`/`--aria2` for the core, ffmpeg
+  via process-scoped PATH — no system PATH mutation), and a new
+  `scripts/test-windows-bootstrap.ps1` harness (**51/51 green**). A clean
+  real Windows bootstrap run, real aria2 swarm QA, and the user-facing
+  Magnet/selection UI remain gates.
 - **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
   the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2`: on a fresh Termux
   reinstall the bootstrap downloaded from the GitHub release; the

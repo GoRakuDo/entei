@@ -635,6 +635,72 @@ Real swarm/network download QA (PSMUX detached session only when later),
 the user-facing torrent selection UI, forward/growing playback during
 download, and Android/headed-Windows browser QA.
 
+## ED-2D Windows x64 helper-enabled release + bootstrap (implemented)
+
+A general Windows user runs one signed bootstrap that checks / downloads /
+verifies / installs the Eizou core **and** its required helper artifacts
+(yt-dlp, aria2, ffmpeg) into user-private storage.
+
+### Release manifest evolution (canonical, signed, fail-closed)
+
+- **v1 core-only contract is byte-for-byte unchanged** when no helper inputs
+  are given — the Termux bootstrap still only accepts exactly
+  `{"version":1,"minimumVersions":{}}` and refuses anything else (Termux
+  stays helper-none). The Termux harness is still **66/66 green**.
+- **v2 Windows helper contract** (only when `-HelpersFile` is passed):
+  `helperContract.version = 2` with a `helpers` map declaring
+  `{required, version, artifact[, archive, expectedFile]}` for `yt-dlp` /
+  `aria2` / `ffmpeg`, plus one `artifacts` entry (target `windows/amd64`,
+  `sha256`) per helper artifact. The Windows bootstrap only accepts version 2;
+  a v1 core-only release is refused there (fails closed).
+- **Artifact sourcing is explicit local input only**: `-HelpersFile` is a JSON
+  file of explicit local artifact paths + target/name/version metadata. The
+  release tool NEVER downloads vendor code; it validates (safe artifact
+  names, non-empty files, versions, duplicate/unknown keys), copies, hashes,
+  and Minisign-signs each helper artifact. End users fetch only from the
+  signed Eizou release base.
+
+### `scripts/windows-bootstrap.ps1` (new template)
+
+- HTTPS-only release base URL (validated before any download; bounded
+  HTTPS-only redirects/timeouts); pinned Minisign key placeholder fails
+  closed; Windows x64 environment check; minisign is a required verifier
+  prerequisite (no system-wide install).
+- User-private install root `$env:LOCALAPPDATA\GoRakuDo\EizouDendenshi`
+  (ACL restricted to the current user; atomic staging + replace).
+- Per-artifact verification **before any replacement**: fetch artifact +
+  detached `.minisig` → Minisign verify → SHA-256 against the signed
+  manifest. Archives are extracted only after verification and only the exact
+  expected filename is taken. Verified installs are reused by
+  version+hash state (`helpers-state.json`); anything else (version mismatch,
+  missing, tampered) is atomically replaced.
+- The core is launched with explicit absolute `--ytdlp` / `--aria2` paths;
+  ffmpeg reaches yt-dlp through a **process-scoped** PATH (prepending the
+  private helpers dir — never a persistent system PATH change). No
+  `Invoke-Expression` / remote script execution, no winget/choco/Python, no
+  system PATH mutation.
+- Unsafe artifact names, unknown/duplicate helper keys, wrong target, missing
+  entries, and contract/version mismatches all fail closed before install;
+  error output never reveals sensitive local paths or URLs (only safe
+  artifact logical names).
+
+### `scripts/test-windows-bootstrap.ps1` (new harness) — **51/51 green**
+
+Synthetic helper-enabled Windows release (temporary fake helper executables
++ archives, temp Minisign key under `A:\Temp\opencode`, mirror-based
+fetching): success install with absolute helper paths; verified-install
+reuse; missing-helper auto-fetch; tampered manifest / helper artifact /
+archive / missing signature / SHA mismatch all fail **before** replacement;
+non-HTTPS URL and unpinned key fail closed; helper version mismatch triggers
+replacement; unsafe artifact names / unknown helper keys / v1 contract
+refused; no system PATH mutation; private temp cleanup.
+
+### Remaining gates (not claimed)
+
+A clean **real** Windows bootstrap run on a general-user machine, real
+aria2 swarm/network download QA, the user-facing Magnet/selection UI, and
+Android/headed-Windows browser QA.
+
 ## Deferred boundaries (out of scope through ED-2B)
 
 - yt-dlp / YouTube source handling

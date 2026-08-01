@@ -145,12 +145,19 @@ func main() {
 	// request). Without it the /v1/source/jobs endpoints stay unregistered.
 	var jobs *job.Manager
 	if *ytdlp != "" {
+		// Valid-executable check at the feasible degree: existence, regular
+		// file, non-empty. Exact version/hash verification is the Windows
+		// bootstrap's domain (the signed manifest contract); the core never
+		// depends on PATH to find the helper.
 		st, err := os.Stat(*ytdlp)
 		if err != nil {
 			log.Fatalf("--ytdlp: %v", err)
 		}
 		if st.IsDir() {
 			log.Fatalf("--ytdlp: %q is a directory; a single executable is required", *ytdlp)
+		}
+		if st.Size() == 0 {
+			log.Fatalf("--ytdlp: %q is empty (reject zero-byte helper)", *ytdlp)
 		}
 		jobs, err = job.New(job.Config{HelperPath: *ytdlp, Timeout: *jobTimeout})
 		if err != nil {
@@ -169,6 +176,9 @@ func main() {
 		}
 		if st.IsDir() {
 			log.Fatalf("--aria2: %q is a directory; a single executable is required", *aria2)
+		}
+		if st.Size() == 0 {
+			log.Fatalf("--aria2: %q is empty (reject zero-byte helper)", *aria2)
 		}
 		torrents, err = torrent.New(torrent.Config{HelperPath: *aria2, Timeout: *torrentTimeout})
 		if err != nil {
