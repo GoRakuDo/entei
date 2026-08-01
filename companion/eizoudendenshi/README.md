@@ -816,27 +816,6 @@ acquires ONLY the verifier safely:
   Files/selection/complete/Range/playback gates remain unmeasured; the
   MKV sourcing plan (public-domain/official) is documented and untested.
 
-### Torrent magnet QA script (user-run)
-
-scripts/qa-torrent-magnet.ps1 is a QA-only helper the **user runs
-interactively** against their own private Eizou install. It exercises the
-real torrent job API (create -> poll -> files -> select -> Range probe) with
-strict hygiene: the magnet is read via Read-Host -AsSecureString and kept
-in process memory only (never echoed/saved/logged); the companion is started
-as an owned hidden process with private transient logs; pairing code/token
-are never printed; the addr must be literal loopback; helper paths must be
-the user's private install layout (or explicit -CorePath/-Aria2Path);
-API errors map to generic labels; on Ctrl+C/error/timeout the job is
-cancelled best-effort, only the owned core tree is stopped, only the
-script-created transient files are removed, and it reports whether port 4322
-is free afterward. No media bytes are written or displayed.
-
-```
-pwsh -NoProfile -File scripts/qa-torrent-magnet.ps1 -InstallRoot <your private install root>
-pwsh -NoProfile -File scripts/qa-torrent-magnet.ps1 -CorePath <core> -Aria2Path <aria2c>
-pwsh -NoProfile -File scripts/qa-torrent-magnet.ps1 -SelfTest   # static validation only
-```
-
 ### QA status
 
 **PASS:** Torrent companion QA is accepted at this stage. The remaining
