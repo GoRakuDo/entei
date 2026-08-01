@@ -270,9 +270,23 @@ source integration remains in later ED-3 / ED-4 stages. See
   ./...` using a fake helper. Real yt-dlp download QA passed on 2026-08-01
   (current helper); the user-facing YouTube URL dialog (paired-only, real
   job create, generic localized errors, cancel via the job endpoint) and
-  the job→bridge wiring (`useCompanionJobSession`) are implemented with
+  the   job→bridge wiring (`useCompanionJobSession`) are implemented with
   web tests green. Cookies/saved profiles, subtitles, Android/headed-Windows
   browser QA, and the production bridge remain unimplemented/unrun.
+- **ED-2G aria2 torrent jobs — COMPANION FOUNDATION IMPLEMENTED:**
+  `internal/torrent` magnet validation (btih-only, other params dropped,
+  canonicalized) + a supervised aria2 manager (pinned `--aria2`, fixed argv
+  with `--seed-time=0` and no shell, one active session shared with YouTube
+  jobs → 409 across kinds, cancel/timeout kill the process tree, private
+  temp-dir lifecycle) behind `POST/GET /v1/source/torrents(/{id})(/cancel)`
+  plus a backend-only file-listing + one-video/optional-subtitle selection
+  (`/files`, `/select`) aligned to the Player's native allowlists; nothing
+  is served before a valid selection, and `/v1/media/status` +
+  `/v1/media/fixture` surface it (buffering 503 → complete 206). All Go
+  tests green with `go test -race ./...` (fake aria2 helper). Real swarm
+  download QA, the user-facing torrent/selection UI, forward/growing
+  playback during download, and Android/headed-Windows browser QA remain
+  unimplemented/unrun.
 - **Delivery is still not complete:** HTTPS deployed Entei origin, Android
   Chrome growing-media progressive playback, audio listening/decode, and
   the Windows installer remain. The production bridge is unimplemented and

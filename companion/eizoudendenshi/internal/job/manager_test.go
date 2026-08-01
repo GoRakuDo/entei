@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -430,15 +429,45 @@ func jobTempDirs() []string {
 	return out
 }
 
+// awaitJobDirFromArgs waits for the fake helper's recorded argv (the
+// -o "<dir>/media.%(ext)s" value) and returns the private job dir. The
+// EIZOU_FAKE_ARGS_OUT env must be set BEFORE Start (the fake is spawned
+// with it). Pins the leak check to the job's OWN dir, immune to other
+// packages creating entei-job-* dirs concurrently.
+func awaitJobDirFromArgs(t *testing.T, argsFile string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(argsFile); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("helper never recorded argv")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	raw, _ := os.ReadFile(argsFile)
+	line := strings.TrimSpace(string(raw))
+	for _, tok := range strings.Split(line, "\n") {
+		if strings.HasSuffix(tok, "media.%(ext)s") {
+			return filepath.Dir(tok)
+		}
+	}
+	t.Fatal("no -o <dir>/media.%(ext)s in recorded argv")
+	return ""
+}
+
 func TestNoJobTempDirLeakOnError(t *testing.T) {
 	setFakeEnv(t, "EIZOU_FAKE_SIZE", "200")
 	setFakeEnv(t, "EIZOU_FAKE_FAIL", "1")
+	argsFile := filepath.Join(t.TempDir(), "args.txt")
+	setFakeEnv(t, "EIZOU_FAKE_ARGS_OUT", argsFile)
 	m := newTestManager(t, 0)
-	before := jobTempDirs()
 	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	dir := awaitJobDirFromArgs(t, argsFile)
 	deadline := time.Now().Add(8 * time.Second)
 	for {
 		cur := m.Get(snap.ID)
@@ -450,14 +479,11 @@ func TestNoJobTempDirLeakOnError(t *testing.T) {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	// The errored job's private dir must be gone (regression: the helper
-	// stderr handle was left open, so os.RemoveAll failed on Windows and
-	// the dir — with the raw helper output inside — leaked).
-	after := jobTempDirs()
-	for _, d := range after {
-		if !slices.Contains(before, d) {
-			t.Errorf("leaked job temp dir after error: %s", d)
-		}
+	// The errored job's own private dir must be gone (regression: the
+	// helper stderr handle was left open, so os.RemoveAll failed on Windows
+	// and the dir — with the raw helper output inside — leaked).
+	if pathExists(dir) {
+		t.Errorf("leaked job temp dir after error: %s", dir)
 	}
 	_, _ = m.Cancel(snap.ID)
 }
@@ -465,22 +491,21 @@ func TestNoJobTempDirLeakOnError(t *testing.T) {
 func TestNoJobTempDirLeakOnCancel(t *testing.T) {
 	setFakeEnv(t, "EIZOU_FAKE_SIZE", "0")
 	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
+	argsFile := filepath.Join(t.TempDir(), "args.txt")
+	setFakeEnv(t, "EIZOU_FAKE_ARGS_OUT", argsFile)
 	m := newTestManager(t, 0)
-	before := jobTempDirs()
 	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	dir := awaitJobDirFromArgs(t, argsFile)
 	// Give the helper a moment to hold (so its stderr handle is open).
 	time.Sleep(400 * time.Millisecond)
 	if _, err := m.Cancel(snap.ID); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	after := jobTempDirs()
-	for _, d := range after {
-		if !slices.Contains(before, d) {
-			t.Errorf("leaked job temp dir after cancel: %s", d)
-		}
+	if pathExists(dir) {
+		t.Errorf("leaked job temp dir after cancel: %s", dir)
 	}
 }
 

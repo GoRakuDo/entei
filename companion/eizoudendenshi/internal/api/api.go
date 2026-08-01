@@ -50,6 +50,7 @@ import (
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/pairing"
+	"eizoudendenshi/internal/torrent"
 )
 
 // Version is the release version reported by /v1/health and the startup
@@ -154,6 +155,11 @@ type Config struct {
 	// (/v1/source/jobs…). Nil leaves them unregistered (404) and the
 	// media/status endpoints behave exactly as before.
 	Jobs *job.Manager
+
+	// Torrents, when set, enables the ED-2G aria2 torrent-job endpoints
+	// (/v1/source/torrents…). Nil leaves them unregistered (404). One
+	// active job is enforced across Jobs and Torrents together.
+	Torrents *torrent.Manager
 }
 
 // Server holds in-memory pairing state for one process lifetime.
@@ -164,6 +170,7 @@ type Server struct {
 	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
 	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
 	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
+	torrents       *torrent.Manager    // ED-2G: optional aria2 torrent-job manager (nil = disabled)
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 }
 
@@ -199,6 +206,7 @@ func New(cfg Config) (*Server, error) {
 		fixturePath:    cfg.FixturePath,
 		growSource:     cfg.GrowSource,
 		jobs:           cfg.Jobs,
+		torrents:       cfg.Torrents,
 		allowedOrigins: allowed,
 	}, nil
 }
@@ -223,6 +231,12 @@ func (s *Server) Handler() http.Handler {
 		// configured; otherwise these routes are honestly 404.
 		mux.HandleFunc("/v1/source/jobs", s.handleJobCreate)
 		mux.HandleFunc("/v1/source/jobs/", s.handleJobByID)
+	}
+	if s.torrents != nil {
+		// ED-2G: aria2 torrent jobs. Registered only when a torrent manager
+		// is configured; otherwise these routes are honestly 404.
+		mux.HandleFunc("/v1/source/torrents", s.handleTorrentCreate)
+		mux.HandleFunc("/v1/source/torrents/", s.handleTorrentByID)
 	}
 	mux.HandleFunc("/", handleNotFound)
 	return mux
@@ -329,9 +343,13 @@ func (s *Server) handleMediaFixture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ED-2F: an active job session takes precedence over the configured
-	// fixture/grow source — it IS the current media session.
+	// ED-2F/ED-2G: an active job session (YouTube or torrent) takes
+	// precedence over the configured fixture/grow source — it IS the
+	// current media session.
 	if s.jobs != nil && s.serveJobMedia(w, r) {
+		return
+	}
+	if s.torrents != nil && s.serveTorrentMedia(w, r) {
 		return
 	}
 

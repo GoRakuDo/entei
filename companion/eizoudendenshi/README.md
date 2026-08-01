@@ -557,6 +557,84 @@ path) was removed.
 Cookie / saved-profile handling, subtitles, Android/headed-Windows browser
 QA, and the production bridge connection.
 
+## ED-2G aria2 torrent job foundation (companion backend, implemented)
+
+A production-oriented aria2 local-torrent job boundary that later shares
+the existing status/media bridge. **No GoRakuDo proxy, no browser
+WebTorrent, no extension/site integration, no LAN/public bind.**
+
+### Endpoints (registered only when `--aria2` is configured)
+
+```
+POST /v1/source/torrents             — create; body {"magnet": "…"}
+GET  /v1/source/torrents/{id}        — read redacted state
+POST /v1/source/torrents/{id}/cancel — cancel + free the session
+GET  /v1/source/torrents/{id}/files  — sanitized file listing (after download)
+POST /v1/source/torrents/{id}/select — one video + optional subtitle
+```
+
+- Same exact-Origin + capability-token gates; OPTIONS preflight; `no-store`.
+- **One active session across BOTH job kinds** (YouTube + torrent): creating
+  a second while either is active → 409. A terminal (error/complete) job
+  stays current until cancelled.
+- Responses are **metadata-only**: opaque job ids, `state`, generic errors,
+  and sanitized file metadata (`id`/`basename`/`extension`/`byteSize`/`kind`)
+  — never absolute paths, the magnet, trackers, or raw aria2 stderr.
+
+### Magnet validation
+
+Only `magnet:?xt=urn:btih:` infohash magnets are accepted (40-hex or
+32-base32), canonicalized to deterministic 40-lowercase-hex; **all other
+params (dn/tr/xl…) are deliberately dropped** (the infohash is the identity;
+no arbitrary or tracker-supplied value reaches the helper). Everything else
+— arbitrary URLs, file paths, malformed magnets — is rejected before any
+spawn, and errors never echo the magnet.
+
+### Helper contract
+
+- Pinned via `--aria2 <path>` (validated at startup); never request-derived.
+- Fixed safe argv: `--dir=<private job dir> --seed-time=0 --enable-rpc=false
+  --check-integrity=true --summary-interval=0 --console-log-level=error
+  --allow-overwrite=true --auto-file-renaming=false` + the canonicalized
+  magnet as the final separate argv element. **No shell.**
+- `--seed-time=0`: download only, never seed. Original source bytes only (no
+  remux/transcode). All files stay in the private `entei-torrent-*` temp
+  dir; cancellation/failure/session end kills the aria2 process tree and
+  removes only owned job files — user files are never touched.
+
+### File listing → selection → media bridge
+
+After the download completes, the job lists + classifies the torrent files
+against the Entei Player's native allowlists (video: mp4/webm/ogv/ogg/mkv/
+m4v/avi; audio: mp3/wav/flac/aac/m4a/opus/m4b; subtitle: srt/vtt/ass only —
+no PGS/XML). **If no eligible video exists, the job fails with a terminal
+generic error.** `GET …/files` exposes the sanitized listing; `POST
+…/select` enforces the **one video + one optional subtitle** contract and,
+on success, makes the selected (fully downloaded) video the servable media.
+**Nothing is served before a valid selection** — `/v1/media/status` reports
+`buffering` (fixture 503) until then, then `complete` with
+`available==total` and the fixture serving the selected file (206 Range).
+Forward/growing playback during download is a documented **future testing
+direction**; the initial scope is the complete-only gate matching the direct
+video bridge.
+
+### Tests
+
+`internal/torrent` (magnet validation; manager: fixed argv/no injection,
+one-active conflict, file-listing sanitization, selection restrictions /
+no-eligible-video error, redaction, cancel/timeout/process cleanup + no
+temp-dir leak) and `internal/api` (torrent endpoints: gates, redaction,
+create/read/files/select/cancel, status/fixture mapping before/after
+selection, **cross-job-kind conflict**, preflight) — all against a
+deterministic fake aria2 helper (no swarm/network). `go test -race ./...`
+green.
+
+### Remaining gates (not claimed)
+
+Real swarm/network download QA (PSMUX detached session only when later),
+the user-facing torrent selection UI, forward/growing playback during
+download, and Android/headed-Windows browser QA.
+
 ## Deferred boundaries (out of scope through ED-2B)
 
 - yt-dlp / YouTube source handling

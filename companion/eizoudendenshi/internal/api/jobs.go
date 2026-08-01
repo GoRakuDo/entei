@@ -65,6 +65,11 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.jobGates(w, r) {
 		return
 	}
+	// One active session across both job kinds.
+	if s.oneActiveJobAnywhere() {
+		writeJSON(w, http.StatusConflict, errorBody("a job is already active"))
+		return
+	}
 	var req struct {
 		URL string `json:"url"`
 	}
@@ -85,6 +90,18 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, snapshotToJobBody(snap))
+}
+
+// oneActiveJobAnywhere reports whether a YouTube OR torrent job is current
+// (one active session across the companion).
+func (s *Server) oneActiveJobAnywhere() bool {
+	if s.jobs != nil && s.jobs.Current() != nil {
+		return true
+	}
+	if s.torrents != nil && s.torrents.Current() != nil {
+		return true
+	}
+	return false
 }
 
 func (s *Server) handleJobByID(w http.ResponseWriter, r *http.Request) {

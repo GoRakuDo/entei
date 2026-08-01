@@ -27,6 +27,7 @@ import (
 	"eizoudendenshi/internal/api"
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
+	"eizoudendenshi/internal/torrent"
 )
 
 // originList collects repeatable --allow-origin values. The values are never
@@ -99,6 +100,11 @@ func main() {
 			"source jobs (ED-2F; empty = source-job endpoints disabled)")
 	jobTimeout := flag.Duration("job-timeout", 30*time.Minute,
 		"per-job download timeout for YouTube source jobs (ED-2F)")
+	aria2 := flag.String("aria2", "",
+		"path to a pinned aria2-compatible helper executable for torrent "+
+			"source jobs (ED-2G; empty = torrent-job endpoints disabled)")
+	torrentTimeout := flag.Duration("torrent-timeout", 30*time.Minute,
+		"per-job download timeout for torrent source jobs (ED-2G)")
 	flag.Parse()
 
 	bind, err := resolveBindAddress(*addr)
@@ -152,11 +158,30 @@ func main() {
 		}
 	}
 
+	// ED-2G: aria2 torrent jobs. Enabled only when a helper is pinned via
+	// --aria2; the path is validated at startup. Without it the
+	// /v1/source/torrents endpoints stay unregistered.
+	var torrents *torrent.Manager
+	if *aria2 != "" {
+		st, err := os.Stat(*aria2)
+		if err != nil {
+			log.Fatalf("--aria2: %v", err)
+		}
+		if st.IsDir() {
+			log.Fatalf("--aria2: %q is a directory; a single executable is required", *aria2)
+		}
+		torrents, err = torrent.New(torrent.Config{HelperPath: *aria2, Timeout: *torrentTimeout})
+		if err != nil {
+			log.Fatalf("init torrents: %v", err)
+		}
+	}
+
 	srv, err := api.New(api.Config{
 		FixturePath:  *fixture,
 		GrowSource:   growSource,
 		AllowOrigins: allowOrigins,
 		Jobs:         jobs,
+		Torrents:     torrents,
 	})
 	if err != nil {
 		log.Fatalf("init api: %v", err)
@@ -173,6 +198,7 @@ func main() {
 	fmt.Fprintf(os.Stdout, "Pairing code: %s\n", srv.PairingCode())
 	fmt.Fprintln(os.Stdout, mediaStatusLine(*fixture, growSource))
 	fmt.Fprintln(os.Stdout, jobsStatusLine(*ytdlp))
+	fmt.Fprintln(os.Stdout, torrentsStatusLine(*aria2))
 
 	if err := http.Serve(ln, srv.Handler()); err != nil &&
 		!errors.Is(err, http.ErrServerClosed) {
@@ -201,6 +227,14 @@ func mediaStatusLine(fixturePath string, grow media.GrowingSource) string {
 	default:
 		return "Media fixture: disabled (--fixture not set)"
 	}
+}
+
+// torrentsStatusLine is the terminal handoff line for torrent source jobs.
+func torrentsStatusLine(helperPath string) string {
+	if helperPath == "" {
+		return "Torrent jobs: disabled (--aria2 not set)"
+	}
+	return fmt.Sprintf("Torrent jobs: enabled (helper: %s)", filepath.Base(helperPath))
 }
 
 // jobsStatusLine is the terminal handoff line for YouTube source jobs

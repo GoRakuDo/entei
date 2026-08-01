@@ -20,6 +20,10 @@ import (
 // internal/job/testdata/fakehelper (same helper the job tests use).
 var fakeHelper string
 
+// fakeAria2 is the test-only aria2 stand-in, built once from
+// internal/torrent/testdata/fakearia2.
+var fakeAria2 string
+
 func TestMain(m *testing.M) {
 	_, thisFile, _, _ := runtime.Caller(0)
 	pkgDir := filepath.Dir(thisFile)
@@ -29,13 +33,22 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	exe := "fakehelper"
+	exeAria := "fakearia2"
 	if runtime.GOOS == "windows" {
 		exe += ".exe"
+		exeAria += ".exe"
 	}
 	fakeHelper = filepath.Join(dir, exe)
 	build := exec.Command("go", "build", "-o", fakeHelper, filepath.Join(pkgDir, "..", "job", "testdata", "fakehelper"))
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build fake helper: %v\n%s", err, out)
+		os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	fakeAria2 = filepath.Join(dir, exeAria)
+	buildAria := exec.Command("go", "build", "-o", fakeAria2, filepath.Join(pkgDir, "..", "torrent", "testdata", "fakearia2"))
+	if out, err := buildAria.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "build fake aria2: %v\n%s", err, out)
 		os.RemoveAll(dir)
 		os.Exit(1)
 	}
