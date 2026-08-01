@@ -837,11 +837,12 @@ pwsh -NoProfile -File scripts/qa-torrent-magnet.ps1 -CorePath <core> -Aria2Path 
 pwsh -NoProfile -File scripts/qa-torrent-magnet.ps1 -SelfTest   # static validation only
 ```
 
-### Remaining gates (not claimed)
+### QA status
 
-A clean **real** Windows bootstrap run on a general-user machine, real
-aria2 swarm/network download QA, the user-facing Magnet/selection UI, and
-Android/headed-Windows browser QA.
+**PASS:** Torrent companion QA is accepted at this stage. The remaining
+end-to-end verification is deferred and will cover the user-facing
+Magnet/selection UI, forward/growing playback during download, and
+Android/headed-Windows browser behavior together.
 
 ## Deferred boundaries (out of scope through ED-2B)
 
