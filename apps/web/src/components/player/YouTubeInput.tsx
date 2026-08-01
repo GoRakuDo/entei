@@ -1,13 +1,20 @@
 /**
- * YouTubeInput — ED-3 YouTube URL entrance (honest unimplemented state).
+ * YouTubeInput — ED-2F YouTube URL source dialog.
  * ---------------------------------------------------------------------------
- * Visual shell only, same dialog language as MagnetInput: it explains that
- * YouTube streaming is not available yet and that EizouDendenshi pairing
- * comes first. There is deliberately NO input field — no user URL is ever
- * captured, persisted, or sent anywhere. X close is the only affordance.
- * --------------------------------------------------------------------------- */
+ * A real, controlled dialog: a URL text input + submit that creates a
+ * YouTube source job on the paired localhost companion (POST
+ * /v1/source/jobs?token=…). The companion server validation is the source
+ * of truth; a light client-side shape check gives immediate feedback for
+ * clearly invalid input. The URL and token live in component/page memory
+ * only — never localStorage / IndexedDB / sessionStorage / cookies /
+ * history / console / errors / analytics — and are cleared on close and
+ * unmount. Unpaired: only a pairing-needed notice; no URL can be entered.
+ * Errors are generic and localized; raw server/URL details are suppressed.
+ * ---------------------------------------------------------------------------
+ */
 'use client';
 
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -15,30 +22,221 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/player/ui/dialog';
-import { Link } from 'lucide-react';
+import { Button } from '@/components/player/ui/button';
+import { Input } from '@/components/player/ui/input';
+import { YouTubeMark } from '@/components/player/YouTubeMark';
+
+/** Loopback companion origin; the only accepted job endpoint. */
+const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
+
+type ErrorKind =
+  | 'invalid'
+  | 'repair'
+  | 'conflict'
+  | 'network'
+  | 'generic'
+  | null;
+
+export interface YouTubeInputDict {
+  youtubeInputLabel: string;
+  youtubeInputTitle: string;
+  youtubeInputPlaceholder: string;
+  youtubeInputSubmit: string;
+  youtubeInputUnpairedBody: string;
+  youtubeInputErrorInvalid: string;
+  youtubeInputErrorRepair: string;
+  youtubeInputErrorConflict: string;
+  youtubeInputErrorNetwork: string;
+  youtubeInputErrorGeneric: string;
+  youtubeInputSubmitting: string;
+  dialogClose: string;
+}
 
 interface YouTubeInputProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  dict: {
-    youtubeInputLabel: string;
-    youtubeInputTitle: string;
-    youtubeInputBody: string;
-    dialogClose: string;
-  };
+  /** Paired state: job creation is allowed only after a successful pairing. */
+  isPaired: boolean;
+  /** Page-memory capability token; used only in the request query string. */
+  token: string | null;
+  /** Called with the opaque job id once the companion accepted the job. */
+  onJobAccepted: (jobId: string) => void;
+  dict: YouTubeInputDict;
 }
 
-export function YouTubeInput({ open, onOpenChange, dict }: YouTubeInputProps) {
+// Light client-side shape check only; the companion is the source of truth.
+// Rejects clearly-invalid input (non-https / wrong host / empty) before any
+// network call. The strict video-id rules live server-side.
+function isYouTubeUrlShape(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  switch (u.hostname.toLowerCase()) {
+    case 'youtube.com':
+    case 'www.youtube.com':
+    case 'm.youtube.com':
+    case 'music.youtube.com':
+    case 'youtu.be':
+      return true;
+    default:
+      return false;
+  }
+}
+
+const errorMessages: Record<Exclude<ErrorKind, null>, (d: YouTubeInputDict) => string> = {
+  invalid: (d) => d.youtubeInputErrorInvalid,
+  repair: (d) => d.youtubeInputErrorRepair,
+  conflict: (d) => d.youtubeInputErrorConflict,
+  network: (d) => d.youtubeInputErrorNetwork,
+  generic: (d) => d.youtubeInputErrorGeneric,
+};
+
+export function YouTubeInput({
+  open,
+  onOpenChange,
+  isPaired,
+  token,
+  onJobAccepted,
+  dict,
+}: YouTubeInputProps) {
+  const [url, setUrl] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<ErrorKind>(null);
+  // Stale-callback guards: a submit that resolves after the dialog closed
+  // or the component unmounted must not fire the acceptance callback or
+  // mutate UI state.
+  const mountedRef = useRef(true);
+  const openRef = useRef(open);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    openRef.current = open;
+    if (!open) setSubmitting(false);
+  }, [open]);
+
+  // Clear the URL and error whenever the dialog (re)opens.
+  useEffect(() => {
+    if (open) {
+      setUrl('');
+      setError(null);
+    }
+  }, [open]);
+
+  const handleSubmit = useCallback(async () => {
+    if (!isPaired || !token) return;
+    if (!isYouTubeUrlShape(url)) {
+      setError('invalid');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${COMPANION_BASE_URL}/v1/source/jobs?token=${encodeURIComponent(token)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url.trim() }),
+          cache: 'no-store',
+        },
+      );
+      if (res.status === 201) {
+        let jobId = '';
+        try {
+          const body = (await res.json()) as { id?: unknown };
+          if (typeof body.id === 'string' && body.id.length > 0) {
+            jobId = body.id;
+          }
+        } catch {
+          // Fall through to generic below.
+        }
+        if (!jobId) {
+          setError('generic');
+          return;
+        }
+        if (!mountedRef.current || !openRef.current) return; // stale close/unmount
+        setUrl('');
+        setSubmitting(false);
+        onJobAccepted(jobId);
+        return;
+      }
+      switch (res.status) {
+        case 400:
+          setError('invalid');
+          break;
+        case 401:
+        case 403:
+          setError('repair');
+          break;
+        case 409:
+          setError('conflict');
+          break;
+        default:
+          setError('generic');
+      }
+    } catch {
+      setError('network');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [isPaired, token, url, onJobAccepted]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent closeLabel={dict.dialogClose}>
         <DialogHeader>
           <DialogTitle className="entei-magnet-dialog-title">
-            <Link size={16} aria-hidden="true" />
+            <YouTubeMark width={16} height={16} aria-hidden="true" />
             {dict.youtubeInputTitle}
           </DialogTitle>
-          <DialogDescription>{dict.youtubeInputBody}</DialogDescription>
+          <DialogDescription>
+            {isPaired
+              ? dict.youtubeInputLabel
+              : dict.youtubeInputUnpairedBody}
+          </DialogDescription>
         </DialogHeader>
+        {isPaired ? (
+          <div className="entei-youtube-form">
+            <Input
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              placeholder={dict.youtubeInputPlaceholder}
+              aria-label={dict.youtubeInputLabel}
+              aria-invalid={error !== null}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !submitting) {
+                  void handleSubmit();
+                }
+              }}
+            />
+            {error !== null && (
+              <p className="entei-youtube-form-error" role="alert">
+                {errorMessages[error](dict)}
+              </p>
+            )}
+            <Button
+              type="button"
+              className="entei-youtube-form-submit"
+              onClick={() => void handleSubmit()}
+              disabled={submitting || url.trim() === ''}
+            >
+              {submitting
+                ? dict.youtubeInputSubmitting
+                : dict.youtubeInputSubmit}
+            </Button>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

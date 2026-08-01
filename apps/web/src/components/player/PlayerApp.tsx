@@ -92,8 +92,8 @@ import {
 } from '@/features/player/audio-clip';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { MagnetInput } from '@/components/player/MagnetInput';
-import { useCompanionFixtureSession } from '@/features/player/use-companion-fixture-session';
-import { registerCompanionFixtureEntry } from '@/features/player/companion-fixture-entry';
+import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
+
 import { CompanionFixtureSessionStatus } from '@/components/player/CompanionFixtureSessionStatus';
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
@@ -458,29 +458,31 @@ export default function PlayerApp() {
   const [eizouConnected, setEizouConnected] = useState(false);
   const eizouTokenRef = useRef<string | null>(null);
 
-  // --- EizouDendenshi ED-2E fixture bridge (fixture-only, page memory) ---
-  const fixtureSession = useCompanionFixtureSession();
-  const displayMediaUrl = fixtureSession.fixtureMediaUrl ?? mediaUrl;
-  const displayMediaType = fixtureSession.fixtureMediaUrl ? 'video' : mediaType;
+  // --- EizouDendenshi ED-2F YouTube job bridge (page memory only) ---
+  const jobSession = useCompanionJobSession();
+  const displayMediaUrl = jobSession.jobMediaUrl ?? mediaUrl;
+  const displayMediaType = jobSession.jobMediaUrl ? 'video' : mediaType;
 
-  // ED-2E fixture-only entry: begins a known companion fixture session with
-  // the page-memory pairing token. Internal (registered for tests / PSMUX
-  // browser QA); never wired to user-facing source buttons. No-ops without
-  // pairing or while local media is loaded (protects the local flow).
-  const beginCompanionFixtureSession = useCallback(() => {
-    const token = eizouTokenRef.current;
-    if (!token || displayMediaUrl) return;
-    fixtureSession.beginFixtureSession({ baseUrl: 'http://127.0.0.1:4322', token });
-  }, [fixtureSession, displayMediaUrl]);
-  useEffect(() => {
-    registerCompanionFixtureEntry(beginCompanionFixtureSession);
-    return () => registerCompanionFixtureEntry(null);
-  }, [beginCompanionFixtureSession]);
+  // ED-2F: a real YouTube job accepted by the companion starts the bridge
+  // session (polling the job's status; media loads only on complete).
+  const handleYouTubeJobAccepted = useCallback(
+    (jobId: string) => {
+      const token = eizouTokenRef.current;
+      if (!token) return;
+      jobSession.beginJobSession({
+        baseUrl: 'http://127.0.0.1:4322',
+        token,
+        jobId,
+      });
+      setIsYouTubeDialogOpen(false);
+    },
+    [jobSession],
+  );
 
   // Attach the actual video element on the complete gate (existing ref).
   useEffect(() => {
-    fixtureSession.attachMediaElement(videoRef.current);
-  }, [fixtureSession, fixtureSession.fixtureMediaUrl, fixtureSession.phase]);
+    jobSession.attachMediaElement(videoRef.current);
+  }, [jobSession, jobSession.jobMediaUrl, jobSession.phase]);
   const [isYouTubeDialogOpen, setIsYouTubeDialogOpen] = useState(false);
 
   // --- Refs ---
@@ -801,7 +803,7 @@ export default function PlayerApp() {
   const handleMediaSelect = useCallback(
     (file: File) => {
       // ED-2E: media switch ends any active companion fixture session.
-      fixtureSession.endFixtureSession();
+      void jobSession.cancelActiveJob();
 
       const admission = classifyMediaFile(file);
 
@@ -834,7 +836,7 @@ export default function PlayerApp() {
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
     },
-    [clearScreenshot, clearAudioClip, clearMiningPreview, fixtureSession],
+    [clearScreenshot, clearAudioClip, clearMiningPreview, jobSession],
   );
 
   const handleSubtitleSelect = useCallback((file: File) => {
@@ -3052,11 +3054,12 @@ export default function PlayerApp() {
       {/* ED-2E: companion fixture session status — only while a fixture
           session is active and not playing; absent from local-file flow. */}
       <CompanionFixtureSessionStatus
-        phase={fixtureSession.phase}
-        progress={fixtureSession.progress}
-        reason={fixtureSession.reason}
-        onEndSession={fixtureSession.endFixtureSession}
+        phase={jobSession.phase}
+        progress={jobSession.progress}
+        reason={jobSession.reason}
+        onEndSession={() => void jobSession.cancelActiveJob()}
         dict={{
+          eizouSessionSourceLabel: dict.eizouSessionSourceLabel,
           eizouSessionBuffering: dict.eizouSessionBuffering,
           eizouSessionProgressLabel: dict.eizouSessionProgressLabel,
           eizouSessionError: dict.eizouSessionError,
@@ -3148,14 +3151,26 @@ export default function PlayerApp() {
         }}
       />
 
-      {/* ED-3: YouTube URL entrance — honest unimplemented state, no input */}
+      {/* ED-2F: YouTube source dialog — real URL input, job create on the
+          paired companion; media switch / End button cancels the job. */}
       <YouTubeInput
         open={isYouTubeDialogOpen}
         onOpenChange={setIsYouTubeDialogOpen}
+        isPaired={eizouConnected}
+        token={eizouTokenRef.current}
+        onJobAccepted={handleYouTubeJobAccepted}
         dict={{
           youtubeInputLabel: dict.youtubeInputLabel,
           youtubeInputTitle: dict.youtubeInputTitle,
-          youtubeInputBody: dict.youtubeInputBody,
+          youtubeInputPlaceholder: dict.youtubeInputPlaceholder,
+          youtubeInputSubmit: dict.youtubeInputSubmit,
+          youtubeInputUnpairedBody: dict.youtubeInputUnpairedBody,
+          youtubeInputErrorInvalid: dict.youtubeInputErrorInvalid,
+          youtubeInputErrorRepair: dict.youtubeInputErrorRepair,
+          youtubeInputErrorConflict: dict.youtubeInputErrorConflict,
+          youtubeInputErrorNetwork: dict.youtubeInputErrorNetwork,
+          youtubeInputErrorGeneric: dict.youtubeInputErrorGeneric,
+          youtubeInputSubmitting: dict.youtubeInputSubmitting,
           dialogClose: dict.dialogClose,
         }}
       />

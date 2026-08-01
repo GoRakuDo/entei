@@ -4114,6 +4114,11 @@ html.entei-player-immersive .entei-player-audio-area {
   animation: entei-fixture-spin 1s linear infinite;
 }
 
+.entei-fixture-status-source {
+  font-weight: 600;
+  color: var(--entei-text);
+}
+
 @keyframes entei-fixture-spin {
   to {
     transform: rotate(360deg);
@@ -4132,6 +4137,26 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-fixture-status-end {
   min-height: var(--entei-touch-min);
+}
+
+/* --- ED-2F YouTube source dialog --- */
+.entei-youtube-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+}
+
+.entei-youtube-form-error {
+  color: oklch(60% 0.22 25deg); /* matches the disconnected status red */
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.entei-youtube-form-submit {
+  min-height: var(--entei-touch-min);
+  border-radius: var(--entei-radius-md);
+  font-size: 0.875rem;
 }
 
 /* ===========================================================================

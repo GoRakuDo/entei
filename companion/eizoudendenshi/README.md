@@ -535,15 +535,27 @@ still held open media handles when `os.RemoveAll` ran — all cleanup paths
 now use a bounded-retry removal (`removeAllBestEffort`, 5s), and the fake
 helper's hold mode was strengthened to keep a media handle open with
 regression tests (`TestNoJobTempDirLeakOnError`/`TestNoJobTempDirLeakOnCancel`).
-Remaining gates: the user-facing YouTube URL UI, cookies/saved profiles,
-subtitles, Android/headed-Windows browser QA, and the production bridge
-connection.
+Remaining gates: cookies/saved profiles, subtitles, Android/headed-Windows browser QA, and the production bridge connection.
+
+### User-facing YouTube URL flow (implemented)
+
+The YouTube entrance is now a real controlled dialog (URL input + submit)
+gated on pairing: unpaired shows a pairing-needed notice with no input;
+paired submits `POST /v1/source/jobs?token=…` (Origin/CORS natural),
+surfaces generic localized errors (invalid / re-pair needed / one-active-job
+conflict / companion unavailable), and on acceptance starts the existing
+bridge session (`useCompanionJobSession`) which polls the job status and
+loads the media only on `complete`. The banner's End button and media
+switch cancel the job via `POST /v1/source/jobs/{id}/cancel` and end the
+session. URL + token stay page-memory only (no storage/logs/URL
+persistence); the raw URL is never shown — a generic localized session
+label is used. `companion-fixture-entry.ts` (the test-only internal start
+path) was removed.
 
 ### Remaining gates (not claimed)
 
-Real-download QA with actual yt-dlp, the bridge wiring of the finished
-media into the Entei player, the user-facing YouTube source entry, cookie /
-saved-profile handling, and Android/headed-Windows browser QA.
+Cookie / saved-profile handling, subtitles, Android/headed-Windows browser
+QA, and the production bridge connection.
 
 ## Deferred boundaries (out of scope through ED-2B)
 

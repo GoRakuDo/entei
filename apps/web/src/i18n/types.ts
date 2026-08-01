@@ -278,10 +278,20 @@ export interface Dictionary {
   eizouSessionError: string;
   eizouSessionRePairRequired: string;
   eizouSessionEnd: string;
-    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+  /** Generic session source label (never the raw URL). */
+  eizouSessionSourceLabel: string;
+    // ED-2F: real YouTube URL source dialog (paired companion only)
     youtubeInputLabel: string;
     youtubeInputTitle: string;
-    youtubeInputBody: string;
+    youtubeInputPlaceholder: string;
+    youtubeInputSubmit: string;
+    youtubeInputUnpairedBody: string;
+    youtubeInputErrorInvalid: string;
+    youtubeInputErrorRepair: string;
+    youtubeInputErrorConflict: string;
+    youtubeInputErrorNetwork: string;
+    youtubeInputErrorGeneric: string;
+    youtubeInputSubmitting: string;
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: string;
     trackerOn: string;

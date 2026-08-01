@@ -18,6 +18,7 @@ import type {
 } from '@/features/player/companion-bridge';
 
 export interface CompanionFixtureSessionStatusDict {
+  eizouSessionSourceLabel: string;
   eizouSessionBuffering: string;
   eizouSessionProgressLabel: string;
   eizouSessionError: string;
@@ -57,6 +58,8 @@ export function CompanionFixtureSessionStatus({
   return (
     <div className="entei-fixture-status">
       <span className="entei-fixture-status-message" role="status">
+        {/* Generic session source label — never the raw URL. */}
+        <span className="entei-fixture-status-source">{dict.eizouSessionSourceLabel}</span>
         {phase === 'buffering' && (
           <Loader2
             className="entei-fixture-status-spinner"

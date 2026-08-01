@@ -267,9 +267,12 @@ source integration remains in later ED-3 / ED-4 stages. See
   existing `/v1/media/status` and `/v1/media/fixture` now surface the
   active job (buffering/complete/error mapping) without changing the
   static fixture/grow contract. All Go tests green with `go test -race
-  ./...` using a fake helper. Real yt-dlp download QA, the user-facing
-  YouTube URL input, cookies/saved profiles, and the production bridge
-  remain unimplemented/unrun.
+  ./...` using a fake helper. Real yt-dlp download QA passed on 2026-08-01
+  (current helper); the user-facing YouTube URL dialog (paired-only, real
+  job create, generic localized errors, cancel via the job endpoint) and
+  the job→bridge wiring (`useCompanionJobSession`) are implemented with
+  web tests green. Cookies/saved profiles, subtitles, Android/headed-Windows
+  browser QA, and the production bridge remain unimplemented/unrun.
 - **Delivery is still not complete:** HTTPS deployed Entei origin, Android
   Chrome growing-media progressive playback, audio listening/decode, and
   the Windows installer remain. The production bridge is unimplemented and

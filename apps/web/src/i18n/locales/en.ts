@@ -246,12 +246,20 @@ export const en: Dictionary = {
     eizouSessionError: 'The companion session failed. End it and try again.',
     eizouSessionRePairRequired: 'Re-pair required — the pairing code has changed.',
     eizouSessionEnd: 'End session',
+        eizouSessionSourceLabel: 'YouTube download',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTube streaming',
-    youtubeInputBody:
-      'YouTube streaming is not available yet. Set up EizouDendenshi first; YouTube support arrives in a later stage.',
+    youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
+    youtubeInputSubmit: 'Start download',
+    youtubeInputUnpairedBody: 'Pair EizouDendenshi first to download from YouTube.',
+    youtubeInputErrorInvalid: 'Invalid YouTube URL.',
+    youtubeInputErrorRepair: 'The connection needs re-pairing. Open Setup and connect again.',
+    youtubeInputErrorConflict: 'A download is already active. Cancel the previous download first.',
+    youtubeInputErrorNetwork: 'Could not reach EizouDendenshi. Make sure the companion app is running.',
+    youtubeInputErrorGeneric: 'Something went wrong. Try again.',
+    youtubeInputSubmitting: 'Starting…',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Subtitle Appearance',

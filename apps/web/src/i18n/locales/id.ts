@@ -249,12 +249,20 @@ export const id: Dictionary = {
     eizouSessionError: 'Sesi gagal. Akhiri sesi dan coba lagi.',
     eizouSessionRePairRequired: 'Perlu menghubungkan ulang — kode pairing telah berubah.',
     eizouSessionEnd: 'Akhiri sesi',
+        eizouSessionSourceLabel: 'Unduhan YouTube',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'URL YouTube',
     youtubeInputTitle: 'Streaming YouTube',
-    youtubeInputBody:
-      'Streaming YouTube belum tersedia. Set up EizouDendenshi terlebih dahulu; dukungan YouTube hadir di tahap berikutnya.',
+    youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
+    youtubeInputSubmit: 'Mulai unduh',
+    youtubeInputUnpairedBody: 'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh dari YouTube.',
+    youtubeInputErrorInvalid: 'URL YouTube tidak valid.',
+    youtubeInputErrorRepair: 'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',
+    youtubeInputErrorConflict: 'Satu unduhan sudah berjalan. Batalkan unduhan sebelumnya terlebih dahulu.',
+    youtubeInputErrorNetwork: 'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
+    youtubeInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
+    youtubeInputSubmitting: 'Menyiapkan…',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Tampilan Subtitle',

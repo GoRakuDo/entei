@@ -251,13 +251,21 @@ export const ja: Dictionary = {
     eizouSessionError: 'セッションに失敗しました。終了してやり直してください。',
     eizouSessionRePairRequired: '再ペアリングが必要です — ペアリングコードが変わっています。',
     eizouSessionEnd: 'セッション終了',
+        eizouSessionSourceLabel: 'YouTubeダウンロード',
     eizouPairingErrorGeneric:
       '接続に失敗しました。もう一度お試しください。',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTubeストリーミング',
-    youtubeInputBody:
-      'YouTubeのストリーミングはまだ利用できません。先にEizouDendenshiをセットアップしてください。YouTube対応は後のステージで追加されます。',
+    youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
+    youtubeInputSubmit: 'ダウンロード開始',
+    youtubeInputUnpairedBody: 'YouTubeからダウンロードするには、先に映像伝電子をペアリングしてください。',
+    youtubeInputErrorInvalid: 'YouTubeのURLが無効です。',
+    youtubeInputErrorRepair: '再接続が必要です。「セットアップ」から接続し直してください。',
+    youtubeInputErrorConflict: 'すでにダウンロードが進行中です。先に前のダウンロードをキャンセルしてください。',
+    youtubeInputErrorNetwork: 'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
+    youtubeInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
+    youtubeInputSubmitting: '準備中…',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: '字幕',
     subtitleAppearance: '字幕の見た目',
