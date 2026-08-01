@@ -165,7 +165,9 @@ export function EizouDendenshiPairingDialog({
           <DialogTitle className="entei-magnet-dialog-title">
             {dict.eizouPairingTitle}
           </DialogTitle>
-          <DialogDescription>{dict.eizouPairingDesc}</DialogDescription>
+          <DialogDescription className="entei-sr-only">
+            {dict.eizouPairingDesc}
+          </DialogDescription>
         </DialogHeader>
         <div className="entei-eizou-pair-body">
           <InputOTP
