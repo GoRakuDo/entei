@@ -102,6 +102,15 @@ function Static-Checks {
     Check 'static: explicit absolute helper flags for the core' (
         $code -match '--ytdlp' -and $code -match '--aria2' -and
         $code -match 'env:PATH\s*=\s*"\$helpersDir') 'core receives explicit helper paths; PATH change is process-scoped only'
+    Check 'static: verifier mirror env guard is $null-safe' (
+        # Regression pin for the published rc.5 clean-gate failure: an
+        # unguarded `Test-Path -LiteralPath $env:EIZOU_WIN_MINISIGN_MIRROR`
+        # crashes on a real first run (the env var is undefined; PowerShell's
+        # `$env:X -ne ''` is TRUE for $null). The guard must check $null
+        # explicitly before Test-Path.
+        $code -match '\$null\s+-ne\s+\$mirror' -and
+        $code -match 'Test-Path -LiteralPath \$mirror' -and
+        -not ($code -match 'Test-Path\s+-LiteralPath\s+\$env:EIZOU_WIN_MINISIGN_MIRROR')) 'undefined mirror env must fall through to the pinned download, not crash'
 }
 
 # --- Dynamic suite ----------------------------------------------------------
@@ -293,20 +302,25 @@ function Dynamic-Suite {
     Invoke-WinBootstrapCase -Name 'T1 success' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T1')) `
         -InstallRoot $root -Env $script:BaseEnv -ExpectSuccess -Mirror $mirror -LaunchFile $launch
     Check 'T1: core installed' (Test-Path (Join-Path $root 'eizouden-windows-amd64.exe')) 'windows core present'
-    Check 'T1: yt-dlp helper installed' (Test-Path (Join-Path $root 'yt-dlp-windows-amd64.exe')) 'yt-dlp artifact present'
-    Check 'T1: aria2 helper installed (extracted)' (Test-Path (Join-Path $root 'aria2-windows-amd64.zip')) 'aria2 archive present'
+    Check 'T1: yt-dlp helper installed (runtime name)' (Test-Path (Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')) 'yt-dlp runtime exe present'
+    Check 'T1: aria2 helper installed under literal aria2c.exe' (Test-Path (Join-Path $root 'helpers\aria2c.exe')) 'extracted exe keeps its runtime name'
+    Check 'T1: ffmpeg helper installed under literal ffmpeg.exe' (Test-Path (Join-Path $root 'helpers\ffmpeg.exe')) 'extracted exe keeps its runtime name (PATH ffmpeg lookup)'
+    Check 'T1: no zip-named helper at the root (legacy layout gone)' (
+        -not (Test-Path (Join-Path $root 'aria2-windows-amd64.zip')) -and
+        -not (Test-Path (Join-Path $root 'ffmpeg-windows-amd64.zip'))) 'helpers live only in the runtime dir'
     Check 'T1: state file written' (Test-Path (Join-Path $root 'helpers-state.json')) 'helpers-state.json present'
     $launchText = if (Test-Path -LiteralPath $launch) { Get-Content -Raw -LiteralPath $launch } else { '' }
-    Check 'T1: core launch command has absolute --ytdlp/--aria2' (
-        $launchText -match [regex]::Escape((Join-Path $root 'yt-dlp-windows-amd64.exe')) -and
-        $launchText -match [regex]::Escape((Join-Path $root 'aria2-windows-amd64.zip'))) $launchText
-    # Installed helper SHA must equal the signed manifest.
+    Check 'T1: core launch command has absolute runtime --ytdlp/--aria2' (
+        $launchText -match [regex]::Escape((Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')) -and
+        $launchText -match [regex]::Escape((Join-Path $root 'helpers\aria2c.exe'))) $launchText
+    # Installed yt-dlp bytes must equal the signed manifest (yt-dlp artifact
+    # IS its runtime executable).
     $manSha = [string]($man.artifacts | Where-Object { $_.name -eq 'yt-dlp-windows-amd64.exe' } | Select-Object -First 1).sha256
-    $instSha = (Get-FileHash -LiteralPath (Join-Path $root 'yt-dlp-windows-amd64.exe')).Hash.ToLowerInvariant()
+    $instSha = (Get-FileHash -LiteralPath (Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')).Hash.ToLowerInvariant()
     Check 'T1: installed helper bytes match signed manifest' ($instSha -eq $manSha) "got $instSha want $manSha"
 
     # T2: reuse (second run, same root — no replacement).
-    $ytdlpInstalled = Join-Path $root 'yt-dlp-windows-amd64.exe'
+    $ytdlpInstalled = Join-Path $root 'helpers\yt-dlp-windows-amd64.exe'
     $t0 = (Get-Item -LiteralPath $ytdlpInstalled).LastWriteTimeUtc
     Invoke-WinBootstrapCase -Name 'T2 reuse' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T2')) `
         -InstallRoot $root -Env $script:BaseEnv -ExpectSuccess -Mirror (Copy-Mirror 'T2') -LaunchFile $launch
@@ -405,6 +419,33 @@ function Dynamic-Suite {
     $state11b = Get-Content -Raw -LiteralPath (Join-Path $root11 'helpers-state.json') | ConvertFrom-Json
     Check 'T11: version mismatch triggered replacement and state update' ($state11b.'yt-dlp'.version -eq '2026.07.04') ($state11b | ConvertTo-Json -Compress)
 
+    # T11x: malformed legacy (rc.5 archive-name) state -> replaced, never
+    # reused; the legacy zip-named leftover at the root is removed.
+    $mirror = Copy-Mirror 'T11x'
+    $root11x = Join-Path $script:WorkDir 'root-T11x'
+    New-Item -ItemType Directory -Force -Path $root11x | Out-Null
+    Set-Content -LiteralPath (Join-Path $root11x 'aria2-windows-amd64.zip') -Value 'legacy-junk' -Encoding ascii
+    $legacyState = @{ 'aria2' = @{ version = '1.37.0'; sha256 = '0' * 64; artifact = 'aria2-windows-amd64.zip' } }
+    [System.IO.File]::WriteAllText((Join-Path $root11x 'helpers-state.json'), ($legacyState | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+    Invoke-WinBootstrapCase -Name 'T11x legacy state replaced' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T11x')) `
+        -InstallRoot $root11x -Env $script:BaseEnv -ExpectSuccess -Mirror $mirror
+    Check 'T11x: corrected runtime file installed (aria2c.exe)' (Test-Path (Join-Path $root11x 'helpers\aria2c.exe')) 'runtime dir has the literal aria2c.exe'
+    Check 'T11x: legacy zip-named leftover removed' (-not (Test-Path (Join-Path $root11x 'aria2-windows-amd64.zip'))) 'rc.5 archive-name layout cleaned'
+    $state11x = Get-Content -Raw -LiteralPath (Join-Path $root11x 'helpers-state.json') | ConvertFrom-Json
+    Check 'T11x: state maps artifact to runtime name' ($state11x.'aria2'.runtime -eq 'aria2c.exe' -and $state11x.'aria2'.artifact -eq 'aria2-windows-amd64.zip') ($state11x | ConvertTo-Json -Compress)
+
+    # T11y: TRUE unset-env regression — the child has NO
+    # EIZOU_WIN_MINISIGN_MIRROR at all, so the bootstrap takes the real
+    # pinned HTTPS fetch path (the official minisign 0.12 win64 zip,
+    # hash-verified). Before the rc.5 fix this crashed with a Test-Path
+    # binding error; now it must complete the full install.
+    $mirror = Copy-Mirror 'T11y'
+    $root11y = Join-Path $script:WorkDir 'root-T11y'
+    $envNoMirror = @{ PATH = $env:PATH }
+    Invoke-WinBootstrapCase -Name 'T11y unset mirror env (real pinned fetch)' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T11y')) `
+        -InstallRoot $root11y -Env $envNoMirror -ExpectSuccess -Mirror $mirror
+    Check 'T11y: verifier acquired via the real pinned fetch' (Test-Path (Join-Path $root11y 'tools\minisign.exe')) 'tools\minisign.exe present after the no-mirror run'
+
     # T12: unsafe artifact name (path traversal) fails closed.
     $mirror = Copy-Mirror 'T12'
     $manText = Read-MirrorManifest $mirror
@@ -501,15 +542,25 @@ function Dynamic-Suite {
     Check 'V4: no Eizou install after archive failure' (-not (Test-Path (Join-Path $rootV4 'eizouden-windows-amd64.exe'))) 'no core installed'
 
     # V5: verifier download unavailable -> fail closed, no Eizou install.
-    $envV5 = @{ PATH = $env:PATH; EIZOU_WIN_MINISIGN_MIRROR = Join-Path $script:WorkDir 'no-such-minisign.zip' }
+    # The mirror is not set and the verifier URL is re-pinned in a bootstrap
+    # COPY to a fail-fast localhost URL (harness-side; the production
+    # template keeps the pinned official URL) so the fetch fails
+    # deterministically without any network dependency.
+    $bootV5 = New-BootstrapCopy (Join-Path $script:WorkDir 'boot-V5')
+    $v5Text = [System.IO.File]::ReadAllText($bootV5).Replace(
+        'https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip',
+        'https://localhost:1/minisign-0.12-win64.zip')
+    [System.IO.File]::WriteAllText($bootV5, $v5Text, (New-Object System.Text.UTF8Encoding($false)))
+    $envV5 = @{ PATH = $env:PATH }
     $mirrorV5 = Copy-Mirror 'V5'
     $rootV5 = Join-Path $script:WorkDir 'root-V5'
-    Invoke-WinBootstrapCase -Name 'V5 verifier unavailable' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-V5')) `
+    Invoke-WinBootstrapCase -Name 'V5 verifier unavailable' -BootstrapPath $bootV5 `
         -InstallRoot $rootV5 -Env $envV5 -Mirror $mirrorV5 -ExpectErrorPattern 'failed to download the pinned verifier|download failed'
     Check 'V5: no Eizou install without a verifier' (-not (Test-Path (Join-Path $rootV5 'eizouden-windows-amd64.exe'))) 'no core installed'
 
     # T15: no system PATH mutation.
     Check 'T15: system PATH unchanged' ($env:PATH -eq $beforePath) 'PATH must be untouched by the harness runs'
+
 
     # V6: no persistent PATH / global install of the verifier.
     Check 'V6: verifier not on the system PATH' (

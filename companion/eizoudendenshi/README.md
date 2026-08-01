@@ -718,9 +718,36 @@ acquires ONLY the verifier safely:
   archive/version fail closed before any core/helper replacement, with
   errors containing only safe logical tool/artifact names.
 - **rc.4 did not have this first-run verifier auto-setup** (it required a
-  preinstalled minisign). **rc.5 is planned only after this fix and its
-  local verification**; a clean real Windows bootstrap gate is **not**
-  claimed yet.
+  preinstalled minisign). **rc.5 was the first release carrying it, and its
+  clean Windows gate FAILED** against the published `eizoudendenshi-v0.2.0-rc.5`
+  bootstrap: on a genuine first run (no `EIZOU_WIN_MINISIGN_MIRROR` env),
+  PowerShell's `$env:X -ne ''` is `$true` for an undefined `$null` variable,
+  so the unguarded `Test-Path -LiteralPath $env:EIZOU_WIN_MINISIGN_MIRROR`
+  threw a binding error at line 135 before any verifier acquisition (the
+  harness always set the mirror env, so 70/70 did not cover it). The minimal
+  fix (explicit `$null` guard before `Test-Path`) + a static regression
+  check are applied in the repo; the harness is now **71/71**. The clean
+  Windows gate must be re-run against a **fixed re-release (rc.6+)** — it is
+  not claimed on rc.5.
+- **Known design note (fixed for rc.6, not in rc.5):** archive helpers are
+  extracted and now installed under their **strict runtime filename**
+  (`aria2c.exe` / `ffmpeg.exe`) in the private `helpers\` runtime directory
+  (the release artifact keeps its logical archive name for download/verify;
+  `helpers-state.json` maps artifact/version/SHA → runtime name + runtime
+  SHA; the core always receives the exact absolute runtime paths
+  `--ytdlp <…>\yt-dlp-windows-amd64.exe` and `--aria2 <…>\aria2c.exe`, and
+  the process-scoped PATH prepends the runtime dir that literally contains
+  `ffmpeg.exe` for yt-dlp merge discovery). Malformed/legacy (rc.5
+  archive-name) state is detected and replaced, never reused.
+- **Second real bug found while building rc.6 (also fixed):** with
+  `-OutFile`, `Invoke-WebRequest` returns `$null` in PowerShell 7, so the
+  HTTPS-only redirect check after a production (no-mirror) download saw no
+  response and every real fetch failed; the fetches now use `-PassThru`.
+  The Windows harness is **81/81** including a true unset-env regression
+  case (the real pinned official verifier fetch) and a deterministic
+  download-unavailable case.
+- **rc.6 is planned with these fixes; the clean real Windows gate is NOT
+  claimed until a fixed re-release is gate-tested.**
 
 ### Remaining gates (not claimed)
 

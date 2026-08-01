@@ -131,13 +131,21 @@ function Invoke-VerifierFetch {
     # from a local file; production always fetches the pinned official URL
     # over HTTPS with bounded redirects/timeouts. Both paths feed the same
     # hash-verify-then-extract logic; the pinned URL/hash never change.
+    # NB: the env var may be UNDEFINED on a real first run — PowerShell's
+    # `$env:X -ne ''` is TRUE for $null, so an unguarded
+    # `Test-Path $env:X` would throw (reproduced on published rc.5). Guard
+    # against $null explicitly.
     $dest = Join-Path $script:TempDir 'minisign-0.12-win64.zip'
-    if ($env:EIZOU_WIN_MINISIGN_MIRROR -ne '' -and (Test-Path -LiteralPath $env:EIZOU_WIN_MINISIGN_MIRROR)) {
-        Copy-Item -LiteralPath $env:EIZOU_WIN_MINISIGN_MIRROR -Destination $dest -Force
+    $mirror = $env:EIZOU_WIN_MINISIGN_MIRROR
+    if ($null -ne $mirror -and $mirror -ne '' -and (Test-Path -LiteralPath $mirror)) {
+        Copy-Item -LiteralPath $mirror -Destination $dest -Force
         return $dest
     }
     try {
-        $resp = Invoke-WebRequest -Uri $MinisignZipUrl -OutFile $dest -MaximumRedirection 5 -TimeoutSec 60 -UseBasicParsing
+        # -PassThru is required: with -OutFile alone the cmdlet returns $null
+        # in pwsh 7, so the redirect-HTTPS check below would see no response
+        # and the fetch would fail on every production (no-mirror) run.
+        $resp = Invoke-WebRequest -Uri $MinisignZipUrl -OutFile $dest -MaximumRedirection 5 -TimeoutSec 60 -UseBasicParsing -PassThru
         if ($resp.BaseResponse.RequestMessage.RequestUri.Scheme -ne 'https') {
             Fail 'verifier redirect target is not https://'
         }
@@ -264,7 +272,9 @@ function Invoke-Fetch {
     }
     $url = "$ReleaseBaseUrl/$Name"
     try {
-        $resp = Invoke-WebRequest -Uri $url -OutFile $dest -MaximumRedirection 5 -TimeoutSec 60 -UseBasicParsing
+        # -PassThru: with -OutFile alone Invoke-WebRequest returns $null in
+        # pwsh 7, which would break the redirect-HTTPS check below.
+        $resp = Invoke-WebRequest -Uri $url -OutFile $dest -MaximumRedirection 5 -TimeoutSec 60 -UseBasicParsing -PassThru
         # Bounded, HTTPS-only redirects: the final URI must remain https://.
         if ($resp.BaseResponse.RequestMessage.RequestUri.Scheme -ne 'https') {
             Fail "redirect target is not https:// for $Name"
@@ -399,20 +409,32 @@ function Assert-PrivateInstallRoot {
 # single artifact. Archives are extracted ONLY after verification, and only
 # the exact expected filename is taken (traversal is impossible because the
 # expected filename is a strict safe basename).
+#
+# Runtime contract (rc.6): the release artifact keeps its logical archive
+# name for download/verification (its ZIP SHA-256/signature is what the
+# signed manifest attests), but the EXTRACTED executable is installed under
+# the strict safe runtime filename (the manifest's `expectedFile` for
+# archives, e.g. aria2c.exe / ffmpeg.exe; the artifact name itself for
+# standalone exes like yt-dlp) inside the private helper runtime directory.
+# The core is always given the exact absolute runtime path, and the
+# process-scoped PATH prepends a directory that literally contains
+# ffmpeg.exe for yt-dlp's merge discovery.
 function Install-Artifact {
     param(
         [string]$LogicalName,
         [string]$Sha256,
-        [string]$InstallRoot,
+        [string]$TargetDir,
         [string]$Minisign,
         [bool]$IsArchive,
-        [string]$ExpectedFile
+        [string]$ExpectedFile,
+        [string]$RuntimeName
     )
+    Assert-SafeLogicalName $RuntimeName 'runtime'
     $src = Invoke-Fetch $LogicalName
     $sig = Invoke-Fetch "$LogicalName.minisig"
     Verify-Minisign $src $LogicalName $Minisign
     if ((Get-Sha256Lower $src) -ne $Sha256) { Fail "SHA-256 mismatch for $LogicalName (fails before replacement)" }
-    $destName = $LogicalName
+    $installed = Join-Path $TargetDir $RuntimeName
     if ($IsArchive) {
         $stage = Join-Path $script:TempDir ("extract." + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $stage | Out-Null
@@ -422,25 +444,25 @@ function Install-Artifact {
         catch { Fail "cannot extract verified archive $LogicalName" }
         $extracted = Join-Path $stage $ExpectedFile
         if (-not (Test-Path -LiteralPath $extracted)) { Fail "verified archive $LogicalName does not contain the expected file (fails closed)" }
-        # Install the extracted file under the helper's logical name.
-        $destName = $LogicalName   # keep the release artifact name in the install root
-        $tmp = Join-Path $InstallRoot ($destName + '.new')
+        # Install the extracted executable under the strict runtime filename.
+        $tmp = Join-Path $TargetDir ($RuntimeName + '.new')
         Copy-Item -LiteralPath $extracted -Destination $tmp -Force
-        Move-Item -LiteralPath $tmp -Destination (Join-Path $InstallRoot $destName) -Force
+        Move-Item -LiteralPath $tmp -Destination $installed -Force
     }
     else {
-        $tmp = Join-Path $InstallRoot ($destName + '.new')
+        $tmp = Join-Path $TargetDir ($RuntimeName + '.new')
         Copy-Item -LiteralPath $src -Destination $tmp -Force
-        Move-Item -LiteralPath $tmp -Destination (Join-Path $InstallRoot $destName) -Force
+        Move-Item -LiteralPath $tmp -Destination $installed -Force
     }
-    return $destName
+    return $RuntimeName
 }
 
 function Get-HelperExecutable {
-    param([string]$Key, [string]$Artifact)
-    # yt-dlp/aria2 are standalone exes named after the artifact; the launch
-    # passes these absolute paths to the core.
-    return (Join-Path $script:InstallRoot $Artifact)
+    param([string]$HelpersDir, [string]$RuntimeName)
+    # Every helper's runtime executable lives in the private helper runtime
+    # directory under its strict runtime filename; the launch passes these
+    # exact absolute paths to the core.
+    return (Join-Path $HelpersDir $RuntimeName)
 }
 
 # --- Main -------------------------------------------------------------------
@@ -472,40 +494,61 @@ try {
     $releaseVersion = $man.manifest.version
     Write-Host "EizouDendenshi bootstrap: verified EizouDendenshi $releaseVersion (Windows x64, helper-enabled)"
 
-    # 2. Helpers: reuse when the installed artifact matches the signed
-    #    manifest (version + SHA-256), else fetch/verify/atomic-replace.
+    # 2. Helpers: reuse when the installed runtime executable matches the
+    #    signed manifest (version + artifact + runtime filename + recorded
+    #    runtime SHA-256), else fetch/verify/atomic-replace. Malformed or
+    #    legacy (rc.5 archive-name) state is never reused: the legacy
+    #    artifact-named leftovers in the install root are bootstrap-owned
+    #    files and are removed before the corrected install.
+    $HelpersDir = Join-Path $InstallRoot 'helpers'
+    New-Item -ItemType Directory -Force -Path $HelpersDir | Out-Null
     $state = Read-State $InstallRoot
-    $installedHelpers = @{}   # key -> absolute executable path
+    $installedHelpers = @{}   # key -> absolute runtime executable path
     foreach ($key in $man.helpers.Keys) {
         $spec = $man.helpers[$key]
         $artifact = $spec.artifact
-        $installedPath = Join-Path $InstallRoot $artifact
+        $runtimeName = if ($spec.archive) { $spec.expectedFile } else { $artifact }
+        Assert-SafeLogicalName $runtimeName 'runtime'
+        $runtimePath = Join-Path $HelpersDir $runtimeName
         $st = $state[$key]
         # PowerShell 7 does not allow `if` as a subexpression inside a
         # binary -and/-eq chain, so compute the installed hash first.
-        $installedSha = ''
-        if (Test-Path -LiteralPath $installedPath) { $installedSha = Get-Sha256Lower $installedPath }
+        $runtimeSha = ''
+        if (Test-Path -LiteralPath $runtimePath) { $runtimeSha = Get-Sha256Lower $runtimePath }
         $match = ($null -ne $st -and [string]$st.version -eq $spec.version -and
-                  [string]$st.sha256 -eq $installedSha)
+                  [string]$st.artifact -eq $artifact -and
+                  [string]$st.runtime -eq $runtimeName -and
+                  [string]$st.runtimeSha -eq $runtimeSha)
         if ($match) {
             Write-Host "EizouDendenshi bootstrap: helper '$key' ($($spec.version)) already verified; reusing"
         }
         else {
             Write-Host "EizouDendenshi bootstrap: helper '$key' -> fetching $artifact"
-            $destName = Install-Artifact -LogicalName $artifact -Sha256 $spec.sha256 `
-                -InstallRoot $InstallRoot -Minisign $Minisign `
-                -IsArchive $spec.archive -ExpectedFile $spec.expectedFile
-            $state[$key] = @{ version = $spec.version; sha256 = $spec.sha256; artifact = $destName }
+            # Remove any legacy artifact-named leftover at the root (rc.5
+            # archive-name layout — bootstrap-owned, never a user file).
+            $legacy = Join-Path $InstallRoot $artifact
+            if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy -Force -ErrorAction SilentlyContinue }
+            $runtime = Install-Artifact -LogicalName $artifact -Sha256 $spec.sha256 `
+                -TargetDir $HelpersDir -Minisign $Minisign `
+                -IsArchive $spec.archive -ExpectedFile $spec.expectedFile -RuntimeName $runtimeName
+            $state[$key] = @{
+                version    = $spec.version
+                sha256     = $spec.sha256     # the ARTIFACT's manifest SHA (the verified bytes)
+                artifact   = $artifact
+                runtime    = $runtime
+                runtimeSha = (Get-Sha256Lower $runtimePath)
+            }
         }
-        $installedHelpers[$key] = Get-HelperExecutable $key $artifact
+        $installedHelpers[$key] = Get-HelperExecutable $HelpersDir $runtimeName
     }
     Write-State $InstallRoot $state
 
-    # 3. Core: fetch + verify + atomic install.
+    # 3. Core: fetch + verify + atomic install (the core is not a helper; it
+    #    stays at the install root under its artifact name).
     $coreName = $man.core.name
     Write-Host "EizouDendenshi bootstrap: fetching core $coreName"
     Install-Artifact -LogicalName $coreName -Sha256 $man.core.sha256 `
-        -InstallRoot $InstallRoot -Minisign $Minisign -IsArchive $false -ExpectedFile ''
+        -TargetDir $InstallRoot -Minisign $Minisign -IsArchive $false -ExpectedFile '' -RuntimeName $coreName
     $corePath = Join-Path $InstallRoot $coreName
 
     Write-Host "EizouDendenshi bootstrap: verified EizouDendenshi $releaseVersion installed at $InstallRoot"
@@ -513,7 +556,8 @@ try {
 
     # 4. Launch the core with explicit absolute helper paths. ffmpeg is
     #    supplied to yt-dlp through a PROCESS-SCOPED PATH (prepending the
-    #    private helpers dir) — never a persistent system PATH change.
+    #    private helper runtime directory, which literally contains
+    #    ffmpeg.exe) — never a persistent system PATH change.
     $launchArgs = @(
         "--ytdlp", $installedHelpers['yt-dlp'],
         "--aria2", $installedHelpers['aria2']
@@ -524,11 +568,10 @@ try {
         Write-Host 'EizouDendenshi bootstrap: launch command captured (harness)'
     }
     elseif (-not $SkipLaunch) {
-        # Process-scoped PATH: the private helpers dir first, restored when
-        # this process exits. Not a system PATH mutation.
-        $helpersDir = $InstallRoot
+        # Process-scoped PATH: the private helper runtime dir first, restored
+        # when this process exits. Not a system PATH mutation.
         $oldPath = $env:PATH
-        $env:PATH = "$helpersDir;$oldPath"
+        $env:PATH = "$HelpersDir;$oldPath"
         try {
             Write-Host 'EizouDendenshi bootstrap: starting the core in the foreground (pairing code below)'
             & $corePath @launchArgs
