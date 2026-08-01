@@ -473,8 +473,24 @@ export default function PlayerApp() {
         baseUrl: 'http://127.0.0.1:4322',
         token,
         jobId,
+        kind: 'youtube',
       });
       setIsYouTubeDialogOpen(false);
+    },
+    [jobSession],
+  );
+
+  const handleMagnetJobAccepted = useCallback(
+    (jobId: string) => {
+      const token = eizouTokenRef.current;
+      if (!token) return;
+      jobSession.beginJobSession({
+        baseUrl: 'http://127.0.0.1:4322',
+        token,
+        jobId,
+        kind: 'torrent',
+      });
+      setIsMagnetDialogOpen(false);
     },
     [jobSession],
   );
@@ -3136,18 +3152,37 @@ export default function PlayerApp() {
         </div>
       )}
 
-      {/* ED-1: Magnet URI dialog — visual shell only, no torrent runtime */}
+      {/* ED-2G: Magnet source dialog — real companion torrent flow (pairing
+          gate → consent → create → poll → file selection → select). */}
       <MagnetInput
         open={isMagnetDialogOpen}
         onOpenChange={setIsMagnetDialogOpen}
+        isPaired={eizouConnected}
+        token={eizouTokenRef.current}
+        onJobAccepted={handleMagnetJobAccepted}
         dict={{
           magnetInputLabel: dict.magnetInputLabel,
           magnetInputPlaceholder: dict.magnetInputPlaceholder,
           magnetInputLabelTitle: dict.magnetInputLabelTitle,
-          magnetConnect: dict.magnetConnect,
           magnetErrorInvalid: dict.magnetErrorInvalid,
-          magnetNotConnectedTitle: dict.magnetNotConnectedTitle,
-          magnetNotConnectedBody: dict.magnetNotConnectedBody,
+          magnetInputSubmit: dict.magnetInputSubmit,
+          magnetInputUnpairedBody: dict.magnetInputUnpairedBody,
+          magnetConsentLabel: dict.magnetConsentLabel,
+          magnetInputErrorRepair: dict.magnetInputErrorRepair,
+          magnetInputErrorConflict: dict.magnetInputErrorConflict,
+          magnetInputErrorNetwork: dict.magnetInputErrorNetwork,
+          magnetInputErrorGeneric: dict.magnetInputErrorGeneric,
+          magnetInputSubmitting: dict.magnetInputSubmitting,
+          magnetDownloading: dict.magnetDownloading,
+          magnetFilesTitle: dict.magnetFilesTitle,
+          magnetFilesBody: dict.magnetFilesBody,
+          magnetVideoKindLabel: dict.magnetVideoKindLabel,
+          magnetSubtitleKindLabel: dict.magnetSubtitleKindLabel,
+          magnetOtherKindLabel: dict.magnetOtherKindLabel,
+          magnetNoVideoError: dict.magnetNoVideoError,
+          magnetSelectSubmit: dict.magnetSelectSubmit,
+          magnetCancel: dict.magnetCancel,
+          dialogClose: dict.dialogClose,
         }}
       />
 

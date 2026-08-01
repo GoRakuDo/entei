@@ -815,6 +815,15 @@ acquires ONLY the verifier safely:
   helper never writes a DHT cache into the user's home directory.
   Files/selection/complete/Range/playback gates remain unmeasured; the
   MKV sourcing plan (public-domain/official) is documented and untested.
+- **Magnet UI implemented (ED-2G, React Player):** the Magnet button now opens
+  a real torrent source dialog — pairing-gated (unpaired = pairing-needed
+  only), required memory-only tracker-consent checkbox (IP exposure note),
+  magnet create (POST /v1/source/torrents), redacted status polling,
+  sanitized file listing with one-video + optional-subtitle selection
+  (srt/vtt/ass only), selection submit, and job cancel on close/unmount.
+  The bridge session was generalized with a source kind (youtube/torrent)
+  routing the cancel endpoint. **Final E2E including real playback has NOT
+  been run.**
 
 ### QA status
 

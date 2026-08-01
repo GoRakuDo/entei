@@ -253,10 +253,24 @@ export interface Dictionary {
     magnetInputLabel: string;
     magnetInputPlaceholder: string;
     magnetInputLabelTitle: string;
-    magnetConnect: string;
     magnetErrorInvalid: string;
-    magnetNotConnectedTitle: string;
-    magnetNotConnectedBody: string;
+    magnetInputSubmit: string;
+    magnetInputUnpairedBody: string;
+    magnetConsentLabel: string;
+    magnetInputErrorRepair: string;
+    magnetInputErrorConflict: string;
+    magnetInputErrorNetwork: string;
+    magnetInputErrorGeneric: string;
+    magnetInputSubmitting: string;
+    magnetDownloading: string;
+    magnetFilesTitle: string;
+    magnetFilesBody: string;
+    magnetVideoKindLabel: string;
+    magnetSubtitleKindLabel: string;
+    magnetOtherKindLabel: string;
+    magnetNoVideoError: string;
+    magnetSelectSubmit: string;
+    magnetCancel: string;
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
     eizouSetupLabel: string;
     eizouSetupTitle: string;

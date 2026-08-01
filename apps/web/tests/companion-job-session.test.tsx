@@ -13,7 +13,7 @@ function Harness() {
     <div>
       <button
         type="button"
-        onClick={() => session.beginJobSession({ baseUrl: 'http://127.0.0.1:4322', token: 'tok123', jobId: 'job123' })}
+        onClick={() => session.beginJobSession({ baseUrl: 'http://127.0.0.1:4322', token: 'tok123', jobId: 'job123', kind: 'youtube' })}
       >
         begin
       </button>

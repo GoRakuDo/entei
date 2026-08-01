@@ -4068,6 +4068,161 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
+/* --- ED-2G magnet source dialog (real torrent flow) --- */
+
+.entei-magnet-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-20);
+}
+
+.entei-magnet-form .entei-magnet-input {
+  width: 100%;
+  min-height: 5.5rem;
+  resize: vertical;
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text);
+  background-color: var(--entei-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--entei-radius-md);
+  padding: var(--entei-space-8) var(--entei-space-12);
+}
+
+.entei-magnet-form .entei-magnet-input:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Memory-only tracker-consent checkbox (privacy note). */
+.entei-magnet-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--entei-space-8);
+  color: var(--entei-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-4) 0;
+  cursor: pointer;
+}
+
+.entei-magnet-submit {
+  align-self: flex-start;
+  min-height: var(--entei-touch-min);
+}
+
+.entei-magnet-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-20) var(--entei-space-24);
+  color: var(--entei-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.entei-magnet-cancel {
+  min-height: var(--entei-touch-min);
+}
+
+.entei-spin {
+  animation: entei-spin 1s linear infinite;
+}
+
+@keyframes entei-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.entei-magnet-files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-20);
+}
+
+.entei-magnet-files-title {
+  color: var(--entei-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.entei-magnet-files-body {
+  color: var(--entei-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* Constrained scroll: the file list scrolls instead of overflowing. */
+.entei-magnet-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  max-height: 15rem;
+  overflow-y: auto;
+  padding: var(--entei-space-2);
+}
+
+.entei-magnet-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-4) var(--entei-space-8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--entei-radius-md);
+  background-color: var(--entei-surface-2);
+  cursor: pointer;
+}
+
+.entei-magnet-file-row--sub {
+  border-style: dashed;
+}
+
+.entei-magnet-file-radio {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--entei-accent);
+}
+
+.entei-magnet-file-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--entei-text-secondary);
+}
+
+.entei-magnet-file-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-2);
+  min-width: 0;
+}
+
+.entei-magnet-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--entei-text);
+  font-size: 0.8125rem;
+}
+
+.entei-magnet-file-meta {
+  color: var(--entei-text-secondary);
+  font-size: 0.6875rem;
+}
+
+.entei-magnet-files-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--entei-space-12);
+  padding-top: var(--entei-space-8);
+}
+
 .entei-magnet-notice {
   display: flex;
   flex-direction: column;

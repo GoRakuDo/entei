@@ -428,7 +428,9 @@ download完了後にfile list + classify（Player native allowlistと一致: vid
 
 ### 残るgate（主張しない）
 
-実swarm / network download QA（将来はPSMUX detached sessionのみ）、ユーザー向けtorrent selection UI、download中の前方/成長playback、Android / headed Windows Chrome browser QA。
+実swarm / network download QA（将来はPSMUX detached sessionのみ）、download中の前方/成長playback、Android / headed Windows Chrome browser QA。
+
+**Magnet UI実装済み（ED-2G・React Player・2026-08-02）**: Magnetボタンは実torrent source dialogを開く — pairing gate（unpairedはpairing-required表示のみ）、**memory-only tracker同意チェックボックス必須**（IP露出の明示文言）、magnet create（POST /v1/source/torrents）、redacted status polling、sanitized file list表示 + **video 1つ必須 + subtitle任意（srt/vtt/assのみ）**の選択、select submit、close/unmountでのjob cancel。bridge sessionはsource `kind`（youtube/torrent）でcancel endpointを振り分けるよう一般化。**final E2E（実playback含む）は未実施**。
 
 **実swarm QA記録（2026-08-02・tracker非保持時）**: rc.6 bootstrap-installed aria2 1.37.0 + 固定argvで、archive.org PD映画torrentとDebian公式netinst torrent（source classのみ・copyrightなし）を認証APIで201 → queued → downloadingまで確認したが、当時はcanonical magnetがtrackerを剥がす設計で、どちらのswarmもDHT/PEXでは到達できず**bounded window内で0 bytes（peer/metadata timeout失敗クラス・workaroundなし）**。cancel / cleanupは実測（job dir 0・process 0・session解放）。**Tracker有効実swarm QA（2026-08-02）: 最小swarmのpeer/metadata timeout**。安全なtracker付きmagnet（Big Buck Bunny / Blender Foundation CC-BY / 10秒1080p clip / archive.org、http tracker bt1/bt2.archive.org:6969）を201受理し、canonical magnetはtracker保持のまま最終argv要素として渡り、aria2はannounce成功（tracker HTTP 200、Complete: 1 seeder）したが、唯一のpeer接続がmetadata転送前に切断され、bounded window内で0 bytes（文書化済みのpeer/metadata timeoutクラス・workaroundなし）。**実minor欠陥を発見・修正**: 固定aria2 argvに`--dht-file-path=<job dir>/dht.dat`を追加し、helperがユーザーhomeにDHT cacheを書かないようにした。files/selection/complete/Range/playback gateは未計測のまま。**MKV互換テスト用の安全なソーシング計画（未実行）**: 公開ドメイン / 公式配布のMKVコンテンツ（例: Blender FoundationのCC映画の公式torrent配布、archive.orgのPD映画MKV項目）から、安定したannounceを持つものを選定し、selection + Range 206 + Chrome canplayを確認する。ユーザー提供のcopyrighted magnetはダウンロード / テストに一切使用しない。
 

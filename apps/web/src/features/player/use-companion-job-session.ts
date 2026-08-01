@@ -1,11 +1,12 @@
 /**
- * useCompanionJobSession — ED-2F real YouTube job → bridge integration.
+ * useCompanionJobSession — ED-2F/ED-2G source job → bridge integration.
  * ---------------------------------------------------------------------------
- * Wires the companion buffering bridge into the player for a real YouTube
- * source job (localhost companion, `/v1/media/fixture` serving the active
- * job). The user-facing YouTube dialog creates the job on the companion
- * (POST /v1/source/jobs) and hands the opaque job id here; this hook polls
- * the existing status bridge and surfaces the media URL only on `complete`.
+ * Wires the companion buffering bridge into the player for a real source
+ * job (YouTube or torrent; localhost companion, `/v1/media/fixture` serving
+ * the active job). The user-facing source dialog creates the job on the
+ * companion and hands the opaque job id here; this hook polls the existing
+ * status bridge and surfaces the media URL only on `complete`. The source
+ * `kind` routes the cancel endpoint to the correct job API.
  *
  * Lifecycle contract:
  * - beginJobSession: requires a token + job id; starts the controller poll;
@@ -30,6 +31,8 @@ import type {
 } from '@/features/player/companion-bridge';
 import { useCompanionBridge } from '@/features/player/use-companion-bridge';
 
+export type CompanionJobKind = 'youtube' | 'torrent';
+
 export interface CompanionJobSource {
   /** Loopback companion origin, e.g. "http://127.0.0.1:4322". */
   baseUrl: string;
@@ -37,6 +40,8 @@ export interface CompanionJobSource {
   token: string;
   /** Opaque job id returned by the companion job-create endpoint. */
   jobId: string;
+  /** Source kind: routes the cancel endpoint to the correct job API. */
+  kind: CompanionJobKind;
 }
 
 export interface UseCompanionJobSessionResult {
@@ -121,9 +126,14 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     if (src?.jobId) {
       try {
         // Best-effort companion-side cancel (frees the one-active session
-        // and the job's private temp dir; never touches user files).
+        // and the job's private temp dir; never touches user files). The
+        // cancel endpoint is routed by the source kind (YouTube vs torrent).
+        const cancelPath =
+          src.kind === 'torrent'
+            ? `/v1/source/torrents/${encodeURIComponent(src.jobId)}/cancel`
+            : `/v1/source/jobs/${encodeURIComponent(src.jobId)}/cancel`;
         await fetch(
-          `${src.baseUrl}/v1/source/jobs/${encodeURIComponent(src.jobId)}/cancel?token=${encodeURIComponent(src.token)}`,
+          `${src.baseUrl}${cancelPath}?token=${encodeURIComponent(src.token)}`,
           { method: 'POST', cache: 'no-store' },
         );
       } catch {

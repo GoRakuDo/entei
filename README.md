@@ -206,8 +206,10 @@ source integration remains in later ED-3 / ED-4 stages. See
   verification, explicit absolute `--ytdlp`/`--aria2` for the core, ffmpeg
   via process-scoped PATH — no system PATH mutation), and a new
   `scripts/test-windows-bootstrap.ps1` harness (**51/51 green**). A clean
-  real Windows bootstrap run, real aria2 swarm QA, and the user-facing
-  Magnet/selection UI remain gates.
+  real Windows bootstrap run and real aria2 swarm QA remain gates; the
+  user-facing Magnet/selection UI is implemented (paired gate + required
+  tracker consent + create/poll/files/select) but its final E2E incl. real
+  playback has not been run.
 - **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
   the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2`: on a fresh Termux
   reinstall the bootstrap downloaded from the GitHub release; the
