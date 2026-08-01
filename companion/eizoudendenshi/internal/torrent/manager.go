@@ -512,7 +512,8 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 // magnet is the final element and the only user-derived value.
 func helperArgs(jobDir, magnet string) []string {
 	return []string{
-		"--dir=" + jobDir,            // all files under the private job dir
+		"--dir=" + jobDir, // all files under the private job dir
+		"--dht-file-path=" + filepath.Join(jobDir, "dht.dat"), // DHT cache stays private (never the user's home)
 		"--seed-time=0",              // download only; never seed
 		"--enable-rpc=false",         // no RPC surface
 		"--check-integrity=true",     // verify piece hashes (original bytes only)

@@ -801,10 +801,20 @@ acquires ONLY the verifier safely:
   the documented peer/metadata-timeout failure class. The files/selection/complete/Range
   gates were therefore not reachable (not claimed); cancellation +
   cleanup were verified live (job dirs 0, aria2/core processes 0, session
-  freed, temp root deleted, 4322 free). **Tracker preservation is now
-  implemented (see Tracker policy); the next real swarm QA gate uses a
-  tracker-enabled safe public torrent** (public-domain/official MKV test
-  sourcing is planned but not yet run).
+  freed, temp root deleted, 4322 free).
+- **Tracker-enabled real swarm QA (2026-08-02): peer/metadata timeout with
+  a minimal swarm.** A safe tracker-bearing magnet (Big Buck Bunny, Blender
+  Foundation CC-BY, 10-second 1080p clip on archive.org; two http trackers
+  `bt1`/`bt2.archive.org:6969`) was accepted (201); the canonical magnet
+  carried the preserved trackers as the final argv element, and aria2
+  announced successfully (tracker HTTP 200, `Complete: 1` seeder) — but the
+  single peer connection dropped without transferring metadata, so **0
+  bytes** within the bounded window (the documented peer/metadata-timeout
+  class; not worked around). A real minor defect was found and fixed: the
+  fixed aria2 argv now sets `--dht-file-path=<job dir>/dht.dat` so the
+  helper never writes a DHT cache into the user's home directory.
+  Files/selection/complete/Range/playback gates remain unmeasured; the
+  MKV sourcing plan (public-domain/official) is documented and untested.
 
 ### Remaining gates (not claimed)
 

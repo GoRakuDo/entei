@@ -115,7 +115,7 @@ func TestFixedArgsNoInjection(t *testing.T) {
 	}
 	// Fixed flags present.
 	joined := strings.Join(argv, " ")
-	for _, want := range []string{"--seed-time=0", "--enable-rpc=false", "--check-integrity=true", "--dir="} {
+	for _, want := range []string{"--seed-time=0", "--enable-rpc=false", "--check-integrity=true", "--dir=", "--dht-file-path="} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("argv missing fixed flag %q: %v", want, argv)
 		}
