@@ -760,6 +760,25 @@ acquires ONLY the verifier safely:
   no archive-name executables at the root); a second invocation on the same
   root reused the verifier and helpers with no re-acquisition; no
   persistent PATH / global install changes; full cleanup verified.
+- **Real ED-2G swarm QA (2026-08-02): blocked by peer/metadata timeout —
+  NOT worked around.** Using the rc.6 bootstrap-installed private aria2
+  (1.37.0; fixed argv verified live: `--seed-time=0 --enable-rpc=false
+  --check-integrity=true --summary-interval=0 --console-log-level=error
+  --allow-overwrite=true --auto-file-renaming=false
+  --content-disposition-default-utf8=true` + the magnet as the final
+  separate argv element, no shell), the authenticated torrent API accepted
+  jobs (201) and reached `queued → downloading` for two safe public swarms
+  (an archive.org public-domain film torrent and the official Debian
+  netinst torrent — source class only), but **no bytes downloaded within
+  the bounded windows (5–5.5 min each)**. Cause: the ED-2G canonical
+  magnet strips tracker parameters by design, and neither swarm was
+  reachable via DHT/PEX from this network — the documented
+  peer/metadata-timeout failure class. The files/selection/complete/Range
+  gates were therefore not reachable (not claimed); cancellation +
+  cleanup were verified live (job dirs 0, aria2/core processes 0, session
+  freed, temp root deleted, 4322 free). A future real-download gate needs
+  either DHT-reachable swarms or a tracker-preserving magnet policy
+  (documented, not implemented).
 
 ### Remaining gates (not claimed)
 
