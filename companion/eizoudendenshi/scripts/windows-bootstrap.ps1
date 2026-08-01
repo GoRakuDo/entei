@@ -45,7 +45,8 @@ param(
     [string]$InstallRoot = '',
     [switch]$SkipLaunch,
     [string]$HarnessMirrorDir = '',
-    [string]$HarnessLaunchFile = ''
+    [string]$HarnessLaunchFile = '',
+    [string]$MinisignExe = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +54,23 @@ $ProgressPreference = 'SilentlyContinue'
 
 # --- Pinned release signing key (replace at release time) ---
 $PinnedPubKey = 'REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
+
+# --- Pinned verifier (Minisign) trust bootstrap ---
+# The verifier is acquired ONLY from this pinned official source, before any
+# Eizou release artifact is downloaded. The expected SHA-256 is the trust
+# anchor (the release also carries a .minisig, but a first-run verifier
+# cannot verify itself — the pinned hash is authoritative).
+#   Source: official jedisct1/minisign release 0.12
+#   URL:    https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip
+#   SHA-256:37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479
+#   Member: minisign-win64/x86_64/minisign.exe (Windows x64 build)
+#   Version: 0.12
+$MinisignZipUrl = 'https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip'
+$MinisignZipSha256 = '37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479'
+$MinisignZipMember = 'minisign-win64/x86_64/minisign.exe'
+$MinisignExpectedName = 'minisign.exe'
+$MinisignExpectedVersion = '0.12'
+$MinisignStateFile = 'minisign-state.json'
 
 # --- Release contract constants (must match scripts/release.ps1) ---
 $ManifestName = 'eizouden-manifest.json'
@@ -85,16 +103,120 @@ function Assert-PinnedKey {
     if ($PinnedPubKey.Length -lt 42 -or $PinnedPubKey.Length -gt 80) { Fail 'pinned public key has an unexpected length' }
 }
 
+function Assert-MinisignVersion {
+    param([string]$Exe, [string]$LogicalName)
+    $out = & $Exe -v 2>&1
+    if ($LASTEXITCODE -ne 0 -or (($out -join ' ') -notmatch $MinisignExpectedVersion)) {
+        Fail "verifier version check failed for $LogicalName (expected $MinisignExpectedVersion)"
+    }
+    # Deliberately returns nothing: the version output must never leak into
+    # the caller's pipeline (it would corrupt the returned verifier path).
+}
+
+function Read-MinisignState {
+    param([string]$InstallRoot)
+    $stateFile = Join-Path $InstallRoot $MinisignStateFile
+    if (-not (Test-Path -LiteralPath $stateFile)) { return @{} }
+    try { return (Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json) } catch { return @{} }
+}
+
+function Write-MinisignState {
+    param([string]$InstallRoot, $State)
+    $stateFile = Join-Path $InstallRoot $MinisignStateFile
+    [System.IO.File]::WriteAllText($stateFile, ($State | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Invoke-VerifierFetch {
+    # Harness-only override (EIZOU_WIN_MINISIGN_MIRROR) copies the pinned ZIP
+    # from a local file; production always fetches the pinned official URL
+    # over HTTPS with bounded redirects/timeouts. Both paths feed the same
+    # hash-verify-then-extract logic; the pinned URL/hash never change.
+    $dest = Join-Path $script:TempDir 'minisign-0.12-win64.zip'
+    if ($env:EIZOU_WIN_MINISIGN_MIRROR -ne '' -and (Test-Path -LiteralPath $env:EIZOU_WIN_MINISIGN_MIRROR)) {
+        Copy-Item -LiteralPath $env:EIZOU_WIN_MINISIGN_MIRROR -Destination $dest -Force
+        return $dest
+    }
+    try {
+        $resp = Invoke-WebRequest -Uri $MinisignZipUrl -OutFile $dest -MaximumRedirection 5 -TimeoutSec 60 -UseBasicParsing
+        if ($resp.BaseResponse.RequestMessage.RequestUri.Scheme -ne 'https') {
+            Fail 'verifier redirect target is not https://'
+        }
+    }
+    catch { Fail 'failed to download the pinned verifier' }
+    return $dest
+}
+
+# Ensure-Minisign acquires a trusted verifier BEFORE any Eizou release
+# artifact is downloaded. It never trusts an arbitrary PATH executable:
+#   - an explicitly supplied -MinisignExe is used only after it passes the
+#     bounded version check;
+#   - a verifier already installed inside the Eizou private root is reused
+#     only if its recorded SHA-256 (recorded after the pinned-ZIP
+#     verification) matches AND it passes the version check;
+#   - otherwise the pinned official ZIP is fetched, its SHA-256 verified
+#     BEFORE extraction, the exact expected member extracted, version
+#     checked, and the verifier atomically installed into the private root.
+# No global install, no persistent PATH mutation, no unsigned fallback.
+function Ensure-Minisign {
+    param([string]$InstallRoot)
+    $state = Read-MinisignState $InstallRoot
+    $installed = Join-Path $InstallRoot "tools\$MinisignExpectedName"
+
+    # 1. Explicitly supplied verifier (version check only — the caller owns
+    #    its provenance).
+    if ($MinisignExe -ne '') {
+        if (-not (Test-Path -LiteralPath $MinisignExe)) { Fail 'explicitly supplied verifier not found' }
+        Assert-MinisignVersion $MinisignExe 'minisign.exe'
+        return $MinisignExe
+    }
+
+    # 2. Private-install verifier: reuse only when the recorded SHA-256
+    #    (captured after the pinned-ZIP verification) still matches.
+    if (Test-Path -LiteralPath $installed) {
+        $st = $state
+        $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $installed).Hash.ToLowerInvariant()
+        $versionOk = $false
+        try {
+            $vout = & $installed -v 2>&1
+            $versionOk = ($LASTEXITCODE -eq 0 -and (($vout -join ' ') -match $MinisignExpectedVersion))
+        } catch { $versionOk = $false }
+        if ($null -ne $st -and [string]$st.sha256 -eq $sha -and $versionOk) {
+            Write-Host 'EizouDendenshi bootstrap: verifier already present and verified; reusing'
+            return $installed
+        }
+    }
+
+    # 3. Acquire: fetch the pinned ZIP, hash-verify BEFORE extraction,
+    #    extract the exact expected member, version-check, atomic install.
+    Write-Host 'EizouDendenshi bootstrap: acquiring the pinned verifier (Minisign)'
+    $zip = Invoke-VerifierFetch
+    if ((Get-Sha256Lower $zip) -ne $MinisignZipSha256) {
+        Fail 'verifier ZIP SHA-256 mismatch (fails closed before any Eizou install)'
+    }
+    $stage = Join-Path $script:TempDir ("minisign-extract." + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $stage | Out-Null
+    try {
+        Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force
+    }
+    catch { Fail 'cannot extract the verified verifier archive' }
+    $member = Join-Path $stage ($MinisignZipMember -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+    if (-not (Test-Path -LiteralPath $member)) { Fail 'verified verifier archive is missing the expected executable (fails closed)' }
+    Assert-MinisignVersion $member 'minisign.exe'
+    $toolsDir = Join-Path $InstallRoot 'tools'
+    New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+    $tmp = Join-Path $toolsDir ($MinisignExpectedName + '.new')
+    Copy-Item -LiteralPath $member -Destination $tmp -Force
+    Move-Item -LiteralPath $tmp -Destination $installed -Force
+    $installedSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $installed).Hash.ToLowerInvariant()
+    Write-MinisignState $InstallRoot @{ sha256 = $installedSha; version = $MinisignExpectedVersion }
+    Write-Host 'EizouDendenshi bootstrap: verifier installed into the private install root'
+    return $installed
+}
+
 function Assert-WindowsX64 {
     $arch = $env:PROCESSOR_ARCHITECTURE
     if ($arch -ne 'AMD64' -and $arch -ne 'x86_64') { Fail "unsupported architecture '$arch'; EizouDendenshi windows/amd64 requires x64" }
     if ($null -eq $env:LOCALAPPDATA -or $env:LOCALAPPDATA -eq '') { Fail 'LOCALAPPDATA is unavailable; cannot use user-private storage' }
-}
-
-function Assert-Minisign {
-    $ms = Get-Command minisign -ErrorAction SilentlyContinue
-    if (-not $ms) { Fail 'minisign not found; it is a required verifier prerequisite (no system-wide install is performed by this bootstrap)' }
-    return $ms.Source
 }
 
 function Add-UserAclRule {
@@ -328,7 +450,6 @@ try {
     Assert-HttpsUrl $ReleaseBaseUrl 'release base URL'
     Assert-PinnedKey
     Assert-WindowsX64
-    $Minisign = Assert-Minisign
     New-PrivateTemp
 
     $InstallRoot = if ($InstallRoot -eq '') {
@@ -336,6 +457,11 @@ try {
     } else { [System.IO.Path]::GetFullPath($InstallRoot) }
     Assert-PrivateInstallRoot $InstallRoot
     $script:InstallRoot = $InstallRoot
+
+    # 0. Verifier trust bootstrap: acquire a verified Minisign BEFORE any
+    #    Eizou release artifact is downloaded (the signed manifest/core/helper
+    #    verification depends on it). Never trusts PATH; fails closed.
+    $Minisign = Ensure-Minisign $InstallRoot
 
     # 1. Manifest: fetch (manifest + its detached signature) + verify +
     #    validate the v2 helper contract.

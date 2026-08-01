@@ -88,7 +88,13 @@ function Static-Checks {
         $code -notmatch 'winget|choco' -and
         $code -notmatch 'Install-Module|pip install') 'no persistent PATH change or global installer'
     Check 'static: no vendor fetch at bootstrap time' (
-        $code -notmatch 'https://github.com|https://www.gyan.dev|yt-dlp.github.io|https://aria2.github.io') 'end users must fetch only from the signed release base'
+        # The ONLY permitted external fetch is the pinned, hash-anchored
+        # official Minisign verifier ZIP (documented trust-bootstrap
+        # exception — exactly one https://github.com reference). All Eizou
+        # release material comes from the signed release base.
+        $code -match [regex]::Escape('https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip') -and
+        ([regex]::Matches($code, 'https://github\.com').Count -eq 1) -and
+        $code -notmatch 'https://www\.gyan\.dev|https://yt-dlp\.github\.io|https://aria2\.github\.io|https://raw\.githubusercontent\.com') 'only the pinned official verifier ZIP is fetched; all Eizou material comes from the signed release base'
     Check 'static: manifest SHA-256 verified before replacement' (
         $boot.Contains('SHA-256 mismatch') -and $boot.IndexOf('Install-Artifact') -ge 0) 'per-artifact SHA-256 check before atomic replacement'
     Check 'static: user-private install root' (
@@ -261,8 +267,22 @@ function Dynamic-Suite {
         (Test-Path (Join-Path $script:DistDir 'aria2-windows-amd64.zip.minisig')) -and
         (Test-Path (Join-Path $script:DistDir 'ffmpeg-windows-amd64.zip.minisig'))) 'detached .minisig for each helper artifact'
 
+    # Provision the pinned Minisign verifier ZIP (official jedisct1/minisign
+    # 0.12 win64) for the mirror; the bootstrap-under-test must acquire it
+    # itself via EIZOU_WIN_MINISIGN_MIRROR (never from a preinstalled PATH
+    # minisign). The harness's own signing minisign stays separate.
+    $msZip = 'A:\Temp\opencode\ed2d-helper-assets\minisign-0.12-win64.zip'
+    if (-not (Test-Path -LiteralPath $msZip)) {
+        Invoke-WebRequest -Uri 'https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip' -OutFile $msZip -UseBasicParsing -TimeoutSec 120
+    }
+    $script:MinisignZip = Join-Path $script:WorkDir 'minisign-0.12-win64.zip'
+    Copy-Item -LiteralPath $msZip -Destination $script:MinisignZip -Force
+
+    # The child environment deliberately has NO minisign on PATH: the
+    # bootstrap must self-provision the verifier from the mirror.
     $script:BaseEnv = @{
-        PATH = (Split-Path $script:Minisign) + ';' + $env:PATH
+        PATH                     = $env:PATH
+        EIZOU_WIN_MINISIGN_MIRROR = $script:MinisignZip
     }
     $beforePath = $env:PATH
 
@@ -423,8 +443,78 @@ function Dynamic-Suite {
     Invoke-WinBootstrapCase -Name 'T14 v1 contract refused' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T14')) `
         -InstallRoot $root14 -Env $script:BaseEnv -Mirror $mirror -ExpectErrorPattern 'not the Windows version-2'
 
+    # V1: first-run auto verifier fetch/install (no minisign on PATH).
+    $mirrorV = Copy-Mirror 'V1'
+    $rootV1 = Join-Path $script:WorkDir 'root-V1'
+    Invoke-WinBootstrapCase -Name 'V1 first-run verifier auto-fetch' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-V1')) `
+        -InstallRoot $rootV1 -Env $script:BaseEnv -ExpectSuccess -Mirror $mirrorV
+    $v1Exe = Join-Path $rootV1 'tools\minisign.exe'
+    Check 'V1: verifier installed into the private root' (Test-Path -LiteralPath $v1Exe) 'tools\minisign.exe present'
+    Check 'V1: verifier state written' (Test-Path -LiteralPath (Join-Path $rootV1 'minisign-state.json')) 'minisign-state.json present'
+    $v1Ver = if (Test-Path -LiteralPath $v1Exe) { (& $v1Exe -v 2>&1 | Out-String) } else { '' }
+    Check 'V1: installed verifier version matches the pinned 0.12' ($v1Ver -match '0\.12') ($v1Ver -replace '\s+', ' ')
+
+    # V2: verifier reuse (second run; no re-fetch / no replacement).
+    $shaBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $v1Exe).Hash
+    $mirrorV2 = Copy-Mirror 'V2'
+    Invoke-WinBootstrapCase -Name 'V2 verifier reuse' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-V2')) `
+        -InstallRoot $rootV1 -Env $script:BaseEnv -ExpectSuccess -Mirror $mirrorV2
+    $shaAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $v1Exe).Hash
+    Check 'V2: verifier reused (installed bytes unchanged)' ($shaBefore -eq $shaAfter) 'no re-acquisition'
+    $v2Out = Get-Content -Raw -LiteralPath (Join-Path $script:LogsDir 'V2 verifier reuse.out.log') -ErrorAction SilentlyContinue
+    Check 'V2: reuse path taken' ($v2Out -match 'verifier already present and verified; reusing') ($v2Out -replace '\s+', ' ')
+
+    # V3: tampered verifier ZIP -> SHA-256 mismatch fails closed BEFORE any
+    #     Eizou install.
+    $tamperedZip = Join-Path $script:FakeDir 'tampered-minisign.zip'
+    $bytes = [System.IO.File]::ReadAllBytes($script:MinisignZip)
+    $bytes[50] = $bytes[50] -bxor 0xFF
+    [System.IO.File]::WriteAllBytes($tamperedZip, $bytes)
+    $envV3 = @{ PATH = $env:PATH; EIZOU_WIN_MINISIGN_MIRROR = $tamperedZip }
+    $mirrorV3 = Copy-Mirror 'V3'
+    $rootV3 = Join-Path $script:WorkDir 'root-V3'
+    Invoke-WinBootstrapCase -Name 'V3 tampered verifier zip' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-V3')) `
+        -InstallRoot $rootV3 -Env $envV3 -Mirror $mirrorV3 -ExpectErrorPattern 'SHA-256 mismatch'
+    Check 'V3: no Eizou install after verifier failure' (-not (Test-Path (Join-Path $rootV3 'eizouden-windows-amd64.exe'))) 'no core installed'
+
+    # V4: wrong verifier archive (no expected executable) -> fail closed.
+    # The pinned ZIP hash gate fires first for arbitrary wrong content, so
+    # this harness case re-pins the SHA to the WRONG archive's hash in a
+    # bootstrap COPY (harness-only; the production template keeps the real
+    # pinned hash) — the hash then passes and the missing-member check is
+    # what fails, isolating the extraction contract.
+    $badStage = Join-Path $script:WorkDir 'bad-stage'
+    New-Item -ItemType Directory -Force -Path $badStage | Out-Null
+    Set-Content -LiteralPath (Join-Path $badStage 'evil.txt') -Value 'x' -Encoding ascii
+    $wrongZip = Join-Path $script:FakeDir 'wrong-minisign.zip'
+    Compress-Archive -Path (Join-Path $badStage 'evil.txt') -DestinationPath $wrongZip -Force
+    $wrongSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $wrongZip).Hash.ToLowerInvariant()
+    $bootV4 = New-BootstrapCopy (Join-Path $script:WorkDir 'boot-V4')
+    $v4Text = [System.IO.File]::ReadAllText($bootV4).Replace(
+        '37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479', $wrongSha)
+    [System.IO.File]::WriteAllText($bootV4, $v4Text, (New-Object System.Text.UTF8Encoding($false)))
+    $envV4 = @{ PATH = $env:PATH; EIZOU_WIN_MINISIGN_MIRROR = $wrongZip }
+    $mirrorV4 = Copy-Mirror 'V4'
+    $rootV4 = Join-Path $script:WorkDir 'root-V4'
+    Invoke-WinBootstrapCase -Name 'V4 wrong verifier archive' -BootstrapPath $bootV4 `
+        -InstallRoot $rootV4 -Env $envV4 -Mirror $mirrorV4 -ExpectErrorPattern 'missing the expected executable'
+    Check 'V4: no Eizou install after archive failure' (-not (Test-Path (Join-Path $rootV4 'eizouden-windows-amd64.exe'))) 'no core installed'
+
+    # V5: verifier download unavailable -> fail closed, no Eizou install.
+    $envV5 = @{ PATH = $env:PATH; EIZOU_WIN_MINISIGN_MIRROR = Join-Path $script:WorkDir 'no-such-minisign.zip' }
+    $mirrorV5 = Copy-Mirror 'V5'
+    $rootV5 = Join-Path $script:WorkDir 'root-V5'
+    Invoke-WinBootstrapCase -Name 'V5 verifier unavailable' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-V5')) `
+        -InstallRoot $rootV5 -Env $envV5 -Mirror $mirrorV5 -ExpectErrorPattern 'failed to download the pinned verifier|download failed'
+    Check 'V5: no Eizou install without a verifier' (-not (Test-Path (Join-Path $rootV5 'eizouden-windows-amd64.exe'))) 'no core installed'
+
     # T15: no system PATH mutation.
     Check 'T15: system PATH unchanged' ($env:PATH -eq $beforePath) 'PATH must be untouched by the harness runs'
+
+    # V6: no persistent PATH / global install of the verifier.
+    Check 'V6: verifier not on the system PATH' (
+        -not ([Environment]::GetEnvironmentVariable('Path', 'User') -match 'GoRakuDo|EizouDendenshi') -and
+        -not ($env:PATH -match 'GoRakuDo\\EizouDendenshi')) 'verifier must live only in the private install root'
 
     # T16: user-private temp cleanup.
     $leftovers = @(Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter 'eizouden-win-bootstrap.*' -ErrorAction SilentlyContinue)

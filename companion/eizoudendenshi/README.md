@@ -695,6 +695,33 @@ non-HTTPS URL and unpinned key fail closed; helper version mismatch triggers
 replacement; unsafe artifact names / unknown helper keys / v1 contract
 refused; no system PATH mutation; private temp cleanup.
 
+### First-run verifier trust bootstrap (implemented)
+
+A general Windows user with **no preinstalled minisign** can run the
+published bootstrap: before any Eizou release artifact is downloaded, it
+acquires ONLY the verifier safely:
+
+- **Pinned source** (official jedisct1/minisign, hash-anchored):
+  `https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip`
+  SHA-256 `37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479`,
+  member `minisign-win64/x86_64/minisign.exe`, expected version `0.12`.
+- An already-present verifier is reused only if it is **explicitly supplied**
+  (`-MinisignExe`, version-checked) or lives inside the Eizou private root
+  and still matches its recorded SHA-256 + the version contract. **An
+  arbitrary PATH executable is never trusted.**
+- Otherwise the pinned ZIP is fetched (HTTPS-only bounded redirects /
+  timeouts; harness-only local-mirror override), its SHA-256 verified
+  **before** extraction, the exact expected member extracted, the version
+  checked, and the verifier atomically installed into the private root
+  (`tools\minisign.exe` + a verifier state file). No global install, no
+  persistent PATH mutation, no unsigned fallback; failures at URL/hash /
+  archive/version fail closed before any core/helper replacement, with
+  errors containing only safe logical tool/artifact names.
+- **rc.4 did not have this first-run verifier auto-setup** (it required a
+  preinstalled minisign). **rc.5 is planned only after this fix and its
+  local verification**; a clean real Windows bootstrap gate is **not**
+  claimed yet.
+
 ### Remaining gates (not claimed)
 
 A clean **real** Windows bootstrap run on a general-user machine, real
