@@ -3069,9 +3069,9 @@ export default function PlayerApp() {
             dict={{
               eizouSetupLabel: dict.eizouSetupLabel,
               eizouSetupTitle: dict.eizouSetupTitle,
-              eizouSetupDesc: dict.eizouSetupDesc,
               eizouSetupImageAlt: dict.eizouSetupImageAlt,
               eizouConnected: dict.eizouConnected,
+              eizouDisconnected: dict.eizouDisconnected,
               eizouPairingTitle: dict.eizouPairingTitle,
               eizouPairingDesc: dict.eizouPairingDesc,
               eizouPairingOtpLabel: dict.eizouPairingOtpLabel,

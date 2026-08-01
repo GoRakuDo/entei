@@ -227,7 +227,7 @@ const mockDict = {
   // ED-3: EizouDendenshi setup + pairing
   eizouSetupLabel: 'Set up',
   eizouSetupTitle: 'EizouDendenshi',
-  eizouSetupDesc: 'Assists with videos shared over YouTube and P2P.',
+  eizouDisconnected: 'Disconnected',
   eizouSetupImageAlt: 'EizouDendenshi illustration',
   eizouConnected: 'Connected',
   eizouPairingTitle: 'Pair EizouDendenshi',

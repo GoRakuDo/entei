@@ -260,7 +260,7 @@ export interface Dictionary {
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
     eizouSetupLabel: string;
     eizouSetupTitle: string;
-    eizouSetupDesc: string;
+    eizouDisconnected: string;
     eizouSetupImageAlt: string;
     eizouConnected: string;
     eizouPairingTitle: string;

@@ -227,9 +227,9 @@ export const en: Dictionary = {
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
     eizouSetupLabel: 'Set up',
     eizouSetupTitle: 'EizouDendenshi',
-    eizouSetupDesc: 'Assists with videos shared over YouTube and P2P.',
     eizouSetupImageAlt: 'EizouDendenshi illustration',
     eizouConnected: 'Connected',
+    eizouDisconnected: 'Disconnected',
     eizouPairingTitle: 'Pair EizouDendenshi',
     eizouPairingDesc:
       'Enter the 6-digit code shown in the companion app.',

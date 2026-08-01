@@ -4157,35 +4157,60 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text);
 }
 
-.entei-eizou-desc {
-  font-family: var(--entei-font-body);
-  font-size: 1.125rem; /* 18px — mock */
-  line-height: 1.6;
-  color: var(--entei-text-secondary);
-  text-align: center;
-  max-width: 36ch;
+.entei-eizou-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* pair centered within the body column */
+  gap: var(--entei-space-16);
+  width: 100%;
+  flex-wrap: wrap; /* stack only below feasible widths */
 }
 
-.entei-eizou-status {
+/* Non-interactive connection state: same outer control language as the
+   Setup button (132px wide, 44px min-height, outline/surface) but not an
+   actionable element — role="status" carries the live semantics. */
+.entei-eizou-status-control {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--entei-space-8);
-  color: var(--entei-accent);
+  width: 132px;
+  min-height: var(--entei-touch-min); /* 44px touch */
+  border: 1px solid var(--color-border);
+  background-color: var(--entei-bg);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
   font-size: 0.875rem;
-  font-weight: 600;
+  white-space: nowrap;
 }
 
-.entei-eizou-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--entei-radius-pill);
-  background-color: var(--entei-accent);
+/* Matches the existing Player connection-status colors (Anki panel):
+   connected green / disconnected red — legible on the dark background. */
+.entei-eizou-status-control--connected {
+  color: oklch(65% 0.17 145deg);
+}
+
+.entei-eizou-status-control--disconnected {
+  color: oklch(60% 0.22 25deg);
+}
+
+@media (max-width: 767px) {
+  /* The Setup + status pair needs 280px (132 + 16 gap + 132). The
+     empty-state gutter would squeeze the section's content box to 256px at
+     a 320px viewport, forcing an early wrap. Span the full content width so
+     the pair stays side-by-side at 320px; below ~312px the controls'
+     flex-wrap takes over (sensible stacking). */
+  .entei-eizou-section {
+    width: calc(100% + 2 * var(--entei-gutter));
+    margin-inline: calc(-1 * var(--entei-gutter));
+  }
 }
 
 @media (min-width: 768px) {
   .entei-eizou-section {
     flex-direction: row;
-    align-items: flex-start;
+    /* Vertically center the right body (title + controls) against the art. */
+    align-items: center;
     justify-content: center;
     gap: var(--entei-space-32);
     max-width: 42rem;
@@ -4195,7 +4220,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
   .entei-eizou-visual {
     width: 12.5rem; /* 200px desktop square (1:1), optically balanced against
-                       the title/desc/button column; mobile keeps 10rem. */
+                       the title/controls column; mobile keeps 10rem. */
   }
 
   .entei-eizou-body {
@@ -4207,10 +4232,6 @@ html.entei-player-immersive .entei-player-audio-area {
 
   .entei-eizou-title {
     font-size: 3rem; /* 48px — desktop mock */
-  }
-
-  .entei-eizou-desc {
-    text-align: left;
   }
 }
 

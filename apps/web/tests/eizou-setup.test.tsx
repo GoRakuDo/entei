@@ -14,9 +14,9 @@ import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 const baseDict = {
   eizouSetupLabel: 'Set up',
   eizouSetupTitle: 'EizouDendenshi',
-  eizouSetupDesc: 'Assists with videos shared over YouTube and P2P.',
   eizouSetupImageAlt: 'EizouDendenshi illustration',
   eizouConnected: 'Connected',
+  eizouDisconnected: 'Disconnected',
   eizouPairingTitle: 'Pair EizouDendenshi',
   eizouPairingDesc: 'Enter the 6-digit code shown in the companion app.',
   eizouPairingOtpLabel: '6-digit pairing code',
@@ -69,16 +69,18 @@ afterEach(() => {
 describe('EizouDendenshiSetup — section semantics', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('renders title, description and setup button; no connected status when unpaired', () => {
+  it('renders title and setup button; shows a disconnected status control when unpaired', () => {
     setupSection();
     expect(
       screen.getByRole('heading', { name: baseDict.eizouSetupTitle }),
     ).toBeInTheDocument();
-    expect(screen.getByText(baseDict.eizouSetupDesc)).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: baseDict.eizouSetupLabel }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    // the connection state control is always present; unpaired = disconnected
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(baseDict.eizouDisconnected);
+    expect(status.className).toContain('entei-eizou-status-control--disconnected');
   });
 
   it('is a labelled region (desktop/mobile semantics share the same structure)', () => {
@@ -102,9 +104,9 @@ describe('EizouDendenshiSetup — section semantics', () => {
 
   it('shows the connected status when paired', () => {
     setupSection({ isConnected: true });
-    expect(screen.getByRole('status')).toHaveTextContent(
-      baseDict.eizouConnected,
-    );
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(baseDict.eizouConnected);
+    expect(status.className).toContain('entei-eizou-status-control--connected');
   });
 
   it('opens the pairing dialog from the Setup button', () => {

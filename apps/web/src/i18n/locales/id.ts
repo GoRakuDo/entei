@@ -231,10 +231,9 @@ export const id: Dictionary = {
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
     eizouSetupLabel: 'Pengaturan',
     eizouSetupTitle: 'EizouDendenshi',
-    eizouSetupDesc:
-      'Fitur pendamping untuk video yang dibagikan lewat YouTube dan P2P.',
     eizouSetupImageAlt: 'Ilustrasi EizouDendenshi',
     eizouConnected: 'Terhubung',
+    eizouDisconnected: 'Terputus',
     eizouPairingTitle: 'Hubungkan EizouDendenshi',
     eizouPairingDesc: 'Masukkan kode 6 digit yang ditampilkan di aplikasi.',
     eizouPairingOtpLabel: 'Kode pasangan 6 digit',

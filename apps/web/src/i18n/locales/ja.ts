@@ -232,9 +232,9 @@ export const ja: Dictionary = {
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
     eizouSetupLabel: 'セットアップ',
     eizouSetupTitle: '映像伝電子',
-    eizouSetupDesc: 'YouTubeとP2Pで共有された動画を補助する機能。',
     eizouSetupImageAlt: '映像伝電子のイメージ',
     eizouConnected: '接続済み',
+    eizouDisconnected: '未接続',
     eizouPairingTitle: '映像伝電子をペアリングしましょう',
     eizouPairingDesc:
       'アプリに表示された6桁のコードを入力してください。',
