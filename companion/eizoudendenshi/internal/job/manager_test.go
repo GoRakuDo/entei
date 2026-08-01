@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -411,6 +412,75 @@ func TestActiveMediaOnlyWhenComplete(t *testing.T) {
 	buf := make([]byte, 500)
 	if n, err := src.ReadAt(buf, 0); err != nil || n != 500 {
 		t.Fatalf("ReadAt = %d, %v; want 500, nil", n, err)
+	}
+}
+
+// jobTempDirs lists the private job temp dirs currently on disk.
+func jobTempDirs() []string {
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), "entei-job-") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+func TestNoJobTempDirLeakOnError(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "200")
+	setFakeEnv(t, "EIZOU_FAKE_FAIL", "1")
+	m := newTestManager(t, 0)
+	before := jobTempDirs()
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		cur := m.Get(snap.ID)
+		if cur != nil && cur.State == StateError {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never errored")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	// The errored job's private dir must be gone (regression: the helper
+	// stderr handle was left open, so os.RemoveAll failed on Windows and
+	// the dir — with the raw helper output inside — leaked).
+	after := jobTempDirs()
+	for _, d := range after {
+		if !slices.Contains(before, d) {
+			t.Errorf("leaked job temp dir after error: %s", d)
+		}
+	}
+	_, _ = m.Cancel(snap.ID)
+}
+
+func TestNoJobTempDirLeakOnCancel(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "0")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
+	m := newTestManager(t, 0)
+	before := jobTempDirs()
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Give the helper a moment to hold (so its stderr handle is open).
+	time.Sleep(400 * time.Millisecond)
+	if _, err := m.Cancel(snap.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	after := jobTempDirs()
+	for _, d := range after {
+		if !slices.Contains(before, d) {
+			t.Errorf("leaked job temp dir after cancel: %s", d)
+		}
 	}
 }
 

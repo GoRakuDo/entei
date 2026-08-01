@@ -514,6 +514,31 @@ error redaction, growing-then-complete mapping, Close), `internal/api`
 mapping) — all against a deterministic **fake helper executable** (no
 network, no real yt-dlp). Run with `go test -race ./...`.
 
+### Real-download QA record (2026-08-01, PSMUX detached session)
+
+Real companion (`--ytdlp` pinned) + real public URL job API QA. **Helper
+environment failure class**: the machine's Python 3.14 `yt-dlp.exe` shim is
+broken (its interpreter is missing) and the existing Python 3.11 + yt_dlp
+2025.03.31 predates the current YouTube player's nsig/SSAP changes
+(`No video formats found!`), so every real download ends in the redacted
+`error: "download failed"`. This is NOT a YouTube block — extraction
+starts successfully. Verified live with real runs: job acceptance (201,
+URL validation), state sequence (`queued → downloading → error`), the
+fixed helper argv policy (1080p-cap selector, `--no-playlist`, URL as the
+final argv element, no shell — parent chain `eizouden → wrapper → python`),
+`/v1/media/status` buffering mapping + `/v1/media/fixture` 503 while a job
+is downloading, cancel (session freed, process tree killed, zero orphan
+helpers), the broken-helper spawn-failure path (status `error`, fixture
+404), and **zero redaction leaks** (no URL/token/path/stderr in any
+response). **A real defect was found and fixed**: on Windows the open
+helper-stderr handle made `os.RemoveAll` fail, leaking the private job
+temp dir (with raw helper output) on error/cancel — the log handle is now
+closed before every cleanup, pinned by `TestNoJobTempDirLeakOnError` /
+`TestNoJobTempDirLeakOnCancel`. Unverified (needs a current helper; none
+was installed/updated): complete media (`available==total`, real Range 206
+bytes), growing `available` while buffering, cookies/subtitles, and the UI
+connection.
+
 ### Remaining gates (not claimed)
 
 Real-download QA with actual yt-dlp, the bridge wiring of the finished

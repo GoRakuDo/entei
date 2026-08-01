@@ -380,6 +380,11 @@ loopback companion専用のYouTube source jobの基盤（create / read / cancel�
 
 `internal/youtube`（URL validation）、`internal/job`（manager: 固定argv injectionなし・one-active conflict・cancel/cleanup zombieなし・timeout・error redaction・growing→complete mapping・Close）、`internal/api`（endpoint: gates・redaction・conflict・read/cancel・status/fixture mapping）— すべて**fake executable helper**（network / 実yt-dlp不使用）。`go test -race ./...` green。
 
+### 実QA記録（2026-08-01・実yt-dlp・PSMUX detached）
+
+実companion（`--ytdlp` pinned helper）で実URLのjob API QAを実施。**helper環境の失敗クラス**: 本マシンのPython314 yt-dlp.exe shimはinterpreter欠落で動作せず、既存Python311 + yt_dlp 2025.03.31は現在のYouTube playerのnsig/SSAP変更に未対応でNo video formats found! → 実downloadは全てrror "download failed"（redacted）。YouTube自体のblock/bot-checkではない（extraction開始は成功）。実機で確認済み: job受付（201・URL validation通過）、状態遷移（queued→downloading→error）、helper argvの固定ポリシー（1080p cap selector・`--no-playlist`・URLは最後のargv要素・shell不使用・parent chain eizouden→wrapper→python）、downloading中の/v1/media/status buffering mapping + /v1/media/fixture 503、cancel（session解放・tree kill・orphan 0）、broken-helper（spawn失敗）のerror path + status rror + fixture 404、全responseのredaction（URL/token/path/stderr漏れゼロ）。**実欠陥を検出・修正**: Windowsでhelper stderr logのopen handleがos.RemoveAllを失敗させ、job private temp dir（raw helper出力を含む）がerror/cancelでリークする欠陥を実QAで再現 → log closeを全cleanup pathでRemoveAll前に実行する修正 + リーク回帰テスト2件（TestNoJobTempDirLeakOnError / TestNoJobTempDirLeakOnCancel）。**未検証（helper更新後に再QA必要・install/更新は行わない方針）**: complete media（available==total・Range 206実bytes）・buffering中のgrowing available・cookie / subtitles・UI接続。
+
+
 ### 残るgate（主張しない）
 
 実yt-dlpでの実download QA（PSMUX detached session必須）、完成mediaのbridge接続、ユーザー向けYouTube source entry、cookie / saved-profile、Android / headed Windows Chromeのbrowser QA。

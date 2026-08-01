@@ -262,15 +262,20 @@ func (m *Manager) run(j *job, ctx context.Context) {
 	cmd.Dir = dir
 	cmd.SysProcAttr = newSysProcAttr()
 	// Helper output is captured only to the private job dir; it is never
-	// surfaced by the API.
+	// surfaced by the API. The log handle must be closed BEFORE any
+	// os.RemoveAll: on Windows a directory containing an open handle cannot
+	// be removed, and leaving it open would leak the job dir (with the raw
+	// helper output inside it) on every error/cancel path.
+	closeLog := func() {}
 	if logf, err := os.Create(filepath.Join(dir, "helper.stderr.log")); err == nil {
 		cmd.Stderr = logf
-		defer logf.Close()
+		closeLog = func() { _ = logf.Close() }
 	}
 	j.cmd = cmd
 
 	j.setState(StateDownloading)
 	if err := cmd.Start(); err != nil {
+		closeLog()
 		if ctx.Err() != nil {
 			// Cancelled before the helper launched (CommandContext Start
 			// returns the context error in that race): treat as cancelled.
@@ -299,6 +304,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			// Cancelled (or timed out). Kill the tree, reap, clean up.
 			killTree(cmd)
 			<-waitCh
+			closeLog()
 			_ = os.RemoveAll(dir)
 			if j.timedOut.Load() {
 				// A timeout is a failure: the redacted error job stays
@@ -315,6 +321,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			if ctx.Err() != nil {
 				// The process finished at the same moment as a cancel/timeout;
 				// the cancel path wins so no media survives a cancelled session.
+				closeLog()
 				_ = os.RemoveAll(dir)
 				if j.timedOut.Load() {
 					j.errMsg = "timed out"
@@ -328,9 +335,12 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			if err != nil {
 				j.errMsg = "download failed"
 				j.setState(StateError)
+				closeLog()
 				_ = os.RemoveAll(dir)
 				return // errored job stays current until cancelled
 			}
+			closeLog() // helper exited; no more stderr writes. Required before
+			// any RemoveAll (open handles block directory removal on Windows).
 			if !m.finalize(j, dir) {
 				return // finalize already cleaned up and cleared
 			}
