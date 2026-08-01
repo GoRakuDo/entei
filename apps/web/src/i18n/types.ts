@@ -272,6 +272,12 @@ export interface Dictionary {
     eizouPairingErrorNetwork: string;
     eizouPairingErrorInvalidCode: string;
     eizouPairingErrorGeneric: string;
+  /** ED-2E companion fixture session status banner. */
+  eizouSessionBuffering: string;
+  eizouSessionProgressLabel: string;
+  eizouSessionError: string;
+  eizouSessionRePairRequired: string;
+  eizouSessionEnd: string;
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: string;
     youtubeInputTitle: string;

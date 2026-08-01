@@ -92,6 +92,9 @@ import {
 } from '@/features/player/audio-clip';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { MagnetInput } from '@/components/player/MagnetInput';
+import { useCompanionFixtureSession } from '@/features/player/use-companion-fixture-session';
+import { registerCompanionFixtureEntry } from '@/features/player/companion-fixture-entry';
+import { CompanionFixtureSessionStatus } from '@/components/player/CompanionFixtureSessionStatus';
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
@@ -454,6 +457,30 @@ export default function PlayerApp() {
   // ED-3: EizouDendenshi local-companion pairing — page memory only.
   const [eizouConnected, setEizouConnected] = useState(false);
   const eizouTokenRef = useRef<string | null>(null);
+
+  // --- EizouDendenshi ED-2E fixture bridge (fixture-only, page memory) ---
+  const fixtureSession = useCompanionFixtureSession();
+  const displayMediaUrl = fixtureSession.fixtureMediaUrl ?? mediaUrl;
+  const displayMediaType = fixtureSession.fixtureMediaUrl ? 'video' : mediaType;
+
+  // ED-2E fixture-only entry: begins a known companion fixture session with
+  // the page-memory pairing token. Internal (registered for tests / PSMUX
+  // browser QA); never wired to user-facing source buttons. No-ops without
+  // pairing or while local media is loaded (protects the local flow).
+  const beginCompanionFixtureSession = useCallback(() => {
+    const token = eizouTokenRef.current;
+    if (!token || displayMediaUrl) return;
+    fixtureSession.beginFixtureSession({ baseUrl: 'http://127.0.0.1:4322', token });
+  }, [fixtureSession, displayMediaUrl]);
+  useEffect(() => {
+    registerCompanionFixtureEntry(beginCompanionFixtureSession);
+    return () => registerCompanionFixtureEntry(null);
+  }, [beginCompanionFixtureSession]);
+
+  // Attach the actual video element on the complete gate (existing ref).
+  useEffect(() => {
+    fixtureSession.attachMediaElement(videoRef.current);
+  }, [fixtureSession, fixtureSession.fixtureMediaUrl, fixtureSession.phase]);
   const [isYouTubeDialogOpen, setIsYouTubeDialogOpen] = useState(false);
 
   // --- Refs ---
@@ -773,6 +800,9 @@ export default function PlayerApp() {
 
   const handleMediaSelect = useCallback(
     (file: File) => {
+      // ED-2E: media switch ends any active companion fixture session.
+      fixtureSession.endFixtureSession();
+
       const admission = classifyMediaFile(file);
 
       if (admission.kind === 'rejected') {
@@ -804,7 +834,7 @@ export default function PlayerApp() {
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
     },
-    [clearScreenshot, clearAudioClip, clearMiningPreview],
+    [clearScreenshot, clearAudioClip, clearMiningPreview, fixtureSession],
   );
 
   const handleSubtitleSelect = useCallback((file: File) => {
@@ -2775,7 +2805,7 @@ export default function PlayerApp() {
   );
 
   const dict = dictRef.current.playerUI;
-  const hasMedia = mediaUrl !== null;
+  const hasMedia = displayMediaUrl !== null;
   const ankiPrefs = readAnkiMinerPreferences();
 
   // --- Desktop immersive layout ---
@@ -2819,10 +2849,10 @@ export default function PlayerApp() {
       className="entei-player-surface"
       onClick={handleSurfaceClick}
     >
-      {mediaType === 'video' && (
+      {displayMediaType === 'video' && (
         <VideoPlayer
           ref={videoCallbackRef}
-          src={mediaUrl!}
+          src={displayMediaUrl!}
           isLoading={isLoading}
           error={loadError}
           errorLabel={dict.failedToLoadVideo}
@@ -2834,7 +2864,7 @@ export default function PlayerApp() {
           onError={handleError}
         />
       )}
-      {mediaType === 'audio' && (
+      {displayMediaType === 'audio' && (
         <div className="entei-player-audio-area">
           <div className="entei-player-audio-visual">
             <div className="entei-player-audio-icon">
@@ -2883,8 +2913,8 @@ export default function PlayerApp() {
         isLoading={isLoading}
         error={loadError}
         hasMedia={hasMedia}
-        mediaType={mediaType}
-        mediaKey={mediaUrl!}
+        mediaType={displayMediaType}
+        mediaKey={displayMediaUrl!}
         mediaName={mediaName}
         dict={dict}
         isSubtitlePanelVisible={isSubtitlePanelVisible}
@@ -3019,6 +3049,21 @@ export default function PlayerApp() {
       onDrop={handleDrop}
       data-entei-player-root=""
     >
+      {/* ED-2E: companion fixture session status — only while a fixture
+          session is active and not playing; absent from local-file flow. */}
+      <CompanionFixtureSessionStatus
+        phase={fixtureSession.phase}
+        progress={fixtureSession.progress}
+        reason={fixtureSession.reason}
+        onEndSession={fixtureSession.endFixtureSession}
+        dict={{
+          eizouSessionBuffering: dict.eizouSessionBuffering,
+          eizouSessionProgressLabel: dict.eizouSessionProgressLabel,
+          eizouSessionError: dict.eizouSessionError,
+          eizouSessionRePairRequired: dict.eizouSessionRePairRequired,
+          eizouSessionEnd: dict.eizouSessionEnd,
+        }}
+      />
       {/* --- Empty state --- */}
       {!hasMedia && (
         <div className="entei-player-empty">

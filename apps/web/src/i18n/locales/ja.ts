@@ -246,6 +246,11 @@ export const ja: Dictionary = {
       'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     eizouPairingErrorInvalidCode:
       'コードが正しくありません。アプリの表示コードを確認してください。',
+    eizouSessionBuffering: 'ファイルの準備ができるまで待機中…',
+    eizouSessionProgressLabel: '進捗',
+    eizouSessionError: 'セッションに失敗しました。終了してやり直してください。',
+    eizouSessionRePairRequired: '再ペアリングが必要です — ペアリングコードが変わっています。',
+    eizouSessionEnd: 'セッション終了',
     eizouPairingErrorGeneric:
       '接続に失敗しました。もう一度お試しください。',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)

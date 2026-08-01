@@ -244,6 +244,11 @@ export const id: Dictionary = {
       'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     eizouPairingErrorInvalidCode:
       'Kode tidak valid. Periksa kode yang ditampilkan di aplikasi.',
+    eizouSessionBuffering: 'Menunggu file selesai…',
+    eizouSessionProgressLabel: 'Progres',
+    eizouSessionError: 'Sesi gagal. Akhiri sesi dan coba lagi.',
+    eizouSessionRePairRequired: 'Perlu menghubungkan ulang — kode pairing telah berubah.',
+    eizouSessionEnd: 'Akhiri sesi',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'URL YouTube',

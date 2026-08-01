@@ -25,7 +25,9 @@ export interface UseCompanionBridgeResult {
   phase: CompanionBridgePhase;
   progress: CompanionBridgeProgress | null;
   reason: string | null;
-  beginSession: (source: CompanionBridgeSource, media: HTMLMediaElement) => void;
+  /** media may be null while the player has no element yet (buffering in the
+   *  empty state); attach it later via attachMedia(). */
+  beginSession: (source: CompanionBridgeSource, media: HTMLMediaElement | null) => void;
   attachMedia: (media: HTMLMediaElement) => void;
   endSession: () => void;
   setPlayIntent: (play: boolean) => void;
@@ -97,8 +99,8 @@ export function useCompanionBridge(): UseCompanionBridgeResult {
   }, []);
 
   const beginSession = useCallback(
-    (source: CompanionBridgeSource, media: HTMLMediaElement) => {
-      bridgeRef.current?.beginSession(source, createMediaAdapter(media));
+    (source: CompanionBridgeSource, media: HTMLMediaElement | null) => {
+      bridgeRef.current?.beginSession(source, media ? createMediaAdapter(media) : null);
     },
     [],
   );

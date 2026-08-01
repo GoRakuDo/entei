@@ -318,10 +318,19 @@ Entei reacts to a growing source safely, given the measured fact that
 Chrome's media element does not auto-retry a growing-file `503` (fails once
 with `error` code 4; only an explicit `load()`+`play()` recovers).
 
-**Not implemented (intentional scope):** source-dialog UX (the bridge is a
-narrow internal hook, not wired into the normal local-file flow), buffering
-UI, the `headReady` byte-level moov check, yt-dlp/aria2, and browser QA
-(headed Windows Chrome / Android Chrome gates below).
+**Not implemented (intentional scope):** source-dialog UX (the fixture
+integration is reachable only through an internal dev/QA entry — user-facing
+Magnet/YouTube/source buttons stay non-functional), the `headReady`
+byte-level moov check, yt-dlp/aria2, the production bridge/job-source, and
+browser QA (headed Windows Chrome / Android Chrome gates below).
+
+**Player fixture integration (implemented):** `useCompanionFixtureSession`
+wires the bridge into PlayerApp — the media URL is surfaced only on the
+`complete` gate (never while buffering), attached to the existing video
+element ref, and the session ends on media switch/unmount; a session-status
+banner (buffering progress / error / re-pair) shows only while a fixture
+session is active, leaving local files, mining, Anki, and the tracker
+untouched. All session state stays page-memory only.
 
 ### Status/progress endpoint (companion — implemented)
 

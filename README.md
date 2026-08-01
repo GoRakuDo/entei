@@ -246,9 +246,17 @@ source integration remains in later ED-3 / ED-4 stages. See
   disconnected/error, 401/403 → re-pair, `complete`-gated explicit
   `src`/`load()`/`play()` with pending-seek/play-intent preservation,
   media-error re-check with bounded explicit reset; all state page-memory
-  only; web tests green). Source-dialog UX, buffering UI, `headReady`
-  byte-level detection, and headed Windows Chrome / Android Chrome browser
-  QA remain unimplemented/unrun. See
+  only; web tests green) plus a **fixture-only Player integration**:
+  `useCompanionFixtureSession` wired into PlayerApp (media URL surfaced
+  only on the `complete` gate, attached to the existing video element ref,
+  session ended on media switch/unmount), an internal dev/QA entry that
+  starts a fixture session from the page-memory pairing token (never wired
+  to user-facing Magnet/YouTube/source buttons, which stay non-functional),
+  and a session-status banner shown only while a fixture session is active
+  (buffering progress / error / re-pair, no impact on local files, mining,
+  Anki, tracker). Source-dialog UX, `headReady` byte-level detection,
+  production bridge/job-source, and headed Windows Chrome / Android Chrome
+  browser QA remain unimplemented/unrun. See
   [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
 - **Delivery is still not complete:** HTTPS deployed Entei origin, Android
   Chrome growing-media progressive playback, audio listening/decode, and

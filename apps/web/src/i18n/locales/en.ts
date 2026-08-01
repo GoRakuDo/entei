@@ -241,6 +241,11 @@ export const en: Dictionary = {
       'Could not reach EizouDendenshi. Make sure the companion app is running.',
     eizouPairingErrorInvalidCode:
       'Invalid code. Check the code shown in the companion app.',
+    eizouSessionBuffering: 'Waiting for the file to be ready…',
+    eizouSessionProgressLabel: 'Progress',
+    eizouSessionError: 'The companion session failed. End it and try again.',
+    eizouSessionRePairRequired: 'Re-pair required — the pairing code has changed.',
+    eizouSessionEnd: 'End session',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
