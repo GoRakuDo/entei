@@ -4109,11 +4109,11 @@ html.entei-player-immersive .entei-player-audio-area {
   border-top: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
-/* 1:1 art placeholder (real square art ships later). The brand-outline
-   surface must look intentional — no broken-image glyph, ever. */
+/* 1:1 art box (eizou-dendenshi.webp). Frameless: the transparent artwork
+   floats directly on the page background — no surface, border, or radius. */
 .entei-eizou-visual {
   position: relative;
-  width: 10rem; /* 160px — 1:1, within the mock's 200x140-ish band */
+  width: 10rem; /* 160px mobile — 1:1; desktop 12.5rem via media query */
 }
 
 .entei-eizou-image {
@@ -4121,10 +4121,13 @@ html.entei-player-immersive .entei-player-audio-area {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--entei-surface-2);
-  border: 2px solid var(--entei-accent);
-  border-radius: var(--entei-radius-lg);
-  color: var(--entei-accent);
+}
+
+.entei-eizou-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .entei-eizou-body {

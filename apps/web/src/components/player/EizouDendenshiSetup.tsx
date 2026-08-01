@@ -15,7 +15,6 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Image as ImageIcon } from 'lucide-react';
 import { AspectRatio } from '@/components/player/ui/aspect-ratio';
 import { Button } from '@/components/player/ui/button';
 import {
@@ -59,8 +58,12 @@ export function EizouDendenshiSetup({
     >
       <div className="entei-eizou-visual">
         <AspectRatio ratio={1} className="entei-eizou-image">
-          <ImageIcon size={40} aria-hidden="true" />
-          <span className="entei-sr-only">{dict.eizouSetupImageAlt}</span>
+          <img
+            src="/eizou-dendenshi.webp"
+            alt={dict.eizouSetupImageAlt}
+            className="entei-eizou-art"
+            draggable={false}
+          />
         </AspectRatio>
       </div>
       <div className="entei-eizou-body">

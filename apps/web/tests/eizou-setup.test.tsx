@@ -88,6 +88,18 @@ describe('EizouDendenshiSetup — section semantics', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders the Eizou artwork as a semantic img (src + localized alt, no placeholder icon)', () => {
+    setupSection();
+    const art = screen.getByRole('img', { name: baseDict.eizouSetupImageAlt });
+    expect(art).toHaveAttribute('src', '/eizou-dendenshi.webp');
+    // the Lucide placeholder icon is gone — no decorative svg inside the visual
+    expect(
+      document
+        .querySelector('.entei-eizou-visual')
+        ?.querySelector('svg[aria-hidden="true"]'),
+    ).toBeNull();
+  });
+
   it('shows the connected status when paired', () => {
     setupSection({ isConnected: true });
     expect(screen.getByRole('status')).toHaveTextContent(
