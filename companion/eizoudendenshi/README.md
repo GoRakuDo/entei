@@ -584,11 +584,36 @@ POST /v1/source/torrents/{id}/select — one video + optional subtitle
 ### Magnet validation
 
 Only `magnet:?xt=urn:btih:` infohash magnets are accepted (40-hex or
-32-base32), canonicalized to deterministic 40-lowercase-hex; **all other
-params (dn/tr/xl…) are deliberately dropped** (the infohash is the identity;
-no arbitrary or tracker-supplied value reaches the helper). Everything else
-— arbitrary URLs, file paths, malformed magnets — is rejected before any
-spawn, and errors never echo the magnet.
+32-base32), canonicalized to deterministic 40-lowercase-hex. **Safe `tr=`
+announce trackers are preserved** (see the tracker policy below); `dn`, `xl`,
+webseeds, and every other parameter are deliberately dropped. Everything
+else — arbitrary URLs, file paths, malformed magnets — is rejected before
+any spawn, and errors never echo the magnet or tracker data.
+
+### Tracker policy (ED-2G, implemented 2026-08-02)
+
+- At most **5** announce URLs are preserved; each must be at most 512 chars
+  and match all of: scheme `udp`/`http`/`https` only; no userinfo, fragment,
+  or raw path tricks; **hostname required** (any IP literal — public/private,
+  v4/v6 — and `localhost` are rejected, covering loopback/unspecified/
+  link-local); explicit ports must be 1–65535; pure ASCII with no whitespace/
+  control characters; path empty or starting with `/` with no backslashes.
+- **If ANY supplied tracker is unsafe the whole magnet is rejected** — unsafe
+  trackers are never silently dropped (visible, fail-closed contract).
+  Validation never performs DNS resolution.
+- Canonical trackers are normalized (lowercase scheme/host), deduplicated,
+  and emitted in deterministic sorted order as repeated `tr=` params; the
+  whole canonical magnet (xt + trackers) stays **one final argv element** to
+  aria2; the fixed args and no-shell contract are unchanged.
+- `http` is allowed with a documented tradeoff: plaintext announce exposes
+  the infohash and the user's IP to the tracker operator and on-path
+  observers. Tracker data never appears in API snapshots, errors, logs, or
+  docs output.
+- **Privacy:** a tracker is a third-party endpoint. Once a torrent job
+  actually runs, the user's IP is exposed to the tracker(s) and to torrent
+  peers (PEX/DHT), and the tracker learns the infohash; the rest of the
+  companion remains local-only. User consent for this exposure is a future
+  UI phase.
 
 ### Helper contract
 
@@ -770,15 +795,16 @@ acquires ONLY the verifier safely:
   jobs (201) and reached `queued → downloading` for two safe public swarms
   (an archive.org public-domain film torrent and the official Debian
   netinst torrent — source class only), but **no bytes downloaded within
-  the bounded windows (5–5.5 min each)**. Cause: the ED-2G canonical
-  magnet strips tracker parameters by design, and neither swarm was
-  reachable via DHT/PEX from this network — the documented
-  peer/metadata-timeout failure class. The files/selection/complete/Range
+  the bounded windows (5–5.5 min each)** — at that time the canonical
+  magnet carried no trackers (the ED-2G canonicalization stripped them by
+  design), and neither swarm was reachable via DHT/PEX from this network —
+  the documented peer/metadata-timeout failure class. The files/selection/complete/Range
   gates were therefore not reachable (not claimed); cancellation +
   cleanup were verified live (job dirs 0, aria2/core processes 0, session
-  freed, temp root deleted, 4322 free). A future real-download gate needs
-  either DHT-reachable swarms or a tracker-preserving magnet policy
-  (documented, not implemented).
+  freed, temp root deleted, 4322 free). **Tracker preservation is now
+  implemented (see Tracker policy); the next real swarm QA gate uses a
+  tracker-enabled safe public torrent** (public-domain/official MKV test
+  sourcing is planned but not yet run).
 
 ### Remaining gates (not claimed)
 

@@ -92,6 +92,8 @@ func TestTorrentCreateInvalidMagnetRedacted(t *testing.T) {
 		`{"magnet":"http://example.com/file.torrent"}`,
 		`{"magnet":"magnet:?xt=urn:btih:short"}`,
 		`{"magnet":"not a magnet"}`,
+		// An unsafe tracker (loopback) rejects the whole magnet.
+		`{"magnet":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=udp%3A%2F%2F127.0.0.1%3A6969"}`,
 		`{}`,
 	} {
 		rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal, bad)
@@ -102,6 +104,60 @@ func TestTorrentCreateInvalidMagnetRedacted(t *testing.T) {
 			t.Errorf("400 body leaks the magnet: %s", rec.Body.String())
 		}
 	}
+}
+
+// TestTorrentTrackerNeverLeaks: a job created with a tracker-bearing magnet
+// must never expose the tracker (or the magnet) in any API response.
+func TestTorrentTrackerNeverLeaks(t *testing.T) {
+	s, _ := newTorrentsServer(t)
+	t.Setenv("EIZOU_FAKE_FILES", "movie.mkv:200")
+	t.Setenv("EIZOU_FAKE_HOLD", "")
+	trackerMagnet := testMagnet + "&tr=udp%3A%2F%2Ftracker.example%3A1337&tr=https%3A%2F%2Ftr2.example%2Fannounce"
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+trackerMagnet+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+	for _, needle := range []string{"tracker.example", "tr2.example", "urn:btih", "&tr="} {
+		if strings.Contains(rec.Body.String(), needle) {
+			t.Errorf("create response leaks %q: %s", needle, rec.Body.String())
+		}
+	}
+	// The read response after the download must stay tracker-free too.
+	deadline := time.Now().Add(10 * time.Second)
+	var id string
+	var j struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &j)
+	id = j.ID
+	for {
+		r := doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+id, allowedOriginLocal, "")
+		if r.Code != http.StatusOK {
+			t.Fatalf("read = %d (%s)", r.Code, r.Body.String())
+		}
+		if strings.Contains(r.Body.String(), "tracker.example") || strings.Contains(r.Body.String(), "urn:btih") {
+			t.Fatalf("read response leaks tracker/magnet: %s", r.Body.String())
+		}
+		var snap struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(r.Body.Bytes(), &snap)
+		if snap.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	// Status endpoint must not leak either.
+	st := doTorrent(t, s, http.MethodGet, "/v1/media/status?token="+s.token, allowedOriginLocal, "")
+	if strings.Contains(st.Body.String(), "tracker.example") || strings.Contains(st.Body.String(), "urn:btih") {
+		t.Fatalf("status leaks tracker/magnet: %s", st.Body.String())
+	}
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+id+"/cancel", allowedOriginLocal, "")
 }
 
 func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {

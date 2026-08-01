@@ -123,6 +123,49 @@ func TestFixedArgsNoInjection(t *testing.T) {
 	_, _ = m.Cancel(snap.ID)
 }
 
+// TestFixedArgsTrackerMagnetPinsOneFinalElement: a tracker-bearing magnet is
+// canonicalized (safe trackers preserved) and still passed as ONE final argv
+// element — the recorded argv never echoes the tracker anywhere else.
+func TestFixedArgsTrackerMagnetPinsOneFinalElement(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args.txt")
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "0")
+	setFakeEnv(t, "EIZOU_FAKE_ARGS_OUT", argsFile)
+	m := newTestManager(t, 0)
+	withTracker := testMagnet + "&tr=udp%3A%2F%2FTracker.Example%3A1337&tr=udp%3A%2F%2Fa.example%2Fannounce"
+	snap, err := m.Start(withTracker)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(argsFile); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("helper never recorded argv")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	raw, _ := os.ReadFile(argsFile)
+	argv := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	last := argv[len(argv)-1]
+	// The canonical magnet keeps the xt + the deduplicated sorted trackers.
+	if !strings.HasPrefix(last, testMagnet+"&tr=") {
+		t.Errorf("final argv element must carry the canonical tracker params, got %q", last)
+	}
+	if !strings.Contains(last, "tr=udp%3A%2F%2Fa.example%2Fannounce") ||
+		!strings.Contains(last, "tr=udp%3A%2F%2Ftracker.example%3A1337") {
+		t.Errorf("canonical trackers missing from the final argv element: %q", last)
+	}
+	// The tracker must NOT appear anywhere else in the argv.
+	for i, a := range argv {
+		if i != len(argv)-1 && strings.Contains(a, "tracker.example") {
+			t.Errorf("tracker leaked into argv[%d]: %q", i, a)
+		}
+	}
+	_, _ = m.Cancel(snap.ID)
+}
+
 func TestConflictOneActiveJob(t *testing.T) {
 	m := newTestManager(t, 0)
 	setFakeEnv(t, "EIZOU_FAKE_FILES", "")

@@ -408,7 +408,9 @@ cookie / saved-profile、subtitles、Android / headed Windows Chromeのbrowser Q
 
 ### Magnet validation
 
-`magnet:?xt=urn:btih:`（40 hex / 32 base32）のみ受理し、決定的40小文字hexへcanonicalize。**dn / tr / xl等の他パラメータは全て破棄**（infohashがidentity。任意値・tracker値がhelperへ渡らない）。それ以外（任意URL・file path・malformed）はspawn前に拒否。エラーはgenericでmagnetをechoしない。
+`magnet:?xt=urn:btih:`（40 hex / 32 base32）のみ受理し、決定的40小文字hexへcanonicalize。**安全な`tr=` announce trackerのみ保持**（下記Tracker policy。dn / xl / webseed等は全て破棄）。それ以外（任意URL・file path・malformed）はspawn前に拒否。エラーはgenericでmagnet / trackerをechoしない。
+
+**Tracker policy（2026-08-02実装）**: 最大5個・各512文字以内・scheme udp/http/httpsのみ・userinfo / fragment / IP literal host（public/private・v4/v6）・localhost・port 1-65535外・非ASCII / control / whitespace・不正path（先頭スラッシュなし・backslash）を全て拒否。**1つでもunsafeなtrがあればmagnet全体を拒否**（silently dropしない・fail-closed）。DNS解決はしない。canonical trackerはscheme/host小文字化・dedup・決定的sort順で`tr=`として保持し、canonical magnet全体（xt + trackers）はaria2へ**単一の最終argv要素**として渡る（固定argv / no shell不変）。`http`は平文announceのtradeoff（infohash + ユーザーIPがtracker運営者 / on-path observerに露出）を文書化した上で許可。trackerはAPI snapshot / error / log / docs出力に一切出さない。**Privacy**: trackerは第三者が運営するエンドポイントであり、実ダウンロード時にはユーザーIPがtrackerおよびtorrent peers（PEX/DHT）に露出し、trackerはinfohashを知る。この同意UIは将来フェーズ。
 
 ### helper契約
 
@@ -427,6 +429,8 @@ download完了後にfile list + classify（Player native allowlistと一致: vid
 ### 残るgate（主張しない）
 
 実swarm / network download QA（将来はPSMUX detached sessionのみ）、ユーザー向けtorrent selection UI、download中の前方/成長playback、Android / headed Windows Chrome browser QA。
+
+**実swarm QA記録（2026-08-02・tracker非保持時）**: rc.6 bootstrap-installed aria2 1.37.0 + 固定argvで、archive.org PD映画torrentとDebian公式netinst torrent（source classのみ・copyrightなし）を認証APIで201 → queued → downloadingまで確認したが、当時はcanonical magnetがtrackerを剥がす設計で、どちらのswarmもDHT/PEXでは到達できず**bounded window内で0 bytes（peer/metadata timeout失敗クラス・workaroundなし）**。cancel / cleanupは実測（job dir 0・process 0・session解放）。**Tracker保持実装後、次の実swarm gateはtracker有効な安全public torrentで再実施する**。**MKV互換テスト用の安全なソーシング計画（未実行）**: 公開ドメイン / 公式配布のMKVコンテンツ（例: Blender FoundationのCC映画の公式torrent配布、archive.orgのPD映画MKV項目）から、安定したannounceを持つものを選定し、selection + Range 206 + Chrome canplayを確認する。ユーザー提供のcopyrighted magnetはダウンロード / テストに一切使用しない。
 
 ## Required PoC checkpoints
 
