@@ -22,8 +22,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"eizoudendenshi/internal/api"
+	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 )
 
@@ -92,6 +94,11 @@ func main() {
 	flag.Var(&extraOrigins, "allow-origin",
 		"additional exact HTTP(S) origin permitted by CORS for this process "+
 			"(development/QA override, repeatable; fixed origins always remain)")
+	ytdlp := flag.String("ytdlp", "",
+		"path to a pinned yt-dlp-compatible helper executable for YouTube "+
+			"source jobs (ED-2F; empty = source-job endpoints disabled)")
+	jobTimeout := flag.Duration("job-timeout", 30*time.Minute,
+		"per-job download timeout for YouTube source jobs (ED-2F)")
 	flag.Parse()
 
 	bind, err := resolveBindAddress(*addr)
@@ -127,10 +134,29 @@ func main() {
 		log.Fatal("--fixture and --grow-fixture are mutually exclusive")
 	}
 
+	// ED-2F: YouTube source jobs. Enabled only when a helper is pinned via
+	// --ytdlp; the path is validated at startup (never derived from a
+	// request). Without it the /v1/source/jobs endpoints stay unregistered.
+	var jobs *job.Manager
+	if *ytdlp != "" {
+		st, err := os.Stat(*ytdlp)
+		if err != nil {
+			log.Fatalf("--ytdlp: %v", err)
+		}
+		if st.IsDir() {
+			log.Fatalf("--ytdlp: %q is a directory; a single executable is required", *ytdlp)
+		}
+		jobs, err = job.New(job.Config{HelperPath: *ytdlp, Timeout: *jobTimeout})
+		if err != nil {
+			log.Fatalf("init jobs: %v", err)
+		}
+	}
+
 	srv, err := api.New(api.Config{
 		FixturePath:  *fixture,
 		GrowSource:   growSource,
 		AllowOrigins: allowOrigins,
+		Jobs:         jobs,
 	})
 	if err != nil {
 		log.Fatalf("init api: %v", err)
@@ -146,6 +172,7 @@ func main() {
 	fmt.Fprintln(os.Stdout, banner(ln.Addr().String()))
 	fmt.Fprintf(os.Stdout, "Pairing code: %s\n", srv.PairingCode())
 	fmt.Fprintln(os.Stdout, mediaStatusLine(*fixture, growSource))
+	fmt.Fprintln(os.Stdout, jobsStatusLine(*ytdlp))
 
 	if err := http.Serve(ln, srv.Handler()); err != nil &&
 		!errors.Is(err, http.ErrServerClosed) {
@@ -174,6 +201,16 @@ func mediaStatusLine(fixturePath string, grow media.GrowingSource) string {
 	default:
 		return "Media fixture: disabled (--fixture not set)"
 	}
+}
+
+// jobsStatusLine is the terminal handoff line for YouTube source jobs
+// (ED-2F). Only the basename of the pinned helper is shown — never a full
+// path or anything request-derived.
+func jobsStatusLine(helperPath string) string {
+	if helperPath == "" {
+		return "Source jobs: disabled (--ytdlp not set)"
+	}
+	return fmt.Sprintf("Source jobs: enabled (helper: %s)", filepath.Base(helperPath))
 }
 
 // resolveBindAddress enforces the loopback-only binding policy. Only literal

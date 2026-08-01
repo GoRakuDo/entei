@@ -258,6 +258,18 @@ source integration remains in later ED-3 / ED-4 stages. See
   production bridge/job-source, and headed Windows Chrome / Android Chrome
   browser QA remain unimplemented/unrun. See
   [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
+- **ED-2F YouTube local source jobs — COMPANION FOUNDATION IMPLEMENTED:**
+  localhost-only, Origin + token-gated `POST/GET /v1/source/jobs(/{id})(/cancel)`
+  backed by `internal/job` (pinned helper via `--ytdlp`, fixed argv + URL
+  only — never a shell, 1080p cap, one active session → 409, cancel/timeout
+  kill the process tree, private temp-dir lifecycle, metadata-only
+  redacted responses) and strict `internal/youtube` URL validation; the
+  existing `/v1/media/status` and `/v1/media/fixture` now surface the
+  active job (buffering/complete/error mapping) without changing the
+  static fixture/grow contract. All Go tests green with `go test -race
+  ./...` using a fake helper. Real yt-dlp download QA, the user-facing
+  YouTube URL input, cookies/saved profiles, and the production bridge
+  remain unimplemented/unrun.
 - **Delivery is still not complete:** HTTPS deployed Entei origin, Android
   Chrome growing-media progressive playback, audio listening/decode, and
   the Windows installer remain. The production bridge is unimplemented and

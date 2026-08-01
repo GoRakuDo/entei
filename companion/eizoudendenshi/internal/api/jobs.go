@@ -1,0 +1,270 @@
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"eizoudendenshi/internal/job"
+	"eizoudendenshi/internal/media"
+)
+
+// Job endpoints (ED-2F): localhost companion-only YouTube source job
+// foundation. All routes share the exact Origin + capability gates of the
+// media endpoints and are registered only when a job manager is configured
+// (Config.Jobs != nil).
+//
+//	POST   /v1/source/jobs            — create a job (body: {"url": "…"})
+//	GET    /v1/source/jobs/{id}       — read a job's redacted state
+//	POST   /v1/source/jobs/{id}/cancel — cancel the job and free the session
+//
+// Responses are metadata-only: they never contain the URL, local paths, the
+// helper command line, helper output, or any credential. The URL is
+// redacted from public responses and logs.
+
+// jobMediaBody is the metadata-only media view in job responses.
+type jobMediaBody struct {
+	Available int64 `json:"available"`
+	Total     int64 `json:"total"`
+	HeadReady bool  `json:"headReady"`
+}
+
+// jobResponseBody is the redacted job view returned to callers.
+type jobResponseBody struct {
+	ID    string       `json:"id"`
+	State string       `json:"state"`
+	Error string       `json:"error,omitempty"`
+	Media jobMediaBody `json:"media"`
+}
+
+func snapshotToJobBody(s job.Snapshot) jobResponseBody {
+	return jobResponseBody{
+		ID:    s.ID,
+		State: string(s.State),
+		Error: s.Error,
+		Media: jobMediaBody{
+			Available: s.Media.Available,
+			Total:     s.Media.Total,
+			HeadReady: s.Media.HeadReady,
+		},
+	}
+}
+
+func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		s.handleJobPreflight(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, "POST, OPTIONS")
+		return
+	}
+	if !s.jobGates(w, r) {
+		return
+	}
+	var req struct {
+		URL string `json:"url"`
+	}
+	body := http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody("invalid JSON body"))
+		return
+	}
+	snap, err := s.jobs.Start(req.URL)
+	if err != nil {
+		if errors.Is(err, job.ErrConflict) {
+			writeJSON(w, http.StatusConflict, errorBody("a job is already active"))
+			return
+		}
+		// Validation failure and everything else: generic, and the URL is
+		// never echoed.
+		writeJSON(w, http.StatusBadRequest, errorBody("invalid URL"))
+		return
+	}
+	writeJSON(w, http.StatusCreated, snapshotToJobBody(snap))
+}
+
+func (s *Server) handleJobByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		s.handleJobPreflight(w, r)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/v1/source/jobs/")
+	if rest == "" || strings.Contains(rest, "//") {
+		writeJSON(w, http.StatusNotFound, errorBody("not found"))
+		return
+	}
+	if !s.jobGates(w, r) {
+		return
+	}
+
+	// Shape: "/v1/source/jobs/{id}" or "/v1/source/jobs/{id}/cancel".
+	if strings.HasSuffix(rest, "/cancel") {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, "POST, OPTIONS")
+			return
+		}
+		id := strings.TrimSuffix(rest, "/cancel")
+		snap, err := s.jobs.Cancel(id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, errorBody("job not found"))
+			return
+		}
+		writeJSON(w, http.StatusOK, snapshotToJobBody(snap))
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, "GET, OPTIONS")
+		return
+	}
+	snap := s.jobs.Get(rest)
+	if snap == nil {
+		writeJSON(w, http.StatusNotFound, errorBody("job not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshotToJobBody(*snap))
+}
+
+// jobGates applies the exact-Origin + capability-token gates shared with
+// the media endpoints. It writes the error response itself and returns
+// false when the request must stop.
+func (s *Server) jobGates(w http.ResponseWriter, r *http.Request) bool {
+	origin, ok := s.originAllowed(r)
+	if !ok {
+		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
+		return false
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
+	if !s.tokenValid(r) {
+		writeJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
+		return false
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	return true
+}
+
+func (s *Server) handleJobPreflight(w http.ResponseWriter, r *http.Request) {
+	origin, ok := s.originAllowed(r)
+	if !ok {
+		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Max-Age", "600")
+	w.Header().Add("Vary", "Origin")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// activeJobStatus maps the current job onto the existing status states when
+// a job session is active. ok=false means no job is current (the caller
+// falls back to the configured fixture/grow source).
+func (s *Server) activeJobStatus() (statusBody, bool) {
+	snap, _ := s.jobs.ActiveMedia()
+	switch snap.State {
+	case job.StateQueued, job.StateDownloading, job.StateBuffering:
+		return statusBody{
+			State:      statusBuffering,
+			Available:  snap.Media.Available,
+			Total:      snap.Media.Total,
+			RetryAfter: bufferingRetryAfterSec,
+		}, true
+	case job.StateComplete:
+		return statusBody{
+			State:     statusComplete,
+			Available: snap.Media.Total,
+			Total:     snap.Media.Total,
+		}, true
+	case job.StateError:
+		return statusBody{State: statusError}, true
+	default:
+		// cancelled (or no job): no active source; caller falls through.
+		return statusBody{}, false
+	}
+}
+
+// serveJobMedia serves the active job's media with the growing-media
+// contract when the job is the current session. Returns true when the
+// request was fully handled. Mapping:
+//
+//	complete     → the growing serv (available == total → 200/206)
+//	downloading/ → 503 buffering with current bytes / total (0 until known)
+//	buffering
+//	error        → generic 404 (no media)
+//
+// A job in any state takes precedence over the configured fixture/grow
+// source: it IS the active session.
+func (s *Server) serveJobMedia(w http.ResponseWriter, r *http.Request) bool {
+	snap, src := s.jobs.ActiveMedia()
+	switch snap.State {
+	case job.StateComplete:
+		if src != nil {
+			s.serveGrowingSource(src, w, r)
+			return true
+		}
+		// Complete but the source failed to materialize: honest generic 404.
+		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+		return true
+	case job.StateDownloading, job.StateBuffering:
+		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)
+		return true
+	case job.StateError, job.StateCancelled:
+		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+		return true
+	default:
+		return false // no active job: caller falls through to configured source
+	}
+}
+
+// serveGrowingSource serves any growing source with the availability-aware
+// Range contract. It is the parameterized body of serveGrowingMedia (which
+// passes the configured grow source); the job media path passes the job's
+// completed source.
+func (s *Server) serveGrowingSource(src media.GrowingSource, w http.ResponseWriter, r *http.Request) {
+	total := src.Total()
+	avail := src.Available()
+
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Access-Control-Expose-Headers",
+		"Content-Range, Accept-Ranges, Content-Length, Retry-After")
+
+	start, end, hasRange := parseSingleRange(r.Header.Get("Range"), total)
+	if hasRange {
+		if start >= total {
+			w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(total, 10))
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		if avail < total && (start >= avail || end >= avail) {
+			s.writeBuffering(w, r, avail, total)
+			return
+		}
+		length := end - start + 1
+		w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.FormatInt(total, 10))
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		w.WriteHeader(http.StatusPartialContent)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = io.Copy(w, io.NewSectionReader(src, start, length))
+		return
+	}
+
+	if avail < total {
+		s.writeBuffering(w, r, avail, total)
+		return
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.Copy(w, io.NewSectionReader(src, 0, total))
+}

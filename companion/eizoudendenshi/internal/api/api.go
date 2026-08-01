@@ -47,6 +47,7 @@ import (
 	"strings"
 	"sync"
 
+	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/pairing"
 )
@@ -148,6 +149,11 @@ type Config struct {
 	// is validated and normalized with ParseOrigin; an invalid entry makes
 	// New fail. The fixed production origins always remain.
 	AllowOrigins []string
+
+	// Jobs, when set, enables the ED-2F YouTube source-job endpoints
+	// (/v1/source/jobs…). Nil leaves them unregistered (404) and the
+	// media/status endpoints behave exactly as before.
+	Jobs *job.Manager
 }
 
 // Server holds in-memory pairing state for one process lifetime.
@@ -157,6 +163,7 @@ type Server struct {
 	token          string              // opaque capability token; never logged or persisted
 	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
 	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
+	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 }
 
@@ -191,6 +198,7 @@ func New(cfg Config) (*Server, error) {
 		token:          token,
 		fixturePath:    cfg.FixturePath,
 		growSource:     cfg.GrowSource,
+		jobs:           cfg.Jobs,
 		allowedOrigins: allowed,
 	}, nil
 }
@@ -210,6 +218,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/pair", s.handlePair)
 	mux.HandleFunc("/v1/media/fixture", s.handleMediaFixture)
 	mux.HandleFunc("/v1/media/status", s.handleMediaStatus)
+	if s.jobs != nil {
+		// ED-2F: YouTube source jobs. Registered only when a job manager is
+		// configured; otherwise these routes are honestly 404.
+		mux.HandleFunc("/v1/source/jobs", s.handleJobCreate)
+		mux.HandleFunc("/v1/source/jobs/", s.handleJobByID)
+	}
 	mux.HandleFunc("/", handleNotFound)
 	return mux
 }
@@ -315,11 +329,17 @@ func (s *Server) handleMediaFixture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ED-2F: an active job session takes precedence over the configured
+	// fixture/grow source — it IS the current media session.
+	if s.jobs != nil && s.serveJobMedia(w, r) {
+		return
+	}
+
 	// ED-2C: a growing source (when configured) serves the same URL with
 	// the availability-aware contract. Mutual exclusivity with FixturePath
 	// is enforced by New.
 	if s.growSource != nil {
-		s.serveGrowingMedia(w, r)
+		s.serveGrowingSource(s.growSource, w, r)
 		return
 	}
 

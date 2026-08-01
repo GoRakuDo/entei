@@ -2,8 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,55 +49,35 @@ type bufferingBody struct {
 // additionally refuse reads past their own availability (see
 // internal/media) and availability is monotonic, so a concurrent writer
 // cannot cause an unavailable byte to be served.
+// serveGrowingMedia serves the configured growing source (ED-2C). It is a
+// thin wrapper over the shared serveGrowingSource (internal/api/jobs.go),
+// which also serves the ED-2F job media path.
+//
+// Contract (documented in companion/eizoudendenshi/README.md and
+// docs/EIZOU_DENDENSHI.md):
+//   - GET/HEAD without a usable Range: 200 with the full body only when
+//     Available == Total. Otherwise 503 — a 200 would falsely claim the
+//     representation is complete (truncated success).
+//   - Single Range fully within [0, Available()): 206 Partial Content with
+//     the exact window and "Content-Range: bytes a-b/Total" (standard
+//     Range semantics).
+//   - Single Range touching or beyond Available() but starting below
+//     Total: 503 Service Unavailable with Retry-After — never a truncated
+//     206, never fabricated bytes, never an indefinite block.
+//   - Range starting at or beyond Total: 416 with "bytes */Total" — the
+//     only permanently-unsatisfiable case; a merely-not-yet range is 503.
+//   - HEAD mirrors GET's status and headers with an empty body.
+//   - A malformed, non-bytes, or multi-range Range header is ignored
+//     (treated as no Range), per RFC 9110; multipart ranges are out of
+//     scope for the growing endpoint.
+//
+// TOCTOU: Available() is snapshotted once per request and the served
+// window is derived from that snapshot; reads never cross it. Sources
+// additionally refuse reads past their own availability (see
+// internal/media) and availability is monotonic, so a concurrent writer
+// cannot cause an unavailable byte to be served.
 func (s *Server) serveGrowingMedia(w http.ResponseWriter, r *http.Request) {
-	src := s.growSource
-	total := src.Total()
-	avail := src.Available()
-
-	w.Header().Set("Content-Type", "video/mp4")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Access-Control-Expose-Headers",
-		"Content-Range, Accept-Ranges, Content-Length, Retry-After")
-
-	start, end, hasRange := parseSingleRange(r.Header.Get("Range"), total)
-	if hasRange {
-		if start >= total {
-			// Permanently unsatisfiable: the requested first byte will
-			// never exist. Only this case is 416; a range merely beyond the
-			// current availability is 503 (it may become satisfiable).
-			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", total))
-			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-			return
-		}
-		if avail < total && (start >= avail || end >= avail) {
-			s.writeBuffering(w, r, avail, total)
-			return
-		}
-		// Fully within the available prefix: exact window semantics.
-		length := end - start + 1
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
-		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
-		w.WriteHeader(http.StatusPartialContent)
-		if r.Method == http.MethodHead {
-			return
-		}
-		_, _ = io.Copy(w, io.NewSectionReader(src, start, length))
-		return
-	}
-
-	// No usable Range: full representation. Only serve it when the file is
-	// complete; otherwise the buffering response (see above).
-	if avail < total {
-		s.writeBuffering(w, r, avail, total)
-		return
-	}
-	w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
-	w.WriteHeader(http.StatusOK)
-	if r.Method == http.MethodHead {
-		return
-	}
-	_, _ = io.Copy(w, io.NewSectionReader(src, 0, total))
+	s.serveGrowingSource(s.growSource, w, r)
 }
 
 // writeBuffering emits the retryable buffering response: 503 Service

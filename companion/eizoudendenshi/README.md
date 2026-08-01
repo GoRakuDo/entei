@@ -48,6 +48,17 @@ using only the standard library.
 > below. Source-dialog UX, buffering UI, `headReady` byte-level detection,
 > and headed Windows Chrome / Android Chrome browser QA remain
 > unimplemented / unrun.
+> **The ED-2F YouTube local source job foundation is IMPLEMENTED
+> (2026-07-31)** — `internal/youtube` strict URL validation + `internal/job`
+> manager (pinned helper via `--ytdlp`, fixed argv + URL only — never a
+> shell, 1080p cap, one active session → 409, cancel/timeout kill the
+> process tree, private temp-dir lifecycle, metadata-only redacted
+> responses) behind `POST/GET /v1/source/jobs(/{id})(/cancel)` with the
+> same Origin + token gates; `/v1/media/status` and `/v1/media/fixture`
+> surface the active job without changing the static fixture/grow
+> contract. All Go tests green with `go test -race ./...` (fake helper).
+> Real yt-dlp download QA, the user-facing YouTube URL input, cookies /
+> saved profiles, and the production bridge remain unimplemented / unrun.
 > **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
 > the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2` — see
 > [Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
@@ -86,6 +97,11 @@ using only the standard library.
     no-store`, HEAD mirror, origin-gated OPTIONS preflight; never contains
     paths/filenames/tokens/pairing data (ED-2E; see
     [status endpoint](#statusprogress-endpoint-companion--implemented)).
+    Surfaces the active YouTube job (ED-2F) when one exists.
+  - `POST /v1/source/jobs` / `GET /v1/source/jobs/{id}` /
+    `POST /v1/source/jobs/{id}/cancel` — ED-2F YouTube local-source job
+    create/read/cancel (registered only with `--ytdlp`; metadata-only,
+    URL redacted; one active session).
   - Unknown routes → 404; unknown methods → 405; all errors are non-secret.
 - Strict CORS: only exactly `https://entei.gorakudo.org` and
   `http://localhost:4321`. No `*`. Disallowed Origin is rejected on state
@@ -423,6 +439,86 @@ gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
   media-generic; QA starts with video).
 - A future `headReady`-based fast path (e.g. MSE) is unverified under the
   503 contract — out of scope.
+
+## ED-2F YouTube local source jobs (companion foundation, implemented)
+
+A minimal, production-oriented job boundary that will later feed the
+already-tested status bridge: a localhost-only, exact-Origin + capability-
+token-gated API to create / read / cancel a single YouTube download job.
+**No GoRakuDo proxy, no browser/site integration, no cookies, no
+yt-dlp/aria2 download QA in this phase.** The user-facing YouTube URL input
+in Entei is intentionally NOT wired yet.
+
+### Endpoints (registered only when `--ytdlp` is configured)
+
+```
+POST /v1/source/jobs                 — create a job; body {"url": "…"}
+GET  /v1/source/jobs/{id}            — read a job's redacted state
+POST /v1/source/jobs/{id}/cancel     — cancel and free the session
+```
+
+- Same gates as `/v1/media/*`: exact allowed Origin (missing/disallowed →
+  403 without CORS headers) + capability token (missing/invalid → 401).
+- One active session only: creating a second job → **409 conflict**. A
+  terminal job (error/complete) stays current until explicitly cancelled —
+  the failed session is observable via status and is freed only by cancel.
+- Responses are **metadata-only**: `{id, state, error?, media:{available,
+  total, headReady}}`. The URL, local paths, the helper command line, raw
+  helper stderr, and any credential are never in responses or logs. Job
+  ids are opaque random hex.
+
+### Job state machine → status mapping
+
+`queued → downloading → buffering → complete`, terminal `error` /
+`cancelled`. `/v1/media/status` surfaces the active job: queued /
+downloading / buffering → `buffering` (available = current bytes on disk,
+total = 0 until the helper finishes); complete → `complete` (available =
+total); error → `error`; cancelled → falls through to the configured
+source (typically `disabled`). `/v1/media/fixture` serves the completed
+job's media with the growing contract (200/206) and returns 503 buffering
+while the job is downloading, or a generic 404 when the job errored.
+
+### Helper contract
+
+- Pinned via `--ytdlp <path>` (validated at startup); never derived from a
+  request. Without the flag the job endpoints are honestly unregistered.
+- Spawned with `exec.Command` and a **fixed argument vector** — the
+  validated URL is the only user-derived value and is passed as its own
+  final argv element. **No shell is ever involved.**
+- Fixed deterministic policy: 1080p cap (`bv*[height<=1080]+ba/b[height
+  <=1080]/b`), `--no-playlist`, direct output into the job's private temp
+  dir. No quality selector, no user options.
+- URL validation accepts only exact https YouTube host forms
+  (`youtube.com` / `www` / `m` / `music` / `youtu.be`) with strict
+  11-char video-id rules; everything else is rejected before spawn.
+- Per-job timeout (`--job-timeout`, default 30m) and cancellation kill the
+  helper process tree (process group / `taskkill /T`); the job is reaped
+  (no zombies). All job files live in a private `entei-job-*` temp dir,
+  removed on cancel/failure; a completed session keeps its media until the
+  session is cancelled. User files are never touched.
+
+### Subtitles boundary
+
+**Not implemented in this phase.** No subtitle flags are passed; subtitle
+availability is not queried. Querying/recording availability without a
+user cookie, and any Japanese-subtitle selection, are deferred (they would
+require parsing helper metadata output — a separate, safe/deterministic
+step — and must be re-reviewed before being enabled).
+
+### Tests
+
+`internal/youtube` (URL validation), `internal/job` (manager: fixed-args no
+injection, one-active conflict, cancel/cleanup with no zombie, timeout,
+error redaction, growing-then-complete mapping, Close), `internal/api`
+(jobs endpoints: gates, redaction, conflict, read/cancel, status/fixture
+mapping) — all against a deterministic **fake helper executable** (no
+network, no real yt-dlp). Run with `go test -race ./...`.
+
+### Remaining gates (not claimed)
+
+Real-download QA with actual yt-dlp, the bridge wiring of the finished
+media into the Entei player, the user-facing YouTube source entry, cookie /
+saved-profile handling, and Android/headed-Windows browser QA.
 
 ## Deferred boundaries (out of scope through ED-2B)
 

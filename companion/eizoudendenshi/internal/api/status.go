@@ -85,6 +85,16 @@ func (s *Server) currentStatus() statusBody {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// ED-2F: an active job session takes precedence over the configured
+	// source. queued/downloading/buffering → status "buffering" with the
+	// current bytes on disk (total 0 until the helper finishes);
+	// complete → "complete"; error → "error"; cancelled → fall through.
+	if s.jobs != nil {
+		if body, ok := s.activeJobStatus(); ok {
+			return body
+		}
+	}
+
 	if s.growSource != nil {
 		total := s.growSource.Total()
 		avail := s.growSource.Available()
