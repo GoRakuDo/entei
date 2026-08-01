@@ -93,8 +93,9 @@ import {
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { MagnetInput } from '@/components/player/MagnetInput';
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
+import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
-import { Music, AlertTriangle, Magnet, Link } from 'lucide-react';
+import { Music, AlertTriangle, Magnet } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
@@ -3053,7 +3054,7 @@ export default function PlayerApp() {
                     aria-label={dict.youtubeInputLabel}
                     title={dict.youtubeInputLabel}
                   >
-                    <Link />
+                    <YouTubeMark />
                   </Button>
                 </div>
             </div>
