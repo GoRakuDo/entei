@@ -145,6 +145,27 @@ core binaryはMinisignで**厳密にversion固定**する。将来のYouTube / t
 
 最初のbootstrap command自身はMinisign verifierの導入前に実行されるtrust bootstrapである。`curl | sh`で未検証remote shellを実行する形にはせず、公開鍵を含む短いcopy-paste commandとして配布する。
 
+### 共通CLIと初回helper導入（実装済み・実機gate未実施）
+
+Windows / Termuxともに、初回bootstrap後の入口は同じ`eizouden` CLIに統一する。CLIは現在起動中のcompanionへ接続するためのUIではなく、local companionの運用入口である。起動時はrelease versionを色付きheaderで表示し、選択肢は増やさない。
+
+```text
+EizouDendenshi vX.Y.Z
+
+1. Get New Pairing Code
+2. Service Status
+
+Option:
+```
+
+- **Get New Pairing Code:** 既存のpairing codeを再利用・保存せず、そのCLI起動で新しいcodeを表示してforeground companionを開始する。tokenは従来どおりmemory-only。
+- **Service Status:** core、yt-dlp、aria2、ffmpegの導入済み / version / 実行可能状態だけを表示する。path、cookie、token、URL、job内容は表示しない。
+- CLIは`Start` / `Stop`などの追加menuを持たない。foreground companionは通常の`Ctrl+C`で停止する。
+
+**実装（2026-08-02）:** `eizouden cli`（Go、共通）がmenuを描画（stdoutがterminalのときだけANSI color、それ以外はplain）。option 1は既存のserver起動経路を再利用（fresh pairing code・Ctrl+C停止）、option 2はcore/yt-dlp/aria2/ffmpegのinstalled/version/readinessのみ表示（path/cookie/token/URL/job内容は出さない。helper pathはWindows launcherが絶対pathを渡し、Termuxは固定command名を解決）。無効入力は再prompt、EOFは安全exit。**Windows**: bootstrapがuser-private rootに`eizouden.cmd` launcherをinstall（core CLI mode + 絶対helper path; global PATH変更なし）。**manifest contract v3**: helper artifact map（Windows）＋固定Termux package map（python-yt-dlp/aria2/ffmpeg、minimum versionはmanifest管理）。Windows bootstrapはv2/v3を受け入れ、helper-enabled Termux bootstrap（`eizouden-bootstrap-helper.sh`）はv3必須（v1/v2はfail closed; 既存v1 core-only Termux bootstrapは不変）。Termux helper導入は公式pkgのみ・version要件確認後にcore install・app-private `eizouden` launcherを`$PREFIX/bin`へ。harness検証済み（Termux 90/90・Windows 83/83）。**未実施gate**: Termux実機でのclean install＋helper CLI gate、Windows実機でのCLI/launcher手動gate。
+
+Windowsは既存のhelper contract v2により、Minisign検証済みrelease artifactをuser-private rootへ導入する。Termuxも同じ利用可能状態を目指すが、helper binaryをWindows assetから流用しない。Termux公式repoの`python-yt-dlp`、`aria2`、`ffmpeg`をbootstrapが必要時だけ導入し、release manifestが定めるminimum versionを満たすか確認する。manifest不一致・package install失敗・version不足ではcoreを起動せずfail closedする。helperのsilent self-update、global install、browser storageへのhelper state保存は行わない。
+
 ### ED-2D Stage B gate 実測記録（2026-07-31, `eizoudendenshi-v0.2.0-rc.2`）
 
 **PASS（Android / Termux arm64）:** GitHub pre-release `eizoudendenshi-v0.2.0-rc.2`をfresh Termux reinstallで実施。bootstrapはGitHub releaseから全物を取得し、以下をすべて確認した。

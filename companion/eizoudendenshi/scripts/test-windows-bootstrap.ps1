@@ -268,7 +268,7 @@ function Dynamic-Suite {
 
     $man = Get-Content -Raw -LiteralPath (Join-Path $script:DistDir 'eizouden-manifest.json') | ConvertFrom-Json
     Check 'dynamic: helper contract v2 with three helpers' (
-        $man.helperContract.version -eq 2 -and
+        ($man.helperContract.version -eq 2 -or $man.helperContract.version -eq 3) -and
         @($man.helperContract.helpers.PSObject.Properties).Count -eq 3) 'v2 helpers map expected'
     Check 'dynamic: helper artifacts listed with windows/amd64 target' (
         @($man.artifacts | Where-Object { $_.name -match 'yt-dlp|aria2|ffmpeg' -and $_.target -eq 'windows/amd64' }).Count -eq 3) ($man.artifacts | ConvertTo-Json -Compress)
@@ -319,6 +319,19 @@ function Dynamic-Suite {
     $manSha = [string]($man.artifacts | Where-Object { $_.name -eq 'yt-dlp-windows-amd64.exe' } | Select-Object -First 1).sha256
     $instSha = (Get-FileHash -LiteralPath (Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')).Hash.ToLowerInvariant()
     Check 'T1: installed helper bytes match signed manifest' ($instSha -eq $manSha) "got $instSha want $manSha"
+
+    # T1b: the user-private common CLI launcher is installed and references
+    #      the exact private helper runtime names (never a global PATH).
+    $launcherPath = Join-Path $root 'eizouden.cmd'
+    Check 'T1b: eizouden.cmd CLI launcher installed' (Test-Path -LiteralPath $launcherPath) 'launcher present in the install root'
+    if (Test-Path -LiteralPath $launcherPath) {
+        $lc = Get-Content -Raw -LiteralPath $launcherPath
+        Check 'T1b: launcher invokes the core CLI mode with private helper flags' (
+            $lc -match 'cli' -and
+            $lc -match 'yt-dlp-windows-amd64\.exe' -and
+            $lc -match 'aria2c\.exe' -and
+            $lc -match 'ffmpeg\.exe') ($lc -replace '\s+', ' ')
+    }
 
     # T2: reuse (second run, same root — no replacement).
     $ytdlpInstalled = Join-Path $root 'helpers\yt-dlp-windows-amd64.exe'
@@ -483,7 +496,7 @@ function Dynamic-Suite {
     }
     $root14 = Join-Path $script:WorkDir 'root-T14'
     Invoke-WinBootstrapCase -Name 'T14 v1 contract refused' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T14')) `
-        -InstallRoot $root14 -Env $script:BaseEnv -Mirror $mirror -ExpectErrorPattern 'not the Windows version-2'
+        -InstallRoot $root14 -Env $script:BaseEnv -Mirror $mirror -ExpectErrorPattern 'Windows-compatible'
 
     # V1: first-run auto verifier fetch/install (no minisign on PATH).
     $mirrorV = Copy-Mirror 'V1'

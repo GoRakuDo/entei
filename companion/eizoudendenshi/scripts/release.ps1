@@ -297,9 +297,24 @@ if ($helperEnabled) {
         }
         $helpersMap[$h.key] = $entry
     }
+    # Contract v3 = canonical helper contract: the Windows artifact helpers
+    # above PLUS the fixed Termux package requirements. The Termux map is a
+    # compiled-in constant (official Termux pkg repo names + minimum
+    # versions); it is never derived from user input. The Windows bootstrap
+    # accepts versions 2 and 3 (both carry the artifact helpers map); the
+    # helper-enabled Termux bootstrap requires version 3 (fails closed on 1
+    # and 2). The v1 core-only Termux bootstrap stays byte-for-byte
+    # unchanged and refuses anything but v1.
     $helperContract = [ordered]@{
-        version = 2
+        version = 3
         helpers = $helpersMap
+        termux  = [ordered]@{
+            packages = [ordered]@{
+                'yt-dlp' = [ordered]@{ package = 'python-yt-dlp'; command = 'yt-dlp'; minimum = '2025.03.31' }
+                'aria2'  = [ordered]@{ package = 'aria2'; command = 'aria2c'; minimum = '1.36.0' }
+                'ffmpeg' = [ordered]@{ package = 'ffmpeg'; command = 'ffmpeg'; minimum = '4.4' }
+            }
+        }
     }
 }
 
@@ -354,6 +369,7 @@ if ($PublicKeyFile -ne '') {
     $placeholder = 'REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
     foreach ($pair in @(
             @('termux-bootstrap.sh', 'eizouden-bootstrap.sh'),
+            @('termux-bootstrap-helper.sh', 'eizouden-bootstrap-helper.sh'),
             @('windows-bootstrap.ps1', 'eizouden-bootstrap.ps1'))) {
         $template = Join-Path $PSScriptRoot $pair[0]
         $text = [System.IO.File]::ReadAllText($template)

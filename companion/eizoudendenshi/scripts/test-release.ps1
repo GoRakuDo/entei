@@ -310,6 +310,217 @@ function New-CaseEnv {
     return $env
 }
 
+# --- Termux helper-enabled bootstrap suite (ED-2F/ED-2G v3 contract) --------
+
+function New-FakeArchive {
+    param([string]$ZipPath, [string]$InnerName)
+    $stage = Join-Path $script:WorkDir ("arch-" + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    Set-Content -LiteralPath (Join-Path $stage $InnerName) -Value 'fake helper bytes' -Encoding ascii
+    Compress-Archive -Path (Join-Path $stage $InnerName) -DestinationPath $ZipPath -Force
+    Remove-Item -LiteralPath $stage -Recurse -Force
+}
+
+function New-FakeTermuxPrefix {
+    param([string]$Name, [hashtable]$Versions)
+    $p = Join-Path $script:WorkDir "prefix-helper-$Name"
+    New-Item -ItemType Directory -Force -Path (Join-Path $p 'bin') | Out-Null
+    $mk = {
+        param($cmd, $body)
+        $f = Join-Path $p "bin\$cmd"
+        [System.IO.File]::WriteAllText($f, $body, (New-Object System.Text.UTF8Encoding($false)))
+        & $script:ShPath -c "chmod +x `"$f`""
+    }
+    & $mk 'yt-dlp' "#!/bin/sh`necho $($Versions.ytdlp)"
+    & $mk 'aria2c' "#!/bin/sh`necho aria2 version $($Versions.aria2)"
+    & $mk 'ffmpeg' "#!/bin/sh`necho ffmpeg version $($Versions.ffmpeg)"
+    return $p
+}
+
+function Invoke-TermuxHelperCase {
+    param(
+        [string]$Name,
+        [string]$BootstrapPath,
+        [string]$Prefix,
+        [string]$InputFile,
+        [switch]$ExpectSuccess,
+        [string]$ExpectErrorPattern = ''
+    )
+    $outFile = Join-Path $script:LogsDir "$Name.out.log"
+    $errFile = Join-Path $script:LogsDir "$Name.err.log"
+    $runner = Join-Path $script:WorkDir "$Name-helper-runner.sh"
+    "#!/bin/sh`nexec sh `"`$1`" `"`$2`" < `"`$3`"" | Set-Content -LiteralPath $runner -Encoding ascii -NoNewline
+    $envH = @{
+        EIZOU_TEST = '1'
+        EIZOU_BOOTSTRAP_SKIP_PKG = '1'
+        EIZOU_MIRROR_DIR = $script:HelperMirror
+        PREFIX = $Prefix
+        TMPDIR = $script:TempDir
+        # The fake helper commands live in the prefix bin; it must come
+        # FIRST so no real machine helper shadows them.
+        PATH = (Join-Path $Prefix 'bin') + ';' + $script:GitBins + ';' + (Split-Path $script:Minisign) + ';' + $env:PATH
+    }
+    $proc = Start-Process -FilePath $script:ShPath -ArgumentList @("`"$runner`"", "`"$BootstrapPath`"", "`"$($script:HelperBaseUrl)`"", "`"$InputFile`"") `
+        -RedirectStandardOutput $outFile -RedirectStandardError $errFile -PassThru -NoNewWindow -Environment $envH
+    $exited = $proc.WaitForExit(90000)
+    if (-not $exited) {
+        & 'C:\Windows\System32\taskkill.exe' /T /F /PID $proc.Id 2>&1 | Out-Null
+        $proc.WaitForExit()
+        Check "${Name}: process exited" $false 'did not exit within 90s'
+        return
+    }
+    $out = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue) +
+        (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
+    $core = Join-Path $Prefix "var\lib\eizouden\eizouden-android-arm64"
+    $launcher = Join-Path $Prefix "bin\eizouden"
+    if ($ExpectSuccess) {
+        Check "${Name}: exited zero" ($proc.ExitCode -eq 0) "exit=$($proc.ExitCode): $($out -replace '\s+',' ')"
+        Check "${Name}: helpers verified" ($out -match 'helper .* version .* OK') ($out -replace '\s+', ' ')
+        Check "${Name}: core installed in app-private storage" (Test-Path -LiteralPath $core) "expected $core"
+        Check "${Name}: CLI launcher installed at PREFIX/bin/eizouden" (Test-Path -LiteralPath $launcher) "expected $launcher"
+        Check "${Name}: CLI status rendered (common CLI contract)" ($out -match 'core: installed \(v') ($out -replace '\s+', ' ')
+    }
+    else {
+        Check "${Name}: exited non-zero" ($proc.ExitCode -ne 0) "exit=$($proc.ExitCode)"
+        if ($ExpectErrorPattern) {
+            Check "${Name}: expected error surfaced" ($out -match $ExpectErrorPattern) "looking for /$ExpectErrorPattern/ in: $($out -replace '\s+',' ')"
+        }
+        Check "${Name}: nothing installed before failure" (-not (Test-Path -LiteralPath $core)) 'no core'
+    }
+    $leftovers = @(Get-ChildItem -LiteralPath $script:TempDir -Filter 'eizouden-bootstrap.*' -ErrorAction SilentlyContinue)
+    Check "${Name}: private temp dir cleaned" ($leftovers.Count -eq 0) ('leftover: ' + ($leftovers.Name -join ','))
+}
+
+function Termux-Helper-Suite {
+    $script:HelperWork = Join-Path $script:WorkDir 'helper'
+    New-Item -ItemType Directory -Force -Path $script:HelperWork | Out-Null
+    $dist = Join-Path $script:HelperWork 'dist'
+    New-Item -ItemType Directory -Force -Path $dist | Out-Null
+    $fakeDir = Join-Path $script:HelperWork 'fakes'
+    New-Item -ItemType Directory -Force -Path $fakeDir | Out-Null
+    # Fake Windows helper artifacts (the Termux side never consumes them).
+    $fakeYtdlp = Join-Path $fakeDir 'fake-yt-dlp.exe'
+    Set-Content -LiteralPath $fakeYtdlp -Value 'fake' -Encoding ascii
+    $fakeAria2 = Join-Path $fakeDir 'fake-aria2.zip'
+    New-FakeArchive $fakeAria2 'aria2c.exe'
+    $fakeFfmpeg = Join-Path $fakeDir 'fake-ffmpeg.zip'
+    New-FakeArchive $fakeFfmpeg 'ffmpeg.exe'
+    $helpersJson = @{
+        helpers = @(
+            @{ key = 'yt-dlp'; required = $true; version = '2026.07.04'; artifactName = 'yt-dlp-windows-amd64.exe'; path = $fakeYtdlp },
+            @{ key = 'aria2'; required = $true; version = '1.37.0'; artifactName = 'aria2-windows-amd64.zip'; path = $fakeAria2; archive = $true; expectedFile = 'aria2c.exe' },
+            @{ key = 'ffmpeg'; required = $false; version = '5.1.2'; artifactName = 'ffmpeg-windows-amd64.zip'; path = $fakeFfmpeg; archive = $true; expectedFile = 'ffmpeg.exe' }
+        )
+    }
+    $helpersFile = Join-Path $script:HelperWork 'helpers.json'
+    [System.IO.File]::WriteAllText($helpersFile, ($helpersJson | ConvertTo-Json -Depth 6 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+    $oldPath = $env:PATH
+    $env:PATH = (Split-Path $script:Minisign) + ';' + $env:PATH
+    & $ReleasePs1 release -Version $script:ReleaseVersion -OutDir $dist -MinisignKeyPath $script:KeyPath -HelpersFile $helpersFile | Out-Null
+    $env:PATH = $oldPath
+    if ($LASTEXITCODE -ne 0) { Check 'helper: release built' $false 'helper release failed'; return }
+
+    $man = Get-Content -Raw -LiteralPath (Join-Path $dist 'eizouden-manifest.json') | ConvertFrom-Json
+    Check 'helper: manifest v3 with fixed Termux packages' (
+        $man.helperContract.version -eq 3 -and
+        $man.helperContract.termux.packages.'yt-dlp'.package -eq 'python-yt-dlp' -and
+        $man.helperContract.termux.packages.'aria2'.package -eq 'aria2' -and
+        $man.helperContract.termux.packages.'ffmpeg'.package -eq 'ffmpeg' -and
+        $man.helperContract.termux.packages.'yt-dlp'.command -eq 'yt-dlp' -and
+        $man.helperContract.termux.packages.'aria2'.command -eq 'aria2c' -and
+        $man.helperContract.termux.packages.'ffmpeg'.command -eq 'ffmpeg') ($man.helperContract | ConvertTo-Json -Compress)
+
+    # Mirror the release files (the helper bootstrap fetches from it). The
+    # android/arm64 entry carries the companion's own windows build (same
+    # synthetic trick as the v1 suite) so the CLI can be exec'd on this
+    # machine; verification logic is identical.
+    $script:HelperMirror = Join-Path $script:HelperWork 'mirror'
+    New-Item -ItemType Directory -Force -Path $script:HelperMirror | Out-Null
+    foreach ($f in (Get-ChildItem -LiteralPath $dist -File)) {
+        if ($f.Name -eq 'eizouden-android-arm64') {
+            Copy-Item (Join-Path $dist 'eizouden-windows-amd64.exe') (Join-Path $script:HelperMirror 'eizouden-android-arm64') -Force
+        } else {
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $script:HelperMirror $f.Name) -Force
+        }
+    }
+    $newSha = (Get-FileHash -LiteralPath (Join-Path $script:HelperMirror 'eizouden-android-arm64')).Hash.ToLowerInvariant()
+    $manText = [System.IO.File]::ReadAllText((Join-Path $script:HelperMirror 'eizouden-manifest.json'))
+    $manText = $manText -replace '("target":"android/arm64","sha256":")[0-9a-f]{64}(")', "`${1}$newSha`${2}"
+    [System.IO.File]::WriteAllText((Join-Path $script:HelperMirror 'eizouden-manifest.json'), $manText, (New-Object System.Text.UTF8Encoding($false)))
+    & $script:Minisign -S -m (Join-Path $script:HelperMirror 'eizouden-manifest.json') -s $script:KeyPath | Out-Null
+    & $script:Minisign -S -m (Join-Path $script:HelperMirror 'eizouden-android-arm64') -s $script:KeyPath | Out-Null
+    $script:HelperBaseUrl = "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)"
+
+    function New-HelperBootstrapCopy {
+        param([string]$Name)
+        $text = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'termux-bootstrap-helper.sh'))
+        $text = $text.Replace('REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY', $script:PubKey)
+        $dest = Join-Path $script:HelperWork "boot-$Name.sh"
+        [System.IO.File]::WriteAllText($dest, $text, (New-Object System.Text.UTF8Encoding($false)))
+        return $dest
+    }
+
+    $inputStatus = Join-Path $script:HelperWork 'input-status.txt'
+    Set-Content -LiteralPath $inputStatus -Value '2' -Encoding ascii -NoNewline
+
+    # H1 success: helpers verified, core + launcher installed, CLI rendered.
+    $prefix = New-FakeTermuxPrefix 'H1' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    Invoke-TermuxHelperCase -Name 'H1 helper success' -BootstrapPath (New-HelperBootstrapCopy 'H1') `
+        -Prefix $prefix -InputFile $inputStatus -ExpectSuccess
+
+    # H2: v2 (Windows-only) contract refused.
+    $p2 = New-FakeTermuxPrefix 'H2' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    $m2 = Join-Path $script:HelperWork 'mirror-H2'
+    New-Item -ItemType Directory -Force -Path $m2 | Out-Null
+    foreach ($f in (Get-ChildItem -LiteralPath $script:HelperMirror -File)) { Copy-Item $f.FullName (Join-Path $m2 $f.Name) -Force }
+    $manText = [System.IO.File]::ReadAllText((Join-Path $m2 'eizouden-manifest.json'))
+    $manText = $manText.Replace('"version":3,', '"version":2,')
+    [System.IO.File]::WriteAllText((Join-Path $m2 'eizouden-manifest.json'), $manText, (New-Object System.Text.UTF8Encoding($false)))
+    & $script:Minisign -S -m (Join-Path $m2 'eizouden-manifest.json') -s $script:KeyPath | Out-Null
+    $savedMirror = $script:HelperMirror
+    $script:HelperMirror = $m2
+    Invoke-TermuxHelperCase -Name 'H2 v2 contract refused' -BootstrapPath (New-HelperBootstrapCopy 'H2') `
+        -Prefix $p2 -InputFile $inputStatus -ExpectErrorPattern 'not exactly 3|no Termux packages map'
+    $script:HelperMirror = $savedMirror
+
+    # H3: missing helper command fails before the core install.
+    $p3 = New-FakeTermuxPrefix 'H3' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    Remove-Item -LiteralPath (Join-Path $p3 'bin\aria2c') -Force
+    Invoke-TermuxHelperCase -Name 'H3 missing helper' -BootstrapPath (New-HelperBootstrapCopy 'H3') `
+        -Prefix $p3 -InputFile $inputStatus -ExpectErrorPattern 'helper aria2 not found'
+
+    # H4: helper version below the manifest minimum fails before the core.
+    $p4 = New-FakeTermuxPrefix 'H4' @{ ytdlp = '1.0.0'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    Invoke-TermuxHelperCase -Name 'H4 version below minimum' -BootstrapPath (New-HelperBootstrapCopy 'H4') `
+        -Prefix $p4 -InputFile $inputStatus -ExpectErrorPattern 'below the manifest minimum'
+
+    # H5: tampered core fails signature verification before install.
+    $p5 = New-FakeTermuxPrefix 'H5' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    $m5 = Join-Path $script:HelperWork 'mirror-H5'
+    New-Item -ItemType Directory -Force -Path $m5 | Out-Null
+    foreach ($f in (Get-ChildItem -LiteralPath $script:HelperMirror -File)) { Copy-Item $f.FullName (Join-Path $m5 $f.Name) -Force }
+    $coreFile = Join-Path $m5 'eizouden-android-arm64'
+    $bytes = [System.IO.File]::ReadAllBytes($coreFile)
+    $bytes[10] = $bytes[10] -bxor 0xFF
+    [System.IO.File]::WriteAllBytes($coreFile, $bytes)
+    $savedMirror = $script:HelperMirror
+    $script:HelperMirror = $m5
+    Invoke-TermuxHelperCase -Name 'H5 tampered core' -BootstrapPath (New-HelperBootstrapCopy 'H5') `
+        -Prefix $p5 -InputFile $inputStatus -ExpectErrorPattern 'signature verification failed'
+    $script:HelperMirror = $savedMirror
+
+    # H6: the launcher is the app-private CLI entry (asserted in H1 via
+    #     Invoke-TermuxHelperCase); additionally assert its content targets
+    #     the installed core.
+    $launcher6 = Join-Path (Join-Path $script:WorkDir 'prefix-helper-H1') 'bin\eizouden'
+    if (Test-Path -LiteralPath $launcher6) {
+        $lc = Get-Content -Raw -LiteralPath $launcher6
+        Check 'H6: launcher execs the app-private core CLI' ($lc -match 'eizouden-android-arm64' -and $lc -match 'cli') ($lc -replace '\s+', ' ')
+    } else {
+        Check 'H6: launcher execs the app-private core CLI' $false 'launcher missing'
+    }
+}
+
 function Dynamic-Suite {
     # Test-only version, distinct from the api.Version dev default (0.2.0):
     # the release-identity banner checks are only meaningful when the
@@ -559,6 +770,7 @@ else {
     Write-Host "  minisign: $($script:Minisign)"
     try {
         Dynamic-Suite
+        Termux-Helper-Suite
     }
     catch {
         $script:FailCount++

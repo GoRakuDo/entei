@@ -103,9 +103,18 @@ func main() {
 	aria2 := flag.String("aria2", "",
 		"path to a pinned aria2-compatible helper executable for torrent "+
 			"source jobs (ED-2G; empty = torrent-job endpoints disabled)")
+	ffmpeg := flag.String("ffmpeg", "",
+		"path to a pinned ffmpeg executable reported by the common CLI "+
+			"service status (Windows launcher; the server itself never invokes "+
+			"ffmpeg — yt-dlp does)")
 	torrentTimeout := flag.Duration("torrent-timeout", 30*time.Minute,
 		"per-job download timeout for torrent source jobs (ED-2G)")
 	flag.Parse()
+
+	args := flag.Args()
+	if len(args) > 0 && args[0] != "cli" {
+		log.Fatalf("unknown command %q (expected \"cli\" or no arguments)", args[0])
+	}
 
 	bind, err := resolveBindAddress(*addr)
 	if err != nil {
@@ -186,34 +195,95 @@ func main() {
 		}
 	}
 
+	// --ffmpeg is validated like the other helpers (existence, regular
+	// file, non-empty); it is reported by the common CLI service status.
+	// The server never invokes ffmpeg itself.
+	if *ffmpeg != "" {
+		st, err := os.Stat(*ffmpeg)
+		if err != nil {
+			log.Fatalf("--ffmpeg: %v", err)
+		}
+		if st.IsDir() {
+			log.Fatalf("--ffmpeg: %q is a directory; a single executable is required", *ffmpeg)
+		}
+		if st.Size() == 0 {
+			log.Fatalf("--ffmpeg: %q is empty (reject zero-byte helper)", *ffmpeg)
+		}
+	}
+
+	// Common CLI: `eizouden cli` renders the two-option menu (Get New
+	// Pairing Code / Service Status). Option 1 starts the foreground
+	// loopback companion via runServer; option 2 prints helper readiness.
+	if len(args) > 0 && args[0] == "cli" {
+		cfg := serverConfig{
+			bind:     bind,
+			fixture:  *fixture,
+			grow:     growSource,
+			origins:  allowOrigins,
+			jobs:     jobs,
+			torrents: torrents,
+		}
+		code := runCLI(cliOptions{
+			version: api.Version,
+			ytdlp:   *ytdlp,
+			aria2:   *aria2,
+			ffmpeg:  *ffmpeg,
+		}, os.Stdin, os.Stdout, func() error { return runServer(cfg, *ytdlp, *aria2) })
+		os.Exit(code)
+	}
+
+	if err := runServer(serverConfig{
+		bind:     bind,
+		fixture:  *fixture,
+		grow:     growSource,
+		origins:  allowOrigins,
+		jobs:     jobs,
+		torrents: torrents,
+	}, *ytdlp, *aria2); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// runServer starts the foreground loopback companion: API wiring, listener,
+// terminal-only handoff (banner + fresh pairing code), then serving until
+// Ctrl+C. Shared by the plain server mode and the CLI's option 1 so startup
+// behavior is never duplicated.
+func runServer(cfg serverConfig, ytdlpPath, aria2Path string) error {
 	srv, err := api.New(api.Config{
-		FixturePath:  *fixture,
-		GrowSource:   growSource,
-		AllowOrigins: allowOrigins,
-		Jobs:         jobs,
-		Torrents:     torrents,
+		FixturePath:  cfg.fixture,
+		GrowSource:   cfg.grow,
+		AllowOrigins: cfg.origins,
+		Jobs:         cfg.jobs,
+		Torrents:     cfg.torrents,
 	})
 	if err != nil {
-		log.Fatalf("init api: %v", err)
+		return err
 	}
-
-	ln, err := net.Listen("tcp", bind)
+	ln, err := net.Listen("tcp", cfg.bind)
 	if err != nil {
-		log.Fatalf("listen on %s: %v", bind, err)
+		return err
 	}
-
 	// Terminal-only handoff. The pairing code is printed on purpose; the
 	// capability token is never printed or logged.
 	fmt.Fprintln(os.Stdout, banner(ln.Addr().String()))
 	fmt.Fprintf(os.Stdout, "Pairing code: %s\n", srv.PairingCode())
-	fmt.Fprintln(os.Stdout, mediaStatusLine(*fixture, growSource))
-	fmt.Fprintln(os.Stdout, jobsStatusLine(*ytdlp))
-	fmt.Fprintln(os.Stdout, torrentsStatusLine(*aria2))
-
-	if err := http.Serve(ln, srv.Handler()); err != nil &&
-		!errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+	fmt.Fprintln(os.Stdout, mediaStatusLine(cfg.fixture, cfg.grow))
+	fmt.Fprintln(os.Stdout, jobsStatusLine(ytdlpPath))
+	fmt.Fprintln(os.Stdout, torrentsStatusLine(aria2Path))
+	if err := http.Serve(ln, srv.Handler()); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
 	}
+	return nil
+}
+
+// serverConfig bundles the values needed to start the loopback companion.
+type serverConfig struct {
+	bind     string
+	fixture  string
+	grow     media.GrowingSource
+	origins  []string
+	jobs     *job.Manager
+	torrents *torrent.Manager
 }
 
 // banner is the startup line printed to the terminal. It carries the same

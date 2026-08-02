@@ -552,6 +552,32 @@ persistence); the raw URL is never shown — a generic localized session
 label is used. `companion-fixture-entry.ts` (the test-only internal start
 path) was removed.
 
+### Common CLI + Termux helper bootstrap (implemented; device gates pending)
+
+- **`eizouden cli`** (Go, common): two-option menu (`1. Get New Pairing
+  Code` / `2. Service Status`) with an ANSI-colored version header only on
+  a real terminal (plain otherwise); option 1 reuses the existing
+  foreground server path (fresh pairing code, Ctrl+C stops); option 2
+  reports core/yt-dlp/aria2/ffmpeg installed/version/readiness only —
+  never paths, cookies, tokens, URLs, or job data. Invalid input
+  re-prompts; EOF exits.
+- **Windows launcher**: the bootstrap installs a user-private `eizouden.cmd`
+  invoking the core's CLI mode with the exact private helper paths (no
+  global PATH mutation).
+- **Manifest helper contract v3**: the Windows artifact helpers map plus a
+  compiled-in fixed Termux package map (`python-yt-dlp`/`aria2`/`ffmpeg`,
+  minimum versions manifest-controlled). The Windows bootstrap accepts v2
+  and v3; the helper-enabled Termux bootstrap
+  (`termux-bootstrap-helper.sh`, emitted as `eizouden-bootstrap-helper.sh`)
+  requires exactly v3, installs missing helpers only through the official
+  Termux pkg repo, verifies executable commands + minimum versions before
+  the signed core install, installs an app-private `eizouden` launcher at
+  `$PREFIX/bin`, and launches the CLI. The v1 core-only Termux bootstrap is
+  unchanged and remains backward compatible.
+- **Status**: harness-verified (Termux 90/90, Windows 83/83, Go `-race`
+  green). **Not verified**: the real Termux clean install + helper CLI gate
+  on a device, and the Windows real-machine CLI/launcher manual gate.
+
 ### Remaining gates (not claimed)
 
 Cookie / saved-profile handling, subtitles, Android/headed-Windows browser
