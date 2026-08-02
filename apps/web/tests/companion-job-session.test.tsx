@@ -50,6 +50,8 @@ const buffering = (available: number, total: number, retryAfter?: number) =>
   });
 const complete = (total: number) =>
   json({ state: 'complete', available: total, total, headReady: false });
+const playable = (available: number, total: number) =>
+  json({ state: 'playable', available, total, headReady: false });
 
 function makeFetcher(responses: Array<Response | Promise<Response>> = []) {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -198,6 +200,34 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     expect(screen.getByTestId('url').textContent).toBe(
       'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
     );
+  });
+
+  it('attaches the video element while buffering; initial 503 → playable recovers with explicit src/load', async () => {
+    const { calls, fetchFn } = makeFetcher([
+      buffering(100, 1000),
+      playable(300, 1000), // status re-check after the media error
+    ]);
+    vi.stubGlobal('fetch', fetchFn);
+    render(<Harness />);
+
+    fireEvent.click(screen.getByText('begin'));
+    await flush();
+
+    expect(screen.getByTestId('phase').textContent).toBe('buffering');
+    const video = screen.getByTestId('video') as HTMLVideoElement;
+    expect(video).toBeInTheDocument();
+
+    // The mounted element is attached to the bridge while buffering, so
+    // the browser's 503 error (no verified prefix yet) reaches the
+    // single error listener.
+    fireEvent(video, new Event('error'));
+    await flush();
+
+    // The status re-check kept polling alive, saw "playable", and
+    // recovered with an explicit src/load reset.
+    expect(calls).toHaveLength(2); // initial poll + exactly one re-check
+    expect(screen.getByTestId('phase').textContent).toBe('ready');
+    expect(video.src).toBe('http://127.0.0.1:4322/v1/media/fixture?token=tok123');
   });
 
   it('cancelActiveJob POSTs the job-cancel endpoint then ends the session', async () => {

@@ -53,12 +53,17 @@ type fakeHandle struct {
 	closed    bool
 	readerReq int64 // number of reader requests
 	seekOff   int64
+
+	bootStarted atomic.Bool // StartBootstrap called
+	bootCancel  atomic.Bool // the bootstrap context was cancelled
+	headPrio    atomic.Bool // Select elevated the head window (contract)
 }
 
 func newFakeHandle(files []TorrentFile) *fakeHandle {
 	return &fakeHandle{
-		name:  "test-torrent",
-		files: files,
+		name:     "test-torrent",
+		files:    files,
+		selected: -1,
 	}
 }
 
@@ -80,10 +85,30 @@ func (h *fakeHandle) Select(videoFileID, subtitleFileID string) error {
 				return errInvalidSelection
 			}
 			h.selected = i
+			// Contract: selection prioritizes the video's head window over
+			// the rest of the file (the engine raises the first pieces to
+			// High via Piece.SetPriority). Record the contract for the
+			// manager-level tests.
+			h.headPrio.Store(true)
 			return nil
 		}
 	}
 	return errInvalidSelection
+}
+
+// StartBootstrap records the demand request and watches the context: when
+// the manager cancels the bootstrap (job end or completion) bootCancel
+// flips, mirroring the engine's reader lifecycle.
+func (h *fakeHandle) StartBootstrap(ctx context.Context) error {
+	if h.selected < 0 {
+		return errInvalidSelection
+	}
+	h.bootStarted.Store(true)
+	go func() {
+		<-ctx.Done()
+		h.bootCancel.Store(true)
+	}()
+	return nil
 }
 
 func (h *fakeHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error) {
@@ -566,6 +591,129 @@ func TestManagerAvailablePrefix(t *testing.T) {
 	}
 
 	_, _ = m.Cancel(snap.ID)
+}
+
+// TestBootstrapPieceCount verifies the pure head-window derivation: the
+// bounded piece count covering the bootstrap window, rounded up, clamped to
+// the file's pieces — never an arbitrary raw byte threshold.
+func TestBootstrapPieceCount(t *testing.T) {
+	cases := []struct {
+		window, piece int64
+		available     int
+		want          int
+	}{
+		{4 << 20, 1 << 20, 10, 4}, // exactly four pieces
+		{4 << 20, 1 << 20, 3, 3},  // clamped to the file
+		{1, 1 << 20, 10, 1},       // rounds up
+		{4 << 20, 2 << 20, 10, 2}, // half the window per piece
+		{0, 1 << 20, 10, 0},       // degenerate window
+		{4 << 20, 0, 10, 0},       // degenerate piece length
+		{4 << 20, 1 << 20, 0, 0},  // empty file
+		{4 << 20, 3 << 20, 2, 2},  // 4MiB window over 3MiB pieces → 2
+	}
+	for _, c := range cases {
+		if got := bootstrapPieceCount(c.window, c.piece, c.available); got != c.want {
+			t.Errorf("bootstrapPieceCount(%d, %d, %d) = %d, want %d",
+				c.window, c.piece, c.available, got, c.want)
+		}
+	}
+}
+
+// TestSelectionPrioritizesHeadWindowAndStartsBootstrap verifies the
+// selection contract end to end: Select elevates the video's head window
+// and the streaming state starts the dedicated bootstrap reader so the
+// first piece is demand-prioritized before any HTTP range request.
+func TestSelectionPrioritizesHeadWindowAndStartsBootstrap(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	if _, err := m.Select(id, "f0", "f1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
+	if !engine.h.headPrio.Load() {
+		t.Fatal("Select must prioritize the selected video's head window")
+	}
+	if !engine.h.bootStarted.Load() {
+		t.Fatal("streaming must start the head bootstrap reader")
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+// TestCancelCancelsBootstrapAndClosesHandle verifies the bootstrap reader
+// lifecycle: cancelling the job cancels the bootstrap context (the engine
+// reader is closed) and drops the handle.
+func TestCancelCancelsBootstrapAndClosesHandle(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+	if _, err := m.Select(id, "f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+	if !engine.h.bootStarted.Load() {
+		t.Fatal("bootstrap must be started at streaming")
+	}
+
+	if _, err := m.Cancel(id); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !engine.h.bootCancel.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("bootstrap context must be cancelled on job cancel")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !engine.h.closed {
+		t.Fatal("handle must be closed after cancel")
+	}
+}
+
+// TestCompleteCancelsBootstrap verifies the bootstrap reader ends when the
+// download completes (head demand is moot; no reader leak).
+func TestCompleteCancelsBootstrap(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+	if _, err := m.Select(id, "f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
+	engine.h.avail.Store(5000)
+	waitForState(t, m, id, StateComplete, 5*time.Second)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !engine.h.bootCancel.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("bootstrap must be cancelled when the download completes")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if engine.h.closed {
+		t.Fatal("handle must stay open at complete (media remains servable)")
+	}
+
+	_, _ = m.Cancel(id)
 }
 
 // --- helpers ---

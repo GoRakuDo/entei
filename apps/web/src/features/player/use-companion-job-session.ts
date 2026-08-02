@@ -10,10 +10,12 @@
  *
  * Lifecycle contract:
  * - beginJobSession: requires a token + job id; starts the controller poll;
- *   the growing media URL is NEVER assigned while buffering.
- * - complete gate: the controller reports `ready` → jobMediaUrl is surfaced
- *   (player renders the video element) → attachMediaElement() hands the
- *   element to the controller (explicit src/load, pending seek, play intent).
+ *   the media URL is surfaced immediately so the player renders the video
+ *   element, whose initial 503 the bridge catches (error listener bound
+ *   via attachMediaElement during buffering) and recovers with an explicit
+ *   src/load once the status turns playable.
+ * - complete gate: the controller reports `ready` → the mounted element is
+ *   handed to the controller (explicit src/load, pending seek, play intent).
  * - cancelActiveJob: POSTs the companion job-cancel endpoint (freeing the
  *   one-active session and its private temp dir) then ends the local
  *   session. Used by the banner's End button and by media switch.
@@ -108,8 +110,10 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       clearIntentListeners();
       setActive(true);
       setKind(source.kind);
-      // No media element exists yet (buffering shows in the empty state);
-      // it is attached on the complete gate via attachMediaElement.
+      // No media element exists yet at begin; it mounts as soon as the URL
+      // surfaces and is attached via attachMediaElement — while buffering,
+      // so the bridge's error listener catches the initial 503 and recovers
+      // with an explicit src/load when the status turns playable.
       bridge.beginSession(
         { baseUrl: source.baseUrl, token: source.token },
         null,
@@ -153,7 +157,16 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const attachMediaElement = useCallback(
     (el: HTMLVideoElement | null) => {
       if (!el || !activeRef.current || attachedRef.current) return;
-      if (bridge.phase !== 'ready') return;
+      // Attach while buffering as well as ready: the player's video element
+      // mounts with the surfaced URL, and the companion answers 503 until
+      // the verified prefix exists — the browser fires an error event that
+      // must reach the bridge. bridge.attachMedia binds the (single) error
+      // listener immediately; the bridge then re-checks status, keeps
+      // polling alive, and does an explicit src/load recovery once the
+      // status turns playable. Phases where the session is dead (idle /
+      // error / disconnected / rePairRequired) stay blocked, and the element
+      // may attach on a later transition.
+      if (bridge.phase !== 'buffering' && bridge.phase !== 'ready') return;
       attachedRef.current = true;
       bridge.attachMedia(el);
 

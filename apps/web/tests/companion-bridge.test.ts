@@ -533,6 +533,55 @@ describe('ED-2E companion bridge', () => {
     expect(media.load).toHaveBeenCalledTimes(1);
   });
 
+  it('attachMedia during buffering binds the error listener: initial 503 → playable → ready + src/load', async () => {
+    // The element mounts while the bridge is still buffering (the player
+    // surfaces the URL immediately). The browser fires an error from the
+    // 503 before the prefix exists; attachMedia must have bound the error
+    // listener so the re-check runs, keeps polling alive, and recovers
+    // with an explicit src/load once the status turns playable.
+    const { fetchFn } = makeFetcher([
+      buffering(100, 1000),
+      playable(300, 1000), // status re-check after the media error
+    ]);
+    const media = makeMedia();
+    const { bridge } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE); // no element at begin
+    await flush();
+    expect(bridge.currentPhase).toBe('buffering');
+
+    bridge.attachMedia(media); // element mounts during buffering
+    media.fire('error'); // browser error from the 503
+    await flush();
+
+    expect(bridge.currentPhase).toBe('ready');
+    expect(media.setSrc).toHaveBeenCalledWith(
+      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
+    );
+    expect(media.load).toHaveBeenCalledTimes(1);
+  });
+
+  it('attachMedia binds the error listener exactly once (no duplicate re-checks)', async () => {
+    // A single error event must trigger exactly one status re-check. A
+    // duplicated listener would fire onMediaError twice → two fetches.
+    const { calls, fetchFn } = makeFetcher([
+      buffering(100, 1000),
+      buffering(200, 1000), // re-check result
+      buffering(300, 1000),
+    ]);
+    const media = makeMedia();
+    const { bridge } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE);
+    await flush();
+
+    bridge.attachMedia(media);
+    media.fire('error');
+    await flush();
+
+    // Initial poll + exactly one re-check: no duplicate listener.
+    expect(calls).toHaveLength(2);
+    expect(bridge.currentPhase).toBe('buffering');
+  });
+
   it('transitions buffering → ready on "playable" (progressive streaming), keeps slow poll', async () => {
     const { calls, fetchFn } = makeFetcher([
       buffering(100, 1000),

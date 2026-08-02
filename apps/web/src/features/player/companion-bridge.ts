@@ -222,10 +222,16 @@ export class CompanionBridge {
     void this.poll();
   }
 
-  /** Attach (or replace) the media element. If the source is already
-   *  `ready`, the pending src/load transition runs immediately. */
+  /** Attach (or replace) the media element. Listeners are bound immediately
+   *  (once — unbindMedia runs first, so there are never duplicates), so an
+   *  error during the buffering phase — e.g. the browser firing an error
+   *  from a 503 while the verified prefix is still growing — is caught and
+   *  routed through the status re-check / explicit src-load recovery. If
+   *  the source is already `ready`, the pending src/load transition runs
+   *  right away. */
   attachMedia(media: CompanionBridgeMedia): void {
     this.media = media;
+    this.bindMedia(media);
     if (this.phase === 'ready') {
       this.startReadyTransition();
     }

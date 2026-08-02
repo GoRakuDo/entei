@@ -107,6 +107,13 @@ func (h *apiFakeHandle) Reader(_ context.Context) (io.ReadSeekCloser, error) {
 	}, nil
 }
 
+func (h *apiFakeHandle) StartBootstrap(_ context.Context) error {
+	if h.selected < 0 {
+		return errors.New("no selection")
+	}
+	return nil
+}
+
 type apiFakeReader struct {
 	data  []byte
 	avail *atomic.Int64

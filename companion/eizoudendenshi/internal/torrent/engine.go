@@ -38,13 +38,21 @@ type TorrentHandle interface {
 	Files() []TorrentFile
 	// Select sets piece priorities so that ONLY the selected files are
 	// downloaded (unselected → priority 0), with the head of the selected
-	// video prioritized and in-order readahead.
+	// video prioritized (the bounded bootstrap window raised above the rest
+	// of the file) and in-order readahead.
 	Select(videoFileID string, subtitleFileID string) error
 	// Reader returns a seekable reader over the selected video file. Reads
 	// block until data is available or ctx is done. The reader drives the
 	// piece priority (seek → the needed pieces become highest priority) and
 	// a bounded forward readahead.
 	Reader(ctx context.Context) (io.ReadSeekCloser, error)
+	// StartBootstrap begins demand scheduling for the selected video's head:
+	// a dedicated bounded reader seeks to byte 0 and issues one read so the
+	// engine's reader demand registers the head pieces (first piece "Now",
+	// the bounded readahead window "Readahead") immediately, before any HTTP
+	// range request arrives. It must not block; the reader is closed when
+	// ctx is done. Fails only when the selection is not readable.
+	StartBootstrap(ctx context.Context) error
 	// AvailablePrefix returns the verified contiguous prefix length of the
 	// selected video (piece-accurate; never the allocated size).
 	AvailablePrefix() int64

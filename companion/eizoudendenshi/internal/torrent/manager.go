@@ -85,12 +85,11 @@ type torrentJob struct {
 	files    []TorrentFile
 	selected chan struct{}
 
-	stateMu        sync.Mutex
-	state          State
-	errMsg         string
-	videoV         *TorrentFile
-	subV           *TorrentFile
-	selectedReader io.ReadSeekCloser
+	stateMu sync.Mutex
+	state   State
+	errMsg  string
+	videoV  *TorrentFile
+	subV    *TorrentFile
 }
 
 func (j *torrentJob) setState(s State) { j.stateMu.Lock(); j.state = s; j.stateMu.Unlock() }
@@ -395,22 +394,26 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 		return
 	}
 	j.setState(StateStreaming)
-	r, err := handle.Reader(ctx)
-	if err != nil {
+	// Start the head bootstrap reader: it demands byte 0 immediately so
+	// anacrolix's reader scheduling fetches the head pieces first (the
+	// verified prefix grows from the first piece). It runs on its own
+	// goroutine — the state machine below never blocks on it — and is
+	// cancelled both on job end and on completion.
+	bootCtx, bootCancel := context.WithCancel(ctx)
+	defer bootCancel()
+	if err := handle.StartBootstrap(bootCtx); err != nil {
+		bootCancel()
 		_ = handle.Close()
 		j.setError("reader failed")
 		j.setState(StateError)
 		return
 	}
-	j.stateMu.Lock()
-	j.selectedReader = r
-	j.stateMu.Unlock()
 	poll := time.NewTicker(200 * time.Millisecond)
 	defer poll.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			_ = r.Close()
+			bootCancel()
 			_ = handle.Close()
 			j.setState(StateCancelled)
 			m.clear(j)
@@ -419,7 +422,7 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 			avail := handle.AvailablePrefix()
 			total := handle.SelectedLength()
 			if avail >= total && total > 0 {
-				_ = r.Close()
+				bootCancel() // head demand is moot once complete
 				j.setState(StateComplete)
 				return
 			}
