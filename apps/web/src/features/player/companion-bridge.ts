@@ -57,7 +57,7 @@ export interface CompanionBridgePhaseInfo {
 
 /** Parsed body of `GET /v1/media/status`. */
 export interface CompanionBridgeStatus {
-  state: 'disabled' | 'buffering' | 'complete' | 'error';
+  state: 'disabled' | 'buffering' | 'playable' | 'complete' | 'error';
   available: number;
   total: number;
   headReady: boolean;
@@ -333,7 +333,7 @@ export class CompanionBridge {
     if (
       state !== 'disabled' &&
       state !== 'buffering' &&
-      state !== 'complete' &&
+      state !== 'complete' && state !== 'playable' &&
       state !== 'error'
     ) {
       return { kind: 'fail', transport: false };
@@ -375,6 +375,14 @@ export class CompanionBridge {
     switch (result.status.state) {
       case 'complete':
         this.onComplete(result.status);
+        return;
+      case 'playable':
+        // Progressive streaming: the verified prefix reached the playable
+        // threshold. Assign the URL + load exactly like complete, but keep
+        // a slow status poll alive while playing so the bridge can detect
+        // full completion and drive the media-error retry path.
+        this.onComplete(result.status);
+        this.schedule(this.opts.maxPollMs);
         return;
       case 'buffering':
         this.onBuffering(result.status);
@@ -550,7 +558,7 @@ export class CompanionBridge {
       return;
     }
     const status = result.status;
-    if (status.state === 'complete') {
+    if (status.state === 'complete' || status.state === 'playable') {
       if (this.mediaResets < this.opts.maxMediaResets) {
         this.mediaResets += 1;
         // Explicit src/load reset — the measured recovery path.

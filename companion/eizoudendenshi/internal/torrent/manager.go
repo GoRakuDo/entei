@@ -1,12 +1,13 @@
 package torrent
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,8 +34,10 @@ type State string
 
 const (
 	StateQueued      State = "queued"
-	StateDownloading State = "downloading"
-	StateBuffering   State = "buffering"
+	StateDownloading State = "downloading" // stage 1: metadata-only fetch
+	StateBuffering   State = "buffering"   // listed (files available) or streaming, prefix < threshold
+	StateStreaming   State = "streaming"   // selected; payload downloading (verified prefix grows)
+	StatePlayable    State = "playable"    // verified prefix >= playable threshold
 	StateComplete    State = "complete"
 	StateError       State = "error"
 	StateCancelled   State = "cancelled"
@@ -106,6 +109,15 @@ type torrentJob struct {
 	cmd    *exec.Cmd
 	src    *job.JobSource
 
+	// Streaming (progressive) state. meta is the parsed metadata from the
+	// stage-1 .torrent; verifier tracks the verified contiguous prefix.
+	meta      *TorrentMetadata
+	span      SelectedSpan
+	verifier  *PrefixVerifier
+	selected  chan struct{} // closed when the user selects a file
+	selIndex  int           // 1-based selected file index
+	selSubIdx int           // optional 1-based subtitle index (0 = none)
+
 	stateMu   sync.Mutex
 	state     State
 	errMsg    string
@@ -116,7 +128,7 @@ type torrentJob struct {
 	vPath     string // full path of the selected video (never exposed)
 	sPath     string // full path of the selected subtitle (never exposed)
 
-	bytes atomicInt64 // current bytes on disk (polled)
+	bytes atomicInt64 // current verified bytes of the selected file (polled)
 }
 
 func (j *torrentJob) setState(s State) { j.stateMu.Lock(); j.state = s; j.stateMu.Unlock() }
@@ -141,6 +153,11 @@ func (j *torrentJob) snapshot() Snapshot {
 	if j.src != nil {
 		total := j.src.Total()
 		snap.Media = Media{Available: total, Total: total}
+	} else if j.verifier != nil {
+		// Streaming: availability is the VERIFIED contiguous prefix only —
+		// never the file's allocated size.
+		avail := j.verifier.Available()
+		snap.Media = Media{Available: avail, Total: j.span.Length}
 	} else if j.files != nil {
 		snap.Media = Media{Available: totalBytes(j.files), Total: totalBytes(j.files)}
 	} else {
@@ -176,10 +193,11 @@ func (m *Manager) Start(rawMagnet string) (Snapshot, error) {
 		return Snapshot{}, ErrConflict
 	}
 	j := &torrentJob{
-		id:     newJobID(),
-		magnet: canonical,
-		done:   make(chan struct{}),
-		state:  StateQueued,
+		id:       newJobID(),
+		selected: make(chan struct{}),
+		magnet:   canonical,
+		done:     make(chan struct{}),
+		state:    StateQueued,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	j.cancel = cancel
@@ -221,8 +239,13 @@ func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 	}
 	snap := m.current.snapshot()
 	var src media.GrowingSource
-	if m.current.src != nil && m.current.getState() == StateComplete {
+	st := m.current.getState()
+	if st == StateComplete && m.current.src != nil {
 		src = m.current.src
+	}
+	if (st == StateStreaming || st == StatePlayable) && m.current.verifier != nil {
+		// The streaming source serves ONLY hash-verified contiguous bytes.
+		src = m.current.verifier
 	}
 	return snap, src
 }
@@ -264,6 +287,9 @@ func (m *Manager) Select(id, videoFileID, subtitleFileID string) (Snapshot, erro
 	if !ready {
 		return Snapshot{}, ErrNotListed
 	}
+	if j.meta == nil {
+		return Snapshot{}, ErrNotListed
+	}
 
 	var video *FileInfo
 	for i := range j.files {
@@ -287,31 +313,24 @@ func (m *Manager) Select(id, videoFileID, subtitleFileID string) (Snapshot, erro
 			return Snapshot{}, ErrInvalidSelection
 		}
 	}
+	span, err := spanFor(j.meta, video.Index)
+	if err != nil {
+		return Snapshot{}, ErrInvalidSelection
+	}
 
-	// The video may live in a torrent subdirectory; resolve it under the
-	// private job dir only.
-	vPath, err := resolveSelectedPath(j.dir, video.ID, j.files)
-	if err != nil {
-		return Snapshot{}, ErrInvalidSelection
-	}
-	src, err := job.NewJobSource(vPath, video.ByteSize)
-	if err != nil {
-		return Snapshot{}, ErrInvalidSelection
-	}
-	// Commit the selection under the state lock (snapshot() reads these
-	// fields under the same lock). setState/snapshot are called after the
-	// lock is released (they re-acquire it).
+	// Commit the selection; the run loop's phase 2 (streaming payload
+	// download) starts when j.selected is closed.
 	j.stateMu.Lock()
-	j.src = src
 	j.selectedV = video
+	j.selIndex = video.Index
+	j.selSubIdx = 0
 	if sub != nil {
 		j.selectedS = sub
-		if sp, ok := resolveSelectedPathSafe(j.dir, sub.ID, j.files); ok {
-			j.sPath = sp
-		}
+		j.selSubIdx = sub.Index
 	}
-	j.state = StateComplete
+	j.span = span
 	j.stateMu.Unlock()
+	close(j.selected)
 	return j.snapshot(), nil
 }
 
@@ -392,48 +411,189 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 	j.dir = dir
 
 	var timer *time.Timer
-	if m.timeout > 0 {
-		timer = time.AfterFunc(m.timeout, func() {
-			j.timedOut.Store(true)
-			j.cancel()
-		})
-		defer timer.Stop()
+	stopTimer := func() {
+		if timer != nil {
+			timer.Stop()
+			timer = nil
+		}
+	}
+	armTimer := func() {
+		stopTimer()
+		if m.timeout > 0 {
+			timer = time.AfterFunc(m.timeout, func() {
+				j.timedOut.Store(true)
+				j.cancel()
+			})
+		}
+	}
+	defer stopTimer()
+
+	// ---- Phase 1: metadata-only fetch (fixed argv, no RPC) ----
+	armTimer()
+	j.setState(StateDownloading)
+	done1, ok := m.spawnAndWait(j, ctx, dir, metadataHelperArgs(dir, j.magnet))
+	if !ok {
+		return // the spawn/wait paths already published the terminal state
+	}
+	if !done1 {
+		return
+	}
+	// aria2 exited cleanly: parse the saved .torrent → file list.
+	meta, perr := loadSavedTorrent(dir)
+	if perr != nil {
+		removeAllBestEffort(dir)
+		j.setError("no metadata produced")
+		j.setState(StateError)
+		return
+	}
+	j.meta = meta
+	files := metadataFiles(meta)
+	hasVideo := false
+	for _, f := range files {
+		if f.Kind == KindVideo {
+			hasVideo = true
+			break
+		}
+	}
+	j.stateMu.Lock()
+	j.files = files
+	j.stateMu.Unlock()
+	if !hasVideo {
+		removeAllBestEffort(dir)
+		j.setError("no playable video")
+		j.setState(StateError)
+		return
+	}
+	// Metadata listed, awaiting selection (no payload downloaded yet).
+	j.setState(StateBuffering)
+	stopTimer() // the selection wait is user-driven; not bounded by the job timeout
+
+	select {
+	case <-j.selected:
+		// Selection committed by Select(); proceed to phase 2.
+	case <-ctx.Done():
+		if j.timedOut.Load() {
+			j.setError("timed out")
+			j.setState(StateError)
+		} else {
+			j.setState(StateCancelled)
+		}
+		removeAllBestEffort(dir)
+		if !j.timedOut.Load() {
+			m.clear(j)
+		}
+		return
 	}
 
-	cmd := exec.CommandContext(ctx, m.helper, helperArgs(dir, j.magnet)...)
+	// ---- Phase 2: selected-file payload download (verified prefix) ----
+	armTimer()
+	j.setState(StateStreaming)
+	tf := j.meta.Files[j.selIndex-1]
+	j.vPath = selectedFilePath(dir, tf)
+	args := payloadHelperArgs(dir, j.magnet, j.selIndex)
+	if ok := m.spawnPayload(j, ctx, dir, args); !ok {
+		return
+	}
+}
+
+// spawnAndWait starts one aria2 invocation and waits for it, handling the
+// terminal state transitions + cleanup (the same ordering as before:
+// cleanup BEFORE the error state is published). Returns (exitedCleanly,
+// ok). ok=false means the state is already terminal.
+func (m *Manager) spawnAndWait(j *torrentJob, ctx context.Context, dir string, args []string) (bool, bool) {
+	cmd := exec.CommandContext(ctx, m.helper, args...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = newSysProcAttr()
-	// aria2 output is captured only to the private job dir; never surfaced.
 	closeLog := func() {}
 	if logf, err := os.Create(filepath.Join(dir, "helper.stderr.log")); err == nil {
 		cmd.Stderr = logf
 		closeLog = func() { _ = logf.Close() }
 	}
 	j.cmd = cmd
-
-	j.setState(StateDownloading)
 	if err := cmd.Start(); err != nil {
 		closeLog()
 		if ctx.Err() != nil {
 			removeAllBestEffort(dir)
 			j.setState(StateCancelled)
 			m.clear(j)
-			return
+			return false, false
 		}
-		// Clean up the private job dir BEFORE publishing the error so an
-		// observer never sees the error state while cleanup is still in
-		// flight (same ordering as the cancel path).
 		removeAllBestEffort(dir)
 		j.setError("download failed")
 		j.setState(StateError)
-		return
+		return false, false
 	}
-
 	waitCh := make(chan error, 1)
 	go func() { waitCh <- cmd.Wait() }()
+	select {
+	case <-ctx.Done():
+		killTree(cmd)
+		<-waitCh
+		closeLog()
+		removeAllBestEffort(dir)
+		if j.timedOut.Load() {
+			j.setError("timed out")
+			j.setState(StateError)
+		} else {
+			j.setState(StateCancelled)
+			m.clear(j)
+		}
+		return false, false
+	case err := <-waitCh:
+		closeLog()
+		if ctx.Err() != nil {
+			removeAllBestEffort(dir)
+			if j.timedOut.Load() {
+				j.setError("timed out")
+				j.setState(StateError)
+			} else {
+				j.setState(StateCancelled)
+				m.clear(j)
+			}
+			return false, false
+		}
+		if err != nil {
+			removeAllBestEffort(dir)
+			j.setError("download failed")
+			j.setState(StateError)
+			return false, false
+		}
+		return true, true
+	}
+}
 
+// spawnPayload starts the selected-file download and polls the SHA-1
+// verified prefix until playable/complete/cancelled/timeout/error.
+func (m *Manager) spawnPayload(j *torrentJob, ctx context.Context, dir string, args []string) bool {
+	cmd := exec.CommandContext(ctx, m.helper, args...)
+	cmd.Dir = dir
+	cmd.SysProcAttr = newSysProcAttr()
+	closeLog := func() {}
+	if logf, err := os.Create(filepath.Join(dir, "helper.stderr.log")); err == nil {
+		cmd.Stderr = logf
+		closeLog = func() { _ = logf.Close() }
+	}
+	j.cmd = cmd
+	if err := cmd.Start(); err != nil {
+		closeLog()
+		if ctx.Err() != nil {
+			removeAllBestEffort(dir)
+			j.setState(StateCancelled)
+			m.clear(j)
+			return false
+		}
+		removeAllBestEffort(dir)
+		j.setError("download failed")
+		j.setState(StateError)
+		return false
+	}
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+	j.stateMu.Lock()
+	j.verifier = newPrefixVerifier(j.meta, j.span, j.vPath)
+	j.stateMu.Unlock()
 
 	for {
 		select {
@@ -449,11 +609,10 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 				j.setState(StateCancelled)
 				m.clear(j)
 			}
-			return
+			return false
 		case err := <-waitCh:
-			j.bytes.store(mediaBytes(dir))
+			closeLog()
 			if ctx.Err() != nil {
-				closeLog()
 				removeAllBestEffort(dir)
 				if j.timedOut.Load() {
 					j.setError("timed out")
@@ -462,120 +621,143 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 					j.setState(StateCancelled)
 					m.clear(j)
 				}
-				return
+				return false
 			}
 			if err != nil {
-				closeLog()
 				removeAllBestEffort(dir)
 				j.setError("download failed")
 				j.setState(StateError)
-				return
+				return false
 			}
-			// aria2 exited cleanly: list and classify the torrent files.
-			closeLog()
-			files, scanErr := scanTorrentFiles(dir)
-			if scanErr != nil || len(files) == 0 {
-				removeAllBestEffort(dir)
-				j.setError("no files produced")
-				j.setState(StateError)
-				return
-			}
-			// Publish the listing under the state lock (snapshot() reads it
-			// under the same lock).
-			j.stateMu.Lock()
-			j.files = files
-			j.stateMu.Unlock()
-			hasVideo := false
-			for _, f := range files {
-				if f.Kind == KindVideo {
-					hasVideo = true
+			// aria2 exited cleanly: final bounded verify pass, then complete.
+			// Stop when no progress is made (an unverified piece will never
+			// verify once the helper has exited).
+			for {
+				before := j.verifier.verifiedPieces
+				done, _ := j.verifier.Poll()
+				if done || j.verifier.verifiedPieces == before {
 					break
 				}
 			}
-			if !hasVideo {
+			j.bytes.store(j.verifier.Available())
+			src, serr := job.NewJobSource(j.vPath, j.span.Length)
+			if serr != nil {
 				removeAllBestEffort(dir)
-				j.setError("no playable video")
+				j.setError("media unavailable")
 				j.setState(StateError)
-				return
+				return false
 			}
-			// Download complete, awaiting selection: media exists but is
-			// not served yet (status "buffering" keeps the bridge waiting).
-			j.setState(StateBuffering)
-			return
+			j.stateMu.Lock()
+			j.src = src
+			j.stateMu.Unlock()
+			j.setState(StateComplete)
+			return true
 		case <-ticker.C:
-			j.bytes.store(mediaBytes(dir))
+			done, _ := j.verifier.Poll()
+			avail := j.verifier.Available()
+			j.bytes.store(avail)
+			if j.playable() && j.getState() != StatePlayable {
+				j.setState(StatePlayable)
+			}
+			if done {
+				// whole file verified but the process may still be
+				// finalizing; keep polling until the waitCh fires.
+			}
 		}
 	}
+}
+
+// playable reports the explicit bounded playable criterion: at least two
+// verified pieces, a verified prefix starting at file offset 0 (no head
+// gap — the enclosing global piece must lie fully inside the selected
+// file), and a prefix at least playableThreshold bytes with a conservative
+// container sniff (faststart MP4 ftyp/moov or EBML MKV). Never claims MKV
+// random-seek capability.
+func (j *torrentJob) playable() bool {
+	if j.verifier == nil {
+		return false
+	}
+	if j.span.HeadGap != 0 || j.verifier.VerifiedPieces() < 2 {
+		return false
+	}
+	avail := j.verifier.Available()
+	if avail < playableThreshold {
+		return false
+	}
+	return sniffContainer(j.vPath, avail)
+}
+
+// playableThreshold is the named bounded playable prefix (bytes).
+const playableThreshold = 12 * 1024 * 1024
+
+// sniffContainer conservatively checks the verified prefix for a faststart
+// MP4 (ftyp + moov present) or an EBML (MKV) header. A false negative keeps
+// the job buffering honestly.
+func sniffContainer(path string, avail int64) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	limit := avail
+	if limit > 8*1024*1024 {
+		limit = 8 * 1024 * 1024
+	}
+	buf := make([]byte, limit)
+	n, _ := f.Read(buf)
+	buf = buf[:n]
+	if n < 12 {
+		return false
+	}
+	// MP4: ftyp box at the start (with moov anywhere in the prefix).
+	if bytes.Equal(buf[4:8], []byte("ftyp")) {
+		return bytes.Contains(buf, []byte("moov"))
+	}
+	// MKV: EBML magic 0x1A45DFA3.
+	if len(buf) >= 4 && bytes.Equal(buf[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}) {
+		return true
+	}
+	return false
 }
 
 // helperArgs builds the fixed aria2 argument vector. The canonicalized
 // magnet is the final element and the only user-derived value.
-func helperArgs(jobDir, magnet string) []string {
+// baseHelperArgs are the shared fixed aria2 flags (privacy + deterministic output).
+func baseHelperArgs(jobDir string) []string {
 	return []string{
 		"--dir=" + jobDir, // all files under the private job dir
 		"--dht-file-path=" + filepath.Join(jobDir, "dht.dat"), // DHT cache stays private (never the user's home)
-		"--seed-time=0",              // download only; never seed
-		"--enable-rpc=false",         // no RPC surface
-		"--check-integrity=true",     // verify piece hashes (original bytes only)
-		"--summary-interval=0",       // quiet
-		"--console-log-level=error",  // stderr stays minimal (private)
-		"--allow-overwrite=true",     // deterministic output within the job dir
-		"--auto-file-renaming=false", // keep the torrent's own names
+		"--seed-time=0",             // download only; never seed
+		"--enable-rpc=false",        // no RPC surface
+		"--check-integrity=true",    // verify piece hashes (original bytes only)
+		"--summary-interval=0",      // quiet
+		"--console-log-level=error", // stderr stays minimal (private)
+		"--allow-overwrite=true",    // deterministic output within the job dir
+		"--auto-file-renaming=false",
 		"--content-disposition-default-utf8=true",
+	}
+}
+
+// metadataHelperArgs: stage 1 — fetch ONLY the torrent metadata, save the
+// .torrent, and exit (the file list becomes available before any payload).
+func metadataHelperArgs(jobDir, magnet string) []string {
+	return append(baseHelperArgs(jobDir),
+		"--bt-metadata-only=true",
+		"--bt-save-metadata=true",
 		magnet, // only user-derived value; separate argv element
-	}
+	)
 }
 
-// resolveSelectedPath maps an opaque file id back to its on-disk path
-// within the private job dir, using the listing's order.
-func resolveSelectedPath(dir, id string, files []FileInfo) (string, error) {
-	p, ok := resolveSelectedPathSafe(dir, id, files)
-	if !ok {
-		return "", errors.New("unknown file")
-	}
-	return p, nil
-}
-
-func resolveSelectedPathSafe(dir, id string, files []FileInfo) (string, bool) {
-	for _, f := range files {
-		if f.ID == id {
-			// The file lives at most one subdirectory deep inside the
-			// torrent structure; find it by basename match under dir.
-			var found string
-			_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-				if err != nil || d.IsDir() {
-					return nil
-				}
-				if filepath.Base(p) == f.Basename {
-					found = p
-				}
-				return nil
-			})
-			if found != "" {
-				return found, true
-			}
-			return "", false
-		}
-	}
-	return "", false
-}
-
-// mediaBytes reports the current bytes on disk for the torrent files.
-func mediaBytes(dir string) int64 {
-	var sum int64
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		if d.Name() == "helper.stderr.log" {
-			return nil
-		}
-		if st, err := d.Info(); err == nil {
-			sum += st.Size()
-		}
-		return nil
-	})
-	return sum
+// payloadHelperArgs: stage 2 — download ONLY the selected file, in-order,
+// head-prioritized (fixed policy; the index is job-internal, never user).
+func payloadHelperArgs(jobDir, magnet string, fileIndex int) []string {
+	args := append(baseHelperArgs(jobDir),
+		"--select-file="+strconv.Itoa(fileIndex),
+		"--stream-piece-selector=inorder",
+		"--bt-prioritize-piece=head",
+		magnet,
+	)
+	return args
 }
 
 // removeAllBestEffort removes the private job dir, retrying briefly for the

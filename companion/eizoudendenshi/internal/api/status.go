@@ -13,6 +13,7 @@ import (
 const (
 	statusDisabled  = "disabled"
 	statusBuffering = "buffering"
+	statusPlayable  = "playable" // verified prefix >= threshold (streaming)
 	statusComplete  = "complete"
 	statusError     = "error"
 )

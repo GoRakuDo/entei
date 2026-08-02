@@ -285,8 +285,11 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			return
 		}
 		j.errMsg = "download failed"
-		j.setState(StateError)
+		// Cleanup BEFORE the terminal error state is published (the same
+		// ordering as every other error path): an observer must never see
+		// StateError while the private job dir still exists.
 		removeAllBestEffort(dir)
+		j.setState(StateError)
 		// The errored job stays current (redacted) until explicitly
 		// cancelled, so the status endpoint can surface the failure.
 		return
@@ -333,10 +336,14 @@ func (m *Manager) run(j *job, ctx context.Context) {
 				return
 			}
 			if err != nil {
-				j.errMsg = "download failed"
-				j.setState(StateError)
+				// Cleanup BEFORE the terminal error state is published:
+				// close the stderr log (an open handle blocks RemoveAll on
+				// Windows) and remove the private dir first, so an observer
+				// never sees StateError while the dir still exists.
 				closeLog()
 				removeAllBestEffort(dir)
+				j.errMsg = "download failed"
+				j.setState(StateError)
 				return // errored job stays current until cancelled
 			}
 			closeLog() // helper exited; no more stderr writes. Required before

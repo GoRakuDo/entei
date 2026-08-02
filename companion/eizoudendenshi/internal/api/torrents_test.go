@@ -110,7 +110,10 @@ func TestTorrentCreateInvalidMagnetRedacted(t *testing.T) {
 // must never expose the tracker (or the magnet) in any API response.
 func TestTorrentTrackerNeverLeaks(t *testing.T) {
 	s, _ := newTorrentsServer(t)
-	t.Setenv("EIZOU_FAKE_FILES", "movie.mkv:200")
+	t.Setenv("EIZOU_FAKE_TORRENT", "files=movie.mkv:200;pieceLen=100")
+	t.Setenv("EIZOU_FAKE_METADATA", "1")
+	t.Setenv("EIZOU_FAKE_PAYLOAD", "1")
+	t.Setenv("EIZOU_FAKE_HEAD_PIECES", "10")
 	t.Setenv("EIZOU_FAKE_HOLD", "")
 	trackerMagnet := testMagnet + "&tr=udp%3A%2F%2Ftracker.example%3A1337&tr=https%3A%2F%2Ftr2.example%2Fannounce"
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
@@ -162,7 +165,10 @@ func TestTorrentTrackerNeverLeaks(t *testing.T) {
 
 func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
 	s, m := newTorrentsServer(t)
-	t.Setenv("EIZOU_FAKE_FILES", "sub/Episode 01.mkv:200|sub/Episode 01.ass:40|readme.txt:10")
+	t.Setenv("EIZOU_FAKE_TORRENT", "files=Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10;pieceLen=100")
+	t.Setenv("EIZOU_FAKE_METADATA", "1")
+	t.Setenv("EIZOU_FAKE_PAYLOAD", "1")
+	t.Setenv("EIZOU_FAKE_HEAD_PIECES", "10")
 	t.Setenv("EIZOU_FAKE_HOLD", "")
 
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
@@ -246,8 +252,27 @@ func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
 		State string `json:"state"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &sel)
-	if sel.State != "complete" {
-		t.Fatalf("select state = %s, want complete", sel.State)
+	if sel.State != "buffering" {
+		t.Fatalf("select state = %s, want buffering (streaming phase starts async)", sel.State)
+	}
+	// The fake payload completes quickly: poll the job until complete.
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "complete" {
+			break
+		}
+		if js.State == "error" {
+			t.Fatalf("job errored during streaming: %s", rec.Body.String())
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never completed; last=%s", js.State)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	// Status + fixture now reflect the selected media.
@@ -279,7 +304,10 @@ func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
 
 func TestTorrentStatusBufferingBeforeSelection(t *testing.T) {
 	s, m := newTorrentsServer(t)
-	t.Setenv("EIZOU_FAKE_FILES", "media.mp4:200")
+	t.Setenv("EIZOU_FAKE_TORRENT", "files=media.mp4:200;pieceLen=100")
+	t.Setenv("EIZOU_FAKE_METADATA", "1")
+	t.Setenv("EIZOU_FAKE_PAYLOAD", "1")
+	t.Setenv("EIZOU_FAKE_HEAD_PIECES", "10")
 	t.Setenv("EIZOU_FAKE_HOLD", "")
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
@@ -334,7 +362,7 @@ func TestTorrentConflictAcrossJobKinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	t.Setenv("EIZOU_FAKE_FILES", "")
+	t.Setenv("EIZOU_FAKE_TORRENT", "files=movie.mkv:200;pieceLen=100")
 	t.Setenv("EIZOU_FAKE_HOLD", "1")
 
 	// Start a torrent job.

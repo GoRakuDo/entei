@@ -1,10 +1,7 @@
 package torrent
 
 import (
-	"io/fs"
-	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -44,6 +41,7 @@ type FileInfo struct {
 	Extension string `json:"extension"` // lowercase, no dot
 	ByteSize  int64  `json:"byteSize"`
 	Kind      string `json:"kind"` // video | audio | subtitle | other
+	Index     int    `json:"-"`    // 1-based aria2 --select-file index
 }
 
 // classify returns the kind for an extension (lowercase, no dot).
@@ -60,56 +58,30 @@ func classify(ext string) string {
 	return KindOther
 }
 
-// scanTorrentFiles walks the private job dir recursively and returns a
-// sanitized, deterministically-ordered file listing. The internal helper
-// stderr log is never part of the torrent's files.
-func scanTorrentFiles(dir string) ([]FileInfo, error) {
-	var rel []string
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries; never fail the listing on one
+// metadataFiles builds the sanitized file listing from the parsed torrent
+// METADATA (stage 1) — the file list is therefore available before any
+// payload bytes are downloaded. Deterministic order (file index).
+func metadataFiles(meta *TorrentMetadata) []FileInfo {
+	out := make([]FileInfo, 0, len(meta.Files))
+	for i, tf := range meta.Files {
+		base := tf.Path
+		if idx := strings.LastIndexByte(base, '/'); idx >= 0 {
+			base = base[idx+1:]
 		}
-		if d.IsDir() {
-			return nil
-		}
-		if d.Name() == "helper.stderr.log" {
-			return nil
-		}
-		rel = append(rel, p)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(rel, func(i, j int) bool { return rel[i] < rel[j] })
-	out := make([]FileInfo, 0, len(rel))
-	for i, p := range rel {
-		base := filepath.Base(p)
 		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(base), "."))
-		st, err := fileInfoSize(p)
-		if err != nil {
-			continue
-		}
 		out = append(out, FileInfo{
 			ID:        "f" + itoa(i),
 			Basename:  base,
 			Extension: ext,
-			ByteSize:  st,
+			ByteSize:  tf.Length,
 			Kind:      classify(ext),
+			Index:     tf.Index,
 		})
 	}
-	return out, nil
+	return out
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
-
-func fileInfoSize(p string) (int64, error) {
-	st, err := os.Stat(p)
-	if err != nil {
-		return 0, err
-	}
-	return st.Size(), nil
-}
 
 // totalBytes sums the sizes of all torrent files in the listing.
 func totalBytes(files []FileInfo) int64 {

@@ -479,13 +479,54 @@ func TestNoJobTempDirLeakOnError(t *testing.T) {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
+	var prevID string
 	// The errored job's own private dir must be gone (regression: the
 	// helper stderr handle was left open, so os.RemoveAll failed on Windows
 	// and the dir — with the raw helper output inside — leaked).
 	if pathExists(dir) {
 		t.Errorf("leaked job temp dir after error: %s", dir)
 	}
-	_, _ = m.Cancel(snap.ID)
+	// Deterministic ordering pin: the terminal error state must NEVER be
+	// observable while the job dir still exists. Run the fail+observe cycle
+	// repeatedly to catch any path that publishes StateError before
+	// cleanup completes.
+	if _, cerr := m.Cancel(snap.ID); cerr != nil {
+		t.Fatalf("Cancel initial: %v", cerr)
+	}
+	for i := 0; i < 5; i++ {
+		if i > 0 {
+			// Errored jobs stay current until cancelled (the session is
+			// freed explicitly); cancel the previous one before the next.
+			if _, cerr := m.Cancel(prevID); cerr != nil {
+				t.Fatalf("Cancel %d: %v", i-1, cerr)
+			}
+		}
+		snap2, err2 := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
+		if err2 != nil {
+			t.Fatalf("Start %d: %v", i, err2)
+		}
+		prevID = snap2.ID
+		dir2 := awaitJobDirFromArgs(t, argsFile)
+		deadline2 := time.Now().Add(8 * time.Second)
+		observed := false
+		for {
+			cur := m.Get(snap2.ID)
+			if cur != nil && cur.State == StateError {
+				observed = true
+				break
+			}
+			if time.Now().After(deadline2) {
+				t.Fatalf("job %d never errored", i)
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		if !observed {
+			t.Fatalf("job %d: error state not observed", i)
+		}
+		if pathExists(dir2) {
+			t.Errorf("leaked job temp dir %d after error (state published before cleanup): %s", i, dir2)
+		}
+	}
 }
 
 func TestNoJobTempDirLeakOnCancel(t *testing.T) {

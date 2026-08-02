@@ -496,6 +496,16 @@ export default function PlayerApp() {
   );
 
   // Attach the actual video element on the complete gate (existing ref).
+  // Companion source fix: the job session's media is a video, but the local
+  // `mediaType` state is only set by the local-file/audio flows. Without
+  // this mirror, videoCallbackRef gates sharedMediaRef to null for
+  // companion playback, which freezes the custom timestamp (00:00 / 00:00)
+  // and makes Play/Pause a no-op. Mirror the type the moment the companion
+  // media URL surfaces (before the callback ref / PlayerControls effect).
+  useEffect(() => {
+    if (jobSession.jobMediaUrl) setMediaType('video');
+  }, [jobSession.jobMediaUrl]);
+
   useEffect(() => {
     jobSession.attachMediaElement(videoRef.current);
   }, [jobSession, jobSession.jobMediaUrl, jobSession.phase]);
@@ -630,17 +640,17 @@ export default function PlayerApp() {
   const videoCallbackRef = useCallback(
     (el: HTMLVideoElement | null) => {
       videoRef.current = el;
-      sharedMediaRef.current = mediaType === 'video' ? el : null;
+      sharedMediaRef.current = displayMediaType === 'video' ? el : null;
     },
-    [mediaType],
+    [displayMediaType],
   );
 
   const audioCallbackRef = useCallback(
     (el: HTMLAudioElement | null) => {
       audioRef.current = el;
-      sharedMediaRef.current = mediaType === 'audio' ? el : null;
+      sharedMediaRef.current = displayMediaType === 'audio' ? el : null;
     },
-    [mediaType],
+    [displayMediaType],
   );
 
   // Fix #4: Apply volume using direct element refs (avoids sharedRef timing race)

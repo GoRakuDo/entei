@@ -145,6 +145,10 @@ core binaryはMinisignで**厳密にversion固定**する。将来のYouTube / t
 
 最初のbootstrap command自身はMinisign verifierの導入前に実行されるtrust bootstrapである。`curl | sh`で未検証remote shellを実行する形にはせず、公開鍵を含む短いcopy-paste commandとして配布する。
 
+
+### Progressive torrent streaming（実装・実機browser/swarm gate未実施）
+
+ED-2Gのtorrent jobは2-stage化した: **stage 1（metadata-only）**はaria2固定argv（--bt-metadata-only=true --bt-save-metadata=true、RPCなし）でtorrent metadataだけを取得・保存し、**file listはpayload完了前に利用可能**（stdlibのみのbencode parserでpiece length / SHA-1 piece hashes / sanitized file listを抽出）。**stage 2**は選択videoだけを--select-file + --stream-piece-selector=inorder + --bt-prioritize-piece=head + --seed-time=0でdownloadする。availabilityは**決してファイルallocated sizeやzero-probingではなく、torrent自身のpiece SHA-1と照合したverified contiguous prefixのみ**（multi-fileでglobal pieceが他fileに跨る場合は検証不能 → 誠実にbuffering継続）。playable状態は明示threshold（12MB + 2 verified pieces + 保守的container sniff: faststart MP4 ftyp/moov or EBML MKV）。HTTPはverified prefixのみ206（ytes=0-もprefixまで206、prefix外は503+Retry-After、fabricated bodyなし）で、既存ED-2C fixture/grow契約は不変。Web bridgeはplayableでmedia URLをsurfaceし再生中もpoll継続、media error/seek超過時はprefix追いつき後に明示load()再適用（bounded）。**companion controls修復**: callback refsがlocal mediaType stateではなくdisplayMediaTypeでsharedMediaRefをgateするよう修正（companion videoでtimestamp 00:00/00:00・Play/Pause no-opを解消）。**未実施gate**: 実browser（headed Chrome）でのprefix-206 stream挙動・mid-play 503→reload復旧・MKV early-start計測、実swarm progressive再生（PSMUX）。MKV random-seek capabilityは主張しない。
 ### 共通CLIと初回helper導入（実装済み・実機gate未実施）
 
 Windows / Termuxともに、初回bootstrap後の入口は同じ`eizouden` CLIに統一する。CLIは現在起動中のcompanionへ接続するためのUIではなく、local companionの運用入口である。起動時はrelease versionを色付きheaderで表示し、選択肢は増やさない。

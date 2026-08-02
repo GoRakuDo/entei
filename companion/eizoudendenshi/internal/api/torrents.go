@@ -198,20 +198,26 @@ func (s *Server) handleTorrentPreflight(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// activeTorrentStatus maps the current torrent job onto the existing status
-// states when a torrent session is active. ok=false means no torrent job.
+// activeTorrentStatus maps the current torrent job onto the status
+// contract. ok=false means no torrent job.
 func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	if s.torrents == nil {
 		return statusBody{}, false
 	}
 	snap, _ := s.torrents.ActiveMedia()
 	switch snap.State {
-	case torrent.StateQueued, torrent.StateDownloading, torrent.StateBuffering:
+	case torrent.StateQueued, torrent.StateDownloading, torrent.StateStreaming, torrent.StateBuffering:
 		return statusBody{
 			State:      statusBuffering,
 			Available:  snap.Media.Available,
 			Total:      snap.Media.Total,
 			RetryAfter: bufferingRetryAfterSec,
+		}, true
+	case torrent.StatePlayable:
+		return statusBody{
+			State:     statusPlayable,
+			Available: snap.Media.Available,
+			Total:     snap.Media.Total,
 		}, true
 	case torrent.StateComplete:
 		return statusBody{
@@ -226,11 +232,13 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	}
 }
 
-// serveTorrentMedia serves the active torrent job's selected media with the
-// growing contract. Returns true when fully handled:
+// serveTorrentMedia serves the active torrent job's selected media:
 //
-//	complete (valid selection) → the growing serv (available == total)
-//	downloading / buffering (incl. awaiting selection) → 503 buffering
+//	complete → the growing serv (available == total)
+//	playable / streaming → the verified-prefix streaming serv (206 for
+//	                        ranges within the VERIFIED prefix only; 503 for
+//	                        anything beyond; never fabricated bytes)
+//	downloading / buffering (metadata listed, awaiting selection) → 503
 //	error → generic 404
 func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool {
 	if s.torrents == nil {
@@ -244,6 +252,13 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 			return true
 		}
 		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+		return true
+	case torrent.StatePlayable, torrent.StateStreaming:
+		if src != nil {
+			s.serveStreamingPrefix(w, r, src, snap.Media.Available, snap.Media.Total)
+			return true
+		}
+		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)
 		return true
 	case torrent.StateDownloading, torrent.StateBuffering:
 		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)
