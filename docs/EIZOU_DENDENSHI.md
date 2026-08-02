@@ -163,11 +163,11 @@ Option:
 ```
 
 - **Get New Pairing Code:** 既存のpairing codeを再利用・保存せず、そのCLI起動で新しいcodeを表示してforeground companionを開始する。tokenは従来どおりmemory-only。
-- **Service Status:** core、yt-dlp、aria2、ffmpegの導入済み / version / 実行可能状態だけを表示する。path、cookie、token、URL、job内容は表示しない。
+- **Service Status:** core、yt-dlp、ffmpeg、torrent engineの導入済み / version / 実行可能状態だけを表示する。path、cookie、token、URL、job内容は表示しない。
 - CLIは`Start` / `Stop`などの追加menuを持たない。foreground companionは通常の`Ctrl+C`で停止する。
 - launcher commandは両platformで**`grkd-edds`**に統一する。Windowsではbootstrapがuser-private install rootを**current userのPATHだけ**へ重複なく登録し、以後PowerShell / CMDから`grkd-edds`だけでCLIを開けるようにする（machine PATHは変更しない）。Termuxでは`$PREFIX/bin/grkd-edds`を導入する。初回bootstrap / 更新成功後は、このlauncherを自動でCLIとして開始する。
 
-**実装（2026-08-02）:** `eizouden cli`（Go、共通）がmenuを描画（stdoutがterminalのときだけANSI color、それ以外はplain）。option 1は既存のserver起動経路を再利用（fresh pairing code・Ctrl+C停止）、option 2はcore/yt-dlp/aria2/ffmpegのinstalled/version/readinessのみ表示（path/cookie/token/URL/job内容は出さない。helper pathはWindows launcherが絶対pathを渡し、Termuxは固定command名を解決）。無効入力は再prompt、EOFは安全exit。**Windows**: bootstrapがuser-private rootに`grkd-edds.cmd` launcherをinstall（core CLI mode + 絶対helper path; 旧`eizouden.cmd`は削除）し、install rootを**現在ユーザーのみ**のPATHへ冪等登録（大文字小文字を無視したsegment照合・重複なし・既存segment保持・machine PATH不変・8192文字超は安全にスキップ）。bootstrap完了後は`grkd-edds`（2択CLI）を自動起動し、Get New Pairing Codeがcompanionを起動する。companionの**既定bindは`127.0.0.1:4322`固定**（Entei Playerのpairing/Magnet/bridgeクライアントが4322へ接続する契約; テスト/開発は`--addr 127.0.0.1:0`で明示的にephemeral化）。4322が使用中の場合は既存listenerをkillせず、ユーザー可読なcollisionエラーで終了する。既存terminalのPATHは自動再読込されないため、bootstrap自身のプロセス環境も更新して即時利用可能にする（新規terminalでは解決される）。**Termux**: `$PREFIX/bin/grkd-edds`（旧`eizouden` launcherは削除、profile編集なし）。**manifest contract v3**: helper artifact map（Windows）＋固定Termux package map（python-yt-dlp/aria2/ffmpeg、minimum versionはmanifest管理）。Windows bootstrapはv2/v3を受け入れ、helper-enabled Termux bootstrap（`eizouden-bootstrap-helper.sh`）はv3必須（v1/v2はfail closed; 既存v1 core-only Termux bootstrapは不変）。Termux helper導入は公式pkgのみ・version要件確認後にcore install・app-private launcherを`$PREFIX/bin`へ。harness検証済み（Termux 91/91・Windows 98/98）。**未実施gate**: Termux実機でのclean install＋helper CLI gate、Windows実機でのCLI/launcher手動gate。
+**実装（2026-08-02）:** `eizouden cli`（Go、共通）がmenuを描画（stdoutがterminalのときだけANSI color、それ以外はplain）。option 1は既存のserver起動経路を再利用（fresh pairing code・Ctrl+C停止）、option 2はcore/yt-dlp/ffmpeg/torrent engineのinstalled/version/readinessのみ表示（path/cookie/token/URL/job内容は出さない。helper pathはWindows launcherが絶対pathを渡し、Termuxは固定command名を解決）。無効入力は再prompt、EOFは安全exit。**Windows**: bootstrapがuser-private rootに`grkd-edds.cmd` launcherをinstall（core CLI mode + 絶対helper path; 旧`eizouden.cmd`は削除）し、install rootを**現在ユーザーのみ**のPATHへ冪等登録（大文字小文字を無視したsegment照合・重複なし・既存segment保持・machine PATH不変・8192文字超は安全にスキップ）。bootstrap完了後は`grkd-edds`（2択CLI）を自動起動し、Get New Pairing Codeがcompanionを起動する。companionの**既定bindは`127.0.0.1:4322`固定**（Entei Playerのpairing/Magnet/bridgeクライアントが4322へ接続する契約; テスト/開発は`--addr 127.0.0.1:0`で明示的にephemeral化）。4322が使用中の場合は既存listenerをkillせず、ユーザー可読なcollisionエラーで終了する。既存terminalのPATHは自動再読込されないため、bootstrap自身のプロセス環境も更新して即時利用可能にする（新規terminalでは解決される）。**Termux**: `$PREFIX/bin/grkd-edds`（旧`eizouden` launcherは削除、profile編集なし）。**manifest contract v3**: helper artifact map（Windows）＋固定Termux package map（python-yt-dlp/ffmpeg、minimum versionはmanifest管理）。Windows bootstrapはv2/v3を受け入れ、helper-enabled Termux bootstrap（`eizouden-bootstrap-helper.sh`）はv3必須（v1/v2はfail closed; 既存v1 core-only Termux bootstrapは不変）。Termux helper導入は公式pkgのみ・version要件確認後にcore install・app-private launcherを`$PREFIX/bin`へ。harness検証済み（Termux 91/91・Windows 98/98）。**未実施gate**: Termux実機でのclean install＋helper CLI gate、Windows実機でのCLI/launcher手動gate。
 
 Windowsは既存のhelper contract v2により、Minisign検証済みrelease artifactをuser-private rootへ導入する。Termuxも同じ利用可能状態を目指すが、helper binaryをWindows assetから流用しない。Termux公式repoの`python-yt-dlp`、`aria2`、`ffmpeg`をbootstrapが必要時だけ導入し、release manifestが定めるminimum versionを満たすか確認する。manifest不一致・package install失敗・version不足ではcoreを起動せずfail closedする。helperのsilent self-update、global install、browser storageへのhelper state保存は行わない。
 
@@ -420,11 +420,11 @@ loopback companion専用のYouTube source jobの基盤（create / read / cancel�
 
 cookie / saved-profile、subtitles、Android / headed Windows Chromeのbrowser QA、production bridge接続（URL UIとjob-to-bridge接続は後述の通り実装済み）。
 
-## ED-2G aria2 torrent job foundation（companion backend実装）
+## ED-2G torrent job foundation（companion backend実装）
 
-将来status/media bridgeと共有するproduction指向のaria2ローカルtorrent job境界。**GoRakuDo proxy / browser WebTorrent / extension・site統合 / LAN・public bindなし**。ユーザー向けMagnet UI・file選択UIは本phaseでは未変更。
+status/media bridgeと共有するproduction指向のanacrolix/torrentローカルtorrent job境界。**GoRakuDo proxy / browser WebTorrent / extension・site統合 / LAN・public bindなし**。ユーザー向けMagnet UI・file選択UIは本phaseでは未変更。
 
-### エンドポイント（`--aria2`設定時のみ登録）
+### エンドポイント（torrent manager設定時のみ登録）
 
 - `POST /v1/source/torrents` — body `{"magnet": "…"}`で作成（201）。**YouTube jobと共通のone-active session**（どちらかがactiveなら409）。
 - `GET /v1/source/torrents/{id}` — redacted state。`POST …/cancel` — cancel + session解放。
@@ -436,13 +436,13 @@ cookie / saved-profile、subtitles、Android / headed Windows Chromeのbrowser Q
 
 `magnet:?xt=urn:btih:`（40 hex / 32 base32）のみ受理し、決定的40小文字hexへcanonicalize。**安全な`tr=` announce trackerのみ保持**（下記Tracker policy。dn / xl / webseed等は全て破棄）。それ以外（任意URL・file path・malformed）はspawn前に拒否。エラーはgenericでmagnet / trackerをechoしない。
 
-**Tracker policy（2026-08-02実装）**: 最大5個・各512文字以内・scheme udp/http/httpsのみ・userinfo / fragment / IP literal host（public/private・v4/v6）・localhost・port 1-65535外・非ASCII / control / whitespace・不正path（先頭スラッシュなし・backslash）を全て拒否。**1つでもunsafeなtrがあればmagnet全体を拒否**（silently dropしない・fail-closed）。DNS解決はしない。canonical trackerはscheme/host小文字化・dedup・決定的sort順で`tr=`として保持し、canonical magnet全体（xt + trackers）はaria2へ**単一の最終argv要素**として渡る（固定argv / no shell不変）。`http`は平文announceのtradeoff（infohash + ユーザーIPがtracker運営者 / on-path observerに露出）を文書化した上で許可。trackerはAPI snapshot / error / log / docs出力に一切出さない。**Privacy**: trackerは第三者が運営するエンドポイントであり、実ダウンロード時にはユーザーIPがtrackerおよびtorrent peers（PEX/DHT）に露出し、trackerはinfohashを知る。この同意UIは将来フェーズ。
+**Tracker policy（2026-08-02実装）**: 最大5個・各512文字以内・scheme udp/http/httpsのみ・userinfo / fragment / IP literal host（public/private・v4/v6）・localhost・port 1-65535外・非ASCII / control / whitespace・不正path（先頭スラッシュなし・backslash）を全て拒否。**1つでもunsafeなtrがあればmagnet全体を拒否**（silently dropしない・fail-closed）。DNS解決はしない。canonical trackerはscheme/host小文字化・dedup・決定的sort順で`tr=`として保持し、canonical magnet全体（xt + trackers）はengineへ渡る。`http`は平文announceのtradeoff（infohash + ユーザーIPがtracker運営者 / on-path observerに露出）を文書化した上で許可。trackerはAPI snapshot / error / log / docs出力に一切出さない。**Privacy**: trackerは第三者が運営するエンドポイントであり、実ダウンロード時にはユーザーIPがtrackerおよびtorrent peers（PEX/DHT）に露出し、trackerはinfohashを知る。この同意UIは将来フェーズ。
 
-### helper契約
+### engine契約
 
-- `--aria2 <path>`でpinned（startup validation）。requestから導出しない。
-- 固定argv: `--dir=<private job dir> --seed-time=0 --enable-rpc=false --check-integrity=true --summary-interval=0 --console-log-level=error --allow-overwrite=true --auto-file-renaming=false` + canonicalized magnet（最後のargv要素のみuser由来）。**shell不使用**。
-- `--seed-time=0`: download only・seedしない。original source bytes only（remux/transcodeなし）。全fileはprivate `entei-torrent-*` temp dir内。cancel / fail / session終了でaria2 treeをkillし、**owned job fileのみ削除**（user file不変）。
+- anacrolix/torrent engineがloopback-onlyで起動。seedingなし、private session dataのみ。
+- canonicalized magnet（xt + trackers）をengine.Startへ渡る。
+- `--seed-time=0`相当: download only・seedしない。original source bytes only（remux/transcodeなし）。全fileはprivate `entei-torrent-*` temp dir内。cancel / fail / session終了でtorrent sessionをdropし、**owned job fileのみ削除**（user file不変）。
 
 ### File list → selection → media bridge
 
@@ -450,7 +450,7 @@ download完了後にfile list + classify（Player native allowlistと一致: vid
 
 ### テスト
 
-`internal/torrent`（magnet validation・manager: 固定argv / injectionなし・one-active conflict・file list sanitization・selection制約 / no-eligible-video error・redaction・cancel / timeout / process cleanup + temp dir leakなし）+ `internal/api`（torrent endpoints: gates・redaction・create / read / files / select / cancel・selection前後のstatus / fixture mapping・**cross job-kind conflict**・preflight）— すべて決定的fake aria2 helper（swarm / network不使用）。`go test -race ./...` green。
+`internal/torrent`（magnet validation・manager: Engine interface / injectionなし・one-active conflict・file list sanitization・selection制約 / no-eligible-video error・redaction・cancel / timeout / session cleanup + temp dir leakなし）+ `internal/api`（torrent endpoints: gates・redaction・create / read / files / select / cancel・selection前後のstatus / fixture mapping・**cross job-kind conflict**・preflight）— すべて決定的fake Engine（swarm / network不使用）。`go test -race ./...` green。
 
 ### 残るgate（主張しない）
 
@@ -458,7 +458,7 @@ download完了後にfile list + classify（Player native allowlistと一致: vid
 
 **Magnet UI実装済み（ED-2G・React Player・2026-08-02）**: Magnetボタンは実torrent source dialogを開く — pairing gate（unpairedはpairing-required表示のみ）、**memory-only tracker同意チェックボックス必須**（IP露出の明示文言）、magnet create（POST /v1/source/torrents）、redacted status polling、sanitized file list表示 + **video 1つ必須 + subtitle任意（srt/vtt/assのみ）**の選択、select submit、close/unmountでのjob cancel。bridge sessionはsource `kind`（youtube/torrent）でcancel endpointを振り分けるよう一般化。**final E2E（実playback含む）は未実施**。
 
-**実swarm QA記録（2026-08-02・tracker非保持時）**: rc.6 bootstrap-installed aria2 1.37.0 + 固定argvで、archive.org PD映画torrentとDebian公式netinst torrent（source classのみ・copyrightなし）を認証APIで201 → queued → downloadingまで確認したが、当時はcanonical magnetがtrackerを剥がす設計で、どちらのswarmもDHT/PEXでは到達できず**bounded window内で0 bytes（peer/metadata timeout失敗クラス・workaroundなし）**。cancel / cleanupは実測（job dir 0・process 0・session解放）。**Tracker有効実swarm QA（2026-08-02）: 最小swarmのpeer/metadata timeout**。安全なtracker付きmagnet（Big Buck Bunny / Blender Foundation CC-BY / 10秒1080p clip / archive.org、http tracker bt1/bt2.archive.org:6969）を201受理し、canonical magnetはtracker保持のまま最終argv要素として渡り、aria2はannounce成功（tracker HTTP 200、Complete: 1 seeder）したが、唯一のpeer接続がmetadata転送前に切断され、bounded window内で0 bytes（文書化済みのpeer/metadata timeoutクラス・workaroundなし）。**実minor欠陥を発見・修正**: 固定aria2 argvに`--dht-file-path=<job dir>/dht.dat`を追加し、helperがユーザーhomeにDHT cacheを書かないようにした。files/selection/complete/Range/playback gateは未計測のまま。**MKV互換テスト用の安全なソーシング計画（未実行）**: 公開ドメイン / 公式配布のMKVコンテンツ（例: Blender FoundationのCC映画の公式torrent配布、archive.orgのPD映画MKV項目）から、安定したannounceを持つものを選定し、selection + Range 206 + Chrome canplayを確認する。ユーザー提供のcopyrighted magnetはダウンロード / テストに一切使用しない。
+**旧aria2実swarm QA記録（2026-08-02・anacrolix移行前）**: rc.6 bootstrap-installed aria2 1.37.0 + 固定argvで、archive.org PD映画torrentとDebian公式netinst torrent（source classのみ・copyrightなし）を認証APIで201 → queued → downloadingまで確認したが、当時はcanonical magnetがtrackerを剥がす設計で、どちらのswarmもDHT/PEXでは到達できず**bounded window内で0 bytes（peer/metadata timeout失敗クラス・workaroundなし）**。cancel / cleanupは実測（job dir 0・process 0・session解放）。**Tracker有効実swarm QA（2026-08-02）: 最小swarmのpeer/metadata timeout**。安全なtracker付きmagnet（Big Buck Bunny / Blender Foundation CC-BY / 10秒1080p clip / archive.org、http tracker bt1/bt2.archive.org:6969）を201受理し、canonical magnetはtracker保持のまま最終argv要素として渡り、aria2はannounce成功（tracker HTTP 200、Complete: 1 seeder）したが、唯一のpeer接続がmetadata転送前に切断され、bounded window内で0 bytes（文書化済みのpeer/metadata timeoutクラス・workaroundなし）。files/selection/complete/Range/playback gateは未計測のまま。**anacrolix/torrent engineへの移行完了後、aria2依存は全て削除済み。** 実swarm testはanacrolix engineで再実施が必要（実際の環境ではまだ未確認なので、残りはE2Eテストだけ）。
 
 ## Required PoC checkpoints
 
@@ -482,11 +482,44 @@ download完了後にfile list + classify（Player native allowlistと一致: vid
 | ED-2D | **Stage A 完了・Stage B（Android/Termux arm64）通過済み（2026-07-31）:** `companion/eizoudendenshi/`でrelease helper（`scripts/release.ps1`: windows/amd64 + android/arm64 build、version付きmanifest、detached Minisign署名、keyは明示arg/envのみ）、Termux bootstrap template（`scripts/termux-bootstrap.sh`: HTTPS限定・pinned key fail-closed・Termux/aarch64検証・前提pkgのみ導入・private temp・署名/SHA-256検証後にapp-private atomic install・foreground pairing・helper contract fail-closed・GitHub Release assetの302 redirectを追うfetch）、自動test harness（`scripts/test-release.ps1`: 一時Minisign鍵のみ`A:\Temp\opencode`使用、成功install + release identity（banner version = manifest version / plain buildはdev default維持）+ tampered manifest/binary/missing sig/wrong arch/unsafe URL等のfailure-before-installを66/66 greenで検証）。Windows x64 installerは未実装。**rc.1 clean Termux installでGitHub Release assetの302 redirect不追従を実証→fetch修正済み（`--location` + `--max-redirs 5` + `--proto-redir =https`）→新規immutable rc.2でStage B通過済み（2026-07-31）** | **Stage B（Android/Termux arm64通過済み・2026-07-31・rc.2）: clean Termux aarch64実機でAPK後のbootstrap commandだけからpairing code表示まで到達**（実HTTPS release base・実pinned key・実ELF install + exec・manifest / binary Minisign verify PASS・signed manifestに対するSHA-256 PASS・install bytes 6291752 / SHA-256 `d4cf15b544cffbaf60b1f1a35b8d0751436ef6456edca3a31e921fd9f15046b7`がGitHub asset digestと一致・`eizouden-bootstrap` temp dir残存なし）。rc.1はredirect不追従で失敗（gate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング側で修正済み**（`scripts/release.ps1`がvalidated `-Version`を両binaryへlink time注入、Go + harnessテストでdev default / banner契約を固定）**。`rc.3`（2026-07-31）の実機検証でclosed**（banner `EizouDendenshi ED-2B (0.2.0-rc.3)`がmanifest versionと一致）。**delivery完了は主張しない**: Windows x64 installer・HTTPS Entei origin・growing media・audio listening/decodeが残る |
 | ED-2E | **実装済み（2026-07-31）:** companion `GET/HEAD /v1/media/status`（origin + token gate、no-store、HEAD/OPTIONS parity、metadata-only: `state`/`available`/`total`/`headReady`/`retryAfter`、static fixture不変・growingはmonotonic snapshot・source failureはfail-closed generic — Go 11 tests green）+ Entei bridge（`companion-bridge.ts` controller + `use-companion-bridge.ts` hook: 単一in-flight chained poll・epoch/AbortController cancel・backoff（`max(Retry-After,1s)`→×2→30s cap・進捗でreset）・bounded failure → disconnected/error・401/403 → `rePairRequired`・`complete`ゲートの明示src/load→metadata/canplay→pendingSeek→intent play・media error再確認 + bounded explicit reset・stateはページメモリのみ — web 17 tests green）。**未実装**: source dialog UX（fixture統合はinternal entryのみ・Magnet / YouTubeは非機能）・`headReady` byte-level検査・production bridge。**未実施**: headed Windows Chrome / Android Chrome browser QA | Go + web自動テストgreen（Go 11・web 29・browser QAは別gate） |
 | ED-2F | **実装済み（companion Go foundation）:** YouTube local source job（`internal/youtube` URL validation + `internal/job` manager: 固定argv・shell不使用・1080p cap・one active session 409・cancel/timeoutでprocess tree kill + reap・private temp dir lifecycle・metadata-only redaction）。`POST/GET /v1/source/jobs(/{id})(/cancel)`（origin + token gate・OPTIONS preflight）。`/v1/media/status` / `/v1/media/fixture`はactive jobを優先してmapping（buffering/complete/error・503/404）し、static fixture / grow contract既存テストは不変。`--ytdlp` / `--job-timeout` flag。fake helperによるGoテストgreen（youtube + job + api、`go test -race ./...`）。**未実装**: 実yt-dlp download QA・user-facing YouTube URL入力・cookie / saved-profile・production bridge接続 | Go自動テストgreen（`go test -race ./...`・youtube / job / api）。実download QA・browser QAは別gate |
-| ED-2G | **実装済み・QA PASS:** aria2 torrent local job（`internal/torrent`: btih magnet validation・安全なtracker保持・固定argv・shell不使用・`--seed-time=0`・DHT stateのprivate job dir保持・YouTubeと共通のone-active session・cancel/timeout cleanup・metadata-only redaction）+ file list / selection（video 1 + subtitle 1契約・Player native allowlist一致・no-eligible-videoは終端error）。`POST/GET /v1/source/torrents(/{id})(/cancel)(/files)(/select)`（origin + token gate・OPTIONS preflight）。status / fixtureはselection前`buffering`（503）・selection後`complete`（206）でmapping。`--aria2` / `--torrent-timeout` flag。**残りは最後のE2Eへ集約:** ユーザー向けtorrent UI / selection UI、download中の前方/成長playback、Android/headed-Windows browser behavior | Go自動テストgreen（`go test -race ./...`・torrent / api）。最終E2Eでまとめて確認 |
+| ED-2G | **実装済み・コード側完了:** anacrolix/torrent engine torrent local job（`internal/torrent`: btih magnet validation・安全なtracker保持・anacrolix engine・loopback-only・no seeding・private session・cancel/timeout cleanup・metadata-only redaction）+ file list / selection（video 1 + subtitle 1契約・Player native allowlist一致・no-eligible-videoは終端error）。`POST/GET /v1/source/torrents(/{id})(/cancel)(/files)(/select)`（origin + token gate・OPTIONS preflight）。status / fixtureはselection前`buffering`（503）・selection後`complete`（206）でmapping。aria2依存は全て削除済み。**実際の環境ではまだ未確認なので、残りはE2Eテストだけ** | Go自動テストgreen（`go test -race ./...`・torrent / api）。最終E2Eでまとめて確認 |
 | ED-3  | 3-button source entry、共通Magnet / YouTube dialog、shadcn Input OTP pairing、Default Cookie modalを実装                                                                                                                                                                                                                                                                                                                                                                               | pairing済みlocalhost companionとの実機接続                                                    |
 | ED-4  | YouTube source / Japanese subtitle、forward torrent file selection / buffer / cleanupを順に接続                                                                                                                                                                                                                                                                                                                                                                                        | Required PoC checkpoints 3, 4                                                                 |
 
 ED-1のMagnet URI buttonはvisual shellとして表示し、submit時はEizouDendenshi未接続の案内を表示する（送信先のない接続を偽装しない）。source entryの本機能はED-3でcompanionと同時に有効化する。YouTube buttonはED-3まで追加しない。
+
+## Torrent engine移行方針（承認済み・次の実装）
+
+### 比較した3案と採用順位
+
+| 順位 | 参照先 | Enteiへの判断 |
+| --- | --- | --- |
+| 1 | [BitPlay](https://github.com/aculix/bitplay) | **torrent engineの設計を採用する。** Go内で`anacrolix/torrent`を直接使い、選択fileのReader・seek位置のpiece優先・readaheadをengine自身へ渡す。 |
+| 2 | [TorrServer](https://github.com/yourok/TorrServer) | **streaming戦略だけを参考にする。** 再生位置中心のpriority window、readahead、idle session cleanupを取り入れる。TorrServer本体、LAN/public bind、永続cache、DLNA、検索、GStreamer runtimeは持ち込まない。 |
+| 3 | [torrent-stream-server](https://github.com/KiraLT/torrent-stream-server) | **UIフローのみ参考。** Node / Express / WebTorrentのruntimeはEizouDendenshiへ導入しない。 |
+
+### 決定
+
+aria2 torrent subsystemは`anacrolix/torrent` engineへ完全置換した。aria2はYouTube download helperとして不要となり、全flag・config・helper payload・release contract・テストから削除済み。yt-dlp / ffmpegは維持。現在のpairing、memory-only token、exact CORS、loopback-only bind、Range API、session-only cleanup、Magnet UI、YouTube job、CLI、署名release/bootstrapは維持する。
+
+```text
+維持: pairing / token / CORS / localhost Range API / YouTube / CLI / release bootstrap
+
+完了: aria2 torrent process + file polling + 外部SHA-1 prefix verifier + --aria2 flag + helper contract
+   → anacrolix/torrent engine + selected-file Reader + seek priority + readahead
+```
+
+### 移行後のtorrent contract
+
+1. Magnet metadataを取得し、sanitized file listを表示する。
+2. ユーザーがvideo 1本と任意subtitle 1本を選ぶ。
+3. 選択file以外はdownload priorityを持たず、Playerが読むpieceを`Now`、再生位置の前方windowをreadaheadとしてengineへ要求する。
+4. HTTP RangeはReaderのseek位置へ対応づける。未取得Rangeは待機または明示bufferingにし、偽bytes・file-size推測・zero probingはしない。
+5. stop / cancel / timeout / idle時はtorrent sessionとsession-only mediaを削除する。seedはしない。
+
+この移行で、file境界をまたぐpieceやseek先のpriorityをaria2のfile pollingから推測せず、engineが持つpiece stateで正確に扱う。MP4/MKVのnative decode可否は引き続きbrowser E2Eで測定し、transcodeや永続cacheは追加しない。
+
+**状態:** コード側で実装済み。anacrolix/torrent engineへの完全移行、aria2全flag・helper payload・release contract削除完了。実際の環境ではまだ未確認なので、残りはE2Eテストだけ。
 
 ## Deferred
 

@@ -38,8 +38,8 @@
 #     helperContract.version = 2 with a "helpers" map, e.g.
 #       {"version":2,"helpers":{"yt-dlp":{"required":true,"version":"…",
 #        "artifact":"yt-dlp-windows-amd64.exe"},
-#        "aria2":{"required":true,"version":"…","artifact":"aria2-windows-amd64.zip",
-#         "archive":true,"expectedFile":"aria2c.exe"}, …}}
+#        "ffmpeg":{"required":false,"version":"…","artifact":"ffmpeg-windows-amd64.zip",
+#         "archive":true,"expectedFile":"ffmpeg.exe"}, …}}
 #     plus one artifacts entry per helper artifact (target windows/amd64).
 #   The Termux bootstrap ONLY accepts exactly {"version":1,
 #   "minimumVersions":{}} (fails closed on anything else), so helper-enabled
@@ -126,8 +126,8 @@ function Load-HelperSpecs {
     }
     foreach ($h in $specs.helpers) {
         $key = [string]$h.key
-        if ($key -notin @('yt-dlp', 'aria2', 'ffmpeg')) {
-            throw "unknown helper key '$key' (only yt-dlp / aria2 / ffmpeg are supported)"
+        if ($key -notin @('yt-dlp', 'ffmpeg')) {
+            throw "unknown helper key '$key' (only yt-dlp / ffmpeg are supported)"
         }
         if ($script:HelperNames.ContainsKey($key)) {
             throw "duplicate helper key '$key' (fails closed)"
@@ -186,7 +186,7 @@ function Build-Binary {
         $env:GOARCH = $Goarch
         Push-Location $RepoRoot
         try {
-            $ldflags = '-s -w'
+            $ldflags = '-s -w -checklinkname=0'
             if ($Verb -eq 'release') {
                 # Link-time version injection: the release binary must report
                 # exactly the validated -Version that the manifest carries.
@@ -311,7 +311,6 @@ if ($helperEnabled) {
         termux  = [ordered]@{
             packages = [ordered]@{
                 'yt-dlp' = [ordered]@{ package = 'python-yt-dlp'; command = 'yt-dlp'; minimum = '2025.03.31' }
-                'aria2'  = [ordered]@{ package = 'aria2'; command = 'aria2c'; minimum = '1.36.0' }
                 'ffmpeg' = [ordered]@{ package = 'ffmpeg'; command = 'ffmpeg'; minimum = '4.4' }
             }
         }

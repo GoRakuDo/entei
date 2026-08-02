@@ -4,7 +4,7 @@
 #
 # Verify and install the signed android/arm64 EizouDendenshi core release
 # into Termux app-private storage, FIRST provisioning the source helpers
-# (python-yt-dlp / aria2 / ffmpeg) from the OFFICIAL Termux package
+# (python-yt-dlp / ffmpeg) from the OFFICIAL Termux package
 # repository when missing, then start the common CLI in the FOREGROUND.
 # Nothing is installed before every available verification step has passed.
 #
@@ -14,7 +14,7 @@
 #     an unreplaced template fails closed.
 #   - The release base URL is an explicit input and MUST be https://.
 #   - The helper contract REQUIRES version 3 with the fixed `termux`
-#     packages map (official Termux pkg names: python-yt-dlp, aria2, ffmpeg)
+#     packages map (official Termux pkg names: python-yt-dlp, ffmpeg)
 #     whose minimum versions are manifest-controlled. Helpers are installed
 #     ONLY through the Termux package manager (never from Windows assets,
 #     never from arbitrary manifest commands — the package/command map is a
@@ -201,10 +201,6 @@ helper_version() {
         yt-dlp)
             "$cmd" --version 2>/dev/null | head -n 1 | tr -d '[:space:]'
             ;;
-        aria2)
-            "$cmd" --version 2>/dev/null | head -n 1 |
-                while read -r _ _ ver _; do printf '%s' "$ver"; done
-            ;;
         ffmpeg)
             "$cmd" -version 2>/dev/null | head -n 1 |
                 while read -r _ _ ver _; do printf '%s' "$ver"; done
@@ -216,20 +212,20 @@ helper_version() {
 # package repository (fixed package names compiled into this template; the
 # minimum versions come from the signed manifest) and verifies each
 # executable command + version. Any failure fails closed BEFORE the core.
+# Helpers are located ONLY within $PREFIX/bin (the Termux prefix), never
+# from the system PATH — this prevents host helpers from leaking in.
 ensure_helpers() {
     if [ "$SKIP_PKG" != 1 ]; then
         missing=''
-        require_cmd yt-dlp || missing="$missing python-yt-dlp"
-        require_cmd aria2c || missing="$missing aria2"
-        require_cmd ffmpeg || missing="$missing ffmpeg"
+        [ -f "$PREFIX/bin/yt-dlp" ] || missing="$missing python-yt-dlp"
+        [ -f "$PREFIX/bin/ffmpeg" ] || missing="$missing ffmpeg"
         if [ -n "$missing" ]; then
             echo "EizouDendenshi bootstrap: installing Termux helpers:$missing"
-            pkg install -y python-yt-dlp aria2 ffmpeg ||
+            pkg install -y python-yt-dlp ffmpeg ||
                 fail 'pkg install of helpers failed'
         fi
     fi
     verify_helper 'yt-dlp' 'yt-dlp' "$TERMUX_MIN_YTDLP"
-    verify_helper 'aria2' 'aria2c' "$TERMUX_MIN_ARIA2"
     verify_helper 'ffmpeg' 'ffmpeg' "$TERMUX_MIN_FFMPEG"
 }
 
@@ -237,9 +233,10 @@ verify_helper() {
     name="$1"
     cmd="$2"
     minimum="$3"
-    require_cmd "$cmd" ||
-        fail "helper $name not found (command $cmd missing from the Termux prefix)"
-    ver="$(helper_version "$name" "$cmd")"
+    # Only look within $PREFIX/bin (not system PATH) to prevent host leaks.
+    [ -f "$PREFIX/bin/$cmd" ] ||
+        fail "helper $name not found (command $cmd missing from $PREFIX/bin)"
+    ver="$(helper_version "$name" "$PREFIX/bin/$cmd")"
     [ -n "$ver" ] || fail "helper $name version check failed"
     if version_ge "$ver" "$minimum"; then
         echo "EizouDendenshi bootstrap: helper $name version $ver (minimum $minimum) OK"
@@ -262,17 +259,14 @@ validate_manifest() {
         fail 'manifest helper contract version is not exactly 3 (fails closed; a core-only v1 or a Windows-only v2 release is refused here)'
     grep -qE '"version":"[0-9]+\.[0-9]+\.[0-9]+' "$mf" ||
         fail 'manifest version is not a valid semver'
-    # The three fixed Termux package entries must be present verbatim.
+    # The two fixed Termux package entries must be present verbatim.
     grep -qF '"yt-dlp":{"package":"python-yt-dlp","command":"yt-dlp","minimum":"' "$mf" ||
         fail 'manifest Termux package entry for yt-dlp is missing or unsafe (fails closed)'
-    grep -qF '"aria2":{"package":"aria2","command":"aria2c","minimum":"' "$mf" ||
-        fail 'manifest Termux package entry for aria2 is missing or unsafe (fails closed)'
     grep -qF '"ffmpeg":{"package":"ffmpeg","command":"ffmpeg","minimum":"' "$mf" ||
         fail 'manifest Termux package entry for ffmpeg is missing or unsafe (fails closed)'
     TERMUX_MIN_YTDLP="$(sed -n 's#.*"yt-dlp":{"package":"python-yt-dlp","command":"yt-dlp","minimum":"\([^"]*\)".*#\1#p' "$mf" | head -n 1)"
-    TERMUX_MIN_ARIA2="$(sed -n 's#.*"aria2":{"package":"aria2","command":"aria2c","minimum":"\([^"]*\)".*#\1#p' "$mf" | head -n 1)"
     TERMUX_MIN_FFMPEG="$(sed -n 's#.*"ffmpeg":{"package":"ffmpeg","command":"ffmpeg","minimum":"\([^"]*\)".*#\1#p' "$mf" | head -n 1)"
-    [ -n "$TERMUX_MIN_YTDLP" ] && [ -n "$TERMUX_MIN_ARIA2" ] && [ -n "$TERMUX_MIN_FFMPEG" ] ||
+    [ -n "$TERMUX_MIN_YTDLP" ] && [ -n "$TERMUX_MIN_FFMPEG" ] ||
         fail 'manifest Termux minimum versions missing (fails closed)'
     entry="$(sed -n 's#.*{"name":"\([^"]*\)","target":"android/arm64","sha256":"\([0-9a-f]\{64\}\)"}.*#\1 \2#p' "$mf" | head -n 1)"
     name="${entry%% *}"

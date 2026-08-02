@@ -79,15 +79,14 @@ func TestStatusReportsHelpersRedacted(t *testing.T) {
 	opts := cliOptions{
 		version: "0.2.0-rc.7",
 		ytdlp:   fakeHelperPath,
-		aria2:   fakeHelperPath,
 		ffmpeg:  fakeHelperPath,
 	}
 	out := runMenu(t, opts, "2\n", nil)
 	for _, want := range []string{
 		"core: installed (v0.2.0-rc.7)",
 		"yt-dlp: installed (2026.07.04)",
-		"aria2: installed (2026.07.04)",
 		"ffmpeg: installed (2026.07.04)",
+		"torrent: enabled (anacrolix engine, built-in)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status missing %q: %q", want, out)
@@ -105,10 +104,14 @@ func TestStatusMissingHelper(t *testing.T) {
 	// be resolved → helpers report "missing".
 	t.Setenv("PATH", "")
 	out := runMenu(t, cliOptions{version: "0.2.0-rc.7"}, "2\n", nil)
-	for _, name := range []string{"yt-dlp", "aria2", "ffmpeg"} {
+	for _, name := range []string{"yt-dlp", "ffmpeg"} {
 		if !strings.Contains(out, name+": missing") {
 			t.Errorf("expected %s: missing, got %q", name, out)
 		}
+	}
+	// Torrent is built-in, always reports enabled.
+	if !strings.Contains(out, "torrent: enabled") {
+		t.Errorf("torrent always enabled, got %q", out)
 	}
 }
 

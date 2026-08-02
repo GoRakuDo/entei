@@ -156,7 +156,7 @@ type Config struct {
 	// media/status endpoints behave exactly as before.
 	Jobs *job.Manager
 
-	// Torrents, when set, enables the ED-2G aria2 torrent-job endpoints
+	// Torrents, when set, enables the ED-2G torrent-job endpoints
 	// (/v1/source/torrents…). Nil leaves them unregistered (404). One
 	// active job is enforced across Jobs and Torrents together.
 	Torrents *torrent.Manager
@@ -170,7 +170,7 @@ type Server struct {
 	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
 	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
 	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
-	torrents       *torrent.Manager    // ED-2G: optional aria2 torrent-job manager (nil = disabled)
+	torrents       *torrent.Manager    // ED-2G: optional torrent-job manager (nil = disabled)
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 }
 
@@ -233,7 +233,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/v1/source/jobs/", s.handleJobByID)
 	}
 	if s.torrents != nil {
-		// ED-2G: aria2 torrent jobs. Registered only when a torrent manager
+		// ED-2G: torrent jobs. Registered only when a torrent manager
 		// is configured; otherwise these routes are honestly 404.
 		mux.HandleFunc("/v1/source/torrents", s.handleTorrentCreate)
 		mux.HandleFunc("/v1/source/torrents/", s.handleTorrentByID)

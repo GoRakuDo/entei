@@ -237,7 +237,7 @@ export const en: Dictionary = {
     magnetNoVideoError: 'No selectable video in this torrent.',
     magnetSelectSubmit: 'Select & play',
     magnetCancel: 'Cancel',
-    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/aria2/downloads)
+    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'Set up',
     eizouSetupTitle: 'EizouDendenshi',
     eizouSetupImageAlt: 'EizouDendenshi illustration',

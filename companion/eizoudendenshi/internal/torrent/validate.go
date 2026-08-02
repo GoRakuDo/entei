@@ -1,5 +1,5 @@
-// Package torrent implements the EizouDendenshi aria2 local-torrent job
-// boundary (ED-2G): a single-session, process-supervised BitTorrent
+// Package torrent implements the EizouDendenshi local-torrent job
+// boundary (ED-2G): a single-session anacrolix/torrent-backed BitTorrent
 // download whose completed files later feed the existing status/media
 // bridge — strictly gated by an explicit one-video + optional-subtitle
 // selection. No GoRakuDo proxy, no browser WebTorrent, no LAN/public bind.
@@ -23,17 +23,14 @@
 //     every other parameter remain dropped. Validation never performs DNS
 //     resolution. Tracker data never appears in API snapshots, errors, logs,
 //     or docs output.
-//   - The aria2 helper is pinned by configuration (never request-derived),
-//     spawned with exec.Command and a FIXED argument vector; the
-//     canonicalized magnet (xt + preserved tr params) is the only
-//     user-derived value and is passed as its own final argv element. No
-//     shell is ever involved.
-//   - All torrent files live in a private temp job directory; cancellation /
-//     failure / session end kills the aria2 process tree and removes only
-//     owned job files. User files are never touched.
+//   - The torrent engine is constructed at startup (loopback-only, no
+//     seeding, no public listeners); the canonicalized magnet is passed
+//     directly. No shell is ever involved.
+//   - Cancellation / failure / session end drops the torrent and frees
+//     the session. User files are never touched.
 //   - Responses expose only opaque job ids and sanitized file metadata
 //     (basename / extension / byteSize / kind) — never absolute paths, the
-//     magnet, trackers, or raw aria2 stderr. Nothing is served before a
+//     magnet, trackers, or engine internals. Nothing is served before a
 //     valid selection.
 //
 // Privacy note: a tracker is a third-party endpoint. Once a torrent job

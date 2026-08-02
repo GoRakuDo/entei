@@ -1,7 +1,6 @@
 package torrent
 
 import (
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -37,11 +36,10 @@ var subtitleExts = map[string]bool{
 // the magnet, or tracker data.
 type FileInfo struct {
 	ID        string `json:"id"`        // opaque, stable ("f0", "f1", …)
-	Basename  string `json:"basename"`  // filepath.Base of the stored name
+	Basename  string `json:"basename"`  // sanitized basename only
 	Extension string `json:"extension"` // lowercase, no dot
 	ByteSize  int64  `json:"byteSize"`
 	Kind      string `json:"kind"` // video | audio | subtitle | other
-	Index     int    `json:"-"`    // 1-based aria2 --select-file index
 }
 
 // classify returns the kind for an extension (lowercase, no dot).
@@ -58,27 +56,21 @@ func classify(ext string) string {
 	return KindOther
 }
 
-// metadataFiles builds the sanitized file listing from the parsed torrent
-// METADATA (stage 1) — the file list is therefore available before any
-// payload bytes are downloaded. Deterministic order (file index).
-func metadataFiles(meta *TorrentMetadata) []FileInfo {
-	out := make([]FileInfo, 0, len(meta.Files))
-	for i, tf := range meta.Files {
-		base := tf.Path
-		if idx := strings.LastIndexByte(base, '/'); idx >= 0 {
-			base = base[idx+1:]
-		}
-		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(base), "."))
-		out = append(out, FileInfo{
-			ID:        "f" + itoa(i),
-			Basename:  base,
-			Extension: ext,
-			ByteSize:  tf.Length,
-			Kind:      classify(ext),
-			Index:     tf.Index,
-		})
+// torrentFileInfo converts a TorrentFile (engine interface) to an API
+// FileInfo by splitting the path into basename and extension.
+func torrentFileInfo(tf TorrentFile) FileInfo {
+	ext := ""
+	base := tf.Path
+	if idx := strings.LastIndexByte(base, '.'); idx >= 0 {
+		ext = strings.ToLower(base[idx+1:])
 	}
-	return out
+	return FileInfo{
+		ID:        tf.ID,
+		Basename:  base,
+		Extension: ext,
+		ByteSize:  tf.Length,
+		Kind:      tf.Kind,
+	}
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }

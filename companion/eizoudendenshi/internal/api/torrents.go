@@ -9,7 +9,7 @@ import (
 	"eizoudendenshi/internal/torrent"
 )
 
-// Torrent endpoints (ED-2G): localhost companion-only aria2 torrent job
+// Torrent endpoints (ED-2G): localhost companion-only torrent job
 // foundation. All routes share the exact Origin + capability gates of the
 // media endpoints and are registered only when a torrent manager is
 // configured (Config.Torrents != nil).
@@ -21,8 +21,8 @@ import (
 //	POST /v1/source/torrents/{id}/select — one video + optional subtitle
 //
 // Responses are metadata-only: opaque job ids, sanitized file metadata, and
-// generic errors — never the magnet, absolute paths, trackers, or raw aria2
-// stderr. One active job is enforced across BOTH job kinds (YouTube and
+// generic errors — never the magnet, absolute paths, trackers, or engine
+// internals. One active job is enforced across BOTH job kinds (YouTube and
 // torrent): creating a second while either is active is a 409 conflict.
 
 // torrentResponseBody is the redacted torrent job view.
@@ -213,12 +213,6 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 			Total:      snap.Media.Total,
 			RetryAfter: bufferingRetryAfterSec,
 		}, true
-	case torrent.StatePlayable:
-		return statusBody{
-			State:     statusPlayable,
-			Available: snap.Media.Available,
-			Total:     snap.Media.Total,
-		}, true
 	case torrent.StateComplete:
 		return statusBody{
 			State:     statusComplete,
@@ -259,9 +253,9 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 		}
 		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
 		return true
-	case torrent.StatePlayable, torrent.StateStreaming:
+	case torrent.StateStreaming:
 		if src != nil {
-			s.serveStreamingPrefix(w, r, src, snap.Media.Available, snap.Media.Total)
+			s.serveGrowingSource(src, w, r)
 			return true
 		}
 		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)

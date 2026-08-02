@@ -558,14 +558,16 @@ path) was removed.
   Code` / `2. Service Status`) with an ANSI-colored version header only on
   a real terminal (plain otherwise); option 1 reuses the existing
   foreground server path (fresh pairing code, Ctrl+C stops); option 2
-  reports core/yt-dlp/aria2/ffmpeg installed/version/readiness only —
+  reports core/yt-dlp/ffmpeg installed/version/readiness and the torrent
+  engine status only —
   never paths, cookies, tokens, URLs, or job data. Invalid input
   re-prompts; EOF exits.
-- **Windows launcher**: the bootstrap installs a user-private `eizouden.cmd`
-  invoking the core's CLI mode with the exact private helper paths (no
+- **Windows launcher**: the bootstrap installs a user-private `grkd-edds.cmd`
+  invoking the core's CLI mode with the exact private helper paths (the
+  legacy `eizouden.cmd` launcher is removed; no
   global PATH mutation).
 - **Manifest helper contract v3**: the Windows artifact helpers map plus a
-  compiled-in fixed Termux package map (`python-yt-dlp`/`aria2`/`ffmpeg`,
+  compiled-in fixed Termux package map (`python-yt-dlp`/`ffmpeg`,
   minimum versions manifest-controlled). The Windows bootstrap accepts v2
   and v3; the helper-enabled Termux bootstrap
   (`termux-bootstrap-helper.sh`, emitted as `eizouden-bootstrap-helper.sh`)
@@ -756,7 +758,7 @@ download, and Android/headed-Windows browser QA.
 
 A general Windows user runs one signed bootstrap that checks / downloads /
 verifies / installs the Eizou core **and** its required helper artifacts
-(yt-dlp, aria2, ffmpeg) into user-private storage.
+(yt-dlp, ffmpeg) into user-private storage.
 
 ### Release manifest evolution (canonical, signed, fail-closed)
 
@@ -764,12 +766,14 @@ verifies / installs the Eizou core **and** its required helper artifacts
   are given — the Termux bootstrap still only accepts exactly
   `{"version":1,"minimumVersions":{}}` and refuses anything else (Termux
   stays helper-none). The Termux harness is still **66/66 green**.
-- **v2 Windows helper contract** (only when `-HelpersFile` is passed):
-  `helperContract.version = 2` with a `helpers` map declaring
+- **v3 Windows helper contract** (only when `-HelpersFile` is passed):
+  `helperContract.version = 3` with a `helpers` map declaring
   `{required, version, artifact[, archive, expectedFile]}` for `yt-dlp` /
-  `aria2` / `ffmpeg`, plus one `artifacts` entry (target `windows/amd64`,
-  `sha256`) per helper artifact. The Windows bootstrap only accepts version 2;
-  a v1 core-only release is refused there (fails closed).
+  `ffmpeg`, plus a compiled-in fixed `termux` packages map, plus one
+  `artifacts` entry (target `windows/amd64`, `sha256`) per helper artifact.
+  The Windows bootstrap accepts exactly versions 2 and 3 (v2 carried the
+  same helpers-map shape from older helper-enabled releases); a v1
+  core-only release or any other version is refused there (fails closed).
 - **Artifact sourcing is explicit local input only**: `-HelpersFile` is a JSON
   file of explicit local artifact paths + target/name/version metadata. The
   release tool NEVER downloads vendor code; it validates (safe artifact
@@ -791,7 +795,7 @@ verifies / installs the Eizou core **and** its required helper artifacts
   expected filename is taken. Verified installs are reused by
   version+hash state (`helpers-state.json`); anything else (version mismatch,
   missing, tampered) is atomically replaced.
-- The core is launched with explicit absolute `--ytdlp` / `--aria2` paths;
+- The core is launched with explicit absolute `--ytdlp` / `--ffmpeg` paths;
   ffmpeg reaches yt-dlp through a **process-scoped** PATH (prepending the
   private helpers dir — never a persistent system PATH change). No
   `Invoke-Expression` / remote script execution, no winget/choco/Python, no
@@ -801,7 +805,7 @@ verifies / installs the Eizou core **and** its required helper artifacts
   error output never reveals sensitive local paths or URLs (only safe
   artifact logical names).
 
-### `scripts/test-windows-bootstrap.ps1` (new harness) — **51/51 green**
+### `scripts/test-windows-bootstrap.ps1` (new harness) — **106/106 green**
 
 Synthetic helper-enabled Windows release (temporary fake helper executables
 + archives, temp Minisign key under `A:\Temp\opencode`, mirror-based
@@ -848,11 +852,11 @@ acquires ONLY the verifier safely:
   not claimed on rc.5.
 - **Known design note (fixed for rc.6, not in rc.5):** archive helpers are
   extracted and now installed under their **strict runtime filename**
-  (`aria2c.exe` / `ffmpeg.exe`) in the private `helpers\` runtime directory
+  (`ffmpeg.exe`) in the private `helpers\` runtime directory
   (the release artifact keeps its logical archive name for download/verify;
   `helpers-state.json` maps artifact/version/SHA → runtime name + runtime
   SHA; the core always receives the exact absolute runtime paths
-  `--ytdlp <…>\yt-dlp-windows-amd64.exe` and `--aria2 <…>\aria2c.exe`, and
+  `--ytdlp <…>\yt-dlp-windows-amd64.exe` and `--ffmpeg <…>\ffmpeg.exe`, and
   the process-scoped PATH prepends the runtime dir that literally contains
   `ffmpeg.exe` for yt-dlp merge discovery). Malformed/legacy (rc.5
   archive-name) state is detected and replaced, never reused.
@@ -1056,7 +1060,7 @@ pinned inside the copied command, verifies SHA-256 against the signed
 manifest, then installs the verified core into Termux app-private storage
 (`$PREFIX/var/lib/eizouden`) and starts it in the foreground for pairing.
 
-Future source helpers (`python-yt-dlp`, `aria2`, `ffmpeg`) are deliberately
+Future source helpers (`python-yt-dlp`, `ffmpeg`) are deliberately
 **not** installed by this template. They belong to a later stage; a release
 manifest that demands helpers (a `helperContract` this template does not
 exactly support) is **refused before install (fail closed)**.

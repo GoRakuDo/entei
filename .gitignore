@@ -33,5 +33,9 @@ logs/
 .tmp/
 tmp/
 
+# EizouDendenshi local runtime artifacts
+companion/eizoudendenshi/.torrent.bolt.db
+companion/eizoudendenshi/eizouden
+
 # Local code analysis
 .codesight/

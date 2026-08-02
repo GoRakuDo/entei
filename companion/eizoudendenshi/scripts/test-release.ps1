@@ -132,7 +132,7 @@ function Static-Checks {
         $iSig -ge 0 -and $iSha -ge 0 -and $iInst -gt $iSig -and $iInst -gt $iSha) 'signature and SHA-256 checks must precede the install call in main()'
     Check 'static: prerequisites limited to verifier/download tools' (
         $boot.Contains('pkg install -y minisign curl coreutils') -and
-        $boot -notmatch 'pkg install[^\r\n]*(yt-dlp|aria2|ffmpeg)' -and
+        $boot -notmatch 'pkg install[^\r\n]*(yt-dlp|ffmpeg)' -and
         $boot -notmatch 'termux-wake-lock') 'no helper installs or permission prompts in the bootstrap'
     Check 'static: no privilege escalation' ($boot -notmatch '\bsu\b' -and $boot -notmatch 'sudo') 'no su/sudo in template'
     Check 'static: private temp dir with cleanup' (
@@ -335,7 +335,6 @@ function New-FakeTermuxPrefix {
         & $script:ShPath -c "chmod +x `"$f`""
     }
     & $mk 'yt-dlp' "#!/bin/sh`necho $($Versions.ytdlp)"
-    & $mk 'aria2c' "#!/bin/sh`necho aria2 version $($Versions.aria2)"
     & $mk 'ffmpeg' "#!/bin/sh`necho ffmpeg version $($Versions.ffmpeg)"
     return $p
 }
@@ -360,9 +359,11 @@ function Invoke-TermuxHelperCase {
         EIZOU_TEST_ADDR = '127.0.0.1:0'
         PREFIX = $Prefix
         TMPDIR = $script:TempDir
-        # The fake helper commands live in the prefix bin; it must come
-        # FIRST so no real machine helper shadows them.
-        PATH = (Join-Path $Prefix 'bin') + ';' + $script:GitBins + ';' + (Split-Path $script:Minisign) + ';' + $env:PATH
+        # Skip-PKG test mode requires the verifier/download tools on PATH
+        # (minisign, curl, sha256sum); same arrangement as the v1 suite's
+        # $script:BaseEnv. Verification is NOT weakened: the template still
+        # demands a real minisign executable and fails closed without one.
+        PATH = $script:GitBins + ';' + (Split-Path $script:Minisign) + ';' + $env:PATH
     }
     $proc = Start-Process -FilePath $script:ShPath -ArgumentList @("`"$runner`"", "`"$BootstrapPath`"", "`"$($script:HelperBaseUrl)`"", "`"$InputFile`"") `
         -RedirectStandardOutput $outFile -RedirectStandardError $errFile -PassThru -NoNewWindow -Environment $envH
@@ -406,14 +407,11 @@ function Termux-Helper-Suite {
     # Fake Windows helper artifacts (the Termux side never consumes them).
     $fakeYtdlp = Join-Path $fakeDir 'fake-yt-dlp.exe'
     Set-Content -LiteralPath $fakeYtdlp -Value 'fake' -Encoding ascii
-    $fakeAria2 = Join-Path $fakeDir 'fake-aria2.zip'
-    New-FakeArchive $fakeAria2 'aria2c.exe'
     $fakeFfmpeg = Join-Path $fakeDir 'fake-ffmpeg.zip'
     New-FakeArchive $fakeFfmpeg 'ffmpeg.exe'
     $helpersJson = @{
         helpers = @(
             @{ key = 'yt-dlp'; required = $true; version = '2026.07.04'; artifactName = 'yt-dlp-windows-amd64.exe'; path = $fakeYtdlp },
-            @{ key = 'aria2'; required = $true; version = '1.37.0'; artifactName = 'aria2-windows-amd64.zip'; path = $fakeAria2; archive = $true; expectedFile = 'aria2c.exe' },
             @{ key = 'ffmpeg'; required = $false; version = '5.1.2'; artifactName = 'ffmpeg-windows-amd64.zip'; path = $fakeFfmpeg; archive = $true; expectedFile = 'ffmpeg.exe' }
         )
     }
@@ -429,10 +427,8 @@ function Termux-Helper-Suite {
     Check 'helper: manifest v3 with fixed Termux packages' (
         $man.helperContract.version -eq 3 -and
         $man.helperContract.termux.packages.'yt-dlp'.package -eq 'python-yt-dlp' -and
-        $man.helperContract.termux.packages.'aria2'.package -eq 'aria2' -and
         $man.helperContract.termux.packages.'ffmpeg'.package -eq 'ffmpeg' -and
         $man.helperContract.termux.packages.'yt-dlp'.command -eq 'yt-dlp' -and
-        $man.helperContract.termux.packages.'aria2'.command -eq 'aria2c' -and
         $man.helperContract.termux.packages.'ffmpeg'.command -eq 'ffmpeg') ($man.helperContract | ConvertTo-Json -Compress)
 
     # Mirror the release files (the helper bootstrap fetches from it). The
@@ -469,12 +465,12 @@ function Termux-Helper-Suite {
     Set-Content -LiteralPath $inputStatus -Value '2' -Encoding ascii -NoNewline
 
     # H1 success: helpers verified, core + launcher installed, CLI rendered.
-    $prefix = New-FakeTermuxPrefix 'H1' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    $prefix = New-FakeTermuxPrefix 'H1' @{ ytdlp = '2026.07.04'; ffmpeg = '5.1.2' }
     Invoke-TermuxHelperCase -Name 'H1 helper success' -BootstrapPath (New-HelperBootstrapCopy 'H1') `
         -Prefix $prefix -InputFile $inputStatus -ExpectSuccess
 
     # H2: v2 (Windows-only) contract refused.
-    $p2 = New-FakeTermuxPrefix 'H2' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    $p2 = New-FakeTermuxPrefix 'H2' @{ ytdlp = '2026.07.04'; ffmpeg = '5.1.2' }
     $m2 = Join-Path $script:HelperWork 'mirror-H2'
     New-Item -ItemType Directory -Force -Path $m2 | Out-Null
     foreach ($f in (Get-ChildItem -LiteralPath $script:HelperMirror -File)) { Copy-Item $f.FullName (Join-Path $m2 $f.Name) -Force }
@@ -489,18 +485,18 @@ function Termux-Helper-Suite {
     $script:HelperMirror = $savedMirror
 
     # H3: missing helper command fails before the core install.
-    $p3 = New-FakeTermuxPrefix 'H3' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
-    Remove-Item -LiteralPath (Join-Path $p3 'bin\aria2c') -Force
+    $p3 = New-FakeTermuxPrefix 'H3' @{ ytdlp = '2026.07.04'; ffmpeg = '5.1.2' }
+    Remove-Item -LiteralPath (Join-Path $p3 'bin\ffmpeg') -Force
     Invoke-TermuxHelperCase -Name 'H3 missing helper' -BootstrapPath (New-HelperBootstrapCopy 'H3') `
-        -Prefix $p3 -InputFile $inputStatus -ExpectErrorPattern 'helper aria2 not found'
+        -Prefix $p3 -InputFile $inputStatus -ExpectErrorPattern 'helper ffmpeg not found'
 
     # H4: helper version below the manifest minimum fails before the core.
-    $p4 = New-FakeTermuxPrefix 'H4' @{ ytdlp = '1.0.0'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    $p4 = New-FakeTermuxPrefix 'H4' @{ ytdlp = '1.0.0'; ffmpeg = '5.1.2' }
     Invoke-TermuxHelperCase -Name 'H4 version below minimum' -BootstrapPath (New-HelperBootstrapCopy 'H4') `
         -Prefix $p4 -InputFile $inputStatus -ExpectErrorPattern 'below the manifest minimum'
 
     # H5: tampered core fails signature verification before install.
-    $p5 = New-FakeTermuxPrefix 'H5' @{ ytdlp = '2026.07.04'; aria2 = '1.37.0'; ffmpeg = '5.1.2' }
+    $p5 = New-FakeTermuxPrefix 'H5' @{ ytdlp = '2026.07.04'; ffmpeg = '5.1.2' }
     $m5 = Join-Path $script:HelperWork 'mirror-H5'
     New-Item -ItemType Directory -Force -Path $m5 | Out-Null
     foreach ($f in (Get-ChildItem -LiteralPath $script:HelperMirror -File)) { Copy-Item $f.FullName (Join-Path $m5 $f.Name) -Force }

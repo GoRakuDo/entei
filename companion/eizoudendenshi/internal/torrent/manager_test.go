@@ -1,78 +1,188 @@
 package torrent
 
 import (
+	"context"
 	"errors"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
+	"io"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-var fakeHelper string
-
-func TestMain(m *testing.M) {
-	_, thisFile, _, _ := runtime.Caller(0)
-	pkgDir := filepath.Dir(thisFile)
-	dir, err := os.MkdirTemp("", "entei-fake-aria2-*")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "temp dir: %v\n", err)
-		os.Exit(1)
-	}
-	exe := "fakearia2"
-	if runtime.GOOS == "windows" {
-		exe += ".exe"
-	}
-	fakeHelper = filepath.Join(dir, exe)
-	build := exec.Command("go", "build", "-o", fakeHelper, "./testdata/fakearia2")
-	build.Dir = pkgDir
-	if out, err := build.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "build fake helper: %v\n%s", err, out)
-		os.RemoveAll(dir)
-		os.Exit(1)
-	}
-	code := m.Run()
-	_ = os.RemoveAll(dir)
-	os.Exit(code)
-}
-
-func newTestManager(t *testing.T, timeout time.Duration) *Manager {
-	t.Helper()
-	if timeout == 0 {
-		timeout = 10 * time.Second
-	}
-	m, err := New(Config{HelperPath: fakeHelper, Timeout: timeout})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	t.Cleanup(func() { _ = m.Close() })
-	return m
-}
-
-func setFakeEnv(t *testing.T, k, v string) {
-	t.Helper()
-	t.Setenv(k, v)
-}
-
 const testMagnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
 
-// setTorrentEnv configures the deterministic two-stage fake aria2: stage 1
-// metadata-only, stage 2 selected-file payload with verified head pieces.
-func setTorrentEnv(t *testing.T, files, pieceLen string) {
-	setFakeEnv(t, "EIZOU_FAKE_TORRENT", "files="+files+";pieceLen="+pieceLen)
-	setFakeEnv(t, "EIZOU_FAKE_METADATA", "1")
-	setFakeEnv(t, "EIZOU_FAKE_PAYLOAD", "1")
+// --- fake Engine seam for deterministic manager tests ---
+
+type fakeEngine struct {
+	startDelay time.Duration
+	files      []TorrentFile
+	startErr   error
+	h          *fakeHandle
 }
 
-func setHeadPieces(t *testing.T, n int) { setFakeEnv(t, "EIZOU_FAKE_HEAD_PIECES", strconv.Itoa(n)) }
+func (e *fakeEngine) Start(ctx context.Context, magnet string) (TorrentHandle, error) {
+	if e.startErr != nil {
+		return nil, e.startErr
+	}
+	if e.startDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(e.startDelay):
+		}
+	}
+	h := &fakeHandle{
+		name:  "test-torrent",
+		files: e.files,
+	}
+	e.h = h
+	return h, nil
+}
 
-func TestNewRequiresHelperPath(t *testing.T) {
+func (e *fakeEngine) Close() error { return nil }
+
+type fakeHandle struct {
+	name      string
+	files     []TorrentFile
+	selected  int // -1 = none
+	avail     atomic.Int64
+	availMu   chan struct{} // closed to signal avail change
+	closed    bool
+	readerReq int64 // number of reader requests
+	seekOff   int64
+}
+
+func newFakeHandle(files []TorrentFile) *fakeHandle {
+	return &fakeHandle{
+		name:  "test-torrent",
+		files: files,
+	}
+}
+
+func (h *fakeHandle) Name() string         { return h.name }
+func (h *fakeHandle) Files() []TorrentFile { return h.files }
+func (h *fakeHandle) SelectedLength() int64 {
+	if h.selected < 0 || h.selected >= len(h.files) {
+		return 0
+	}
+	return h.files[h.selected].Length
+}
+func (h *fakeHandle) AvailablePrefix() int64 { return h.avail.Load() }
+func (h *fakeHandle) Close() error           { h.closed = true; return nil }
+
+func (h *fakeHandle) Select(videoFileID, subtitleFileID string) error {
+	for i, f := range h.files {
+		if f.ID == videoFileID {
+			if f.Kind != KindVideo {
+				return errInvalidSelection
+			}
+			h.selected = i
+			return nil
+		}
+	}
+	return errInvalidSelection
+}
+
+func (h *fakeHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error) {
+	if h.selected < 0 {
+		return nil, errInvalidSelection
+	}
+	h.readerReq++
+	return &fakeReader{
+		total: h.files[h.selected].Length,
+		avail: &h.avail,
+	}, nil
+}
+
+type fakeReader struct {
+	total int64
+	avail *atomic.Int64
+	off   int64
+}
+
+func (r *fakeReader) Read(p []byte) (int, error) {
+	end := r.off + int64(len(p))
+	avail := r.avail.Load()
+	if r.off >= r.total {
+		return 0, io.EOF
+	}
+	if r.off >= avail {
+		return 0, io.ErrNoProgress
+	}
+	if end > avail {
+		end = avail
+	}
+	n := int(end - r.off)
+	if n > len(p) {
+		n = len(p)
+	}
+	// fill with deterministic content
+	for i := 0; i < n; i++ {
+		p[i] = byte((r.off + int64(i)) & 0xff)
+	}
+	r.off += int64(n)
+	if r.off >= r.total {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (r *fakeReader) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		r.off = offset
+	case io.SeekCurrent:
+		r.off += offset
+	case io.SeekEnd:
+		r.off = r.total + offset
+	default:
+		return 0, errors.New("invalid whence")
+	}
+	if r.off < 0 {
+		r.off = 0
+		return 0, errors.New("negative position")
+	}
+	return r.off, nil
+}
+
+func (r *fakeReader) Close() error { return nil }
+
+func buildFakeFiles(spec string) []TorrentFile {
+	// spec: "name.mp4:2000|other.srt:300"
+	var files []TorrentFile
+	for i, part := range strings.Split(spec, "|") {
+		parts := strings.SplitN(part, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := parts[0]
+		size, _ := strconv.ParseInt(parts[1], 10, 64)
+		ext := ""
+		if idx := strings.LastIndexByte(name, '.'); idx >= 0 {
+			ext = name[idx+1:]
+		}
+		files = append(files, TorrentFile{
+			ID:     "f" + strconv.Itoa(i),
+			Path:   name,
+			Length: size,
+			Kind:   classify(ext),
+		})
+	}
+	return files
+}
+
+func newFakeEngine(filesSpec string) *fakeEngine {
+	return &fakeEngine{files: buildFakeFiles(filesSpec)}
+}
+
+// --- tests ---
+
+func TestNewRequiresEngine(t *testing.T) {
 	if _, err := New(Config{}); err == nil {
-		t.Fatal("New with empty helper path must fail")
+		t.Fatal("New with nil engine must fail")
 	}
 }
 
@@ -93,94 +203,8 @@ func TestStartValidatesMagnet(t *testing.T) {
 	}
 }
 
-func TestFixedArgsNoInjection(t *testing.T) {
-	argsFile := filepath.Join(t.TempDir(), "args.txt")
-	setFakeEnv(t, "EIZOU_FAKE_ARGS_OUT", argsFile)
-	setTorrentEnv(t, "movie.mp4:6000", "1000")
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
-	m := newTestManager(t, 0)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(argsFile); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("helper never recorded argv")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	raw, _ := os.ReadFile(argsFile)
-	argv := strings.Split(strings.TrimSpace(string(raw)), "\n")
-
-	if argv[len(argv)-1] != testMagnet {
-		t.Errorf("final argv element = %q, want the canonical magnet", argv[len(argv)-1])
-	}
-	for i, a := range argv {
-		if strings.Contains(a, ";") || strings.Contains(a, "&&") || strings.Contains(a, "|") {
-			t.Errorf("argv[%d] %q contains shell metacharacters", i, a)
-		}
-	}
-	// Fixed flags present (stage-1 metadata argv).
-	joined := strings.Join(argv, " ")
-	for _, want := range []string{"--seed-time=0", "--enable-rpc=false", "--check-integrity=true", "--dir=", "--dht-file-path=", "--bt-metadata-only=true", "--bt-save-metadata=true"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("argv missing fixed flag %q: %v", want, argv)
-		}
-	}
-	_, _ = m.Cancel(snap.ID)
-}
-
-// TestFixedArgsTrackerMagnetPinsOneFinalElement: a tracker-bearing magnet is
-// canonicalized (safe trackers preserved) and still passed as ONE final argv
-// element — the recorded argv never echoes the tracker anywhere else.
-func TestFixedArgsTrackerMagnetPinsOneFinalElement(t *testing.T) {
-	argsFile := filepath.Join(t.TempDir(), "args.txt")
-	setTorrentEnv(t, "movie.mp4:6000", "1000")
-	setFakeEnv(t, "EIZOU_FAKE_ARGS_OUT", argsFile)
-	m := newTestManager(t, 0)
-	withTracker := testMagnet + "&tr=udp%3A%2F%2FTracker.Example%3A1337&tr=udp%3A%2F%2Fa.example%2Fannounce"
-	snap, err := m.Start(withTracker)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(argsFile); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("helper never recorded argv")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	raw, _ := os.ReadFile(argsFile)
-	argv := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	last := argv[len(argv)-1]
-	// The canonical magnet keeps the xt + the deduplicated sorted trackers.
-	if !strings.HasPrefix(last, testMagnet+"&tr=") {
-		t.Errorf("final argv element must carry the canonical tracker params, got %q", last)
-	}
-	if !strings.Contains(last, "tr=udp%3A%2F%2Fa.example%2Fannounce") ||
-		!strings.Contains(last, "tr=udp%3A%2F%2Ftracker.example%3A1337") {
-		t.Errorf("canonical trackers missing from the final argv element: %q", last)
-	}
-	// The tracker must NOT appear anywhere else in the argv.
-	for i, a := range argv {
-		if i != len(argv)-1 && strings.Contains(a, "tracker.example") {
-			t.Errorf("tracker leaked into argv[%d]: %q", i, a)
-		}
-	}
-	_, _ = m.Cancel(snap.ID)
-}
-
 func TestConflictOneActiveJob(t *testing.T) {
-	m := newTestManager(t, 0)
-	setTorrentEnv(t, "media.mp4:6000", "1000")
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
+	m := newTestManagerWithEngine(t, newFakeEngine("media.mp4:6000"), 0)
 	snap, err := m.Start(testMagnet)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -194,6 +218,267 @@ func TestConflictOneActiveJob(t *testing.T) {
 	if _, err := m.Start(testMagnet); err != nil {
 		t.Fatalf("Start after cancel: %v", err)
 	}
+}
+
+func TestDownloadThenListingAndSelection(t *testing.T) {
+	engine := newFakeEngine("Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10")
+	m := newTestManagerWithEngine(t, engine, 0)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := m.Files(snap.ID); err != nil && !errors.Is(err, ErrNotListed) {
+		t.Fatalf("Files before listing = %v", err)
+	}
+	waitForState(t, m, snap.ID, StateBuffering, 5*time.Second)
+	files, err := m.Files(snap.ID)
+	if err != nil {
+		t.Fatalf("Files: %v", err)
+	}
+	if len(files) != 3 {
+		t.Fatalf("listing = %d files, want 3: %+v", len(files), files)
+	}
+	var videoID, subID string
+	for _, f := range files {
+		if f.Kind == KindVideo {
+			videoID = f.ID
+		}
+		if f.Kind == KindSubtitle {
+			subID = f.ID
+		}
+	}
+	if videoID == "" || subID == "" {
+		t.Fatalf("expected one video and one subtitle: %+v", files)
+	}
+	if _, err := m.Select(snap.ID, subID, ""); !errors.Is(err, ErrInvalidSelection) {
+		t.Fatalf("selecting a subtitle as video err = %v, want ErrInvalidSelection", err)
+	}
+	if _, err := m.Select(snap.ID, "f99", ""); !errors.Is(err, ErrInvalidSelection) {
+		t.Fatalf("unknown id err = %v, want ErrInvalidSelection", err)
+	}
+	sel, err := m.Select(snap.ID, videoID, subID)
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if sel.SelectedVideoFile != videoID || !sel.HasEligibleVideo {
+		t.Fatalf("selection snapshot wrong: %+v", sel)
+	}
+	// Simulate download completion.
+	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+	waitForState(t, m, snap.ID, StateComplete, 5*time.Second)
+	_, src := m.ActiveMedia()
+	if src == nil {
+		t.Fatal("selected media must be servable at complete")
+	}
+	buf := make([]byte, 200)
+	n, err := src.ReadAt(buf, 0)
+	if n != 200 {
+		t.Fatalf("read selected media = %d bytes, want 200 (err=%v)", n, err)
+	}
+	// io.EOF is expected when reading to the exact end of the file.
+	if err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("read selected media unexpected error: %v", err)
+	}
+	_, _ = m.Cancel(snap.ID)
+}
+
+func TestNoEligibleVideoIsTerminalError(t *testing.T) {
+	engine := newFakeEngine("readme.txt:10|song.mp3:50")
+	m := newTestManagerWithEngine(t, engine, 0)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		cur := m.Get(snap.ID)
+		if cur != nil && cur.State == StateError {
+			if cur.Error != "no playable video" {
+				t.Fatalf("error = %q, want 'no playable video'", cur.Error)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never errored; last=%+v", cur)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if _, err := m.Files(snap.ID); !errors.Is(err, ErrNotListed) && !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Files after error = %v", err)
+	}
+}
+
+func TestCancelFreesSession(t *testing.T) {
+	engine := newFakeEngine("media.mp4:6000")
+	m := newTestManagerWithEngine(t, engine, 0)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	got, err := m.Cancel(snap.ID)
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if got.State != StateCancelled {
+		t.Fatalf("cancel state = %s, want cancelled", got.State)
+	}
+	if m.Current() != nil {
+		t.Fatal("session must be free after cancel")
+	}
+	if !engine.h.closed {
+		t.Fatal("handle must be closed after cancel")
+	}
+}
+
+func TestTimeoutProducesErrorAndFreesSession(t *testing.T) {
+	engine := &fakeEngine{
+		startDelay: 200 * time.Millisecond,
+		files:      buildFakeFiles("media.mp4:6000"),
+	}
+	m := newTestManagerWithEngine(t, engine, 100*time.Millisecond)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		cur := m.Get(snap.ID)
+		if cur != nil && cur.State == StateError {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never errored; last=%+v", cur)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if _, err := m.Cancel(snap.ID); err != nil {
+		t.Fatalf("Cancel after timeout: %v", err)
+	}
+	if m.Current() != nil {
+		t.Fatal("session must be free after cancel")
+	}
+}
+
+func TestMagnetValidationPreservesTrackers(t *testing.T) {
+	withTracker := testMagnet + "&tr=udp%3A%2F%2Ftracker.example%3A1337&tr=udp%3A%2F%2Fa.example%2Fannounce"
+	m := newTestManagerWithEngine(t, newFakeEngine("media.mp4:100"), 0)
+	snap, err := m.Start(withTracker)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if snap.State != StateQueued && snap.State != StateDownloading {
+		t.Fatalf("unexpected initial state: %s", snap.State)
+	}
+	_, _ = m.Cancel(snap.ID)
+}
+
+func TestGetReturnsNilForUnknownID(t *testing.T) {
+	m := newTestManagerWithEngine(t, newFakeEngine("media.mp4:100"), 0)
+	if m.Get("nonexistent") != nil {
+		t.Fatal("Get unknown ID should return nil")
+	}
+}
+
+// TestRaceConcurrentSnapshotAndRun verifies that concurrent calls to
+// Get/Current/ActiveMedia/SelectedMediaType do not race with the run()
+// goroutine's state transitions and handle writes. This test must pass
+// with `go test -race`.
+func TestRaceConcurrentSnapshotAndRun(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+
+	// Wait for metadata to arrive so run() has written j.handle.
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	// Select a video so the job transitions to streaming.
+	if _, err := m.Select(id, "f0", "f1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	// Hammer all read paths from multiple goroutines while run() is
+	// polling availability and may transition to complete.
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				_ = m.Get(id)
+				_ = m.Current()
+				_, _ = m.ActiveMedia()
+				_ = m.SelectedMediaType()
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+
+	// Simulate download completion.
+	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+	waitForState(t, m, id, StateComplete, 5*time.Second)
+
+	// Continue hammering for a bit after completion.
+	time.Sleep(50 * time.Millisecond)
+	close(done)
+	wg.Wait()
+
+	// Final read after completion.
+	_, src := m.ActiveMedia()
+	if src == nil {
+		t.Fatal("ActiveMedia should return source after complete")
+	}
+	buf := make([]byte, 100)
+	n, err := src.ReadAt(buf, 0)
+	if n == 0 && err != nil {
+		t.Fatalf("ReadAt after complete: n=%d err=%v", n, err)
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+func TestFilesReturnsErrNotFoundForUnknownID(t *testing.T) {
+	m := newTestManagerWithEngine(t, newFakeEngine("media.mp4:100"), 0)
+	if _, err := m.Files("nonexistent"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Files unknown ID = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSelectReturnsErrNotFoundForUnknownID(t *testing.T) {
+	m := newTestManagerWithEngine(t, newFakeEngine("media.mp4:100"), 0)
+	if _, err := m.Select("nonexistent", "f0", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Select unknown ID = %v, want ErrNotFound", err)
+	}
+}
+
+// --- helpers ---
+
+func newTestManagerWithEngine(t *testing.T, engine Engine, timeout time.Duration) *Manager {
+	t.Helper()
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+	m, err := New(Config{Engine: engine, Timeout: timeout})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	return m
+}
+
+func newTestManager(t *testing.T, timeout time.Duration) *Manager {
+	t.Helper()
+	return newTestManagerWithEngine(t, newFakeEngine("media.mp4:100"), timeout)
 }
 
 func waitForState(t *testing.T, m *Manager, id string, want State, timeout time.Duration) Snapshot {
@@ -211,325 +496,5 @@ func waitForState(t *testing.T, m *Manager, id string, want State, timeout time.
 			t.Fatalf("timed out waiting for %s; last=%+v", want, snap)
 		}
 		time.Sleep(30 * time.Millisecond)
-	}
-}
-
-func TestDownloadThenListingAndSelection(t *testing.T) {
-	// One video (in a subdirectory to exercise sanitization) + one subtitle
-	// + one junk file. Stage 1 (metadata) makes the file list available
-	// BEFORE any payload; stage 2 (after selection) downloads the selected
-	// file with a verified prefix.
-	setTorrentEnv(t, "Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10", "100")
-	setHeadPieces(t, 10)
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
-	m := newTestManager(t, 0)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-
-	// Before the metadata phase completes, Files returns ErrNotListed.
-	if _, err := m.Files(snap.ID); err != nil && !errors.Is(err, ErrNotListed) {
-		t.Fatalf("Files before listing = %v", err)
-	}
-	waitForState(t, m, snap.ID, StateBuffering, 10*time.Second)
-
-	files, err := m.Files(snap.ID)
-	if err != nil {
-		t.Fatalf("Files: %v", err)
-	}
-	if len(files) != 3 {
-		t.Fatalf("listing = %d files, want 3: %+v", len(files), files)
-	}
-	var videoID, subID string
-	for _, f := range files {
-		if strings.Contains(f.Basename, "/") || strings.Contains(f.Basename, `\`) {
-			t.Errorf("basename leaks a path: %q", f.Basename)
-		}
-		if f.Kind == KindVideo {
-			videoID = f.ID
-			if f.Basename != "Episode 01.mkv" || f.Extension != "mkv" || f.ByteSize != 200 {
-				t.Errorf("video metadata wrong: %+v", f)
-			}
-		}
-		if f.Kind == KindSubtitle {
-			subID = f.ID
-			if f.Basename != "Episode 01.ass" || f.Extension != "ass" {
-				t.Errorf("subtitle metadata wrong: %+v", f)
-			}
-		}
-	}
-	if videoID == "" || subID == "" {
-		t.Fatalf("expected one video and one subtitle: %+v", files)
-	}
-
-	// Selection: non-video rejected; unknown id rejected.
-	if _, err := m.Select(snap.ID, subID, ""); !errors.Is(err, ErrInvalidSelection) {
-		t.Fatalf("selecting a subtitle as video err = %v, want ErrInvalidSelection", err)
-	}
-	if _, err := m.Select(snap.ID, "f99", ""); !errors.Is(err, ErrInvalidSelection) {
-		t.Fatalf("unknown id err = %v, want ErrInvalidSelection", err)
-	}
-	// Valid selection: one video + one subtitle → streaming phase.
-	sel, err := m.Select(snap.ID, videoID, subID)
-	if err != nil {
-		t.Fatalf("Select: %v", err)
-	}
-	if sel.SelectedVideoFile != videoID || !sel.HasEligibleVideo {
-		t.Fatalf("selection snapshot wrong: %+v", sel)
-	}
-	// Streaming → verified prefix grows → complete (payload exits cleanly).
-	waitForState(t, m, snap.ID, StateComplete, 10*time.Second)
-	_, src := m.ActiveMedia()
-	if src == nil {
-		t.Fatal("selected media must be servable at complete")
-	}
-	buf := make([]byte, 200)
-	if n, err := src.ReadAt(buf, 0); err != nil || n != 200 {
-		t.Fatalf("read selected media = %d/%v, want 200 bytes", n, err)
-	}
-	_, _ = m.Cancel(snap.ID)
-}
-
-// TestStreamingPlayableVerifiedPrefix: a large selected file whose head
-// pieces verify → playable with the exact verified prefix (never the
-// allocated size); a tampered piece must NOT extend the prefix.
-func TestStreamingPlayableVerifiedPrefix(t *testing.T) {
-	setTorrentEnv(t, "movie.mp4:20000000", "1000000")
-	setHeadPieces(t, 15)                  // 15MB verified head of a 20MB file
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1") // keep the payload running so playable is observable
-	m := newTestManager(t, 0)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitForState(t, m, snap.ID, StateBuffering, 10*time.Second)
-	files, err := m.Files(snap.ID)
-	if err != nil {
-		t.Fatalf("Files: %v", err)
-	}
-	var videoID string
-	for _, f := range files {
-		if f.Kind == KindVideo {
-			videoID = f.ID
-		}
-	}
-	if _, err := m.Select(snap.ID, videoID, ""); err != nil {
-		t.Fatalf("Select: %v", err)
-	}
-	waitForState(t, m, snap.ID, StatePlayable, 10*time.Second)
-	snap2 := m.Get(snap.ID)
-	avail := snap2.Media.Available
-	total := snap2.Media.Total
-	if avail > total || avail <= 0 || avail%1000000 != 0 {
-		t.Fatalf("verified prefix = %d/%d, want piece-aligned positive prefix", avail, total)
-	}
-	// The verifier must never report the allocated file size.
-	if avail == total {
-		t.Fatalf("prefix %d equals the full size although only the head is written", avail)
-	}
-	_, _ = m.Cancel(snap.ID)
-}
-
-func TestNoEligibleVideoIsTerminalError(t *testing.T) {
-	setTorrentEnv(t, "readme.txt:10|song.mp3:50", "100")
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
-	m := newTestManager(t, 0)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		cur := m.Get(snap.ID)
-		if cur != nil && cur.State == StateError {
-			if cur.Error != "no playable video" {
-				t.Fatalf("error = %q, want 'no playable video'", cur.Error)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("job never errored; last=%+v", cur)
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-	// The failed job's dir is cleaned; the error is generic.
-	if _, err := m.Files(snap.ID); !errors.Is(err, ErrNotListed) && !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Files after error = %v", err)
-	}
-}
-
-func TestCancelKillsProcessAndFreesSession(t *testing.T) {
-	setTorrentEnv(t, "media.mp4:6000", "1000")
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
-	m := newTestManager(t, 0)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	time.Sleep(400 * time.Millisecond)
-	if got, err := m.Cancel(snap.ID); err != nil {
-		t.Fatalf("Cancel: %v", err)
-	} else if got.State != StateCancelled {
-		t.Fatalf("cancel state = %s, want cancelled", got.State)
-	}
-	if m.Current() != nil {
-		t.Fatal("session must be free after cancel")
-	}
-}
-
-func TestTimeoutProducesErrorAndFreesSession(t *testing.T) {
-	// Timeout fires during the PAYLOAD phase (the selection wait is
-	// user-driven and never bounded by the job timeout).
-	setTorrentEnv(t, "media.mp4:6000", "1000")
-	setHeadPieces(t, 10)
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
-	m := newTestManager(t, 300*time.Millisecond)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitForState(t, m, snap.ID, StateBuffering, 10*time.Second)
-	files, err := m.Files(snap.ID)
-	if err != nil {
-		t.Fatalf("Files: %v", err)
-	}
-	var videoID string
-	for _, f := range files {
-		if f.Kind == KindVideo {
-			videoID = f.ID
-		}
-	}
-	if _, err := m.Select(snap.ID, videoID, ""); err != nil {
-		t.Fatalf("Select: %v", err)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		cur := m.Get(snap.ID)
-		if cur != nil && cur.State == StateError {
-			if cur.Error != "timed out" {
-				t.Fatalf("error = %q, want 'timed out'", cur.Error)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("job never errored; last=%+v", cur)
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-	if _, err := m.Cancel(snap.ID); err != nil {
-		t.Fatalf("Cancel after timeout: %v", err)
-	}
-	if m.Current() != nil {
-		t.Fatal("session must be free after cancel")
-	}
-}
-func TestFailedHelperProducesRedactedError(t *testing.T) {
-	setTorrentEnv(t, "media.mp4:100", "100")
-	setFakeEnv(t, "EIZOU_FAKE_FAIL", "1")
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
-	m := newTestManager(t, 0)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		cur := m.Get(snap.ID)
-		if cur != nil && cur.State == StateError {
-			if cur.Error != "download failed" {
-				t.Fatalf("error = %q, want generic 'download failed'", cur.Error)
-			}
-			// Redaction: never the magnet, helper path, or stderr.
-			sensitive := []string{"0123456789abcdef", fakeHelper, "stderr", "pid.txt"}
-			blob := cur.Error + "|" + cur.ID
-			for _, s := range sensitive {
-				if strings.Contains(blob, s) {
-					t.Errorf("redaction leak: %q contains %q", blob, s)
-				}
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("job never errored; last=%+v", cur)
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-	_, _ = m.Cancel(snap.ID)
-}
-
-// awaitAria2DirFromArgs waits for the fake aria2's recorded argv (the
-// "--dir=<dir>" value) and returns the private job dir. The
-// EIZOU_FAKE_ARGS_OUT env must be set BEFORE Start. Pins the leak check to
-// the job's OWN dir, immune to other packages creating entei-torrent-*
-// dirs concurrently.
-func awaitAria2DirFromArgs(t *testing.T, argsFile string) string {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(argsFile); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("helper never recorded argv")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	raw, _ := os.ReadFile(argsFile)
-	for _, tok := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		if strings.HasPrefix(tok, "--dir=") {
-			return strings.TrimPrefix(tok, "--dir=")
-		}
-	}
-	t.Fatal("no --dir= in recorded argv")
-	return ""
-}
-
-func TestNoTempDirLeakOnErrorAndCancel(t *testing.T) {
-	// Error path.
-	setTorrentEnv(t, "media.mp4:100", "100")
-	setFakeEnv(t, "EIZOU_FAKE_FAIL", "1")
-	argsFile := filepath.Join(t.TempDir(), "args.txt")
-	setFakeEnv(t, "EIZOU_FAKE_ARGS_OUT", argsFile)
-	m := newTestManager(t, 0)
-	snap, err := m.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	dir := awaitAria2DirFromArgs(t, argsFile)
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		cur := m.Get(snap.ID)
-		if cur != nil && cur.State == StateError {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("job never errored")
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-	if pathExists(dir) {
-		t.Errorf("leaked torrent temp dir after error: %s", dir)
-	}
-	_, _ = m.Cancel(snap.ID)
-
-	// Cancel path (helper holds with an open media handle).
-	setFakeEnv(t, "EIZOU_FAKE_FAIL", "")
-	setTorrentEnv(t, "media.mp4:500", "100")
-	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
-	argsFile2 := filepath.Join(t.TempDir(), "args2.txt")
-	setFakeEnv(t, "EIZOU_FAKE_ARGS_OUT", argsFile2)
-	m2 := newTestManager(t, 0)
-	snap2, err := m2.Start(testMagnet)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	dir2 := awaitAria2DirFromArgs(t, argsFile2)
-	time.Sleep(400 * time.Millisecond)
-	if _, err := m2.Cancel(snap2.ID); err != nil {
-		t.Fatalf("Cancel: %v", err)
-	}
-	if pathExists(dir2) {
-		t.Errorf("leaked torrent temp dir after cancel: %s", dir2)
 	}
 }

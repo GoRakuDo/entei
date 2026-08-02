@@ -15,10 +15,10 @@
 #     mismatch -> fail BEFORE any replacement
 #   - bad (non-HTTPS) URL / unpinned key -> fail closed
 #   - helper version mismatch -> replacement (re-fetch + atomic replace)
-#   - unsafe artifact names / duplicate or unknown helper keys / v1 contract
-#     -> fail closed
+#   - unsafe artifact names / duplicate or unknown helper keys / contract
+#     versions outside exactly {v2, v3} (v1, v4) -> fail closed
 #   - no system PATH mutation; user-private temp cleanup
-#   - core receives expected absolute --ytdlp / --aria2 paths
+#   - core receives expected absolute --ytdlp paths
 
 [CmdletBinding()]
 param(
@@ -101,7 +101,7 @@ function Static-Checks {
     Check 'static: user-private install root' (
         $boot.Contains('LOCALAPPDATA') -and $boot.Contains('GoRakuDo\EizouDendenshi')) 'per-user install root under LOCALAPPDATA'
     Check 'static: explicit absolute helper flags for the core' (
-        $code -match '--ytdlp' -and $code -match '--aria2' -and
+        $code -match '--ytdlp' -and
         $code -match 'env:PATH\s*=\s*"\$helpersDir') 'core receives explicit helper paths; PATH change is process-scoped only'
     Check 'static: verifier mirror env guard is $null-safe' (
         # Regression pin for the published rc.5 clean-gate failure: an
@@ -237,8 +237,6 @@ function Dynamic-Suite {
     # Fake helper artifacts (harmless placeholders).
     $fakeYtdlp = Join-Path $script:FakeDir 'fake-yt-dlp.exe'
     Set-Content -LiteralPath $fakeYtdlp -Value 'fake yt-dlp placeholder' -Encoding ascii
-    $fakeAria2 = Join-Path $script:FakeDir 'fake-aria2.zip'
-    New-FakeArchive $fakeAria2 'aria2c.exe'
     $fakeFfmpeg = Join-Path $script:FakeDir 'fake-ffmpeg.zip'
     New-FakeArchive $fakeFfmpeg 'ffmpeg.exe'
 
@@ -246,7 +244,6 @@ function Dynamic-Suite {
     $helpersJson = @{
         helpers = @(
             @{ key = 'yt-dlp'; required = $true; version = '2026.07.04'; artifactName = 'yt-dlp-windows-amd64.exe'; path = $fakeYtdlp },
-            @{ key = 'aria2'; required = $true; version = '1.37.0'; artifactName = 'aria2-windows-amd64.zip'; path = $fakeAria2; archive = $true; expectedFile = 'aria2c.exe' },
             @{ key = 'ffmpeg'; required = $false; version = '8.0.1'; artifactName = 'ffmpeg-windows-amd64.zip'; path = $fakeFfmpeg; archive = $true; expectedFile = 'ffmpeg.exe' }
         )
     }
@@ -268,14 +265,15 @@ function Dynamic-Suite {
     $env:PATH = $oldPath
 
     $man = Get-Content -Raw -LiteralPath (Join-Path $script:DistDir 'eizouden-manifest.json') | ConvertFrom-Json
-    Check 'dynamic: helper contract v2 with three helpers' (
-        ($man.helperContract.version -eq 2 -or $man.helperContract.version -eq 3) -and
-        @($man.helperContract.helpers.PSObject.Properties).Count -eq 3) 'v2 helpers map expected'
+    # release.ps1 emits exactly the v3 contract when helpers are enabled; the
+    # Windows bootstrap allowlists exactly v2 and v3 (never broadened).
+    Check 'dynamic: helper contract v3 with two helpers' (
+        $man.helperContract.version -eq 3 -and
+        @($man.helperContract.helpers.PSObject.Properties).Count -eq 2) 'v3 helpers map expected (yt-dlp + ffmpeg)'
     Check 'dynamic: helper artifacts listed with windows/amd64 target' (
-        @($man.artifacts | Where-Object { $_.name -match 'yt-dlp|aria2|ffmpeg' -and $_.target -eq 'windows/amd64' }).Count -eq 3) ($man.artifacts | ConvertTo-Json -Compress)
+        @($man.artifacts | Where-Object { $_.name -match 'yt-dlp|ffmpeg' -and $_.target -eq 'windows/amd64' }).Count -eq 2) ($man.artifacts | ConvertTo-Json -Compress)
     Check 'dynamic: all helper artifacts signed' (
         (Test-Path (Join-Path $script:DistDir 'yt-dlp-windows-amd64.exe.minisig')) -and
-        (Test-Path (Join-Path $script:DistDir 'aria2-windows-amd64.zip.minisig')) -and
         (Test-Path (Join-Path $script:DistDir 'ffmpeg-windows-amd64.zip.minisig'))) 'detached .minisig for each helper artifact'
 
     # Provision the pinned Minisign verifier ZIP (official jedisct1/minisign
@@ -320,10 +318,8 @@ function Dynamic-Suite {
         -InstallRoot $root -Env $script:BaseEnv -ExpectSuccess -Mirror $mirror -LaunchFile $launch
     Check 'T1: core installed' (Test-Path (Join-Path $root 'eizouden-windows-amd64.exe')) 'windows core present'
     Check 'T1: yt-dlp helper installed (runtime name)' (Test-Path (Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')) 'yt-dlp runtime exe present'
-    Check 'T1: aria2 helper installed under literal aria2c.exe' (Test-Path (Join-Path $root 'helpers\aria2c.exe')) 'extracted exe keeps its runtime name'
     Check 'T1: ffmpeg helper installed under literal ffmpeg.exe' (Test-Path (Join-Path $root 'helpers\ffmpeg.exe')) 'extracted exe keeps its runtime name (PATH ffmpeg lookup)'
     Check 'T1: no zip-named helper at the root (legacy layout gone)' (
-        -not (Test-Path (Join-Path $root 'aria2-windows-amd64.zip')) -and
         -not (Test-Path (Join-Path $root 'ffmpeg-windows-amd64.zip'))) 'helpers live only in the runtime dir'
     Check 'T1: state file written' (Test-Path (Join-Path $root 'helpers-state.json')) 'helpers-state.json present'
     $launchText = if (Test-Path -LiteralPath $launch) { Get-Content -Raw -LiteralPath $launch } else { '' }
@@ -344,9 +340,8 @@ function Dynamic-Suite {
     if (Test-Path -LiteralPath $launcherPath) {
         $lc = Get-Content -Raw -LiteralPath $launcherPath
         Check 'T1b: launcher invokes the core CLI mode with private helper flags' (
-            $lc -match '--ytdlp.*--aria2.*--ffmpeg.*cli' -and
+            $lc -match '--ytdlp.*--ffmpeg.*cli' -and
             $lc -match 'yt-dlp-windows-amd64\.exe' -and
-            $lc -match 'aria2c\.exe' -and
             $lc -match 'ffmpeg\.exe') ($lc -replace '\s+', ' ')
         Check 'T1b: launch command captured is the grkd-edds launcher' (
             $launchText -match 'grkd-edds\.cmd') $launchText
@@ -409,10 +404,10 @@ function Dynamic-Suite {
     Check 'T2: verified helper reused (no replacement)' ($t1 -eq $t0) "mtime $t0 -> $t1"
 
     # T3: missing helper auto-fetch (fresh root) — covered by T1; assert the
-    #     state marks all three helpers.
+    #     state marks all two helpers (yt-dlp + ffmpeg; no aria2).
     $state = Get-Content -Raw -LiteralPath (Join-Path $root 'helpers-state.json') | ConvertFrom-Json
     Check 'T3: state records all helpers' (
-        @($state.PSObject.Properties).Count -eq 3) ($state | ConvertTo-Json -Compress)
+        @($state.PSObject.Properties).Count -eq 2) ($state | ConvertTo-Json -Compress)
 
     # T4: tampered manifest.
     $mirror = Copy-Mirror 'T4'
@@ -435,13 +430,13 @@ function Dynamic-Suite {
     #     zip, so verification passes and the missing expected file is what
     #     fails — isolating the extraction contract).
     $mirror = Copy-Mirror 'T6'
-    $tamperedZip = Join-Path $script:FakeDir 'tampered-aria2.zip'
+    $tamperedZip = Join-Path $script:FakeDir 'tampered-ffmpeg.zip'
     New-FakeArchive $tamperedZip 'evil.txt'
-    Copy-Item $tamperedZip (Join-Path $mirror 'aria2-windows-amd64.zip') -Force
-    Sign-ArtifactFile $mirror 'aria2-windows-amd64.zip'
-    $tamSha = (Get-FileHash -LiteralPath (Join-Path $mirror 'aria2-windows-amd64.zip')).Hash.ToLowerInvariant()
+    Copy-Item $tamperedZip (Join-Path $mirror 'ffmpeg-windows-amd64.zip') -Force
+    Sign-ArtifactFile $mirror 'ffmpeg-windows-amd64.zip'
+    $tamSha = (Get-FileHash -LiteralPath (Join-Path $mirror 'ffmpeg-windows-amd64.zip')).Hash.ToLowerInvariant()
     $manText = Read-MirrorManifest $mirror
-    $manText = $manText -replace '("name":"aria2-windows-amd64.zip","target":"windows/amd64","sha256":")[0-9a-f]{64}(")', "`${1}$tamSha`${2}"
+    $manText = $manText -replace '("name":"ffmpeg-windows-amd64.zip","target":"windows/amd64","sha256":")[0-9a-f]{64}(")', "`${1}$tamSha`${2}"
     Write-MirrorManifest $mirror $manText
     Sign-ManifestFile $mirror
     $root6 = Join-Path $script:WorkDir 'root-T6'
@@ -505,15 +500,15 @@ function Dynamic-Suite {
     $mirror = Copy-Mirror 'T11x'
     $root11x = Join-Path $script:WorkDir 'root-T11x'
     New-Item -ItemType Directory -Force -Path $root11x | Out-Null
-    Set-Content -LiteralPath (Join-Path $root11x 'aria2-windows-amd64.zip') -Value 'legacy-junk' -Encoding ascii
-    $legacyState = @{ 'aria2' = @{ version = '1.37.0'; sha256 = '0' * 64; artifact = 'aria2-windows-amd64.zip' } }
+    Set-Content -LiteralPath (Join-Path $root11x 'ffmpeg-windows-amd64.zip') -Value 'legacy-junk' -Encoding ascii
+    $legacyState = @{ 'ffmpeg' = @{ version = '5.1.2'; sha256 = '0' * 64; artifact = 'ffmpeg-windows-amd64.zip' } }
     [System.IO.File]::WriteAllText((Join-Path $root11x 'helpers-state.json'), ($legacyState | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding($false)))
     Invoke-WinBootstrapCase -Name 'T11x legacy state replaced' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T11x')) `
         -InstallRoot $root11x -Env $script:BaseEnv -ExpectSuccess -Mirror $mirror
-    Check 'T11x: corrected runtime file installed (aria2c.exe)' (Test-Path (Join-Path $root11x 'helpers\aria2c.exe')) 'runtime dir has the literal aria2c.exe'
-    Check 'T11x: legacy zip-named leftover removed' (-not (Test-Path (Join-Path $root11x 'aria2-windows-amd64.zip'))) 'rc.5 archive-name layout cleaned'
+    Check 'T11x: corrected runtime file installed (ffmpeg.exe)' (Test-Path (Join-Path $root11x 'helpers\ffmpeg.exe')) 'runtime dir has the literal ffmpeg.exe'
+    Check 'T11x: legacy zip-named leftover removed' (-not (Test-Path (Join-Path $root11x 'ffmpeg-windows-amd64.zip'))) 'rc.5 archive-name layout cleaned'
     $state11x = Get-Content -Raw -LiteralPath (Join-Path $root11x 'helpers-state.json') | ConvertFrom-Json
-    Check 'T11x: state maps artifact to runtime name' ($state11x.'aria2'.runtime -eq 'aria2c.exe' -and $state11x.'aria2'.artifact -eq 'aria2-windows-amd64.zip') ($state11x | ConvertTo-Json -Compress)
+    Check 'T11x: state maps artifact to runtime name' ($state11x.'ffmpeg'.runtime -eq 'ffmpeg.exe' -and $state11x.'ffmpeg'.artifact -eq 'ffmpeg-windows-amd64.zip') ($state11x | ConvertTo-Json -Compress)
 
     # T11y: TRUE unset-env regression — the child has NO
     # EIZOU_WIN_MINISIGN_MIRROR at all, so the bootstrap takes the real
@@ -569,6 +564,31 @@ function Dynamic-Suite {
     $root14 = Join-Path $script:WorkDir 'root-T14'
     Invoke-WinBootstrapCase -Name 'T14 v1 contract refused' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T14')) `
         -InstallRoot $root14 -Env $script:BaseEnv -Mirror $mirror -ExpectErrorPattern 'Windows-compatible'
+
+    # T14b: an unknown future contract version (v4) is refused — the Windows
+    # allowlist is exactly {v2, v3} and is never broadened.
+    $mirror = Copy-Mirror 'T14b'
+    $manText = Read-MirrorManifest $mirror
+    $manText = $manText.Replace('"helperContract":{"version":3', '"helperContract":{"version":4')
+    Write-MirrorManifest $mirror $manText
+    Sign-ManifestFile $mirror
+    Check 'T14b: v4 rewrite matched the compact manifest JSON' ($manText.Contains('"helperContract":{"version":4')) 'v4 rewrite applied'
+    $root14b = Join-Path $script:WorkDir 'root-T14b'
+    Invoke-WinBootstrapCase -Name 'T14b v4 contract refused' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T14b')) `
+        -InstallRoot $root14b -Env $script:BaseEnv -Mirror $mirror -ExpectErrorPattern 'Windows-compatible'
+    Check 'T14b: nothing installed' (-not (Test-Path (Join-Path $root14b 'eizouden-windows-amd64.exe'))) 'no core'
+
+    # T14c: the v2 contract (same helpers-map shape from older
+    # helper-enabled releases) is still accepted.
+    $mirror = Copy-Mirror 'T14c'
+    $manText = Read-MirrorManifest $mirror
+    $manText = $manText.Replace('"helperContract":{"version":3', '"helperContract":{"version":2')
+    Write-MirrorManifest $mirror $manText
+    Sign-ManifestFile $mirror
+    Check 'T14c: v2 rewrite matched the compact manifest JSON' ($manText.Contains('"helperContract":{"version":2')) 'v2 rewrite applied'
+    $root14c = Join-Path $script:WorkDir 'root-T14c'
+    Invoke-WinBootstrapCase -Name 'T14c v2 contract accepted' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T14c')) `
+        -InstallRoot $root14c -Env $script:BaseEnv -ExpectSuccess -Mirror $mirror
 
     # V1: first-run auto verifier fetch/install (no minisign on PATH).
     $mirrorV = Copy-Mirror 'V1'

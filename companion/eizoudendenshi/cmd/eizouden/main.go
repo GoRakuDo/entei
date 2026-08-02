@@ -109,15 +109,10 @@ func main() {
 			"source jobs (ED-2F; empty = source-job endpoints disabled)")
 	jobTimeout := flag.Duration("job-timeout", 30*time.Minute,
 		"per-job download timeout for YouTube source jobs (ED-2F)")
-	aria2 := flag.String("aria2", "",
-		"path to a pinned aria2-compatible helper executable for torrent "+
-			"source jobs (ED-2G; empty = torrent-job endpoints disabled)")
 	ffmpeg := flag.String("ffmpeg", "",
 		"path to a pinned ffmpeg executable reported by the common CLI "+
 			"service status (Windows launcher; the server itself never invokes "+
 			"ffmpeg — yt-dlp does)")
-	torrentTimeout := flag.Duration("torrent-timeout", 30*time.Minute,
-		"per-job download timeout for torrent source jobs (ED-2G)")
 	flag.Parse()
 
 	args := flag.Args()
@@ -131,8 +126,6 @@ func main() {
 	}
 
 	if *fixture != "" {
-		// Fail fast at startup if the configured fixture is unusable.
-		// The HTTP endpoint itself never discloses paths.
 		st, err := os.Stat(*fixture)
 		if err != nil {
 			log.Fatalf("--fixture: %v", err)
@@ -142,14 +135,11 @@ func main() {
 		}
 	}
 
-	// Reject malformed --allow-origin values before the listener starts.
 	allowOrigins, err := parseAllowOrigins(extraOrigins)
 	if err != nil {
 		log.Fatalf("invalid --allow-origin: %v", err)
 	}
 
-	// ED-2C: growing-media source. Fail fast on a malformed pair or an
-	// unusable file; --fixture and --grow-fixture are mutually exclusive.
 	growSource, err := resolveGrowSource(*growFixture, *growTotal)
 	if err != nil {
 		log.Fatalf("--grow-fixture/--grow-total: %v", err)
@@ -163,10 +153,6 @@ func main() {
 	// request). Without it the /v1/source/jobs endpoints stay unregistered.
 	var jobs *job.Manager
 	if *ytdlp != "" {
-		// Valid-executable check at the feasible degree: existence, regular
-		// file, non-empty. Exact version/hash verification is the Windows
-		// bootstrap's domain (the signed manifest contract); the core never
-		// depends on PATH to find the helper.
 		st, err := os.Stat(*ytdlp)
 		if err != nil {
 			log.Fatalf("--ytdlp: %v", err)
@@ -183,30 +169,19 @@ func main() {
 		}
 	}
 
-	// ED-2G: aria2 torrent jobs. Enabled only when a helper is pinned via
-	// --aria2; the path is validated at startup. Without it the
-	// /v1/source/torrents endpoints stay unregistered.
-	var torrents *torrent.Manager
-	if *aria2 != "" {
-		st, err := os.Stat(*aria2)
-		if err != nil {
-			log.Fatalf("--aria2: %v", err)
-		}
-		if st.IsDir() {
-			log.Fatalf("--aria2: %q is a directory; a single executable is required", *aria2)
-		}
-		if st.Size() == 0 {
-			log.Fatalf("--aria2: %q is empty (reject zero-byte helper)", *aria2)
-		}
-		torrents, err = torrent.New(torrent.Config{HelperPath: *aria2, Timeout: *torrentTimeout})
-		if err != nil {
-			log.Fatalf("init torrents: %v", err)
-		}
+	// ED-2G: Torrent jobs via anacrolix/torrent engine (loopback-only, no
+	// seeding, private session). Always enabled; the engine is created at
+	// startup. The torrent endpoints are registered whenever a manager is
+	// provided.
+	torrentEngine, err := torrent.NewAnacrolixEngine()
+	if err != nil {
+		log.Fatalf("init torrent engine: %v", err)
+	}
+	torrents, err := torrent.New(torrent.Config{Engine: torrentEngine, Timeout: 30 * time.Minute})
+	if err != nil {
+		log.Fatalf("init torrents: %v", err)
 	}
 
-	// --ffmpeg is validated like the other helpers (existence, regular
-	// file, non-empty); it is reported by the common CLI service status.
-	// The server never invokes ffmpeg itself.
 	if *ffmpeg != "" {
 		st, err := os.Stat(*ffmpeg)
 		if err != nil {
@@ -220,9 +195,6 @@ func main() {
 		}
 	}
 
-	// Common CLI: `eizouden cli` renders the two-option menu (Get New
-	// Pairing Code / Service Status). Option 1 starts the foreground
-	// loopback companion via runServer; option 2 prints helper readiness.
 	if len(args) > 0 && args[0] == "cli" {
 		cfg := serverConfig{
 			bind:     bind,
@@ -235,9 +207,8 @@ func main() {
 		code := runCLI(cliOptions{
 			version: api.Version,
 			ytdlp:   *ytdlp,
-			aria2:   *aria2,
 			ffmpeg:  *ffmpeg,
-		}, os.Stdin, os.Stdout, func() error { return runServer(cfg, *ytdlp, *aria2) })
+		}, os.Stdin, os.Stdout, func() error { return runServer(cfg, *ytdlp) })
 		os.Exit(code)
 	}
 
@@ -248,7 +219,7 @@ func main() {
 		origins:  allowOrigins,
 		jobs:     jobs,
 		torrents: torrents,
-	}, *ytdlp, *aria2); err != nil {
+	}, *ytdlp); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -257,7 +228,7 @@ func main() {
 // terminal-only handoff (banner + fresh pairing code), then serving until
 // Ctrl+C. Shared by the plain server mode and the CLI's option 1 so startup
 // behavior is never duplicated.
-func runServer(cfg serverConfig, ytdlpPath, aria2Path string) error {
+func runServer(cfg serverConfig, ytdlpPath string) error {
 	srv, err := api.New(api.Config{
 		FixturePath:  cfg.fixture,
 		GrowSource:   cfg.grow,
@@ -270,20 +241,17 @@ func runServer(cfg serverConfig, ytdlpPath, aria2Path string) error {
 	}
 	ln, err := net.Listen("tcp", cfg.bind)
 	if err != nil {
-		// User-readable collision: never kill an existing listener.
 		if strings.Contains(err.Error(), "address already in use") ||
 			strings.Contains(err.Error(), "Only one usage of each socket address") {
 			return fmt.Errorf("port %s is already in use — another EizouDendenshi companion is already running (stop it first, or choose another port with --addr)", cfg.bind)
 		}
 		return err
 	}
-	// Terminal-only handoff. The pairing code is printed on purpose; the
-	// capability token is never printed or logged.
 	fmt.Fprintln(os.Stdout, banner(ln.Addr().String()))
 	fmt.Fprintf(os.Stdout, "Pairing code: %s\n", srv.PairingCode())
 	fmt.Fprintln(os.Stdout, mediaStatusLine(cfg.fixture, cfg.grow))
 	fmt.Fprintln(os.Stdout, jobsStatusLine(ytdlpPath))
-	fmt.Fprintln(os.Stdout, torrentsStatusLine(aria2Path))
+	fmt.Fprintln(os.Stdout, "Torrent jobs: enabled (anacrolix engine)")
 	if err := http.Serve(ln, srv.Handler()); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -300,17 +268,12 @@ type serverConfig struct {
 	torrents *torrent.Manager
 }
 
-// banner is the startup line printed to the terminal. It carries the same
-// api.Version that /v1/health reports; release builds inject the manifest
-// version into api.Version at link time, so the banner cannot diverge from
-// the release manifest (asserted by scripts/test-release.ps1).
+// banner is the startup line printed to the terminal.
 func banner(addr string) string {
 	return fmt.Sprintf("EizouDendenshi ED-2B (%s) listening on http://%s", api.Version, addr)
 }
 
-// mediaStatusLine is the terminal handoff line for the media endpoint. The
-// growing line reports total and current availability so a QA operator can
-// see the simulated download progress; nothing sensitive is printed.
+// mediaStatusLine is the terminal handoff line for the media endpoint.
 func mediaStatusLine(fixturePath string, grow media.GrowingSource) string {
 	switch {
 	case grow != nil:
@@ -323,17 +286,7 @@ func mediaStatusLine(fixturePath string, grow media.GrowingSource) string {
 	}
 }
 
-// torrentsStatusLine is the terminal handoff line for torrent source jobs.
-func torrentsStatusLine(helperPath string) string {
-	if helperPath == "" {
-		return "Torrent jobs: disabled (--aria2 not set)"
-	}
-	return fmt.Sprintf("Torrent jobs: enabled (helper: %s)", filepath.Base(helperPath))
-}
-
-// jobsStatusLine is the terminal handoff line for YouTube source jobs
-// (ED-2F). Only the basename of the pinned helper is shown — never a full
-// path or anything request-derived.
+// jobsStatusLine is the terminal handoff line for YouTube source jobs.
 func jobsStatusLine(helperPath string) string {
 	if helperPath == "" {
 		return "Source jobs: disabled (--ytdlp not set)"
@@ -341,11 +294,7 @@ func jobsStatusLine(helperPath string) string {
 	return fmt.Sprintf("Source jobs: enabled (helper: %s)", filepath.Base(helperPath))
 }
 
-// resolveBindAddress enforces the loopback-only binding policy. Only literal
-// loopback IPs are accepted: IPv4 127.0.0.0/8 (net.IP.IsLoopback) and IPv6
-// ::1. Hostnames — including "localhost" — and the empty host (":port", which
-// binds all interfaces) are rejected. The port must be a valid numeric port
-// (0–65535; 0 = ephemeral for this PoC).
+// resolveBindAddress enforces the loopback-only binding policy.
 func resolveBindAddress(addr string) (string, error) {
 	if addr == "" {
 		return "", errors.New("empty address")
