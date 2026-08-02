@@ -94,7 +94,6 @@ import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDial
 import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 
-import { CompanionFixtureSessionStatus } from '@/components/player/CompanionFixtureSessionStatus';
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
@@ -3077,24 +3076,6 @@ export default function PlayerApp() {
       onDrop={handleDrop}
       data-entei-player-root=""
     >
-      {/* ED-2E: companion fixture session status — only while a fixture
-          session is active and not playing; absent from local-file flow. */}
-      <CompanionFixtureSessionStatus
-        kind={jobSession.kind ?? 'youtube'}
-        phase={jobSession.phase}
-        progress={jobSession.progress}
-        reason={jobSession.reason}
-        onEndSession={() => void jobSession.cancelActiveJob()}
-        dict={{
-          eizouSessionSourceLabel: dict.eizouSessionSourceLabel,
-          eizouSessionSourceLabelTorrent: dict.eizouSessionSourceLabelTorrent,
-          eizouSessionBuffering: dict.eizouSessionBuffering,
-          eizouSessionProgressLabel: dict.eizouSessionProgressLabel,
-          eizouSessionError: dict.eizouSessionError,
-          eizouSessionRePairRequired: dict.eizouSessionRePairRequired,
-          eizouSessionEnd: dict.eizouSessionEnd,
-        }}
-      />
       {/* --- Empty state --- */}
       {!hasMedia && (
         <div className="entei-player-empty">

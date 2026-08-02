@@ -101,22 +101,32 @@ func (h *apiFakeHandle) Reader(_ context.Context) (io.ReadSeekCloser, error) {
 	if h.selected < 0 {
 		return nil, errors.New("no selection")
 	}
-	h.avail.Store(h.files[h.selected].Length) // simulate complete
 	return &apiFakeReader{
-		data: []byte(strings.Repeat("x", int(h.files[h.selected].Length))),
+		data:  []byte(strings.Repeat("x", int(h.files[h.selected].Length))),
+		avail: &h.avail,
 	}, nil
 }
 
 type apiFakeReader struct {
-	data []byte
-	off  int64
+	data  []byte
+	avail *atomic.Int64
+	off   int64
 }
 
 func (r *apiFakeReader) Read(p []byte) (int, error) {
 	if r.off >= int64(len(r.data)) {
 		return 0, io.EOF
 	}
-	n := copy(p, r.data[r.off:])
+	// Enforce availability: cannot read beyond the verified prefix.
+	avail := r.avail.Load()
+	if r.off >= avail {
+		return 0, io.ErrNoProgress
+	}
+	end := r.off + int64(len(p))
+	if end > avail {
+		end = avail
+	}
+	n := copy(p, r.data[r.off:end])
 	r.off += int64(n)
 	if r.off >= int64(len(r.data)) {
 		return n, io.EOF
@@ -142,7 +152,7 @@ func (r *apiFakeReader) Seek(offset int64, whence int) (int64, error) {
 
 func (r *apiFakeReader) Close() error { return nil }
 
-func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager) {
+func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager, *apiFakeEngine) {
 	t.Helper()
 	engine := newAPIFakeEngine("Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10")
 	m, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
@@ -154,7 +164,7 @@ func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return s, m
+	return s, m, engine
 }
 
 func doTorrent(t *testing.T, s *Server, method, path, origin, body string) *httptest.ResponseRecorder {
@@ -192,7 +202,7 @@ func TestTorrentEndpointsDisabledWithoutManager(t *testing.T) {
 }
 
 func TestTorrentGates(t *testing.T) {
-	s, _ := newTorrentsServer(t)
+	s, _, _ := newTorrentsServer(t)
 	body := `{"magnet":"` + testMagnet + `"}`
 
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", "", body)
@@ -214,7 +224,7 @@ func TestTorrentGates(t *testing.T) {
 }
 
 func TestTorrentCreateInvalidMagnetRedacted(t *testing.T) {
-	s, _ := newTorrentsServer(t)
+	s, _, _ := newTorrentsServer(t)
 	for _, bad := range []string{
 		`{"magnet":"http://example.com/file.torrent"}`,
 		`{"magnet":"magnet:?xt=urn:btih:short"}`,
@@ -232,7 +242,7 @@ func TestTorrentCreateInvalidMagnetRedacted(t *testing.T) {
 }
 
 func TestTorrentTrackerNeverLeaks(t *testing.T) {
-	s, _ := newTorrentsServer(t)
+	s, _, _ := newTorrentsServer(t)
 	trackerMagnet := testMagnet + "&tr=udp%3A%2F%2Ftracker.example%3A1337&tr=https%3A%2F%2Ftr2.example%2Fannounce"
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+trackerMagnet+`"}`)
@@ -270,7 +280,7 @@ func TestTorrentTrackerNeverLeaks(t *testing.T) {
 }
 
 func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
-	s, _ := newTorrentsServer(t)
+	s, _, engine := newTorrentsServer(t)
 
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
@@ -350,6 +360,10 @@ func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
 		t.Fatalf("select = %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
 
+	// Simulate download completion (the fake engine no longer auto-sets
+	// avail in Reader; tests that need completion must set it explicitly).
+	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+
 	// Wait for complete.
 	deadline = time.Now().Add(5 * time.Second)
 	for {
@@ -390,7 +404,7 @@ func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
 }
 
 func TestTorrentStatusBufferingBeforeSelection(t *testing.T) {
-	s, _ := newTorrentsServer(t)
+	s, _, _ := newTorrentsServer(t)
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
 	var created struct {
@@ -477,7 +491,7 @@ func TestTorrentConflictAcrossJobKinds(t *testing.T) {
 }
 
 func TestTorrentPreflight(t *testing.T) {
-	s, _ := newTorrentsServer(t)
+	s, _, _ := newTorrentsServer(t)
 	req := httptest.NewRequest(http.MethodOptions, "/v1/source/torrents", nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	req.Header.Set("Access-Control-Request-Method", "POST")
@@ -535,6 +549,9 @@ func TestTorrentStreamingMIME(t *testing.T) {
 		t.Fatalf("select = %d %s", rec.Code, rec.Body.String())
 	}
 
+	// Simulate download completion.
+	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+
 	// Wait for complete.
 	deadline = time.Now().Add(5 * time.Second)
 	for {
@@ -561,4 +578,319 @@ func TestTorrentStreamingMIME(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "video/x-matroska" {
 		t.Fatalf("MKV Content-Type = %q, want video/x-matroska", ct)
 	}
+}
+
+// TestTorrentFilesReturnsFileInfo verifies the /files endpoint returns
+// FileInfo (basename/extension/byteSize) not raw TorrentFile (path/length).
+// This is the fix for the "video · 0 B" rendering in the MagnetInput dialog.
+func TestTorrentFilesReturnsFileInfo(t *testing.T) {
+	s, _, _ := newTorrentsServer(t)
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for buffering.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Files listing.
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/files", allowedOriginLocal, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("files = %d, want 200", rec.Code)
+	}
+	var listing struct {
+		Files []struct {
+			ID        string `json:"id"`
+			Basename  string `json:"basename"`
+			Extension string `json:"extension"`
+			ByteSize  int64  `json:"byteSize"`
+			Kind      string `json:"kind"`
+		} `json:"files"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &listing)
+	if len(listing.Files) != 3 {
+		t.Fatalf("listing = %d files, want 3", len(listing.Files))
+	}
+
+	// Verify the first file (Episode 01.mkv) has correct FileInfo fields.
+	f := listing.Files[0]
+	if f.Basename != "Episode 01.mkv" {
+		t.Errorf("basename = %q, want 'Episode 01.mkv'", f.Basename)
+	}
+	if f.Extension != "mkv" {
+		t.Errorf("extension = %q, want 'mkv'", f.Extension)
+	}
+	if f.ByteSize != 200 {
+		t.Errorf("byteSize = %d, want 200", f.ByteSize)
+	}
+	if f.Kind != "video" {
+		t.Errorf("kind = %q, want 'video'", f.Kind)
+	}
+
+	// Verify raw path/length fields are NOT present.
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(rec.Body.Bytes(), &raw)
+	if filesRaw, ok := raw["files"]; ok {
+		var filesArr []map[string]json.RawMessage
+		_ = json.Unmarshal(filesRaw, &filesArr)
+		if len(filesArr) > 0 {
+			if _, hasPath := filesArr[0]["path"]; hasPath {
+				t.Error("response must not contain raw 'path' field")
+			}
+			if _, hasLength := filesArr[0]["length"]; hasLength {
+				t.Error("response must not contain raw 'length' field")
+			}
+		}
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentStatusStreamingPlayable verifies the /v1/media/status endpoint
+// returns "playable" (not "buffering") when a torrent is in the streaming
+// state with a verified prefix. This is the fix for the bridge stuck at
+// "Menunggu file selesai…".
+func TestTorrentStatusStreamingPlayable(t *testing.T) {
+	engine := newAPIFakeEngine("movie.mp4:800000")
+	m, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("torrent.New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	s, err := New(Config{Torrents: m})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Create a torrent job.
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for buffering.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Verify status is "buffering" before selection.
+	rec = doStatus(t, s.Handler(), s.token, http.MethodGet)
+	b := decodeStatus(t, rec, s)
+	if b.State != "buffering" {
+		t.Fatalf("status before selection = %q, want buffering", b.State)
+	}
+
+	// Select the video.
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/select", allowedOriginLocal,
+		`{"videoFileId":"f0"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("select = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Wait for streaming state.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "streaming" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached streaming")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Initially streaming with 0 prefix → status should be "buffering".
+	rec = doStatus(t, s.Handler(), s.token, http.MethodGet)
+	b = decodeStatus(t, rec, s)
+	if b.State != "buffering" {
+		t.Fatalf("status streaming with 0 prefix = %q, want buffering", b.State)
+	}
+
+	// Simulate prefix becoming available.
+	engine.h.avail.Store(200_000)
+	time.Sleep(300 * time.Millisecond) // let poll tick
+
+	// Now status should be "playable".
+	rec = doStatus(t, s.Handler(), s.token, http.MethodGet)
+	b = decodeStatus(t, rec, s)
+	if b.State != "playable" {
+		t.Fatalf("status streaming with prefix = %q, want playable", b.State)
+	}
+	if b.Available != 200_000 {
+		t.Errorf("available = %d, want 200000", b.Available)
+	}
+	if b.Total != 800_000 {
+		t.Errorf("total = %d, want 800000", b.Total)
+	}
+
+	// Advance to complete.
+	engine.h.avail.Store(800_000)
+	time.Sleep(300 * time.Millisecond)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "complete" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached complete")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	rec = doStatus(t, s.Handler(), s.token, http.MethodGet)
+	b = decodeStatus(t, rec, s)
+	if b.State != "complete" {
+		t.Fatalf("status at complete = %q, want complete", b.State)
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentMediaStreamingServesVerifiedPrefix verifies the media endpoint
+// serves 206 for ranges within the verified prefix and 503 for ranges beyond
+// during the streaming state.
+func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
+	engine := newAPIFakeEngine("movie.mp4:800000")
+	m, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("torrent.New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	s, err := New(Config{Torrents: m})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Create, wait for buffering, select.
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/select", allowedOriginLocal,
+		`{"videoFileId":"f0"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("select = %d", rec.Code)
+	}
+
+	// Wait for streaming.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "streaming" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached streaming")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Set prefix to 200_000.
+	engine.h.avail.Store(200_000)
+	time.Sleep(100 * time.Millisecond)
+
+	// Range within prefix → 206.
+	req, _ := http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=0-99999")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("range within prefix = %d, want 206", rec.Code)
+	}
+
+	// Range crossing prefix boundary → 503.
+	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=100000-300000")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("range crossing prefix = %d, want 503", rec.Code)
+	}
+
+	// Range entirely beyond prefix → 503.
+	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=400000-500000")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("range beyond prefix = %d, want 503", rec.Code)
+	}
+
+	// No Range, avail < total → 503.
+	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("no range, partial = %d, want 503", rec.Code)
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
 }

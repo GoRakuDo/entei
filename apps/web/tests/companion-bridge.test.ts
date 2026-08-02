@@ -42,6 +42,9 @@ const buffering = (available: number, total: number, retryAfter?: number) =>
 const complete = (total: number) =>
   json({ state: 'complete', available: total, total, headReady: false });
 
+const playable = (available: number, total: number) =>
+  json({ state: 'playable', available, total, headReady: false });
+
 const authError = (status: 401 | 403) =>
   json({ error: 'unauthorized' }, status);
 
@@ -451,6 +454,55 @@ describe('ED-2E companion bridge', () => {
     expect(calls.length).toBe(3);
   });
 
+  it('media error while buffering: re-checks status; playable → ready + src/load', async () => {
+    // Initial poll returns buffering; browser fires error from a 503;
+    // error re-check returns playable → transition to ready + src/load.
+    const { fetchFn } = makeFetcher([
+      buffering(100, 1000),
+      playable(200, 1000), // status re-check after the media error
+    ]);
+    const media = makeMedia();
+    const { bridge, phases } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+    expect(bridge.currentPhase).toBe('buffering');
+
+    // Browser fires error from503 while bridge is buffering.
+    media.fire('error');
+    await flush();
+
+    // The error re-check returned "playable" → bridge transitions to ready.
+    expect(bridge.currentPhase).toBe('ready');
+    expect(phases).toContain('ready');
+    expect(media.setSrc).toHaveBeenCalledWith(
+      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
+    );
+    expect(media.load).toHaveBeenCalledTimes(1);
+  });
+
+  it('media error while buffering: buffering status → stays buffering, polling resumes', async () => {
+    const { calls, fetchFn } = makeFetcher([
+      buffering(100, 1000),
+      buffering(200, 1000), // status re-check still buffering
+      buffering(300, 1000),
+    ]);
+    const media = makeMedia();
+    const { bridge } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+    expect(bridge.currentPhase).toBe('buffering');
+
+    media.fire('error');
+    await flush();
+    // Still buffering — the error was transient (503 before prefix ready).
+    expect(bridge.currentPhase).toBe('buffering');
+
+    // Polling continues.
+    await vi.advanceTimersByTimeAsync(1000);
+    await flush();
+    expect(calls.length).toBe(3);
+  });
+
   it('media error while ready: 401 re-check → rePairRequired', async () => {
     const { fetchFn } = makeFetcher([complete(1000), authError(401)]);
     const media = makeMedia();
@@ -479,5 +531,31 @@ describe('ED-2E companion bridge', () => {
       'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
     );
     expect(media.load).toHaveBeenCalledTimes(1);
+  });
+
+  it('transitions buffering → ready on "playable" (progressive streaming), keeps slow poll', async () => {
+    const { calls, fetchFn } = makeFetcher([
+      buffering(100, 1000),
+      playable(200, 1000),
+    ]);
+    const media = makeMedia();
+    const { bridge, phases } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await flush();
+
+    expect(bridge.currentPhase).toBe('ready');
+    expect(phases).toContain('ready');
+    expect(media.setSrc).toHaveBeenCalledWith(
+      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
+    );
+    expect(media.load).toHaveBeenCalledTimes(1);
+
+    // Unlike complete, playable keeps a slow poll alive for full completion.
+    const callsAfterReady = calls.length;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls.length).toBeGreaterThan(callsAfterReady);
   });
 });

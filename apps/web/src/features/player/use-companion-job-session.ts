@@ -76,20 +76,23 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const attachedRef = useRef(false);
   const intentCleanupRef = useRef<(() => void) | null>(null);
 
-  // Complete gate: the media URL is derived at render time — it exists ONLY
-  // once the controller reports `ready` or `playing` (never while buffering)
-  // and the session is active, and is cleared when the session ends or the
-  // source fails/re-pairs (the element unmounts with it). The player then
-  // renders the video element, and attachMediaElement hands it to the
-  // controller. Keeping it through `playing` matters: dropping it on the
-  // play transition would unmount the element mid-playback (found by headed
-  // Chrome QA).
+  // Complete gate: the media URL is derived at render time — it exists as
+  // soon as the session is active (never while idle) and is cleared when
+  // the session ends or the source fails/re-pairs (the element unmounts
+  // with it). The player then renders the video element, and
+  // attachMediaElement hands it to the controller. Keeping it through
+  // `playing` matters: dropping it on the play transition would unmount
+  // the element mid-playback (found by headed Chrome QA).
+  //
+  // Surfacing the URL immediately (not waiting for bridge "ready") lets
+  // the native browser loading state be the only visual feedback while
+  // the verified prefix grows — no custom banner needed. The bridge's
+  // error-recovery path handles the initial503 from the companion.
   const jobMediaUrl = useMemo(() => {
     if (!active || !sourceRef.current) return null;
-    if (bridge.phase !== 'ready' && bridge.phase !== 'playing') return null;
     const src = sourceRef.current;
     return `${src.baseUrl}/v1/media/fixture?token=${encodeURIComponent(src.token)}`;
-  }, [active, bridge.phase]);
+  }, [active]);
 
   const clearIntentListeners = useCallback(() => {
     intentCleanupRef.current?.();

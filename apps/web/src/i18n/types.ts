@@ -286,15 +286,6 @@ export interface Dictionary {
     eizouPairingErrorNetwork: string;
     eizouPairingErrorInvalidCode: string;
     eizouPairingErrorGeneric: string;
-  /** ED-2E companion fixture session status banner. */
-  eizouSessionBuffering: string;
-  eizouSessionProgressLabel: string;
-  eizouSessionError: string;
-  eizouSessionRePairRequired: string;
-  eizouSessionEnd: string;
-  /** Generic session source label (never the raw URL). */
-  eizouSessionSourceLabel: string;
-  eizouSessionSourceLabelTorrent: string;
   companionStreamNotReady: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
     youtubeInputLabel: string;

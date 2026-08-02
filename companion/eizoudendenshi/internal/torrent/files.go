@@ -56,9 +56,9 @@ func classify(ext string) string {
 	return KindOther
 }
 
-// torrentFileInfo converts a TorrentFile (engine interface) to an API
+// TorrentFileInfo converts a TorrentFile (engine interface) to an API
 // FileInfo by splitting the path into basename and extension.
-func torrentFileInfo(tf TorrentFile) FileInfo {
+func TorrentFileInfo(tf TorrentFile) FileInfo {
 	ext := ""
 	base := tf.Path
 	if idx := strings.LastIndexByte(base, '.'); idx >= 0 {

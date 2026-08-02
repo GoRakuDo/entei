@@ -203,7 +203,9 @@ func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 		selectedLen = h.SelectedLength()
 	}
 	m.current.stateMu.Unlock()
-	if st == StateComplete && h != nil {
+	// Return a servable source for both streaming (progressive playback
+	// from the verified prefix) and complete (full file available).
+	if (st == StateStreaming || st == StateComplete) && h != nil {
 		src := &torrentReaderSource{
 			handle: h,
 			length: selectedLen,
@@ -448,6 +450,23 @@ func (m *Manager) SelectedMediaType() string {
 		}
 	}
 	return mimeForExt(ext)
+}
+
+// AvailablePrefix returns the verified contiguous prefix length of the
+// currently selected video. Returns 0 when no handle exists.
+func (m *Manager) AvailablePrefix() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.current == nil {
+		return 0
+	}
+	m.current.stateMu.Lock()
+	h := m.current.handle
+	m.current.stateMu.Unlock()
+	if h == nil {
+		return 0
+	}
+	return h.AvailablePrefix()
 }
 
 // torrentReaderSource wraps the engine's torrent reader as a

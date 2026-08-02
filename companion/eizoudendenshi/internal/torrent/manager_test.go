@@ -461,6 +461,113 @@ func TestSelectReturnsErrNotFoundForUnknownID(t *testing.T) {
 	}
 }
 
+// TestStreamingReturnsSource verifies that ActiveMedia returns a servable
+// source during the streaming state (not only at complete). This is the
+// foundation for progressive playback.
+func TestStreamingReturnsSource(t *testing.T) {
+	engine := newFakeEngine("media.mp4:5000|sub.srt:200")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	// Select the video to transition to streaming.
+	if _, err := m.Select(id, "f0", "f1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
+	// During streaming, ActiveMedia must return a non-nil source.
+	streamSnap, src := m.ActiveMedia()
+	if src == nil {
+		t.Fatal("ActiveMedia must return a source during streaming")
+	}
+	if streamSnap.State != StateStreaming {
+		t.Fatalf("snapshot state = %s, want streaming", streamSnap.State)
+	}
+	// Source must report correct total.
+	if src.Total() != 5000 {
+		t.Fatalf("source.Total() = %d, want 5000", src.Total())
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+// TestStreamingSourceReportsAvailablePrefix verifies the streaming source's
+// Available() reflects the engine's AvailablePrefix (grows over time).
+func TestStreamingSourceReportsAvailablePrefix(t *testing.T) {
+	engine := newFakeEngine("media.mp4:5000")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	if _, err := m.Select(id, "f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
+	// Simulate some prefix being available.
+	engine.h.avail.Store(2000)
+	time.Sleep(300 * time.Millisecond) // let the poll goroutine tick
+
+	_, src := m.ActiveMedia()
+	if src == nil {
+		t.Fatal("source must exist during streaming")
+	}
+	avail := src.Available()
+	if avail != 2000 {
+		t.Fatalf("source.Available() = %d, want 2000", avail)
+	}
+
+	// Advance to full.
+	engine.h.avail.Store(5000)
+	time.Sleep(300 * time.Millisecond)
+	waitForState(t, m, id, StateComplete, 5*time.Second)
+
+	_, src2 := m.ActiveMedia()
+	if src2 == nil {
+		t.Fatal("source must exist at complete")
+	}
+	if src2.Available() != 5000 {
+		t.Fatalf("source.Available() at complete = %d, want 5000", src2.Available())
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+// TestManagerAvailablePrefix exposes the new AvailablePrefix method.
+func TestManagerAvailablePrefix(t *testing.T) {
+	engine := newFakeEngine("media.mp4:5000")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	if got := m.AvailablePrefix(); got != 0 {
+		t.Fatalf("AvailablePrefix before start = %d, want 0", got)
+	}
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitForState(t, m, snap.ID, StateBuffering, 5*time.Second)
+	if _, err := m.Select(snap.ID, "f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, snap.ID, StateStreaming, 5*time.Second)
+
+	engine.h.avail.Store(3000)
+	time.Sleep(300 * time.Millisecond)
+	if got := m.AvailablePrefix(); got != 3000 {
+		t.Fatalf("AvailablePrefix = %d, want 3000", got)
+	}
+
+	_, _ = m.Cancel(snap.ID)
+}
+
 // --- helpers ---
 
 func newTestManagerWithEngine(t *testing.T, engine Engine, timeout time.Duration) *Manager {

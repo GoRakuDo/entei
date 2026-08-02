@@ -210,6 +210,14 @@ export class CompanionBridge {
     this.mediaReadyFired = false;
     this.mediaResets = 0;
     this.startedAt = Date.now();
+    // Bind media listeners immediately so that error events during
+    // buffering (e.g. from a503 before the verified prefix exists) are
+    // caught and recovered. Previously bindMedia was only called from
+    // startReadyTransition at the 'ready' phase, which meant errors
+    // during the buffering phase were silently dropped.
+    if (media !== null) {
+      this.bindMedia(media);
+    }
     this.setPhase('buffering');
     void this.poll();
   }
@@ -538,8 +546,17 @@ export class CompanionBridge {
   }
 
   private async onMediaError(): Promise<void> {
-    if (this.phase !== 'ready' && this.phase !== 'playing') return;
+    if (
+      this.phase !== 'ready' &&
+      this.phase !== 'playing' &&
+      this.phase !== 'buffering'
+    ) {
+      return;
+    }
     // Re-check the source status exactly once (never an open retry loop).
+    // This handles the case where the browser fired an error from a503
+    // response (no verified prefix yet) while the bridge was still
+    // buffering — the recovery is to wait for "playable" and reload.
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), this.opts.requestTimeoutMs);
     let result: StatusFetchResult;
@@ -548,7 +565,13 @@ export class CompanionBridge {
     } finally {
       clearTimeout(timeout);
     }
-    if (this.phase !== 'ready' && this.phase !== 'playing') return;
+    if (
+      this.phase !== 'ready' &&
+      this.phase !== 'playing' &&
+      this.phase !== 'buffering'
+    ) {
+      return;
+    }
     if (result.kind === 'auth') {
       this.setPhase('rePairRequired', 'companion requires re-pairing');
       return;
@@ -561,6 +584,14 @@ export class CompanionBridge {
     if (status.state === 'complete' || status.state === 'playable') {
       if (this.mediaResets < this.opts.maxMediaResets) {
         this.mediaResets += 1;
+        // Transition to 'ready' if we were still buffering (e.g. the
+        // browser fired an error from a503 before the prefix existed,
+        // but the source is now playable). startReadyTransition assumes
+        // phase is already 'ready', so set it first.
+        if (this.phase !== 'ready' && this.phase !== 'playing') {
+          this.onComplete(status);
+          return;
+        }
         // Explicit src/load reset — the measured recovery path.
         this.startReadyTransition();
         return;

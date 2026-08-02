@@ -153,7 +153,13 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusConflict, errorBody("file listing not ready"))
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"files": files})
+		// Transform TorrentFile → FileInfo for the frontend: basename,
+		// extension, byteSize (never the raw path/length the engine exposes).
+		out := make([]torrent.FileInfo, len(files))
+		for i, f := range files {
+			out[i] = torrent.TorrentFileInfo(f)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"files": out})
 	case "select":
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, "POST, OPTIONS")
@@ -204,9 +210,28 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	if s.torrents == nil {
 		return statusBody{}, false
 	}
-	snap, _ := s.torrents.ActiveMedia()
+	snap, src := s.torrents.ActiveMedia()
 	switch snap.State {
-	case torrent.StateQueued, torrent.StateDownloading, torrent.StateStreaming, torrent.StateBuffering:
+	case torrent.StateQueued, torrent.StateDownloading, torrent.StateBuffering:
+		return statusBody{
+			State:      statusBuffering,
+			Available:  snap.Media.Available,
+			Total:      snap.Media.Total,
+			RetryAfter: bufferingRetryAfterSec,
+		}, true
+	case torrent.StateStreaming:
+		// The streaming serve path handles 503/206 correctly per request,
+		// but the bridge needs a "playable" signal to assign the URL.
+		// Only report "playable" when there is a verified prefix AND a
+		// servable source; otherwise the bridge would assign a URL that
+		// immediately returns 503 with no recovery path.
+		if src != nil && snap.Media.Available > 0 {
+			return statusBody{
+				State:     statusPlayable,
+				Available: snap.Media.Available,
+				Total:     snap.Media.Total,
+			}, true
+		}
 		return statusBody{
 			State:      statusBuffering,
 			Available:  snap.Media.Available,
@@ -255,7 +280,14 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 		return true
 	case torrent.StateStreaming:
 		if src != nil {
-			s.serveGrowingSource(src, w, r)
+			// Use the verified-prefix streaming serve: 206 for ranges
+			// within the verified prefix, 503 for anything beyond.
+			// The growing serv would fabricate a 200 body for
+			// avail==total mid-stream which is unsafe here.
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Access-Control-Expose-Headers",
+				"Content-Range, Accept-Ranges, Content-Length, Retry-After")
+			s.serveStreamingPrefix(w, r, src, snap.Media.Available, snap.Media.Total)
 			return true
 		}
 		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)

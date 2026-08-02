@@ -4242,58 +4242,6 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
-/* --- ED-2E companion fixture session status (banner) --- */
-.entei-fixture-status {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--entei-space-16);
-  width: 100%;
-  padding: var(--entei-space-12) var(--entei-gutter);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
-  background-color: var(--entei-surface-2);
-}
-
-.entei-fixture-status-message {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--entei-space-8);
-  color: var(--entei-text-secondary);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-.entei-fixture-status-spinner {
-  color: var(--entei-accent);
-  animation: entei-fixture-spin 1s linear infinite;
-}
-
-.entei-fixture-status-source {
-  font-weight: 600;
-  color: var(--entei-text);
-}
-
-@keyframes entei-fixture-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.entei-fixture-status-progress {
-  font-variant-numeric: tabular-nums;
-  color: var(--entei-text-secondary);
-}
-
-.entei-fixture-status-reason {
-  color: var(--entei-text-tertiary);
-  font-size: 0.75rem;
-}
-
-.entei-fixture-status-end {
-  min-height: var(--entei-touch-min);
-}
-
 /* --- ED-2F YouTube source dialog --- */
 .entei-youtube-form {
   display: flex;

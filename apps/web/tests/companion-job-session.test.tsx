@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CompanionFixtureSessionStatus } from '../src/components/player/CompanionFixtureSessionStatus';
 import { useCompanionJobSession } from '../src/features/player/use-companion-job-session';
 
 /** Mirrors PlayerApp's wiring: the video element mounts only when the
@@ -70,17 +69,6 @@ const flush = async () => {
   await vi.advanceTimersByTimeAsync(0);
 };
 
-const MINI_DICT = {
-  eizouSessionSourceLabelTorrent: 'Torrent download',
-  eizouSessionSourceLabel: 'YouTube download',
-  companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
-  eizouSessionBuffering: 'Waiting for the file to be ready…',
-  eizouSessionProgressLabel: 'Progress',
-  eizouSessionError: 'The companion session failed. End it and try again.',
-  eizouSessionRePairRequired: 'Re-pair required — the pairing code has changed.',
-  eizouSessionEnd: 'End session',
-};
-
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -91,7 +79,7 @@ afterEach(() => {
 });
 
 describe('useCompanionJobSession — real YouTube job → bridge integration', () => {
-  it('starts no session without an explicit job acceptance; begin → buffering, no src', async () => {
+  it('starts no session without an explicit job acceptance; begin → buffering, URL surfaced immediately', async () => {
     const { calls, fetchFn } = makeFetcher([buffering(100, 1000)]);
     vi.stubGlobal('fetch', fetchFn);
     render(<Harness />);
@@ -106,10 +94,13 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
 
     expect(screen.getByTestId('phase').textContent).toBe('buffering');
     expect(screen.getByTestId('active').textContent).toBe('true');
-    expect(screen.getByTestId('url').textContent).toBe('none');
-    expect(screen.queryByTestId('video')).toBeNull();
-    // The bridge polls the job status; the media URL is never assigned
-    // while buffering.
+    // URL is surfaced immediately (video mounts right away; native
+    // browser loading state is the only visual wait).
+    expect(screen.getByTestId('url').textContent).toBe(
+      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
+    );
+    expect(screen.getByTestId('video')).toBeInTheDocument();
+    // The bridge polls the job status.
     expect(calls.some((c) => c.url.includes('/v1/media/status?token='))).toBe(true);
     expect(calls.some((c) => c.url.includes('/v1/media/fixture'))).toBe(false);
   });
@@ -202,7 +193,11 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     const callsAfter = calls.length;
     await vi.advanceTimersByTimeAsync(60_000);
     expect(calls.length).toBe(callsAfter);
-    expect(screen.getByTestId('url').textContent).toBe('none');
+    // URL is surfaced immediately (video mounts even on auth failure;
+    // the bridge detects the failure and transitions to rePairRequired).
+    expect(screen.getByTestId('url').textContent).toBe(
+      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
+    );
   });
 
   it('cancelActiveJob POSTs the job-cancel endpoint then ends the session', async () => {
@@ -254,63 +249,5 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     expect(screen.getByTestId('phase').textContent).toBe('idle');
     expect(screen.getByTestId('active').textContent).toBe('false');
     expect(screen.getByTestId('url').textContent).toBe('none');
-  });
-});
-
-describe('CompanionFixtureSessionStatus — session-only UI', () => {
-  it('shows the generic source label, buffering with accessible progress and an end button', () => {
-    render(
-      <CompanionFixtureSessionStatus
-        phase="buffering"
-        progress={{ available: 100, total: 1000 }}
-        reason={null}
-        onEndSession={vi.fn()}
-        dict={MINI_DICT}
-      />,
-    );
-    const status = screen.getByRole('status');
-    expect(status.textContent).toContain('YouTube download');
-    expect(status.textContent).toContain('Waiting for the file to be ready…');
-    expect(status.textContent).toContain('100 / 1000');
-    expect(screen.getByRole('button', { name: 'End session' })).toBeInTheDocument();
-    // The raw URL is never shown.
-    expect(status.textContent).not.toContain('youtube.com');
-  });
-
-  it('shows the re-pair required message without raw details', () => {
-    render(
-      <CompanionFixtureSessionStatus
-        phase="rePairRequired"
-        progress={null}
-        reason={null}
-        onEndSession={vi.fn()}
-        dict={MINI_DICT}
-      />,
-    );
-    expect(screen.getByRole('status').textContent).toContain('Re-pair required');
-    expect(screen.getByRole('status').textContent).not.toContain('tok123');
-  });
-
-  it('renders nothing for idle/ready/playing (local flow untouched)', () => {
-    const { rerender } = render(
-      <CompanionFixtureSessionStatus
-        phase="idle"
-        progress={null}
-        reason={null}
-        onEndSession={vi.fn()}
-        dict={MINI_DICT}
-      />,
-    );
-    expect(screen.queryByRole('status')).toBeNull();
-    rerender(
-      <CompanionFixtureSessionStatus
-        phase="playing"
-        progress={null}
-        reason={null}
-        onEndSession={vi.fn()}
-        dict={MINI_DICT}
-      />,
-    );
-    expect(screen.queryByRole('status')).toBeNull();
   });
 });
