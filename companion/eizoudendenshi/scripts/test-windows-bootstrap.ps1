@@ -83,10 +83,11 @@ function Static-Checks {
         $boot.Contains('refusing to run an unpinned bootstrap')) 'unreplaced template must fail closed'
     Check 'static: HTTPS-only release URL validation' (
         $boot.Contains('refusing non-HTTPS download')) 'non-HTTPS base URL must be rejected'
-    Check 'static: no system PATH mutation / no global installers' (
-        $code -notmatch '\[Environment\]::SetEnvironmentVariable' -and
+    Check 'static: PATH registration is CURRENT-USER scope only / no global installers' (
+        $code -match "SetEnvironmentVariable\('Path', .*, 'User'\)" -and
+        $code -notmatch "'Machine'" -and
         $code -notmatch 'winget|choco' -and
-        $code -notmatch 'Install-Module|pip install') 'no persistent PATH change or global installer'
+        $code -notmatch 'Install-Module|pip install') 'only the current-user PATH may be written; no machine scope, no global installer'
     Check 'static: no vendor fetch at bootstrap time' (
         # The ONLY permitted external fetch is the pinned, hash-anchored
         # official Minisign verifier ZIP (documented trust-bootstrap
@@ -291,8 +292,12 @@ function Dynamic-Suite {
     # The child environment deliberately has NO minisign on PATH: the
     # bootstrap must self-provision the verifier from the mirror.
     $script:BaseEnv = @{
-        PATH                     = $env:PATH
+        PATH                      = $env:PATH
         EIZOU_WIN_MINISIGN_MIRROR = $script:MinisignZip
+        # Harness-only: do not write the test install roots into the REAL
+        # current-user PATH (a dedicated PATH case below tests the
+        # registration with save/restore).
+        EIZOU_WIN_NO_PERSIST_PATH = '1'
     }
     $beforePath = $env:PATH
 
@@ -311,19 +316,20 @@ function Dynamic-Suite {
         -not (Test-Path (Join-Path $root 'ffmpeg-windows-amd64.zip'))) 'helpers live only in the runtime dir'
     Check 'T1: state file written' (Test-Path (Join-Path $root 'helpers-state.json')) 'helpers-state.json present'
     $launchText = if (Test-Path -LiteralPath $launch) { Get-Content -Raw -LiteralPath $launch } else { '' }
-    Check 'T1: core launch command has absolute runtime --ytdlp/--aria2' (
-        $launchText -match [regex]::Escape((Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')) -and
-        $launchText -match [regex]::Escape((Join-Path $root 'helpers\aria2c.exe'))) $launchText
+    Check 'T1: launch command is the grkd-edds CLI launcher' (
+        $launchText -match 'grkd-edds\.cmd') $launchText
     # Installed yt-dlp bytes must equal the signed manifest (yt-dlp artifact
     # IS its runtime executable).
     $manSha = [string]($man.artifacts | Where-Object { $_.name -eq 'yt-dlp-windows-amd64.exe' } | Select-Object -First 1).sha256
     $instSha = (Get-FileHash -LiteralPath (Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')).Hash.ToLowerInvariant()
     Check 'T1: installed helper bytes match signed manifest' ($instSha -eq $manSha) "got $instSha want $manSha"
 
-    # T1b: the user-private common CLI launcher is installed and references
-    #      the exact private helper runtime names (never a global PATH).
-    $launcherPath = Join-Path $root 'eizouden.cmd'
-    Check 'T1b: eizouden.cmd CLI launcher installed' (Test-Path -LiteralPath $launcherPath) 'launcher present in the install root'
+    # T1b: the user-private common CLI launcher `grkd-edds.cmd` is installed
+    #      and references the exact private helper runtime names (never a
+    #      global PATH); the legacy `eizouden.cmd` launcher is cleaned up.
+    $launcherPath = Join-Path $root 'grkd-edds.cmd'
+    Check 'T1b: grkd-edds.cmd CLI launcher installed' (Test-Path -LiteralPath $launcherPath) 'launcher present in the install root'
+    Check 'T1b: legacy eizouden.cmd launcher removed' (-not (Test-Path -LiteralPath (Join-Path $root 'eizouden.cmd'))) 'no legacy launcher'
     if (Test-Path -LiteralPath $launcherPath) {
         $lc = Get-Content -Raw -LiteralPath $launcherPath
         Check 'T1b: launcher invokes the core CLI mode with private helper flags' (
@@ -331,7 +337,57 @@ function Dynamic-Suite {
             $lc -match 'yt-dlp-windows-amd64\.exe' -and
             $lc -match 'aria2c\.exe' -and
             $lc -match 'ffmpeg\.exe') ($lc -replace '\s+', ' ')
+        Check 'T1b: launch command captured is the grkd-edds launcher' (
+            $launchText -match 'grkd-edds\.cmd') $launchText
     }
+
+    # PATH registration: the install root joins the CURRENT USER's PATH
+    # only (idempotent, case-insensitive, no machine scope). Unit tests on
+    # the extracted merge function + an end-to-end save/restore case.
+    $sep = [System.IO.Path]::PathSeparator
+    $bootPath = Join-Path $script:WorkDir 'boot-T1\eizouden-bootstrap.ps1'
+    $bootTokens = $null; $bootErrs = $null
+    $bootAst = [System.Management.Automation.Language.Parser]::ParseFile($bootPath, [ref]$bootTokens, [ref]$bootErrs)
+    $mergeAst = $bootAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Merge-UserPathRoot' }, $true)
+    if ($null -ne $mergeAst) {
+        $mergeFn = [scriptblock]::Create($mergeAst.Extent.Text + "`nMerge-UserPathRoot `$args[0] `$args[1]")
+        $r1 = $mergeFn.Invoke('C:\A;C:\B', 'C:\ROOT')
+        Check 'PATH-U1: appends a new root preserving existing segments' ($r1 -eq ('C:\A;C:\B' + $sep + 'C:\ROOT')) "got $r1"
+        $r2 = $mergeFn.Invoke('C:\A;C:\root', 'C:\ROOT')
+        Check 'PATH-U2: case-insensitive dedup (no duplicate)' ($r2 -eq 'C:\A;C:\root') "got $r2"
+        $r3 = $mergeFn.Invoke('', 'C:\ROOT')
+        Check 'PATH-U3: empty existing PATH becomes the root' ($r3 -eq 'C:\ROOT') "got $r3"
+        $r4 = $mergeFn.Invoke('C:\A', '')
+        Check 'PATH-U4: empty root leaves the value untouched' ($r4 -eq 'C:\A') "got $r4"
+        $r5 = $mergeFn.Invoke(('X' * 9000), 'C:\ROOT')
+        Check 'PATH-U5: oversized merged value is rejected safely' ($r5.Length -ge 9000 -and -not ($r5 -match 'C:\\ROOT')) 'unchanged'
+    } else {
+        Check 'PATH-U: merge function found in bootstrap' $false 'extraction failed'
+    }
+    $savedUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $savedMachinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    try {
+        $envNoSkip = @{}
+        foreach ($k in $script:BaseEnv.Keys) { $envNoSkip[$k] = $script:BaseEnv[$k] }
+        $envNoSkip.Remove('EIZOU_WIN_NO_PERSIST_PATH')
+        $rootP = Join-Path $script:WorkDir 'root-PATH'
+        Invoke-WinBootstrapCase -Name 'PATH1 register user scope' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-PATH1')) `
+            -InstallRoot $rootP -Env $envNoSkip -ExpectSuccess -Mirror (Copy-Mirror 'PATH1') -LaunchFile (Join-Path $script:WorkDir 'launch-PATH1.txt')
+        $userPathAfter = [Environment]::GetEnvironmentVariable('Path', 'User')
+        $segCount = @($userPathAfter.Split($sep) | Where-Object { $_.TrimEnd('\') -ieq $rootP.TrimEnd('\') }).Count
+        Check 'PATH1: install root registered in the CURRENT USER PATH exactly once' ($segCount -eq 1) "segments=$segCount path=$userPathAfter"
+        Check 'PATH1: machine PATH untouched' ([Environment]::GetEnvironmentVariable('Path', 'Machine') -eq $savedMachinePath) 'machine scope unchanged'
+        Invoke-WinBootstrapCase -Name 'PATH2 idempotent re-registration' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-PATH2')) `
+            -InstallRoot $rootP -Env $envNoSkip -ExpectSuccess -Mirror (Copy-Mirror 'PATH2') -LaunchFile (Join-Path $script:WorkDir 'launch-PATH2.txt')
+        $userPathAfter2 = [Environment]::GetEnvironmentVariable('Path', 'User')
+        $segCount2 = @($userPathAfter2.Split($sep) | Where-Object { $_.TrimEnd('\') -ieq $rootP.TrimEnd('\') }).Count
+        Check 'PATH2: re-registration stays idempotent (still once)' ($segCount2 -eq 1) "segments=$segCount2"
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable('Path', $savedUserPath, 'User')
+    }
+    Check 'PATH3: user PATH restored after the test (rollback)' (
+        [Environment]::GetEnvironmentVariable('Path', 'User') -eq $savedUserPath) 'rollback failed'
 
     # T2: reuse (second run, same root — no replacement).
     $ytdlpInstalled = Join-Path $root 'helpers\yt-dlp-windows-amd64.exe'

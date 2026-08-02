@@ -372,12 +372,13 @@ function Invoke-TermuxHelperCase {
     $out = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue) +
         (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
     $core = Join-Path $Prefix "var\lib\eizouden\eizouden-android-arm64"
-    $launcher = Join-Path $Prefix "bin\eizouden"
+    $launcher = Join-Path $Prefix "bin\grkd-edds"
     if ($ExpectSuccess) {
         Check "${Name}: exited zero" ($proc.ExitCode -eq 0) "exit=$($proc.ExitCode): $($out -replace '\s+',' ')"
         Check "${Name}: helpers verified" ($out -match 'helper .* version .* OK') ($out -replace '\s+', ' ')
         Check "${Name}: core installed in app-private storage" (Test-Path -LiteralPath $core) "expected $core"
-        Check "${Name}: CLI launcher installed at PREFIX/bin/eizouden" (Test-Path -LiteralPath $launcher) "expected $launcher"
+        Check "${Name}: CLI launcher installed at PREFIX/bin/grkd-edds" (Test-Path -LiteralPath $launcher) "expected $launcher"
+        Check "${Name}: legacy PREFIX/bin/eizouden launcher removed" (-not (Test-Path -LiteralPath (Join-Path $Prefix "bin\eizouden"))) "legacy launcher present"
         Check "${Name}: CLI status rendered (common CLI contract)" ($out -match 'core: installed \(v') ($out -replace '\s+', ' ')
     }
     else {
@@ -512,7 +513,7 @@ function Termux-Helper-Suite {
     # H6: the launcher is the app-private CLI entry (asserted in H1 via
     #     Invoke-TermuxHelperCase); additionally assert its content targets
     #     the installed core.
-    $launcher6 = Join-Path (Join-Path $script:WorkDir 'prefix-helper-H1') 'bin\eizouden'
+    $launcher6 = Join-Path (Join-Path $script:WorkDir 'prefix-helper-H1') 'bin\grkd-edds'
     if (Test-Path -LiteralPath $launcher6) {
         $lc = Get-Content -Raw -LiteralPath $launcher6
         Check 'H6: launcher execs the app-private core CLI' ($lc -match 'eizouden-android-arm64' -and $lc -match 'cli') ($lc -replace '\s+', ' ')

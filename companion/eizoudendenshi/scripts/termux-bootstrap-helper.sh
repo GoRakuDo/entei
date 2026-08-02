@@ -54,7 +54,7 @@ CORE_NAME='eizouden-android-arm64'
 CORE_TARGET='android/arm64'
 HELPER_CONTRACT_VERSION=3
 INSTALL_DIR='var/lib/eizouden'          # under $PREFIX (Termux app-private)
-LAUNCHER_NAME='eizouden'                # CLI launcher in $PREFIX/bin
+LAUNCHER_NAME='grkd-edds'               # CLI launcher in $PREFIX/bin
 
 # --- Harness-only overrides ---
 TEST_MODE="${EIZOU_TEST:-0}"
@@ -296,15 +296,21 @@ install_verified_core() {
     sync
 }
 
-# App-private CLI launcher at $PREFIX/bin (user-controlled Termux prefix).
+# App-private CLI launcher `grkd-edds` at $PREFIX/bin (user-controlled
+# Termux prefix, already on PATH; no profile edit). A legacy `eizouden`
+# launcher from an older bootstrap is removed (cleanup; the common command
+# is grkd-edds).
 install_launcher() {
-    launcher="$PREFIX/bin/$LAUNCHER_NAME"
+    launcher="$PREFIX/bin/grkd-edds"
     mkdir -p "$PREFIX/bin" || fail 'cannot create launcher directory'
     printf '%s\n' \
         '#!/data/data/com.termux/files/usr/bin/sh' \
         "exec \"$PREFIX/$INSTALL_DIR/$CORE_NAME\" cli \"\$@\"" > "$launcher" ||
         fail 'cannot write the CLI launcher'
     chmod 700 "$launcher" || fail 'cannot set launcher permissions'
+    if [ -e "$PREFIX/bin/eizouden" ]; then
+        rm -f -- "$PREFIX/bin/eizouden" || fail 'cannot remove the legacy eizouden launcher'
+    fi
 }
 
 main() {
@@ -345,8 +351,8 @@ main() {
     rm -rf -- "$EIZOU_TMP"
 
     echo "EizouDendenshi bootstrap: verified EizouDendenshi ${MANIFEST_VERSION} installed at ${PREFIX}/${INSTALL_DIR}/${CORE_NAME}"
-    echo 'EizouDendenshi bootstrap: starting the common CLI in the foreground'
-    exec "$PREFIX/$INSTALL_DIR/$CORE_NAME" cli
+    echo 'EizouDendenshi bootstrap: starting grkd-edds (common CLI) in the foreground'
+    exec sh "$PREFIX/bin/grkd-edds"
 }
 
 main "$@"
