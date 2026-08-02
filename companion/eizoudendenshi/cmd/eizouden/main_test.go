@@ -11,6 +11,12 @@ import (
 	"eizoudendenshi/internal/media"
 )
 
+func TestDefaultAddrIsPlayerContractPort(t *testing.T) {
+	if defaultAddr != "127.0.0.1:4322" {
+		t.Fatalf("defaultAddr = %q, want the Entei Player pairing contract 127.0.0.1:4322", defaultAddr)
+	}
+}
+
 func TestResolveBindAddress(t *testing.T) {
 	tests := []struct {
 		name    string

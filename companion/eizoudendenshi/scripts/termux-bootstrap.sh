@@ -40,6 +40,10 @@
 #   EIZOU_MIRROR_DIR=<dir>        fetch files from a local directory instead
 #                                 of the network (same verification path)
 #   PREFIX=<path>                 app-private prefix (the harness supplies it)
+#   EIZOU_TEST_ADDR=<host:port>   harness-only: bind the foreground core to
+#                                 this loopback port instead of the default
+#                                 127.0.0.1:4322 (isolation; never set in
+#                                 production)
 set -eu
 
 # --- Pinned release signing key (replace at release time) ---
@@ -276,6 +280,9 @@ main() {
 
     echo "EizouDendenshi bootstrap: verified EizouDendenshi ${MANIFEST_VERSION} installed at ${PREFIX}/${INSTALL_DIR}/${CORE_NAME}"
     echo 'EizouDendenshi bootstrap: starting in the foreground (pairing code below)'
+    if [ -n "${EIZOU_TEST_ADDR:-}" ]; then
+        exec "$PREFIX/$INSTALL_DIR/$CORE_NAME" --addr "$EIZOU_TEST_ADDR"
+    fi
     exec "$PREFIX/$INSTALL_DIR/$CORE_NAME"
 }
 

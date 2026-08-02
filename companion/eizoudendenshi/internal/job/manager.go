@@ -358,16 +358,19 @@ func (m *Manager) finalize(j *job, dir string) bool {
 	j.setState(StateBuffering)
 	path, size, ok := largestMedia(dir)
 	if !ok || size <= 0 {
+		// Cleanup BEFORE the terminal error state is published (the same
+		// ordering as every run() error path): observers must never see
+		// StateError while the private job dir still exists.
+		removeAllBestEffort(dir)
 		j.errMsg = "no media produced"
 		j.setState(StateError)
-		removeAllBestEffort(dir)
 		return false // errored job stays current until cancelled
 	}
 	src, err := NewJobSource(path, size)
 	if err != nil {
+		removeAllBestEffort(dir)
 		j.errMsg = "media unavailable"
 		j.setState(StateError)
-		removeAllBestEffort(dir)
 		return false // errored job stays current until cancelled
 	}
 	j.src = src

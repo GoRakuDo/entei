@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"eizoudendenshi/internal/api"
@@ -78,9 +79,17 @@ func resolveGrowSource(path string, total int64) (media.GrowingSource, error) {
 	return media.NewFileSource(path, total)
 }
 
+// defaultAddr is the fixed loopback port the Entei Player pairing /
+// Magnet / bridge clients are hardcoded to (http://127.0.0.1:4322). The
+// common CLI's option 1 and plain interactive launches must bind this
+// default; tests and harnesses pass an explicit --addr for isolation.
+const defaultAddr = "127.0.0.1:4322"
+
 func main() {
-	addr := flag.String("addr", "127.0.0.1:0",
-		"loopback bind address host:port (default port 0 = ephemeral)")
+	addr := flag.String("addr", defaultAddr,
+		"loopback bind address host:port (default "+defaultAddr+", the "+
+			"Entei Player pairing contract; use 127.0.0.1:0 for an ephemeral "+
+			"test/dev port)")
 	fixture := flag.String("fixture", "",
 		"path to a media file served at /v1/media/fixture (ED-2B PoC; "+
 			"empty = media endpoint disabled)")
@@ -261,6 +270,11 @@ func runServer(cfg serverConfig, ytdlpPath, aria2Path string) error {
 	}
 	ln, err := net.Listen("tcp", cfg.bind)
 	if err != nil {
+		// User-readable collision: never kill an existing listener.
+		if strings.Contains(err.Error(), "address already in use") ||
+			strings.Contains(err.Error(), "Only one usage of each socket address") {
+			return fmt.Errorf("port %s is already in use — another EizouDendenshi companion is already running (stop it first, or choose another port with --addr)", cfg.bind)
+		}
 		return err
 	}
 	// Terminal-only handoff. The pairing code is printed on purpose; the

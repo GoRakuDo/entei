@@ -307,6 +307,9 @@ function New-CaseEnv {
     $env.EIZOU_MIRROR_DIR = $Mirror
     # Test mode: the harness stands in for Termux and supplies PREFIX.
     $env.PREFIX = $Prefix
+    # Bind the foreground core to an ephemeral loopback port (isolation);
+    # never the production default 127.0.0.1:4322.
+    $env.EIZOU_TEST_ADDR = '127.0.0.1:0'
     return $env
 }
 
@@ -354,6 +357,7 @@ function Invoke-TermuxHelperCase {
         EIZOU_TEST = '1'
         EIZOU_BOOTSTRAP_SKIP_PKG = '1'
         EIZOU_MIRROR_DIR = $script:HelperMirror
+        EIZOU_TEST_ADDR = '127.0.0.1:0'
         PREFIX = $Prefix
         TMPDIR = $script:TempDir
         # The fake helper commands live in the prefix bin; it must come
@@ -572,7 +576,7 @@ function Dynamic-Suite {
         & $ReleasePs1 build -OutDir $buildDir
         $builtExe = Join-Path $buildDir 'eizouden-windows-amd64.exe'
         $bannerLog = Join-Path $script:LogsDir 'build-banner.log'
-        $bp = Start-Process -FilePath $builtExe -RedirectStandardOutput $bannerLog `
+        $bp = Start-Process -FilePath $builtExe -ArgumentList @('--addr', '127.0.0.1:0') -RedirectStandardOutput $bannerLog `
             -RedirectStandardError "$bannerLog.err" -PassThru -NoNewWindow
         $bDeadline = [DateTime]::UtcNow.AddSeconds(45)
         while ([DateTime]::UtcNow -lt $bDeadline -and -not $bp.HasExited) {
