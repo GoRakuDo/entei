@@ -259,7 +259,9 @@ export const en: Dictionary = {
     eizouSessionError: 'The companion session failed. End it and try again.',
     eizouSessionRePairRequired: 'Re-pair required — the pairing code has changed.',
     eizouSessionEnd: 'End session',
-        eizouSessionSourceLabel: 'YouTube download',
+  companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
+  eizouSessionSourceLabel: 'YouTube download',
+  eizouSessionSourceLabelTorrent: 'Torrent download',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',

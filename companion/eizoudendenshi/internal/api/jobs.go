@@ -246,7 +246,9 @@ func (s *Server) serveGrowingSource(src media.GrowingSource, w http.ResponseWrit
 	total := src.Total()
 	avail := src.Available()
 
-	w.Header().Set("Content-Type", "video/mp4")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "video/mp4")
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Access-Control-Expose-Headers",

@@ -294,6 +294,8 @@ export interface Dictionary {
   eizouSessionEnd: string;
   /** Generic session source label (never the raw URL). */
   eizouSessionSourceLabel: string;
+  eizouSessionSourceLabelTorrent: string;
+  companionStreamNotReady: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
     youtubeInputLabel: string;
     youtubeInputTitle: string;

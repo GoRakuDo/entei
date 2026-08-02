@@ -91,3 +91,22 @@ func totalBytes(files []FileInfo) int64 {
 	}
 	return total
 }
+
+// mimeForExt maps a torrent file extension to its conservative HTTP media
+// type (the streaming and complete serves must never hardcode video/mp4).
+var mimeByExt = map[string]string{
+	"mp4":  "video/mp4",
+	"m4v":  "video/mp4",
+	"webm": "video/webm",
+	"ogv":  "video/ogg",
+	"ogg":  "video/ogg",
+	"mkv":  "video/x-matroska",
+	"avi":  "video/x-msvideo",
+}
+
+func mimeForExt(ext string) string {
+	if m, ok := mimeByExt[ext]; ok {
+		return m
+	}
+	return ""
+}

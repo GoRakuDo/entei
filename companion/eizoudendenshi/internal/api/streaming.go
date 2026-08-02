@@ -30,7 +30,9 @@ func (s *Server) serveStreamingPrefix(w http.ResponseWriter, r *http.Request, sr
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Add("Vary", "Origin")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", mediaContentType)
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", mediaContentType)
+	}
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return

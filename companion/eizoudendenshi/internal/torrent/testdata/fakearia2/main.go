@@ -77,16 +77,89 @@ func pieceBytes(i int64, pieceLen int64) []byte {
 	sum := sha1.Sum([]byte(fmt.Sprintf("piece-%d", i)))
 	out := make([]byte, pieceLen)
 	start := int64(0)
-	if i == 0 && pieceLen >= 256 {
-		// Piece 0 carries a fake faststart MP4 header (ftyp + moov) so the
-		// manager's conservative container sniff accepts it once verified.
-		hdr := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 0, 0}
-		hdr = append(hdr, []byte("moov")...)
+	if i == 0 && pieceLen >= 4096 {
+		// Piece 0 carries a STRUCTURALLY valid minimal faststart MP4
+		// (complete ftyp + moov with a stsd avc1 video entry and a first
+		// sample boundary) so the manager's safe-early predicate accepts it
+		// once the piece hash verifies.
+		hdr := minimalMP4Header()
 		copy(out, hdr)
-		start = 20
+		start = int64(len(hdr))
 	}
 	for off := start; off < pieceLen; off += 20 {
 		copy(out[off:], sum[:])
+	}
+	return out
+}
+
+func box(typ string, payload []byte) []byte {
+	out := make([]byte, 8+len(payload))
+	out[0], out[1], out[2], out[3] = 0, 0, byte((8+len(payload))>>8), byte(8+len(payload))
+	copy(out[4:8], typ)
+	copy(out[8:], payload)
+	return out
+}
+
+func u32(n uint32) []byte {
+	b := make([]byte, 4)
+	b[0], b[1], b[2], b[3] = byte(n>>24), byte(n>>16), byte(n>>8), byte(n)
+	return b
+}
+
+// minimalMP4Header builds a complete ftyp + moov whose stsd video entry is
+// avc1 and whose first chunk offset + sample size lie within the prefix
+// (a decodable sample boundary for the structural predicate).
+func minimalMP4Header() []byte {
+	ftypPayload := []byte("isom")
+	ftypPayload = append(ftypPayload, 0, 0, 2, 0)
+	ftypPayload = append(ftypPayload, []byte("isomiso2")...)
+	ftyp := box("ftyp", ftypPayload)
+
+	mvhdPayload := []byte{0, 0, 0, 0}
+	mvhdPayload = append(mvhdPayload, make([]byte, 20)...)
+	mvhdPayload = append(mvhdPayload, u32(1000)...)
+	mvhdPayload = append(mvhdPayload, u32(10000)...)
+	mvhdPayload = append(mvhdPayload, make([]byte, 76)...)
+	mvhd := box("mvhd", mvhdPayload)
+
+	hdlrPayload := []byte{0, 0, 0, 0, 0, 0, 0, 0}
+	hdlrPayload = append(hdlrPayload, []byte("vide")...)
+	hdlrPayload = append(hdlrPayload, make([]byte, 12)...)
+	hdlr := box("hdlr", hdlrPayload)
+
+	avc1Payload := make([]byte, 6)
+	avc1Payload = append(avc1Payload, 0, 1)
+	avc1Payload = append(avc1Payload, make([]byte, 16)...)
+	avc1Payload = append(avc1Payload, 1, 64, 0, 240)
+	avc1Payload = append(avc1Payload, 0, 0, 0, 0, 0, 1)
+	avc1Payload = append(avc1Payload, make([]byte, 32)...)
+	avc1Payload = append(avc1Payload, 0x18, 0, 0x18, 0, 0, 0, 0, 1)
+	avc1 := box("avc1", avc1Payload)
+
+	stsdPayload := []byte{0, 0, 0, 0, 0, 0, 0, 1}
+	stsdPayload = append(stsdPayload, avc1...)
+	stsd := box("stsd", stsdPayload)
+
+	stcoPayload := []byte{0, 0, 0, 0, 0, 0, 0, 1}
+	stcoPayload = append(stcoPayload, u32(512)...)
+	stco := box("stco", stcoPayload)
+
+	stszPayload := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+	stszPayload = append(stszPayload, u32(1024)...)
+	stsz := box("stsz", stszPayload)
+
+	stbl := box("stbl", concat(stsd, stco, stsz))
+	minf := box("minf", stbl)
+	mdia := box("mdia", concat(hdlr, minf))
+	trak := box("trak", mdia)
+	moov := box("moov", concat(mvhd, trak))
+	return concat(ftyp, moov)
+}
+
+func concat(parts ...[]byte) []byte {
+	var out []byte
+	for _, p := range parts {
+		out = append(out, p...)
 	}
 	return out
 }

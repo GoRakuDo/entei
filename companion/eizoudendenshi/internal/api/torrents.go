@@ -245,6 +245,12 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 		return false
 	}
 	snap, src := s.torrents.ActiveMedia()
+	// The selected file's extension governs the Content-Type (never a
+	// hardcoded video/mp4): MKV → video/x-matroska, etc.
+	mime := s.torrents.SelectedMediaType()
+	if mime != "" {
+		w.Header().Set("Content-Type", mime)
+	}
 	switch snap.State {
 	case torrent.StateComplete:
 		if src != nil {

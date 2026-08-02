@@ -578,6 +578,39 @@ path) was removed.
   green). **Not verified**: the real Termux clean install + helper CLI gate
   on a device, and the Windows real-machine CLI/launcher manual gate.
 
+
+### Progressive streaming fixes (rc.12 issues; implemented)
+
+- **Kind-aware session label**: the companion session banner now shows the
+  localized source kind (YouTube vs Torrent) — never a mislabeled
+  "YouTube download" for a torrent.
+- **Extension-governed MIME**: the selected file's extension sets the
+  Content-Type on BOTH the progressive and completed media serves
+  (ideo/mp4, ideo/webm, ideo/ogg, ideo/x-matroska for MKV) —
+  no hardcoded ideo/mp4.
+- **Structural safe-early predicate**: playable now requires a bounded
+  structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
+  ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;
+  hvc1/hev1 and unknown rejected) and a verified sample boundary;
+  **Matroska/MKV is now ALSO eligible for early handoff** when the verified
+  prefix contains the EBML header + Segment with a complete Tracks element
+  proving a browser-decodeable video TrackEntry (V_MPEG4/ISO/AVC, V_VP9,
+  V_AV1; HEVC/unknown/audio-only rejected) and a complete first Cluster
+  whose video SimpleBlock/Block payload lies fully inside the verified
+  prefix — the user-reported MKV audio-with-black-video case is addressed
+  by only handing off when the video track structure is proven. No fixed
+  byte threshold; malformed VINT/unknown-size/partial elements keep the
+  job buffering honestly; complete MKV always serves with
+  ideo/x-matroska; no arbitrary-MKV or random-seek claim.
+- **Stream-not-ready copy**: for an active companion session, a generic
+  media element error surfaces a localized "stream is not ready yet —
+  waiting for more data" message unless the job is terminally errored; the
+  bridge re-checks the status and re-applies the explicit src/load once
+  the required verified prefix exists (bounded).
+
+No promise is tied to "1 second": the earliest handoff is the first
+verified prefix meeting the decoder-safe structure. Real browser/swarm
+E2E (prefix-206 playback, MKV early-start limits) remains unmeasured.
 ### Remaining gates (not claimed)
 
 Cookie / saved-profile handling, subtitles, Android/headed-Windows browser
@@ -680,6 +713,39 @@ selection, **cross-job-kind conflict**, preflight) — all against a
 deterministic fake aria2 helper (no swarm/network). `go test -race ./...`
 green.
 
+
+### Progressive streaming fixes (rc.12 issues; implemented)
+
+- **Kind-aware session label**: the companion session banner now shows the
+  localized source kind (YouTube vs Torrent) — never a mislabeled
+  "YouTube download" for a torrent.
+- **Extension-governed MIME**: the selected file's extension sets the
+  Content-Type on BOTH the progressive and completed media serves
+  (ideo/mp4, ideo/webm, ideo/ogg, ideo/x-matroska for MKV) —
+  no hardcoded ideo/mp4.
+- **Structural safe-early predicate**: playable now requires a bounded
+  structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
+  ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;
+  hvc1/hev1 and unknown rejected) and a verified sample boundary;
+  **Matroska/MKV is now ALSO eligible for early handoff** when the verified
+  prefix contains the EBML header + Segment with a complete Tracks element
+  proving a browser-decodeable video TrackEntry (V_MPEG4/ISO/AVC, V_VP9,
+  V_AV1; HEVC/unknown/audio-only rejected) and a complete first Cluster
+  whose video SimpleBlock/Block payload lies fully inside the verified
+  prefix — the user-reported MKV audio-with-black-video case is addressed
+  by only handing off when the video track structure is proven. No fixed
+  byte threshold; malformed VINT/unknown-size/partial elements keep the
+  job buffering honestly; complete MKV always serves with
+  ideo/x-matroska; no arbitrary-MKV or random-seek claim.
+- **Stream-not-ready copy**: for an active companion session, a generic
+  media element error surfaces a localized "stream is not ready yet —
+  waiting for more data" message unless the job is terminally errored; the
+  bridge re-checks the status and re-applies the explicit src/load once
+  the required verified prefix exists (bounded).
+
+No promise is tied to "1 second": the earliest handoff is the first
+verified prefix meeting the decoder-safe structure. Real browser/swarm
+E2E (prefix-206 playback, MKV early-start limits) remains unmeasured.
 ### Remaining gates (not claimed)
 
 Real swarm/network download QA (PSMUX detached session only when later),

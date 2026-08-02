@@ -1,7 +1,6 @@
 package torrent
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -667,57 +666,28 @@ func (m *Manager) spawnPayload(j *torrentJob, ctx context.Context, dir string, a
 	}
 }
 
-// playable reports the explicit bounded playable criterion: at least two
-// verified pieces, a verified prefix starting at file offset 0 (no head
-// gap — the enclosing global piece must lie fully inside the selected
-// file), and a prefix at least playableThreshold bytes with a conservative
-// container sniff (faststart MP4 ftyp/moov or EBML MKV). Never claims MKV
-// random-seek capability.
+// playable reports the safe-early predicate: the verified prefix must be
+// structurally playable (complete ftyp + moov, browser-decodeable stsd
+// video codec, verified sample boundary) and start at file offset 0. There
+// is no fixed byte threshold — the earliest verified prefix that meets the
+// decoder-safe structure is eligible (which for a well-faststart MP4 is
+// the first one or two verified pieces). MKV is deliberately NOT accepted
+// for progressive early playback (an early EBML prefix cannot guarantee a
+// browser demux/decode here); a complete MKV is served normally through
+// the complete path with video/x-matroska — a progressive-streaming
+// limitation, not an admission rejection.
 func (j *torrentJob) playable() bool {
 	if j.verifier == nil {
 		return false
 	}
-	if j.span.HeadGap != 0 || j.verifier.VerifiedPieces() < 2 {
+	if j.span.HeadGap != 0 || j.verifier.VerifiedPieces() < 1 {
 		return false
 	}
 	avail := j.verifier.Available()
-	if avail < playableThreshold {
+	if avail <= 0 {
 		return false
 	}
-	return sniffContainer(j.vPath, avail)
-}
-
-// playableThreshold is the named bounded playable prefix (bytes).
-const playableThreshold = 12 * 1024 * 1024
-
-// sniffContainer conservatively checks the verified prefix for a faststart
-// MP4 (ftyp + moov present) or an EBML (MKV) header. A false negative keeps
-// the job buffering honestly.
-func sniffContainer(path string, avail int64) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	limit := avail
-	if limit > 8*1024*1024 {
-		limit = 8 * 1024 * 1024
-	}
-	buf := make([]byte, limit)
-	n, _ := f.Read(buf)
-	buf = buf[:n]
-	if n < 12 {
-		return false
-	}
-	// MP4: ftyp box at the start (with moov anywhere in the prefix).
-	if bytes.Equal(buf[4:8], []byte("ftyp")) {
-		return bytes.Contains(buf, []byte("moov"))
-	}
-	// MKV: EBML magic 0x1A45DFA3.
-	if len(buf) >= 4 && bytes.Equal(buf[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}) {
-		return true
-	}
-	return false
+	return structurallyPlayable(j.vPath, avail)
 }
 
 // helperArgs builds the fixed aria2 argument vector. The canonicalized
@@ -783,3 +753,19 @@ type atomicInt64 struct{ v atomic.Int64 }
 
 func (a *atomicInt64) store(n int64) { a.v.Store(n) }
 func (a *atomicInt64) load() int64   { return a.v.Load() }
+
+// SelectedMediaType returns the conservative HTTP media type of the
+// selected file, derived from its extension (never hardcoded to video/mp4).
+// An empty string means no selection yet. MKV maps to video/x-matroska.
+func (m *Manager) SelectedMediaType() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.current == nil {
+		return ""
+	}
+	j := m.current
+	if j.selectedV == nil {
+		return ""
+	}
+	return mimeForExt(j.selectedV.Extension)
+}

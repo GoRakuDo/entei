@@ -418,3 +418,66 @@ func TestTorrentPreflight(t *testing.T) {
 		t.Fatalf("preflight allow-methods = %q, want POST", got)
 	}
 }
+
+// TestTorrentStreamingMIME asserts the selected file's extension governs
+// the Content-Type on both the streaming and completed media serves.
+func TestTorrentStreamingMIME(t *testing.T) {
+	// An MKV selection must be served as video/x-matroska, never video/mp4.
+	t.Setenv("EIZOU_FAKE_TORRENT", "files=movie.mkv:800000|audio.mp3:40000;pieceLen=100")
+	t.Setenv("EIZOU_FAKE_METADATA", "1")
+	t.Setenv("EIZOU_FAKE_PAYLOAD", "1")
+	t.Setenv("EIZOU_FAKE_HEAD_PIECES", "10")
+	s, _ := newTorrentsServer(t)
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal, `{"magnet":"`+testMagnet+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d", rec.Code)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if js.State == "error" || time.Now().After(deadline) {
+			t.Fatalf("never listed: %s", rec.Body.String())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	// Select the MKV video file.
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/select", allowedOriginLocal, `{"videoFileId":"f0"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("select = %d %s", rec.Code, rec.Body.String())
+	}
+	deadline = time.Now().Add(15 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "complete" {
+			break
+		}
+		if js.State == "error" || time.Now().After(deadline) {
+			t.Fatalf("never completed: %s", rec.Body.String())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	// The completed media serve must carry the MKV MIME.
+	req, _ := http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=0-63")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if ct := rec.Header().Get("Content-Type"); ct != "video/x-matroska" {
+		t.Fatalf("MKV Content-Type = %q, want video/x-matroska", ct)
+	}
+}

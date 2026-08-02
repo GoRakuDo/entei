@@ -47,6 +47,8 @@ export interface CompanionJobSource {
 export interface UseCompanionJobSessionResult {
   /** True while a companion job session is active. */
   active: boolean;
+  /** Source kind (YouTube vs torrent) drives the session label and cancel route. */
+  kind: CompanionJobKind | null;
   phase: CompanionBridgePhase;
   progress: CompanionBridgeProgress | null;
   reason: string | null;
@@ -68,6 +70,7 @@ export interface UseCompanionJobSessionResult {
 export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const bridge = useCompanionBridge();
   const [active, setActive] = useState(false);
+  const [kind, setKind] = useState<CompanionJobKind | null>(null);
   const activeRef = useRef(false);
   const sourceRef = useRef<CompanionJobSource | null>(null);
   const attachedRef = useRef(false);
@@ -101,6 +104,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       attachedRef.current = false;
       clearIntentListeners();
       setActive(true);
+      setKind(source.kind);
       // No media element exists yet (buffering shows in the empty state);
       // it is attached on the complete gate via attachMediaElement.
       bridge.beginSession(
@@ -178,6 +182,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
 
   return {
     active,
+    kind,
     phase: bridge.phase,
     progress: bridge.progress,
     reason: bridge.reason,

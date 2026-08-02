@@ -19,6 +19,7 @@ import type {
 
 export interface CompanionFixtureSessionStatusDict {
   eizouSessionSourceLabel: string;
+  eizouSessionSourceLabelTorrent: string;
   eizouSessionBuffering: string;
   eizouSessionProgressLabel: string;
   eizouSessionError: string;
@@ -27,6 +28,8 @@ export interface CompanionFixtureSessionStatusDict {
 }
 
 interface CompanionFixtureSessionStatusProps {
+  /** Source kind drives the localized session label (YouTube vs torrent). */
+  kind?: 'youtube' | 'torrent';
   phase: CompanionBridgePhase;
   progress: CompanionBridgeProgress | null;
   reason: string | null;
@@ -34,8 +37,7 @@ interface CompanionFixtureSessionStatusProps {
   dict: CompanionFixtureSessionStatusDict;
 }
 
-export function CompanionFixtureSessionStatus({
-  phase,
+export function CompanionFixtureSessionStatus({ kind,  phase,
   progress,
   reason,
   onEndSession,
@@ -59,7 +61,7 @@ export function CompanionFixtureSessionStatus({
     <div className="entei-fixture-status">
       <span className="entei-fixture-status-message" role="status">
         {/* Generic session source label — never the raw URL. */}
-        <span className="entei-fixture-status-source">{dict.eizouSessionSourceLabel}</span>
+        <span className={"entei-fixture-status-source"}>{kind === 'torrent' ? dict.eizouSessionSourceLabelTorrent : dict.eizouSessionSourceLabel}</span>
         {phase === 'buffering' && (
           <Loader2
             className="entei-fixture-status-spinner"

@@ -71,7 +71,9 @@ const flush = async () => {
 };
 
 const MINI_DICT = {
+  eizouSessionSourceLabelTorrent: 'Torrent download',
   eizouSessionSourceLabel: 'YouTube download',
+  companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
   eizouSessionBuffering: 'Waiting for the file to be ready…',
   eizouSessionProgressLabel: 'Progress',
   eizouSessionError: 'The companion session failed. End it and try again.',

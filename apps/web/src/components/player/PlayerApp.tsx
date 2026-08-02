@@ -2883,7 +2883,7 @@ export default function PlayerApp() {
           src={displayMediaUrl!}
           isLoading={isLoading}
           error={loadError}
-          errorLabel={dict.failedToLoadVideo}
+          errorLabel={jobSession.active && jobSession.phase !== 'error' ? dict.companionStreamNotReady : dict.failedToLoadVideo}
           decodeErrorLabel={dict.videoDecodeError}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
@@ -3080,12 +3080,14 @@ export default function PlayerApp() {
       {/* ED-2E: companion fixture session status — only while a fixture
           session is active and not playing; absent from local-file flow. */}
       <CompanionFixtureSessionStatus
+        kind={jobSession.kind ?? 'youtube'}
         phase={jobSession.phase}
         progress={jobSession.progress}
         reason={jobSession.reason}
         onEndSession={() => void jobSession.cancelActiveJob()}
         dict={{
           eizouSessionSourceLabel: dict.eizouSessionSourceLabel,
+          eizouSessionSourceLabelTorrent: dict.eizouSessionSourceLabelTorrent,
           eizouSessionBuffering: dict.eizouSessionBuffering,
           eizouSessionProgressLabel: dict.eizouSessionProgressLabel,
           eizouSessionError: dict.eizouSessionError,

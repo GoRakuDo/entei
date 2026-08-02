@@ -264,7 +264,9 @@ export const ja: Dictionary = {
     eizouSessionError: 'セッションに失敗しました。終了してやり直してください。',
     eizouSessionRePairRequired: '再ペアリングが必要です — ペアリングコードが変わっています。',
     eizouSessionEnd: 'セッション終了',
-        eizouSessionSourceLabel: 'YouTubeダウンロード',
+  companionStreamNotReady: 'ストリームの準備ができていません。データを待っています…',
+  eizouSessionSourceLabel: 'YouTubeダウンロード',
+  eizouSessionSourceLabelTorrent: 'torrentダウンロード',
     eizouPairingErrorGeneric:
       '接続に失敗しました。もう一度お試しください。',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)

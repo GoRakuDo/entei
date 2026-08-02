@@ -262,7 +262,9 @@ export const id: Dictionary = {
     eizouSessionError: 'Sesi gagal. Akhiri sesi dan coba lagi.',
     eizouSessionRePairRequired: 'Perlu menghubungkan ulang — kode pairing telah berubah.',
     eizouSessionEnd: 'Akhiri sesi',
-        eizouSessionSourceLabel: 'Unduhan YouTube',
+  companionStreamNotReady: 'Aliran belum siap. Menunggu data selanjutnya…',
+  eizouSessionSourceLabel: 'Unduhan YouTube',
+  eizouSessionSourceLabelTorrent: 'Unduhan torrent',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'URL YouTube',
