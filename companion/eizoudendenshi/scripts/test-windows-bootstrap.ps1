@@ -291,6 +291,17 @@ function Dynamic-Suite {
 
     # The child environment deliberately has NO minisign on PATH: the
     # bootstrap must self-provision the verifier from the mirror.
+    # Remove only stale HARNESS-OWNED user-PATH segments left by earlier
+    # interrupted runs (their marker is this harness work root). Real user
+    # install roots (e.g. %LOCALAPPDATA%\GoRakuDo\EizouDendenshi) are never
+    # touched.
+    $userPathNow = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if ($userPathNow -match [regex]::Escape($script:WorkRoot)) {
+        $cleaned = (@($userPathNow.Split(';') | Where-Object { $_ -notmatch [regex]::Escape($script:WorkRoot) }) -join ';')
+        [Environment]::SetEnvironmentVariable('Path', $cleaned, 'User')
+        Write-Host "harness: removed stale harness-owned user-PATH segments ($script:WorkRoot)"
+    }
+
     $script:BaseEnv = @{
         PATH                      = $env:PATH
         EIZOU_WIN_MINISIGN_MIRROR = $script:MinisignZip
@@ -333,7 +344,7 @@ function Dynamic-Suite {
     if (Test-Path -LiteralPath $launcherPath) {
         $lc = Get-Content -Raw -LiteralPath $launcherPath
         Check 'T1b: launcher invokes the core CLI mode with private helper flags' (
-            $lc -match 'cli' -and
+            $lc -match '--ytdlp.*--aria2.*--ffmpeg.*cli' -and
             $lc -match 'yt-dlp-windows-amd64\.exe' -and
             $lc -match 'aria2c\.exe' -and
             $lc -match 'ffmpeg\.exe') ($lc -replace '\s+', ' ')
@@ -511,7 +522,12 @@ function Dynamic-Suite {
     # binding error; now it must complete the full install.
     $mirror = Copy-Mirror 'T11y'
     $root11y = Join-Path $script:WorkDir 'root-T11y'
-    $envNoMirror = @{ PATH = $env:PATH }
+    $envNoMirror = @{
+        PATH                      = $env:PATH
+        EIZOU_WIN_MINISIGN_MIRROR = $script:MinisignZip
+        EIZOU_WIN_NO_PERSIST_PATH = '1'
+    }
+    $envNoMirror.Remove('EIZOU_WIN_MINISIGN_MIRROR')
     Invoke-WinBootstrapCase -Name 'T11y unset mirror env (real pinned fetch)' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T11y')) `
         -InstallRoot $root11y -Env $envNoMirror -ExpectSuccess -Mirror $mirror
     Check 'T11y: verifier acquired via the real pinned fetch' (Test-Path (Join-Path $root11y 'tools\minisign.exe')) 'tools\minisign.exe present after the no-mirror run'
@@ -632,10 +648,21 @@ function Dynamic-Suite {
     Check 'T15: system PATH unchanged' ($env:PATH -eq $beforePath) 'PATH must be untouched by the harness runs'
 
 
-    # V6: no persistent PATH / global install of the verifier.
-    Check 'V6: verifier not on the system PATH' (
-        -not ([Environment]::GetEnvironmentVariable('Path', 'User') -match 'GoRakuDo|EizouDendenshi') -and
-        -not ($env:PATH -match 'GoRakuDo\\EizouDendenshi')) 'verifier must live only in the private install root'
+    # V6: the verifier must never be globally/system-available. The designed
+    # grkd-edds contract registers USER-PRIVATE install roots on the current
+    # user's PATH (that is intended); what V6 verifies is the absence of
+    # GLOBAL (machine) pollution and that a clean machine-only environment
+    # cannot resolve the verifier, plus that the harness left no test-owned
+    # user-PATH segments behind.
+    Check 'V6: no global (machine) EizouDendenshi PATH pollution' (
+        -not ([Environment]::GetEnvironmentVariable('Path', 'Machine') -match 'GoRakuDo|EizouDendenshi')) 'machine PATH must be untouched'
+    $savedPath = $env:PATH
+    $env:PATH = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $foundMinisign = Get-Command minisign -ErrorAction SilentlyContinue
+    $env:PATH = $savedPath
+    Check 'V6: verifier unresolvable from a clean (machine-only) PATH' ($null -eq $foundMinisign) "resolved: $($foundMinisign.Source)"
+    Check 'V6: no harness-created user PATH segments remain' (
+        -not ([Environment]::GetEnvironmentVariable('Path', 'User') -match [regex]::Escape($script:WorkRoot))) 'harness roots must be restored'
 
     # T16: user-private temp cleanup.
     $leftovers = @(Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter 'eizouden-win-bootstrap.*' -ErrorAction SilentlyContinue)
