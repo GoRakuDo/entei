@@ -307,13 +307,21 @@ func TestUnknownMethodsRejected(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET /v1/pair: status = %d, want 405", rec.Code)
 	}
-	if got := rec.Header().Get("Allow"); got != "POST, OPTIONS" {
-		t.Errorf("GET /v1/pair: Allow = %q, want POST, OPTIONS", got)
+	if got := rec.Header().Get("Allow"); got != "POST, DELETE, OPTIONS" {
+		t.Errorf("GET /v1/pair: Allow = %q, want POST, DELETE, OPTIONS", got)
 	}
 
 	rec = doRequest(t, s.Handler(), http.MethodPut, "/v1/pair", "", "")
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("PUT /v1/pair: status = %d, want 405", rec.Code)
+	}
+
+	rec = doRequest(t, s.Handler(), http.MethodDelete, "/v1/pair/status", "", "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE /v1/pair/status: status = %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != "GET, OPTIONS" {
+		t.Errorf("DELETE /v1/pair/status: Allow = %q, want GET, OPTIONS", got)
 	}
 }
 

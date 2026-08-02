@@ -1,8 +1,10 @@
-// Package pairing generates ephemeral pairing credentials.
+// Package pairing generates pairing credentials.
 //
 // Both credentials are produced exclusively from crypto/rand: a human-typed
-// 6-digit pairing code and a 256-bit opaque capability token. They exist only
-// in process memory — nothing is written to files, storage, or logs.
+// 6-digit pairing code and a 256-bit opaque capability token. Generation
+// itself is pure in-memory — nothing here writes to files, storage, or
+// logs. Persistence of the capability token is the caller's concern
+// (internal/credential); the pairing code is never persisted at all.
 package pairing
 
 import (

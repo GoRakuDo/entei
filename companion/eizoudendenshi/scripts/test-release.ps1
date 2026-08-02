@@ -310,6 +310,10 @@ function New-CaseEnv {
     # Bind the foreground core to an ephemeral loopback port (isolation);
     # never the production default 127.0.0.1:4322.
     $env.EIZOU_TEST_ADDR = '127.0.0.1:0'
+    # Redirect the persistent pairing credential away from the REAL user
+    # profile (LOCALAPPDATA on Windows): the core's credential store lands
+    # in the harness temp dir and is removed with it.
+    $env.EIZOUDEN_CREDENTIAL_DIR = Join-Path $script:TempDir 'credential'
     return $env
 }
 

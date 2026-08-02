@@ -11,8 +11,10 @@
  * served after `complete` by the existing load behavior.
  *
  * Hygiene contract:
- * - The magnet and token live in component/page memory only — never
+ * - The magnet and job state live in component/page memory only — never
  *   localStorage / IndexedDB / sessionStorage / cookies / history / logs.
+ *   (The capability token itself is persisted opaquely by the pairing
+ *   controller; this dialog never writes any storage.)
  * - Unpaired: only a pairing-needed notice; no input / consent / submit.
  * - The consent checkbox is REQUIRED before submit (trackers/peers see the
  *   user's IP); memory-only, never persisted.
@@ -95,10 +97,14 @@ interface MagnetInputProps {
   onOpenChange: (open: boolean) => void;
   /** Paired state: job creation is allowed only after a successful pairing. */
   isPaired: boolean;
-  /** Page-memory capability token; used only in the request query string. */
+  /** Capability token (persisted opaquely by the pairing controller);
+   *  used only in the request query string. */
   token: string | null;
-  /** Called with the opaque job id once the selection was accepted. */
-  onJobAccepted: (jobId: string) => void;
+  /** Called with the opaque job id once the selection was accepted, plus
+   *  the SANITIZED basename of the selected video (from the companion's
+   *  file list — basename only, no path) so the player can show it in the
+   *  top-left controls / history. */
+  onJobAccepted: (jobId: string, selectedVideoName: string) => void;
   dict: MagnetInputDict;
 }
 
@@ -389,11 +395,14 @@ export function MagnetInput({
       );
       if (res.status === 200) {
         if (!mountedRef.current || !openRef.current) return;
+        const selected = files.find((f) => f.id === videoId);
         jobRef.current = '';
         setPhase('input');
         setMagnet('');
         setConsented(false);
-        onJobAccepted(jobId);
+        // Hand the job id together with the companion-sanitized basename
+        // of the selected video (never a path).
+        onJobAccepted(jobId, selected ? selected.basename : '');
         return;
       }
       switch (res.status) {

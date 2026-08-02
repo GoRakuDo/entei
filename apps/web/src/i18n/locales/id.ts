@@ -225,11 +225,16 @@ export const id: Dictionary = {
     magnetErrorInvalid:
       'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
     magnetInputSubmit: 'Mulai unduh',
-    magnetInputUnpairedBody: 'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh torrent.',
-    magnetConsentLabel: 'Saya paham: pelacak dan sesama pengguna torrent dapat melihat alamat IP saya saat mengunduh.',
-    magnetInputErrorRepair: 'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',
-    magnetInputErrorConflict: 'Satu unduhan sudah berjalan. Batalkan unduhan sebelumnya terlebih dahulu.',
-    magnetInputErrorNetwork: 'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
+    magnetInputUnpairedBody:
+      'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh torrent.',
+    magnetConsentLabel:
+      'Saya paham: pelacak dan sesama pengguna torrent dapat melihat alamat IP saya saat mengunduh.',
+    magnetInputErrorRepair:
+      'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',
+    magnetInputErrorConflict:
+      'Satu unduhan sudah berjalan. Batalkan unduhan sebelumnya terlebih dahulu.',
+    magnetInputErrorNetwork:
+      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     magnetInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
     magnetInputSubmitting: 'Menyiapkan…',
     magnetDownloading: 'Mengunduh…',
@@ -247,6 +252,13 @@ export const id: Dictionary = {
     eizouSetupImageAlt: 'Ilustrasi EizouDendenshi',
     eizouConnected: 'Terhubung',
     eizouDisconnected: 'Terputus',
+    eizouChecking: 'Memeriksa…',
+    eizouResetButton: 'Reset pasangan',
+    eizouResetTitle: 'Reset pasangan?',
+    eizouResetDesc:
+      'Ini menghapus koneksi tersimpan dari browser ini dan dari aplikasi pendamping. Anda memerlukan kode pasangan baru untuk terhubung lagi. Unduhan dan media tidak terpengaruh.',
+    eizouResetConfirm: 'Reset pasangan',
+    eizouResetCancel: 'Batal',
     eizouPairingTitle: 'Hubungkan EizouDendenshi',
     eizouPairingDesc: 'Masukkan kode 6 digit yang ditampilkan di aplikasi.',
     eizouPairingOtpLabel: 'Kode pasangan 6 digit',
@@ -257,18 +269,22 @@ export const id: Dictionary = {
       'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     eizouPairingErrorInvalidCode:
       'Kode tidak valid. Periksa kode yang ditampilkan di aplikasi.',
-  companionStreamNotReady: 'Aliran belum siap. Menunggu data selanjutnya…',
+    companionStreamNotReady: 'Aliran belum siap. Menunggu data selanjutnya…',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'URL YouTube',
     youtubeInputTitle: 'Streaming YouTube',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'Mulai unduh',
-    youtubeInputUnpairedBody: 'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh dari YouTube.',
+    youtubeInputUnpairedBody:
+      'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh dari YouTube.',
     youtubeInputErrorInvalid: 'URL YouTube tidak valid.',
-    youtubeInputErrorRepair: 'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',
-    youtubeInputErrorConflict: 'Satu unduhan sudah berjalan. Batalkan unduhan sebelumnya terlebih dahulu.',
-    youtubeInputErrorNetwork: 'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
+    youtubeInputErrorRepair:
+      'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',
+    youtubeInputErrorConflict:
+      'Satu unduhan sudah berjalan. Batalkan unduhan sebelumnya terlebih dahulu.',
+    youtubeInputErrorNetwork:
+      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     youtubeInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
     youtubeInputSubmitting: 'Menyiapkan…',
     // P2.1: Subtitle Appearance Settings
@@ -287,8 +303,10 @@ export const id: Dictionary = {
     trackerOn: 'HIDUP',
     trackerOff: 'MATI',
     trackerAriaLabel: 'Tracker imersi aktif',
-    trackerEnabledAriaDescription: 'Mencatat waktu tontonan dan riwayat tambang',
-    trackerDisabledAriaDescription: 'Tracker mati — tidak ada rekaman baru, riwayat tetap tersimpan',
+    trackerEnabledAriaDescription:
+      'Mencatat waktu tontonan dan riwayat tambang',
+    trackerDisabledAriaDescription:
+      'Tracker mati — tidak ada rekaman baru, riwayat tetap tersimpan',
   },
   reader: {
     title: 'Pembaca EPUB',
@@ -348,10 +366,12 @@ export const id: Dictionary = {
     // Loading / unavailable / empty states
     loadingAriaBusy: 'Memuat data tracker…',
     unavailableTitle: 'Tracker tidak tersedia',
-    unavailableDesc: 'IndexedDB tidak tersedia di konteks browser ini. Tracker mencatat riwayat putar lokal dan riwayat tambang; memerlukan konteks aman (HTTPS atau localhost) dan browser yang mendukung IndexedDB.',
+    unavailableDesc:
+      'IndexedDB tidak tersedia di konteks browser ini. Tracker mencatat riwayat putar lokal dan riwayat tambang; memerlukan konteks aman (HTTPS atau localhost) dan browser yang mendukung IndexedDB.',
     unavailableIconLabel: 'Database tidak tersedia',
     emptyTitle: 'Belum ada data',
-    emptyDesc: 'Dasbor ini dibangun dari riwayat putar lokal dan ekspor Anki yang berhasil. Putar media dengan subtitle, dan tambang kalimat untuk mengisi bagian-bagian ini.',
+    emptyDesc:
+      'Dasbor ini dibangun dari riwayat putar lokal dan ekspor Anki yang berhasil. Putar media dengan subtitle, dan tambang kalimat untuk mengisi bagian-bagian ini.',
     emptyIconLabel: 'Dasbor kosong',
     // Table headers / labels
     mediaColumnFile: 'Berkas',

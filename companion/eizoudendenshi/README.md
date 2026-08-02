@@ -8,13 +8,17 @@ EizouDendenshi is the planned Windows / Termux localhost companion for
 Entei (映像電伝師). **ED-2A** proved the safe local API / pairing
 foundations. **ED-2B** adds a single-fixture byte-Range media endpoint to
 prove the loopback CORS + Range path. Both stages are dependency-free Go
-using only the standard library.
+using only the standard library (plus `golang.org/x/sys/windows` for the
+DPAPI-backed persistent credential — see
+[Persistent pairing credential](#persistent-pairing-credential)).
 
 > **Status:** ED-2B PoC with the **ED-2C developer-origin override**
 > (`--allow-origin`) implemented, plus **ED-2D Stage A release-delivery
 > tooling** (release helper, Termux bootstrap template, automated test
 > harness) — see [ED-2D Stage A](#ed-2d-stage-a-release-delivery-tooling).
-> This is **not** a media server and is **not** integrated with Entei. A
+> This is **not** a general-purpose media server. It IS integrated with
+> Entei: the Player pairs with it, creates YouTube / torrent source jobs
+> through its dialogs, and plays through the buffering bridge. A
 > **manual Windows Chrome static-fixture verification was performed on
 > 2026-07-31** (see [ED-2B verification](#ed-2b-verification-manual-windows-chrome));
 > it is a manual browser check, **not** an automated Go test. Termux runtime
@@ -32,8 +36,13 @@ using only the standard library.
 > `load()`+`play()` gets `206` and plays to the end, post-reload seek
 > works) — see
 > [Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file).
-> Android Chrome growing-media playback and yt-dlp/aria2 remain
-> **unverified / unimplemented** and are not claimed.
+> Android Chrome growing-media playback remains **unverified** and is not
+> claimed. The **yt-dlp YouTube source job** (ED-2F) is IMPLEMENTED with a
+> full real-download QA PASS (2026-08-01) and a user-facing URL input; the
+> **torrent job** (ED-2G) is implemented on the **anacrolix/torrent
+> engine** — **aria2 was fully removed** (no helper, no flag, no tests) —
+> with real-swarm E2E and browser QA still pending (see the ED-2G section
+> below).
 > **The ED-2E buffering bridge is IMPLEMENTED (2026-07-31)** — companion
 > `GET/HEAD /v1/media/status` (Origin + token gate, `no-store`, HEAD
 > mirror, origin-gated OPTIONS preflight, metadata-only body:
@@ -43,7 +52,10 @@ using only the standard library.
 > with progress reset, bounded failures → disconnected/error, 401/403 →
 > re-pair, `complete`-gated explicit `src`/`load()`/`play()` with
 > pendingSeek/play-intent preservation, media-error re-check with bounded
-> explicit reset; all state page-memory only; 17 web tests) — see
+> explicit reset; session state page-memory only (the pairing token itself
+> persists opaquely — see
+> [Persistent pairing credential](#persistent-pairing-credential)); 17 web
+> tests) — see
 > [ED-2E bridge contract](#ed-2e-buffering-bridge-contract-implemented-status-endpoint--bridge-controller)
 > below. Source-dialog UX, buffering UI, `headReady` byte-level detection,
 > and headed Windows Chrome / Android Chrome browser QA remain
@@ -57,8 +69,9 @@ using only the standard library.
 > same Origin + token gates; `/v1/media/status` and `/v1/media/fixture`
 > surface the active job without changing the static fixture/grow
 > contract. All Go tests green with `go test -race ./...` (fake helper).
-> Real yt-dlp download QA, the user-facing YouTube URL input, cookies /
-> saved profiles, and the production bridge remain unimplemented / unrun.
+> **Real yt-dlp download QA PASSED on 2026-08-01** (record below) and the
+> user-facing YouTube URL input is implemented; cookies / saved profiles,
+> subtitles, and browser QA remain unrun.
 > **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
 > the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2` — see
 > [Stage B verification](#stage-b-clean-termux-device-gate-passed-2026-07-31-rc2).
@@ -82,14 +95,28 @@ using only the standard library.
 - Executable (`cmd/eizouden`) that binds **loopback only** (`--addr` flag,
   default `127.0.0.1:0`), prints the resolved bound address and a freshly
   generated 6-digit pairing code to the terminal.
-- Pairing code and opaque capability token are generated with `crypto/rand`
-  and live **only in process memory** — no files, storage, cookies, or logs.
+- Pairing code and opaque capability token are generated with `crypto/rand`.
+  The **code is never persisted** and lives only in process memory; the
+  **capability token is persisted** in platform-appropriate user-private
+  storage (see [Persistent pairing credential](#persistent-pairing-credential))
+  so a successful pairing survives browser reloads and companion restarts
+  until the user explicitly deletes it.
 - JSON HTTP API:
   - `GET /v1/health` — non-sensitive readiness/version data.
   - `POST /v1/pair` — accepts `{"code":"123456"}`, requires an allowed
     Origin, returns the capability token only on a correct code. The code is
-    single-use and never echoed in errors.
-  - `OPTIONS /v1/pair` — correct CORS preflight.
+    single-use and never echoed in errors. With a credential store
+    configured, the token is persisted **before** the 200 is returned; a
+    persistence failure fails the pair request (no token response).
+  - `GET /v1/pair/status?token=…` — authenticated (Origin + token)
+    non-sensitive acknowledgement (`{"status":"paired"}`) used by the
+    browser to re-validate a stored token after a reload. Never echoes the
+    token/code/path/storage errors and creates no pairing state.
+  - `DELETE /v1/pair?token=…` — authenticated explicit reset: deletes the
+    persisted credential (best effort), rotates the in-memory token, and
+    issues a FRESH pairing code so the pairing dialog works again without a
+    companion restart. Never touches jobs or media.
+  - `OPTIONS /v1/pair` and `/v1/pair/status` — correct CORS preflight.
   - `GET/HEAD /v1/media/status` — metadata-only availability snapshot for
     the configured media source (`state`: `disabled`/`buffering`/
     `complete`/`error`, `available`, `total`, `headReady`, `retryAfter`),
@@ -113,6 +140,68 @@ using only the standard library.
   Hostnames (including `localhost`), the empty host (`:port`, which binds
   all interfaces), wildcard/unspecified addresses, and non-loopback IPs are
   rejected at startup.
+
+## Persistent pairing credential
+
+The pairing contract is no longer page-memory-only: after ONE successful
+pairing the opaque capability token persists until the user explicitly
+deletes it (`DELETE /v1/pair`, or the browser-side reset control). This
+survives browser F5 / restarts **and** companion restarts.
+
+**Companion storage (`internal/credential`):** a narrow, schema-versioned
+envelope (`{"version":1,"token":…}`) holding ONLY the opaque token — never
+the pairing code, a source URL, magnet, media, or cookies.
+
+- **Windows:** DPAPI (`golang.org/x/sys/windows` `CryptProtectData` /
+  `CryptUnprotectData`, `CRYPTPROTECT_UI_FORBIDDEN`, user-scoped — only the
+  current Windows user/profile can decrypt). The ciphertext is stored
+  atomically (temp file + rename) at the user-private app path
+  `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\credential.bin` — the same
+  user-private root the Windows bootstrap installs into. Profile
+  mismatch / unprotect failure / corrupt content **fail closed**: no
+  credential is accepted, fresh first-pair code + token are generated, and
+  no detail is leaked. DPAPI is never used on Android.
+- **Android / Termux:** the envelope is stored in Termux app-private
+  storage (`$PREFIX/var/lib/eizouden/credential.bin` — the same app-private
+  location the bootstrap installs the verified core into) with strict mode
+  0600 and atomic write. Symlinks, path tricks, oversized files, and
+  corrupt values all fail closed.
+- **Other platforms:** a documented development fallback (user config dir,
+  mode 0600, atomic write) so plain `go run` builds stay usable; the
+  production targets are Windows and Android/Termux only.
+- The `EIZOUDEN_CREDENTIAL_DIR` environment override redirects the store
+  directory (harness/tests only — automated runs never write into the real
+  user profile).
+
+**Startup / pair / reset semantics:**
+
+- Startup loads a valid saved token; if none exists, or the stored value is
+  corrupt / undecryptable / unavailable, fresh code + token are generated
+  (fail closed — the stored value is never accepted and never echoed).
+- A successful first pair persists the token **before** returning 200; a
+  persistence failure fails the pair request with no token response (and
+  the code stays valid for retry).
+- The one-time OTP exchange (code → token, single-use) is retained — it is
+  the only way to establish a credential until a persistent pair exists.
+- `GET /v1/pair/status?token=…` (Origin + token gate) returns only the
+  fixed acknowledgement `{"status":"paired"}` — used by the browser for
+  reload validation; it never echoes the token/code/path/storage errors and
+  creates no server state.
+- `DELETE /v1/pair?token=…` (Origin + token gate) deletes the persisted
+  credential (best effort — in-memory invalidation is authoritative),
+  rotates the in-memory token, and issues a FRESH pairing code (printed to
+  the terminal via the reset callback) so the pairing dialog works again
+  without a restart. It never deletes jobs or media. A failed storage
+  delete still leaves the old token invalid and a fresh code active.
+
+**Browser storage:** the Entei Player persists ONLY the opaque token in a
+schema-versioned localStorage envelope (`entei.eizou.pairing` = `{v:1,
+token}`; see `apps/web/src/features/player/companion-pairing-store.ts`).
+It re-validates on Player mount via the status endpoint: 200 → connected;
+401/403 → the stored token is cleared and the player shows unpaired (never
+a false "connected"); companion unreachable → the token is kept and the
+player shows disconnected. No cookie, media, magnet, or source URL is ever
+persisted on either side.
 
 ## ED-2B additions
 
@@ -166,6 +255,15 @@ Content-Range, Accept-Ranges, Content-Length`.
   it must not become a release allowlist entry.
 
 ## ED-2C growing-media Range PoC (contract and Windows Chrome measured)
+
+> **Historical scope:** this section records the no-downloader ED-2C PoC
+> (measured 2026-07-31). The `503 + Retry-After` contract itself remains
+> active (it is reused by the torrent verified-prefix streaming and the
+> growing sources), but the PoC boundary below — "no downloader
+> (yt-dlp / aria2 / ffmpeg are not installed, run, or called)" — is a
+> dated description: yt-dlp source jobs (ED-2F) and the anacrolix torrent
+> engine (ED-2G, aria2 fully removed) were implemented afterwards. The
+> PoC facts are unchanged.
 
 A media file that is **still growing** (e.g. a download in progress) has a
 known final size plus a current available prefix. This PoC establishes the
@@ -321,6 +419,15 @@ byte to be served. No disk paths appear in error responses or logs.
 
 ## ED-2E buffering bridge contract (implemented: status endpoint + bridge controller)
 
+> **Historical scope:** this section records the ED-2E deliverable
+> (implemented 2026-07-31). The "Not implemented (intentional scope)"
+> list below — including "yt-dlp/aria2" and the non-functional
+> Magnet/YouTube buttons — describes the **ED-2E-era scope only**; those
+> items were implemented later (ED-2F YouTube jobs + real QA 2026-08-01,
+> ED-2G anacrolix torrent engine + Magnet UI 2026-08-02, persistent
+> pairing 2026-08-03). The status endpoint / bridge controller contract
+> itself remains current.
+
 **Implemented on 2026-07-31** — the companion status endpoint
 (`internal/api/status.go`, `internal/api/status_test.go`) and the Entei
 bridge controller + React hook
@@ -377,10 +484,16 @@ gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
 
 ### Bridge rules (Entei side — implemented)
 
-- **Persistence:** token + session state (state/available/total/pendingSeek/
-  phase) are page-memory only. Nothing goes to localStorage / IndexedDB /
-  sessionStorage / cookies; a reload means re-pairing (existing contract).
-  Bridge state never mixes into the existing persisted prefs
+- **Persistence:** job/session state (state/available/total/pendingSeek/
+  phase) is page-memory only — nothing goes to localStorage / IndexedDB /
+  sessionStorage / cookies. The pairing **token** is the one persistent
+  pairing datum: it lives in an opaque schema-versioned localStorage
+  envelope (see
+  [Persistent pairing credential](#persistent-pairing-credential)) and is
+  re-validated on reload via `GET /v1/pair/status` (200 → connected;
+  401/403 → cleared + unpaired; unreachable → kept + disconnected). A
+  reload no longer means re-pairing while the credential is valid. Bridge
+  state never mixes into the existing persisted prefs
   (volume/playbackRate/layout).
 - **Polling:** single in-flight poll (no parallel retries) via chained
   setTimeout + epoch/AbortController supersession (existing PlayerApp
@@ -442,12 +555,14 @@ gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
 
 ## ED-2F YouTube local source jobs (companion foundation, implemented)
 
-A minimal, production-oriented job boundary that will later feed the
-already-tested status bridge: a localhost-only, exact-Origin + capability-
-token-gated API to create / read / cancel a single YouTube download job.
-**No GoRakuDo proxy, no browser/site integration, no cookies, no
-yt-dlp/aria2 download QA in this phase.** The user-facing YouTube URL input
-in Entei is intentionally NOT wired yet.
+A minimal, production-oriented job boundary that feeds the status bridge:
+a localhost-only, exact-Origin + capability-token-gated API to create /
+read / cancel a single YouTube download job.
+**No GoRakuDo proxy, no browser/site integration, no cookies.** **Real
+yt-dlp download QA PASSED on 2026-08-01** (record below), and the
+user-facing YouTube URL input in Entei is implemented (see the
+"User-facing YouTube URL flow" subsection below). aria2 is not involved
+(fully removed with the anacrolix migration).
 
 ### Endpoints (registered only when `--ytdlp` is configured)
 
@@ -547,9 +662,10 @@ conflict / companion unavailable), and on acceptance starts the existing
 bridge session (`useCompanionJobSession`) which polls the job status and
 loads the media only on `complete`. The banner's End button and media
 switch cancel the job via `POST /v1/source/jobs/{id}/cancel` and end the
-session. URL + token stay page-memory only (no storage/logs/URL
-persistence); the raw URL is never shown — a generic localized session
-label is used. `companion-fixture-entry.ts` (the test-only internal start
+session. URL + job state stay page-memory only (no storage/logs/URL
+persistence); the capability token itself is persisted opaquely by the
+pairing controller — this dialog never writes any storage. The raw URL is
+never shown — a generic localized session label is used. `companion-fixture-entry.ts` (the test-only internal start
 path) was removed.
 
 ### Common CLI + Termux helper bootstrap (implemented; device gates pending)
@@ -588,8 +704,8 @@ path) was removed.
   "YouTube download" for a torrent.
 - **Extension-governed MIME**: the selected file's extension sets the
   Content-Type on BOTH the progressive and completed media serves
-  (ideo/mp4, ideo/webm, ideo/ogg, ideo/x-matroska for MKV) —
-  no hardcoded ideo/mp4.
+  (video/mp4, video/webm, video/ogg, video/x-matroska for MKV) —
+  no hardcoded video/mp4.
 - **Structural safe-early predicate**: playable now requires a bounded
   structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
   ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;
@@ -603,7 +719,7 @@ path) was removed.
   by only handing off when the video track structure is proven. No fixed
   byte threshold; malformed VINT/unknown-size/partial elements keep the
   job buffering honestly; complete MKV always serves with
-  ideo/x-matroska; no arbitrary-MKV or random-seek claim.
+  video/x-matroska; no arbitrary-MKV or random-seek claim.
 - **Stream-not-ready copy**: for an active companion session, a generic
   media element error surfaces a localized "stream is not ready yet —
   waiting for more data" message unless the job is terminally errored; the
@@ -618,19 +734,22 @@ E2E (prefix-206 playback, MKV early-start limits) remains unmeasured.
 Cookie / saved-profile handling, subtitles, Android/headed-Windows browser
 QA, and the production bridge connection.
 
-## ED-2G aria2 torrent job foundation (companion backend, implemented)
+## ED-2G torrent job foundation — anacrolix/torrent engine (companion backend, implemented)
 
-A production-oriented aria2 local-torrent job boundary that later shares
-the existing status/media bridge. **No GoRakuDo proxy, no browser
-WebTorrent, no extension/site integration, no LAN/public bind.**
+A production-oriented **anacrolix/torrent** local-torrent job boundary
+sharing the existing status/media bridge. **No GoRakuDo proxy, no browser
+WebTorrent, no extension/site integration, no LAN/public bind.** The
+initial aria2 helper design was fully replaced by the in-process engine:
+**aria2 is completely removed** (no `--aria2` flag, no helper payload, no
+release contract entry, no tests).
 
-### Endpoints (registered only when `--aria2` is configured)
+### Endpoints (registered when the torrent manager is configured — always in the core)
 
 ```
 POST /v1/source/torrents             — create; body {"magnet": "…"}
 GET  /v1/source/torrents/{id}        — read redacted state
 POST /v1/source/torrents/{id}/cancel — cancel + free the session
-GET  /v1/source/torrents/{id}/files  — sanitized file listing (after download)
+GET  /v1/source/torrents/{id}/files  — sanitized file listing (available as soon as METADATA arrives)
 POST /v1/source/torrents/{id}/select — one video + optional subtitle
 ```
 
@@ -640,7 +759,7 @@ POST /v1/source/torrents/{id}/select — one video + optional subtitle
   stays current until cancelled.
 - Responses are **metadata-only**: opaque job ids, `state`, generic errors,
   and sanitized file metadata (`id`/`basename`/`extension`/`byteSize`/`kind`)
-  — never absolute paths, the magnet, trackers, or raw aria2 stderr.
+  — never absolute paths, the magnet, trackers, or raw engine output.
 
 ### Magnet validation
 
@@ -649,7 +768,7 @@ Only `magnet:?xt=urn:btih:` infohash magnets are accepted (40-hex or
 announce trackers are preserved** (see the tracker policy below); `dn`, `xl`,
 webseeds, and every other parameter are deliberately dropped. Everything
 else — arbitrary URLs, file paths, malformed magnets — is rejected before
-any spawn, and errors never echo the magnet or tracker data.
+any engine start, and errors never echo the magnet or tracker data.
 
 ### Tracker policy (ED-2G, implemented 2026-08-02)
 
@@ -664,8 +783,9 @@ any spawn, and errors never echo the magnet or tracker data.
   Validation never performs DNS resolution.
 - Canonical trackers are normalized (lowercase scheme/host), deduplicated,
   and emitted in deterministic sorted order as repeated `tr=` params; the
-  whole canonical magnet (xt + trackers) stays **one final argv element** to
-  aria2; the fixed args and no-shell contract are unchanged.
+  whole canonical magnet (xt + trackers) is passed to the engine as the
+  single `AddMagnet` input. **No shell is ever involved** (no external
+  process exists anymore).
 - `http` is allowed with a documented tradeoff: plaintext announce exposes
   the infohash and the user's IP to the tracker operator and on-path
   observers. Tracker data never appears in API snapshots, errors, logs, or
@@ -676,44 +796,64 @@ any spawn, and errors never echo the magnet or tracker data.
   companion remains local-only. User consent for this exposure is a future
   UI phase.
 
-### Helper contract
+### Engine contract
 
-- Pinned via `--aria2 <path>` (validated at startup); never request-derived.
-- Fixed safe argv: `--dir=<private job dir> --seed-time=0 --enable-rpc=false
-  --check-integrity=true --summary-interval=0 --console-log-level=error
-  --allow-overwrite=true --auto-file-renaming=false` + the canonicalized
-  magnet as the final separate argv element. **No shell.**
-- `--seed-time=0`: download only, never seed. Original source bytes only (no
-  remux/transcode). All files stay in the private `entei-torrent-*` temp
-  dir; cancellation/failure/session end kills the aria2 process tree and
-  removes only owned job files — user files are never touched.
+- anacrolix/torrent **v1.61** in-process engine, loopback-only
+  (`ListenHost` = loopback, random port), `Seed=false` / `NoUpload=true`
+  (never seeds), engine logger discarded (cancellation read noise never
+  reaches the companion stderr).
+- The canonicalized magnet (xt + trackers) is passed to `engine.Start`
+  (bounded metadata fetch, default 30m; `--torrent-timeout`); **the
+  sanitized file list becomes available as soon as metadata arrives**
+  (`GotInfo`) — the payload download is NOT awaited.
+- **Selected-file streaming (2026-08-03):** after the user selects one
+  video + optional subtitle, the selected video's bounded head window
+  (`bootstrapWindowBytes` = 4 MiB, derived from the file's first piece
+  index and the torrent piece length, clamped to the file) is raised to
+  `types.PiecePriorityHigh`, and a dedicated bootstrap reader
+  (`StartBootstrap` — Seek(0) + one-byte Read keeps the demand alive,
+  `SetReadahead(4 MiB)`) requests the head pieces. The **verified
+  contiguous prefix therefore always grows from byte 0**. The bootstrap
+  reader is cancelled on both job end and completion and never blocks the
+  state machine.
+- Availability is the **verified contiguous prefix only** — matched against
+  the torrent's own piece SHA-1s, never allocated file size or zero-probing
+  (a multi-file global piece spanning another file is not verifiable →
+  honest buffering).
+- HTTP reads use a **fresh engine reader per ReadAt** (Seek + Read under a
+  30 s context timeout) so concurrent browser Range requests never share a
+  reader's position state. Original source bytes only (no remux/transcode);
+  piece data lives in the engine's session-private storage (OS temp by
+  default) and is released when the torrent session is dropped on
+  cancel/failure/session end. **User files are never touched.**
 
 ### File listing → selection → media bridge
 
-After the download completes, the job lists + classifies the torrent files
-against the Entei Player's native allowlists (video: mp4/webm/ogv/ogg/mkv/
-m4v/avi; audio: mp3/wav/flac/aac/m4a/opus/m4b; subtitle: srt/vtt/ass only —
-no PGS/XML). **If no eligible video exists, the job fails with a terminal
-generic error.** `GET …/files` exposes the sanitized listing; `POST
-…/select` enforces the **one video + one optional subtitle** contract and,
-on success, makes the selected (fully downloaded) video the servable media.
-**Nothing is served before a valid selection** — `/v1/media/status` reports
-`buffering` (fixture 503) until then, then `complete` with
-`available==total` and the fixture serving the selected file (206 Range).
-Forward/growing playback during download is a documented **future testing
-direction**; the initial scope is the complete-only gate matching the direct
-video bridge.
+**Immediately after metadata**, the job lists + classifies the torrent
+files against the Entei Player's native allowlists (video:
+mp4/webm/ogv/ogg/mkv/m4v/avi; audio: mp3/wav/flac/aac/m4a/opus/m4b;
+subtitle: srt/vtt/ass only — no PGS/XML). **If no eligible video exists,
+the job fails with a terminal generic error.** `GET …/files` exposes the
+sanitized listing; `POST …/select` enforces the **one video + one optional
+subtitle** contract. **Nothing is served before a valid selection** —
+`/v1/media/status` reports `buffering` (fixture 503) until then; after a
+valid selection the job streams the **verified prefix** (`playable` status
+when the verified prefix > 0 and a servable source exists — the bridge
+assigns the URL then; ranges inside the verified prefix → `206`, beyond →
+`503 + Retry-After`, never fabricated bytes) and reaches `complete`
+(`available == total`) when the download finishes.
 
 ### Tests
 
-`internal/torrent` (magnet validation; manager: fixed argv/no injection,
-one-active conflict, file-listing sanitization, selection restrictions /
-no-eligible-video error, redaction, cancel/timeout/process cleanup + no
-temp-dir leak) and `internal/api` (torrent endpoints: gates, redaction,
-create/read/files/select/cancel, status/fixture mapping before/after
-selection, **cross-job-kind conflict**, preflight) — all against a
-deterministic fake aria2 helper (no swarm/network). `go test -race ./...`
-green.
+`internal/torrent` (magnet validation; manager: Engine interface /
+injection-free, one-active conflict, file-listing sanitization, selection
+restrictions / no-eligible-video error, redaction, cancel/timeout/session
+cleanup + no temp-dir leak, **head-bootstrap window pure function and
+StartBootstrap lifecycle**) and `internal/api` (torrent endpoints: gates,
+redaction, create/read/files/select/cancel, status/fixture mapping across
+buffering/streaming/complete, **cross-job-kind conflict**, preflight) — all
+against a deterministic fake Engine (no swarm/network). `go test -race
+./...` green.
 
 
 ### Progressive streaming fixes (rc.12 issues; implemented)
@@ -723,8 +863,8 @@ green.
   "YouTube download" for a torrent.
 - **Extension-governed MIME**: the selected file's extension sets the
   Content-Type on BOTH the progressive and completed media serves
-  (ideo/mp4, ideo/webm, ideo/ogg, ideo/x-matroska for MKV) —
-  no hardcoded ideo/mp4.
+  (video/mp4, video/webm, video/ogg, video/x-matroska for MKV) —
+  no hardcoded video/mp4.
 - **Structural safe-early predicate**: playable now requires a bounded
   structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
   ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;
@@ -738,7 +878,7 @@ green.
   by only handing off when the video track structure is proven. No fixed
   byte threshold; malformed VINT/unknown-size/partial elements keep the
   job buffering honestly; complete MKV always serves with
-  ideo/x-matroska; no arbitrary-MKV or random-seek claim.
+  video/x-matroska; no arbitrary-MKV or random-seek claim.
 - **Stream-not-ready copy**: for an active companion session, a generic
   media element error surfaces a localized "stream is not ready yet —
   waiting for more data" message unless the job is terminally errored; the
@@ -750,9 +890,17 @@ verified prefix meeting the decoder-safe structure. Real browser/swarm
 E2E (prefix-206 playback, MKV early-start limits) remains unmeasured.
 ### Remaining gates (not claimed)
 
-Real swarm/network download QA (PSMUX detached session only when later),
-the user-facing torrent selection UI, forward/growing playback during
-download, and Android/headed-Windows browser QA.
+Real swarm/network download E2E (PSMUX detached session only when later)
+with the anacrolix engine, and Android/headed-Windows browser QA of the
+verified-prefix streaming. The 2026-08-02 swarm attempts (below) were run
+with the pre-migration aria2 engine and remain to be re-run against
+anacrolix.
+
+> **Historical note (dated records):** the two "Real ED-2G swarm QA
+> (2026-08-02)" records in the ED-2D section below describe attempts made
+> with the **pre-migration aria2 engine** (rc.6 bootstrap-installed aria2
+> 1.37.0). They are preserved unchanged as history; aria2 has since been
+> fully removed.
 
 ## ED-2D Windows x64 helper-enabled release + bootstrap (implemented)
 
@@ -923,15 +1071,23 @@ acquires ONLY the verifier safely:
 
 ### QA status
 
-**PASS:** Torrent companion QA is accepted at this stage. The remaining
-end-to-end verification is deferred and will cover the user-facing
-Magnet/selection UI, forward/growing playback during download, and
+**PASS:** Torrent companion QA is accepted at this stage. The Magnet UI
+(2026-08-02) and verified-prefix streaming (2026-08-03, anacrolix engine)
+are implemented. The remaining end-to-end verification is deferred and
+will cover real-swarm download E2E with the anacrolix engine and
 Android/headed-Windows browser behavior together.
 
 ## Deferred boundaries (out of scope through ED-2B)
 
+> **Historical scope:** this list records the ED-2B-era scope boundary.
+> yt-dlp YouTube handling (ED-2F), the torrent engine (ED-2G) and the
+> browser integration were implemented afterwards. **aria2 was never
+> shipped** — the torrent engine is the in-process anacrolix/torrent
+> engine (ED-2G), and all aria2 artifacts were removed.
+
 - yt-dlp / YouTube source handling
-- aria2 / torrent / BitTorrent download engine
+- ~~aria2~~ / torrent / BitTorrent download engine (implemented ED-2G as
+  anacrolix/torrent engine; aria2 fully removed)
 - Cookie storage and transmission
 - Growing-media capture / real media URL plumbing (the ED-2C growing source
   is a no-downloader contract PoC — see
@@ -951,6 +1107,14 @@ page origin `http://localhost:4321/player/` against a temporary companion
 bound to `127.0.0.1:4322` and a disposable ~3s 320x180 H.264/AAC MP4
 fixture. This was a manual browser QA session, **not** an automated Go
 test. Non-secret observed results:
+
+> **Historical scope:** this record (and the ED-2C records below) predates
+> persistent pairing. At that time the capability token was memory-only by
+> design — reload meant re-pairing. The current contract persists the
+> opaque token (browser localStorage envelope + companion user-private
+> store; see
+> [Persistent pairing credential](#persistent-pairing-credential)); the
+> observed CORS / Range / canvas facts are unaffected.
 
 - Pairing `POST /v1/pair` returned 200; the capability token was held in
   page memory only (never in console/logs).
@@ -1285,7 +1449,10 @@ Media fixture: growing (total 104857600 bytes, available 409600)
 ```
 
 The capability token is never printed or logged; it is returned once by
-`POST /v1/pair` and kept in process memory.
+`POST /v1/pair`, then persisted in the platform user-private credential
+store (see
+[Persistent pairing credential](#persistent-pairing-credential)) so a
+reload or companion restart does not require re-pairing.
 
 ## Test / cross-compile
 
@@ -1327,7 +1494,9 @@ installer remain later checkpoints.
 
 ```
 cmd/eizouden/        executable: flags, loopback guard, bootstrap, handoff
-internal/api/        HTTP API: /v1/health, /v1/pair, /v1/media/fixture, CORS
+internal/api/        HTTP API: /v1/health, /v1/pair(+/status), /v1/media/fixture, CORS
+internal/credential/ persistent pairing credential: Store abstraction, envelope,
+                     Windows DPAPI store, Termux app-private file store, MemStore fake
 internal/pairing/    crypto/rand pairing code + capability token
 scripts/release.ps1        ED-2D Stage A: build/release helper (manifest + Minisign)
 scripts/termux-bootstrap.sh ED-2D Stage A: Termux bootstrap template (pinned key)

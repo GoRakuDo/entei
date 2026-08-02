@@ -7,7 +7,19 @@
 //   - POST /v1/pair   — exchange a correct pairing code for an opaque
 //     capability token. Requires an allowed Origin. The code is consumed
 //     on success (single-use) and is never echoed in errors or logs.
-//   - OPTIONS /v1/pair — CORS preflight for the pair endpoint.
+//     When a credential store is configured, the token is persisted
+//     BEFORE the 200 is returned; a persistence failure fails the pair
+//     request without a token response.
+//   - DELETE /v1/pair  — authenticated (Origin + capability token)
+//     explicit reset: deletes the persisted credential (best effort),
+//     invalidates the in-memory token, and issues a FRESH pairing code +
+//     token so the pairing dialog works again without a restart. Only
+//     the credential is touched — never jobs or media.
+//   - GET  /v1/pair/status — authenticated (Origin + capability token)
+//     non-sensitive acknowledgement used by the browser to re-validate a
+//     stored token after reload. Never echoes the token, code, path, or
+//     storage errors, and never creates pairing state.
+//   - OPTIONS /v1/pair and /v1/pair/status — CORS preflight (origin-gated).
 //   - GET/HEAD /v1/media/fixture — the configured fixture, served with
 //     correct byte Range semantics. Requires BOTH an allowed Origin AND a
 //     valid capability token via the `token` query parameter (video
@@ -28,8 +40,11 @@
 //     override (Config.AllowOrigins, e.g. --allow-origin) may add further
 //     exact origins for QA; it never replaces the fixed set and is never
 //     persisted.
-//   - Pairing code and capability token exist only in process memory and
-//     are never logged, echoed, or exposed in errors.
+//   - The pairing code is never logged, echoed, or exposed in errors. The
+//     capability token is returned exactly once by POST /v1/pair and is
+//     otherwise never logged, echoed, or exposed. With a configured
+//     credential store the token persists (platform-encrypted) across
+//     companion restarts; without one it exists only in process memory.
 //   - No fixture configured → the media endpoint is honestly disabled
 //     (generic 404). Local paths are never disclosed.
 package api
@@ -47,6 +62,7 @@ import (
 	"strings"
 	"sync"
 
+	"eizoudendenshi/internal/credential"
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/pairing"
@@ -160,13 +176,30 @@ type Config struct {
 	// (/v1/source/torrents…). Nil leaves them unregistered (404). One
 	// active job is enforced across Jobs and Torrents together.
 	Torrents *torrent.Manager
+
+	// Credential, when set, persists the capability token across
+	// companion restarts (see internal/credential). A valid saved token
+	// is loaded at New; otherwise fresh code + token are generated. A
+	// successful pair persists the token BEFORE the 200 response; a
+	// persistence failure fails the pair request without a token. Nil
+	// keeps the historical memory-only contract (useful for tests and
+	// tools that must never touch disk).
+	Credential credential.Store
+
+	// OnPairingReset, when set, is invoked with the FRESH pairing code
+	// after an authenticated DELETE /v1/pair, so the command can print
+	// the new code to the terminal (the pairing dialog then works
+	// without a restart). Nil for tests and non-interactive runs.
+	OnPairingReset func(code string)
 }
 
 // Server holds in-memory pairing state for one process lifetime.
 type Server struct {
 	mu             sync.Mutex
 	code           string              // 6-digit pairing code; consumed after a successful pair
-	token          string              // opaque capability token; never logged or persisted
+	token          string              // opaque capability token; never logged, persisted only via cred
+	cred           credential.Store    // optional persistent credential store (nil = memory-only)
+	onReset        func(code string)   // optional fresh-code notifier after DELETE /v1/pair
 	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
 	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
 	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
@@ -174,7 +207,10 @@ type Server struct {
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 }
 
-// New generates fresh pairing credentials for the process and builds the
+// New loads the persisted credential when a store is configured (a
+// corrupt / undecryptable stored value fails closed and is never
+// accepted — fresh credentials are generated instead), otherwise
+// generates fresh pairing credentials for the process, and builds the
 // combined exact origin allowlist: the fixed production origins plus any
 // validated Config.AllowOrigins extras.
 func New(cfg Config) (*Server, error) {
@@ -188,6 +224,16 @@ func New(cfg Config) (*Server, error) {
 	token, err := pairing.GenerateToken()
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Credential != nil {
+		if saved, _, ok, loadErr := cfg.Credential.Load(); loadErr == nil && ok {
+			// The store only ever returns validated tokens (fail closed),
+			// so a loaded value is trusted as the capability token.
+			token = saved
+		}
+		// A load error (corrupt / undecryptable / profile mismatch) is
+		// deliberately NOT surfaced: the credential is rejected and fresh
+		// credentials are generated, with no detail leaked anywhere.
 	}
 	allowed := make(map[string]struct{}, len(fixedOrigins)+len(cfg.AllowOrigins))
 	for o := range fixedOrigins {
@@ -203,6 +249,8 @@ func New(cfg Config) (*Server, error) {
 	return &Server{
 		code:           code,
 		token:          token,
+		cred:           cfg.Credential,
+		onReset:        cfg.OnPairingReset,
 		fixturePath:    cfg.FixturePath,
 		growSource:     cfg.GrowSource,
 		jobs:           cfg.Jobs,
@@ -224,6 +272,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", s.handleHealth)
 	mux.HandleFunc("/v1/pair", s.handlePair)
+	mux.HandleFunc("/v1/pair/status", s.handlePairStatus)
 	mux.HandleFunc("/v1/media/fixture", s.handleMediaFixture)
 	mux.HandleFunc("/v1/media/status", s.handleMediaStatus)
 	if s.jobs != nil {
@@ -257,16 +306,30 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePair serves POST /v1/pair (code → token) and DELETE /v1/pair
+// (authenticated reset of the pairing credential) with the same origin
+// gate and CORS preflight.
 func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		s.handlePairPreflight(w, r)
 		return
 	}
-	if r.Method != http.MethodPost {
-		writeMethodNotAllowed(w, "POST, OPTIONS")
-		return
+	switch r.Method {
+	case http.MethodPost:
+		s.pairWithCode(w, r)
+	case http.MethodDelete:
+		s.deletePairing(w, r)
+	default:
+		writeMethodNotAllowed(w, "POST, DELETE, OPTIONS")
 	}
+}
 
+// pairWithCode exchanges a correct pairing code for the capability token.
+// The token is persisted BEFORE the 200 is returned when a credential
+// store is configured; a persistence failure fails the pair request
+// (generic 500, no token response) and does NOT consume the code, so the
+// user can retry with the same code.
+func (s *Server) pairWithCode(w http.ResponseWriter, r *http.Request) {
 	// Pairing is a state change: missing or disallowed Origin is rejected.
 	// The error is returned without CORS headers, so a disallowed browser
 	// origin cannot read it either.
@@ -293,10 +356,21 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	match := subtle.ConstantTimeCompare([]byte(req.Code), []byte(s.code)) == 1
+	if match && s.cred != nil {
+		// Persist BEFORE returning 200. Failure fails the pair request and
+		// leaves the code unconsumed (the user can retry once storage
+		// recovers).
+		if err := s.cred.Save(s.token); err != nil {
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, errorBody("pairing unavailable"))
+			return
+		}
+	}
 	if match {
-		// Single-use: consume the code on success.
+		// Single-use: consume the code only after persistence succeeded.
 		s.code = ""
 	}
+	token := s.token
 	s.mu.Unlock()
 
 	if !match {
@@ -306,7 +380,94 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 
 	// The token is returned exactly once, here. It is never echoed in any
 	// other response, error, or log.
-	writeJSON(w, http.StatusOK, map[string]string{"token": s.token})
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+// deletePairing is the authenticated explicit reset: it deletes the
+// persisted credential (best effort — the in-memory invalidation below is
+// authoritative), rotates the in-memory token, and issues a FRESH pairing
+// code so the pairing dialog works again without a restart. Only the
+// credential is touched — jobs and media are never affected. The
+// response is a non-sensitive acknowledgement that never echoes the
+// token or the new code.
+func (s *Server) deletePairing(w http.ResponseWriter, r *http.Request) {
+	origin, ok := s.originAllowed(r)
+	if !ok {
+		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
+
+	// Authenticated: a valid capability token is required to delete the
+	// credential (an unauthenticated reset would be a DoS on pairing).
+	if !s.tokenValid(r) {
+		writeJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
+		return
+	}
+
+	// Rotate credentials first so a generation failure never leaves the
+	// server half-reset (old token deleted, old credential gone).
+	newToken, err := pairing.GenerateToken()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody("pairing reset unavailable"))
+		return
+	}
+	newCode, err := pairing.GenerateCode()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody("pairing reset unavailable"))
+		return
+	}
+
+	s.mu.Lock()
+	if s.cred != nil {
+		// Best effort: even if the persisted file survives (e.g. disk
+		// error), the in-memory rotation below makes the old credential
+		// useless and the next successful pair overwrites it.
+		_ = s.cred.Delete()
+	}
+	s.token = newToken
+	s.code = newCode
+	onReset := s.onReset
+	s.mu.Unlock()
+
+	// Tell the command so the FRESH code reaches the terminal; the
+	// pairing dialog then works without a companion restart.
+	if onReset != nil {
+		onReset(newCode)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "unpaired"})
+}
+
+// handlePairStatus is the authenticated non-sensitive acknowledgement
+// used by the browser to re-validate a stored token after a reload. It
+// performs the same Origin + token gates as the media endpoints but
+// returns only a fixed acknowledgement — never the token, the code, a
+// path, or a storage error — and creates no pairing state.
+func (s *Server) handlePairStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		s.handlePairStatusPreflight(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, "GET, OPTIONS")
+		return
+	}
+
+	origin, ok := s.originAllowed(r)
+	if !ok {
+		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
+
+	if !s.tokenValid(r) {
+		writeJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "paired"})
 }
 
 // handleMediaFixture serves the configured fixture with correct HTTP byte
@@ -414,8 +575,11 @@ func (s *Server) tokenValid(r *http.Request) bool {
 	if supplied == "" {
 		return false
 	}
+	s.mu.Lock()
+	token := s.token
+	s.mu.Unlock()
 	a := sha256.Sum256([]byte(supplied))
-	b := sha256.Sum256([]byte(s.token))
+	b := sha256.Sum256([]byte(token))
 	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }
 
@@ -426,8 +590,23 @@ func (s *Server) handlePairPreflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Max-Age", "600")
+	w.Header().Add("Vary", "Origin")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePairStatusPreflight is the origin-gated preflight for the
+// authenticated status acknowledgement (GET only).
+func (s *Server) handlePairStatusPreflight(w http.ResponseWriter, r *http.Request) {
+	origin, ok := s.originAllowed(r)
+	if !ok {
+		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	w.Header().Set("Access-Control-Max-Age", "600")
 	w.Header().Add("Vary", "Origin")
 	w.WriteHeader(http.StatusNoContent)

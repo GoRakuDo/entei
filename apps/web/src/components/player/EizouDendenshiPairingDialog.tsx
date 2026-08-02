@@ -5,7 +5,9 @@
  * companion app (terminal/OTP), and the browser POSTs it directly to
  * `http://127.0.0.1:4322/v1/pair` with the page's natural Origin. The
  * capability token is accepted **only on HTTP 200** and handed to a narrow
- * callback for later bridge integration; it is never persisted — no
+ * callback; the CALLER's pairing hook persists it (opaque localStorage
+ * envelope; see use-companion-pairing) — this dialog itself never touches
+ * any storage, and neither the code nor the token ever appears in
  * localStorage, IndexedDB, sessionStorage, cookies, URL, console, error
  * text, or telemetry. OTP digits and any token are cleared on close and on
  * unmount. Errors are localized and generic: no code/token/request detail.
@@ -50,7 +52,8 @@ export interface EizouDendenshiPairingDict {
 interface EizouDendenshiPairingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Receives the capability token (page memory only) on a successful pair. */
+  /** Receives the capability token on a successful pair; the pairing
+   *  controller persists it opaquely (this dialog never writes storage). */
   onPairSuccess: (token: string) => void;
   dict: EizouDendenshiPairingDict;
 }

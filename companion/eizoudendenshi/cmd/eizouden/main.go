@@ -2,9 +2,12 @@
 //
 // It binds a loopback-only HTTP API, prints its resolved bound address and a
 // freshly generated 6-digit pairing code to the terminal, then serves the
-// /v1 API. Pairing code and capability token live only in process memory;
-// nothing is written to disk, storage, or logs. With --fixture, a single
-// media file is served at /v1/media/fixture with byte Range semantics. With
+// /v1 API. The pairing code is never persisted; the capability token IS
+// persisted (platform-appropriate user-private storage — DPAPI on Windows,
+// Termux app-private on Android; see internal/credential) so a successful
+// pairing survives browser reloads and companion restarts until the user
+// explicitly deletes it (DELETE /v1/pair). With --fixture, a single media
+// file is served at /v1/media/fixture with byte Range semantics. With
 // --grow-fixture/--grow-total, a file still being appended is served at the
 // same URL with the ED-2C growing-media contract (availability-aware 206 /
 // 503+Retry-After buffering; see internal/api). With --allow-origin, one or
@@ -26,6 +29,7 @@ import (
 	"time"
 
 	"eizoudendenshi/internal/api"
+	"eizoudendenshi/internal/credential"
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/torrent"
@@ -195,6 +199,15 @@ func main() {
 		}
 	}
 
+	// Persistent pairing credential (platform-appropriate user-private
+	// storage: DPAPI on Windows, Termux app-private on Android). The
+	// platform resolution fails closed — never silently fall back to a
+	// memory-only companion the user believes is persistent.
+	cred, err := credential.NewDefaultStore()
+	if err != nil {
+		log.Fatalf("init pairing credential store: %v", err)
+	}
+
 	if len(args) > 0 && args[0] == "cli" {
 		cfg := serverConfig{
 			bind:     bind,
@@ -203,6 +216,7 @@ func main() {
 			origins:  allowOrigins,
 			jobs:     jobs,
 			torrents: torrents,
+			cred:     cred,
 		}
 		code := runCLI(cliOptions{
 			version: api.Version,
@@ -219,13 +233,14 @@ func main() {
 		origins:  allowOrigins,
 		jobs:     jobs,
 		torrents: torrents,
+		cred:     cred,
 	}, *ytdlp); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // runServer starts the foreground loopback companion: API wiring, listener,
-// terminal-only handoff (banner + fresh pairing code), then serving until
+// terminal-only handoff (banner + pairing code), then serving until
 // Ctrl+C. Shared by the plain server mode and the CLI's option 1 so startup
 // behavior is never duplicated.
 func runServer(cfg serverConfig, ytdlpPath string) error {
@@ -235,6 +250,13 @@ func runServer(cfg serverConfig, ytdlpPath string) error {
 		AllowOrigins: cfg.origins,
 		Jobs:         cfg.jobs,
 		Torrents:     cfg.torrents,
+		Credential:   cfg.cred,
+		// After an authenticated DELETE /v1/pair the in-memory credential
+		// is rotated and a FRESH code is issued; print it to the terminal
+		// so the pairing dialog works again without a restart.
+		OnPairingReset: func(code string) {
+			fmt.Fprintf(os.Stdout, "Pairing code (new): %s\n", code)
+		},
 	})
 	if err != nil {
 		return err
@@ -266,6 +288,7 @@ type serverConfig struct {
 	origins  []string
 	jobs     *job.Manager
 	torrents *torrent.Manager
+	cred     credential.Store
 }
 
 // banner is the startup line printed to the terminal.

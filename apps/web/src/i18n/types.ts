@@ -277,6 +277,12 @@ export interface Dictionary {
     eizouDisconnected: string;
     eizouSetupImageAlt: string;
     eizouConnected: string;
+    eizouChecking: string;
+    eizouResetButton: string;
+    eizouResetTitle: string;
+    eizouResetDesc: string;
+    eizouResetConfirm: string;
+    eizouResetCancel: string;
     eizouPairingTitle: string;
     eizouPairingDesc: string;
     eizouPairingOtpLabel: string;
@@ -286,7 +292,7 @@ export interface Dictionary {
     eizouPairingErrorNetwork: string;
     eizouPairingErrorInvalidCode: string;
     eizouPairingErrorGeneric: string;
-  companionStreamNotReady: string;
+    companionStreamNotReady: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
     youtubeInputLabel: string;
     youtubeInputTitle: string;

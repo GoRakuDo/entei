@@ -17,6 +17,12 @@ const baseDict = {
   eizouSetupImageAlt: 'EizouDendenshi illustration',
   eizouConnected: 'Connected',
   eizouDisconnected: 'Disconnected',
+  eizouChecking: 'Checking…',
+  eizouResetButton: 'Reset pairing',
+  eizouResetTitle: 'Reset pairing?',
+  eizouResetDesc: 'Reset pairing?',
+  eizouResetConfirm: 'Reset pairing',
+  eizouResetCancel: 'Cancel',
   eizouPairingTitle: 'Pair EizouDendenshi',
   eizouPairingDesc: 'Enter the 6-digit code shown in the companion app.',
   eizouPairingOtpLabel: '6-digit pairing code',
@@ -48,6 +54,7 @@ function setupSection(overrides: Partial<Parameters<typeof EizouDendenshiSetup>[
   const props = {
     isConnected: false,
     onPairSuccess: vi.fn(),
+    onResetPairing: vi.fn(),
     dict: baseDict,
     ...overrides,
   };
@@ -196,6 +203,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
       <EizouDendenshiSetup
         isConnected={false}
         onPairSuccess={onPairSuccess}
+        onResetPairing={vi.fn()}
         dict={baseDict}
       />,
     );
@@ -233,6 +241,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
       <EizouDendenshiSetup
         isConnected={false}
         onPairSuccess={onPairSuccess}
+        onResetPairing={vi.fn()}
         dict={baseDict}
       />,
     );
@@ -262,6 +271,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
       <EizouDendenshiSetup
         isConnected={false}
         onPairSuccess={onPairSuccess}
+        onResetPairing={vi.fn()}
         dict={baseDict}
       />,
     );
@@ -287,6 +297,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
       <EizouDendenshiSetup
         isConnected={false}
         onPairSuccess={onPairSuccess}
+        onResetPairing={vi.fn()}
         dict={baseDict}
       />,
     );
@@ -312,6 +323,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
       <EizouDendenshiSetup
         isConnected={false}
         onPairSuccess={onPairSuccess}
+        onResetPairing={vi.fn()}
         dict={baseDict}
       />,
     );
@@ -340,6 +352,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
       <EizouDendenshiSetup
         isConnected={false}
         onPairSuccess={onPairSuccess}
+        onResetPairing={vi.fn()}
         dict={baseDict}
       />,
     );
@@ -369,7 +382,7 @@ describe('EizouDendenshiPairingDialog — close/unmount cleanup', () => {
     ).not.toBeInTheDocument();
 
     // Reopen — OTP and error must be clean (no persistence).
-    rerender(<EizouDendenshiSetup isConnected={false} onPairSuccess={vi.fn()} dict={baseDict} />);
+    rerender(<EizouDendenshiSetup isConnected={false} onPairSuccess={vi.fn()} onResetPairing={vi.fn()} dict={baseDict} />);
     fireEvent.click(screen.getByRole('button', { name: baseDict.eizouSetupLabel }));
     expect(screen.getByLabelText(baseDict.eizouPairingOtpLabel)).toHaveValue('');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -391,6 +404,7 @@ describe('EizouDendenshiPairingDialog — close/unmount cleanup', () => {
       <EizouDendenshiSetup
         isConnected={false}
         onPairSuccess={onPairSuccess}
+        onResetPairing={vi.fn()}
         dict={baseDict}
       />,
     );
@@ -404,5 +418,90 @@ describe('EizouDendenshiPairingDialog — close/unmount cleanup', () => {
     );
     await waitFor(() => expect(onPairSuccess).not.toHaveBeenCalled());
     expect(screen.queryByText(/stale-token/)).not.toBeInTheDocument();
+  });
+});
+
+describe('EizouDendenshiSetup — persistent pairing + explicit reset', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shows the neutral checking label while a stored token is validated (never a false disconnected)', () => {
+    setupSection({ isConnected: false, isValidating: true });
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(baseDict.eizouChecking);
+    expect(status).not.toHaveTextContent(baseDict.eizouDisconnected);
+  });
+
+  it('shows the reset control only when connected', () => {
+    const { rerender } = setupSection({ isConnected: false });
+    expect(
+      screen.queryByRole('button', { name: baseDict.eizouResetButton }),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <EizouDendenshiSetup
+        isConnected={true}
+        onPairSuccess={vi.fn()}
+        onResetPairing={vi.fn()}
+        dict={baseDict}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: baseDict.eizouResetButton }),
+    ).toBeInTheDocument();
+  });
+
+  it('status indicator is never interactive — no accidental remove from it', () => {
+    setupSection({ isConnected: true });
+    const status = screen.getByRole('status');
+    // The status is a non-interactive element (not a button, no click
+    // handler); only the explicit reset control can trigger the flow.
+    expect(status.tagName).toBe('SPAN');
+    expect(
+      screen.queryByRole('button', { name: baseDict.eizouConnected }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reset requires confirmation: cancel closes the dialog without calling onResetPairing', () => {
+    const onResetPairing = vi.fn();
+    setupSection({ isConnected: true, onResetPairing });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouResetButton }));
+    expect(
+      screen.getByRole('dialog', { name: baseDict.eizouResetTitle }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouResetCancel }));
+    expect(
+      screen.queryByRole('dialog', { name: baseDict.eizouResetTitle }),
+    ).not.toBeInTheDocument();
+    expect(onResetPairing).not.toHaveBeenCalled();
+  });
+
+  it('confirm calls the reset callback and closes the dialog', async () => {
+    const onResetPairing = vi.fn(async () => {});
+    setupSection({ isConnected: true, onResetPairing });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouResetButton }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouResetConfirm }));
+    await waitFor(() => expect(onResetPairing).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: baseDict.eizouResetTitle }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('confirm closes even when the reset callback rejects (companion unreachable — graceful divergence)', async () => {
+    const onResetPairing = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    setupSection({ isConnected: true, onResetPairing });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouResetButton }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouResetConfirm }));
+    await waitFor(() => expect(onResetPairing).toHaveBeenCalledTimes(1));
+    // The dialog must still close: the browser-side unpaired state is
+    // authoritative even when the companion was unreachable.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: baseDict.eizouResetTitle }),
+      ).not.toBeInTheDocument(),
+    );
   });
 });

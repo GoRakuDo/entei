@@ -68,7 +68,9 @@ export interface CompanionBridgeStatus {
 export interface CompanionBridgeSource {
   /** e.g. "http://127.0.0.1:4322" — localhost companion only. */
   baseUrl: string;
-  /** Capability token from pairing. Page-memory only; never persisted. */
+  /** Capability token from pairing. The bridge holds it in memory only;
+   *  persistence is the pairing controller's opaque localStorage
+   *  envelope (see companion-pairing-store). */
   token: string;
 }
 
@@ -110,7 +112,10 @@ export interface CompanionBridgeOptions {
 }
 
 export interface CompanionBridgeCallbacks {
-  onPhaseChange(phase: CompanionBridgePhase, info: CompanionBridgePhaseInfo): void;
+  onPhaseChange(
+    phase: CompanionBridgePhase,
+    info: CompanionBridgePhaseInfo,
+  ): void;
 }
 
 export const BRIDGE_BASE_POLL_MS = 1_000;
@@ -347,7 +352,8 @@ export class CompanionBridge {
     if (
       state !== 'disabled' &&
       state !== 'buffering' &&
-      state !== 'complete' && state !== 'playable' &&
+      state !== 'complete' &&
+      state !== 'playable' &&
       state !== 'error'
     ) {
       return { kind: 'fail', transport: false };
@@ -618,7 +624,10 @@ export class CompanionBridge {
     this.setPhase('error', 'source reported an error after media failure');
   }
 
-  private setPhase(phase: CompanionBridgePhase, reason: string | null = null): void {
+  private setPhase(
+    phase: CompanionBridgePhase,
+    reason: string | null = null,
+  ): void {
     this.phase = phase;
     this.callbacks.onPhaseChange(phase, { progress: this.progress, reason });
   }

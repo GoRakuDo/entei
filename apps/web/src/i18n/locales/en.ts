@@ -222,10 +222,14 @@ export const en: Dictionary = {
     magnetErrorInvalid: 'Invalid magnet URI. Please enter a valid magnet link.',
     magnetInputSubmit: 'Start download',
     magnetInputUnpairedBody: 'Pair EizouDendenshi first to download a torrent.',
-    magnetConsentLabel: 'I understand: torrent trackers and peers can see my IP address while downloading.',
-    magnetInputErrorRepair: 'The connection needs re-pairing. Open Setup and connect again.',
-    magnetInputErrorConflict: 'A download is already active. Cancel the previous download first.',
-    magnetInputErrorNetwork: 'Could not reach EizouDendenshi. Make sure the companion app is running.',
+    magnetConsentLabel:
+      'I understand: torrent trackers and peers can see my IP address while downloading.',
+    magnetInputErrorRepair:
+      'The connection needs re-pairing. Open Setup and connect again.',
+    magnetInputErrorConflict:
+      'A download is already active. Cancel the previous download first.',
+    magnetInputErrorNetwork:
+      'Could not reach EizouDendenshi. Make sure the companion app is running.',
     magnetInputErrorGeneric: 'Something went wrong. Try again.',
     magnetInputSubmitting: 'Starting…',
     magnetDownloading: 'Downloading…',
@@ -243,9 +247,15 @@ export const en: Dictionary = {
     eizouSetupImageAlt: 'EizouDendenshi illustration',
     eizouConnected: 'Connected',
     eizouDisconnected: 'Disconnected',
+    eizouChecking: 'Checking…',
+    eizouResetButton: 'Reset pairing',
+    eizouResetTitle: 'Reset pairing?',
+    eizouResetDesc:
+      'This removes the saved connection from this browser and from the companion app. You will need a new pairing code to connect again. Downloads and media are not affected.',
+    eizouResetConfirm: 'Reset pairing',
+    eizouResetCancel: 'Cancel',
     eizouPairingTitle: 'Pair EizouDendenshi',
-    eizouPairingDesc:
-      'Enter the 6-digit code shown in the companion app.',
+    eizouPairingDesc: 'Enter the 6-digit code shown in the companion app.',
     eizouPairingOtpLabel: '6-digit pairing code',
     eizouPairingOtpInvalid: 'Enter the 6-digit code.',
     eizouPairingSubmit: 'Pair',
@@ -254,18 +264,22 @@ export const en: Dictionary = {
       'Could not reach EizouDendenshi. Make sure the companion app is running.',
     eizouPairingErrorInvalidCode:
       'Invalid code. Check the code shown in the companion app.',
-  companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
+    companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTube streaming',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'Start download',
-    youtubeInputUnpairedBody: 'Pair EizouDendenshi first to download from YouTube.',
+    youtubeInputUnpairedBody:
+      'Pair EizouDendenshi first to download from YouTube.',
     youtubeInputErrorInvalid: 'Invalid YouTube URL.',
-    youtubeInputErrorRepair: 'The connection needs re-pairing. Open Setup and connect again.',
-    youtubeInputErrorConflict: 'A download is already active. Cancel the previous download first.',
-    youtubeInputErrorNetwork: 'Could not reach EizouDendenshi. Make sure the companion app is running.',
+    youtubeInputErrorRepair:
+      'The connection needs re-pairing. Open Setup and connect again.',
+    youtubeInputErrorConflict:
+      'A download is already active. Cancel the previous download first.',
+    youtubeInputErrorNetwork:
+      'Could not reach EizouDendenshi. Make sure the companion app is running.',
     youtubeInputErrorGeneric: 'Something went wrong. Try again.',
     youtubeInputSubmitting: 'Starting…',
     // P2.1: Subtitle Appearance Settings
@@ -285,7 +299,8 @@ export const en: Dictionary = {
     trackerOff: 'OFF',
     trackerAriaLabel: 'Immersion tracker enabled',
     trackerEnabledAriaDescription: 'Recording watch time and mining history',
-    trackerDisabledAriaDescription: 'Tracker is off — no new recording, existing history preserved',
+    trackerDisabledAriaDescription:
+      'Tracker is off — no new recording, existing history preserved',
   },
   reader: {
     title: 'EPUB Reader',
@@ -346,10 +361,12 @@ export const en: Dictionary = {
     // Loading / unavailable / empty states
     loadingAriaBusy: 'Loading tracker data…',
     unavailableTitle: 'Tracker unavailable',
-    unavailableDesc: 'IndexedDB is not available in this browser context. The tracker records local playback and mining history; it requires a secure context (HTTPS or localhost) and a browser that supports IndexedDB.',
+    unavailableDesc:
+      'IndexedDB is not available in this browser context. The tracker records local playback and mining history; it requires a secure context (HTTPS or localhost) and a browser that supports IndexedDB.',
     unavailableIconLabel: 'Database unavailable',
     emptyTitle: 'No data yet',
-    emptyDesc: 'This dashboard builds from your local playback history and successful Anki exports. Play media with subtitles, and mine sentences to populate these sections.',
+    emptyDesc:
+      'This dashboard builds from your local playback history and successful Anki exports. Play media with subtitles, and mine sentences to populate these sections.',
     emptyIconLabel: 'Empty dashboard',
     // Table headers / labels
     mediaColumnFile: 'File',

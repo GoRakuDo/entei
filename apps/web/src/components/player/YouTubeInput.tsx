@@ -5,11 +5,13 @@
  * YouTube source job on the paired localhost companion (POST
  * /v1/source/jobs?token=…). The companion server validation is the source
  * of truth; a light client-side shape check gives immediate feedback for
- * clearly invalid input. The URL and token live in component/page memory
- * only — never localStorage / IndexedDB / sessionStorage / cookies /
- * history / console / errors / analytics — and are cleared on close and
- * unmount. Unpaired: only a pairing-needed notice; no URL can be entered.
- * Errors are generic and localized; raw server/URL details are suppressed.
+ * clearly invalid input. The URL lives in component/page memory only —
+ * never localStorage / IndexedDB / sessionStorage / cookies / history /
+ * console / errors / analytics — and is cleared on close and unmount.
+ * (The capability token itself is persisted opaquely by the pairing
+ * controller; this dialog never writes any storage.) Unpaired: only a
+ * pairing-needed notice; no URL can be entered. Errors are generic and
+ * localized; raw server/URL details are suppressed.
  * ---------------------------------------------------------------------------
  */
 'use client';

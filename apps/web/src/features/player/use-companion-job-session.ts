@@ -20,8 +20,10 @@
  *   one-active session and its private temp dir) then ends the local
  *   session. Used by the banner's End button and by media switch.
  * - endJobSession: local-only end (media switch / unmount safety).
- * All state is page memory only — never localStorage/IndexedDB/
- * sessionStorage/cookies/URL/logs.
+ * All job/session state is page memory only — never localStorage/
+ * IndexedDB/sessionStorage/cookies/URL/logs. The capability token itself
+ * is persisted by the pairing controller (opaque localStorage envelope;
+ * see use-companion-pairing) — this hook never writes it.
  * ---------------------------------------------------------------------------
  */
 'use client';
@@ -38,7 +40,8 @@ export type CompanionJobKind = 'youtube' | 'torrent';
 export interface CompanionJobSource {
   /** Loopback companion origin, e.g. "http://127.0.0.1:4322". */
   baseUrl: string;
-  /** Page-memory capability token from pairing (never persisted). */
+  /** Capability token from pairing (persisted opaquely by the pairing
+   *  controller; this session only ever holds it in memory). */
   token: string;
   /** Opaque job id returned by the companion job-create endpoint. */
   jobId: string;

@@ -95,6 +95,7 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
+import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
 import { Music, AlertTriangle, Magnet } from 'lucide-react';
@@ -134,6 +135,22 @@ function getDictionaryFor(locale: 'id' | 'ja' | 'en'): Dictionary {
  *  complete. Aborts on signal or 5-second timeout. Never leaves the video
  *  playing — always pauses after seek. */
 const SEEK_TIMEOUT_MS = 5000;
+
+/** Maximum length of a displayed media name (defense in depth). */
+const MAX_MEDIA_NAME_LENGTH = 255;
+
+/** sanitizeDisplayName — safe display text for the top-left controls and
+ *  history. The companion already serves sanitized basenames (no paths),
+ *  but the browser never trusts that alone: control characters are
+ *  stripped, whitespace trimmed, and the length is capped so a hostile
+ *  basename cannot break layout, logs, or Anki export fields. */
+function sanitizeDisplayName(name: string): string {
+  const cleaned = name
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.slice(0, MAX_MEDIA_NAME_LENGTH);
+}
 
 function seekVideoSafely(
   video: HTMLVideoElement,
@@ -453,11 +470,13 @@ export default function PlayerApp() {
 
   // ED-1: Magnet URI dialog visibility — visual shell only, no torrent runtime.
   const [isMagnetDialogOpen, setIsMagnetDialogOpen] = useState(false);
-  // ED-3: EizouDendenshi local-companion pairing — page memory only.
-  const [eizouConnected, setEizouConnected] = useState(false);
-  const eizouTokenRef = useRef<string | null>(null);
+  // ED-3: EizouDendenshi local-companion pairing — persistent credential.
+  // The opaque token is persisted (browser localStorage envelope) after a
+  // successful pair and re-validated on mount, so pairing survives F5 /
+  // companion restarts until the user explicitly resets it.
+  const pairing = useCompanionPairing();
 
-  // --- EizouDendenshi ED-2F YouTube job bridge (page memory only) ---
+  // --- EizouDendenshi ED-2F YouTube job bridge ---
   const jobSession = useCompanionJobSession();
   const displayMediaUrl = jobSession.jobMediaUrl ?? mediaUrl;
   const displayMediaType = jobSession.jobMediaUrl ? 'video' : mediaType;
@@ -466,7 +485,7 @@ export default function PlayerApp() {
   // session (polling the job's status; media loads only on complete).
   const handleYouTubeJobAccepted = useCallback(
     (jobId: string) => {
-      const token = eizouTokenRef.current;
+      const token = pairing.tokenRef.current;
       if (!token) return;
       jobSession.beginJobSession({
         baseUrl: 'http://127.0.0.1:4322',
@@ -476,13 +495,17 @@ export default function PlayerApp() {
       });
       setIsYouTubeDialogOpen(false);
     },
-    [jobSession],
+    [jobSession, pairing.tokenRef],
   );
 
   const handleMagnetJobAccepted = useCallback(
-    (jobId: string) => {
-      const token = eizouTokenRef.current;
+    (jobId: string, selectedName: string) => {
+      const token = pairing.tokenRef.current;
       if (!token) return;
+      // Torrent basename handoff (C): the companion's sanitized file list
+      // provides the selected video's basename; mirror it into mediaName
+      // for the top-left controls / history, sanitized for safe display.
+      setMediaName(sanitizeDisplayName(selectedName));
       jobSession.beginJobSession({
         baseUrl: 'http://127.0.0.1:4322',
         token,
@@ -491,7 +514,7 @@ export default function PlayerApp() {
       });
       setIsMagnetDialogOpen(false);
     },
-    [jobSession],
+    [jobSession, pairing.tokenRef],
   );
 
   // Attach the actual video element on the complete gate (existing ref).
@@ -3117,19 +3140,27 @@ export default function PlayerApp() {
             </div>
           </div>
           {/* ED-3: EizouDendenshi setup section — pairing state only; the
-              local-file player flow above is untouched by it. */}
+              local-file player flow above is untouched by it. The pairing
+              is persistent: the opaque token survives reloads and
+              companion restarts (re-validated on mount via the status
+              endpoint) until the user explicitly resets it here. */}
           <EizouDendenshiSetup
-            isConnected={eizouConnected}
-            onPairSuccess={(token) => {
-              eizouTokenRef.current = token;
-              setEizouConnected(true);
-            }}
+            isConnected={pairing.connected}
+            isValidating={pairing.validating}
+            onPairSuccess={pairing.handlePairSuccess}
+            onResetPairing={pairing.resetPairing}
             dict={{
               eizouSetupLabel: dict.eizouSetupLabel,
               eizouSetupTitle: dict.eizouSetupTitle,
               eizouSetupImageAlt: dict.eizouSetupImageAlt,
               eizouConnected: dict.eizouConnected,
               eizouDisconnected: dict.eizouDisconnected,
+              eizouChecking: dict.eizouChecking,
+              eizouResetButton: dict.eizouResetButton,
+              eizouResetTitle: dict.eizouResetTitle,
+              eizouResetDesc: dict.eizouResetDesc,
+              eizouResetConfirm: dict.eizouResetConfirm,
+              eizouResetCancel: dict.eizouResetCancel,
               eizouPairingTitle: dict.eizouPairingTitle,
               eizouPairingDesc: dict.eizouPairingDesc,
               eizouPairingOtpLabel: dict.eizouPairingOtpLabel,
@@ -3146,12 +3177,13 @@ export default function PlayerApp() {
       )}
 
       {/* ED-2G: Magnet source dialog — real companion torrent flow (pairing
-          gate → consent → create → poll → file selection → select). */}
+          gate → consent → create → poll → file selection → select). The
+          selected video's sanitized basename travels with the job id. */}
       <MagnetInput
         open={isMagnetDialogOpen}
         onOpenChange={setIsMagnetDialogOpen}
-        isPaired={eizouConnected}
-        token={eizouTokenRef.current}
+        isPaired={pairing.connected}
+        token={pairing.tokenRef.current}
         onJobAccepted={handleMagnetJobAccepted}
         dict={{
           magnetInputLabel: dict.magnetInputLabel,
@@ -3184,8 +3216,8 @@ export default function PlayerApp() {
       <YouTubeInput
         open={isYouTubeDialogOpen}
         onOpenChange={setIsYouTubeDialogOpen}
-        isPaired={eizouConnected}
-        token={eizouTokenRef.current}
+        isPaired={pairing.connected}
+        token={pairing.tokenRef.current}
         onJobAccepted={handleYouTubeJobAccepted}
         dict={{
           youtubeInputLabel: dict.youtubeInputLabel,

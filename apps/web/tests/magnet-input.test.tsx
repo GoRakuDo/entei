@@ -289,7 +289,8 @@ describe('MagnetInput — selection flow', () => {
     expect(selectBody.videoFileId).toBe('f0');
     expect(selectBody.subtitleFileId).toBe('f1');
     await vi.advanceTimersByTimeAsync(0);
-    expect(onJobAccepted).toHaveBeenCalledWith('jobSel');
+    // The job id travels with the sanitized basename of the selected video.
+    expect(onJobAccepted).toHaveBeenCalledWith('jobSel', 'movie.mkv');
   });
 
   it('no selectable video shows the localized no-video error', async () => {

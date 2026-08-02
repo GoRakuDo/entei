@@ -226,11 +226,16 @@ export const ja: Dictionary = {
     magnetErrorInvalid:
       '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
     magnetInputSubmit: 'ダウンロード開始',
-    magnetInputUnpairedBody: 'Torrentをダウンロードするには、先に映像伝電子をペアリングしてください。',
-    magnetConsentLabel: '同意します: ダウンロード中、トラッカーとピアは私のIPアドレスを見ることができます。',
-    magnetInputErrorRepair: '再接続が必要です。「セットアップ」から接続し直してください。',
-    magnetInputErrorConflict: 'すでにダウンロードが進行中です。先に前のダウンロードをキャンセルしてください。',
-    magnetInputErrorNetwork: 'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
+    magnetInputUnpairedBody:
+      'Torrentをダウンロードするには、先に映像伝電子をペアリングしてください。',
+    magnetConsentLabel:
+      '同意します: ダウンロード中、トラッカーとピアは私のIPアドレスを見ることができます。',
+    magnetInputErrorRepair:
+      '再接続が必要です。「セットアップ」から接続し直してください。',
+    magnetInputErrorConflict:
+      'すでにダウンロードが進行中です。先に前のダウンロードをキャンセルしてください。',
+    magnetInputErrorNetwork:
+      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     magnetInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
     magnetInputSubmitting: '準備中…',
     magnetDownloading: 'ダウンロード中…',
@@ -248,9 +253,15 @@ export const ja: Dictionary = {
     eizouSetupImageAlt: '映像伝電子のイメージ',
     eizouConnected: '接続済み',
     eizouDisconnected: '未接続',
+    eizouChecking: '確認中…',
+    eizouResetButton: 'ペアリングをリセット',
+    eizouResetTitle: 'ペアリングをリセットしますか？',
+    eizouResetDesc:
+      'このブラウザとコンパニオンアプリから保存済みの接続を削除します。再度接続するには新しいペアリングコードが必要です。ダウンロードやメディアには影響しません。',
+    eizouResetConfirm: 'リセットする',
+    eizouResetCancel: 'キャンセル',
     eizouPairingTitle: '映像伝電子をペアリングしましょう',
-    eizouPairingDesc:
-      'アプリに表示された6桁のコードを入力してください。',
+    eizouPairingDesc: 'アプリに表示された6桁のコードを入力してください。',
     eizouPairingOtpLabel: '6桁のペアリングコード',
     eizouPairingOtpInvalid: '6桁のコードを入力してください。',
     eizouPairingSubmit: 'ペアリングする',
@@ -259,19 +270,23 @@ export const ja: Dictionary = {
       'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     eizouPairingErrorInvalidCode:
       'コードが正しくありません。アプリの表示コードを確認してください。',
-  companionStreamNotReady: 'ストリームの準備ができていません。データを待っています…',
-    eizouPairingErrorGeneric:
-      '接続に失敗しました。もう一度お試しください。',
+    companionStreamNotReady:
+      'ストリームの準備ができていません。データを待っています…',
+    eizouPairingErrorGeneric: '接続に失敗しました。もう一度お試しください。',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTubeストリーミング',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'ダウンロード開始',
-    youtubeInputUnpairedBody: 'YouTubeからダウンロードするには、先に映像伝電子をペアリングしてください。',
+    youtubeInputUnpairedBody:
+      'YouTubeからダウンロードするには、先に映像伝電子をペアリングしてください。',
     youtubeInputErrorInvalid: 'YouTubeのURLが無効です。',
-    youtubeInputErrorRepair: '再接続が必要です。「セットアップ」から接続し直してください。',
-    youtubeInputErrorConflict: 'すでにダウンロードが進行中です。先に前のダウンロードをキャンセルしてください。',
-    youtubeInputErrorNetwork: 'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
+    youtubeInputErrorRepair:
+      '再接続が必要です。「セットアップ」から接続し直してください。',
+    youtubeInputErrorConflict:
+      'すでにダウンロードが進行中です。先に前のダウンロードをキャンセルしてください。',
+    youtubeInputErrorNetwork:
+      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     youtubeInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
     youtubeInputSubmitting: '準備中…',
     // P2.1: Subtitle Appearance Settings
@@ -291,7 +306,8 @@ export const ja: Dictionary = {
     trackerOff: 'オフ',
     trackerAriaLabel: '没入トラッカーを有効化',
     trackerEnabledAriaDescription: '視聴時間と採掘履歴を記録中',
-    trackerDisabledAriaDescription: 'トラッカーはオフ — 新規記録は停止、既存履歴は保持',
+    trackerDisabledAriaDescription:
+      'トラッカーはオフ — 新規記録は停止、既存履歴は保持',
   },
   reader: {
     title: 'EPUBリーダー',
@@ -351,10 +367,12 @@ export const ja: Dictionary = {
     // Loading / unavailable / empty states
     loadingAriaBusy: 'トラッカーデータを読み込み中…',
     unavailableTitle: 'トラッカーを利用できません',
-    unavailableDesc: 'このブラウザ環境ではIndexedDBを利用できません。トラッカーはローカル再生と採掘履歴を記録します。HTTPSまたはlocalhostなどの安全なコンテキストで、IndexedDBに対応したブラウザをご利用ください。',
+    unavailableDesc:
+      'このブラウザ環境ではIndexedDBを利用できません。トラッカーはローカル再生と採掘履歴を記録します。HTTPSまたはlocalhostなどの安全なコンテキストで、IndexedDBに対応したブラウザをご利用ください。',
     unavailableIconLabel: 'データベース利用不可',
     emptyTitle: 'データがありません',
-    emptyDesc: 'このダッシュボードは、ローカル再生履歴とAnkiへの正常なエクスポートから構築されます。字幕付きメディアを再生し、文章を採掘すると各セクションが埋まります。',
+    emptyDesc:
+      'このダッシュボードは、ローカル再生履歴とAnkiへの正常なエクスポートから構築されます。字幕付きメディアを再生し、文章を採掘すると各セクションが埋まります。',
     emptyIconLabel: '空のダッシュボード',
     // Table headers / labels
     mediaColumnFile: 'ファイル',
