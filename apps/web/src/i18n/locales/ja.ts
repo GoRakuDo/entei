@@ -237,6 +237,8 @@ export const ja: Dictionary = {
     magnetInputErrorNetwork:
       'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     magnetInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
+    magnetInputErrorMetadataTimeout:
+      'メタデータを取得できませんでした。ピアが見つからない可能性があります。しばらくしてからもう一度お試しください。',
     magnetInputSubmitting: '準備中…',
     magnetCheckMetadata: 'メタデータ確認中…',
     magnetFilesTitle: 'ファイルを選択',

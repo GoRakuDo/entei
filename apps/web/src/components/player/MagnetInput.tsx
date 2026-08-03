@@ -74,6 +74,7 @@ type ErrorKind =
   | 'network'
   | 'generic'
   | 'novideo'
+  | 'metadataTimeout'
   | null;
 
 type Phase =
@@ -104,6 +105,7 @@ export interface MagnetInputDict {
   magnetInputErrorConflict: string;
   magnetInputErrorNetwork: string;
   magnetInputErrorGeneric: string;
+  magnetInputErrorMetadataTimeout: string;
   magnetInputSubmitting: string;
   magnetCheckMetadata: string;
   magnetFilesTitle: string;
@@ -162,6 +164,7 @@ const errorMessages: Record<Exclude<ErrorKind, null>, (d: MagnetInputDict) => st
   network: (d) => d.magnetInputErrorNetwork,
   generic: (d) => d.magnetInputErrorGeneric,
   novideo: (d) => d.magnetNoVideoError,
+  metadataTimeout: (d) => d.magnetInputErrorMetadataTimeout,
 };
 
 function kindLabel(kind: TorrentFileInfo['kind'], dict: MagnetInputDict): string {
@@ -486,7 +489,7 @@ export function MagnetInput({
           setPhase('input');
           return;
         }
-        const body = (await res.json()) as { state?: string };
+        const body = (await res.json()) as { state?: string; error?: string };
         if (!safe()) return;
         if (body.state === 'buffering') {
           // Metadata arrived: fetch the sanitized file list and show the
@@ -514,7 +517,15 @@ export function MagnetInput({
           return;
         }
         if (body.state === 'error') {
-          setError('generic');
+          // Distinguish metadata timeout from other errors: the companion
+          // returns "metadata timed out" when the bounded fetch exceeds
+          // the configured timeout. The exact string is a stable contract
+          // (never leaked to the user — only used for error-kind routing).
+          if (body.error === 'metadata timed out') {
+            setError('metadataTimeout');
+          } else {
+            setError('generic');
+          }
           setPhase('input');
           return;
         }

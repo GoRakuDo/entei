@@ -117,6 +117,8 @@ func main() {
 		"path to a pinned ffmpeg executable reported by the common CLI "+
 			"service status (Windows launcher; the server itself never invokes "+
 			"ffmpeg — yt-dlp does)")
+	torrentTimeout := flag.Duration("torrent-timeout", 2*time.Minute,
+		"metadata fetch timeout for torrent source jobs (ED-2G; default 2m)")
 	flag.Parse()
 
 	args := flag.Args()
@@ -181,7 +183,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("init torrent engine: %v", err)
 	}
-	torrents, err := torrent.New(torrent.Config{Engine: torrentEngine, Timeout: 30 * time.Minute})
+	torrents, err := torrent.New(torrent.Config{Engine: torrentEngine, Timeout: *torrentTimeout})
 	if err != nil {
 		log.Fatalf("init torrents: %v", err)
 	}

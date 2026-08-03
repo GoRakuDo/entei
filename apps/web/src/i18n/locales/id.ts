@@ -236,6 +236,8 @@ export const id: Dictionary = {
     magnetInputErrorNetwork:
       'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     magnetInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
+    magnetInputErrorMetadataTimeout:
+      'Metadata tidak dapat diambil. Torrent mungkin belum memiliki peer — coba lagi nanti.',
     magnetInputSubmitting: 'Menyiapkan…',
     magnetCheckMetadata: 'Memeriksa metadata…',
     magnetFilesTitle: 'Pilih file',

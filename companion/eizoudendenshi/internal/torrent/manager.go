@@ -50,19 +50,37 @@ type Config struct {
 	// Engine is the torrent engine abstraction. Required.
 	Engine Engine
 	// Timeout bounds the metadata fetch. Zero selects the default
-	// (30 minutes).
+	// (2 minutes). A shorter timeout prevents the UI from hanging on a
+	// metadata stall (e.g. when the same magnet is retried after a
+	// cancel and the anacrolix client's internal state is stale).
 	Timeout time.Duration
+
+	// OnMetadataTimeout, when set, is called with the elapsed duration
+	// when a metadata fetch times out. It is called from the run
+	// goroutine, before the session is freed (before m.clear).
+	// Must not block — the callback receives only non-sensitive
+	// diagnostic information (never the magnet, tracker URLs, or peer
+	// addresses). Intended for logging / metrics; nil for tests.
+	OnMetadataTimeout func(elapsed time.Duration)
 }
 
-const defaultTimeout = 30 * time.Minute
+// defaultTimeout is the metadata fetch timeout. 2 minutes balances peer
+// discovery latency (DHT/tracker lookup typically completes in 10-30s)
+// against UI responsiveness: a stalled metadata fetch (e.g. same-magnet
+// retry after cancel where the anacrolix client's internal state is stale)
+// returns a recoverable error within 2 minutes instead of hanging for 30.
+// The value is consistent with the 10s test timeout in manager_test.go
+// (which uses a fast fake engine) and the companion's 5s poll interval.
+const defaultTimeout = 2 * time.Minute
 
 // Manager supervises the single active torrent job (one-session policy).
 type Manager struct {
-	mu      sync.Mutex
-	engine  Engine
-	timeout time.Duration
-	current *torrentJob
-	closed  bool
+	mu                sync.Mutex
+	engine            Engine
+	timeout           time.Duration
+	onMetadataTimeout func(elapsed time.Duration)
+	current           *torrentJob
+	closed            bool
 }
 
 // New validates the configuration and builds a Manager.
@@ -73,7 +91,11 @@ func New(cfg Config) (*Manager, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultTimeout
 	}
-	return &Manager{engine: cfg.Engine, timeout: cfg.Timeout}, nil
+	return &Manager{
+		engine:            cfg.Engine,
+		timeout:           cfg.Timeout,
+		onMetadataTimeout: cfg.OnMetadataTimeout,
+	}, nil
 }
 
 type torrentJob struct {
@@ -348,19 +370,28 @@ func (m *Manager) clear(j *torrentJob) {
 func (m *Manager) run(j *torrentJob, ctx context.Context) {
 	defer close(j.done)
 	j.setState(StateDownloading)
+	metaStart := time.Now()
 	metaCtx, metaCancel := context.WithTimeout(ctx, m.timeout)
 	defer metaCancel()
 	handle, err := m.engine.Start(metaCtx, j.magnet)
 	if err != nil {
 		if metaCtx.Err() != nil && ctx.Err() == nil {
+			// Metadata timeout: call the diagnostic hook (non-sensitive)
+			// before surfacing the error so the caller can log/measure.
+			// Clear the session so the same magnet can be retried immediately.
+			if m.onMetadataTimeout != nil {
+				m.onMetadataTimeout(time.Since(metaStart))
+			}
 			j.setError("metadata timed out")
 			j.setState(StateError)
+			m.clear(j)
 		} else if ctx.Err() != nil {
 			j.setState(StateCancelled)
 			m.clear(j)
 		} else {
 			j.setError("metadata failed")
 			j.setState(StateError)
+			m.clear(j)
 		}
 		return
 	}
@@ -379,6 +410,7 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 		_ = handle.Close()
 		j.setError("no playable video")
 		j.setState(StateError)
+		m.clear(j)
 		return
 	}
 	j.stateMu.Lock()
@@ -406,6 +438,7 @@ func (m *Manager) run(j *torrentJob, ctx context.Context) {
 		_ = handle.Close()
 		j.setError("reader failed")
 		j.setState(StateError)
+		m.clear(j)
 		return
 	}
 	poll := time.NewTicker(200 * time.Millisecond)

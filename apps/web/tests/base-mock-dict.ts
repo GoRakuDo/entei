@@ -192,6 +192,7 @@ export const baseMockDict = {
   magnetInputErrorConflict: 'A download is already active. Cancel the previous download first.',
   magnetInputErrorNetwork: 'Could not reach EizouDendenshi. Make sure the companion app is running.',
   magnetInputErrorGeneric: 'Something went wrong. Try again.',
+  magnetInputErrorMetadataTimeout: 'Metadata could not be retrieved.',
   magnetInputSubmitting: 'Starting…',
   magnetCheckMetadata: 'Checking metadata…',
   magnetFilesTitle: 'Select files',

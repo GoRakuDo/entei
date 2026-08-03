@@ -231,6 +231,8 @@ export const en: Dictionary = {
     magnetInputErrorNetwork:
       'Could not reach EizouDendenshi. Make sure the companion app is running.',
     magnetInputErrorGeneric: 'Something went wrong. Try again.',
+    magnetInputErrorMetadataTimeout:
+      'Metadata could not be retrieved. The torrent may have no peers yet — try again later.',
     magnetInputSubmitting: 'Starting…',
     magnetCheckMetadata: 'Checking metadata…',
     magnetFilesTitle: 'Select files',

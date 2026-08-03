@@ -261,6 +261,7 @@ export interface Dictionary {
     magnetInputErrorConflict: string;
     magnetInputErrorNetwork: string;
     magnetInputErrorGeneric: string;
+    magnetInputErrorMetadataTimeout: string;
     magnetInputSubmitting: string;
     magnetCheckMetadata: string;
     magnetFilesTitle: string;

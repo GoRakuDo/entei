@@ -56,6 +56,7 @@ type fakeHandle struct {
 
 	bootStarted atomic.Bool // StartBootstrap called
 	bootCancel  atomic.Bool // the bootstrap context was cancelled
+	bootErr     error       // injected StartBootstrap failure
 	headPrio    atomic.Bool // Select elevated the head window (contract)
 }
 
@@ -102,6 +103,9 @@ func (h *fakeHandle) Select(videoFileID, subtitleFileID string) error {
 func (h *fakeHandle) StartBootstrap(ctx context.Context) error {
 	if h.selected < 0 {
 		return errInvalidSelection
+	}
+	if h.bootErr != nil {
+		return h.bootErr
 	}
 	h.bootStarted.Store(true)
 	go func() {
@@ -314,22 +318,16 @@ func TestNoEligibleVideoIsTerminalError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	// Session is auto-freed on "no playable video" error.
 	deadline := time.Now().Add(5 * time.Second)
-	for {
-		cur := m.Get(snap.ID)
-		if cur != nil && cur.State == StateError {
-			if cur.Error != "no playable video" {
-				t.Fatalf("error = %q, want 'no playable video'", cur.Error)
-			}
-			break
-		}
+	for m.Current() != nil {
 		if time.Now().After(deadline) {
-			t.Fatalf("job never errored; last=%+v", cur)
+			t.Fatal("session was not freed after no-playable-video error")
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	if _, err := m.Files(snap.ID); !errors.Is(err, ErrNotListed) && !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Files after error = %v", err)
+	if _, err := m.Files(snap.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Files after error = %v, want ErrNotFound (session freed)", err)
 	}
 }
 
@@ -366,22 +364,17 @@ func TestTimeoutProducesErrorAndFreesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	// On timeout the session is auto-freed (m.clear) — wait for nil.
 	deadline := time.Now().Add(5 * time.Second)
-	for {
-		cur := m.Get(snap.ID)
-		if cur != nil && cur.State == StateError {
-			break
-		}
+	for m.Current() != nil {
 		if time.Now().After(deadline) {
-			t.Fatalf("job never errored; last=%+v", cur)
+			t.Fatal("session was not freed after timeout")
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	if _, err := m.Cancel(snap.ID); err != nil {
-		t.Fatalf("Cancel after timeout: %v", err)
-	}
-	if m.Current() != nil {
-		t.Fatal("session must be free after cancel")
+	// Cancel is no longer needed; the session is already free.
+	if _, err := m.Cancel(snap.ID); err == nil {
+		t.Fatal("Cancel on already-freed session must fail")
 	}
 }
 
@@ -714,6 +707,285 @@ func TestCompleteCancelsBootstrap(t *testing.T) {
 	}
 
 	_, _ = m.Cancel(id)
+}
+
+// TestMetadataOnlyBoundary verifies the metadata-only contract: after
+// Start → buffering, the engine has NOT downloaded any payload bytes.
+// The file list is available (metadata is fetched), but AvailablePrefix
+// is zero and SelectedLength is zero (no selection yet). Payload download
+// must only begin after an explicit Select call.
+func TestMetadataOnlyBoundary(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000|sub.srt:200|readme.txt:10")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	// At buffering: files are listed, but no payload is downloaded.
+	cur := m.Get(id)
+	if cur == nil {
+		t.Fatal("Get must return the current job")
+	}
+	if cur.State != StateBuffering {
+		t.Fatalf("state = %s, want buffering", cur.State)
+	}
+	if !cur.HasEligibleVideo {
+		t.Fatal("hasEligibleVideo must be true once metadata arrives")
+	}
+	// AvailablePrefix is 0: no selection means no download.
+	if cur.Media.Available != 0 {
+		t.Fatalf("available = %d, want 0 (no payload before selection)", cur.Media.Available)
+	}
+
+	// Files are listed and contain a video.
+	files, err := m.Files(id)
+	if err != nil {
+		t.Fatalf("Files: %v", err)
+	}
+	if len(files) != 3 {
+		t.Fatalf("files = %d, want 3", len(files))
+	}
+	hasVideo := false
+	for _, f := range files {
+		if f.Kind == KindVideo {
+			hasVideo = true
+		}
+	}
+	if !hasVideo {
+		t.Fatal("files must contain a video")
+	}
+
+	// Select a video → payload begins.
+	videoID := files[0].ID
+	if files[0].Kind != KindVideo {
+		videoID = files[1].ID
+	}
+	if _, err := m.Select(id, videoID, ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
+	// Now payload is downloading: AvailablePrefix may be 0 initially
+	// but the engine handle exists and SelectedLength is non-zero.
+	cur2 := m.Get(id)
+	if cur2 == nil {
+		t.Fatal("Get must return the current job after selection")
+	}
+	if cur2.State != StateStreaming {
+		t.Fatalf("state = %s, want streaming", cur2.State)
+	}
+	if cur2.Media.Total != 5000 {
+		t.Fatalf("total = %d, want 5000 (selected video length)", cur2.Media.Total)
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+// TestCancelThenFreshRetry verifies the contract: after cancelling a job,
+// a fresh Start with the same magnet creates a new independent job. The
+// second job must reach buffering (metadata fetched) and support a new
+// selection. This catches the stale-anacrolix-state regression where
+// GotInfo() never fires on the second attempt.
+func TestCancelThenFreshRetry(t *testing.T) {
+	engine := newFakeEngine("video.mp4:3000|sub.srt:100")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+
+	// First job: start → buffer → cancel.
+	snap1, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	waitForState(t, m, snap1.ID, StateBuffering, 5*time.Second)
+	if _, err := m.Cancel(snap1.ID); err != nil {
+		t.Fatalf("Cancel 1: %v", err)
+	}
+	if m.Current() != nil {
+		t.Fatal("session must be free after cancel")
+	}
+
+	// Second job: fresh start with the same magnet must succeed.
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 2 (retry): %v", err)
+	}
+	if snap2.ID == snap1.ID {
+		t.Fatal("second job must have a different ID")
+	}
+	waitForState(t, m, snap2.ID, StateBuffering, 5*time.Second)
+
+	// The second job must be independently selectable.
+	files, err := m.Files(snap2.ID)
+	if err != nil {
+		t.Fatalf("Files 2: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("second job must have files")
+	}
+	var videoID string
+	for _, f := range files {
+		if f.Kind == KindVideo {
+			videoID = f.ID
+			break
+		}
+	}
+	if videoID == "" {
+		t.Fatal("second job must have a video")
+	}
+	if _, err := m.Select(snap2.ID, videoID, ""); err != nil {
+		t.Fatalf("Select 2: %v", err)
+	}
+	waitForState(t, m, snap2.ID, StateStreaming, 5*time.Second)
+
+	// Simulate completion.
+	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+	waitForState(t, m, snap2.ID, StateComplete, 5*time.Second)
+
+	_, _ = m.Cancel(snap2.ID)
+}
+
+// TestMetadataTimeoutCallback verifies that the OnMetadataTimeout
+// callback fires when the metadata fetch times out, with a duration
+// approximately equal to the configured timeout.
+func TestMetadataTimeoutCallback(t *testing.T) {
+	const metaTimeout = 100 * time.Millisecond
+	var callbackElapsed time.Duration
+	var callbackFired atomic.Bool
+
+	engine := &fakeEngine{
+		startDelay: 5 * time.Second, // much longer than timeout
+		files:      buildFakeFiles("media.mp4:100"),
+	}
+	m, err := New(Config{
+		Engine:  engine,
+		Timeout: metaTimeout,
+		OnMetadataTimeout: func(elapsed time.Duration) {
+			callbackElapsed = elapsed
+			callbackFired.Store(true)
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	_, err = m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Session is auto-freed on timeout; wait for nil.
+	deadline := time.Now().Add(5 * time.Second)
+	for m.Current() != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("session was not freed after metadata timeout")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !callbackFired.Load() {
+		t.Fatal("OnMetadataTimeout callback must fire on timeout")
+	}
+	// Elapsed should be at least the timeout duration (within reason).
+	if callbackElapsed < metaTimeout/2 {
+		t.Fatalf("callback elapsed = %v, want >= %v", callbackElapsed, metaTimeout/2)
+	}
+}
+
+// TestTimeoutThenFreshRetryWithoutCancel verifies the contract: after a
+// metadata timeout, the session is auto-freed (no explicit Cancel needed),
+// and a fresh Start with the same magnet succeeds immediately. This is the
+// primary recovery path for a stalled anacrolix client (same-magnet retry
+// after cancel where internal state may be stale).
+func TestTimeoutThenFreshRetryWithoutCancel(t *testing.T) {
+	engine := &fakeEngine{
+		startDelay: 200 * time.Millisecond,
+		files:      buildFakeFiles("media.mp4:6000"),
+	}
+	m := newTestManagerWithEngine(t, engine, 100*time.Millisecond)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Wait for the timeout to fire and the session to be auto-freed.
+	deadline := time.Now().Add(5 * time.Second)
+	for m.Current() != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("session was not freed after timeout")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	// Reset the engine delay so the retry succeeds immediately.
+	engine.startDelay = 0
+	// Fresh Start with the same magnet must succeed without explicit Cancel.
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start after timeout: %v", err)
+	}
+	if snap2.ID == snap.ID {
+		t.Fatal("retry must produce a different job ID")
+	}
+	// Verify the retry reaches buffering (metadata fetched).
+	waitForState(t, m, snap2.ID, StateBuffering, 5*time.Second)
+	_, _ = m.Cancel(snap2.ID)
+}
+
+// TestBootstrapFailureFreesSessionAndRetrySucceeds verifies the contract:
+// when StartBootstrap fails (reader failed), the session is freed via
+// m.clear(j) so the same magnet can be retried immediately without a 409
+// conflict. This is the regression test for the missing clear() that left
+// m.current set after a bootstrap error.
+func TestBootstrapFailureFreesSessionAndRetrySucceeds(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+
+	// First job: start → buffer → select → bootstrap fails.
+	snap1, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	waitForState(t, m, snap1.ID, StateBuffering, 5*time.Second)
+	if _, err := m.Select(snap1.ID, "f0", "f1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	// Inject bootstrap failure.
+	engine.h.bootErr = errors.New("injected reader failure")
+	// Wait for the error state and session to be freed.
+	deadline := time.Now().Add(5 * time.Second)
+	for m.Current() != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("session was not freed after bootstrap failure")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	// Verify the error was set.
+	snap1After := m.Get(snap1.ID)
+	if snap1After != nil {
+		t.Fatalf("session must be free after bootstrap failure, got state=%s", snap1After.State)
+	}
+
+	// Clear the injected error and allow bootstrap to succeed on retry.
+	engine.h.bootErr = nil
+	// Create a fresh handle for the new job (the engine's Start returns a new handle).
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 2 (retry): %v", err)
+	}
+	if snap2.ID == snap1.ID {
+		t.Fatal("retry must produce a different job ID")
+	}
+	waitForState(t, m, snap2.ID, StateBuffering, 5*time.Second)
+
+	// The retry must be independently selectable and streamable.
+	if _, err := m.Select(snap2.ID, "f0", "f1"); err != nil {
+		t.Fatalf("Select 2: %v", err)
+	}
+	waitForState(t, m, snap2.ID, StateStreaming, 5*time.Second)
+
+	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+	waitForState(t, m, snap2.ID, StateComplete, 5*time.Second)
+
+	_, _ = m.Cancel(snap2.ID)
 }
 
 // --- helpers ---

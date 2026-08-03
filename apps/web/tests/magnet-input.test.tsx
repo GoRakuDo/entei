@@ -34,6 +34,7 @@ const baseDict = {
   magnetInputErrorConflict: 'A download is already active.',
   magnetInputErrorNetwork: 'Could not reach EizouDendenshi.',
   magnetInputErrorGeneric: 'Something went wrong. Try again.',
+  magnetInputErrorMetadataTimeout: 'Metadata could not be retrieved.',
   magnetInputSubmitting: 'Starting…',
   magnetCheckMetadata: 'Checking metadata…',
   magnetFilesTitle: 'Select files',

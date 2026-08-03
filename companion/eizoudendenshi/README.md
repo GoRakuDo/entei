@@ -803,9 +803,16 @@ any engine start, and errors never echo the magnet or tracker data.
   (never seeds), engine logger discarded (cancellation read noise never
   reaches the companion stderr).
 - The canonicalized magnet (xt + trackers) is passed to `engine.Start`
-  (bounded metadata fetch, default 30m; `--torrent-timeout`); **the
+  (bounded metadata fetch, default 2m; `--torrent-timeout`); **the
   sanitized file list becomes available as soon as metadata arrives**
-  (`GotInfo`) — the payload download is NOT awaited.
+  (`GotInfo`) — the payload download is NOT awaited. If metadata cannot
+  be fetched within 2 minutes (e.g. when the anacrolix client's internal
+  state is stale on a same-magnet retry after cancel), a "metadata timed
+  out" error is returned, the session is auto-freed (allowing an immediate
+  fresh Start with the same magnet), and the UI recovers to the input
+  state. Whether the underlying anacrolix stale state resolves itself is
+  unconfirmed; the timeout plus automatic session release provides a
+  reliable recovery path.
 - **Selected-file streaming (2026-08-03):** after the user selects one
   video + optional subtitle, the selected video's bounded head window
   (`bootstrapWindowBytes` = 4 MiB, derived from the file's first piece
