@@ -262,6 +262,7 @@ const mockDict = {
   magnetNoVideoError: 'No selectable video in this torrent.',
   magnetSelectSubmit: 'Select & play',
   magnetCancel: 'Cancel',
+  magnetBack: 'Back',
   // ED-3: EizouDendenshi setup + pairing
   eizouSetupLabel: 'Set up',
   eizouSetupTitle: 'EizouDendenshi',

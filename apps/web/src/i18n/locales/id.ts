@@ -246,6 +246,7 @@ export const id: Dictionary = {
     magnetNoVideoError: 'Tidak ada video yang dapat dipilih dalam torrent ini.',
     magnetSelectSubmit: 'Pilih & putar',
     magnetCancel: 'Batalkan',
+    magnetBack: 'Kembali',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'Pengaturan',
     eizouSetupTitle: 'EizouDendenshi',

@@ -410,6 +410,79 @@ func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
 	}
 }
 
+// TestCancelThenRecreateSameMagnet is the backend half of the MagnetInput
+// re-open sequence (file picker → "Kembali"/close → same-magnet retry): once
+// the companion has acknowledged a cancel, the session is fully released, so
+// a NEW POST with the SAME magnet creates a FRESH job (201, different id)
+// that re-fetches metadata (buffering + files) instead of returning 409.
+func TestCancelThenRecreateSameMagnet(t *testing.T) {
+	s, _, _ := newTorrentsServer(t)
+	create := func() string {
+		t.Helper()
+		rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+			`{"magnet":"`+testMagnet+`"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create = %d, want 201 (%s)", rec.Code, rec.Body.String())
+		}
+		var created struct {
+			ID string `json:"id"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &created)
+		if created.ID == "" {
+			t.Fatal("create body must carry an opaque id")
+		}
+		return created.ID
+	}
+	waitBuffering := func(id string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			rec := doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+id, allowedOriginLocal, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("read %s = %d, want 200", id, rec.Code)
+			}
+			var snap struct {
+				State string `json:"state"`
+			}
+			_ = json.Unmarshal(rec.Body.Bytes(), &snap)
+			if snap.State == "buffering" {
+				return
+			}
+			if snap.State == "error" {
+				t.Fatalf("job %s errored: %s", id, rec.Body.String())
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("job %s never reached buffering (last=%s)", id, snap.State)
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+	}
+
+	first := create()
+	waitBuffering(first)
+
+	// The frontend's "Kembali" / top-right close waits for the cancel
+	// settlement: the companion frees the session before any retry POST.
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+first+"/cancel", allowedOriginLocal, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// After the cancel response the session is released: a fresh create with
+	// the SAME magnet must be a NEW job (201, different id) — never a 409.
+	second := create()
+	if second == first {
+		t.Fatalf("recreate returned the same id %q; want a fresh job", second)
+	}
+	// The fresh job re-fetches metadata (file-picker state again).
+	waitBuffering(second)
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+second+"/files", allowedOriginLocal, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("files after recreate = %d, want 200", rec.Code)
+	}
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+second+"/cancel", allowedOriginLocal, "")
+}
+
 func TestTorrentStatusBufferingBeforeSelection(t *testing.T) {
 	s, _, _ := newTorrentsServer(t)
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,

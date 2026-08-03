@@ -17,9 +17,14 @@
  *   (the payload has not started yet; `0 B / 0 B` would be a lie).
  * - The file picker appears once the companion reports `buffering` (the
  *   metadata is listed); payload download only begins after selection.
- * - Batal / dialog close cancel the owned job asynchronously and the UI
- *   stays non-actionable ('settling') until the cancel response settles, so
- *   a second create can never race the first job's cleanup.
+ * - Cancel (metadata phase) / Back ("Kembali", file picker) / dialog close
+ *   cancels the owned job asynchronously and the UI stays non-actionable
+ *   ('settling') until the cancel response settles, so a second create can
+ *   never race the first job's cleanup — a later identical magnet is a
+ *   FRESH job that re-fetches metadata.
+ * - A 201 answered after the dialog closed/reopened is parsed for its id and
+ *   released with an immediate cancel (never owned, polled, or accepted), so
+ *   the companion job can never be orphaned by the frontend.
  * - An operation epoch isolates attempts: a stale poll/create/cancel
  *   response from a previous attempt can never mutate the current one.
  * - A cancel 404 (job already freed — genuine completion or an earlier
@@ -109,6 +114,9 @@ export interface MagnetInputDict {
   magnetNoVideoError: string;
   magnetSelectSubmit: string;
   magnetCancel: string;
+  /** File-picker return label ("Back" / "Kembali" / "戻る"): pressing it
+   *  cancels the owned job the same awaited way as Cancel. */
+  magnetBack: string;
   dialogClose: string;
 }
 
@@ -194,6 +202,11 @@ export function MagnetInput({
   const [videoId, setVideoId] = useState('');
   const [subtitleId, setSubtitleId] = useState('');
   const [error, setError] = useState<ErrorKind>(null);
+  // Label shown while the owned job's cancel settlement is awaited (the
+  // wording of the button that triggered it: "Cancel" from the metadata
+  // phase, "Back"/"Kembali" from the file picker) so the settling view
+  // never mislabels the action it is completing.
+  const [settleLabel, setSettleLabel] = useState<string | null>(null);
 
   // Stale-callback guards: async work that settles after the dialog closed
   // or the component unmounted must not fire callbacks or mutate UI state.
@@ -242,6 +255,7 @@ export function MagnetInput({
       epochRef.current += 1;
       jobIdRef.current = null;
       settleRef.current = null;
+      setSettleLabel(null);
       setMagnet('');
       setConsented(false);
       setPhase('input');
@@ -261,60 +275,65 @@ export function MagnetInput({
   // failed). The UI stays non-actionable ('settling') until then; a 404
   // (job already freed) is a clean settle; any other failure is surfaced as
   // a localized, recoverable error.
-  const runCancel = useCallback((): Promise<void> => {
-    const id = jobIdRef.current;
-    if (!id) {
-      // Nothing owned: nothing to settle. An already-running settle (if
-      // any) stays in place and keeps gating.
-      return Promise.resolve();
-    }
-    // This cancel IS the settlement of the current attempt: invalidate all
-    // in-flight callbacks of the previous attempt before the job reference
-    // is dropped, so no stale poll/create/select response can resurrect it.
-    epochRef.current += 1;
-    const attempt = epochRef.current;
-    jobIdRef.current = null;
-    setJobId('');
-    setFiles([]);
-    setVideoId('');
-    setSubtitleId('');
-    setError(null);
-    setPhase('settling');
-    const settle = (async () => {
-      try {
-        const res = await fetch(
-          `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(id)}/cancel?token=${encodeURIComponent(token ?? '')}`,
-          { method: 'POST', cache: 'no-store' },
-        );
-        if (res.status !== 200 && res.status !== 404) {
-          // Non-OK cancel (other than "already gone"): recoverable error,
-          // never a silent "stopped".
+  const runCancel = useCallback(
+    (label: string | null = null): Promise<void> => {
+      const id = jobIdRef.current;
+      if (!id) {
+        // Nothing owned: nothing to settle. An already-running settle (if
+        // any) stays in place and keeps gating.
+        setSettleLabel(null);
+        return Promise.resolve();
+      }
+      // This cancel IS the settlement of the current attempt: invalidate all
+      // in-flight callbacks of the previous attempt before the job reference
+      // is dropped, so no stale poll/create/select response can resurrect it.
+      epochRef.current += 1;
+      const attempt = epochRef.current;
+      jobIdRef.current = null;
+      setJobId('');
+      setFiles([]);
+      setVideoId('');
+      setSubtitleId('');
+      setError(null);
+      setSettleLabel(label ?? dict.magnetCancel);
+      setPhase('settling');
+      const settle = (async () => {
+        try {
+          const res = await fetch(
+            `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(id)}/cancel?token=${encodeURIComponent(token ?? '')}`,
+            { method: 'POST', cache: 'no-store' },
+          );
+          if (res.status !== 200 && res.status !== 404) {
+            // Non-OK cancel (other than "already gone"): recoverable error,
+            // never a silent "stopped".
+            if (attempt === epochRef.current && mountedRef.current) {
+              setError(res.status === 401 || res.status === 403 ? 'repair' : 'generic');
+            }
+          }
+        } catch {
+          // Companion unreachable: recoverable error, never silent.
           if (attempt === epochRef.current && mountedRef.current) {
-            setError(res.status === 401 || res.status === 403 ? 'repair' : 'generic');
+            setError('network');
+          }
+        } finally {
+          if (attempt === epochRef.current && mountedRef.current) {
+            settleRef.current = null;
+            setPhase('input');
           }
         }
-      } catch {
-        // Companion unreachable: recoverable error, never silent.
-        if (attempt === epochRef.current && mountedRef.current) {
-          setError('network');
-        }
-      } finally {
-        if (attempt === epochRef.current && mountedRef.current) {
-          settleRef.current = null;
-          setPhase('input');
-        }
-      }
-    })();
-    settleRef.current = settle;
-    return settle;
-  }, [token]);
+      })();
+      settleRef.current = settle;
+      return settle;
+    },
+    [token, dict],
+  );
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
         // Invalidate any in-flight create/select of this attempt before
-        // cancelling, so a late 201 can never re-own a job behind the
-        // closing dialog.
+        // cancelling: a late 201 can never re-own a job by this dialog —
+        // such a response is parsed and its job released separately.
         epochRef.current += 1;
         void runCancel();
       }
@@ -324,8 +343,50 @@ export function MagnetInput({
   );
 
   const handleCancel = useCallback(() => {
-    void runCancel();
-  }, [runCancel]);
+    void runCancel(dict.magnetCancel);
+  }, [runCancel, dict]);
+
+  // File-picker return: cancels the owned job through the exact same awaited
+  // settlement as Cancel — only the button's wording is "Back"/"Kembali"
+  // instead of a cancel label, and the dialog stays non-actionable until the
+  // companion confirms the release.
+  const handleBack = useCallback(() => {
+    void runCancel(dict.magnetBack);
+  }, [runCancel, dict]);
+
+  // Releases a job the companion accepted for a create request this dialog
+  // no longer owns (the dialog closed / a newer attempt started while the
+  // create was in flight). Best-effort: it POSTs the specific job's cancel,
+  // mutates no UI, bumps no epoch (a newer attempt may already be alive) and
+  // starts no callbacks or polling. The promise is parked in settleRef so a
+  // follow-up create stays gated until this cleanup settles.
+  const releaseLateJob = useCallback(
+    (id: string): void => {
+      const settle = (async () => {
+        try {
+          const res = await fetch(
+            `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(id)}/cancel?token=${encodeURIComponent(token ?? '')}`,
+            { method: 'POST', cache: 'no-store' },
+          );
+          // 200 and 404 both mean the session is free; anything else is
+          // best-effort with no UI left to report to.
+          void res;
+        } catch {
+          // Companion unreachable: nothing to surface to a closed/reopened
+          // dialog; the next create's own network error remains honest.
+        }
+      })();
+      // Cleanup runs outside the async body to avoid TS2454 (variable used
+      // before assigned): by the time the settled microtask fires, `settle`
+      // is definitely assigned, so the reference capture is safe.
+      const cleanup = () => {
+        if (settleRef.current === settle) settleRef.current = null;
+      };
+      settle.then(cleanup, cleanup);
+      settleRef.current = settle;
+    },
+    [token],
+  );
 
   const handleCreate = useCallback(async () => {
     if (!isPaired || !token) return;
@@ -348,26 +409,39 @@ export function MagnetInput({
           cache: 'no-store',
         },
       );
-      if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
       if (res.status === 201) {
+        // Parse the id even when this attempt is already stale: the
+        // companion may have created a job that must be released.
         let id = '';
         try {
           const body = (await res.json()) as { id?: unknown };
           if (typeof body.id === 'string' && body.id.length > 0) id = body.id;
         } catch {
-          // Fall through to generic below.
+          // Malformed body: fall through (a stale dialog then has no id to
+          // release; a fresh one shows the generic error below).
         }
-        if (!id) {
-          setError('generic');
-          setPhase('input');
+        if (attempt === epochRef.current && mountedRef.current) {
+          // Current attempt: own the job normally.
+          if (!id) {
+            setError('generic');
+            setPhase('input');
+            return;
+          }
+          jobIdRef.current = id;
+          setJobId(id);
+          setPhase('checking');
           return;
         }
-        if (attempt !== epochRef.current || !mountedRef.current) return;
-        jobIdRef.current = id;
-        setJobId(id);
-        setPhase('checking');
+        // Stale (closed / reopened / unmounted / newer attempt): the job
+        // exists on the companion but is not owned by this dialog — cancel
+        // it immediately so no orphan leaks. A malformed body with no id
+        // means there is nothing to release (and nothing to surface).
+        if (id) {
+          releaseLateJob(id);
+        }
         return;
       }
+      if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
       switch (res.status) {
         case 400:
           setError('invalid');
@@ -474,6 +548,7 @@ export function MagnetInput({
     }
     setPhase('submitting');
     setError(null);
+    const attempt = epochRef.current;
     try {
       const res = await fetch(
         `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(jobId)}/select?token=${encodeURIComponent(token)}`,
@@ -485,17 +560,22 @@ export function MagnetInput({
         },
       );
       if (res.status === 200) {
-        if (!mountedRef.current || !openRef.current) return;
+        // The dialog may have closed (or a cancel started) while the request
+        // was in flight: a late acceptance must never hand the Player a job
+        // the dialog no longer owns.
+        if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
         const selected = files.find((f) => f.id === videoId);
         jobIdRef.current = null;
         setPhase('input');
         setMagnet('');
         setConsented(false);
+        setSettleLabel(null);
         // Hand the job id together with the companion-sanitized basename
         // of the selected video (never a path).
         onJobAccepted(jobId, selected ? selected.basename : '');
         return;
       }
+      if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
       switch (res.status) {
         case 401:
         case 403:
@@ -509,6 +589,7 @@ export function MagnetInput({
       }
       setPhase('selecting');
     } catch {
+      if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
       setError('network');
       setPhase('selecting');
     }
@@ -542,7 +623,9 @@ export function MagnetInput({
         {!isPaired ? null : phase === 'checking' || phase === 'settling' ? (
           <div className="entei-magnet-progress" role="status">
             <Loader2 size={16} className="entei-spin" aria-hidden="true" />
-            <span>{phase === 'checking' ? dict.magnetCheckMetadata : dict.magnetCancel}</span>
+            <span>
+              {phase === 'checking' ? dict.magnetCheckMetadata : settleLabel ?? dict.magnetCancel}
+            </span>
             {error !== null && (
               <p className="entei-magnet-error" role="alert">
                 {errorMessages[error](dict)}
@@ -607,10 +690,10 @@ export function MagnetInput({
                 type="button"
                 variant="outline"
                 className="entei-magnet-cancel"
-                onClick={handleCancel}
+                onClick={handleBack}
                 disabled={busy}
               >
-                {dict.magnetCancel}
+                {dict.magnetBack}
               </Button>
               <Button
                 type="button"

@@ -202,6 +202,7 @@ export const baseMockDict = {
   magnetNoVideoError: 'No selectable video in this torrent.',
   magnetSelectSubmit: 'Select & play',
   magnetCancel: 'Cancel',
+  magnetBack: 'Back',
   // Tracker (IMMERSION_TRACKER Stage 2b)
   trackerLabel: 'Tracker',
   trackerOn: 'ON',

@@ -3207,6 +3207,7 @@ export default function PlayerApp() {
           magnetNoVideoError: dict.magnetNoVideoError,
           magnetSelectSubmit: dict.magnetSelectSubmit,
           magnetCancel: dict.magnetCancel,
+          magnetBack: dict.magnetBack,
           dialogClose: dict.dialogClose,
         }}
       />

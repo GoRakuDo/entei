@@ -44,6 +44,7 @@ const baseDict = {
   magnetNoVideoError: 'No selectable video in this torrent.',
   magnetSelectSubmit: 'Select & play',
   magnetCancel: 'Cancel',
+  magnetBack: 'Back',
   dialogClose: 'Close',
 };
 
@@ -396,8 +397,9 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     await flush(5000);
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
 
-    // B1: the dialog must NOT become actionable while the cancel is pending.
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
+    // Kembali (Back) from the file picker: the dialog must NOT become
+    // actionable while the cancel settlement is pending.
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetBack }));
     expect(screen.queryByLabelText('Magnet URI')).not.toBeInTheDocument();
     await flush(0); // cancel ack settles → input restored
     expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
@@ -549,6 +551,239 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     expect(screen.queryByLabelText('Magnet URI')).not.toBeInTheDocument();
     // The cancel resolves; only then does the fresh input appear.
     resolveCancel(jsonResponse({ id: 'jobGate', state: 'cancelled' }, 200));
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+  });
+
+  it('file picker shows the localized Back label (never Batal) and it releases the owned job', async () => {
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobBack' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+      jsonResponse({ id: 'jobBack', state: 'cancelled' }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
+    // The picker's return action is the localized Back wording — no
+    // cancel/Batal label may appear on the selecting screen.
+    const backBtn = screen.getByRole('button', { name: baseDict.magnetBack });
+    expect(screen.queryByRole('button', { name: baseDict.magnetCancel })).not.toBeInTheDocument();
+    // Pressing it runs the SAME awaited cancel settlement (not a phase reset).
+    fireEvent.click(backBtn);
+    expect(screen.queryByLabelText('Magnet URI')).not.toBeInTheDocument();
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobBack/cancel'))).toBe(true);
+  });
+
+  it('top-right close from the file picker cancels the owned job and gates the next open', async () => {
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobCloseSel' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+      jsonResponse({ id: 'jobCloseSel', state: 'cancelled' }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
+    );
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+    // Top-right × from selecting: the owned job is cancelled (awaited) and
+    // the dialog closes.
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    await flush(0);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobCloseSel/cancel'))).toBe(true);
+    // Reopen after the settle: input only, no lingering file picker state.
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={true} />);
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    expect(screen.queryByText('movie.mkv')).not.toBeInTheDocument();
+  });
+
+  it('closing while the create request is in flight: the late 201 is released with an immediate cancel before any retry', async () => {
+    let resolveCreate!: (r: Response) => void;
+    const createGate = new Promise<Response>((res) => {
+      resolveCreate = res;
+    });
+    let resolveLateCancel!: (r: Response) => void;
+    const lateCancelGate = new Promise<Response>((res) => {
+      resolveLateCancel = res;
+    });
+    const { fetchMock, calls } = makeFetcher([
+      () => createGate,        // create POST — held open
+      () => lateCancelGate,    // stale-job cancel — held open (gates retry)
+      jsonResponse({ id: 'freshJob', state: 'queued' }, 201), // retry create
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <MagnetInput
+        {...defaultProps}
+        onJobAccepted={onJobAccepted}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit })); // create pending
+    fireEvent.click(screen.getByRole('button', { name: /close/i })); // close while in flight
+    await flush(0);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    rerender(
+      <MagnetInput
+        {...defaultProps}
+        onJobAccepted={onJobAccepted}
+        onOpenChange={onOpenChange}
+        open={false}
+      />,
+    );
+    rerender(
+      <MagnetInput
+        {...defaultProps}
+        onJobAccepted={onJobAccepted}
+        onOpenChange={onOpenChange}
+        open={true}
+      />,
+    );
+    await flush(0);
+    // The companion answers 201 with an opaque id only after the close.
+    resolveCreate(jsonResponse({ id: 'orphanedLate', state: 'queued' }, 201));
+    await flush(0);
+    // The late job is released immediately: a cancel POST for THAT id.
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/orphanedLate/cancel'))).toBe(true);
+    // It is never adopted: no status poll, no files fetch, no metadata
+    // phase, nothing leaked into the reopened dialog, no acceptance.
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/orphanedLate?'))).toBe(false);
+    expect(calls.some((c) => c.url.includes('/files'))).toBe(false);
+    expect(onJobAccepted).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    expect(screen.queryByText(baseDict.magnetCheckMetadata)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // While the late cleanup is still settling, a retry create is gated.
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    const createPosts = () =>
+      calls.filter((c) => c.url === 'http://127.0.0.1:4322/v1/source/torrents?token=tok123');
+    expect(createPosts()).toHaveLength(1);
+    // The late cleanup settles; only then may a fresh create run.
+    resolveLateCancel(jsonResponse({ id: 'orphanedLate', state: 'cancelled' }, 200));
+    await flush(0);
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    expect(createPosts()).toHaveLength(2);
+  });
+
+  it('closing while a status poll is in flight: the late buffering response cannot open the picker', async () => {
+    let resolvePoll!: (r: Response) => void;
+    const pollGate = new Promise<Response>((res) => {
+      resolvePoll = res;
+    });
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobPoll' }, 201),
+      () => pollGate, // first status poll — held open
+      jsonResponse({ id: 'jobPoll', state: 'cancelled' }, 200), // cancel ack
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
+    );
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    await flush(5000); // poll fires and stays pending
+    // Close while the poll is in flight: cancel + settle.
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    await flush(0);
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobPoll/cancel'))).toBe(true);
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={true} />);
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    // The stale buffering response arrives now, mid-reopened input.
+    resolvePoll(jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200));
+    await flush(0);
+    // It must NOT resurrect the file picker or trigger a files fetch.
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    expect(screen.queryByText(baseDict.magnetFilesTitle)).not.toBeInTheDocument();
+    expect(screen.queryByText('movie.mkv')).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url.includes('/files'))).toBe(false);
+  });
+
+  it('closing while the select request is in flight: a late 200 cannot fire onJobAccepted', async () => {
+    let resolveSelect!: (r: Response) => void;
+    const selectGate = new Promise<Response>((res) => {
+      resolveSelect = res;
+    });
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobSelX' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+      () => selectGate, // select POST — held open
+      jsonResponse({ id: 'jobSelX', state: 'cancelled' }, 200), // cancel ack
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <MagnetInput
+        {...defaultProps}
+        onJobAccepted={onJobAccepted}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetVideoKindLabel}: movie.mkv`));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit })); // select pending
+    // Close × while the select is in flight: cancel the owned job.
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    await flush(0);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobSelX/cancel'))).toBe(true);
+    // The stale select success arrives only after the close.
+    resolveSelect(jsonResponse({ id: 'jobSelX', state: 'complete' }, 200));
+    await flush(0);
+    // Late acceptance must never reach the Player / bridge.
+    expect(onJobAccepted).not.toHaveBeenCalled();
+    rerender(
+      <MagnetInput
+        {...defaultProps}
+        onJobAccepted={onJobAccepted}
+        onOpenChange={onOpenChange}
+        open={false}
+      />,
+    );
+    rerender(
+      <MagnetInput
+        {...defaultProps}
+        onJobAccepted={onJobAccepted}
+        onOpenChange={onOpenChange}
+        open={true}
+      />,
+    );
     await flush(0);
     expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
   });
