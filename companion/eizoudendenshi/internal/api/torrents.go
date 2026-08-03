@@ -22,14 +22,16 @@ import (
 //
 // Responses are metadata-only: opaque job ids, sanitized file metadata, and
 // generic errors — never the magnet, absolute paths, trackers, or engine
-// internals. One active job is enforced across BOTH job kinds (YouTube and
-// torrent): creating a second while either is active is a 409 conflict.
+// internals. Up to 2 concurrent torrent sessions (oldest-first eviction on
+// 3rd create). YouTube active blocks torrent create and vice versa
+// (cross-kind mix → 409). YouTube remains one-session.
 
 // torrentResponseBody is the redacted torrent job view.
 type torrentResponseBody struct {
 	ID                string       `json:"id"`
 	State             string       `json:"state"`
 	Error             string       `json:"error,omitempty"`
+	ErrorCode         string       `json:"errorCode,omitempty"`
 	HasEligibleVideo  bool         `json:"hasEligibleVideo"`
 	SelectedVideoFile string       `json:"selectedVideoFile,omitempty"`
 	Media             jobMediaBody `json:"media"`
@@ -40,6 +42,7 @@ func torrentSnapshotToBody(s torrent.Snapshot) torrentResponseBody {
 		ID:                s.ID,
 		State:             string(s.State),
 		Error:             s.Error,
+		ErrorCode:         s.ErrorCode,
 		HasEligibleVideo:  s.HasEligibleVideo,
 		SelectedVideoFile: s.SelectedVideoFile,
 		Media: jobMediaBody{
@@ -62,9 +65,9 @@ func (s *Server) handleTorrentCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.jobGates(w, r) {
 		return
 	}
-	// One active session across both job kinds.
-	if s.oneActiveJobAnywhere() {
-		writeJSON(w, http.StatusConflict, errorBody("a job is already active"))
+	// YouTube active blocks torrent create (cross-kind mix forbidden).
+	if s.jobs != nil && s.jobs.Current() != nil {
+		writeJSON(w, http.StatusConflict, errorBody("a YouTube job is already active"))
 		return
 	}
 	var req struct {
@@ -77,10 +80,6 @@ func (s *Server) handleTorrentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	snap, err := s.torrents.Start(req.Magnet)
 	if err != nil {
-		if errors.Is(err, torrent.ErrConflict) {
-			writeJSON(w, http.StatusConflict, errorBody("a job is already active"))
-			return
-		}
 		// Generic rejection; the magnet is never echoed.
 		writeJSON(w, http.StatusBadRequest, errorBody("invalid magnet URI"))
 		return
@@ -205,7 +204,7 @@ func (s *Server) handleTorrentPreflight(w http.ResponseWriter, r *http.Request) 
 }
 
 // activeTorrentStatus maps the current torrent job onto the status
-// contract. ok=false means no torrent job.
+// contract. ok=false means no torrent job and no recent eviction.
 func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	if s.torrents == nil {
 		return statusBody{}, false
@@ -222,9 +221,6 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	case torrent.StateStreaming:
 		// The streaming serve path handles 503/206 correctly per request,
 		// but the bridge needs a "playable" signal to assign the URL.
-		// Only report "playable" when there is a verified prefix AND a
-		// servable source; otherwise the bridge would assign a URL that
-		// immediately returns 503 with no recovery path.
 		if src != nil && snap.Media.Available > 0 {
 			return statusBody{
 				State:     statusPlayable,
@@ -245,8 +241,13 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 			Total:     snap.Media.Total,
 		}, true
 	case torrent.StateError:
-		return statusBody{State: statusError}, true
+		return statusBody{
+			State:     statusError,
+			ErrorCode: snap.ErrorCode,
+		}, true
 	default:
+		// No active session (StateCancelled or empty). Eviction info is
+		// carried by the job status endpoint (/v1/source/torrents/{id}).
 		return statusBody{}, false
 	}
 }

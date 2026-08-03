@@ -176,14 +176,15 @@ func main() {
 	}
 
 	// ED-2G: Torrent jobs via anacrolix/torrent engine (loopback-only, no
-	// seeding, private session). Always enabled; the engine is created at
-	// startup. The torrent endpoints are registered whenever a manager is
-	// provided.
-	torrentEngine, err := torrent.NewAnacrolixEngine()
-	if err != nil {
-		log.Fatalf("init torrent engine: %v", err)
-	}
-	torrents, err := torrent.New(torrent.Config{Engine: torrentEngine, Timeout: *torrentTimeout})
+	// seeding, private session). Always enabled; each torrent session gets
+	// its own Engine (per-job Client) to avoid anacrolix v1.61 issue #1048
+	// (stale tracker weakref when the same Client re-adds the same
+	// infohash after Drop). The torrent endpoints are registered whenever
+	// a manager is provided.
+	torrents, err := torrent.New(torrent.Config{
+		EngineFactory: torrent.NewAnacrolixEngine,
+		Timeout:       *torrentTimeout,
+	})
 	if err != nil {
 		log.Fatalf("init torrents: %v", err)
 	}
@@ -275,7 +276,7 @@ func runServer(cfg serverConfig, ytdlpPath string) error {
 	fmt.Fprintf(os.Stdout, "Pairing code: %s\n", srv.PairingCode())
 	fmt.Fprintln(os.Stdout, mediaStatusLine(cfg.fixture, cfg.grow))
 	fmt.Fprintln(os.Stdout, jobsStatusLine(ytdlpPath))
-	fmt.Fprintln(os.Stdout, "Torrent jobs: enabled (anacrolix engine)")
+	fmt.Fprintln(os.Stdout, "Torrent jobs: enabled (anacrolix engine, max 2 concurrent)")
 	if err := http.Serve(ln, srv.Handler()); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

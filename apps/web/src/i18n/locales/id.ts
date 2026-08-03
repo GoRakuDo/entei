@@ -238,6 +238,8 @@ export const id: Dictionary = {
     magnetInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
     magnetInputErrorMetadataTimeout:
       'Metadata tidak dapat diambil. Torrent mungkin belum memiliki peer — coba lagi nanti.',
+    magnetInputErrorEvicted:
+      'Pemutaran dihentikan karena batas torrent simultan sebanyak 2 terlampaui.',
     magnetInputSubmitting: 'Menyiapkan…',
     magnetCheckMetadata: 'Memeriksa metadata…',
     magnetFilesTitle: 'Pilih file',

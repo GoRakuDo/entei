@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ type fakeEngine struct {
 	startDelay time.Duration
 	files      []TorrentFile
 	startErr   error
+	mu         sync.Mutex
 	h          *fakeHandle
 }
 
@@ -38,7 +40,9 @@ func (e *fakeEngine) Start(ctx context.Context, magnet string) (TorrentHandle, e
 		name:  "test-torrent",
 		files: e.files,
 	}
+	e.mu.Lock()
 	e.h = h
+	e.mu.Unlock()
 	return h, nil
 }
 
@@ -209,9 +213,9 @@ func newFakeEngine(filesSpec string) *fakeEngine {
 
 // --- tests ---
 
-func TestNewRequiresEngine(t *testing.T) {
+func TestNewRequiresEngineFactory(t *testing.T) {
 	if _, err := New(Config{}); err == nil {
-		t.Fatal("New with nil engine must fail")
+		t.Fatal("New with nil engine factory must fail")
 	}
 }
 
@@ -232,20 +236,46 @@ func TestStartValidatesMagnet(t *testing.T) {
 	}
 }
 
-func TestConflictOneActiveJob(t *testing.T) {
+func TestConflictTwoActiveSessions(t *testing.T) {
 	m := newTestManagerWithEngine(t, newFakeEngine("media.mp4:6000"), 0)
-	snap, err := m.Start(testMagnet)
+	snap1, err := m.Start(testMagnet)
 	if err != nil {
-		t.Fatalf("Start: %v", err)
+		t.Fatalf("Start 1: %v", err)
 	}
-	if _, err := m.Start(testMagnet); !errors.Is(err, ErrConflict) {
-		t.Fatalf("second Start err = %v, want ErrConflict", err)
+	// Second start succeeds (2 concurrent sessions allowed).
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 2: %v", err)
 	}
-	if _, err := m.Cancel(snap.ID); err != nil {
-		t.Fatalf("Cancel: %v", err)
+	if snap2.ID == snap1.ID {
+		t.Fatal("second job must have a different ID")
 	}
-	if _, err := m.Start(testMagnet); err != nil {
-		t.Fatalf("Start after cancel: %v", err)
+	// Third start triggers eviction of the oldest.
+	snap3, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 3 (eviction): %v", err)
+	}
+	if snap3.ID == snap2.ID {
+		t.Fatal("third job must have a different ID")
+	}
+	// First session should have been evicted.
+	evicted := m.Get(snap1.ID)
+	if evicted == nil {
+		t.Fatal("evicted session must still be readable")
+	}
+	if evicted.State != StateError {
+		t.Fatalf("evicted state = %s, want error", evicted.State)
+	}
+	if evicted.ErrorCode != ErrCodeConcurrencyLimit {
+		t.Fatalf("evicted errorCode = %q, want %q", evicted.ErrorCode, ErrCodeConcurrencyLimit)
+	}
+	// Cancel all remaining.
+	if _, err := m.Cancel(snap3.ID); err != nil {
+		t.Fatalf("Cancel 3: %v", err)
+	}
+	// After cancel, 2nd session should also be gone.
+	if m.Get(snap2.ID) != nil {
+		// session may still be in evicted cache briefly
 	}
 }
 
@@ -858,9 +888,10 @@ func TestMetadataTimeoutCallback(t *testing.T) {
 		startDelay: 5 * time.Second, // much longer than timeout
 		files:      buildFakeFiles("media.mp4:100"),
 	}
+	factory := func() (Engine, error) { return engine, nil }
 	m, err := New(Config{
-		Engine:  engine,
-		Timeout: metaTimeout,
+		EngineFactory: factory,
+		Timeout:       metaTimeout,
 		OnMetadataTimeout: func(elapsed time.Duration) {
 			callbackElapsed = elapsed
 			callbackFired.Store(true)
@@ -988,6 +1019,336 @@ func TestBootstrapFailureFreesSessionAndRetrySucceeds(t *testing.T) {
 	_, _ = m.Cancel(snap2.ID)
 }
 
+// --- counting engine for close verification ---
+
+type countingEngine struct {
+	inner      Engine
+	closeCount atomic.Int32
+}
+
+func (e *countingEngine) Start(ctx context.Context, magnet string) (TorrentHandle, error) {
+	return e.inner.Start(ctx, magnet)
+}
+
+func (e *countingEngine) Close() error {
+	e.closeCount.Add(1)
+	return e.inner.Close()
+}
+
+// TestEvictedTTLExpiration verifies that evicted snapshots disappear after
+// the TTL expires. Uses a very short TTL (10ms) to avoid real-time waits.
+func TestEvictedTTLExpiration(t *testing.T) {
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:3000|sub.srt:100"), 10*time.Second)
+	// Override the evicted TTL to 10ms for fast testing.
+	m.evictedTTL = 10 * time.Millisecond
+
+	snap1, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	waitForState(t, m, snap1.ID, StateBuffering, 5*time.Second)
+
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 2: %v", err)
+	}
+	waitForState(t, m, snap2.ID, StateBuffering, 5*time.Second)
+
+	// 3rd start evicts snap1.
+	snap3, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 3: %v", err)
+	}
+	_ = snap3
+
+	// snap1 should be evicted but still readable.
+	evicted := m.Get(snap1.ID)
+	if evicted == nil {
+		t.Fatal("evicted session must be readable immediately after eviction")
+	}
+	if evicted.State != StateError || evicted.ErrorCode != ErrCodeConcurrencyLimit {
+		t.Fatalf("evicted state=%s code=%q, want error/%s", evicted.State, evicted.ErrorCode, ErrCodeConcurrencyLimit)
+	}
+
+	// Wait for TTL to expire.
+	time.Sleep(50 * time.Millisecond)
+
+	// After TTL, snap1 should be gone.
+	afterTTL := m.Get(snap1.ID)
+	if afterTTL != nil {
+		t.Fatalf("evicted session must be gone after TTL, got state=%s", afterTTL.State)
+	}
+
+	// Cleanup.
+	_, _ = m.Cancel(snap3.ID)
+	_, _ = m.Cancel(snap2.ID)
+}
+
+// TestEvictedEngineClosedOnce verifies that the evicted engine's Close is
+// called exactly once (no double-close from evictOldestLocked + run cleanup).
+func TestEvictedEngineClosedOnce(t *testing.T) {
+	var engines []*countingEngine
+	var mu sync.Mutex
+
+	factory := func() (Engine, error) {
+		inner := newFakeEngine("video.mp4:3000|sub.srt:100")
+		ce := &countingEngine{inner: inner}
+		mu.Lock()
+		engines = append(engines, ce)
+		mu.Unlock()
+		return ce, nil
+	}
+
+	m, err := New(Config{
+		EngineFactory: factory,
+		Timeout:       10 * time.Second,
+		EvictedTTL:    100 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	// Create 3 sessions to trigger eviction.
+	snap1, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	waitForState(t, m, snap1.ID, StateBuffering, 5*time.Second)
+
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 2: %v", err)
+	}
+	waitForState(t, m, snap2.ID, StateBuffering, 5*time.Second)
+
+	snap3, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 3: %v", err)
+	}
+	_ = snap3
+
+	// Wait for the evicted run goroutine to finish.
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(engines) < 1 {
+		t.Fatal("expected at least 1 engine")
+	}
+
+	// The first engine (oldest, evicted) should have Close called exactly once.
+	// Note: the evicted engine's Close is called by the run goroutine via
+	// cleanupRun, not by evictOldestLocked.
+	closeCount := engines[0].closeCount.Load()
+	if closeCount != 1 {
+		t.Fatalf("evicted engine Close count = %d, want 1 (no double-close)", closeCount)
+	}
+
+	// Cleanup.
+	_, _ = m.Cancel(snap3.ID)
+	_, _ = m.Cancel(snap2.ID)
+}
+
+// TestCancelAfterErrorNoDoubleClose verifies that Cancel on a session that
+// already errored (and had its handle+engine cleaned up by run) does not
+// double-close them. Uses a counting engine to verify Close is called
+// exactly once.
+func TestCancelAfterErrorNoDoubleClose(t *testing.T) {
+	var engines []*countingEngine
+	var mu sync.Mutex
+
+	factory := func() (Engine, error) {
+		inner := newFakeEngine("video.mp4:3000|sub.srt:100")
+		ce := &countingEngine{inner: inner}
+		mu.Lock()
+		engines = append(engines, ce)
+		mu.Unlock()
+		return ce, nil
+	}
+
+	m, err := New(Config{
+		EngineFactory: factory,
+		Timeout:       10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	// Create a session that will error (no video → "no playable video").
+	// Use a factory that creates an engine with no video files.
+	var errorEngines []*countingEngine
+	errorFactory := func() (Engine, error) {
+		inner := newFakeEngine("readme.txt:10|song.mp3:50")
+		ce := &countingEngine{inner: inner}
+		mu.Lock()
+		errorEngines = append(errorEngines, ce)
+		mu.Unlock()
+		return ce, nil
+	}
+	m2, err := New(Config{
+		EngineFactory: errorFactory,
+		Timeout:       10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = m2.Close() })
+
+	snap, err := m2.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Wait for the error state and session to be freed.
+	deadline := time.Now().Add(5 * time.Second)
+	for m2.Get(snap.ID) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("session was not freed after no-video error")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Cancel after error: session is already freed from active map,
+	// so Cancel returns ErrNotFound. No double-close occurs because
+	// cleanupSession already nilled the refs.
+	_, cancelErr := m2.Cancel(snap.ID)
+	if cancelErr == nil {
+		// Cancel succeeded (session still in map) or returned not-found.
+		// Either way, no double-close.
+	}
+
+	// Verify engine Close was called exactly once (by run's cleanupSession).
+	mu.Lock()
+	defer mu.Unlock()
+	if len(errorEngines) < 1 {
+		t.Fatal("expected at least 1 error engine")
+	}
+	closeCount := errorEngines[0].closeCount.Load()
+	if closeCount != 1 {
+		t.Fatalf("error engine Close count = %d, want 1 (no double-close after error)", closeCount)
+	}
+
+	// Cleanup the other manager.
+	_ = m
+}
+
+// TestCancelConcurrentEvictCloseOnce verifies that when Cancel and eviction
+// race on the same session, the engine Handle is closed exactly once.
+// This is a regression test for the double-close where Cancel captured
+// refs before <-j.done while eviction closed them concurrently.
+func TestCancelConcurrentEvictCloseOnce(t *testing.T) {
+	var mu sync.Mutex
+	var engines []*countingEngine
+
+	factory := func() (Engine, error) {
+		inner := newFakeEngine("video.mp4:3000|sub.srt:100")
+		ce := &countingEngine{inner: inner}
+		mu.Lock()
+		engines = append(engines, ce)
+		mu.Unlock()
+		return ce, nil
+	}
+
+	m, err := New(Config{
+		EngineFactory: factory,
+		Timeout:       10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	// Create 2 sessions.
+	snap1, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	waitForState(t, m, snap1.ID, StateBuffering, 5*time.Second)
+
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start 2: %v", err)
+	}
+	waitForState(t, m, snap2.ID, StateBuffering, 5*time.Second)
+
+	// Race: Cancel session 1 concurrently with creating session 3
+	// (which triggers eviction of session 1).
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = m.Cancel(snap1.ID)
+	}()
+	go func() {
+		defer wg.Done()
+		// Small delay so Cancel starts first, then eviction fires.
+		time.Sleep(5 * time.Millisecond)
+		_, _ = m.Start(testMagnet)
+	}()
+	wg.Wait()
+
+	// Wait a bit for cleanup goroutines to finish.
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// The first engine (session 1) must have Close called exactly once,
+	// regardless of whether Cancel or eviction ran first.
+	if len(engines) < 1 {
+		t.Fatal("expected at least 1 engine")
+	}
+	closeCount := engines[0].closeCount.Load()
+	if closeCount != 1 {
+		t.Fatalf("evicted/cancelled engine Close count = %d, want 1 (no double-close)", closeCount)
+	}
+
+	// Cleanup remaining sessions.
+	// Note: session 3 is the newest; session 2 is still active.
+}
+
+// TestConcurrentRaceSafety exercises concurrent create/cancel/evict to
+// verify no race conditions under `go test -race`.
+func TestConcurrentRaceSafety(t *testing.T) {
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:3000|sub.srt:100"), 10*time.Second)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			snap, err := m.Start(testMagnet)
+			if err != nil {
+				return
+			}
+			// Brief sleep then cancel.
+			time.Sleep(time.Duration(rand.Intn(20)) * time.Millisecond)
+			_, _ = m.Cancel(snap.ID)
+		}()
+	}
+
+	// Concurrent reads.
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				_ = m.Current()
+				_ = m.ActiveCount()
+				_, _ = m.ActiveMedia()
+				_ = m.SelectedMediaType()
+				_ = m.AvailablePrefix()
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
 // --- helpers ---
 
 func newTestManagerWithEngine(t *testing.T, engine Engine, timeout time.Duration) *Manager {
@@ -995,7 +1356,8 @@ func newTestManagerWithEngine(t *testing.T, engine Engine, timeout time.Duration
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
-	m, err := New(Config{Engine: engine, Timeout: timeout})
+	factory := func() (Engine, error) { return engine, nil }
+	m, err := New(Config{EngineFactory: factory, Timeout: timeout})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

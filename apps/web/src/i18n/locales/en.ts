@@ -233,6 +233,8 @@ export const en: Dictionary = {
     magnetInputErrorGeneric: 'Something went wrong. Try again.',
     magnetInputErrorMetadataTimeout:
       'Metadata could not be retrieved. The torrent may have no peers yet — try again later.',
+    magnetInputErrorEvicted:
+      'Playback stopped because the concurrent torrent limit of 2 was exceeded.',
     magnetInputSubmitting: 'Starting…',
     magnetCheckMetadata: 'Checking metadata…',
     magnetFilesTitle: 'Select files',

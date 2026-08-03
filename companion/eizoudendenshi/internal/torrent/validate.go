@@ -1,6 +1,7 @@
 // Package torrent implements the EizouDendenshi local-torrent job
-// boundary (ED-2G): a single-session anacrolix/torrent-backed BitTorrent
-// download whose completed files later feed the existing status/media
+// boundary (ED-2G): up to MaxConcurrentTorrents concurrent
+// anacrolix/torrent-backed BitTorrent sessions (oldest-first eviction),
+// whose completed files later feed the existing status/media
 // bridge — strictly gated by an explicit one-video + optional-subtitle
 // selection. No GoRakuDo proxy, no browser WebTorrent, no LAN/public bind.
 //
@@ -50,14 +51,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrInvalidMagnet is the generic rejection error; it never echoes input.
 var ErrInvalidMagnet = errors.New("invalid magnet URI")
-
-// ErrConflict is returned when a job is already active anywhere in the
-// companion (one active session across YouTube and torrent jobs).
-var ErrConflict = errors.New("a job is already active")
 
 // ErrNotFound is returned when the requested job id does not exist.
 var ErrNotFound = errors.New("job not found")
@@ -69,6 +67,27 @@ var ErrNotListed = errors.New("file listing not ready")
 // ErrInvalidSelection is returned when a selection does not satisfy the
 // one-video + optional-subtitle contract.
 var ErrInvalidSelection = errors.New("invalid selection")
+
+// Error codes returned in Snapshot.ErrorCode for frontend routing.
+// These are stable identifiers; the frontend maps them to localized
+// user-facing messages and never compares error strings.
+const (
+	ErrCodeConcurrencyLimit = "torrent_concurrency_limit"
+	ErrCodeEngineFailed     = "torrent_engine_failed"
+	ErrCodeMetadataTimeout  = "torrent_metadata_timeout"
+	ErrCodeNoPlayableVideo  = "torrent_no_playable_video"
+	ErrCodeReaderFailed     = "torrent_reader_failed"
+	ErrCodeMetadataFailed   = "torrent_metadata_failed"
+)
+
+// MaxConcurrentTorrents is the maximum number of concurrent torrent sessions.
+// A third create evicts the oldest session with ErrCodeConcurrencyLimit.
+const MaxConcurrentTorrents = 2
+
+// EvictedTTLDefault is how long an evicted session remains readable after
+// eviction. The frontend polls at 5s intervals; 30s covers 5-6 polls with
+// margin. Config.EvictedTTL overrides this in tests.
+const EvictedTTLDefault = 30 * time.Second
 
 const btihPrefix = "urn:btih:"
 

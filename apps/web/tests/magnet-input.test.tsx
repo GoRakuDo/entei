@@ -35,6 +35,7 @@ const baseDict = {
   magnetInputErrorNetwork: 'Could not reach EizouDendenshi.',
   magnetInputErrorGeneric: 'Something went wrong. Try again.',
   magnetInputErrorMetadataTimeout: 'Metadata could not be retrieved.',
+  magnetInputErrorEvicted: 'Playback stopped because the concurrent torrent limit was exceeded.',
   magnetInputSubmitting: 'Starting…',
   magnetCheckMetadata: 'Checking metadata…',
   magnetFilesTitle: 'Select files',

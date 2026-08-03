@@ -75,6 +75,7 @@ type ErrorKind =
   | 'generic'
   | 'novideo'
   | 'metadataTimeout'
+  | 'evicted'
   | null;
 
 type Phase =
@@ -106,6 +107,7 @@ export interface MagnetInputDict {
   magnetInputErrorNetwork: string;
   magnetInputErrorGeneric: string;
   magnetInputErrorMetadataTimeout: string;
+  magnetInputErrorEvicted: string;
   magnetInputSubmitting: string;
   magnetCheckMetadata: string;
   magnetFilesTitle: string;
@@ -165,6 +167,7 @@ const errorMessages: Record<Exclude<ErrorKind, null>, (d: MagnetInputDict) => st
   generic: (d) => d.magnetInputErrorGeneric,
   novideo: (d) => d.magnetNoVideoError,
   metadataTimeout: (d) => d.magnetInputErrorMetadataTimeout,
+  evicted: (d) => d.magnetInputErrorEvicted,
 };
 
 function kindLabel(kind: TorrentFileInfo['kind'], dict: MagnetInputDict): string {
@@ -489,7 +492,7 @@ export function MagnetInput({
           setPhase('input');
           return;
         }
-        const body = (await res.json()) as { state?: string; error?: string };
+        const body = (await res.json()) as { state?: string; error?: string; errorCode?: string };
         if (!safe()) return;
         if (body.state === 'buffering') {
           // Metadata arrived: fetch the sanitized file list and show the
@@ -517,11 +520,11 @@ export function MagnetInput({
           return;
         }
         if (body.state === 'error') {
-          // Distinguish metadata timeout from other errors: the companion
-          // returns "metadata timed out" when the bounded fetch exceeds
-          // the configured timeout. The exact string is a stable contract
-          // (never leaked to the user — only used for error-kind routing).
-          if (body.error === 'metadata timed out') {
+          // Check errorCode first (stable identifier for frontend routing);
+          // fall back to string matching for backward compatibility.
+          if (body.errorCode === 'torrent_concurrency_limit') {
+            setError('evicted');
+          } else if (body.error === 'metadata timed out') {
             setError('metadataTimeout');
           } else {
             setError('generic');

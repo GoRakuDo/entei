@@ -63,7 +63,8 @@ DPAPI-backed persistent credential — see
 > **The ED-2F YouTube local source job foundation is IMPLEMENTED
 > (2026-07-31)** — `internal/youtube` strict URL validation + `internal/job`
 > manager (pinned helper via `--ytdlp`, fixed argv + URL only — never a
-> shell, 1080p cap, one active session → 409, cancel/timeout kill the
+> shell, 1080p cap, up to 2 concurrent torrent sessions (oldest eviction),
+> cancel/timeout kill the
 > process tree, private temp-dir lifecycle, metadata-only redacted
 > responses) behind `POST/GET /v1/source/jobs(/{id})(/cancel)` with the
 > same Origin + token gates; `/v1/media/status` and `/v1/media/fixture`
@@ -754,10 +755,13 @@ POST /v1/source/torrents/{id}/select — one video + optional subtitle
 ```
 
 - Same exact-Origin + capability-token gates; OPTIONS preflight; `no-store`.
-- **One active session across BOTH job kinds** (YouTube + torrent): creating
-  a second while either is active → 409. A terminal (error/complete) job
-  stays current until cancelled.
-- Responses are **metadata-only**: opaque job ids, `state`, generic errors,
+- **Up to 2 concurrent torrent sessions** (oldest-first eviction on 3rd
+  create; evicted session returns `errorCode: "torrent_concurrency_limit"`
+  for 30s TTL). YouTube active blocks torrent create and vice versa
+  (cross-kind mix → 409). YouTube remains one-session (one active YouTube
+  job). Per-job Engine/Client (anacrolix v1.61 issue #1048 avoidance).
+- Responses are **metadata-only**: opaque job ids, `state`, `errorCode`
+  (stable identifier for frontend localized routing), generic errors,
   and sanitized file metadata (`id`/`basename`/`extension`/`byteSize`/`kind`)
   — never absolute paths, the magnet, trackers, or raw engine output.
 
@@ -798,10 +802,13 @@ any engine start, and errors never echo the magnet or tracker data.
 
 ### Engine contract
 
-- anacrolix/torrent **v1.61** in-process engine, loopback-only
-  (`ListenHost` = loopback, random port), `Seed=false` / `NoUpload=true`
-  (never seeds), engine logger discarded (cancellation read noise never
-  reaches the companion stderr).
+- anacrolix/torrent **v1.61** per-job in-process engine: each torrent
+  session creates its own `torrent.Client` via `EngineFactory` to avoid
+  anacrolix v1.61 issue #1048 (stale tracker weakref when the same Client
+  re-adds the same infohash after `Drop`). Loopback-only (`ListenHost` =
+  loopback, random port), `Seed=false` / `NoUpload=true` (never seeds),
+  engine logger discarded (cancellation read noise never reaches the
+  companion stderr).
 - The canonicalized magnet (xt + trackers) is passed to `engine.Start`
   (bounded metadata fetch, default 2m; `--torrent-timeout`); **the
   sanitized file list becomes available as soon as metadata arrives**

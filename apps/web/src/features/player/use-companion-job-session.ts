@@ -57,6 +57,9 @@ export interface UseCompanionJobSessionResult {
   phase: CompanionBridgePhase;
   progress: CompanionBridgeProgress | null;
   reason: string | null;
+  /** Stable error code from the source (e.g. "torrent_concurrency_limit").
+   *  Only present when phase is 'error'. */
+  errorCode: string | null;
   /** Begin the bridge session for an accepted YouTube job. */
   beginJobSession: (source: CompanionJobSource) => void;
   /** Cancel the job on the companion, then end the local session. */
@@ -103,6 +106,14 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     intentCleanupRef.current?.();
     intentCleanupRef.current = null;
   }, []);
+
+  // Derive errorCode from bridge reason when phase is 'error'.
+  // Error codes are snake_case identifiers (e.g. "torrent_concurrency_limit");
+  // human-readable reasons contain spaces.
+  const derivedErrorCode =
+    bridge.phase === 'error' && bridge.reason && !bridge.reason.includes(' ')
+      ? bridge.reason
+      : null;
 
   const beginJobSession = useCallback(
     (source: CompanionJobSource) => {
@@ -205,6 +216,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     phase: bridge.phase,
     progress: bridge.progress,
     reason: bridge.reason,
+    errorCode: derivedErrorCode,
     beginJobSession,
     cancelActiveJob,
     endJobSession,

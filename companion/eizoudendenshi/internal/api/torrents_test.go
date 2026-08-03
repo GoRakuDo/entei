@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ const testMagnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567
 
 type apiFakeEngine struct {
 	files []torrent.TorrentFile
+	mu    sync.Mutex
 	h     *apiFakeHandle
 }
 
@@ -60,7 +62,9 @@ func newAPIFakeEngine(filesSpec string) *apiFakeEngine {
 
 func (e *apiFakeEngine) Start(_ context.Context, _ string) (torrent.TorrentHandle, error) {
 	h := &apiFakeHandle{files: e.files}
+	e.mu.Lock()
 	e.h = h
+	e.mu.Unlock()
 	return h, nil
 }
 
@@ -159,10 +163,48 @@ func (r *apiFakeReader) Seek(offset int64, whence int) (int64, error) {
 
 func (r *apiFakeReader) Close() error { return nil }
 
-func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager, *apiFakeEngine) {
+// trackedEngines records each engine created by the factory, so tests can
+// control per-session availability (avail.Store()) for eviction tests.
+type trackedEngines struct {
+	mu      sync.Mutex
+	engines []*apiFakeEngine
+}
+
+func (t *trackedEngines) factory(spec string) func() (torrent.Engine, error) {
+	return func() (torrent.Engine, error) {
+		eng := newAPIFakeEngine(spec)
+		t.mu.Lock()
+		t.engines = append(t.engines, eng)
+		t.mu.Unlock()
+		return eng, nil
+	}
+}
+
+func (t *trackedEngines) last() *apiFakeEngine {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.engines) == 0 {
+		return nil
+	}
+	return t.engines[len(t.engines)-1]
+}
+
+func (t *trackedEngines) byIndex(i int) *apiFakeEngine {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if i < 0 || i >= len(t.engines) {
+		return nil
+	}
+	return t.engines[i]
+}
+
+func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager, *trackedEngines) {
 	t.Helper()
-	engine := newAPIFakeEngine("Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10")
-	m, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
+	tracked := &trackedEngines{}
+	m, err := torrent.New(torrent.Config{
+		EngineFactory: tracked.factory("Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10"),
+		Timeout:       20 * time.Second,
+	})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
 	}
@@ -171,7 +213,7 @@ func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager, *apiFakeEngine)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return s, m, engine
+	return s, m, tracked
 }
 
 func doTorrent(t *testing.T, s *Server, method, path, origin, body string) *httptest.ResponseRecorder {
@@ -287,7 +329,7 @@ func TestTorrentTrackerNeverLeaks(t *testing.T) {
 }
 
 func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
-	s, _, engine := newTorrentsServer(t)
+	s, _, tracked := newTorrentsServer(t)
 
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
@@ -369,7 +411,7 @@ func TestTorrentCreateReadFilesSelectCancel(t *testing.T) {
 
 	// Simulate download completion (the fake engine no longer auto-sets
 	// avail in Reader; tests that need completion must set it explicitly).
-	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+	tracked.last().h.avail.Store(tracked.last().files[tracked.last().h.selected].Length)
 
 	// Wait for complete.
 	deadline = time.Now().Add(5 * time.Second)
@@ -519,8 +561,9 @@ func TestTorrentStatusBufferingBeforeSelection(t *testing.T) {
 }
 
 func TestTorrentConflictAcrossJobKinds(t *testing.T) {
-	engine := newAPIFakeEngine("media.mp4:200")
-	mTor, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
+	torEngine := newAPIFakeEngine("media.mp4:200")
+	torFactory := func() (torrent.Engine, error) { return torEngine, nil }
+	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
 	}
@@ -541,32 +584,57 @@ func TestTorrentConflictAcrossJobKinds(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("torrent create = %d, want 201", rec.Code)
 	}
-	// YouTube create while the torrent is active → 409.
+	// Second torrent create succeeds (2 concurrent allowed).
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("second torrent create = %d, want 201", rec.Code)
+	}
+	// YouTube create while torrents are active → 409.
 	rec = doTorrent(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
 		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("youtube create during torrent = %d, want 409", rec.Code)
 	}
-	// Torrent create again → 409.
+	// Third torrent create triggers eviction but still succeeds (201).
 	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("second torrent create = %d, want 409", rec.Code)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("third torrent create = %d, want 201 (eviction)", rec.Code)
 	}
-	// Cancel the torrent.
-	first := mTor.Current()
-	if first == nil {
-		t.Fatal("torrent job missing")
+	// Cancel all remaining sessions.
+	sessions := mTor.Current()
+	if sessions != nil {
+		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
+		}
 	}
-	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+first.ID+"/cancel", allowedOriginLocal, "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("torrent cancel = %d, want 200", rec.Code)
+	sessions = mTor.Current()
+	if sessions != nil {
+		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
+		}
 	}
-	// YouTube create after cancel succeeds.
+	sessions = mTor.Current()
+	if sessions != nil {
+		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
+		}
+	}
+	// YouTube create after all torrents cancelled succeeds.
 	rec = doTorrent(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
 		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("youtube create after torrent cancel = %d, want 201", rec.Code)
+	}
+	// Clean up the YouTube job.
+	jobs := mJob.Current()
+	if jobs != nil {
+		rec = doTorrent(t, s, http.MethodPost, "/v1/source/jobs/"+jobs.ID+"/cancel", allowedOriginLocal, "")
+		_ = rec
 	}
 }
 
@@ -587,7 +655,8 @@ func TestTorrentPreflight(t *testing.T) {
 
 func TestTorrentStreamingMIME(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mkv:800000|audio.mp3:40000")
-	m, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
+	factory := func() (torrent.Engine, error) { return engine, nil }
+	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
 	}
@@ -749,7 +818,8 @@ func TestTorrentFilesReturnsFileInfo(t *testing.T) {
 // "Menunggu file selesai…".
 func TestTorrentStatusStreamingPlayable(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mp4:800000")
-	m, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
+	factory := func() (torrent.Engine, error) { return engine, nil }
+	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
 	}
@@ -872,7 +942,8 @@ func TestTorrentStatusStreamingPlayable(t *testing.T) {
 // during the streaming state.
 func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mp4:800000")
-	m, err := torrent.New(torrent.Config{Engine: engine, Timeout: 20 * time.Second})
+	factory := func() (torrent.Engine, error) { return engine, nil }
+	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
 	}

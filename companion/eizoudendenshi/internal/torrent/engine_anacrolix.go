@@ -40,9 +40,13 @@ type engineAnacrolix struct {
 // demand window are the same bounded region.
 const bootstrapWindowBytes = 4 << 20 // 4 MiB
 
-// NewAnacrolixEngine constructs the engine. The client binds a random
-// loopback port and does not seed.
-func NewAnacrolixEngine() (Engine, error) {
+// DefaultClientConfig returns a torrent.NewDefaultClientConfig() with the
+// standard EizouDendenshi settings applied: loopback-only listen, no
+// seeding, no upload, discard logger. It is a reusable factory for per-job
+// Engine creation — each torrent session creates its own Client from a
+// fresh config to avoid anacrolix v1.61 issue #1048 (stale tracker
+// weakref when the same Client re-adds the same infohash after Drop).
+func DefaultClientConfig() *torrent.ClientConfig {
 	cfg := torrent.NewDefaultClientConfig()
 	// LoopbackListenHost returns "127.0.0.1" for tcp4 and "::1" for tcp6.
 	// Hardcoding "127.0.0.1" for all networks causes listen tcp6 failures
@@ -58,6 +62,13 @@ func NewAnacrolixEngine() (Engine, error) {
 	// the engine never surfaces them — so point the slogger at a discard
 	// handler instead of polluting the companion's stderr.
 	cfg.Slogger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	return cfg
+}
+
+// NewAnacrolixEngine constructs the engine. The client binds a random
+// loopback port and does not seed.
+func NewAnacrolixEngine() (Engine, error) {
+	cfg := DefaultClientConfig()
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("anacrolix client: %w", err)

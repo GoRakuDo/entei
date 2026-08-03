@@ -28,12 +28,16 @@ const bufferingRetryAfterSec = 1
 // token, pairing code, or media bytes. retryAfter is present only while
 // buffering (it is the current 503 hint); headReady is reserved for a
 // byte-level playable-prefix check and stays false until implemented.
+// ErrorCode is a stable identifier (e.g. "torrent_concurrency_limit")
+// present only on error states, enabling the frontend to map to localized
+// messages without relying on error string comparison.
 type statusBody struct {
 	State      string `json:"state"`
 	Available  int64  `json:"available"`
 	Total      int64  `json:"total"`
 	HeadReady  bool   `json:"headReady"`
 	RetryAfter int    `json:"retryAfter,omitempty"`
+	ErrorCode  string `json:"errorCode,omitempty"`
 }
 
 // handleMediaStatus serves the availability snapshot for the configured

@@ -62,6 +62,8 @@ export interface CompanionBridgeStatus {
   total: number;
   headReady: boolean;
   retryAfter?: number;
+  /** Stable error code for frontend routing (e.g. "torrent_concurrency_limit"). */
+  errorCode?: string;
 }
 
 /** Loopback companion connection: base URL + pairing capability token. */
@@ -378,6 +380,7 @@ export class CompanionBridge {
         total,
         headReady: o['headReady'] === true,
         retryAfter,
+        errorCode: typeof o['errorCode'] === 'string' ? o['errorCode'] : undefined,
       },
     };
   }
@@ -408,7 +411,7 @@ export class CompanionBridge {
         this.onBuffering(result.status);
         return;
       case 'error':
-        this.setPhase('error', 'source reported an error');
+        this.setPhase('error', result.status.errorCode ?? 'source reported an error');
         return;
       case 'disabled':
         // A configured session should never see disabled; fail closed.

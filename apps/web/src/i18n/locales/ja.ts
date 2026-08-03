@@ -239,6 +239,8 @@ export const ja: Dictionary = {
     magnetInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
     magnetInputErrorMetadataTimeout:
       'メタデータを取得できませんでした。ピアが見つからない可能性があります。しばらくしてからもう一度お試しください。',
+    magnetInputErrorEvicted:
+      '同時 torrent 数が2つの上限に達したため、再生を停止しました。',
     magnetInputSubmitting: '準備中…',
     magnetCheckMetadata: 'メタデータ確認中…',
     magnetFilesTitle: 'ファイルを選択',
