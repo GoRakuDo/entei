@@ -267,15 +267,21 @@ export interface Dictionary {
     magnetCheckMetadata: string;
     magnetFilesTitle: string;
     magnetFilesBody: string;
-    magnetVideoKindLabel: string;
-    magnetSubtitleKindLabel: string;
-    magnetOtherKindLabel: string;
     magnetNoVideoError: string;
     magnetSelectSubmit: string;
     magnetCancel: string;
     /** File-picker return label ("Back" / "Kembali" / "戻る"); the owned job
      *  is cancelled and released the same awaited way as Cancel. */
     magnetBack: string;
+    // ED-2G: File browser table headers and labels
+    magnetTableFileName: string;
+    magnetTableSize: string;
+    magnetFileKindVideo: string;
+    magnetFileKindSubtitle: string;
+    magnetFileKindFolder: string;
+    magnetFileKindOther: string;
+    magnetNavBack: string;
+    magnetNavForward: string;
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: string;
     eizouSetupTitle: string;

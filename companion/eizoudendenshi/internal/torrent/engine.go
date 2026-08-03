@@ -23,10 +23,11 @@ type Engine interface {
 // carries an opaque id and safe display fields — never an absolute path,
 // the magnet, or tracker data.
 type TorrentFile struct {
-	ID     string `json:"id"`     // opaque, stable ("f0", "f1", …)
-	Path   string `json:"path"`   // sanitized basename only (no directory)
-	Length int64  `json:"length"` // file size in bytes
-	Kind   string `json:"kind"`   // video | audio | subtitle | other
+	ID           string `json:"id"`                     // opaque, stable ("f0", "f1", …)
+	Path         string `json:"path"`                   // sanitized basename only (no directory)
+	RelativePath string `json:"relativePath,omitempty"` // safe relative path with directory (normalized "/")
+	Length       int64  `json:"length"`                 // file size in bytes
+	Kind         string `json:"kind"`                   // video | audio | subtitle | other
 }
 
 // TorrentHandle is the active torrent session.

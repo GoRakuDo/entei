@@ -63,8 +63,7 @@ DPAPI-backed persistent credential — see
 > **The ED-2F YouTube local source job foundation is IMPLEMENTED
 > (2026-07-31)** — `internal/youtube` strict URL validation + `internal/job`
 > manager (pinned helper via `--ytdlp`, fixed argv + URL only — never a
-> shell, 1080p cap, up to 2 concurrent torrent sessions (oldest eviction),
-> cancel/timeout kill the
+> shell, 1080p cap, cancel/timeout kill the
 > process tree, private temp-dir lifecycle, metadata-only redacted
 > responses) behind `POST/GET /v1/source/jobs(/{id})(/cancel)` with the
 > same Origin + token gates; `/v1/media/status` and `/v1/media/fixture`
@@ -860,7 +859,7 @@ assigns the URL then; ranges inside the verified prefix → `206`, beyond →
 ### Tests
 
 `internal/torrent` (magnet validation; manager: Engine interface /
-injection-free, one-active conflict, file-listing sanitization, selection
+injection-free, up to 2 concurrent sessions + oldest-first eviction + eviction TTL + per-job engine/client + cross-kind conflict + metadata-only, file-listing sanitization, selection
 restrictions / no-eligible-video error, redaction, cancel/timeout/session
 cleanup + no temp-dir leak, **head-bootstrap window pure function and
 StartBootstrap lifecycle**) and `internal/api` (torrent endpoints: gates,
@@ -1075,7 +1074,7 @@ acquires ONLY the verifier safely:
   MKV sourcing plan (public-domain/official) is documented and untested.
 - **Magnet UI implemented (ED-2G, React Player):** the Magnet button now opens
   a real torrent source dialog — pairing-gated (unpaired = pairing-needed
-  only), required memory-only tracker-consent checkbox (IP exposure note),
+  only), plain memory-only tracker/peer IP disclosure text (no checkbox),
   magnet create (POST /v1/source/torrents), redacted status polling,
   sanitized file listing with one-video + optional-subtitle selection
   (srt/vtt/ass only), selection submit, and job cancel on close/unmount.

@@ -205,10 +205,14 @@ source integration remains in later ED-3 / ED-4 stages. See
   replace with reuse-by-version+hash, archives extracted only after
   verification, explicit absolute `--ytdlp`/`--aria2` for the core, ffmpeg
   via process-scoped PATH — no system PATH mutation), and a new
-  `scripts/test-windows-bootstrap.ps1` harness (**51/51 green**). A clean
+  `scripts/test-windows-bootstrap.ps1` harness (**51/51 green**). Note: the
+  harness's dynamic suite self-skips when no minisign binary/ZIP is
+  available on the QA machine (PATH / A:\Temp\opencode / network
+  provisioning) — that is an environment/setup gap, not a product code
+  failure; the static fail-closed checks always run. A clean
   real Windows bootstrap run and real aria2 swarm QA remain gates; the
-  user-facing Magnet/selection UI is implemented (paired gate + required
-  tracker consent + create/poll/files/select) but its final E2E incl. real
+  user-facing Magnet/selection UI is implemented (paired gate + tracker/peer
+  IP disclosure text + create/poll/files/select) but its final E2E incl. real
   playback has not been run.
 - **ED-2D Stage B (clean-Termux device gate) PASSED on 2026-07-31** with
   the GitHub prerelease `eizoudendenshi-v0.2.0-rc.2`: on a fresh Termux
@@ -290,8 +294,9 @@ source integration remains in later ED-3 / ED-4 stages. See
 - **ED-2G aria2 torrent jobs — COMPANION FOUNDATION IMPLEMENTED:**
   `internal/torrent` magnet validation (btih-only, other params dropped,
   canonicalized) + a supervised aria2 manager (pinned `--aria2`, fixed argv
-  with `--seed-time=0` and no shell, one active session shared with YouTube
-  jobs → 409 across kinds, cancel/timeout kill the process tree, private
+  with `--seed-time=0` and no shell, up to 2 concurrent torrent sessions
+  (oldest-first eviction, 30s TTL, per-job Engine/Client) with YouTube
+  cross-kind conflict → 409, cancel/timeout kill the process tree, private
   temp-dir lifecycle) behind `POST/GET /v1/source/torrents(/{id})(/cancel)`
   plus a backend-only file-listing + one-video/optional-subtitle selection
   (`/files`, `/select`) aligned to the Player's native allowlists; nothing

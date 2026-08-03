@@ -111,11 +111,15 @@ func newAnacrolixHandle(t *torrent.Torrent) *anacrolixHandle {
 		displayPath := f.DisplayPath()
 		base := filepath.Base(displayPath)
 		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(base), "."))
+		// Normalize the display path to a safe relative path with "/" separators.
+		relPath := strings.ReplaceAll(displayPath, "\\", "/")
+		relPath = strings.TrimLeft(relPath, "/")
 		h.files = append(h.files, TorrentFile{
-			ID:     fmt.Sprintf("f%d", i),
-			Path:   base,
-			Length: f.Length(),
-			Kind:   classify(ext),
+			ID:           fmt.Sprintf("f%d", i),
+			Path:         base,
+			RelativePath: relPath,
+			Length:       f.Length(),
+			Kind:         classify(ext),
 		})
 	}
 	return h

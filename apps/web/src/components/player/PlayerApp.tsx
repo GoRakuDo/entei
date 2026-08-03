@@ -3177,8 +3177,8 @@ export default function PlayerApp() {
       )}
 
       {/* ED-2G: Magnet source dialog — real companion torrent flow (pairing
-          gate → consent → create → poll → file selection → select). The
-          selected video's sanitized basename travels with the job id. */}
+           gate → create → poll → file selection → select). The
+           selected video's sanitized basename travels with the job id. */}
       <MagnetInput
         open={isMagnetDialogOpen}
         onOpenChange={setIsMagnetDialogOpen}
@@ -3203,14 +3203,19 @@ export default function PlayerApp() {
           magnetCheckMetadata: dict.magnetCheckMetadata,
           magnetFilesTitle: dict.magnetFilesTitle,
           magnetFilesBody: dict.magnetFilesBody,
-          magnetVideoKindLabel: dict.magnetVideoKindLabel,
-          magnetSubtitleKindLabel: dict.magnetSubtitleKindLabel,
-          magnetOtherKindLabel: dict.magnetOtherKindLabel,
           magnetNoVideoError: dict.magnetNoVideoError,
           magnetSelectSubmit: dict.magnetSelectSubmit,
           magnetCancel: dict.magnetCancel,
           magnetBack: dict.magnetBack,
           dialogClose: dict.dialogClose,
+          magnetTableFileName: dict.magnetTableFileName,
+          magnetTableSize: dict.magnetTableSize,
+          magnetFileKindVideo: dict.magnetFileKindVideo,
+          magnetFileKindSubtitle: dict.magnetFileKindSubtitle,
+          magnetFileKindFolder: dict.magnetFileKindFolder,
+          magnetFileKindOther: dict.magnetFileKindOther,
+          magnetNavBack: dict.magnetNavBack,
+          magnetNavForward: dict.magnetNavForward,
         }}
       />
 

@@ -1,44 +1,37 @@
 /**
  * MagnetInput — ED-2G magnet source dialog (real companion torrent flow).
  * ---------------------------------------------------------------------------
- * A real, controlled dialog: magnet textarea + required tracker-consent
- * checkbox + submit that creates a torrent source job on the paired
- * localhost companion (POST /v1/source/torrents?token=…), polls the redacted
- * job status, lists the sanitized files when the metadata arrived, lets
- * the user pick exactly one `video` file (and optionally one `subtitle`),
- * and submits the selection (POST …/select). On acceptance the opaque job
- * id is handed to the bridge session (kind 'torrent') and the dialog closes
- * to the Player immediately; payload download progress is NOT shown in the
- * dialog by contract.
+ * Unified shell visible from modal open:
+ * - Top: shadcn Input (magnet URI) + Lucide Magnet icon-only create button.
+ * - Center: shadcn Table — empty state before metadata, spinner during
+ *           checking, file/folder rows after metadata arrives.
+ * - Bottom: ChevronLeft (back) / "Pilih & putar" (select & play) /
+ *           ChevronRight (forward, always disabled — folder navigation is
+ *           via clicking folder names in the table, not the chevron).
+ * - Tracker/peer IP disclosure shown as plain text above bottom nav.
+ *
+ * Only the explicit "Pilih & putar" button calls /select and hands the
+ * accepted job to Player. Merely checking rows or navigating folders must
+ * never start payload or Player playback.
  *
  * Flow semantics:
- * - After create the job is in its metadata-fetch phase: the dialog shows
- *   only a localized "checking metadata" label + spinner, NEVER byte counts
- *   (the payload has not started yet; `0 B / 0 B` would be a lie).
+ * - After create the job is in its metadata-fetch phase: the table shows
+ *   a spinner + localized "checking metadata" label, NEVER byte counts.
  * - The file picker appears once the companion reports `buffering` (the
  *   metadata is listed); payload download only begins after selection.
- * - Cancel (metadata phase) / Back ("Kembali", file picker) / dialog close
- *   cancels the owned job asynchronously and the UI stays non-actionable
- *   ('settling') until the cancel response settles, so a second create can
- *   never race the first job's cleanup — a later identical magnet is a
- *   FRESH job that re-fetches metadata.
- * - A 201 answered after the dialog closed/reopened is parsed for its id and
- *   released with an immediate cancel (never owned, polled, or accepted), so
- *   the companion job can never be orphaned by the frontend.
+ * - Cancel / Back ("Kembali") / dialog close cancels the owned job
+ *   asynchronously; the UI stays non-actionable ('settling') until the
+ *   cancel response settles, so a second create can never race cleanup.
+ * - A 201 answered after the dialog closed/reopened is parsed for its id
+ *   and released with an immediate cancel (never owned, polled, or
+ *   accepted), so the companion job can never be orphaned.
  * - An operation epoch isolates attempts: a stale poll/create/cancel
  *   response from a previous attempt can never mutate the current one.
- * - A cancel 404 (job already freed — genuine completion or an earlier
- *   settle) is treated as clean; any other non-OK cancel surfaces a
- *   localized, recoverable error instead of pretending it stopped.
  *
  * Hygiene contract:
  * - The magnet and job state live in component/page memory only — never
  *   localStorage / IndexedDB / sessionStorage / cookies / history / logs.
- *   (The capability token itself is persisted opaquely by the pairing
- *   controller; this dialog never writes any storage.)
- * - Unpaired: only a pairing-needed notice; no input / consent / submit.
- * - The consent checkbox is REQUIRED before submit (trackers/peers see the
- *   user's IP); memory-only, never persisted.
+ * - Unpaired: only a pairing-needed notice; no input / submit.
  * - Errors are generic and localized; raw server/magnet/tracker/URL detail
  *   is suppressed. 400 = invalid magnet, 401/403 = re-pair, 409 = active
  *   job, network = companion unavailable.
@@ -56,12 +49,24 @@ import {
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
 import { Checkbox } from '@/components/player/ui/checkbox';
+import { Input } from '@/components/player/ui/input';
+import {
+  Table,
+  TableHeader,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+} from '@/components/player/ui/table';
 import {
   Magnet,
   Film,
   Subtitles,
   FileText,
+  Folder,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
@@ -86,12 +91,14 @@ type Phase =
   | 'submitting'
   | 'settling'; // awaiting the owned job's cancel settlement
 
-export interface TorrentFileInfo {
-  id: string;
+/** API file entry (file or folder) from the /files endpoint. */
+export interface FileEntry {
+  id?: string; // present for files ("f0"), absent for folders
   basename: string;
-  extension: string;
-  byteSize: number;
-  kind: 'video' | 'audio' | 'subtitle' | 'other';
+  extension?: string;
+  byteSize?: number;
+  kind: 'video' | 'audio' | 'subtitle' | 'other' | 'folder';
+  relativePath?: string;
 }
 
 export interface MagnetInputDict {
@@ -112,36 +119,32 @@ export interface MagnetInputDict {
   magnetCheckMetadata: string;
   magnetFilesTitle: string;
   magnetFilesBody: string;
-  magnetVideoKindLabel: string;
-  magnetSubtitleKindLabel: string;
-  magnetOtherKindLabel: string;
   magnetNoVideoError: string;
   magnetSelectSubmit: string;
   magnetCancel: string;
-  /** File-picker return label ("Back" / "Kembali" / "戻る"): pressing it
-   *  cancels the owned job the same awaited way as Cancel. */
   magnetBack: string;
   dialogClose: string;
+  // ED-2G: File browser table
+  magnetTableFileName: string;
+  magnetTableSize: string;
+  magnetFileKindVideo: string;
+  magnetFileKindSubtitle: string;
+  magnetFileKindFolder: string;
+  magnetFileKindOther: string;
+  magnetNavBack: string;
+  magnetNavForward: string;
 }
 
 interface MagnetInputProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Paired state: job creation is allowed only after a successful pairing. */
   isPaired: boolean;
-  /** Capability token (persisted opaquely by the pairing controller);
-   *  used only in the request query string. */
   token: string | null;
-  /** Called with the opaque job id once the selection was accepted, plus
-   *  the SANITIZED basename of the selected video (from the companion's
-   *  file list — basename only, no path) so the player can show it in the
-   *  top-left controls / history. */
   onJobAccepted: (jobId: string, selectedVideoName: string) => void;
   dict: MagnetInputDict;
 }
 
-// Basic client-side magnet shape check only; the companion is the source of
-// truth. Rejects clearly-invalid input before any network call.
+// Basic client-side magnet shape check only; the companion is the source of truth.
 function isValidMagnetUri(value: string): boolean {
   const trimmed = value.trim();
   if (!/^magnet:\?/i.test(trimmed)) return false;
@@ -170,25 +173,29 @@ const errorMessages: Record<Exclude<ErrorKind, null>, (d: MagnetInputDict) => st
   evicted: (d) => d.magnetInputErrorEvicted,
 };
 
-function kindLabel(kind: TorrentFileInfo['kind'], dict: MagnetInputDict): string {
-  switch (kind) {
-    case 'video':
-      return dict.magnetVideoKindLabel;
-    case 'subtitle':
-      return dict.magnetSubtitleKindLabel;
-    default:
-      return dict.magnetOtherKindLabel;
-  }
-}
-
-function kindIcon(kind: TorrentFileInfo['kind'], size: number) {
+function kindIcon(kind: FileEntry['kind'], size: number) {
   switch (kind) {
     case 'video':
       return <Film size={size} aria-hidden="true" />;
     case 'subtitle':
       return <Subtitles size={size} aria-hidden="true" />;
+    case 'folder':
+      return <Folder size={size} aria-hidden="true" />;
     default:
       return <FileText size={size} aria-hidden="true" />;
+  }
+}
+
+function kindLabel(entry: FileEntry, dict: MagnetInputDict): string {
+  switch (entry.kind) {
+    case 'video':
+      return dict.magnetFileKindVideo;
+    case 'subtitle':
+      return dict.magnetFileKindSubtitle;
+    case 'folder':
+      return dict.magnetFileKindFolder;
+    default:
+      return dict.magnetFileKindOther;
   }
 }
 
@@ -201,31 +208,31 @@ export function MagnetInput({
   dict,
 }: MagnetInputProps) {
   const [magnet, setMagnet] = useState('');
-  const [consented, setConsented] = useState(false);
   const [phase, setPhase] = useState<Phase>('input');
   const [jobId, setJobId] = useState('');
-  const [files, setFiles] = useState<TorrentFileInfo[]>([]);
+  const [entries, setEntries] = useState<FileEntry[]>([]);
   const [videoId, setVideoId] = useState('');
   const [subtitleId, setSubtitleId] = useState('');
   const [error, setError] = useState<ErrorKind>(null);
-  // Label shown while the owned job's cancel settlement is awaited (the
-  // wording of the button that triggered it: "Cancel" from the metadata
-  // phase, "Back"/"Kembali" from the file picker) so the settling view
-  // never mislabels the action it is completing.
   const [settleLabel, setSettleLabel] = useState<string | null>(null);
+  // Folder navigation: internal path state (never sent to cancel/recreate)
+  const [folderPath, setFolderPath] = useState('');
 
-  // Stale-callback guards: async work that settles after the dialog closed
-  // or the component unmounted must not fire callbacks or mutate UI state.
+  // Stale-callback guards
   const mountedRef = useRef(true);
   const openRef = useRef(open);
-  // Owned job id (mirrors `jobId` for synchronous reads inside handlers).
   const jobIdRef = useRef<string | null>(null);
-  // Operation epoch: every create/cancel/close bumps it; async continuations
-  // capture their epoch and refuse to mutate state once it moved on.
+  // Monotonic generation counter for the async flows this dialog owns
+  // (create/poll/select/cancel). Every dialog close, reopen, cancel, or new
+  // attempt bumps it, so responses that were in flight for a PREVIOUS
+  // generation are detected (`attempt !== epochRef.current`) and dropped —
+  // a stale poll must never resurrect the file picker, a stale select must
+  // never reach the Player, and a stale cancel must never mutate state.
   const epochRef = useRef(0);
-  // The in-flight cancel settlement. Reopening awaits it before exposing a
-  // fresh input, so a re-open while cleanup runs can never reinitialize and
-  // create a new job first.
+  // The in-flight cancel settlement for the job this dialog owns. While it
+  // is set, close/reopen wait for it and never fire a second cancel for the
+  // same job; the promise is cleared only by its own finally (guarded by
+  // the epoch), so a reopen cannot race past an unsettled cancel.
   const settleRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
@@ -237,15 +244,11 @@ export function MagnetInput({
   useEffect(() => {
     openRef.current = open;
     if (!open && !settleRef.current) {
-      // Reset only when no cancel settlement is pending: while a settle is
-      // in flight the dialog must stay non-actionable, even across a close/
-      // reopen, until the cleanup resolves.
       setPhase('input');
     }
   }, [open]);
 
-  // Clear everything whenever the dialog (re)opens — but only after any
-  // in-flight cancel settlement resolves (see settleRef above).
+  // Clear everything whenever the dialog (re)opens
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -254,7 +257,7 @@ export function MagnetInput({
         try {
           await settleRef.current;
         } catch {
-          // settle never rejects; belt-and-braces only.
+          // settle never rejects
         }
       }
       if (!active) return;
@@ -263,46 +266,38 @@ export function MagnetInput({
       settleRef.current = null;
       setSettleLabel(null);
       setMagnet('');
-      setConsented(false);
       setPhase('input');
       setJobId('');
-      setFiles([]);
+      setEntries([]);
       setVideoId('');
       setSubtitleId('');
       setError(null);
+      setFolderPath('');
     })();
     return () => {
       active = false;
     };
   }, [open]);
 
-  // Cancels the torrent job this dialog owns and returns a promise that
-  // settles when the companion acknowledged the cancel (or the request
-  // failed). The UI stays non-actionable ('settling') until then; a 404
-  // (job already freed) is a clean settle; any other failure is surfaced as
-  // a localized, recoverable error.
+  // Cancels the torrent job this dialog owns
   const runCancel = useCallback(
     (label: string | null = null): Promise<void> => {
       const id = jobIdRef.current;
       if (!id) {
-        // Nothing owned: nothing to settle. An already-running settle (if
-        // any) stays in place and keeps gating.
         setSettleLabel(null);
         return Promise.resolve();
       }
-      // This cancel IS the settlement of the current attempt: invalidate all
-      // in-flight callbacks of the previous attempt before the job reference
-      // is dropped, so no stale poll/create/select response can resurrect it.
       epochRef.current += 1;
       const attempt = epochRef.current;
       jobIdRef.current = null;
       setJobId('');
-      setFiles([]);
+      setEntries([]);
       setVideoId('');
       setSubtitleId('');
       setError(null);
       setSettleLabel(label ?? dict.magnetCancel);
       setPhase('settling');
+      setFolderPath('');
       const settle = (async () => {
         try {
           const res = await fetch(
@@ -310,14 +305,11 @@ export function MagnetInput({
             { method: 'POST', cache: 'no-store' },
           );
           if (res.status !== 200 && res.status !== 404) {
-            // Non-OK cancel (other than "already gone"): recoverable error,
-            // never a silent "stopped".
             if (attempt === epochRef.current && mountedRef.current) {
               setError(res.status === 401 || res.status === 403 ? 'repair' : 'generic');
             }
           }
         } catch {
-          // Companion unreachable: recoverable error, never silent.
           if (attempt === epochRef.current && mountedRef.current) {
             setError('network');
           }
@@ -337,9 +329,6 @@ export function MagnetInput({
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
-        // Invalidate any in-flight create/select of this attempt before
-        // cancelling: a late 201 can never re-own a job by this dialog —
-        // such a response is parsed and its job released separately.
         epochRef.current += 1;
         void runCancel();
       }
@@ -352,20 +341,16 @@ export function MagnetInput({
     void runCancel(dict.magnetCancel);
   }, [runCancel, dict]);
 
-  // File-picker return: cancels the owned job through the exact same awaited
-  // settlement as Cancel — only the button's wording is "Back"/"Kembali"
-  // instead of a cancel label, and the dialog stays non-actionable until the
-  // companion confirms the release.
+  // File-picker return: cancels the owned job (NOT folder navigation)
   const handleBack = useCallback(() => {
     void runCancel(dict.magnetBack);
   }, [runCancel, dict]);
 
   // Releases a job the companion accepted for a create request this dialog
-  // no longer owns (the dialog closed / a newer attempt started while the
-  // create was in flight). Best-effort: it POSTs the specific job's cancel,
-  // mutates no UI, bumps no epoch (a newer attempt may already be alive) and
-  // starts no callbacks or polling. The promise is parked in settleRef so a
-  // follow-up create stays gated until this cleanup settles.
+  // no longer owns (the dialog was closed/reopened while the create was in
+  // flight and the 201 arrived late). The orphaned job is cancelled
+  // immediately, best-effort; its settlement joins the same settleRef gate
+  // so a subsequent close/reopen waits for it instead of racing it.
   const releaseLateJob = useCallback(
     (id: string): void => {
       const settle = (async () => {
@@ -374,17 +359,11 @@ export function MagnetInput({
             `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(id)}/cancel?token=${encodeURIComponent(token ?? '')}`,
             { method: 'POST', cache: 'no-store' },
           );
-          // 200 and 404 both mean the session is free; anything else is
-          // best-effort with no UI left to report to.
           void res;
         } catch {
-          // Companion unreachable: nothing to surface to a closed/reopened
-          // dialog; the next create's own network error remains honest.
+          // best-effort
         }
       })();
-      // Cleanup runs outside the async body to avoid TS2454 (variable used
-      // before assigned): by the time the settled microtask fires, `settle`
-      // is definitely assigned, so the reference capture is safe.
       const cleanup = () => {
         if (settleRef.current === settle) settleRef.current = null;
       };
@@ -396,7 +375,7 @@ export function MagnetInput({
 
   const handleCreate = useCallback(async () => {
     if (!isPaired || !token) return;
-    if (settleRef.current) return; // a cancel is still settling
+    if (settleRef.current) return;
     if (!isValidMagnetUri(magnet)) {
       setError('invalid');
       return;
@@ -416,18 +395,14 @@ export function MagnetInput({
         },
       );
       if (res.status === 201) {
-        // Parse the id even when this attempt is already stale: the
-        // companion may have created a job that must be released.
         let id = '';
         try {
           const body = (await res.json()) as { id?: unknown };
           if (typeof body.id === 'string' && body.id.length > 0) id = body.id;
         } catch {
-          // Malformed body: fall through (a stale dialog then has no id to
-          // release; a fresh one shows the generic error below).
+          // Malformed body
         }
         if (attempt === epochRef.current && mountedRef.current) {
-          // Current attempt: own the job normally.
           if (!id) {
             setError('generic');
             setPhase('input');
@@ -438,10 +413,6 @@ export function MagnetInput({
           setPhase('checking');
           return;
         }
-        // Stale (closed / reopened / unmounted / newer attempt): the job
-        // exists on the companion but is not owned by this dialog — cancel
-        // it immediately so no orphan leaks. A malformed body with no id
-        // means there is nothing to release (and nothing to surface).
         if (id) {
           releaseLateJob(id);
         }
@@ -470,8 +441,7 @@ export function MagnetInput({
     }
   }, [isPaired, token, magnet]);
 
-  // Redacted status polling while checking metadata (state only — payload
-  // bytes are never shown in this phase).
+  // Redacted status polling while checking metadata
   useEffect(() => {
     if (phase !== 'checking' || !jobId || !token) return;
     const attempt = epochRef.current;
@@ -495,8 +465,7 @@ export function MagnetInput({
         const body = (await res.json()) as { state?: string; error?: string; errorCode?: string };
         if (!safe()) return;
         if (body.state === 'buffering') {
-          // Metadata arrived: fetch the sanitized file list and show the
-          // picker. Payload download starts only after selection.
+          // Metadata arrived: fetch the file listing (root level).
           const filesRes = await fetch(
             `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(jobId)}/files?token=${encodeURIComponent(token)}`,
             { cache: 'no-store' },
@@ -507,7 +476,7 @@ export function MagnetInput({
             setPhase('input');
             return;
           }
-          const filesBody = (await filesRes.json()) as { files?: TorrentFileInfo[] };
+          const filesBody = (await filesRes.json()) as { files?: FileEntry[] };
           if (!safe()) return;
           const list = Array.isArray(filesBody.files) ? filesBody.files : [];
           if (!list.some((f) => f.kind === 'video')) {
@@ -515,13 +484,11 @@ export function MagnetInput({
             setPhase('input');
             return;
           }
-          setFiles(list);
+          setEntries(list);
           setPhase('selecting');
           return;
         }
         if (body.state === 'error') {
-          // Check errorCode first (stable identifier for frontend routing);
-          // fall back to string matching for backward compatibility.
           if (body.errorCode === 'torrent_concurrency_limit') {
             setError('evicted');
           } else if (body.error === 'metadata timed out') {
@@ -532,8 +499,6 @@ export function MagnetInput({
           setPhase('input');
           return;
         }
-        // queued / downloading: metadata still in flight — keep checking;
-        // no byte display in this phase by design.
       } catch {
         if (safe()) {
           setError('network');
@@ -547,21 +512,65 @@ export function MagnetInput({
     };
   }, [phase, jobId, token]);
 
+  // Fetch files for a specific folder path (folder navigation)
+  const fetchFolderContents = useCallback(
+    async (targetPath: string) => {
+      if (!jobId || !token) return;
+      setError(null); // clear any recoverable error from previous navigation
+      try {
+        const params = new URLSearchParams({ token });
+        if (targetPath) params.set('parentPath', targetPath);
+        const res = await fetch(
+          `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(jobId)}/files?${params.toString()}`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok) {
+          setError('generic');
+          return;
+        }
+        const body = (await res.json()) as { files?: FileEntry[] };
+        const list = Array.isArray(body.files) ? body.files : [];
+        setEntries(list);
+        setFolderPath(targetPath);
+      } catch {
+        setError('generic');
+      }
+    },
+    [jobId, token],
+  );
+
+  const handleFolderForward = useCallback(
+    (targetPath: string) => {
+      void fetchFolderContents(targetPath);
+    },
+    [fetchFolderContents],
+  );
+
+  const handleFolderBack = useCallback(() => {
+    if (!folderPath) return;
+    const parts = folderPath.split('/').filter(Boolean);
+    parts.pop();
+    void fetchFolderContents(parts.join('/'));
+  }, [folderPath, fetchFolderContents]);
+
   const handleSelect = useCallback(async () => {
     if (!token || !jobId || !videoId) return;
-    if (!files.some((f) => f.id === videoId && f.kind === 'video')) {
+    if (!entries.some((f) => f.id === videoId && f.kind === 'video')) {
       setError('generic');
       return;
     }
     if (
       subtitleId !== '' &&
-      !files.some((f) => f.id === subtitleId && f.kind === 'subtitle')
+      !entries.some((f) => f.id === subtitleId && f.kind === 'subtitle')
     ) {
       setError('generic');
       return;
     }
     setPhase('submitting');
     setError(null);
+    // Guard against stale select responses: a close/reopen (epoch bump) or
+    // unmount while the select is in flight must drop the late 200/error —
+    // the stale success must never reach onJobAccepted / the Player.
     const attempt = epochRef.current;
     try {
       const res = await fetch(
@@ -574,18 +583,13 @@ export function MagnetInput({
         },
       );
       if (res.status === 200) {
-        // The dialog may have closed (or a cancel started) while the request
-        // was in flight: a late acceptance must never hand the Player a job
-        // the dialog no longer owns.
         if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
-        const selected = files.find((f) => f.id === videoId);
+        const selected = entries.find((f) => f.id === videoId);
         jobIdRef.current = null;
         setPhase('input');
         setMagnet('');
-        setConsented(false);
         setSettleLabel(null);
-        // Hand the job id together with the companion-sanitized basename
-        // of the selected video (never a path).
+        setFolderPath('');
         onJobAccepted(jobId, selected ? selected.basename : '');
         return;
       }
@@ -607,154 +611,244 @@ export function MagnetInput({
       setError('network');
       setPhase('selecting');
     }
-  }, [token, jobId, videoId, subtitleId, files, onJobAccepted]);
+  }, [token, jobId, videoId, subtitleId, entries, onJobAccepted]);
+
+  // Checkbox change handler: video/subtitle selection with replacement logic
+  const handleCheckboxChange = useCallback(
+    (entry: FileEntry, checked: boolean) => {
+      if (entry.kind === 'video') {
+        setVideoId(checked && entry.id ? entry.id : '');
+      } else if (entry.kind === 'subtitle') {
+        setSubtitleId(checked && entry.id ? entry.id : '');
+      }
+    },
+    [],
+  );
 
   const busy = phase === 'creating' || phase === 'submitting' || phase === 'settling';
-  const canSubmit =
-    isPaired &&
-    phase === 'input' &&
-    !busy &&
-    isValidMagnetUri(magnet) &&
-    consented;
-
-  const submittingLabel = dict.magnetInputSubmitting;
+  const canCreate = isPaired && phase === 'input' && !busy && isValidMagnetUri(magnet);
+  const hasVideoSelected = videoId !== '';
+  const hasJob = jobId !== '';
+  const showTable = phase === 'selecting';
+  const showChecking = phase === 'checking';
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="entei-magnet-dialog" closeLabel={dict.dialogClose}>
         <DialogHeader>
           <DialogTitle className="entei-magnet-dialog-title">
-            <Magnet size={16} aria-hidden="true" />
             {dict.magnetInputLabelTitle}
           </DialogTitle>
-          <DialogDescription>
-            {isPaired
-              ? dict.magnetInputLabel
-              : dict.magnetInputUnpairedBody}
-          </DialogDescription>
+          {!isPaired && (
+            <DialogDescription>{dict.magnetInputUnpairedBody}</DialogDescription>
+          )}
         </DialogHeader>
 
-        {!isPaired ? null : phase === 'checking' || phase === 'settling' ? (
-          <div className="entei-magnet-progress" role="status">
-            <Loader2 size={16} className="entei-spin" aria-hidden="true" />
-            <span>
-              {phase === 'checking' ? dict.magnetCheckMetadata : settleLabel ?? dict.magnetCancel}
-            </span>
-            {error !== null && (
-              <p className="entei-magnet-error" role="alert">
-                {errorMessages[error](dict)}
-              </p>
-            )}
-            {phase === 'checking' && (
-              <Button
-                type="button"
-                variant="outline"
-                className="entei-magnet-cancel"
-                onClick={handleCancel}
-              >
-                {dict.magnetCancel}
-              </Button>
-            )}
-          </div>
-        ) : phase === 'selecting' ? (
-          <div className="entei-magnet-files">
-            <p className="entei-magnet-files-title">{dict.magnetFilesTitle}</p>
-            <p className="entei-magnet-files-body">{dict.magnetFilesBody}</p>
-            <div className="entei-magnet-file-list" role="radiogroup" aria-label={dict.magnetFilesBody}>
-              {files.map((f) => (
-                <label
-                  key={f.id}
-                  className={
-                    f.kind === 'video'
-                      ? 'entei-magnet-file-row'
-                      : 'entei-magnet-file-row entei-magnet-file-row--sub'
-                  }
+        {!isPaired ? null : (
+          <div className="entei-magnet-shell">
+            {/* ── Top: Input + create button ── */}
+            <div className="entei-magnet-shell-top">
+              <div className="entei-magnet-input-row">
+                <Input
+                  className="entei-magnet-input"
+                  placeholder={dict.magnetInputPlaceholder}
+                  aria-label={dict.magnetInputLabel}
+                  aria-invalid={error === 'invalid'}
+                  value={magnet}
+                  onChange={(e) => {
+                    setMagnet(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  spellCheck={false}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="entei-magnet-add-btn"
+                  onClick={() => void handleCreate()}
+                  disabled={!canCreate}
+                  aria-label={dict.magnetInputLabelTitle}
+                  title={dict.magnetInputSubmit}
                 >
-                  <input
-                    type="radio"
-                    name="entei-magnet-video"
-                    className="entei-magnet-file-radio"
-                    checked={f.kind === 'video' ? videoId === f.id : subtitleId === f.id}
-                    onChange={() => {
-                      if (f.kind === 'video') setVideoId(f.id);
-                      else if (f.kind === 'subtitle') setSubtitleId(f.id);
-                    }}
-                    disabled={busy}
-                    aria-label={`${kindLabel(f.kind, dict)}: ${f.basename}`}
-                  />
-                  <span className="entei-magnet-file-icon">
-                    {kindIcon(f.kind, 16)}
-                  </span>
-                  <span className="entei-magnet-file-main">
-                    <span className="entei-magnet-file-name">{f.basename}</span>
-                    <span className="entei-magnet-file-meta">
-                      {kindLabel(f.kind, dict)} · {f.extension} · {formatBytes(f.byteSize)}
-                    </span>
-                  </span>
-                </label>
-              ))}
+                  <Magnet size={16} aria-hidden="true" />
+                </Button>
+              </div>
             </div>
-            {error !== null && (
+
+            {/* ── Center: Table with state-dependent content ── */}
+            <div className="entei-magnet-table-wrap">
+              <Table className="entei-magnet-table">
+                <TableHeader>
+                  <TableRow className="entei-magnet-table-header-row">
+                    <TableHead className="entei-magnet-table-head-check" />
+                    <TableHead className="entei-magnet-table-head-type" />
+                    <TableHead className="entei-magnet-table-head-name">
+                      {dict.magnetTableFileName}
+                    </TableHead>
+                    <TableHead className="entei-magnet-table-head-size">
+                      {dict.magnetTableSize}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {showTable
+                    ? entries.map((entry) => {
+                        const isFolder = entry.kind === 'folder';
+                        const isVideo = entry.kind === 'video';
+                        const isSubtitle = entry.kind === 'subtitle';
+                        const isSelected =
+                          (isVideo && videoId === entry.id) ||
+                          (isSubtitle && subtitleId === entry.id);
+
+                        return (
+                          <TableRow
+                            key={entry.id ?? entry.relativePath ?? entry.basename}
+                            className={`entei-magnet-table-row ${isFolder ? 'entei-magnet-table-row--folder' : ''} ${isSelected ? 'entei-magnet-table-row--selected' : ''}`}
+                          >
+                            <TableCell className="entei-magnet-table-cell-check">
+                              {isFolder ? (
+                                <Checkbox
+                                  disabled
+                                  checked={false}
+                                  aria-label={`${dict.magnetFileKindFolder}: ${entry.basename}`}
+                                />
+                              ) : isVideo || isSubtitle ? (
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={(checked) =>
+                                    handleCheckboxChange(entry, checked === true)
+                                  }
+                                  disabled={busy}
+                                  aria-label={`${kindLabel(entry, dict)}: ${entry.basename}`}
+                                />
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="entei-magnet-table-cell-icon">
+                              {kindIcon(entry.kind, 16)}
+                            </TableCell>
+                            <TableCell className="entei-magnet-table-cell-name">
+                              {isFolder ? (
+                                <button
+                                  type="button"
+                                  className="entei-magnet-folder-btn"
+                                  onClick={() =>
+                                    handleFolderForward(entry.relativePath ?? entry.basename)
+                                  }
+                                  disabled={busy}
+                                >
+                                  {entry.basename}
+                                </button>
+                              ) : (
+                                <span className="entei-magnet-file-name-text">
+                                  {entry.basename}
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="entei-magnet-table-cell-size">
+                              {isFolder
+                                ? ''
+                                : entry.byteSize != null
+                                  ? formatBytes(entry.byteSize)
+                                  : ''}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    : showChecking
+                      ? (
+                          <TableRow className="entei-magnet-table-row--static">
+                            <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
+                              <div className="entei-magnet-checking" role="status">
+                                <Loader2 size={16} className="entei-spin" aria-hidden="true" />
+                                <span>{dict.magnetCheckMetadata}</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      : (
+                          <TableRow className="entei-magnet-table-row--static">
+                            <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
+                              <div className="entei-magnet-empty">
+                                {error !== null ? (
+                                  <span className="entei-magnet-empty-error" role="alert">
+                                    {errorMessages[error](dict)}
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span className="entei-magnet-empty-title">
+                                      {dict.magnetFilesTitle}
+                                    </span>
+                                    <span className="entei-magnet-empty-body">
+                                      {dict.magnetFilesBody}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* ── Error (outside table, for visibility) ── */}
+            {error !== null && showTable && (
               <p className="entei-magnet-error" role="alert">
                 {errorMessages[error](dict)}
               </p>
             )}
-            <div className="entei-magnet-files-actions">
+
+            {/* ── Tracker/peer IP disclosure (plain text, no checkbox) ── */}
+            <p className="entei-magnet-consent-text">
+              {dict.magnetConsentLabel}
+            </p>
+
+            {/* ── Bottom: Back / Select & play / Forward ── */}
+            <div className="entei-magnet-browser-bottom">
               <Button
                 type="button"
                 variant="outline"
-                className="entei-magnet-cancel"
-                onClick={handleBack}
-                disabled={busy}
+                size="icon"
+                className="entei-magnet-nav-btn"
+                onClick={hasJob ? handleBack : handleFolderBack}
+                disabled={busy || (!hasJob && !folderPath)}
+                aria-label={hasJob ? dict.magnetBack : dict.magnetNavBack}
+                title={hasJob ? dict.magnetBack : dict.magnetNavBack}
               >
-                {dict.magnetBack}
+                <ChevronLeft size={16} aria-hidden="true" />
               </Button>
+              {(showChecking || phase === 'settling') ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="entei-magnet-submit"
+                  onClick={handleCancel}
+                >
+                  {dict.magnetCancel}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="entei-magnet-submit entei-magnet-select-play"
+                  onClick={() => void handleSelect()}
+                  disabled={busy || !showTable || !hasVideoSelected}
+                >
+                  {busy ? dict.magnetInputSubmitting : dict.magnetSelectSubmit}
+                </Button>
+              )}
               <Button
                 type="button"
-                className="entei-magnet-submit"
-                onClick={() => void handleSelect()}
-                disabled={busy || videoId === ''}
+                variant="outline"
+                size="icon"
+                className="entei-magnet-nav-btn"
+                disabled
+                aria-label={`${dict.magnetNavForward} — ${dict.magnetFileKindFolder}`}
+                title={`${dict.magnetNavForward} — ${dict.magnetFileKindFolder}`}
               >
-                {busy ? submittingLabel : dict.magnetSelectSubmit}
+                <ChevronRight size={16} aria-hidden="true" />
               </Button>
             </div>
-          </div>
-        ) : (
-          <div className="entei-magnet-form">
-            <textarea
-              className="entei-magnet-input"
-              placeholder={dict.magnetInputPlaceholder}
-              aria-label={dict.magnetInputLabel}
-              aria-invalid={error === 'invalid'}
-              value={magnet}
-              onChange={(e) => {
-                setMagnet(e.target.value);
-                if (error) setError(null);
-              }}
-              rows={3}
-              spellCheck={false}
-            />
-            <label className="entei-magnet-consent">
-              <Checkbox
-                checked={consented}
-                onCheckedChange={(checked) => setConsented(checked === true)}
-                aria-label={dict.magnetConsentLabel}
-              />
-              <span>{dict.magnetConsentLabel}</span>
-            </label>
-            {error !== null && (
-              <p className="entei-magnet-error" role="alert">
-                {errorMessages[error](dict)}
-              </p>
-            )}
-            <Button
-              type="button"
-              className="entei-magnet-submit"
-              onClick={() => void handleCreate()}
-              disabled={!canSubmit}
-            >
-              {busy ? submittingLabel : dict.magnetInputSubmit}
-            </Button>
           </div>
         )}
       </DialogContent>

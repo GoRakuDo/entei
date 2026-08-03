@@ -152,13 +152,17 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusConflict, errorBody("file listing not ready"))
 			return
 		}
-		// Transform TorrentFile → FileInfo for the frontend: basename,
-		// extension, byteSize (never the raw path/length the engine exposes).
-		out := make([]torrent.FileInfo, len(files))
-		for i, f := range files {
-			out[i] = torrent.TorrentFileInfo(f)
+		// Synthesize folder entries and filter by the requested parentPath.
+		// parentPath is frontend-only navigation — never persisted or used
+		// for file selection. Files retain their original "f0"/"f1" IDs;
+		// folder entries get deterministic "d"-prefixed IDs.
+		parentPath := r.URL.Query().Get("parentPath")
+		entries, err := torrent.SynthesizeEntries(files, parentPath)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody("invalid folder path"))
+			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"files": out})
+		writeJSON(w, http.StatusOK, map[string]any{"files": entries})
 	case "select":
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, "POST, OPTIONS")

@@ -4037,22 +4037,6 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-dialog-title {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-8);
-  padding-right: var(--entei-space-8);
-}
-
-.entei-magnet-input-row {
-  display: flex;
-  align-items: center;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-16) var(--entei-space-24);
-}
-
-/* Submit button stays fixed width; input grows to fill */
-.entei-magnet-submit-btn {
-  flex-shrink: 0;
-  min-height: var(--entei-touch-min);
-  min-width: var(--entei-touch-min);
 }
 
 .entei-magnet-input {
@@ -4061,70 +4045,69 @@ html.entei-player-immersive .entei-player-audio-area {
   font-size: 0.8125rem;
 }
 
-.entei-magnet-error {
-  padding: 0 var(--entei-space-24);
-  color: oklch(55% 0.2 25deg);
+/* --- ED-2G magnet source dialog — unified shell --- */
+
+/* Main shell: wraps input row + table + bottom nav in a single column */
+.entei-magnet-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-16);
+}
+
+/* Top section: input row + consent disclosure text */
+.entei-magnet-shell-top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+}
+
+/* Input + icon-button row. The gap to the table below comes solely from
+   the shell's 16px gap — no extra margin, or the two stack into a
+   lopsided 40px gap. */
+.entei-magnet-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+}
+
+.entei-magnet-input-row .entei-magnet-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--entei-touch-min);
+}
+
+.entei-magnet-add-btn {
+  flex-shrink: 0;
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  /* Default surface: visible at rest */
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+.entei-magnet-add-btn:hover {
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+  opacity: 0.85;
+}
+
+.entei-magnet-add-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Tracker/peer IP disclosure — plain text, no checkbox */
+.entei-magnet-consent-text {
+  margin: 0;
+  color: var(--entei-text-muted);
   font-size: 0.75rem;
   line-height: 1.4;
 }
 
-/* --- ED-2G magnet source dialog (real torrent flow) --- */
-
-.entei-magnet-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-20);
-}
-
-.entei-magnet-form .entei-magnet-input {
-  width: 100%;
-  min-height: 5.5rem;
-  resize: vertical;
-  font-family: var(--entei-font-system);
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  color: var(--entei-text);
-  background-color: var(--entei-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--entei-radius-md);
-  padding: var(--entei-space-8) var(--entei-space-12);
-}
-
-.entei-magnet-form .entei-magnet-input:focus-visible {
-  outline: 2px solid var(--entei-focus-ring);
-  outline-offset: 2px;
-}
-
-/* Memory-only tracker-consent checkbox (privacy note). */
-.entei-magnet-consent {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--entei-space-8);
-  color: var(--entei-text-secondary);
-  font-size: 0.75rem;
-  line-height: 1.45;
-  min-height: var(--entei-touch-min);
-  padding: var(--entei-space-4) 0;
-  cursor: pointer;
-}
-
 .entei-magnet-submit {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-}
-
-.entei-magnet-progress {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-20) var(--entei-space-24);
-  color: var(--entei-text-secondary);
-  font-size: 0.8125rem;
-}
-
-.entei-magnet-cancel {
   min-height: var(--entei-touch-min);
 }
 
@@ -4138,91 +4121,310 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-.entei-magnet-files {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-20);
-}
-
-.entei-magnet-files-title {
-  color: var(--entei-text);
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.entei-magnet-files-body {
-  color: var(--entei-text-secondary);
+.entei-magnet-error {
+  padding: 0;
+  color: var(--color-destructive);
   font-size: 0.75rem;
   line-height: 1.4;
 }
 
-/* Constrained scroll: the file list scrolls instead of overflowing. */
-.entei-magnet-file-list {
+/* --- ED-2G File Browser (table-based) --- */
+
+/* Empty state row inside the table */
+.entei-magnet-table-cell-empty {
+  padding: var(--entei-space-32) var(--entei-space-8) !important;
+  text-align: center;
+  min-height: 10rem;
+}
+
+.entei-magnet-empty {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-4);
-  max-height: 15rem;
-  overflow-y: auto;
-  padding: var(--entei-space-2);
-}
-
-.entei-magnet-file-row {
-  display: flex;
   align-items: center;
   gap: var(--entei-space-8);
+}
+
+.entei-magnet-empty-title {
+  color: var(--entei-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.entei-magnet-empty-body {
+  color: var(--entei-text-muted);
+  font-size: 0.75rem;
+}
+
+.entei-magnet-empty-error {
+  color: var(--color-destructive);
+  font-size: 0.8125rem;
+}
+
+/* Checking spinner row inside the table. The 10rem min-height here used
+   to make the checking state ~120px taller than the empty state (it sits
+   on a div, so unlike the empty td it actually applied). Keeping the div
+   at touch-min height + 12px paddings makes the checking table exactly
+   as tall as the empty one — no vertical jump when metadata arrives. */
+.entei-magnet-checking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-12) 0;
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-4) var(--entei-space-8);
+  color: var(--entei-text-secondary);
+  font-size: 0.8125rem;
+}
+
+/* Table wrapper: bounded scroll for the file list */
+.entei-magnet-table-wrap {
+  max-height: 20rem;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--entei-radius-md);
-  background-color: var(--entei-surface-2);
-  cursor: pointer;
 }
 
-.entei-magnet-file-row--sub {
-  border-style: dashed;
+/* Table overrides for magnet dialog context */
+.entei-magnet-table {
+  width: 100%;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
 }
 
-.entei-magnet-file-radio {
-  flex-shrink: 0;
-  width: 1rem;
-  height: 1rem;
-  accent-color: var(--entei-accent);
+/* Row density: 8px vertical cell padding (file rows ~36px — roomier than
+   the 6px default without ballooning the bounded table; folder rows stay
+   taller because .entei-magnet-folder-btn keeps its 44px hit area). The
+   check/type/size columns are protected by their !important paddings. */
+.entei-magnet-table td {
+  padding-top: var(--entei-space-8);
+  padding-bottom: var(--entei-space-8);
 }
 
-.entei-magnet-file-icon {
-  flex-shrink: 0;
-  display: inline-flex;
+/* Bounded scroll lives on the Table component's wrapper div
+   (data-slot="table-container") — a DIRECT CHILD of .entei-magnet-table-wrap
+   and an ANCESTOR of the <table class="entei-magnet-table"> element, so a
+   descendant selector rooted at the table never matches it. Without this
+   max-height the inner div keeps its full content height and the wrap's
+   overflow:hidden clips the tail rows instead of scrolling them. */
+.entei-magnet-table-wrap > [data-slot='table-container'] {
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+/* Header row */
+.entei-magnet-table-header-row {
+  border-bottom: 1px solid var(--color-border);
+  background-color: oklch(100% 0 0deg / 0.02);
+}
+
+.entei-magnet-table-head-check {
+  width: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+  max-width: var(--entei-touch-min);
+  padding: 0 !important;
+}
+
+.entei-magnet-table-head-type {
+  width: 36px;
+  min-width: 36px;
+  padding: 0 var(--entei-space-4) !important;
+}
+
+.entei-magnet-table-head-name {
+  font-weight: 600;
+  font-size: 0.75rem;
   color: var(--entei-text-secondary);
 }
 
-.entei-magnet-file-main {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-2);
-  min-width: 0;
+.entei-magnet-table-head-size {
+  width: 80px;
+  min-width: 80px;
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary);
 }
 
-.entei-magnet-file-name {
+/* Row styles */
+.entei-magnet-table-row {
+  min-height: var(--entei-touch-min);
+  transition: background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-magnet-table-row:hover {
+  background-color: oklch(100% 0 0deg / 0.03);
+}
+
+.entei-magnet-table-row--folder {
+  cursor: pointer;
+}
+
+.entei-magnet-table-row--folder:hover {
+  background-color: oklch(100% 0 0deg / 0.05);
+}
+
+.entei-magnet-table-row--selected {
+  background-color: color-mix(in oklch, var(--entei-accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--entei-accent);
+}
+
+/* Static rows (empty state, checking spinner) — no hover background change */
+.entei-magnet-table-row--static {
+  background-color: transparent;
+  pointer-events: none;
+}
+
+.entei-magnet-table-row--static:hover {
+  background-color: transparent;
+}
+
+/* Cell styles */
+.entei-magnet-table-cell-check {
+  width: var(--entei-touch-min);
+  min-width: var(--entei-touch-min);
+  max-width: var(--entei-touch-min);
+  padding: 0 !important;
+  text-align: center;
+}
+
+.entei-magnet-table-cell-icon {
+  width: 36px;
+  min-width: 36px;
+  padding: 0 var(--entei-space-4) !important;
+  color: var(--entei-text-secondary);
+}
+
+.entei-magnet-table-cell-name {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.entei-magnet-table-cell-size {
+  width: 80px;
+  min-width: 80px;
+  text-align: right;
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* File name text: truncation */
+.entei-magnet-file-name-text {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--entei-text);
-  font-size: 0.8125rem;
 }
 
-.entei-magnet-file-meta {
-  color: var(--entei-text-secondary);
-  font-size: 0.6875rem;
+/* Folder button: interactive, looks like a link */
+.entei-magnet-folder-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--entei-accent);
+  font-family: var(--entei-font-body);
+  font-size: inherit;
+  cursor: pointer;
+  min-height: var(--entei-touch-min);
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-magnet-files-actions {
+.entei-magnet-folder-btn:hover {
+  color: var(--entei-accent-hover);
+}
+
+.entei-magnet-folder-btn:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--entei-radius-sm);
+}
+
+.entei-magnet-folder-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Bottom bar: navigation + select button */
+.entei-magnet-browser-bottom {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--entei-space-12);
-  padding-top: var(--entei-space-8);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+  padding-top: var(--entei-space-4);
 }
 
+.entei-magnet-nav-btn {
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  /* Default surface: visible at rest */
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+.entei-magnet-nav-btn:hover {
+  background-color: var(--entei-surface-2);
+  color: var(--entei-text);
+  opacity: 0.85;
+}
+
+.entei-magnet-nav-btn:disabled {
+  background-color: transparent;
+  color: var(--entei-text-muted);
+  border-color: oklch(100% 0 0deg / 0.08);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.entei-magnet-nav-btn:disabled:hover {
+  background-color: transparent;
+  opacity: 0.45;
+}
+
+.entei-magnet-select-play {
+  flex: 1;
+  min-height: var(--entei-touch-min);
+}
+
+/* --- Reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .entei-magnet-table-row,
+  .entei-magnet-folder-btn {
+    transition: none;
+  }
+
+  .entei-spin {
+    animation: none;
+  }
+}
+
+/* --- Desktop: larger magnet dialog --- */
+@media (min-width: 768px) {
+  .entei-magnet-dialog {
+    max-width: 32rem;
+  }
+}
+
+/* --- Mobile: keep the whole dialog inside 85vh so only the table
+   scrolls — a 20rem list pushes the nav row past the viewport on
+   375px-wide phones. 18rem (288px) is the largest 8px-grid step that
+   fits the fixed chrome above/below it. */
+@media (max-width: 767px) {
+  .entei-magnet-table-wrap,
+  .entei-magnet-table-wrap > [data-slot='table-container'] {
+    max-height: 18rem;
+  }
+}
+
+/* --- Notice (unpaired) --- */
 .entei-magnet-notice {
   display: flex;
   flex-direction: column;
