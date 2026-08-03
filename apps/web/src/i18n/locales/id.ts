@@ -237,7 +237,7 @@ export const id: Dictionary = {
       'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     magnetInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
     magnetInputSubmitting: 'Menyiapkan…',
-    magnetDownloading: 'Mengunduh…',
+    magnetCheckMetadata: 'Memeriksa metadata…',
     magnetFilesTitle: 'Pilih file',
     magnetFilesBody: 'Pilih satu video dan, opsional, satu subtitle.',
     magnetVideoKindLabel: 'video',

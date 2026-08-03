@@ -570,3 +570,101 @@ func TestCloseCancelsActiveJob(t *testing.T) {
 		t.Fatalf("second Close: %v", err)
 	}
 }
+
+// TestGetDuringFinalizeNoSnapshotRace pins the unsynchronized read of the
+// job's completed media source. Regression: finalize assigned j.src (and
+// errMsg) without stateMu while snapshot read them under stateMu (and
+// ActiveMedia read j.src under mu), so `go test -race ./...` reported a
+// write/read race on j.src and on errMsg. A second goroutine keeps
+// snapshot reads open while the job transitions downloading → buffering →
+// finalize → complete, so the detector deterministically fires if the
+// lock discipline is ever removed, and the snapshot invariants (complete
+// ⇒ available==total, pre-complete ⇒ unknown total) hold throughout.
+func TestGetDuringFinalizeNoRace(t *testing.T) {
+	const wantTotal = 262144 // 256 KiB
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", fmt.Sprint(wantTotal))
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK", fmt.Sprint(wantTotal))
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK_DELAY_MS", "1")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
+	m := newTestManager(t, 0)
+
+	for i := 0; i < 15; i++ {
+		snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
+		if err != nil {
+			t.Fatalf("Start %d: %v", i, err)
+		}
+
+		// Hammer snapshots from a second goroutine so the read window stays
+		// open across the finalize transition.
+		stop := make(chan struct{})
+		done := make(chan struct{})
+		bad := make(chan string, 1)
+		go func() {
+			defer close(done)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				cur := m.Get(snap.ID)
+				if cur != nil {
+					switch cur.State {
+					case StateComplete:
+						if cur.Media.Available != wantTotal || cur.Media.Total != wantTotal {
+							bad <- fmt.Sprintf("complete media = %+v, want %d/%d", cur.Media, wantTotal, wantTotal)
+							return
+						}
+					case StateDownloading, StateBuffering:
+						if cur.Media.Total != 0 {
+							bad <- fmt.Sprintf("%s media = %+v, want total 0", cur.State, cur.Media)
+							return
+						}
+					case StateError:
+						if cur.Error == "" {
+							bad <- "error snapshot with empty message"
+							return
+						}
+					}
+				}
+				// ActiveMedia exercises the second j.src read path; it must
+				// only surface a source once the state is complete.
+				if _, src := m.ActiveMedia(); src != nil {
+					if src.Available() != wantTotal || src.Total() != wantTotal {
+						bad <- fmt.Sprintf("active source available/total = %d/%d, want %d", src.Available(), src.Total(), wantTotal)
+						return
+					}
+				}
+			}
+		}()
+
+		var final State
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			cur := m.Get(snap.ID)
+			if cur != nil && (cur.State == StateComplete || cur.State == StateError) {
+				final = cur.State
+				break
+			}
+			if time.Now().After(deadline) {
+				close(stop)
+				<-done
+				t.Fatalf("job %d never reached a terminal state", i)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		close(stop)
+		<-done
+		select {
+		case msg := <-bad:
+			t.Fatalf("job %d: %s", i, msg)
+		default:
+		}
+		if final != StateComplete {
+			t.Fatalf("job %d final state = %s, want complete", i, final)
+		}
+		if _, err := m.Cancel(snap.ID); err != nil {
+			t.Fatalf("Cancel %d: %v", i, err)
+		}
+	}
+}

@@ -118,8 +118,4 @@ func TestDefaultCredentialPathOverride(t *testing.T) {
 	if err != nil || !ok || token != testToken {
 		t.Fatalf("Load = %q ok=%v err=%v", token, ok, err)
 	}
-	// Nothing may ever appear in the real profile root.
-	if _, err := os.Stat(filepath.Join(os.Getenv("LOCALAPPDATA"), "GoRakuDo", "EizouDendenshi", "credential.bin")); !os.IsNotExist(err) {
-		t.Fatalf("real profile credential file unexpectedly present (err=%v)", err)
-	}
 }

@@ -4,11 +4,21 @@
  * Covers the paired-gate, the required tracker-consent, the create/poll/
  * files/select flow against the mocked companion API, error mapping, the
  * no-storage / no-leak contract, close/unmount stale-callback aborts, and
- * job cancellation. No real torrent or network is involved.
+ * job cancellation — including the serialized-cancel and re-open race
+ * sequence (file list → Batal → same-magnet retry) that previously wedged
+ * the dialog in an endless "Mengunduh… 0 B / 0 B" spinner. No real torrent
+ * or network is involved.
  * --------------------------------------------------------------------------- */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  waitFor,
+  act,
+} from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { MagnetInput, type TorrentFileInfo } from '@/components/player/MagnetInput';
 
@@ -25,7 +35,7 @@ const baseDict = {
   magnetInputErrorNetwork: 'Could not reach EizouDendenshi.',
   magnetInputErrorGeneric: 'Something went wrong. Try again.',
   magnetInputSubmitting: 'Starting…',
-  magnetDownloading: 'Downloading…',
+  magnetCheckMetadata: 'Checking metadata…',
   magnetFilesTitle: 'Select files',
   magnetFilesBody: 'Pick one video and, optionally, one subtitle.',
   magnetVideoKindLabel: 'video',
@@ -72,6 +82,16 @@ const defaultProps = {
   onJobAccepted: vi.fn(),
   dict: baseDict,
 };
+
+// Advance fake timers AND flush microtask-driven React updates on an act
+// boundary. The dialog's async continuations (cancel settlement, poll ticks)
+// resolve in the microtask queue after the interval fires; without the act
+// boundary React does not commit those updates before the next assertion.
+async function flush(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
 
 afterEach(() => {
   cleanup();
@@ -138,8 +158,8 @@ describe('MagnetInput — create + errors', () => {
     expect(body.magnet).toBe(VALID_URI);
     // The magnet must not leak into the DOM.
     expect(screen.queryByText(VALID_URI)).not.toBeInTheDocument();
-    // Accepted: dialog moves to the downloading phase.
-    await waitFor(() => expect(screen.getByText(baseDict.magnetDownloading)).toBeInTheDocument());
+    // Accepted: dialog moves to the metadata-checking phase.
+    await waitFor(() => expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument());
   });
 
   it.each([
@@ -182,7 +202,7 @@ describe('MagnetInput — create + errors', () => {
     await fillAndConsent();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await waitFor(() =>
-      expect(screen.getByText(baseDict.magnetDownloading)).toBeInTheDocument(),
+      expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument(),
     );
     expect(storageSpy).not.toHaveBeenCalled();
     storageSpy.mockRestore();
@@ -209,7 +229,7 @@ describe('MagnetInput — create + errors', () => {
     render(<MagnetInput {...defaultProps} />);
     await fillAndConsent();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
-    await waitFor(() => expect(screen.getByText(baseDict.magnetDownloading)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /close/i }));
     await waitFor(() => {
       const cancel = calls.find((c) => c.url.includes('/v1/source/torrents/jobCancel/cancel'));
@@ -243,7 +263,7 @@ describe('MagnetInput — selection flow', () => {
     vi.clearAllMocks();
   });
 
-  it('downloads → files listed sanitized → user picks one video + subtitle → select POST → accepted', async () => {
+  it('metadata → files listed sanitized → user picks one video + subtitle → select POST → accepted', async () => {
     const { fetchMock, calls } = makeFetcher([
       jsonResponse({ id: 'jobSel' }, 201),
       jsonResponse({ state: 'downloading', media: { available: 500, total: 2_000_000 } }, 200),
@@ -256,10 +276,10 @@ describe('MagnetInput — selection flow', () => {
     render(<MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />);
     await fillAndConsent();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(screen.getByText(baseDict.magnetDownloading)).toBeInTheDocument();
-    await vi.advanceTimersByTimeAsync(5000); // poll: downloading
-    await vi.advanceTimersByTimeAsync(5000); // poll: buffering → files fetched
+    await flush(0);
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+    await flush(5000); // poll: downloading
+    await flush(5000); // poll: buffering → files fetched
 
     // Sanitized rows: basename/ext/size/kind; no internal ids as primary UI.
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
@@ -278,7 +298,7 @@ describe('MagnetInput — selection flow', () => {
     expect(selectBtn).toBeEnabled();
     fireEvent.click(screen.getByLabelText(`${baseDict.magnetSubtitleKindLabel}: movie.ass`));
     fireEvent.click(selectBtn);
-    await vi.advanceTimersByTimeAsync(0);
+    await flush(0);
 
     const selectCall = calls.find((c) => c.url.includes('/v1/source/torrents/jobSel/select'));
     expect(selectCall).toBeTruthy();
@@ -288,7 +308,7 @@ describe('MagnetInput — selection flow', () => {
     };
     expect(selectBody.videoFileId).toBe('f0');
     expect(selectBody.subtitleFileId).toBe('f1');
-    await vi.advanceTimersByTimeAsync(0);
+    await flush(0);
     // The job id travels with the sanitized basename of the selected video.
     expect(onJobAccepted).toHaveBeenCalledWith('jobSel', 'movie.mkv');
   });
@@ -304,26 +324,232 @@ describe('MagnetInput — selection flow', () => {
     render(<MagnetInput {...defaultProps} />);
     await fillAndConsent();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(5000);
-    await vi.advanceTimersByTimeAsync(5000);
-    await vi.advanceTimersByTimeAsync(0);
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
     expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetNoVideoError);
   });
 
-  it('Cancel during downloading cancels the job and returns to the input phase', async () => {
+  it('Cancel while checking metadata cancels the job; input returns only after the cancel settles', async () => {
     const { fetchMock, calls } = makeFetcher([
       jsonResponse({ id: 'jobCancel2' }, 201),
+      jsonResponse({ id: 'jobCancel2', state: 'cancelled' }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillAndConsent();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(screen.getByText(baseDict.magnetDownloading)).toBeInTheDocument();
+    await flush(0);
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobCancel2/cancel'))).toBe(true);
+    // The cancel hasn't settled: the form is not actionable.
+    expect(screen.queryByLabelText('Magnet URI')).not.toBeInTheDocument();
+    await flush(0);
     expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument(); // back to input
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobCancel2/cancel'))).toBe(true);
+  });
+});
+
+describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy-path retry loop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  it('checks metadata with NO byte counts in the label (0 B / 0 B must never appear)', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobMeta' }, 201),
+      // A metadata (0/0) poll response arrives while still checking.
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    await flush(5000);
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+    // The payload has not started: no byte rendering of any form.
+    expect(screen.queryByText(/[0-9.,]+\s*(B|KB|MB)/)).not.toBeInTheDocument();
+  });
+
+  it('file list → Batal → same-magnet retry: the first cancel settles before the second create', async () => {
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobA' }, 201),                                                        // create A
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),           // poll A
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),             // poll A → files
+      jsonResponse({ files: FILES }, 200),                                                      // files A
+      jsonResponse({ id: 'jobA', state: 'cancelled' }, 200),                                    // cancel A ack
+      jsonResponse({ id: 'jobB' }, 201),                                                        // create B (retry)
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),           // poll B
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),             // poll B → files
+      jsonResponse({ files: FILES }, 200),                                                      // files B
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+
+    // First attempt: create → metadata → file picker.
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+
+    // B1: the dialog must NOT become actionable while the cancel is pending.
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
+    expect(screen.queryByLabelText('Magnet URI')).not.toBeInTheDocument();
+    await flush(0); // cancel ack settles → input restored
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+
+    // Same attempt, same magnet: submit again immediately.
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+
+    // The first cancel (call) completed before the second create was posted.
+    const createPosts = calls
+      .map((c, i) => ({ c, i }))
+      .filter((x) => x.c.url === 'http://127.0.0.1:4322/v1/source/torrents?token=tok123');
+    const cancelA = calls.findIndex((c) => c.url.includes('/jobA/cancel'));
+    expect(createPosts).toHaveLength(2);
+    expect(createPosts[0]!.i).toBeLessThan(cancelA);
+    expect(cancelA).toBeLessThan(createPosts[1]!.i);
+
+    // Metadata phase of the retry: checking label only — never bytes.
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+    expect(screen.queryByText(/[0-9.,]+\s*(B|KB|MB)/)).not.toBeInTheDocument();
+
+    // The second attempt reaches the file picker normally.
+    await flush(5000);
+    await flush(5000);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+  });
+
+  it('a stale first-attempt poll response can never mutate the second attempt', async () => {
+    let resolveStale!: (r: Response) => void;
+    const stalePoll = new Promise<Response>((res) => {
+      resolveStale = res;
+    });
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobA' }, 201),
+      () => stalePoll,                                                                           // poll A — held open
+      jsonResponse({ id: 'jobA', state: 'cancelled' }, 200), // cancel A ack
+      jsonResponse({ id: 'jobB' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    await flush(5000); // poll A fires and stays pending
+
+    // Batal while the first poll is in flight; the cancel settles cleanly.
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+
+    // Retry immediately.
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+
+    // The stale first-attempt response arrives only now, mid‑second‑attempt.
+    resolveStale(jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200));
+    await flush(0);
+    // It must not short-circuit the second attempt into selecting/error.
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    // The second attempt proceeds to the file picker normally.
+    await flush(5000);
+    await flush(5000);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+  });
+
+  it('cancel network failure recovers visibly with a localized error', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobNet' }, 201),
+      // cancel: network failure (no queued response)
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
+    await flush(0);
+    // Recoverable: the input is back and the failure is visible.
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetInputErrorNetwork);
+  });
+
+  it('cancel non-OK (500) recovers visibly with a generic localized error', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'job500' }, 201),
+      jsonResponse({ error: 'raw server detail' }, 500),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetInputErrorGeneric);
+    expect(screen.queryByText(/raw server detail/)).not.toBeInTheDocument();
+  });
+
+  it('cancel 404 (job already freed) settles cleanly without an error', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobGone' }, 201),
+      jsonResponse({ error: 'job not found' }, 404),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('reopening while a cancel is in flight stays non-actionable until the settle resolves', async () => {
+    let resolveCancel!: (r: Response) => void;
+    const cancelGate = new Promise<Response>((res) => {
+      resolveCancel = res;
+    });
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobGate' }, 201),
+      () => cancelGate, // cancel held open
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
+    );
+    await fillAndConsent();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await flush(0);
+    // B1 starts the cancel; it stays pending.
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
+    // Close the dialog while the cancel is in flight, then reopen.
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={true} />);
+    await flush(0);
+    // The settle has not resolved: no actionable input yet, no new job.
+    expect(screen.queryByLabelText('Magnet URI')).not.toBeInTheDocument();
+    // The cancel resolves; only then does the fresh input appear.
+    resolveCancel(jsonResponse({ id: 'jobGate', state: 'cancelled' }, 200));
+    await flush(0);
+    expect(screen.getByLabelText('Magnet URI')).toBeInTheDocument();
   });
 });

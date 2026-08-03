@@ -238,7 +238,7 @@ export const ja: Dictionary = {
       'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     magnetInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
     magnetInputSubmitting: '準備中…',
-    magnetDownloading: 'ダウンロード中…',
+    magnetCheckMetadata: 'メタデータ確認中…',
     magnetFilesTitle: 'ファイルを選択',
     magnetFilesBody: '動画を1つ、任意で字幕を1つ選択してください。',
     magnetVideoKindLabel: '動画',

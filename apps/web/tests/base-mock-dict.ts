@@ -193,7 +193,7 @@ export const baseMockDict = {
   magnetInputErrorNetwork: 'Could not reach EizouDendenshi. Make sure the companion app is running.',
   magnetInputErrorGeneric: 'Something went wrong. Try again.',
   magnetInputSubmitting: 'Starting…',
-  magnetDownloading: 'Downloading…',
+  magnetCheckMetadata: 'Checking metadata…',
   magnetFilesTitle: 'Select files',
   magnetFilesBody: 'Pick one video and, optionally, one subtitle.',
   magnetVideoKindLabel: 'video',

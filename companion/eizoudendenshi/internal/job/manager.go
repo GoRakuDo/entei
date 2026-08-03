@@ -75,6 +75,41 @@ type job struct {
 func (j *job) setState(s State) { j.stateMu.Lock(); j.state = s; j.stateMu.Unlock() }
 func (j *job) getState() State  { j.stateMu.Lock(); defer j.stateMu.Unlock(); return j.state }
 
+// setError publishes the terminal error state together with its message
+// under one stateMu acquisition, so snapshot never observes a torn
+// (state, message) pair. errMsg is write-only under stateMu afterwards.
+func (j *job) setError(msg string) {
+	j.stateMu.Lock()
+	j.errMsg = msg
+	j.state = StateError
+	j.stateMu.Unlock()
+}
+
+// setCompleted publishes the servable media source and the terminal
+// complete state under one stateMu acquisition. snapshot and
+// completedSource read both fields under stateMu, so an observer sees a
+// consistent (src, state) pair — never StateComplete with a nil src.
+func (j *job) setCompleted(src *JobSource, size int64) {
+	j.stateMu.Lock()
+	j.src = src
+	j.state = StateComplete
+	j.stateMu.Unlock()
+	j.bytes.store(size)
+}
+
+// completedSource returns the servable media source when the job is
+// complete, else nil. This is the second read path for j.src (besides
+// snapshot); it takes stateMu because finalize assigns src under the same
+// lock.
+func (j *job) completedSource() media.GrowingSource {
+	j.stateMu.Lock()
+	defer j.stateMu.Unlock()
+	if j.state != StateComplete {
+		return nil
+	}
+	return j.src
+}
+
 // snapshot returns the redacted public view. The URL, paths, command line,
 // and helper output are never included.
 func (j *job) snapshot() Snapshot {
@@ -158,10 +193,7 @@ func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 		return Snapshot{}, nil
 	}
 	snap := m.current.snapshot()
-	var src media.GrowingSource
-	if m.current.src != nil && m.current.getState() == StateComplete {
-		src = m.current.src
-	}
+	src := m.current.completedSource()
 	return snap, src
 }
 
@@ -240,8 +272,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 
 	dir, err := os.MkdirTemp("", "entei-job-*")
 	if err != nil {
-		j.errMsg = "internal error"
-		j.setState(StateError)
+		j.setError("internal error")
 		return // errored job stays current (redacted) until cancelled
 	}
 	_ = os.Chmod(dir, 0o700)
@@ -284,12 +315,11 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			m.clear(j)
 			return
 		}
-		j.errMsg = "download failed"
 		// Cleanup BEFORE the terminal error state is published (the same
 		// ordering as every other error path): an observer must never see
 		// StateError while the private job dir still exists.
 		removeAllBestEffort(dir)
-		j.setState(StateError)
+		j.setError("download failed")
 		// The errored job stays current (redacted) until explicitly
 		// cancelled, so the status endpoint can surface the failure.
 		return
@@ -312,8 +342,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			if j.timedOut.Load() {
 				// A timeout is a failure: the redacted error job stays
 				// current until explicitly cancelled (like other errors).
-				j.errMsg = "timed out"
-				j.setState(StateError)
+				j.setError("timed out")
 			} else {
 				j.setState(StateCancelled)
 				m.clear(j) // user cancel: session freed (Cancel also clears)
@@ -327,8 +356,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 				closeLog()
 				removeAllBestEffort(dir)
 				if j.timedOut.Load() {
-					j.errMsg = "timed out"
-					j.setState(StateError)
+					j.setError("timed out")
 				} else {
 					j.setState(StateCancelled)
 					m.clear(j)
@@ -342,8 +370,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 				// never sees StateError while the dir still exists.
 				closeLog()
 				removeAllBestEffort(dir)
-				j.errMsg = "download failed"
-				j.setState(StateError)
+				j.setError("download failed")
 				return // errored job stays current until cancelled
 			}
 			closeLog() // helper exited; no more stderr writes. Required before
@@ -369,20 +396,16 @@ func (m *Manager) finalize(j *job, dir string) bool {
 		// ordering as every run() error path): observers must never see
 		// StateError while the private job dir still exists.
 		removeAllBestEffort(dir)
-		j.errMsg = "no media produced"
-		j.setState(StateError)
+		j.setError("no media produced")
 		return false // errored job stays current until cancelled
 	}
 	src, err := NewJobSource(path, size)
 	if err != nil {
 		removeAllBestEffort(dir)
-		j.errMsg = "media unavailable"
-		j.setState(StateError)
+		j.setError("media unavailable")
 		return false // errored job stays current until cancelled
 	}
-	j.src = src
-	j.bytes.store(size)
-	j.setState(StateComplete)
+	j.setCompleted(src, size)
 	return true
 }
 
