@@ -657,6 +657,16 @@
   border: 1px solid oklch(55% 0.2 25deg / 0.3);
 }
 
+/* Overlay error state: when shown over a KEPT video element (companion
+   buffering — the bridge recovers with an explicit src/load, so the
+   element must stay mounted), cover the wrapper instead of replacing the
+   element. The standalone error state above is untouched. */
+.entei-player-video-wrapper .entei-player-error-state {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in oklch, var(--entei-surface) 92%, transparent);
+}
+
 /* Inline icon in error warnings title (replaces inline style). */
 .entei-player-errors-icon {
   display: inline;

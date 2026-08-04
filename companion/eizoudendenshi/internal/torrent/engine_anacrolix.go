@@ -219,10 +219,12 @@ func (e *engineAnacrolix) diagLoop(t *torrent.Torrent) {
 
 // diag logs one sanitized diagnostics line. Peer counts come from the
 // torrent's instantaneous gauges; DHT node and announce counts come from
-// the client's DHT servers (dht.ServerStats). All values are plain
-// integers — no addresses, URLs, or identifiers. The client is captured
-// under the engine lock (Close() may nil it concurrently); a closed engine
-// simply skips the line.
+// the client's DHT servers (dht.ServerStats). Whole-torrent piece
+// completion (independent of the selected file) comes from the piece state
+// runs plus the total bytes received. All values are plain integers — no
+// addresses, URLs, or identifiers. The client is captured under the engine
+// lock (Close() may nil it concurrently); a closed engine simply skips the
+// line.
 func (e *engineAnacrolix) diag(t *torrent.Torrent) {
 	e.mu.Lock()
 	cl := e.client
@@ -242,8 +244,24 @@ func (e *engineAnacrolix) diag(t *torrent.Torrent) {
 			announceTried += ss.OutboundQueriesAttempted
 		}
 	}
-	e.log.Infof("torrent.engine", "diag peers=%d active=%d seeders=%d halfopen=%d dht_nodes=%d dht_good=%d announce_ok=%d announce_tried=%d",
-		ts.TotalPeers, ts.ActivePeers, ts.ConnectedSeeders, cs.ActiveHalfOpenAttempts, nodes, goodNodes, announceOK, announceTried)
+	// Whole-torrent piece completion, independent of the selected file:
+	// complete pieces over total pieces (t.Info().NumPieces), plus the
+	// bytes received on the wire (ConnStats.BytesRead). PieceStateRuns
+	// groups consecutive pieces with the same state into runs, so a
+	// mostly-incomplete torrent costs a handful of iterations instead of
+	// one per piece — safe on the 10s diag cadence even for thousands of
+	// pieces. Counts only: no piece data, no peer identifiers.
+	var completePieces, totalPieces int
+	if info := t.Info(); info != nil {
+		totalPieces = info.NumPieces()
+		for _, run := range t.PieceStateRuns() {
+			if run.PieceState.Complete {
+				completePieces += run.Length
+			}
+		}
+	}
+	e.log.Infof("torrent.engine", "diag peers=%d active=%d seeders=%d halfopen=%d dht_nodes=%d dht_good=%d announce_ok=%d announce_tried=%d complete=%d/%d bytes_read=%d",
+		ts.TotalPeers, ts.ActivePeers, ts.ConnectedSeeders, cs.ActiveHalfOpenAttempts, nodes, goodNodes, announceOK, announceTried, completePieces, totalPieces, ts.ConnStats.BytesRead)
 }
 
 type anacrolixHandle struct {

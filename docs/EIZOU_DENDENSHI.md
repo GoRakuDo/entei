@@ -171,6 +171,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 7. Magnet UI（`MagnetInput.tsx`）のネストフォルダーのみの構造（フォルダーの中がさらにフォルダーだけでvideoがleafに無い場合）は、フォルダーを開き続けるだけで無限ループにはならないが空状態のUXが未定義。backendが正しいtorrentではleafにfileが存在するため現実では起きない。将来のedge caseとしてdepth guardまたは「このフォルダーに動画なし」の空状態メッセージが対策候補（コード変更不要と判断）。
 8. Magnet UIテスト（`magnet-input.test.tsx`）のmock folder ID `'d0'` は実フォーマット（`folderID()` = `'d'` + SHA-256 8 hex）と異なる（cosmetic only）。
 9. Magnet tableの行高は `td/tr` の `height: 2.25rem`（36px）で揃えているが、tableレイアウトではheightは最小高さとして働き、CSS仕様上table cell/rowの `max-height` は無効。将来行内容が20px content area（padding 8px×2込み）を超えると行が膨張しうる。`overflow: hidden` のsafety netは意図的に追加せず、このLOWとして記録（2026-08-04レビュー）。
+10. `use-companion-bridge.ts` の `createMediaAdapter.setSrc` は `el.crossOrigin = 'anonymous'` を設定するが、VideoPlayerのReact prop（`crossOrigin="anonymous"`）が常時付与するため冗長（cosmetic only、競合なし。React prop削除時はbridge側で再発する点に注意）。`VideoPlayer.tsx` の `videoElement` 変数はstandalone error pathでも確保されるが、JSX要素は軽量オブジェクトで無害（2026-08-05レビュー、ED-2H）。
 
 ## Delivery contract
 

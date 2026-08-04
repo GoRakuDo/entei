@@ -13,6 +13,12 @@ interface VideoPlayerProps {
   error: string | null;
   errorLabel?: string;
   decodeErrorLabel?: string;
+  /** Keep the video element mounted when an error fires. Off by default
+   *  (the standalone error state replaces the element, as before); on for
+   *  companion buffering, where the bridge recovers with an explicit
+   *  src/load — the element must survive the error to receive the
+   *  loadeddata event that clears the overlay. */
+  keepElementOnError?: boolean;
   onTimeUpdate: (time: number) => void;
   onPlay: () => void;
   onPause: () => void;
@@ -28,6 +34,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       error,
       errorLabel = 'Failed to load video',
       decodeErrorLabel = 'Video playback error',
+      keepElementOnError = false,
       onTimeUpdate,
       onPlay,
       onPause,
@@ -76,7 +83,44 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       [],
     );
 
+    /* The element is shared by the standalone and overlay error paths: with
+       keepElementOnError the exact same element stays mounted so the
+       companion bridge's error recovery (explicit src/load) can drive
+       loadeddata and clear the error. crossOrigin="anonymous" makes the
+       element fetch its source with CORS instead of no-cors — without it
+       the browser issues an opaque no-cors request that ORB (Opaque
+       Response Blocking) rejects for a cross-origin media response. */
+    const videoElement = (
+      <video
+        ref={ref}
+        src={src}
+        crossOrigin="anonymous"
+        className="entei-player-video"
+        onTimeUpdate={handleTimeUpdate}
+        onPlay={onPlay}
+        onPause={onPause}
+        onLoadedData={handleLoadedData}
+        onError={handleError}
+        onKeyDown={handleKeyDown}
+        preload="metadata"
+        playsInline
+        tabIndex={0}
+      />
+    );
+
     if (error) {
+      if (keepElementOnError) {
+        // Overlay error state: keep the element mounted (the companion
+        // bridge's src/load recovery needs it) and cover it with the error.
+        return (
+          <div className="entei-player-video-wrapper">
+            {videoElement}
+            <div className="entei-player-error-state">
+              <p className="entei-player-error-text">{error}</p>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="entei-player-error-state">
           <p className="entei-player-error-text">{error}</p>
@@ -86,20 +130,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
     return (
       <div className="entei-player-video-wrapper">
-        <video
-          ref={ref}
-          src={src}
-          className="entei-player-video"
-          onTimeUpdate={handleTimeUpdate}
-          onPlay={onPlay}
-          onPause={onPause}
-          onLoadedData={handleLoadedData}
-          onError={handleError}
-          onKeyDown={handleKeyDown}
-          preload="metadata"
-          playsInline
-          tabIndex={0}
-        />
+        {videoElement}
         {isLoading && (
           <div className="entei-player-loading-overlay">
             <div className="entei-player-skeleton" />

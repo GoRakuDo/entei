@@ -2905,6 +2905,18 @@ export default function PlayerApp() {
           src={displayMediaUrl!}
           isLoading={isLoading}
           error={loadError}
+          // ED-2H: keep the video element mounted while an active
+          // companion session has an uncleared loadError (e.g. the initial
+          // 503 during buffering). The condition keys on loadError, NOT on
+          // the bridge phase: the bridge's recovery transition
+          // (buffering → ready) re-renders React, and a phase-based
+          // condition would unmount the element right before the bridge's
+          // explicit src/load — the loadeddata that clears loadError (via
+          // handleLoaded) then never fires and "Aliran belum siap" sticks.
+          // loadError is cleared by loadeddata, so the condition flips
+          // back to false automatically once playback resumes. Outside an
+          // active session the element unmounts on error exactly as before.
+          keepElementOnError={jobSession.active && loadError !== null}
           errorLabel={jobSession.active && jobSession.phase !== 'error' ? dict.companionStreamNotReady : dict.failedToLoadVideo}
           decodeErrorLabel={dict.videoDecodeError}
           onTimeUpdate={handleTimeUpdate}

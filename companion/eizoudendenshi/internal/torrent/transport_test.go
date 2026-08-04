@@ -147,6 +147,13 @@ func TestEngineDiagnosticsLogSanitized(t *testing.T) {
 	if !strings.Contains(s, "[INFO] torrent.engine: diag peers=") {
 		t.Errorf("missing sanitized diag line:\n%s", s)
 	}
+	// The piece-completion and byte counters must be present too: complete
+	// over total pieces and bytes_read (counts only, same redaction
+	// contract). The exact values depend on the local torrent state, so
+	// only the presence of the fields is pinned.
+	if !strings.Contains(s, "complete=0/1 bytes_read=") {
+		t.Errorf("missing piece/byte diagnostics in diag line:\n%s", s)
+	}
 	for _, forbidden := range []string{
 		"Movie.2026.mkv", // torrent name / path
 		"magnet:",        // magnet URI
