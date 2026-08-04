@@ -906,9 +906,8 @@ describe('MagnetInput — folder navigation robustness', () => {
 
   it('folder fetch error shows generic error message', async () => {
     // Create → poll (buffering) → files with video + folder → folder click → 500 error.
-    // The video entry is required: MagnetInput only enters the selecting
-    // phase when at least one video is present (noVideo otherwise), so the
-    // folder button would never render without it.
+    // The selecting phase is reachable with a video, a folder, or both at
+    // root (only a root with neither is a no-video torrent).
     const { fetchMock } = makeFetcher([
       jsonResponse({ id: 'jobFold' }, 201),                           // create
       jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200), // poll
@@ -936,5 +935,51 @@ describe('MagnetInput — folder navigation robustness', () => {
     await flush(0);
     // Error should be displayed
     expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetInputErrorGeneric);
+  });
+
+  it('folder-only root enters selecting (no no-video error); opening the folder reveals playable videos', async () => {
+    // Real folder-structured torrent: the backend root listing contains only
+    // folder rows (SynthesizeEntries hides nested files), so a root response
+    // without any video row must still reach the selecting phase. Only a root
+    // with neither videos nor folders is a no-video torrent.
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobFoldOnly' }, 201), // create
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200), // poll
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200), // poll → files
+      jsonResponse(
+        {
+          files: [
+            { id: 'd0', basename: 'Subs', kind: 'folder', relativePath: 'Subs' },
+          ],
+        },
+        200,
+      ), // root files: folder only
+      jsonResponse({ files: [FILES[0], FILES[1]] }, 200), // inside Subs: video + subtitle
+      jsonResponse({ id: 'jobFoldOnly', state: 'complete' }, 200), // select ack
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    render(<MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />);
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
+    // No no-video error: the folder row is rendered and the picker is open.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    const folderBtn = screen.getByRole('button', { name: 'Subs' });
+    // Open the folder: its videos become visible and selectable.
+    fireEvent.click(folderBtn);
+    await flush(0);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit }));
+    await flush(0);
+    const selectCall = calls.find((c) => c.url.includes('/v1/source/torrents/jobFoldOnly/select'));
+    expect(selectCall).toBeTruthy();
+    const selectBody = JSON.parse(String(selectCall?.init?.body)) as { videoFileId?: string };
+    expect(selectBody.videoFileId).toBe('f0');
+    await flush(0);
+    expect(onJobAccepted).toHaveBeenCalledWith('jobFoldOnly', 'movie.mkv');
   });
 });

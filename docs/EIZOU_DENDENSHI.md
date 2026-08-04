@@ -168,6 +168,8 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 4. `apply_test.go` の `TestCopyExecutableForChildSweepsStaleCopies` は実`%TEMP%`へ書く（production globと一致）。次回の`copyExecutableForChild`呼び出しがsweepするためself-healing。
 5. `apply_test.go` の `TestCopyExecutableForChildCopiesToTemp` の変数名`staging`は紛らわしい（cosmetic only）。
 6. `update_test.go` のchild dispatch env guardコメントは`TestSpawnApplyWindowsRealSelfReplace`を明示的に指名できる（cosmetic only）。
+7. Magnet UI（`MagnetInput.tsx`）のネストフォルダーのみの構造（フォルダーの中がさらにフォルダーだけでvideoがleafに無い場合）は、フォルダーを開き続けるだけで無限ループにはならないが空状態のUXが未定義。backendが正しいtorrentではleafにfileが存在するため現実では起きない。将来のedge caseとしてdepth guardまたは「このフォルダーに動画なし」の空状態メッセージが対策候補（コード変更不要と判断）。
+8. Magnet UIテスト（`magnet-input.test.tsx`）のmock folder ID `'d0'` は実フォーマット（`folderID()` = `'d'` + SHA-256 8 hex）と異なる（cosmetic only）。
 
 ## Delivery contract
 

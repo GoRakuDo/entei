@@ -479,7 +479,13 @@ export function MagnetInput({
           const filesBody = (await filesRes.json()) as { files?: FileEntry[] };
           if (!safe()) return;
           const list = Array.isArray(filesBody.files) ? filesBody.files : [];
-          if (!list.some((f) => f.kind === 'video')) {
+          // Root may legitimately contain only folder rows: SynthesizeEntries
+          // hides nested files behind folder rows, so videos appear only after
+          // folder navigation. Only a root with neither videos nor folders is
+          // a genuine no-video torrent.
+          const hasVideo = list.some((f) => f.kind === 'video');
+          const hasFolder = list.some((f) => f.kind === 'folder');
+          if (!hasVideo && !hasFolder) {
             setError('novideo');
             setPhase('input');
             return;
