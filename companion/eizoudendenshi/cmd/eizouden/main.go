@@ -13,12 +13,20 @@
 // 503+Retry-After buffering; see internal/api). With --allow-origin, one or
 // more exact HTTP(S) origins are additionally permitted by CORS for this
 // process only (ED-2C development/QA override; never used in production).
+//
+// With the `cli` command the common three-option menu runs (pairing /
+// service status / update; see cli.go). The internal `apply-update`
+// child mode is spawned by the updater itself and never typed by a
+// user: it replaces the verified staged core/helpers after the parent
+// exits and relaunches the new core in CLI mode, without ever touching
+// the persisted pairing credential.
 package main
 
 import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -33,6 +41,7 @@ import (
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/torrent"
+	"eizoudendenshi/internal/update"
 )
 
 // originList collects repeatable --allow-origin values. The values are never
@@ -122,6 +131,14 @@ func main() {
 	flag.Parse()
 
 	args := flag.Args()
+	if len(args) > 0 && args[0] == "apply-update" {
+		// Internal --apply-update child mode (spawned by the updater's
+		// CLI option 3): replaces the verified staged core/helpers after
+		// the parent exits and relaunches the new core in CLI mode. This
+		// runs BEFORE any credential/server initialization so the child
+		// never touches pairing state.
+		os.Exit(update.ApplyStaged(args[1:]))
+	}
 	if len(args) > 0 && args[0] != "cli" {
 		log.Fatalf("unknown command %q (expected \"cli\" or no arguments)", args[0])
 	}
@@ -225,6 +242,12 @@ func main() {
 			version: api.Version,
 			ytdlp:   *ytdlp,
 			ffmpeg:  *ffmpeg,
+			runUpdate: func(w io.Writer) bool {
+				return update.Run(w, update.Config{
+					Version:     api.Version,
+					InstallRoot: updateInstallRoot(),
+				})
+			},
 		}, os.Stdin, os.Stdout, func() error { return runServer(cfg, *ytdlp) })
 		os.Exit(code)
 	}
@@ -281,6 +304,19 @@ func runServer(cfg serverConfig, ytdlpPath string) error {
 		return err
 	}
 	return nil
+}
+
+// updateInstallRoot returns the directory containing the running core:
+// on Windows the launcher runs the core from the user-private install
+// root (%LOCALAPPDATA%\GoRakuDo\EizouDendenshi) and on Termux from
+// $PREFIX/var/lib/eizouden, so the executable's own directory IS the
+// install root the updater must update in place.
+func updateInstallRoot() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exe)
 }
 
 // serverConfig bundles the values needed to start the loopback companion.

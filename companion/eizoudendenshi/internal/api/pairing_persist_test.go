@@ -1,11 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -415,6 +417,70 @@ func TestOnPairingResetNotified(t *testing.T) {
 	}
 	if gotCode == "" || gotCode != s.PairingCode() {
 		t.Fatalf("reset callback code = %q, current = %q", gotCode, s.PairingCode())
+	}
+}
+
+// TestRestartWithSameFileStoreKeepsToken pins the in-place-update
+// pairing boundary: a NEW companion process started against the SAME
+// persisted credential file (exactly what happens after the updater
+// replaces the verified core — credential.bin is untouched) accepts the
+// existing token without any pairing exchange, issues a fresh code, and
+// never rewrites or resets the stored credential.
+func TestRestartWithSameFileStoreKeepsToken(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "credential.bin")
+	store := credential.NewFileStore(path)
+
+	// First process: pair and persist the token.
+	s1, err := New(Config{Credential: store})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	token := pairAndGetToken(t, s1)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read credential: %v", err)
+	}
+
+	// "After the update": a brand-new server instance over the same
+	// credential file reports paired with the SAME token.
+	s2, err := New(Config{Credential: store})
+	if err != nil {
+		t.Fatalf("New after restart: %v", err)
+	}
+	rec := doRequest(t, s2.Handler(), http.MethodGet,
+		"/v1/pair/status?token="+token, allowedOriginEntei, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status after restart = %d, want 200 (persisted token still valid)", rec.Code)
+	}
+	if rec.Body.String() != "{\"status\":\"paired\"}\n" {
+		t.Fatalf("body = %q, want the fixed acknowledgement only", rec.Body.String())
+	}
+
+	// The credential file is byte-identical and the store still reports
+	// the SAME token: no rotation, no reset, no rewrite.
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read credential after restart: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("companion restart rewrote the persisted credential")
+	}
+	got, _, ok, err := store.Load()
+	if err != nil || !ok || got != token {
+		t.Fatalf("stored token after restart = %q ok=%v err=%v, want the same token", got, ok, err)
+	}
+	// A fresh pairing code is still available for new browsers, but no
+	// state was created by the status check.
+	if code := s2.PairingCode(); code == "" || len(code) != 6 {
+		t.Fatalf("PairingCode = %q, want a fresh 6-digit code", code)
+	}
+	after2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read credential after status check: %v", err)
+	}
+	if !bytes.Equal(before, after2) {
+		t.Fatal("a status acknowledgement must never write the credential")
 	}
 }
 

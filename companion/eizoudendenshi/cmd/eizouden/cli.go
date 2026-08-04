@@ -1,4 +1,4 @@
-// Common two-option CLI for the EizouDendenshi companion (Windows + Termux).
+// Common three-option CLI for the EizouDendenshi companion (Windows + Termux).
 //
 // The menu is the entry point after bootstrap on both platforms:
 //
@@ -6,6 +6,7 @@
 //
 //		1. Get New Pairing Code
 //		2. Service Status
+//		3. Update EizouDendenshi
 //
 //		Option:
 //
@@ -14,11 +15,18 @@
 //	  - Option 2 prints service status only: core / yt-dlp / ffmpeg
 //	    installed, version, and executable readiness. It never prints paths,
 //	    cookies, tokens, URLs, or job data.
+//	  - Option 3 updates the verified core/helpers from the signed release
+//	    feed. It prints only safe status text and never resets the pairing:
+//	    the persisted credential (credential.bin / DPAPI store) and the
+//	    browser's opaque token are untouched, so the Web does not need to
+//	    re-pair. When an update is verified the process exits and the new
+//	    core is started in CLI mode by the internal --apply-update child
+//	    (see internal/update).
 //
 // The header uses ANSI color ONLY when stdout is a terminal; otherwise the
 // plain text is printed (piped/redirected output stays clean). Invalid
 // input re-prompts; EOF exits safely. The menu deliberately has no
-// Start/Stop entries beyond the two options.
+// Start/Stop entries beyond the three options.
 package main
 
 import (
@@ -41,6 +49,11 @@ type cliOptions struct {
 	version string
 	ytdlp   string
 	ffmpeg  string
+	// runUpdate runs option 3 (Update EizouDendenshi). It prints only
+	// safe status text to the given writer and returns true when the
+	// caller must exit so the spawned child can replace the running
+	// core. nil means the updater is unavailable (dev builds).
+	runUpdate func(stdout io.Writer) bool
 }
 
 // fixedTermuxCommands maps each helper to the command its official Termux
@@ -67,6 +80,7 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "1. Get New Pairing Code")
 	fmt.Fprintln(stdout, "2. Service Status")
+	fmt.Fprintln(stdout, "3. Update EizouDendenshi")
 
 	reader := bufio.NewReader(stdin)
 	for {
@@ -82,8 +96,20 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 				return 0
 			case "2":
 				printServiceStatus(opts, stdout)
+			case "3":
+				if opts.runUpdate == nil {
+					fmt.Fprintln(stdout, "update: updater unavailable")
+					break
+				}
+				if opts.runUpdate(stdout) {
+					// The updater verified a newer release and spawned the
+					// --apply-update child: the parent must exit so the
+					// child can replace the running core and relaunch the
+					// new CLI.
+					return 0
+				}
 			default:
-				fmt.Fprintln(stdout, "Invalid option; enter 1 or 2.")
+				fmt.Fprintln(stdout, "Invalid option; enter 1, 2, or 3.")
 			}
 		}
 		if err != nil {

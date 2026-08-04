@@ -670,12 +670,14 @@ path) was removed.
 
 ### Common CLI + Termux helper bootstrap (implemented; device gates pending)
 
-- **`eizouden cli`** (Go, common): two-option menu (`1. Get New Pairing
-  Code` / `2. Service Status`) with an ANSI-colored version header only on
+- **`eizouden cli`** (Go, common): three-option menu (`1. Get New Pairing
+  Code` / `2. Service Status` / `3. Update EizouDendenshi`) with an
+  ANSI-colored version header only on
   a real terminal (plain otherwise); option 1 reuses the existing
   foreground server path (fresh pairing code, Ctrl+C stops); option 2
   reports core/yt-dlp/ffmpeg installed/version/readiness and the torrent
-  engine status only —
+  engine status only;   option 3 runs the built-in updater (see the [Built-in updater](#built-in-updater-cli-option-3-implemented-2026-08-04)
+  section) —
   never paths, cookies, tokens, URLs, or job data. Invalid input
   re-prompts; EOF exits.
 - **Windows launcher**: the bootstrap installs a user-private `grkd-edds.cmd`
@@ -1090,6 +1092,61 @@ are implemented. The remaining end-to-end verification is deferred and
 will cover real-swarm download E2E with the anacrolix engine and
 Android/headed-Windows browser behavior together.
 
+## Built-in updater (CLI option 3, implemented 2026-08-04)
+
+`grkd-edds` (and the raw core `cli` mode) now offers a third menu entry,
+`3. Update EizouDendenshi`, implemented by
+`internal/update` (stdlib only, no new dependencies).
+
+- **Release feed:** the updater queries
+  `https://api.github.com/repos/GoRakuDo/entei/releases?per_page=20` over
+  HTTPS (bounded 60 s timeout, at most 5 redirects, HTTPS-only redirect
+  targets) and picks the newest **published** non-draft release whose tag
+  starts with `eizoudendenshi-v` — by `published_at`, never a lexical rc
+  comparison, and prereleases are included (the latest release is always a
+  prerelease; `/releases/latest` would exclude it). Missing/duplicate/
+  unsafe asset names and non-HTTPS asset URLs fail closed.
+- **Verification:** the release manifest is Minisign-verified against the
+  **pinned public key** (injected into release binaries at link time by
+  `scripts/release.ps1 -PublicKeyFile`, see above; dev builds keep the
+  placeholder and the updater reports `updater unavailable` — an arbitrary
+  key from a response/env is never trusted), then every platform artifact
+  is Minisign-verified AND checked against the signed manifest's SHA-256
+  into a private staging dir BEFORE anything is applied. The manifest
+  version must equal the selected tag suffix. The verifier is the
+  install-root `tools\minisign.exe` (Windows) or a PATH `minisign` only
+  after a 0.12 version check; the key is written only to a private temp
+  file and the verifier output is captured, never printed.
+- **Apply:** the current executable is spawned in an internal
+  `--apply-update` child mode carrying only the staging path, the parent
+  PID, and the target paths; the parent exits first, the child waits
+  (bounded) for it, replaces the verified core/helpers with
+  backup+rollback (the old core is kept on any failure), relaunches the
+  new core in CLI mode (`cli`, preserving the explicit Windows helper
+  paths), and exits. Windows updates core + `yt-dlp` + `ffmpeg` (the
+  archive is extracted only after signature/hash verification, taking
+  exactly `ffmpeg.exe`); Termux updates the `android/arm64` core only —
+  Termux package helpers stay managed by the signed helper bootstrap / pkg
+  contract.
+- **Pairing is preserved by construction:** the updater touches ONLY the
+  staged files and the core/helper targets. `credential.bin` (Windows
+  DPAPI / Termux app-private), the credential directory, browser
+  localStorage, and all pairing/OTP state are never read, written,
+  rotated, or replaced, so the Web does **not** need to re-pair after an
+  update (`TestApplyStagedPreservesCredential`,
+  `TestRestartWithSameFileStoreKeepsToken` pin this). The updater runs
+  only from the CLI menu, never while a server process is running.
+- **Output:** option 3 prints only safe status text (`checking`, `already
+  up to date`, `verified and restarting`, generic failures) — never
+  release URLs, keys, local paths, tokens, or raw errors.
+- **Verification status:** the full Windows update pipeline was run live
+  on 2026-08-04 against the real rc.22 release (real GitHub feed, real
+  Minisign 0.12, real pinned key): the signed manifest and all artifacts
+  verified, the real core/helpers were applied and relaunched in a
+  harness install root. **Not verified:** a real user-profile update via
+  `grkd-edds` with a live credential.bin, browser persistence after an
+  update, and the Termux update path (unit-tested, not device-tested).
+
 ## Deferred boundaries (out of scope through ED-2B)
 
 > **Historical scope:** this list records the ED-2B-era scope boundary.
@@ -1266,13 +1323,19 @@ delivery is complete** — see [Stage B gate](#stage-b-clean-termux-device-gate)
   **injected at link time** (`-ldflags -X
   eizoudendenshi/internal/api.Version=<semver>`) so both binaries report
   exactly the manifest version in the startup banner and `/v1/health`;
-  additionally writes the single-line versioned manifest
+  with `-PublicKeyFile` (or `EIZOUDEN_MINISIGN_PUBKEY_FILE`) the RW...
+  Minisign public key is read and validated BEFORE the builds and
+  injected into both release cores (`-ldflags -X
+  eizoudendenshi/internal/update.PinnedPublicKey=<RW...>`) so the built-in
+  updater verifies releases against the pinned key (dev `build` binaries
+  keep the placeholder and the updater fails closed as "updater
+  unavailable"); additionally writes the single-line versioned manifest
   `eizouden-manifest.json` — `format`, `formatVersion`, `version`,
   `helperContract` (placeholder, fails closed: only contract v1 with zero
   helper requirements is accepted), and one `artifacts` entry per binary
   (`name`, `target`, lowercase `sha256`) — then creates detached Minisign
   signatures (`<file>.minisig`) for the manifest and every artifact, and
-  emits a key-pinned `bootstrap.sh` copy when the public key file is given.
+  emits key-pinned bootstrap copies when the public key file is given.
 - The signing key is supplied **explicitly** via `-MinisignKeyPath` or the
   `EIZOUDEN_MINISIGN_KEY` environment variable; the public key file via
   `-PublicKeyFile` or `EIZOUDEN_MINISIGN_PUBKEY_FILE`. A release run without

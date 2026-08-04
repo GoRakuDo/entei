@@ -146,6 +146,18 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 - `EizouDendenshiSetup`: connected時に明示的なdestructive reset control（Lucide `Unplug` + shadcn destructive Button）→確認Dialog（shadcn Dialog）。status indicator自体は非interactive（誤操作でresetされない）。reload検証中のstatusは「Checking…」表示（false "Disconnected"を出さない）。
 - 明示的に保存tokenがinvalid（companion側がreset / delete済み）の場合はbrowser tokenをclearしてunpaired表示。reload検証はserver pairing stateを作らない。
 
+## 組み込みアップデータ（共通CLI option 3、2026-08-04実装）
+
+`grkd-edds`（およびcore直の`cli`モード）に`3. Update EizouDendenshi`を追加した。実装は`companion/eizoudendenshi/internal/update`（stdlibのみ、新規依存なし）。
+
+- **release feed:** `https://api.github.com/repos/GoRakuDo/entei/releases?per_page=20` をHTTPSで照会（60秒timeout・最大5 redirect・redirect先はHTTPS限定）。tagが`eizoudendenshi-v`で始まる**non-draft** releaseのうち**`published_at`が最新のもの**を選ぶ（lexicalなrc比較はしない）。prereleaseは含める（最新releaseは常にprereleaseであり、`/releases/latest`はprereleaseを除外するため使わない）。asset名の欠落 / 重複 / 安全でない名前、非HTTPS asset URLはfail-closed。
+- **検証:** まずsigned manifestを**binaryへpinされた公開鍵**（`scripts/release.ps1 -PublicKeyFile`で両coreへ`-ldflags -X eizoudendenshi/internal/update.PinnedPublicKey=<RW...>`注入。dev `build`はplaceholderのままで、updaterは`updater unavailable`でfail-closed。response / env由来の任意鍵は絶対に信頼しない）でMinisign検証し、manifest構造（format / formatVersion / semver / helper contract / artifact）を厳密検証。manifestの`version`は選択したtagのsuffix（例:`0.2.0-rc.22`）と一致必須。その後platform artifactそれぞれをMinisign検証＋signed manifestのSHA-256照合してから、**private staging dirへ**DL（apply前に一切install rootへ書き込まない）。
+- **verifier:** Windowsは`<install root>\tools\minisign.exe`（bootstrap導入済み）を優先、無ければPATHの`minisign` — どちらもversion 0.12チェック必須。TermuxはPATHの`minisign` + versionチェック。pin済み公開鍵は**private temp fileのみへ**書き、`minisign -Vm <file> -p <keyfile>`をargvのみで起動（shell補間なし）、出力はcaptureして印刷しない。
+- **適用:** 現在の実行ファイルを内部`--apply-update` child modeで起動し、**staging path・parent PID・対象pathだけ**を渡す。parentは先にexitし、childはboundedにparent exitを待ってから、検証済みcore/helpersを**backup+rollback**で置換（失敗時は旧coreを保持）、新しいcoreをCLI modeで起動してexit。Windowsはcore + `yt-dlp` + `ffmpeg`（archiveは署名・hash検証後にのみ展開し、`ffmpeg.exe`だけを安全に取り出す）を更新し、既存helperのpath / 名前（`helpers\`配下）を維持。Termuxは`android/arm64` coreのみ更新し、Termux package helpers（`python-yt-dlp` / `ffmpeg`）には一切触れない（既存のsigned helper bootstrap / pkg契約の管理下のまま）。
+- **更新しても再pairingは不要（設計上の不変条件）:** updaterはstagedファイルとcore/helper対象しか触らない。`credential.bin`（Windows DPAPI / Termux app-private）、credential directory、browser localStorage、pairing / OTP状態は**読みも書きもrotateも削除もされない**。`DELETE /v1/pair`は呼ばれず、新しいOTPは発行されず、tokenはrotateされない。したがって更新後もWeb側の保存tokenとcompanion側のpersisted credentialでそのまま認証される。これは`TestApplyStagedPreservesCredential`（apply後もcredential.binがbyte一致）と`TestRestartWithSameFileStoreKeepsToken`（同一credential fileで再起動した新processが既存tokenをそのまま受け付ける）で固定している。更新はCLI menuからのみ実行でき、server process稼働中の更新経路は存在しない。
+- **出力:** option 3は安全なstatusだけを表示する（`checking` / `already up to date` / `verified and restarting` / generic failure）。release URL・鍵・local path・token・magnet・raw errorは一切印刷しない。
+- **実測状況:** Windowsの更新パイプライン一式は2026-08-04に実release（rc.22）でライブ検証済み — 実GitHub feed、実Minisign 0.12、実pin鍵でmanifest + core + yt-dlp + ffmpegの署名 / SHA-256検証が通り、harness install rootで実core/helpersの適用と新coreの再起動まで確認した。**未検証:** 実ユーザーprofileでの`grkd-edds`経由更新（実credential.binあり）、更新後のbrowser永続化のE2E、Termux実機での更新経路（unit testのみ）。
+
 ## Delivery contract
 
 各releaseはplatformごとにversion固定のmanifestを持つ。一般ユーザーはTermux APKを入れた後、1つのbootstrap commandだけを実行する。Go compilerはQA / 開発用であり、一般ユーザーへ導入しない。

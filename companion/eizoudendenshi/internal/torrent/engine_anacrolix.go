@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -40,14 +41,45 @@ type engineAnacrolix struct {
 // demand window are the same bounded region.
 const bootstrapWindowBytes = 4 << 20 // 4 MiB
 
-// DefaultClientConfig returns a torrent.NewDefaultClientConfig() with the
-// standard EizouDendenshi settings applied: loopback-only listen, no
-// seeding, no upload, discard logger. It is a reusable factory for per-job
-// Engine creation — each torrent session creates its own Client from a
-// fresh config to avoid anacrolix v1.61 issue #1048 (stale tracker
-// weakref when the same Client re-adds the same infohash after Drop).
-func DefaultClientConfig() *torrent.ClientConfig {
+// clientConfig returns a torrent.NewDefaultClientConfig() with the standard
+// EizouDendenshi settings applied AND an explicit private DataDir. Without
+// a DataDir, anacrolix v1.61 opens its piece-completion DB at an undefined
+// default location (observed on Windows as `couldn't open piece completion
+// db in "\" : timeout`), which fails metadata fetch. The storage dir must
+// be a non-empty ABSOLUTE directory path: empty, relative, or existing
+// non-directory paths fail closed. The dir is created with user-private
+// permissions when absent.
+//
+// Each torrent session creates its own Client from a fresh config to avoid
+// anacrolix v1.61 issue #1048 (stale tracker weakref when the same Client
+// re-adds the same infohash after Drop).
+func clientConfig(storageDir string) (*torrent.ClientConfig, error) {
+	if storageDir == "" {
+		return nil, errors.New("anacrolix storage dir required")
+	}
+	if !filepath.IsAbs(storageDir) {
+		return nil, fmt.Errorf("anacrolix storage dir must be absolute: %q", storageDir)
+	}
+	// Normalize (clean ".."/"." segments, drive-letter case on Windows)
+	// after the IsAbs gate; the absolute check above is the actual
+	// validation, Abs here only canonicalizes the path used for Stat/Mkdir
+	// and DataDir.
+	abs, err := filepath.Abs(storageDir)
+	if err != nil {
+		return nil, fmt.Errorf("anacrolix storage dir: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err == nil {
+		if !info.IsDir() {
+			return nil, fmt.Errorf("anacrolix storage dir is not a directory: %q", abs)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("anacrolix storage dir: %w", err)
+	} else if err := os.MkdirAll(abs, 0o700); err != nil {
+		return nil, fmt.Errorf("anacrolix storage dir: %w", err)
+	}
 	cfg := torrent.NewDefaultClientConfig()
+	cfg.DataDir = abs
 	// LoopbackListenHost returns "127.0.0.1" for tcp4 and "::1" for tcp6.
 	// Hardcoding "127.0.0.1" for all networks causes listen tcp6 failures
 	// on hosts that enable IPv6.
@@ -62,13 +94,17 @@ func DefaultClientConfig() *torrent.ClientConfig {
 	// the engine never surfaces them — so point the slogger at a discard
 	// handler instead of polluting the companion's stderr.
 	cfg.Slogger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	return cfg
+	return cfg, nil
 }
 
 // NewAnacrolixEngine constructs the engine. The client binds a random
-// loopback port and does not seed.
-func NewAnacrolixEngine() (Engine, error) {
-	cfg := DefaultClientConfig()
+// loopback port, does not seed, and stores its piece-completion DB under
+// the given session-private storageDir (an absolute path the caller owns).
+func NewAnacrolixEngine(storageDir string) (Engine, error) {
+	cfg, err := clientConfig(storageDir)
+	if err != nil {
+		return nil, err
+	}
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("anacrolix client: %w", err)

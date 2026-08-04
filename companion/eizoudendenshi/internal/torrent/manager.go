@@ -3,7 +3,10 @@ package torrent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -47,8 +50,9 @@ type Config struct {
 	// EngineFactory creates a fresh Engine for each torrent session.
 	// Required. Each session gets its own anacrolix Client to avoid
 	// anacrolix v1.61 issue #1048 (stale tracker weakref when the same
-	// Client re-adds the same infohash after Drop).
-	EngineFactory func() (Engine, error)
+	// Client re-adds the same infohash after Drop). The factory receives
+	// the session's private storage directory (absolute, already created).
+	EngineFactory EngineFactory
 
 	// EngineCloser, when set, is called to release an Engine after its
 	// session ends. If nil, engine.Close() is called directly.
@@ -65,6 +69,16 @@ type Config struct {
 	// OnMetadataTimeout, when set, is called with the elapsed duration
 	// when a metadata fetch times out. Must not block.
 	OnMetadataTimeout func(elapsed time.Duration)
+
+	// StorageRoot is the parent directory for per-session private storage
+	// dirs. Empty selects a fresh OS temp root (os.MkdirTemp), owned by
+	// the Manager and removed on Close. A caller-provided root is never
+	// removed; only the per-session subdirectories created by the Manager
+	// are. Each torrent session gets its own subdirectory, so concurrent
+	// sessions never share anacrolix state and the piece-completion DB is
+	// always opened at an explicit absolute path (never an undefined
+	// default, which fails on Windows).
+	StorageRoot string
 }
 
 const (
@@ -76,6 +90,9 @@ type torrentSession struct {
 	job     *torrentJob
 	engine  Engine
 	created time.Time
+	// storageDir is the session-private storage directory (absolute,
+	// created by the Manager at Start). Removed after the session ends.
+	storageDir string
 }
 
 // evictedState holds a terminal snapshot of an evicted session.
@@ -89,7 +106,7 @@ type evictedState struct {
 // the limit is reached.
 type Manager struct {
 	mu                sync.Mutex
-	engineFactory     func() (Engine, error)
+	engineFactory     EngineFactory
 	engineCloser      func(Engine) error
 	timeout           time.Duration
 	evictedTTL        time.Duration
@@ -98,6 +115,8 @@ type Manager struct {
 	sessionOrder      []string
 	evicted           map[string]*evictedState
 	closed            bool
+	storageRoot       string
+	storageRootOwned  bool
 }
 
 // New validates the configuration and builds a Manager.
@@ -112,6 +131,26 @@ func New(cfg Config) (*Manager, error) {
 	if evictedTTL <= 0 {
 		evictedTTL = EvictedTTLDefault
 	}
+	storageRoot := cfg.StorageRoot
+	storageRootOwned := false
+	if storageRoot == "" {
+		dir, err := os.MkdirTemp("", "eizouden-torrent-")
+		if err != nil {
+			return nil, fmt.Errorf("torrent storage root: %w", err)
+		}
+		storageRoot = dir
+		storageRootOwned = true
+	} else {
+		// A caller-provided root is validated but never removed.
+		abs, err := filepath.Abs(storageRoot)
+		if err != nil {
+			return nil, fmt.Errorf("torrent storage root: %w", err)
+		}
+		if err := os.MkdirAll(abs, 0o700); err != nil {
+			return nil, fmt.Errorf("torrent storage root: %w", err)
+		}
+		storageRoot = abs
+	}
 	return &Manager{
 		engineFactory:     cfg.EngineFactory,
 		engineCloser:      cfg.EngineCloser,
@@ -120,6 +159,8 @@ func New(cfg Config) (*Manager, error) {
 		onMetadataTimeout: cfg.OnMetadataTimeout,
 		sessions:          make(map[string]*torrentSession),
 		evicted:           make(map[string]*evictedState),
+		storageRoot:       storageRoot,
+		storageRootOwned:  storageRootOwned,
 	}, nil
 }
 
@@ -213,7 +254,16 @@ func (m *Manager) Start(rawMagnet string) (Snapshot, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	j.cancel = cancel
-	sess := &torrentSession{job: j, created: time.Now()}
+	// Each session gets its own private storage directory (absolute, under
+	// the manager's storage root). Session storage is never shared, so
+	// concurrent sessions cannot collide on anacrolix state and the
+	// piece-completion DB is opened at an explicit path.
+	storageDir, err := os.MkdirTemp(m.storageRoot, "session-")
+	if err != nil {
+		cancel()
+		return Snapshot{}, fmt.Errorf("torrent session storage: %w", err)
+	}
+	sess := &torrentSession{job: j, created: time.Now(), storageDir: storageDir}
 	m.sessions[j.id] = sess
 	m.sessionOrder = append(m.sessionOrder, j.id)
 	go m.run(j, ctx, sess)
@@ -223,7 +273,7 @@ func (m *Manager) Start(rawMagnet string) (Snapshot, error) {
 // evictOldestLocked moves the oldest session to evicted cache and cancels
 // its context. For sessions where run has completed (handle+engine still
 // alive), closes them here. For sessions where run is still active, the
-// run goroutine notices ctx.Done and cleans up via cleanupRun.
+// run goroutine notices ctx.Done and cleans up via cleanupSession.
 func (m *Manager) evictOldestLocked() {
 	if len(m.sessionOrder) == 0 {
 		return
@@ -243,7 +293,7 @@ func (m *Manager) evictOldestLocked() {
 	delete(m.sessions, oldestID)
 	m.sessionOrder = m.sessionOrder[1:]
 	// Cancel context: if run is still active, it notices ctx.Done and
-	// cleans up via cleanupRun. If run has already returned (complete),
+	// cleans up via cleanupSession. If run has already returned (complete),
 	// close handle+engine here to prevent leaks.
 	if sess.job.cancel != nil {
 		sess.job.cancel()
@@ -267,18 +317,9 @@ func (m *Manager) evictOldestLocked() {
 		sess.job.handle = nil
 		sess.engine = nil
 		sess.job.stateMu.Unlock()
-		if h != nil {
-			_ = h.Close()
-		}
-		if eng != nil {
-			if m.engineCloser != nil {
-				_ = m.engineCloser(eng)
-			} else {
-				_ = eng.Close()
-			}
-		}
+		m.releaseSession(h, eng, sess.storageDir)
 	default:
-		// Run still active; it will clean up via ctx.Done → cleanupRun.
+		// Run still active; it will clean up via ctx.Done → cleanupSession.
 	}
 }
 
@@ -460,16 +501,7 @@ func (m *Manager) Cancel(id string) (Snapshot, error) {
 	j.handle = nil
 	sess.engine = nil
 	j.stateMu.Unlock()
-	if h != nil {
-		_ = h.Close()
-	}
-	if eng != nil {
-		if m.engineCloser != nil {
-			_ = m.engineCloser(eng)
-		} else {
-			_ = eng.Close()
-		}
-	}
+	m.releaseSession(h, eng, sess.storageDir)
 	// Remove from sessions map.
 	m.mu.Lock()
 	delete(m.sessions, id)
@@ -509,16 +541,12 @@ func (m *Manager) Close() error {
 		j.handle = nil
 		sess.engine = nil
 		j.stateMu.Unlock()
-		if h != nil {
-			_ = h.Close()
-		}
-		if eng != nil {
-			if m.engineCloser != nil {
-				_ = m.engineCloser(eng)
-			} else {
-				_ = eng.Close()
-			}
-		}
+		m.releaseSession(h, eng, sess.storageDir)
+	}
+	// Remove the auto-created storage root the Manager owns; a
+	// caller-provided root is never removed.
+	if m.storageRootOwned {
+		removeStorageDir(m.storageRoot)
 	}
 	return nil
 }
@@ -535,28 +563,42 @@ func (m *Manager) clear(j *torrentJob) {
 	}
 }
 
-// cleanupRun closes the handle and engine. Called exactly once per error or
-// cancel path. On the complete path, handle+engine stay alive for media
-// serving and are closed by Cancel/Close/evict when the session ends.
-func cleanupRun(handle TorrentHandle, engine Engine, engineCloser func(Engine) error) {
-	if handle != nil {
-		_ = handle.Close()
+// removeStorageDir removes a session storage directory the Manager created
+// with os.MkdirTemp (always absolute). Only absolute paths are removed, so
+// a misconfigured relative path can never delete something unintended; a
+// caller-provided storage root is never passed here. Removal is best-effort
+// and idempotent.
+func removeStorageDir(dir string) {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return
 	}
-	if engine != nil {
-		if engineCloser != nil {
-			_ = engineCloser(engine)
-		} else {
-			_ = engine.Close()
-		}
-	}
+	_ = os.RemoveAll(dir)
 }
 
-// cleanupSession releases handle+engine and nils the refs under stateMu
-// so Cancel/Close/evict never double-close. Called on error/cancel paths.
-// On the complete path, handle+engine stay alive for media serving and
-// are cleaned up when Cancel/Close/evict closes the session.
+// releaseSession closes handle+engine and then removes the session's
+// private storage dir. Order matters: the engine must be closed before its
+// data dir is removed. Safe with nil refs; idempotent per call.
+func (m *Manager) releaseSession(h TorrentHandle, eng Engine, storageDir string) {
+	if h != nil {
+		_ = h.Close()
+	}
+	if eng != nil {
+		if m.engineCloser != nil {
+			_ = m.engineCloser(eng)
+		} else {
+			_ = eng.Close()
+		}
+	}
+	removeStorageDir(storageDir)
+}
+
+// cleanupSession releases handle+engine, removes the session storage dir,
+// and nils the refs under stateMu so Cancel/Close/evict never double-close.
+// Called on error/cancel paths. On the complete path, handle+engine stay
+// alive for media serving and are cleaned up when Cancel/Close/evict closes
+// the session.
 func (m *Manager) cleanupSession(j *torrentJob, sess *torrentSession, handle TorrentHandle, engine Engine) {
-	cleanupRun(handle, engine, m.engineCloser)
+	m.releaseSession(handle, engine, sess.storageDir)
 	j.stateMu.Lock()
 	j.handle = nil
 	sess.engine = nil
@@ -566,12 +608,13 @@ func (m *Manager) cleanupSession(j *torrentJob, sess *torrentSession, handle Tor
 func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) {
 	defer close(j.done)
 
-	// Create a fresh Engine for this session.
-	engine, err := m.engineFactory()
+	// Create a fresh Engine for this session with its private storage dir.
+	engine, err := m.engineFactory(sess.storageDir)
 	if err != nil {
 		j.setErrorWithCode("engine creation failed", ErrCodeEngineFailed)
 		j.setState(StateError)
 		m.clear(j)
+		removeStorageDir(sess.storageDir) // engine never created
 		return
 	}
 	j.stateMu.Lock()

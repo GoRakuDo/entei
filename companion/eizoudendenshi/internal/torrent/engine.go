@@ -19,6 +19,12 @@ type Engine interface {
 	Close() error
 }
 
+// EngineFactory creates a fresh Engine for each torrent session. storageDir
+// is the session-private, absolute, existing (or created) directory the
+// engine must use for its persistent state (anacrolix piece-completion DB).
+// The manager owns the directory and removes it after the session ends.
+type EngineFactory func(storageDir string) (Engine, error)
+
 // TorrentFile is the sanitized, metadata-only view of one torrent file. It
 // carries an opaque id and safe display fields — never an absolute path,
 // the magnet, or tracker data.

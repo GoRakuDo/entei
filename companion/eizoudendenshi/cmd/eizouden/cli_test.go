@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,14 +65,19 @@ func TestMenuStructureAndPlainFallback(t *testing.T) {
 	if !strings.Contains(out, "EizouDendenshi v0.2.0-rc.7") {
 		t.Errorf("missing version header: %q", out)
 	}
-	if !strings.Contains(out, "1. Get New Pairing Code") ||
-		!strings.Contains(out, "2. Service Status") {
-		t.Errorf("menu must show exactly the two options: %q", out)
+	for _, want := range []string{
+		"1. Get New Pairing Code",
+		"2. Service Status",
+		"3. Update EizouDendenshi",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("menu must show option %q: %q", want, out)
+		}
 	}
 	if strings.Contains(out, "\x1b[") {
 		t.Errorf("ANSI escapes must not appear for a non-terminal stdout: %q", out)
 	}
-	if strings.Contains(out, "3.") || strings.Contains(out, "Start") || strings.Contains(out, "Stop") {
+	if strings.Contains(out, "4.") || strings.Contains(out, "Start") || strings.Contains(out, "Stop") {
 		t.Errorf("menu must not contain extra options: %q", out)
 	}
 }
@@ -117,7 +124,7 @@ func TestStatusMissingHelper(t *testing.T) {
 
 func TestInvalidInputReprompts(t *testing.T) {
 	out := runMenu(t, cliOptions{version: "0.2.0-rc.7"}, "9\n2\n", nil)
-	if !strings.Contains(out, "Invalid option; enter 1 or 2.") {
+	if !strings.Contains(out, "Invalid option; enter 1, 2, or 3.") {
 		t.Errorf("invalid input must re-prompt with a friendly message: %q", out)
 	}
 	if !strings.Contains(out, "core: installed") {
@@ -148,5 +155,67 @@ func TestOptionOneStartsServer(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), wantErr.Error()) {
 		t.Errorf("server error must be surfaced: %q", out.String())
+	}
+}
+
+func TestOptionThreeRunsUpdateCallback(t *testing.T) {
+	var out bytes.Buffer
+	var got bool
+	opts := cliOptions{
+		version: "0.2.0-rc.7",
+		runUpdate: func(w io.Writer) bool {
+			got = true
+			fmt.Fprintln(w, "update: verified and restarting...")
+			return true
+		},
+	}
+	code := runCLI(opts, strings.NewReader("3\n"), &out, func() error { return nil })
+	if !got {
+		t.Fatal("option 3 must call the update callback")
+	}
+	if code != 0 {
+		t.Errorf("restarting update must exit 0, got %d", code)
+	}
+	if !strings.Contains(out.String(), "update: verified and restarting...") {
+		t.Errorf("update status must be printed: %q", out.String())
+	}
+}
+
+func TestOptionThreeFailureStaysOnMenu(t *testing.T) {
+	var out bytes.Buffer
+	opts := cliOptions{
+		version: "0.2.0-rc.7",
+		runUpdate: func(w io.Writer) bool {
+			fmt.Fprintln(w, "update: could not check for updates")
+			return false
+		},
+	}
+	// After a failed update the menu must still accept option 2.
+	code := runCLI(opts, strings.NewReader("3\n2\n"), &out, func() error { return nil })
+	if code != 0 {
+		t.Errorf("failed update must stay in the menu, got exit %d", code)
+	}
+	if !strings.Contains(out.String(), "update: could not check for updates") {
+		t.Errorf("update failure status must be printed: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "core: installed") {
+		t.Errorf("menu must continue after a failed update: %q", out.String())
+	}
+}
+
+func TestOptionThreeUnavailableWithoutCallback(t *testing.T) {
+	// A dev build (or a build without a pinned key) has no update
+	// callback wired in tests: option 3 must report unavailability and
+	// stay in the menu without panicking.
+	var out bytes.Buffer
+	code := runCLI(cliOptions{version: "0.2.0-rc.7"}, strings.NewReader("3\n2\n"), &out, func() error { return nil })
+	if code != 0 {
+		t.Errorf("unavailable updater must stay in the menu, got exit %d", code)
+	}
+	if !strings.Contains(out.String(), "update: updater unavailable") {
+		t.Errorf("updater unavailable status must be printed: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "core: installed") {
+		t.Errorf("menu must continue after unavailable updater: %q", out.String())
 	}
 }

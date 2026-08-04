@@ -22,10 +22,16 @@
 #   - The Minisign secret key path is passed EXPLICITLY as -MinisignKeyPath
 #     or via the EIZOUDEN_MINISIGN_KEY environment variable only. No secret
 #     file is ever written into, read from, or defaulted inside the repo.
-#   - -PublicKeyFile (or env EIZOUDEN_MINISIGN_PUBKEY_FILE) optionally emits
-#     a distribution-ready copy of scripts/termux-bootstrap.sh with the
-#     pinned public key substituted into the repo template. The repo
-#     template itself always keeps the unpinned placeholder (fails closed).
+#   - -PublicKeyFile (or env EIZOUDEN_MINISIGN_PUBKEY_FILE) supplies the
+#     Minisign PUBLIC key: it is read and validated BEFORE any binary is
+#     built, injected into both release core binaries at link time
+#     (-ldflags -X eizoudendenshi/internal/update.PinnedPublicKey=<RW...>)
+#     so the built-in updater (CLI option 3) verifies releases against the
+#     pinned key, and substituted into the distribution-ready bootstrap
+#     templates. The repo templates and `build` binaries always keep the
+#     unpinned placeholder (the updater fails closed as "updater
+#     unavailable" without a pinned key). The private key is never
+#     exposed.
 #
 # Manifest (one line, canonical order — the bootstraps parse it):
 #   Core-only (Termux path, unchanged):
@@ -72,6 +78,24 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # GOROOT/src/cmd first and fails with "not in std" even inside the module.
 $CoreCmd = './cmd/eizouden'
 
+# Assert-PinnedPublicKeyFile reads the RW... Minisign public key line
+# from the given file and validates its shape (the same checks the
+# bootstraps apply to the pinned key). Returns the bare key line.
+function Assert-PinnedPublicKeyFile {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "public key file not found: $Path"
+    }
+    $pubLine = Get-Content -LiteralPath $Path | Where-Object { $_ -match '^RW[A-Za-z0-9+/]+$' } | Select-Object -First 1
+    if (-not $pubLine) {
+        throw "no RW... Minisign public key line found in $Path"
+    }
+    if ($pubLine.Length -lt 42 -or $pubLine.Length -gt 80) {
+        throw 'pinned public key has an unexpected length'
+    }
+    return $pubLine
+}
+
 # --- Output directory ---
 if ($OutDir -eq '') {
     $OutDir = Join-Path $RepoRoot 'dist'
@@ -93,6 +117,27 @@ if ($Verb -eq 'release') {
     }
     if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
         throw "invalid -Version '$Version'; expected semver (e.g. 0.2.0)"
+    }
+}
+
+# --- Pinned update public key (release only) --------------------------------
+# The updater (CLI option 3) verifies every release artifact against the
+# public key pinned into the release binary. -PublicKeyFile (or env
+# EIZOUDEN_MINISIGN_PUBKEY_FILE) supplies it; the key is read and
+# validated BEFORE any binary is built so a bad key file can never
+# produce binaries carrying garbage. The same validated key is also
+# substituted into the distribution-ready bootstrap templates below.
+$script:PinnedUpdateKey = ''
+if ($Verb -eq 'release') {
+    if ($PublicKeyFile -eq '') {
+        $PublicKeyFile = $env:EIZOUDEN_MINISIGN_PUBKEY_FILE
+    }
+    if ($PublicKeyFile -ne '') {
+        $script:PinnedUpdateKey = Assert-PinnedPublicKeyFile -Path $PublicKeyFile
+        Write-Host 'update public key pinned: yes (injected into both release cores)'
+    }
+    else {
+        Write-Host 'update public key pinned: NO - release cores keep the placeholder and the built-in updater fails closed (pass -PublicKeyFile or set EIZOUDEN_MINISIGN_PUBKEY_FILE)'
     }
 }
 
@@ -172,7 +217,8 @@ function Build-Binary {
     param(
         [string]$Goos,
         [string]$Goarch,
-        [string]$Name
+        [string]$Name,
+        [string]$PinnedKey
     )
     $out = Join-Path $OutDir $Name
     $prev = @{
@@ -194,6 +240,15 @@ function Build-Binary {
                 # api.Version dev default (0.2.0). $Version is validated
                 # semver (no quotes/spaces), so embedding it is safe.
                 $ldflags = "$ldflags -X eizoudendenshi/internal/api.Version=$Version"
+                if ($PinnedKey -ne '') {
+                    # Updater pinned-key injection: the release binary
+                    # verifies releases against this validated RW... key.
+                    # Without it the built-in updater fails closed as
+                    # "updater unavailable". The key is validated
+                    # RW[A-Za-z0-9+/]+ (no quotes/spaces), so embedding it
+                    # is safe; the private key is never touched.
+                    $ldflags = "$ldflags -X eizoudendenshi/internal/update.PinnedPublicKey=$PinnedKey"
+                }
             }
             $goOut = & go build -trimpath -ldflags $ldflags -o $out $CoreCmd 2>&1
             if ($LASTEXITCODE -ne 0) {
@@ -217,7 +272,7 @@ function Build-Binary {
 }
 
 foreach ($a in $Artifacts) {
-    Build-Binary -Goos $a.GOOS -Goarch $a.GOARCH -Name $a.Name
+    Build-Binary -Goos $a.GOOS -Goarch $a.GOARCH -Name $a.Name -PinnedKey $script:PinnedUpdateKey
 }
 
 if ($Verb -eq 'build') {
@@ -356,15 +411,10 @@ foreach ($h in $helperArtifacts) {
 }
 
 # --- Optional: emit distribution-ready bootstraps with the pinned key ---
-if ($PublicKeyFile -eq '') {
-    $PublicKeyFile = $env:EIZOUDEN_MINISIGN_PUBKEY_FILE
-}
-if ($PublicKeyFile -ne '') {
-    $PublicKeyFile = [System.IO.Path]::GetFullPath($PublicKeyFile)
-    $pubLine = Get-Content -LiteralPath $PublicKeyFile | Where-Object { $_ -match '^RW[A-Za-z0-9+/]+$' } | Select-Object -First 1
-    if (-not $pubLine) {
-        throw "no RW... Minisign public key line found in $PublicKeyFile"
-    }
+# The key was already read and validated BEFORE the builds above
+# ($script:PinnedUpdateKey); it is the exact same key the release cores
+# carry.
+if ($script:PinnedUpdateKey -ne '') {
     $placeholder = 'REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
     foreach ($pair in @(
             @('termux-bootstrap.sh', 'eizouden-bootstrap.sh'),
@@ -375,7 +425,7 @@ if ($PublicKeyFile -ne '') {
         if (-not $text.Contains($placeholder)) {
             throw "bootstrap template $($pair[0]) does not contain the pinned-key placeholder (template changed?)"
         }
-        $text = $text.Replace($placeholder, $pubLine)
+        $text = $text.Replace($placeholder, $script:PinnedUpdateKey)
         $outBoot = Join-Path $OutDir $pair[1]
         [System.IO.File]::WriteAllText($outBoot, $text, (New-Object System.Text.UTF8Encoding($false)))
         Write-Host "wrote  $($pair[1]) (public key pinned, distribution-ready)"

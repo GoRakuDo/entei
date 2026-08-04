@@ -170,8 +170,8 @@ type trackedEngines struct {
 	engines []*apiFakeEngine
 }
 
-func (t *trackedEngines) factory(spec string) func() (torrent.Engine, error) {
-	return func() (torrent.Engine, error) {
+func (t *trackedEngines) factory(spec string) func(_ string) (torrent.Engine, error) {
+	return func(_ string) (torrent.Engine, error) {
 		eng := newAPIFakeEngine(spec)
 		t.mu.Lock()
 		t.engines = append(t.engines, eng)
@@ -562,7 +562,7 @@ func TestTorrentStatusBufferingBeforeSelection(t *testing.T) {
 
 func TestTorrentConflictAcrossJobKinds(t *testing.T) {
 	torEngine := newAPIFakeEngine("media.mp4:200")
-	torFactory := func() (torrent.Engine, error) { return torEngine, nil }
+	torFactory := func(_ string) (torrent.Engine, error) { return torEngine, nil }
 	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
@@ -655,7 +655,7 @@ func TestTorrentPreflight(t *testing.T) {
 
 func TestTorrentStreamingMIME(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mkv:800000|audio.mp3:40000")
-	factory := func() (torrent.Engine, error) { return engine, nil }
+	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
 	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
@@ -818,7 +818,7 @@ func TestTorrentFilesReturnsFileInfo(t *testing.T) {
 // "Menunggu file selesai…".
 func TestTorrentStatusStreamingPlayable(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mp4:800000")
-	factory := func() (torrent.Engine, error) { return engine, nil }
+	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
 	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)
@@ -942,7 +942,7 @@ func TestTorrentStatusStreamingPlayable(t *testing.T) {
 // during the streaming state.
 func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mp4:800000")
-	factory := func() (torrent.Engine, error) { return engine, nil }
+	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
 	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatalf("torrent.New: %v", err)

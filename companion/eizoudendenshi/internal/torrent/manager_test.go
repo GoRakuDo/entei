@@ -888,7 +888,7 @@ func TestMetadataTimeoutCallback(t *testing.T) {
 		startDelay: 5 * time.Second, // much longer than timeout
 		files:      buildFakeFiles("media.mp4:100"),
 	}
-	factory := func() (Engine, error) { return engine, nil }
+	factory := func(_ string) (Engine, error) { return engine, nil }
 	m, err := New(Config{
 		EngineFactory: factory,
 		Timeout:       metaTimeout,
@@ -1090,7 +1090,7 @@ func TestEvictedEngineClosedOnce(t *testing.T) {
 	var engines []*countingEngine
 	var mu sync.Mutex
 
-	factory := func() (Engine, error) {
+	factory := func(_ string) (Engine, error) {
 		inner := newFakeEngine("video.mp4:3000|sub.srt:100")
 		ce := &countingEngine{inner: inner}
 		mu.Lock()
@@ -1140,7 +1140,7 @@ func TestEvictedEngineClosedOnce(t *testing.T) {
 
 	// The first engine (oldest, evicted) should have Close called exactly once.
 	// Note: the evicted engine's Close is called by the run goroutine via
-	// cleanupRun, not by evictOldestLocked.
+	// cleanupSession, not by evictOldestLocked.
 	closeCount := engines[0].closeCount.Load()
 	if closeCount != 1 {
 		t.Fatalf("evicted engine Close count = %d, want 1 (no double-close)", closeCount)
@@ -1159,7 +1159,7 @@ func TestCancelAfterErrorNoDoubleClose(t *testing.T) {
 	var engines []*countingEngine
 	var mu sync.Mutex
 
-	factory := func() (Engine, error) {
+	factory := func(_ string) (Engine, error) {
 		inner := newFakeEngine("video.mp4:3000|sub.srt:100")
 		ce := &countingEngine{inner: inner}
 		mu.Lock()
@@ -1180,7 +1180,7 @@ func TestCancelAfterErrorNoDoubleClose(t *testing.T) {
 	// Create a session that will error (no video → "no playable video").
 	// Use a factory that creates an engine with no video files.
 	var errorEngines []*countingEngine
-	errorFactory := func() (Engine, error) {
+	errorFactory := func(_ string) (Engine, error) {
 		inner := newFakeEngine("readme.txt:10|song.mp3:50")
 		ce := &countingEngine{inner: inner}
 		mu.Lock()
@@ -1243,7 +1243,7 @@ func TestCancelConcurrentEvictCloseOnce(t *testing.T) {
 	var mu sync.Mutex
 	var engines []*countingEngine
 
-	factory := func() (Engine, error) {
+	factory := func(_ string) (Engine, error) {
 		inner := newFakeEngine("video.mp4:3000|sub.srt:100")
 		ce := &countingEngine{inner: inner}
 		mu.Lock()
@@ -1356,7 +1356,7 @@ func newTestManagerWithEngine(t *testing.T, engine Engine, timeout time.Duration
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
-	factory := func() (Engine, error) { return engine, nil }
+	factory := func(_ string) (Engine, error) { return engine, nil }
 	m, err := New(Config{EngineFactory: factory, Timeout: timeout})
 	if err != nil {
 		t.Fatalf("New: %v", err)
