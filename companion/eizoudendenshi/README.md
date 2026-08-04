@@ -1566,6 +1566,64 @@ Android Chrome media behavior, the HTTPS deployed Entei origin, the bridge
 implementation, audio listening/decode, and the Windows
 installer remain later checkpoints.
 
+## One-shot release
+
+`scripts/publish-release.ps1` publishes a signed EizouDendenshi
+prerelease in one command; the input is normally only `-Version`:
+
+```powershell
+pwsh -File scripts/publish-release.ps1 -Version 0.2.0-rc.24
+```
+
+Flow (every step fails closed; nothing is published until everything
+local has been verified):
+
+1. validates `-Version` (semver shape), the Minisign secret/public key
+   files (`-KeyPath` / `-PublicKeyFile`; the secret key path and value
+   are never printed), the minisign toolchain (0.12+ required,
+   `-MinisignExe` override; PATH first, then
+   `A:\Temp\opencode\minisign-bin`), and — unless `-SkipPublish` — the
+   `gh` CLI (`gh auth status`);
+2. git checks (`-SkipGitChecks` harness flag): repo root, `git fetch
+   origin`, `HEAD == origin/main`, the release tag must not already
+   exist (tags are immutable), uncommitted changes only warn;
+3. helper reuse: the latest published `eizoudendenshi-v` release (or
+   `-PreviousTag`) is fetched over bounded HTTPS-only redirects — the
+   signed manifest is Minisign-verified, then the two Windows helpers
+   (yt-dlp / ffmpeg) plus minisigs are fetched and each signature and
+   the SHA-256 against the previous signed manifest is verified; a
+   `helpers.json` is written into the temp work root. `-HelpersFile`
+   skips reuse and supplies the helper artifacts directly. No usable
+   previous release fails closed and demands `-HelpersFile`;
+4. build + sign via `scripts/release.ps1` (the source of truth, never
+   re-implemented), with the minisign directory prepended to PATH for
+   the child;
+5. local verification: exactly the 13 release files, manifest version
+   match, helper contract v3, 4 artifacts, manifest signature, every
+   artifact signature + SHA-256 against the signed manifest, and the
+   three distribution bootstraps carry the pinned RW... key with no
+   placeholder left;
+6. `gh release create eizoudendenshi-v<v> <13 assets> --repo
+   <repo> --target <HEAD full sha> --title 'EizouDendenshi v<v>'
+   --notes-file <notes> --prerelease` (`-NotesFile` or a generated
+   default; `-SkipPublish` stops before this);
+7. post-publish verification: `gh release view` must report the
+   prerelease at HEAD with exactly the 13 assets, then everything is
+   re-fetched into a fresh temp dir and re-verified (signatures,
+   SHA-256, pinned bootstraps). Only the release URL is printed.
+
+Safety boundaries: every HTTPS fetch uses `Invoke-WebRequest
+-MaximumRedirection 5 -UseBasicParsing -PassThru` and rejects a final
+redirect target that is not `https://`; the private key, key paths,
+tokens, and magnet URIs are never logged. The `gh` executable can be
+replaced via the `EIZOU_PUBLISH_GH_BIN` environment variable and
+fetches can be redirected to a local directory via `-HarnessMirrorDir`
+(the same harness pattern as the bootstraps) — used by
+`scripts/test-publish-release.ps1`, which runs the full PASS/FAIL
+matrix (55/55 green 2026-08-04) with a test key, a local mirror, and a
+fake `gh`, never touching the real network, the real key, or `gh`
+itself.
+
 ## Layout
 
 ```
