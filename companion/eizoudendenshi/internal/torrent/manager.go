@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/media"
 )
 
@@ -79,6 +80,13 @@ type Config struct {
 	// always opened at an explicit absolute path (never an undefined
 	// default, which fails on Windows).
 	StorageRoot string
+
+	// Logger, when set, receives sanitized job lifecycle diagnostics
+	// (component "torrent"). Nil keeps the historical no-logging behavior.
+	// The log content contract (see internal/diag): job ids, short
+	// infohashes (first 12 hex chars), error codes and counts only — never
+	// the magnet, tracker URLs, full infohashes, paths or credentials.
+	Logger *diag.Logger
 }
 
 const (
@@ -111,6 +119,7 @@ type Manager struct {
 	timeout           time.Duration
 	evictedTTL        time.Duration
 	onMetadataTimeout func(elapsed time.Duration)
+	logger            *diag.Logger // nil-safe diagnostic sink
 	sessions          map[string]*torrentSession
 	sessionOrder      []string
 	evicted           map[string]*evictedState
@@ -157,6 +166,7 @@ func New(cfg Config) (*Manager, error) {
 		timeout:           cfg.Timeout,
 		evictedTTL:        evictedTTL,
 		onMetadataTimeout: cfg.OnMetadataTimeout,
+		logger:            cfg.Logger,
 		sessions:          make(map[string]*torrentSession),
 		evicted:           make(map[string]*evictedState),
 		storageRoot:       storageRoot,
@@ -266,6 +276,9 @@ func (m *Manager) Start(rawMagnet string) (Snapshot, error) {
 	sess := &torrentSession{job: j, created: time.Now(), storageDir: storageDir}
 	m.sessions[j.id] = sess
 	m.sessionOrder = append(m.sessionOrder, j.id)
+	// Sanitized creation line: job id + shortened infohash (first 12 hex
+	// chars) only — never the magnet or tracker data.
+	m.logger.Infof("torrent", "job=%s infohash=%s created", j.id, diag.ShortInfohash(canonical))
 	go m.run(j, ctx, sess)
 	return j.snapshot(), nil
 }
@@ -284,6 +297,7 @@ func (m *Manager) evictOldestLocked() {
 		m.sessionOrder = m.sessionOrder[1:]
 		return
 	}
+	m.logger.Warnf("torrent", "job=%s evicted code=%s", oldestID, ErrCodeConcurrencyLimit)
 	sess.job.setErrorWithCode("evicted: concurrent torrent limit exceeded", ErrCodeConcurrencyLimit)
 	sess.job.setState(StateError)
 	m.evicted[oldestID] = &evictedState{
@@ -469,6 +483,8 @@ func (m *Manager) Select(id, videoFileID, subtitleFileID string) (Snapshot, erro
 	j.subV = sub
 	j.stateMu.Unlock()
 	close(j.selected)
+	// File ids only — no paths, no sizes, no magnet data.
+	m.logger.Infof("torrent", "job=%s select video=%s subtitle=%t", id, videoFileID, sub != nil)
 	return j.snapshot(), nil
 }
 
@@ -611,17 +627,24 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 	// Create a fresh Engine for this session with its private storage dir.
 	engine, err := m.engineFactory(sess.storageDir)
 	if err != nil {
+		m.logger.Errorf("torrent", "job=%s engine failed code=%s", j.id, ErrCodeEngineFailed)
 		j.setErrorWithCode("engine creation failed", ErrCodeEngineFailed)
 		j.setState(StateError)
 		m.clear(j)
 		removeStorageDir(sess.storageDir) // engine never created
 		return
 	}
+	// Inject the diagnostic logger when the engine supports it (anacrolix
+	// does; fake engines may not — they simply stay silent).
+	if ls, ok := engine.(LoggerSettable); ok {
+		ls.SetLogger(m.logger)
+	}
 	j.stateMu.Lock()
 	sess.engine = engine
 	j.stateMu.Unlock()
 
 	j.setState(StateDownloading)
+	m.logger.Infof("torrent", "job=%s metadata wait", j.id)
 	metaStart := time.Now()
 	metaCtx, metaCancel := context.WithTimeout(ctx, m.timeout)
 	defer metaCancel()
@@ -632,13 +655,16 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 			if m.onMetadataTimeout != nil {
 				m.onMetadataTimeout(time.Since(metaStart))
 			}
+			m.logger.Warnf("torrent", "job=%s metadata timed out code=%s elapsed=%s", j.id, ErrCodeMetadataTimeout, time.Since(metaStart))
 			j.setErrorWithCode("metadata timed out", ErrCodeMetadataTimeout)
 			j.setState(StateError)
 			m.clear(j)
 		} else if ctx.Err() != nil {
+			m.logger.Warnf("torrent", "job=%s metadata cancelled", j.id)
 			j.setState(StateCancelled)
 			m.clear(j)
 		} else {
+			m.logger.Warnf("torrent", "job=%s metadata failed code=%s", j.id, ErrCodeMetadataFailed)
 			j.setErrorWithCode("metadata failed", ErrCodeMetadataFailed)
 			j.setState(StateError)
 			m.clear(j)
@@ -659,7 +685,9 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 			break
 		}
 	}
+	m.logger.Infof("torrent", "job=%s metadata ok files=%d video=%t", j.id, len(files), hasVideo)
 	if !hasVideo {
+		m.logger.Warnf("torrent", "job=%s no video code=%s", j.id, ErrCodeNoPlayableVideo)
 		j.setErrorWithCode("no playable video", ErrCodeNoPlayableVideo)
 		j.setState(StateError)
 		m.clear(j)
@@ -675,6 +703,7 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 	select {
 	case <-j.selected:
 	case <-ctx.Done():
+		m.logger.Warnf("torrent", "job=%s cancelled while awaiting selection", j.id)
 		j.setState(StateCancelled)
 		m.clear(j)
 		m.cleanupSession(j, sess, handle, engine)
@@ -682,9 +711,11 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 	}
 
 	j.setState(StateStreaming)
+	m.logger.Infof("torrent", "job=%s streaming started", j.id)
 	bootCtx, bootCancel := context.WithCancel(ctx)
 	defer bootCancel()
 	if err := handle.StartBootstrap(bootCtx); err != nil {
+		m.logger.Errorf("torrent", "job=%s reader failed code=%s", j.id, ErrCodeReaderFailed)
 		j.setErrorWithCode("reader failed", ErrCodeReaderFailed)
 		j.setState(StateError)
 		m.clear(j)
@@ -697,6 +728,7 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 	for {
 		select {
 		case <-ctx.Done():
+			m.logger.Warnf("torrent", "job=%s cancelled", j.id)
 			j.setState(StateCancelled)
 			m.clear(j)
 			m.cleanupSession(j, sess, handle, engine)
@@ -707,6 +739,7 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 			if avail >= total && total > 0 {
 				bootCancel()
 				j.setState(StateComplete)
+				m.logger.Infof("torrent", "job=%s complete", j.id)
 				// Handle and engine stay alive for media serving.
 				// They will be closed when Cancel/Close/evict runs.
 				return

@@ -1624,13 +1624,71 @@ matrix (55/55 green 2026-08-04) with a test key, a local mirror, and a
 fake `gh`, never touching the real network, the real key, or `gh`
 itself.
 
-## Layout
+## Peer transport (root-cause fix, uncommitted)
+
+The BitTorrent peer transport binds **all interfaces** (anacrolix default;
+`ListenHost` is deliberately not set). anacrolix v1.61 runs the uTP socket
+and the DHT server on the same UDP socket it also uses for **outgoing
+dials**, so a loopback-only listen silently kills DHT queries, uTP peer
+connections and udp-tracker announces — only HTTP trackers and TCP peers
+survive, and metadata for udp-tracker magnets (e.g. nyaa) can never be
+fetched. This was the root cause of udp-tracker metadata failures.
+
+Security boundary (unchanged elsewhere):
+
+- The **HTTP API stays loopback-only** (`127.0.0.1:4322`, enforced by the
+  command); the peer transport change never affects it.
+- `NoUpload = true` and `Seed = false` — the client never uploads or seeds.
+- Metadata is fetched before selection; only the selected files are
+  downloaded (others priority None); `ListenPort` stays 0 (random
+  ephemeral port).
+- **Windows**: the first run may trigger a firewall prompt for the
+  ephemeral listen port (inbound rule). Accepting it is not required for
+  outbound DHT/udp-tracker/uTP connectivity on most networks; if the
+  prompt is dismissed, the peer transport still works when the network
+  allows outbound UDP.
+- Raw anacrolix logs are discarded (never written to stderr or the
+  diagnostic file): they can contain peer IPs and tracker hostnames.
+
+## Diagnostic file log (uncommitted)
+
+The companion writes a bounded file log of what it does in the background.
+Location and rotation:
+
+- Windows: `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\eizouden.log`
+- Android/Termux: `$PREFIX/var/log/eizouden.log`
+- Override for harnesses/tests only: `EIZOUDEN_LOG_DIR`
+- 1 MiB cap; when exceeded the file rotates to `eizouden.log.1` (previous
+  backup overwritten) and a fresh file starts. Mode 0600, append-only.
+- The log path is never printed in the API, CLI, or errors; CLI Service
+  Status shows only `log: enabled/disabled`.
+
+What is logged (sanitized):
+
+- startup/termination (version, platform), every API request as
+  `method path status` (query string stripped — a `?token=` can never
+  reach the log), pairing success/failure only, torrent job lifecycle
+  (job id, **shortened** infohash — first 12 hex chars + `…`, file count,
+  video presence, selection file ids, error codes), and a 10-second
+  engine diagnostic (peer/active/seeder counts, DHT node counts, DHT
+  announce success/tried counts).
+
+What is NEVER logged:
+
+- magnet URIs, tracker URLs (`tr=`), full infohashes, capability tokens,
+  pairing codes, cookies, local absolute paths, API URLs, helper paths,
+  or credentials. anacrolix's own raw log lines are discarded entirely.
+
+
 
 ```
-cmd/eizouden/        executable: flags, loopback guard, bootstrap, handoff
-internal/api/        HTTP API: /v1/health, /v1/pair(+/status), /v1/media/fixture, CORS
+cmd/eizouden/        executable: flags, loopback guard, bootstrap, handoff, log wiring
+internal/api/        HTTP API: /v1/health, /v1/pair(+/status), /v1/media/fixture, CORS,
+                     request + pairing diagnostics
 internal/credential/ persistent pairing credential: Store abstraction, envelope,
                      Windows DPAPI store, Termux app-private file store, MemStore fake
+internal/diag/       file diagnostic logger: bounded 1 MiB rotation, redaction helpers,
+                     platform log dir resolution (stdlib only)
 internal/pairing/    crypto/rand pairing code + capability token
 scripts/release.ps1        ED-2D Stage A: build/release helper (manifest + Minisign)
 scripts/termux-bootstrap.sh ED-2D Stage A: Termux bootstrap template (pinned key)

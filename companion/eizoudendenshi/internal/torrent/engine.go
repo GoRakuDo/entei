@@ -3,6 +3,8 @@ package torrent
 import (
 	"context"
 	"io"
+
+	"eizoudendenshi/internal/diag"
 )
 
 // Engine is the narrow abstraction isolating the anacrolix/torrent library
@@ -24,6 +26,14 @@ type Engine interface {
 // engine must use for its persistent state (anacrolix piece-completion DB).
 // The manager owns the directory and removes it after the session ends.
 type EngineFactory func(storageDir string) (Engine, error)
+
+// LoggerSettable is the optional capability an Engine may implement to
+// receive the manager's diagnostic logger (nil-safe) before Start. Engines
+// without it simply stay silent — the logging feature is an opt-in
+// addition and never changes behavior for existing engines.
+type LoggerSettable interface {
+	SetLogger(l *diag.Logger)
+}
 
 // TorrentFile is the sanitized, metadata-only view of one torrent file. It
 // carries an opaque id and safe display fields — never an absolute path,

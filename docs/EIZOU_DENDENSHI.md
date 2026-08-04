@@ -602,3 +602,39 @@ product boundary、platform target、credential lifecycle、release検証、YouT
 ## Next action
 
 ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2`で通過済み。**release identity表示不整合（manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）の修正はbuild-time version injection（`scripts/release.ps1`のlink time `-Version`注入 + Go / harnessテスト）で実装し、`eizoudendenshi-v0.2.0-rc.3`の実機検証（2026-07-31）でclosed** — Termuxでmanifest署名・core署名・signed SHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示した。**Persistent pairing credential redesignは2026-08-03に実装済み**（旧page-memory-only契約を置換: companion `internal/credential` + `GET /v1/pair/status` / `DELETE /v1/pair`、browser localStorage envelope + mount検証 + 明示reset UI、Go / web自動テストgreen — 本節冒頭の状態行と[Persistent pairing credential](#persistent-pairing-credential2026-08-03実装)参照）。次のactionは、①ED-2C残りのHTTPS Entei origin・**Android Chromeでのgrowing progressive再生**・audio listening/decodeを検証する（growingのRange contractはloopback通過済み、**Windows Chromeのgrowing計測は2026-07-31に完了**、Android Chromeの実ブラウザ計測が残る。bridge実装は完了済み）、②Windows x64 installerを実装する、③**persistent pairingの実機QA**（Windows実機でのDPAPI credential round trip・companion再起動後のreload再検証・reset flow、Termuxでのapp-private credential・headed browser検証）、④**torrentの実swarm E2E**（max 2 torrent sessions + oldest-first eviction + 30s TTL + per-job Client + YouTube cross-kind conflictのanacrolix engineでmetadata→file list→selection→verified-prefix streaming→completeを実swarmで確認。aria2時代のpeer/metadata timeout記録はanacrolix engineで再実施する必要がある）。その後ED-3のInput OTP / 共通source UIへ進む。
+
+## Peer transport開放（根本原因修正・2026-08-04実装・未commit）
+
+**根本原因**: anacrolix v1.61はuTP socketとDHT serverを同じUDP socketで動かし、そのsocketを**外向きdial**にも使う。`cfg.ListenHost = torrent.LoopbackListenHost`（loopback bind）のままだとDHTクエリ・uTP peer接続・udp tracker announceが外部へ一切届かず、HTTP tracker / TCP peerだけが生き残る — udp tracker主体のmagnet（nyaa等）ではmetadataが永遠に取得できない。
+
+**修正**: `clientConfig()` から `ListenHost` 設定を削除し、anacrolix default（空 = 全インターフェースbind）に戻す。`ListenPort = 0`（ランダム）、`Seed = false`、`NoUpload = true` は維持。
+
+**セキュリティ境界（不変）**:
+
+- HTTP APIは引き続きloopback専用（`127.0.0.1:4322`、コマンド側でenforce）。peer transport開放はAPI listenerに一切影響しない。
+- `NoUpload = true` / `Seed = false` — アップロード・seedはしない。
+- metadata-only → 選択後のみpayload契約は不変（未選択ファイルはpriority None）。
+- **Windows**: 初回起動時にephemeral listen portのファイアウォールプロンプトが出る可能性がある。拒否しても外向きUDPが通るネットワークではDHT / udp tracker / uTPは機能する（受信は制限される）。
+- anacrolixの生Sloggerは引き続き`io.Discard`（生ログはpeer IP等を含みうるためファイルへ書かない）。
+
+**検証**: real anacrolix clientで`Listeners()[0].Addr()`が`0.0.0.0:port`/`[::]:port`（loopbackでない）ことを`TestClientConfigBindsAllInterfaces`で固定。既存storage / manager / APIテストは全回帰なし。
+
+## ファイル診断ログ（2026-08-04実装・未commit）
+
+「裏で何を実行するか」をファイルへ出力する`internal/diag`パッケージ（stdlibのみ）。
+
+**場所と運用**:
+
+- Windows: `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\eizouden.log`
+- Android/Termux: `$PREFIX/var/log/eizouden.log`
+- harness/test override: `EIZOUDEN_LOG_DIR` env（productionでは未設定）
+- 上限1 MiB。超過時は`eizouden.log.1`へ回転（前回分は上書き）して新規開始。mode 0600、append。
+- ログパスはAPI応答・CLI出力・エラーメッセージへ一切出さない。CLI Service Statusは`log: enabled/disabled`のみ表示。
+
+**書かれるもの（redaction済み）**:
+
+- 起動/終了（version・platform）、APIリクエスト（`method path status`、**query除去済み** — `?token=`は絶対に書かない）、pairing成功/失敗のみ、torrent jobライフサイクル（job ID・**短縮infohash（先頭12 hex + `…`）**・file数・video有無・select file ID・errorCode）、10秒ごとのengine診断（peer / active / seeder数、DHT node数、DHT announce成功/試行数）。
+
+**絶対に書かれないもの**: magnet全文・tracker URL（`tr=`）・infohash全文・token・pairing code・cookie・ローカル絶対パス・API URL・helper path・credential。anacrolix生ログはファイルへ書かない（peer IPを含みうるため）。
+
+**テスト**: `internal/diag`単体（書込み/回転/Close/ShortInfohash/DefaultDir）、redaction test（fake engineで実job実行 → magnet・`tr=`・64hex token・`127.0.0.1:4322`・`C:\`・pairing codeがログに無いことを実ログで確認、`?token=` がリクエストログに無いことも確認）、transport test（real anacrolix clientでnon-loopback bind確認）。全Go package回帰green、`go test -race ./...`・`go vet`・`gofmt -l` clean、release harness 91/91・Windows bootstrap harness 106/106。実機E2Eは未実施。

@@ -3,7 +3,7 @@
 // anacrolix/torrent-backed BitTorrent sessions (oldest-first eviction),
 // whose completed files later feed the existing status/media
 // bridge — strictly gated by an explicit one-video + optional-subtitle
-// selection. No GoRakuDo proxy, no browser WebTorrent, no LAN/public bind.
+// selection. No GoRakuDo proxy, no browser WebTorrent.
 //
 // Security contract:
 //   - Only `magnet:?xt=urn:btih:` infohash magnets are accepted and
@@ -24,9 +24,14 @@
 //     every other parameter remain dropped. Validation never performs DNS
 //     resolution. Tracker data never appears in API snapshots, errors, logs,
 //     or docs output.
-//   - The torrent engine is constructed at startup (loopback-only, no
-//     seeding, no public listeners); the canonicalized magnet is passed
-//     directly. No shell is ever involved.
+//   - The torrent engine is constructed at startup. Its BitTorrent peer
+//     transport binds ALL interfaces (uTP/DHT/TCP share the listen socket
+//     with outgoing dials; loopback binding would kill udp-tracker, DHT
+//     and uTP connectivity — see engine_anacrolix.go). The security
+//     boundary is held elsewhere: NoUpload=true, metadata-only until the
+//     user selects a file, selected-files-only download, and the HTTP API
+//     on its own loopback-only listener (127.0.0.1:4322). The canonicalized
+//     magnet is passed directly; no shell is ever involved.
 //   - Cancellation / failure / session end drops the torrent and frees
 //     the session. User files are never touched.
 //   - Responses expose only opaque job ids and sanitized file metadata

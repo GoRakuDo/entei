@@ -32,12 +32,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"eizoudendenshi/internal/api"
 	"eizoudendenshi/internal/credential"
+	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/torrent"
@@ -143,6 +145,11 @@ func main() {
 		log.Fatalf("unknown command %q (expected \"cli\" or no arguments)", args[0])
 	}
 
+	// Diagnostic file logger (best effort). The resolved directory is never
+	// printed, and a failure to open the log disables logging silently —
+	// the companion must still run. nil means "no logging" everywhere.
+	diagLog := openDiagLogger()
+
 	bind, err := resolveBindAddress(*addr)
 	if err != nil {
 		log.Fatalf("invalid --addr: %v", err)
@@ -192,15 +199,16 @@ func main() {
 		}
 	}
 
-	// ED-2G: Torrent jobs via anacrolix/torrent engine (loopback-only, no
-	// seeding, private session). Always enabled; each torrent session gets
-	// its own Engine (per-job Client) to avoid anacrolix v1.61 issue #1048
-	// (stale tracker weakref when the same Client re-adds the same
-	// infohash after Drop). The torrent endpoints are registered whenever
-	// a manager is provided.
+	// ED-2G: Torrent jobs via anacrolix/torrent engine (no seeding, private
+	// session; peer transport on all interfaces — see engine_anacrolix.go).
+	// Always enabled; each torrent session gets its own Engine (per-job
+	// Client) to avoid anacrolix v1.61 issue #1048 (stale tracker weakref
+	// when the same Client re-adds the same infohash after Drop). The
+	// torrent endpoints are registered whenever a manager is provided.
 	torrents, err := torrent.New(torrent.Config{
 		EngineFactory: torrent.NewAnacrolixEngine,
 		Timeout:       *torrentTimeout,
+		Logger:        diagLog,
 	})
 	if err != nil {
 		log.Fatalf("init torrents: %v", err)
@@ -237,11 +245,13 @@ func main() {
 			jobs:     jobs,
 			torrents: torrents,
 			cred:     cred,
+			log:      diagLog,
 		}
 		code := runCLI(cliOptions{
-			version: api.Version,
-			ytdlp:   *ytdlp,
-			ffmpeg:  *ffmpeg,
+			version:   api.Version,
+			ytdlp:     *ytdlp,
+			ffmpeg:    *ffmpeg,
+			logStatus: diagStatusLine(diagLog),
 			runUpdate: func(w io.Writer) bool {
 				return update.Run(w, update.Config{
 					Version:     api.Version,
@@ -249,6 +259,7 @@ func main() {
 				})
 			},
 		}, os.Stdin, os.Stdout, func() error { return runServer(cfg, *ytdlp) })
+		terminateDiag(diagLog)
 		os.Exit(code)
 	}
 
@@ -260,9 +271,12 @@ func main() {
 		jobs:     jobs,
 		torrents: torrents,
 		cred:     cred,
+		log:      diagLog,
 	}, *ytdlp); err != nil {
+		terminateDiag(diagLog)
 		log.Fatal(err)
 	}
+	terminateDiag(diagLog)
 }
 
 // runServer starts the foreground loopback companion: API wiring, listener,
@@ -277,6 +291,7 @@ func runServer(cfg serverConfig, ytdlpPath string) error {
 		Jobs:         cfg.jobs,
 		Torrents:     cfg.torrents,
 		Credential:   cfg.cred,
+		Logger:       cfg.log,
 		// After an authenticated DELETE /v1/pair the in-memory credential
 		// is rotated and a FRESH code is issued; print it to the terminal
 		// so the pairing dialog works again without a restart.
@@ -328,6 +343,45 @@ type serverConfig struct {
 	jobs     *job.Manager
 	torrents *torrent.Manager
 	cred     credential.Store
+	log      *diag.Logger
+}
+
+// openDiagLogger opens the diagnostic file logger (best effort). The log
+// directory is resolved by diag.DefaultDir and is never printed anywhere;
+// a resolution or open failure disables logging silently (nil logger) so
+// the companion always runs. The startup line is the first entry: version,
+// platform, and the log status — no paths, no credentials.
+func openDiagLogger() *diag.Logger {
+	dir, err := diag.DefaultDir()
+	if err != nil {
+		return nil
+	}
+	l, err := diag.NewLogger(dir)
+	if err != nil {
+		return nil
+	}
+	l.Infof("main", "start version=%s platform=%s log=enabled", api.Version, runtime.GOOS)
+	return l
+}
+
+// diagStatusLine is the safe CLI status text for the diagnostic logger:
+// "enabled" or "disabled" — never the log path.
+func diagStatusLine(l *diag.Logger) string {
+	if l == nil {
+		return "disabled"
+	}
+	return "enabled"
+}
+
+// terminateDiag writes the final line and closes the log file. Nil-safe;
+// called on every normal exit path (log.Fatal paths are terminal anyway —
+// the file writes are unbuffered, so no data is lost).
+func terminateDiag(l *diag.Logger) {
+	if l == nil {
+		return
+	}
+	l.Infof("main", "terminated")
+	_ = l.Close()
 }
 
 // banner is the startup line printed to the terminal.

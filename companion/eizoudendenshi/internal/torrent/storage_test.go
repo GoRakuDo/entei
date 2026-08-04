@@ -323,12 +323,23 @@ func TestManagerStorageDirRemovedOnCompleteCancel(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	got := dirs.waitFor(t, 1)
-	// Drive to completion: select the video, then make all bytes available.
-	engine.mu.Lock()
-	h := engine.h
-	engine.mu.Unlock()
-	if h == nil {
-		t.Fatal("fake handle not created")
+	// The factory has been invoked, but the fake engine's handle is set
+	// INSIDE Start() — the factory-return → Start gap is a timing window
+	// that becomes visible under -race. Poll until the handle exists so
+	// the test is deterministic.
+	var h *fakeHandle
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		engine.mu.Lock()
+		h = engine.h
+		engine.mu.Unlock()
+		if h != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake handle not created")
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 	if _, err := m.Select(snap.ID, "f0", ""); err != nil {
 		t.Fatalf("Select: %v", err)

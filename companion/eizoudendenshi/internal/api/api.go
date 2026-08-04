@@ -63,6 +63,7 @@ import (
 	"sync"
 
 	"eizoudendenshi/internal/credential"
+	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/pairing"
@@ -191,6 +192,14 @@ type Config struct {
 	// the new code to the terminal (the pairing dialog then works
 	// without a restart). Nil for tests and non-interactive runs.
 	OnPairingReset func(code string)
+
+	// Logger, when set, enables request + pairing diagnostics (components
+	// "api" / "pairing"). Nil keeps the historical no-logging behavior.
+	// Redaction contract (see internal/diag): request lines are
+	// method + path (query stripped) + status only — a capability token
+	// carried in the query string can never reach the log; pairing lines
+	// are success/failure only, never a code or token.
+	Logger *diag.Logger
 }
 
 // Server holds in-memory pairing state for one process lifetime.
@@ -200,6 +209,7 @@ type Server struct {
 	token          string              // opaque capability token; never logged, persisted only via cred
 	cred           credential.Store    // optional persistent credential store (nil = memory-only)
 	onReset        func(code string)   // optional fresh-code notifier after DELETE /v1/pair
+	log            *diag.Logger        // optional diagnostic sink (nil-safe)
 	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
 	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
 	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
@@ -251,6 +261,7 @@ func New(cfg Config) (*Server, error) {
 		token:          token,
 		cred:           cfg.Credential,
 		onReset:        cfg.OnPairingReset,
+		log:            cfg.Logger,
 		fixturePath:    cfg.FixturePath,
 		growSource:     cfg.GrowSource,
 		jobs:           cfg.Jobs,
@@ -267,7 +278,10 @@ func (s *Server) PairingCode() string {
 	return s.code
 }
 
-// Handler returns the HTTP handler for the API.
+// Handler returns the HTTP handler for the API. When a diagnostic logger
+// is configured, every request is logged as "method path status" — the
+// path carries no query string, so a capability token passed as a query
+// parameter can never reach the log.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", s.handleHealth)
@@ -288,7 +302,47 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/v1/source/torrents/", s.handleTorrentByID)
 	}
 	mux.HandleFunc("/", handleNotFound)
-	return mux
+	if s.log == nil {
+		return mux
+	}
+	return s.requestLog(mux)
+}
+
+// requestLog wraps h with per-request diagnostics: method + path (query
+// stripped) + status only. The status is captured via a recording writer so
+// streaming handlers (http.ServeContent, 206/503 media paths) log their
+// real final status.
+func (s *Server) requestLog(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w}
+		h.ServeHTTP(rec, r)
+		s.log.Infof("api", "%s %s %d", r.Method, r.URL.Path, rec.status())
+	})
+}
+
+// statusRecorder captures the response status written by the handler.
+type statusRecorder struct {
+	http.ResponseWriter
+	code int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.code = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if r.code == 0 {
+		r.code = http.StatusOK
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *statusRecorder) status() int {
+	if r.code == 0 {
+		return http.StatusOK
+	}
+	return r.code
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -335,6 +389,7 @@ func (s *Server) pairWithCode(w http.ResponseWriter, r *http.Request) {
 	// origin cannot read it either.
 	origin, ok := s.originAllowed(r)
 	if !ok {
+		s.log.Warnf("pairing", "pair fail origin denied")
 		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
 		return
 	}
@@ -374,10 +429,14 @@ func (s *Server) pairWithCode(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if !match {
+		// Generic failure line — the code itself is never written.
+		s.log.Warnf("pairing", "pair fail invalid code")
 		writeJSON(w, http.StatusForbidden, errorBody("invalid pairing code"))
 		return
 	}
 
+	// Success line: no code, no token.
+	s.log.Infof("pairing", "pair ok")
 	// The token is returned exactly once, here. It is never echoed in any
 	// other response, error, or log.
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
@@ -436,6 +495,7 @@ func (s *Server) deletePairing(w http.ResponseWriter, r *http.Request) {
 	if onReset != nil {
 		onReset(newCode)
 	}
+	s.log.Infof("pairing", "pair reset")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "unpaired"})
 }
 

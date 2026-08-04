@@ -49,6 +49,9 @@ type cliOptions struct {
 	version string
 	ytdlp   string
 	ffmpeg  string
+	// logStatus is the safe diagnostic-log status text ("enabled" /
+	// "disabled"); never the log path.
+	logStatus string
 	// runUpdate runs option 3 (Update EizouDendenshi). It prints only
 	// safe status text to the given writer and returns true when the
 	// caller must exit so the spawned child can replace the running
@@ -130,6 +133,11 @@ func printServiceStatus(opts cliOptions, stdout io.Writer) {
 		fmt.Fprintf(stdout, "%s: %s\n", name, helperStatusLine(name, opts))
 	}
 	fmt.Fprintln(stdout, "torrent: enabled (anacrolix engine, built-in)")
+	logStatus := opts.logStatus
+	if logStatus == "" {
+		logStatus = "disabled"
+	}
+	fmt.Fprintf(stdout, "log: %s\n", logStatus)
 }
 
 // helperStatusLine resolves the helper (explicit path or the fixed Termux

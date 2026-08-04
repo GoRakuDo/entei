@@ -10,15 +10,29 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/anacrolix/dht/v2"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/types"
+
+	"eizoudendenshi/internal/diag"
 )
 
 // engineAnacrolix implements Engine with anacrolix/torrent.
 //
 // Security posture:
-//   - loopback-only listen (no public bind, no RPC, no browser WebTorrent),
+//   - the BitTorrent peer transport binds ALL interfaces (no loopback
+//     restriction): uTP sockets, DHT servers and TCP listeners share the
+//     listen sockets and are also used for outgoing dials, so restricting
+//     the listen host to loopback silently kills DHT queries, uTP peer
+//     connections and udp tracker announces (the nyx magnet root cause).
+//     The tradeoff is intentional and bounded: NoUpload stays true (we
+//     never upload), only metadata is fetched until the user selects a
+//     file, and only the selected files are downloaded (others priority
+//     None). The HTTP API is a SEPARATE loopback-only listener
+//     (127.0.0.1:4322, enforced by the command) and is never affected by
+//     this setting.
 //   - no seeding (cfg.Seed false; downloads are session-only),
 //   - metadata is fetched from the magnet (no payload until selection),
 //   - only the selected files are downloaded (others priority None),
@@ -29,7 +43,15 @@ import (
 //     mid-file piece; availability is reported piece-accurately from the
 //     piece state runs, never from file size or zero probing.
 type engineAnacrolix struct {
+	// mu guards the client field: Close() nils it while the diagnostics
+	// goroutine (diagLoop → diag) and Start() read it. Every access
+	// captures the client into a local under the lock and uses it after
+	// unlocking, so Close can never race a concurrent read into a nil
+	// dereference. This is the ENGINE-level guard — distinct from
+	// anacrolixHandle.mu, which guards the handle's per-torrent state.
+	mu     sync.Mutex
 	client *torrent.Client
+	log    *diag.Logger // nil-safe; set via SetLogger before Start
 }
 
 // bootstrapWindowBytes is the bounded byte extent of the head bootstrap
@@ -49,6 +71,18 @@ const bootstrapWindowBytes = 4 << 20 // 4 MiB
 // be a non-empty ABSOLUTE directory path: empty, relative, or existing
 // non-directory paths fail closed. The dir is created with user-private
 // permissions when absent.
+//
+// The peer transport intentionally binds ALL interfaces (ListenHost left at
+// the anacrolix default = empty = 0.0.0.0/::): anacrolix v1.61 runs the uTP
+// socket and the DHT server on the same UDP socket it uses for OUTGOING
+// dials, so a loopback bind (torrent.LoopbackListenHost) makes DHT queries,
+// uTP peer connections and udp tracker announces never leave the host —
+// only HTTP trackers and TCP peers survive, and metadata for udp-tracker
+// magnets (e.g. nyaa) can never be fetched. ListenPort stays 0 (random
+// ephemeral port, no fixed port to collide or be scanned on). The security
+// boundary is preserved by NoUpload=true, metadata-only-before-selection
+// and selected-files-only download; the HTTP API remains loopback-only on
+// its own listener.
 //
 // Each torrent session creates its own Client from a fresh config to avoid
 // anacrolix v1.61 issue #1048 (stale tracker weakref when the same Client
@@ -80,11 +114,11 @@ func clientConfig(storageDir string) (*torrent.ClientConfig, error) {
 	}
 	cfg := torrent.NewDefaultClientConfig()
 	cfg.DataDir = abs
-	// LoopbackListenHost returns "127.0.0.1" for tcp4 and "::1" for tcp6.
-	// Hardcoding "127.0.0.1" for all networks causes listen tcp6 failures
-	// on hosts that enable IPv6.
-	cfg.ListenHost = torrent.LoopbackListenHost
-	cfg.ListenPort = 0 // random loopback port
+	// NOTE: ListenHost is deliberately NOT set — the anacrolix default
+	// (empty = all interfaces) is required for the peer transport to work
+	// (see the clientConfig doc comment above). The HTTP API is a separate
+	// loopback-only listener and is never affected.
+	cfg.ListenPort = 0 // random ephemeral port
 	cfg.Seed = false   // no seeding
 	cfg.NoUpload = true
 	// The default client logger writes at Warning+ to stderr; a reader read
@@ -92,14 +126,25 @@ func clientConfig(storageDir string) (*torrent.ClientConfig, error) {
 	// completes, or an HTTP ReadAt timeout) makes anacrolix log "initial
 	// read failed" style errors. Those are expected lifecycle noise here —
 	// the engine never surfaces them — so point the slogger at a discard
-	// handler instead of polluting the companion's stderr.
+	// handler instead of polluting the companion's stderr. Raw anacrolix
+	// log lines are also NOT written to the diagnostic file: they can
+	// contain peer IPs and tracker hostnames, which the redaction contract
+	// forbids. The file log only carries the engine's own sanitized
+	// diagnostics (counts and short infohashes).
 	cfg.Slogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	return cfg, nil
 }
 
+// SetLogger injects the diagnostic logger (nil-safe). The manager calls it
+// on engines that implement LoggerSettable after construction and before
+// Start; engines without a logger simply stay silent.
+func (e *engineAnacrolix) SetLogger(l *diag.Logger) { e.log = l }
+
 // NewAnacrolixEngine constructs the engine. The client binds a random
-// loopback port, does not seed, and stores its piece-completion DB under
-// the given session-private storageDir (an absolute path the caller owns).
+// ephemeral port on ALL interfaces (peer transport only — the HTTP API is
+// loopback-only on its own listener), does not seed, and stores its
+// piece-completion DB under the given session-private storageDir (an
+// absolute path the caller owns).
 func NewAnacrolixEngine(storageDir string) (Engine, error) {
 	cfg, err := clientConfig(storageDir)
 	if err != nil {
@@ -113,25 +158,92 @@ func NewAnacrolixEngine(storageDir string) (Engine, error) {
 }
 
 func (e *engineAnacrolix) Close() error {
-	if e.client != nil {
-		e.client.Close()
-		e.client = nil
+	// Capture under the lock, close after unlocking: a concurrent diag()
+	// either sees the client (and finishes with the closed client, which
+	// is safe) or sees nil and skips. client.Close() is not called while
+	// holding the lock so the diagnostics goroutine can always make
+	// progress.
+	e.mu.Lock()
+	cl := e.client
+	e.client = nil
+	e.mu.Unlock()
+	if cl != nil {
+		cl.Close()
 	}
 	return nil
 }
 
 func (e *engineAnacrolix) Start(ctx context.Context, magnet string) (TorrentHandle, error) {
-	t, err := e.client.AddMagnet(magnet)
+	e.mu.Lock()
+	cl := e.client
+	e.mu.Unlock()
+	if cl == nil {
+		e.log.Warnf("torrent.engine", "metadata rejected engine closed")
+		return nil, errInvalidMagnet
+	}
+	e.log.Infof("torrent.engine", "metadata begin infohash=%s", diag.ShortInfohash(magnet))
+	t, err := cl.AddMagnet(magnet)
 	if err != nil {
+		e.log.Warnf("torrent.engine", "metadata rejected")
 		return nil, errInvalidMagnet
 	}
 	select {
 	case <-ctx.Done():
 		t.Drop()
+		e.log.Warnf("torrent.engine", "metadata cancelled")
 		return nil, ctx.Err()
 	case <-t.GotInfo():
 	}
+	e.log.Infof("torrent.engine", "metadata ok files=%d", len(t.Files()))
+	go e.diagLoop(t)
 	return newAnacrolixHandle(t), nil
+}
+
+// diagLoop periodically logs sanitized engine diagnostics while the
+// torrent is alive: peer counts (Torrent.Stats), DHT node counts and
+// announce query outcomes (Client.Stats + DhtServers). Counts only — never
+// peer addresses, tracker URLs, or the infohash. The loop exits when the
+// torrent is closed (job cancel/complete/eviction) or the client is closed.
+func (e *engineAnacrolix) diagLoop(t *torrent.Torrent) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-t.Closed():
+			return
+		case <-ticker.C:
+			e.diag(t)
+		}
+	}
+}
+
+// diag logs one sanitized diagnostics line. Peer counts come from the
+// torrent's instantaneous gauges; DHT node and announce counts come from
+// the client's DHT servers (dht.ServerStats). All values are plain
+// integers — no addresses, URLs, or identifiers. The client is captured
+// under the engine lock (Close() may nil it concurrently); a closed engine
+// simply skips the line.
+func (e *engineAnacrolix) diag(t *torrent.Torrent) {
+	e.mu.Lock()
+	cl := e.client
+	e.mu.Unlock()
+	if cl == nil {
+		return
+	}
+	ts := t.Stats()
+	cs := cl.Stats()
+	var nodes, goodNodes int
+	var announceOK, announceTried int64
+	for _, ds := range cl.DhtServers() {
+		if ss, ok := ds.Stats().(dht.ServerStats); ok {
+			nodes += ss.Nodes
+			goodNodes += ss.GoodNodes
+			announceOK += ss.SuccessfulOutboundAnnouncePeerQueries
+			announceTried += ss.OutboundQueriesAttempted
+		}
+	}
+	e.log.Infof("torrent.engine", "diag peers=%d active=%d seeders=%d halfopen=%d dht_nodes=%d dht_good=%d announce_ok=%d announce_tried=%d",
+		ts.TotalPeers, ts.ActivePeers, ts.ConnectedSeeders, cs.ActiveHalfOpenAttempts, nodes, goodNodes, announceOK, announceTried)
 }
 
 type anacrolixHandle struct {
