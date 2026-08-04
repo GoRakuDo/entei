@@ -2,6 +2,8 @@ package update
 
 import (
 	"errors"
+	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,11 +143,13 @@ func removeRetry(path string) error {
 	return err
 }
 
-// spawnApply launches the current executable in --apply-update child
-// mode with ONLY the staging path, the parent PID, and the target
-// paths. A var so tests never spawn a real child.
+// spawnApply launches the --apply-update child with ONLY the staging
+// path, the parent PID, and the target paths. On Windows the child is
+// launched from a COPY of the running executable under the OS temp dir
+// (see applyChildExe); on other platforms the running executable is
+// used directly. A var so tests never spawn a real child.
 var spawnApply = func(staging string, plan *applyPlan) error {
-	exe, err := os.Executable()
+	exe, err := applyChildExe()
 	if err != nil {
 		return err
 	}
@@ -156,6 +160,71 @@ var spawnApply = func(staging string, plan *applyPlan) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Start()
+}
+
+// updaterCopyPrefix is the file-name prefix of the Windows apply-child
+// executable copy (kept under the OS temp dir, outside staging: the
+// child removes the staging dir, which would delete its own image).
+const updaterCopyPrefix = "eizouden-updater-"
+
+// applyChildExe returns the path the --apply-update child is launched
+// from. On Windows this is a copy of the running executable under the
+// OS temp dir: the child must rename the core target, and a running
+// Windows image is locked against rename/delete (POSIX rename semantics
+// make the running image fine on Termux, so there the running
+// executable is used directly). A copy failure fails the whole update
+// (update.Run reports the generic failure).
+func applyChildExe() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS != "windows" {
+		return exe, nil
+	}
+	return copyExecutableForChild(exe)
+}
+
+// copyExecutableForChild copies src to a fresh path under the OS temp
+// dir (eizouden-updater-<pid>-<hex>.exe) so a child can be launched
+// from a file that is not the running image. Stale copies from previous
+// updates are swept first (best effort: a copy still locked by a
+// running child is left for its owner, and the next update tries
+// again). The copy is byte-identical to src.
+func copyExecutableForChild(src string) (string, error) {
+	if fi, err := os.Stat(src); err != nil || fi.IsDir() || fi.Size() == 0 {
+		return "", errors.New("update: cannot copy the updater executable")
+	}
+	sweepUpdaterCopies()
+	exe := filepath.Join(os.TempDir(), updaterCopyName(os.Getpid()))
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return "", errors.New("update: cannot read the updater executable")
+	}
+	if err := os.WriteFile(exe, b, 0o700); err != nil {
+		return "", errors.New("update: cannot copy the updater executable")
+	}
+	return exe, nil
+}
+
+// sweepUpdaterCopies removes leftover updater-executable copies from
+// previous runs (best effort: failures — e.g. a copy still locked by a
+// running child — are ignored).
+func sweepUpdaterCopies() {
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), updaterCopyPrefix+"*.exe"))
+	if err != nil {
+		return
+	}
+	for _, m := range matches {
+		_ = os.Remove(m)
+	}
+}
+
+// updaterCopyName builds the Windows apply-child copy file name. The
+// pid + random suffix avoids collisions; a leftover from a crashed run
+// is swept by the next update's copyExecutableForChild.
+func updaterCopyName(pid int) string {
+	return fmt.Sprintf("%s%d-%08x.exe", updaterCopyPrefix, pid, rand.Uint32())
 }
 
 // launchNewCore starts the replaced core in CLI mode. A var so tests

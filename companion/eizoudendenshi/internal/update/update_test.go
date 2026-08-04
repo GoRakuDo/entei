@@ -47,6 +47,42 @@ func main() {
 var fakeMinisignPath string
 
 func TestMain(m *testing.M) {
+	// Windows real self-replacement test (TestSpawnApplyWindowsRealSelfReplace):
+	// the real spawnApply launches the apply child from a COPY of this test
+	// binary. When EIZOUDEN_TEST_APPLY_CHILD is set (only by that test), the
+	// test binary dispatches the updater's internal child modes instead of
+	// running the test suite — normal test runs and the production binary
+	// (cmd/eizouden) are unaffected.
+	if os.Getenv("EIZOUDEN_TEST_APPLY_CHILD") == "1" && len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "apply-update":
+			// Real apply child: record the executable this child runs from
+			// (evidence that it is a %TEMP% copy, never the running exe),
+			// then run the REAL ApplyStaged.
+			if log := os.Getenv("EIZOUDEN_TEST_CHILD_LOG"); log != "" {
+				if exe, err := os.Executable(); err == nil {
+					_ = os.WriteFile(log, []byte(exe), 0o600)
+				}
+			}
+			os.Exit(ApplyStaged(os.Args[2:]))
+		case "apply-driver":
+			// Short-lived driver: calls the REAL spawnApply (which copies
+			// this executable to the OS temp dir and starts the apply
+			// child) and exits immediately, so the apply child sees a dead
+			// parent and starts replacing right away.
+			if len(os.Args) < 4 {
+				os.Exit(1)
+			}
+			if err := spawnApply(os.Args[2], &applyPlan{Core: os.Args[3]}); err != nil {
+				os.Exit(1)
+			}
+			os.Exit(0)
+		case "cli":
+			// The staged fake core relaunched by ApplyStaged: exit
+			// immediately instead of running the test suite.
+			os.Exit(0)
+		}
+	}
 	dir, err := os.MkdirTemp("", "eizouden-update-fake-*")
 	if err != nil {
 		panic(err)

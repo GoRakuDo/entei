@@ -15,9 +15,12 @@
 //     (Minisign + manifest SHA-256). The manifest version must equal the
 //     selected tag suffix. Missing/duplicate/unsafe asset names and any
 //     non-HTTPS redirect target fail closed.
-//   - The current executable is spawned in an internal --apply-update
+//   - The updater executable is spawned in an internal --apply-update
 //     child mode carrying ONLY the staging path, the parent PID, and the
-//     target paths. The parent exits before replacement; the child waits
+//     target paths. On Windows the child is launched from a copy of the
+//     running executable under the OS temp dir (the running image cannot
+//     be renamed there; POSIX semantics allow the running image on
+//     Termux). The parent exits before replacement; the child waits
 //     (bounded) for the parent, replaces the verified core/helpers with
 //     backup+rollback (old core is kept on any failure), then relaunches
 //     the new core in CLI mode (cli, with the explicit Windows helper

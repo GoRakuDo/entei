@@ -1123,7 +1123,12 @@ Android/headed-Windows browser behavior together.
   (bounded) for it, replaces the verified core/helpers with
   backup+rollback (the old core is kept on any failure), relaunches the
   new core in CLI mode (`cli`, preserving the explicit Windows helper
-  paths), and exits. Windows updates core + `yt-dlp` + `ffmpeg` (the
+  paths), and exits. On Windows the child runs from a byte-identical
+  copy of the running executable under the OS temp dir (stale copies
+  are swept by the next update): the child must rename the core target,
+  and a running Windows image is locked against rename/delete — POSIX
+  rename semantics make the running image fine on Termux. Windows
+  updates core + `yt-dlp` + `ffmpeg` (the
   archive is extracted only after signature/hash verification, taking
   exactly `ffmpeg.exe`); Termux updates the `android/arm64` core only —
   Termux package helpers stay managed by the signed helper bootstrap / pkg
@@ -1143,9 +1148,39 @@ Android/headed-Windows browser behavior together.
   on 2026-08-04 against the real rc.22 release (real GitHub feed, real
   Minisign 0.12, real pinned key): the signed manifest and all artifacts
   verified, the real core/helpers were applied and relaunched in a
-  harness install root. **Not verified:** a real user-profile update via
+  harness install root. The Windows real-process self-replacement path
+  (child launched from a `%TEMP%` copy, never the running exe) is
+  covered by an automated Windows-only integration test
+  (`TestSpawnApplyWindowsRealSelfReplace`). **Not verified:** a real
+  user-profile update via
   `grkd-edds` with a live credential.bin, browser persistence after an
   update, and the Termux update path (unit-tested, not device-tested).
+
+### Known issues / low findings (from code review 2026-08-04)
+
+Recorded per project convention — every LOW finding from a code review is
+logged here even when the review was an APPROVE. None of these affect
+correctness or safety today:
+
+1. `apply.go` `sweepUpdaterCopies` uses a `%TEMP%` wildcard glob. Two
+   simultaneous user-initiated updates could, in theory, sweep each
+   other's in-flight copy. Fail-closed and extremely unlikely (single
+   user, single session); no per-process locking is added unless
+   concurrent update support ever becomes a goal.
+2. `apply.go` `copyExecutableForChild` reads the whole binary into memory
+   (`os.ReadFile` + `os.WriteFile`). Fine at the current ~20–30 MB core
+   size; switch to streaming `io.Copy` if the binary ever grows beyond
+   ~100 MB.
+3. `apply.go` `updaterCopyName` uses the global `math/rand` (auto-seeded
+   on Go 1.20+). No issue on the pinned Go 1.26.4; logged for awareness.
+4. `apply_test.go` `TestCopyExecutableForChildSweepsStaleCopies` writes
+   to the real `%TEMP%` (matching the production glob). Self-healing:
+   the next `copyExecutableForChild` call sweeps any leftovers.
+5. `apply_test.go` `TestCopyExecutableForChildCopiesToTemp` names its
+   non-staging temp dir `staging` (cosmetic only).
+6. `update_test.go` child-dispatch env guard comment could name
+   `TestSpawnApplyWindowsRealSelfReplace` explicitly (cosmetic only).
+
 
 ## Deferred boundaries (out of scope through ED-2B)
 
