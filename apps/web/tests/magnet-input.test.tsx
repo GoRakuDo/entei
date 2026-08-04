@@ -305,6 +305,177 @@ describe('MagnetInput — create + errors', () => {
   });
 });
 
+describe('MagnetInput — selection contracts (checkbox per kind)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  /** Two videos — for replacement tests. */
+  const TWO_VIDEOS: FileEntry[] = [
+    { id: 'f0', basename: 'movie_a.mkv', extension: 'mkv', byteSize: 2_000_000, kind: 'video' },
+    { id: 'f1', basename: 'movie_b.mkv', extension: 'mkv', byteSize: 3_000_000, kind: 'video' },
+    { id: 'f2', basename: 'readme.txt', extension: 'txt', byteSize: 1_000, kind: 'other' },
+  ];
+
+  /** Two subtitles + one video — for subtitle replacement tests. */
+  const TWO_SUBTITLES: FileEntry[] = [
+    { id: 'f0', basename: 'movie.mkv', extension: 'mkv', byteSize: 2_000_000, kind: 'video' },
+    { id: 'f1', basename: 'sub_a.ass', extension: 'ass', byteSize: 40_000, kind: 'subtitle' },
+    { id: 'f2', basename: 'sub_b.srt', extension: 'srt', byteSize: 35_000, kind: 'subtitle' },
+    { id: 'f3', basename: 'readme.txt', extension: 'txt', byteSize: 1_000, kind: 'other' },
+  ];
+
+  /** Drive the dialog from input → selecting phase with the given file list. */
+  async function reachSelecting() {
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    await flush(0);
+    await flush(5000); // poll: downloading
+    await flush(5000); // poll: buffering → files fetched
+  }
+
+  // ── 1. other file has no checkbox; video / subtitle rows have checkboxes ──
+  it('other files have no checkbox; video and subtitle rows have checkboxes', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobCk' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 500, total: 2_000_000 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 2_000_000, total: 2_000_000 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await reachSelecting();
+
+    // other → no checkbox at all (renders null)
+    expect(
+      screen.queryByLabelText(`${baseDict.magnetFileKindOther}: readme.txt`),
+    ).not.toBeInTheDocument();
+    // video → checkbox present
+    expect(
+      screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`),
+    ).toBeInTheDocument();
+    // subtitle → checkbox present
+    expect(
+      screen.getByLabelText(`${baseDict.magnetFileKindSubtitle}: movie.ass`),
+    ).toBeInTheDocument();
+  });
+
+  // ── 2. video is single-select (replacement) ──
+  it('video is single-select: clicking a second video replaces the first', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobVid' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 500, total: 5_000_000 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 5_000_000, total: 5_000_000 } }, 200),
+      jsonResponse({ files: TWO_VIDEOS }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await reachSelecting();
+
+    const vA = screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie_a.mkv`);
+    const vB = screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie_b.mkv`);
+
+    // Click first video → checked
+    fireEvent.click(vA);
+    expect(vA).toBeChecked();
+    expect(vB).not.toBeChecked();
+
+    // Click second video → first unchecked, second checked
+    fireEvent.click(vB);
+    expect(vB).toBeChecked();
+    expect(vA).not.toBeChecked();
+  });
+
+  // ── 3. subtitle is single-select (replacement) ──
+  it('subtitle is single-select: clicking a second subtitle replaces the first', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobSub' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 500, total: 5_000_000 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 5_000_000, total: 5_000_000 } }, 200),
+      jsonResponse({ files: TWO_SUBTITLES }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await reachSelecting();
+
+    const sA = screen.getByLabelText(`${baseDict.magnetFileKindSubtitle}: sub_a.ass`);
+    const sB = screen.getByLabelText(`${baseDict.magnetFileKindSubtitle}: sub_b.srt`);
+
+    // Click first subtitle → checked
+    fireEvent.click(sA);
+    expect(sA).toBeChecked();
+    expect(sB).not.toBeChecked();
+
+    // Click second subtitle → first unchecked, second checked
+    fireEvent.click(sB);
+    expect(sB).toBeChecked();
+    expect(sA).not.toBeChecked();
+  });
+
+  // ── 4. video + subtitle pair can be selected simultaneously ──
+  it('video + subtitle pair: both checked simultaneously, select button enabled', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobPair' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 500, total: 2_000_000 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 2_000_000, total: 2_000_000 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await reachSelecting();
+
+    const selectBtn = screen.getByRole('button', { name: baseDict.magnetSelectSubmit });
+    expect(selectBtn).toBeDisabled();
+
+    const v = screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`);
+    const s = screen.getByLabelText(`${baseDict.magnetFileKindSubtitle}: movie.ass`);
+
+    // Check video → enabled
+    fireEvent.click(v);
+    expect(selectBtn).toBeEnabled();
+    expect(v).toBeChecked();
+
+    // Check subtitle → video still checked, button still enabled
+    fireEvent.click(s);
+    expect(v).toBeChecked();
+    expect(s).toBeChecked();
+    expect(selectBtn).toBeEnabled();
+  });
+
+  // ── 5. replacement → select sends the final videoFileId ──
+  it('after video replacement, select sends the final videoFileId', async () => {
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobRep' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 500, total: 5_000_000 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 5_000_000, total: 5_000_000 } }, 200),
+      jsonResponse({ files: TWO_VIDEOS }, 200),
+      jsonResponse({ id: 'jobRep', state: 'complete' }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await reachSelecting();
+
+    // Select first, then replace with second
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie_a.mkv`));
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie_b.mkv`));
+
+    // Click select
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit }));
+    await flush(0);
+
+    const selectCall = calls.find((c) =>
+      c.url.includes('/v1/source/torrents/jobRep/select'),
+    );
+    expect(selectCall).toBeTruthy();
+    const body = JSON.parse(String(selectCall?.init?.body)) as {
+      videoFileId?: string;
+    };
+    // Must be the second video's id, not the first
+    expect(body.videoFileId).toBe('f1');
+  });
+});
+
 describe('MagnetInput — selection flow', () => {
   beforeEach(() => {
     vi.useFakeTimers();
