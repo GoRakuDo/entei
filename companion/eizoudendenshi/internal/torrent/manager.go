@@ -663,6 +663,11 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 			m.logger.Warnf("torrent", "job=%s metadata cancelled", j.id)
 			j.setState(StateCancelled)
 			m.clear(j)
+		} else if errors.Is(err, errV2Unsupported) {
+			m.logger.Warnf("torrent", "job=%s v2-only torrent not supported code=%s", j.id, ErrCodeV2Unsupported)
+			j.setErrorWithCode("v2-only torrent not supported", ErrCodeV2Unsupported)
+			j.setState(StateError)
+			m.clear(j)
 		} else {
 			m.logger.Warnf("torrent", "job=%s metadata failed code=%s", j.id, ErrCodeMetadataFailed)
 			j.setErrorWithCode("metadata failed", ErrCodeMetadataFailed)

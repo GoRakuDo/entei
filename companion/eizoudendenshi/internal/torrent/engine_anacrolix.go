@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anacrolix/dht/v2"
 	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/types"
 
 	"eizoudendenshi/internal/diag"
@@ -194,9 +196,33 @@ func (e *engineAnacrolix) Start(ctx context.Context, magnet string) (TorrentHand
 		return nil, ctx.Err()
 	case <-t.GotInfo():
 	}
+	// Reject v2-only torrents (BEP 52) as soon as the metainfo arrives:
+	// anacrolix v1.61 cannot download them — every piece's hash stays
+	// unknown until the piece layer is fetched, queuePieceCheck refuses to
+	// queue such pieces ("piece hash unknown"), storageCompletionOk never
+	// becomes true, and the head piece is stuck at effectivePriority None
+	// forever (the magnet "downloads nothing" stall). Hybrid v1+v2
+	// torrents are fine (they carry the v1 hash set) and pass through
+	// unchanged. The rejection is final: the torrent is dropped and the
+	// job is routed to its dedicated error code by the manager.
+	if isV2Only(t.Info()) {
+		t.Drop()
+		e.log.Warnf("torrent.engine", "metadata rejected v2-only torrent not supported")
+		return nil, errV2Unsupported
+	}
 	e.log.Infof("torrent.engine", "metadata ok files=%d", len(t.Files()))
 	go e.diagLoop(t)
 	return newAnacrolixHandle(t), nil
+}
+
+// isV2Only reports whether the torrent is a v2-only torrent (BEP 52): the
+// metainfo carries the v2 (MetaVersion 2) form with no v1 component. Only
+// this case is rejected — hybrid v1+v2 torrents (HasV1() true) are
+// supported through their v1 hash set. Nil info is never v2-only (the
+// caller only runs this after GotInfo, but the guard keeps the helper
+// total).
+func isV2Only(info *metainfo.Info) bool {
+	return info != nil && info.HasV2() && !info.HasV1()
 }
 
 // diagLoop periodically logs sanitized engine diagnostics while the
@@ -257,6 +283,10 @@ func (e *engineAnacrolix) diag(t *torrent.Torrent) {
 	// "-" until metadata arrives (t.Info() nil).
 	var completePieces, totalPieces int
 	head := "-"
+	// v2/v1 flag the torrent's metainfo versioning (BEP 52): "true"/"false"
+	// once metadata is known, "-" before it. Plain bools only — the
+	// redaction contract is unchanged.
+	v2Flag, v1Flag := "-", "-"
 	if info := t.Info(); info != nil {
 		totalPieces = info.NumPieces()
 		for _, run := range t.PieceStateRuns() {
@@ -264,10 +294,12 @@ func (e *engineAnacrolix) diag(t *torrent.Torrent) {
 				completePieces += run.Length
 			}
 		}
+		v2Flag = strconv.FormatBool(info.HasV2())
+		v1Flag = strconv.FormatBool(info.HasV1())
 		head = headPieceDiag(t, totalPieces)
 	}
-	e.log.Infof("torrent.engine", "diag peers=%d active=%d seeders=%d halfopen=%d dht_nodes=%d dht_good=%d announce_ok=%d announce_tried=%d complete=%d/%d bytes_read=%d head=%s",
-		ts.TotalPeers, ts.ActivePeers, ts.ConnectedSeeders, cs.ActiveHalfOpenAttempts, nodes, goodNodes, announceOK, announceTried, completePieces, totalPieces, ts.ConnStats.BytesRead, head)
+	e.log.Infof("torrent.engine", "diag peers=%d active=%d seeders=%d halfopen=%d dht_nodes=%d dht_good=%d announce_ok=%d announce_tried=%d complete=%d/%d bytes_read=%d v2=%s v1=%s head=%s",
+		ts.TotalPeers, ts.ActivePeers, ts.ConnectedSeeders, cs.ActiveHalfOpenAttempts, nodes, goodNodes, announceOK, announceTried, completePieces, totalPieces, ts.ConnStats.BytesRead, v2Flag, v1Flag, head)
 }
 
 // headDiagPieces is how many leading torrent pieces the diag line
@@ -379,6 +411,20 @@ func (h *anacrolixHandle) Select(videoFileID string, subtitleFileID string) erro
 	begin, end := headWindowPieces(videoFile)
 	for i := begin; i < end; i++ {
 		h.t.Piece(i).SetPriority(types.PiecePriorityHigh)
+		// Refresh the piece's completion state from storage
+		// (Piece.UpdateCompletion, v1.61: re-reads the piece-completion
+		// store under the client lock and updates storageCompletionOk).
+		// Insurance for the v1 path where the initial hash can be delayed:
+		// a piece that was already verified in a previous session — or
+		// whose completion is already recorded — is immediately marked
+		// storageCompletionOk=true, so the head piece is never stuck at
+		// effectivePriority None (ignoreForRequests) before the reader
+		// demand arrives. Only the head window is refreshed (bounded, no
+		// per-piece boltDB views across the whole torrent): once the head
+		// piece is marked complete, anacrolix's normal verification path
+		// carries the rest. v2-only torrents are rejected before Select,
+		// so only v1/hybrid torrents reach this refresh.
+		h.t.Piece(i).UpdateCompletion()
 	}
 	h.selected = anacrolixFiles[videoIdx]
 	return nil
@@ -509,4 +555,8 @@ func (h *anacrolixHandle) Close() error {
 var (
 	errInvalidMagnet    = errors.New("invalid magnet")
 	errInvalidSelection = errors.New("invalid selection")
+	// errV2Unsupported is returned by Start when the fetched metainfo is a
+	// v2-only torrent (BEP 52), which anacrolix v1.61 cannot download. The
+	// manager maps it to ErrCodeV2Unsupported (StateError).
+	errV2Unsupported = errors.New("v2-only torrent not supported")
 )

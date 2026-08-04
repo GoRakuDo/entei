@@ -154,6 +154,13 @@ func TestEngineDiagnosticsLogSanitized(t *testing.T) {
 	if !strings.Contains(s, "complete=0/1 bytes_read=") {
 		t.Errorf("missing piece/byte diagnostics in diag line:\n%s", s)
 	}
+	// The v1/v2 metainfo flags must be present with the exact values for
+	// this local v1 torrent (Length+Pieces ⇒ HasV1 true, HasV2 false) —
+	// v2-only torrents are rejected before download, so the diag line
+	// always shows which hash set the torrent carries.
+	if !strings.Contains(s, "v2=false v1=true") {
+		t.Errorf("missing v1/v2 diagnostics in diag line:\n%s", s)
+	}
 	// The head-piece diagnostics must be present too: the leading piece
 	// index with its complete flag and priority (i:cCpP). The exact
 	// priority value depends on the local torrent state (selection,

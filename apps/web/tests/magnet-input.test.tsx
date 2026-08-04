@@ -34,6 +34,8 @@ const baseDict = {
   magnetInputErrorGeneric: 'Something went wrong. Try again.',
   magnetInputErrorMetadataTimeout: 'Metadata could not be retrieved.',
   magnetInputErrorEvicted: 'Playback stopped because the concurrent torrent limit was exceeded.',
+  magnetInputErrorV2Unsupported:
+    'v2-only torrents are not supported. Use a v1 or hybrid (v1+v2) torrent link.',
   magnetInputSubmitting: 'Starting…',
   magnetCheckMetadata: 'Checking metadata…',
   magnetFilesTitle: 'Select files',
@@ -302,6 +304,44 @@ describe('MagnetInput — create + errors', () => {
     resolveCreate(jsonResponse({ id: 'stale' }, 201));
     await Promise.resolve();
     expect(onJobAccepted).not.toHaveBeenCalled();
+  });
+});
+
+describe('MagnetInput — v2-only torrent rejection', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('maps the torrent_v2_unsupported errorCode to the localized v2-unsupported label', async () => {
+    const { fetchMock } = makeFetcher([
+      jsonResponse({ id: 'jobV2' }, 201),
+      jsonResponse(
+        {
+          state: 'error',
+          error: 'v2-only torrent not supported',
+          errorCode: 'torrent_v2_unsupported',
+        },
+        200,
+      ),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    await flush(0); // create resolves → checking
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+    await flush(5000); // poll fires → error state
+    // The dedicated localized message is shown, not the generic fallback.
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      baseDict.magnetInputErrorV2Unsupported,
+    );
+    // The raw server error detail must not leak into the UI.
+    expect(screen.queryByText(/v2-only torrent not supported/)).not.toBeInTheDocument();
   });
 });
 

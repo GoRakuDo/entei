@@ -3215,6 +3215,7 @@ export default function PlayerApp() {
           magnetInputErrorGeneric: dict.magnetInputErrorGeneric,
           magnetInputErrorMetadataTimeout: dict.magnetInputErrorMetadataTimeout,
           magnetInputErrorEvicted: dict.magnetInputErrorEvicted,
+          magnetInputErrorV2Unsupported: dict.magnetInputErrorV2Unsupported,
           magnetInputSubmitting: dict.magnetInputSubmitting,
           magnetCheckMetadata: dict.magnetCheckMetadata,
           magnetFilesTitle: dict.magnetFilesTitle,

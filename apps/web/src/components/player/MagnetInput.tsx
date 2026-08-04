@@ -82,6 +82,7 @@ type ErrorKind =
   | 'novideo'
   | 'metadataTimeout'
   | 'evicted'
+  | 'v2unsupported'
   | null;
 
 type Phase =
@@ -116,6 +117,7 @@ export interface MagnetInputDict {
   magnetInputErrorGeneric: string;
   magnetInputErrorMetadataTimeout: string;
   magnetInputErrorEvicted: string;
+  magnetInputErrorV2Unsupported: string;
   magnetInputSubmitting: string;
   magnetCheckMetadata: string;
   magnetFilesTitle: string;
@@ -170,6 +172,7 @@ const errorMessages: Record<Exclude<ErrorKind, null>, (d: MagnetInputDict) => st
   novideo: (d) => d.magnetNoVideoError,
   metadataTimeout: (d) => d.magnetInputErrorMetadataTimeout,
   evicted: (d) => d.magnetInputErrorEvicted,
+  v2unsupported: (d) => d.magnetInputErrorV2Unsupported,
 };
 
 function kindIcon(kind: FileEntry['kind'], size: number) {
@@ -487,6 +490,8 @@ export function MagnetInput({
         if (body.state === 'error') {
           if (body.errorCode === 'torrent_concurrency_limit') {
             setError('evicted');
+          } else if (body.errorCode === 'torrent_v2_unsupported') {
+            setError('v2unsupported');
           } else if (body.error === 'metadata timed out') {
             setError('metadataTimeout');
           } else {

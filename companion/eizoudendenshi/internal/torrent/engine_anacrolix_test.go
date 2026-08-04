@@ -1,12 +1,15 @@
 package torrent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
+	"github.com/anacrolix/torrent/storage"
 )
 
 // These tests pin the engine contract with the real anacrolix library, so a
@@ -189,5 +192,173 @@ func TestAnacrolixHandlePathCarriesTorrentName(t *testing.T) {
 		if f.DisplayPath() != "S01P01/ep01.mkv" {
 			t.Errorf("DisplayPath() = %q, want S01P01/ep01.mkv", f.DisplayPath())
 		}
+	}
+}
+
+// TestIsV2Only pins the v2-only rejection predicate (BEP 52): only
+// metainfo with MetaVersion 2 and no v1 component is rejected. Hybrid
+// (v1+v2) and plain v1 torrents must pass through — the engine supports
+// them through their v1 hash set.
+func TestIsV2Only(t *testing.T) {
+	cases := []struct {
+		name string
+		info *metainfo.Info
+		want bool
+	}{
+		{
+			name: "v2-only",
+			info: &metainfo.Info{Name: "v2.mkv", MetaVersion: 2},
+			want: true,
+		},
+		{
+			name: "hybrid v1+v2",
+			info: &metainfo.Info{
+				Name:        "hybrid.mkv",
+				MetaVersion: 2,
+				Length:      1024,
+				Pieces:      make([]byte, 20),
+			},
+			want: false,
+		},
+		{
+			name: "v1 multi-file",
+			info: &metainfo.Info{
+				Name:   "v1.mkv",
+				Files:  []metainfo.FileInfo{{Length: 1024, Path: []string{"a.mkv"}}},
+				Pieces: make([]byte, 20),
+			},
+			want: false,
+		},
+		{
+			name: "v1 single-file",
+			info: &metainfo.Info{Name: "v1.mkv", Length: 1024, Pieces: make([]byte, 20)},
+			want: false,
+		},
+		{
+			name: "nil info",
+			info: nil,
+			want: false,
+		},
+	}
+	for _, c := range cases {
+		if got := isV2Only(c.info); got != c.want {
+			t.Errorf("%s: isV2Only = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestSelectRefreshesHeadCompletionFromStorage pins the selection-time
+// completion refresh: Select must call Piece.UpdateCompletion() for the
+// bounded head window, so a piece whose completion is already recorded in
+// storage (verified previously, initial hash delayed) becomes
+// storageCompletionOk immediately — the head is never stuck at
+// effectivePriority None. Pieces OUTSIDE the head window must not be
+// touched (no per-piece boltDB views across the whole torrent).
+func TestSelectRefreshesHeadCompletionFromStorage(t *testing.T) {
+	dir := t.TempDir()
+	pc, err := storage.NewBoltPieceCompletion(dir)
+	if err != nil {
+		t.Fatalf("bolt piece completion: %v", err)
+	}
+	ci := storage.NewFileWithCompletion(dir, pc)
+	// Close order matters: the client must close before the shared
+	// completion store (bolt) or its teardown writes hit a closed DB.
+	t.Cleanup(func() { _ = ci.Close() })
+	t.Cleanup(func() { _ = pc.Close() })
+
+	// 300 pieces of 16 KiB: the 4 MiB head window covers pieces [0, 256),
+	// pieces 256..299 are outside it.
+	const (
+		pieceLength   = 16384
+		numPieces     = 300
+		headPieceLast = 256 // first index outside the window
+	)
+	info := &metainfo.Info{
+		Name:        "headfix.mkv",
+		PieceLength: pieceLength,
+		Length:      numPieces * pieceLength,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.DefaultStorage = ci
+	cfg.DataDir = dir
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+	// Model the delayed-initial-hash scenario the refresh defends against:
+	// with the initial piece check disabled for this torrent, pieces whose
+	// completion is recorded in storage stay storageCompletionOk=false in
+	// memory until something re-reads the store (anacrolix's own tests use
+	// the same option for deterministic piece state).
+	mi := &metainfo.MetaInfo{InfoBytes: ib}
+	tt, new := cl.AddTorrentOpt(torrent.AddTorrentOpts{
+		InfoHash:                 mi.HashInfoBytes(),
+		InfoBytes:                ib,
+		DisableInitialPieceCheck: true,
+	})
+	if !new {
+		t.Fatal("torrent must be new")
+	}
+	<-tt.GotInfo()
+	h := newAnacrolixHandle(tt)
+
+	// Fresh store: no piece is complete until the store says so.
+	if st := tt.Piece(0).State(); st.Ok {
+		t.Fatal("piece 0 must start incomplete (fresh storage)")
+	}
+
+	// The completion store is only trusted when the on-disk data
+	// corroborates it (anacrolix checks file sizes when a piece is marked
+	// complete): write the full file so marked pieces pass the size check.
+	data := make([]byte, numPieces*pieceLength)
+	if err := os.WriteFile(filepath.Join(dir, "headfix.mkv"), data, 0o600); err != nil {
+		t.Fatalf("write data file: %v", err)
+	}
+
+	// Record pieces 0 and 255 (inside the head window) and piece 299
+	// (outside) as complete in the completion store, then Select — the
+	// refresh must pick up the head pieces only.
+	ih := tt.InfoHash()
+	for _, idx := range []int{0, headPieceLast - 1} {
+		if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: idx}, true); err != nil {
+			t.Fatalf("set piece %d complete: %v", idx, err)
+		}
+	}
+	if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: numPieces - 1}, true); err != nil {
+		t.Fatalf("set piece %d complete: %v", numPieces-1, err)
+	}
+
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	// The head piece is refreshed from storage: storageCompletionOk + the
+	// completed bitmap both reflect the store now.
+	if st := tt.Piece(0).State(); !st.Ok || !st.Complete {
+		t.Errorf("head piece 0 after Select: state=%+v, want Ok+Complete (UpdateCompletion refresh)", st)
+	}
+	// A piece inside the window but marked complete in the store must be
+	// refreshed too.
+	if st := tt.Piece(255).State(); !st.Ok || !st.Complete {
+		t.Errorf("head piece 255 after Select: state=%+v, want Ok+Complete (UpdateCompletion refresh)", st)
+	}
+	// The negative control: piece 299 is outside the head window and was
+	// never refreshed — its in-memory state must stay incomplete even
+	// though the store marks it complete.
+	if st := tt.Piece(numPieces - 1).State(); st.Ok {
+		t.Errorf("piece %d outside the head window must not be refreshed: state=%+v", numPieces-1, st)
 	}
 }

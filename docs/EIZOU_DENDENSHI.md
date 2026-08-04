@@ -173,6 +173,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 9. Magnet tableの行高は `td/tr` の `height: 2.25rem`（36px）で揃えているが、tableレイアウトではheightは最小高さとして働き、CSS仕様上table cell/rowの `max-height` は無効。将来行内容が20px content area（padding 8px×2込み）を超えると行が膨張しうる。`overflow: hidden` のsafety netは意図的に追加せず、このLOWとして記録（2026-08-04レビュー）。
 10. `use-companion-bridge.ts` の `createMediaAdapter.setSrc` は `el.crossOrigin = 'anonymous'` を設定するが、VideoPlayerのReact prop（`crossOrigin="anonymous"`）が常時付与するため冗長（cosmetic only、競合なし。React prop削除時はbridge側で再発する点に注意）。`VideoPlayer.tsx` の `videoElement` 変数はstandalone error pathでも確保されるが、JSX要素は軽量オブジェクトで無害（2026-08-05レビュー、ED-2H）。
 11. updater（`apply.go`）: rollbackの `os.Rename(bak, target)` は `renameRetry` 未使用（最初のrename成功で名前が解放済みのため安全。将来rename順序を変える時は注意）。`removeRetry` の定数はテスト注入不要のためvar化しない（`renameRetry` との非対称は意図的）。web: `PlayerControls` の依存配列に `surfaceRef` を含めるのは exhaustive-deps 対応（useRefは安定オブジェクトなので挙動に影響なし）（2026-08-05レビュー）。
+12. v2-only torrent拒否: `engine_anacrolix.go:209` の `t.Drop()` はエラーパスの副作用だが、既存のctxキャンセルパターン（同:194）と一致しており安全（二重Dropなし・Drop後のアクセスなし）。変更不要（2026-08-05レビュー）。
 
 ## Delivery contract
 

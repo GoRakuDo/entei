@@ -194,6 +194,8 @@ export const baseMockDict = {
   magnetInputErrorGeneric: 'Something went wrong. Try again.',
   magnetInputErrorMetadataTimeout: 'Metadata could not be retrieved.',
   magnetInputErrorEvicted: 'Playback stopped because the concurrent torrent limit was exceeded.',
+  magnetInputErrorV2Unsupported:
+    'v2-only torrents are not supported. Use a v1 or hybrid (v1+v2) torrent link.',
   magnetInputSubmitting: 'Starting…',
   magnetCheckMetadata: 'Checking metadata…',
   magnetFilesTitle: 'Select files',

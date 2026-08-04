@@ -83,6 +83,11 @@ const (
 	ErrCodeNoPlayableVideo  = "torrent_no_playable_video"
 	ErrCodeReaderFailed     = "torrent_reader_failed"
 	ErrCodeMetadataFailed   = "torrent_metadata_failed"
+	// ErrCodeV2Unsupported is set when the fetched metainfo is a v2-only
+	// torrent (BEP 52), which the engine cannot download (anacrolix v1.61
+	// never marks the pieces' hashes known, so the download stalls at
+	// piece 0). The job is failed closed at metadata time.
+	ErrCodeV2Unsupported = "torrent_v2_unsupported"
 )
 
 // MaxConcurrentTorrents is the maximum number of concurrent torrent sessions.

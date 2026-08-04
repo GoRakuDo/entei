@@ -241,6 +241,8 @@ export const ja: Dictionary = {
       'メタデータを取得できませんでした。ピアが見つからない可能性があります。しばらくしてからもう一度お試しください。',
     magnetInputErrorEvicted:
       '同時 torrent 数が2つの上限に達したため、再生を停止しました。',
+    magnetInputErrorV2Unsupported:
+      'v2専用torrentは未対応です。v1またはハイブリッド(v1+v2)のtorrentリンクを使ってください。',
     magnetInputSubmitting: '準備中…',
     magnetCheckMetadata: 'メタデータ確認中…',
     magnetFilesTitle: 'ファイルを選択',

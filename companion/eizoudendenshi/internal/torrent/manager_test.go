@@ -5,12 +5,16 @@ import (
 	"errors"
 	"io"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"eizoudendenshi/internal/diag"
 )
 
 const testMagnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
@@ -737,6 +741,73 @@ func TestCompleteCancelsBootstrap(t *testing.T) {
 	}
 
 	_, _ = m.Cancel(id)
+}
+
+// TestV2OnlyRejectionSetsDedicatedErrorCode pins the v2-only rejection
+// contract at the manager boundary: when the engine rejects the metainfo
+// as v2-only (BEP 52), the job must fail with the dedicated
+// torrent_v2_unsupported code — not the generic metadata-failed fallback —
+// so the frontend can route the v2-specific localized message. Like every
+// metadata-stage error, the session is then freed (the error code is
+// observable in the manager's sanitized log line, the established terminal
+// error pattern) and a fresh retry works.
+func TestV2OnlyRejectionSetsDedicatedErrorCode(t *testing.T) {
+	base := t.TempDir()
+	logDir := filepath.Join(base, "logs")
+	logger, err := diag.NewLogger(logDir)
+	if err != nil {
+		t.Fatalf("diag.NewLogger: %v", err)
+	}
+	defer logger.Close()
+
+	engine := newFakeEngine("video.mp4:5000")
+	engine.startErr = errV2Unsupported
+	factory := func(_ string) (Engine, error) { return engine, nil }
+	m, err := New(Config{EngineFactory: factory, Timeout: 10 * time.Second, Logger: logger})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+
+	// Terminal rejection frees the session (established pattern for
+	// metadata-stage errors): no readable job remains.
+	deadline := time.Now().Add(5 * time.Second)
+	for m.Current() != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("session was not freed after v2-only rejection")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := m.Files(id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Files after v2 rejection = %v, want ErrNotFound (session freed)", err)
+	}
+	// The job is routed to the dedicated error code: the manager's
+	// sanitized log line must carry "v2-only torrent not supported" with
+	// ErrCodeV2Unsupported — never the generic metadata-failed code.
+	raw, err := os.ReadFile(filepath.Join(logDir, "eizouden.log"))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(raw), "v2-only torrent not supported code="+ErrCodeV2Unsupported) {
+		t.Errorf("log missing v2 rejection with dedicated code:\n%s", raw)
+	}
+
+	// A retry after the rejection must succeed (fresh session, no residue).
+	engine.startErr = nil
+	snap2, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("retry Start: %v", err)
+	}
+	waitForState(t, m, snap2.ID, StateBuffering, 5*time.Second)
+	if _, err := m.Cancel(snap2.ID); err != nil {
+		t.Fatalf("Cancel retry: %v", err)
+	}
 }
 
 // TestMetadataOnlyBoundary verifies the metadata-only contract: after

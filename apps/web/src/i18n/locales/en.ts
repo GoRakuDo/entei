@@ -235,6 +235,8 @@ export const en: Dictionary = {
       'Metadata could not be retrieved. The torrent may have no peers yet — try again later.',
     magnetInputErrorEvicted:
       'Playback stopped because the concurrent torrent limit of 2 was exceeded.',
+    magnetInputErrorV2Unsupported:
+      'v2-only torrents are not supported. Use a v1 or hybrid (v1+v2) torrent link.',
     magnetInputSubmitting: 'Starting…',
     magnetCheckMetadata: 'Checking metadata…',
     magnetFilesTitle: 'Select files',
