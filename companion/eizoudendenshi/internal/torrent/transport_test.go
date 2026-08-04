@@ -154,6 +154,13 @@ func TestEngineDiagnosticsLogSanitized(t *testing.T) {
 	if !strings.Contains(s, "complete=0/1 bytes_read=") {
 		t.Errorf("missing piece/byte diagnostics in diag line:\n%s", s)
 	}
+	// The head-piece diagnostics must be present too: the leading piece
+	// index with its complete flag and priority (i:cCpP). The exact
+	// priority value depends on the local torrent state (selection,
+	// readers), so only the field shape is pinned.
+	if !strings.Contains(s, " head=0:c0p") {
+		t.Errorf("missing head-piece diagnostics in diag line:\n%s", s)
+	}
 	for _, forbidden := range []string{
 		"Movie.2026.mkv", // torrent name / path
 		"magnet:",        // magnet URI

@@ -25,13 +25,21 @@ const parentPollInterval = 200 * time.Millisecond
 // the old core is kept on any failure), relaunches the new core in CLI
 // mode (cli, preserving the explicit Windows helper paths), and exits.
 // The pairing credential is never read, written, or replaced.
+//
+// Every failure path writes a reason to stderr before returning 1: the
+// child is launched detached (stdout/stderr inherited from the CLI), so
+// without this a failed apply is indistinguishable from a success. Only
+// error classes and local paths are printed — nothing sensitive (no
+// credentials, no network identifiers).
 func ApplyStaged(args []string) int {
 	if len(args) != 5 {
+		fmt.Fprintln(os.Stderr, "update: apply failed: invalid arguments")
 		return 1
 	}
 	staging := args[0]
 	pid, err := strconv.Atoi(args[1])
 	if err != nil || pid <= 0 {
+		fmt.Fprintln(os.Stderr, "update: apply failed: invalid parent pid")
 		return 1
 	}
 	coreTarget := args[2]
@@ -39,14 +47,17 @@ func ApplyStaged(args []string) int {
 	ffmpegTarget := args[4]
 	for _, t := range []string{coreTarget, ytdlpTarget, ffmpegTarget} {
 		if t != "" && !filepath.IsAbs(t) {
+			fmt.Fprintln(os.Stderr, "update: apply failed: target paths must be absolute")
 			return 1
 		}
 	}
 	if coreTarget == "" {
+		fmt.Fprintln(os.Stderr, "update: apply failed: core target missing")
 		return 1
 	}
 	st, err := os.Stat(staging)
 	if err != nil || !st.IsDir() {
+		fmt.Fprintln(os.Stderr, "update: apply failed: staging directory missing or invalid")
 		return 1
 	}
 	// The staging dir is owned by this child from here on.
@@ -60,6 +71,7 @@ func ApplyStaged(args []string) int {
 		time.Sleep(parentPollInterval)
 	}
 	if parentAlive(pid) {
+		fmt.Fprintln(os.Stderr, "update: apply failed: parent did not exit within the wait window")
 		return 1 // parent never exited: keep the old core
 	}
 
@@ -71,6 +83,7 @@ func ApplyStaged(args []string) int {
 			continue
 		}
 		if err := replaceStaged(staging, target); err != nil {
+			fmt.Fprintf(os.Stderr, "update: apply failed: %v\n", err)
 			return 1
 		}
 	}
@@ -86,6 +99,7 @@ func ApplyStaged(args []string) int {
 	}
 	launch = append(launch, "cli")
 	if err := launchNewCore(coreTarget, launch...); err != nil {
+		fmt.Fprintf(os.Stderr, "update: apply failed: %v\n", err)
 		return 1
 	}
 	return 0
@@ -95,6 +109,13 @@ func ApplyStaged(args []string) int {
 // basename, backing up the current target and rolling back on failure
 // (the old file is never lost). Staging must already contain a
 // verified non-empty file named filepath.Base(target).
+//
+// Both renames go through renameRetry: on Windows the just-exited
+// parent's image section may hold the core target for a few hundred ms
+// past process exit, and a rename attempted inside that window fails
+// with a sharing violation instead of replacing the file (the rc.25
+// failure mode: staging deleted, core left behind). The retry covers
+// that window; every other error still fails immediately.
 func replaceStaged(staging, target string) error {
 	staged := filepath.Join(staging, filepath.Base(target))
 	fi, err := os.Stat(staged)
@@ -108,11 +129,11 @@ func replaceStaged(staging, target string) error {
 	bak := target + ".bak"
 	_ = removeRetry(bak) // stale backup from a crashed run
 	if _, err := os.Lstat(target); err == nil {
-		if err := os.Rename(target, bak); err != nil {
+		if err := renameRetry(target, bak); err != nil {
 			return err
 		}
 	}
-	if err := os.Rename(staged, target); err != nil {
+	if err := renameRetry(staged, target); err != nil {
 		// Roll the backup back so the old file is kept.
 		_ = os.Remove(target)
 		if _, lerr := os.Lstat(bak); lerr == nil {
@@ -139,6 +160,37 @@ func removeRetry(path string) error {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	return err
+}
+
+// renameRetryAttempts and renameRetryDelay bound the transient-lock
+// retry window of renameRetry. Vars so tests can shrink them.
+var (
+	renameRetryAttempts = 10
+	renameRetryDelay    = 100 * time.Millisecond
+)
+
+// renameFile is os.Rename, a var so tests can inject transient failures
+// without touching the filesystem.
+var renameFile = os.Rename
+
+// renameRetry renames oldpath to newpath, retrying briefly while the
+// failure is a transient Windows lock (a just-exited parent may hold its
+// image section — and thus the running core target — for a few hundred
+// ms past process exit; the comment above the second replaceStaged
+// rename is the same situation). Only transient errors (sharing/lock
+// violations) are retried; any other error returns immediately, and on
+// POSIX (including Termux) nothing is transient, so this is exactly one
+// attempt.
+func renameRetry(oldpath, newpath string) error {
+	var err error
+	for i := 0; i < renameRetryAttempts; i++ {
+		err = renameFile(oldpath, newpath)
+		if err == nil || !transientRenameErr(err) {
+			return err
+		}
+		time.Sleep(renameRetryDelay)
 	}
 	return err
 }

@@ -395,6 +395,19 @@ export const PlayerControls = forwardRef<
     showControls({ type: 'pointer-move' });
   }, [showControls]);
 
+  // --- Companion fix: surface-level pointer move ---
+  // While auto-hidden the controls layer carries pointer-events: none, so
+  // its own onPointerMove (bound below) can never fire again — the layer
+  // would stay hidden forever. Bind the same throttled handler to the media
+  // surface (always interactive) so any pointer movement restores the
+  // controls. The layer's own onPointerMove is kept for the visible state.
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    surface.addEventListener('pointermove', handlePointerMove);
+    return () => surface.removeEventListener('pointermove', handlePointerMove);
+  }, [surfaceRef, handlePointerMove]);
+
   // --- Play/Pause ---
   const handlePlayPause = useCallback(
     (e: React.MouseEvent) => {

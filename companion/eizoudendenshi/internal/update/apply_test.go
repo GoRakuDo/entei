@@ -2,6 +2,8 @@ package update
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -499,5 +501,156 @@ func TestSpawnApplyWindowsRealSelfReplace(t *testing.T) {
 			t.Fatalf("apply child temp copy still locked after %v: %v", 10*time.Second, err)
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// captureStderr runs f with os.Stderr redirected to a pipe and returns
+// everything written to it. Used to pin the apply child's failure
+// reporting (ApplyStaged must say WHY it failed before returning 1).
+func captureStderr(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
+	defer func() { _ = w.Close() }()
+	f()
+	_ = w.Close()
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// TestApplyStagedReportsFailuresToStderr pins the child's failure
+// reporting: every failing path must write an "update: apply failed:"
+// line to stderr before returning 1 (the child is launched detached, so
+// a silent failure is indistinguishable from success on the real
+// Windows path).
+func TestApplyStagedReportsFailuresToStderr(t *testing.T) {
+	t.Run("invalid arguments", func(t *testing.T) {
+		out := captureStderr(t, func() {
+			if code := ApplyStaged([]string{"too", "few"}); code == 0 {
+				t.Fatal("ApplyStaged must fail closed on bad arguments")
+			}
+		})
+		if !strings.Contains(out, "update: apply failed:") {
+			t.Errorf("stderr = %q, want an apply failure line", out)
+		}
+	})
+	t.Run("apply error", func(t *testing.T) {
+		root := t.TempDir()
+		coreTarget := filepath.Join(root, coreWindowsName)
+		writeFile(t, coreTarget, []byte("old-core"))
+		// "helpers" is a FILE: MkdirAll fails when applying the helper.
+		if err := os.WriteFile(filepath.Join(root, "helpers"), []byte("not-a-dir"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		staging := t.TempDir()
+		writeFile(t, filepath.Join(staging, coreWindowsName), []byte("new-core"))
+		writeFile(t, filepath.Join(staging, "yt-dlp-windows-amd64.exe"), []byte("new-ytdlp"))
+		writeFile(t, filepath.Join(staging, "ffmpeg.exe"), []byte("new-ffmpeg"))
+
+		launched := false
+		orig := launchNewCore
+		launchNewCore = func(string, ...string) error { launched = true; return nil }
+		defer func() { launchNewCore = orig }()
+
+		out := captureStderr(t, func() {
+			code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
+				coreTarget, filepath.Join(root, "helpers", "yt-dlp-windows-amd64.exe"),
+				filepath.Join(root, "helpers", "ffmpeg.exe")})
+			if code == 0 {
+				t.Fatal("ApplyStaged must fail when a helper cannot be applied")
+			}
+		})
+		if !strings.Contains(out, "update: apply failed:") {
+			t.Errorf("stderr = %q, want an apply failure line", out)
+		}
+		if launched {
+			t.Fatal("the new core must not be launched after a failed apply")
+		}
+	})
+}
+
+// stubRenameRetry saves and restores the renameRetry test hooks.
+func stubRenameRetry(t *testing.T) {
+	t.Helper()
+	origFile, origTransient := renameFile, transientRenameErr
+	origAttempts, origDelay := renameRetryAttempts, renameRetryDelay
+	t.Cleanup(func() {
+		renameFile, transientRenameErr = origFile, origTransient
+		renameRetryAttempts, renameRetryDelay = origAttempts, origDelay
+	})
+}
+
+// TestRenameRetryTransientLockThenSucceeds pins the Windows
+// shared-violation retry path: transient lock failures are retried, and
+// a success after N failures is returned cleanly.
+func TestRenameRetryTransientLockThenSucceeds(t *testing.T) {
+	stubRenameRetry(t)
+	renameRetryDelay = time.Millisecond
+
+	lock := errors.New("transient lock")
+	calls := 0
+	renameFile = func(_, _ string) error {
+		calls++
+		if calls < 3 {
+			return lock
+		}
+		return nil
+	}
+	transientRenameErr = func(err error) bool { return errors.Is(err, lock) }
+
+	if err := renameRetry("old", "new"); err != nil {
+		t.Fatalf("renameRetry must succeed after transient locks: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("rename attempts = %d, want 3 (two transient failures then success)", calls)
+	}
+}
+
+// TestRenameRetryPermanentFailsImmediately pins the non-transient
+// contract: a permanent error is returned on the first attempt, with no
+// retry (and no sleep).
+func TestRenameRetryPermanentFailsImmediately(t *testing.T) {
+	stubRenameRetry(t)
+	renameRetryDelay = time.Millisecond
+
+	perm := errors.New("permanent error")
+	calls := 0
+	renameFile = func(_, _ string) error { calls++; return perm }
+	transientRenameErr = func(error) bool { return false }
+
+	if err := renameRetry("old", "new"); !errors.Is(err, perm) {
+		t.Fatalf("renameRetry err = %v, want the permanent error", err)
+	}
+	if calls != 1 {
+		t.Errorf("rename attempts = %d, want 1 (no retry on permanent errors)", calls)
+	}
+}
+
+// TestRenameRetryExhaustsAttempts pins the retry bound: an error that
+// stays transient returns the last error after all attempts.
+func TestRenameRetryExhaustsAttempts(t *testing.T) {
+	stubRenameRetry(t)
+	renameRetryAttempts = 3
+	renameRetryDelay = time.Millisecond
+
+	lock := errors.New("transient lock")
+	calls := 0
+	renameFile = func(_, _ string) error { calls++; return lock }
+	transientRenameErr = func(err error) bool { return errors.Is(err, lock) }
+
+	if err := renameRetry("old", "new"); !errors.Is(err, lock) {
+		t.Fatalf("renameRetry err = %v, want the last transient error", err)
+	}
+	if calls != renameRetryAttempts {
+		t.Errorf("rename attempts = %d, want %d", calls, renameRetryAttempts)
 	}
 }

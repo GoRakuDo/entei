@@ -221,10 +221,13 @@ func (e *engineAnacrolix) diagLoop(t *torrent.Torrent) {
 // torrent's instantaneous gauges; DHT node and announce counts come from
 // the client's DHT servers (dht.ServerStats). Whole-torrent piece
 // completion (independent of the selected file) comes from the piece state
-// runs plus the total bytes received. All values are plain integers — no
-// addresses, URLs, or identifiers. The client is captured under the engine
-// lock (Close() may nil it concurrently); a closed engine simply skips the
-// line.
+// runs plus the total bytes received. The head field renders the state of
+// the torrent's first headDiagPieces pieces — complete flag and effective
+// priority — so a stalled head bootstrap (the head window not elevated or
+// not completing first) is visible in the log. All values are plain
+// integers — no addresses, URLs, or identifiers. The client is captured
+// under the engine lock (Close() may nil it concurrently); a closed engine
+// simply skips the line.
 func (e *engineAnacrolix) diag(t *torrent.Torrent) {
 	e.mu.Lock()
 	cl := e.client
@@ -250,8 +253,10 @@ func (e *engineAnacrolix) diag(t *torrent.Torrent) {
 	// groups consecutive pieces with the same state into runs, so a
 	// mostly-incomplete torrent costs a handful of iterations instead of
 	// one per piece — safe on the 10s diag cadence even for thousands of
-	// pieces. Counts only: no piece data, no peer identifiers.
+	// pieces. Counts only: no piece data, no peer identifiers. head is
+	// "-" until metadata arrives (t.Info() nil).
 	var completePieces, totalPieces int
+	head := "-"
 	if info := t.Info(); info != nil {
 		totalPieces = info.NumPieces()
 		for _, run := range t.PieceStateRuns() {
@@ -259,9 +264,41 @@ func (e *engineAnacrolix) diag(t *torrent.Torrent) {
 				completePieces += run.Length
 			}
 		}
+		head = headPieceDiag(t, totalPieces)
 	}
-	e.log.Infof("torrent.engine", "diag peers=%d active=%d seeders=%d halfopen=%d dht_nodes=%d dht_good=%d announce_ok=%d announce_tried=%d complete=%d/%d bytes_read=%d",
-		ts.TotalPeers, ts.ActivePeers, ts.ConnectedSeeders, cs.ActiveHalfOpenAttempts, nodes, goodNodes, announceOK, announceTried, completePieces, totalPieces, ts.ConnStats.BytesRead)
+	e.log.Infof("torrent.engine", "diag peers=%d active=%d seeders=%d halfopen=%d dht_nodes=%d dht_good=%d announce_ok=%d announce_tried=%d complete=%d/%d bytes_read=%d head=%s",
+		ts.TotalPeers, ts.ActivePeers, ts.ConnectedSeeders, cs.ActiveHalfOpenAttempts, nodes, goodNodes, announceOK, announceTried, completePieces, totalPieces, ts.ConnStats.BytesRead, head)
+}
+
+// headDiagPieces is how many leading torrent pieces the diag line
+// reports. On a typical single-video torrent these are exactly the
+// pieces covering the selection-time head bootstrap window (bounded to
+// 4 MiB at bootstrapWindowBytes).
+const headDiagPieces = 4
+
+// headPieceDiag renders the torrent's leading pieces as "i:cCpP"
+// entries: piece index, complete (0/1), and effective priority
+// (None=0, Normal=1, High=2, Now/Readahead=3+). The effective priority
+// reflects both the selection-time High elevation and any live reader
+// demand (the bootstrap reader), so a stalled head shows either a low
+// priority or a missing complete flag. Numbers only, keeping the
+// redaction contract; a torrent with fewer than headDiagPieces pieces
+// yields fewer entries.
+func headPieceDiag(t *torrent.Torrent, totalPieces int) string {
+	n := totalPieces
+	if n > headDiagPieces {
+		n = headDiagPieces
+	}
+	parts := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		st := t.Piece(i).State()
+		complete := 0
+		if st.Complete {
+			complete = 1
+		}
+		parts = append(parts, fmt.Sprintf("%d:c%dp%d", i, complete, int(st.Priority)))
+	}
+	return strings.Join(parts, ",")
 }
 
 type anacrolixHandle struct {

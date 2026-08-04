@@ -2796,8 +2796,12 @@ export default function PlayerApp() {
       // P1.3a.1: Ignore overlay clicks — let Yomitan/content-script document
       // listeners and text selection work without interference.
       if (target.closest('[data-entei-subtitle-overlay]')) return;
+      // Companion fix: gate on displayMediaUrl (jobSession.jobMediaUrl ??
+      // mediaUrl), not the local mediaUrl — companion playback only sets
+      // jobMediaUrl, so the local URL stays null and would make surface
+      // clicks a no-op for every companion session.
       const media = sharedMediaRef.current;
-      if (!media || isLoading || loadError || !mediaUrl) return;
+      if (!media || isLoading || loadError || !displayMediaUrl) return;
 
       const currentVisible = controlsHandleRef.current?.getVisible() ?? true;
       const effect = surfaceClickEffect(isTouchDevice, currentVisible);
@@ -2818,7 +2822,7 @@ export default function PlayerApp() {
         }
       }
     },
-    [isLoading, loadError, mediaUrl, isTouchDevice],
+    [isLoading, loadError, displayMediaUrl, isTouchDevice],
   );
 
   // --- Keyboard shortcuts ---
