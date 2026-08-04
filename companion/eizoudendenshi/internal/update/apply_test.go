@@ -582,9 +582,10 @@ func TestApplyStagedReportsFailuresToStderr(t *testing.T) {
 func stubRenameRetry(t *testing.T) {
 	t.Helper()
 	origFile, origTransient := renameFile, transientRenameErr
-	origAttempts, origDelay := renameRetryAttempts, renameRetryDelay
+	origCross, origAttempts, origDelay := isCrossDeviceRenameErr, renameRetryAttempts, renameRetryDelay
 	t.Cleanup(func() {
 		renameFile, transientRenameErr = origFile, origTransient
+		isCrossDeviceRenameErr = origCross
 		renameRetryAttempts, renameRetryDelay = origAttempts, origDelay
 	})
 }
@@ -652,5 +653,98 @@ func TestRenameRetryExhaustsAttempts(t *testing.T) {
 	}
 	if calls != renameRetryAttempts {
 		t.Errorf("rename attempts = %d, want %d", calls, renameRetryAttempts)
+	}
+}
+
+// TestRenameRetryCrossDeviceFallsBackToCopy pins the EXDEV fallback: a
+// cross-device rename (staging on a RAM disk, install on C:) is NOT
+// retried — copyThenRemove copies oldpath's content to newpath
+// (permissions preserved) and removes oldpath on success.
+func TestRenameRetryCrossDeviceFallsBackToCopy(t *testing.T) {
+	stubRenameRetry(t)
+	renameRetryAttempts = 5
+	renameRetryDelay = time.Millisecond
+
+	root := t.TempDir()
+	oldpath := filepath.Join(root, "staged-core.bin")
+	newpath := filepath.Join(root, "target.bin")
+	content := []byte("staged-core-bytes")
+	writeFile(t, oldpath, content)
+	oldMode, err := os.Stat(oldpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	xdev := errors.New("cross-device rename")
+	calls := 0
+	renameFile = func(_, _ string) error { calls++; return xdev }
+	isCrossDeviceRenameErr = func(err error) bool { return errors.Is(err, xdev) }
+	transientRenameErr = func(error) bool { return false }
+
+	if err := renameRetry(oldpath, newpath); err != nil {
+		t.Fatalf("renameRetry must fall back to copy+remove on a cross-device error: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("rename attempts = %d, want 1 (no retry on cross-device errors)", calls)
+	}
+	b, err := os.ReadFile(newpath)
+	if err != nil || !bytes.Equal(b, content) {
+		t.Fatalf("newpath = %q err=%v, want a byte-identical copy of oldpath", b, err)
+	}
+	if st, err := os.Stat(newpath); err != nil || st.Mode().Perm() != oldMode.Mode().Perm() {
+		t.Errorf("newpath mode = %v err=%v, want oldpath's permissions (%v)", st.Mode(), err, oldMode.Mode().Perm())
+	}
+	if _, err := os.Stat(oldpath); !os.IsNotExist(err) {
+		t.Error("oldpath must be removed after the copy")
+	}
+}
+
+// TestRenameRetryCrossDeviceNotTransientStillFallsBack pins the error
+// classification order: a cross-device error falls back to copy+remove
+// even when it also matches the transient class (the check comes first
+// in renameRetry, so no retries are burned on an unretryable error).
+func TestRenameRetryCrossDeviceNotTransientStillFallsBack(t *testing.T) {
+	stubRenameRetry(t)
+	renameRetryAttempts = 5
+	renameRetryDelay = time.Millisecond
+
+	root := t.TempDir()
+	oldpath := filepath.Join(root, "staged-core.bin")
+	newpath := filepath.Join(root, "target.bin")
+	writeFile(t, oldpath, []byte("content"))
+
+	xdev := errors.New("cross-device rename")
+	calls := 0
+	renameFile = func(_, _ string) error { calls++; return xdev }
+	// Both classes match: cross-device must win (immediate fallback).
+	isCrossDeviceRenameErr = func(error) bool { return true }
+	transientRenameErr = func(error) bool { return true }
+
+	if err := renameRetry(oldpath, newpath); err != nil {
+		t.Fatalf("renameRetry must fall back even when the error is also transient: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("rename attempts = %d, want 1 (cross-device wins over transient)", calls)
+	}
+}
+
+// TestCopyThenRemoveFailureLeavesNoPartial pins the copy-failure
+// contract: when the destination cannot be created (parent dir missing),
+// copyThenRemove returns the error, leaves NO partial file behind, and
+// oldpath is untouched.
+func TestCopyThenRemoveFailureLeavesNoPartial(t *testing.T) {
+	root := t.TempDir()
+	oldpath := filepath.Join(root, "staged-core.bin")
+	writeFile(t, oldpath, []byte("content"))
+	newpath := filepath.Join(root, "missing", "target.bin")
+
+	if err := copyThenRemove(oldpath, newpath); err == nil {
+		t.Fatal("copyThenRemove must fail when the destination cannot be created")
+	}
+	if _, err := os.Stat(newpath); !os.IsNotExist(err) {
+		t.Error("no partial newpath may be left at the install target")
+	}
+	if b, err := os.ReadFile(oldpath); err != nil || string(b) != "content" {
+		t.Fatalf("oldpath must be untouched on failure: %v", err)
 	}
 }

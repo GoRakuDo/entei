@@ -21,3 +21,14 @@ var transientRenameErr = func(err error) bool {
 	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) ||
 		errors.Is(err, windows.ERROR_LOCK_VIOLATION)
 }
+
+// isCrossDeviceRenameErr reports whether a rename failed because the
+// source and destination live on different volumes
+// (windows.ERROR_NOT_SAME_DEVICE, errno 17): os.Rename cannot move a
+// file across devices, and retrying cannot help — the caller falls back
+// to copyThenRemove. windows.ERROR_* values are syscall.Errno
+// constants; os.Rename wraps the raw errno in an *os.LinkError, which
+// errors.Is unwraps by value (same mechanism as transientRenameErr).
+var isCrossDeviceRenameErr = func(err error) bool {
+	return errors.Is(err, windows.ERROR_NOT_SAME_DEVICE)
+}

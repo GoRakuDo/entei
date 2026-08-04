@@ -528,6 +528,15 @@ func TestRunEndToEndWindowsStagesVerifiedArtifacts(t *testing.T) {
 	if _, err := os.Stat(gotStaging); err != nil {
 		t.Fatalf("staging dir must survive until the child applies: %v", err)
 	}
+	// Staging lives on the SAME drive as the install target
+	// (filepath.Dir(plan.Core) == installRoot): the apply child's final
+	// rename must stay inside one filesystem, or a cross-device failure
+	// (ERROR_NOT_SAME_DEVICE) needs the copy fallback. Same-drive
+	// staging avoids the failure mode entirely.
+	if filepath.Dir(gotStaging) != filepath.Dir(gotPlan.Core) {
+		t.Errorf("staging dir %q must be created under the core target dir %q",
+			gotStaging, filepath.Dir(gotPlan.Core))
+	}
 	// Privacy regression guard: no URLs, keys, local paths, or internal
 	// mode names in the status output.
 	for _, leak := range []string{"https://", "example.invalid", root, "RW", "apply-update", "minisign"} {
@@ -570,6 +579,29 @@ func TestRunManifestVersionMismatchFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "update: release verification failed") {
 		t.Fatalf("output = %q, want the generic verification failure", out.String())
+	}
+}
+
+// TestStagingBasePinsInstallRoot pins the staging placement: staging is
+// created under the install root (== filepath.Dir(plan.Core)), an
+// existing directory resolves to itself (absolutized), and a missing or
+// empty root falls back to the OS temp dir (empty string), so a bad
+// install root can never fail the update on staging creation.
+func TestStagingBasePinsInstallRoot(t *testing.T) {
+	root := t.TempDir()
+	if got := stagingBase(root); got != root {
+		t.Errorf("stagingBase(%q) = %q, want the install root itself", root, got)
+	}
+	// filepath.Dir of the plan core target is the same directory.
+	core := filepath.Join(root, coreWindowsName)
+	if got := stagingBase(filepath.Dir(core)); got != filepath.Dir(core) {
+		t.Errorf("stagingBase(filepath.Dir(plan.Core)) = %q, want %q", got, filepath.Dir(core))
+	}
+	if got := stagingBase(filepath.Join(root, "missing")); got != "" {
+		t.Errorf("stagingBase(missing root) = %q, want the empty fallback", got)
+	}
+	if got := stagingBase(""); got != "" {
+		t.Errorf("stagingBase(empty root) = %q, want the empty fallback", got)
 	}
 }
 

@@ -3,6 +3,7 @@ package update
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -180,19 +181,66 @@ var renameFile = os.Rename
 // image section — and thus the running core target — for a few hundred
 // ms past process exit; the comment above the second replaceStaged
 // rename is the same situation). Only transient errors (sharing/lock
-// violations) are retried; any other error returns immediately, and on
-// POSIX (including Termux) nothing is transient, so this is exactly one
-// attempt.
+// violations) are retried; a cross-device failure (EXDEV /
+// ERROR_NOT_SAME_DEVICE) falls back to copy+remove immediately — it can
+// never succeed, however often retried; any other error returns
+// immediately, and on POSIX (including Termux) nothing is transient, so
+// this is exactly one attempt.
 func renameRetry(oldpath, newpath string) error {
 	var err error
 	for i := 0; i < renameRetryAttempts; i++ {
 		err = renameFile(oldpath, newpath)
-		if err == nil || !transientRenameErr(err) {
+		if err == nil {
+			return nil
+		}
+		if isCrossDeviceRenameErr(err) {
+			return copyThenRemove(oldpath, newpath)
+		}
+		if !transientRenameErr(err) {
 			return err
 		}
 		time.Sleep(renameRetryDelay)
 	}
 	return err
+}
+
+// copyThenRemove is the cross-device rename fallback: copies oldpath to
+// newpath (created fresh, preserving oldpath's permission bits) and
+// removes oldpath on success. os.Rename cannot move a file across
+// devices (ERROR_NOT_SAME_DEVICE on Windows, EXDEV on POSIX) — e.g. a
+// RAM-disk staging dir (A:) with the install target on C: — so the
+// file is copied instead. A copy that fails mid-way removes the partial
+// newpath before returning the error: an incomplete core/helper left at
+// the install target would break the next launch.
+func copyThenRemove(oldpath, newpath string) error {
+	src, err := os.Open(oldpath)
+	if err != nil {
+		return err
+	}
+	fi, err := src.Stat()
+	if err != nil {
+		_ = src.Close()
+		return err
+	}
+	dst, err := os.OpenFile(newpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fi.Mode().Perm())
+	if err != nil {
+		_ = src.Close()
+		return err
+	}
+	_, copyErr := io.Copy(dst, src)
+	closeErr := dst.Close()
+	// src must be closed BEFORE os.Remove: Windows refuses to remove a
+	// file that still has an open handle (no POSIX unlink semantics).
+	_ = src.Close()
+	if copyErr != nil || closeErr != nil {
+		// Never leave a partial file at the install target.
+		_ = os.Remove(newpath)
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	}
+	return os.Remove(oldpath)
 }
 
 // spawnApply launches the --apply-update child with ONLY the staging

@@ -52,6 +52,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -129,7 +130,7 @@ func Run(w io.Writer, cfg Config) bool {
 		return false
 	}
 
-	staging, err := os.MkdirTemp("", "eizouden-update-*")
+	staging, err := os.MkdirTemp(stagingBase(cfg.InstallRoot), "eizouden-update-*")
 	if err != nil {
 		fmt.Fprintln(w, "update: update failed")
 		return false
@@ -173,4 +174,28 @@ func keyPinned() bool {
 		}
 	}
 	return true
+}
+
+// stagingBase returns the directory the update staging dir is created
+// under: the install root, i.e. filepath.Dir(plan.Core) — windowsPlan
+// and termuxPlan always join the core name onto installRoot. Staging on
+// the same drive as the install target keeps the apply child's final
+// rename inside one filesystem (os.Rename cannot move a file across
+// devices; e.g. a RAM-disk TEMP on A: with the install on C: fails with
+// ERROR_NOT_SAME_DEVICE). copyThenRemove in the child is the backstop;
+// same-drive staging avoids the failure mode entirely. An empty root,
+// a relative root that cannot be absolutized, or a missing/non-directory
+// root falls back to the OS temp dir (the historical behavior).
+func stagingBase(installRoot string) string {
+	if installRoot == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(installRoot)
+	if err != nil {
+		return ""
+	}
+	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return abs
 }
