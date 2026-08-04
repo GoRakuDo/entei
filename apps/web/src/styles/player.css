@@ -4231,9 +4231,22 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-magnet-table-head-name {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-4);
   font-weight: 600;
   font-size: 0.75rem;
   color: var(--entei-text-secondary);
+}
+
+.entei-magnet-table-head-name-text {
+  flex: 1;
+}
+
+.entei-magnet-arrow-up-btn {
+  min-width: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  flex-shrink: 0;
 }
 
 .entei-magnet-table-head-size {
@@ -4352,41 +4365,13 @@ html.entei-player-immersive .entei-player-audio-area {
   cursor: not-allowed;
 }
 
-/* Bottom bar: navigation + select button */
+/* Bottom bar: select button only (no nav chevrons) */
 .entei-magnet-browser-bottom {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: var(--entei-space-8);
   padding-top: var(--entei-space-4);
-}
-
-.entei-magnet-nav-btn {
-  min-width: var(--entei-touch-min);
-  min-height: var(--entei-touch-min);
-  /* Default surface: visible at rest */
-  background-color: var(--entei-surface-2);
-  color: var(--entei-text);
-  border: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-magnet-nav-btn:hover {
-  background-color: var(--entei-surface-2);
-  color: var(--entei-text);
-  opacity: 0.85;
-}
-
-.entei-magnet-nav-btn:disabled {
-  background-color: transparent;
-  color: var(--entei-text-muted);
-  border-color: oklch(100% 0 0deg / 0.08);
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.entei-magnet-nav-btn:disabled:hover {
-  background-color: transparent;
-  opacity: 0.45;
 }
 
 .entei-magnet-select-play {

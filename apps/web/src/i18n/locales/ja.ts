@@ -248,7 +248,6 @@ export const ja: Dictionary = {
     magnetNoVideoError: 'このtorrentには選択できる動画がありません。',
     magnetSelectSubmit: '選択して再生',
     magnetCancel: 'キャンセル',
-    magnetBack: '戻る',
     // ED-2G: File browser table
     magnetTableFileName: 'ファイル名',
     magnetTableSize: 'サイズ',
@@ -256,8 +255,7 @@ export const ja: Dictionary = {
     magnetFileKindSubtitle: '字幕',
     magnetFileKindFolder: 'フォルダー',
     magnetFileKindOther: 'ファイル',
-    magnetNavBack: '前のフォルダー',
-    magnetNavForward: '次のフォルダー',
+    magnetTableNavUp: '上の階層へ',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'セットアップ',
     eizouSetupTitle: '映像伝電子',

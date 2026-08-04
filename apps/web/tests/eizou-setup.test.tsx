@@ -185,11 +185,6 @@ describe('EizouDendenshiPairingDialog — OTP validation + accessibility', () =>
 describe('EizouDendenshiPairingDialog — pair request', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  function openDialog() {
-    setupSection();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouSetupLabel }));
-  }
-
   it('POSTs the 6-digit code to the companion and accepts the token only on 200', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ token: 'tok-abc' }), {

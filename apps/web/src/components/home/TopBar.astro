@@ -25,7 +25,6 @@ import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
 import { LanguageCombobox } from '@components/home/LanguageCombobox';
 import { House, Clapperboard, ChartNoAxesCombined } from '@lucide/astro';
-import type { Dictionary, Locale } from '@i18n/types';
 
 /** Single destination definition — desktop pill and mobile dock read from this. */
 const DESTINATIONS = [
@@ -33,15 +32,6 @@ const DESTINATIONS = [
   { route: '/player/', labelKey: 'destinationPlayer' as const, Icon: Clapperboard },
   { route: '/tracker/', labelKey: 'destinationTracker' as const, Icon: ChartNoAxesCombined },
 ] as const;
-
-interface Props {
-  locale: Locale;
-  dictionary: Dictionary;
-  /** Whether to render the mobile Language Selector. Default true (Home). Player passes false. */
-  showLanguageSelector?: boolean;
-  /** Current route path for aria-current="page". Defaults to '/'. */
-  currentPath?: string;
-}
 
 const {
   locale,

@@ -264,7 +264,7 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
   });
 
   it('cancel still ends the session when the companion is unreachable', async () => {
-    const { calls, fetchFn } = makeFetcher([
+    const { fetchFn } = makeFetcher([
       buffering(100, 1000),
       // The cancel fetch rejects (no queued response).
     ]);

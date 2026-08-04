@@ -375,7 +375,6 @@ describe('P1: subtitle change boundary', () => {
 describe('P1: no stale attribution across learning-set switch', () => {
   it('contributions under lsA do not leak into lsB accumulator', async () => {
     const engine = await import('@/features/player/tracker/engine');
-    const types = await import('@/features/player/tracker/types');
 
     const stateA = engine.createAccumulatorState();
     const seenA = new Set<string>();

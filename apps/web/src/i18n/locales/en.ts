@@ -242,7 +242,6 @@ export const en: Dictionary = {
     magnetNoVideoError: 'No selectable video in this torrent.',
     magnetSelectSubmit: 'Select & play',
     magnetCancel: 'Cancel',
-    magnetBack: 'Back',
     // ED-2G: File browser table
     magnetTableFileName: 'File name',
     magnetTableSize: 'Size',
@@ -250,8 +249,7 @@ export const en: Dictionary = {
     magnetFileKindSubtitle: 'subtitle',
     magnetFileKindFolder: 'folder',
     magnetFileKindOther: 'file',
-    magnetNavBack: 'Previous folder',
-    magnetNavForward: 'Next folder',
+    magnetTableNavUp: 'Go up one level',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'Set up',
     eizouSetupTitle: 'EizouDendenshi',

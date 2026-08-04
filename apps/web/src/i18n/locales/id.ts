@@ -247,7 +247,6 @@ export const id: Dictionary = {
     magnetNoVideoError: 'Tidak ada video yang dapat dipilih dalam torrent ini.',
     magnetSelectSubmit: 'Pilih & putar',
     magnetCancel: 'Batalkan',
-    magnetBack: 'Kembali',
     // ED-2G: File browser table
     magnetTableFileName: 'Nama file',
     magnetTableSize: 'Ukuran',
@@ -255,8 +254,7 @@ export const id: Dictionary = {
     magnetFileKindSubtitle: 'subtitle',
     magnetFileKindFolder: 'folder',
     magnetFileKindOther: 'file',
-    magnetNavBack: 'Folder sebelumnya',
-    magnetNavForward: 'Folder berikutnya',
+    magnetTableNavUp: 'Kembali ke atas',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'Pengaturan',
     eizouSetupTitle: 'EizouDendenshi',

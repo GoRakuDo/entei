@@ -3206,7 +3206,6 @@ export default function PlayerApp() {
           magnetNoVideoError: dict.magnetNoVideoError,
           magnetSelectSubmit: dict.magnetSelectSubmit,
           magnetCancel: dict.magnetCancel,
-          magnetBack: dict.magnetBack,
           dialogClose: dict.dialogClose,
           magnetTableFileName: dict.magnetTableFileName,
           magnetTableSize: dict.magnetTableSize,
@@ -3214,8 +3213,7 @@ export default function PlayerApp() {
           magnetFileKindSubtitle: dict.magnetFileKindSubtitle,
           magnetFileKindFolder: dict.magnetFileKindFolder,
           magnetFileKindOther: dict.magnetFileKindOther,
-          magnetNavBack: dict.magnetNavBack,
-          magnetNavForward: dict.magnetNavForward,
+          magnetTableNavUp: dict.magnetTableNavUp,
         }}
       />
 

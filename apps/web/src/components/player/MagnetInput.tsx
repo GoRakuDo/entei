@@ -5,9 +5,11 @@
  * - Top: shadcn Input (magnet URI) + Lucide Magnet icon-only create button.
  * - Center: shadcn Table — empty state before metadata, spinner during
  *           checking, file/folder rows after metadata arrives.
- * - Bottom: ChevronLeft (back) / "Pilih & putar" (select & play) /
- *           ChevronRight (forward, always disabled — folder navigation is
- *           via clicking folder names in the table, not the chevron).
+ *           Table header "file name" column shows an ArrowUp button when
+ *           navigating inside a subfolder (folderPath set).
+ * - Bottom: "Pilih & putar" (select & play) / "Batal" (cancel during
+ *           checking/settling). No chevron buttons; folder navigation is
+ *           via clicking folder names in the table or the ArrowUp button.
  * - Tracker/peer IP disclosure shown as plain text above bottom nav.
  *
  * Only the explicit "Pilih & putar" button calls /select and hands the
@@ -65,8 +67,7 @@ import {
   FileText,
   Folder,
   Loader2,
-  ChevronLeft,
-  ChevronRight,
+  ArrowUp,
 } from 'lucide-react';
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
@@ -122,7 +123,6 @@ export interface MagnetInputDict {
   magnetNoVideoError: string;
   magnetSelectSubmit: string;
   magnetCancel: string;
-  magnetBack: string;
   dialogClose: string;
   // ED-2G: File browser table
   magnetTableFileName: string;
@@ -131,8 +131,7 @@ export interface MagnetInputDict {
   magnetFileKindSubtitle: string;
   magnetFileKindFolder: string;
   magnetFileKindOther: string;
-  magnetNavBack: string;
-  magnetNavForward: string;
+  magnetTableNavUp: string;
 }
 
 interface MagnetInputProps {
@@ -214,7 +213,6 @@ export function MagnetInput({
   const [videoId, setVideoId] = useState('');
   const [subtitleId, setSubtitleId] = useState('');
   const [error, setError] = useState<ErrorKind>(null);
-  const [settleLabel, setSettleLabel] = useState<string | null>(null);
   // Folder navigation: internal path state (never sent to cancel/recreate)
   const [folderPath, setFolderPath] = useState('');
 
@@ -264,7 +262,6 @@ export function MagnetInput({
       epochRef.current += 1;
       jobIdRef.current = null;
       settleRef.current = null;
-      setSettleLabel(null);
       setMagnet('');
       setPhase('input');
       setJobId('');
@@ -281,10 +278,9 @@ export function MagnetInput({
 
   // Cancels the torrent job this dialog owns
   const runCancel = useCallback(
-    (label: string | null = null): Promise<void> => {
+    (): Promise<void> => {
       const id = jobIdRef.current;
       if (!id) {
-        setSettleLabel(null);
         return Promise.resolve();
       }
       epochRef.current += 1;
@@ -295,7 +291,6 @@ export function MagnetInput({
       setVideoId('');
       setSubtitleId('');
       setError(null);
-      setSettleLabel(label ?? dict.magnetCancel);
       setPhase('settling');
       setFolderPath('');
       const settle = (async () => {
@@ -323,7 +318,7 @@ export function MagnetInput({
       settleRef.current = settle;
       return settle;
     },
-    [token, dict],
+    [token],
   );
 
   const handleOpenChange = useCallback(
@@ -338,13 +333,8 @@ export function MagnetInput({
   );
 
   const handleCancel = useCallback(() => {
-    void runCancel(dict.magnetCancel);
-  }, [runCancel, dict]);
-
-  // File-picker return: cancels the owned job (NOT folder navigation)
-  const handleBack = useCallback(() => {
-    void runCancel(dict.magnetBack);
-  }, [runCancel, dict]);
+    void runCancel();
+  }, [runCancel]);
 
   // Releases a job the companion accepted for a create request this dialog
   // no longer owns (the dialog was closed/reopened while the create was in
@@ -594,7 +584,6 @@ export function MagnetInput({
         jobIdRef.current = null;
         setPhase('input');
         setMagnet('');
-        setSettleLabel(null);
         setFolderPath('');
         onJobAccepted(jobId, selected ? selected.basename : '');
         return;
@@ -634,7 +623,6 @@ export function MagnetInput({
   const busy = phase === 'creating' || phase === 'submitting' || phase === 'settling';
   const canCreate = isPaired && phase === 'input' && !busy && isValidMagnetUri(magnet);
   const hasVideoSelected = videoId !== '';
-  const hasJob = jobId !== '';
   const showTable = phase === 'selecting';
   const showChecking = phase === 'checking';
 
@@ -690,7 +678,26 @@ export function MagnetInput({
                     <TableHead className="entei-magnet-table-head-check" />
                     <TableHead className="entei-magnet-table-head-type" />
                     <TableHead className="entei-magnet-table-head-name">
-                      {dict.magnetTableFileName}
+                      <span className="entei-magnet-table-head-name-text">
+                        {dict.magnetTableFileName}
+                      </span>
+                      {/* ArrowUp: only rendered when folderPath is set (selecting
+                          phase with a subfolder open). No separate disabled
+                          guard needed — folderPath is '' at root. */}
+                      {folderPath && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="entei-magnet-arrow-up-btn"
+                          onClick={handleFolderBack}
+                          disabled={busy}
+                          aria-label={dict.magnetTableNavUp}
+                          title={dict.magnetTableNavUp}
+                        >
+                          <ArrowUp size={14} aria-hidden="true" />
+                        </Button>
+                      )}
                     </TableHead>
                     <TableHead className="entei-magnet-table-head-size">
                       {dict.magnetTableSize}
@@ -810,20 +817,8 @@ export function MagnetInput({
               {dict.magnetConsentLabel}
             </p>
 
-            {/* ── Bottom: Back / Select & play / Forward ── */}
+            {/* ── Bottom: Select & play ── */}
             <div className="entei-magnet-browser-bottom">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="entei-magnet-nav-btn"
-                onClick={hasJob ? handleBack : handleFolderBack}
-                disabled={busy || (!hasJob && !folderPath)}
-                aria-label={hasJob ? dict.magnetBack : dict.magnetNavBack}
-                title={hasJob ? dict.magnetBack : dict.magnetNavBack}
-              >
-                <ChevronLeft size={16} aria-hidden="true" />
-              </Button>
               {(showChecking || phase === 'settling') ? (
                 <Button
                   type="button"
@@ -843,17 +838,6 @@ export function MagnetInput({
                   {busy ? dict.magnetInputSubmitting : dict.magnetSelectSubmit}
                 </Button>
               )}
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="entei-magnet-nav-btn"
-                disabled
-                aria-label={`${dict.magnetNavForward} — ${dict.magnetFileKindFolder}`}
-                title={`${dict.magnetNavForward} — ${dict.magnetFileKindFolder}`}
-              >
-                <ChevronRight size={16} aria-hidden="true" />
-              </Button>
             </div>
           </div>
         )}

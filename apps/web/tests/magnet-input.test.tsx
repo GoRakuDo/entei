@@ -41,7 +41,6 @@ const baseDict = {
   magnetNoVideoError: 'No selectable video in this torrent.',
   magnetSelectSubmit: 'Select & play',
   magnetCancel: 'Cancel',
-  magnetBack: 'Back',
   dialogClose: 'Close',
   // ED-2G: File browser table
   magnetTableFileName: 'File name',
@@ -50,8 +49,7 @@ const baseDict = {
   magnetFileKindSubtitle: 'subtitle',
   magnetFileKindFolder: 'folder',
   magnetFileKindOther: 'file',
-  magnetNavBack: 'Previous folder',
-  magnetNavForward: 'Next folder',
+  magnetTableNavUp: 'Go up one level',
 };
 
 const VALID_URI = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
@@ -153,6 +151,13 @@ describe('MagnetInput — pairing gate', () => {
     expect(emptyRow).toBeInTheDocument();
   });
 
+  it('no bottom ChevronLeft or ChevronRight buttons exist in the DOM', () => {
+    render(<MagnetInput {...defaultProps} />);
+    expect(document.querySelector('.entei-magnet-nav-btn')).not.toBeInTheDocument();
+    expect(document.querySelector('.lucide-chevron-left')).not.toBeInTheDocument();
+    expect(document.querySelector('.lucide-chevron-right')).not.toBeInTheDocument();
+  });
+
   it('title has no Magnet SVG icon', () => {
     render(<MagnetInput {...defaultProps} />);
     const titleEl = document.querySelector('.entei-magnet-dialog-title');
@@ -169,24 +174,6 @@ describe('MagnetInput — pairing gate', () => {
     expect(inputStyle.minHeight).toBe(btnStyle.minHeight);
   });
 
-  it('enabled nav buttons have default surface background', () => {
-    render(<MagnetInput {...defaultProps} />);
-    const navBtns = document.querySelectorAll('.entei-magnet-nav-btn:not(:disabled)');
-    for (const btn of Array.from(navBtns)) {
-      const style = window.getComputedStyle(btn);
-      expect(style.backgroundColor).not.toBe('transparent');
-    }
-  });
-
-  it('disabled forward nav button has transparent background', () => {
-    render(<MagnetInput {...defaultProps} />);
-    const disabledBtn = document.querySelector('.entei-magnet-nav-btn:disabled');
-    expect(disabledBtn).toBeInTheDocument();
-    const style = window.getComputedStyle(disabledBtn!);
-    // transparent and rgba(0,0,0,0) are semantically identical
-    expect(style.backgroundColor === 'transparent' || style.backgroundColor === 'rgba(0, 0, 0, 0)').toBe(true);
-  });
-
   it('interactive buttons have transition properties', () => {
     render(<MagnetInput {...defaultProps} />);
     const addBtn = screen.getByRole('button', { name: baseDict.magnetInputLabelTitle });
@@ -198,15 +185,6 @@ describe('MagnetInput — pairing gate', () => {
     render(<MagnetInput {...defaultProps} />);
     const consentEl = screen.getByText(baseDict.magnetConsentLabel);
     expect(consentEl.className).toContain('entei-magnet-consent-text');
-  });
-
-  it('folder back normalizes double slashes in path', () => {
-    // This is a unit-level check that handleFolderBack uses filter(Boolean)
-    // We verify the function exists and the path splitting works correctly
-    render(<MagnetInput {...defaultProps} />);
-    // The function is internal; we verify the component renders without error
-    // when folderPath contains double slashes (the filter(Boolean) handles it)
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 });
 
@@ -471,7 +449,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     expect(screen.queryByText(/[0-9.,]+\s*(B|KB|MB)/)).not.toBeInTheDocument();
   });
 
-  it('file list → Batal → same-magnet retry: the first cancel settles before the second create', async () => {
+  it('file list → Close → same-magnet retry: the first cancel settles before the second create', async () => {
     const { fetchMock, calls } = makeFetcher([
       jsonResponse({ id: 'jobA' }, 201),                                                        // create A
       jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),           // poll A
@@ -484,7 +462,10 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       jsonResponse({ files: FILES }, 200),                                                      // files B
     ]);
     vi.stubGlobal('fetch', fetchMock);
-    render(<MagnetInput {...defaultProps} />);
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
+    );
 
     // First attempt: create → metadata → file picker.
     await fillMagnet();
@@ -494,16 +475,18 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     await flush(5000);
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
 
-    // Kembali (Back) from the file picker: the dialog must NOT become
+    // Close (×) from the file picker: the dialog must NOT become
     // actionable while the cancel settlement is pending.
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetBack }));
-    // Input is always visible in unified shell; the Cancel button indicates settling.
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: baseDict.magnetCancel })).toBeInTheDocument();
-    await flush(0); // cancel ack settles → input restored
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    // Reopen the dialog — the cancel settles during reopen.
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
+    rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={true} />);
+    await flush(0); // cancel ack settles → fresh input ready
     expect(screen.getByRole('textbox')).toBeInTheDocument();
 
     // Same attempt, same magnet: submit again immediately.
+    await fillMagnet();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
     await flush(0);
 
@@ -657,13 +640,28 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 
-  it('file picker shows the localized Back label (never Batal) and it releases the owned job', async () => {
+  it('ArrowUp in a subfolder navigates up without cancelling the job', async () => {
     const { fetchMock, calls } = makeFetcher([
-      jsonResponse({ id: 'jobBack' }, 201),
-      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
-      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),
-      jsonResponse({ files: FILES }, 200),
-      jsonResponse({ id: 'jobBack', state: 'cancelled' }, 200),
+      jsonResponse({ id: 'jobUp' }, 201),                           // create
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200), // poll
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),   // poll → files
+      jsonResponse(
+        {
+          files: [
+            { id: 'd0', basename: 'Season 01', kind: 'folder', relativePath: 'Season 01' },
+          ],
+        },
+        200,
+      ), // root: folder only
+      jsonResponse({ files: [FILES[0]] }, 200),                    // inside Season 01: video
+      jsonResponse(
+        {
+          files: [
+            { id: 'd0', basename: 'Season 01', kind: 'folder', relativePath: 'Season 01' },
+          ],
+        },
+        200,
+      ), // ArrowUp → root re-fetch
     ]);
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
@@ -672,19 +670,30 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     await flush(0);
     await flush(5000);
     await flush(5000);
-    // The picker's return action is the localized Back wording — no
-    // separate cancel/Batal label on the selecting screen; Cancel only
-    // appears after pressing Back (during settling).
-    const backBtn = screen.getByRole('button', { name: baseDict.magnetBack });
-    // Pressing it runs the SAME awaited cancel settlement (not a phase reset).
-    fireEvent.click(backBtn);
-    // Input stays visible (unified shell); Cancel button appears during settling.
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: baseDict.magnetCancel })).toBeInTheDocument();
+    // Root: ArrowUp must NOT be in the DOM.
+    expect(screen.queryByRole('button', { name: baseDict.magnetTableNavUp })).not.toBeInTheDocument();
+    // Open the subfolder.
+    fireEvent.click(screen.getByRole('button', { name: 'Season 01' }));
     await flush(0);
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobBack/cancel'))).toBe(true);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+    // ArrowUp is now visible.
+    const arrowUp = screen.getByRole('button', { name: baseDict.magnetTableNavUp });
+    expect(arrowUp).toBeInTheDocument();
+    // Click ArrowUp: should fetch root (parentPath absent) and NOT call /cancel.
+    fireEvent.click(arrowUp);
+    await flush(0);
+    await flush(0);
+    await flush(0);
+    // The root fetch should have been made (no parentPath param).
+    const rootFetch = calls.find(
+      (c) => c.url.includes('/v1/source/torrents/jobUp/files') && !c.url.includes('parentPath'),
+    );
+    expect(rootFetch).toBeTruthy();
+    // The cancel endpoint must NOT have been called.
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobUp/cancel'))).toBe(false);
+    // Back to root: ArrowUp disappears.
+    await flush(0);
+    expect(screen.queryByRole('button', { name: baseDict.magnetTableNavUp })).not.toBeInTheDocument();
   });
 
   it('top-right close from the file picker cancels the owned job and gates the next open', async () => {

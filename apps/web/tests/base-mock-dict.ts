@@ -201,7 +201,6 @@ export const baseMockDict = {
   magnetNoVideoError: 'No selectable video in this torrent.',
   magnetSelectSubmit: 'Select & play',
   magnetCancel: 'Cancel',
-  magnetBack: 'Back',
   // ED-2G: File browser table
   magnetTableFileName: 'File name',
   magnetTableSize: 'Size',
@@ -209,8 +208,7 @@ export const baseMockDict = {
   magnetFileKindSubtitle: 'subtitle',
   magnetFileKindFolder: 'folder',
   magnetFileKindOther: 'file',
-  magnetNavBack: 'Previous folder',
-  magnetNavForward: 'Next folder',
+  magnetTableNavUp: 'Go up one level',
   // Tracker (IMMERSION_TRACKER Stage 2b)
   trackerLabel: 'Tracker',
   trackerOn: 'ON',
