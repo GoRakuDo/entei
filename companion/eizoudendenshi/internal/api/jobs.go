@@ -235,6 +235,18 @@ func (s *Server) serveJobMedia(w http.ResponseWriter, r *http.Request) bool {
 // Range contract. It is the parameterized body of serveGrowingMedia (which
 // passes the configured grow source); the job media path passes the job's
 // completed source.
+//
+// Contract (shared with serveStreamingPrefix, documented in
+// companion/eizoudendenshi/README.md and docs/EIZOU_DENDENSHI.md):
+//   - a Range whose start lies within [0, avail) → 206; when the requested
+//     end reaches beyond avail (e.g. Chrome's open-ended bytes=0-), end is
+//     clamped to avail-1 per RFC 9110 — an exact partial response, never a
+//     byte beyond avail
+//   - a Range starting at or beyond avail → 503 + Retry-After
+//   - a Range starting at or beyond total → 416 ("bytes */total")
+//   - no usable Range while avail < total → 503 (a partial 200 is never
+//     served); with avail == total → 200 full body
+//   - HEAD mirrors GET status/headers without a body
 func (s *Server) serveGrowingSource(src media.GrowingSource, w http.ResponseWriter, r *http.Request) {
 	total := src.Total()
 	avail := src.Available()
@@ -254,9 +266,15 @@ func (s *Server) serveGrowingSource(src media.GrowingSource, w http.ResponseWrit
 			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 			return
 		}
-		if avail < total && (start >= avail || end >= avail) {
+		if start >= avail {
 			s.writeBuffering(w, r, avail, total)
 			return
+		}
+		if end >= avail {
+			// RFC 9110: clamp to avail-1 (Chrome 151 sends open-ended
+			// bytes=0- first; a 503 makes the element fail before playback
+			// can start). Bytes beyond avail are never served.
+			end = avail - 1
 		}
 		length := end - start + 1
 		w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.FormatInt(total, 10))

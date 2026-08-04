@@ -190,14 +190,10 @@ func TestGrowRangeBoundaryExactEnd(t *testing.T) {
 	rec := growRequest(t, h, s.token, http.MethodGet, "bytes=0-99")
 	assert206Window(t, rec, data, 0, 99)
 
-	// One byte past the boundary: crossing → 503, never a truncated 206.
+	// A range ending one byte past the boundary is clamped to avail-1
+	// (RFC 9110 partial response) — never a byte beyond avail.
 	rec = growRequest(t, h, s.token, http.MethodGet, "bytes=0-100")
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("bytes=0-100: status = %d, want 503 (crossing)", rec.Code)
-	}
-	if b := decodeBuffering(t, rec); b.Available != 100 {
-		t.Errorf("crossing body = %+v, want available 100", b)
-	}
+	assert206Window(t, rec, data, 0, 99)
 
 	// Range starting exactly at the boundary: 503, NOT 416 (it may become
 	// satisfiable) and not a zero-byte fake success.
@@ -211,23 +207,21 @@ func TestGrowRangeBoundaryExactEnd(t *testing.T) {
 	}
 }
 
-func TestGrowRangeCrossingAvailability503(t *testing.T) {
+// A range that starts inside the available prefix but ends beyond it is
+// served 206 with end clamped to avail-1: every returned byte is verified
+// and the window is exact (RFC 9110 partial response). The 503 path is
+// reserved for ranges whose START is not yet available.
+func TestGrowRangeCrossingAvailabilityClamps206(t *testing.T) {
 	data := growData(2048)
 	s, _ := newGrowServer(t, data, 100)
 	h := s.Handler()
 
 	rec := growRequest(t, h, s.token, http.MethodGet, "bytes=50-150")
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("crossing range status = %d, want 503 (never a truncated 206/200)", rec.Code)
-	}
-	b := decodeBuffering(t, rec)
-	if b.Available != 100 || b.Total != 2048 {
-		t.Errorf("body = %+v, want available 100 / total 2048", b)
-	}
-	if rec.Header().Get("Content-Range") != "" {
-		t.Error("503 must not carry a Content-Range (no partial success)")
-	}
-	assertNoSecrets(t, rec, s, "")
+	assert206Window(t, rec, data, 50, 99)
+
+	// An open-ended crossing request behaves identically.
+	rec = growRequest(t, h, s.token, http.MethodGet, "bytes=50-")
+	assert206Window(t, rec, data, 50, 99)
 }
 
 func TestGrowRangeEntirelyUnavailable503(t *testing.T) {
@@ -244,6 +238,51 @@ func TestGrowRangeEntirelyUnavailable503(t *testing.T) {
 		if b := decodeBuffering(t, rec); b.Available != 100 {
 			t.Errorf("%s: body = %+v, want available 100", rng, b)
 		}
+	}
+}
+
+// Chrome 151 opens playback with an open-ended bytes=0- request. While the
+// file is incomplete this is answered 206 with end clamped to avail-1
+// (RFC 9110 partial response): Content-Range bytes 0-(avail-1)/total,
+// Content-Length == avail, and a body of exactly avail bytes — never a
+// byte beyond the verified prefix. With avail == total the same request is
+// a full 206.
+func TestGrowOpenEndedRangeServesAvailablePrefix(t *testing.T) {
+	data := growData(2048)
+
+	s, _ := newGrowServer(t, data, 100)
+	h := s.Handler()
+	rec := growRequest(t, h, s.token, http.MethodGet, "bytes=0-")
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("bytes=0- (avail 100): status = %d, want 206; body=%q", rec.Code, rec.Body.String())
+	}
+	if cr := rec.Header().Get("Content-Range"); cr != "bytes 0-99/2048" {
+		t.Errorf("bytes=0-: Content-Range = %q, want bytes 0-99/2048 (avail-1 as end)", cr)
+	}
+	if cl := rec.Header().Get("Content-Length"); cl != "100" {
+		t.Errorf("bytes=0-: Content-Length = %q, want 100 (exactly avail)", cl)
+	}
+	if rec.Body.Len() != 100 {
+		t.Fatalf("bytes=0-: body length = %d, want 100 (no byte beyond avail)", rec.Body.Len())
+	}
+	if got := rec.Body.String(); got != string(data[:100]) {
+		t.Error("bytes=0-: body does not match the available prefix")
+	}
+
+	// avail == total: the same open-ended request is a full 206.
+	s2, _ := newGrowServer(t, data, int64(len(data)))
+	rec2 := growRequest(t, s2.Handler(), s2.token, http.MethodGet, "bytes=0-")
+	if rec2.Code != http.StatusPartialContent {
+		t.Fatalf("bytes=0- (complete): status = %d, want 206", rec2.Code)
+	}
+	if cr := rec2.Header().Get("Content-Range"); cr != "bytes 0-2047/2048" {
+		t.Errorf("bytes=0- (complete): Content-Range = %q, want bytes 0-2047/2048", cr)
+	}
+	if cl := rec2.Header().Get("Content-Length"); cl != "2048" {
+		t.Errorf("bytes=0- (complete): Content-Length = %q, want 2048", cl)
+	}
+	if rec2.Body.Len() != 2048 {
+		t.Errorf("bytes=0- (complete): body length = %d, want 2048", rec2.Body.Len())
 	}
 }
 
@@ -279,11 +318,14 @@ func TestGrowSuffixRange(t *testing.T) {
 	assert206Window(t, growRequest(t, h, s.token, http.MethodGet, "bytes=-5000"), data, 0, 2047)
 
 	// Incomplete file: a suffix selects the final n bytes of the TOTAL
-	// representation (RFC 9110), which do not exist yet — so every suffix
-	// request is 503 until the file completes. Never a fabricated window.
+	// representation (RFC 9110), which do not exist yet — so a suffix
+	// whose start lies beyond the available prefix is 503 until the file
+	// completes. The full-length suffix bytes=-2048 is equivalent to the
+	// open-ended bytes=0- (start 0 < avail) and is served 206 with end
+	// clamped to avail-1. Never a fabricated window.
 	s2, _ := newGrowServer(t, data, 100)
 	h2 := s2.Handler()
-	for _, rng := range []string{"bytes=-50", "bytes=-100", "bytes=-101", "bytes=-2048"} {
+	for _, rng := range []string{"bytes=-50", "bytes=-100", "bytes=-101"} {
 		rec := growRequest(t, h2, s2.token, http.MethodGet, rng)
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("%s (avail 100): status = %d, want 503", rng, rec.Code)
@@ -293,6 +335,7 @@ func TestGrowSuffixRange(t *testing.T) {
 			t.Errorf("%s: body = %+v, want available 100", rng, b)
 		}
 	}
+	assert206Window(t, growRequest(t, h2, s2.token, http.MethodGet, "bytes=-2048"), data, 0, 99)
 }
 
 // RFC 9110 clamping: last-byte-pos beyond the representation end clamps to
@@ -375,9 +418,9 @@ func TestGrowHeadMirrorsGet(t *testing.T) {
 			headers: map[string]string{"Content-Range": "bytes 10-49/2048", "Content-Length": "40"},
 		},
 		{
-			name:  "range crossing availability",
-			avail: 100, rng: "bytes=50-150", want: http.StatusServiceUnavailable,
-			headers: map[string]string{"Retry-After": bufferingRetryAfter},
+			name:  "range crossing availability (clamped 206)",
+			avail: 100, rng: "bytes=50-150", want: http.StatusPartialContent,
+			headers: map[string]string{"Content-Range": "bytes 50-99/2048", "Content-Length": "50"},
 		},
 		{
 			name:  "range beyond total",

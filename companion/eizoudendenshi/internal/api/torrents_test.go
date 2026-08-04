@@ -938,8 +938,10 @@ func TestTorrentStatusStreamingPlayable(t *testing.T) {
 }
 
 // TestTorrentMediaStreamingServesVerifiedPrefix verifies the media endpoint
-// serves 206 for ranges within the verified prefix and 503 for ranges beyond
-// during the streaming state.
+// serves 206 for ranges whose start lies within the verified prefix (an
+// end beyond the prefix is clamped to avail-1 per RFC 9110 — Chrome's
+// open-ended bytes=0- works) and 503 for ranges starting beyond it during
+// the streaming state.
 func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mp4:800000")
 	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
@@ -1014,17 +1016,25 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 		t.Fatalf("range within prefix = %d, want 206", rec.Code)
 	}
 
-	// Range crossing prefix boundary → 503.
+	// Range crossing prefix boundary → 206 with end clamped to avail-1
+	// (RFC 9110 partial response; exactly the open-ended bytes=0- shape
+	// Chrome 151 sends first).
 	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	req.Header.Set("Range", "bytes=100000-300000")
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("range crossing prefix = %d, want 503", rec.Code)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("range crossing prefix = %d, want 206 (clamped to avail-1)", rec.Code)
+	}
+	if cr := rec.Header().Get("Content-Range"); cr != "bytes 100000-199999/800000" {
+		t.Errorf("range crossing prefix: Content-Range = %q, want bytes 100000-199999/800000", cr)
+	}
+	if rec.Body.Len() != 100_000 {
+		t.Errorf("range crossing prefix: body length = %d, want 100000 (no byte beyond avail)", rec.Body.Len())
 	}
 
-	// Range entirely beyond prefix → 503.
+	// Range entirely beyond prefix → 503 (start >= avail).
 	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	req.Header.Set("Range", "bytes=400000-500000")

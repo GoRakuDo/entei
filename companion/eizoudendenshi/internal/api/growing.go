@@ -22,33 +22,6 @@ type bufferingBody struct {
 	Total     int64  `json:"total"`
 }
 
-// serveGrowingMedia serves a growing media source (ED-2C PoC) with an
-// explicit, availability-aware contract. The representation has a known
-// final size (Total) and a current available prefix [0, Available()).
-//
-// Contract (documented in companion/eizoudendenshi/README.md and
-// docs/EIZOU_DENDENSHI.md):
-//   - GET/HEAD without a usable Range: 200 with the full body only when
-//     Available == Total. Otherwise 503 — a 200 would falsely claim the
-//     representation is complete (truncated success).
-//   - Single Range fully within [0, Available()): 206 Partial Content with
-//     the exact window and "Content-Range: bytes a-b/Total" (standard
-//     Range semantics).
-//   - Single Range touching or beyond Available() but starting below
-//     Total: 503 Service Unavailable with Retry-After — never a truncated
-//     206, never fabricated bytes, never an indefinite block.
-//   - Range starting at or beyond Total: 416 with "bytes */Total" — the
-//     only permanently-unsatisfiable case; a merely-not-yet range is 503.
-//   - HEAD mirrors GET's status and headers with an empty body.
-//   - A malformed, non-bytes, or multi-range Range header is ignored
-//     (treated as no Range), per RFC 9110; multipart ranges are out of
-//     scope for the growing endpoint.
-//
-// TOCTOU: Available() is snapshotted once per request and the served
-// window is derived from that snapshot; reads never cross it. Sources
-// additionally refuse reads past their own availability (see
-// internal/media) and availability is monotonic, so a concurrent writer
-// cannot cause an unavailable byte to be served.
 // serveGrowingMedia serves the configured growing source (ED-2C). It is a
 // thin wrapper over the shared serveGrowingSource (internal/api/jobs.go),
 // which also serves the ED-2F job media path.
@@ -58,12 +31,14 @@ type bufferingBody struct {
 //   - GET/HEAD without a usable Range: 200 with the full body only when
 //     Available == Total. Otherwise 503 — a 200 would falsely claim the
 //     representation is complete (truncated success).
-//   - Single Range fully within [0, Available()): 206 Partial Content with
-//     the exact window and "Content-Range: bytes a-b/Total" (standard
-//     Range semantics).
-//   - Single Range touching or beyond Available() but starting below
-//     Total: 503 Service Unavailable with Retry-After — never a truncated
-//     206, never fabricated bytes, never an indefinite block.
+//   - Single Range starting within [0, Available()): 206 Partial Content —
+//     when the requested end reaches beyond Available() (e.g. the
+//     open-ended bytes=0- Chrome 151 sends first) it is clamped to
+//     Available()-1 per RFC 9110: an exact partial response, never a byte
+//     beyond the verified prefix.
+//   - Single Range starting at or beyond Available(): 503 Service
+//     Unavailable with Retry-After — never fabricated bytes, never an
+//     indefinite block.
 //   - Range starting at or beyond Total: 416 with "bytes */Total" — the
 //     only permanently-unsatisfiable case; a merely-not-yet range is 503.
 //   - HEAD mirrors GET's status and headers with an empty body.

@@ -36,6 +36,12 @@ DPAPI-backed persistent credential — see
 > `load()`+`play()` gets `206` and plays to the end, post-reload seek
 > works) — see
 > [Windows Chrome measurement](#measured-in-windows-chrome-2026-07-31-growing-file).
+> **2026-08-05:** Chrome 151 sends open-ended `bytes=0-` first; the old
+> `end >= Available → 503` answer made the element fail with `error` code
+> 4 before playback could start. Requests whose start lies inside the
+> prefix are now answered `206` with end clamped to `Available-1` (RFC
+> 9110 partial response; never a byte beyond the prefix), so the initial
+> 503→error-code-4 path is eliminated (re-measurement pending).
 > Android Chrome growing-media playback remains **unverified** and is not
 > claimed. The **yt-dlp YouTube source job** (ED-2F) is IMPLEMENTED with a
 > full real-download QA PASS (2026-08-01) and a user-facing URL input; the
@@ -294,10 +300,11 @@ it is **not** measured in Android Chrome yet (see gates below).
 |---|---|
 | GET/HEAD, no usable Range, `Available == Total` | `200` full body, `Content-Length: Total` |
 | GET/HEAD, no usable Range, `Available < Total` | `503` + `Retry-After: 1`, JSON body (below) |
-| Range fully within `[0, Available)` | `206`, exact window, `Content-Range: bytes a-b/Total` |
-| Range crossing or beyond `Available` (start `< Total`) | `503` + `Retry-After: 1`, JSON body (below) |
+| Range with start in `[0, Available)`, end `< Available` | `206`, exact window, `Content-Range: bytes a-b/Total` |
+| Range with start `< Available` whose end reaches `Available` or beyond (incl. open-ended `bytes=0-`) | `206` with end clamped to `Available-1` (RFC 9110 partial response; 2026-08-05 fix) |
+| Range starting at/after `Available` | `503` + `Retry-After: 1`, JSON body (below) |
 | Range starting at/after `Total` | `416`, `Content-Range: bytes */Total` (permanent only) |
-| Suffix range (`bytes=-n`) while incomplete | `503` (suffix selects the final n bytes of the TOTAL representation) |
+| Suffix range (`bytes=-n`) while incomplete | `503` (start `Total-n` is unverified; the full-length suffix `bytes=-Total` behaves like `bytes=0-` → clamped `206`) |
 | Malformed / non-`bytes` / multi-range header | ignored (treated as no Range; multipart unsupported) |
 
 503 body — metadata only, never paths or tokens:
@@ -315,9 +322,17 @@ an empty body.
 
 The alternatives were rejected as unsafe or ambiguous:
 
-- **Truncated `206`** (serve only the available part of the window): the
-  player silently treats the truncated body as the real file — corruption,
-  not buffering. Banned.
+- **Clamped `206` for a range starting inside the prefix (2026-08-05)**: an
+  open-ended `bytes=0-` (what Chrome 151 sends first) asks "all bytes, but
+  as much real data as is available" — RFC 9110 explicitly permits
+  answering it with a partial response, so it gets `206` with end clamped
+  to `Available-1` and an exact `Content-Range`. A `503` here made Chrome's
+  media element fail with `error` code 4 before playback could start
+  (measured 2026-07-31). Bytes beyond `Available` are never served.
+- **`503` for a range starting beyond the prefix**: "data starting at byte
+  X" cannot be partially satisfied — nothing at X is verified yet — so it
+  stays an explicit retryable `503` (never a truncated body the player
+  could mistake for the real file).
 - **`416` for not-yet-available ranges**: `416` means *permanently*
   unsatisfiable; clients and caches may treat it as final. Only
   `start >= Total` is permanent here, and that is the single `416` case.
@@ -336,6 +351,13 @@ tokens, or pairing data ever appear.
 
 ### Measured on Windows and Termux loopback (2026-07-31)
 
+> **2026-08-05 fix:** the loopback record below was measured under the old
+> contract (`end >= Available` → `503`). Since the fix, a crossing /
+> open-ended request (`bytes=0-` etc.) whose start lies inside the prefix
+> is answered `206` with end clamped to `Available-1` (RFC 9110; no byte
+> beyond `Available`). The `503` (start `>= Available`), `416` (start
+> `>= Total`), suffix, and no-Range contracts are unchanged.
+
 The same deterministic growing-file scenario was run through the **actual
 companion binaries** on **Windows loopback** and **Termux (Android/arm64)
 loopback**. Fixture: total 200 bytes, initial available 100 bytes; the
@@ -352,15 +374,24 @@ token/origin gates were satisfied. Identical results on both platforms:
 Both temporary servers, binaries, and fixtures were removed afterwards,
 and the Termux wake lock was released.
 
-The Go test suite covers the full contract (boundary-exact-end, crossing,
-wholly-unavailable, suffix, `416`-only-when-permanent, HEAD mirror,
-invalid-Range ignore, secrets-not-leaked) plus a deterministic concurrent
-availability-change test; `go test -race ./...` is green. The **`503`-vs-
-`416` safety contract holds on device**: only `start >= Total` is `416`,
-and a crossing or wholly-unavailable range is always an explicit retryable
-`503` — never a truncated `206`, a zero-byte fake success, or a block.
+The Go test suite covers the full contract (boundary-exact-end, crossing →
+clamped `206`, start-unavailable `503`, suffix, `416`-only-when-permanent,
+HEAD mirror, invalid-Range ignore, secrets-not-leaked) plus a
+deterministic concurrent availability-change test; `go test -race ./...`
+is green. The **`503`-vs-`416` safety contract holds**: only `start >=
+Total` is `416`; a range starting at/after `Available` is an explicit
+retryable `503`; a range starting inside the prefix (`bytes=0-` included)
+is a `206` that never returns a byte beyond `Available` — zero-byte fake
+successes and blocks are absent.
 
 ### Measured in Windows headless Chrome (2026-07-31, growing file)
+
+> **2026-08-05 fix:** measured under the old contract where `bytes=0-`
+> answered `503`. Since the fix the first request is answered `206` (end
+> clamped to `Available-1`), so this `error` code 4 path no longer occurs
+> for the initial request (re-measurement not yet run). A seek into bytes
+> not yet in the prefix still answers `503` — the measured "no auto-retry,
+> fails with `error` code 4" property remains the bridge design's premise.
 
 Browser measurement of real growing-file progressive playback. The probe
 page was served from the Entei dev-server origin `http://localhost:4321`
@@ -473,9 +504,11 @@ gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
 - `headReady`: **informational only, never a `src` gate.** Whether the
   faststart MP4 moov + codec init lie fully inside the available prefix
   (byte-level check, no downloader). **Always `false` in the current
-  implementation.** Separately, the 77%-available fixture still fails
-  (`bytes=0-` → `503` → `error` code 4); for direct `<video>` the only safe
-  readiness is `complete`.
+  implementation.** (The 77%-available fixture failing at `bytes=0-` →
+  `503` → `error` code 4 was measured under the old pre-2026-08-05
+  contract; open-ended requests now get a clamped `206`, but a range
+  starting beyond the prefix still answers `503`.) For direct `<video>`
+  the only safe readiness remains `complete`.
 - `retryAfter`: same hint as the current 503 responses (PoC `1`; present
   only while buffering).
 - `Cache-Control: no-store`; HEAD mirrors GET; OPTIONS preflight
@@ -854,8 +887,10 @@ subtitle** contract. **Nothing is served before a valid selection** —
 `/v1/media/status` reports `buffering` (fixture 503) until then; after a
 valid selection the job streams the **verified prefix** (`playable` status
 when the verified prefix > 0 and a servable source exists — the bridge
-assigns the URL then; ranges inside the verified prefix → `206`, beyond →
-`503 + Retry-After`, never fabricated bytes) and reaches `complete`
+assigns the URL then; ranges starting inside the verified prefix → `206`
+(an end beyond the prefix is clamped to `Available-1` per RFC 9110 — e.g.
+Chrome's open-ended `bytes=0-`), ranges starting beyond it → `503 +
+Retry-After`, never a byte beyond the prefix) and reaches `complete`
 (`available == total`) when the download finishes.
 
 ### Tests

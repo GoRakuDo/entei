@@ -260,8 +260,10 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 //
 //	complete → the growing serv (available == total)
 //	playable / streaming → the verified-prefix streaming serv (206 for
-//	                        ranges within the VERIFIED prefix only; 503 for
-//	                        anything beyond; never fabricated bytes)
+//	                        ranges whose start lies within the VERIFIED
+//	                        prefix, end clamped to avail-1 per RFC 9110;
+//	                        503 for ranges starting beyond it; never
+//	                        fabricated bytes)
 //	downloading / buffering (metadata listed, awaiting selection) → 503
 //	error → generic 404
 func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool {
@@ -286,7 +288,9 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 	case torrent.StateStreaming:
 		if src != nil {
 			// Use the verified-prefix streaming serve: 206 for ranges
-			// within the verified prefix, 503 for anything beyond.
+			// whose start lies within the verified prefix (an end
+			// beyond it is clamped to avail-1 per RFC 9110), 503 for
+			// ranges starting beyond it.
 			// The growing serv would fabricate a 200 body for
 			// avail==total mid-stream which is unsafe here.
 			w.Header().Set("Cache-Control", "no-store")

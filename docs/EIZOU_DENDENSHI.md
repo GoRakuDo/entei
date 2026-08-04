@@ -1,6 +1,6 @@
 # EizouDendenshi — validated local companion plan
 
-> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 66/66 green。**ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2` pre-releaseで通過済み**（rc.1の302 redirect不追従はrc.2のfetch修正で解決。rc.1自体はgate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング修正（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink time注入、Go + harnessテストでdev default `0.2.0` / banner契約 / manifest-banner一致を固定）の上、`eizoudendenshi-v0.2.0-rc.3`で2026-07-31に実機検証済み** — Termuxでmanifest署名・core署名・signed manifestに対するSHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示（manifest versionと一致、rc.2の表示不整合はclosed）。**ED-2C growing-media Range contractはWindows / Termux loopbackで通過済み（2026-07-31・実companion binary実測、`503`/`Retry-After` buffering）。Windows Chromeでのgrowing progressive再生も計測済み（2026-07-31・headless Chrome 151、503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。** **Android Chromeのgrowing再生は未計測。yt-dlp source job（ED-2F・実download QAは2026-08-01に全面成功）とtorrent job（ED-2G・anacrolix/torrent engine、aria2は全削除）は実装済み。実swarm E2E・headed / Android browser QAは未実施。** **ED-2E buffering bridgeは実装済み（2026-07-31・companion `GET/HEAD /v1/media/status` + Entei bridge controller/hook + Player fixture統合（internal entry・session status UI）+ Go 11 / web 29の自動テストgreen。source dialog UX・`headReady` byte-level検査・production bridge・headed/Android browser QAは未実装/未実施）。** **Persistent pairing credentialは実装済み（2026-08-03・旧page-memory-only契約を置換）** — companion側はopaque tokenをWindows DPAPI / Termux app-private storageへ永続化（`internal/credential`、fail-closed、`GET /v1/pair/status` + `DELETE /v1/pair`新設、pairは200前にpersist）、browser側はopaque tokenだけをlocalStorage envelopeへ保存しmount時にstatus検証、明示reset UI（確認Dialog付きdestructive control）を3 localeで実装。Go（credential + api pairing persist）・web（store + hook + setup reset）の自動テストgreen。**deliveryは未完了**: HTTPS Entei origin・Android Chromeのgrowing再生・audio listening/decode・Windows x64 installerが残っている。
+> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 66/66 green。**ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2` pre-releaseで通過済み**（rc.1の302 redirect不追従はrc.2のfetch修正で解決。rc.1自体はgate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング修正（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink time注入、Go + harnessテストでdev default `0.2.0` / banner契約 / manifest-banner一致を固定）の上、`eizoudendenshi-v0.2.0-rc.3`で2026-07-31に実機検証済み** — Termuxでmanifest署名・core署名・signed manifestに対するSHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示（manifest versionと一致、rc.2の表示不整合はclosed）。**ED-2C growing-media Range contractはWindows / Termux loopbackで通過済み（2026-07-31・実companion binary実測、`503`/`Retry-After` buffering）。Windows Chromeでのgrowing progressive再生も計測済み（2026-07-31・headless Chrome 151、503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。** **2026-08-05修正: Chrome 151の最初の`bytes=0-`（全範囲）要求への`503`が再生不能の根本原因だったため、start `< Available` の要求はendを`Available-1`へクランプした`206`部分応答（RFC 9110）を返すよう修正（avail外byteは返さない）。最初のリクエストの503→error code 4経路は解消（実機再計測は未実施）。** **Android Chromeのgrowing再生は未計測。yt-dlp source job（ED-2F・実download QAは2026-08-01に全面成功）とtorrent job（ED-2G・anacrolix/torrent engine、aria2は全削除）は実装済み。実swarm E2E・headed / Android browser QAは未実施。** **ED-2E buffering bridgeは実装済み（2026-07-31・companion `GET/HEAD /v1/media/status` + Entei bridge controller/hook + Player fixture統合（internal entry・session status UI）+ Go 11 / web 29の自動テストgreen。source dialog UX・`headReady` byte-level検査・production bridge・headed/Android browser QAは未実装/未実施）。** **Persistent pairing credentialは実装済み（2026-08-03・旧page-memory-only契約を置換）** — companion側はopaque tokenをWindows DPAPI / Termux app-private storageへ永続化（`internal/credential`、fail-closed、`GET /v1/pair/status` + `DELETE /v1/pair`新設、pairは200前にpersist）、browser側はopaque tokenだけをlocalStorage envelopeへ保存しmount時にstatus検証、明示reset UI（確認Dialog付きdestructive control）を3 localeで実装。Go（credential + api pairing persist）・web（store + hook + setup reset）の自動テストgreen。**deliveryは未完了**: HTTPS Entei origin・Android Chromeのgrowing再生・audio listening/decode・Windows x64 installerが残っている。
 > **Readiness:** Ready with checkpoints
 
 ## Outcome
@@ -109,7 +109,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 1. ユーザーがmagnet URIをEnteiへ貼る。
 2. companionがcanonical magnet（xt + 安全なtracker）でanacrolix/torrent engineを起動し、**metadata取得直後に**（payload完了前）sanitized file一覧を返す。
 3. 複数fileならEnteiがvideo 1本と任意subtitle 1本の選択Modalを出す。eligible videoが無ければ終端generic error（"no playable video"）。
-4. 選択後、engineは選択fileの**head bootstrap**（先頭window 4 MiBをPiecePriorityHighに昇格 + 専用bootstrap readerがbyte 0を要求）で先頭pieceからverified contiguous prefixを成長させ、companionは**verified prefix内のRangeだけ206**、越えるRangeは`503 + Retry-After`で応答する（fabricated bodyなし）。
+4. 選択後、engineは選択fileの**head bootstrap**（先頭window 4 MiBをPiecePriorityHighに昇格 + 専用bootstrap readerがbyte 0を要求）で先頭pieceからverified contiguous prefixを成長させ、companionは**startがverified prefix内のRangeは206**（`bytes=0-`等の全範囲要求はendをavailable-1へクランプしたRFC 9110部分応答。2026-08-05修正）、**startが未取得のRangeは`503 + Retry-After`**で応答する（avail外byteは返さない）。
 5. 未取得位置へのseekはEnteiがbuffer animationとpauseを表示する。prefixがその位置へ届いた時（bridgeの明示`load()`再適用）だけ再開する。
 
 ## Security and data contract
@@ -175,6 +175,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 11. updater（`apply.go`）: rollbackの `os.Rename(bak, target)` は `renameRetry` 未使用（最初のrename成功で名前が解放済みのため安全。将来rename順序を変える時は注意）。`removeRetry` の定数はテスト注入不要のためvar化しない（`renameRetry` との非対称は意図的）。web: `PlayerControls` の依存配列に `surfaceRef` を含めるのは exhaustive-deps 対応（useRefは安定オブジェクトなので挙動に影響なし）（2026-08-05レビュー）。
 12. v2-only torrent拒否: `engine_anacrolix.go:209` の `t.Drop()` はエラーパスの副作用だが、既存のctxキャンセルパターン（同:194）と一致しており安全（二重Dropなし・Drop後のアクセスなし）。変更不要（2026-08-05レビュー）。
 13. updater EXDEV対応: `copyThenRemove` の `os.Remove(oldpath)` 失敗時、コピー成功でも更新が失敗して `.bak` ロールバック（データは安全・再試行可能、許容範囲）。大容量ファイルのコピー中クラッシュ時は次回更新で上書き（部分targetは `.bak` ロールバックで保護）（2026-08-05レビュー）。
+14. streaming 206部分応答: `serveGrowingSource`（jobs.go）と `serveStreamingPrefix`（streaming.go）は同一契約を異なる分岐形状で実装（begin>=availの503、end>=availのクランプ206）。将来の編集でドリフトしないよう、doc commentに契約を同一文言で記載済み。HEAD mirrorのsuffix全長（bytes=-total）テストは未追加（GET側で担保）（2026-08-05レビュー）。
 
 ## Delivery contract
 
@@ -210,7 +211,7 @@ ED-2Gのtorrent jobはanacrolix/torrent engine（v1.61・loopback-only・Seed=fa
 - **metadata → 即時handoff**: canonical magnet（xt + 安全なtracker）を`engine.Start`（bounded metadata fetch、default 2m）に渡すと、**metadata取得直後に**sanitized file list（opaque id / basename / extension / byteSize / kind）が利用可能になる（payload完了を待たない）。eligible videoが無ければ終端generic error（"no playable video"）。metadata timeout（2分） exceeded時は"metadata timed out"エラーでsessionを自動解放し、UIはinput状態へ復帰して同じmagnetの再試行が可能になる。2分はDHT/tracker lookup通常完了時間（10-30秒）とcompanionの5秒poll intervalから上限を設定した値。anacrolix clientの内部状態がstale（同magnetのcancel直後retry等）でGotInfo()が発火しない場合も同様に2分でタイムアウトし、無限spinnerを防ぐ。anacrolix側のstale state自体が解消されたかは未確認であり、timeout + session自動解放によるrecoveryが確実な手段。file listはtorrent metadata由来（engineの`DisplayPath` basename + extension classify）で、stdlibのbencode parserやpiece hashの独自抽出は使わない。
 - **head priority / bootstrap reader（2026-08-03実装）**: 選択（video 1本 + optional subtitle 1本）成功後、選択videoの先頭window（`bootstrapWindowBytes` = 4 MiB、fileの先頭piece indexとtorrentのpiece lengthから導出・file端でclamp）を`types.PiecePriorityHigh`に昇格し、さらに専用bootstrap reader（`StartBootstrap` — byte 0へSeek + 1バイトReadでdemandを維持、`SetReadahead(bootstrapWindowBytes)`）が先頭pieceの取得を要求する。これにより**verified contiguous prefixは常にfile先頭から成長する**。bootstrap readerはjob終了とcompleteの両方でcancelされ、state machineをブロックしない（独立goroutine）。
 - **availability = verified contiguous prefix**: 決してファイルallocated sizeやzero-probingではなく、**torrent自身のpiece SHA-1と照合したverified contiguous prefixのみ**（multi-fileでglobal pieceが他fileに跨る場合は検証不能 → 誠実にbuffering継続）。
-- **HTTP契約**: verified prefix内に完全に収まるRangeのみ`206`（`bytes=0-`もprefixまで206）、prefixを跨ぐ/越えるRangeは`503 + Retry-After`、complete後はgrowing serv（200/206）。fabricated bodyなし。既存ED-2C fixture/grow契約は不変。
+- **HTTP契約**: startがverified prefix内のRangeは`206`（`bytes=0-`等の全範囲要求はendをavailable-1へクランプした部分応答、RFC 9110。2026-08-05修正）、startがprefix未取得のRangeは`503 + Retry-After`、complete後はgrowing serv（200/206）。avail外byteは返さない（fabricated bodyなしの安全契約は不変）。
 - **status**: 選択前は`buffering`（503）、選択後streamingはverified prefix > 0かつservable sourceがあれば`playable`（bridgeがURLを割当てる契機）、`available == total`で`complete`。
 - **safe-early handoff predicate**（`structurallyPlayable`）: MP4/ISO-BMFFはcomplete ftyp+moovがverified prefix内に完全に収まり、stsd video codecがbrowser-decodeable（avc1/avc3/vp09/av01。hvc1/hev1等は拒否）かつverified sample boundaryが存在すること。Matroska/MKVはEBML header + Segment + complete Tracks（decodeable video TrackEntry: V_MPEG4/ISO/AVC, V_VP9, V_AV1。HEVC/unknown/audio-only拒否）+ completeな最初のClusterにvideo blockが含まれること。partial / truncated要素は誠実にbuffering継続。fixed byte thresholdなし。MKV random-seek capabilityは主張しない。
 - **Web bridge**: `playable`でmedia URLをsurfaceし、再生中もstatus poll継続。media error / seek超過時はprefix追いつき後に明示`load()`再適用（bounded）。
@@ -276,10 +277,11 @@ download中など**成長中のメディア**（known total + available prefix�
 |---|---|
 | GET/HEAD・Rangeなし・`Available == Total` | `200` 全body、`Content-Length: Total` |
 | GET/HEAD・Rangeなし・`Available < Total` | `503` + `Retry-After: 1`、JSON body |
-| `[0, Available)` 内に完全に収まるRange | `206` 厳密window、`Content-Range: bytes a-b/Total` |
-| `Available` を跨ぐ/越えるRange（start `< Total`） | `503` + `Retry-After: 1`、JSON body |
+| startが`[0, Available)` 内・endも`< Available`のRange | `206` 厳密window、`Content-Range: bytes a-b/Total` |
+| start `< Available` でendが`Available` を越えるRange（`bytes=0-`含む） | `206`、endを`Available-1`へクランプ（RFC 9110部分応答。2026-08-05修正） |
+| start `>= Available`（未取得prefix開始） | `503` + `Retry-After: 1`、JSON body |
 | `Total` 以降から始まるRange | `416`、`Content-Range: bytes */Total`（恒久的のみ） |
-| 不完全時のsuffix range（`bytes=-n`） | `503`（最終表現の末尾n byteを指すため必然的にunavailable） |
+| 不完全時のsuffix range（`bytes=-n`、n `< Total`） | `503`（start=`Total-n`は未取得。全長suffix `bytes=-Total`は`bytes=0-`相当で206クランプ） |
 | 不正 / 非`bytes` / 複数Rangeヘッダ | 無視（Rangeなし扱い。multipartは対象外） |
 
 503 bodyはmetadataのみ（path / token / pairing dataは一切含めない）:
@@ -292,7 +294,8 @@ download中など**成長中のメディア**（known total + available prefix�
 
 ### なぜ`503 + Retry-After`か（tradeoff）
 
-- **truncated `206`**（windowのavailable分だけ返す）: playerが不完全bodyを実ファイルと誤認＝破損。禁止。
+- **start `< Available` の`206`クランプ**（RFC 9110部分応答、2026-08-05修正）: `bytes=0-`等の全範囲要求は「全byteが欲しいが、実データとして受け取れる範囲で良い」という意味論で、RFC 9110は部分応答を明示的に許可する。endを`Available-1`へクランプし、`Content-Range: bytes start-(avail-1)/total`で正確に応答する。avail外byteは決して返さない。Chrome 151は最初に`bytes=0-`を送るため、ここで`503`を返すとmedia elementが`error` code 4で落ち再生が始まらない（2026-07-31実測）。
+- **start `>= Available` への`503`**: 「位置Xから始まるデータ」は未取得で、部分応答では要求を満たせない。truncated応答（playerが不完全bodyを実ファイルと誤認＝破損）はせず、`503 + Retry-After`で「後で再試行」を明示する。
 - **not-yet-availableに`416`**: `416`は*恒久*不満足の意味論で、client / cacheがfinal扱いする恐れ。`start >= Total`（本当に永久）のみ`416`とする。
 - **`200` + available prefix / zero-byte成功**: `Content-Length < Total`で完全性を偽装。禁止。
 - **availableまでrequestをblock**: connection / handlerを無期限占有し、HTTPとして「まだ」の回答にならない。禁止。
@@ -301,6 +304,8 @@ download中など**成長中のメディア**（known total + available prefix�
 `503` + `Retry-After`は標準の「後で再試行」シグナルで、JSON bodyの`available` / `total`によりEntei側が再試行判断（progressからのbackoff算出など）ができる。`Retry-After: 1`はPoC固定値（将来downloader裏付けsourceでprogressから算出可能）。
 
 ### 実測記録（2026-07-31、Windows / Termux loopback）
+
+> **修正（2026-08-05）:** 下記loopback実測は「end `>= Available` → `503`」の旧契約時の記録。修正後は、start `< Available` の跨ぎ/全範囲要求（`bytes=0-`等）はendを`Available-1`へクランプした`206`を返す（RFC 9110部分応答・avail外byteなし）。start `>= Available` の`503`、`416`（start `>= Total`）、suffix、Rangeなしの契約は不変。
 
 同じ決定的growing-fileシナリオを**実companion binary**でWindows loopbackとTermux（Android/arm64）loopbackの両方で実行した。fixtureはtotal 200・初期available 100、token / origin gateは満たした状態。両platformで同一結果:
 
@@ -314,9 +319,11 @@ download中など**成長中のメディア**（known total + available prefix�
 
 計測後、一時server / binary / fixtureは両platformで削除し、Termuxのwake lockは解放した。
 
-Goテストは契約全体（境界exact end・跨ぎ・完全unavailable・suffix・`416`は恒久のみ・HEAD mirror・不正Range無視・secrets非漏洩）と、availabilityが並行変化する決定的テストをカバーし、`go test -race ./...` green。**`503`-vs-`416` safety contractは実機で成立**: `start >= Total`のみ`416`で、跨ぎ / 完全unavailableは常に明示的retryable `503` — truncated `206` / zero-byte偽成功 / blockは一切ない。
+Goテストは契約全体（境界exact end・crossingの206クランプ・start未取得の503・suffix・`416`は恒久のみ・HEAD mirror・不正Range無視・secrets非漏洩）と、availabilityが並行変化する決定的テストをカバーし、`go test -race ./...` green。**`503`-vs-`416` safety contractは実機で成立**: `start >= Total`のみ`416`、start `>= Available`は明示的retryable `503`、start `< Available`の要求（`bytes=0-`含む）はavail外byteを返さない206クランプ — zero-byte偽成功 / blockは一切ない。
 
 ### 実測記録（2026-07-31、Windows headless Chrome実ブラウザ計測 — growing file）
+
+> **修正（2026-08-05）:** この実測は旧契約（`bytes=0-` → `503`）時の記録。修正後は`bytes=0-`がavailableまでの`206`を返すため、**最初のリクエスト**で`error` code 4になる経路は原理的に解消される（修正後の実機再計測は未実施）。prefix未到達位置へのseekが`503`を返す経路は残り、旧実測の「`503`は自動再試行されない・一度`error` code 4でfailする」性質はbridge設計の前提として引き続き有効。
 
 実companion binary + 実ブラウザでgrowing fileのprogressive再生挙動を計測した。probe pageはEntei dev server origin `http://localhost:4321/probe.html`（開発用一時QAページ、計測後に削除）、companionは`127.0.0.1:4322`。fixtureはvalidな4秒H.264/AAC faststart MP4（total 161958 byte・初期available 124479 byte = 77%）。ブラウザはWindows headless Chrome 151（UA `HeadlessChrome/151.0.0.0`）。video要素は`crossOrigin="anonymous"` + token query param（Origin gateは`http://localhost:4321`で通過、pair 200）。表示ありのWindows Chromeは別途未計測である。
 
@@ -341,7 +348,7 @@ Goテストは契約全体（境界exact end・跨ぎ・完全unavailable・suff
 ### 未実装（PoC境界）
 
 - downloaderなし（yt-dlp / aria2 / ffmpegのinstall・実行・呼出なし）。
-- production bridgeは未実装。**Windows Chromeのgrowing progressive再生は2026-07-31に計測済み**（503→error code 4・自動再試行なし・追記のみでは回復しない・明示`load()`+`play()`で206再生・reload後seek成功）。**Android Chromeのgrowing playbackは未計測**。bridgeは「Chromeの自動再試行に依存できない」前提で、buffering表示 + availabilityベースのretry/backoff + playable prefix到達時の明示`src`/`load()`リセットが必要。
+- production bridgeは未実装。**Windows Chromeのgrowing progressive再生は2026-07-31に計測済み**（旧契約: 503→error code 4・自動再試行なし・追記のみでは回復しない・明示`load()`+`play()`で206再生・reload後seek成功）。**2026-08-05修正で`bytes=0-`は206クランプになり、最初の503→error code 4経路は解消（再計測未実施）**。**Android Chromeのgrowing playbackは未計測**。bridgeは「Chromeの自動再試行に依存できない」前提で、buffering表示 + availabilityベースのretry/backoff + playable prefix到達時の明示`src`/`load()`リセットが必要。
 
  ## ED-2E companion buffering bridge（実装済み: status endpoint + bridge controller/hook・browser QA未実施）
 
@@ -518,7 +525,7 @@ status/media bridgeと共有するproduction指向のanacrolix/torrentローカ�
 
 ### File list → selection → media bridge
 
-**metadata取得直後**にfile list + classify（Player native allowlistと一致: video mp4/webm/ogv/ogg/mkv/m4v/avi・audio mp3/wav/flac/aac/m4a/opus/m4b・subtitle srt/vtt/assのみ、PGS/XMLなし）。**eligible videoが無ければ終端generic error**（"no playable video"）。`/v1/media/status`はselection前まで`buffering`（fixture 503）、selection後は`streaming`（verified prefix > 0かつservable sourceがあれば`playable` → bridgeがURL割当て。verified prefix内Rangeのみ206、越えるRangeは503+Retry-After）、`available == total`で`complete`（206 Range）。**selection前にmediaはservedしない**。前方/成長中playback（verified-prefix streaming）は実装済みで、実swarm / 実browserでの検証が残るgateである（詳細は上記[Progressive torrent streaming](#progressive-torrent-streaming実装済みanacrolix-engine実機browserswarm-gate未実施)節）。
+**metadata取得直後**にfile list + classify（Player native allowlistと一致: video mp4/webm/ogv/ogg/mkv/m4v/avi・audio mp3/wav/flac/aac/m4a/opus/m4b・subtitle srt/vtt/assのみ、PGS/XMLなし）。**eligible videoが無ければ終端generic error**（"no playable video"）。`/v1/media/status`はselection前まで`buffering`（fixture 503）、selection後は`streaming`（verified prefix > 0かつservable sourceがあれば`playable` → bridgeがURL割当て。startがverified prefix内のRangeは206（endがprefixを越える場合はavailable-1へクランプ、RFC 9110。2026-08-05修正）、startがprefix未取得のRangeは503+Retry-After）、`available == total`で`complete`（206 Range）。**selection前にmediaはservedしない**。前方/成長中playback（verified-prefix streaming）は実装済みで、実swarm / 実browserでの検証が残るgateである（詳細は上記[Progressive torrent streaming](#progressive-torrent-streaming実装済みanacrolix-engine実機browserswarm-gate未実施)節）。
 
 ### テスト
 
@@ -586,7 +593,7 @@ aria2 torrent subsystemは`anacrolix/torrent` engineへ完全置換した。aria
 1. Magnet metadataを取得し（`engine.Start`・bounded）、**metadata取得直後に**sanitized file listを表示する（payload完了を待たない）。
 2. ユーザーがvideo 1本と任意subtitle 1本を選ぶ。
 3. 選択file以外はdownload priorityを持たない。選択videoの先頭4 MiB windowを`PiecePriorityHigh`へ昇格し、bootstrap readerがbyte 0のdemandを維持（`StartBootstrap`・readahead 4 MiB） — **verified contiguous prefixが先頭から成長する**。
-4. HTTP Rangeはverified prefix内のみ206で応答し、未取得Rangeは明示的な`503 + Retry-After` bufferingにする。偽bytes・file-size推測・zero probingはしない（既存ED-2C growing契約と同一）。
+4. HTTP Rangeはstartがverified prefix内なら206で応答（endがprefixを越える要求はavailable-1へクランプ、RFC 9110。2026-08-05修正）、startが未取得のRangeは明示的な`503 + Retry-After` bufferingにする。偽bytes・file-size推測・zero probingはしない（既存ED-2C growing契約と同一）。
 5. stop / cancel / timeout / idle時はtorrent sessionとsession-only mediaを削除する。seedはしない。
 
 この移行で、file境界をまたぐpieceやseek先のpriorityをaria2のfile pollingから推測せず、engineが持つpiece stateで正確に扱う。MP4/MKVのnative decode可否は引き続きbrowser E2Eで測定し、transcodeや永続cacheは追加しない。

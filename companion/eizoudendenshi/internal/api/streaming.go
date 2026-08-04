@@ -9,11 +9,14 @@ import (
 // serveStreamingPrefix serves the selected torrent file's VERIFIED
 // contiguous prefix with truthful byte semantics:
 //
-//   - a Range (or open-ended bytes=0-) whose needed bytes are all within
-//     [0, avail) → 206 with Content-Range 0-(end-1)/total; every returned
-//     byte is real verified data, never fabricated
-//   - a Range starting beyond avail → 503 + Retry-After (the browser does
-//     not auto-retry; the bridge re-applies an explicit load once the
+//   - a Range whose start lies within [0, avail) → 206; when the requested
+//     end reaches beyond avail (e.g. the open-ended bytes=0- that Chrome
+//     sends first), end is clamped to avail-1 per RFC 9110, answering a
+//     partial response with exact Content-Range bytes start-(avail-1)/total.
+//     Every returned byte is real verified data, never fabricated; bytes
+//     beyond avail are never served.
+//   - a Range starting at or beyond avail → 503 + Retry-After (the browser
+//     does not auto-retry; the bridge re-applies an explicit load once the
 //     prefix catches up)
 //   - no Range while avail < total → 503 (a partial 200 is never served)
 //   - HEAD mirrors GET status/headers without a body
@@ -70,10 +73,13 @@ func (s *Server) serveStreamingPrefix(w http.ResponseWriter, r *http.Request, sr
 		return
 	}
 	if end >= avail {
-		// The needed bytes extend beyond the verified prefix: 503 (the
-		// bridge retries with an explicit load once the prefix catches up).
-		s.writeBuffering(w, r, avail, total)
-		return
+		// RFC 9110: a request whose range end lies beyond the verified
+		// prefix (Chrome 151 sends open-ended bytes=0- first, and a 503
+		// makes the element fail with error code 4 before playback can
+		// start) is answered 206 with end clamped to avail-1. Bytes beyond
+		// avail are never served, so the no-fabrication safety contract is
+		// unchanged.
+		end = avail - 1
 	}
 	s.serveRange(w, r, start, end, total, src)
 }
