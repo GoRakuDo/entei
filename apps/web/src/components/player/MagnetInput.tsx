@@ -675,15 +675,10 @@ export function MagnetInput({
               <Table className="entei-magnet-table">
                 <TableHeader>
                   <TableRow className="entei-magnet-table-header-row">
-                    <TableHead className="entei-magnet-table-head-check" />
-                    <TableHead className="entei-magnet-table-head-type" />
-                    <TableHead className="entei-magnet-table-head-name">
-                      <span className="entei-magnet-table-head-name-text">
-                        {dict.magnetTableFileName}
-                      </span>
+                    <TableHead className="entei-magnet-table-head-check">
                       {/* ArrowUp: only rendered when folderPath is set (selecting
-                          phase with a subfolder open). No separate disabled
-                          guard needed — folderPath is '' at root. */}
+                          phase with a subfolder open). Positioned in the leftmost
+                          column for consistent left-aligned navigation. */}
                       {folderPath && (
                         <Button
                           type="button"
@@ -698,6 +693,10 @@ export function MagnetInput({
                           <ArrowUp size={14} aria-hidden="true" />
                         </Button>
                       )}
+                    </TableHead>
+                    <TableHead className="entei-magnet-table-head-type" />
+                    <TableHead className="entei-magnet-table-head-name">
+                      {dict.magnetTableFileName}
                     </TableHead>
                     <TableHead className="entei-magnet-table-head-size">
                       {dict.magnetTableSize}

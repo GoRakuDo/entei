@@ -4180,7 +4180,7 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-table-wrap {
   max-height: 20rem;
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
   border-radius: var(--entei-radius-md);
 }
 
@@ -4191,13 +4191,13 @@ html.entei-player-immersive .entei-player-audio-area {
   font-size: 0.8125rem;
 }
 
-/* Row density: 8px vertical cell padding (file rows ~36px — roomier than
-   the 6px default without ballooning the bounded table; folder rows stay
-   taller because .entei-magnet-folder-btn keeps its 44px hit area). The
-   check/type/size columns are protected by their !important paddings. */
+/* Row density: height 2.25rem acts as a minimum in table layout, aligning
+   file and folder rows uniformly and preventing folder-row inflation.
+   Folder rows inherit this height; the button text truncates via ellipsis. */
 .entei-magnet-table td {
   padding-top: var(--entei-space-8);
   padding-bottom: var(--entei-space-8);
+  height: 2.25rem;
 }
 
 /* Bounded scroll lives on the Table component's wrapper div
@@ -4211,9 +4211,9 @@ html.entei-player-immersive .entei-player-audio-area {
   overflow-y: auto;
 }
 
-/* Header row */
+/* Header row — subtle bottom separator */
 .entei-magnet-table-header-row {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
   background-color: oklch(100% 0 0deg / 0.02);
 }
 
@@ -4222,6 +4222,9 @@ html.entei-player-immersive .entei-player-audio-area {
   min-width: var(--entei-touch-min);
   max-width: var(--entei-touch-min);
   padding: 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .entei-magnet-table-head-type {
@@ -4231,16 +4234,9 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-magnet-table-head-name {
-  display: flex;
-  align-items: center;
-  gap: var(--entei-space-4);
   font-weight: 600;
   font-size: 0.75rem;
   color: var(--entei-text-secondary);
-}
-
-.entei-magnet-table-head-name-text {
-  flex: 1;
 }
 
 .entei-magnet-arrow-up-btn {
@@ -4258,9 +4254,11 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
 }
 
-/* Row styles */
+/* Row styles — height 2.25rem aligns file and folder rows uniformly.
+   Subtle bottom border for row separation (low-opacity OKLCH). */
 .entei-magnet-table-row {
-  min-height: var(--entei-touch-min);
+  height: 2.25rem;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.04);
   transition: background-color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
@@ -4331,7 +4329,8 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text);
 }
 
-/* Folder button: interactive, looks like a link */
+/* Folder button: interactive, looks like a link.
+   No min-height — inherits the 36px row height for uniform row sizing. */
 .entei-magnet-folder-btn {
   display: block;
   width: 100%;
@@ -4346,7 +4345,6 @@ html.entei-player-immersive .entei-player-audio-area {
   font-family: var(--entei-font-body);
   font-size: inherit;
   cursor: pointer;
-  min-height: var(--entei-touch-min);
   transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
