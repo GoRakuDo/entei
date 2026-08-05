@@ -179,6 +179,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 15. streamingロングポーリング: `avail=0`の時、Rangeリクエストは最大30秒ブロックする（意図的トレードオフ。通常は数秒で伸びる）。`TestGrowConcurrentAvailabilityChange`は本番タイマー（250ms poll）使用のためCI時間が僅かに伸びる（許容範囲）。`streamingHoldPollMs`はint型（テスト短縮用var化のため、既存パターン）（2026-08-05レビュー）。
 16. 自動起動廃止: Windowsのapply-childからの新しいcore自動起動（launchNewCore）は、コンソールハンドル継承の問題でstdinが効かず「Option:」で入力できなかった（実機確認）。初回インストール/更新後の自動起動を全廃し、英語の色付き完了メッセージ（`Installation complete! / Update complete! Run \`grkd-edds\` in the terminal to start.`）＋`grkd-edds`手動実行に統一（bootstrap/helper/updateの4経路）。`grkd-edds.cmd`はprocess-scopedの`set "PATH=%~dp0helpers;%PATH%"`を内包（手動起動時にyt-dlpがffmpegを見つけられるように）。`-SkipLaunch`/`-HarnessLaunchFile`/`EIZOU_TEST_ADDR`は廃止（2026-08-05レビュー）。
 17. ServeContent方式: torrent配信は`http.ServeContent`+`File.NewReader()`（bitplay方式）。`time.Time{}`（Last-Modifiedなし）はtorrent配信で問題なし。`NewMediaReader`は`m.mu→h.mu`のロック順序（現状デッドロックなし。将来`h.mu`保持中にManagerメソッドを呼ぶコードを追加する場合は注意）。HEAD応答のContent-Lengthは`snap.Media.Total`から（2026-08-05レビュー）。
+18. jobMediaUrl露出遅延: `use-companion-job-session.ts`の`jobMediaUrl`は`bridge.phase==='ready'/'playing'`の時のみ返す（available=0のvideo要素のfetch=30秒タイムアウトリスク回避）。`attachMediaElement`の`buffering` branchと`companion-bridge.ts`の`onMediaError`の`buffering` guardはデザイン的にunreachable（要素はready/playingでのみmount）だが、防御的に残留（将来整理可）（2026-08-05レビュー）。
 
 ## Delivery contract
 

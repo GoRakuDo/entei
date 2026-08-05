@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCompanionJobSession } from '../src/features/player/use-companion-job-session';
 
 /** Mirrors PlayerApp's wiring: the video element mounts only when the
- *  job media URL is surfaced (complete gate), and its ref is fed back
- *  into the session hook (attachMediaElement). */
+ *  job media URL is surfaced (ready gate: bridge phase = ready/playing),
+ *  and its ref is fed back into the session hook (attachMediaElement). */
 function Harness() {
   const session = useCompanionJobSession();
   return (
@@ -81,7 +81,7 @@ afterEach(() => {
 });
 
 describe('useCompanionJobSession — real YouTube job → bridge integration', () => {
-  it('starts no session without an explicit job acceptance; begin → buffering, URL surfaced immediately', async () => {
+  it('starts no session without an explicit job acceptance; begin → buffering, URL deferred until playable', async () => {
     const { calls, fetchFn } = makeFetcher([buffering(100, 1000)]);
     vi.stubGlobal('fetch', fetchFn);
     render(<Harness />);
@@ -96,12 +96,12 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
 
     expect(screen.getByTestId('phase').textContent).toBe('buffering');
     expect(screen.getByTestId('active').textContent).toBe('true');
-    // URL is surfaced immediately (video mounts right away; native
-    // browser loading state is the only visual wait).
-    expect(screen.getByTestId('url').textContent).toBe(
-      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
-    );
-    expect(screen.getByTestId('video')).toBeInTheDocument();
+    // URL is NOT surfaced during buffering — the companion may have
+    // available=0 (no verified piece0), and a premature fetch would block
+    // on ServeContent Read until pieces arrive, hitting Chrome's ~30 s
+    // video timeout. The URL surfaces only when the bridge reaches `ready`.
+    expect(screen.getByTestId('url').textContent).toBe('none');
+    expect(screen.queryByTestId('video')).toBeNull();
     // The bridge polls the job status.
     expect(calls.some((c) => c.url.includes('/v1/media/status?token='))).toBe(true);
     expect(calls.some((c) => c.url.includes('/v1/media/fixture'))).toBe(false);
@@ -195,17 +195,16 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     const callsAfter = calls.length;
     await vi.advanceTimersByTimeAsync(60_000);
     expect(calls.length).toBe(callsAfter);
-    // URL is surfaced immediately (video mounts even on auth failure;
-    // the bridge detects the failure and transitions to rePairRequired).
-    expect(screen.getByTestId('url').textContent).toBe(
-      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
-    );
+    // URL is NOT surfaced on rePairRequired — the phase is not 'ready' or
+    // 'playing', so the media URL stays null and the video element stays
+    // unmounted.
+    expect(screen.getByTestId('url').textContent).toBe('none');
   });
 
-  it('attaches the video element while buffering; initial 503 → playable recovers with explicit src/load', async () => {
+  it('video mounts only on ready; src/load + play flows without 503', async () => {
     const { calls, fetchFn } = makeFetcher([
-      buffering(100, 1000),
-      playable(300, 1000), // status re-check after the media error
+      buffering(0, 1000),
+      playable(300, 1000),
     ]);
     vi.stubGlobal('fetch', fetchFn);
     render(<Harness />);
@@ -213,21 +212,29 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     fireEvent.click(screen.getByText('begin'));
     await flush();
 
+    // During buffering the video element is NOT mounted (URL deferred).
     expect(screen.getByTestId('phase').textContent).toBe('buffering');
-    const video = screen.getByTestId('video') as HTMLVideoElement;
-    expect(video).toBeInTheDocument();
+    expect(screen.getByTestId('url').textContent).toBe('none');
+    expect(screen.queryByTestId('video')).toBeNull();
 
-    // The mounted element is attached to the bridge while buffering, so
-    // the browser's 503 error (no verified prefix yet) reaches the
-    // single error listener.
-    fireEvent(video, new Event('error'));
+    // Advance past the poll delay → bridge sees "playable", transitions to
+    // "ready" → jobMediaUrl surfaces → video mounts.
+    await vi.advanceTimersByTimeAsync(1000);
     await flush();
 
-    // The status re-check kept polling alive, saw "playable", and
-    // recovered with an explicit src/load reset.
-    expect(calls).toHaveLength(2); // initial poll + exactly one re-check
     expect(screen.getByTestId('phase').textContent).toBe('ready');
+    const video = screen.getByTestId('video') as HTMLVideoElement;
+    expect(video).toBeInTheDocument();
+    expect(video.crossOrigin).toBe('anonymous');
     expect(video.src).toBe('http://127.0.0.1:4322/v1/media/fixture?token=tok123');
+
+    // Bridge's startReadyTransition fired: metadata → seek → play.
+    const playSpy = vi.fn(() => Promise.resolve());
+    video.play = playSpy;
+    fireEvent(video, new Event('loadedmetadata'));
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    fireEvent(video, new Event('playing'));
+    expect(screen.getByTestId('phase').textContent).toBe('playing');
   });
 
   it('cancelActiveJob POSTs the job-cancel endpoint then ends the session', async () => {
