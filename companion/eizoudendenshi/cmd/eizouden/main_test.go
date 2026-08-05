@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"eizoudendenshi/internal/api"
+	"eizoudendenshi/internal/credential"
 	"eizoudendenshi/internal/media"
 )
 
@@ -240,5 +242,92 @@ func TestMediaStatusLine(t *testing.T) {
 				t.Errorf("mediaStatusLine = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStartServerCoreSuccess(t *testing.T) {
+	cred, err := credential.NewDefaultStore()
+	if err != nil {
+		t.Skipf("credential store unavailable: %v", err)
+	}
+	cfg := serverConfig{
+		bind: "127.0.0.1:0",
+		cred: cred,
+	}
+	srv, ln, err := startServerCore(cfg)
+	if err != nil {
+		t.Fatalf("startServerCore: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("startServerCore returned nil server")
+	}
+	if ln == nil {
+		t.Fatal("startServerCore returned nil listener")
+	}
+	ln.Close()
+}
+
+func TestStartServerCorePortInUse(t *testing.T) {
+	cred, err := credential.NewDefaultStore()
+	if err != nil {
+		t.Skipf("credential store unavailable: %v", err)
+	}
+	// Bind a port first to occupy it.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	cfg := serverConfig{
+		bind: ln.Addr().String(),
+		cred: cred,
+	}
+	_, _, err = startServerCore(cfg)
+	if err == nil {
+		t.Fatal("startServerCore must fail when port is in use")
+	}
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Errorf("expected 'already in use' error, got: %v", err)
+	}
+}
+
+func TestStartServerAutoReturnsPairingCode(t *testing.T) {
+	cred, err := credential.NewDefaultStore()
+	if err != nil {
+		t.Skipf("credential store unavailable: %v", err)
+	}
+	cfg := serverConfig{
+		bind: "127.0.0.1:0",
+		cred: cred,
+	}
+	code, errCh, err := startServerAuto(cfg)
+	if err != nil {
+		t.Fatalf("startServerAuto: %v", err)
+	}
+	if code == "" {
+		t.Fatal("startServerAuto returned empty pairing code")
+	}
+	if errCh == nil {
+		t.Fatal("startServerAuto returned nil error channel")
+	}
+}
+
+func TestStartServerAutoPortInUse(t *testing.T) {
+	cred, err := credential.NewDefaultStore()
+	if err != nil {
+		t.Skipf("credential store unavailable: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	cfg := serverConfig{
+		bind: ln.Addr().String(),
+		cred: cred,
+	}
+	_, _, err = startServerAuto(cfg)
+	if err == nil {
+		t.Fatal("startServerAuto must fail when port is in use")
 	}
 }

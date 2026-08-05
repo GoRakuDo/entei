@@ -60,6 +60,13 @@ type cliOptions struct {
 	// caller must exit so the spawned child can replace the running
 	// core. nil means the updater is unavailable (dev builds).
 	runUpdate func(stdout io.Writer) bool
+	// autoStart starts the companion server in the background and
+	// returns the pairing code and an error channel from http.Serve.
+	// If non-nil the server is auto-started before the menu is
+	// rendered, and option 1 becomes informational (showing the pairing
+	// code) instead of blocking. nil means the server is not
+	// auto-started (tests / dev builds).
+	autoStart func() (pairingCode string, errCh <-chan error, err error)
 }
 
 // fixedTermuxCommands maps each helper to the command its official Termux
@@ -84,22 +91,53 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 	}
 	fmt.Fprintln(stdout, header)
 	fmt.Fprintln(stdout)
+
+	// Auto-start the companion server in the background so the browser
+	// can pair immediately without waiting for option 1.
+	var pairingCode string
+	var serverRunning bool
+	var serverErrCh <-chan error
+	if opts.autoStart != nil {
+		pc, ech, err := opts.autoStart()
+		if err != nil {
+			fmt.Fprintf(stdout, "auto-start failed: %v\n", err)
+		} else {
+			pairingCode = pc
+			serverRunning = true
+			serverErrCh = ech
+		}
+	}
+
 	fmt.Fprintln(stdout, "1. Get New Pairing Code")
 	fmt.Fprintln(stdout, "2. Service Status")
 	fmt.Fprintln(stdout, "3. Update EizouDendenshi")
 
 	reader := bufio.NewReader(stdin)
 	for {
+		// Surface a background server error (non-blocking).
+		if serverErrCh != nil {
+			select {
+			case err := <-serverErrCh:
+				fmt.Fprintf(stdout, "server error: %v\n", err)
+				serverErrCh = nil
+			default:
+			}
+		}
+
 		fmt.Fprint(stdout, "\nOption: ")
 		line, err := reader.ReadString('\n')
 		if strings.TrimSpace(line) != "" {
 			switch strings.TrimSpace(line) {
 			case "1":
-				if err := startServer(); err != nil {
-					fmt.Fprintf(stdout, "companion stopped with an error: %v\n", err)
-					return 1
+				if serverRunning {
+					fmt.Fprintf(stdout, "Pairing code: %s\n", pairingCode)
+				} else {
+					if err := startServer(); err != nil {
+						fmt.Fprintf(stdout, "companion stopped with an error: %v\n", err)
+						return 1
+					}
+					return 0
 				}
-				return 0
 			case "2":
 				printServiceStatus(opts, stdout)
 			case "3":

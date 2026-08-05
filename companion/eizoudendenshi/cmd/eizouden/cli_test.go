@@ -219,3 +219,106 @@ func TestOptionThreeUnavailableWithoutCallback(t *testing.T) {
 		t.Errorf("menu must continue after unavailable updater: %q", out.String())
 	}
 }
+
+func TestOptionOneShowsPairingCodeWhenAutoStarted(t *testing.T) {
+	var out bytes.Buffer
+	var startServerCalled bool
+	opts := cliOptions{
+		version: "0.2.0-rc.7",
+		autoStart: func() (string, <-chan error, error) {
+			return "123456", nil, nil
+		},
+	}
+	code := runCLI(opts, strings.NewReader("1\n"), &out, func() error {
+		startServerCalled = true
+		return nil
+	})
+	if startServerCalled {
+		t.Fatal("option 1 must not call startServer when auto-started")
+	}
+	if code != 0 {
+		t.Errorf("option 1 with auto-start must exit 0, got %d", code)
+	}
+	if !strings.Contains(out.String(), "Pairing code: 123456") {
+		t.Errorf("option 1 must show pairing code: %q", out.String())
+	}
+}
+
+func TestAutoStartFailureFallsBackToStartServer(t *testing.T) {
+	var out bytes.Buffer
+	var startServerCalled bool
+	autoStartErr := errors.New("port in use")
+	opts := cliOptions{
+		version: "0.2.0-rc.7",
+		autoStart: func() (string, <-chan error, error) {
+			return "", nil, autoStartErr
+		},
+	}
+	code := runCLI(opts, strings.NewReader("1\n"), &out, func() error {
+		startServerCalled = true
+		return nil
+	})
+	if !startServerCalled {
+		t.Fatal("option 1 must fall back to startServer when auto-start fails")
+	}
+	if code != 0 {
+		t.Errorf("fallback startServer must exit 0, got %d", code)
+	}
+	if !strings.Contains(out.String(), "auto-start failed: "+autoStartErr.Error()) {
+		t.Errorf("auto-start error must be printed: %q", out.String())
+	}
+}
+
+func TestMenuCleanNoBannerOrPairingCode(t *testing.T) {
+	var out bytes.Buffer
+	opts := cliOptions{
+		version: "0.2.0-rc.7",
+		autoStart: func() (string, <-chan error, error) {
+			return "999999", nil, nil
+		},
+	}
+	// Select option 2 (service status) — pairing code must NOT appear.
+	runCLI(opts, strings.NewReader("2\n"), &out, func() error { return nil })
+	outStr := out.String()
+	if !strings.Contains(outStr, "EizouDendenshi v0.2.0-rc.7") {
+		t.Errorf("missing version header: %q", outStr)
+	}
+	if !strings.Contains(outStr, "1. Get New Pairing Code") {
+		t.Errorf("missing menu option 1: %q", outStr)
+	}
+	// Pairing code must NOT appear before option 1 is selected.
+	if strings.Contains(outStr, "999999") {
+		t.Errorf("pairing code must not appear before option 1: %q", outStr)
+	}
+	// Banner/status lines must NOT appear in the clean menu.
+	if strings.Contains(outStr, "listening on") {
+		t.Errorf("banner must not appear in clean menu: %q", outStr)
+	}
+	if strings.Contains(outStr, "Media fixture:") {
+		t.Errorf("media status must not appear in clean menu: %q", outStr)
+	}
+	if strings.Contains(outStr, "Source jobs:") {
+		t.Errorf("jobs status must not appear in clean menu: %q", outStr)
+	}
+	if strings.Contains(outStr, "Torrent jobs:") {
+		t.Errorf("torrent status must not appear in clean menu: %q", outStr)
+	}
+}
+
+func TestPairingCodeShownOnlyOnOptionOne(t *testing.T) {
+	var out bytes.Buffer
+	opts := cliOptions{
+		version: "0.2.0-rc.7",
+		autoStart: func() (string, <-chan error, error) {
+			return "999999", nil, nil
+		},
+	}
+	// Select option 1 — pairing code SHOULD appear.
+	code := runCLI(opts, strings.NewReader("1\n"), &out, func() error { return nil })
+	if code != 0 {
+		t.Errorf("option 1 must exit 0, got %d", code)
+	}
+	if !strings.Contains(out.String(), "Pairing code: 999999") {
+		t.Errorf("option 1 must show pairing code: %q", out.String())
+	}
+}

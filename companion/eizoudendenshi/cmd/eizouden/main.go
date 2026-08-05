@@ -260,6 +260,9 @@ func main() {
 					InstallRoot: updateInstallRoot(),
 				})
 			},
+			autoStart: func() (string, <-chan error, error) {
+				return startServerAuto(cfg)
+			},
 		}, os.Stdin, os.Stdout, func() error { return runServer(cfg, *ytdlp) })
 		terminateDiag(diagLog)
 		os.Exit(code)
@@ -281,11 +284,11 @@ func main() {
 	terminateDiag(diagLog)
 }
 
-// runServer starts the foreground loopback companion: API wiring, listener,
-// terminal-only handoff (banner + pairing code), then serving until
-// Ctrl+C. Shared by the plain server mode and the CLI's option 1 so startup
-// behavior is never duplicated.
-func runServer(cfg serverConfig, ytdlpPath string) error {
+// startServerCore creates the API server and binds the loopback listener.
+// It returns the server and listener so the caller decides how to serve
+// (blocking or goroutine) and what to print. The caller owns the listener
+// lifecycle: close it after http.Serve returns.
+func startServerCore(cfg serverConfig) (*api.Server, net.Listener, error) {
 	srv, err := api.New(api.Config{
 		FixturePath:  cfg.fixture,
 		GrowSource:   cfg.grow,
@@ -294,22 +297,51 @@ func runServer(cfg serverConfig, ytdlpPath string) error {
 		Torrents:     cfg.torrents,
 		Credential:   cfg.cred,
 		Logger:       cfg.log,
-		// After an authenticated DELETE /v1/pair the in-memory credential
-		// is rotated and a FRESH code is issued; print it to the terminal
-		// so the pairing dialog works again without a restart.
 		OnPairingReset: func(code string) {
 			fmt.Fprintf(os.Stdout, "Pairing code (new): %s\n", code)
 		},
 	})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	ln, err := net.Listen("tcp", cfg.bind)
 	if err != nil {
 		if strings.Contains(err.Error(), "address already in use") ||
 			strings.Contains(err.Error(), "Only one usage of each socket address") {
-			return fmt.Errorf("port %s is already in use — another EizouDendenshi companion is already running (stop it first, or choose another port with --addr)", cfg.bind)
+			return nil, nil, fmt.Errorf("port %s is already in use — another EizouDendenshi companion is already running (stop it first, or choose another port with --addr)", cfg.bind)
 		}
+		return nil, nil, err
+	}
+	return srv, ln, nil
+}
+
+// startServerAuto creates the API server, binds the listener, and starts
+// http.Serve in a goroutine. It returns the pairing code (for display on
+// option 1), an error channel that receives the http.Serve result (nil on
+// clean shutdown), and a startup error if the server could not be created.
+// The goroutine is killed when the process exits (Ctrl+C).
+func startServerAuto(cfg serverConfig) (pairingCode string, errCh <-chan error, err error) {
+	srv, ln, err := startServerCore(cfg)
+	if err != nil {
+		return "", nil, err
+	}
+	ch := make(chan error, 1)
+	go func() {
+		if err := http.Serve(ln, srv.Handler()); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			ch <- err
+		}
+		close(ch)
+	}()
+	return srv.PairingCode(), ch, nil
+}
+
+// runServer starts the foreground loopback companion: API wiring, listener,
+// terminal-only handoff (banner + pairing code), then serving until
+// Ctrl+C. Shared by the plain server mode and the CLI's option 1 so startup
+// behavior is never duplicated.
+func runServer(cfg serverConfig, ytdlpPath string) error {
+	srv, ln, err := startServerCore(cfg)
+	if err != nil {
 		return err
 	}
 	fmt.Fprintln(os.Stdout, banner(ln.Addr().String()))
