@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"eizoudendenshi/internal/torrent"
 )
@@ -213,7 +215,7 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	if s.torrents == nil {
 		return statusBody{}, false
 	}
-	snap, src := s.torrents.ActiveMedia()
+	snap, _ := s.torrents.ActiveMedia()
 	switch snap.State {
 	case torrent.StateQueued, torrent.StateDownloading, torrent.StateBuffering:
 		return statusBody{
@@ -223,9 +225,10 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 			RetryAfter: bufferingRetryAfterSec,
 		}, true
 	case torrent.StateStreaming:
-		// The streaming serve path handles 503/206 correctly per request,
-		// but the bridge needs a "playable" signal to assign the URL.
-		if src != nil && snap.Media.Available > 0 {
+		// The streaming serve path now uses http.ServeContent with
+		// a direct Reader (bitplay approach); the bridge needs a
+		// "playable" signal to assign the URL.
+		if snap.Media.Available > 0 {
 			return statusBody{
 				State:     statusPlayable,
 				Available: snap.Media.Available,
@@ -256,21 +259,26 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	}
 }
 
-// serveTorrentMedia serves the active torrent job's selected media:
+// serveTorrentMedia serves the active torrent job's selected media using
+// http.ServeContent (bitplay approach):
 //
-//	complete → the growing serv (available == total)
-//	playable / streaming → the verified-prefix streaming serv (206 for
-//	                        ranges whose start lies within the VERIFIED
-//	                        prefix, end clamped to avail-1 per RFC 9110;
-//	                        503 for ranges starting beyond it; never
-//	                        fabricated bytes)
+//	http.ServeContent handles Range parsing, 206 Content-Range construction,
+//	and Accept-Ranges: bytes. For a bytes=0- request (what Chrome 151 sends
+//	first), it responds 206 with Content-Range: bytes 0-(total-1)/total and
+//	streams the body from the Reader. The Reader blocks on pieces not yet
+//	downloaded (anacrolix demand-based readahead), so the video element
+//	receives a single 206 response for the full range and does not issue
+//	follow-up range requests. This eliminates the 206-clamp + long-poll
+//	approach and its "complete-wait" request storm.
+//
+//	complete / streaming (handle available) → http.ServeContent with Reader
 //	downloading / buffering (metadata listed, awaiting selection) → 503
 //	error → generic 404
 func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool {
 	if s.torrents == nil {
 		return false
 	}
-	snap, src := s.torrents.ActiveMedia()
+	snap, _ := s.torrents.ActiveMedia()
 	// The selected file's extension governs the Content-Type (never a
 	// hardcoded video/mp4): MKV → video/x-matroska, etc.
 	mime := s.torrents.SelectedMediaType()
@@ -278,28 +286,36 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 		w.Header().Set("Content-Type", mime)
 	}
 	switch snap.State {
-	case torrent.StateComplete:
-		if src != nil {
-			s.serveGrowingSource(src, w, r)
-			return true
-		}
-		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
-		return true
-	case torrent.StateStreaming:
-		if src != nil {
-			// Use the verified-prefix streaming serve: 206 for ranges
-			// whose start lies within the verified prefix (an end
-			// beyond it is clamped to avail-1 per RFC 9110), 503 for
-			// ranges starting beyond it.
-			// The growing serv would fabricate a 200 body for
-			// avail==total mid-stream which is unsafe here.
+	case torrent.StateComplete, torrent.StateStreaming:
+		// Both states have a valid handle; create a Reader.
+		// For streaming, pieces arrive on demand (block until available).
+		// For complete, all pieces are present and reads return immediately.
+		if r.Method == http.MethodHead {
+			// HEAD: set CORS and serve headers without body.
 			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.Header().Set("Content-Length", strconv.FormatInt(snap.Media.Total, 10))
 			w.Header().Set("Access-Control-Expose-Headers",
 				"Content-Range, Accept-Ranges, Content-Length, Retry-After")
-			s.serveStreamingPrefix(w, r, src, snap.Media.Available, snap.Media.Total)
+			w.WriteHeader(http.StatusOK)
 			return true
 		}
-		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)
+		fileName := s.torrents.SelectedFileName()
+		if fileName == "" {
+			writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+			return true
+		}
+		reader, err := s.torrents.NewMediaReader(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+			return true
+		}
+		defer reader.Close()
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Access-Control-Expose-Headers",
+			"Content-Range, Accept-Ranges, Content-Length, Retry-After")
+		http.ServeContent(w, r, fileName, time.Time{}, reader)
 		return true
 	case torrent.StateDownloading, torrent.StateBuffering:
 		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)

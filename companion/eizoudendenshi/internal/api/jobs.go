@@ -236,8 +236,8 @@ func (s *Server) serveJobMedia(w http.ResponseWriter, r *http.Request) bool {
 // passes the configured grow source); the job media path passes the job's
 // completed source.
 //
-// Contract (shared with serveStreamingPrefix, documented in
-// companion/eizoudendenshi/README.md and docs/EIZOU_DENDENSHI.md):
+// Contract (documented in companion/eizoudendenshi/README.md and
+// docs/EIZOU_DENDENSHI.md):
 //   - a Range whose start lies within [0, avail) → 206; when the requested
 //     end reaches beyond avail (e.g. Chrome's open-ended bytes=0-), end is
 //     clamped to avail-1 per RFC 9110 — an exact partial response, never a

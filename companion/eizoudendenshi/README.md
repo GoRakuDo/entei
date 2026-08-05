@@ -756,6 +756,13 @@ path) was removed.
   Content-Type on BOTH the progressive and completed media serves
   (video/mp4, video/webm, video/ogg, video/x-matroska for MKV) —
   no hardcoded video/mp4.
+- **ServeContent (bitplay) approach**: torrent media serving uses
+  `http.ServeContent` with an anacrolix `File.NewReader()`. The Reader
+  blocks on unavailable pieces; `ServeContent` handles Range/206/416
+  semantics. This eliminates the old `serveStreamingPrefix` (206-clamp +
+  long-poll) approach and its "complete-wait" request storm — the video
+  element receives a single 206 for the full range and does not issue
+  follow-up requests.
 - **Structural safe-early predicate**: playable now requires a bounded
   structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
   ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;
@@ -883,12 +890,21 @@ any engine start, and errors never echo the magnet or tracker data.
   the torrent's own piece SHA-1s, never allocated file size or zero-probing
   (a multi-file global piece spanning another file is not verifiable →
   honest buffering).
-- HTTP reads use a **fresh engine reader per ReadAt** (Seek + Read under a
-  30 s context timeout) so concurrent browser Range requests never share a
-  reader's position state. Original source bytes only (no remux/transcode);
-  piece data lives in the engine's session-private storage (OS temp by
-  default) and is released when the torrent session is dropped on
-  cancel/failure/session end. **User files are never touched.**
+- HTTP media serving uses **http.ServeContent** with an anacrolix
+  `File.NewReader()` (`io.ReadSeekCloser`; reads block until the needed
+  piece is available). `ServeContent` handles Range parsing, 206
+  `Content-Range` construction, and `Accept-Ranges: bytes` — the Reader
+  streams data as pieces arrive. For a `bytes=0-` request (what Chrome 151
+  sends first), the response is a single `206` with
+  `Content-Range: bytes 0-(total-1)/total` and the body streams from the
+  Reader; the video element receives one continuous 206 for the full range
+  and does not issue follow-up range requests. The Reader's demand-based
+  piece priority (seek → needed pieces become highest priority + bounded
+  readahead) keeps download aligned with playback. Original source bytes
+  only (no remux/transcode); piece data lives in the engine's
+  session-private storage (OS temp by default) and is released when the
+  torrent session is dropped on cancel/failure/session end. **User files
+  are never touched.**
 
 ### File listing → selection → media bridge
 
@@ -900,14 +916,11 @@ the job fails with a terminal generic error.** `GET …/files` exposes the
 sanitized listing; `POST …/select` enforces the **one video + one optional
 subtitle** contract. **Nothing is served before a valid selection** —
 `/v1/media/status` reports `buffering` (fixture 503) until then; after a
-valid selection the job streams the **verified prefix** (`playable` status
-when the verified prefix > 0 and a servable source exists — the bridge
-assigns the URL then; ranges starting inside the verified prefix → `206`
-(an end beyond the prefix is clamped to `Available-1` per RFC 9110 — e.g.
-Chrome's open-ended `bytes=0-`), ranges starting beyond it are **held
-(long-polled) until the prefix passes the start**, then `206` — `503 +
-Retry-After` only after the 30 s hold timeout (2026-08-05), never a byte
-beyond the prefix) and reaches `complete`
+valid selection the job streams via **http.ServeContent** (bitplay
+approach: the Reader blocks on unavailable pieces, so the video element
+receives a single 206 for the full range and does not issue follow-up
+requests; `playable` status when the verified prefix > 0 — the bridge
+assigns the URL then) and reaches `complete`
 (`available == total`) when the download finishes.
 
 ### Tests
@@ -932,6 +945,13 @@ against a deterministic fake Engine (no swarm/network). `go test -race
   Content-Type on BOTH the progressive and completed media serves
   (video/mp4, video/webm, video/ogg, video/x-matroska for MKV) —
   no hardcoded video/mp4.
+- **ServeContent (bitplay) approach**: torrent media serving uses
+  `http.ServeContent` with an anacrolix `File.NewReader()`. The Reader
+  blocks on unavailable pieces; `ServeContent` handles Range/206/416
+  semantics. This eliminates the old `serveStreamingPrefix` (206-clamp +
+  long-poll) approach and its "complete-wait" request storm — the video
+  element receives a single 206 for the full range and does not issue
+  follow-up requests.
 - **Structural safe-early predicate**: playable now requires a bounded
   structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
   ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;

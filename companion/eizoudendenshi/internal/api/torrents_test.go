@@ -938,10 +938,12 @@ func TestTorrentStatusStreamingPlayable(t *testing.T) {
 }
 
 // TestTorrentMediaStreamingServesVerifiedPrefix verifies the media endpoint
-// serves 206 for ranges whose start lies within the verified prefix (an
-// end beyond the prefix is clamped to avail-1 per RFC 9110 — Chrome's
-// open-ended bytes=0- works) and 503 for ranges starting beyond it during
-// the streaming state.
+// serves 206 for ranges whose start lies within the verified prefix during
+// the streaming state, using http.ServeContent (bitplay approach). The
+// anacrolix Reader blocks on pieces not yet downloaded; http.ServeContent
+// handles Range parsing and 206 construction. The fake test reader returns
+// io.ErrNoProgress instead of blocking, so body length assertions reflect
+// test-only behavior (the real Reader streams the full range).
 func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mp4:800000")
 	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
@@ -972,6 +974,9 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &js)
 		if js.State == "buffering" {
 			break
+		}
+		if js.State == "error" {
+			t.Fatalf("job errored: %s", rec.Body.String())
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("never reached buffering")
@@ -1006,7 +1011,7 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	engine.h.avail.Store(200_000)
 	time.Sleep(100 * time.Millisecond)
 
-	// Range within prefix → 206.
+	// Range within prefix → 206 with correct Content-Type.
 	req, _ := http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	req.Header.Set("Range", "bytes=0-99999")
@@ -1015,62 +1020,32 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("range within prefix = %d, want 206", rec.Code)
 	}
-
-	// Range crossing prefix boundary → 206 with end clamped to avail-1
-	// (RFC 9110 partial response; exactly the open-ended bytes=0- shape
-	// Chrome 151 sends first).
-	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
-	req.Header.Set("Origin", allowedOriginLocal)
-	req.Header.Set("Range", "bytes=100000-300000")
-	rec = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("range crossing prefix = %d, want 206 (clamped to avail-1)", rec.Code)
-	}
-	if cr := rec.Header().Get("Content-Range"); cr != "bytes 100000-199999/800000" {
-		t.Errorf("range crossing prefix: Content-Range = %q, want bytes 100000-199999/800000", cr)
-	}
-	if rec.Body.Len() != 100_000 {
-		t.Errorf("range crossing prefix: body length = %d, want 100000 (no byte beyond avail)", rec.Body.Len())
+	if ct := rec.Header().Get("Content-Type"); ct != "video/mp4" {
+		t.Errorf("Content-Type = %q, want video/mp4", ct)
 	}
 
-	// Range entirely beyond the prefix: held (long-polled) until the
-	// verified prefix passes the requested start — answered 206 once
-	// availability catches up (Chrome 151's follow-up bytes=avail- shape),
-	// not an immediate 503.
-	got := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		req, _ := http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
-		req.Header.Set("Origin", allowedOriginLocal)
-		req.Header.Set("Range", "bytes=400000-500000")
-		rec := httptest.NewRecorder()
-		s.Handler().ServeHTTP(rec, req)
-		got <- rec
-	}()
-	time.Sleep(100 * time.Millisecond) // let the request enter the hold
-	engine.h.avail.Store(600_000)
-	select {
-	case rec = <-got:
-		if rec.Code != http.StatusPartialContent {
-			t.Fatalf("range beyond prefix = %d, want 206 after long-poll", rec.Code)
-		}
-		if cr := rec.Header().Get("Content-Range"); cr != "bytes 400000-500000/800000" {
-			t.Errorf("range beyond prefix: Content-Range = %q, want bytes 400000-500000/800000", cr)
-		}
-		if rec.Body.Len() != 100_001 {
-			t.Errorf("range beyond prefix: body length = %d, want 100001", rec.Body.Len())
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("range beyond prefix: long-poll never returned after availability advanced")
-	}
-
-	// No Range, avail < total → 503.
+	// No Range while streaming with partial data → ServeContent serves 200.
+	// In the real anacrolix case the Reader blocks on unavailable pieces;
+	// the fake reader returns io.ErrNoProgress, producing a truncated
+	// response body — expected test-only behavior.
 	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("no range, partial = %d, want 503", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("no range, streaming = %d, want 200", rec.Code)
+	}
+
+	// HEAD mirrors status/headers without body.
+	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HEAD streaming = %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("HEAD streaming body = %d, want 0", rec.Body.Len())
 	}
 
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")

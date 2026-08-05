@@ -329,12 +329,14 @@ func TestDownloadThenListingAndSelection(t *testing.T) {
 	// Simulate download completion.
 	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
 	waitForState(t, m, snap.ID, StateComplete, 5*time.Second)
-	_, src := m.ActiveMedia()
-	if src == nil {
-		t.Fatal("selected media must be servable at complete")
+	// At complete, NewMediaReader must create a servable reader.
+	r, err := m.NewMediaReader(context.Background())
+	if err != nil {
+		t.Fatalf("NewMediaReader at complete: %v", err)
 	}
 	buf := make([]byte, 200)
-	n, err := src.ReadAt(buf, 0)
+	n, err := r.Read(buf)
+	r.Close()
 	if n != 200 {
 		t.Fatalf("read selected media = %d bytes, want 200 (err=%v)", n, err)
 	}
@@ -486,14 +488,15 @@ func TestRaceConcurrentSnapshotAndRun(t *testing.T) {
 	wg.Wait()
 
 	// Final read after completion.
-	_, src := m.ActiveMedia()
-	if src == nil {
-		t.Fatal("ActiveMedia should return source after complete")
+	r, err := m.NewMediaReader(context.Background())
+	if err != nil {
+		t.Fatalf("NewMediaReader after complete: %v", err)
 	}
 	buf := make([]byte, 100)
-	n, err := src.ReadAt(buf, 0)
+	n, err := r.Read(buf)
+	r.Close()
 	if n == 0 && err != nil {
-		t.Fatalf("ReadAt after complete: n=%d err=%v", n, err)
+		t.Fatalf("Read after complete: n=%d err=%v", n, err)
 	}
 
 	_, _ = m.Cancel(id)
@@ -532,17 +535,20 @@ func TestStreamingReturnsSource(t *testing.T) {
 	}
 	waitForState(t, m, id, StateStreaming, 5*time.Second)
 
-	// During streaming, ActiveMedia must return a non-nil source.
-	streamSnap, src := m.ActiveMedia()
-	if src == nil {
-		t.Fatal("ActiveMedia must return a source during streaming")
-	}
+	// During streaming, NewMediaReader must create a servable reader and
+	// the snapshot must reflect the streaming state.
+	streamSnap, _ := m.ActiveMedia()
 	if streamSnap.State != StateStreaming {
 		t.Fatalf("snapshot state = %s, want streaming", streamSnap.State)
 	}
-	// Source must report correct total.
-	if src.Total() != 5000 {
-		t.Fatalf("source.Total() = %d, want 5000", src.Total())
+	r, err := m.NewMediaReader(context.Background())
+	if err != nil {
+		t.Fatalf("NewMediaReader during streaming: %v", err)
+	}
+	r.Close()
+	// SelectedLength must reflect the total file size.
+	if streamSnap.Media.Total != 5000 {
+		t.Fatalf("snapshot total = %d, want 5000", streamSnap.Media.Total)
 	}
 
 	_, _ = m.Cancel(id)
@@ -569,13 +575,14 @@ func TestStreamingSourceReportsAvailablePrefix(t *testing.T) {
 	engine.h.avail.Store(2000)
 	time.Sleep(300 * time.Millisecond) // let the poll goroutine tick
 
-	_, src := m.ActiveMedia()
-	if src == nil {
-		t.Fatal("source must exist during streaming")
+	// During streaming, AvailablePrefix must reflect the engine's
+	// verified prefix (grows over time).
+	snap2, _ := m.ActiveMedia()
+	if snap2.State != StateStreaming {
+		t.Fatalf("snapshot state = %s, want streaming", snap2.State)
 	}
-	avail := src.Available()
-	if avail != 2000 {
-		t.Fatalf("source.Available() = %d, want 2000", avail)
+	if snap2.Media.Available != 2000 {
+		t.Fatalf("available prefix = %d, want 2000", snap2.Media.Available)
 	}
 
 	// Advance to full.
@@ -583,12 +590,12 @@ func TestStreamingSourceReportsAvailablePrefix(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	waitForState(t, m, id, StateComplete, 5*time.Second)
 
-	_, src2 := m.ActiveMedia()
-	if src2 == nil {
-		t.Fatal("source must exist at complete")
+	snap3, _ := m.ActiveMedia()
+	if snap3.State != StateComplete {
+		t.Fatalf("snapshot state at complete = %s, want complete", snap3.State)
 	}
-	if src2.Available() != 5000 {
-		t.Fatalf("source.Available() at complete = %d, want 5000", src2.Available())
+	if snap3.Media.Available != 5000 {
+		t.Fatalf("available prefix at complete = %d, want 5000", snap3.Media.Available)
 	}
 
 	_, _ = m.Cancel(id)

@@ -386,7 +386,9 @@ func (m *Manager) ActiveCount() int {
 }
 
 // ActiveMedia returns the most recently started job's snapshot and
-// optionally a ReaderSource for media serving.
+// optionally a GrowingSource for media serving. The GrowingSource is now
+// always nil for torrent — the torrent media path uses http.ServeContent
+// with a direct Reader (NewMediaReader) instead.
 func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -401,17 +403,8 @@ func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 	}
 	j := sess.job
 	snap := j.snapshot()
-	st := j.getState()
-	j.stateMu.Lock()
-	h := j.handle
-	selectedLen := int64(0)
-	if h != nil {
-		selectedLen = h.SelectedLength()
-	}
-	j.stateMu.Unlock()
-	if (st == StateStreaming || st == StateComplete) && h != nil {
-		return snap, &torrentReaderSource{handle: h, length: selectedLen}
-	}
+	// Return nil — activeTorrentStatus uses the snapshot state only,
+	// and serveTorrentMedia uses NewMediaReader + SelectedFileName.
 	return snap, nil
 }
 
@@ -805,25 +798,51 @@ func (m *Manager) AvailablePrefix() int64 {
 	return h.AvailablePrefix()
 }
 
-// torrentReaderSource wraps the engine's torrent reader as a GrowingSource.
-type torrentReaderSource struct {
-	handle TorrentHandle
-	length int64
+// NewMediaReader creates a seekable reader over the active session's
+// selected video file. Reads block until data is available (piece
+// completion) or ctx is done. The reader drives piece demand — seeks
+// promote the needed pieces. The caller must close the reader.
+func (m *Manager) NewMediaReader(ctx context.Context) (io.ReadSeekCloser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.purgeEvicted()
+	if len(m.sessionOrder) == 0 {
+		return nil, errors.New("no active session")
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		return nil, errors.New("no active session")
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	h := j.handle
+	j.stateMu.Unlock()
+	if h == nil {
+		return nil, errors.New("no handle")
+	}
+	return h.Reader(ctx)
 }
 
-func (s *torrentReaderSource) Total() int64     { return s.length }
-func (s *torrentReaderSource) Available() int64 { return s.handle.AvailablePrefix() }
-func (s *torrentReaderSource) ReadAt(p []byte, off int64) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	r, err := s.handle.Reader(ctx)
-	if err != nil {
-		return 0, err
+// SelectedFileName returns the basename of the active session's selected
+// video file (e.g. "movie.mkv"). Empty when no file is selected.
+func (m *Manager) SelectedFileName() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.sessionOrder) == 0 {
+		return ""
 	}
-	defer r.Close()
-	_, err = r.Seek(off, io.SeekStart)
-	if err != nil {
-		return 0, err
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		return ""
 	}
-	return r.Read(p)
+	j := sess.job
+	j.stateMu.Lock()
+	vv := j.videoV
+	j.stateMu.Unlock()
+	if vv == nil {
+		return ""
+	}
+	return vv.Path
 }
