@@ -18,8 +18,9 @@
 // service status / update; see cli.go). The internal `apply-update`
 // child mode is spawned by the updater itself and never typed by a
 // user: it replaces the verified staged core/helpers after the parent
-// exits and relaunches the new core in CLI mode, without ever touching
-// the persisted pairing credential.
+// exits and prints an update-complete message (it does NOT auto-launch
+// the new core — the user runs `grkd-edds` manually), without ever
+// touching the persisted pairing credential.
 package main
 
 import (
@@ -136,9 +137,10 @@ func main() {
 	if len(args) > 0 && args[0] == "apply-update" {
 		// Internal --apply-update child mode (spawned by the updater's
 		// CLI option 3): replaces the verified staged core/helpers after
-		// the parent exits and relaunches the new core in CLI mode. This
-		// runs BEFORE any credential/server initialization so the child
-		// never touches pairing state.
+		// the parent exits and prints the update-complete message (the
+		// new core is NOT auto-launched — the user runs `grkd-edds`
+		// manually). This runs BEFORE any credential/server
+		// initialization so the child never touches pairing state.
 		os.Exit(update.ApplyStaged(args[1:]))
 	}
 	if len(args) > 0 && args[0] != "cli" {

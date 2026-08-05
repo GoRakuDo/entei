@@ -19,9 +19,12 @@
 //	    feed. It prints only safe status text and never resets the pairing:
 //	    the persisted credential (credential.bin / DPAPI store) and the
 //	    browser's opaque token are untouched, so the Web does not need to
-//	    re-pair. When an update is verified the process exits and the new
-//	    core is started in CLI mode by the internal --apply-update child
-//	    (see internal/update).
+//	    re-pair. When an update is verified the process exits so the
+//	    internal --apply-update child can replace the running core; the
+//	    child then prints an update-complete message and the user runs
+//	    `grkd-edds` manually (the new core is never auto-launched — an
+//	    auto-started CLI does not own a usable console stdin; see
+//	    internal/update).
 //
 // The header uses ANSI color ONLY when stdout is a terminal; otherwise the
 // plain text is printed (piped/redirected output stays clean). Invalid
@@ -107,8 +110,9 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 				if opts.runUpdate(stdout) {
 					// The updater verified a newer release and spawned the
 					// --apply-update child: the parent must exit so the
-					// child can replace the running core and relaunch the
-					// new CLI.
+					// child can replace the running core. The child prints
+					// an update-complete message afterwards; the user then
+					// starts the new CLI by running `grkd-edds` manually.
 					return 0
 				}
 			default:

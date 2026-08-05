@@ -32,45 +32,7 @@ func deadPID(t *testing.T) int {
 	return pid
 }
 
-// stubLaunch captures the launchNewCore invocation.
-func stubLaunch(t *testing.T) func(core string, args ...string) error {
-	t.Helper()
-	orig := launchNewCore
-	var gotCore string
-	var gotArgs []string
-	launchNewCore = func(core string, args ...string) error {
-		gotCore, gotArgs = core, args
-		return nil
-	}
-	t.Cleanup(func() { launchNewCore = orig })
-	t.Cleanup(func() {
-		if gotCore != "" {
-			t.Logf("launch captured: %s %s", gotCore, strings.Join(gotArgs, " "))
-		}
-	})
-	return func(core string, args ...string) error {
-		if core != gotCore {
-			t.Errorf("launched core = %q, want %q", gotCore, core)
-		}
-		if !equalStrings(args, gotArgs) {
-			t.Errorf("launched args = %q, want %q", gotArgs, args)
-		}
-		return nil
-	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
+// writeFile writes b to path, creating parent directories.
 func writeFile(t *testing.T, path string, b []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -83,9 +45,9 @@ func writeFile(t *testing.T, path string, b []byte) {
 
 // TestApplyStagedPreservesCredential pins the update boundary: applying
 // a staged update replaces ONLY the core/helpers while a sentinel
-// credential.bin next to the core stays byte-identical, the same store
-// still reports the same token, and the new core is relaunched in CLI
-// mode with the explicit Windows helper paths.
+// credential.bin next to the core stays byte-identical and the same
+// store still reports the same token. The new core is NOT auto-launched
+// (the child prints the update-complete message to stderr instead).
 func TestApplyStagedPreservesCredential(t *testing.T) {
 	root := t.TempDir()
 	coreTarget := filepath.Join(root, coreWindowsName)
@@ -119,12 +81,17 @@ func TestApplyStagedPreservesCredential(t *testing.T) {
 	writeFile(t, filepath.Join(staging, "yt-dlp-windows-amd64.exe"), newYtdlp)
 	writeFile(t, filepath.Join(staging, "ffmpeg.exe"), newFfmpeg)
 
-	launchCheck := stubLaunch(t)
-	code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
-		coreTarget, ytdlpTarget, ffmpegTarget})
-	if code != 0 {
-		t.Fatalf("ApplyStaged exit = %d, want 0", code)
-	}
+	// The child must print the update-complete message to stderr instead
+	// of auto-launching the new core (an auto-started CLI does not own a
+	// usable console stdin on Windows).
+	out := captureStderr(t, func() {
+		code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
+			coreTarget, ytdlpTarget, ffmpegTarget})
+		if code != 0 {
+			t.Fatalf("ApplyStaged exit = %d, want 0", code)
+		}
+	})
+	assertCompleteMessage(t, out)
 
 	// Core and helpers replaced.
 	if b, err := os.ReadFile(coreTarget); err != nil || !bytes.Equal(b, newCore) {
@@ -152,8 +119,7 @@ func TestApplyStagedPreservesCredential(t *testing.T) {
 		t.Fatalf("stored credential after apply = %q ok=%v err=%v, want the same token", got, ok, err)
 	}
 
-	// No .bak leftovers, staging removed, and the new CLI launched with
-	// the explicit Windows helper paths.
+	// No .bak leftovers, staging removed.
 	leftovers, _ := filepath.Glob(filepath.Join(root, "*.bak"))
 	if len(leftovers) != 0 {
 		t.Errorf("backup leftovers: %v", leftovers)
@@ -161,7 +127,6 @@ func TestApplyStagedPreservesCredential(t *testing.T) {
 	if _, err := os.Stat(staging); !os.IsNotExist(err) {
 		t.Error("staging dir must be removed by the child")
 	}
-	launchCheck(coreTarget, "--ytdlp", ytdlpTarget, "--ffmpeg", ffmpegTarget, "cli")
 }
 
 // TestApplyStagedHelperFailureKeepsOldCore pins the rollback boundary:
@@ -179,28 +144,25 @@ func TestApplyStagedHelperFailureKeepsOldCore(t *testing.T) {
 	writeFile(t, filepath.Join(staging, "yt-dlp-windows-amd64.exe"), []byte("new-ytdlp"))
 	writeFile(t, filepath.Join(staging, "ffmpeg.exe"), []byte("new-ffmpeg"))
 
-	launched := false
-	orig := launchNewCore
-	launchNewCore = func(string, ...string) error { launched = true; return nil }
-	defer func() { launchNewCore = orig }()
-
-	code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
-		coreTarget, filepath.Join(root, "helpers", "yt-dlp-windows-amd64.exe"),
-		filepath.Join(root, "helpers", "ffmpeg.exe")})
-	if code == 0 {
-		t.Fatal("ApplyStaged must fail when a helper cannot be applied")
-	}
+	out := captureStderr(t, func() {
+		code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
+			coreTarget, filepath.Join(root, "helpers", "yt-dlp-windows-amd64.exe"),
+			filepath.Join(root, "helpers", "ffmpeg.exe")})
+		if code == 0 {
+			t.Fatal("ApplyStaged must fail when a helper cannot be applied")
+		}
+	})
 	if b, err := os.ReadFile(coreTarget); err != nil || string(b) != "old-core" {
 		t.Fatalf("old core must be kept on helper failure: %v", err)
 	}
-	if launched {
-		t.Fatal("the new core must not be launched after a failed apply")
+	if strings.Contains(out, "Update complete!") {
+		t.Fatal("no completion message may be printed after a failed apply")
 	}
 }
 
 // TestApplyStagedParentNeverExitsFailsClosed pins the bounded wait: if
 // the parent never exits, the old core is kept within the bounded
-// window and nothing is launched.
+// window and no completion message is printed.
 func TestApplyStagedParentNeverExitsFailsClosed(t *testing.T) {
 	origWait := maxParentWait
 	maxParentWait = 300 * time.Millisecond
@@ -212,27 +174,24 @@ func TestApplyStagedParentNeverExitsFailsClosed(t *testing.T) {
 	staging := t.TempDir()
 	writeFile(t, filepath.Join(staging, coreWindowsName), []byte("new-core"))
 
-	launched := false
-	orig := launchNewCore
-	launchNewCore = func(string, ...string) error { launched = true; return nil }
-	defer func() { launchNewCore = orig }()
-
 	// Our own PID is alive the whole time.
-	code := ApplyStaged([]string{staging, strconv.Itoa(os.Getpid()), coreTarget, "", ""})
-	if code == 0 {
-		t.Fatal("ApplyStaged must fail when the parent never exits")
-	}
+	out := captureStderr(t, func() {
+		code := ApplyStaged([]string{staging, strconv.Itoa(os.Getpid()), coreTarget, "", ""})
+		if code == 0 {
+			t.Fatal("ApplyStaged must fail when the parent never exits")
+		}
+	})
 	if b, err := os.ReadFile(coreTarget); err != nil || string(b) != "old-core" {
 		t.Fatalf("old core must be kept when the parent never exits: %v", err)
 	}
-	if launched {
-		t.Fatal("nothing may be launched when the apply fails")
+	if strings.Contains(out, "Update complete!") {
+		t.Fatal("no completion message may be printed when the apply fails")
 	}
 }
 
 // TestApplyStagedTermuxArgs pins the Termux shape: only the core target
-// is passed (helpers stay Termux-package managed) and the new core is
-// launched with plain `cli`.
+// is passed (helpers stay Termux-package managed) and the child prints
+// the update-complete message instead of auto-launching the core.
 func TestApplyStagedTermuxArgs(t *testing.T) {
 	root := t.TempDir()
 	coreTarget := filepath.Join(root, coreAndroidName)
@@ -240,15 +199,16 @@ func TestApplyStagedTermuxArgs(t *testing.T) {
 	staging := t.TempDir()
 	writeFile(t, filepath.Join(staging, coreAndroidName), []byte("new-core"))
 
-	launchCheck := stubLaunch(t)
-	code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)), coreTarget, "", ""})
-	if code != 0 {
-		t.Fatalf("ApplyStaged exit = %d, want 0", code)
-	}
+	out := captureStderr(t, func() {
+		code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)), coreTarget, "", ""})
+		if code != 0 {
+			t.Fatalf("ApplyStaged exit = %d, want 0", code)
+		}
+	})
 	if b, err := os.ReadFile(coreTarget); err != nil || string(b) != "new-core" {
 		t.Fatalf("core not replaced: %v", err)
 	}
-	launchCheck(coreTarget, "cli")
+	assertCompleteMessage(t, out)
 }
 
 // TestApplyStagedRejectsBadArgs pins the child-mode argument contract.
@@ -391,9 +351,8 @@ func TestCopyExecutableForChildFailsClosed(t *testing.T) {
 // cannot be renamed), and the child must replace a fake target in the
 // test temp dir while the running exe stays untouched. The full real
 // chain runs: driver -> real spawnApply -> %TEMP% copy -> real
-// ApplyStaged -> replacement -> relaunch of the staged fake core (which
-// exits immediately via the TestMain env gate, so no console output and
-// no leftover process).
+// ApplyStaged -> replacement -> stderr completion message (no relaunch,
+// so no extra process ever runs).
 func TestSpawnApplyWindowsRealSelfReplace(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows-only: exercises the real self-replacement path")
@@ -420,10 +379,10 @@ func TestSpawnApplyWindowsRealSelfReplace(t *testing.T) {
 	writeFile(t, coreTarget, []byte("old-fake-core"))
 
 	// Fake staging: the staged "new core" is a copy of the running test
-	// binary. The child's launchNewCore relaunches it with `cli`; via the
-	// env gate it exits immediately (no console output, no leftover
-	// process). This also proves the replacement source is the staged
-	// copy, not the running exe.
+	// binary. The child no longer relaunches anything (it prints the
+	// completion message to stderr and exits), so no extra process ever
+	// runs. This still proves the replacement source is the staged copy,
+	// not the running exe.
 	staging := t.TempDir()
 	writeFile(t, filepath.Join(staging, "fake-core.exe"), runBytes)
 
@@ -527,6 +486,42 @@ func captureStderr(t *testing.T, f func()) string {
 	return string(b)
 }
 
+// assertCompleteMessage verifies the apply child's success output: the
+// update-complete message telling the user to run `grkd-edds` manually.
+// With stderr redirected (as captureStderr does) the message must be
+// plain — no ANSI codes — because ANSI color is only applied when
+// stderr is a real terminal.
+func assertCompleteMessage(t *testing.T, out string) {
+	t.Helper()
+	for _, want := range []string{"Update complete!", "Run `grkd-edds`", "in the terminal to start."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stderr = %q, want the update-complete message containing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("stderr = %q, want plain text (no ANSI) when stderr is not a terminal", out)
+	}
+}
+
+// TestApplyStagedPrintsCompleteMessage pins the success output of a
+// completed apply: the update-complete message is written to stderr, and
+// the new core is never auto-launched.
+func TestApplyStagedPrintsCompleteMessage(t *testing.T) {
+	root := t.TempDir()
+	coreTarget := filepath.Join(root, coreWindowsName)
+	writeFile(t, coreTarget, []byte("old-core"))
+	staging := t.TempDir()
+	writeFile(t, filepath.Join(staging, coreWindowsName), []byte("new-core"))
+
+	out := captureStderr(t, func() {
+		code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)), coreTarget, "", ""})
+		if code != 0 {
+			t.Fatalf("ApplyStaged exit = %d, want 0", code)
+		}
+	})
+	assertCompleteMessage(t, out)
+}
+
 // TestApplyStagedReportsFailuresToStderr pins the child's failure
 // reporting: every failing path must write an "update: apply failed:"
 // line to stderr before returning 1 (the child is launched detached, so
@@ -556,11 +551,6 @@ func TestApplyStagedReportsFailuresToStderr(t *testing.T) {
 		writeFile(t, filepath.Join(staging, "yt-dlp-windows-amd64.exe"), []byte("new-ytdlp"))
 		writeFile(t, filepath.Join(staging, "ffmpeg.exe"), []byte("new-ffmpeg"))
 
-		launched := false
-		orig := launchNewCore
-		launchNewCore = func(string, ...string) error { launched = true; return nil }
-		defer func() { launchNewCore = orig }()
-
 		out := captureStderr(t, func() {
 			code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
 				coreTarget, filepath.Join(root, "helpers", "yt-dlp-windows-amd64.exe"),
@@ -572,8 +562,8 @@ func TestApplyStagedReportsFailuresToStderr(t *testing.T) {
 		if !strings.Contains(out, "update: apply failed:") {
 			t.Errorf("stderr = %q, want an apply failure line", out)
 		}
-		if launched {
-			t.Fatal("the new core must not be launched after a failed apply")
+		if strings.Contains(out, "Update complete!") {
+			t.Fatal("no completion message may be printed after a failed apply")
 		}
 	})
 }

@@ -3,9 +3,11 @@
 # EizouDendenshi Termux bootstrap (ED-2D Stage A template)
 #
 # Verify and install the signed android/arm64 EizouDendenshi core release
-# into Termux app-private storage, then start it in the FOREGROUND so the
-# pairing code appears on the terminal. Nothing is installed before every
-# available verification step has passed.
+# into Termux app-private storage, then print an install-complete message.
+# The core is NOT auto-launched: a process started by the bootstrap does
+# not own a usable console stdin, so the user runs `grkd-edds` manually
+# from their own terminal (where stdin works). Nothing is installed before
+# every available verification step has passed.
 #
 # Distribution contract (do not weaken):
 #   - This template is distributed as a copy-paste command. It is NEVER
@@ -40,10 +42,6 @@
 #   EIZOU_MIRROR_DIR=<dir>        fetch files from a local directory instead
 #                                 of the network (same verification path)
 #   PREFIX=<path>                 app-private prefix (the harness supplies it)
-#   EIZOU_TEST_ADDR=<host:port>   harness-only: bind the foreground core to
-#                                 this loopback port instead of the default
-#                                 127.0.0.1:4322 (isolation; never set in
-#                                 production)
 set -eu
 
 # --- Pinned release signing key (replace at release time) ---
@@ -274,16 +272,16 @@ main() {
 
     install_verified_core
 
-    # The download cache is no longer needed. It must be removed BEFORE
-    # exec: exec replaces this shell, so EXIT traps never run.
+    # The download cache is no longer needed: it is explicitly removed
+    # here (the primary path); the EXIT trap remains as a safety net.
     rm -rf -- "$EIZOU_TMP"
 
     echo "EizouDendenshi bootstrap: verified EizouDendenshi ${MANIFEST_VERSION} installed at ${PREFIX}/${INSTALL_DIR}/${CORE_NAME}"
-    echo 'EizouDendenshi bootstrap: starting in the foreground (pairing code below)'
-    if [ -n "${EIZOU_TEST_ADDR:-}" ]; then
-        exec "$PREFIX/$INSTALL_DIR/$CORE_NAME" --addr "$EIZOU_TEST_ADDR"
-    fi
-    exec "$PREFIX/$INSTALL_DIR/$CORE_NAME"
+    # Install complete: the core is NOT auto-launched (an auto-started
+    # process does not own a usable console stdin); the user runs
+    # `grkd-edds` manually from their own terminal.
+    echo ''
+    echo -e "\033[1;32mInstallation complete! Run \`grkd-edds\` in the terminal to start.\033[0m"
 }
 
 main "$@"

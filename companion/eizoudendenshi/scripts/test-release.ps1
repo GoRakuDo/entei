@@ -11,7 +11,9 @@
 #   Dynamic (requires a POSIX sh, e.g. Git for Windows, AND a minisign
 #   binary; the harness provisions the official minisign 0.12 win64 build
 #   into A:\Temp\opencode when it is not already available):
-#     - successful verified install -> foreground start -> pairing code
+#     - successful verified install -> install-complete message; the
+#       harness then probes the INSTALLED core directly for the pairing
+#       code and the release-identity banner (the bootstrap never launches)
 #     - release-identity: startup banner reports the requested release
 #       version and agrees with the manifest version
 #     - plain `build` (no -Version) keeps the dev default (0.2.0) in the
@@ -139,8 +141,12 @@ function Static-Checks {
         $boot.Contains('mktemp -d') -and $boot.Contains('chmod 700') -and $boot.Contains('trap cleanup')) 'mode-700 temp dir removed on exit'
     Check 'static: app-private atomic install path' (
         $boot.Contains('var/lib/eizouden') -and $boot.Contains('mv -f')) 'install under $PREFIX/var/lib/eizouden'
-    Check 'static: foreground pairing start' (
-        $boot.Contains('exec "') -and $boot.IndexOf('pairing', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) 'bootstrap must exec the core in the foreground'
+    Check 'static: no auto-launch; install-complete message shown' (
+        # The sh source escapes the backticks (`` \` ``) inside the double-
+        # quoted echo, so match on the unescaped substrings only.
+        $code.Contains('Installation complete!') -and
+        $code.Contains('grkd-edds') -and
+        -not ($code -match 'exec\s+"\$PREFIX/\$INSTALL_DIR/\$CORE_NAME"')) 'bootstrap must print the install-complete message instead of execing the core'
     Check 'static: helper contract fails closed' ($boot.Contains('fails closed') -and $boot.Contains('minimumVersions')) 'unknown contract must be refused'
     # The production fetch must follow GitHub Release 302 redirects (release
     # asset URLs redirect to the CDN; an unfollowed redirect would save the
@@ -190,36 +196,74 @@ function Invoke-BootstrapCase {
     $installed = Join-Path $PrefixPath "var\lib\eizouden\eizouden-android-arm64"
 
     if ($ExpectSuccess) {
-        # The core binary runs forever; wait for the pairing code, then kill
-        # the whole process tree.
-        $deadline = [DateTime]::UtcNow.AddSeconds(45)
-        $sawPairing = $false
-        while ([DateTime]::UtcNow -lt $deadline -and -not $proc.HasExited) {
-            $out = if (Test-Path -LiteralPath $outFile) { Get-Content -Raw -LiteralPath $outFile } else { '' }
-            if ($out -match 'Pairing code:\s*\d{6}') { $sawPairing = $true; break }
-            Start-Sleep -Milliseconds 300
-        }
-        if ($sawPairing) {
+        # The bootstrap no longer launches the core (an auto-started
+        # process does not own a usable console stdin); it prints the
+        # install-complete message and exits. Wait for that exit and verify
+        # the message, then probe the INSTALLED core directly (a harness
+        # launch, NOT a bootstrap auto-launch) for the pairing code and the
+        # release-identity banner.
+        if (-not $proc.WaitForExit(90000)) {
             & 'C:\Windows\System32\taskkill.exe' /T /F /PID $proc.Id 2>&1 | Out-Null
+            $proc.WaitForExit()
+            Check "${Name}: bootstrap exited" $false 'did not exit within 90s'
+            return
         }
-        $proc.WaitForExit()
         $out = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue) +
             (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
-        Check "${Name}: foreground pairing code printed" $sawPairing ($out -replace '\s+', ' ')
+        Check "${Name}: bootstrap exited zero" ($proc.ExitCode -eq 0) "exit=$($proc.ExitCode): $($out -replace '\s+',' ')"
+        Check "${Name}: install-complete message printed (no auto-launch)" ($out -match 'Installation complete! Run `grkd-edds`') ($out -replace '\s+', ' ')
         Check "${Name}: verified-install message printed" ($out -match ('verified EizouDendenshi {0} installed' -f [regex]::Escape($script:ManifestVersion))) ($out -replace '\s+', ' ')
         Check "${Name}: core installed in app-private storage" (Test-Path -LiteralPath $installed) "expected $installed"
-        # Release-identity display contract: the startup banner must report
-        # the version the release was requested with, and it must agree with
-        # the version parsed from the signed manifest. With the test-only
-        # version 9.9.9, an uninjected (dev-default 0.2.0) binary fails here.
-        $bannerVersion = $null
-        if ($out -match 'EizouDendenshi ED-2B \(([^)]+)\) listening on http') { $bannerVersion = $Matches[1] }
-        Check "${Name}: startup banner reports the requested release version" ($bannerVersion -eq $script:ReleaseVersion) "banner version '$bannerVersion' vs requested '$($script:ReleaseVersion)'"
-        Check "${Name}: startup banner version agrees with manifest version" ($bannerVersion -eq $script:ManifestVersion) "banner '$bannerVersion' vs manifest '$($script:ManifestVersion)'"
         if (Test-Path -LiteralPath $installed) {
             $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $installed).Hash.ToLowerInvariant()
             $want = $script:ManifestAndroidSha
             Check "${Name}: installed bytes match signed manifest" ($got -eq $want) "got $got want $want"
+        }
+        # Probe the installed core directly: bind it to an ephemeral
+        # loopback port and read the pairing code + startup banner, then
+        # kill it (harness-side only; the bootstrap itself never launches).
+        $probeOut = Join-Path $script:LogsDir "$Name.probe.out.log"
+        $probeErr = Join-Path $script:LogsDir "$Name.probe.err.log"
+        $envProbe = @{
+            PATH                   = $env:PATH
+            EIZOUDEN_CREDENTIAL_DIR = Join-Path $script:TempDir 'credential-probe'
+        }
+        $p = $null
+        try {
+            if (Test-Path -LiteralPath $installed) {
+                $p = Start-Process -FilePath $installed -ArgumentList @('--addr', '127.0.0.1:0') `
+                    -RedirectStandardOutput $probeOut -RedirectStandardError $probeErr `
+                    -PassThru -NoNewWindow -Environment $envProbe
+            }
+            $sawPairing = $false
+            $deadline = [DateTime]::UtcNow.AddSeconds(45)
+            while ($null -ne $p -and [DateTime]::UtcNow -lt $deadline -and -not $p.HasExited) {
+                $po = if (Test-Path -LiteralPath $probeOut) { Get-Content -Raw -LiteralPath $probeOut } else { '' }
+                if ($po -match 'Pairing code:\s*\d{6}') { $sawPairing = $true; break }
+                Start-Sleep -Milliseconds 300
+            }
+            if ($null -ne $p -and $sawPairing) {
+                & 'C:\Windows\System32\taskkill.exe' /T /F /PID $p.Id 2>&1 | Out-Null
+            }
+            if ($null -ne $p) { $p.WaitForExit() }
+            $probeText = (Get-Content -Raw -LiteralPath $probeOut -ErrorAction SilentlyContinue) +
+                (Get-Content -Raw -LiteralPath $probeErr -ErrorAction SilentlyContinue)
+            Check "${Name}: probe pairing code printed" $sawPairing ($probeText -replace '\s+', ' ')
+            # Release-identity display contract: the startup banner must
+            # report the version the release was requested with, and it must
+            # agree with the version parsed from the signed manifest. With
+            # the test-only version 9.9.9, an uninjected (dev-default 0.2.0)
+            # binary fails here.
+            $bannerVersion = $null
+            if ($probeText -match 'EizouDendenshi ED-2B \(([^)]+)\) listening on http') { $bannerVersion = $Matches[1] }
+            Check "${Name}: startup banner reports the requested release version" ($bannerVersion -eq $script:ReleaseVersion) "banner version '$bannerVersion' vs requested '$($script:ReleaseVersion)'"
+            Check "${Name}: startup banner version agrees with manifest version" ($bannerVersion -eq $script:ManifestVersion) "banner '$bannerVersion' vs manifest '$($script:ManifestVersion)'"
+        }
+        finally {
+            if ($null -ne $p -and -not $p.HasExited) {
+                & 'C:\Windows\System32\taskkill.exe' /T /F /PID $p.Id 2>&1 | Out-Null
+                $p.WaitForExit()
+            }
         }
     }
     else {
@@ -307,9 +351,6 @@ function New-CaseEnv {
     $env.EIZOU_MIRROR_DIR = $Mirror
     # Test mode: the harness stands in for Termux and supplies PREFIX.
     $env.PREFIX = $Prefix
-    # Bind the foreground core to an ephemeral loopback port (isolation);
-    # never the production default 127.0.0.1:4322.
-    $env.EIZOU_TEST_ADDR = '127.0.0.1:0'
     # Redirect the persistent pairing credential away from the REAL user
     # profile (LOCALAPPDATA on Windows): the core's credential store lands
     # in the harness temp dir and is removed with it.
@@ -360,7 +401,6 @@ function Invoke-TermuxHelperCase {
         EIZOU_TEST = '1'
         EIZOU_BOOTSTRAP_SKIP_PKG = '1'
         EIZOU_MIRROR_DIR = $script:HelperMirror
-        EIZOU_TEST_ADDR = '127.0.0.1:0'
         PREFIX = $Prefix
         TMPDIR = $script:TempDir
         # Skip-PKG test mode requires the verifier/download tools on PATH
@@ -388,7 +428,7 @@ function Invoke-TermuxHelperCase {
         Check "${Name}: core installed in app-private storage" (Test-Path -LiteralPath $core) "expected $core"
         Check "${Name}: CLI launcher installed at PREFIX/bin/grkd-edds" (Test-Path -LiteralPath $launcher) "expected $launcher"
         Check "${Name}: legacy PREFIX/bin/eizouden launcher removed" (-not (Test-Path -LiteralPath (Join-Path $Prefix "bin\eizouden"))) "legacy launcher present"
-        Check "${Name}: CLI status rendered (common CLI contract)" ($out -match 'core: installed \(v') ($out -replace '\s+', ' ')
+        Check "${Name}: install-complete message shown (no auto-launch)" ($out -match 'Installation complete! Run `grkd-edds`') ($out -replace '\s+', ' ')
     }
     else {
         Check "${Name}: exited non-zero" ($proc.ExitCode -ne 0) "exit=$($proc.ExitCode)"
@@ -660,7 +700,9 @@ function Dynamic-Suite {
     }
     $baseUrl = "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)"
 
-    # T1: success (verified install -> foreground pairing code).
+    # T1: success (verified install -> install-complete message; the
+    #     harness then probes the installed core directly for the pairing
+    #     code and the banner).
     $p = New-Prefix 'T1'
     $m = Copy-Mirror 'T1'
     Invoke-BootstrapCase -Name 'T1 success' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T1')) `

@@ -23,8 +23,12 @@ const parentPollInterval = 200 * time.Millisecond
 //
 // It waits (bounded) for the parent to exit, replaces the staged
 // core/helpers with backup+rollback (helpers first; the core LAST, and
-// the old core is kept on any failure), relaunches the new core in CLI
-// mode (cli, preserving the explicit Windows helper paths), and exits.
+// the old core is kept on any failure), then prints an update-complete
+// message to stderr and exits. The new core is deliberately NOT
+// auto-launched from here: a process started by this child does not own
+// a usable console stdin on Windows (console-handle inheritance), so an
+// auto-started CLI could not read its "Option:" prompt — the user runs
+// `grkd-edds` manually from their own terminal, where stdin works.
 // The pairing credential is never read, written, or replaced.
 //
 // Every failure path writes a reason to stderr before returning 1: the
@@ -89,20 +93,11 @@ func ApplyStaged(args []string) int {
 		}
 	}
 
-	launch := make([]string, 0, 5)
-	if runtime.GOOS == "windows" {
-		if ytdlpTarget != "" {
-			launch = append(launch, "--ytdlp", ytdlpTarget)
-		}
-		if ffmpegTarget != "" {
-			launch = append(launch, "--ffmpeg", ffmpegTarget)
-		}
-	}
-	launch = append(launch, "cli")
-	if err := launchNewCore(coreTarget, launch...); err != nil {
-		fmt.Fprintf(os.Stderr, "update: apply failed: %v\n", err)
-		return 1
-	}
+	// The replaced core is not launched from here (see the doc comment):
+	// print the update-complete message and exit. The message goes to
+	// stderr, like every other apply-child line, so it is never mixed
+	// into the CLI menu's stdout after the parent has exited.
+	printComplete()
 	return 0
 }
 
@@ -327,12 +322,29 @@ func updaterCopyName(pid int) string {
 	return fmt.Sprintf("%s%d-%08x.exe", updaterCopyPrefix, pid, rand.Uint32())
 }
 
-// launchNewCore starts the replaced core in CLI mode. A var so tests
-// can stub the launch.
-var launchNewCore = func(core string, args ...string) error {
-	cmd := exec.Command(core, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Start()
+// completeMessage is the update-complete message printed by the apply
+// child after the staged core/helpers have been replaced. The new core
+// is not auto-launched (see ApplyStaged's doc comment); the message
+// tells the user to run `grkd-edds` manually, where stdin works.
+const completeMessage = "Update complete! Run `grkd-edds` in the terminal to start."
+
+// printComplete writes completeMessage to stderr in bold green ANSI
+// ONLY when stderr is a terminal (the cli.go header pattern: ANSI color
+// only for a real terminal; piped/redirected stderr stays plain).
+func printComplete() {
+	msg := completeMessage
+	if isTerminal(os.Stderr) {
+		msg = "\x1b[1;32m" + msg + "\x1b[0m"
+	}
+	fmt.Fprintln(os.Stderr, msg)
+}
+
+// isTerminal reports whether f is a character device (a real terminal).
+// Buffers, files, and pipes are not terminals: output stays plain.
+func isTerminal(f *os.File) bool {
+	st, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return st.Mode()&os.ModeCharDevice != 0
 }

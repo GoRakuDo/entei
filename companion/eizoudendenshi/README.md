@@ -736,9 +736,12 @@ path) was removed.
   (`termux-bootstrap-helper.sh`, emitted as `eizouden-bootstrap-helper.sh`)
   requires exactly v3, installs missing helpers only through the official
   Termux pkg repo, verifies executable commands + minimum versions before
-  the signed core install, installs an app-private `eizouden` launcher at
-  `$PREFIX/bin`, and launches the CLI. The v1 core-only Termux bootstrap is
-  unchanged and remains backward compatible.
+  the signed core install, installs an app-private `grkd-edds` launcher at
+  `$PREFIX/bin`, and finishes by printing an install-complete message
+  (`Installation complete! Run \`grkd-edds\` in the terminal to start.`).
+  The CLI is **not** auto-launched (an auto-started process does not own a
+  usable console stdin); the user runs `grkd-edds` manually. The v1
+  core-only Termux bootstrap is unchanged and remains backward compatible.
 - **Status**: harness-verified (Termux 90/90, Windows 83/83, Go `-race`
   green). **Not verified**: the real Termux clean install + helper CLI gate
   on a device, and the Windows real-machine CLI/launcher manual gate.
@@ -1170,9 +1173,14 @@ Android/headed-Windows browser behavior together.
   `--apply-update` child mode carrying only the staging path, the parent
   PID, and the target paths; the parent exits first, the child waits
   (bounded) for it, replaces the verified core/helpers with
-  backup+rollback (the old core is kept on any failure), relaunches the
-  new core in CLI mode (`cli`, preserving the explicit Windows helper
-  paths), and exits. On Windows the child runs from a byte-identical
+  backup+rollback (the old core is kept on any failure), prints an
+  update-complete message
+  (`Update complete! Run \`grkd-edds\` in the terminal to start.`), and
+  exits. The new core is deliberately **not** auto-launched: an
+  auto-started process does not own a usable console stdin on Windows
+  (the rc.22-era auto-launch could not read the `Option:` prompt), so
+  the user runs `grkd-edds` manually from their own terminal. On
+  Windows the child runs from a byte-identical
   copy of the running executable under the OS temp dir (stale copies
   are swept by the next update): the child must rename the core target,
   and a running Windows image is locked against rename/delete — POSIX
@@ -1192,7 +1200,11 @@ Android/headed-Windows browser behavior together.
   only from the CLI menu, never while a server process is running.
 - **Output:** option 3 prints only safe status text (`checking`, `already
   up to date`, `verified and restarting`, generic failures) — never
-  release URLs, keys, local paths, tokens, or raw errors.
+  release URLs, keys, local paths, tokens, or raw errors. After a
+  successful apply the detached child prints the green `Update complete!
+  Run \`grkd-edds\` in the terminal to start.` message to stderr, and the
+  user starts the new CLI by running `grkd-edds` manually (no auto-
+  launch).
 - **Verification status:** the full Windows update pipeline was run live
   on 2026-08-04 against the real rc.22 release (real GitHub feed, real
   Minisign 0.12, real pinned key): the signed manifest and all artifacts
@@ -1376,7 +1388,11 @@ bootstrap template installs only the verifier/download prerequisites
 verifies a release manifest and the core asset with a Minisign public key
 pinned inside the copied command, verifies SHA-256 against the signed
 manifest, then installs the verified core into Termux app-private storage
-(`$PREFIX/var/lib/eizouden`) and starts it in the foreground for pairing.
+(`$PREFIX/var/lib/eizouden`) and prints an install-complete message
+(`Installation complete! Run \`grkd-edds\` in the terminal to start.`).
+The core is **not** auto-launched (an auto-started process does not own a
+usable console stdin); the user runs `grkd-edds` manually from their own
+terminal.
 
 Future source helpers (`python-yt-dlp`, `ffmpeg`) are deliberately
 **not** installed by this template. They belong to a later stage; a release
@@ -1449,8 +1465,11 @@ on every exit), fetches and verifies the manifest signature, validates the
 manifest (format, version, helper contract — fail closed, android/arm64
 artifact), fetches and verifies the core signature, verifies SHA-256
 against the signed manifest, atomically installs the verified core into
-`$PREFIX/var/lib/eizouden`, removes the download cache, and finally `exec`s
-the core in the foreground to print the pairing code.
+`$PREFIX/var/lib/eizouden`, removes the download cache, and finishes by
+printing a green install-complete message
+(`Installation complete! Run \`grkd-edds\` in the terminal to start.`).
+The core is deliberately **not** auto-launched (an auto-started process
+does not own a usable console stdin); the user runs `grkd-edds` manually.
 
 The template ships with `PINNED_PUBKEY='REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'`.
 The release helper substitutes the real key into the distributed copy; the
@@ -1478,8 +1497,9 @@ explicitly conditioned out and static fail-closed checks still run.
 - **Static checks** (always run): no pipe-to-shell, placeholder must be
   rejected, HTTPS-only URL validation, verify-before-install ordering,
   prerequisites limited to verifier/download tools, no privilege escalation,
-  private temp dir + cleanup, app-private atomic install path, foreground
-  pairing start, helper contract fails closed, redirect-following curl
+  private temp dir + cleanup, app-private atomic install path, install-
+  complete message (no auto-launch), helper contract fails closed,
+  redirect-following curl
   fetch (`--location`, bounded `--max-redirs`, `--proto-redir =https`) with
   `--fail`/timeout/retry retained, key via explicit arg/env only.
 - **Dynamic cases** (sh + minisign available):
@@ -1488,10 +1508,11 @@ explicitly conditioned out and static fail-closed checks still run.
     test-only version (`9.9.9`);
   - plain `build` (no `-Version`): the built windows binary's startup
     banner keeps the dev default `0.2.0`;
-  - **T1 success**: verified install → foreground start → real companion
-    binary prints a 6-digit pairing code; installed bytes match the signed
-    manifest; the startup banner reports the requested release version and
-    agrees with the manifest version;
+  - **T1 success**: verified install → install-complete message (no
+    auto-launch); the harness then launches the installed core directly
+    and observes the 6-digit pairing code and the startup banner (which
+    reports the requested release version and agrees with the manifest
+    version); installed bytes match the signed manifest;
   - **T2/T3**: tampered manifest / tampered binary → signature verification
     failure **before install**;
   - **T4a/T4b**: missing core / manifest signature → failure before install;

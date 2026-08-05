@@ -22,9 +22,11 @@
 //     be renamed there; POSIX semantics allow the running image on
 //     Termux). The parent exits before replacement; the child waits
 //     (bounded) for the parent, replaces the verified core/helpers with
-//     backup+rollback (old core is kept on any failure), then relaunches
-//     the new core in CLI mode (cli, with the explicit Windows helper
-//     paths) and exits.
+//     backup+rollback (old core is kept on any failure), then prints an
+//     update-complete message and exits. The new core is NOT
+//     auto-launched from the child (an auto-started CLI does not own a
+//     usable console stdin on Windows); the user runs `grkd-edds`
+//     manually, where stdin works.
 //
 // Security boundaries:
 //

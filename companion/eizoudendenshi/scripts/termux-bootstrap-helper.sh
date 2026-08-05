@@ -5,8 +5,11 @@
 # Verify and install the signed android/arm64 EizouDendenshi core release
 # into Termux app-private storage, FIRST provisioning the source helpers
 # (python-yt-dlp / ffmpeg) from the OFFICIAL Termux package
-# repository when missing, then start the common CLI in the FOREGROUND.
-# Nothing is installed before every available verification step has passed.
+# repository when missing, then print an install-complete message. The
+# common CLI is NOT auto-launched: an auto-started process does not own a
+# usable console stdin, so the user runs `grkd-edds` manually from their
+# own terminal (where stdin works). Nothing is installed before every
+# available verification step has passed.
 #
 # Distribution contract (do not weaken):
 #   - Never fetched over the network and piped into a shell (no curl|sh).
@@ -21,7 +24,7 @@
 #     compiled-in allowlist); there is no silent helper self-update (this
 #     template installs once and verifies versions; it never re-runs on
 #     later boots). Missing helpers or a version below the manifest minimum
-#     fail closed BEFORE the core is launched.
+#     fail closed BEFORE the core is installed.
 #   - Manifest signature, artifact signature, and artifact SHA-256 are all
 #     verified BEFORE the core install; the verified binary is atomically
 #     moved into app-private storage; an app-private `eizouden` CLI launcher
@@ -345,8 +348,12 @@ main() {
     rm -rf -- "$EIZOU_TMP"
 
     echo "EizouDendenshi bootstrap: verified EizouDendenshi ${MANIFEST_VERSION} installed at ${PREFIX}/${INSTALL_DIR}/${CORE_NAME}"
-    echo 'EizouDendenshi bootstrap: starting grkd-edds (common CLI) in the foreground'
-    exec sh "$PREFIX/bin/grkd-edds"
+    # Install complete: the common CLI is NOT auto-launched (an
+    # auto-started process does not own a usable console stdin); the user
+    # runs `grkd-edds` manually from their own terminal.
+    echo ''
+    echo -e "\033[1;32mInstallation complete! Run \`grkd-edds\` in the terminal to start.\033[0m"
+    exit 0
 }
 
 main "$@"

@@ -78,7 +78,9 @@ func TestMain(m *testing.M) {
 			}
 			os.Exit(0)
 		case "cli":
-			// The staged fake core relaunched by ApplyStaged: exit
+			// ApplyStaged no longer auto-launches the replaced core with
+			// `cli` (it prints the update-complete message instead), but
+			// the dispatch is kept so any stale relaunch path still exits
 			// immediately instead of running the test suite.
 			os.Exit(0)
 		}

@@ -18,7 +18,10 @@
 #   - unsafe artifact names / duplicate or unknown helper keys / contract
 #     versions outside exactly {v2, v3} (v1, v4) -> fail closed
 #   - no system PATH mutation; user-private temp cleanup
-#   - core receives expected absolute --ytdlp paths
+#   - grkd-edds.cmd carries the explicit absolute --ytdlp/--ffmpeg paths and
+#     the process-scoped ffmpeg PATH prepend
+#   - install/update finishes with the "Installation complete!" message
+#     (the core is never auto-launched)
 
 [CmdletBinding()]
 param(
@@ -100,9 +103,9 @@ function Static-Checks {
         $boot.Contains('SHA-256 mismatch') -and $boot.IndexOf('Install-Artifact') -ge 0) 'per-artifact SHA-256 check before atomic replacement'
     Check 'static: user-private install root' (
         $boot.Contains('LOCALAPPDATA') -and $boot.Contains('GoRakuDo\EizouDendenshi')) 'per-user install root under LOCALAPPDATA'
-    Check 'static: explicit absolute helper flags for the core' (
+    Check 'static: explicit absolute helper flags + process-scoped ffmpeg PATH in the launcher' (
         $code -match '--ytdlp' -and
-        $code -match 'env:PATH\s*=\s*"\$helpersDir') 'core receives explicit helper paths; PATH change is process-scoped only'
+        $code -match 'set "PATH=%~dp0helpers') 'grkd-edds.cmd passes the exact helper paths and prepends the private helpers dir to PATH for the CLI it starts (process-scoped only, never persistent)'
     Check 'static: verifier mirror env guard is $null-safe' (
         # Regression pin for the published rc.5 clean-gate failure: an
         # unguarded `Test-Path -LiteralPath $env:EIZOU_WIN_MINISIGN_MIRROR`
@@ -125,17 +128,14 @@ function Invoke-WinBootstrapCase {
         [hashtable]$Env,
         [switch]$ExpectSuccess,
         [string]$ExpectErrorPattern = '',
-        [string]$Mirror,
-        [string]$LaunchFile = ''
+        [string]$Mirror
     )
     $outFile = Join-Path $script:LogsDir "$Name.out.log"
     $errFile = Join-Path $script:LogsDir "$Name.err.log"
     $argsList = @('-NoProfile', '-File', "`"$BootstrapPath`"",
         "-ReleaseBaseUrl", "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)",
         "-InstallRoot", "`"$InstallRoot`"",
-        "-HarnessMirrorDir", "`"$Mirror`"",
-        "-SkipLaunch")
-    if ($LaunchFile -ne '') { $argsList += @('-HarnessLaunchFile', "`"$LaunchFile`"") }
+        "-HarnessMirrorDir", "`"$Mirror`"")
     $proc = Start-Process -FilePath 'pwsh' -ArgumentList $argsList `
         -RedirectStandardOutput $outFile -RedirectStandardError $errFile `
         -PassThru -NoNewWindow -Environment $Env
@@ -150,6 +150,7 @@ function Invoke-WinBootstrapCase {
     if ($ExpectSuccess) {
         Check "${Name}: exited zero" ($proc.ExitCode -eq 0) "exit=$($proc.ExitCode): $($out -replace '\s+',' ')"
         Check "${Name}: installed message" ($out -match 'verified EizouDendenshi .* installed') ($out -replace '\s+', ' ')
+        Check "${Name}: install-complete message shown (no auto-launch)" ($out -match 'Installation complete! Run `grkd-edds`') ($out -replace '\s+', ' ')
     }
     else {
         Check "${Name}: exited non-zero" ($proc.ExitCode -ne 0) "exit=$($proc.ExitCode)"
@@ -313,18 +314,14 @@ function Dynamic-Suite {
     # T1: success install.
     $mirror = Copy-Mirror 'T1'
     $root = Join-Path $script:WorkDir 'root-T1'
-    $launch = Join-Path $script:WorkDir 'launch-T1.txt'
     Invoke-WinBootstrapCase -Name 'T1 success' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T1')) `
-        -InstallRoot $root -Env $script:BaseEnv -ExpectSuccess -Mirror $mirror -LaunchFile $launch
+        -InstallRoot $root -Env $script:BaseEnv -ExpectSuccess -Mirror $mirror
     Check 'T1: core installed' (Test-Path (Join-Path $root 'eizouden-windows-amd64.exe')) 'windows core present'
     Check 'T1: yt-dlp helper installed (runtime name)' (Test-Path (Join-Path $root 'helpers\yt-dlp-windows-amd64.exe')) 'yt-dlp runtime exe present'
     Check 'T1: ffmpeg helper installed under literal ffmpeg.exe' (Test-Path (Join-Path $root 'helpers\ffmpeg.exe')) 'extracted exe keeps its runtime name (PATH ffmpeg lookup)'
     Check 'T1: no zip-named helper at the root (legacy layout gone)' (
         -not (Test-Path (Join-Path $root 'ffmpeg-windows-amd64.zip'))) 'helpers live only in the runtime dir'
     Check 'T1: state file written' (Test-Path (Join-Path $root 'helpers-state.json')) 'helpers-state.json present'
-    $launchText = if (Test-Path -LiteralPath $launch) { Get-Content -Raw -LiteralPath $launch } else { '' }
-    Check 'T1: launch command is the grkd-edds CLI launcher' (
-        $launchText -match 'grkd-edds\.cmd') $launchText
     # Installed yt-dlp bytes must equal the signed manifest (yt-dlp artifact
     # IS its runtime executable).
     $manSha = [string]($man.artifacts | Where-Object { $_.name -eq 'yt-dlp-windows-amd64.exe' } | Select-Object -First 1).sha256
@@ -343,8 +340,8 @@ function Dynamic-Suite {
             $lc -match '--ytdlp.*--ffmpeg.*cli' -and
             $lc -match 'yt-dlp-windows-amd64\.exe' -and
             $lc -match 'ffmpeg\.exe') ($lc -replace '\s+', ' ')
-        Check 'T1b: launch command captured is the grkd-edds launcher' (
-            $launchText -match 'grkd-edds\.cmd') $launchText
+        Check 'T1b: launcher prepends the private helpers dir to PATH (process-scoped)' (
+            $lc -match 'set "PATH=%~dp0helpers') ($lc -replace '\s+', ' ')
     }
 
     # PATH registration: the install root joins the CURRENT USER's PATH
@@ -378,13 +375,13 @@ function Dynamic-Suite {
         $envNoSkip.Remove('EIZOU_WIN_NO_PERSIST_PATH')
         $rootP = Join-Path $script:WorkDir 'root-PATH'
         Invoke-WinBootstrapCase -Name 'PATH1 register user scope' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-PATH1')) `
-            -InstallRoot $rootP -Env $envNoSkip -ExpectSuccess -Mirror (Copy-Mirror 'PATH1') -LaunchFile (Join-Path $script:WorkDir 'launch-PATH1.txt')
+            -InstallRoot $rootP -Env $envNoSkip -ExpectSuccess -Mirror (Copy-Mirror 'PATH1')
         $userPathAfter = [Environment]::GetEnvironmentVariable('Path', 'User')
         $segCount = @($userPathAfter.Split($sep) | Where-Object { $_.TrimEnd('\') -ieq $rootP.TrimEnd('\') }).Count
         Check 'PATH1: install root registered in the CURRENT USER PATH exactly once' ($segCount -eq 1) "segments=$segCount path=$userPathAfter"
         Check 'PATH1: machine PATH untouched' ([Environment]::GetEnvironmentVariable('Path', 'Machine') -eq $savedMachinePath) 'machine scope unchanged'
         Invoke-WinBootstrapCase -Name 'PATH2 idempotent re-registration' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-PATH2')) `
-            -InstallRoot $rootP -Env $envNoSkip -ExpectSuccess -Mirror (Copy-Mirror 'PATH2') -LaunchFile (Join-Path $script:WorkDir 'launch-PATH2.txt')
+            -InstallRoot $rootP -Env $envNoSkip -ExpectSuccess -Mirror (Copy-Mirror 'PATH2')
         $userPathAfter2 = [Environment]::GetEnvironmentVariable('Path', 'User')
         $segCount2 = @($userPathAfter2.Split($sep) | Where-Object { $_.TrimEnd('\') -ieq $rootP.TrimEnd('\') }).Count
         Check 'PATH2: re-registration stays idempotent (still once)' ($segCount2 -eq 1) "segments=$segCount2"
@@ -399,7 +396,7 @@ function Dynamic-Suite {
     $ytdlpInstalled = Join-Path $root 'helpers\yt-dlp-windows-amd64.exe'
     $t0 = (Get-Item -LiteralPath $ytdlpInstalled).LastWriteTimeUtc
     Invoke-WinBootstrapCase -Name 'T2 reuse' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T2')) `
-        -InstallRoot $root -Env $script:BaseEnv -ExpectSuccess -Mirror (Copy-Mirror 'T2') -LaunchFile $launch
+        -InstallRoot $root -Env $script:BaseEnv -ExpectSuccess -Mirror (Copy-Mirror 'T2')
     $t1 = (Get-Item -LiteralPath $ytdlpInstalled).LastWriteTimeUtc
     Check 'T2: verified helper reused (no replacement)' ($t1 -eq $t0) "mtime $t0 -> $t1"
 
@@ -470,7 +467,7 @@ function Dynamic-Suite {
     $outFile = Join-Path $script:LogsDir 'T9.out.log'
     $errFile = Join-Path $script:LogsDir 'T9.err.log'
     $p9 = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', "`"$(New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T9'))`"",
-        '-ReleaseBaseUrl', 'http://release.example.test/x', '-InstallRoot', "`"$root9`"", '-HarnessMirrorDir', "`"$mirror`"", '-SkipLaunch') `
+        '-ReleaseBaseUrl', 'http://release.example.test/x', '-InstallRoot', "`"$root9`"", '-HarnessMirrorDir', "`"$mirror`"") `
         -RedirectStandardOutput $outFile -RedirectStandardError $errFile -PassThru -NoNewWindow -Environment $script:BaseEnv
     $p9.WaitForExit(60000) | Out-Null
     $o9 = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue) + (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
