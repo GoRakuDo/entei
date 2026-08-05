@@ -181,6 +181,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 17. ServeContent方式: torrent配信は`http.ServeContent`+`File.NewReader()`（bitplay方式）。`time.Time{}`（Last-Modifiedなし）はtorrent配信で問題なし。`NewMediaReader`は`m.mu→h.mu`のロック順序（現状デッドロックなし。将来`h.mu`保持中にManagerメソッドを呼ぶコードを追加する場合は注意）。HEAD応答のContent-Lengthは`snap.Media.Total`から（2026-08-05レビュー）。
 18. jobMediaUrl露出遅延: `use-companion-job-session.ts`の`jobMediaUrl`は`bridge.phase==='ready'/'playing'`の時のみ返す（available=0のvideo要素のfetch=30秒タイムアウトリスク回避）。`attachMediaElement`の`buffering` branchと`companion-bridge.ts`の`onMediaError`の`buffering` guardは新設計（ED-2H）ではunreachable（要素はready/playingでのみmount）だが、防御的に残留する旨のコメントを追加済み（2026-08-05対応済み）。将来整理可（2026-08-05レビュー）。
 19. companion loading overlay: `PlayerApp.tsx`に`jobSession.active && !jobSession.jobMediaUrl`の時のグルグルスピナー+テキスト表示を追加。`.entei-player-container`に`position: relative`追加（overlay containment）。empty state条件に`!jobSession.active`追加（companion起動中はempty state非表示、将来の`jobSession.active`だがmedia不要の状態ではempty stateが隠れる耦合に注意）。MagnetInput dialogは`handleMagnetJobAccepted`で自動閉じる（overlayと同時表示なし）（2026-08-05レビュー）。
+20. pairing定期ポーリング: `use-companion-pairing.ts`が5秒ごとに`GET /v1/pair/status`をポーリングし、companionの復帰を自動検知（ユーザーが切断しない限り、companionが無限に停止・再起動しても自動でTerhubung復帰）。`setTimeout`-chain（連続fetch防止・レースなし）、`staleRef`（unmount後state更新防止）、`stopPolling`（timer + in-flight AbortControllerのdual cleanup）。401/403は終端（tokenクリア・ポーリング停止）、ネットワーク失敗はtoken保持で再試行継続。5秒ループバックポーリングの負荷は無視できる（2026-08-05レビュー）。
 
 ## Delivery contract
 

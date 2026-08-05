@@ -4,17 +4,22 @@
  * Owns the browser-side pairing lifecycle for the Player:
  *
  * - On mount, reads the persisted opaque token (companion-pairing-store)
- *   and re-validates it against the companion's authenticated status
- *   endpoint (GET /v1/pair/status?token=…). `connected` becomes true ONLY
- *   on HTTP 200 — so a reload with a valid stored token shows connected,
- *   while an invalid/stale token (companion reset, deletion, restart with
- *   fresh credentials) clears the stored value and shows unpaired (never
- *   a false "connected"). Reload validation is a pure read: it never
- *   creates pairing state on the companion.
+ *   and starts periodic polling against the companion's authenticated
+ *   status endpoint (GET /v1/pair/status?token=…). While a token is
+ *   stored, polling continues every POLL_INTERVAL_MS milliseconds so
+ *   that a companion restart is automatically detected:
+ *     - 200 → connected=true (Terhubung restored on next poll)
+ *     - 401/403 → token cleared, polling stops (companion was reset)
+ *     - Network / other failure → connected=false, token kept, polling
+ *       continues (waiting for companion to come back)
+ *   Polling uses setTimeout (not setInterval): the next tick is scheduled
+ *   only after the previous check completes, preventing overlapping fetches.
+ *   The first check sets `validating=true`; subsequent polls keep it false.
  *
  * - On pair success, the opaque token is persisted to localStorage
  *   (schema-versioned envelope; ONLY the token — never the code, a
  *   source URL, magnet, media, or cookies) and the session is connected.
+ *   If polling was not yet running it is started automatically.
  *
  * - resetPairing is the explicit destructive reset: it calls
  *   DELETE /v1/pair?token=… on the companion FIRST while a token exists,
@@ -22,6 +27,7 @@
  *   network outcome (graceful divergence: the browser always ends
  *   unpaired; a companion that is unreachable keeps its credential until
  *   the user resets it from the CLI or another paired browser).
+ *   Polling is stopped as part of the reset.
  *
  * Privacy: the token is used only in the loopback request query strings
  * (the established PoC contract) and in the opaque localStorage envelope.
@@ -42,6 +48,9 @@ import {
 /** Loopback companion origin; the only accepted pairing endpoint. */
 export const COMPANION_PAIRING_BASE_URL = 'http://127.0.0.1:4322';
 
+/** Interval between poll checks (ms). Matches companion restart window. */
+export const POLL_INTERVAL_MS = 5_000;
+
 export interface UseCompanionPairingResult {
   /** Opaque capability token for the current session (null = unpaired). */
   token: string | null;
@@ -52,7 +61,7 @@ export interface UseCompanionPairingResult {
   tokenRef: { current: string | null };
   /** True only after the status endpoint accepted the token (200). */
   connected: boolean;
-  /** True while a stored token is being re-validated after mount. */
+  /** True only during the very first validation check after mount. */
   validating: boolean;
   /** Persist the token (pair success) and connect. */
   handlePairSuccess: (token: string) => void;
@@ -66,60 +75,132 @@ export function useCompanionPairing(): UseCompanionPairingResult {
   const [validating, setValidating] = useState(false);
   const tokenRef = useRef<string | null>(null);
 
-  // Mount validation: re-validate a persisted token against the
-  // companion. 200 → connected (the pairing survives F5/restart);
-  // 401/403 → the stored token is dead (companion reset) — clear it and
-  // behave unpaired; network failure → the companion is simply not
-  // running, so KEEP the stored token and show disconnected (a later
-  // reload can validate again). Never writes any server state.
-  useEffect(() => {
-    const stored = readStoredPairingToken();
-    if (stored === null) return;
-    let stale = false;
-    const ac = new AbortController();
-    setValidating(true);
-    void (async () => {
+  // --- Polling infrastructure (refs avoid re-binding, survive re-renders) ---
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollAbortRef = useRef<AbortController | null>(null);
+
+  /** Stop any pending poll timer and abort any in-flight fetch. */
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current !== null) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    if (pollAbortRef.current !== null) {
+      pollAbortRef.current.abort();
+      pollAbortRef.current = null;
+    }
+  }, []);
+
+  /** Check one status endpoint. Returns a "should continue" boolean. */
+  const checkStatus = useCallback(
+    async (currentToken: string, stale: { current: boolean }): Promise<boolean> => {
+      const ac = new AbortController();
+      pollAbortRef.current = ac;
       try {
         const res = await fetch(
-          `${COMPANION_PAIRING_BASE_URL}/v1/pair/status?token=${encodeURIComponent(stored)}`,
+          `${COMPANION_PAIRING_BASE_URL}/v1/pair/status?token=${encodeURIComponent(currentToken)}`,
           { cache: 'no-store', signal: ac.signal },
         );
-        if (stale) return;
+        if (stale.current) return false;
+
         if (res.ok) {
-          tokenRef.current = stored;
-          setToken(stored);
+          tokenRef.current = currentToken;
+          setToken(currentToken);
           setConnected(true);
-          return;
+          return true; // keep polling — companion may restart again
         }
         if (res.status === 401 || res.status === 403) {
-          // The companion explicitly rejected the stored token (pairing
-          // was reset/deleted): clear it and show unpaired.
+          // Companion explicitly rejected the token (reset/deleted).
           clearStoredPairingToken();
-          return;
+          tokenRef.current = null;
+          setToken(null);
+          setConnected(false);
+          return false; // stop polling — token is dead
         }
-        // Any other status: keep the stored token, stay disconnected.
+        // Other HTTP status (500 etc.): keep token, stay disconnected, retry.
+        setConnected(false);
+        return true;
       } catch {
-        // Network error / abort: companion unreachable — keep the stored
-        // token for the next reload, stay disconnected.
+        if (stale.current) return false;
+        // Network error / abort: companion unreachable — keep token, retry.
+        setConnected(false);
+        return true;
       } finally {
-        if (!stale) setValidating(false);
+        pollAbortRef.current = null;
       }
-    })();
+    },
+    [],
+  );
+
+  /** Schedule the next poll after POLL_INTERVAL_MS. */
+  const scheduleNextPoll = useCallback(
+    (currentToken: string, stale: { current: boolean }) => {
+      pollTimerRef.current = setTimeout(() => {
+        if (stale.current) return;
+        checkStatus(currentToken, stale).then((shouldContinue) => {
+          if (shouldContinue && !stale.current) {
+            scheduleNextPoll(currentToken, stale);
+          }
+        });
+      }, POLL_INTERVAL_MS);
+    },
+    [checkStatus],
+  );
+
+  /** Start polling with the given token. No-op if already polling. */
+  const startPolling = useCallback(
+    (currentToken: string, stale: { current: boolean }) => {
+      stopPolling();
+      setValidating(true);
+      checkStatus(currentToken, stale)
+        .then((shouldContinue) => {
+          if (stale.current) return;
+          setValidating(false);
+          if (shouldContinue) {
+            scheduleNextPoll(currentToken, stale);
+          }
+        })
+        .catch(() => {
+          // Defensive: checkStatus itself catches all errors, but if
+          // something unexpected throws, ensure validating is cleared.
+          if (!stale.current) setValidating(false);
+        });
+    },
+    [stopPolling, checkStatus, scheduleNextPoll],
+  );
+
+  // Mount: if a token is stored, begin polling immediately.
+  const staleRef = useRef(false);
+  useEffect(() => {
+    staleRef.current = false;
+    const stored = readStoredPairingToken();
+    if (stored !== null) {
+      startPolling(stored, staleRef);
+    }
     return () => {
-      stale = true;
-      ac.abort();
+      staleRef.current = true;
+      stopPolling();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only
   }, []);
 
-  const handlePairSuccess = useCallback((nextToken: string) => {
-    if (!isValidPairingToken(nextToken)) return; // defensive; fail closed
-    writeStoredPairingToken(nextToken); // persist ONLY the opaque token
-    tokenRef.current = nextToken;
-    setToken(nextToken);
-    setConnected(true);
-  }, []);
+  const handlePairSuccess = useCallback(
+    (nextToken: string) => {
+      if (!isValidPairingToken(nextToken)) return; // defensive; fail closed
+      writeStoredPairingToken(nextToken); // persist ONLY the opaque token
+      tokenRef.current = nextToken;
+      setToken(nextToken);
+      setConnected(true);
+      // Ensure polling covers the newly-paired session.
+      if (!pollTimerRef.current) {
+        startPolling(nextToken, staleRef);
+      }
+    },
+    [startPolling],
+  );
 
   const resetPairing = useCallback(async () => {
+    stopPolling();
     const current = tokenRef.current;
     // 1. Companion-side delete FIRST while a token exists (best effort).
     if (current !== null) {
@@ -139,7 +220,7 @@ export function useCompanionPairing(): UseCompanionPairingResult {
     setToken(null);
     setConnected(false);
     setValidating(false);
-  }, []);
+  }, [stopPolling]);
 
   return {
     token,
