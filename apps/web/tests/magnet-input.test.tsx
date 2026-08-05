@@ -567,7 +567,7 @@ describe('MagnetInput — selection flow', () => {
     expect(selectBody.subtitleFileId).toBe('f1');
     await flush(0);
     // The job id travels with the sanitized basename of the selected video.
-    expect(onJobAccepted).toHaveBeenCalledWith('jobSel', 'movie.mkv');
+    expect(onJobAccepted).toHaveBeenCalledWith('jobSel', 'movie.mkv', 'f1');
   });
 
   it('no selectable video shows the localized no-video error', async () => {
@@ -1201,6 +1201,6 @@ describe('MagnetInput — folder navigation robustness', () => {
     const selectBody = JSON.parse(String(selectCall?.init?.body)) as { videoFileId?: string };
     expect(selectBody.videoFileId).toBe('f0');
     await flush(0);
-    expect(onJobAccepted).toHaveBeenCalledWith('jobFoldOnly', 'movie.mkv');
+    expect(onJobAccepted).toHaveBeenCalledWith('jobFoldOnly', 'movie.mkv', '');
   });
 });

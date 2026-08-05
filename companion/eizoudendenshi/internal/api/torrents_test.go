@@ -71,9 +71,10 @@ func (e *apiFakeEngine) Start(_ context.Context, _ string) (torrent.TorrentHandl
 func (e *apiFakeEngine) Close() error { return nil }
 
 type apiFakeHandle struct {
-	files    []torrent.TorrentFile
-	selected int
-	avail    atomic.Int64
+	files       []torrent.TorrentFile
+	selected    int
+	subtitleIdx int
+	avail       atomic.Int64
 }
 
 func (h *apiFakeHandle) Name() string                 { return "test-torrent" }
@@ -88,17 +89,49 @@ func (h *apiFakeHandle) SelectedLength() int64 {
 	return h.files[h.selected].Length
 }
 
-func (h *apiFakeHandle) Select(videoFileID, _ string) error {
+func (h *apiFakeHandle) Select(videoFileID, subtitleFileID string) error {
 	for i, f := range h.files {
 		if f.ID == videoFileID {
 			if f.Kind != torrent.KindVideo {
 				return errors.New("not a video")
 			}
 			h.selected = i
+			h.subtitleIdx = -1
+			if subtitleFileID != "" {
+				for j, sf := range h.files {
+					if sf.ID == subtitleFileID {
+						h.subtitleIdx = j
+						break
+					}
+				}
+			}
 			return nil
 		}
 	}
 	return errors.New("invalid selection")
+}
+
+// SubtitleContent returns the subtitle file content as text.
+func (h *apiFakeHandle) SubtitleContent(_ context.Context) (string, error) {
+	if h.subtitleIdx < 0 || h.subtitleIdx >= len(h.files) {
+		return "", errors.New("subtitle not selected")
+	}
+	// Return deterministic content based on the file's extension.
+	ext := ""
+	base := h.files[h.subtitleIdx].Path
+	if idx := strings.LastIndexByte(base, '.'); idx >= 0 {
+		ext = base[idx+1:]
+	}
+	switch ext {
+	case "srt":
+		return "1\n00:00:01,000 --> 00:00:02,000\nHello world\n\n", nil
+	case "vtt":
+		return "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello world\n", nil
+	case "ass":
+		return "[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\nDialogue: 0,0:00:01.000,0:00:02.000,,Hello world\n", nil
+	default:
+		return "subtitle content", nil
+	}
 }
 
 func (h *apiFakeHandle) Reader(_ context.Context) (io.ReadSeekCloser, error) {
@@ -1049,4 +1082,200 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	}
 
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentSubtitleContentAfterSelection verifies that GET
+// /v1/source/torrents/{id}/subtitle returns the subtitle text content
+// after a video+subtitle selection.
+func TestTorrentSubtitleContentAfterSelection(t *testing.T) {
+	s, _, tracked := newTorrentsServer(t)
+
+	// Create a torrent job.
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for buffering.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Before selection, subtitle endpoint returns 404.
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subtitle before selection = %d, want 404", rec.Code)
+	}
+
+	// Select video + subtitle.
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/select", allowedOriginLocal,
+		`{"videoFileId":"f0","subtitleFileId":"f1"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("select = %d, want 200", rec.Code)
+	}
+
+	// Simulate download completion so the handle is available.
+	tracked.last().h.avail.Store(tracked.last().files[tracked.last().h.selected].Length)
+
+	// Wait for streaming or complete.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "streaming" || js.State == "complete" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("never reached streaming/complete; last=%s", js.State)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Subtitle endpoint returns the content.
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subtitle = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/plain; charset=utf-8", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	body := rec.Body.String()
+	if len(body) == 0 {
+		t.Fatal("subtitle body is empty")
+	}
+	// The fake returns format-specific content based on the file extension.
+	if !strings.Contains(body, "Hello world") {
+		t.Errorf("subtitle body = %q, want 'Hello world'", body)
+	}
+
+	// POST is not allowed.
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST subtitle = %d, want 405", rec.Code)
+	}
+
+	// Origin gate: no origin → 403.
+	req := httptest.NewRequest(http.MethodGet,
+		"/v1/source/torrents/"+created.ID+"/subtitle?token="+s.token, nil)
+	rec2 := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("no origin = %d, want 403", rec2.Code)
+	}
+
+	// Token gate: invalid token → 401.
+	req = httptest.NewRequest(http.MethodGet,
+		"/v1/source/torrents/"+created.ID+"/subtitle?token=deadbeef", nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	rec3 := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec3, req)
+	if rec3.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid token = %d, want 401", rec3.Code)
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentSubtitleContentNotFoundWithoutSubtitle verifies that GET
+// /v1/source/torrents/{id}/subtitle returns 404 when only a video is
+// selected (no subtitle).
+func TestTorrentSubtitleContentNotFoundWithoutSubtitle(t *testing.T) {
+	s, _, tracked := newTorrentsServer(t)
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for buffering.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Select video only (no subtitle).
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/select", allowedOriginLocal,
+		`{"videoFileId":"f0"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("select = %d, want 200", rec.Code)
+	}
+
+	// Simulate download.
+	tracked.last().h.avail.Store(tracked.last().files[tracked.last().h.selected].Length)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "streaming" || js.State == "complete" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached streaming/complete")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Subtitle endpoint returns 404 when no subtitle is selected.
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subtitle without selection = %d, want 404", rec.Code)
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentSubtitleNotFoundForUnknownID verifies that GET
+// /v1/source/torrents/{id}/subtitle returns 404 for an unknown job id.
+func TestTorrentSubtitleNotFoundForUnknownID(t *testing.T) {
+	s, _, _ := newTorrentsServer(t)
+	rec := doTorrent(t, s, http.MethodGet, "/v1/source/torrents/nonexistent/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subtitle unknown id = %d, want 404", rec.Code)
+	}
+}
+
+// TestTorrentSubtitleWrongMethod verifies that non-GET methods on
+// /v1/source/torrents/{id}/subtitle return 405.
+func TestTorrentSubtitleWrongMethod(t *testing.T) {
+	s, _, _ := newTorrentsServer(t)
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents/x/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST subtitle = %d, want 405", rec.Code)
+	}
 }

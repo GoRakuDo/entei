@@ -334,10 +334,11 @@ func headPieceDiag(t *torrent.Torrent, totalPieces int) string {
 }
 
 type anacrolixHandle struct {
-	t        *torrent.Torrent
-	files    []TorrentFile
-	selected *torrent.File
-	mu       sync.Mutex
+	t           *torrent.Torrent
+	files       []TorrentFile
+	selected    *torrent.File
+	subtitleIdx int // index into h.t.Files(); -1 = none
+	mu          sync.Mutex
 }
 
 func newAnacrolixHandle(t *torrent.Torrent) *anacrolixHandle {
@@ -427,6 +428,11 @@ func (h *anacrolixHandle) Select(videoFileID string, subtitleFileID string) erro
 		h.t.Piece(i).UpdateCompletion()
 	}
 	h.selected = anacrolixFiles[videoIdx]
+	if subIdx >= 0 {
+		h.subtitleIdx = subIdx
+	} else {
+		h.subtitleIdx = -1
+	}
 	return nil
 }
 
@@ -545,6 +551,42 @@ func (h *anacrolixHandle) SelectedLength() int64 {
 	return h.selected.Length()
 }
 
+// SubtitleContent reads the entire selected subtitle file and returns its
+// text content. Blocks until data is available or ctx is done. Returns an
+// error when no subtitle is selected or the read fails.
+func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
+	h.mu.Lock()
+	idx := h.subtitleIdx
+	h.mu.Unlock()
+	if idx < 0 {
+		return "", errSubtitleNotSelected
+	}
+	anacrolixFiles := h.t.Files()
+	if idx >= len(anacrolixFiles) {
+		return "", errSubtitleNotSelected
+	}
+	f := anacrolixFiles[idx]
+	r := f.NewReader()
+	r.SetContext(ctx)
+	defer r.Close()
+	// Read the entire subtitle file (typically small, <1 MB).
+	var buf strings.Builder
+	tmp := make([]byte, 32*1024)
+	for {
+		n, err := r.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", err
+		}
+	}
+	return buf.String(), nil
+}
+
 func (h *anacrolixHandle) Close() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -553,8 +595,9 @@ func (h *anacrolixHandle) Close() error {
 }
 
 var (
-	errInvalidMagnet    = errors.New("invalid magnet")
-	errInvalidSelection = errors.New("invalid selection")
+	errInvalidMagnet       = errors.New("invalid magnet")
+	errInvalidSelection    = errors.New("invalid selection")
+	errSubtitleNotSelected = errors.New("subtitle not selected")
 	// errV2Unsupported is returned by Start when the fetched metainfo is a
 	// v2-only torrent (BEP 52), which anacrolix v1.61 cannot download. The
 	// manager maps it to ErrCodeV2Unsupported (StateError).

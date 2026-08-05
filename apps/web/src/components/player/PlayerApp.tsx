@@ -499,7 +499,7 @@ export default function PlayerApp() {
   );
 
   const handleMagnetJobAccepted = useCallback(
-    (jobId: string, selectedName: string) => {
+    (jobId: string, selectedName: string, subtitleFileId: string) => {
       const token = pairing.tokenRef.current;
       if (!token) return;
       // Torrent basename handoff (C): the companion's sanitized file list
@@ -511,6 +511,7 @@ export default function PlayerApp() {
         token,
         jobId,
         kind: 'torrent',
+        subtitleFileId: subtitleFileId || undefined,
       });
       setIsMagnetDialogOpen(false);
     },
@@ -527,6 +528,40 @@ export default function PlayerApp() {
   useEffect(() => {
     if (jobSession.jobMediaUrl) setMediaType('video');
   }, [jobSession.jobMediaUrl]);
+
+  // ED-2G: Auto-fetch subtitle content from companion when a torrent job
+  // selected a subtitle file. Fetches the text, parses it with the same
+  // subtitle-reader used for local files, and populates the subtitle panel.
+  // The subtitle file is prioritized on selection so content is available
+  // immediately — no need to wait for bridge 'ready'.
+  useEffect(() => {
+    const url = jobSession.subtitleUrl;
+    if (!url || !jobSession.active) return;
+    let cancelled = false;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(url, {
+          cache: 'no-store',
+          signal: ac.signal,
+        });
+        if (cancelled || !res.ok) return;
+        const text = await res.text();
+        if (cancelled) return;
+        const result = parseSubtitle(text);
+        setCues(result.cues);
+        setSubtitleErrors(result.errors);
+        setActiveCueId(null);
+        subtitleTextRef.current = text;
+      } catch {
+        // Network error or abort — subtitle panel stays empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [jobSession.subtitleUrl, jobSession.active]);
 
   useEffect(() => {
     jobSession.attachMediaElement(videoRef.current);

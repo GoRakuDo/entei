@@ -53,19 +53,23 @@ func (e *fakeEngine) Start(ctx context.Context, magnet string) (TorrentHandle, e
 func (e *fakeEngine) Close() error { return nil }
 
 type fakeHandle struct {
-	name      string
-	files     []TorrentFile
-	selected  int // -1 = none
-	avail     atomic.Int64
-	availMu   chan struct{} // closed to signal avail change
-	closed    bool
-	readerReq int64 // number of reader requests
-	seekOff   int64
+	name        string
+	files       []TorrentFile
+	selected    int // -1 = none
+	subtitleIdx int // -1 = none
+	avail       atomic.Int64
+	availMu     chan struct{} // closed to signal avail change
+	closed      bool
+	readerReq   int64 // number of reader requests
+	seekOff     int64
 
 	bootStarted atomic.Bool // StartBootstrap called
 	bootCancel  atomic.Bool // the bootstrap context was cancelled
 	bootErr     error       // injected StartBootstrap failure
 	headPrio    atomic.Bool // Select elevated the head window (contract)
+
+	// subtitleContent returns the fake subtitle text content.
+	subtitleContent string
 }
 
 func newFakeHandle(files []TorrentFile) *fakeHandle {
@@ -99,10 +103,29 @@ func (h *fakeHandle) Select(videoFileID, subtitleFileID string) error {
 			// High via Piece.SetPriority). Record the contract for the
 			// manager-level tests.
 			h.headPrio.Store(true)
+			// Track subtitle selection.
+			h.subtitleIdx = -1
+			if subtitleFileID != "" {
+				for j, sf := range h.files {
+					if sf.ID == subtitleFileID {
+						h.subtitleIdx = j
+						break
+					}
+				}
+			}
 			return nil
 		}
 	}
 	return errInvalidSelection
+}
+
+// SubtitleContent returns the fake subtitle content. In the real engine
+// this reads the torrent file; here it returns the injected string.
+func (h *fakeHandle) SubtitleContent(ctx context.Context) (string, error) {
+	if h.subtitleIdx < 0 {
+		return "", errSubtitleNotSelected
+	}
+	return h.subtitleContent, nil
 }
 
 // StartBootstrap records the demand request and watches the context: when
@@ -1463,5 +1486,84 @@ func waitForState(t *testing.T, m *Manager, id string, want State, timeout time.
 			t.Fatalf("timed out waiting for %s; last=%+v", want, snap)
 		}
 		time.Sleep(30 * time.Millisecond)
+	}
+}
+
+// TestSelectedSubtitleContentAfterSelection verifies that
+// SelectedSubtitleContent returns the subtitle text after selection.
+func TestSelectedSubtitleContentAfterSelection(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	// Before selection, SelectedSubtitleContent returns error.
+	_, err = m.SelectedSubtitleContent(context.Background())
+	if err == nil {
+		t.Fatal("SelectedSubtitleContent before selection must fail")
+	}
+
+	// Select video + subtitle.
+	if _, err := m.Select(id, "f0", "f1"); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	// Set the fake handle's subtitle content.
+	engine.mu.Lock()
+	engine.h.subtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nHello world\n"
+	engine.mu.Unlock()
+
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
+	// SelectedSubtitleContent returns the fake content.
+	content, err := m.SelectedSubtitleContent(context.Background())
+	if err != nil {
+		t.Fatalf("SelectedSubtitleContent: %v", err)
+	}
+	if content != "1\n00:00:01,000 --> 00:00:02,000\nHello world\n" {
+		t.Fatalf("SelectedSubtitleContent = %q, want SRT content", content)
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+// TestSelectedSubtitleContentNoSubtitle verifies that
+// SelectedSubtitleContent returns error when no subtitle is selected.
+func TestSelectedSubtitleContentNoSubtitle(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	// Select video only (no subtitle).
+	if _, err := m.Select(id, "f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
+	// SelectedSubtitleContent returns error.
+	_, err = m.SelectedSubtitleContent(context.Background())
+	if err == nil {
+		t.Fatal("SelectedSubtitleContent without subtitle must fail")
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+// TestSelectedSubtitleContentNoSession verifies that
+// SelectedSubtitleContent returns error with no active session.
+func TestSelectedSubtitleContentNoSession(t *testing.T) {
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:5000"), 0)
+	_, err := m.SelectedSubtitleContent(context.Background())
+	if err == nil {
+		t.Fatal("SelectedSubtitleContent with no session must fail")
 	}
 }

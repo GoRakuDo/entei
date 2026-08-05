@@ -49,6 +49,8 @@ export interface CompanionJobSource {
   jobId: string;
   /** Source kind: routes the cancel endpoint to the correct job API. */
   kind: CompanionJobKind;
+  /** Optional subtitle file id for torrent jobs (passed from MagnetInput). */
+  subtitleFileId?: string;
 }
 
 export interface UseCompanionJobSessionResult {
@@ -74,6 +76,10 @@ export interface UseCompanionJobSessionResult {
    *  status `playable` or `complete`, `available > 0`) — null during
    *  `buffering` / `idle` / `error` to prevent premature fetches. */
   jobMediaUrl: string | null;
+  /** Subtitle URL for the selected subtitle file. Only available for
+   *  torrent jobs that selected a subtitle. Null when no subtitle was
+   *  selected or the session is not active. */
+  subtitleUrl: string | null;
   setPlayIntent: (play: boolean) => void;
   requestSeek: (seconds: number) => void;
 }
@@ -82,6 +88,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const bridge = useCompanionBridge();
   const [active, setActive] = useState(false);
   const [kind, setKind] = useState<CompanionJobKind | null>(null);
+  const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
   const activeRef = useRef(false);
   const sourceRef = useRef<CompanionJobSource | null>(null);
   const attachedRef = useRef(false);
@@ -137,6 +144,14 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       clearIntentListeners();
       setActive(true);
       setKind(source.kind);
+      // Compute subtitle URL if a subtitle was selected.
+      if (source.kind === 'torrent' && source.subtitleFileId) {
+        setSubtitleUrl(
+          `${source.baseUrl}/v1/source/torrents/${encodeURIComponent(source.jobId)}/subtitle?token=${encodeURIComponent(source.token)}`,
+        );
+      } else {
+        setSubtitleUrl(null);
+      }
       // No media element exists yet at begin; jobMediaUrl stays null until
       // the bridge phase reaches `ready` (companion status playable/complete).
       // Once the URL surfaces, the video element mounts and is attached via
@@ -158,6 +173,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     attachedRef.current = false;
     clearIntentListeners();
     setActive(false);
+    setSubtitleUrl(null);
   }, [bridge, clearIntentListeners]);
 
   const cancelActiveJob = useCallback(async () => {
@@ -236,6 +252,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     endJobSession,
     attachMediaElement,
     jobMediaUrl,
+    subtitleUrl,
     setPlayIntent,
     requestSeek,
   };

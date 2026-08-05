@@ -846,3 +846,34 @@ func (m *Manager) SelectedFileName() string {
 	}
 	return vv.Path
 }
+
+// SelectedSubtitleContent reads the entire selected subtitle file from the
+// active session and returns its text content. Blocks until data is
+// available or ctx is done. Returns an error when no subtitle is selected,
+// no active session exists, or the read fails.
+func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	if len(m.sessionOrder) == 0 {
+		m.mu.Unlock()
+		return "", errors.New("no active session")
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		m.mu.Unlock()
+		return "", errors.New("no active session")
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	h := j.handle
+	hasSub := j.subV != nil
+	j.stateMu.Unlock()
+	m.mu.Unlock()
+	if !hasSub {
+		return "", errors.New("subtitle not selected")
+	}
+	if h == nil {
+		return "", errors.New("no handle")
+	}
+	return h.SubtitleContent(ctx)
+}

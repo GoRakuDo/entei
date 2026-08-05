@@ -75,6 +75,10 @@ type TorrentHandle interface {
 	AvailablePrefix() int64
 	// SelectedLength is the selected video's total byte length.
 	SelectedLength() int64
+	// SubtitleContent reads the entire selected subtitle file and returns
+	// its text content. Blocks until data is available or ctx is done.
+	// Returns an error when no subtitle is selected or the read fails.
+	SubtitleContent(ctx context.Context) (string, error)
 	// Close releases the handle (cancels the download; no seeding).
 	Close() error
 }

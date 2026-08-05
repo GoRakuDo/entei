@@ -142,7 +142,7 @@ interface MagnetInputProps {
   onOpenChange: (open: boolean) => void;
   isPaired: boolean;
   token: string | null;
-  onJobAccepted: (jobId: string, selectedVideoName: string) => void;
+  onJobAccepted: (jobId: string, selectedVideoName: string, subtitleFileId: string) => void;
   dict: MagnetInputDict;
 }
 
@@ -591,7 +591,7 @@ export function MagnetInput({
         setPhase('input');
         setMagnet('');
         setFolderPath('');
-        onJobAccepted(jobId, selected ? selected.basename : '');
+        onJobAccepted(jobId, selected ? selected.basename : '', subtitleId);
         return;
       }
       if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;

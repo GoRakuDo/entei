@@ -103,7 +103,7 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Shapes: /{id}, /{id}/cancel, /{id}/files, /{id}/select.
+	// Shapes: /{id}, /{id}/cancel, /{id}/files, /{id}/select, /{id}/subtitle.
 	var id string
 	var op string
 	switch {
@@ -113,6 +113,8 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 		id, op = strings.TrimSuffix(rest, "/files"), "files"
 	case strings.HasSuffix(rest, "/select"):
 		id, op = strings.TrimSuffix(rest, "/select"), "select"
+	case strings.HasSuffix(rest, "/subtitle"):
+		id, op = strings.TrimSuffix(rest, "/subtitle"), "subtitle"
 	default:
 		id, op = rest, "read"
 	}
@@ -192,6 +194,20 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, torrentSnapshotToBody(snap))
+	case "subtitle":
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, "GET, OPTIONS")
+			return
+		}
+		content, err := s.torrents.SelectedSubtitleContent(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, errorBody("subtitle not available"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(content))
 	}
 }
 
