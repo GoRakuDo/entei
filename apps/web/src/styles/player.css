@@ -95,6 +95,7 @@
 
 /* --- Container --- */
 .entei-player-container {
+  position: relative;
   width: 100%;
   min-height: calc(100dvh - var(--entei-topbar-height));
 }
@@ -644,6 +645,27 @@
     animation: none;
     opacity: 0.08;
   }
+}
+
+/* --- Companion Loading Overlay --- */
+/* Shown inside the surface while the companion bridge is buffering but
+   the job media URL has not yet been surfaced (playable not detected). */
+.entei-companion-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-12);
+  color: var(--entei-text-muted);
+  z-index: 1;
+}
+
+.entei-companion-loading-text {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.4;
 }
 
 /* --- Error State --- */

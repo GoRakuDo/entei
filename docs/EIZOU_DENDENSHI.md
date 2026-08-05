@@ -180,6 +180,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 16. 自動起動廃止: Windowsのapply-childからの新しいcore自動起動（launchNewCore）は、コンソールハンドル継承の問題でstdinが効かず「Option:」で入力できなかった（実機確認）。初回インストール/更新後の自動起動を全廃し、英語の色付き完了メッセージ（`Installation complete! / Update complete! Run \`grkd-edds\` in the terminal to start.`）＋`grkd-edds`手動実行に統一（bootstrap/helper/updateの4経路）。`grkd-edds.cmd`はprocess-scopedの`set "PATH=%~dp0helpers;%PATH%"`を内包（手動起動時にyt-dlpがffmpegを見つけられるように）。`-SkipLaunch`/`-HarnessLaunchFile`/`EIZOU_TEST_ADDR`は廃止（2026-08-05レビュー）。
 17. ServeContent方式: torrent配信は`http.ServeContent`+`File.NewReader()`（bitplay方式）。`time.Time{}`（Last-Modifiedなし）はtorrent配信で問題なし。`NewMediaReader`は`m.mu→h.mu`のロック順序（現状デッドロックなし。将来`h.mu`保持中にManagerメソッドを呼ぶコードを追加する場合は注意）。HEAD応答のContent-Lengthは`snap.Media.Total`から（2026-08-05レビュー）。
 18. jobMediaUrl露出遅延: `use-companion-job-session.ts`の`jobMediaUrl`は`bridge.phase==='ready'/'playing'`の時のみ返す（available=0のvideo要素のfetch=30秒タイムアウトリスク回避）。`attachMediaElement`の`buffering` branchと`companion-bridge.ts`の`onMediaError`の`buffering` guardはデザイン的にunreachable（要素はready/playingでのみmount）だが、防御的に残留（将来整理可）（2026-08-05レビュー）。
+19. companion loading overlay: `PlayerApp.tsx`に`jobSession.active && !jobSession.jobMediaUrl`の時のグルグルスピナー+テキスト表示を追加。`.entei-player-container`に`position: relative`追加（overlay containment）。empty state条件に`!jobSession.active`追加（companion起動中はempty state非表示、将来の`jobSession.active`だがmedia不要の状態ではempty stateが隠れる耦合に注意）。MagnetInput dialogは`handleMagnetJobAccepted`で自動閉じる（overlayと同時表示なし）（2026-08-05レビュー）。
 
 ## Delivery contract
 

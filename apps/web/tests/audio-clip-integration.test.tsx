@@ -279,6 +279,7 @@ const mockDict = {
   eizouSessionSourceLabelTorrent: 'Torrent download',
   eizouSessionSourceLabel: 'YouTube download',
   companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
+  companionPreparingVideo: 'Preparing video…',
   youtubeInputLabel: 'YouTube URL',
   youtubeInputTitle: 'YouTube streaming',
   youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',

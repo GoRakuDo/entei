@@ -98,7 +98,7 @@ import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
-import { Music, AlertTriangle, Magnet } from 'lucide-react';
+import { Music, AlertTriangle, Magnet, Loader2 } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
@@ -3116,7 +3116,7 @@ export default function PlayerApp() {
       data-entei-player-root=""
     >
       {/* --- Empty state --- */}
-      {!hasMedia && (
+      {!hasMedia && !jobSession.active && (
         <div className="entei-player-empty">
           <div className="entei-player-empty-cta">
               <div className="entei-player-empty-inner">
@@ -3189,6 +3189,14 @@ export default function PlayerApp() {
               dialogClose: dict.dialogClose,
             }}
           />
+        </div>
+      )}
+
+      {/* --- Companion loading overlay --- */}
+      {jobSession.active && !jobSession.jobMediaUrl && (
+        <div className="entei-companion-loading" role="status">
+          <Loader2 className="entei-spin" size={32} aria-hidden="true" />
+          <p className="entei-companion-loading-text">{dict.companionPreparingVideo}</p>
         </div>
       )}
 

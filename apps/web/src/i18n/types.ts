@@ -301,6 +301,7 @@ export interface Dictionary {
     eizouPairingErrorInvalidCode: string;
     eizouPairingErrorGeneric: string;
     companionStreamNotReady: string;
+    companionPreparingVideo: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
     youtubeInputLabel: string;
     youtubeInputTitle: string;
