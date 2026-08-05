@@ -21,8 +21,8 @@
 //	    browser's opaque token are untouched, so the Web does not need to
 //	    re-pair. When an update is verified the process exits so the
 //	    internal --apply-update child can replace the running core; the
-//	    child then prints an update-complete message and the user runs
-//	    `grkd-edds` manually (the new core is never auto-launched — an
+//	    parent prints the update-complete message before exiting, then the
+//	    user runs `grkd-edds` manually (the new core is never auto-launched — an
 //	    auto-started CLI does not own a usable console stdin; see
 //	    internal/update).
 //
@@ -110,9 +110,9 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 				if opts.runUpdate(stdout) {
 					// The updater verified a newer release and spawned the
 					// --apply-update child: the parent must exit so the
-					// child can replace the running core. The child prints
-					// an update-complete message afterwards; the user then
-					// starts the new CLI by running `grkd-edds` manually.
+					// child can replace the running core. The parent prints
+					// the update-complete message before exiting; the child
+					// is silent on success (reports only failures to stderr).
 					return 0
 				}
 			default:

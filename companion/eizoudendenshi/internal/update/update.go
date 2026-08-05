@@ -22,11 +22,11 @@
 //     be renamed there; POSIX semantics allow the running image on
 //     Termux). The parent exits before replacement; the child waits
 //     (bounded) for the parent, replaces the verified core/helpers with
-//     backup+rollback (old core is kept on any failure), then prints an
-//     update-complete message and exits. The new core is NOT
-//     auto-launched from the child (an auto-started CLI does not own a
-//     usable console stdin on Windows); the user runs `grkd-edds`
-//     manually, where stdin works.
+//     backup+rollback (old core is kept on any failure), then exits
+//     silently on success. The parent (CLI) prints the update-complete
+//     message before exiting. The new core is NOT auto-launched from the
+//     child (an auto-started CLI does not own a usable console stdin on
+//     Windows); the user runs `grkd-edds` manually, where stdin works.
 //
 // Security boundaries:
 //
@@ -86,6 +86,12 @@ const manifestAssetName = "eizouden-manifest.json"
 
 // semverShape matches the semver contract of scripts/release.ps1.
 var semverShape = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+
+// completeMessage is the update-complete message printed by the parent
+// (CLI) after the apply child has been spawned. The new core is not
+// auto-launched (see apply.go's doc comment); the message tells the
+// user to run `grkd-edds` manually, where stdin works.
+const completeMessage = "Update complete! Run `grkd-edds` in the terminal to start."
 
 // Config carries the caller-provided context for Run.
 type Config struct {
@@ -151,6 +157,14 @@ func Run(w io.Writer, cfg Config) bool {
 	// Success: the staging dir is handed to the child (which removes it
 	// after applying); the parent must NOT remove it before exiting.
 	fmt.Fprintln(w, "update: verified and restarting...")
+	// Print the update-complete message from the parent (CLI) so it
+	// appears synchronously before the process exits. The apply-child
+	// is now silent on success (it only reports failures to stderr).
+	msg := completeMessage
+	if f, ok := w.(*os.File); ok && isTerminal(f) {
+		msg = "\x1b[1;32m" + msg + "\x1b[0m"
+	}
+	fmt.Fprintln(w, msg)
 	return true
 }
 

@@ -81,17 +81,13 @@ func TestApplyStagedPreservesCredential(t *testing.T) {
 	writeFile(t, filepath.Join(staging, "yt-dlp-windows-amd64.exe"), newYtdlp)
 	writeFile(t, filepath.Join(staging, "ffmpeg.exe"), newFfmpeg)
 
-	// The child must print the update-complete message to stderr instead
-	// of auto-launching the new core (an auto-started CLI does not own a
-	// usable console stdin on Windows).
-	out := captureStderr(t, func() {
-		code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
-			coreTarget, ytdlpTarget, ffmpegTarget})
-		if code != 0 {
-			t.Fatalf("ApplyStaged exit = %d, want 0", code)
-		}
-	})
-	assertCompleteMessage(t, out)
+	// The child must NOT print the update-complete message (the parent
+	// CLI prints it before exiting). Apply with no stderr capture.
+	code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)),
+		coreTarget, ytdlpTarget, ffmpegTarget})
+	if code != 0 {
+		t.Fatalf("ApplyStaged exit = %d, want 0", code)
+	}
 
 	// Core and helpers replaced.
 	if b, err := os.ReadFile(coreTarget); err != nil || !bytes.Equal(b, newCore) {
@@ -190,8 +186,8 @@ func TestApplyStagedParentNeverExitsFailsClosed(t *testing.T) {
 }
 
 // TestApplyStagedTermuxArgs pins the Termux shape: only the core target
-// is passed (helpers stay Termux-package managed) and the child prints
-// the update-complete message instead of auto-launching the core.
+// is passed (helpers stay Termux-package managed) and the child exits
+// silently on success (the parent prints the update-complete message).
 func TestApplyStagedTermuxArgs(t *testing.T) {
 	root := t.TempDir()
 	coreTarget := filepath.Join(root, coreAndroidName)
@@ -199,16 +195,13 @@ func TestApplyStagedTermuxArgs(t *testing.T) {
 	staging := t.TempDir()
 	writeFile(t, filepath.Join(staging, coreAndroidName), []byte("new-core"))
 
-	out := captureStderr(t, func() {
-		code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)), coreTarget, "", ""})
-		if code != 0 {
-			t.Fatalf("ApplyStaged exit = %d, want 0", code)
-		}
-	})
+	code := ApplyStaged([]string{staging, strconv.Itoa(deadPID(t)), coreTarget, "", ""})
+	if code != 0 {
+		t.Fatalf("ApplyStaged exit = %d, want 0", code)
+	}
 	if b, err := os.ReadFile(coreTarget); err != nil || string(b) != "new-core" {
 		t.Fatalf("core not replaced: %v", err)
 	}
-	assertCompleteMessage(t, out)
 }
 
 // TestApplyStagedRejectsBadArgs pins the child-mode argument contract.
@@ -486,27 +479,10 @@ func captureStderr(t *testing.T, f func()) string {
 	return string(b)
 }
 
-// assertCompleteMessage verifies the apply child's success output: the
-// update-complete message telling the user to run `grkd-edds` manually.
-// With stderr redirected (as captureStderr does) the message must be
-// plain — no ANSI codes — because ANSI color is only applied when
-// stderr is a real terminal.
-func assertCompleteMessage(t *testing.T, out string) {
-	t.Helper()
-	for _, want := range []string{"Update complete!", "Run `grkd-edds`", "in the terminal to start."} {
-		if !strings.Contains(out, want) {
-			t.Errorf("stderr = %q, want the update-complete message containing %q", out, want)
-		}
-	}
-	if strings.Contains(out, "\x1b") {
-		t.Errorf("stderr = %q, want plain text (no ANSI) when stderr is not a terminal", out)
-	}
-}
-
-// TestApplyStagedPrintsCompleteMessage pins the success output of a
-// completed apply: the update-complete message is written to stderr, and
-// the new core is never auto-launched.
-func TestApplyStagedPrintsCompleteMessage(t *testing.T) {
+// TestApplyStagedSilentOnSuccess pins the apply-child's success behavior:
+// the child exits silently on success (the parent CLI prints the
+// update-complete message before exiting).
+func TestApplyStagedSilentOnSuccess(t *testing.T) {
 	root := t.TempDir()
 	coreTarget := filepath.Join(root, coreWindowsName)
 	writeFile(t, coreTarget, []byte("old-core"))
@@ -519,7 +495,12 @@ func TestApplyStagedPrintsCompleteMessage(t *testing.T) {
 			t.Fatalf("ApplyStaged exit = %d, want 0", code)
 		}
 	})
-	assertCompleteMessage(t, out)
+	if strings.Contains(out, "Update complete!") {
+		t.Fatal("apply-child must not print the completion message on success (the parent does)")
+	}
+	if strings.Contains(out, "update:") {
+		t.Errorf("apply-child must be silent on success, got stderr: %q", out)
+	}
 }
 
 // TestApplyStagedReportsFailuresToStderr pins the child's failure

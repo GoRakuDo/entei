@@ -492,6 +492,12 @@ func TestRunEndToEndWindowsStagesVerifiedArtifacts(t *testing.T) {
 	if !strings.Contains(out.String(), "update: verified and restarting...") {
 		t.Fatalf("output = %q, want the verified-and-restarting status", out.String())
 	}
+	if !strings.Contains(out.String(), "Update complete!") {
+		t.Fatalf("output = %q, want the Update complete message from the parent", out.String())
+	}
+	if !strings.Contains(out.String(), "Run `grkd-edds`") {
+		t.Fatalf("output = %q, want the run grkd-edds instruction", out.String())
+	}
 	if gotPlan == nil {
 		t.Fatal("spawnApply was not called with a plan")
 	}

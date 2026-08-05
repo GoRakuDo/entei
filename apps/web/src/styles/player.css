@@ -4230,6 +4230,9 @@ html.entei-player-immersive .entei-player-audio-area {
   padding-top: var(--entei-space-8);
   padding-bottom: var(--entei-space-8);
   height: 2.25rem;
+  /* Safety net: clamp cell content to the fixed row height so future
+     content growth cannot inflate table rows beyond 2.25rem. */
+  overflow: hidden;
 }
 
 /* Bounded scroll lives on the Table component's wrapper div
