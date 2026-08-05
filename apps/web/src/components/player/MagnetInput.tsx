@@ -134,6 +134,7 @@ export interface MagnetInputDict {
   magnetFileKindFolder: string;
   magnetFileKindOther: string;
   magnetTableNavUp: string;
+  magnetNoVideosInFolder: string;
 }
 
 interface MagnetInputProps {
@@ -709,8 +710,20 @@ export function MagnetInput({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {showTable
-                    ? entries.map((entry) => {
+                  {showTable && entries.length === 0
+                    ? (
+                        <TableRow className="entei-magnet-table-row--static">
+                          <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
+                            <div className="entei-magnet-empty">
+                              <span className="entei-magnet-empty-title">
+                                {dict.magnetNoVideosInFolder}
+                              </span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    : showTable
+                      ? entries.map((entry) => {
                         const isFolder = entry.kind === 'folder';
                         const isVideo = entry.kind === 'video';
                         const isSubtitle = entry.kind === 'subtitle';

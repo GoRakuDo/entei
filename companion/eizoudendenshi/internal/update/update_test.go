@@ -48,11 +48,12 @@ var fakeMinisignPath string
 
 func TestMain(m *testing.M) {
 	// Windows real self-replacement test (TestSpawnApplyWindowsRealSelfReplace):
-	// the real spawnApply launches the apply child from a COPY of this test
-	// binary. When EIZOUDEN_TEST_APPLY_CHILD is set (only by that test), the
-	// test binary dispatches the updater's internal child modes instead of
-	// running the test suite — normal test runs and the production binary
-	// (cmd/eizouden) are unaffected.
+	// When EIZOUDEN_TEST_APPLY_CHILD is set — exclusively by
+	// TestSpawnApplyWindowsRealSelfReplace — the real spawnApply launches
+	// the apply child from a COPY of this test binary. The test binary
+	// dispatches the updater's internal child modes (apply-update /
+	// apply-driver) instead of running the test suite. Normal test runs
+	// and the production binary (cmd/eizouden) are unaffected.
 	if os.Getenv("EIZOUDEN_TEST_APPLY_CHILD") == "1" && len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "apply-update":

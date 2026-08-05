@@ -276,7 +276,7 @@ func TestCopyExecutableForChildCopiesToTemp(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "fake-core.exe")
 	content := []byte("fake-exe-bytes")
 	writeFile(t, src, content)
-	staging := t.TempDir()
+	tempCopy := t.TempDir()
 
 	exe, err := copyExecutableForChild(src)
 	if err != nil {
@@ -287,8 +287,8 @@ func TestCopyExecutableForChildCopiesToTemp(t *testing.T) {
 	if filepath.Dir(exe) != filepath.Clean(os.TempDir()) {
 		t.Errorf("copy must live under the OS temp dir: %q", exe)
 	}
-	if filepath.Dir(exe) == filepath.Clean(staging) {
-		t.Error("copy must NOT live inside the staging dir")
+	if filepath.Dir(exe) == filepath.Clean(tempCopy) {
+		t.Error("copy must NOT live inside the temp copy dir")
 	}
 	base := filepath.Base(exe)
 	if !strings.HasPrefix(base, updaterCopyPrefix) || !strings.HasSuffix(base, ".exe") {

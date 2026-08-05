@@ -29,7 +29,7 @@ function Harness() {
       <span data-testid="active">{String(session.active)}</span>
       <span data-testid="url">{session.jobMediaUrl ?? 'none'}</span>
       {session.jobMediaUrl && (
-        <video data-testid="video" ref={(el) => session.attachMediaElement(el)} />
+        <video data-testid="video" crossOrigin="anonymous" ref={(el) => session.attachMediaElement(el)} />
       )}
     </div>
   );

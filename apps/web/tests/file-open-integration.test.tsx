@@ -235,6 +235,7 @@ const mockDict = {
   magnetFileKindFolder: 'folder',
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
+  magnetNoVideosInFolder: 'No videos in this folder',
   // ED-3: EizouDendenshi setup + pairing
   eizouSetupLabel: 'Set up',
   eizouSetupTitle: 'EizouDendenshi',

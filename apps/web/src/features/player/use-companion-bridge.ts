@@ -38,11 +38,9 @@ export interface UseCompanionBridgeResult {
 function createMediaAdapter(el: HTMLMediaElement): CompanionBridgeMedia {
   return {
     setSrc: (url: string) => {
-      // The companion media gate requires a CORS-mode request with an
-      // Origin header (ED-2C measured contract: crossOrigin="anonymous" +
-      // token query). Without this, Chrome issues a no-cors request that
-      // the companion's ACAO response gets ORB-blocked by.
-      el.crossOrigin = 'anonymous';
+      // Note: React prop crossOrigin="anonymous" on the VideoPlayer element
+      // handles CORS mode; do not set el.crossOrigin here (redundant).
+      // If the React prop is removed, re-add: el.crossOrigin = 'anonymous'.
       el.src = url;
     },
     load: () => el.load(),

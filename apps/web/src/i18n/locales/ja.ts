@@ -258,6 +258,7 @@ export const ja: Dictionary = {
     magnetFileKindFolder: 'フォルダー',
     magnetFileKindOther: 'ファイル',
     magnetTableNavUp: '上の階層へ',
+    magnetNoVideosInFolder: 'このフォルダーに動画がありません',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'セットアップ',
     eizouSetupTitle: '映像伝電子',

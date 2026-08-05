@@ -188,10 +188,12 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       // The player's video element mounts only after jobMediaUrl surfaces
       // (bridge phase `ready`/`playing`), so this callback is typically
       // called when the phase is already `ready`. The `buffering` guard
-      // is retained for safety (e.g. a rapid phase transition). Phases
-      // where the session is dead (idle / error / disconnected /
-      // rePairRequired) stay blocked, and the element may attach on a
-      // later transition.
+      // is retained for safety (e.g. a rapid phase transition). Note:
+      // Under the current design (ED-2H) the element mounts only during
+      // `ready`/`playing` — the `buffering` branch is unreachable in
+      // practice but kept as a defensive guard. Phases where the session
+      // is dead (idle / error / disconnected / rePairRequired) stay
+      // blocked, and the element may attach on a later transition.
       if (bridge.phase !== 'buffering' && bridge.phase !== 'ready') return;
       attachedRef.current = true;
       bridge.attachMedia(el);

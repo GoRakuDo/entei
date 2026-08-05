@@ -52,6 +52,7 @@ const baseDict = {
   magnetFileKindFolder: 'folder',
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
+  magnetNoVideosInFolder: 'No videos in this folder',
 };
 
 const VALID_URI = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
@@ -859,7 +860,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       jsonResponse(
         {
           files: [
-            { id: 'd0', basename: 'Season 01', kind: 'folder', relativePath: 'Season 01' },
+            { id: 'da1b2c3d4', basename: 'Season 01', kind: 'folder', relativePath: 'Season 01' },
           ],
         },
         200,
@@ -868,7 +869,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       jsonResponse(
         {
           files: [
-            { id: 'd0', basename: 'Season 01', kind: 'folder', relativePath: 'Season 01' },
+            { id: 'da1b2c3d4', basename: 'Season 01', kind: 'folder', relativePath: 'Season 01' },
           ],
         },
         200,
@@ -1169,7 +1170,7 @@ describe('MagnetInput — folder navigation robustness', () => {
       jsonResponse(
         {
           files: [
-            { id: 'd0', basename: 'Subs', kind: 'folder', relativePath: 'Subs' },
+            { id: 'da1b2c3d4', basename: 'Subs', kind: 'folder', relativePath: 'Subs' },
           ],
         },
         200,

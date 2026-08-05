@@ -544,6 +544,11 @@ func TestGrowHeadMirrorsGet(t *testing.T) {
 			avail: 100, rng: "bytes=999999-", want: http.StatusRequestedRangeNotSatisfiable,
 			headers: map[string]string{"Content-Range": "bytes */2048"},
 		},
+		{
+			name:  "suffix full-length (bytes=-total)",
+			avail: int64(len(data)), rng: "bytes=-2048", want: http.StatusPartialContent,
+			headers: map[string]string{"Content-Range": "bytes 0-2047/2048", "Content-Length": "2048"},
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

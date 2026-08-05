@@ -257,6 +257,7 @@ export const id: Dictionary = {
     magnetFileKindFolder: 'folder',
     magnetFileKindOther: 'file',
     magnetTableNavUp: 'Kembali ke atas',
+    magnetNoVideosInFolder: 'Tidak ada video di folder ini',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'Pengaturan',
     eizouSetupTitle: 'EizouDendenshi',

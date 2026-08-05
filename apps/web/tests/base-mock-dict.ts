@@ -211,6 +211,7 @@ export const baseMockDict = {
   magnetFileKindFolder: 'folder',
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
+  magnetNoVideosInFolder: 'No videos in this folder',
   // Tracker (IMMERSION_TRACKER Stage 2b)
   trackerLabel: 'Tracker',
   trackerOn: 'ON',

@@ -285,20 +285,34 @@ func applyChildExe() (string, error) {
 // from a file that is not the running image. Stale copies from previous
 // updates are swept first (best effort: a copy still locked by a
 // running child is left for its owner, and the next update tries
-// again). The copy is byte-identical to src.
+// again). The copy uses io.Copy (streaming) to avoid reading the
+// entire binary into memory at once.
 func copyExecutableForChild(src string) (string, error) {
 	if fi, err := os.Stat(src); err != nil || fi.IsDir() || fi.Size() == 0 {
 		return "", errors.New("update: cannot copy the updater executable")
 	}
 	sweepUpdaterCopies()
 	exe := filepath.Join(os.TempDir(), updaterCopyName(os.Getpid()))
-	b, err := os.ReadFile(src)
+	srcF, err := os.Open(src)
 	if err != nil {
 		return "", errors.New("update: cannot read the updater executable")
 	}
-	if err := os.WriteFile(exe, b, 0o700); err != nil {
+	defer srcF.Close()
+	fi, _ := srcF.Stat() // Stat on an open file: error discarded (extremely unlikely; would mean broken fs)
+	dstF, err := os.OpenFile(exe, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o700)
+	if err != nil {
 		return "", errors.New("update: cannot copy the updater executable")
 	}
+	if _, err := io.Copy(dstF, srcF); err != nil {
+		_ = dstF.Close()
+		_ = os.Remove(exe)
+		return "", errors.New("update: cannot copy the updater executable")
+	}
+	if err := dstF.Close(); err != nil {
+		_ = os.Remove(exe)
+		return "", errors.New("update: cannot copy the updater executable")
+	}
+	_ = fi // retain stat for future use if needed
 	return exe, nil
 }
 
