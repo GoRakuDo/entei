@@ -87,6 +87,13 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const attachedRef = useRef(false);
   const intentCleanupRef = useRef<(() => void) | null>(null);
 
+  // ED-2H core design: jobMediaUrl is gated on bridge.phase === 'ready'
+  // || 'playing' to prevent the video element from fetching while
+  // available=0 (ServeContent Read would block → Chrome ~30s timeout
+  // → error code 4). Do NOT remove this gate without replacing it with
+  // an equivalent available>0 check. See docs/EIZOU_DENDENSHI.md
+  // "ED-2H: 即ストリーミング設計".
+  //
   // Complete gate: the media URL is surfaced only when the bridge phase is
   // `ready` or `playing` (= companion reported `playable` or `complete`,
   // meaning `available > 0` and verified pieces exist). Surfacing it

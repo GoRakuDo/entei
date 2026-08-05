@@ -545,6 +545,55 @@ status/media bridgeと共有するproduction指向のanacrolix/torrentローカ�
 
 **旧aria2実swarm QA記録（2026-08-02・anacrolix移行前）**: rc.6 bootstrap-installed aria2 1.37.0 + 固定argvで、archive.org PD映画torrentとDebian公式netinst torrent（source classのみ・copyrightなし）を認証APIで201 → queued → downloadingまで確認したが、当時はcanonical magnetがtrackerを剥がす設計で、どちらのswarmもDHT/PEXでは到達できず**bounded window内で0 bytes（peer/metadata timeout失敗クラス・workaroundなし）**。cancel / cleanupは実測（job dir 0・process 0・session解放）。**Tracker有効実swarm QA（2026-08-02）: 最小swarmのpeer/metadata timeout**。安全なtracker付きmagnet（Big Buck Bunny / Blender Foundation CC-BY / 10秒1080p clip / archive.org、http tracker bt1/bt2.archive.org:6969）を201受理し、canonical magnetはtracker保持のまま最終argv要素として渡り、aria2はannounce成功（tracker HTTP 200、Complete: 1 seeder）したが、唯一のpeer接続がmetadata転送前に切断され、bounded window内で0 bytes（文書化済みのpeer/metadata timeoutクラス・workaroundなし）。files/selection/complete/Range/playback gateは未計測のまま。**anacrolix/torrent engineへの移行完了後、aria2依存は全て削除済み。** 実swarm testはanacrolix engineで再実施が必要（実際の環境ではまだ未確認なので、残りはE2Eテストだけ）。
 
+## ED-2H: 即ストリーミング設計（Instant Streaming Architecture）
+
+> **本設計はEizouDendenshiの核心アーキテクチャです。変更時は必ず本セクションとテスト（`torrents_test.go`のServeContent契約、`companion-job-session.test.tsx`のjobMediaUrl gate、`companion-loading-overlay.test.tsx`のoverlay表示）を更新し、レグレッションを防止してください。** 実機確認済み（2026-08-05・rc.32 + ec12339 + db91d91）。
+
+### 設計の核心
+
+Magnet torrentの「即再生」（ダウンロード完了を待たず再生開始）を実現するため、3層設計を採用:
+
+#### 1. 配信層: bitplay方式（`http.ServeContent` + `File.NewReader()`）
+
+companion（`internal/api/torrents.go` の `serveTorrentMedia`）は、anacrolix/torrentの`File.NewReader()`（`*torrent.Reader`、`io.ReadSeekCloser`）を`http.ServeContent`に渡す。
+
+- `bytes=0-`（video要素の全範囲要求）に対し、`http.ServeContent`は `206 + Content-Range: bytes 0-(total-1)/total + Content-Length: total` で応答し、**応答を閉じずにReaderから揃い次第データを流す**。
+- anacrolixの`Reader.Read`は「要求されたpieceが揃うまでブロック」→ 揃い次第バイトを返す。`Seek`はpiece完了を待たない（offset記録のみ）→ ServeContentは即座に206ヘッダーを送出。
+- **後続リクエスト地獄の根本回避**: video要素は「1つの206レスポンスで全範囲受信中」と理解し、`bytes=avail-`等の後続リクエストを発行しない。従来の「206クランプ→25ms後`bytes=avail-`→503→error code 4」の経路が完全に消える。
+- **demand-based piece優先**: Readerが「読んだ位置」のpieceを`readerNowPieces`で優先DL → 再生位置に追従。
+- `reader.SetContext(r.Context())`（クライアント切断でRead解放）+ `defer reader.Close()`。
+- Content-Typeは`SelectedMediaType()`で事前セット（MKV→`video/x-matroska`等。ServeContentは事前セットを尊重）。
+- **撤去済み**: `serveStreamingPrefix`/`waitForPrefix`/`torrentReaderSource`（`streaming.go`全体削除）。これらは「206クランプ+ロングポーリング」方式の残骸で、後続リクエスト地獄を生むため削除。YouTube/fixtureの`serveGrowingSource`（`jobs.go`）は維持。
+
+#### 2. フロントエンド gate: playable検出までURL非露出
+
+`use-companion-job-session.ts` の `jobMediaUrl`（useMemo）は、`bridge.phase === 'ready' || 'playing'` の時のみURLを返す。
+
+- **select直後（available=0）**: bridge='buffering' → `jobMediaUrl=null` → VideoPlayer非マウント。これにより、`available=0`でのvideo要素fetch（ServeContentのReadブロック→Chrome内部タイムアウト~30秒→error code 4）を回避。
+- **playable検出（available>0）**: bridge='ready' → `jobMediaUrl`露出 → VideoPlayerマウント → fetch → 206（ServeContent、available>0なのでReadが即返る）→ 再生開始。
+- **companion status API**: `/v1/media/status` は `available>0` で `state="playable"`、`available=0` で `"buffering"`、完了で `"complete"` を返す。bridgeがpollで監視。
+
+#### 3. UX層: companion loading overlay
+
+`PlayerApp.tsx` で `jobSession.active && !jobSession.jobMediaUrl` の時に、グルグルスピナー（Loader2 + `.entei-spin`）+ テキスト（"ビデオを準備中…"等、3言語i18n）を表示。
+
+- 「Pilih & putar」→ モーダル閉じる → playable検出までの「数秒の沈黙」を埋める。
+- empty state条件に `!jobSession.active` を追加（companion起動中はempty state非表示）。
+
+### なぜこの設計か（alternativesの却下理由）
+
+- **206クランプ + ロングポーリング（rc.30-31）**: `bytes=0-`に`206（0〜avail-1）`を返す → video要素が25ms後に`bytes=avail-`を要求 → 503 → error code 4 → 実機でcomplete待ち。後続リクエスト地獄。
+- **complete待ち（005fdca当初）**: completeまでvideo要素に渡さない → 再生開始が遅い。ユーザーが「即再生」を望むため却下。
+- **MSE（MediaSourceExtensions）**: MKVはSourceBuffer非対応（mp4/webmのみ）。on-the-fly remuxが必要で大改修。
+- **chunked 200**: Content-Rangeが出せない → seek不可・duration不明。非現実的。
+- **totalをavailと偽る**: video要素のdurationが壊れる。RFC的にも不正。
+
+### レグレッション防止
+
+- **companionテスト**: `torrents_test.go` の ServeContent契約テスト（`bytes=0-`→206全範囲+Content-Range+全データ、HEAD mirror+Content-Length）。
+- **webテスト**: `companion-job-session.test.tsx` の jobMediaUrl gateテスト（buffering=null / ready=露出 / 401→rePairRequired=null）。`companion-loading-overlay.test.tsx`（active+null=表示 / active+URL=非表示 / inactive=非表示）。
+- **コードコメント**: `serveTorrentMedia`（torrents.go）と `jobMediaUrl`（use-companion-job-session.ts）に「本設計はED-2Hの核心。変更時はdocsを参照」コメント。
+
 ## Required PoC checkpoints
 
 この5つは実装の前提。どれかが失敗したら、full implementationへ進まず設計を戻す。

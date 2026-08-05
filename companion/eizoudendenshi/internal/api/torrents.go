@@ -259,6 +259,13 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	}
 }
 
+// ED-2H core design: this ServeContent-based streaming is the core
+// architecture of EizouDendenshi's instant playback. Do NOT replace
+// with 206-clamp + long-polling or any approach that returns partial
+// responses to bytes=0- — it triggers Chrome's follow-up request
+// cascade (bytes=avail- → 503 → error code 4). See
+// docs/EIZOU_DENDENSHI.md "ED-2H: 即ストリーミング設計".
+//
 // serveTorrentMedia serves the active torrent job's selected media using
 // http.ServeContent (bitplay approach):
 //
