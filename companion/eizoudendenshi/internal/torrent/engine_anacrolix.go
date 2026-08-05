@@ -528,8 +528,12 @@ func (h *anacrolixHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error)
 // (httpReadaheadBytes) suitable for HTTP Range serving. The increased
 // readahead ensures that after a seek to a mid-file position, enough
 // forward pieces are requested to keep the 206 response flowing without
-// stalls. The bootstrap reader and the HTTP reader are independent —
-// each drives its own piece demand.
+// stalls. Responsive mode is enabled so that the reader returns data as
+// soon as the underlying chunks become available, without waiting for
+// piece hash verification to complete — this prevents the post-seek
+// stall where a mid-file piece is not yet verified and the reader
+// blocks indefinitely. The bootstrap reader and the HTTP reader are
+// independent — each drives its own piece demand.
 func (h *anacrolixHandle) HTTPReader(ctx context.Context) (io.ReadSeekCloser, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -539,6 +543,7 @@ func (h *anacrolixHandle) HTTPReader(ctx context.Context) (io.ReadSeekCloser, er
 	r := h.selected.NewReader()
 	r.SetContext(ctx)
 	r.SetReadahead(httpReadaheadBytes) // larger readahead for HTTP serving
+	r.SetResponsive()                  // read without waiting for piece hash verification
 	return r, nil
 }
 

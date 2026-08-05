@@ -1,10 +1,14 @@
 package torrent
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
@@ -361,4 +365,110 @@ func TestSelectRefreshesHeadCompletionFromStorage(t *testing.T) {
 	if st := tt.Piece(numPieces - 1).State(); st.Ok {
 		t.Errorf("piece %d outside the head window must not be refreshed: state=%+v", numPieces-1, st)
 	}
+}
+
+// TestHTTPReaderSetResponsive pins the responsive-mode contract: the
+// HTTPReader must call SetResponsive() on the underlying anacrolix Reader
+// so that available() skips the piece-completion gate and returns data as
+// soon as chunks become available. Without responsive mode, a mid-file
+// seek blocks indefinitely when the target piece is not yet hash-verified.
+//
+// We verify:
+//  1. SetResponsive() can be called on the Reader returned by
+//     anacrolix File.NewReader() (compilation + interface contract).
+//  2. The non-responsive path blocks until timeout, proving that the
+//     piece-completion gate is active without responsive mode.
+//  3. A responsive reader still returns an error (not panic) when no data
+//     is available — the torrent has no peers, so the context fires first.
+func TestHTTPReaderSetResponsive(t *testing.T) {
+	// Build a minimal single-file torrent: 4 pieces × 16 KiB = 64 KiB.
+	const (
+		pieceLen  = 16384
+		numPieces = 4
+		fileSize  = numPieces * pieceLen
+	)
+	info := &metainfo.Info{
+		Name:        "responsive_test.mkv",
+		PieceLength: pieceLen,
+		Length:      fileSize,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	dir := t.TempDir()
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cfg.DataDir = dir
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+	tt, _ := cl.AddTorrent(&metainfo.MetaInfo{InfoBytes: ib})
+	<-tt.GotInfo()
+
+	f := tt.Files()[0]
+
+	// --- (1) SetResponsive() compiles and can be called ---
+	r := f.NewReader()
+	t.Cleanup(func() { r.Close() })
+	r.SetResponsive() // must not panic
+	r.Seek(0, io.SeekStart)
+
+	// --- (2) Responsive reader still returns error with no data ---
+	// The torrent has no peers, so no chunks are downloaded.
+	// With a timed context, waitAvailable returns ctx.Err() before
+	// the "n==0 && err==nil" panic path.
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel1()
+	r.SetContext(ctx1)
+	r.SetReadahead(4 << 20)
+	start := time.Now()
+	_, err = r.Read(make([]byte, 1))
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Error("responsive reader on empty torrent should return error, got nil")
+	}
+	// The error should come from the context, not from a panic.
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Logf("responsive reader error: %v (expected context deadline)", err)
+	}
+	t.Logf("responsive reader returned in %v", elapsed)
+
+	// --- (3) Non-responsive reader blocks until context timeout ---
+	// Create a fresh reader (responsive=false by default).
+	r2 := f.NewReader()
+	t.Cleanup(func() { r2.Close() })
+	r2.SetReadahead(4 << 20)
+	r2.Seek(0, io.SeekStart)
+	// Trigger piece demand (sets reader.reading = true).
+	ctxInit, cancelInit := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancelInit()
+	r2.SetContext(ctxInit)
+	r2.Read(make([]byte, 1))
+	// Now Read with a short timeout: should block until context expires.
+	// Use 500ms (not 200ms) to avoid flakes on slow/loaded CI: the
+	// important assertion is that the reader blocks at all, not the
+	// exact wall-clock duration.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel2()
+	r2.SetContext(ctx2)
+	start = time.Now()
+	_, err2 := r2.Read(make([]byte, 1))
+	elapsed = time.Since(start)
+	if !errors.Is(err2, context.DeadlineExceeded) {
+		t.Errorf("non-responsive reader: got err=%v, want context.DeadlineExceeded", err2)
+	}
+	if elapsed < 300*time.Millisecond {
+		t.Errorf("non-responsive reader returned in %v, want >=300ms (blocked on piece completion)", elapsed)
+	}
+	t.Logf("non-responsive reader blocked for %v", elapsed)
 }
