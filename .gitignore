@@ -39,3 +39,7 @@ companion/eizoudendenshi/eizouden
 
 # Local code analysis
 .codesight/
+
+# Next.js stray artifacts (not part of the Astro build)
+.next/
+next-env.d.ts
