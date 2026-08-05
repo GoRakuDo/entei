@@ -459,13 +459,33 @@ function parseTimestamp(timestamp: string): number | null {
 }
 
 /**
+ * Decode non-breaking space HTML entities that appear in subtitle files.
+ * &nbsp; is the most common — it comes from ASS files and online subtitle
+ * sources where the non-breaking space entity is used for formatting.
+ * Numeric variants (&#160; / &#xA0;) are also covered.
+ *
+ * Only space-class entities are decoded. Standard XML escapes (&amp;,
+ * &lt;, &gt;) are NOT decoded here because they would create ambiguity
+ * with HTML tag stripping: decoded angle brackets would be incorrectly
+ * treated as tags by the subsequent <...> regex.
+ */
+function decodeNBSPEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/g, ' ')
+    .replace(/&#xA0;/gi, ' ');
+}
+
+/**
  * Strip HTML/VTT tags and normalize whitespace.
  * Used for both SRT and VTT.
+ * &nbsp; entities are decoded first (non-breaking space → regular space)
+ * to prevent literal "&nbsp;" text from reaching the display layer.
  * Literal <br>, <br/>, <br /> are normalized to a single space BEFORE
  * generic tag stripping, preventing words from gluing together.
  */
 function stripTags(text: string): string {
-  return text
+  return decodeNBSPEntities(text)
     .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<[^>]*>/g, '')
     .replace(/\n/g, ' ')

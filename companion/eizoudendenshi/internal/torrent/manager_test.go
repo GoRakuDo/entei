@@ -157,6 +157,10 @@ func (h *fakeHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error) {
 	}, nil
 }
 
+func (h *fakeHandle) HTTPReader(ctx context.Context) (io.ReadSeekCloser, error) {
+	return h.Reader(ctx)
+}
+
 type fakeReader struct {
 	total int64
 	avail *atomic.Int64

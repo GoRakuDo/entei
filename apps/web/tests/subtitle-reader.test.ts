@@ -561,6 +561,120 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 });
 
 // ---------------------------------------------------------------------------
+// HTML entity decoding (&nbsp;, &amp;, etc.)
+// ---------------------------------------------------------------------------
+
+describe('parseSubtitle — HTML entity decoding', () => {
+  it('converts &nbsp; to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello&nbsp;world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts &#160; (numeric nbsp) to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello&#160;world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts &nbsp; (uppercase) to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello&nbsp;world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('preserves &lt; and &gt; as literal text in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+a &lt; b &gt; c`;
+
+    const result = parseSubtitle(srt);
+    // &lt; and &gt; are NOT decoded — only &nbsp; class entities are decoded
+    expect(result.cues[0]!.text).toBe('a &lt; b &gt; c');
+  });
+
+  it('preserves &amp; as literal text in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Tom &amp; Jerry`;
+
+    const result = parseSubtitle(srt);
+    // &amp; is NOT decoded — only &nbsp; class entities are decoded
+    expect(result.cues[0]!.text).toBe('Tom &amp; Jerry');
+  });
+
+  it('converts &#xA0; (hex numeric nbsp) to space in SRT', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+Hello&#xA0;world`;
+
+    const result = parseSubtitle(srt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts &nbsp; to space in VTT', () => {
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Hello&nbsp;world`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('converts &nbsp; to space in ASS', () => {
+    const header = `[Script Info]
+Title: Test
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+    const ass =
+      header +
+      `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello&nbsp;world`;
+
+    const result = parseSubtitle(ass);
+    expect(result.cues[0]!.text).toBe('Hello world');
+  });
+
+  it('handles multiple &nbsp; in a single cue', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+A&nbsp;&nbsp;&nbsp;B`;
+
+    const result = parseSubtitle(srt);
+    // Multiple &nbsp; + whitespace normalization → single space
+    expect(result.cues[0]!.text).toBe('A B');
+  });
+
+  it('preserves &lt;/&gt; as literal text, not as tags', () => {
+    const srt = `1
+00:00:01,000 --> 00:00:04,000
+&lt;b&gt;not bold&lt;/b&gt;`;
+
+    const result = parseSubtitle(srt);
+    // &lt; and &gt; are preserved as literal text, not decoded to < >
+    expect(result.cues[0]!.text).toBe('&lt;b&gt;not bold&lt;/b&gt;');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // detectFormat
 // ---------------------------------------------------------------------------
 

@@ -211,6 +211,25 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// flushResponseWriter wraps an http.ResponseWriter and flushes after
+// every Write. This ensures that data from the anacrolix Reader reaches
+// the network immediately — critical for streaming after a seek where
+// the Reader blocks between piece completions. Without flushing,
+// io.Copy inside http.ServeContent may buffer data in the kernel TCP
+// stack, causing the video element to stall (readyState=1, networkState=IDLE)
+// even though the server has data available.
+type flushResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (fw *flushResponseWriter) Write(p []byte) (int, error) {
+	n, err := fw.ResponseWriter.Write(p)
+	if f, ok := fw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+	return n, err
+}
+
 func (s *Server) handleTorrentPreflight(w http.ResponseWriter, r *http.Request) {
 	origin, ok := s.originAllowed(r)
 	if !ok {
@@ -328,7 +347,7 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 			writeJSON(w, http.StatusNotFound, errorBody("media not available"))
 			return true
 		}
-		reader, err := s.torrents.NewMediaReader(r.Context())
+		reader, err := s.torrents.NewHTTPMediaReader(r.Context())
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, errorBody("media not available"))
 			return true
@@ -338,7 +357,14 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("Access-Control-Expose-Headers",
 			"Content-Range, Accept-Ranges, Content-Length, Retry-After")
-		http.ServeContent(w, r, fileName, time.Time{}, reader)
+		// Wrap the ResponseWriter with a flusher so that each Write
+		// (each chunk read from the anacrolix Reader) is flushed to the
+		// network immediately. Without this, io.Copy inside ServeContent
+		// may buffer data in the kernel TCP stack, causing stalls when
+		// the Reader blocks between pieces (e.g. after a seek to a
+		// mid-file position where pieces are not yet downloaded).
+		fw := &flushResponseWriter{ResponseWriter: w}
+		http.ServeContent(fw, r, fileName, time.Time{}, reader)
 		return true
 	case torrent.StateDownloading, torrent.StateBuffering:
 		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)

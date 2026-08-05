@@ -63,6 +63,12 @@ type TorrentHandle interface {
 	// piece priority (seek → the needed pieces become highest priority) and
 	// a bounded forward readahead.
 	Reader(ctx context.Context) (io.ReadSeekCloser, error)
+	// HTTPReader returns a seekable reader over the selected video file
+	// with a larger readahead window suitable for HTTP Range serving. The
+	// increased readahead ensures that after a seek to a mid-file position,
+	// enough forward pieces are requested to keep the 206 response flowing
+	// without stalls. Reads block until data is available or ctx is done.
+	HTTPReader(ctx context.Context) (io.ReadSeekCloser, error)
 	// StartBootstrap begins demand scheduling for the selected video's head:
 	// a dedicated bounded reader seeks to byte 0 and issues one read so the
 	// engine's reader demand registers the head pieces (first piece "Now",

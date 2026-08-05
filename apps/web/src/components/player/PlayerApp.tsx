@@ -239,6 +239,17 @@ export default function PlayerApp() {
   );
   const [volume, setVolume] = useState(prefsRef.current.volume);
 
+  // --- Seek buffering overlay ---
+  // After a seek, if the video element's readyState drops below
+  // HAVE_FUTURE_DATA (2), show a spinner overlay. The overlay clears
+  // when readyState recovers (data arrives) or the element errors.
+  // This is separate from the companion loading overlay (which shows
+  // while waiting for the job media URL to surface).
+  const [isSeekBuffering, setIsSeekBuffering] = useState(false);
+  const seekBufferingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
   // P2.1: Play mode — default normal, not persisted
   const [playMode, setPlayMode] = useState<PlayMode>('normal');
   // P2.1: Manual rate selected by user (separate from fast-forward effective rate)
@@ -1089,7 +1100,59 @@ export default function PlayerApp() {
   const handleError = useCallback((error: string) => {
     setIsLoading(false);
     setLoadError(error);
+    // Clear seek buffering on error — the overlay is meaningless if the
+    // element has errored.
+    setIsSeekBuffering(false);
   }, []);
+
+  // --- Seek buffering: monitor readyState after seek events ---
+  // When the video element fires 'seeking', it means a seek is in
+  // progress. If readyState < HAVE_FUTURE_DATA (2) at that point, we
+  // show the spinner overlay. The overlay clears when:
+  // 1. 'canplay' fires (readyState >= HAVE_FUTURE_DATA, data arrived)
+  // 2. 'error' fires (element errored, overlay is meaningless)
+  // 3. A safety timeout fires (5s — prevents stuck overlay if canplay
+  //    never fires for some reason)
+  useEffect(() => {
+    const media = mediaType === 'video' ? videoRef.current : null;
+    if (!media) return;
+
+    const HAVE_FUTURE_DATA = 2;
+
+    const onSeeking = () => {
+      // If readyState is already sufficient, no overlay needed
+      if (media.readyState >= HAVE_FUTURE_DATA) return;
+      setIsSeekBuffering(true);
+      // Safety timeout: clear after 5s even if canplay never fires
+      if (seekBufferingTimeoutRef.current !== null) {
+        clearTimeout(seekBufferingTimeoutRef.current);
+      }
+      seekBufferingTimeoutRef.current = setTimeout(() => {
+        seekBufferingTimeoutRef.current = null;
+        setIsSeekBuffering(false);
+      }, 5000);
+    };
+
+    const onCanPlay = () => {
+      if (seekBufferingTimeoutRef.current !== null) {
+        clearTimeout(seekBufferingTimeoutRef.current);
+        seekBufferingTimeoutRef.current = null;
+      }
+      setIsSeekBuffering(false);
+    };
+
+    media.addEventListener('seeking', onSeeking);
+    media.addEventListener('canplay', onCanPlay);
+    return () => {
+      media.removeEventListener('seeking', onSeeking);
+      media.removeEventListener('canplay', onCanPlay);
+      if (seekBufferingTimeoutRef.current !== null) {
+        clearTimeout(seekBufferingTimeoutRef.current);
+        seekBufferingTimeoutRef.current = null;
+      }
+      setIsSeekBuffering(false);
+    };
+  }, [mediaType, mediaUrl]);
 
   const handleVolumeChange = useCallback((val: number) => {
     setVolume(val);
@@ -3006,6 +3069,15 @@ export default function PlayerApp() {
         onTouchTap={handleOverlayTouchTap}
         appearance={subtitleSettings}
       />
+      {/* Seek buffering overlay: shows a spinner after a seek when the
+          video element's readyState is below HAVE_FUTURE_DATA. Clears
+          when canplay fires (data arrived) or on error/timeout.
+          Separate from the companion loading overlay above. */}
+      {isSeekBuffering && !isLoading && !loadError && (
+        <div className="entei-companion-loading" role="status">
+          <Loader2 className="entei-spin" size={32} aria-hidden="true" />
+        </div>
+      )}
       <PlayerControls
         ref={controlsHandleRef}
         mediaRef={sharedMediaRef}

@@ -824,6 +824,33 @@ func (m *Manager) NewMediaReader(ctx context.Context) (io.ReadSeekCloser, error)
 	return h.Reader(ctx)
 }
 
+// NewHTTPMediaReader creates a seekable reader with a larger readahead
+// window suitable for HTTP Range serving. The increased readahead
+// ensures that after a seek to a mid-file position, enough forward
+// pieces are requested to keep the 206 response flowing without stalls.
+// The caller must close the reader.
+func (m *Manager) NewHTTPMediaReader(ctx context.Context) (io.ReadSeekCloser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.purgeEvicted()
+	if len(m.sessionOrder) == 0 {
+		return nil, errors.New("no active session")
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		return nil, errors.New("no active session")
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	h := j.handle
+	j.stateMu.Unlock()
+	if h == nil {
+		return nil, errors.New("no handle")
+	}
+	return h.HTTPReader(ctx)
+}
+
 // SelectedFileName returns the basename of the active session's selected
 // video file (e.g. "movie.mkv"). Empty when no file is selected.
 func (m *Manager) SelectedFileName() string {

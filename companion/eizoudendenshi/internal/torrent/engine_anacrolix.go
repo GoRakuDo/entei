@@ -65,6 +65,15 @@ type engineAnacrolix struct {
 // demand window are the same bounded region.
 const bootstrapWindowBytes = 4 << 20 // 4 MiB
 
+// httpReadaheadBytes is the readahead used by the HTTP-serving Reader
+// created per Range request. It is deliberately larger than
+// bootstrapWindowBytes so that a seek to a mid-file position requests
+// enough forward pieces to keep the 206 response flowing without stalls.
+// Sized to cover ~16 MiB of forward demand — enough for typical
+// streaming read patterns (Chrome reads in ~256 KiB-1 MiB chunks) while
+// bounded to avoid excessive piece-priority churn.
+const httpReadaheadBytes = 16 << 20 // 16 MiB
+
 // clientConfig returns a torrent.NewDefaultClientConfig() with the standard
 // EizouDendenshi settings applied AND an explicit private DataDir. Without
 // a DataDir, anacrolix v1.61 opens its piece-completion DB at an undefined
@@ -512,6 +521,24 @@ func (h *anacrolixHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error)
 	r := h.selected.NewReader()
 	r.SetContext(ctx)
 	r.SetReadahead(bootstrapWindowBytes) // bounded forward readahead
+	return r, nil
+}
+
+// HTTPReader returns a seekable reader with a larger readahead window
+// (httpReadaheadBytes) suitable for HTTP Range serving. The increased
+// readahead ensures that after a seek to a mid-file position, enough
+// forward pieces are requested to keep the 206 response flowing without
+// stalls. The bootstrap reader and the HTTP reader are independent —
+// each drives its own piece demand.
+func (h *anacrolixHandle) HTTPReader(ctx context.Context) (io.ReadSeekCloser, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.selected == nil {
+		return nil, errInvalidSelection
+	}
+	r := h.selected.NewReader()
+	r.SetContext(ctx)
+	r.SetReadahead(httpReadaheadBytes) // larger readahead for HTTP serving
 	return r, nil
 }
 
