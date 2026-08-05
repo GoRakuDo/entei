@@ -607,4 +607,57 @@ describe('ED-2E companion bridge', () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(calls.length).toBeGreaterThan(callsAfterReady);
   });
+
+  it('repeated "playable" while ready/playing does not re-run src/load', async () => {
+    const { calls, fetchFn } = makeFetcher([
+      playable(200, 1000),
+      playable(400, 1000),
+      playable(600, 1000),
+    ]);
+    const media = makeMedia();
+    const { bridge } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+
+    // First playable triggers the src/load transition.
+    expect(bridge.currentPhase).toBe('ready');
+    expect(media.setSrc).toHaveBeenCalledTimes(1);
+    expect(media.load).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
+
+    // Second playable: keep polling but never reset the element.
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(calls).toHaveLength(2);
+    expect(media.setSrc).toHaveBeenCalledTimes(1);
+    expect(media.load).toHaveBeenCalledTimes(1);
+
+    // Third playable confirms the pattern holds across multiple polls.
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(calls).toHaveLength(3);
+    expect(media.setSrc).toHaveBeenCalledTimes(1);
+    expect(media.load).toHaveBeenCalledTimes(1);
+  });
+
+  it('playable after media error recovery still allows src/load reset', async () => {
+    const { fetchFn } = makeFetcher([
+      complete(1000),
+      playable(1000, 1000),
+    ]);
+    const media = makeMedia();
+    const { bridge } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+    expect(media.setSrc).toHaveBeenCalledTimes(1);
+
+    // While ready, a media error re-check returns playable.
+    // onMediaError must still be able to trigger startReadyTransition.
+    media.fire('error');
+    await flush();
+
+    expect(bridge.currentPhase).toBe('ready');
+    expect(media.setSrc).toHaveBeenCalledTimes(2);
+    expect(media.load).toHaveBeenCalledTimes(2);
+  });
 });

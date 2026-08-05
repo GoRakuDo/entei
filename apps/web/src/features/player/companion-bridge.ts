@@ -400,11 +400,14 @@ export class CompanionBridge {
         this.onComplete(result.status);
         return;
       case 'playable':
-        // Progressive streaming: the verified prefix reached the playable
-        // threshold. Assign the URL + load exactly like complete, but keep
-        // a slow status poll alive while playing so the bridge can detect
-        // full completion and drive the media-error retry path.
-        this.onComplete(result.status);
+        // ED-2H: provisional streaming. Only hand the URL/load on the FIRST
+        // playable sighting. While already ready/playing, keep polling to
+        // detect completion / media-error recovery, but do NOT re-run
+        // startReadyTransition — video.load() on every poll rewinds to 00:00
+        // and stutters.
+        if (this.phase !== 'ready' && this.phase !== 'playing') {
+          this.onComplete(result.status);
+        }
         this.schedule(this.opts.maxPollMs);
         return;
       case 'buffering':
