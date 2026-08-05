@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -67,6 +68,110 @@ func decodeBuffering(t *testing.T, rec *httptest.ResponseRecorder) bufferingBody
 		t.Errorf("buffering error = %q, want %q", b.Error, "buffering")
 	}
 	return b
+}
+
+// withShortHold shrinks the availability long-poll timers for the
+// duration of f, so tests exercise the timeout path (503 buffering) and
+// the catch-up path without real 30 s waits. Same save/restore pattern
+// as renameRetryAttempts in internal/update. Not safe under t.Parallel —
+// these tests never call it.
+func withShortHold(t *testing.T, f func()) {
+	t.Helper()
+	oldPoll, oldTimeout := streamingHoldPollMs, streamingHoldTimeout
+	streamingHoldPollMs = 5
+	streamingHoldTimeout = 50 * time.Millisecond
+	defer func() {
+		streamingHoldPollMs, streamingHoldTimeout = oldPoll, oldTimeout
+	}()
+	f()
+}
+
+// --- availability long-poll (2026-08-05) ---
+
+// A range whose start is not yet available is held until the available
+// prefix strictly passes the requested start, then answered 206 with the
+// exact window — the shape Chrome 151 produces when its ~25 ms follow-up
+// bytes=avail- request arrives while the prefix is still short.
+func TestGrowLongPollWaitsForPrefixThen206(t *testing.T) {
+	data := growData(4096)
+	s, src := newGrowServer(t, data, 100)
+	h := s.Handler()
+
+	started := make(chan struct{})
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		close(started)
+		done <- growRequest(t, h, s.token, http.MethodGet, "bytes=100-199")
+	}()
+	<-started
+	// Let the request enter the hold with avail==want (strict wait), then
+	// advance availability beyond the requested start.
+	time.Sleep(20 * time.Millisecond)
+	src.SetAvailable(500)
+
+	select {
+	case rec := <-done:
+		assert206Window(t, rec, data, 100, 199)
+	case <-time.After(5 * time.Second):
+		t.Fatal("long-poll never returned after the prefix advanced")
+	}
+}
+
+// A range that never becomes available yields the 503 buffering timeout
+// after streamingHoldTimeout, with the availability metadata of the last
+// observed snapshot.
+func TestGrowLongPollTimeoutReturns503(t *testing.T) {
+	data := growData(4096)
+	s, _ := newGrowServer(t, data, 100)
+	h := s.Handler()
+
+	withShortHold(t, func() {
+		rec := growRequest(t, h, s.token, http.MethodGet, "bytes=100-199")
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503 after hold timeout; body=%q", rec.Code, rec.Body.String())
+		}
+		b := decodeBuffering(t, rec)
+		if b.Available != 100 || b.Total != 4096 {
+			t.Errorf("buffering body = %+v, want available 100 / total 4096", b)
+		}
+	})
+}
+
+// A cancelled request context releases the handler immediately with
+// nothing written — no 503 is manufactured for a client that is gone.
+func TestGrowLongPollContextCancel(t *testing.T) {
+	data := growData(4096)
+	s, _ := newGrowServer(t, data, 100)
+	h := s.Handler()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, mediaURL(s.token), nil).WithContext(ctx)
+	req.Header.Set("Origin", allowedOriginEntei)
+	req.Header.Set("Range", "bytes=100-199")
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		h.ServeHTTP(rec, req)
+		close(done)
+	}()
+	time.Sleep(20 * time.Millisecond) // let the handler enter the hold
+	cancel()
+
+	select {
+	case <-done:
+		// ResponseRecorder starts at Code 200 and stays there when no
+		// WriteHeader was ever called; the decisive checks are that the
+		// buffering/206 paths did not write: no Retry-After, no body.
+		if rec.Header().Get("Retry-After") != "" {
+			t.Fatalf("cancelled request wrote Retry-After %q, want none", rec.Header().Get("Retry-After"))
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("cancelled request wrote %d body bytes, want none", rec.Body.Len())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not return after context cancellation")
+	}
 }
 
 // assert206Window pins the exact window semantics: status 206, exact
@@ -195,16 +300,19 @@ func TestGrowRangeBoundaryExactEnd(t *testing.T) {
 	rec = growRequest(t, h, s.token, http.MethodGet, "bytes=0-100")
 	assert206Window(t, rec, data, 0, 99)
 
-	// Range starting exactly at the boundary: 503, NOT 416 (it may become
-	// satisfiable) and not a zero-byte fake success.
-	rec = growRequest(t, h, s.token, http.MethodGet, "bytes=100-")
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("bytes=100-: status = %d, want 503", rec.Code)
-	}
-	rec = growRequest(t, h, s.token, http.MethodGet, "bytes=100-100")
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("bytes=100-100: status = %d, want 503", rec.Code)
-	}
+	// Range starting exactly at the boundary: held (long-polled); since
+	// availability never advances it ends in 503 after the hold timeout —
+	// NOT 416 (it may become satisfiable) and not a zero-byte fake success.
+	withShortHold(t, func() {
+		rec = growRequest(t, h, s.token, http.MethodGet, "bytes=100-")
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("bytes=100-: status = %d, want 503 after hold timeout", rec.Code)
+		}
+		rec = growRequest(t, h, s.token, http.MethodGet, "bytes=100-100")
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("bytes=100-100: status = %d, want 503 after hold timeout", rec.Code)
+		}
+	})
 }
 
 // A range that starts inside the available prefix but ends beyond it is
@@ -229,16 +337,22 @@ func TestGrowRangeEntirelyUnavailable503(t *testing.T) {
 	s, _ := newGrowServer(t, data, 100)
 	h := s.Handler()
 
-	for _, rng := range []string{"bytes=100-199", "bytes=150-", "bytes=150-1499", "bytes=100-100"} {
-		rec := growRequest(t, h, s.token, http.MethodGet, rng)
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Errorf("%s: status = %d, want 503 (temporarily unavailable, NOT 416)", rng, rec.Code)
-			continue
+	// Ranges whose start lies beyond the available prefix are held until
+	// availability passes the start; since it never advances here, each
+	// request ends in 503 after the (shortened) hold timeout — NOT 416
+	// (it may become satisfiable).
+	withShortHold(t, func() {
+		for _, rng := range []string{"bytes=100-199", "bytes=150-", "bytes=150-1499", "bytes=100-100"} {
+			rec := growRequest(t, h, s.token, http.MethodGet, rng)
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Errorf("%s: status = %d, want 503 (hold timeout; temporarily unavailable, NOT 416)", rng, rec.Code)
+				continue
+			}
+			if b := decodeBuffering(t, rec); b.Available != 100 {
+				t.Errorf("%s: body = %+v, want available 100", rng, b)
+			}
 		}
-		if b := decodeBuffering(t, rec); b.Available != 100 {
-			t.Errorf("%s: body = %+v, want available 100", rng, b)
-		}
-	}
+	})
 }
 
 // Chrome 151 opens playback with an open-ended bytes=0- request. While the
@@ -319,22 +433,25 @@ func TestGrowSuffixRange(t *testing.T) {
 
 	// Incomplete file: a suffix selects the final n bytes of the TOTAL
 	// representation (RFC 9110), which do not exist yet — so a suffix
-	// whose start lies beyond the available prefix is 503 until the file
+	// whose start lies beyond the available prefix is held (long-polled)
+	// and ends in 503 only after the hold timeout, unless the file
 	// completes. The full-length suffix bytes=-2048 is equivalent to the
 	// open-ended bytes=0- (start 0 < avail) and is served 206 with end
 	// clamped to avail-1. Never a fabricated window.
 	s2, _ := newGrowServer(t, data, 100)
 	h2 := s2.Handler()
-	for _, rng := range []string{"bytes=-50", "bytes=-100", "bytes=-101"} {
-		rec := growRequest(t, h2, s2.token, http.MethodGet, rng)
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Errorf("%s (avail 100): status = %d, want 503", rng, rec.Code)
-			continue
+	withShortHold(t, func() {
+		for _, rng := range []string{"bytes=-50", "bytes=-100", "bytes=-101"} {
+			rec := growRequest(t, h2, s2.token, http.MethodGet, rng)
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Errorf("%s (avail 100): status = %d, want 503 after hold timeout", rng, rec.Code)
+				continue
+			}
+			if b := decodeBuffering(t, rec); b.Available != 100 {
+				t.Errorf("%s: body = %+v, want available 100", rng, b)
+			}
 		}
-		if b := decodeBuffering(t, rec); b.Available != 100 {
-			t.Errorf("%s: body = %+v, want available 100", rng, b)
-		}
-	}
+	})
 	assert206Window(t, growRequest(t, h2, s2.token, http.MethodGet, "bytes=-2048"), data, 0, 99)
 }
 

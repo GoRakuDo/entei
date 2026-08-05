@@ -242,7 +242,12 @@ func (s *Server) serveJobMedia(w http.ResponseWriter, r *http.Request) bool {
 //     end reaches beyond avail (e.g. Chrome's open-ended bytes=0-), end is
 //     clamped to avail-1 per RFC 9110 — an exact partial response, never a
 //     byte beyond avail
-//   - a Range starting at or beyond avail → 503 + Retry-After
+//   - a Range starting at or beyond avail → long-polled (waitForPrefix):
+//     held until the available prefix strictly passes the requested start,
+//     then answered 206 with the same clamping; only the 30 s hold timeout
+//     yields a 503 + Retry-After (buffering) — a 503 in the ~25 ms gap
+//     between Chrome's bytes=0- and its bytes=avail- follow-up fails the
+//     element with error code 4 (measured 2026-08-05)
 //   - a Range starting at or beyond total → 416 ("bytes */total")
 //   - no usable Range while avail < total → 503 (a partial 200 is never
 //     served); with avail == total → 200 full body
@@ -267,8 +272,14 @@ func (s *Server) serveGrowingSource(src media.GrowingSource, w http.ResponseWrit
 			return
 		}
 		if start >= avail {
-			s.writeBuffering(w, r, avail, total)
-			return
+			// The available prefix has not passed the requested start.
+			// Hold (long-poll) until it does — a 503 here fails Chrome's
+			// media element with error code 4 (no auto-retry) during the
+			// ~25 ms gap before its bytes=avail- follow-up. Only the hold
+			// timeout yields the 503 buffering response.
+			if !s.waitForPrefix(w, r, src, start, total, &avail) {
+				return // 503 written by the timeout, or client cancelled
+			}
 		}
 		if end >= avail {
 			// RFC 9110: clamp to avail-1 (Chrome 151 sends open-ended

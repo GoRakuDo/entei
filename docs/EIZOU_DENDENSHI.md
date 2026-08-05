@@ -109,7 +109,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 1. ユーザーがmagnet URIをEnteiへ貼る。
 2. companionがcanonical magnet（xt + 安全なtracker）でanacrolix/torrent engineを起動し、**metadata取得直後に**（payload完了前）sanitized file一覧を返す。
 3. 複数fileならEnteiがvideo 1本と任意subtitle 1本の選択Modalを出す。eligible videoが無ければ終端generic error（"no playable video"）。
-4. 選択後、engineは選択fileの**head bootstrap**（先頭window 4 MiBをPiecePriorityHighに昇格 + 専用bootstrap readerがbyte 0を要求）で先頭pieceからverified contiguous prefixを成長させ、companionは**startがverified prefix内のRangeは206**（`bytes=0-`等の全範囲要求はendをavailable-1へクランプしたRFC 9110部分応答。2026-08-05修正）、**startが未取得のRangeは`503 + Retry-After`**で応答する（avail外byteは返さない）。
+4. 選択後、engineは選択fileの**head bootstrap**（先頭window 4 MiBをPiecePriorityHighに昇格 + 専用bootstrap readerがbyte 0を要求）で先頭pieceからverified contiguous prefixを成長させ、companionは**startがverified prefix内のRangeは206**（`bytes=0-`等の全範囲要求はendをavailable-1へクランプしたRFC 9110部分応答。2026-08-05修正）、**startが未取得のRangeは、verified prefixが追いつくまでロングポーリングして揃ったら`206`、待機タイムアウト（30秒）時のみ`503 + Retry-After`**で応答する（avail外byteは返さない）。**方針（2026-08-05確定）: complete待ちはしない。すぐ再生可能（playable prefix到達）なら即再生するprogressive方式を維持する。**
 5. 未取得位置へのseekはEnteiがbuffer animationとpauseを表示する。prefixがその位置へ届いた時（bridgeの明示`load()`再適用）だけ再開する。
 
 ## Security and data contract
@@ -176,6 +176,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 12. v2-only torrent拒否: `engine_anacrolix.go:209` の `t.Drop()` はエラーパスの副作用だが、既存のctxキャンセルパターン（同:194）と一致しており安全（二重Dropなし・Drop後のアクセスなし）。変更不要（2026-08-05レビュー）。
 13. updater EXDEV対応: `copyThenRemove` の `os.Remove(oldpath)` 失敗時、コピー成功でも更新が失敗して `.bak` ロールバック（データは安全・再試行可能、許容範囲）。大容量ファイルのコピー中クラッシュ時は次回更新で上書き（部分targetは `.bak` ロールバックで保護）（2026-08-05レビュー）。
 14. streaming 206部分応答: `serveGrowingSource`（jobs.go）と `serveStreamingPrefix`（streaming.go）は同一契約を異なる分岐形状で実装（begin>=availの503、end>=availのクランプ206）。将来の編集でドリフトしないよう、doc commentに契約を同一文言で記載済み。HEAD mirrorのsuffix全長（bytes=-total）テストは未追加（GET側で担保）（2026-08-05レビュー）。
+15. streamingロングポーリング: `avail=0`の時、Rangeリクエストは最大30秒ブロックする（意図的トレードオフ。通常は数秒で伸びる）。`TestGrowConcurrentAvailabilityChange`は本番タイマー（250ms poll）使用のためCI時間が僅かに伸びる（許容範囲）。`streamingHoldPollMs`はint型（テスト短縮用var化のため、既存パターン）（2026-08-05レビュー）。
 
 ## Delivery contract
 
@@ -279,6 +280,7 @@ download中など**成長中のメディア**（known total + available prefix�
 | GET/HEAD・Rangeなし・`Available < Total` | `503` + `Retry-After: 1`、JSON body |
 | startが`[0, Available)` 内・endも`< Available`のRange | `206` 厳密window、`Content-Range: bytes a-b/Total` |
 | start `< Available` でendが`Available` を越えるRange（`bytes=0-`含む） | `206`、endを`Available-1`へクランプ（RFC 9110部分応答。2026-08-05修正） |
+| start `>= Available` のRange | `206`（verified prefixがstartを超えるまでロングポーリング、250ms polling・最大30秒。揃ったら部分応答。2026-08-05方針変更） |
 | start `>= Available`（未取得prefix開始） | `503` + `Retry-After: 1`、JSON body |
 | `Total` 以降から始まるRange | `416`、`Content-Range: bytes */Total`（恒久的のみ） |
 | 不完全時のsuffix range（`bytes=-n`、n `< Total`） | `503`（start=`Total-n`は未取得。全長suffix `bytes=-Total`は`bytes=0-`相当で206クランプ） |
@@ -295,7 +297,7 @@ download中など**成長中のメディア**（known total + available prefix�
 ### なぜ`503 + Retry-After`か（tradeoff）
 
 - **start `< Available` の`206`クランプ**（RFC 9110部分応答、2026-08-05修正）: `bytes=0-`等の全範囲要求は「全byteが欲しいが、実データとして受け取れる範囲で良い」という意味論で、RFC 9110は部分応答を明示的に許可する。endを`Available-1`へクランプし、`Content-Range: bytes start-(avail-1)/total`で正確に応答する。avail外byteは決して返さない。Chrome 151は最初に`bytes=0-`を送るため、ここで`503`を返すとmedia elementが`error` code 4で落ち再生が始まらない（2026-07-31実測）。
-- **start `>= Available` への`503`**: 「位置Xから始まるデータ」は未取得で、部分応答では要求を満たせない。truncated応答（playerが不完全bodyを実ファイルと誤認＝破損）はせず、`503 + Retry-After`で「後で再試行」を明示する。
+- **start `>= Available` へのロングポーリング**（2026-08-05方針変更）: 「位置Xから始まるデータ」は未取得。truncated応答（playerが不完全bodyを実ファイルと誤認＝破損）はせず、**verified prefixがXを超えるまで待機（250ms polling、最大30秒）してから`206`部分応答**を返す。待機タイムアウト時のみ`503 + Retry-After`（bridgeが既存のretry/backoffで処理）。Chrome 151は`bytes=0-`の206クランプを受けると約25ms後に`bytes=avail-`を要求するため、ここで503を返すとmedia elementが`error` code 4で落ち再生が始まらない（2026-08-05実測）。ロングポーリングはGoのgoroutineで並行処理されるため、他リクエストのブロックはない。
 - **not-yet-availableに`416`**: `416`は*恒久*不満足の意味論で、client / cacheがfinal扱いする恐れ。`start >= Total`（本当に永久）のみ`416`とする。
 - **`200` + available prefix / zero-byte成功**: `Content-Length < Total`で完全性を偽装。禁止。
 - **availableまでrequestをblock**: connection / handlerを無期限占有し、HTTPとして「まだ」の回答にならない。禁止。

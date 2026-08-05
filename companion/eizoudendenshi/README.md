@@ -40,8 +40,11 @@ DPAPI-backed persistent credential — see
 > `end >= Available → 503` answer made the element fail with `error` code
 > 4 before playback could start. Requests whose start lies inside the
 > prefix are now answered `206` with end clamped to `Available-1` (RFC
-> 9110 partial response; never a byte beyond the prefix), so the initial
-> 503→error-code-4 path is eliminated (re-measurement pending).
+> 9110 partial response; never a byte beyond the prefix), and requests
+> whose start is not yet verified are **held (long-polled) until the
+> prefix passes it** — a `503` is only produced after the 30 s hold
+> timeout, so the initial 503→error-code-4 path is eliminated
+> (re-measurement pending).
 > Android Chrome growing-media playback remains **unverified** and is not
 > claimed. The **yt-dlp YouTube source job** (ED-2F) is IMPLEMENTED with a
 > full real-download QA PASS (2026-08-01) and a user-facing URL input; the
@@ -302,7 +305,7 @@ it is **not** measured in Android Chrome yet (see gates below).
 | GET/HEAD, no usable Range, `Available < Total` | `503` + `Retry-After: 1`, JSON body (below) |
 | Range with start in `[0, Available)`, end `< Available` | `206`, exact window, `Content-Range: bytes a-b/Total` |
 | Range with start `< Available` whose end reaches `Available` or beyond (incl. open-ended `bytes=0-`) | `206` with end clamped to `Available-1` (RFC 9110 partial response; 2026-08-05 fix) |
-| Range starting at/after `Available` | `503` + `Retry-After: 1`, JSON body (below) |
+| Range starting at/after `Available` | held (long-poll) until `Available` strictly passes the range start, then `206` (same clamping); `503` + `Retry-After: 1` only after the 30 s hold timeout (2026-08-05) |
 | Range starting at/after `Total` | `416`, `Content-Range: bytes */Total` (permanent only) |
 | Suffix range (`bytes=-n`) while incomplete | `503` (start `Total-n` is unverified; the full-length suffix `bytes=-Total` behaves like `bytes=0-` → clamped `206`) |
 | Malformed / non-`bytes` / multi-range header | ignored (treated as no Range; multipart unsupported) |
@@ -329,17 +332,25 @@ The alternatives were rejected as unsafe or ambiguous:
   to `Available-1` and an exact `Content-Range`. A `503` here made Chrome's
   media element fail with `error` code 4 before playback could start
   (measured 2026-07-31). Bytes beyond `Available` are never served.
-- **`503` for a range starting beyond the prefix**: "data starting at byte
-  X" cannot be partially satisfied — nothing at X is verified yet — so it
-  stays an explicit retryable `503` (never a truncated body the player
-  could mistake for the real file).
+- **Bounded long-poll for a range starting beyond the prefix
+  (2026-08-05)**: "data starting at byte X" cannot be partially satisfied —
+  nothing at X is verified yet. Instead of an immediate `503`, the request
+  is **held until the available prefix strictly passes X** (polling every
+  250 ms, at most 30 s), then answered `206` with the exact window. A
+  `503` to Chrome's ~25 ms follow-up `bytes=avail-` request fails the
+  media element with `error` code 4 (it does not auto-retry), so the hold
+  is what keeps progressive playback alive; only the 30 s hold timeout
+  yields the retryable `503` (never a truncated body the player could
+  mistake for the real file).
 - **`416` for not-yet-available ranges**: `416` means *permanently*
   unsatisfiable; clients and caches may treat it as final. Only
   `start >= Total` is permanent here, and that is the single `416` case.
 - **`200` with the available prefix / zero-byte success**: falsely claims
   the representation is complete (`Content-Length < Total`). Banned.
-- **Blocking the request until bytes arrive**: ties up a connection and a
-  handler indefinitely; not an HTTP answer to "not yet". Banned.
+- **Unbounded blocking of the request until bytes arrive**: the long-poll
+  above is strictly bounded (250 ms polling, 30 s timeout → `503`); tying
+  up a connection and a handler indefinitely is not an HTTP answer to
+  "not yet" and stays banned.
 - **`425 Too Early`**: wrong semantics (early-data) and poor support. Not
   used.
 
@@ -506,8 +517,9 @@ gate as `/v1/media/fixture`. `200` JSON body carries metadata only:
   (byte-level check, no downloader). **Always `false` in the current
   implementation.** (The 77%-available fixture failing at `bytes=0-` →
   `503` → `error` code 4 was measured under the old pre-2026-08-05
-  contract; open-ended requests now get a clamped `206`, but a range
-  starting beyond the prefix still answers `503`.) For direct `<video>`
+  contract; open-ended requests now get a clamped `206`, and a range
+  starting beyond the prefix is long-polled until the prefix passes its
+  start — `503` only after the 30 s hold timeout.) For direct `<video>`
   the only safe readiness remains `complete`.
 - `retryAfter`: same hint as the current 503 responses (PoC `1`; present
   only while buffering).
@@ -889,8 +901,10 @@ valid selection the job streams the **verified prefix** (`playable` status
 when the verified prefix > 0 and a servable source exists — the bridge
 assigns the URL then; ranges starting inside the verified prefix → `206`
 (an end beyond the prefix is clamped to `Available-1` per RFC 9110 — e.g.
-Chrome's open-ended `bytes=0-`), ranges starting beyond it → `503 +
-Retry-After`, never a byte beyond the prefix) and reaches `complete`
+Chrome's open-ended `bytes=0-`), ranges starting beyond it are **held
+(long-polled) until the prefix passes the start**, then `206` — `503 +
+Retry-After` only after the 30 s hold timeout (2026-08-05), never a byte
+beyond the prefix) and reaches `complete`
 (`available == total`) when the download finishes.
 
 ### Tests

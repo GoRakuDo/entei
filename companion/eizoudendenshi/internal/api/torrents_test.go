@@ -1034,14 +1034,34 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 		t.Errorf("range crossing prefix: body length = %d, want 100000 (no byte beyond avail)", rec.Body.Len())
 	}
 
-	// Range entirely beyond prefix → 503 (start >= avail).
-	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
-	req.Header.Set("Origin", allowedOriginLocal)
-	req.Header.Set("Range", "bytes=400000-500000")
-	rec = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("range beyond prefix = %d, want 503", rec.Code)
+	// Range entirely beyond the prefix: held (long-polled) until the
+	// verified prefix passes the requested start — answered 206 once
+	// availability catches up (Chrome 151's follow-up bytes=avail- shape),
+	// not an immediate 503.
+	got := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req, _ := http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+		req.Header.Set("Origin", allowedOriginLocal)
+		req.Header.Set("Range", "bytes=400000-500000")
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		got <- rec
+	}()
+	time.Sleep(100 * time.Millisecond) // let the request enter the hold
+	engine.h.avail.Store(600_000)
+	select {
+	case rec = <-got:
+		if rec.Code != http.StatusPartialContent {
+			t.Fatalf("range beyond prefix = %d, want 206 after long-poll", rec.Code)
+		}
+		if cr := rec.Header().Get("Content-Range"); cr != "bytes 400000-500000/800000" {
+			t.Errorf("range beyond prefix: Content-Range = %q, want bytes 400000-500000/800000", cr)
+		}
+		if rec.Body.Len() != 100_001 {
+			t.Errorf("range beyond prefix: body length = %d, want 100001", rec.Body.Len())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("range beyond prefix: long-poll never returned after availability advanced")
 	}
 
 	// No Range, avail < total → 503.

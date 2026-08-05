@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // bufferingRetryAfter is the Retry-After delta-seconds sent with 503
@@ -36,9 +37,11 @@ type bufferingBody struct {
 //     open-ended bytes=0- Chrome 151 sends first) it is clamped to
 //     Available()-1 per RFC 9110: an exact partial response, never a byte
 //     beyond the verified prefix.
-//   - Single Range starting at or beyond Available(): 503 Service
-//     Unavailable with Retry-After — never fabricated bytes, never an
-//     indefinite block.
+//   - Single Range starting at or beyond Available(): long-polled until
+//     Available() strictly passes the requested start, then 206 with the
+//     same clamping; only after the hold timeout (streamingHoldTimeout,
+//     30 s) is a 503 Service Unavailable with Retry-After returned —
+//     never fabricated bytes, never an indefinite block.
 //   - Range starting at or beyond Total: 416 with "bytes */Total" — the
 //     only permanently-unsatisfiable case; a merely-not-yet range is 503.
 //   - HEAD mirrors GET's status and headers with an empty body.
@@ -71,6 +74,55 @@ func (s *Server) writeBuffering(w http.ResponseWriter, r *http.Request, avail, t
 		Available: avail,
 		Total:     total,
 	})
+}
+
+// streamingHoldPollMs and streamingHoldTimeout bound the availability
+// long-poll in waitForPrefix: a request whose start is not yet verified
+// is held until the prefix strictly passes it, polling every
+// streamingHoldPollMs, for at most streamingHoldTimeout. Both are vars
+// (not consts) so tests can shrink them — same pattern as
+// renameRetryAttempts in internal/update.
+var (
+	streamingHoldPollMs  = 250
+	streamingHoldTimeout = 30 * time.Second
+)
+
+// waitForPrefix long-polls src until its available prefix strictly
+// exceeds want (the requested start byte). avail > want is required:
+// avail == want means the byte at want is not yet available (ReadAt
+// returns EOF at off >= avail), so the request must keep waiting.
+//
+// Returns true when the prefix caught up, with *avail updated to the
+// latest snapshot so the caller can serve the range. Returns false when
+// the request context was cancelled (nothing written — the client is
+// gone) or when streamingHoldTimeout elapsed without the prefix passing
+// want (a 503 buffering response has been written then).
+func (s *Server) waitForPrefix(w http.ResponseWriter, r *http.Request, src interface{ Available() int64 }, want, total int64, avail *int64) bool {
+	cur := src.Available()
+	if cur > want {
+		*avail = cur
+		return true
+	}
+	poll := time.NewTicker(time.Duration(streamingHoldPollMs) * time.Millisecond)
+	defer poll.Stop()
+	timeout := time.NewTimer(streamingHoldTimeout)
+	defer timeout.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			// Client went away; there is no one to answer.
+			return false
+		case <-timeout.C:
+			s.writeBuffering(w, r, cur, total)
+			return false
+		case <-poll.C:
+			cur = src.Available()
+			if cur > want {
+				*avail = cur
+				return true
+			}
+		}
+	}
 }
 
 // parseSingleRange parses a single RFC 9110 byte-range spec

@@ -15,15 +15,20 @@ import (
 //     partial response with exact Content-Range bytes start-(avail-1)/total.
 //     Every returned byte is real verified data, never fabricated; bytes
 //     beyond avail are never served.
-//   - a Range starting at or beyond avail → 503 + Retry-After (the browser
-//     does not auto-retry; the bridge re-applies an explicit load once the
-//     prefix catches up)
+//   - a Range starting at or beyond avail → long-polled (waitForPrefix):
+//     held until the verified prefix strictly passes the requested start,
+//     then answered 206 with the same clamping. Only the 30 s hold timeout
+//     yields a 503 + Retry-After (buffering). The hold is what keeps
+//     Chrome's ~25 ms follow-up bytes=avail- request from failing the
+//     element with error code 4 (measured 2026-08-05; the browser does
+//     not auto-retry a 503).
 //   - no Range while avail < total → 503 (a partial 200 is never served)
 //   - HEAD mirrors GET status/headers without a body
 //
 // avail is the hash-verified prefix (never the file's allocated size).
 func (s *Server) serveStreamingPrefix(w http.ResponseWriter, r *http.Request, src interface {
 	ReadAt(p []byte, off int64) (int, error)
+	Available() int64
 }, avail, total int64) {
 	origin, ok := s.originAllowed(r)
 	if !ok {
@@ -45,11 +50,6 @@ func (s *Server) serveStreamingPrefix(w http.ResponseWriter, r *http.Request, sr
 		return
 	}
 
-	if avail <= 0 {
-		s.writeBuffering(w, r, 0, total)
-		return
-	}
-
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader == "" {
 		if avail >= total {
@@ -68,9 +68,23 @@ func (s *Server) serveStreamingPrefix(w http.ResponseWriter, r *http.Request, sr
 		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
-	if start >= avail {
-		s.writeBuffering(w, r, avail, total)
+	if start >= total {
+		// Permanently unsatisfiable — the one final answer, matching the
+		// growing contract. Waiting cannot help: avail never exceeds total.
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", total))
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return
+	}
+	if start >= avail {
+		// The verified prefix has not passed the requested start yet.
+		// Chrome 151 first requests bytes=0- (answered 206 clamped above)
+		// and then, ~25 ms later, bytes=avail-; a 503 to that follow-up
+		// fails the element with error code 4 and it does not auto-retry.
+		// Hold until the prefix catches up, then answer 206 — only the
+		// hold timeout produces a 503 (buffering).
+		if !s.waitForPrefix(w, r, src, start, total, &avail) {
+			return // 503 written by the timeout, or client cancelled
+		}
 	}
 	if end >= avail {
 		// RFC 9110: a request whose range end lies beyond the verified
