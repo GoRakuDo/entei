@@ -341,12 +341,23 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 // go-peerflix/client.go:295). ServeContent handles Range requests, HEAD,
 // If-Range, and seek internally. The Reader blocks until data is available
 // (piece completion), driving the anacrolix piece scheduler's demand.
+//
+// On Range requests, the seek position is passed to AnchorSeek (tiramisu
+// pattern: cache.go:426-448) so the piece at the seek location is elevated
+// to PiecePriorityNow, preventing the Chrome seek loop (GPU 100%).
 func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	setTorrentMediaHeaders(w)
 	fileName := s.torrents.SelectedFileName()
 	if fileName == "" {
 		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
 		return
+	}
+	// Anchor the seek position: elevate the piece at the Range start to
+	// PiecePriorityNow so the data is fetched immediately (tiramisu pattern).
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		if start, _, ok := parseSingleRange(rangeHeader, 0); ok && start > 0 {
+			s.torrents.AnchorSeek(start)
+		}
 	}
 	reader, err := s.torrents.NewHTTPMediaReader(r.Context())
 	if err != nil {

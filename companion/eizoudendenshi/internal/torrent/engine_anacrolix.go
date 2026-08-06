@@ -678,6 +678,49 @@ func (h *anacrolixHandle) CreationDate() int64 {
 	return h.t.Metainfo().CreationDate
 }
 
+// AnchorSeek elevates the piece containing offset to PiecePriorityNow and
+// surrounding pieces to PiecePriorityHigh (tiramisu pattern:
+// cache.go:426-448). Called on HTTP Range requests so the seek position's
+// data is fetched immediately, preventing the Chrome seek loop (GPU 100%).
+func (h *anacrolixHandle) AnchorSeek(offset int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.selected == nil {
+		return
+	}
+	info := h.t.Info()
+	if info == nil || info.PieceLength <= 0 {
+		return
+	}
+	fileBegin := h.selected.BeginPieceIndex()
+	fileEnd := h.selected.EndPieceIndex()
+	// Convert byte offset to piece index, clamped to the selected file's range.
+	pieceIdx := int(offset / int64(info.PieceLength))
+	if pieceIdx < fileBegin {
+		pieceIdx = fileBegin
+	}
+	if pieceIdx >= fileEnd {
+		pieceIdx = fileEnd - 1
+	}
+	// Anchor: the seek position's piece gets highest priority (Now).
+	h.t.Piece(pieceIdx).SetPriority(types.PiecePriorityNow)
+	h.t.Piece(pieceIdx).UpdateCompletion()
+	// Surrounding pieces (±3) get High priority for readahead continuity
+	// (tiramisu's Readahead/High window).
+	const anchorRadius = 3
+	for d := -anchorRadius; d <= anchorRadius; d++ {
+		if d == 0 {
+			continue // already set to Now
+		}
+		p := pieceIdx + d
+		if p < fileBegin || p >= fileEnd {
+			continue
+		}
+		h.t.Piece(p).SetPriority(types.PiecePriorityHigh)
+		h.t.Piece(p).UpdateCompletion()
+	}
+}
+
 var (
 	errInvalidMagnet       = errors.New("invalid magnet")
 	errInvalidSelection    = errors.New("invalid selection")

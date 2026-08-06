@@ -92,6 +92,7 @@ func (h *fakeHandle) SelectedLength() int64 {
 func (h *fakeHandle) AvailablePrefix() int64 { return h.avail.Load() }
 func (h *fakeHandle) Close() error           { h.closed = true; return nil }
 func (h *fakeHandle) CreationDate() int64    { return 0 }
+func (h *fakeHandle) AnchorSeek(_ int64)     {}
 
 // setBootErr injects (or clears) the bootstrap error. Protected by mu
 // to avoid a data race with StartBootstrap's read of bootErr.

@@ -71,10 +71,11 @@ func (e *apiFakeEngine) Start(_ context.Context, _ string) (torrent.TorrentHandl
 func (e *apiFakeEngine) Close() error { return nil }
 
 type apiFakeHandle struct {
-	files       []torrent.TorrentFile
-	selected    int
-	subtitleIdx int
-	avail       atomic.Int64
+	files           []torrent.TorrentFile
+	selected        int
+	subtitleIdx     int
+	avail           atomic.Int64
+	anchorSeekOff   atomic.Int64 // last AnchorSeek offset (for testing)
 }
 
 func (h *apiFakeHandle) Name() string                 { return "test-torrent" }
@@ -82,6 +83,7 @@ func (h *apiFakeHandle) Files() []torrent.TorrentFile { return h.files }
 func (h *apiFakeHandle) AvailablePrefix() int64       { return h.avail.Load() }
 func (h *apiFakeHandle) Close() error                 { return nil }
 func (h *apiFakeHandle) CreationDate() int64          { return 0 }
+func (h *apiFakeHandle) AnchorSeek(off int64)         { h.anchorSeekOff.Store(off) }
 
 func (h *apiFakeHandle) SelectedLength() int64 {
 	if h.selected < 0 || h.selected >= len(h.files) {
@@ -765,6 +767,103 @@ func TestTorrentStreamingMIME(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "video/x-matroska" {
 		t.Fatalf("MKV Content-Type = %q, want video/x-matroska", ct)
 	}
+}
+
+// TestTorrentContentAnchorSeekOnRange verifies that serveTorrentContent
+// calls AnchorSeek with the Range start offset, elevating the seek
+// position's piece to PiecePriorityNow (tiramisu pattern).
+func TestTorrentContentAnchorSeekOnRange(t *testing.T) {
+	engine := newAPIFakeEngine("movie.mp4:800000")
+	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
+	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("torrent.New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	s, err := New(Config{Torrents: m})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal, `{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for buffering.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Select the video.
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/select", allowedOriginLocal, `{"videoFileId":"f0"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("select = %d", rec.Code)
+	}
+
+	// Simulate download completion.
+	engine.h.avail.Store(engine.h.files[engine.h.selected].Length)
+
+	// Wait for complete.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "complete" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never completed")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Send a Range request and verify AnchorSeek is called.
+	req, _ := http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=100000-199999")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("Range request = %d, want 206", rec.Code)
+	}
+	got := engine.h.anchorSeekOff.Load()
+	if got != 100000 {
+		t.Errorf("AnchorSeek called with %d, want 100000", got)
+	}
+
+	// HEAD request should NOT call AnchorSeek (no Range start to anchor).
+	engine.h.anchorSeekOff.Store(0)
+	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=0-")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("HEAD Range = %d, want 206", rec.Code)
+	}
+	// HEAD with bytes=0- has start=0, which is not > 0, so AnchorSeek is not called.
+	if off := engine.h.anchorSeekOff.Load(); off != 0 {
+		t.Errorf("AnchorSeek called on HEAD with %d, want 0 (no call)", off)
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
 }
 
 // TestTorrentFilesReturnsFileInfo verifies the /files endpoint returns

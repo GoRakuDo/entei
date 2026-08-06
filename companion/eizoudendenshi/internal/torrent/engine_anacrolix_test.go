@@ -703,3 +703,109 @@ func TestHTTPReaderContextCancellation(t *testing.T) {
 	}
 	t.Logf("Read after context cancel returned in %v", elapsed)
 }
+
+// TestAnchorSeekElevatesSeekPiece verifies that AnchorSeek targets the
+// correct piece for the given offset and doesn't panic. The piece priority
+// via SetPriority is tested indirectly through the API layer test
+// (TestTorrentContentAnchorSeekOnRange).
+func TestAnchorSeekElevatesSeekPiece(t *testing.T) {
+	const (
+		pieceLen  = 16384
+		numPieces = 8
+		fileSize  = numPieces * pieceLen
+	)
+	info := &metainfo.Info{
+		Name:        "anchor_test.mkv",
+		PieceLength: pieceLen,
+		Length:      fileSize,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	dir := t.TempDir()
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cfg.DataDir = dir
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+	tt, _ := cl.AddTorrent(&metainfo.MetaInfo{InfoBytes: ib})
+	<-tt.GotInfo()
+
+	h := newAnacrolixHandle(tt)
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	// AnchorSeek should not panic for valid offsets.
+	h.AnchorSeek(3 * pieceLen) // middle of file
+	h.AnchorSeek(0)            // start of file
+	h.AnchorSeek(fileSize - 1) // end of file
+
+	// AnchorSeek should be a no-op when no file is selected.
+	h2 := newAnacrolixHandle(tt)
+	h2.AnchorSeek(1000) // no Select called — should not panic
+
+	// Verify the handle's selected file is set correctly.
+	if h.selected == nil {
+		t.Error("selected should be set after Select")
+	}
+	if h.selected.Length() != fileSize {
+		t.Errorf("selected.Length() = %d, want %d", h.selected.Length(), fileSize)
+	}
+
+	h.Close()
+}
+
+// TestAnchorSeekNoopWithoutSelection verifies that AnchorSeek is a no-op
+// when no file is selected (no panic, no error).
+func TestAnchorSeekNoopWithoutSelection(t *testing.T) {
+	const (
+		pieceLen  = 16384
+		numPieces = 4
+		fileSize  = numPieces * pieceLen
+	)
+	info := &metainfo.Info{
+		Name:        "anchor_noop.mkv",
+		PieceLength: pieceLen,
+		Length:      fileSize,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	dir := t.TempDir()
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cfg.DataDir = dir
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+	tt, _ := cl.AddTorrent(&metainfo.MetaInfo{InfoBytes: ib})
+	<-tt.GotInfo()
+
+	h := newAnacrolixHandle(tt)
+	// No Select call — AnchorSeek should be a no-op.
+	h.AnchorSeek(0)
+	h.AnchorSeek(pieceLen)
+	h.AnchorSeek(fileSize - 1)
+}

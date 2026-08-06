@@ -799,6 +799,31 @@ func (m *Manager) AvailablePrefix() int64 {
 	return h.AvailablePrefix()
 }
 
+// AnchorSeek elevates the piece containing offset to PiecePriorityNow and
+// surrounding pieces to PiecePriorityHigh. Called on HTTP Range requests so
+// the seek position's data is fetched immediately, preventing the Chrome
+// seek loop. No-op when no session is active.
+func (m *Manager) AnchorSeek(offset int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.sessionOrder) == 0 {
+		return
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		return
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	h := j.handle
+	j.stateMu.Unlock()
+	if h == nil {
+		return
+	}
+	h.AnchorSeek(offset)
+}
+
 // NewMediaReader creates a seekable reader over the active session's
 // selected video file. Reads block until data is available (piece
 // completion) or ctx is done. The reader drives piece demand — seeks

@@ -89,6 +89,12 @@ type TorrentHandle interface {
 	// Used as the modtime for http.ServeContent so Chrome's If-Range
 	// header works correctly (prevents the seek loop).
 	CreationDate() int64
+	// AnchorSeek elevates the piece containing offset to PiecePriorityNow
+	// and surrounding pieces to PiecePriorityHigh (tiramisu pattern:
+	// cache.go:426-448). Called on HTTP Range requests so the seek
+	// position's data is fetched immediately, preventing the Chrome seek
+	// loop (GPU 100%).
+	AnchorSeek(offset int64)
 	// Close releases the handle (cancels the download; no seeding).
 	Close() error
 }
