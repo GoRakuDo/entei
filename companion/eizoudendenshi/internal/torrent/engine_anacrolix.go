@@ -72,10 +72,7 @@ const bootstrapWindowBytes = 4 << 20 // 4 MiB
 // position, leaving seeking stuck (seeking=true, readyState=1, GPU 100%).
 // Elevating the tail pieces ensures Cues are downloaded early alongside the
 // head bootstrap window, so the player can seek as soon as both ends of the
-// file are available. The HTTP layer also uses this value to route tail
-// Range requests (start >= total-TailWindowBytes) to serveTorrentFullRange
-// (ServeContent) instead of the custom availability-aware Range handler,
-// preventing a 503 that would break Chrome's Cues read.
+// file are available.
 const TailWindowBytes = 8 << 20 // 8 MiB
 
 // httpReadaheadBytes is the readahead used by the HTTP-serving Reader
@@ -672,6 +669,13 @@ func (h *anacrolixHandle) Close() error {
 	defer h.mu.Unlock()
 	h.t.Drop()
 	return nil
+}
+
+// CreationDate returns the torrent's creation date as a Unix timestamp.
+// Used as the modtime for http.ServeContent so Chrome's If-Range header
+// works correctly (htorrent pattern: time.Unix(f.Torrent().Metainfo().CreationDate, 0)).
+func (h *anacrolixHandle) CreationDate() int64 {
+	return h.t.Metainfo().CreationDate
 }
 
 var (

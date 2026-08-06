@@ -881,9 +881,8 @@ func (m *Manager) SelectedFileName() string {
 // path (which includes the torrent name prefix). Returns an error when
 // no session is active, no file is selected, or the file does not exist.
 //
-// The caller (the HTTP layer) uses this for StateComplete serving, where
-// the full file is available on disk and can be served via os.File +
-// http.ServeContent without the anacrolix Reader overhead.
+// Currently unused in production (serveTorrentComplete removal);
+// retained for future use and tested in TestManagerSelectedDiskPath.
 func (m *Manager) SelectedDiskPath() (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -949,4 +948,28 @@ func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 		return "", errors.New("no handle")
 	}
 	return h.SubtitleContent(ctx)
+}
+
+// CreationDate returns the active session's torrent creation date as a Unix
+// timestamp. Used as the modtime for http.ServeContent so Chrome's If-Range
+// header works correctly. Returns 0 when no session is active.
+func (m *Manager) CreationDate() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.sessionOrder) == 0 {
+		return 0
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		return 0
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	h := j.handle
+	j.stateMu.Unlock()
+	if h == nil {
+		return 0
+	}
+	return h.CreationDate()
 }

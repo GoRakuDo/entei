@@ -85,6 +85,10 @@ type TorrentHandle interface {
 	// its text content. Blocks until data is available or ctx is done.
 	// Returns an error when no subtitle is selected or the read fails.
 	SubtitleContent(ctx context.Context) (string, error)
+	// CreationDate returns the torrent's creation date as a Unix timestamp.
+	// Used as the modtime for http.ServeContent so Chrome's If-Range
+	// header works correctly (prevents the seek loop).
+	CreationDate() int64
 	// Close releases the handle (cancels the download; no seeding).
 	Close() error
 }

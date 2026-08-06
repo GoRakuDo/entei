@@ -638,3 +638,68 @@ func TestHTTPReaderSetResponsive(t *testing.T) {
 	}
 	t.Logf("non-responsive reader blocked for %v", elapsed)
 }
+
+// TestHTTPReaderContextCancellation verifies that the HTTPReader (used by
+// serveTorrentContent) returns promptly when its context is cancelled.
+// This ensures that if a client disconnects mid-stream, the anacrolix
+// Reader unblocks and the goroutine does not leak.
+func TestHTTPReaderContextCancellation(t *testing.T) {
+	const (
+		pieceLen  = 16384
+		numPieces = 4
+		fileSize  = numPieces * pieceLen
+	)
+	info := &metainfo.Info{
+		Name:        "ctx_cancel_test.mkv",
+		PieceLength: pieceLen,
+		Length:      fileSize,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	dir := t.TempDir()
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cfg.DataDir = dir
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+	tt, _ := cl.AddTorrent(&metainfo.MetaInfo{InfoBytes: ib})
+	<-tt.GotInfo()
+
+	f := tt.Files()[0]
+	r := f.NewReader()
+	t.Cleanup(func() { r.Close() })
+	r.SetResponsive()
+	r.SetReadahead(4 << 20)
+	r.Seek(0, io.SeekStart)
+
+	// Cancel the context immediately — Read should return promptly.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before Read
+	r.SetContext(ctx)
+
+	start := time.Now()
+	_, err = r.Read(make([]byte, 1))
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Error("Read after context cancel should return error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Logf("Read error after cancel: %v (expected context.Canceled)", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("Read after context cancel took %v, want <2s (prompt return)", elapsed)
+	}
+	t.Logf("Read after context cancel returned in %v", elapsed)
+}

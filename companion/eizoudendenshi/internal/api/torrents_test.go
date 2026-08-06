@@ -81,6 +81,7 @@ func (h *apiFakeHandle) Name() string                 { return "test-torrent" }
 func (h *apiFakeHandle) Files() []torrent.TorrentFile { return h.files }
 func (h *apiFakeHandle) AvailablePrefix() int64       { return h.avail.Load() }
 func (h *apiFakeHandle) Close() error                 { return nil }
+func (h *apiFakeHandle) CreationDate() int64          { return 0 }
 
 func (h *apiFakeHandle) SelectedLength() int64 {
 	if h.selected < 0 || h.selected >= len(h.files) {
@@ -1076,38 +1077,36 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 		t.Errorf("bytes=0- Content-Type = %q, want video/mp4", ct)
 	}
 
-	// HEAD bytes=0- → 200 with Content-Length.
+	// HEAD bytes=0- → ServeContent returns 206 when Range header is present.
 	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	req.Header.Set("Range", "bytes=0-")
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("HEAD bytes=0- = %d, want 200", rec.Code)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("HEAD bytes=0- = %d, want 206", rec.Code)
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("HEAD bytes=0- body = %d, want 0", rec.Body.Len())
 	}
 
-	// No Range while streaming with partial data → 503 buffering.
-	// The streaming Range handler mirrors the growing source contract:
-	// no Range + avail < total → 503 with Retry-After.
+	// No Range while streaming with partial data → ServeContent returns 200
+	// (blocks on Reader until data available; fake returns partial data).
 	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("no range, streaming = %d, want 503", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("no range, streaming = %d, want 200", rec.Code)
 	}
 
-	// HEAD mirrors status/headers without body — also 503 when no Range
-	// and data is partial (same contract as GET).
+	// HEAD no Range → 200 (ServeContent returns 200 for HEAD without Range).
 	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("HEAD streaming = %d, want 503", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HEAD streaming = %d, want 200", rec.Code)
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("HEAD streaming body = %d, want 0", rec.Body.Len())
@@ -1118,7 +1117,7 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 
 // TestTorrentStreamingTailRangeUsesServeContent verifies that a Range
 // request targeting the file tail (Cues read region) is served via
-// serveTorrentFullRange (ServeContent) rather than the custom Range
+// ServeContent (all ranges are now uniform) rather than the custom Range
 // handler. During download Chrome seeks to the MKV Cues element near the
 // file end — returning 503 there causes a loadError that breaks instant
 // playback. ServeContent keeps the response open and blocks on the
@@ -1200,32 +1199,27 @@ func TestTorrentStreamingTailRangeUsesServeContent(t *testing.T) {
 		t.Fatalf("tail range = %d, want 206 (ServeContent via full range), body=%s", rec.Code, rec.Body.String())
 	}
 
-	// HEAD tail range must also succeed (not 503). serveTorrentFullRange
-	// returns 200 for HEAD (with Content-Length), not 206.
+	// HEAD tail range → ServeContent returns 206 when Range header is present.
 	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	req.Header.Set("Range", tailRange)
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("HEAD tail range = %d, want 200", rec.Code)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("HEAD tail range = %d, want 206", rec.Code)
 	}
 
-	// Mid-range (between avail and tail window) must use custom Range → 503
-	// because start (6MB) > avail (5MB). Wrap in withShortHold so the
-	// availability long-poll timer (30 s default) is shrunk; otherwise
-	// waitForPrefix blocks on the httptest context which never cancels.
+	// Mid-range (between avail and tail window) → ServeContent returns 206
+	// (all ranges are handled uniformly by ServeContent now).
 	midRange := "bytes=6000000-6000999"
-	withShortHold(t, func() {
-		req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
-		req.Header.Set("Origin", allowedOriginLocal)
-		req.Header.Set("Range", midRange)
-		rec = httptest.NewRecorder()
-		s.Handler().ServeHTTP(rec, req)
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("mid range = %d, want 503 (custom Range, start > avail)", rec.Code)
-		}
-	})
+	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", midRange)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("mid range = %d, want 206 (ServeContent handles all ranges)", rec.Code)
+	}
 
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
 }
