@@ -65,15 +65,18 @@ type engineAnacrolix struct {
 // demand window are the same bounded region.
 const bootstrapWindowBytes = 4 << 20 // 4 MiB
 
-// tailWindowBytes is the bounded byte extent at the END of a file whose
+// TailWindowBytes is the bounded byte extent at the END of a file whose
 // pieces are pre-elevated on selection. MKV files store their Cues element
 // (the seek / keyframe table) near the end of the file: without Cues the
 // browser's video element cannot locate a keyframe for an arbitrary seek
 // position, leaving seeking stuck (seeking=true, readyState=1, GPU 100%).
 // Elevating the tail pieces ensures Cues are downloaded early alongside the
 // head bootstrap window, so the player can seek as soon as both ends of the
-// file are available.
-const tailWindowBytes = 8 << 20 // 8 MiB
+// file are available. The HTTP layer also uses this value to route tail
+// Range requests (start >= total-TailWindowBytes) to serveTorrentFullRange
+// (ServeContent) instead of the custom availability-aware Range handler,
+// preventing a 503 that would break Chrome's Cues read.
+const TailWindowBytes = 8 << 20 // 8 MiB
 
 // httpReadaheadBytes is the readahead used by the HTTP-serving Reader
 // created per Range request. It is deliberately larger than
@@ -511,7 +514,7 @@ func tailWindowPieces(f *torrent.File) (begin, end int) {
 		return fileBegin, fileBegin
 	}
 	availablePieces := fileEnd - fileBegin
-	n := bootstrapPieceCount(tailWindowBytes, info.PieceLength, availablePieces)
+	n := bootstrapPieceCount(TailWindowBytes, info.PieceLength, availablePieces)
 	// The tail window starts n pieces before fileEnd.
 	tailBegin := fileEnd - n
 	if tailBegin < fileBegin {

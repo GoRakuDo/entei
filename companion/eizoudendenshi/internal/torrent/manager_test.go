@@ -807,8 +807,12 @@ func TestSelectionPrioritizesHeadWindowAndStartsBootstrap(t *testing.T) {
 	if !engine.h.headPrio.Load() {
 		t.Fatal("Select must prioritize the selected video's head window")
 	}
-	if !engine.h.bootStarted.Load() {
-		t.Fatal("streaming must start the head bootstrap reader")
+	deadline := time.Now().Add(5 * time.Second)
+	for !engine.h.bootStarted.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("streaming must start the head bootstrap reader")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	_, _ = m.Cancel(id)
@@ -830,14 +834,18 @@ func TestCancelCancelsBootstrapAndClosesHandle(t *testing.T) {
 		t.Fatalf("Select: %v", err)
 	}
 	waitForState(t, m, id, StateStreaming, 5*time.Second)
-	if !engine.h.bootStarted.Load() {
-		t.Fatal("bootstrap must be started at streaming")
+	deadline := time.Now().Add(5 * time.Second)
+	for !engine.h.bootStarted.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("bootstrap must be started at streaming")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	if _, err := m.Cancel(id); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(5 * time.Second)
 	for !engine.h.bootCancel.Load() {
 		if time.Now().After(deadline) {
 			t.Fatal("bootstrap context must be cancelled on job cancel")

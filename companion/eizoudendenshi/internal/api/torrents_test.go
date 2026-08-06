@@ -1116,6 +1116,120 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
 }
 
+// TestTorrentStreamingTailRangeUsesServeContent verifies that a Range
+// request targeting the file tail (Cues read region) is served via
+// serveTorrentFullRange (ServeContent) rather than the custom Range
+// handler. During download Chrome seeks to the MKV Cues element near the
+// file end — returning 503 there causes a loadError that breaks instant
+// playback. ServeContent keeps the response open and blocks on the
+// Reader until the tail pieces arrive.
+func TestTorrentStreamingTailRangeUsesServeContent(t *testing.T) {
+	total := int64(100_000_000)
+	engine := newAPIFakeEngine("movie.mp4:100000000")
+	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
+	m, err := torrent.New(torrent.Config{EngineFactory: factory, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("torrent.New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	s, err := New(Config{Torrents: m})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Create, wait for buffering, select.
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/select", allowedOriginLocal,
+		`{"videoFileId":"f0"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("select = %d", rec.Code)
+	}
+
+	// Wait for streaming.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "streaming" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached streaming")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Set partial availability (5MB of 100MB total → avail < total, streaming state).
+	engine.h.avail.Store(5242880)
+
+	// Tail range request (start in Cues region: start >= total - TailWindowBytes).
+	// Must go to ServeContent → 206 (not 503).
+	tailStart := total - torrent.TailWindowBytes + 1
+	tailRange := "bytes=" + strconv.FormatInt(tailStart, 10) + "-"
+	req, _ := http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", tailRange)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("tail range = %d, want 206 (ServeContent via full range), body=%s", rec.Code, rec.Body.String())
+	}
+
+	// HEAD tail range must also succeed (not 503). serveTorrentFullRange
+	// returns 200 for HEAD (with Content-Length), not 206.
+	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", tailRange)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HEAD tail range = %d, want 200", rec.Code)
+	}
+
+	// Mid-range (between avail and tail window) must use custom Range → 503
+	// because start (6MB) > avail (5MB). Wrap in withShortHold so the
+	// availability long-poll timer (30 s default) is shrunk; otherwise
+	// waitForPrefix blocks on the httptest context which never cancels.
+	midRange := "bytes=6000000-6000999"
+	withShortHold(t, func() {
+		req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+		req.Header.Set("Origin", allowedOriginLocal)
+		req.Header.Set("Range", midRange)
+		rec = httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("mid range = %d, want 503 (custom Range, start > avail)", rec.Code)
+		}
+	})
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
 // TestTorrentSubtitleContentAfterSelection verifies that GET
 // /v1/source/torrents/{id}/subtitle returns the subtitle text content
 // after a video+subtitle selection.

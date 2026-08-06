@@ -201,9 +201,9 @@ func TestAnacrolixHandlePathCarriesTorrentName(t *testing.T) {
 
 // TestTailWindowPieces pins the tail window calculation: for a file at the
 // end of a torrent, tailWindowPieces returns the pieces covering the last
-// tailWindowBytes, clamped to the file's boundaries.
+// TailWindowBytes, clamped to the file's boundaries.
 func TestTailWindowPieces(t *testing.T) {
-	// 300 pieces × 16 KiB = 4.8 MiB file. tailWindowBytes = 8 MiB, but
+	// 300 pieces × 16 KiB = 4.8 MiB file. TailWindowBytes = 8 MiB, but
 	// the file is smaller, so all pieces should be covered.
 	info := &metainfo.Info{
 		Name:        "tail_test.mkv",
@@ -217,7 +217,7 @@ func TestTailWindowPieces(t *testing.T) {
 	begin, end := tailWindowPieces(f)
 	// With 8 MiB tail window and 4.8 MiB file, all 300 pieces are covered.
 	if begin != 0 {
-		t.Errorf("tailWindowPieces begin = %d, want 0 (file smaller than tailWindowBytes)", begin)
+		t.Errorf("tailWindowPieces begin = %d, want 0 (file smaller than TailWindowBytes)", begin)
 	}
 	if end != 300 {
 		t.Errorf("tailWindowPieces end = %d, want 300", end)
@@ -225,9 +225,9 @@ func TestTailWindowPieces(t *testing.T) {
 }
 
 // TestTailWindowPiecesLargeFile verifies that for a large file, the tail
-// window covers only the last tailWindowBytes worth of pieces.
+// window covers only the last TailWindowBytes worth of pieces.
 func TestTailWindowPiecesLargeFile(t *testing.T) {
-	// 2000 pieces × 16 KiB = 32 MiB file. tailWindowBytes = 8 MiB = 512 pieces.
+	// 2000 pieces × 16 KiB = 32 MiB file. TailWindowBytes = 8 MiB = 512 pieces.
 	const (
 		pieceLen  = 16384
 		numPieces = 2000
@@ -242,7 +242,7 @@ func TestTailWindowPiecesLargeFile(t *testing.T) {
 
 	f := h.t.Files()[0]
 	begin, end := tailWindowPieces(f)
-	// tailWindowBytes=8MiB, pieceLen=16KiB → 512 pieces from the end.
+	// TailWindowBytes=8MiB, pieceLen=16KiB → 512 pieces from the end.
 	// File is [0, 2000), tail is [2000-512, 2000) = [1488, 2000).
 	if begin != 1488 {
 		t.Errorf("tailWindowPieces begin = %d, want 1488", begin)
@@ -450,7 +450,7 @@ func TestSelectRefreshesHeadCompletionFromStorage(t *testing.T) {
 }
 
 // TestSelectElevatesTailPieces pins the tail-window elevation in Select:
-// the last tailWindowBytes worth of pieces of the selected video must have
+// the last TailWindowBytes worth of pieces of the selected video must have
 // UpdateCompletion called, so the MKV Cues element (seek table near the
 // end of the file) is downloaded early. We verify that the tail piece's
 // completion state is refreshed (Ok + Complete) after Select, mirroring

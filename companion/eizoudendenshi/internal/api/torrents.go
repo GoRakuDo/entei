@@ -308,12 +308,13 @@ func setTorrentMediaHeaders(w http.ResponseWriter) {
 }
 
 // serveTorrentFullRange handles Chrome's initial playback request
-// (bytes=0-, i.e. start==0 && end==total-1) by delegating to
-// http.ServeContent with a long-lived Reader — the same approach that
-// powered rc.38's instant playback. ServeContent's io.CopyN blocks on
-// the Reader for each chunk, which keeps the anacrolix piece scheduler's
-// demand active (the Reader's read position drives "Now" priority forward
-// piece by piece). Chrome may cancel this response to read Cues at the
+// (bytes=0-, i.e. start==0 && end==total-1) and Cues tail reads
+// (start >= total-TailWindowBytes) by delegating to http.ServeContent
+// with a long-lived Reader — the same approach that powered rc.38's
+// instant playback. ServeContent's io.CopyN blocks on the Reader for
+// each chunk, which keeps the anacrolix piece scheduler's demand active
+// (the Reader's read position drives "Now" priority forward piece by
+// piece). Chrome may cancel the initial response to read Cues at the
 // file tail — that is normal and harmless: the Reader's piece demand
 // during its lifetime already advanced the prefix, and the tail-window
 // pieces are pre-elevated to High.
@@ -416,6 +417,18 @@ func (s *Server) serveTorrentStreaming(w http.ResponseWriter, r *http.Request, s
 		// Chrome's first request for initial playback is always bytes=0-
 		// (the entire file as a single range).
 		if start == 0 && end == total-1 {
+			s.serveTorrentFullRange(w, r, total)
+			return
+		}
+
+		// MKV Cues read: Chrome seeks to the file tail to read the Cues
+		// element (seek/keyframe table) after the initial bytes=0- response
+		// is cancelled. If we return 503 here, the video element enters a
+		// loadError state ("Aliran belum siap") and instant playback breaks.
+		// Instead, delegate to serveTorrentFullRange (ServeContent) which
+		// keeps the response open and blocks on the Reader until the tail
+		// pieces arrive — exactly the rc.38 behavior that worked.
+		if start >= total-torrent.TailWindowBytes {
 			s.serveTorrentFullRange(w, r, total)
 			return
 		}
