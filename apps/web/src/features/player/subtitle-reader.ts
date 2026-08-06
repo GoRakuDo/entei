@@ -113,10 +113,16 @@ function parseSRT(content: string): SubtitleParseResult {
     if (timingLine === undefined) break;
     const timingResult = parseTimingLine(timingLine.trim(), i + 1);
     if (!timingResult) {
-      errors.push({
-        line: i + 1,
-        message: `Invalid timing line: "${timingLine.trim()}"`,
-      });
+      // Defensive: blank lines are consumed before this point, but guard
+      // against edge cases. Empty timing lines are normal in YouTube
+      // subtitles (music/silence gaps); skip silently. Non-empty malformed
+      // lines are real errors.
+      if (timingLine.trim() !== '') {
+        errors.push({
+          line: i + 1,
+          message: `Invalid timing line: "${timingLine.trim()}"`,
+        });
+      }
       i++;
       continue;
     }
@@ -138,7 +144,8 @@ function parseSRT(content: string): SubtitleParseResult {
 
     const text = textLines.join('\n').trim();
     if (text.length === 0) {
-      errors.push({ line: i, message: 'Empty cue text' });
+      // Empty cue text (music/silence gaps in YouTube subtitles) — skip
+      // silently instead of pushing a noisy warning.
       continue;
     }
 
@@ -218,10 +225,16 @@ function parseVTT(content: string): SubtitleParseResult {
 
     const timingResult = parseTimingLine(timingLine.trim(), i + 1);
     if (!timingResult) {
-      errors.push({
-        line: i + 1,
-        message: `Invalid timing line: "${timingLine.trim()}"`,
-      });
+      // Defensive: blank lines are consumed before this point, but guard
+      // against edge cases. Empty timing lines are normal in YouTube VTT
+      // (music/silence gaps); skip silently. Non-empty malformed lines are
+      // real errors.
+      if (timingLine.trim() !== '') {
+        errors.push({
+          line: i + 1,
+          message: `Invalid timing line: "${timingLine.trim()}"`,
+        });
+      }
       i++;
       continue;
     }
@@ -243,7 +256,8 @@ function parseVTT(content: string): SubtitleParseResult {
 
     const text = textLines.join('\n').trim();
     if (text.length === 0) {
-      errors.push({ line: i, message: 'Empty cue text' });
+      // Empty cue text (music/silence gaps in YouTube subtitles) — skip
+      // silently instead of pushing a noisy warning.
       continue;
     }
 
@@ -358,7 +372,7 @@ function parseASS(content: string): SubtitleParseResult {
     text = stripTags(text);
 
     if (text.length === 0) {
-      errors.push({ line: 0, message: `Dialogue #${i + 1}: empty text` });
+      // Empty dialogue text (music/silence gaps) — skip silently.
       continue;
     }
 

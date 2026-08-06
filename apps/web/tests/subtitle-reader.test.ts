@@ -110,7 +110,7 @@ End before start`;
     );
   });
 
-  it('reports error for empty cue text', () => {
+  it('skips empty cue text without errors (YouTube music/silence gaps)', () => {
     const srt = `1
 00:00:01,000 --> 00:00:04,000
 
@@ -119,9 +119,10 @@ End before start`;
 Valid`;
 
     const result = parseSubtitle(srt);
-    // Empty cue is skipped, only valid cue remains
+    // Empty cue is skipped silently — no error pushed
     expect(result.cues).toHaveLength(1);
     expect(result.cues[0]!.text).toBe('Valid');
+    expect(result.errors).toHaveLength(0);
   });
 
   it('handles milliseconds with dot separator', () => {
@@ -231,6 +232,34 @@ First`;
     const result = parseSubtitle(vtt);
     expect(result.cues[0]!.text).toBe('First');
     expect(result.cues[1]!.text).toBe('Second');
+  });
+
+  it('skips empty cue text silently in VTT (music/silence gaps)', () => {
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+First
+
+00:00:05.000 --> 00:00:08.000
+Second`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(2);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('skips empty cue text silently in VTT', () => {
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+
+00:00:05.000 --> 00:00:08.000
+Valid`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('Valid');
+    expect(result.errors).toHaveLength(0);
   });
 });
 
@@ -848,14 +877,14 @@ Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello`;
     expect(result.cues[0]!.text).toBe('First Second Third');
   });
 
-  it('strips empty dialogue text and reports error', () => {
+  it('skips empty dialogue text silently (YouTube music/silence gaps)', () => {
     const ass =
       assHeader +
       `Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\pos(100,200)}{\\b1}{\\i1}`;
 
     const result = parseSubtitle(ass);
-    // Empty after tag stripping
-    expect(result.errors.length).toBeGreaterThan(0);
+    // Empty after tag stripping — skipped silently, no error
+    expect(result.errors).toHaveLength(0);
   });
 });
 
