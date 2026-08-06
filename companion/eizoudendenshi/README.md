@@ -756,13 +756,14 @@ path) was removed.
   Content-Type on BOTH the progressive and completed media serves
   (video/mp4, video/webm, video/ogg, video/x-matroska for MKV) —
   no hardcoded video/mp4.
-- **ServeContent (bitplay) approach**: torrent media serving uses
-  `http.ServeContent` with an anacrolix `File.NewReader()`. The Reader
+- **ServeContent (htorrent) approach**: torrent media serving uses
+  `http.ServeContent` with an anacrolix `HTTPReader` (16 MiB readahead,
+  SetResponsive) and modtime set to the torrent's `CreationDate`. The Reader
   blocks on unavailable pieces; `ServeContent` handles Range/206/416
-  semantics. This eliminates the old `serveStreamingPrefix` (206-clamp +
-  long-poll) approach and its "complete-wait" request storm — the video
-  element receives a single 206 for the full range and does not issue
-  follow-up requests.
+  semantics. On HTTP Range requests, `AnchorSeek` elevates the piece at the
+  seek position to `PiecePriorityNow` (tiramisu pattern) so data is fetched
+  immediately. This eliminates the old custom Range / os.File split and
+  prevents the Chrome seek loop (GPU 100%).
 - **Structural safe-early predicate**: playable now requires a bounded
   structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
   ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;
@@ -891,8 +892,9 @@ any engine start, and errors never echo the magnet or tracker data.
   (a multi-file global piece spanning another file is not verifiable →
   honest buffering).
 - HTTP media serving uses **http.ServeContent** with an anacrolix
-  `File.NewReader()` (`io.ReadSeekCloser`; reads block until the needed
-  piece is available). `ServeContent` handles Range parsing, 206
+  `HTTPReader` (`io.ReadSeekCloser`; 16 MiB readahead + SetResponsive;
+  reads block until the needed piece is available) and modtime set to the
+  torrent's `CreationDate`. `ServeContent` handles Range parsing, 206
   `Content-Range` construction, and `Accept-Ranges: bytes` — the Reader
   streams data as pieces arrive. For a `bytes=0-` request (what Chrome 151
   sends first), the response is a single `206` with
@@ -916,9 +918,10 @@ the job fails with a terminal generic error.** `GET …/files` exposes the
 sanitized listing; `POST …/select` enforces the **one video + one optional
 subtitle** contract. **Nothing is served before a valid selection** —
 `/v1/media/status` reports `buffering` (fixture 503) until then; after a
-valid selection the job streams via **http.ServeContent** (bitplay
-approach: the Reader blocks on unavailable pieces, so the video element
-receives a single 206 for the full range and does not issue follow-up
+valid selection the job streams via **http.ServeContent** (htorrent
+approach: the Reader blocks on unavailable pieces, modtime=CreationDate,
+AnchorSeek for seek-position priority; the video element receives a single
+206 for the full range and does not issue follow-up
 requests; `playable` status when the verified prefix > 0 — the bridge
 assigns the URL then) and reaches `complete`
 (`available == total`) when the download finishes.
@@ -945,13 +948,14 @@ against a deterministic fake Engine (no swarm/network). `go test -race
   Content-Type on BOTH the progressive and completed media serves
   (video/mp4, video/webm, video/ogg, video/x-matroska for MKV) —
   no hardcoded video/mp4.
-- **ServeContent (bitplay) approach**: torrent media serving uses
-  `http.ServeContent` with an anacrolix `File.NewReader()`. The Reader
+- **ServeContent (htorrent) approach**: torrent media serving uses
+  `http.ServeContent` with an anacrolix `HTTPReader` (16 MiB readahead,
+  SetResponsive) and modtime set to the torrent's `CreationDate`. The Reader
   blocks on unavailable pieces; `ServeContent` handles Range/206/416
-  semantics. This eliminates the old `serveStreamingPrefix` (206-clamp +
-  long-poll) approach and its "complete-wait" request storm — the video
-  element receives a single 206 for the full range and does not issue
-  follow-up requests.
+  semantics. On HTTP Range requests, `AnchorSeek` elevates the piece at the
+  seek position to `PiecePriorityNow` (tiramisu pattern) so data is fetched
+  immediately. This eliminates the old custom Range / os.File split and
+  prevents the Chrome seek loop (GPU 100%).
 - **Structural safe-early predicate**: playable now requires a bounded
   structural parse of the VERIFIED prefix — MP4/ISO-BMFF needs complete
   ftyp+moov, a browser-decodeable stsd video codec (avc1/avc3/vp09/av01;
