@@ -202,7 +202,7 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
   });
 
   it('video mounts only on ready; src/load + play flows without 503', async () => {
-    const { calls, fetchFn } = makeFetcher([
+    const { fetchFn } = makeFetcher([
       buffering(0, 1000),
       playable(300, 1000),
     ]);

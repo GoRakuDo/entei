@@ -132,6 +132,10 @@ interface PlayerControlsProps {
     backgroundPadding: number;
     verticalPosition: number;
   }>) => void;
+  /** ED-2H: Optional seek time clamp for companion streaming. When provided,
+   *  seek targets are clamped to the companion's verified byte range to
+   *  prevent stalls from seeking beyond available data. */
+  clampSeekTime?: (seconds: number) => number;
 }
 
 export interface PlayerControlsHandle {
@@ -181,6 +185,7 @@ export const PlayerControls = forwardRef<
     onSessionCredentials,
     subtitleSettings,
     onSubtitleSettingsChange,
+    clampSeekTime,
   },
   ref,
 ) {
@@ -438,12 +443,15 @@ export const PlayerControls = forwardRef<
     (value: number[]) => {
       const t = value[0];
       if (t !== undefined) {
-        seekValueRef.current = clampSeek(t, duration);
-        setCurrentTime(seekValueRef.current);
+        const clamped = clampSeekTime
+          ? clampSeekTime(clampSeek(t, duration))
+          : clampSeek(t, duration);
+        seekValueRef.current = clamped;
+        setCurrentTime(clamped);
         handleSeekStart();
       }
     },
-    [duration, handleSeekStart],
+    [duration, handleSeekStart, clampSeekTime],
   );
 
   const handleSeekEnd = useCallback(
@@ -451,7 +459,9 @@ export const PlayerControls = forwardRef<
       const media = mediaRef.current;
       const seekTime = value[0];
       if (media && seekTime !== undefined) {
-        const clamped = clampSeek(seekTime, duration);
+        const clamped = clampSeekTime
+          ? clampSeekTime(clampSeek(seekTime, duration))
+          : clampSeek(seekTime, duration);
         media.currentTime = clamped;
         // Sync state immediately so slider doesn't show stale time
         // before the next timeupdate fires.
@@ -462,7 +472,7 @@ export const PlayerControls = forwardRef<
       setIsSeeking(false);
       showControls({ type: 'seek-end' });
     },
-    [mediaRef, duration, showControls],
+    [mediaRef, duration, showControls, clampSeekTime],
   );
 
   // Compute seek slider value: during drag use seekValueRef, otherwise media currentTime

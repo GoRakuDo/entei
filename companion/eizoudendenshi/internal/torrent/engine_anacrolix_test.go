@@ -199,6 +199,84 @@ func TestAnacrolixHandlePathCarriesTorrentName(t *testing.T) {
 	}
 }
 
+// TestTailWindowPieces pins the tail window calculation: for a file at the
+// end of a torrent, tailWindowPieces returns the pieces covering the last
+// tailWindowBytes, clamped to the file's boundaries.
+func TestTailWindowPieces(t *testing.T) {
+	// 300 pieces × 16 KiB = 4.8 MiB file. tailWindowBytes = 8 MiB, but
+	// the file is smaller, so all pieces should be covered.
+	info := &metainfo.Info{
+		Name:        "tail_test.mkv",
+		PieceLength: 16384,
+		Length:      300 * 16384,
+	}
+	info.Pieces = make([]byte, 300*20)
+	h := newHandleForInfo(t, info)
+
+	f := h.t.Files()[0]
+	begin, end := tailWindowPieces(f)
+	// With 8 MiB tail window and 4.8 MiB file, all 300 pieces are covered.
+	if begin != 0 {
+		t.Errorf("tailWindowPieces begin = %d, want 0 (file smaller than tailWindowBytes)", begin)
+	}
+	if end != 300 {
+		t.Errorf("tailWindowPieces end = %d, want 300", end)
+	}
+}
+
+// TestTailWindowPiecesLargeFile verifies that for a large file, the tail
+// window covers only the last tailWindowBytes worth of pieces.
+func TestTailWindowPiecesLargeFile(t *testing.T) {
+	// 2000 pieces × 16 KiB = 32 MiB file. tailWindowBytes = 8 MiB = 512 pieces.
+	const (
+		pieceLen  = 16384
+		numPieces = 2000
+	)
+	info := &metainfo.Info{
+		Name:        "large_tail_test.mkv",
+		PieceLength: pieceLen,
+		Length:      numPieces * pieceLen,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	h := newHandleForInfo(t, info)
+
+	f := h.t.Files()[0]
+	begin, end := tailWindowPieces(f)
+	// tailWindowBytes=8MiB, pieceLen=16KiB → 512 pieces from the end.
+	// File is [0, 2000), tail is [2000-512, 2000) = [1488, 2000).
+	if begin != 1488 {
+		t.Errorf("tailWindowPieces begin = %d, want 1488", begin)
+	}
+	if end != numPieces {
+		t.Errorf("tailWindowPieces end = %d, want %d", end, numPieces)
+	}
+}
+
+// TestTailWindowPiecesNoOverlapWithHead verifies that for a large file,
+// the head and tail windows do not overlap.
+func TestTailWindowPiecesNoOverlapWithHead(t *testing.T) {
+	const (
+		pieceLen  = 16384
+		numPieces = 2000
+	)
+	info := &metainfo.Info{
+		Name:        "overlap_test.mkv",
+		PieceLength: pieceLen,
+		Length:      numPieces * pieceLen,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	h := newHandleForInfo(t, info)
+
+	f := h.t.Files()[0]
+	headBegin, headEnd := headWindowPieces(f)
+	tailBegin, _ := tailWindowPieces(f)
+	// head is [0, 256), tail is [1488, 2000): no overlap.
+	if headEnd > tailBegin {
+		t.Errorf("head and tail windows overlap: head=[%d,%d) tail=[%d,...)",
+			headBegin, headEnd, tailBegin)
+	}
+}
+
 // TestIsV2Only pins the v2-only rejection predicate (BEP 52): only
 // metainfo with MetaVersion 2 and no v1 component is rejected. Hybrid
 // (v1+v2) and plain v1 torrents must pass through — the engine supports
@@ -253,11 +331,11 @@ func TestIsV2Only(t *testing.T) {
 
 // TestSelectRefreshesHeadCompletionFromStorage pins the selection-time
 // completion refresh: Select must call Piece.UpdateCompletion() for the
-// bounded head window, so a piece whose completion is already recorded in
-// storage (verified previously, initial hash delayed) becomes
+// bounded head and tail windows, so a piece whose completion is already
+// recorded in storage (verified previously, initial hash delayed) becomes
 // storageCompletionOk immediately — the head is never stuck at
-// effectivePriority None. Pieces OUTSIDE the head window must not be
-// touched (no per-piece boltDB views across the whole torrent).
+// effectivePriority None. Pieces OUTSIDE both windows must not be
+// refreshed (no per-piece boltDB views across the whole torrent).
 func TestSelectRefreshesHeadCompletionFromStorage(t *testing.T) {
 	dir := t.TempDir()
 	pc, err := storage.NewBoltPieceCompletion(dir)
@@ -270,12 +348,14 @@ func TestSelectRefreshesHeadCompletionFromStorage(t *testing.T) {
 	t.Cleanup(func() { _ = ci.Close() })
 	t.Cleanup(func() { _ = pc.Close() })
 
-	// 300 pieces of 16 KiB: the 4 MiB head window covers pieces [0, 256),
-	// pieces 256..299 are outside it.
+	// 2000 pieces of 16 KiB: the 4 MiB head window covers pieces [0, 256),
+	// the 8 MiB tail window covers pieces [1488, 2000). Piece 1000 is
+	// outside both windows — the negative control.
 	const (
 		pieceLength   = 16384
-		numPieces     = 300
-		headPieceLast = 256 // first index outside the window
+		numPieces     = 2000
+		headPieceLast = 256  // first index outside the head window
+		midPiece      = 1000 // outside both head and tail windows
 	)
 	info := &metainfo.Info{
 		Name:        "headfix.mkv",
@@ -332,17 +412,15 @@ func TestSelectRefreshesHeadCompletionFromStorage(t *testing.T) {
 		t.Fatalf("write data file: %v", err)
 	}
 
-	// Record pieces 0 and 255 (inside the head window) and piece 299
-	// (outside) as complete in the completion store, then Select — the
-	// refresh must pick up the head pieces only.
+	// Record pieces 0 and 255 (inside the head window), piece 1000
+	// (outside both windows), and piece 1999 (inside the tail window) as
+	// complete in the completion store, then Select — the refresh must
+	// pick up the head and tail pieces only.
 	ih := tt.InfoHash()
-	for _, idx := range []int{0, headPieceLast - 1} {
+	for _, idx := range []int{0, headPieceLast - 1, midPiece, numPieces - 1} {
 		if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: idx}, true); err != nil {
 			t.Fatalf("set piece %d complete: %v", idx, err)
 		}
-	}
-	if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: numPieces - 1}, true); err != nil {
-		t.Fatalf("set piece %d complete: %v", numPieces-1, err)
 	}
 
 	if err := h.Select("f0", ""); err != nil {
@@ -354,16 +432,104 @@ func TestSelectRefreshesHeadCompletionFromStorage(t *testing.T) {
 	if st := tt.Piece(0).State(); !st.Ok || !st.Complete {
 		t.Errorf("head piece 0 after Select: state=%+v, want Ok+Complete (UpdateCompletion refresh)", st)
 	}
-	// A piece inside the window but marked complete in the store must be
-	// refreshed too.
+	// A piece inside the head window but marked complete in the store must
+	// be refreshed too.
 	if st := tt.Piece(255).State(); !st.Ok || !st.Complete {
 		t.Errorf("head piece 255 after Select: state=%+v, want Ok+Complete (UpdateCompletion refresh)", st)
 	}
-	// The negative control: piece 299 is outside the head window and was
-	// never refreshed — its in-memory state must stay incomplete even
-	// though the store marks it complete.
-	if st := tt.Piece(numPieces - 1).State(); st.Ok {
-		t.Errorf("piece %d outside the head window must not be refreshed: state=%+v", numPieces-1, st)
+	// The tail piece is also refreshed (tail window elevation).
+	if st := tt.Piece(numPieces - 1).State(); !st.Ok || !st.Complete {
+		t.Errorf("tail piece %d after Select: state=%+v, want Ok+Complete (tail UpdateCompletion refresh)", numPieces-1, st)
+	}
+	// The negative control: piece 1000 is outside both the head and tail
+	// windows and was never refreshed — its in-memory state must stay
+	// incomplete even though the store marks it complete.
+	if st := tt.Piece(midPiece).State(); st.Ok {
+		t.Errorf("piece %d outside both windows must not be refreshed: state=%+v", midPiece, st)
+	}
+}
+
+// TestSelectElevatesTailPieces pins the tail-window elevation in Select:
+// the last tailWindowBytes worth of pieces of the selected video must have
+// UpdateCompletion called, so the MKV Cues element (seek table near the
+// end of the file) is downloaded early. We verify that the tail piece's
+// completion state is refreshed (Ok + Complete) after Select, mirroring
+// TestSelectRefreshesHeadCompletionFromStorage for the tail window.
+func TestSelectElevatesTailPieces(t *testing.T) {
+	dir := t.TempDir()
+	pc, err := storage.NewBoltPieceCompletion(dir)
+	if err != nil {
+		t.Fatalf("bolt piece completion: %v", err)
+	}
+	ci := storage.NewFileWithCompletion(dir, pc)
+	t.Cleanup(func() { _ = ci.Close() })
+	t.Cleanup(func() { _ = pc.Close() })
+
+	// 2000 pieces × 16 KiB = 32 MiB: tail covers [1488, 2000).
+	const (
+		pieceLength = 16384
+		numPieces   = 2000
+	)
+	info := &metainfo.Info{
+		Name:        "tail_select.mkv",
+		PieceLength: pieceLength,
+		Length:      numPieces * pieceLength,
+	}
+	info.Pieces = make([]byte, numPieces*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.DefaultStorage = ci
+	cfg.DataDir = dir
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+
+	// Write the full data file so anacrolix's size check passes.
+	data := make([]byte, numPieces*pieceLength)
+	if err := os.WriteFile(filepath.Join(dir, "tail_select.mkv"), data, 0o600); err != nil {
+		t.Fatalf("write data file: %v", err)
+	}
+
+	mi := &metainfo.MetaInfo{InfoBytes: ib}
+	tt, new := cl.AddTorrentOpt(torrent.AddTorrentOpts{
+		InfoHash:                 mi.HashInfoBytes(),
+		InfoBytes:                ib,
+		DisableInitialPieceCheck: true,
+	})
+	if !new {
+		t.Fatal("torrent must be new")
+	}
+	<-tt.GotInfo()
+	h := newAnacrolixHandle(tt)
+
+	// Mark tail piece (1999) complete in the completion store. Select's
+	// UpdateCompletion will refresh it.
+	ih := tt.InfoHash()
+	if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: numPieces - 1}, true); err != nil {
+		t.Fatalf("set piece %d complete: %v", numPieces-1, err)
+	}
+
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	// Tail piece is refreshed: storageCompletionOk + completed bitmap
+	// both reflect the store now — this is the production behavior that
+	// ensures MKV Cues are downloadable early.
+	if st := tt.Piece(numPieces - 1).State(); !st.Ok || !st.Complete {
+		t.Errorf("tail piece %d after Select: state=%+v, want Ok+Complete (tail UpdateCompletion refresh)", numPieces-1, st)
 	}
 }
 

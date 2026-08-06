@@ -65,6 +65,16 @@ type engineAnacrolix struct {
 // demand window are the same bounded region.
 const bootstrapWindowBytes = 4 << 20 // 4 MiB
 
+// tailWindowBytes is the bounded byte extent at the END of a file whose
+// pieces are pre-elevated on selection. MKV files store their Cues element
+// (the seek / keyframe table) near the end of the file: without Cues the
+// browser's video element cannot locate a keyframe for an arbitrary seek
+// position, leaving seeking stuck (seeking=true, readyState=1, GPU 100%).
+// Elevating the tail pieces ensures Cues are downloaded early alongside the
+// head bootstrap window, so the player can seek as soon as both ends of the
+// file are available.
+const tailWindowBytes = 8 << 20 // 8 MiB
+
 // httpReadaheadBytes is the readahead used by the HTTP-serving Reader
 // created per Range request. It is deliberately larger than
 // bootstrapWindowBytes so that a seek to a mid-file position requests
@@ -436,6 +446,18 @@ func (h *anacrolixHandle) Select(videoFileID string, subtitleFileID string) erro
 		// so only v1/hybrid torrents reach this refresh.
 		h.t.Piece(i).UpdateCompletion()
 	}
+	// Elevate the selected video's tail window (MKV Cues / seek table)
+	// above Normal priority. The Cues element is typically near the end of
+	// the file; without it the browser's video element cannot locate
+	// keyframes for arbitrary seeks, leaving seeking stuck (seeking=true,
+	// readyState=1). The tail window is independent of the head window —
+	// both are elevated so playback can start from byte 0 AND seeks work
+	// once the tail is available.
+	tailBegin, tailEnd := tailWindowPieces(videoFile)
+	for i := tailBegin; i < tailEnd; i++ {
+		h.t.Piece(i).SetPriority(types.PiecePriorityHigh)
+		h.t.Piece(i).UpdateCompletion()
+	}
 	h.selected = anacrolixFiles[videoIdx]
 	if subIdx >= 0 {
 		h.subtitleIdx = subIdx
@@ -473,6 +495,29 @@ func headWindowPieces(f *torrent.File) (begin, end int) {
 	}
 	n := bootstrapPieceCount(bootstrapWindowBytes, info.PieceLength, end-begin)
 	return begin, begin + n
+}
+
+// tailWindowPieces returns the bounded piece window [begin, end) at the
+// END of f to pre-elevate on selection: the pieces covering the last
+// tailWindowBytes of the file, derived from the file's last piece index
+// and the torrent's piece length. Degenerate inputs yield an empty
+// window (no elevation). The window is clamped to the file's pieces and
+// never overlaps with the head window.
+func tailWindowPieces(f *torrent.File) (begin, end int) {
+	fileBegin := f.BeginPieceIndex()
+	fileEnd := f.EndPieceIndex()
+	info := f.Torrent().Info()
+	if info == nil || info.PieceLength <= 0 || fileEnd <= fileBegin {
+		return fileBegin, fileBegin
+	}
+	availablePieces := fileEnd - fileBegin
+	n := bootstrapPieceCount(tailWindowBytes, info.PieceLength, availablePieces)
+	// The tail window starts n pieces before fileEnd.
+	tailBegin := fileEnd - n
+	if tailBegin < fileBegin {
+		tailBegin = fileBegin
+	}
+	return tailBegin, fileEnd
 }
 
 // StartBootstrap registers an anacrolix Reader demand for the selected

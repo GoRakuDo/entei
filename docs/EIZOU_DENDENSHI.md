@@ -192,6 +192,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 - **C（保険・フロント）**: シークバー・字幕タイムスタンプからのシークを「**ダウンロード済みの連続範囲**」に制限 → 未DL位置へのシーク（再試行ループ・GPU100%）を防止。
 - **A（MKV→HLS remux、torrServer 方式）は Android/Termux で ffmpeg 常駐が重いため不採用**（Android 軽量が前提）。
 - 実装は**次セッションで B＋C 併用**、実機でシーク完了（GPU100%解消）を確認。
+27. シーク修正 B＋C（実装済み・2026-08-06）: 前記#26の方針を実装。**B**: `engine_anacrolix.go` に `tailWindowBytes = 8<<20`（MKV Cues が通常ファイル末尾数MiB）の `tailWindowPieces()` を追加し、`Select()` で末尾 piece を `PiecePriorityHigh` に昇格 + `UpdateCompletion()`（head window と並行）。**C**: `seek-limiter.ts` の `clampCompanionSeek()`（秒→バイト比率変換→available と比較→クランプ、available を絶対に越えない）を字幕 cue クリック・シークバー・condensed auto-seek の3経路に適用。Android 軽量前提で ffmpeg 常駐 remux（HLS）は不採用。**LOW 対応済み**: シークバードラッグ中もクランプ表示 / condensed auto-seek は next cue が available 超過ならスキップ（ループ防止）/ 線形秒→バイト換算（VBR で不正確・保守的クランプ）のコメント。実機でシーク完了（GPU100%解消）を確認すること。
 
 
 ## Delivery contract

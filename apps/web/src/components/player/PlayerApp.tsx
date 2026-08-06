@@ -93,6 +93,7 @@ import {
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
+import { clampCompanionSeek } from '@/features/player/seek-limiter';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
@@ -491,6 +492,21 @@ export default function PlayerApp() {
   const jobSession = useCompanionJobSession();
   const displayMediaUrl = jobSession.jobMediaUrl ?? mediaUrl;
   const displayMediaType = jobSession.jobMediaUrl ? 'video' : mediaType;
+
+  // ED-2H: Seek clamp — when streaming from a companion, clamp seek targets
+  // to the verified byte range (available) to prevent the player from seeking
+  // beyond what's been downloaded (which would stall on ServeContent Read).
+  const clampSeekTime = useCallback(
+    (seconds: number): number => {
+      const p = jobSession.progress;
+      if (!p || p.total <= 0) return seconds;
+      const media =
+        mediaType === 'video' ? videoRef.current : audioRef.current;
+      const duration = media?.duration ?? 0;
+      return clampCompanionSeek(seconds, p.available, p.total, duration);
+    },
+    [jobSession.progress, mediaType],
+  );
 
   // ED-2F: a real YouTube job accepted by the companion starts the bridge
   // session (polling the job's status; media loads only on complete).
@@ -987,11 +1003,17 @@ export default function PlayerApp() {
   const handleCueClick = useCallback((cue: SubtitleCue) => {
     const media = sharedMediaRef.current;
     if (!media) return;
-    media.currentTime = cue.start;
+    // ED-2H: Clamp seek to companion's verified byte range when streaming.
+    // Without this, clicking a cue beyond the available prefix stalls the
+    // player (seeking=true, readyState=1, GPU 100%).
+    const targetTime = jobSession.active
+      ? clampSeekTime(cue.start)
+      : cue.start;
+    media.currentTime = targetTime;
     media.play().catch(() => {});
     // P2: Reveal controls when clicking a cue while they are hidden
     controlsHandleRef.current?.show();
-  }, []);
+  }, [jobSession.active, clampSeekTime]);
 
   // --- P1.3a.2: Caption display mode handlers ---
 
@@ -1241,8 +1263,17 @@ export default function PlayerApp() {
       ) {
         const next = cues.find((c) => c.start > media.currentTime);
         if (next) {
+          // If clampSeekTime would move the position, the next cue is beyond the
+          // verified range — skip auto-seek to avoid a loop (will retry on next tick).
+          if (jobSession.active && clampSeekTime) {
+            const clamped = clampSeekTime(next.start);
+            if (clamped !== next.start) return;
+          }
           isCondensedSeekingRef.current = true;
-          media.currentTime = next.start;
+          // ED-2H: Clamp condensed-mode seek to companion's verified range.
+          media.currentTime = jobSession.active
+            ? clampSeekTime(next.start)
+            : next.start;
           // Fall back to a bounded release if this browser does not dispatch seeked.
           condensedSeekTimeoutRef.current = setTimeout(() => {
             isCondensedSeekingRef.current = false;
@@ -3123,6 +3154,7 @@ export default function PlayerApp() {
         onSessionCredentials={handleSessionCredentials}
         subtitleSettings={subtitleSettings}
         onSubtitleSettingsChange={handleSubtitleSettingsChange}
+        clampSeekTime={jobSession.active ? clampSeekTime : undefined}
       />
       <ScreenshotPreviewDialog
         open={isScreenshotDialogOpen}
