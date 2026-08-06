@@ -609,12 +609,16 @@ describe('MagnetInput — selection flow', () => {
     expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobCancel2/cancel'))).toBe(true);
   });
 
-  it('create icon is disabled during selecting phase — must not create a second job', async () => {
+  it('create icon is enabled during selecting phase — creates a new job and cancels the old one', async () => {
     const { fetchMock } = makeFetcher([
       jsonResponse({ id: 'jobSel2' }, 201),
       jsonResponse({ state: 'downloading', media: { available: 500, total: 2_000_000 } }, 200),
       jsonResponse({ state: 'buffering', media: { available: 2_000_000, total: 2_000_000 } }, 200),
       jsonResponse({ files: FILES }, 200),
+      // Cancel for the old job (fire-and-forget)
+      jsonResponse({ id: 'jobSel2', state: 'cancelled' }, 200),
+      // New job creation
+      jsonResponse({ id: 'jobSel3' }, 201),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
@@ -625,16 +629,22 @@ describe('MagnetInput — selection flow', () => {
     await flush(5000);
     // Now in selecting phase — file table visible.
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
-    // The create icon button must be disabled during selecting.
+    // The create icon button must be enabled during selecting.
     const createBtn = screen.getByRole('button', { name: baseDict.magnetInputLabelTitle });
-    expect(createBtn).toBeDisabled();
-    // Clicking it must not fire a second create.
+    expect(createBtn).toBeEnabled();
+    // Clicking it cancels the old job and creates a new one.
     fireEvent.click(createBtn);
+    await flush(0);
     await flush(0);
     const createCalls = fetchMock.mock.calls.filter(
       (c) => String(c[0]).includes('/v1/source/torrents?'),
     );
-    expect(createCalls).toHaveLength(1);
+    expect(createCalls).toHaveLength(2); // original + new
+    // Explicitly verify that the cancel request was sent for the old job.
+    const cancelCalls = fetchMock.mock.calls.filter(
+      (c) => String(c[0]).includes('/v1/source/torrents/jobSel2/cancel'),
+    );
+    expect(cancelCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
 

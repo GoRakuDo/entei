@@ -374,6 +374,33 @@ export function MagnetInput({
       setError('invalid');
       return;
     }
+
+    // If there is an existing job (checking/selecting), cancel it first
+    // so the companion releases the session before we create a new one.
+    const existingJobId = jobIdRef.current;
+    if (existingJobId) {
+      // Fire-and-forget: don't await the cancel response. Safe because
+      // (1) the companion supports up to 2 concurrent torrent sessions
+      //     with oldest-first eviction on a 3rd, so a stale session is
+      //     automatically reclaimed, and (2) the companion's Cancel is
+      //     synchronous (blocks until the engine stops), so awaiting it
+      //     would block the UI unnecessarily.
+      void fetch(
+        `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(existingJobId)}/cancel?token=${encodeURIComponent(token)}`,
+        { method: 'POST', cache: 'no-store' },
+      ).catch(() => {
+        // Best-effort: if the companion is unreachable the old session
+        // will be evicted when the 2-session capacity is exceeded.
+      });
+      // Reset local state for the old job immediately.
+      jobIdRef.current = null;
+      setJobId('');
+      setEntries([]);
+      setVideoId('');
+      setSubtitleId('');
+      setFolderPath('');
+    }
+
     epochRef.current += 1;
     const attempt = epochRef.current;
     setPhase('creating');
@@ -627,7 +654,7 @@ export function MagnetInput({
   );
 
   const busy = phase === 'creating' || phase === 'submitting' || phase === 'settling';
-  const canCreate = isPaired && phase === 'input' && !busy && isValidMagnetUri(magnet);
+  const canCreate = isPaired && !busy && isValidMagnetUri(magnet);
   const hasVideoSelected = videoId !== '';
   const showTable = phase === 'selecting';
   const showChecking = phase === 'checking';
