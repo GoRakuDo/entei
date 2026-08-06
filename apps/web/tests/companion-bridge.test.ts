@@ -83,6 +83,7 @@ function makeFetcher(responses: Array<Response | Promise<Response>> = []) {
 
 function makeMedia() {
   const listeners = new Map<string, Set<() => void>>();
+  let _currentTime = 0;
   const on =
     (ev: string) =>
     (cb: () => void): (() => void) => {
@@ -94,11 +95,13 @@ function makeMedia() {
         listeners.get(ev)!.delete(cb);
       };
     };
-  const media: CompanionBridgeMedia & { fire: (ev: string) => void } = {
+  const media: CompanionBridgeMedia & { fire: (ev: string) => void; _setCurrentTime: (t: number) => void } = {
     setSrc: vi.fn(),
     load: vi.fn(),
     play: vi.fn(() => Promise.resolve()),
     seekTo: vi.fn(),
+    currentTime: () => _currentTime,
+    _setCurrentTime: (t: number) => { _currentTime = t; },
     onLoadedMetadata: on('loadedmetadata'),
     onCanPlay: on('canplay'),
     onSeeked: on('seeked'),
@@ -659,5 +662,75 @@ describe('ED-2E companion bridge', () => {
     expect(bridge.currentPhase).toBe('ready');
     expect(media.setSrc).toHaveBeenCalledTimes(2);
     expect(media.load).toHaveBeenCalledTimes(2);
+  });
+
+  it('requestSeek skips seekTo when playing and currentTime matches (±0.01s)', async () => {
+    const { fetchFn } = makeFetcher([complete(1000)]);
+    const media = makeMedia();
+    const { bridge } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+
+    // Transition to playing.
+    media.fire('loadedmetadata');
+    media.fire('playing');
+    expect(bridge.currentPhase).toBe('playing');
+
+    // Set current time to 5.0 seconds.
+    media._setCurrentTime(5.0);
+
+    // requestSeek with the same value should be skipped.
+    bridge.requestSeek(5.0);
+    expect(media.seekTo).not.toHaveBeenCalled();
+
+    // requestSeek with a different value should proceed.
+    bridge.requestSeek(10.0);
+    expect(media.seekTo).toHaveBeenCalledTimes(1);
+    expect(media.seekTo).toHaveBeenCalledWith(10.0);
+  });
+
+  it('requestSeek allows seekTo when playing and currentTime is far from target', async () => {
+    const { fetchFn } = makeFetcher([complete(1000)]);
+    const media = makeMedia();
+    const { bridge } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+
+    media.fire('loadedmetadata');
+    media.fire('playing');
+    media._setCurrentTime(5.0);
+
+    // requestSeek with a different value (> 0.01s away) should proceed.
+    bridge.requestSeek(5.02); // exactly 0.02s away — should proceed
+    expect(media.seekTo).toHaveBeenCalledTimes(1);
+    expect(media.seekTo).toHaveBeenCalledWith(5.02);
+  });
+
+  it('complete during playing does not reset src/load (preserves position)', async () => {
+    const { calls, fetchFn } = makeFetcher([
+      complete(1000),
+      complete(1000), // second poll: still complete
+    ]);
+    const media = makeMedia();
+    const { bridge, phases } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+
+    // Transition to playing.
+    media.fire('loadedmetadata');
+    media.fire('playing');
+    expect(bridge.currentPhase).toBe('playing');
+    expect(media.setSrc).toHaveBeenCalledTimes(1);
+
+    // Second poll returns complete while playing — should NOT re-set src/load.
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(media.setSrc).toHaveBeenCalledTimes(1); // no additional setSrc
+    expect(media.load).toHaveBeenCalledTimes(1); // no additional load
+
+    // Phase should remain 'playing'.
+    expect(bridge.currentPhase).toBe('playing');
+    void calls;
+    void phases;
   });
 });

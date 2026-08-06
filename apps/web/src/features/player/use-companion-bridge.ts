@@ -48,6 +48,7 @@ function createMediaAdapter(el: HTMLMediaElement): CompanionBridgeMedia {
     seekTo: (seconds: number) => {
       el.currentTime = seconds;
     },
+    currentTime: () => el.currentTime,
     onLoadedMetadata: (cb: () => void) => {
       el.addEventListener('loadedmetadata', cb);
       return () => el.removeEventListener('loadedmetadata', cb);

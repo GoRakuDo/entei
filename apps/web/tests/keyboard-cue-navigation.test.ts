@@ -138,3 +138,34 @@ describe('Home key seek bounds', () => {
     expect(cue).toBeNull();
   });
 });
+
+describe('Home key clampSeek', () => {
+  /**
+   * Mirror the clampSeek function from control-helpers.ts.
+   */
+  function clampSeek(time: number, duration: number): number {
+    if (!Number.isFinite(time) || time < 0) return 0;
+    if (!Number.isFinite(duration) || duration <= 0) return time;
+    return Math.min(time, duration);
+  }
+
+  it('returns cue.start unchanged when duration is valid', () => {
+    const cue = { start: 9, end: 11 };
+    const duration = 120;
+    expect(clampSeek(cue.start, duration)).toBe(9);
+  });
+
+  it('clamps cue.start to duration when cue.start exceeds duration', () => {
+    const cue = { start: 200, end: 202 };
+    const duration = 120;
+    expect(clampSeek(cue.start, duration)).toBe(120);
+  });
+
+  it('returns 0 for negative cue.start', () => {
+    expect(clampSeek(-5, 120)).toBe(0);
+  });
+
+  it('handles NaN duration by returning cue.start unchanged', () => {
+    expect(clampSeek(9, Number.NaN)).toBe(9);
+  });
+});

@@ -18,6 +18,7 @@ import { useEffect, useCallback, useRef } from 'react';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 import {
   isControlTarget,
+  clampSeek,
   PLAYBACK_RATES,
 } from '@/features/player/control-helpers';
 
@@ -134,7 +135,7 @@ export function useKeyboardShortcuts({
           const currentCues = cuesRef.current;
           if (currentId !== null && currentId < currentCues.length) {
             const cue = currentCues[currentId]!;
-            media.currentTime = cue.start;
+            media.currentTime = clampSeek(cue.start, media.duration);
           }
           break;
         }

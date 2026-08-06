@@ -83,6 +83,7 @@ export interface CompanionBridgeMedia {
   load(): void;
   play(): Promise<void>;
   seekTo(seconds: number): void;
+  currentTime(): number | undefined;
   onLoadedMetadata(cb: () => void): () => void;
   onCanPlay(cb: () => void): () => void;
   onSeeked(cb: () => void): () => void;
@@ -262,10 +263,26 @@ export class CompanionBridge {
   }
 
   /** Queue a seek to apply right after the ready transition, or apply it
-   *  directly once playing. Latest call wins while buffering. */
+   *  directly once playing. Latest call wins while buffering.
+   *
+   *  During playback (phase='playing'), seekTo is skipped when the requested
+   *  value is within ±0.01s of the current currentTime. Setting the same
+   *  value triggers Chrome's seeking event again (WPT/Chromium: even a
+   *  same-value currentTime assignment re-fires 'seeking'), which loops
+   *  back into requestSeek via the seeking listener — an infinite
+   *  re-seek feedback loop that pins GPU Video Decode at 100%.
+   *
+   *  When currentTime() returns undefined (metadata not yet loaded), the
+   *  guard is bypassed and seekTo executes. In phase='playing' this is
+   *  unreachable (metadata must be loaded to play), but the fallback is
+   *  kept defensively. */
   requestSeek(seconds: number): void {
     if (!Number.isFinite(seconds) || seconds < 0) return;
     if (this.phase === 'playing') {
+      const current = this.media?.currentTime();
+      if (current != null && Math.abs(seconds - current) < 0.01) {
+        return; // same-value seek: skip to prevent re-seek feedback loop
+      }
       this.media?.seekTo(seconds);
       return;
     }
@@ -397,7 +414,14 @@ export class CompanionBridge {
     }
     switch (result.status.state) {
       case 'complete':
-        this.onComplete(result.status);
+        // Skip src/load reset when already playing: the element is serving
+        // data and seeking works fine. A src/load here would rewind to 00:00
+        // and trigger a seek loop. Only reset from ready/buffering/etc.
+        if (this.phase !== 'playing') {
+          this.onComplete(result.status);
+        } else {
+          this.schedule(this.opts.maxPollMs);
+        }
         return;
       case 'playable':
         // ED-2H: provisional streaming. Only hand the URL/load on the FIRST
