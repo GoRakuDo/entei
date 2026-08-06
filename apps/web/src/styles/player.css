@@ -4153,6 +4153,40 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
+/* --- Typewriter Loading --- */
+/* Replaces the Loader2 spinner in player loading overlays. Characters type
+   left-to-right, dots accumulate, text clears, hold, then repeat. */
+.entei-typewriter {
+  font-weight: 600;
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  white-space: pre;
+  letter-spacing: 0.04em;
+}
+
+.entei-typewriter-caret {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  border-right: 2px solid currentColor;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: entei-caret-blink 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes entei-caret-blink {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-typewriter-caret {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .entei-magnet-error {
   padding: 0;
   color: var(--color-destructive);

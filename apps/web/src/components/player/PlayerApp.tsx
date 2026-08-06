@@ -99,7 +99,8 @@ import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
-import { Music, AlertTriangle, Magnet, Loader2 } from 'lucide-react';
+import { TypewriterLoading } from '@/components/player/TypewriterLoading';
+import { Music, AlertTriangle, Magnet } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
@@ -3105,8 +3106,8 @@ export default function PlayerApp() {
           when canplay fires (data arrived) or on error/timeout.
           Separate from the companion loading overlay above. */}
       {isSeekBuffering && !isLoading && !loadError && (
-        <div className="entei-companion-loading" role="status">
-          <Loader2 className="entei-spin" size={32} aria-hidden="true" />
+        <div className="entei-companion-loading" role="status" aria-label="Loading">
+          <TypewriterLoading aria-hidden="true" />
         </div>
       )}
       <PlayerControls
@@ -3333,8 +3334,8 @@ export default function PlayerApp() {
 
       {/* --- Companion loading overlay --- */}
       {jobSession.active && !jobSession.jobMediaUrl && (
-        <div className="entei-companion-loading" role="status">
-          <Loader2 className="entei-spin" size={32} aria-hidden="true" />
+        <div className="entei-companion-loading" role="status" aria-label="Loading">
+          <TypewriterLoading aria-hidden="true" />
           <p className="entei-companion-loading-text">{dict.companionPreparingVideo}</p>
         </div>
       )}
