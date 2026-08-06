@@ -976,11 +976,11 @@ func TestTorrentStatusStreamingPlayable(t *testing.T) {
 
 // TestTorrentMediaStreamingServesVerifiedPrefix verifies the media endpoint
 // serves 206 for ranges whose start lies within the verified prefix during
-// the streaming state, using http.ServeContent (bitplay approach). The
-// anacrolix Reader blocks on pieces not yet downloaded; http.ServeContent
-// handles Range parsing and 206 construction. The fake test reader returns
-// io.ErrNoProgress instead of blocking, so body length assertions reflect
-// test-only behavior (the real Reader streams the full range).
+// the streaming state, using the custom Range response (same contract as
+// serveGrowingSource). The anacrolix Reader is used as an io.ReadSeeker:
+// Seek(start) then io.CopyN. The fake test reader returns io.ErrNoProgress
+// instead of blocking, so body length assertions reflect test-only behavior
+// (the real Reader streams the full range).
 func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 	engine := newAPIFakeEngine("movie.mp4:800000")
 	factory := func(_ string) (torrent.Engine, error) { return engine, nil }
@@ -1061,25 +1061,25 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 		t.Errorf("Content-Type = %q, want video/mp4", ct)
 	}
 
-	// No Range while streaming with partial data → ServeContent serves 200.
-	// In the real anacrolix case the Reader blocks on unavailable pieces;
-	// the fake reader returns io.ErrNoProgress, producing a truncated
-	// response body — expected test-only behavior.
+	// No Range while streaming with partial data → 503 buffering.
+	// The streaming Range handler mirrors the growing source contract:
+	// no Range + avail < total → 503 with Retry-After.
 	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("no range, streaming = %d, want 200", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("no range, streaming = %d, want 503", rec.Code)
 	}
 
-	// HEAD mirrors status/headers without body.
+	// HEAD mirrors status/headers without body — also 503 when no Range
+	// and data is partial (same contract as GET).
 	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
 	req.Header.Set("Origin", allowedOriginLocal)
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("HEAD streaming = %d, want 200", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("HEAD streaming = %d, want 503", rec.Code)
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("HEAD streaming body = %d, want 0", rec.Body.Len())

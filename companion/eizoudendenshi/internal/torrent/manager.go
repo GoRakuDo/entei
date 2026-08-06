@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -872,6 +873,51 @@ func (m *Manager) SelectedFileName() string {
 		return ""
 	}
 	return vv.Path
+}
+
+// SelectedDiskPath returns the absolute on-disk path of the active
+// session's selected video file. The path is derived from the
+// session-private storage directory and the anacrolix torrent-relative
+// path (which includes the torrent name prefix). Returns an error when
+// no session is active, no file is selected, or the file does not exist.
+//
+// The caller (the HTTP layer) uses this for StateComplete serving, where
+// the full file is available on disk and can be served via os.File +
+// http.ServeContent without the anacrolix Reader overhead.
+func (m *Manager) SelectedDiskPath() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.purgeEvicted()
+	if len(m.sessionOrder) == 0 {
+		return "", errors.New("no active session")
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		return "", errors.New("no active session")
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	vv := j.videoV
+	j.stateMu.Unlock()
+	if vv == nil {
+		return "", errors.New("no file selected")
+	}
+	// anacrolix stores files at <DataDir>/<torrent-name>/<file-path>.
+	// vv.Path is the torrent-relative path including the torrent name
+	// prefix (e.g. "MovieName/file.mkv"). Combine with the session's
+	// private storage directory to get the absolute disk path.
+	abs := filepath.Clean(filepath.Join(sess.storageDir, vv.Path))
+	// Path traversal defense: the resulting path must be under the
+	// storage directory. filepath.Clean normalizes ".." segments, so
+	// a prefix check after cleaning is sufficient.
+	if !strings.HasPrefix(abs, sess.storageDir+string(filepath.Separator)) {
+		return "", errors.New("path traversal rejected")
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return "", fmt.Errorf("file not available: %w", err)
+	}
+	return abs, nil
 }
 
 // SelectedSubtitleContent reads the entire selected subtitle file from the

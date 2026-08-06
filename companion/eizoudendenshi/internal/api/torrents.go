@@ -3,7 +3,10 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -260,8 +263,8 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 			RetryAfter: bufferingRetryAfterSec,
 		}, true
 	case torrent.StateStreaming:
-		// The streaming serve path now uses http.ServeContent with
-		// a direct Reader (bitplay approach); the bridge needs a
+		// The streaming serve path uses custom Range responses
+		// (serveGrowingSource contract); the bridge needs a
 		// "playable" signal to assign the URL.
 		if snap.Media.Available > 0 {
 			return statusBody{
@@ -294,28 +297,19 @@ func (s *Server) activeTorrentStatus() (statusBody, bool) {
 	}
 }
 
-// ED-2H core design: this ServeContent-based streaming is the core
-// architecture of EizouDendenshi's instant playback. Do NOT replace
-// with 206-clamp + long-polling or any approach that returns partial
-// responses to bytes=0- — it triggers Chrome's follow-up request
-// cascade (bytes=avail- → 503 → error code 4). See
-// docs/EIZOU_DENDENSHI.md "ED-2H: 即ストリーミング設計".
+// ED-2H: streaming uses a custom Range response (same contract as
+// serveGrowingSource) to avoid Chrome's MKV seek loop. The anacrolix
+// Reader is used as an io.ReadSeeker: Seek to the requested start, then
+// Read the clamped length. Availability is checked before serving to
+// prevent serving beyond the verified prefix.
 //
-// serveTorrentMedia serves the active torrent job's selected media using
-// http.ServeContent (bitplay approach):
+// StateComplete uses os.File + http.ServeContent (the fixture approach):
+// all data is on disk, Seek works trivially, and Chrome's Cues/seek
+// requests are served directly from the file without Reader overhead.
 //
-//	http.ServeContent handles Range parsing, 206 Content-Range construction,
-//	and Accept-Ranges: bytes. For a bytes=0- request (what Chrome 151 sends
-//	first), it responds 206 with Content-Range: bytes 0-(total-1)/total and
-//	streams the body from the Reader. The Reader blocks on pieces not yet
-//	downloaded (anacrolix demand-based readahead), so the video element
-//	receives a single 206 response for the full range and does not issue
-//	follow-up range requests. This eliminates the 206-clamp + long-poll
-//	approach and its "complete-wait" request storm.
-//
-//	complete / streaming (handle available) → http.ServeContent with Reader
-//	downloading / buffering (metadata listed, awaiting selection) → 503
-//	error → generic 404
+// Both paths replace the previous http.ServeContent + anacrolix Reader
+// approach which triggered Chrome's MKV seek loop (bytes=0- → ERR_ABORTED
+// → bytes=0- → ... → seeking=true, readyState=1, GPU 100%).
 func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool {
 	if s.torrents == nil {
 		return false
@@ -328,43 +322,11 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 		w.Header().Set("Content-Type", mime)
 	}
 	switch snap.State {
-	case torrent.StateComplete, torrent.StateStreaming:
-		// Both states have a valid handle; create a Reader.
-		// For streaming, pieces arrive on demand (block until available).
-		// For complete, all pieces are present and reads return immediately.
-		if r.Method == http.MethodHead {
-			// HEAD: set CORS and serve headers without body.
-			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("Accept-Ranges", "bytes")
-			w.Header().Set("Content-Length", strconv.FormatInt(snap.Media.Total, 10))
-			w.Header().Set("Access-Control-Expose-Headers",
-				"Content-Range, Accept-Ranges, Content-Length, Retry-After")
-			w.WriteHeader(http.StatusOK)
-			return true
-		}
-		fileName := s.torrents.SelectedFileName()
-		if fileName == "" {
-			writeJSON(w, http.StatusNotFound, errorBody("media not available"))
-			return true
-		}
-		reader, err := s.torrents.NewHTTPMediaReader(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusNotFound, errorBody("media not available"))
-			return true
-		}
-		defer reader.Close()
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Access-Control-Expose-Headers",
-			"Content-Range, Accept-Ranges, Content-Length, Retry-After")
-		// Wrap the ResponseWriter with a flusher so that each Write
-		// (each chunk read from the anacrolix Reader) is flushed to the
-		// network immediately. Without this, io.Copy inside ServeContent
-		// may buffer data in the kernel TCP stack, causing stalls when
-		// the Reader blocks between pieces (e.g. after a seek to a
-		// mid-file position where pieces are not yet downloaded).
-		fw := &flushResponseWriter{ResponseWriter: w}
-		http.ServeContent(fw, r, fileName, time.Time{}, reader)
+	case torrent.StateStreaming:
+		s.serveTorrentStreaming(w, r, snap)
+		return true
+	case torrent.StateComplete:
+		s.serveTorrentComplete(w, r, snap)
 		return true
 	case torrent.StateDownloading, torrent.StateBuffering:
 		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)
@@ -376,3 +338,157 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 		return false
 	}
 }
+
+// serveTorrentStreaming serves a streaming torrent (partial download) with
+// the same availability-aware Range contract as serveGrowingSource:
+//   - Range start >= avail → long-poll until prefix catches up, then 206
+//   - Range end > avail → clamp to avail-1 (RFC 9110)
+//   - start >= total → 416
+//   - no Range + avail < total → 503 buffering
+//   - no Range + avail == total → 200 full body
+//
+// The anacrolix Reader is used as an io.ReadSeeker: Seek(start) then
+// io.CopyN(w, reader, length). Each Write is flushed immediately via
+// flushResponseWriter so data reaches the network without kernel TCP
+// buffering delays.
+func (s *Server) serveTorrentStreaming(w http.ResponseWriter, r *http.Request, snap torrent.Snapshot) {
+	total := snap.Media.Total
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Access-Control-Expose-Headers",
+		"Content-Range, Accept-Ranges, Content-Length, Retry-After")
+
+	start, end, hasRange := parseSingleRange(r.Header.Get("Range"), total)
+	if hasRange {
+		if start >= total {
+			w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(total, 10))
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		avail := snap.Media.Available
+		if start >= avail {
+			// The available prefix has not passed the requested start.
+			// Long-poll until it does (same as serveGrowingSource).
+			src := &torrentAvailSource{m: s.torrents}
+			if !s.waitForPrefix(w, r, src, start, total, &avail) {
+				return // 503 written by the timeout, or client cancelled
+			}
+		}
+		if end >= avail {
+			end = avail - 1 // RFC 9110: clamp to avail-1
+		}
+		length := end - start + 1
+		w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.FormatInt(total, 10))
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusPartialContent)
+			return
+		}
+		reader, err := s.torrents.NewHTTPMediaReader(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+			return
+		}
+		defer reader.Close()
+		if _, err := reader.Seek(start, io.SeekStart); err != nil {
+			writeJSON(w, http.StatusRequestedRangeNotSatisfiable, errorBody("seek failed"))
+			return
+		}
+		w.WriteHeader(http.StatusPartialContent)
+		fw := &flushResponseWriter{ResponseWriter: w}
+		_, _ = io.CopyN(fw, reader, length)
+		return
+	}
+
+	// No Range header.
+	avail := snap.Media.Available
+	if avail < total {
+		s.writeBuffering(w, r, avail, total)
+		return
+	}
+	// All data available — serve the full body. Obtain the Reader and
+	// Seek first so that errors can be surfaced as 404/500 before any
+	// status code is written.
+	reader, err := s.torrents.NewHTTPMediaReader(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+		return
+	}
+	defer reader.Close()
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody("seek failed"))
+		return
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	fw := &flushResponseWriter{ResponseWriter: w}
+	_, _ = io.CopyN(fw, reader, total)
+}
+
+// serveTorrentComplete serves a fully downloaded torrent from the on-disk
+// file via http.ServeContent. When the disk file is available, this gives
+// Chrome a regular file seek path (no anacrolix Reader, no piece
+// blocking). When the disk path is unavailable (memory storage), falls
+// back to the anacrolix Reader.
+func (s *Server) serveTorrentComplete(w http.ResponseWriter, r *http.Request, snap torrent.Snapshot) {
+	total := snap.Media.Total
+
+	if r.Method == http.MethodHead {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
+		w.Header().Set("Access-Control-Expose-Headers",
+			"Content-Range, Accept-Ranges, Content-Length, Retry-After")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Try disk file first (os.File + http.ServeContent = fixture approach).
+	diskPath, diskErr := s.torrents.SelectedDiskPath()
+	if diskErr == nil {
+		file, err := os.Open(diskPath)
+		if err == nil {
+			defer file.Close()
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.Header().Set("Access-Control-Expose-Headers",
+				"Content-Range, Accept-Ranges, Content-Length, Retry-After")
+			fw := &flushResponseWriter{ResponseWriter: w}
+			http.ServeContent(fw, r, filepath.Base(diskPath), time.Time{}, file)
+			return
+		}
+	}
+
+	// Fallback: anacrolix Reader (memory storage or disk unavailable).
+	fileName := s.torrents.SelectedFileName()
+	if fileName == "" {
+		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+		return
+	}
+	reader, err := s.torrents.NewHTTPMediaReader(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Access-Control-Expose-Headers",
+		"Content-Range, Accept-Ranges, Content-Length, Retry-After")
+	fw := &flushResponseWriter{ResponseWriter: w}
+	http.ServeContent(fw, r, fileName, time.Time{}, reader)
+}
+
+// torrentAvailSource adapts the torrent Manager's availability to the
+// interface expected by waitForPrefix (Available() int64). This lets the
+// streaming Range handler use the same long-poll logic as the growing
+// source.
+type torrentAvailSource struct {
+	m *torrent.Manager
+}
+
+func (t *torrentAvailSource) Available() int64 { return t.m.AvailablePrefix() }
