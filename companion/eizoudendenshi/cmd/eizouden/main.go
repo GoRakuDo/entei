@@ -216,6 +216,17 @@ func main() {
 		log.Fatalf("init torrents: %v", err)
 	}
 
+	// Best-effort cleanup of leftover session-* directories from previous
+	// (possibly crashed) runs. Runs in a background goroutine so startup
+	// is never blocked; errors are silently ignored.
+	go func() {
+		if n := torrents.CleanupStaleSessions(); n > 0 {
+			if diagLog != nil {
+				diagLog.Infof("torrent", "cleaned %d stale session dirs", n)
+			}
+		}
+	}()
+
 	if *ffmpeg != "" {
 		st, err := os.Stat(*ffmpeg)
 		if err != nil {

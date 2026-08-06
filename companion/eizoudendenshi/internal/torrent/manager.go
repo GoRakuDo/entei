@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -583,6 +584,67 @@ func removeStorageDir(dir string) {
 		return
 	}
 	_ = os.RemoveAll(dir)
+}
+
+// sessionDirEntry pairs a session-* directory name with its modification time
+// for sorting during stale-session cleanup.
+type sessionDirEntry struct {
+	name    string
+	modTime time.Time
+}
+
+// CleanupStaleSessions removes leftover session-* directories from a
+// previous (possibly crashed) companion run. It lists all "session-"
+// subdirectories under m.storageRoot, sorts them oldest-first by ModTime,
+// and removes every entry except the newest one. Returns the number of
+// directories removed. The storage root is immutable after construction,
+// so no lock is needed.
+//
+// This method is intended to be called once at startup in a background
+// goroutine so it never blocks the companion's startup path.
+func (m *Manager) CleanupStaleSessions() int {
+	root := m.storageRoot
+	if root == "" {
+		return 0
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return 0
+	}
+
+	// Collect session-* directories with their mod times.
+	var sessions []sessionDirEntry
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "session-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue // skip unreadable entries
+		}
+		sessions = append(sessions, sessionDirEntry{
+			name:    e.Name(),
+			modTime: info.ModTime(),
+		})
+	}
+
+	// Need at least 2 to have anything to clean.
+	if len(sessions) < 2 {
+		return 0
+	}
+
+	// Sort oldest first so the newest (last) is preserved.
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].modTime.Before(sessions[j].modTime)
+	})
+
+	// Remove all but the last (newest) entry.
+	removed := 0
+	for _, s := range sessions[:len(sessions)-1] {
+		removeStorageDir(filepath.Join(root, s.name))
+		removed++
+	}
+	return removed
 }
 
 // releaseSession closes handle+engine and then removes the session's

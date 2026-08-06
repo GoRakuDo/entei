@@ -1695,3 +1695,129 @@ func TestSelectedSubtitleContentNoSession(t *testing.T) {
 		t.Fatal("SelectedSubtitleContent with no session must fail")
 	}
 }
+
+// --- CleanupStaleSessions tests ---
+
+func TestCleanupStaleSessionsRemovesOld(t *testing.T) {
+	// Create a temporary storage root with 3 session-* dirs (old, middle, new).
+	root := t.TempDir()
+	dirs := []string{"session-aaa", "session-bbb", "session-ccc"}
+	for _, d := range dirs {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Set modification times: aaa=oldest, bbb=middle, ccc=newest.
+	base := time.Now().Add(-3 * time.Hour)
+	os.Chtimes(filepath.Join(root, "session-aaa"), base, base)
+	os.Chtimes(filepath.Join(root, "session-bbb"), base.Add(1*time.Hour), base.Add(1*time.Hour))
+	os.Chtimes(filepath.Join(root, "session-ccc"), base.Add(2*time.Hour), base.Add(2*time.Hour))
+
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:100"), 0)
+	m.storageRoot = root // override for test
+
+	removed := m.CleanupStaleSessions()
+	if removed != 2 {
+		t.Fatalf("removed = %d, want 2", removed)
+	}
+
+	// Only the newest (ccc) should remain.
+	remaining, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range remaining {
+		names = append(names, e.Name())
+	}
+	if len(names) != 1 || names[0] != "session-ccc" {
+		t.Fatalf("remaining dirs = %v, want [session-ccc]", names)
+	}
+}
+
+func TestCleanupStaleSessionsOneDirNoop(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "session-only"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:100"), 0)
+	m.storageRoot = root
+
+	removed := m.CleanupStaleSessions()
+	if removed != 0 {
+		t.Fatalf("removed = %d, want 0", removed)
+	}
+
+	// The single dir must still exist.
+	if _, err := os.Stat(filepath.Join(root, "session-only")); err != nil {
+		t.Fatalf("session-only should still exist: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsIgnoresNonSessionDirs(t *testing.T) {
+	root := t.TempDir()
+	// Create a mix: 2 session-* dirs and 1 non-session dir.
+	for _, d := range []string{"session-old", "session-new", "tmp-cache"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := time.Now().Add(-1 * time.Hour)
+	os.Chtimes(filepath.Join(root, "session-old"), base, base)
+	os.Chtimes(filepath.Join(root, "session-new"), base.Add(1*time.Hour), base.Add(1*time.Hour))
+
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:100"), 0)
+	m.storageRoot = root
+
+	removed := m.CleanupStaleSessions()
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+
+	// session-new and tmp-cache must remain.
+	remaining, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range remaining {
+		names = append(names, e.Name())
+	}
+	if len(names) != 2 {
+		t.Fatalf("remaining dirs = %v, want 2 entries", names)
+	}
+	for _, want := range []string{"session-new", "tmp-cache"} {
+		found := false
+		for _, n := range names {
+			if n == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected %q to remain", want)
+		}
+	}
+}
+
+func TestCleanupStaleSessionsEmptyRoot(t *testing.T) {
+	root := t.TempDir()
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:100"), 0)
+	m.storageRoot = root
+
+	removed := m.CleanupStaleSessions()
+	if removed != 0 {
+		t.Fatalf("removed = %d, want 0", removed)
+	}
+}
+
+func TestCleanupStaleSessionsEmptyStorageRoot(t *testing.T) {
+	m := newTestManagerWithEngine(t, newFakeEngine("video.mp4:100"), 0)
+	m.storageRoot = "" // empty storage root
+
+	removed := m.CleanupStaleSessions()
+	if removed != 0 {
+		t.Fatalf("removed = %d, want 0", removed)
+	}
+}
