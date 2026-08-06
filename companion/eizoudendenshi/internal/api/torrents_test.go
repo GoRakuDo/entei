@@ -1061,6 +1061,34 @@ func TestTorrentMediaStreamingServesVerifiedPrefix(t *testing.T) {
 		t.Errorf("Content-Type = %q, want video/mp4", ct)
 	}
 
+	// bytes=0- (full range, Chrome's initial playback request) →
+	// ServeContent path (rc.38 style) which keeps the Reader alive for
+	// piece demand. ServeContent returns 206 for a satisfiable Range.
+	req, _ = http.NewRequest(http.MethodGet, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=0-")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("bytes=0- = %d, want 206 (ServeContent path)", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "video/mp4" {
+		t.Errorf("bytes=0- Content-Type = %q, want video/mp4", ct)
+	}
+
+	// HEAD bytes=0- → 200 with Content-Length.
+	req, _ = http.NewRequest(http.MethodHead, "http://example.test/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=0-")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HEAD bytes=0- = %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("HEAD bytes=0- body = %d, want 0", rec.Body.Len())
+	}
+
 	// No Range while streaming with partial data → 503 buffering.
 	// The streaming Range handler mirrors the growing source contract:
 	// no Range + avail < total → 503 with Retry-After.

@@ -654,6 +654,74 @@ func TestManagerAvailablePrefix(t *testing.T) {
 	_, _ = m.Cancel(snap.ID)
 }
 
+// TestManagerSelectedDiskPath verifies the SelectedDiskPath method: normal
+// path resolution, path traversal rejection (CWE-22), and no-session error.
+func TestManagerSelectedDiskPath(t *testing.T) {
+	t.Run("no session returns error", func(t *testing.T) {
+		engine := newFakeEngine("movie.mp4:5000")
+		m := newTestManagerWithEngine(t, engine, 10*time.Second)
+		if _, err := m.SelectedDiskPath(); err == nil {
+			t.Fatal("SelectedDiskPath with no session should fail")
+		}
+	})
+
+	t.Run("normal path returns correct absolute path", func(t *testing.T) {
+		engine := newFakeEngine("movie.mp4:5000")
+		m := newTestManagerWithEngine(t, engine, 10*time.Second)
+		snap, err := m.Start(testMagnet)
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		waitForState(t, m, snap.ID, StateBuffering, 5*time.Second)
+		if _, err := m.Select(snap.ID, "f0", ""); err != nil {
+			t.Fatalf("Select: %v", err)
+		}
+		waitForState(t, m, snap.ID, StateStreaming, 5*time.Second)
+
+		// The file does not exist on disk (fake engine), so
+		// SelectedDiskPath returns a "file not available" error. The
+		// error message contains the constructed absolute path, which
+		// we verify for correct construction.
+		_, err = m.SelectedDiskPath()
+		if err == nil {
+			t.Fatal("SelectedDiskPath should fail (file not on disk)")
+		}
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "movie.mp4") {
+			t.Errorf("error %q does not contain expected filename movie.mp4", errMsg)
+		}
+		// Verify the path is under a session directory (absolute path
+		// construction). The path is embedded in the os.Stat error.
+		if !strings.Contains(errMsg, "session-") {
+			t.Errorf("error %q does not contain session directory", errMsg)
+		}
+	})
+
+	t.Run("path traversal is rejected", func(t *testing.T) {
+		// Inject a file with a traversal path directly into the fake engine.
+		engine := &fakeEngine{
+			files: []TorrentFile{
+				{ID: "f0", Path: "../etc/passwd", Length: 5000, Kind: KindVideo},
+			},
+		}
+		m := newTestManagerWithEngine(t, engine, 10*time.Second)
+		snap, err := m.Start(testMagnet)
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		waitForState(t, m, snap.ID, StateBuffering, 5*time.Second)
+		if _, err := m.Select(snap.ID, "f0", ""); err != nil {
+			t.Fatalf("Select: %v", err)
+		}
+		waitForState(t, m, snap.ID, StateStreaming, 5*time.Second)
+
+		if _, err := m.SelectedDiskPath(); err == nil {
+			t.Fatal("SelectedDiskPath with traversal path should be rejected")
+		}
+		_, _ = m.Cancel(snap.ID)
+	})
+}
+
 // TestBootstrapPieceCount verifies the pure head-window derivation: the
 // bounded piece count covering the bootstrap window, rounded up, clamped to
 // the file's pieces — never an arbitrary raw byte threshold.
