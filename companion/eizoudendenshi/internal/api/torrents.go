@@ -318,6 +318,7 @@ func setTorrentMediaHeaders(w http.ResponseWriter) {
 // during its lifetime already advanced the prefix, and the tail-window
 // pieces are pre-elevated to High.
 func (s *Server) serveTorrentFullRange(w http.ResponseWriter, r *http.Request, total int64) {
+	setTorrentMediaHeaders(w)
 	if r.Method == http.MethodHead {
 		w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
 		w.WriteHeader(http.StatusOK)
@@ -397,13 +398,12 @@ func (s *Server) serveTorrentStreaming(w http.ResponseWriter, r *http.Request, s
 
 	// A zero or negative total is invalid for Range serving — reject
 	// immediately rather than falling through to parseSingleRange.
+	setTorrentMediaHeaders(w)
 	if total <= 0 {
 		w.Header().Set("Content-Range", "bytes */0")
 		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
-
-	setTorrentMediaHeaders(w)
 
 	start, end, hasRange := parseSingleRange(r.Header.Get("Range"), total)
 	if hasRange {
@@ -451,7 +451,9 @@ func (s *Server) serveTorrentStreaming(w http.ResponseWriter, r *http.Request, s
 		}
 		w.WriteHeader(http.StatusPartialContent)
 		fw := &flushResponseWriter{ResponseWriter: w}
-		_, _ = io.CopyN(fw, reader, length)
+		if _, err := io.CopyN(fw, reader, length); err != nil {
+			s.log.Infof("torrent", "streaming copyN seek range: %v", err)
+		}
 		return
 	}
 
@@ -480,7 +482,9 @@ func (s *Server) serveTorrentStreaming(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 	fw := &flushResponseWriter{ResponseWriter: w}
-	_, _ = io.CopyN(fw, reader, total)
+	if _, err := io.CopyN(fw, reader, total); err != nil {
+		s.log.Infof("torrent", "streaming copyN no-range full body: %v", err)
+	}
 }
 
 // serveTorrentComplete serves a fully downloaded torrent from the on-disk

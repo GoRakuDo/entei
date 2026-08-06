@@ -53,6 +53,7 @@ func (e *fakeEngine) Start(ctx context.Context, magnet string) (TorrentHandle, e
 func (e *fakeEngine) Close() error { return nil }
 
 type fakeHandle struct {
+	mu          sync.Mutex // protects bootErr and subtitleContent
 	name        string
 	files       []TorrentFile
 	selected    int // -1 = none
@@ -60,16 +61,16 @@ type fakeHandle struct {
 	avail       atomic.Int64
 	availMu     chan struct{} // closed to signal avail change
 	closed      bool
-	readerReq   int64 // number of reader requests
 	seekOff     int64
 
-	bootStarted atomic.Bool // StartBootstrap called
-	bootCancel  atomic.Bool // the bootstrap context was cancelled
-	bootErr     error       // injected StartBootstrap failure
-	headPrio    atomic.Bool // Select elevated the head window (contract)
+	bootStarted    atomic.Bool   // StartBootstrap called
+	bootCancel     atomic.Bool   // the bootstrap context was cancelled
+	bootErr        error         // injected StartBootstrap failure (protected by mu)
+	blockBootstrap chan struct{} // if non-nil, StartBootstrap blocks here until closed
+	headPrio       atomic.Bool   // Select elevated the head window (contract)
 
 	// subtitleContent returns the fake subtitle text content.
-	subtitleContent string
+	subtitleContent string // protected by mu
 }
 
 func newFakeHandle(files []TorrentFile) *fakeHandle {
@@ -90,6 +91,29 @@ func (h *fakeHandle) SelectedLength() int64 {
 }
 func (h *fakeHandle) AvailablePrefix() int64 { return h.avail.Load() }
 func (h *fakeHandle) Close() error           { h.closed = true; return nil }
+
+// setBootErr injects (or clears) the bootstrap error. Protected by mu
+// to avoid a data race with StartBootstrap's read of bootErr.
+func (h *fakeHandle) setBootErr(err error) {
+	h.mu.Lock()
+	h.bootErr = err
+	h.mu.Unlock()
+}
+
+// getBootErr returns the current bootstrap error. Protected by mu.
+func (h *fakeHandle) getBootErr() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.bootErr
+}
+
+// setSubtitleContent injects the fake subtitle text. Protected by mu
+// to avoid a data race with SubtitleContent's read.
+func (h *fakeHandle) setSubtitleContent(s string) {
+	h.mu.Lock()
+	h.subtitleContent = s
+	h.mu.Unlock()
+}
 
 func (h *fakeHandle) Select(videoFileID, subtitleFileID string) error {
 	for i, f := range h.files {
@@ -125,7 +149,10 @@ func (h *fakeHandle) SubtitleContent(ctx context.Context) (string, error) {
 	if h.subtitleIdx < 0 {
 		return "", errSubtitleNotSelected
 	}
-	return h.subtitleContent, nil
+	h.mu.Lock()
+	s := h.subtitleContent
+	h.mu.Unlock()
+	return s, nil
 }
 
 // StartBootstrap records the demand request and watches the context: when
@@ -135,8 +162,19 @@ func (h *fakeHandle) StartBootstrap(ctx context.Context) error {
 	if h.selected < 0 {
 		return errInvalidSelection
 	}
-	if h.bootErr != nil {
-		return h.bootErr
+	// Block until the test unblocks via close(h.blockBootstrap). This
+	// gives the test a deterministic synchronization point to inject
+	// bootErr after StartBootstrap has been entered but before it reads
+	// the error field.
+	if h.blockBootstrap != nil {
+		select {
+		case <-h.blockBootstrap:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if err := h.getBootErr(); err != nil {
+		return err
 	}
 	h.bootStarted.Store(true)
 	go func() {
@@ -150,7 +188,6 @@ func (h *fakeHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error) {
 	if h.selected < 0 {
 		return nil, errInvalidSelection
 	}
-	h.readerReq++
 	return &fakeReader{
 		total: h.files[h.selected].Length,
 		avail: &h.avail,
@@ -1149,11 +1186,21 @@ func TestBootstrapFailureFreesSessionAndRetrySucceeds(t *testing.T) {
 		t.Fatalf("Start 1: %v", err)
 	}
 	waitForState(t, m, snap1.ID, StateBuffering, 5*time.Second)
+	// Install a blocking channel so StartBootstrap pauses before reading
+	// bootErr. Must be set after Start (which creates the handle) but
+	// before Select (which triggers StartBootstrap in a goroutine).
+	engine.h.mu.Lock()
+	engine.h.blockBootstrap = make(chan struct{})
+	engine.h.mu.Unlock()
 	if _, err := m.Select(snap1.ID, "f0", "f1"); err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	// Inject bootstrap failure.
-	engine.h.bootErr = errors.New("injected reader failure")
+	// Inject the failure while StartBootstrap is blocked on the channel.
+	engine.h.setBootErr(errors.New("injected reader failure"))
+	// Release StartBootstrap — it will now read bootErr and return the error.
+	engine.h.mu.Lock()
+	close(engine.h.blockBootstrap)
+	engine.h.mu.Unlock()
 	// Wait for the error state and session to be freed.
 	deadline := time.Now().Add(5 * time.Second)
 	for m.Current() != nil {
@@ -1168,8 +1215,9 @@ func TestBootstrapFailureFreesSessionAndRetrySucceeds(t *testing.T) {
 		t.Fatalf("session must be free after bootstrap failure, got state=%s", snap1After.State)
 	}
 
-	// Clear the injected error and allow bootstrap to succeed on retry.
-	engine.h.bootErr = nil
+	// No-op; the new handle starts with bootErr=nil by default.
+	// Explicitly clearing for documentation clarity.
+	engine.h.setBootErr(nil)
 	// Create a fresh handle for the new job (the engine's Start returns a new handle).
 	snap2, err := m.Start(testMagnet)
 	if err != nil {
@@ -1585,9 +1633,7 @@ func TestSelectedSubtitleContentAfterSelection(t *testing.T) {
 	}
 
 	// Set the fake handle's subtitle content.
-	engine.mu.Lock()
-	engine.h.subtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nHello world\n"
-	engine.mu.Unlock()
+	engine.h.setSubtitleContent("1\n00:00:01,000 --> 00:00:02,000\nHello world\n")
 
 	waitForState(t, m, id, StateStreaming, 5*time.Second)
 
