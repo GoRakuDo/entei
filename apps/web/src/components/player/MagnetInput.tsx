@@ -66,9 +66,9 @@ import {
   Subtitles,
   FileText,
   Folder,
-  Loader2,
   ArrowUp,
 } from 'lucide-react';
+import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -790,7 +790,7 @@ export function MagnetInput({
                           <TableRow className="entei-magnet-table-row--static">
                             <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
                               <div className="entei-magnet-checking" role="status">
-                                <Loader2 size={16} className="entei-spin" aria-hidden="true" />
+                                <TypewriterLoading aria-hidden="true" />
                                 <span>{dict.magnetCheckMetadata}</span>
                               </div>
                             </TableCell>

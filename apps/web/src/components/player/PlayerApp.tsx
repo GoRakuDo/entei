@@ -251,6 +251,9 @@ export default function PlayerApp() {
   const seekBufferingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const seekBufferingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // P2.1: Play mode — default normal, not persisted
   const [playMode, setPlayMode] = useState<PlayMode>('normal');
@@ -1131,7 +1134,9 @@ export default function PlayerApp() {
   // --- Seek buffering: monitor readyState after seek events ---
   // When the video element fires 'seeking', it means a seek is in
   // progress. If readyState < HAVE_FUTURE_DATA (2) at that point, we
-  // show the spinner overlay. The overlay clears when:
+  // show the spinner overlay — but only after a 1-second delay so that
+  // fast seeks that resolve within 1 second never flash the overlay.
+  // The overlay clears when:
   // 1. 'canplay' fires (readyState >= HAVE_FUTURE_DATA, data arrived)
   // 2. 'error' fires (element errored, overlay is meaningless)
   // 3. A safety timeout fires (5s — prevents stuck overlay if canplay
@@ -1142,25 +1147,37 @@ export default function PlayerApp() {
 
     const HAVE_FUTURE_DATA = 2;
 
+    const clearSeekBufferingTimers = () => {
+      if (seekBufferingDelayRef.current !== null) {
+        clearTimeout(seekBufferingDelayRef.current);
+        seekBufferingDelayRef.current = null;
+      }
+      if (seekBufferingTimeoutRef.current !== null) {
+        clearTimeout(seekBufferingTimeoutRef.current);
+        seekBufferingTimeoutRef.current = null;
+      }
+    };
+
     const onSeeking = () => {
       // If readyState is already sufficient, no overlay needed
       if (media.readyState >= HAVE_FUTURE_DATA) return;
-      setIsSeekBuffering(true);
-      // Safety timeout: clear after 5s even if canplay never fires
-      if (seekBufferingTimeoutRef.current !== null) {
-        clearTimeout(seekBufferingTimeoutRef.current);
-      }
-      seekBufferingTimeoutRef.current = setTimeout(() => {
-        seekBufferingTimeoutRef.current = null;
-        setIsSeekBuffering(false);
-      }, 5000);
+      // Delay showing the overlay by 1 second so fast seeks stay invisible
+      clearSeekBufferingTimers();
+      seekBufferingDelayRef.current = setTimeout(() => {
+        seekBufferingDelayRef.current = null;
+        // Re-check readyState after the delay — the seek may have resolved
+        if (media.readyState >= HAVE_FUTURE_DATA) return;
+        setIsSeekBuffering(true);
+        // Safety timeout: clear after 5s even if canplay never fires
+        seekBufferingTimeoutRef.current = setTimeout(() => {
+          seekBufferingTimeoutRef.current = null;
+          setIsSeekBuffering(false);
+        }, 5000);
+      }, 1000);
     };
 
     const onCanPlay = () => {
-      if (seekBufferingTimeoutRef.current !== null) {
-        clearTimeout(seekBufferingTimeoutRef.current);
-        seekBufferingTimeoutRef.current = null;
-      }
+      clearSeekBufferingTimers();
       setIsSeekBuffering(false);
     };
 
@@ -1169,10 +1186,7 @@ export default function PlayerApp() {
     return () => {
       media.removeEventListener('seeking', onSeeking);
       media.removeEventListener('canplay', onCanPlay);
-      if (seekBufferingTimeoutRef.current !== null) {
-        clearTimeout(seekBufferingTimeoutRef.current);
-        seekBufferingTimeoutRef.current = null;
-      }
+      clearSeekBufferingTimers();
       setIsSeekBuffering(false);
     };
   }, [mediaType, mediaUrl]);
