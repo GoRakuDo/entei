@@ -149,6 +149,12 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
         setSubtitleUrl(
           `${source.baseUrl}/v1/source/torrents/${encodeURIComponent(source.jobId)}/subtitle?token=${encodeURIComponent(source.token)}`,
         );
+      } else if (source.kind === 'youtube') {
+        // YouTube jobs always attempt to serve Japanese subtitles
+        // (manual preferred, auto fallback) when available.
+        setSubtitleUrl(
+          `${source.baseUrl}/v1/source/jobs/${encodeURIComponent(source.jobId)}/subtitle?token=${encodeURIComponent(source.token)}`,
+        );
       } else {
         setSubtitleUrl(null);
       }

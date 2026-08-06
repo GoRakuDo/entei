@@ -25,6 +25,10 @@ func helperArgs(jobDir, url string) []string {
 		"--no-progress",        // keep helper output quiet
 		"--no-write-info-json", // no sidecar files
 		"--no-write-thumbnail", // media bytes only
+		"--write-subs",         // download subtitles (manual preferred)
+		"--write-auto-subs",    // download auto-generated subtitles (fallback)
+		"--sub-langs", "ja.*",  // Japanese subtitles only
+		"--sub-format", "vtt",  // deterministic format
 		"-f", fixedFormat,      // fixed 1080p-cap deterministic selection
 		"-o", filepath.Join(jobDir, "media.%(ext)s"),
 		url, // only user-derived value; separate argv element

@@ -20,6 +20,7 @@ import (
 //	POST   /v1/source/jobs            — create a job (body: {"url": "…"})
 //	GET    /v1/source/jobs/{id}       — read a job's redacted state
 //	POST   /v1/source/jobs/{id}/cancel — cancel the job and free the session
+//	GET    /v1/source/jobs/{id}/subtitle — subtitle text content (VTT)
 //
 // Responses are metadata-only: they never contain the URL, local paths, the
 // helper command line, helper output, or any credential. The URL is
@@ -111,7 +112,29 @@ func (s *Server) handleJobByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Shape: "/v1/source/jobs/{id}" or "/v1/source/jobs/{id}/cancel".
+	// Shape: "/v1/source/jobs/{id}" or "/v1/source/jobs/{id}/cancel" or "/v1/source/jobs/{id}/subtitle".
+	if strings.HasSuffix(rest, "/subtitle") {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, "GET, OPTIONS")
+			return
+		}
+		id := strings.TrimSuffix(rest, "/subtitle")
+		snap := s.jobs.Get(id)
+		if snap == nil {
+			writeJSON(w, http.StatusNotFound, errorBody("job not found"))
+			return
+		}
+		content, err := s.jobs.SelectedSubtitleContent(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, errorBody("subtitle not available"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(content))
+		return
+	}
 	if strings.HasSuffix(rest, "/cancel") {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, "POST, OPTIONS")

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,7 +70,8 @@ type job struct {
 	errMsg   string
 	timedOut atomic.Bool
 
-	bytes atomicInt64 // current media bytes on disk (polled)
+	bytes       atomicInt64 // current media bytes on disk (polled)
+	subtitlePath string     // path to selected Japanese subtitle file (VTT)
 }
 
 func (j *job) setState(s State) { j.stateMu.Lock(); j.state = s; j.stateMu.Unlock() }
@@ -195,6 +197,34 @@ func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 	snap := m.current.snapshot()
 	src := m.current.completedSource()
 	return snap, src
+}
+
+// SelectedSubtitleContent returns the text content of the selected Japanese
+// subtitle file for the active job. Returns an error when no job is active,
+// the job is not complete, or no subtitle was found.
+func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
+	_ = ctx // os.ReadFile is synchronous; ctx kept for interface symmetry with torrent.SelectedSubtitleContent
+	m.mu.Lock()
+	j := m.current
+	m.mu.Unlock()
+	if j == nil {
+		return "", errors.New("no active job")
+	}
+	j.stateMu.Lock()
+	state := j.state
+	subPath := j.subtitlePath
+	j.stateMu.Unlock()
+	if state != StateComplete {
+		return "", errors.New("job not complete")
+	}
+	if subPath == "" {
+		return "", errors.New("subtitle not available")
+	}
+	data, err := os.ReadFile(subPath)
+	if err != nil {
+		return "", errors.New("subtitle not available")
+	}
+	return string(data), nil
 }
 
 // Cancel stops the job (killing the helper tree), removes its private temp
@@ -405,6 +435,8 @@ func (m *Manager) finalize(j *job, dir string) bool {
 		j.setError("media unavailable")
 		return false // errored job stays current until cancelled
 	}
+	// Select the best Japanese subtitle file (manual preferred over auto).
+	j.subtitlePath = selectJapaneseSubtitle(dir)
 	j.setCompleted(src, size)
 	return true
 }
@@ -441,6 +473,38 @@ func mediaBytes(dir string) int64 {
 		return 0
 	}
 	return size
+}
+
+// selectJapaneseSubtitle finds the best Japanese subtitle file in dir.
+// Preference order: manual (*.ja.vtt) > auto (*.ja-orig.vtt).
+// yt-dlp writes subtitles as media.ja.vtt (manual) and media.ja-orig.vtt
+// (auto-generated original language). The --sub-langs "ja.*" regex avoids
+// false matches on future codes like "jam" because it requires ".ja." or
+// ".ja-" before the extension.
+func selectJapaneseSubtitle(dir string) string {
+	matches, err := filepath.Glob(filepath.Join(dir, "*.vtt"))
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+	// Collect Japanese subtitle files: manual has ".ja." (but not
+	// ".ja-orig."), auto-generated has ".ja-orig.".
+	var jaManual, jaAuto []string
+	for _, p := range matches {
+		base := filepath.Base(p)
+		if strings.Contains(base, ".ja-orig.") {
+			jaAuto = append(jaAuto, p)
+		} else if strings.Contains(base, ".ja.") {
+			jaManual = append(jaManual, p)
+		}
+	}
+	// Prefer manual over auto.
+	if len(jaManual) > 0 {
+		return jaManual[0]
+	}
+	if len(jaAuto) > 0 {
+		return jaAuto[0]
+	}
+	return ""
 }
 
 // removeAllBestEffort removes the private job dir, retrying briefly.

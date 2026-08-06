@@ -561,13 +561,22 @@ export default function PlayerApp() {
   }, [jobSession.jobMediaUrl]);
 
   // ED-2G: Auto-fetch subtitle content from companion when a torrent job
-  // selected a subtitle file. Fetches the text, parses it with the same
-  // subtitle-reader used for local files, and populates the subtitle panel.
-  // The subtitle file is prioritized on selection so content is available
-  // immediately — no need to wait for bridge 'ready'.
+  // selected a subtitle file, or from a YouTube job that has Japanese
+  // subtitles. Fetches the text, parses it with the same subtitle-reader
+  // used for local files, and populates the subtitle panel.
+  //
+  // Torrent: subtitle file is prioritized on selection so content is
+  // available immediately — no need to wait for bridge 'ready'.
+  // YouTube: subtitle file only exists on disk after the job completes
+  // (yt-dlp writes it alongside the media), so we wait for
+  // phase === 'ready' || 'playing' before fetching.
   useEffect(() => {
     const url = jobSession.subtitleUrl;
     if (!url || !jobSession.active) return;
+    // YouTube subtitles are only available after the job completes;
+    // waiting for the bridge 'ready'/playing phase ensures the file
+    // exists on disk before we attempt to fetch it.
+    if (jobSession.kind === 'youtube' && jobSession.phase !== 'ready' && jobSession.phase !== 'playing') return;
     let cancelled = false;
     const ac = new AbortController();
     void (async () => {
@@ -592,7 +601,7 @@ export default function PlayerApp() {
       cancelled = true;
       ac.abort();
     };
-  }, [jobSession.subtitleUrl, jobSession.active]);
+  }, [jobSession.subtitleUrl, jobSession.active, jobSession.kind, jobSession.phase]);
 
   useEffect(() => {
     jobSession.attachMediaElement(videoRef.current);

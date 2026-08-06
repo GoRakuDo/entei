@@ -463,3 +463,62 @@ func getStatus(t *testing.T, s *Server) statusBody {
 	}
 	return body
 }
+
+func TestJobSubtitleEndpoint(t *testing.T) {
+	s, _ := newJobsServer(t)
+	t.Setenv("EIZOU_FAKE_SIZE", "1024")
+
+	// Create a job.
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d", rec.Code)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// Wait for complete.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		r := doJob(t, s, http.MethodGet, "/v1/source/jobs/"+created.ID, allowedOriginLocal, "")
+		var snap struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(r.Body.Bytes(), &snap)
+		if snap.State == "complete" {
+			break
+		}
+		if snap.State == "error" {
+			t.Fatalf("job errored: %s", r.Body.String())
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for complete")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// No subtitle file exists → 404.
+	rec = doJob(t, s, http.MethodGet, "/v1/source/jobs/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subtitle (no file) = %d, want 404", rec.Code)
+	}
+
+	// POST is not allowed.
+	rec = doJob(t, s, http.MethodPost, "/v1/source/jobs/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST subtitle = %d, want 405", rec.Code)
+	}
+
+	// Unknown job id → 404.
+	rec = doJob(t, s, http.MethodGet, "/v1/source/jobs/nonexistent/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subtitle unknown = %d, want 404", rec.Code)
+	}
+
+	// Cancel the job.
+	doJob(t, s, http.MethodPost, "/v1/source/jobs/"+created.ID+"/cancel", allowedOriginLocal, "")
+}

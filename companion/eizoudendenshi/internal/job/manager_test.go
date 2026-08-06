@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -155,6 +156,10 @@ func TestFixedArgsNoInjection(t *testing.T) {
 		"--no-progress",
 		"--no-write-info-json",
 		"--no-write-thumbnail",
+		"--write-subs",
+		"--write-auto-subs",
+		"--sub-langs", "ja.*",
+		"--sub-format", "vtt",
 		"-f", fixedFormat,
 		"-o",
 	}
@@ -666,5 +671,84 @@ func TestGetDuringFinalizeNoRace(t *testing.T) {
 		if _, err := m.Cancel(snap.ID); err != nil {
 			t.Fatalf("Cancel %d: %v", i, err)
 		}
+	}
+}
+
+func TestSelectJapaneseSubtitle_PrefersManual(t *testing.T) {
+	dir := t.TempDir()
+	// Create auto and manual subtitle files.
+	_ = os.WriteFile(filepath.Join(dir, "media.ja-orig.vtt"), []byte("auto"), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "media.ja.vtt"), []byte("manual"), 0o600)
+
+	got := selectJapaneseSubtitle(dir)
+	if got == "" {
+		t.Fatal("expected a subtitle file, got empty")
+	}
+	if !strings.Contains(got, "media.ja.vtt") || strings.Contains(got, "-orig.") {
+		t.Errorf("expected manual subtitle, got %s", got)
+	}
+}
+
+func TestSelectJapaneseSubtitle_FallsBackToAuto(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "media.ja-orig.vtt"), []byte("auto"), 0o600)
+
+	got := selectJapaneseSubtitle(dir)
+	if got == "" {
+		t.Fatal("expected auto subtitle, got empty")
+	}
+	if !strings.Contains(got, "-orig.") {
+		t.Errorf("expected auto subtitle, got %s", got)
+	}
+}
+
+func TestSelectJapaneseSubtitle_NoneWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	got := selectJapaneseSubtitle(dir)
+	if got != "" {
+		t.Errorf("expected empty, got %s", got)
+	}
+}
+
+func TestSelectJapaneseSubtitle_IgnoresNonJapanese(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "media.en.vtt"), []byte("english"), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "media.fr.vtt"), []byte("french"), 0o600)
+
+	got := selectJapaneseSubtitle(dir)
+	if got != "" {
+		t.Errorf("expected empty for non-Japanese, got %s", got)
+	}
+}
+
+func TestSelectedSubtitleContent(t *testing.T) {
+	m := newTestManager(t, 0)
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "1024")
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Wait for complete.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s := m.Get(snap.ID)
+		if s == nil {
+			t.Fatal("job disappeared")
+		}
+		if s.State == StateError {
+			t.Fatalf("job errored: %s", s.Error)
+		}
+		if s.State == StateComplete {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for complete")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	// No subtitle file was written by the fake helper → returns error.
+	_, err = m.SelectedSubtitleContent(context.Background())
+	if err == nil {
+		t.Fatal("expected error when no subtitle exists")
 	}
 }
