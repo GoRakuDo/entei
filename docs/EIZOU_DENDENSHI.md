@@ -27,7 +27,7 @@ Enteiは静的・local-firstのまま。source URL、cookie、media dataをGoRak
 | YouTube cookie  | Enteiの初回YouTube URL入力時、Default Cookie未登録なら`cookies.txt` upload modalを出す。upload直後に保存し、同じjobを直ちに開始する        |
 | cookie profile  | Default 1個。新uploadは確認後に置換。削除は1操作                                                                                           |
 | cookie保存      | Windowsはuser-scoped DPAPI。AndroidはTermux app-private storage。Enteiにはcookie本体を保存しない                                           |
-| YouTube画質     | 最大1080pに固定。初期版にquality selectorは作らない                                                                                        |
+| YouTube画質     | 最大1080pに固定。初期版にquality selectorは作らない（※下記「YouTube再生モード設定」の Quality / Speed ダウンロード戦略切替とは別物。1080p capはQualityモードで維持）                                                                                        |
 | YouTube字幕     | 日本語手動字幕を最優先、なければ日本語自動字幕。どちらもなければvideoだけ開く                                                              |
 | torrent開始     | 前方再生優先。未取得の後方seekはbuffer表示でpauseし、順方向downloadが到達したら再開                                                        |
 | torrent複数file | Enteiの一覧Modalでvideo 1本と任意subtitle 1本を選ぶ                                                                                        |
@@ -117,7 +117,7 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 | モード | yt-dlp フォーマット | 再生タイミング | 画質 |
 |---|---|---|---|
 | **Quality（画質優先・既定）** | 現行どおり `bv*[height<=1080]+ba/b[height<=1080]/b` | DL 完了（mux）まで待ち、その後 Player へ | DASH 1080p cap（最良） |
-| **Speed（即再生優先）** | プログレッシブ優先（`37`/`22`/`18` → フォールバック DASH） | **DL 中から HTTP Range で配信し、available が進むと Player が playable で即再生**（Magnet の即ストリーミング（ED-2H）と同じ流れ） | 動画次第（最大 720p〜1080p、プログレスがない場合 DASH にフォールバック） |
+| **Speed（即再生優先）** | プログレッシブ優先（`37`/`22`/`18`。選択した progressive フォーマットが無い動画（YouTube が progressive 1080p を提供しない場合等）は DASH にフォールバック） | **DL 中から HTTP Range で配信し、available が進むと Player が playable で即再生**（Magnet の即ストリーミング（ED-2H）と同じ流れ） | 動画次第（最大 720p〜1080p、プログレスがない場合 DASH にフォールバック） |
 
 **設定 UI（どこからでも開ける）**
 - プレイヤー設定モーダル（デスクトップで Player の Settings から）に **「EizouDen」タブを新規追加**し、Quality / Speed Toggle を置く（localStorage `entei.eizou.yt-mode.v1` 等に保存、既定 Quality）。

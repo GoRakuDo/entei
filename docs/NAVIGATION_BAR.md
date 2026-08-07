@@ -90,7 +90,7 @@ Home / TrackerのTopBarはbrandと必要なLanguage Selectorだけを保ち、de
 - `env(safe-area-inset-bottom)`と既存Entei spacing tokenを足し、iPhoneのhome indicatorやbrowser chromeに重ねない。
 - 3 destinationは等しい幅で、iconの下に短いlabelを置く。tap targetは各44×44 CSS px以上。
 - ページ本文にはDock高さ + safe-area分のbottom paddingを確保し、最後の操作・footer・Player controlsをDockで隠さない。
-- Dockはすべてのpageで同じDOM順 `Home → Player → Tracker` を保つ。視覚順とTab順を入れ替えない。
+- Dockはすべてのpageで同じDOM順 `Home → Tracker → Settings` を保つ。視覚順とTab順を入れ替えない（2026-08-07変更: Playerを除外し、Settingsを追加）。
 - Player mobileでTopBarを隠してもDockは残す。Home / TrackerのTopBarはmobile language selectionの入口として維持する。
 
 ### 4.3 Player short-height landscape / fullscreen
