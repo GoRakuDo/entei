@@ -76,3 +76,69 @@ func (s *JobSource) Close() error {
 	s.f = nil
 	return err
 }
+
+// PartSource is a growing media.GrowingSource over yt-dlp's `.part` file
+// (speed mode instant playback). Total is unknown while the download runs
+// (yt-dlp only knows the size at completion), so Total returns the current
+// size — the growing-media contract is served with end clamped to the
+// available prefix, and the client re-requests as data arrives.
+//
+// The file is append-only while the source is in use (yt-dlp writes then
+// renames at completion); the descriptor is reopened on every read so the
+// final rename never leaves a stale handle.
+type PartSource struct {
+	mu   sync.Mutex
+	path string
+}
+
+// NewPartSource opens a growing .part file for streaming. The file need not
+// exist yet (yt-dlp creates it shortly after launch); reads before creation
+// resolve to EOF (0 available), matching the monotonic-availability
+// contract.
+func NewPartSource(path string) *PartSource {
+	return &PartSource{path: path}
+}
+
+// Total implements media.GrowingSource. During download the final size is
+// unknown; the current size is reported so `total` stays consistent with
+// what is actually servable (never larger than the disk state).
+func (s *PartSource) Total() int64 {
+	return s.Available()
+}
+
+// Available implements media.GrowingSource: the .part file's current size.
+func (s *PartSource) Available() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := os.Stat(s.path)
+	if err != nil || st.IsDir() {
+		return 0
+	}
+	return st.Size()
+}
+
+// ReadAt implements io.ReaderAt, strictly bounded by the current file size.
+func (s *PartSource) ReadAt(p []byte, off int64) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := os.Open(s.path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.IsDir() {
+		return 0, os.ErrNotExist
+	}
+	avail := st.Size()
+	if off < 0 || off >= avail {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > avail-off {
+		p = p[:int(avail-off)]
+	}
+	return f.ReadAt(p, off)
+}
+
+// Close releases nothing (descriptors are per-read); present for symmetry.
+func (s *PartSource) Close() error { return nil }

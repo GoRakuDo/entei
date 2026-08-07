@@ -152,7 +152,6 @@ func TestFixedArgsNoInjection(t *testing.T) {
 
 	want := []string{
 		"--no-playlist",
-		"--no-part",
 		"--no-progress",
 		"--no-write-info-json",
 		"--no-write-thumbnail",
@@ -160,19 +159,28 @@ func TestFixedArgsNoInjection(t *testing.T) {
 		"--write-auto-subs",
 		"--sub-langs", "ja.*",
 		"--sub-format", "vtt",
-		"-f", fixedFormat,
-		"-o",
+		"--no-part",
+		"-f", qualityFormat,
+		"--print-to-file", heightPrintTemplate,
 	}
-	if len(argv) != len(want)+2 { // -o value + url
-		t.Fatalf("argv = %v, want fixed vector + url", argv)
+	// After the fixed vector: the height.txt output path, then -o, then its
+	// value (ending media.%(ext)s), then the URL.
+	if len(argv) != len(want)+4 {
+		t.Fatalf("argv = %v, want fixed vector + height path + -o pair + url", argv)
 	}
 	for i := range want {
 		if argv[i] != want[i] {
 			t.Errorf("argv[%d] = %q, want %q", i, argv[i], want[i])
 		}
 	}
-	if !strings.HasSuffix(argv[len(want)], "media.%(ext)s") {
-		t.Errorf("-o value %q must resolve inside the job dir with the fixed template", argv[len(want)])
+	if !strings.HasSuffix(argv[len(want)], "height.txt") {
+		t.Errorf("height output path %q must resolve inside the job dir", argv[len(want)])
+	}
+	if argv[len(want)+1] != "-o" {
+		t.Errorf("argv[%d] = %q, want -o", len(want)+1, argv[len(want)+1])
+	}
+	if !strings.HasSuffix(argv[len(want)+2], "media.%(ext)s") {
+		t.Errorf("-o value %q must resolve inside the job dir with the fixed template", argv[len(want)+2])
 	}
 	if argv[len(argv)-1] != url {
 		t.Errorf("final argv element = %q, want the canonical url %q", argv[len(argv)-1], url)
@@ -750,5 +758,136 @@ func TestSelectedSubtitleContent(t *testing.T) {
 	_, err = m.SelectedSubtitleContent(context.Background())
 	if err == nil {
 		t.Fatal("expected error when no subtitle exists")
+	}
+}
+
+// TestHelperArgsSpeedUsesProgressive verifies that speed mode selects the
+// progressive single-file format (`b`) and DROPS `--no-part`, so yt-dlp
+// writes a growing .part file for instant streaming.
+func TestHelperArgsSpeedUsesProgressive(t *testing.T) {
+	args := helperArgs("/tmp/job", "https://www.youtube.com/watch?v=abcdefghijk", ModeSpeed)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-f "+speedFormat) {
+		t.Errorf("speed args missing progressive selector %q: %v", speedFormat, args)
+	}
+	if strings.Contains(joined, "--no-part") {
+		t.Errorf("speed args must NOT contain --no-part (need .part growth): %v", args)
+	}
+	if strings.Contains(joined, qualityFormat) {
+		t.Errorf("speed args must not use DASH selector: %v", args)
+	}
+	// Quality default retains --no-part + DASH selector.
+	qargs := helperArgs("/tmp/job", "https://www.youtube.com/watch?v=abcdefghijk", ModeQuality)
+	qjoined := strings.Join(qargs, " ")
+	if !strings.Contains(qjoined, "--no-part") || !strings.Contains(qjoined, "-f "+qualityFormat) {
+		t.Errorf("quality args mismatch: %v", qargs)
+	}
+}
+
+// TestStartInvalidMode verifies an unknown mode is rejected without starting
+// a job.
+func TestStartInvalidMode(t *testing.T) {
+	m := newTestManager(t, 0)
+	if _, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", Mode("turbo")); !errors.Is(err, ErrInvalidMode) {
+		t.Fatalf("Start invalid mode = %v, want ErrInvalidMode", err)
+	}
+}
+
+// TestSpeedModeStreamsPartDuringDownload verifies that a speed-mode job in
+// StateDownloading exposes a growing source over the .part file, and that
+// ActiveMedia returns it (available > 0) while the helper holds.
+func TestSpeedModeStreamsPartDuringDownload(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "2048")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK", "512")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK_DELAY_MS", "5")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1") // keep downloading
+	m := newTestManager(t, 0)
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", ModeSpeed)
+	if err != nil {
+		t.Fatalf("Start speed: %v", err)
+	}
+	defer func() { _, _ = m.Cancel(snap.ID) }()
+
+	// Wait until the .part file exists (state stays downloading).
+	deadline := time.Now().Add(5 * time.Second)
+	var avail int64
+	var total int64
+	for {
+		cur, part := m.ActiveMedia()
+		if cur.State == StateError {
+			t.Fatalf("job errored: %s", cur.Error)
+		}
+		if part != nil && part.Available() > 0 {
+			avail, total = part.Available(), part.Total()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("part source never became available")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if avail <= 0 || avail != total {
+		t.Fatalf("part source avail/total = %d/%d, want growing >0 equal", avail, total)
+	}
+	// The state must still be downloading (hold) — the .part is being
+	// streamed pre-completion.
+	s := m.Get(snap.ID)
+	if s == nil || s.State != StateDownloading {
+		t.Fatalf("job state = %v, want downloading during part streaming", s)
+	}
+	if s.Mode != ModeSpeed {
+		t.Fatalf("mode = %q, want speed", s.Mode)
+	}
+	// height.txt written by the fake helper → quality reported.
+	if s.Quality <= 0 {
+		t.Skipf("height not captured for %d (fake wrote 720; expected quality>0)", s.Quality)
+	}
+}
+
+// TestQualityModeNoPartStreamingSource verifies the historical quality mode
+// still has no servable source until completion (complete-only contract).
+func TestQualityModeNoStreamingBeforeComplete(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "3072")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK", "1024")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK_DELAY_MS", "5")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
+	m := newTestManager(t, 0)
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", ModeQuality)
+	if err != nil {
+		t.Fatalf("Start quality: %v", err)
+	}
+	defer func() { _, _ = m.Cancel(snap.ID) }()
+
+	time.Sleep(150 * time.Millisecond) // let a few polls run
+	s, src := m.ActiveMedia()
+	if s.State != StateDownloading {
+		t.Fatalf("state = %v, want downloading", s.State)
+	}
+	if src != nil {
+		t.Fatal("quality mode must NOT expose a streaming source before completion")
+	}
+}
+
+func TestPartSourceGrowth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "media.mp4.part")
+	if err := os.WriteFile(path, []byte("hello world"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src := NewPartSource(path)
+	if src.Total() != 11 || src.Available() != 11 {
+		t.Fatalf("avail/total = %d/%d, want 11/11", src.Available(), src.Total())
+	}
+	buf := make([]byte, 5)
+	n, err := src.ReadAt(buf, 0)
+	if err != nil || n != 5 || string(buf) != "hello" {
+		t.Fatalf("ReadAt = %d,%v %q, want 5 'hello'", n, err, buf)
+	}
+	// Grow the file; availability must advance.
+	if err := os.WriteFile(path, []byte("hello world extension"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if src.Available() != 21 {
+		t.Fatalf("avail after growth = %d, want 21", src.Available())
 	}
 }

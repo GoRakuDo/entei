@@ -46,18 +46,42 @@ func main() {
 	}
 
 	var outPath string
+	noPart := false
 	for i := 0; i < len(args)-1; i++ {
 		if args[i] == "-o" {
 			outPath = args[i+1]
-			break
+		}
+		if args[i] == "--no-part" {
+			noPart = true
 		}
 	}
 	if outPath == "" {
 		os.Exit(3)
 	}
+	// Write height.txt when --print-to-file "%(height)s" is present, so the
+	// manager can read the selected format height.
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--print-to-file" {
+			_ = os.WriteFile(args[i+2], []byte("720\n"), 0o600)
+			break
+		}
+	}
+	// Speed mode (no --no-part) writes a .part file that grows and is
+	// renamed on completion — mirroring yt-dlp for instant playback.
+	if !noPart {
+		outPath += ".part"
+	}
 	outPath = strings.Replace(outPath, "%(ext)s", "mp4", 1)
 	dir := filepath.Dir(outPath)
 	_ = os.WriteFile(filepath.Join(dir, "pid.txt"), []byte(strconv.Itoa(os.Getpid())), 0o600)
+
+	// On completion (no hold, no fail), rename the .part away — mirroring
+	// yt-dlp's completion rename so largestMedia sees the final file.
+	if !noPart && os.Getenv("EIZOU_FAKE_HOLD") != "1" && os.Getenv("EIZOU_FAKE_FAIL") != "1" {
+		defer func() {
+			_ = os.Rename(outPath, strings.TrimSuffix(outPath, ".part"))
+		}()
+	}
 
 	size := mustInt("EIZOU_FAKE_SIZE")
 	chunk := mustInt("EIZOU_FAKE_CHUNK")

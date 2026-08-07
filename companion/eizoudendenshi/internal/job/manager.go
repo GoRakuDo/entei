@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,6 +60,7 @@ func New(cfg Config) (*Manager, error) {
 type job struct {
 	id     string
 	url    string // canonical URL; passed only as the final helper argv
+	mode   Mode   // quality (default) or speed — fixed for the job's lifetime
 	dir    string // private temp dir, owned by the job
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -70,8 +72,11 @@ type job struct {
 	errMsg   string
 	timedOut atomic.Bool
 
-	bytes       atomicInt64 // current media bytes on disk (polled)
-	subtitlePath string     // path to selected Japanese subtitle file (VTT)
+	bytes        atomicInt64 // current media bytes on disk (polled)
+	quality      atomicInt64 // selected format height (0 = unknown, set once)
+	subtitlePath string      // path to selected Japanese subtitle file (VTT)
+	partMu       sync.Mutex
+	partPath     string // growing .part file path (speed mode streaming), "" if none
 }
 
 func (j *job) setState(s State) { j.stateMu.Lock(); j.state = s; j.stateMu.Unlock() }
@@ -117,7 +122,7 @@ func (j *job) completedSource() media.GrowingSource {
 func (j *job) snapshot() Snapshot {
 	j.stateMu.Lock()
 	defer j.stateMu.Unlock()
-	snap := Snapshot{ID: j.id, State: j.state}
+	snap := Snapshot{ID: j.id, State: j.state, Mode: j.mode, Quality: int(j.quality.load())}
 	if j.state == StateError {
 		snap.Error = j.errMsg
 	}
@@ -130,13 +135,20 @@ func (j *job) snapshot() Snapshot {
 	return snap
 }
 
-// Start validates the URL and begins a new job. Exactly one job may be
-// active at a time: ErrConflict is returned while another exists. The
-// returned snapshot is metadata-only.
-func (m *Manager) Start(rawURL string) (Snapshot, error) {
+// Start validates the URL and begins a new job in the given download mode
+// (default quality). Exactly one job may be active at a time: ErrConflict is
+// returned while another exists. The returned snapshot is metadata-only.
+func (m *Manager) Start(rawURL string, modes ...Mode) (Snapshot, error) {
 	canonical, err := youtube.ValidateURL(rawURL)
 	if err != nil {
 		return Snapshot{}, err // generic; never echoes the URL
+	}
+	mode := ModeQuality
+	if len(modes) > 0 && modes[0] != "" {
+		mode = modes[0]
+	}
+	if !ValidMode(mode) {
+		return Snapshot{}, ErrInvalidMode
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -149,6 +161,7 @@ func (m *Manager) Start(rawURL string) (Snapshot, error) {
 	j := &job{
 		id:    newJobID(),
 		url:   canonical,
+		mode:  mode,
 		done:  make(chan struct{}),
 		state: StateQueued, // observable before the run loop transitions it
 	}
@@ -184,19 +197,64 @@ func (m *Manager) Get(id string) *Snapshot {
 	return &snap
 }
 
-// ActiveMedia returns the current job's redacted snapshot and, when the job
-// is complete, its servable media source. It is used by the media/status
-// bridge to surface the active session. A completed source stays servable
-// until the session is cancelled or the manager closes.
+// ActiveMedia returns the current job's redacted snapshot and the servable
+// media source, if any. Source selection:
+//   - complete → the finished JobSource (fully available)
+//   - speed mode + downloading → a PartSource over the growing .part file
+//     (instant playback: bytes 0..available are servable while downloading)
+//   - otherwise → nil (source not servable yet)
+//
+// It is used by the media/status bridge to surface the active session. A
+// completed source stays servable until the session is cancelled or the
+// manager closes.
 func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.current == nil {
 		return Snapshot{}, nil
 	}
-	snap := m.current.snapshot()
-	src := m.current.completedSource()
-	return snap, src
+	j := m.current
+	snap := j.snapshot()
+	switch snap.State {
+	case StateComplete:
+		return snap, j.completedSource()
+	case StateDownloading, StateBuffering:
+		if snap.Mode == ModeSpeed {
+			j.partMu.Lock()
+			path := j.partPath
+			j.partMu.Unlock()
+			if path != "" {
+				return snap, NewPartSource(path)
+			}
+		}
+	}
+	return snap, nil
+}
+
+// PartPath returns the current growing .part file path for the active
+// speed-mode job, or "" when none. Used by the HTTP layer to size/stream
+// the partial file.
+func (m *Manager) PartPath() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.current == nil {
+		return ""
+	}
+	j := m.current
+	j.partMu.Lock()
+	defer j.partMu.Unlock()
+	return j.partPath
+}
+
+// Height returns the selected format's height (0 = unknown/not yet known).
+func (m *Manager) Height() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.current == nil {
+		return 0
+	}
+	j := m.current
+	return int(j.quality.load())
 }
 
 // SelectedSubtitleContent returns the text content of the selected Japanese
@@ -319,7 +377,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 		defer timer.Stop()
 	}
 
-	cmd := exec.CommandContext(ctx, m.helper, helperArgs(dir, j.url)...)
+	cmd := exec.CommandContext(ctx, m.helper, helperArgs(dir, j.url, j.mode)...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = newSysProcAttr()
 	// Helper output is captured only to the private job dir; it is never
@@ -379,7 +437,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			}
 			return
 		case err := <-waitCh:
-			j.bytes.store(mediaBytes(dir))
+			j.refreshDownloadState(dir)
 			if ctx.Err() != nil {
 				// The process finished at the same moment as a cancel/timeout;
 				// the cancel path wins so no media survives a cancelled session.
@@ -410,7 +468,23 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			}
 			return
 		case <-ticker.C:
-			j.bytes.store(mediaBytes(dir))
+			j.refreshDownloadState(dir)
+		}
+	}
+}
+
+// refreshDownloadState snapshots the growing download state during the run:
+//   - bytes: current media bytes on disk (media.<ext> or media.<ext>.part)
+//   - partPath: the growing .part file (speed mode instant playback)
+//   - quality: the selected format height from height.txt, read once
+func (j *job) refreshDownloadState(dir string) {
+	j.bytes.store(mediaBytes(dir))
+	j.partMu.Lock()
+	j.partPath = partMediaPath(dir)
+	j.partMu.Unlock()
+	if j.quality.load() == 0 {
+		if h, err := readHeightFile(filepath.Join(dir, "height.txt")); err == nil && h > 0 {
+			j.quality.store(int64(h))
 		}
 	}
 }
@@ -437,6 +511,7 @@ func (m *Manager) finalize(j *job, dir string) bool {
 	}
 	// Select the best Japanese subtitle file (manual preferred over auto).
 	j.subtitlePath = selectJapaneseSubtitle(dir)
+	j.refreshDownloadState(dir) // capture part path + height for the toast
 	j.setCompleted(src, size)
 	return true
 }
@@ -473,6 +548,42 @@ func mediaBytes(dir string) int64 {
 		return 0
 	}
 	return size
+}
+
+// partMediaPath returns the largest growing `.part` file in dir, or "".
+// yt-dlp writes `media.<ext>.part` and renames it to `media.<ext>` on
+// completion (speed mode streams the `.part` while it grows).
+func partMediaPath(dir string) string {
+	matches, err := filepath.Glob(filepath.Join(dir, "media.*.part"))
+	if err != nil {
+		return ""
+	}
+	var best string
+	var bestSize int64
+	for _, p := range matches {
+		st, err := os.Stat(p)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		if st.Size() > bestSize {
+			best, bestSize = p, st.Size()
+		}
+	}
+	return best
+}
+
+// readHeightFile parses the selected format height written by yt-dlp's
+// `--print-to-file "%(height)s"`. Returns (0, error) when absent/malformed.
+func readHeightFile(path string) (int, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || n <= 0 {
+		return 0, errors.New("invalid height")
+	}
+	return n, nil
 }
 
 // selectJapaneseSubtitle finds the best Japanese subtitle file in dir.

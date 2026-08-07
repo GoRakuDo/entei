@@ -4,33 +4,68 @@ import (
 	"path/filepath"
 )
 
-// fixedFormat is the deterministic, fixed 1080p-cap format selection passed
-// to the download helper. It is a code constant — never user-controlled,
-// never configurable from a request. Semantics (yt-dlp format syntax):
-// best video ≤1080p + best audio (merged), fallback best ≤1080p combined,
-// fallback best.
-const fixedFormat = "bv*[height<=1080]+ba/b[height<=1080]/b"
+// Format selection constants (docs/EIZOU_DENDENSHI.md "YouTube 再生モード設定"):
+//
+// qualityFormat — DASH 1080p cap, plays after mux completes. This is the
+// historical fixed selector: best video ≤1080p + best audio (merged),
+// fallback best ≤1080p combined, fallback best.
+const qualityFormat = "bv*[height<=1080]+ba/b[height<=1080]/b"
+
+// speedFormat — progressive-only, instant playback. `b` is yt-dlp's "best
+// format that contains BOTH video and audio" selector — a single muxed file
+// (e.g. YouTube 22/18/37) that can be streamed from byte 0 while still
+// downloading, with no ffmpeg mux step. No DASH fallback: if no progressive
+// format exists (rare, e.g. some live streams), yt-dlp fails with a
+// "Requested format is not available" error and the job errors clearly.
+const speedFormat = "b"
+
+// heightPrintTemplate writes the selected format's height (e.g. "720") to a
+// sidecar file so the companion can report the actual resolution for the
+// quality toast (docs: "選択された画質とモード"). `--print-to-file` runs
+// after format selection, before download begins.
+const heightPrintTemplate = "%(height)s"
 
 // helperArgs builds the fixed argument vector for the download helper.
 // The validated URL is the final element and the only user-derived value;
 // it is never interpolated into a flag. No shell is involved — the helper
 // path and these args are passed directly to exec.Command.
 //
+// Mode differences:
+//   - quality: DASH selector + --no-part (final file written directly;
+//     completion = full file present).
+//   - speed: progressive selector, NO --no-part → yt-dlp writes
+//     media.<ext>.part and renames it on completion; the .part file is
+//     served while it grows (instant playback).
+//
+// Both modes write the selected height to height.txt for the toast.
+//
 // The -o template resolves inside the job's private temp directory, so a
 // malicious URL can never make the helper write outside it.
-func helperArgs(jobDir, url string) []string {
-	return []string{
+func helperArgs(jobDir, url string, mode Mode) []string {
+	format := qualityFormat
+	noPart := "--no-part"
+	if mode == ModeSpeed {
+		format = speedFormat
+		noPart = "" // keep .part so the growing file can be streamed
+	}
+	args := []string{
 		"--no-playlist",        // deterministic single video
-		"--no-part",            // write directly to the output file (progress observable)
 		"--no-progress",        // keep helper output quiet
 		"--no-write-info-json", // no sidecar files
 		"--no-write-thumbnail", // media bytes only
 		"--write-subs",         // download subtitles (manual preferred)
 		"--write-auto-subs",    // download auto-generated subtitles (fallback)
 		"--sub-langs", "ja.*",  // Japanese subtitles only
-		"--sub-format", "vtt",  // deterministic format
-		"-f", fixedFormat,      // fixed 1080p-cap deterministic selection
-		"-o", filepath.Join(jobDir, "media.%(ext)s"),
-		url, // only user-derived value; separate argv element
+		"--sub-format", "vtt", // deterministic format
 	}
+	if noPart != "" {
+		args = append(args, noPart)
+	}
+	args = append(args,
+		"-f", format,
+		"--print-to-file", heightPrintTemplate, filepath.Join(jobDir, "height.txt"),
+		"-o", filepath.Join(jobDir, "media.%(ext)s"),
+		url,
+	)
+	return args
 }

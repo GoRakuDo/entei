@@ -35,17 +35,21 @@ type jobMediaBody struct {
 
 // jobResponseBody is the redacted job view returned to callers.
 type jobResponseBody struct {
-	ID    string       `json:"id"`
-	State string       `json:"state"`
-	Error string       `json:"error,omitempty"`
-	Media jobMediaBody `json:"media"`
+	ID      string       `json:"id"`
+	State   string       `json:"state"`
+	Mode    string       `json:"mode"`
+	Quality int          `json:"quality,omitempty"` // selected format height (0 = unknown)
+	Error   string       `json:"error,omitempty"`
+	Media   jobMediaBody `json:"media"`
 }
 
 func snapshotToJobBody(s job.Snapshot) jobResponseBody {
 	return jobResponseBody{
-		ID:    s.ID,
-		State: string(s.State),
-		Error: s.Error,
+		ID:      s.ID,
+		State:   string(s.State),
+		Mode:    string(s.Mode),
+		Quality: s.Quality,
+		Error:   s.Error,
 		Media: jobMediaBody{
 			Available: s.Media.Available,
 			Total:     s.Media.Total,
@@ -66,6 +70,25 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.jobGates(w, r) {
 		return
 	}
+	var req struct {
+		URL  string `json:"url"`
+		Mode string `json:"mode"`
+	}
+	body := http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody("invalid JSON body"))
+		return
+	}
+	var mode job.Mode
+	switch req.Mode {
+	case "", "quality":
+		mode = job.ModeQuality
+	case "speed":
+		mode = job.ModeSpeed
+	default:
+		writeJSON(w, http.StatusBadRequest, errorBody("invalid mode"))
+		return
+	}
 	// One active YouTube session (but torrents can have up to 2).
 	if s.jobs != nil && s.jobs.Current() != nil {
 		writeJSON(w, http.StatusConflict, errorBody("a YouTube job is already active"))
@@ -76,15 +99,7 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, errorBody("a torrent job is already active"))
 		return
 	}
-	var req struct {
-		URL string `json:"url"`
-	}
-	body := http.MaxBytesReader(w, r.Body, 4096)
-	if err := json.NewDecoder(body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid JSON body"))
-		return
-	}
-	snap, err := s.jobs.Start(req.URL)
+	snap, err := s.jobs.Start(req.URL, mode)
 	if err != nil {
 		if errors.Is(err, job.ErrConflict) {
 			writeJSON(w, http.StatusConflict, errorBody("a job is already active"))
@@ -201,6 +216,15 @@ func (s *Server) activeJobStatus() (statusBody, bool) {
 	snap, _ := s.jobs.ActiveMedia()
 	switch snap.State {
 	case job.StateQueued, job.StateDownloading, job.StateBuffering:
+		// Speed mode is instantly streamable once the .part file exists:
+		// report "playable" so the bridge hands the URL to the element.
+		if snap.Mode == job.ModeSpeed && snap.Media.Available > 0 {
+			return statusBody{
+				State:     statusPlayable,
+				Available: snap.Media.Available,
+				Total:     snap.Media.Total,
+			}, true
+		}
 		return statusBody{
 			State:      statusBuffering,
 			Available:  snap.Media.Available,
@@ -227,7 +251,8 @@ func (s *Server) activeJobStatus() (statusBody, bool) {
 //
 //	complete     → the growing serv (available == total → 200/206)
 //	downloading/ → 503 buffering with current bytes / total (0 until known)
-//	buffering
+//	buffering      … EXCEPT speed mode, where the growing .part source is
+//	                served (206 clamped to available; instant playback)
 //	error        → generic 404 (no media)
 //
 // A job in any state takes precedence over the configured fixture/grow
@@ -244,6 +269,13 @@ func (s *Server) serveJobMedia(w http.ResponseWriter, r *http.Request) bool {
 		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
 		return true
 	case job.StateDownloading, job.StateBuffering:
+		// Speed mode: the .part file is servable while downloading (the
+		// GrowingSource reports the current available prefix; Range reads
+		// are clamped to it — chromes requests bytes=0- and streams).
+		if snap.Mode == job.ModeSpeed && src != nil {
+			s.serveGrowingSource(src, w, r)
+			return true
+		}
 		s.writeBuffering(w, r, snap.Media.Available, snap.Media.Total)
 		return true
 	case job.StateError, job.StateCancelled:

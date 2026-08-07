@@ -53,11 +53,32 @@ type Media struct {
 // URL, local paths, the helper command line, or helper output. Error is a
 // generic message present only in the error state.
 type Snapshot struct {
-	ID    string `json:"id"`
-	State State  `json:"state"`
-	Error string `json:"error,omitempty"`
-	Media Media  `json:"media"`
+	ID      string `json:"id"`
+	State   State  `json:"state"`
+	Mode    Mode   `json:"mode"`
+	Quality int    `json:"quality,omitempty"` // selected format height (0 = unknown)
+	Error   string `json:"error,omitempty"`
+	Media   Media  `json:"media"`
 }
+
+// Mode is the YouTube download strategy (docs/EIZOU_DENDENSHI.md "YouTube
+// 再生モード設定"). Empty mode means ModeQuality (the default).
+type Mode string
+
+const (
+	// ModeQuality — DASH 1080p cap; plays after the download (mux) completes.
+	ModeQuality Mode = "quality"
+	// ModeSpeed — progressive single-file; plays while downloading (.part).
+	ModeSpeed Mode = "speed"
+)
+
+// ValidMode reports whether m is a known download mode.
+func ValidMode(m Mode) bool {
+	return m == ModeQuality || m == ModeSpeed
+}
+
+// ErrInvalidMode is returned when an unknown download mode is requested.
+var ErrInvalidMode = errors.New("invalid download mode")
 
 // ErrConflict is returned when a job is already active (one-session policy).
 var ErrConflict = errors.New("a job is already active")

@@ -130,7 +130,8 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 
 **実装状況（2026-08-07更新）**:
 - **web は実装済み**: 設定モーダルの「EizouDen」タブ（Quality/​Speed ラジオ）、`localStorage entei.eizou.yt-mode.v1`（既定 quality）、TopBar ナビの設定ボタン（desktop pill / mobile Dock）、**モバイル Dock = Home/Tracker/Settings**（Player 除外）、**Sonner 導入**（`EizouToaster` を両レイアウトへ）+ 画質通知トースト関数（`notifyQuality`、i18n `ytModeToastFormat`、companion 接続は後続）。DeepSeek Executor（ChromeDevTools でスペーシング検証付き）+ Mimo 独立レビュー（新しい部屋）完全 APPROVE。`npm test` 1453 PASS・check 0/0/0・build 成功。
-- **companion は未実装**: yt-dlp フォーマット切替（Quality DASH / Speed プログレッシブ最優先）+ `.part` 配信 + 画質情報の返却。実装は「**`.part` ファイルの HTTP Range 配信で Chrome が DL 中の先頭再生を開始できるか**」の PoC 検証から始める（成立しない場合、アプローチを見直す）。
+- **companion は実装済み（2026-08-07）**: ① job 作成 API で `mode`（`quality`/`speed`、既定 `quality`）を受け取り・保持（不正 400）。② yt-dlp 切替: `quality`=現行 `bv*[height<=1080]+ba/...` + `--no-part`（DL完了まで配信しない）/ `speed`= **`-f b`（best combined = プログレッシブ単一、動画+音声同梱）** + `.part` 成長。③ **DL中の`.part`配信**（Speed）: 監視中の DL 済みバイトを available とし、`os.Stat`∞→`ReadAt`の再オープン方式（リネーム後の stale handle 防止）で `.part` を 206/クランプ配信（`avail` 外は返さない）。④ **画質情報**: `--print-to-file "%(height)s" height.txt` で実選択フォーマットの高さを取得し `Snapshot.Quality` へ（web トースト用）。⑤ 既存 Quality の挙動は不変（complete まで配信しない）。Mimo 独立レビュー（新しい部屋）**完全 APPROVE**。`go test -race` 10/10 PASS。
+- **残**: web 側のトースト接続（companion の `Snapshot.Quality` を受け取って `notifyQuality` を呼ぶ）、実機確認（ユーザー）。
 
 ### Torrent
 

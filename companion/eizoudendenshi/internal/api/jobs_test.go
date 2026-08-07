@@ -197,6 +197,74 @@ func TestJobCreateReadCancelFlow(t *testing.T) {
 	}
 }
 
+// TestJobCreateModeSpeed streams while downloading: the status reports
+// "playable" once the .part exists (not buffering), and the media endpoint
+// serves a Range (206) rather than a 503.
+func TestJobCreateModeSpeedStreamsWhileDownloading(t *testing.T) {
+	s, _ := newJobsServer(t)
+	t.Setenv("EIZOU_FAKE_SIZE", "4096")
+	t.Setenv("EIZOU_FAKE_CHUNK", "1024")
+	t.Setenv("EIZOU_FAKE_CHUNK_DELAY_MS", "5")
+	t.Setenv("EIZOU_FAKE_HOLD", "1")
+
+	// Create in speed mode.
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"speed"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID   string `json:"id"`
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.Mode != "speed" {
+		t.Fatalf("mode = %q, want speed", created.Mode)
+	}
+
+	// Poll until the .part is streamable (status playable).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		status := doJob(t, s, http.MethodGet, "/v1/media/status", allowedOriginLocal, "")
+		if status.Code == http.StatusOK {
+			var b statusBody
+			_ = json.Unmarshal(status.Body.Bytes(), &b)
+			if b.State == statusPlayable && b.Available > 0 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("speed job never became playable while downloading")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Media endpoint serves 206 while downloading (not a 503 buffering).
+	req := httptest.NewRequest(http.MethodGet, "/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=0-1023")
+	mrec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(mrec, req)
+	if mrec.Code != http.StatusPartialContent {
+		t.Fatalf("speed media while downloading = %d, want 206", mrec.Code)
+	}
+	if cr := mrec.Header().Get("Content-Range"); cr == "" {
+		t.Fatal("speed 206 must carry Content-Range")
+	}
+
+	// Clean up the speed job so the invalid-mode probe below is unambiguous.
+	doJob(t, s, http.MethodPost, "/v1/source/jobs/"+created.ID+"/cancel", allowedOriginLocal, "")
+
+	// Unknown mode → 400.
+	rec = doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"turbo"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid mode create = %d, want 400", rec.Code)
+	}
+}
+
 func TestJobCreateInvalidURLAndRedaction(t *testing.T) {
 	s, _ := newJobsServer(t)
 	cases := []string{
