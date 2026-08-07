@@ -15,6 +15,16 @@ export default defineConfig({
   output: 'static',
   trailingSlash: 'ignore',
 
+  // Astro 7.2 experimental incremental static builds (2026-08-07):
+  // skips re-rendering prerendered pages whose code and data haven't changed.
+  // Routes opt in per-path via getStaticPaths() cacheKey; paths without a
+  // cacheKey are always rendered, so existing behavior is unchanged until a
+  // route opts in. Cache lives in cacheDir (node_modules/.astro/), so CI that
+  // persists that directory can reuse it across runs.
+  experimental: {
+    incrementalBuild: true,
+  },
+
   // Clean asset URLs (matches GoRakuDo convention).
   build: {
     assets: '_astro',
