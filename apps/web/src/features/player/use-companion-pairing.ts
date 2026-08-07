@@ -43,10 +43,8 @@ import {
   isValidPairingToken,
   readStoredPairingToken,
   writeStoredPairingToken,
+  COMPANION_PAIRING_BASE_URL,
 } from '@/features/player/companion-pairing-store';
-
-/** Loopback companion origin; the only accepted pairing endpoint. */
-export const COMPANION_PAIRING_BASE_URL = 'http://127.0.0.1:4322';
 
 /** Interval between poll checks (ms). Matches companion restart window. */
 export const POLL_INTERVAL_MS = 5_000;

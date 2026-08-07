@@ -14,9 +14,10 @@
  * (ED-3): a Lucide Unplug + shadcn Button (destructive variant) opens a
  * confirmation Dialog; the confirm action is delegated to the caller's
  * `onResetPairing` (companion DELETE first, then browser storage cleared
- * regardless of network outcome). Given on the Player settings modal only
- * (never across the Astro island boundary — functions are supplied inside
- * the React island).
+ * regardless of network outcome). Supplied by both the Player settings
+ * modal (via the useCompanionPairing hook) and the global nav settings
+ * modal (self-contained implementation inside the EizouSettingsDialog
+ * island).
  * ---------------------------------------------------------------------------
  */
 

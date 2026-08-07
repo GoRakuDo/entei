@@ -11,13 +11,18 @@
  * same dictionary the Player uses, so the Player tab is identical.
  *
  * The dict string props are supplied by the Astro TopBar (serializable —
- * playerUI is all strings), so the island boundary stays JSON-clean.
+ * playerUI is all strings), so the island boundary stays JSON-clean. The
+ * ED-3 pairing reset is self-contained INSIDE this island (read token →
+ * companion DELETE → clear store), so Home / Tracker also show the
+ * "Reset pairing" control in the EizouDen tab — without starting a second
+ * status-poll loop (the Player's own hook already polls shared
+ * localStorage).
  * ---------------------------------------------------------------------------
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Settings } from 'lucide-react';
 import {
   Dialog,
@@ -27,6 +32,11 @@ import {
 } from '@/components/player/ui/dialog';
 import { SettingsTabs } from '@/components/player/SettingsTabs';
 import { buildShortcuts } from '@/features/player/player-shortcuts';
+import {
+  readStoredPairingToken,
+  clearStoredPairingToken,
+  COMPANION_PAIRING_BASE_URL,
+} from '@/features/player/companion-pairing-store';
 import type { Dictionary } from '@i18n/types';
 
 export interface EizouSettingsDialogProps {
@@ -41,11 +51,6 @@ export interface EizouSettingsDialogProps {
   /** Show the Shortcut tab (player-only keyboard reference). The TopBar
    *  passes true only when the current route is /player. */
   showShortcuts?: boolean;
-  /** ED-3: Explicit destructive pairing reset. Cannot cross the Astro
-   *  island boundary (functions are not serializable) — the TopBar never
-   *  supplies it, so the global nav modal omits the reset control; the
-   *  Player settings modal wires it from inside the React island. */
-  onResetPairing?: () => void | Promise<void>;
 }
 
 export function EizouSettingsDialog({
@@ -54,9 +59,30 @@ export function EizouSettingsDialog({
   variant,
   playerUI,
   showShortcuts = false,
-  onResetPairing,
 }: EizouSettingsDialogProps) {
   const [open, setOpen] = useState(false);
+
+  /** ED-3 explicit destructive pairing reset, self-contained inside the
+   *  island so Home / Tracker show the "Reset pairing" control in the
+   *  EizouDen tab too (mirrors useCompanionPairing().resetPairing without
+   *  starting a second status poll on every page mount). */
+  const handleResetPairing = useCallback(async () => {
+    const token = readStoredPairingToken();
+    // 1. Companion-side delete FIRST while a token exists (best effort).
+    if (token !== null) {
+      try {
+        await fetch(
+          `${COMPANION_PAIRING_BASE_URL}/v1/pair?token=${encodeURIComponent(token)}`,
+          { method: 'DELETE', cache: 'no-store' },
+        );
+      } catch {
+        // Companion unreachable: the browser-side clear below is still
+        // authoritative (graceful divergence).
+      }
+    }
+    // 2. Clear browser storage regardless of network outcome.
+    clearStoredPairingToken();
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -91,7 +117,7 @@ export function EizouSettingsDialog({
           dict={playerUI}
           shortcuts={buildShortcuts(playerUI)}
           showShortcuts={showShortcuts}
-          onResetPairing={onResetPairing}
+          onResetPairing={handleResetPairing}
         />
       </DialogContent>
     </Dialog>

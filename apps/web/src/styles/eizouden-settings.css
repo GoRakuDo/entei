@@ -13,6 +13,14 @@
  * where player.css supplies them.
  * --------------------------------------------------------------------------- */
 
+/* Explicit layer order BEFORE the utility imports (Tailwind v4's own
+   index.css does this first). Without it, global.css's later `@layer base`
+   reset (e.g. button{background:none}) is declared after `@layer utilities`
+   and wins over utility classes like bg-destructive — shipping a red
+   "Reset pairing" button as transparent and killing the OTP slot borders.
+   Ordering base BEFORE utilities restores Tailwind's intended cascade. */
+@layer theme, base, components, utilities;
+
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
 

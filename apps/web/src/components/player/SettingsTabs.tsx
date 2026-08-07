@@ -51,9 +51,9 @@ export interface SettingsTabsProps {
   subtitleSettings?: Partial<SubtitleAppearanceSettings>;
   /** Live subtitle change callback from the player (optional). */
   onSubtitleSettingsChange?: (settings: Partial<SubtitleAppearanceSettings>) => void;
-  /** Explicit destructive pairing reset, supplied by the Player wiring
-   *  (ED-3). The EizouDen tab renders its reset control only when present;
-   *  the global nav settings modal has no pairing context and omits it. */
+  /** Explicit destructive pairing reset, supplied by the Player wiring and
+   *  the global nav settings modal (ED-3). Both supply onResetPairing; the
+   *  EizouDen tab renders its reset control only when present. */
   onResetPairing?: () => void | Promise<void>;
 }
 

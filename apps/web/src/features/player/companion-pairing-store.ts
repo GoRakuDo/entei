@@ -25,6 +25,9 @@
 /** Versioned localStorage key for the opaque companion capability token. */
 export const ENTEI_EIZOU_PAIRING_KEY = 'entei.eizou.pairing';
 
+/** Loopback companion origin the pairing store talks to. */
+export const COMPANION_PAIRING_BASE_URL = 'http://127.0.0.1:4322';
+
 /** Schema version of the persisted envelope. */
 export const PAIRING_SCHEMA_VERSION = 1;
 
