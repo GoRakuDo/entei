@@ -24,12 +24,21 @@
 import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
 import { LanguageCombobox } from '@components/home/LanguageCombobox';
+import { EizouSettingsDialog } from '@components/home/EizouSettingsDialog';
 import { House, Clapperboard, ChartNoAxesCombined } from '@lucide/astro';
 
 /** Single destination definition — desktop pill and mobile dock read from this. */
-const DESTINATIONS = [
-  { route: '/', labelKey: 'destinationHome' as const, Icon: House },
+const DESKTOP_DESTINATIONS = [
   { route: '/player/', labelKey: 'destinationPlayer' as const, Icon: Clapperboard },
+  { route: '/tracker/', labelKey: 'destinationTracker' as const, Icon: ChartNoAxesCombined },
+] as const;
+
+/**
+ * Mobile dock destinations (NAVIGATION_BAR.md 2026-08-07): Player removed,
+ * Settings added. DOM order Home → Tracker → Settings.
+ */
+const MOBILE_DESTINATIONS = [
+  { route: '/', labelKey: 'destinationHome' as const, Icon: House },
   { route: '/tracker/', labelKey: 'destinationTracker' as const, Icon: ChartNoAxesCombined },
 ] as const;
 
@@ -50,6 +59,22 @@ function normalisePath(p: string): string {
 }
 const activePath = normalisePath(currentPath);
 const isPlayer = activePath === '/player';
+
+/**
+ * Serializable playerUI slice for the global settings dialog (both the
+ * desktop pill entry and the mobile Dock entry share this — DRY).
+ * Uses settingsTitleGlobal ("Settings") rather than the player-scoped
+ * settingsTitle ("Player Settings"), since this opens from any page.
+ */
+const settingsUIProps = {
+  settingsTitle: dictionary.playerUI.settingsTitleGlobal,
+  dialogClose: dictionary.playerUI.dialogClose,
+  settingsTabEizouDen: dictionary.playerUI.settingsTabEizouDen,
+  ytModeQuality: dictionary.playerUI.ytModeQuality,
+  ytModeSpeed: dictionary.playerUI.ytModeSpeed,
+  ytModeQualityDesc: dictionary.playerUI.ytModeQualityDesc,
+  ytModeSpeedDesc: dictionary.playerUI.ytModeSpeedDesc,
+};
 ---
 
 <!--
@@ -122,7 +147,7 @@ const isPlayer = activePath === '/player';
       <span>Entei</span>
     </a>
     {
-      DESTINATIONS.filter((d) => d.route !== '/').map(
+      DESKTOP_DESTINATIONS.map(
         ({ route, labelKey, Icon }) => {
           const isActive = normalisePath(route) === activePath;
           return (
@@ -140,6 +165,17 @@ const isPlayer = activePath === '/player';
           );
         },
       )
+    }
+    {
+      /* Settings button — opens the EizouDen settings modal from any page
+         (NAVIGATION_BAR.md 2026-08-07). Not a route. */
+      <EizouSettingsDialog
+        client:load
+        label={dictionary.nav.destinationSettings}
+        triggerLabel={dictionary.playerUI.settingsLabel}
+        variant="pill"
+        playerUI={settingsUIProps}
+      />
     }
   </nav>
   {!isPlayer && (
@@ -166,7 +202,7 @@ const isPlayer = activePath === '/player';
   data-i18n-aria-label="nav.mobileDockLabel"
 >
   {
-    DESTINATIONS.map(({ route, labelKey, Icon }) => {
+    MOBILE_DESTINATIONS.map(({ route, labelKey, Icon }) => {
       const isActive = normalisePath(route) === activePath;
       return (
         <a
@@ -182,6 +218,16 @@ const isPlayer = activePath === '/player';
         </a>
       );
     })
+  }
+  {
+    /* Settings — mobile Dock entry (NAVIGATION_BAR.md 2026-08-07). */
+    <EizouSettingsDialog
+      client:load
+      label={dictionary.nav.destinationSettings}
+      triggerLabel={dictionary.playerUI.settingsLabel}
+      variant="dock"
+      playerUI={settingsUIProps}
+    />
   }
 </nav>
 

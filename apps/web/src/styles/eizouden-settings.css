@@ -1,0 +1,295 @@
+/**
+ * eizouden-settings.css — Shared styles for the EIZOU Settings dialog
+ * (NAVIGATION_BAR.md "設定ボタンの追加", EIZOU_DENDENSHI.md
+ * "YouTube 再生モード設定").
+ *
+ * Imported by global.css so the TopBar settings button works on EVERY page
+ * (Home / Tracker / Player), not just inside the Player where player.css
+ * is loaded. Classes here are also defined in player.css (identical values,
+ * used by the PlayerSettingsDialog) — layering both is harmless.
+ * --------------------------------------------------------------------------- */
+
+.entei-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background-color: oklch(5% 0.005 270deg / 0.8);
+}
+
+.entei-dialog-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 201;
+  width: 100%;
+  max-width: 24rem;
+  max-height: 85vh;
+  overflow-y: auto;
+  background-color: var(--entei-surface);
+  border-radius: var(--entei-radius-lg);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  box-shadow:
+    0 20px 25px -5px oklch(0% 0 0deg / 0.3),
+    0 8px 10px -6px oklch(0% 0 0deg / 0.2);
+  outline: none;
+  padding: 0;
+}
+
+.entei-dialog-content:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-dialog-close {
+  position: absolute;
+  top: var(--entei-space-12);
+  right: var(--entei-space-12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-sm);
+  color: var(--entei-text-muted);
+  cursor: pointer;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-dialog-close:hover {
+  color: var(--entei-text);
+}
+
+.entei-dialog-close:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-dialog-header {
+  padding: var(--entei-space-16) var(--entei-space-24);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-dialog-title {
+  font-family: var(--entei-font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--entei-text);
+}
+
+/* Settings dialog shell (full-viewport mobile, modal tablet/desktop) */
+.entei-settings-dialog {
+  position: fixed;
+  inset: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--entei-surface);
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+@media (min-width: 768px) {
+  .entei-settings-dialog {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    width: clamp(34rem, 46vw, 42rem);
+    height: min(36rem, calc(100dvh - 2rem));
+    max-height: calc(100dvh - 2rem);
+    border-radius: var(--entei-radius-lg);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    box-shadow:
+      0 20px 25px -5px oklch(0% 0 0deg / 0.3),
+      0 8px 10px -6px oklch(0% 0 0deg / 0.2);
+  }
+}
+
+@media (min-width: 1024px) {
+  .entei-settings-dialog {
+    height: min(34rem, calc(100dvh - 4rem));
+    max-height: calc(100dvh - 4rem);
+  }
+}
+
+.entei-settings-dialog .entei-dialog-header {
+  flex-shrink: 0;
+  padding: var(--entei-space-24);
+  padding-right: 3.5rem;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-settings-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--entei-space-24);
+}
+
+.entei-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+}
+
+.entei-settings-label {
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--entei-text-muted);
+  margin: 0;
+}
+
+/* --- EizouDen tab: YouTube download mode (Quality / Speed) --- */
+.entei-eizouden-mode-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+}
+
+.entei-eizouden-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--entei-space-12);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) 0;
+}
+
+.entei-eizouden-mode-radio {
+  margin-top: calc(var(--entei-space-4) + 2px);
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1px solid var(--entei-text-muted);
+  border-radius: 50%;
+  background-color: transparent;
+}
+
+.entei-eizouden-mode-radio[data-state='checked'] {
+  border-color: var(--entei-accent);
+  background-color: var(--entei-accent);
+  box-shadow: inset 0 0 0 3px var(--entei-surface);
+}
+
+.entei-eizouden-mode-radio:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-eizouden-mode-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  cursor: pointer;
+  font-family: var(--entei-font-body);
+}
+
+.entei-eizouden-mode-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--entei-text);
+  line-height: 1.4;
+}
+
+.entei-eizouden-mode-desc {
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+  line-height: 1.5;
+}
+
+/* TopBar settings trigger (desktop pill + mobile dock).
+   Styled here (shared, loaded on every page) because the React island DOM
+   does not carry Astro's scoped style attribute — hybrid Astro's scoped
+   `.entei-desktop-pill-link` / `.entei-mobile-dock-link` rules cannot match
+   client-rendered nodes. Mirrors the native nav link metrics exactly. */
+.entei-nav-settings-trigger {
+  cursor: pointer;
+}
+
+.entei-desktop-pill .entei-nav-settings-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-4) var(--entei-space-12);
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-card);
+  text-decoration: none;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-desktop-pill .entei-nav-settings-trigger:hover,
+.entei-desktop-pill .entei-nav-settings-trigger:focus-visible {
+  color: var(--entei-text);
+  background-color: oklch(100% 0 0deg / 0.06);
+}
+
+.entei-desktop-pill .entei-nav-settings-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-mobile-dock .entei-nav-settings-trigger {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-4);
+  min-height: var(--entei-touch-min);
+  min-width: 0;
+  padding: var(--entei-space-8) var(--entei-space-4);
+  background: none;
+  border: none;
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  border-radius: var(--entei-radius-md);
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-mobile-dock .entei-nav-settings-trigger:hover,
+.entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
+  color: var(--entei-text);
+  background-color: var(--entei-surface-2);
+}
+
+.entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-nav-settings-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}

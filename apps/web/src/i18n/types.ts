@@ -91,6 +91,8 @@ export interface Dictionary {
     timelineHide: string;
     settingsLabel: string;
     settingsTitle: string;
+    /** Generic settings title for the global (TopBar) settings dialog. */
+    settingsTitleGlobal: string;
     settingsSubtitles: string;
     settingsShortcuts: string;
     subtitlesLoadedStatus: string;
@@ -127,6 +129,13 @@ export interface Dictionary {
     subtitleVerticalPosition: string;
     subtitlePreview: string;
     subtitleReset: string;
+    // EizouDen (2026-08-07): YouTube download mode settings tab
+    settingsTabEizouDen: string;
+    ytModeQuality: string;
+    ytModeSpeed: string;
+    ytModeQualityDesc: string;
+    ytModeSpeedDesc: string;
+    ytModeToastFormat: string;
     // AM-5: Anki Fields tab
     ankiConnect: string;
     ankiConnectDesc: string;
@@ -341,6 +350,8 @@ export interface Dictionary {
     destinationPlayer: string;
     /** Visible label for Tracker destination in nav */
     destinationTracker: string;
+    /** Visible label for Settings destination in nav (opens settings modal) */
+    destinationSettings: string;
     /** Accessible name for desktop reveal-pill nav landmark */
     desktopNavLabel: string;
     /** Accessible name for mobile floating dock nav landmark */

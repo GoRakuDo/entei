@@ -78,6 +78,7 @@ const mockDict = {
   timelineHide: 'Hide',
   settingsLabel: 'Settings',
   settingsTitle: 'Settings',
+  settingsTitleGlobal: 'Settings',
   settingsSubtitles: 'Subs',
   settingsShortcuts: 'Shortcuts',
   subtitlesLoadedStatus: 'Loaded',
@@ -291,6 +292,12 @@ const mockDict = {
 
   // P2.1: Subtitle Appearance Settings
   settingsTabSubtitle: 'Subtitle',
+  settingsTabEizouDen: 'EizouDen',
+  ytModeQuality: 'Quality',
+  ytModeSpeed: 'Speed',
+  ytModeQualityDesc: 'Quality first',
+  ytModeSpeedDesc: 'Instant playback',
+  ytModeToastFormat: 'Playing {quality}',
   subtitleAppearance: 'Appearance',
   subtitleFontSize: 'Font size',
   subtitleTextColor: 'Text color',

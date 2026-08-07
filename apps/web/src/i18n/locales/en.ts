@@ -60,6 +60,7 @@ export const en: Dictionary = {
     timelineHide: 'Hide subtitle panel',
     settingsLabel: 'Settings',
     settingsTitle: 'Player Settings',
+    settingsTitleGlobal: 'Settings',
     settingsSubtitles: 'Subtitles',
     settingsShortcuts: 'Keyboard Shortcuts',
     subtitlesLoadedStatus: 'Subtitles loaded',
@@ -298,6 +299,15 @@ export const en: Dictionary = {
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Subtitle Appearance',
+    // EizouDen: YouTube download mode
+    settingsTabEizouDen: 'EizouDen',
+    ytModeQuality: 'Quality (quality first)',
+    ytModeSpeed: 'Speed (instant playback)',
+    ytModeQualityDesc:
+      'Download DASH 1080p (max), plays after mux completes.',
+    ytModeSpeedDesc:
+      'Prefer progressive formats (360p-1080p) — plays while downloading.',
+    ytModeToastFormat: 'Playing {quality} ({mode} mode)',
     subtitleFontSize: 'Font size',
     subtitleTextColor: 'Text color',
     subtitleBackgroundColor: 'Background color',
@@ -331,6 +341,7 @@ export const en: Dictionary = {
     destinationHome: 'Home',
     destinationPlayer: 'Player',
     destinationTracker: 'Tracker',
+    destinationSettings: 'Settings',
     desktopNavLabel: 'Page navigation',
     mobileDockLabel: 'Page navigation',
   },

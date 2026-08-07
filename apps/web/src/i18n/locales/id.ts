@@ -61,6 +61,7 @@ export const id: Dictionary = {
     timelineHide: 'Sembunyikan panel subtitle',
     settingsLabel: 'Pengaturan',
     settingsTitle: 'Pengaturan Player',
+    settingsTitleGlobal: 'Pengaturan',
     settingsSubtitles: 'Subtitle',
     settingsShortcuts: 'Pintasan Keyboard',
     subtitlesLoadedStatus: 'Subtitle dimuat',
@@ -303,6 +304,15 @@ export const id: Dictionary = {
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Tampilan Subtitle',
+    // EizouDen: YouTube download mode
+    settingsTabEizouDen: 'EizouDen',
+    ytModeQuality: 'Quality (prioritas kualitas)',
+    ytModeSpeed: 'Speed (putar instan)',
+    ytModeQualityDesc:
+      'Unduh DASH 1080p (maks), diputar setelah penggabungan selesai.',
+    ytModeSpeedDesc:
+      'Prioritaskan format progresif (360p-1080p) — langsung diputar sambil unduh.',
+    ytModeToastFormat: '{quality} ({mode}) akan diputar',
     subtitleFontSize: 'Ukuran font',
     subtitleTextColor: 'Warna teks',
     subtitleBackgroundColor: 'Warna latar',
@@ -336,6 +346,7 @@ export const id: Dictionary = {
     destinationHome: 'Home',
     destinationPlayer: 'Player',
     destinationTracker: 'Tracker',
+    destinationSettings: 'Pengaturan',
     desktopNavLabel: 'Navigasi halaman',
     mobileDockLabel: 'Navigasi halaman',
   },

@@ -7,6 +7,7 @@
 
 @import './tokens.css';
 @import './fonts.css';
+@import './eizouden-settings.css';
 
 /* ===== RESET =====
  * Wrapped in @layer base so these declarations merge with Tailwind's base

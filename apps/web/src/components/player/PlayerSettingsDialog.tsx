@@ -22,6 +22,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { AnkiFieldsTab, type AnkiSessionCredentials } from './AnkiFieldsTab';
 import { SubtitleAppearanceTab } from './SubtitleAppearanceTab';
+import { EizouDenSettingsTab } from './EizouDenSettingsTab';
 import type { Dictionary } from '@i18n/types';
 import type { ShortcutEntry } from './KeyboardShortcutsHelp';
 import { readPlayerPreferences, writePlayerPreferences } from '@/features/player/preferences';
@@ -159,6 +160,7 @@ export function PlayerSettingsDialog({
             <TabsList className="entei-settings-tabs-list">
               <TabsTrigger value="player">{dict.settingsTabPlayer}</TabsTrigger>
               <TabsTrigger value="subtitle">{dict.settingsTabSubtitle}</TabsTrigger>
+              <TabsTrigger value="eizouden">{dict.settingsTabEizouDen}</TabsTrigger>
               <TabsTrigger value="anki">{dict.settingsTabAnki}</TabsTrigger>
             </TabsList>
             <div className="entei-settings-panel">
@@ -187,6 +189,9 @@ export function PlayerSettingsDialog({
                   onChange={handleSubtitleSettingsChange}
                   onReset={handleSubtitleReset}
                 />
+              </TabsContent>
+              <TabsContent value="eizouden" className="entei-settings-tab-content">
+                <EizouDenSettingsTab dict={dict} />
               </TabsContent>
               <TabsContent value="anki" className="entei-settings-tab-content">
                 <AnkiFieldsTab

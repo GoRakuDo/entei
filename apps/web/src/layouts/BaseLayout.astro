@@ -20,6 +20,7 @@ import '@styles/global.css';
 import SeoHead from '@components/SeoHead.astro';
 import TopBar from '@components/home/TopBar.astro';
 import SiteFooter from '@components/home/SiteFooter.astro';
+import { EizouToaster } from '@components/EizouToaster';
 import { getDictionary } from '@i18n/index';
 import type { Dictionary, Locale } from '@i18n/types';
 
@@ -100,6 +101,7 @@ const dictionary: Dictionary = getDictionary(locale);
       </div>
     </main>
     {showChrome && <SiteFooter dictionary={dictionary} />}
+    <EizouToaster client:load />
 
     {
       /* Module script — deferred, runs after DOM parse.
