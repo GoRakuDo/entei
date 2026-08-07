@@ -51,6 +51,10 @@ export interface SettingsTabsProps {
   subtitleSettings?: Partial<SubtitleAppearanceSettings>;
   /** Live subtitle change callback from the player (optional). */
   onSubtitleSettingsChange?: (settings: Partial<SubtitleAppearanceSettings>) => void;
+  /** Explicit destructive pairing reset, supplied by the Player wiring
+   *  (ED-3). The EizouDen tab renders its reset control only when present;
+   *  the global nav settings modal has no pairing context and omits it. */
+  onResetPairing?: () => void | Promise<void>;
 }
 
 export function SettingsTabs({
@@ -60,6 +64,7 @@ export function SettingsTabs({
   onSessionCredentials,
   subtitleSettings,
   onSubtitleSettingsChange,
+  onResetPairing,
 }: SettingsTabsProps) {
   // Subtitle appearance is self-contained here (reads/writes the same
   // `entei.player.prefs.v1` store the player reads); when the player passes
@@ -145,7 +150,7 @@ export function SettingsTabs({
             />
           </TabsContent>
           <TabsContent value="eizouden" className="entei-settings-tab-content">
-            <EizouDenSettingsTab dict={dict} />
+            <EizouDenSettingsTab dict={dict} onResetPairing={onResetPairing} />
           </TabsContent>
           <TabsContent value="anki" className="entei-settings-tab-content">
             <AnkiFieldsTab

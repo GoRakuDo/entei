@@ -1558,6 +1558,41 @@
   margin: 0;
 }
 
+/* --- EizouDen tab: explicit pairing reset (destructive, ED-3) ---
+   Mirrors eizouden-settings.css (identical values; layering both is
+   harmless — matches the settings-section / settings-label convention). */
+.entei-eizouden-reset-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding-top: var(--entei-space-16);
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+.entei-eizouden-reset-btn {
+  align-self: flex-start;
+  min-height: var(--entei-touch-min);
+  border-radius: var(--entei-radius-md);
+}
+
+/* Pairing reset confirm dialog (shared with the EizouDen tab) */
+.entei-eizou-reset-desc {
+  margin: 0;
+  padding: var(--entei-space-16) var(--entei-space-24);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--entei-text-secondary);
+}
+
+.entei-eizou-reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
 .entei-settings-shortcuts-list {
   display: flex;
   flex-direction: column;

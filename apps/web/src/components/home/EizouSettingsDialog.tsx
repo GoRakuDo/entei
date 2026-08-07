@@ -41,6 +41,11 @@ export interface EizouSettingsDialogProps {
   /** Show the Shortcut tab (player-only keyboard reference). The TopBar
    *  passes true only when the current route is /player. */
   showShortcuts?: boolean;
+  /** ED-3: Explicit destructive pairing reset. Cannot cross the Astro
+   *  island boundary (functions are not serializable) — the TopBar never
+   *  supplies it, so the global nav modal omits the reset control; the
+   *  Player settings modal wires it from inside the React island. */
+  onResetPairing?: () => void | Promise<void>;
 }
 
 export function EizouSettingsDialog({
@@ -49,6 +54,7 @@ export function EizouSettingsDialog({
   variant,
   playerUI,
   showShortcuts = false,
+  onResetPairing,
 }: EizouSettingsDialogProps) {
   const [open, setOpen] = useState(false);
 
@@ -85,6 +91,7 @@ export function EizouSettingsDialog({
           dict={playerUI}
           shortcuts={buildShortcuts(playerUI)}
           showShortcuts={showShortcuts}
+          onResetPairing={onResetPairing}
         />
       </DialogContent>
     </Dialog>

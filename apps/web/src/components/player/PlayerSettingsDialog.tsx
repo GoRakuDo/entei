@@ -41,6 +41,9 @@ interface PlayerSettingsDialogProps {
   subtitleSettings?: Partial<SubtitleAppearanceSettings>;
   /** Callback when subtitle appearance settings change (live update). */
   onSubtitleSettingsChange?: SettingsTabsProps['onSubtitleSettingsChange'];
+  /** Explicit destructive pairing reset (ED-3), forwarded to the
+   *  EizouDen tab from PlayerApp's use-companion-pairing. */
+  onResetPairing?: SettingsTabsProps['onResetPairing'];
 }
 
 export function PlayerSettingsDialog({
@@ -51,6 +54,7 @@ export function PlayerSettingsDialog({
   onSessionCredentials,
   subtitleSettings,
   onSubtitleSettingsChange,
+  onResetPairing,
 }: PlayerSettingsDialogProps) {
   /* W6: Toggle root class to hide TopBar on mobile while Settings is open.
    * Cleanup removes class on close and unmount. */
@@ -95,6 +99,7 @@ export function PlayerSettingsDialog({
           onSessionCredentials={onSessionCredentials}
           subtitleSettings={subtitleSettings}
           onSubtitleSettingsChange={onSubtitleSettingsChange}
+          onResetPairing={onResetPairing}
         />
       </DialogContent>
     </Dialog>

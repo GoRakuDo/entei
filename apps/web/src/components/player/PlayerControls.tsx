@@ -132,6 +132,9 @@ interface PlayerControlsProps {
     backgroundPadding: number;
     verticalPosition: number;
   }>) => void;
+  /** ED-3: Explicit destructive pairing reset, forwarded to the EizouDen
+   *  settings tab (supplied by PlayerApp's use-companion-pairing). */
+  onResetPairing?: () => void | Promise<void>;
   /** ED-2H: Optional seek time clamp for companion streaming. When provided,
    *  seek targets are clamped to the companion's verified byte range to
    *  prevent stalls from seeking beyond available data. */
@@ -185,6 +188,7 @@ export const PlayerControls = forwardRef<
     onSessionCredentials,
     subtitleSettings,
     onSubtitleSettingsChange,
+    onResetPairing,
     clampSeekTime,
   },
   ref,
@@ -676,6 +680,7 @@ export const PlayerControls = forwardRef<
             onSessionCredentials={onSessionCredentials}
             subtitleSettings={subtitleSettings}
             onSubtitleSettingsChange={onSubtitleSettingsChange}
+            onResetPairing={onResetPairing}
           />
         </div>
       </div>

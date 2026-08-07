@@ -3172,6 +3172,7 @@ export default function PlayerApp() {
         onSessionCredentials={handleSessionCredentials}
         subtitleSettings={subtitleSettings}
         onSubtitleSettingsChange={handleSubtitleSettingsChange}
+        onResetPairing={pairing.resetPairing}
         clampSeekTime={jobSession.active ? clampSeekTime : undefined}
       />
       <ScreenshotPreviewDialog
@@ -3316,12 +3317,12 @@ export default function PlayerApp() {
               local-file player flow above is untouched by it. The pairing
               is persistent: the opaque token survives reloads and
               companion restarts (re-validated on mount via the status
-              endpoint) until the user explicitly resets it here. */}
+              endpoint) until the user explicitly resets it from the
+              EizouDen settings tab (EizouDenSettingsTab). */}
           <EizouDendenshiSetup
             isConnected={pairing.connected}
             isValidating={pairing.validating}
             onPairSuccess={pairing.handlePairSuccess}
-            onResetPairing={pairing.resetPairing}
             dict={{
               eizouSetupLabel: dict.eizouSetupLabel,
               eizouSetupTitle: dict.eizouSetupTitle,
@@ -3329,11 +3330,6 @@ export default function PlayerApp() {
               eizouConnected: dict.eizouConnected,
               eizouDisconnected: dict.eizouDisconnected,
               eizouChecking: dict.eizouChecking,
-              eizouResetButton: dict.eizouResetButton,
-              eizouResetTitle: dict.eizouResetTitle,
-              eizouResetDesc: dict.eizouResetDesc,
-              eizouResetConfirm: dict.eizouResetConfirm,
-              eizouResetCancel: dict.eizouResetCancel,
               eizouPairingTitle: dict.eizouPairingTitle,
               eizouPairingDesc: dict.eizouPairingDesc,
               eizouPairingOtpLabel: dict.eizouPairingOtpLabel,
