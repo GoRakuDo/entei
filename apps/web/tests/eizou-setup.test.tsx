@@ -12,14 +12,13 @@ import '@testing-library/jest-dom/vitest';
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 
 const baseDict = {
-  eizouSetupLabel: 'Set up',
+  eizouSetupLabel: 'OTP Setup',
   eizouSetupTitle: 'EizouDendenshi',
   eizouSetupImageAlt: 'EizouDendenshi illustration',
   eizouConnected: 'Connected',
   eizouDisconnected: 'Disconnected',
   eizouChecking: 'Checking…',
   eizouPairingTitle: 'Pair EizouDendenshi',
-  eizouPairingDesc: 'Enter the 6-digit code shown in the companion app.',
   eizouPairingOtpLabel: '6-digit pairing code',
   eizouPairingOtpInvalid: 'Enter the 6-digit code.',
   eizouPairingSubmit: 'Pair',

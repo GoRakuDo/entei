@@ -260,7 +260,7 @@ export const id: Dictionary = {
     magnetTableNavUp: 'Kembali ke atas',
     magnetNoVideosInFolder: 'Tidak ada video di folder ini',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
-    eizouSetupLabel: 'Pengaturan',
+    eizouSetupLabel: 'Pengaturan OTP',
     eizouSetupTitle: 'EizouDendenshi',
     eizouSetupImageAlt: 'Ilustrasi EizouDendenshi',
     eizouConnected: 'Terhubung',
@@ -273,7 +273,6 @@ export const id: Dictionary = {
     eizouResetConfirm: 'Reset pasangan',
     eizouResetCancel: 'Batal',
     eizouPairingTitle: 'Hubungkan EizouDendenshi',
-    eizouPairingDesc: 'Masukkan kode 6 digit yang ditampilkan di aplikasi.',
     eizouPairingOtpLabel: 'Kode pasangan 6 digit',
     eizouPairingOtpInvalid: 'Masukkan kode 6 digit.',
     eizouPairingSubmit: 'Pasangkan',

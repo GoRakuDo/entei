@@ -249,7 +249,7 @@ const mockDict = {
   magnetTableNavUp: 'Go up one level',
   magnetNoVideosInFolder: 'No videos in this folder',
   // ED-3: EizouDendenshi setup + pairing
-  eizouSetupLabel: 'Set up',
+  eizouSetupLabel: 'OTP Setup',
   eizouSetupTitle: 'EizouDendenshi',
   eizouDisconnected: 'Disconnected',
   eizouChecking: 'Checking…',
@@ -261,7 +261,6 @@ const mockDict = {
   eizouSetupImageAlt: 'EizouDendenshi illustration',
   eizouConnected: 'Connected',
   eizouPairingTitle: 'Pair EizouDendenshi',
-  eizouPairingDesc: 'Enter the 6-digit code.',
   eizouPairingOtpLabel: '6-digit pairing code',
   eizouPairingOtpInvalid: 'Enter the 6-digit code.',
   eizouPairingSubmit: 'Pair',

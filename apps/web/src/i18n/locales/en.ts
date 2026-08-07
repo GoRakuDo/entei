@@ -255,7 +255,7 @@ export const en: Dictionary = {
     magnetTableNavUp: 'Go up one level',
     magnetNoVideosInFolder: 'No videos in this folder',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
-    eizouSetupLabel: 'Set up',
+    eizouSetupLabel: 'OTP Setup',
     eizouSetupTitle: 'EizouDendenshi',
     eizouSetupImageAlt: 'EizouDendenshi illustration',
     eizouConnected: 'Connected',
@@ -268,7 +268,6 @@ export const en: Dictionary = {
     eizouResetConfirm: 'Reset pairing',
     eizouResetCancel: 'Cancel',
     eizouPairingTitle: 'Pair EizouDendenshi',
-    eizouPairingDesc: 'Enter the 6-digit code shown in the companion app.',
     eizouPairingOtpLabel: '6-digit pairing code',
     eizouPairingOtpInvalid: 'Enter the 6-digit code.',
     eizouPairingSubmit: 'Pair',

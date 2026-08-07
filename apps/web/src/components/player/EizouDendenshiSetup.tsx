@@ -26,7 +26,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Plug, PlugZap } from 'lucide-react';
+import { Plug, PlugZap, SquareTerminal } from 'lucide-react';
 import { AspectRatio } from '@/components/player/ui/aspect-ratio';
 import { Button } from '@/components/player/ui/button';
 import {
@@ -88,14 +88,17 @@ export function EizouDendenshiSetup({
           {dict.eizouSetupTitle}
         </h3>
         <div className="entei-eizou-controls">
-          <Button
-            type="button"
-            variant="outline"
-            className="entei-eizou-setup-btn"
-            onClick={() => setIsPairingDialogOpen(true)}
-          >
-            {dict.eizouSetupLabel}
-          </Button>
+          {!isConnected && (
+            <Button
+              type="button"
+              variant="outline"
+              className="entei-eizou-setup-btn"
+              onClick={() => setIsPairingDialogOpen(true)}
+            >
+              <SquareTerminal size={16} aria-hidden="true" />
+              {dict.eizouSetupLabel}
+            </Button>
+          )}
           <span
             role="status"
             className={`entei-eizou-status-control${

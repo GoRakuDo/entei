@@ -4131,6 +4131,9 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-dialog-title {
   display: flex;
   align-items: center;
+  /* Pixel/game font (Pixelify Sans) — matches the settings modal title. */
+  font-family: var(--entei-font-system);
+  letter-spacing: 0.02em;
 }
 
 .entei-magnet-input {
@@ -4633,11 +4636,12 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-eizou-setup-btn {
-  width: 132px;
+  width: 144px;
   min-height: var(--entei-touch-min); /* 44px touch, 40px visual grid */
   position: relative; /* paints above the visual on mobile */
   border-radius: var(--entei-radius-md);
   font-size: 0.875rem;
+  gap: var(--entei-space-8); /* icon + label spacing */
 }
 
 .entei-eizou-title {
@@ -4755,7 +4759,9 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-eizou-pair-submit {
-  width: 132px;
+  /* Match the OTP container width: 6 slots × 36px + 5 gaps × 8px = 256px,
+     so the Pair button aligns with the code input above it. */
+  width: 256px;
   min-height: var(--entei-touch-min);
   border-radius: var(--entei-radius-md);
   font-size: 0.875rem;

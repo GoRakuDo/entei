@@ -261,7 +261,7 @@ export const ja: Dictionary = {
     magnetTableNavUp: '上の階層へ',
     magnetNoVideosInFolder: 'このフォルダーに動画がありません',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
-    eizouSetupLabel: 'セットアップ',
+    eizouSetupLabel: 'OTP セットアップ',
     eizouSetupTitle: '映像伝電子',
     eizouSetupImageAlt: '映像伝電子のイメージ',
     eizouConnected: '接続済み',
@@ -274,7 +274,6 @@ export const ja: Dictionary = {
     eizouResetConfirm: 'リセットする',
     eizouResetCancel: 'キャンセル',
     eizouPairingTitle: '映像伝電子をペアリングしましょう',
-    eizouPairingDesc: 'アプリに表示された6桁のコードを入力してください。',
     eizouPairingOtpLabel: '6桁のペアリングコード',
     eizouPairingOtpInvalid: '6桁のコードを入力してください。',
     eizouPairingSubmit: 'ペアリングする',

@@ -3331,7 +3331,6 @@ export default function PlayerApp() {
               eizouDisconnected: dict.eizouDisconnected,
               eizouChecking: dict.eizouChecking,
               eizouPairingTitle: dict.eizouPairingTitle,
-              eizouPairingDesc: dict.eizouPairingDesc,
               eizouPairingOtpLabel: dict.eizouPairingOtpLabel,
               eizouPairingOtpInvalid: dict.eizouPairingOtpInvalid,
               eizouPairingSubmit: dict.eizouPairingSubmit,

@@ -22,7 +22,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
 import {
@@ -38,7 +37,6 @@ type PairErrorKind = 'incomplete' | 'network' | 'invalidCode' | 'generic';
 
 export interface EizouDendenshiPairingDict {
   eizouPairingTitle: string;
-  eizouPairingDesc: string;
   eizouPairingOtpLabel: string;
   eizouPairingOtpInvalid: string;
   eizouPairingSubmit: string;
@@ -165,12 +163,14 @@ export function EizouDendenshiPairingDialog({
         closeLabel={dict.dialogClose}
       >
         <DialogHeader>
+          {/* NOTE: intentionally NO DialogDescription. The OTP input is
+            self-labelled via aria-label (eizouPairingOtpLabel), and a
+            sr-only description was user-rejected to keep it out of the
+            DOM entirely (user requirement). Radix's dev warning about a
+            missing description does not appear in production builds. */}
           <DialogTitle className="entei-magnet-dialog-title">
             {dict.eizouPairingTitle}
           </DialogTitle>
-          <DialogDescription className="entei-sr-only">
-            {dict.eizouPairingDesc}
-          </DialogDescription>
         </DialogHeader>
         <div className="entei-eizou-pair-body">
           <InputOTP

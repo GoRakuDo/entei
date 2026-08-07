@@ -302,7 +302,6 @@ export interface Dictionary {
     eizouResetConfirm: string;
     eizouResetCancel: string;
     eizouPairingTitle: string;
-    eizouPairingDesc: string;
     eizouPairingOtpLabel: string;
     eizouPairingOtpInvalid: string;
     eizouPairingSubmit: string;
