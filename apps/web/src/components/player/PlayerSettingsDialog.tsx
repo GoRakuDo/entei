@@ -6,11 +6,15 @@
  * - Mobile: sheet-like full-viewport, horizontal tabs at top
  * - Uses existing Dialog wrapper (focus trap, Escape, return-focus)
  * - Opening the modal does NOT pause media
+ *
+ * The tabbed body (Player / Subtitle / EizouDen / Anki Fields) is shared
+ * with the global navigation settings modal (SettingsTabs) so both show
+ * the exact same settings.
  * --------------------------------------------------------------------------- */
 
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect } from 'react';
 import { Settings } from 'lucide-react';
 import {
   Dialog,
@@ -19,36 +23,24 @@ import {
   DialogTitle,
   DialogTrigger,
 } from './ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
-import { AnkiFieldsTab, type AnkiSessionCredentials } from './AnkiFieldsTab';
-import { SubtitleAppearanceTab } from './SubtitleAppearanceTab';
-import { EizouDenSettingsTab } from './EizouDenSettingsTab';
+import {
+  SettingsTabs,
+  type SettingsTabsProps,
+} from './SettingsTabs';
+import type { SubtitleAppearanceSettings } from './SubtitleAppearanceTab';
 import type { Dictionary } from '@i18n/types';
 import type { ShortcutEntry } from './KeyboardShortcutsHelp';
-import { readPlayerPreferences, writePlayerPreferences } from '@/features/player/preferences';
 
 interface PlayerSettingsDialogProps {
   dict: Dictionary['playerUI'];
   shortcuts: ShortcutEntry[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSessionCredentials?: (creds: AnkiSessionCredentials | null) => void;
+  onSessionCredentials?: SettingsTabsProps['onSessionCredentials'];
   /** Current subtitle overlay appearance settings (live from PlayerApp). */
-  subtitleSettings?: {
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  };
+  subtitleSettings?: Partial<SubtitleAppearanceSettings>;
   /** Callback when subtitle appearance settings change (live update). */
-  onSubtitleSettingsChange?: (settings: Partial<{
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  }>) => void;
+  onSubtitleSettingsChange?: SettingsTabsProps['onSubtitleSettingsChange'];
 }
 
 export function PlayerSettingsDialog({
@@ -74,65 +66,6 @@ export function PlayerSettingsDialog({
     };
   }, [open]);
 
-  // Load subtitle settings synchronously from passed prefs or localStorage.
-  // No null → effect pattern: state is populated on first render to avoid flash.
-  const [localSubtitleSettings, setLocalSubtitleSettings] = useState<{
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  }>(() => {
-    if (subtitleSettings) return subtitleSettings;
-    const prefs = readPlayerPreferences();
-    return {
-      fontSize: prefs.subtitleFontSize,
-      textColor: prefs.subtitleTextColor,
-      backgroundColor: prefs.subtitleBackgroundColor,
-      backgroundPadding: prefs.subtitleBackgroundPadding,
-      verticalPosition: prefs.subtitleVerticalPosition,
-    };
-  });
-
-  // Sync when parent-controlled subtitleSettings prop changes (e.g., from PlayerApp state)
-  useEffect(() => {
-    if (subtitleSettings) {
-      setLocalSubtitleSettings(subtitleSettings);
-    }
-  }, [subtitleSettings]);
-
-  const handleSubtitleSettingsChange = useCallback((settings: Partial<{
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  }>) => {
-    // Update local state for live preview
-    setLocalSubtitleSettings((prev) => ({ ...prev, ...settings }));
-    // Persist to localStorage
-    const prefs = readPlayerPreferences();
-    writePlayerPreferences({ ...prefs, ...settings });
-    // Notify parent for live overlay update
-    onSubtitleSettingsChange?.(settings);
-  }, [onSubtitleSettingsChange]);
-
-  const handleSubtitleReset = useCallback(() => {
-    const defaults = {
-      fontSize: 18,
-      textColor: 'oklch(98% 0 0deg)',
-      backgroundColor: 'oklch(0% 0 0 / 0.72)',
-      backgroundPadding: 8,
-      verticalPosition: 96,
-    };
-    setLocalSubtitleSettings(defaults);
-    const prefs = readPlayerPreferences();
-    writePlayerPreferences({ ...prefs, ...defaults });
-    onSubtitleSettingsChange?.(defaults);
-  }, [onSubtitleSettingsChange]);
-
-  const effectiveSubtitleSettings = subtitleSettings ?? localSubtitleSettings;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -155,53 +88,13 @@ export function PlayerSettingsDialog({
         <DialogHeader>
           <DialogTitle>{dict.settingsTitle}</DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="player" className="entei-settings-tabs">
-          <div className="entei-settings-body">
-            <TabsList className="entei-settings-tabs-list">
-              <TabsTrigger value="player">{dict.settingsTabPlayer}</TabsTrigger>
-              <TabsTrigger value="subtitle">{dict.settingsTabSubtitle}</TabsTrigger>
-              <TabsTrigger value="eizouden">{dict.settingsTabEizouDen}</TabsTrigger>
-              <TabsTrigger value="anki">{dict.settingsTabAnki}</TabsTrigger>
-            </TabsList>
-            <div className="entei-settings-panel">
-              <TabsContent
-                value="player"
-                className="entei-settings-tab-content"
-              >
-                <div className="entei-settings-section">
-                  <p className="entei-settings-label">
-                    {dict.settingsShortcuts}
-                  </p>
-                  <div className="entei-settings-shortcuts-list">
-                    {shortcuts.map((s) => (
-                      <div key={s.key} className="entei-settings-shortcut-row">
-                        <kbd className="entei-shortcut-key">{s.key}</kbd>
-                        <span className="entei-shortcut-desc">{s.desc}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </TabsContent>
-              <TabsContent value="subtitle" className="entei-settings-tab-content">
-                <SubtitleAppearanceTab
-                  dict={dict}
-                  settings={effectiveSubtitleSettings}
-                  onChange={handleSubtitleSettingsChange}
-                  onReset={handleSubtitleReset}
-                />
-              </TabsContent>
-              <TabsContent value="eizouden" className="entei-settings-tab-content">
-                <EizouDenSettingsTab dict={dict} />
-              </TabsContent>
-              <TabsContent value="anki" className="entei-settings-tab-content">
-                <AnkiFieldsTab
-                  dict={dict}
-                  onSessionCredentials={onSessionCredentials}
-                />
-              </TabsContent>
-            </div>
-          </div>
-        </Tabs>
+        <SettingsTabs
+          dict={dict}
+          shortcuts={shortcuts.map((s) => ({ key: s.key, desc: s.desc }))}
+          onSessionCredentials={onSessionCredentials}
+          subtitleSettings={subtitleSettings}
+          onSubtitleSettingsChange={onSubtitleSettingsChange}
+        />
       </DialogContent>
     </Dialog>
   );

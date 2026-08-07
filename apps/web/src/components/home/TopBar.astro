@@ -61,20 +61,14 @@ const activePath = normalisePath(currentPath);
 const isPlayer = activePath === '/player';
 
 /**
- * Serializable playerUI slice for the global settings dialog (both the
- * desktop pill entry and the mobile Dock entry share this — DRY).
- * Uses settingsTitleGlobal ("Settings") rather than the player-scoped
- * settingsTitle ("Player Settings"), since this opens from any page.
+ * Full serializable playerUI dictionary for the global settings dialog
+ * (both the desktop pill entry and the mobile Dock entry share this —
+ * DRY). playerUI is all strings, so it crosses the island boundary as
+ * JSON. The dialog uses settingsTitleGlobal ("Settings") rather than the
+ * player-scoped settingsTitle ("Player Settings"), since it opens from
+ * any page.
  */
-const settingsUIProps = {
-  settingsTitle: dictionary.playerUI.settingsTitleGlobal,
-  dialogClose: dictionary.playerUI.dialogClose,
-  settingsTabEizouDen: dictionary.playerUI.settingsTabEizouDen,
-  ytModeQuality: dictionary.playerUI.ytModeQuality,
-  ytModeSpeed: dictionary.playerUI.ytModeSpeed,
-  ytModeQualityDesc: dictionary.playerUI.ytModeQualityDesc,
-  ytModeSpeedDesc: dictionary.playerUI.ytModeSpeedDesc,
-};
+const settingsUIProps = dictionary.playerUI;
 ---
 
 <!--

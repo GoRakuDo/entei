@@ -1,14 +1,17 @@
 /**
- * EizouSettingsDialog — stand-alone EizouDen settings dialog for the TopBar
- * nav settings button (desktop) and the mobile Dock's Settings entry.
+ * EizouSettingsDialog — global settings dialog opened from the TopBar nav
+ * settings button (desktop pill) and the mobile Dock's Settings entry.
  * ---------------------------------------------------------------------------
- * NAVIGATION_BAR.md "設定ボタンの追加 (2026-08-07)": the Settings modal can be
- * opened from any page. It reuses the same EizouDen Settings tab as the
- * Player settings modal (shared component).
+ * NAVIGATION_BAR.md "設定ボタンの追加 (2026-08-07)": the Settings modal can
+ * be opened from any page and shows the SAME settings as the Player modal —
+ * the shared SettingsTabs body (Player / Subtitle / EizouDen / Anki Fields).
  *
- * The dict string props are supplied by the Astro TopBar (serializable);
- * this avoids passing the full dictionary (which contains functions that
- * cannot cross the island boundary).
+ * Only the title differs (settingsTitleGlobal "Settings" vs the player's
+ * "Player Settings"); the keyboard-shortcut reference is rebuilt from the
+ * same dictionary the Player uses, so the Player tab is identical.
+ *
+ * The dict string props are supplied by the Astro TopBar (serializable —
+ * playerUI is all strings), so the island boundary stays JSON-clean.
  * ---------------------------------------------------------------------------
  */
 
@@ -22,7 +25,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/player/ui/dialog';
-import { EizouDenSettingsTab, type EizouDenPlayerUI } from '@/components/player/EizouDenSettingsTab';
+import { SettingsTabs } from '@/components/player/SettingsTabs';
+import { buildShortcuts } from '@/features/player/player-shortcuts';
+import type { Dictionary } from '@i18n/types';
 
 export interface EizouSettingsDialogProps {
   /** Label for the trigger button (localized, e.g. "Settings"). */
@@ -31,8 +36,8 @@ export interface EizouSettingsDialogProps {
   triggerLabel: string;
   /** Variant: desktop pill button vs mobile dock link. */
   variant: 'pill' | 'dock';
-  /** Minimal playerUI dict slice (serializable strings only). */
-  playerUI: EizouDenPlayerUI & { settingsTitle: string; dialogClose: string };
+  /** Full playerUI dictionary (all strings — serializable). */
+  playerUI: Dictionary['playerUI'];
 }
 
 export function EizouSettingsDialog({
@@ -70,11 +75,12 @@ export function EizouSettingsDialog({
         onPointerDown={(e) => e.stopPropagation()}
       >
         <DialogHeader>
-          <DialogTitle>{playerUI.settingsTitle}</DialogTitle>
+          <DialogTitle>{playerUI.settingsTitleGlobal}</DialogTitle>
         </DialogHeader>
-        <div className="entei-settings-panel">
-          <EizouDenSettingsTab dict={playerUI} />
-        </div>
+        <SettingsTabs
+          dict={playerUI}
+          shortcuts={buildShortcuts(playerUI)}
+        />
       </DialogContent>
     </Dialog>
   );

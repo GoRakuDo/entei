@@ -102,6 +102,7 @@ import { YouTubeInput } from '@/components/player/YouTubeInput';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { Music, AlertTriangle, Magnet } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
+import { buildShortcuts } from '@/features/player/player-shortcuts';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
   readAnkiMinerPreferences,
@@ -3036,15 +3037,8 @@ export default function PlayerApp() {
     };
   }, [hasMedia]);
 
-  // --- Shortcuts list for settings popover ---
-  const shortcuts = [
-    { key: 'Space', desc: dict.shortcutPlayPause },
-    { key: '\u2190', desc: dict.shortcutPrevCue },
-    { key: '\u2192', desc: dict.shortcutNextCue },
-    { key: 'Home', desc: dict.shortcutSeekHome },
-    { key: '[', desc: dict.shortcutSlowDown },
-    { key: ']', desc: dict.shortcutSpeedUp },
-  ];
+  // --- Shortcuts list for settings popover (single source: player-shortcuts) ---
+  const shortcuts = buildShortcuts(dict);
 
   // --- Layout class ---
   const layoutClass = `entei-player-layout${isSubtitlePanelVisible ? ' entei-player-layout--with-panel' : ' entei-player-layout--no-panel'}`;

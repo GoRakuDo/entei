@@ -17,10 +17,12 @@ import {
   DialogTrigger,
 } from './ui/dialog';
 
-export interface ShortcutEntry {
-  key: string;
-  desc: string;
-}
+// ShortcutEntry lives in the single source player-shortcuts (shared with
+// the settings "Player" tab); imported for use here and re-exported for any
+// importers that used the old location.
+import type { ShortcutEntry } from '@/features/player/player-shortcuts';
+
+export type { ShortcutEntry } from '@/features/player/player-shortcuts';
 
 interface KeyboardShortcutsHelpProps {
   label?: string;

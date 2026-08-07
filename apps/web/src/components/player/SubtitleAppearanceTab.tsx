@@ -28,6 +28,8 @@ interface SubtitleAppearanceSettings {
   verticalPosition: number; // 0-200 (bottom offset in px)
 }
 
+export type { SubtitleAppearanceSettings };
+
 interface SubtitleAppearanceTabProps {
   dict: Dictionary['playerUI'];
   settings: SubtitleAppearanceSettings;
