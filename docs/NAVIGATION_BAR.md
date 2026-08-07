@@ -47,9 +47,10 @@ Tracker     → local-firstの記録を振り返る部屋
 TopBar.astro
 ├── desktop Home / Tracker: scroll outする常時pill（brand + Home / Player / Tracker）
 ├── desktop Player: top-edge hover / focus reveal pill（brand + Home / Player / Tracker）
+├── desktopすべて: 設定ボタン（Settingsモーダルをどこからでも開ける）※詳細は後述「設定ボタンの追加（2026-08-07）」
 ├── desktop Home / Tracker: right edgeにLanguage Combobox React island
 └── mobile chrome: brand + optional Language Selector
-    └── floating bottom Dock: Home / Player / Tracker
+    └── floating bottom Dock: Home / Tracker / Settings（2026-08-07変更: Playerを除外し、Settingsを追加）
 ```
 
 route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成立させる。Language Comboboxだけはshadcnの`Popover + Command`構成を使う小さなReact islandにする。navigation全体をReactへ移さない。
@@ -59,7 +60,14 @@ route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成
 - iconは`@lucide/astro`のnamed importだけを使う。手書きSVG、emoji、icon fontは入れない。
 - `TopBar.astro`のpropsへ現在pathを明示して渡す。component内でURLやbrowser APIを推測しない。
 - desktop Language Comboboxはnavの外、viewport右端に置く。destination pillへ入れない。Home / Trackerだけに表示し、Playerにはrenderしない。
-- mobileはnative Language Selectorを保つ。mobile Dockは3 destinationのままにし、Comboboxや4枠目を追加しない。
+- mobileはnative Language Selectorを保つ。mobile Dockは **Home / Tracker / Settings** の3 destination（2026-08-07変更: Playerを除外し、Settingsを追加。Comboboxや4枠目は追加しない）。
+
+### 設定ボタンの追加（2026-08-07設計確定・未実装）
+
+- **TopBarナビに「設定」ボタン**（Lucide `Settings`、44px hit area）を追加し、**どのページからでもプレイヤー設定モーダル（EizouDen タブを含む）を開ける**ようにする。
+- desktop: pill（Home / Player / Tracker）の右側 or 適切な位置に Settings ボタン。Player の top-edge hover pill には含めない（Player 内は既存の Settings アイコンで開く）。
+- mobile: floating bottom Dock を **Home / Tracker / Settings** に変更（Player ボタンを除外。Player への導線は /player/ の直接URL・ホームのカード等で維持）。Dock のDOM順も Home → Tracker → Settings に統一（視覚順とTab順を入れ替えない）。
+- 設定モーダルは共通コンポーネント化し、TopBarのボタンと Player 内の設定アイコンの両方から開ける。
 
 ## 4. レスポンシブ契約
 

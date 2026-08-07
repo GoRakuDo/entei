@@ -104,6 +104,28 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 5. companionは最大1080p sourceを取得し、手動日本語字幕、次に自動日本語字幕を解決する。
 6. Enteiはlocalhost stream URLを既存Playerへ渡す。日本語字幕がなければ既存empty subtitle stateを表示する。
 
+### YouTube 再生モード設定（Quality / Speed、2026-08-07設計確定・未実装）
+
+YouTube は「即再生」と「画質」がトレードオフ。**ユーザーが Quality / Speed のどちらでダウンロードするかを選べる**ようにする。
+
+**背景（フォーマットの制約）**
+- **DASH**（`bv*[height<=1080]+ba`: 動画と音声を別々にDL → 完了後にffmpegで結合）は、**mux完了まで再生不可** = 即再生できない（現在の挙動）。
+- **プログレッシブ形式**（YouTubeの `37`=1080p / `22`=720p / `18`=360p 等は動画+音声が同梱）は、**DL中に先頭から再生可能** = 即再生できる。ただし画質の上限は動画次第で 720p〜1080p。
+
+**2モード（プレイヤー設定 → 「EizouDen」タブの Toggle、状態は localStorage に保存）**
+
+| モード | yt-dlp フォーマット | 再生タイミング | 画質 |
+|---|---|---|---|
+| **Quality（画質優先・既定）** | 現行どおり `bv*[height<=1080]+ba/b[height<=1080]/b` | DL 完了（mux）まで待ち、その後 Player へ | DASH 1080p cap（最良） |
+| **Speed（即再生優先）** | プログレッシブ優先（`37`/`22`/`18` → フォールバック DASH） | **DL 中から HTTP Range で配信し、available が進むと Player が playable で即再生**（Magnet の即ストリーミング（ED-2H）と同じ流れ） | 動画次第（最大 720p〜1080p、プログレスがない場合 DASH にフォールバック） |
+
+**設定 UI（どこからでも開ける）**
+- プレイヤー設定モーダル（デスクトップで Player の Settings から）に **「EizouDen」タブを新規追加**し、Quality / Speed Toggle を置く（localStorage `entei.eizou.yt-mode.v1` 等に保存、既定 Quality）。
+- **TopBar ナビゲーションに「設定」ボタンを追加**（Home / Tracker でも設定モーダルを開ける）。
+- **モバイル下ナビゲーション**: 現在の「ホーム / プレイヤー / トラッキング」を **「ホーム / トラッキング / 設定」** に変更（プレイヤーを消して設定を追加）。
+
+**実装状況**: 方針確定（2026-08-07）。companion（yt-dlp フォーマット切替 + DL 中の Rate 配信）と web（設定タブ・Toggle・ナビ）は未実装、実装時にこのセクションと既知の指摘に更新する。
+
 ### Torrent
 
 1. ユーザーがmagnet URIをEnteiへ貼る。
