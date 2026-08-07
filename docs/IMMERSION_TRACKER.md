@@ -333,3 +333,11 @@ Ankiのknown / learning状態、Yomitan lookup、WaniKani、subtitle本文を使
 - [PLAYER_PHASES.md](./PLAYER_PHASES.md) — P6 annotation / statisticsのphase境界
 - [ANKI_MINER.md](./ANKI_MINER.md) — mining / Anki exportのlocal-only境界
 - [WEBTORRENT_STREAMING.md](./WEBTORRENT_STREAMING.md) — v1 Tracker対象外のWebTorrent境界
+
+## 実装メモ（2026-08-07）: メディア表示名（displayName）
+
+UIに表示するメディア名（IMMERSION_TRACKER.md:118 / :149 の `displayName`）は、ソース別に:
+- **Torrent（Magnet）**: 選択 torrent ファイルの **basename（ファイル名）**
+- **YouTube**: **動画タイトル**（companion が yt-dlp の `--print-to-file "%(title)s" title.txt` で取得 → job Snapshot / `/v1/media/status` の `title` → web が `jobTitle` として取得 → `setMediaName(title)`、Torrent は影響なし）
+
+primary key は引き続き fingerprint / digest（filename は display 専用）。YouTube title のポーリングは有界（5回×2秒、job error/cancelled で即停止、ネットワークエラーは別カウンターで上限5）。

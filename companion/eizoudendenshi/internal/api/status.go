@@ -38,6 +38,10 @@ type statusBody struct {
 	HeadReady  bool   `json:"headReady"`
 	RetryAfter int    `json:"retryAfter,omitempty"`
 	ErrorCode  string `json:"errorCode,omitempty"`
+	// Title is the YouTube video title (job source) or torrent file name;
+	// empty when the source has no display name. Safely ignored by older
+	// clients (JSON extra fields are ignored).
+	Title string `json:"title,omitempty"`
 }
 
 // handleMediaStatus serves the availability snapshot for the configured

@@ -72,9 +72,10 @@ type job struct {
 	errMsg   string
 	timedOut atomic.Bool
 
-	bytes        atomicInt64 // current media bytes on disk (polled)
-	quality      atomicInt64 // selected format height (0 = unknown, set once)
-	subtitlePath string      // path to selected Japanese subtitle file (VTT)
+	bytes        atomicInt64  // current media bytes on disk (polled)
+	quality      atomicInt64  // selected format height (0 = unknown, set once)
+	title        atomicString // YouTube video title (read once from title.txt)
+	subtitlePath string       // path to selected Japanese subtitle file (VTT)
 	partMu       sync.Mutex
 	partPath     string // growing .part file path (speed mode streaming), "" if none
 }
@@ -122,7 +123,7 @@ func (j *job) completedSource() media.GrowingSource {
 func (j *job) snapshot() Snapshot {
 	j.stateMu.Lock()
 	defer j.stateMu.Unlock()
-	snap := Snapshot{ID: j.id, State: j.state, Mode: j.mode, Quality: int(j.quality.load())}
+	snap := Snapshot{ID: j.id, State: j.state, Mode: j.mode, Quality: int(j.quality.load()), Title: j.title.load()}
 	if j.state == StateError {
 		snap.Error = j.errMsg
 	}
@@ -487,6 +488,11 @@ func (j *job) refreshDownloadState(dir string) {
 			j.quality.store(int64(h))
 		}
 	}
+	if j.title.load() == "" {
+		if t, err := readTitleFile(filepath.Join(dir, "title.txt")); err == nil && t != "" {
+			j.title.store(t)
+		}
+	}
 }
 
 // finalize resolves the produced media file after a successful helper run.
@@ -586,6 +592,22 @@ func readHeightFile(path string) (int, error) {
 	return n, nil
 }
 
+// readTitleFile reads the YouTube video title written by yt-dlp's
+// `--print-to-file "%(title)s"`. Only whitespace-trimmed lines are kept;
+// empty/malformed files yield ("", error) so the job keeps an empty title
+// (the web falls back to its existing display name).
+func readTitleFile(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	t := strings.TrimSpace(string(b))
+	if t == "" {
+		return "", errors.New("empty title")
+	}
+	return t, nil
+}
+
 // selectJapaneseSubtitle finds the best Japanese subtitle file in dir.
 // Preference order: manual (*.ja.vtt) > auto (*.ja-orig.vtt).
 // yt-dlp writes subtitles as media.ja.vtt (manual) and media.ja-orig.vtt
@@ -650,3 +672,15 @@ type atomicInt64 struct{ v atomic.Int64 }
 
 func (a *atomicInt64) store(n int64) { a.v.Store(n) }
 func (a *atomicInt64) load() int64   { return a.v.Load() }
+
+// atomicString is a tiny atomic string wrapper (sync/atomic.Value backed).
+type atomicString struct{ v atomic.Value }
+
+func (a *atomicString) store(s string) { a.v.Store(s) }
+func (a *atomicString) load() string {
+	v := a.v.Load()
+	if v == nil {
+		return ""
+	}
+	return v.(string)
+}

@@ -57,6 +57,7 @@ type Snapshot struct {
 	State   State  `json:"state"`
 	Mode    Mode   `json:"mode"`
 	Quality int    `json:"quality,omitempty"` // selected format height (0 = unknown)
+	Title   string `json:"title,omitempty"`   // YouTube video title (empty = not yet known)
 	Error   string `json:"error,omitempty"`
 	Media   Media  `json:"media"`
 }

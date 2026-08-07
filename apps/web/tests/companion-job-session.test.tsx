@@ -28,6 +28,7 @@ function Harness() {
       <span data-testid="phase">{session.phase}</span>
       <span data-testid="active">{String(session.active)}</span>
       <span data-testid="url">{session.jobMediaUrl ?? 'none'}</span>
+      <span data-testid="title">{session.jobTitle ?? 'none'}</span>
       {session.jobMediaUrl && (
         <video data-testid="video" crossOrigin="anonymous" ref={(el) => session.attachMediaElement(el)} />
       )}
@@ -53,12 +54,21 @@ const complete = (total: number) =>
 const playable = (available: number, total: number) =>
   json({ state: 'playable', available, total, headReady: false });
 
-function makeFetcher(responses: Array<Response | Promise<Response>> = []) {
+function makeFetcher(
+  statusResponses: Array<Response | Promise<Response>> = [],
+  jobResponses: Array<Response | Promise<Response>> = [],
+) {
   const calls: { url: string; init?: RequestInit }[] = [];
-  const queue = [...responses];
+  const statusQueue = [...statusResponses];
+  const jobQueue = [...jobResponses];
   const fetchFn = vi.fn<typeof fetch>((input, init) => {
-    calls.push({ url: String(input), init });
-    const next = queue.shift();
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes('/v1/source/jobs/'))
+      return Promise.resolve(jobQueue.shift() ?? new Response('{}', { status: 404 }));
+    if (url.includes('/v1/source/torrents/'))
+      return Promise.resolve(jobQueue.shift() ?? new Response('{}', { status: 404 }));
+    const next = statusQueue.shift();
     if (next === undefined) return Promise.reject(new TypeError('no queued response'));
     return Promise.resolve(next);
   });
@@ -137,9 +147,16 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     );
     expect(screen.getByTestId('video')).toBeInTheDocument();
 
-    const callsAfter = calls.length;
+    // No further media/status polling passes after the title poll has
+    // settled (capped); count only the bridge's own calls.
+    const bridgeCallsAfter = calls.filter(
+      (c) => !c.url.includes('/v1/source/jobs/'),
+    ).length;
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls.length).toBe(callsAfter);
+    const bridgeCallsNow = calls.filter(
+      (c) => !c.url.includes('/v1/source/jobs/'),
+    ).length;
+    expect(bridgeCallsNow).toBe(bridgeCallsAfter);
   });
 
   it('preserves latest pending seek, then plays after seeked', async () => {
@@ -192,9 +209,16 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     await flush();
 
     expect(screen.getByTestId('phase').textContent).toBe('rePairRequired');
-    const callsAfter = calls.length;
+    // No further bridge/media polling after rePairRequired reaches steady
+    // state (the bounded YouTube title poll is counted separately).
+    const bridgeCallsAfter = calls.filter(
+      (c) => !c.url.includes('/v1/source/jobs/'),
+    ).length;
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls.length).toBe(callsAfter);
+    const bridgeCallsNow = calls.filter(
+      (c) => !c.url.includes('/v1/source/jobs/'),
+    ).length;
+    expect(bridgeCallsNow).toBe(bridgeCallsAfter);
     // URL is NOT surfaced on rePairRequired — the phase is not 'ready' or
     // 'playing', so the media URL stays null and the video element stays
     // unmounted.
@@ -286,5 +310,47 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     expect(screen.getByTestId('phase').textContent).toBe('idle');
     expect(screen.getByTestId('active').textContent).toBe('false');
     expect(screen.getByTestId('url').textContent).toBe('none');
+  });
+
+  it('polls the YouTube job status and surfaces the video title as jobTitle', async () => {
+    const { calls, fetchFn } = makeFetcher(
+      [buffering(100, 1000)],
+      [json({ id: 'job123', state: 'downloading', mode: 'quality', title: 'Sample YouTube Video Title', media: { available: 100, total: 0 } })],
+    );
+    vi.stubGlobal('fetch', fetchFn);
+    render(<Harness />);
+
+    fireEvent.click(screen.getByText('begin'));
+    await flush();
+
+    // The job-status fetch is issued (title poll) for YouTube kind.
+    expect(
+      calls.some((c) => c.url.includes('/v1/source/jobs/job123?token=')),
+    ).toBe(true);
+    // Title lands after the poll response is processed.
+    await vi.advanceTimersByTimeAsync(0);
+    await flush();
+    expect(screen.getByTestId('title').textContent).toBe(
+      'Sample YouTube Video Title',
+    );
+  });
+
+  it('clears jobTitle when the session ends', async () => {
+    const { fetchFn } = makeFetcher(
+      [buffering(100, 1000)],
+      [json({ id: 'job123', state: 'downloading', title: 'T', media: { available: 100, total: 0 } })],
+    );
+    vi.stubGlobal('fetch', fetchFn);
+    render(<Harness />);
+
+    fireEvent.click(screen.getByText('begin'));
+    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+    await flush();
+    expect(screen.getByTestId('title').textContent).toBe('T');
+
+    fireEvent.click(screen.getByText('cancel'));
+    await flush();
+    expect(screen.getByTestId('title').textContent).toBe('none');
   });
 });

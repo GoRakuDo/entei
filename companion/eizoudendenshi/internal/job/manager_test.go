@@ -161,26 +161,34 @@ func TestFixedArgsNoInjection(t *testing.T) {
 		"--sub-format", "vtt",
 		"--no-part",
 		"-f", qualityFormat,
-		"--print-to-file", heightPrintTemplate,
 	}
-	// After the fixed vector: the height.txt output path, then -o, then its
-	// value (ending media.%(ext)s), then the URL.
-	if len(argv) != len(want)+4 {
-		t.Fatalf("argv = %v, want fixed vector + height path + -o pair + url", argv)
+	// After the fixed vector: two --print-to-file pairs (height, title),
+	// then -o + value (media.%(ext)s), then the URL.
+	if len(argv) != len(want)+9 {
+		t.Fatalf("argv = %v, want fixed vector + 2 print pairs + -o pair + url", argv)
 	}
 	for i := range want {
 		if argv[i] != want[i] {
 			t.Errorf("argv[%d] = %q, want %q", i, argv[i], want[i])
 		}
 	}
-	if !strings.HasSuffix(argv[len(want)], "height.txt") {
-		t.Errorf("height output path %q must resolve inside the job dir", argv[len(want)])
+	if argv[len(want)] != "--print-to-file" || argv[len(want)+1] != heightPrintTemplate {
+		t.Errorf("height print pair = %q %q, want --print-to-file %q", argv[len(want)], argv[len(want)+1], heightPrintTemplate)
 	}
-	if argv[len(want)+1] != "-o" {
-		t.Errorf("argv[%d] = %q, want -o", len(want)+1, argv[len(want)+1])
+	if !strings.HasSuffix(argv[len(want)+2], "height.txt") {
+		t.Errorf("height output path %q must resolve inside the job dir", argv[len(want)+2])
 	}
-	if !strings.HasSuffix(argv[len(want)+2], "media.%(ext)s") {
-		t.Errorf("-o value %q must resolve inside the job dir with the fixed template", argv[len(want)+2])
+	if argv[len(want)+3] != "--print-to-file" || argv[len(want)+4] != titlePrintTemplate {
+		t.Errorf("title print pair = %q %q, want --print-to-file %q", argv[len(want)+3], argv[len(want)+4], titlePrintTemplate)
+	}
+	if !strings.HasSuffix(argv[len(want)+5], "title.txt") {
+		t.Errorf("title output path %q must resolve inside the job dir", argv[len(want)+5])
+	}
+	if argv[len(want)+6] != "-o" {
+		t.Errorf("argv[%d] = %q, want -o", len(want)+6, argv[len(want)+6])
+	}
+	if !strings.HasSuffix(argv[len(want)+7], "media.%(ext)s") {
+		t.Errorf("-o value %q must resolve inside the job dir with the fixed template", argv[len(want)+7])
 	}
 	if argv[len(argv)-1] != url {
 		t.Errorf("final argv element = %q, want the canonical url %q", argv[len(argv)-1], url)
@@ -889,5 +897,43 @@ func TestPartSourceGrowth(t *testing.T) {
 	}
 	if src.Available() != 21 {
 		t.Fatalf("avail after growth = %d, want 21", src.Available())
+	}
+}
+
+// TestYouTubeTitleCaptured verifies the completed job's snapshot exposes the
+// YouTube video title written by the fake helper (title.txt via
+// --print-to-file "%(title)s"), and that it never contains the URL or a
+// local path.
+func TestYouTubeTitleCaptured(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "2048")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK", "2048")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
+	m := newTestManager(t, 0)
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", ModeQuality)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var got *Snapshot
+	for {
+		s := m.Get(snap.ID)
+		if s != nil && s.State == StateComplete {
+			got = s
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for complete")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	defer func() { _, _ = m.Cancel(snap.ID) }()
+
+	if got.Title != "Sample YouTube Video Title" {
+		t.Fatalf("title = %q, want the fake helper's title.txt content", got.Title)
+	}
+	// The URL must never leak into the title.
+	if strings.Contains(got.Title, "youtube.com") || strings.Contains(got.Title, "abcdefghijk") {
+		t.Fatalf("title leaks the URL: %q", got.Title)
 	}
 }

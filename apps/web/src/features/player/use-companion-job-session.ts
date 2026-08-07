@@ -39,6 +39,18 @@ import { useCompanionBridge } from '@/features/player/use-companion-bridge';
 
 export type CompanionJobKind = 'youtube' | 'torrent';
 
+/** Retry interval for the YouTube title poll. */
+const TITLE_POLL_INTERVAL_MS = 2_000;
+
+/** Bounded retries before giving up on the YouTube title (yt-dlp writes
+ *  title.txt very early — a title that has not appeared by then is not
+ *  coming, and a persistent loop would add endless background fetches). */
+const TITLE_POLL_MAX_ATTEMPTS = 5;
+
+/** Bounded network-error retries for the title poll (transient companion
+ *  unreachability should retry, but not forever). */
+const TITLE_POLL_MAX_ERRORS = 5;
+
 export interface CompanionJobSource {
   /** Loopback companion origin, e.g. "http://127.0.0.1:4322". */
   baseUrl: string;
@@ -80,6 +92,10 @@ export interface UseCompanionJobSessionResult {
    *  torrent jobs that selected a subtitle. Null when no subtitle was
    *  selected or the session is not active. */
   subtitleUrl: string | null;
+  /** YouTube video title from the companion job (display name for the
+   *  tracker / controls). Null until the companion reports it or for
+   *  non-YouTube jobs (torrents use the selected file basename instead). */
+  jobTitle: string | null;
   setPlayIntent: (play: boolean) => void;
   requestSeek: (seconds: number) => void;
 }
@@ -89,10 +105,62 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const [active, setActive] = useState(false);
   const [kind, setKind] = useState<CompanionJobKind | null>(null);
   const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
+  const [jobTitle, setJobTitle] = useState<string | null>(null);
   const activeRef = useRef(false);
   const sourceRef = useRef<CompanionJobSource | null>(null);
   const attachedRef = useRef(false);
   const intentCleanupRef = useRef<(() => void) | null>(null);
+  const titlePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleAttemptsRef = useRef(0);
+  const titleErrorRef = useRef(0);
+
+  // Poll the companion job-status endpoint for the YouTube video title.
+  // Only YouTube jobs expose a title; torrents keep the selected file
+  // basename (already in mediaName). Plain/page-memory value — never
+  // persisted. The title typically appears as soon as yt-dlp starts, so the
+  // poll is capped (a few 2s retries) to avoid a persistent background loop.
+  const pollTitle = useCallback(() => {
+    const src = sourceRef.current;
+    if (!src || src.kind !== 'youtube' || !activeRef.current) return;
+    void fetch(
+      `${src.baseUrl}/v1/source/jobs/${encodeURIComponent(src.jobId)}?token=${encodeURIComponent(src.token)}`,
+      { cache: 'no-store' },
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { title?: string; state?: string } | null) => {
+        if (body?.title) {
+          setJobTitle(body.title);
+          return; // title found — stop polling
+        }
+        // Job failed (error/cancelled): the title will never appear — stop
+        // polling instead of burning the bounded retries.
+        if (body?.state === 'error' || body?.state === 'cancelled') {
+          return;
+        }
+        // Not ready yet; give it a bounded number of retries.
+        if (
+          activeRef.current &&
+          titleAttemptsRef.current < TITLE_POLL_MAX_ATTEMPTS
+        ) {
+          titleAttemptsRef.current += 1;
+          titlePollRef.current = setTimeout(pollTitle, TITLE_POLL_INTERVAL_MS);
+        }
+      })
+      .catch(() => {
+        // Companion unreachable mid-poll: retry while active, but do NOT
+        // consume a "not ready" attempt — a transient network error is not
+        // evidence the title is absent. Network failures get their own
+        // bounded budget so a persistently unreachable companion cannot
+        // keep the retry chain alive forever.
+        if (
+          activeRef.current &&
+          titleErrorRef.current < TITLE_POLL_MAX_ERRORS
+        ) {
+          titleErrorRef.current += 1;
+          titlePollRef.current = setTimeout(pollTitle, TITLE_POLL_INTERVAL_MS);
+        }
+      });
+  }, []);
 
   // ED-2H core design: jobMediaUrl is gated on bridge.phase === 'ready'
   // || 'playing' to prevent the video element from fetching while
@@ -167,8 +235,14 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
         { baseUrl: source.baseUrl, token: source.token },
         null,
       );
+      // Kick off title polling for YouTube jobs (display name for tracker).
+      if (source.kind === 'youtube') {
+        titleAttemptsRef.current = 0;
+        titleErrorRef.current = 0;
+        pollTitle();
+      }
     },
-    [bridge, clearIntentListeners],
+    [bridge, clearIntentListeners, pollTitle],
   );
 
   const endJobSession = useCallback(() => {
@@ -178,8 +252,15 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     activeRef.current = false;
     attachedRef.current = false;
     clearIntentListeners();
+    if (titlePollRef.current !== null) {
+      clearTimeout(titlePollRef.current);
+      titlePollRef.current = null;
+    }
+    titleAttemptsRef.current = 0;
+    titleErrorRef.current = 0;
     setActive(false);
     setSubtitleUrl(null);
+    setJobTitle(null);
   }, [bridge, clearIntentListeners]);
 
   const cancelActiveJob = useCallback(async () => {
@@ -259,6 +340,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     attachMediaElement,
     jobMediaUrl,
     subtitleUrl,
+    jobTitle,
     setPlayIntent,
     requestSeek,
   };

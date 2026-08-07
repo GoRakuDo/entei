@@ -39,6 +39,7 @@ type jobResponseBody struct {
 	State   string       `json:"state"`
 	Mode    string       `json:"mode"`
 	Quality int          `json:"quality,omitempty"` // selected format height (0 = unknown)
+	Title   string       `json:"title,omitempty"`   // YouTube video title (display name)
 	Error   string       `json:"error,omitempty"`
 	Media   jobMediaBody `json:"media"`
 }
@@ -49,6 +50,7 @@ func snapshotToJobBody(s job.Snapshot) jobResponseBody {
 		State:   string(s.State),
 		Mode:    string(s.Mode),
 		Quality: s.Quality,
+		Title:   s.Title,
 		Error:   s.Error,
 		Media: jobMediaBody{
 			Available: s.Media.Available,
@@ -223,6 +225,7 @@ func (s *Server) activeJobStatus() (statusBody, bool) {
 				State:     statusPlayable,
 				Available: snap.Media.Available,
 				Total:     snap.Media.Total,
+				Title:     snap.Title,
 			}, true
 		}
 		return statusBody{
@@ -230,12 +233,14 @@ func (s *Server) activeJobStatus() (statusBody, bool) {
 			Available:  snap.Media.Available,
 			Total:      snap.Media.Total,
 			RetryAfter: bufferingRetryAfterSec,
+			Title:      snap.Title,
 		}, true
 	case job.StateComplete:
 		return statusBody{
 			State:     statusComplete,
 			Available: snap.Media.Total,
 			Total:     snap.Media.Total,
+			Title:     snap.Title,
 		}, true
 	case job.StateError:
 		return statusBody{State: statusError}, true

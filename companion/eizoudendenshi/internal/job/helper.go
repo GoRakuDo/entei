@@ -25,6 +25,12 @@ const speedFormat = "b"
 // after format selection, before download begins.
 const heightPrintTemplate = "%(height)s"
 
+// titlePrintTemplate writes the video title to a sidecar file so the
+// companion can surface the YouTube video title as the media display name
+// (docs/EIZOU_DENDENSHI.md — tracker shows the file name for torrents and
+// the video title for YouTube). Written early (per-video) before download.
+const titlePrintTemplate = "%(title)s"
+
 // helperArgs builds the fixed argument vector for the download helper.
 // The validated URL is the final element and the only user-derived value;
 // it is never interpolated into a flag. No shell is involved — the helper
@@ -64,6 +70,7 @@ func helperArgs(jobDir, url string, mode Mode) []string {
 	args = append(args,
 		"-f", format,
 		"--print-to-file", heightPrintTemplate, filepath.Join(jobDir, "height.txt"),
+		"--print-to-file", titlePrintTemplate, filepath.Join(jobDir, "title.txt"),
 		"-o", filepath.Join(jobDir, "media.%(ext)s"),
 		url,
 	)

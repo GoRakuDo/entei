@@ -58,12 +58,19 @@ func main() {
 	if outPath == "" {
 		os.Exit(3)
 	}
-	// Write height.txt when --print-to-file "%(height)s" is present, so the
-	// manager can read the selected format height.
+	// Write sidecar print files when --print-to-file is present, so the
+	// manager can read the selected format height and the video title.
+	// --print-to-file <template> <path> — write a sample value per template.
 	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "--print-to-file" {
-			_ = os.WriteFile(args[i+2], []byte("720\n"), 0o600)
-			break
+		if args[i] == "--print-to-file" && i+2 < len(args) {
+			tmpl := args[i+1]
+			out := args[i+2]
+			switch tmpl {
+			case "%(height)s":
+				_ = os.WriteFile(out, []byte("720\n"), 0o600)
+			case "%(title)s":
+				_ = os.WriteFile(out, []byte("Sample YouTube Video Title\n"), 0o600)
+			}
 		}
 	}
 	// Speed mode (no --no-part) writes a .part file that grows and is

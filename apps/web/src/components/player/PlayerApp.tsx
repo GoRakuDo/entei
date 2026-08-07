@@ -561,6 +561,16 @@ export default function PlayerApp() {
     if (jobSession.jobMediaUrl) setMediaType('video');
   }, [jobSession.jobMediaUrl]);
 
+  // ED-2F: mirror the companion's YouTube video title into mediaName (the
+  // tracker / controls display name). Torrents already set the selected file
+  // basename in handleMagnetJobAccepted; YouTube's title arrives async from
+  // the job-status poll once yt-dlp starts.
+  useEffect(() => {
+    if (jobSession.jobTitle) {
+      setMediaName(sanitizeDisplayName(jobSession.jobTitle));
+    }
+  }, [jobSession.jobTitle]);
+
   // ED-2G: Auto-fetch subtitle content from companion when a torrent job
   // selected a subtitle file, or from a YouTube job that has Japanese
   // subtitles. Fetches the text, parses it with the same subtitle-reader
