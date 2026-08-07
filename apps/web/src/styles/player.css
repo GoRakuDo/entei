@@ -1524,6 +1524,10 @@
 .entei-settings-panel {
   flex: 1;
   min-width: 0;
+  /* Explicit min-height:0 — do not rely on flex min-size collapse alone
+     (spec 4.5); makes the panel a robust scroll container. Mirrors
+     eizouden-settings.css. */
+  min-height: 0;
   overflow-y: auto;
   /* W1: mobile 24px inline/block */
   padding: var(--entei-space-24);
@@ -1538,6 +1542,23 @@
 .entei-settings-tab-content {
   padding: 0;
   overflow: visible;
+}
+
+/* --- In-modal scroll: the tab panel is the scroll container ---
+   The dialog is `display:flex; flex-direction:column; overflow:hidden`
+   (fixed 544px on desktop). The panel's `overflow-y: auto` triggers CSS
+   Flexbox spec 4.5 min-size collapse — an overflow-auto flex child has its
+   automatic min size clamped, so the panel is constrained to the available
+   height and becomes the scroll container. The TabsContent
+   `min-height:0 + overflow-y:auto` is defense-in-depth for the same effect
+   on the inner flex item. Header + tab strip stay fixed; only content
+   scrolls (measured fix for bottom:-144px overflow).
+   Mirrors eizouden-settings.css (identical values — drift guard). */
+.entei-settings-dialog [data-slot='tabs-content'][role='tabpanel'],
+.entei-settings-dialog .entei-settings-tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* --- Player Tab Shortcuts (Workspace Dense List) --- */
