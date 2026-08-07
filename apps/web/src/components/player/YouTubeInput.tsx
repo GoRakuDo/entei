@@ -63,6 +63,10 @@ interface YouTubeInputProps {
   token: string | null;
   /** Called with the opaque job id once the companion accepted the job. */
   onJobAccepted: (jobId: string) => void;
+  /** Fire-and-forget cancel of the currently active YouTube job.
+   *  When a new URL is submitted, the old job is cancelled first so the
+   *  companion's one-active policy is satisfied without a 409 conflict. */
+  cancelActiveJob?: () => void;
   dict: YouTubeInputDict;
 }
 
@@ -103,6 +107,7 @@ export function YouTubeInput({
   isPaired,
   token,
   onJobAccepted,
+  cancelActiveJob,
   dict,
 }: YouTubeInputProps) {
   const [url, setUrl] = useState('');
@@ -138,6 +143,10 @@ export function YouTubeInput({
       setError('invalid');
       return;
     }
+    // Magnet と同様に、新しい URL は前の job を自動キャンセルして新 job を開始
+    // （companion の one-active に対応）。companion の Cancel は同期で
+    // UI をブロックするため fire-and-forget で送信し、キャンセル完了を待たない。
+    if (cancelActiveJob) cancelActiveJob();
     setSubmitting(true);
     setError(null);
     try {
@@ -189,7 +198,7 @@ export function YouTubeInput({
     } finally {
       setSubmitting(false);
     }
-  }, [isPaired, token, url, onJobAccepted]);
+  }, [isPaired, token, url, onJobAccepted, cancelActiveJob]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

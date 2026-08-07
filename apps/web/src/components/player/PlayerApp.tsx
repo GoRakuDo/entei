@@ -3414,6 +3414,7 @@ export default function PlayerApp() {
         isPaired={pairing.connected}
         token={pairing.tokenRef.current}
         onJobAccepted={handleYouTubeJobAccepted}
+        cancelActiveJob={jobSession.cancelActiveJob}
         dict={{
           youtubeInputLabel: dict.youtubeInputLabel,
           youtubeInputTitle: dict.youtubeInputTitle,

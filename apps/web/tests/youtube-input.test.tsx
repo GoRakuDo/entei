@@ -50,6 +50,7 @@ describe('YouTubeInput — paired flow', () => {
     isPaired: true,
     token: TOKEN,
     onJobAccepted: vi.fn(),
+    cancelActiveJob: vi.fn(),
     dict: baseDict,
   };
 
@@ -184,6 +185,40 @@ describe('YouTubeInput — paired flow', () => {
     expect(submit).toBeDisabled();
     resolveFetch(jsonResponse({ id: 'job123' }, 201));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  });
+
+  it('cancels the active job before creating a new one (auto-cancel)', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ id: 'job456' }, 201),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const cancelActiveJob = vi.fn();
+    render(
+      <YouTubeInput {...defaultProps} cancelActiveJob={cancelActiveJob} />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+
+    await waitFor(() => expect(cancelActiveJob).toHaveBeenCalledTimes(1));
+    // The new job creation request is also sent.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('works without cancelActiveJob prop (no active job)', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ id: 'job789' }, 201),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    render(
+      <YouTubeInput {...defaultProps} cancelActiveJob={undefined} onJobAccepted={onJobAccepted} />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+
+    await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('job789'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
