@@ -128,7 +128,7 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 
 **モード切替タイミング（2026-08-07確定）**: 設定変更は**次回の DL から適用**（進行中の job には反映しない）。
 
-**実装状況（2026-08-07更新）**: 
+**実装状況（2026-08-07更新）**:
 - **web は実装済み**: 設定モーダルの「EizouDen」タブ（Quality/​Speed ラジオ）、`localStorage entei.eizou.yt-mode.v1`（既定 quality）、TopBar ナビの設定ボタン（desktop pill / mobile Dock）、**モバイル Dock = Home/Tracker/Settings**（Player 除外）、**Sonner 導入**（`EizouToaster` を両レイアウトへ）+ 画質通知トースト関数（`notifyQuality`、i18n `ytModeToastFormat`、companion 接続は後続）。DeepSeek Executor（ChromeDevTools でスペーシング検証付き）+ Mimo 独立レビュー（新しい部屋）完全 APPROVE。`npm test` 1453 PASS・check 0/0/0・build 成功。
 - **companion は未実装**: yt-dlp フォーマット切替（Quality DASH / Speed プログレッシブ最優先）+ `.part` 配信 + 画質情報の返却。実装は「**`.part` ファイルの HTTP Range 配信で Chrome が DL 中の先頭再生を開始できるか**」の PoC 検証から始める（成立しない場合、アプローチを見直す）。
 
@@ -542,7 +542,8 @@ loopback companion専用のYouTube source jobの基盤（create / read / cancel�
 
 ### 実QA記録（2026-08-01・実yt-dlp・PSMUX detached）
 
-**helper更新（許可済み・Python 3.11環境のみ）**: python311 -m pip install --upgrade yt-dlp で 2025.03.31 → 2026.07.04 に更新（他環境/globalは不変更）。**実download QAが全面成功**（同一実URL・短い公開テスト動画）: job受付201 → downloading → complete(available==total=474489)、helper argv固定ポリシーを実機で確認（1080p cap selector・--no-playlist・URLは最後のargv要素・shell不使用・parent chain eizouden→wrapper→python）、/v1/media/status complete・/v1/media/fixture 200（474489実bytes）+ **Range 206**（head/midとも実bytes）、ffprobeで**AV1 320x240 + Opus・19.028s**の実media確認（ffmpeg merge動作）、**Chromeで実media再生確認**（/v1/media/fixture URLをvideo要素に渡し、loadedmetadata/canplay/playing・currentTime前進・errorなし）。cancelはcomplete job / mid-download両方で200・session解放・GET後404・**orphan 0**・job dir削除。redaction sweepでURL/token/path/stderr漏れゼロ。**実欠陥を追加検出・修正**: mid-download cancelでkill直後のos.RemoveAllが死亡過程のhelper（python/ffmpeg）のopen handleで失敗しjob dirがリークするraceを実QAで再現 → emoveAllBestEffort（bounded retry 5s）を全cleanup pathに適用 + fake helperのhold modeをopen handle保持に強化し回帰テストで固定（TestNoJobTempDirLeakOnError/TestNoJobTempDirLeakOnCancel）。 **残りgate**: cookie/saved-profile・subtitles・Android/headed Windows browser QA・production bridge接続（URL UIとjob-to-bridge接続は実装済み）。
+**helper更新（許可済み・Python 3.11環境のみ）**: python311 -m pip install --upgrade yt-dlp で 2025.03.31 → 2026.07.04 に更新（他環境/globalは不変更）。**実download QAが全面成功**（同一実URL・短い公開テスト動画）: job受付201 → downloading → complete(available==total=474489)、helper argv固定ポリシーを実機で確認（1080p cap selector・--no-playlist・URLは最後のargv要素・shell不使用・parent chain eizouden→wrapper→python）、/v1/media/status complete・/v1/media/fixture 200（474489実bytes）+ **Range 206**（head/midとも実bytes）、ffprobeで**AV1 320x240 + Opus・19.028s**の実media確認（ffmpeg merge動作）、**Chromeで実media再生確認**（/v1/media/fixture URLをvideo要素に渡し、loadedmetadata/canplay/playing・currentTime前進・errorなし）。cancelはcomplete job / mid-download両方で200・session解放・GET後404・**orphan 0**・job dir削除。redaction sweepでURL/token/path/stderr漏れゼロ。**実欠陥を追加検出・修正**: mid-download cancelでkill直後のos.RemoveAllが死亡過程のhelper（python/ffmpeg）のopen handleで失敗しjob dirがリークするraceを実QAで再現 → 
+emoveAllBestEffort（bounded retry 5s）を全cleanup pathに適用 + fake helperのhold modeをopen handle保持に強化し回帰テストで固定（TestNoJobTempDirLeakOnError/TestNoJobTempDirLeakOnCancel）。 **残りgate**: cookie/saved-profile・subtitles・Android/headed Windows browser QA・production bridge接続（URL UIとjob-to-bridge接続は実装済み）。
 
 
 ### 実QA記録（2026-08-01・helper更新前・失敗クラス）
