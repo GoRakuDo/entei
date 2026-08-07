@@ -747,3 +747,12 @@ Testをまだ実行していない時は`未実施`と書き、成功したよ�
 - [x] Game hubは、Yosia提供のbrand SVGとCSS背景で開始する。
 
 copy以外のPhase 0実装・手動QAは完了。公開前にcopyとOG WebP/PNGを確定し、Yosiaがpublishを承認した後にdeployへ進む。
+
+## 開発記録（2026-08-07）: Astro 7.2 更新 + incrementalBuild 有効化
+
+- `apps/web/package.json` の astro を **`^7.1.1` → `^7.2.0`** へ更新（npm install astro@latest）。
+- `astro.config.mjs` に **`experimental: { incrementalBuild: true }`** を追加（Astro 7.2 の experimental incremental static builds: コード/データが変わらない prerender ページの再生成をスキップ）。
+- **現時点での効果**: Entei は全ルート静的（`/` `/player/` `/tracker/` `/404`）で `getStaticPaths` を使わないため **cacheKey が無い＝従来どおり常にレンダー**（挙動変化なし・有効化のみ）。
+- **将来**: `getStaticPaths` を使うルートで `cacheKey`（例: content collection の `entry.digest`）を返すと、該当ページだけの差分再レンダーでビルド高速化可能。キャッシュは `node_modules/.astro/`（CI が永続化すれば再利用可）。
+- experimental フラグは Astro minor 更新で名前変更/削除の可能性 → その時は config の該当行を除去。
+- 検証: `npm run build`（4ページ・約8.6s）、`npm test` 1453、`astro check` 0/0/0 通過。
