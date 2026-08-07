@@ -91,6 +91,7 @@ export function PlayerSettingsDialog({
         <SettingsTabs
           dict={dict}
           shortcuts={shortcuts.map((s) => ({ key: s.key, desc: s.desc }))}
+          showShortcuts={true}
           onSessionCredentials={onSessionCredentials}
           subtitleSettings={subtitleSettings}
           onSubtitleSettingsChange={onSubtitleSettingsChange}

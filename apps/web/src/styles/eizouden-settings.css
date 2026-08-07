@@ -134,6 +134,13 @@
   border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
+/* Settings modal header uses the pixel/game font (Pixelify Sans) — the
+   "Entei" brand accent for the settings title. */
+.entei-settings-dialog .entei-dialog-title {
+  font-family: var(--entei-font-system);
+  letter-spacing: 0.02em;
+}
+
 .entei-settings-panel {
   flex: 1;
   min-height: 0;

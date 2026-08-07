@@ -38,6 +38,9 @@ export interface EizouSettingsDialogProps {
   variant: 'pill' | 'dock';
   /** Full playerUI dictionary (all strings — serializable). */
   playerUI: Dictionary['playerUI'];
+  /** Show the Shortcut tab (player-only keyboard reference). The TopBar
+   *  passes true only when the current route is /player. */
+  showShortcuts?: boolean;
 }
 
 export function EizouSettingsDialog({
@@ -45,6 +48,7 @@ export function EizouSettingsDialog({
   triggerLabel,
   variant,
   playerUI,
+  showShortcuts = false,
 }: EizouSettingsDialogProps) {
   const [open, setOpen] = useState(false);
 
@@ -80,6 +84,7 @@ export function EizouSettingsDialog({
         <SettingsTabs
           dict={playerUI}
           shortcuts={buildShortcuts(playerUI)}
+          showShortcuts={showShortcuts}
         />
       </DialogContent>
     </Dialog>

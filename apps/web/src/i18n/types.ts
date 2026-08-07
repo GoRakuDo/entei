@@ -116,7 +116,7 @@ export interface Dictionary {
     captionModeBlurred: string;
     captionModeHidden: string;
     // AM-1: Settings Modal tabs
-    settingsTabPlayer: string;
+    settingsTabShortcut: string;
     settingsTabAnki: string;
     // P2.1: Subtitle Appearance Settings tab
     settingsTabSubtitle: string;

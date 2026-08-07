@@ -84,7 +84,7 @@ export const ja: Dictionary = {
     captionModeBlurred: '字幕：ぼかし',
     captionModeHidden: '字幕：非表示',
     // AM-1: Settings Modal tabs
-    settingsTabPlayer: 'プレイヤー',
+    settingsTabShortcut: 'ショートカット',
     settingsTabAnki: 'Anki フィールド',
     // AM-5: Anki Fields tab
     ankiConnect: 'Ankiに接続',

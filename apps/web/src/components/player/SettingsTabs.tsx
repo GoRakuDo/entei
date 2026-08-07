@@ -41,6 +41,10 @@ const DEFAULT_SUBTITLE_SETTINGS: SubtitleAppearanceSettings = {
 export interface SettingsTabsProps {
   dict: Parameters<typeof AnkiFieldsTab>[0]['dict'];
   shortcuts: ShortcutEntry[];
+  /** Whether the Shortcut tab (player-only keyboard reference) is shown.
+   *  Player settings modal passes true; the global nav settings dialog
+   *  passes true only on the /player page. Defaults to false (opt-in). */
+  showShortcuts?: boolean;
   /** Anki export session callback (optional; player wires it, nav omits). */
   onSessionCredentials?: (creds: AnkiSessionCredentials | null) => void;
   /** Live subtitle settings from the player (optional; synced when present). */
@@ -52,6 +56,7 @@ export interface SettingsTabsProps {
 export function SettingsTabs({
   dict,
   shortcuts,
+  showShortcuts = false,
   onSessionCredentials,
   subtitleSettings,
   onSubtitleSettingsChange,
@@ -103,28 +108,34 @@ export function SettingsTabs({
     : localSubtitle;
 
   return (
-    <Tabs defaultValue="player" className="entei-settings-tabs">
+    // Note: defaultValue is mount-time only; safe because the dialog
+    // unmounts on close (each open mounts fresh with the current value).
+    <Tabs defaultValue={showShortcuts ? 'shortcut' : 'subtitle'} className="entei-settings-tabs">
       <div className="entei-settings-body">
         <TabsList className="entei-settings-tabs-list">
-          <TabsTrigger value="player">{dict.settingsTabPlayer}</TabsTrigger>
+          {showShortcuts && (
+            <TabsTrigger value="shortcut">{dict.settingsTabShortcut}</TabsTrigger>
+          )}
           <TabsTrigger value="subtitle">{dict.settingsTabSubtitle}</TabsTrigger>
           <TabsTrigger value="eizouden">{dict.settingsTabEizouDen}</TabsTrigger>
           <TabsTrigger value="anki">{dict.settingsTabAnki}</TabsTrigger>
         </TabsList>
         <div className="entei-settings-panel">
-          <TabsContent value="player" className="entei-settings-tab-content">
-            <div className="entei-settings-section">
-              <p className="entei-settings-label">{dict.settingsShortcuts}</p>
-              <div className="entei-settings-shortcuts-list">
-                {shortcuts.map((s) => (
-                  <div key={s.key} className="entei-settings-shortcut-row">
-                    <kbd className="entei-shortcut-key">{s.key}</kbd>
-                    <span className="entei-shortcut-desc">{s.desc}</span>
-                  </div>
-                ))}
+          {showShortcuts && (
+            <TabsContent value="shortcut" className="entei-settings-tab-content">
+              <div className="entei-settings-section">
+                <p className="entei-settings-label">{dict.settingsShortcuts}</p>
+                <div className="entei-settings-shortcuts-list">
+                  {shortcuts.map((s) => (
+                    <div key={s.key} className="entei-settings-shortcut-row">
+                      <kbd className="entei-shortcut-key">{s.key}</kbd>
+                      <span className="entei-shortcut-desc">{s.desc}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          </TabsContent>
+            </TabsContent>
+          )}
           <TabsContent value="subtitle" className="entei-settings-tab-content">
             <SubtitleAppearanceTab
               dict={dict}

@@ -84,7 +84,7 @@ export const en: Dictionary = {
     captionModeBlurred: 'Subtitles: blurred',
     captionModeHidden: 'Subtitles: hidden',
     // AM-1: Settings Modal tabs
-    settingsTabPlayer: 'Player',
+    settingsTabShortcut: 'Shortcut',
     settingsTabAnki: 'Anki Fields',
     // AM-5: Anki Fields tab
     ankiConnect: 'Connect Anki',

@@ -64,7 +64,7 @@ export const baseMockDict = {
   captionModeVisible: 'Visible',
   captionModeBlurred: 'Blurred',
   captionModeHidden: 'Hidden',
-  settingsTabPlayer: 'Player',
+  settingsTabShortcut: 'Shortcut',
   settingsTabAnki: 'Anki',
   settingsTabEizouDen: 'EizouDen',
   ytModeQuality: 'Quality',

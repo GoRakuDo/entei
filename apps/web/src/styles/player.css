@@ -1401,6 +1401,12 @@
   border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
+/* Settings modal header — the pixel font (Pixelify Sans) brand title */
+.entei-settings-dialog .entei-dialog-title {
+  font-family: var(--entei-font-system);
+  letter-spacing: 0.02em;
+}
+
 /* --- Tabs Body Layout --- */
 .entei-settings-tabs {
   display: flex;

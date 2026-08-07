@@ -85,7 +85,7 @@ export const id: Dictionary = {
     captionModeBlurred: 'Subtitel: buram',
     captionModeHidden: 'Subtitel: tersembunyi',
     // AM-1: Settings Modal tabs
-    settingsTabPlayer: 'Player',
+    settingsTabShortcut: 'Pintasan',
     settingsTabAnki: 'Field Anki',
     // AM-5: Anki Fields tab
     ankiConnect: 'Hubungkan Anki',

@@ -104,7 +104,7 @@ const mockDict = {
   captionModeVisible: 'Visible',
   captionModeBlurred: 'Blurred',
   captionModeHidden: 'Hidden',
-  settingsTabPlayer: 'Player',
+  settingsTabShortcut: 'Shortcut',
   settingsTabAnki: 'Anki',
   ankiConnect: 'Connect',
   ankiConnectDesc: 'Desc',
