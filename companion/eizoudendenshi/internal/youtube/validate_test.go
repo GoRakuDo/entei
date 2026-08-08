@@ -16,6 +16,12 @@ func TestValidateURLAccepted(t *testing.T) {
 		{"https://www.youtube.com/embed/abcdefghijk", "https://www.youtube.com/embed/abcdefghijk"},
 		{"https://www.youtube.com/live/abcdefghijk", "https://www.youtube.com/live/abcdefghijk"},
 		{"https://www.youtube.com/watch?v=ABC_DEF-012", "https://www.youtube.com/watch?v=ABC_DEF-012"}, // base64url charset
+		// Extra query params (share URLs, pp=, t=, list=) are ignored and
+		// stripped to a canonical v-only URL.
+		{"https://m.youtube.com/watch?v=tD-nJSzkQUI&pp=ugUEEgJqYQ%3D%3D", "https://m.youtube.com/watch?v=tD-nJSzkQUI"},
+		{"https://www.youtube.com/watch?v=abcdefghijk&list=PL123", "https://www.youtube.com/watch?v=abcdefghijk"},
+		{"https://www.youtube.com/watch?v=abcdefghijk&t=30", "https://www.youtube.com/watch?v=abcdefghijk"},
+		{"https://www.youtube.com/watch?v=abcdefghijk&pp=ABC&list=PL123", "https://www.youtube.com/watch?v=abcdefghijk"},
 	}
 	for _, tc := range cases {
 		got, err := ValidateURL(tc.in)
@@ -42,15 +48,13 @@ func TestValidateURLRejected(t *testing.T) {
 		"https://youtu.be/abcdefghijk/extra",
 		"https://youtu.be/abcdefghijk?t=30", // query on youtu.be
 		"https://www.youtube.com/watch?v=short",
-		"https://www.youtube.com/watch?v=abcdefghijkX",           // 12 chars
-		"https://www.youtube.com/watch",                          // missing v
-		"https://www.youtube.com/watch?v=abcdefghijk&list=PL123", // extra param
-		"https://www.youtube.com/watch?v=abcdefghijk&t=30",
-		"https://www.youtube.com/watch?v=abcdefghijk#t=30", // fragment
-		"https://www.youtube.com/shorts/abcdefghijk?x=1",   // query on shorts
-		"https://www.youtube.com/shorts",                   // missing id
-		"https://www.youtube.com/shorts/a/b",               // extra segment
-		"https://www.youtube.com/playlist?list=PL123",      // unsupported path
+		"https://www.youtube.com/watch?v=abcdefghijkX",   // 12 chars
+		"https://www.youtube.com/watch",                  // missing v
+		"https://www.youtube.com/watch#t=30",             // fragment
+		"https://www.youtube.com/shorts/abcdefghijk?x=1", // query on shorts
+		"https://www.youtube.com/shorts",                 // missing id
+		"https://www.youtube.com/shorts/a/b",             // extra segment
+		"https://www.youtube.com/playlist?list=PL123",    // unsupported path
 		"https://www.youtube.com/channel/UC123",
 		"https://www.youtube.com/watch?v=abcdefghijk@evil",
 		"https://user:pass@www.youtube.com/watch?v=abcdefghijk",
@@ -63,6 +67,10 @@ func TestValidateURLRejected(t *testing.T) {
 		"https://www.youtube.com/watch?v=abcdefghijk;rm+rf",            // shell-ish chars are not the id charset
 		"https://уоuтubе.com/watch?v=abcdefghijk",                      // non-ASCII lookalike
 		"https://youtu.be/abcdefghijk?si=xyz",                          // share param rejected
+		// watch v multiplicity and absence stay rejected even though extra
+		// params are now tolerated.
+		"https://www.youtube.com/watch?v=abcdefghijk&v=abcdefghijq", // duplicate v
+		"https://www.youtube.com/watch?pp=ugUEEgJqYQ%3D%3D",         // v missing
 	}
 	for _, tc := range cases {
 		if got, err := ValidateURL(tc); err == nil {

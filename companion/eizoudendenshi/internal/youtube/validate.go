@@ -5,8 +5,10 @@
 // host forms is accepted, and the returned canonical URL is the ONLY
 // user-derived value ever passed to the download helper — never as part of
 // a flag, always as its own argv element. Everything else (host suffixes,
-// extra query parameters, ports, userinfo, fragments, non-ASCII, path
-// tricks) is rejected before any process is spawned.
+// ports, userinfo, fragments, non-ASCII, path tricks) is rejected before
+// any process is spawned. Extra query parameters on /watch URLs are
+// silently stripped from the canonical URL; all other branches reject any
+// query parameters.
 package youtube
 
 import (
@@ -87,10 +89,10 @@ func ValidateURL(raw string) (string, error) {
 	path := u.Path
 	switch {
 	case path == "/watch":
+		// Extra query parameters (share URLs: pp=, list=, t=, ...) are
+		// ignored and stripped — only v is required and must appear
+		// exactly once. The canonical return carries v alone.
 		q := u.Query()
-		if len(q) != 1 {
-			return "", ErrInvalidURL
-		}
 		id, ok := q["v"]
 		if !ok || len(id) != 1 || !validVideoID(id[0]) {
 			return "", ErrInvalidURL
