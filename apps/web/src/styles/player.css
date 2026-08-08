@@ -4735,6 +4735,19 @@ html.entei-player-immersive .entei-player-audio-area {
   max-width: 320px;
 }
 
+/* Mobile: raise the pairing dialog toward the top (~30% from the top,
+   ~70% from the bottom). The OTP keyboard slides up from the bottom and
+   would otherwise cover a center-positioned modal's lower half; a
+   top-anchored dialog stays visible above the keyboard. Desktop (>=768px)
+   keeps the centered placement from .entei-dialog-content. */
+@media (max-width: 767px) {
+  .entei-eizou-pair-dialog {
+    top: 30%;
+    bottom: auto;
+    transform: translateX(-50%);
+  }
+}
+
 .entei-eizou-pair-body {
   display: flex;
   flex-direction: column;
