@@ -130,7 +130,14 @@ func Run(w io.Writer, cfg Config) bool {
 	fmt.Fprintln(w, "update: checking for updates...")
 	rel, err := selectRelease(client)
 	if err != nil {
-		fmt.Fprintln(w, "update: could not check for updates")
+		// Include a concise cause for debuggability (hostname-only — the
+		// redaction contract keeps URLs, tokens, and paths out of output;
+		// Go's net error strings contain neither).
+		msg := "update: could not check for updates"
+		if cause := releaseFailureCause(err); cause != "" {
+			msg += ": " + cause
+		}
+		fmt.Fprintln(w, msg)
 		return false
 	}
 	if rel.Version == cfg.Version {

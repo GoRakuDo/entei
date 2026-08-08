@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -818,5 +821,29 @@ func TestTermuxPlanIgnoresHelpers(t *testing.T) {
 	}
 	if _, err := m.termuxPlan(t.TempDir(), rel); err != nil {
 		t.Fatalf("termux v3 plan: %v", err)
+	}
+}
+
+// TestReleaseFailureCauseSafe pins the release + brevity of the
+// updater-feed cause line surfaced by CLI option 3. The cause must never
+// echo the full URL, and common failures should map to short stable text.
+func TestReleaseFailureCauseSafe(t *testing.T) {
+	cases := []struct {
+		err error
+	}{
+		{&url.Error{Op: "Get", URL: "https://api.github.com/repos/GoRakudo/entei/releases", Err: errors.New("dial tcp: connect: connection refused")}},
+		{&url.Error{Op: "Get", URL: "https://api.github.com/x", Err: &net.DNSError{Err: "no such host", Name: "api.github.com"}}},
+		{errors.New("update: release feed unavailable")},
+		{errors.New("boom")},
+		{nil},
+	}
+	for i, c := range cases {
+		got := releaseFailureCause(c.err)
+		if c.err != nil && got == "" {
+			t.Fatalf("case %d: empty cause for %v", i, c.err)
+		}
+		if strings.Contains(got, "https://") || strings.Contains(got, "GoRakDo") {
+			t.Fatalf("case %d: cause leaks a URL or repo name: %q", i, got)
+		}
 	}
 }

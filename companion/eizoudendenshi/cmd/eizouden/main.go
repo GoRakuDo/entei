@@ -133,6 +133,13 @@ func main() {
 		"metadata fetch timeout for torrent source jobs (ED-2G; default 2m)")
 	flag.Parse()
 
+	// Android (Termux) DNS bootstrap: pure-Go (CGO_ENABLED=0) resolver
+	// cannot reach the OS resolver, so install the Termux resolv.conf
+	// nameservers (fallback 1.1.1.1) BEFORE any hostname resolution —
+	// DHT bootstrap, tracker metadata, and the updater all depend on it.
+	// No-op on other platforms.
+	installAndroidDNSResolver()
+
 	args := flag.Args()
 	if len(args) > 0 && args[0] == "apply-update" {
 		// Internal --apply-update child mode (spawned by the updater's

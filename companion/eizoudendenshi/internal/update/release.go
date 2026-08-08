@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -29,6 +30,14 @@ type Release struct {
 // bootstrap's Assert-SafeLogicalName).
 var safeAssetName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
+// selectRelease queries the release feed and returns the NEWEST
+// published (by published_at) non-draft release whose tag starts with
+// the EizouDendenshi prefix. Prereleases are included (the latest
+// release is always a prerelease and /releases/latest excludes them).
+// Releases with malformed tags, missing dates, or no assets are skipped;
+// a candidate carrying a missing/duplicate/unsafe asset name or a
+// non-HTTPS asset URL is rejected in favor of the next-newest valid
+// release (a poisoned old release must never block updates). No valid
 // selectRelease queries the release feed and returns the NEWEST
 // published (by published_at) non-draft release whose tag starts with
 // the EizouDendenshi prefix. Prereleases are included (the latest
@@ -141,4 +150,45 @@ func httpsURL(u string) bool {
 		return false
 	}
 	return !strings.ContainsAny(rest, "@?#\x20\t\r\n")
+}
+
+// releaseFailureCause reduces a release-feed error to a short, safe
+// cause string for CLI output. The redaction contract requires that URLs,
+// tokens, credentials, and local paths never appear: Go's *url.Error
+// strips the underlying message; a DNS failure becomes "host resolution
+// failed", a refused connection "connection refused", a TLS problem the
+// underlying error, and everything else a generic fallback. The full URL
+// is never echoed — a hostname is the most specific identifier allowed.
+func releaseFailureCause(err error) string {
+	if err == nil {
+		return ""
+	}
+	// url.Error wraps the transport failure ("Get \"https://...\":
+	// ..."); take only the inner cause text (after the colon) and drop the
+	// quoted URL entirely.
+	var uErr *url.Error
+	if errors.As(err, &uErr) {
+		err = uErr.Err
+	}
+	msg := err.Error()
+	// Strip "unknown authority" / DHT-style host resolution problems into
+	// a stable short label; everything else is truncated to a safe length.
+	switch {
+	case strings.Contains(msg, "no such host"),
+		strings.Contains(msg, "server misbehaving"),
+		strings.Contains(msg, "name or service not known"),
+		strings.Contains(msg, "connection refused"):
+		// First colon segment covers "dial tcp ...: connect: connection
+		// refused" — keep only the final clause.
+		if i := strings.LastIndex(msg, ": "); i >= 0 {
+			msg = msg[i+2:]
+		}
+	}
+	if len(msg) > 120 {
+		msg = msg[:120] + "..."
+	}
+	if strings.TrimSpace(msg) == "" {
+		return "feed unreachable"
+	}
+	return msg
 }
