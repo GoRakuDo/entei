@@ -319,7 +319,10 @@ func TestStatusMappingGrowingThenComplete(t *testing.T) {
 	t.Setenv("EIZOU_FAKE_HOLD", "")
 
 	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
-		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
+		// Explicit quality: the wait-for-mux path stays buffering while
+		// downloading (the default mode is now speed, which goes playable
+		// as soon as bytes exist).
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"quality"}`)
 	var created struct {
 		ID string `json:"id"`
 	}

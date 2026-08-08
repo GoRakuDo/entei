@@ -83,10 +83,13 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var mode job.Mode
 	switch req.Mode {
-	case "", "quality":
-		mode = job.ModeQuality
-	case "speed":
+	case "", "speed":
+		// Empty defaults to speed (2026-08-08: unified with the web
+		// DEFAULT_MODE — instant-playback first). Explicit "speed" is the
+		// same path.
 		mode = job.ModeSpeed
+	case "quality":
+		mode = job.ModeQuality
 	default:
 		writeJSON(w, http.StatusBadRequest, errorBody("invalid mode"))
 		return

@@ -159,8 +159,10 @@ func TestFixedArgsNoInjection(t *testing.T) {
 		"--write-auto-subs",
 		"--sub-langs", "ja.*",
 		"--sub-format", "vtt",
-		"--no-part",
-		"-f", qualityFormat,
+		// Default mode is now speed (2026-08-08): progressive single-file
+		// selector, no --no-part (the .part file grows for instant
+		// streaming).
+		"-f", speedFormat,
 	}
 	// After the fixed vector: two --print-to-file pairs (height, title),
 	// then -o + value (media.%(ext)s), then the URL.
@@ -935,5 +937,22 @@ func TestYouTubeTitleCaptured(t *testing.T) {
 	// The URL must never leak into the title.
 	if strings.Contains(got.Title, "youtube.com") || strings.Contains(got.Title, "abcdefghijk") {
 		t.Fatalf("title leaks the URL: %q", got.Title)
+	}
+}
+
+// TestStartEmptyModeDefaultsToSpeed pins the 2026-08-08 default change:
+// a job started without an explicit mode runs in speed (instant-playback)
+// mode, matching the web DEFAULT_YT_MODE.
+func TestStartEmptyModeDefaultsToSpeed(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "1024")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
+	m := newTestManager(t, 0)
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _, _ = m.Cancel(snap.ID) }()
+	if snap.Mode != ModeSpeed {
+		t.Fatalf("empty-mode Start = %q, want ModeSpeed (default)", snap.Mode)
 	}
 }

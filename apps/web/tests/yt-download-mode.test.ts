@@ -1,8 +1,9 @@
 /**
  * yt-download-mode — YouTube download mode preference tests.
  * ---------------------------------------------------------------------------
- * Covers: default quality, persisted round-trip, corrupted / invalid values
- * falling back to quality, storage-failure safety.
+ * Covers: default speed (2026-08-08: default changed from quality),
+ * persisted round-trip, corrupted / invalid values falling back to the
+ * default, storage-failure safety.
  * --------------------------------------------------------------------------- */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -22,8 +23,8 @@ describe('yt-download-mode', () => {
     localStorage.clear();
   });
 
-  it('defaults to quality when nothing is stored', () => {
-    expect(readYtDownloadMode()).toBe('quality');
+  it('defaults to speed when nothing is stored', () => {
+    expect(readYtDownloadMode()).toBe('speed');
   });
 
   it('persists and reads back the speed mode', () => {
@@ -37,18 +38,19 @@ describe('yt-download-mode', () => {
     expect(readYtDownloadMode()).toBe('quality');
   });
 
-  it('falls back to quality for corrupted JSON', () => {
+  it('falls back to the default for corrupted JSON', () => {
     localStorage.setItem(YT_MODE_KEY, '{not-json');
     expect(readYtDownloadMode()).toBe(DEFAULT_YT_MODE);
+    expect(readYtDownloadMode()).toBe('speed');
   });
 
-  it('falls back to quality for an invalid enum value', () => {
+  it('falls back to speed for an invalid enum value', () => {
     localStorage.setItem(YT_MODE_KEY, '"ultra"');
-    expect(readYtDownloadMode()).toBe('quality');
+    expect(readYtDownloadMode()).toBe('speed');
   });
 
-  it('falls back to quality for a non-string value', () => {
+  it('falls back to speed for a non-string value', () => {
     localStorage.setItem(YT_MODE_KEY, '42');
-    expect(readYtDownloadMode()).toBe('quality');
+    expect(readYtDownloadMode()).toBe('speed');
   });
 });

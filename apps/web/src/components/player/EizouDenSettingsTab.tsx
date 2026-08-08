@@ -3,9 +3,9 @@
  * ---------------------------------------------------------------------------
  * EIZOU_DENDENSHI.md "YouTube 再生モード設定 (2026-08-07)".
  *
- * - Quality (default): DASH 1080p cap, plays after mux completes.
- * - Speed: progressive formats preferred (360p-1080p), plays while
- *   downloading (ED-2H instant-playback flow).
+ * - Speed (default, changed 2026-08-08): progressive formats preferred
+ *   (360p-1080p), plays while downloading (ED-2H instant-playback flow).
+ * - Quality: DASH 1080p cap, plays after mux completes.
  *
  * Persisted to localStorage under `entei.eizou.yt-mode.v1`. The setting
  * applies to the NEXT download (never the in-flight job).

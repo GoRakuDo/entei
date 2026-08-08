@@ -27,6 +27,7 @@ import {
 import { Button } from '@/components/player/ui/button';
 import { Input } from '@/components/player/ui/input';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
+import { readYtDownloadMode } from '@/features/player/yt-download-mode';
 
 /** Loopback companion origin; the only accepted job endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -155,7 +156,12 @@ export function YouTubeInput({
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: url.trim() }),
+          body: JSON.stringify({
+            url: url.trim(),
+            // YouTube DL mode (Quality/Speed) from the EizouDen settings tab;
+            // the companion defaults to speed when the field is absent.
+            mode: readYtDownloadMode(),
+          }),
           cache: 'no-store',
         },
       );

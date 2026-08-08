@@ -7,10 +7,11 @@
  * close/unmount. Unpaired: pairing-needed notice only, no job create.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { YouTubeInput, type YouTubeInputDict } from '@/components/player/YouTubeInput';
+import { YT_MODE_KEY } from '@/features/player/yt-download-mode';
 
 const baseDict: YouTubeInputDict = {
   youtubeInputLabel: 'YouTube URL',
@@ -44,6 +45,10 @@ afterEach(() => {
 });
 
 describe('YouTubeInput — paired flow', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   const defaultProps = {
     open: true,
     onOpenChange: vi.fn(),
@@ -79,11 +84,31 @@ describe('YouTubeInput — paired flow', () => {
     const [url, init] = firstCall;
     expect(String(url)).toBe(`http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`);
     expect(init?.method).toBe('POST');
-    expect(JSON.parse(String(init?.body))).toEqual({ url: VALID_URL });
+    // The DL mode is included from the EizouDen settings; default speed.
+    expect(JSON.parse(String(init?.body))).toEqual({ url: VALID_URL, mode: 'speed' });
     // The token must never appear in the body.
     expect(String(init?.body)).not.toContain(TOKEN);
     // The parent closes the dialog on acceptance (PlayerApp wiring).
     expect(onJobAccepted).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the persisted quality mode when set in the EizouDen settings', async () => {
+    localStorage.setItem(YT_MODE_KEY, '"quality"');
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ id: 'jobX' }, 201),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    render(
+      <YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+
+    await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('jobX'));
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(`http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`);
+    expect(JSON.parse(String(init?.body))).toEqual({ url: VALID_URL, mode: 'quality' });
   });
 
   it('rejects clearly-invalid URLs locally without a network call', async () => {

@@ -63,7 +63,8 @@ type Snapshot struct {
 }
 
 // Mode is the YouTube download strategy (docs/EIZOU_DENDENSHI.md "YouTube
-// 再生モード設定"). Empty mode means ModeQuality (the default).
+// 再生モード設定"). Empty mode means ModeSpeed (the default, changed
+// 2026-08-08 — unified with the web DEFAULT_MODE: instant-playback first).
 type Mode string
 
 const (

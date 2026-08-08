@@ -52,21 +52,21 @@ describe('EizouDenSettingsTab', () => {
     expect(screen.getByText(dict.ytModeSpeedDesc)).toBeInTheDocument();
   });
 
-  it('defaults to quality (no localStorage value)', () => {
+  it('defaults to speed (no localStorage value)', () => {
     const { container } = render(<EizouDenSettingsTab dict={dict} />);
     const quality = findRadio(container, 'quality');
     const speed = findRadio(container, 'speed');
     expect(quality).not.toBeNull();
     expect(speed).not.toBeNull();
-    expect(quality!.getAttribute('data-state')).toBe('checked');
-    expect(speed!.getAttribute('data-state')).not.toBe('checked');
+    expect(speed!.getAttribute('data-state')).toBe('checked');
+    expect(quality!.getAttribute('data-state')).not.toBe('checked');
   });
 
-  it('switching to Speed persists the mode to localStorage', () => {
+  it('switching to Quality persists the mode to localStorage', () => {
     const { container } = render(<EizouDenSettingsTab dict={dict} />);
-    fireEvent.click(findRadio(container, 'speed')!);
+    fireEvent.click(findRadio(container, 'quality')!);
     expect(JSON.parse(localStorage.getItem(YT_MODE_KEY) ?? 'null')).toBe(
-      'speed',
+      'quality',
     );
   });
 

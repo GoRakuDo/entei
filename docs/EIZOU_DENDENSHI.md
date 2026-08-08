@@ -116,11 +116,11 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 
 | モード | yt-dlp フォーマット | 再生タイミング | 画質 |
 |---|---|---|---|
-| **Quality（画質優先・既定）** | 現行どおり `bv*[height<=1080]+ba/b[height<=1080]/b` | DL 完了（mux）まで待ち、その後 Player へ | DASH 1080p cap（最良） |
-| **Speed（即再生優先）** | プログレッシブ最優先（`37`/`22`/`18` 等。**画質制限なし・360p でも。DASH へはフォールバックしない** = 画質を落としてでもプログレッシブ（即再生）を優先） | **DL 中から HTTP Range で配信し、Player が playable で即再生**（Magnet の即ストリーミング（ED-2H）と同じ流れ。yt-dlp の `.part` ファイル配信を想定） | 動画次第（360p〜1080p）。Speed は画質を犠牲にしてでも即再生を優先 |
+| **Quality（画質優先）** | 現行どおり `bv*[height<=1080]+ba/b[height<=1080]/b` | DL 完了（mux）まで待ち、その後 Player へ | DASH 1080p cap（最良） |
+| **Speed（即再生優先・既定（2026-08-08 変更））** | プログレッシブ最優先（`37`/`22`/`18` 等。**画質制限なし・360p でも。DASH へはフォールバックしない** = 画質を落としてでもプログレッシブ（即再生）を優先） | **DL 中から HTTP Range で配信し、Player が playable で即再生**（Magnet の即ストリーミング（ED-2H）と同じ流れ。yt-dlp の `.part` ファイル配信を想定） | 動画次第（360p〜1080p）。Speed は画質を犠牲にしてでも即再生を優先 |
 
 **設定 UI（どこからでも開ける）**
-- プレイヤー設定モーダル（デスクトップで Player の Settings から）に **「EizouDen」タブを新規追加**し、Quality / Speed Toggle を置く（localStorage `entei.eizou.yt-mode.v1` 等に保存、既定 Quality）。
+- プレイヤー設定モーダル（デスクトップで Player の Settings から）に **「EizouDen」タブを新規追加**し、Quality / Speed Toggle を置く（localStorage `entei.eizou.yt-mode.v1` 等に保存、既定 Speed（2026-08-08 変更: 従来 Quality））。
 - **TopBar ナビゲーションに「設定」ボタンを追加**（Home / Tracker でも設定モーダルを開ける）。
 - **モバイル下ナビゲーション**: 現在の「ホーム / プレイヤー / トラッキング」を **「ホーム / トラッキング / 設定」** に変更（プレイヤーを消して設定を追加）。
 
@@ -129,9 +129,9 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 **モード切替タイミング（2026-08-07確定）**: 設定変更は**次回の DL から適用**（進行中の job には反映しない）。
 
 **実装状況（2026-08-07更新）**:
-- **web は実装済み**: 設定モーダルの「EizouDen」タブ（Quality/​Speed ラジオ）、`localStorage entei.eizou.yt-mode.v1`（既定 quality）、TopBar ナビの設定ボタン（desktop pill / mobile Dock）、**モバイル Dock = Home/Tracker/Settings**（Player 除外）、**Sonner 導入**（`EizouToaster` を両レイアウトへ）+ 画質通知トースト関数（`notifyQuality`、i18n `ytModeToastFormat`、companion 接続は後続）。DeepSeek Executor（ChromeDevTools でスペーシング検証付き）+ Mimo 独立レビュー（新しい部屋）完全 APPROVE。`npm test` 1453 PASS・check 0/0/0・build 成功。
-- **設定ダイアログ共通化（2026-08-07追記）**: ナビゲーション（TopBar）から開く設定モーダルは、動画プレイヤー枠内の設定モーダルと**同じ全タブ内容（共通 `SettingsTabs`: Player / Subtitle / EizouDen / Anki Fields）**を表示する（コード的に同一）。ショートカット定義は `player-shortcuts.ts` 単一ソース、`ShortcutEntry` / `SubtitleAppearanceSettings` も集約。タイトルは `settingsTitleGlobal`（Settings/設定/Pengaturan、Player 内は Player Settings）。**追記: 「Player」タブは「Shortcut」タブにリネームし、`showShortcuts` prop で `/player` ページの時だけ表示**（他のページでは隠す）。設定モーダルヘッダーのフォントは Pixelify Sans（`--entei-font-system`）。**追記2: ペアリングのリセット（companion DELETE → token クリア）は `EizouDendenshiSetup` の赤いボタンから削除し、設定モーダルの「EizouDen」タブ最下部へ移動**（`onResetPairing` 提供時のみ表示 = Player 設定モーダル。グローバル設定モーダルは Astro 島境界で関数が渡らず非表示）。DeepSeek Executor + Mimo 独立レビュー（新しい部屋）完全 APPROVE、1453 PASS・check 0/0/0・build 成功。
-- **companion は実装済み（2026-08-07）**: ① job 作成 API で `mode`（`quality`/`speed`、既定 `quality`）を受け取り・保持（不正 400）。② yt-dlp 切替: `quality`=現行 `bv*[height<=1080]+ba/...` + `--no-part`（DL完了まで配信しない）/ `speed`= **`-f b`（best combined = プログレッシブ単一、動画+音声同梱）** + `.part` 成長。③ **DL中の`.part`配信**（Speed）: 監視中の DL 済みバイトを available とし、`os.Stat`∞→`ReadAt`の再オープン方式（リネーム後の stale handle 防止）で `.part` を 206/クランプ配信（`avail` 外は返さない）。④ **画質情報**: `--print-to-file "%(height)s" height.txt` で実選択フォーマットの高さを取得し `Snapshot.Quality` へ（web トースト用）。⑤ 既存 Quality の挙動は不変（complete まで配信しない）。Mimo 独立レビュー（新しい部屋）**完全 APPROVE**。`go test -race` 10/10 PASS。
+- **web は実装済み**: 設定モーダルの「EizouDen」タブ（Quality/Speed ラジオ）、`localStorage entei.eizou.yt-mode.v1`（既定 speed、2026-08-08 変更）、TopBar ナビの設定ボタン（desktop pill / mobile Dock）、**モバイル Dock = Home/Tracker/Settings**（Player 除外）、**Sonner 導入**（`EizouToaster` を両レイアウトへ）+ 画質通知トースト関数（`notifyQuality`、i18n `ytModeToastFormat`、companion 接続は後続）。DeepSeek Executor（ChromeDevTools でスペーシング検証付き）+ Mimo 独立レビュー（新しい部屋）完全 APPROVE。`npm test` 1456 PASS・check 0/0/0・build 成功。
+- **設定ダイアログ共通化（2026-08-07追記）**: ナビゲーション（TopBar）から開く設定モーダルは、動画プレイヤー枠内の設定モーダルと**同じ全タブ内容（共通 `SettingsTabs`: Player / Subtitle / EizouDen / Anki Fields）**を表示する（コード的に同一）。ショートカット定義は `player-shortcuts.ts` 単一ソース、`ShortcutEntry` / `SubtitleAppearanceSettings` も集約。タイトルは `settingsTitleGlobal`（Settings/設定/Pengaturan、Player 内は Player Settings）。**追記: 「Player」タブは「Shortcut」タブにリネームし、`showShortcuts` prop で `/player` ページの時だけ表示**（他のページでは隠す）。設定モーダルヘッダーのフォントは Pixelify Sans（`--entei-font-system`）。**追記2: ペアリングのリセット（companion DELETE → token クリア）は `EizouDendenshiSetup` の赤いボタンから削除し、設定モーダルの「EizouDen」タブ最下部へ移動**（`onResetPairing` 提供時のみ表示 = Player 設定モーダル。グローバル設定モーダルは Astro 島境界で関数が渡らず非表示）。DeepSeek Executor + Mimo 独立レビュー（新しい部屋）完全 APPROVE、1456 PASS・check 0/0/0・build 成功。
+- **companion は実装済み（2026-08-07）**: ① job 作成 API で `mode`（`quality`/`speed`、既定 `speed`（2026-08-08 変更: 従来 Quality））を受け取り・保持（不正 400）。② yt-dlp 切替: `quality`=現行 `bv*[height<=1080]+ba/...` + `--no-part`（DL完了まで配信しない）/ `speed`= **`-f b`（best combined = プログレッシブ単一、動画+音声同梱）** + `.part` 成長。③ **DL中の`.part`配信**（Speed）: 監視中の DL 済みバイトを available とし、`os.Stat`∞→`ReadAt`の再オープン方式（リネーム後の stale handle 防止）で `.part` を 206/クランプ配信（`avail` 外は返さない）。④ **画質情報**: `--print-to-file "%(height)s" height.txt` で実選択フォーマットの高さを取得し `Snapshot.Quality` へ（web トースト用）。⑤ 既存 Quality の挙動は不変（complete まで配信しない）。Mimo 独立レビュー（新しい部屋）**完全 APPROVE**。`go test -race` 10/10 PASS。
 - **残**: web 側のトースト接続（companion の `Snapshot.Quality` を受け取って `notifyQuality` を呼ぶ）、実機確認（ユーザー）。
 
 ### Torrent

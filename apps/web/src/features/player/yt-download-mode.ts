@@ -2,7 +2,8 @@
  * yt-download-mode — YouTube download mode preference (ED-2F Quality/Speed).
  * ---------------------------------------------------------------------------
  * Persisted in localStorage under `entei.eizou.yt-mode.v1` (documented in
- * docs/EIZOU_DENDENSHI.md "YouTube 再生モード設定"). Default: quality.
+ * docs/EIZOU_DENDENSHI.md "YouTube 再生モード設定"). Default: speed
+ * (instant-playback first; changed from quality on 2026-08-08 per user).
  *
  * Privacy: stores only the mode string, never the URL, cookie, or job id.
  * ---------------------------------------------------------------------------
@@ -15,9 +16,9 @@ export const YT_MODE_KEY = 'entei.eizou.yt-mode.v1';
 
 const VALID_MODES: readonly YtDownloadMode[] = ['quality', 'speed'];
 
-export const DEFAULT_YT_MODE: YtDownloadMode = 'quality';
+export const DEFAULT_YT_MODE: YtDownloadMode = 'speed';
 
-/** Read the persisted mode; falls back to quality on any failure. */
+/** Read the persisted mode; falls back to speed on any failure. */
 export function readYtDownloadMode(): YtDownloadMode {
   try {
     const raw = localStorage.getItem(YT_MODE_KEY);

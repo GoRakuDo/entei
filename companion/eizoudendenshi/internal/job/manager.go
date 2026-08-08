@@ -137,14 +137,17 @@ func (j *job) snapshot() Snapshot {
 }
 
 // Start validates the URL and begins a new job in the given download mode
-// (default quality). Exactly one job may be active at a time: ErrConflict is
-// returned while another exists. The returned snapshot is metadata-only.
+// (default speed, changed 2026-08-08 — instant-playback priority unified
+// with the web DEFAULT_YT_MODE; an explicit "quality" still opts into the
+// DASH-1080p wait-for-mux path). Exactly one job may be active at a time:
+// ErrConflict is returned while another exists. The returned snapshot is
+// metadata-only.
 func (m *Manager) Start(rawURL string, modes ...Mode) (Snapshot, error) {
 	canonical, err := youtube.ValidateURL(rawURL)
 	if err != nil {
 		return Snapshot{}, err // generic; never echoes the URL
 	}
-	mode := ModeQuality
+	mode := ModeSpeed
 	if len(modes) > 0 && modes[0] != "" {
 		mode = modes[0]
 	}
