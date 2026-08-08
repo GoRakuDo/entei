@@ -110,6 +110,14 @@ func NewPartSource(path string) *PartSource {
 // estimate must never make Total smaller than what is actually servable.
 // Callers invoke it while the job's PartSource instance lives; see
 // Manager.refreshDownloadState.
+//
+// Note: the disk check (os.Stat) runs while holding the source mutex.
+// With the current single-job design that is a cheap local stat with no
+// competing writers (one refresh goroutine, one HTTP server). If a future
+// design shares one source across parallel downloaders, or the file lives
+// on a slow network mount, the stat-under-lock window would matter and
+// should be moved outside the critical section (compare the availability
+// snapshot before taking the lock).
 func (s *PartSource) SetTotal(total int64) {
 	if total <= 0 {
 		return

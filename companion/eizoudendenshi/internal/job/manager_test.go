@@ -856,6 +856,18 @@ func TestSpeedModeStreamsPartDuringDownload(t *testing.T) {
 	if total != 2097152 {
 		t.Fatalf("part source total = %d, want the pinned estimate 2097152", total)
 	}
+	// Re-fetch the persistent source (the loop-local binding is gone) and
+	// verify the pin state surfaced through TotalFixed. ActiveMedia
+	// returns the media.GrowingSource interface, so the concrete
+	// *PartSource needs the type assertion.
+	_, src := m.ActiveMedia()
+	ps, ok := src.(*PartSource)
+	if !ok {
+		t.Fatalf("speed mode source = %T, want *PartSource", src)
+	}
+	if !ps.TotalFixed() {
+		t.Fatal("expected TotalFixed after the fake helper wrote total.txt")
+	}
 	if avail >= total {
 		t.Fatalf("part avail/total = %d/%d, want growing avail below the pinned total", avail, total)
 	}

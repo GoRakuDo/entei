@@ -86,6 +86,10 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ReleasePs1 = Join-Path $PSScriptRoot 'release.ps1'
 
+# Every step prints a line: a long silent hang is a bug in the tool, not a
+# valid state. The first line is written immediately on launch.
+[Console]::Out.WriteLine("publish: starting (version=$Version, repo=$Repo, skipPublish=$SkipPublish, skipGitChecks=$SkipGitChecks)")
+
 $Placeholder = 'REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
 $BootstrapAssets = @('eizouden-bootstrap.sh', 'eizouden-bootstrap-helper.sh', 'eizouden-bootstrap.ps1')
 
@@ -114,8 +118,9 @@ function Invoke-FetchFile {
         Copy-Item -LiteralPath $src -Destination $dest -Force
         return $dest
     }
+    [Console]::Out.WriteLine("publish: fetch $Tag/$Name")
     $url = "https://github.com/$Repo/releases/download/$Tag/$Name"
-    $resp = Invoke-WebRequest -Uri $url -OutFile $dest -MaximumRedirection 5 -TimeoutSec 60 -UseBasicParsing -PassThru
+    $resp = Invoke-WebRequest -Uri $url -OutFile $dest -MaximumRedirection 5 -TimeoutSec 90 -UseBasicParsing -PassThru
     if ($resp.BaseResponse.RequestMessage.RequestUri.Scheme -ne 'https') {
         throw "redirect target is not https:// for $Tag/$Name"
     }
@@ -126,6 +131,7 @@ function Invoke-FetchFile {
 # and returns its stdout; a non-zero exit fails closed.
 function Invoke-Gh {
     param([string[]]$GhArgs)
+    [Console]::Out.WriteLine("publish: gh $($GhArgs[0]) $($GhArgs[1]) (repo $Repo, $((@($GhArgs) | Where-Object { $_ -like 'http*' }).Count) url args)")
     $out = & $script:GhBin @GhArgs
     if ($LASTEXITCODE -ne 0) {
         throw "gh $($GhArgs -join ' ') failed (exit $LASTEXITCODE)"

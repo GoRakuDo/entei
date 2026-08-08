@@ -338,7 +338,7 @@ download中など**成長中のメディア**（known total + available prefix�
 | start `< Available` でendが`Available` を越えるRange（`bytes=0-`含む） | `206`、endを`Available-1`へクランプ（RFC 9110部分応答。2026-08-05修正） |
 | start `>= Available` のRange | `206`（verified prefixがstartを超えるまでロングポーリング、250ms polling・最大30秒。揃ったら部分応答。2026-08-05方針変更） |
 | start `>= Available`（未取得prefix開始） | `503` + `Retry-After: 1`、JSON body |
-| `Total` 以降から始まるRange | `416`、`Content-Range: bytes */Total`（恒久的のみ） |
+| `Total` 以降から始まるRange | `416`、`Content-Range: bytes */Total`（恒久的のみ。`.part`は推定Totalが固定（pin）された後だけ。pin前は現在サイズ越えでも`503`待機） |
 | 不完全時のsuffix range（`bytes=-n`、n `< Total`） | `503`（start=`Total-n`は未取得。全長suffix `bytes=-Total`は`bytes=0-`相当で206クランプ） |
 | 不正 / 非`bytes` / 複数Rangeヘッダ | 無視（Rangeなし扱い。multipartは対象外） |
 
@@ -354,7 +354,7 @@ download中など**成長中のメディア**（known total + available prefix�
 
 - **start `< Available` の`206`クランプ**（RFC 9110部分応答、2026-08-05修正）: `bytes=0-`等の全範囲要求は「全byteが欲しいが、実データとして受け取れる範囲で良い」という意味論で、RFC 9110は部分応答を明示的に許可する。endを`Available-1`へクランプし、`Content-Range: bytes start-(avail-1)/total`で正確に応答する。avail外byteは決して返さない。Chrome 151は最初に`bytes=0-`を送るため、ここで`503`を返すとmedia elementが`error` code 4で落ち再生が始まらない（2026-07-31実測）。
 - **start `>= Available` へのロングポーリング**（2026-08-05方針変更）: 「位置Xから始まるデータ」は未取得。truncated応答（playerが不完全bodyを実ファイルと誤認＝破損）はせず、**verified prefixがXを超えるまで待機（250ms polling、最大30秒）してから`206`部分応答**を返す。待機タイムアウト時のみ`503 + Retry-After`（bridgeが既存のretry/backoffで処理）。Chrome 151は`bytes=0-`の206クランプを受けると約25ms後に`bytes=avail-`を要求するため、ここで503を返すとmedia elementが`error` code 4で落ち再生が始まらない（2026-08-05実測）。ロングポーリングはGoのgoroutineで並行処理されるため、他リクエストのブロックはない。
-- **not-yet-availableに`416`**: `416`は*恒久*不満足の意味論で、client / cacheがfinal扱いする恐れ。`start >= Total`（本当に永久）のみ`416`とする。
+- **not-yet-availableに`416`**: `416`は*恒久*不満足の意味論で、client / cacheがfinal扱いする恐れ。`start >= Total`（本当に永久）のみ`416`とする。`.part`（成長ソース）の`Total`は2相: **pin前**は現在サイズ（= `Available`）で、startが現在サイズ以上でも`416`にせず`503`待機（DLが伸びれば`206`）。**Downloaderの推定総サイズ（yt-dlp `filesize_approx`）が固定（pin）された後**は推定値が`Total`となり、それを越える`start`だけが恒久`416`（2026-08-08 rc.58で確立）。
 - **`200` + available prefix / zero-byte成功**: `Content-Length < Total`で完全性を偽装。禁止。
 - **availableまでrequestをblock**: connection / handlerを無期限占有し、HTTPとして「まだ」の回答にならない。禁止。
 - **`425 Too Early`**: early data用の別意味論・対応が乏しい。不採用。
