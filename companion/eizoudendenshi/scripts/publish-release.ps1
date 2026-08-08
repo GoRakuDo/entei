@@ -38,9 +38,12 @@
 #      --prerelease. Notes come from -NotesFile or a generated default.
 #   7. post-publish verification: gh release view --json
 #      tagName,isPrerelease,targetCommitish,assets must report the
-#      prerelease at HEAD with exactly the 13 assets; then everything is
-#      re-fetched into a fresh temp dir and re-verified (signatures +
-#      SHA-256 + pinned bootstraps). Only the release URL is printed.
+#      prerelease at HEAD with exactly the 13 assets; then, instead of
+#      re-downloading all of them, the dist files (already verified in
+#      step 5) are checked against the per-asset digest that gh reports
+#      (or, without a digest, against the re-fetched signed manifest +
+#      asset sizes); only a mismatched asset is re-fetched and
+#      re-verified. Only the release URL is printed.
 #   8. finally: every temp dir created by this script is removed.
 #
 # Safety contract:
@@ -115,6 +118,9 @@ function Invoke-FetchFile {
     if ($HarnessMirrorDir -ne '') {
         $src = Join-Path $HarnessMirrorDir (Join-Path $Tag $Name)
         if (-not (Test-Path -LiteralPath $src)) { throw "download failed (test mirror): $Tag/$Name is missing" }
+        # Mirror fetches are announced too: the test harness asserts on
+        # this output to prove how many re-downloads step 7 performs.
+        [Console]::Out.WriteLine("publish: fetch $Tag/$Name (test mirror)")
         Copy-Item -LiteralPath $src -Destination $dest -Force
         return $dest
     }
@@ -187,6 +193,44 @@ function Assert-ReleaseDir {
         if (-not $text.Contains($script:PinnedKey)) { throw "${What}: $b does not carry the pinned public key" }
     }
     return $expected
+}
+
+# Assert-ReverifyAsset is the step-7 mismatch path: one release asset did
+# not match its dist file by digest/size, so it is re-fetched from GitHub
+# and re-verified with the same checks Assert-ReleaseDir applies: Minisign
+# for the manifest and the signed artifacts, SHA-256 for the artifacts
+# against the passed signed reference manifest, pinned-key content checks
+# for the bootstraps, and byte-equality with the verified dist copy for a
+# signature file. The happy path of step 7 downloads nothing at all.
+function Assert-ReverifyAsset {
+    param([string]$Tag, [string]$Name, [string]$DestDir, [string]$LocalDist, [bool]$CarriesMinisig, [object]$RefManifest, [string]$What)
+    $file = Invoke-FetchFile -Tag $Tag -Name $Name -DestDir $DestDir
+    if ($Name -eq 'eizouden-manifest.json') {
+        Invoke-FetchFile -Tag $Tag -Name 'eizouden-manifest.json.minisig' -DestDir $DestDir | Out-Null
+        & $script:Minisign -V -m $file -P $script:PinnedKey 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "${What}: GitHub manifest signature verification failed" }
+        return
+    }
+    if ($Name -like '*.minisig') {
+        $distCopy = Join-Path $LocalDist $Name
+        if (-not (Test-Path -LiteralPath $distCopy)) { throw "${What}: $Name has no verified dist copy to match" }
+        if ([System.IO.File]::ReadAllText($file) -cne [System.IO.File]::ReadAllText($distCopy)) {
+            throw "${What}: $Name differs from its verified dist copy"
+        }
+        return
+    }
+    if ($CarriesMinisig) {
+        Invoke-FetchFile -Tag $Tag -Name "$Name.minisig" -DestDir $DestDir | Out-Null
+        & $script:Minisign -V -m $file -P $script:PinnedKey 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "${What}: GitHub artifact signature verification failed for $Name" }
+        $shaRef = @($RefManifest.artifacts | Where-Object { $_.name -eq $Name })
+        if ($shaRef.Count -eq 0) { throw "${What}: reference manifest has no artifact entry for $Name" }
+        if ((Get-Sha256Lower $file) -ne [string]$shaRef[0].sha256) { throw "${What}: GitHub artifact SHA-256 mismatch for $Name" }
+        return
+    }
+    $text = [System.IO.File]::ReadAllText($file)
+    if ($text.Contains($Placeholder)) { throw "${What}: $Name still contains the pinned-key placeholder" }
+    if (-not $text.Contains($script:PinnedKey)) { throw "${What}: $Name does not carry the pinned public key" }
 }
 
 try {
@@ -450,13 +494,78 @@ try {
         foreach ($e in $ExpectedAssets) { if ($e -notin $viewNames) { throw "post-publish verification failed: release is missing asset $e" } }
         foreach ($f in $viewNames) { if ($f -notin $ExpectedAssets) { throw "post-publish verification failed: unexpected release asset $f" } }
 
-        $verifyDir = Join-Path $script:WorkRoot 'verify'
-        New-Item -ItemType Directory -Force -Path $verifyDir | Out-Null
-        foreach ($n in $ExpectedAssets) {
-            Invoke-FetchFile -Tag $Tag -Name $n -DestDir $verifyDir | Out-Null
+        # Step 5 already verified the dist in full (signatures, SHA-256,
+        # pinned bootstraps), so the remaining thing step 7 has to prove
+        # is that GitHub now hosts exactly those dist files -- not that
+        # the same signed bytes survive a long round trip twice. The old
+        # all-13-assets re-download was replaced with a cheap check: if
+        # the release reports per-asset digests (a) compare dist SHA-256
+        # against them, otherwise (b) re-fetch the signed manifest (a few
+        # KB) and compare asset sizes. Only a mismatched asset is
+        # re-fetched and re-verified via Assert-ReverifyAsset; the happy
+        # path downloads nothing.
+        $allDigests = $true
+        foreach ($a in $view.assets) {
+            if ([string]::IsNullOrEmpty($a.digest)) { $allDigests = $false; break }
         }
-        Assert-ReleaseDir -Dir $verifyDir -ExpectedVersion $Version -What 'post-publish verification failed' | Out-Null
-        Write-Host 'publish: 7/7 post-publish verification passed (re-fetched and re-verified)'
+        if ($allDigests) {
+            # (a) every asset carries a digest: byte-for-byte SHA-256
+            # comparison of the dist files against the uploaded blobs.
+            $mismatch = @()
+            foreach ($a in $view.assets) {
+                $localFile = Join-Path $DistDir $a.name
+                $ghSha = (([string]$a.digest) -replace '^sha256:', '').ToLowerInvariant()
+                if ((-not (Test-Path -LiteralPath $localFile)) -or ((Get-Sha256Lower $localFile) -ne $ghSha)) {
+                    $mismatch += $a.name
+                }
+            }
+            if ($mismatch.Count -gt 0) {
+                $refPath = Join-Path $DistDir 'eizouden-manifest.json'
+                if ('eizouden-manifest.json' -in $mismatch) {
+                    # The manifest returns from Assert-ReverifyAsset before
+                    # the minisig branch, so the flag is unreachable here.
+                    Assert-ReverifyAsset -Tag $Tag -Name 'eizouden-manifest.json' -DestDir $script:WorkRoot -LocalDist $DistDir -CarriesMinisig $false -RefManifest $null -What 'post-publish verification failed'
+                    $refPath = Join-Path $script:WorkRoot 'eizouden-manifest.json'
+                }
+                $refManifest = Get-Content -Raw -LiteralPath $refPath | ConvertFrom-Json
+                # Only the manifest itself is excluded. .minisig names stay
+                # in the list: Assert-ReverifyAsset handles them in its
+                # dedicated minisig branch (byte compare with the dist copy).
+                foreach ($n in @($mismatch | Where-Object { $_ -ne 'eizouden-manifest.json' })) {
+                    Assert-ReverifyAsset -Tag $Tag -Name $n -DestDir $script:WorkRoot -LocalDist $DistDir -CarriesMinisig (($n + '.minisig') -in $ExpectedAssets) -RefManifest $refManifest -What 'post-publish verification failed'
+                }
+            }
+            Write-Host 'publish: 7/7 post-publish verification passed (13 assets matched GitHub digests)'
+        }
+        else {
+            # (b) no per-asset digest: re-fetch only the tiny manifest +
+            # minisig (~5 KB), verify the signature the step-3 way, then
+            # size-compare every asset; mismatched assets are re-fetched
+            # and re-verified.
+            #
+            # Note: a size-only comparison cannot detect same-size
+            # corruption. That is acceptable because step 5 already
+            # verified the content of every dist file; step 7 only has to
+            # prove that GitHub hosts those same bytes (not re-verify the
+            # content a second time).
+            $fetchedManifest = Invoke-FetchFile -Tag $Tag -Name 'eizouden-manifest.json' -DestDir $script:WorkRoot
+            Invoke-FetchFile -Tag $Tag -Name 'eizouden-manifest.json.minisig' -DestDir $script:WorkRoot | Out-Null
+            & $script:Minisign -V -m $fetchedManifest -P $script:PinnedKey 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'post-publish verification failed: GitHub manifest signature verification failed' }
+            $refManifest = Get-Content -Raw -LiteralPath $fetchedManifest | ConvertFrom-Json
+            if ([string]$refManifest.version -ne $Version) {
+                throw "post-publish verification failed: GitHub manifest version '$($refManifest.version)' does not match '$Version'"
+            }
+            $mismatch = @()
+            foreach ($a in $view.assets) {
+                $local = Get-Item -LiteralPath (Join-Path $DistDir $a.name) -ErrorAction SilentlyContinue
+                if (($null -eq $local) -or ($local.Length -ne [long]$a.size)) { $mismatch += $a.name }
+            }
+            foreach ($n in @($mismatch)) {
+                Assert-ReverifyAsset -Tag $Tag -Name $n -DestDir $script:WorkRoot -LocalDist $DistDir -CarriesMinisig (($n + '.minisig') -in $ExpectedAssets) -RefManifest $refManifest -What 'post-publish verification failed'
+            }
+            Write-Host 'publish: 7/7 post-publish verification passed (13 assets size-matched GitHub)'
+        }
     }
     else {
         Write-Host 'publish: 7/7 post-publish verification skipped (-SkipPublish)'

@@ -121,7 +121,9 @@ function New-FakeGh {
         [string]$MirrorRoot,
         [int]$ViewAssets = 13,
         [string]$Mutation = 'none',
-        [object[]]$ListResponse = $null
+        [object[]]$ListResponse = $null,
+        [switch]$ProvideDigests,
+        [string]$TamperDigestAsset = ''
     )
     New-Item -ItemType Directory -Force -Path $CaseDir | Out-Null
     $log = Join-Path $CaseDir 'gh-calls.log'
@@ -153,7 +155,38 @@ if ($cmd -eq 'release' -and $RawArgs.Count -gt 1) { $cmd = $RawArgs[1] }
 switch ($cmd) {
     'auth' { exit 0 }
     'list' { [Console]::Out.Write([System.IO.File]::ReadAllText($listResponse)); exit 0 }
-    'view' { [Console]::Out.Write([System.IO.File]::ReadAllText($viewResponse)); exit 0 }
+    'view' {
+        $json = [System.IO.File]::ReadAllText($viewResponse) | ConvertFrom-Json
+        if ('__PROVIDE_DIGESTS__' -eq 'True') {
+            # Mimic real gh: digest/size are per-asset properties of the
+            # blobs GitHub hosts. In the harness those blobs are the files
+            # the fake `create` already copied into mirror/<tag>.
+            $tag = $RawArgs[2]
+            foreach ($a in $json.assets) {
+                $blob = Join-Path $mirrorRoot (Join-Path $tag $a.name)
+                if (Test-Path -LiteralPath $blob) {
+                    # Use raw .NET instead of Get-FileHash: the fake gh
+                    # runs under whatever `powershell` resolves to in the
+                    # child environment, so depend only on the Framework.
+                    $shaHex = [BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($blob))).Replace('-', '').ToLowerInvariant()
+                    $a | Add-Member -NotePropertyName digest -NotePropertyValue ('sha256:' + $shaHex)
+                    $a | Add-Member -NotePropertyName size -NotePropertyValue (Get-Item -LiteralPath $blob).Length
+                }
+            }
+        }
+        if ('__TAMPER_DIGEST_ASSET__' -ne '') {
+            # Forge the digest of one asset so the publisher sees a
+            # mismatch and must re-fetch + re-verify exactly that asset.
+            foreach ($a in $json.assets) {
+                if ($a.name -eq '__TAMPER_DIGEST_ASSET__') {
+                    $a | Add-Member -NotePropertyName digest -NotePropertyValue ('sha256:' + ('0' * 64)) -Force
+                }
+            }
+        }
+        $viewText = $json | ConvertTo-Json -Depth 6 -Compress
+        [Console]::Out.Write($viewText)
+        exit 0
+    }
     'create' {
         $tag = $RawArgs[2]
         $assets = @()
@@ -185,7 +218,7 @@ switch ($cmd) {
     }
 }
 '@
-    $fakeSrc = $fakeSrc.Replace('__LOG__', $log).Replace('__VIEW__', $viewJson).Replace('__LIST__', $listJson).Replace('__MIRROR__', $MirrorRoot).Replace('__MUTATION__', $Mutation)
+    $fakeSrc = $fakeSrc.Replace('__LOG__', $log).Replace('__VIEW__', $viewJson).Replace('__LIST__', $listJson).Replace('__MIRROR__', $MirrorRoot).Replace('__MUTATION__', $Mutation).Replace('__PROVIDE_DIGESTS__', $ProvideDigests.ToString()).Replace('__TAMPER_DIGEST_ASSET__', $TamperDigestAsset)
     [System.IO.File]::WriteAllText((Join-Path $CaseDir 'fake-gh.ps1'), $fakeSrc, $Utf8NoBom)
     $cmd = "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0fake-gh.ps1`" %*`r`nexit /b %ERRORLEVEL%`r`n"
     [System.IO.File]::WriteAllText((Join-Path $CaseDir 'fake-gh.cmd'), $cmd, $Utf8NoBom)
@@ -491,6 +524,36 @@ function Dynamic-Suite {
         [string]$m3yt[0].sha256 -eq $p3ytSha -and [string]$m3ff[0].sha256 -eq $p3ffSha -and
         [string]$m3yt[0].sha256 -ne $script:FixtureYtSha) "yt $($m3yt[0].sha256) ff $($m3ff[0].sha256)"
 
+    # --- P4: post-publish digest path (a) happy -- the fake gh reports a
+    #       per-asset digest for every asset, so step 7 compares dist
+    #       SHA-256 against GitHub's digests and (since all match)
+    #       re-downloads nothing.
+    $c = New-CaseDir 'P4'
+    New-FakeGh -CaseDir $c -MirrorRoot $script:MirrorRoot -ProvideDigests
+    Invoke-PublishChild -Name 'P4 digest path (a) happy' -CaseDir $c -ExtraArgs @('-SkipGitChecks') -ExpectSuccess
+    $p4out = Get-Content -Raw -LiteralPath (Join-Path $script:LogsDir 'P4 digest path (a) happy.out.log')
+    $p4sp = $p4out -replace '\s+', ' '
+    Check 'P4: digest path (a) taken' ($p4sp -match '13 assets matched GitHub digests') $p4sp
+    Check 'P4: size path (b) not taken' (-not $p4sp.Contains('13 assets size-matched GitHub')) $p4sp
+    Check 'P4: zero re-downloads of the new release' (-not $p4sp.Contains("publish: fetch $($script:Tag)/")) $p4sp
+    Check 'P4: gh release view called exactly once' ((([regex]::Matches((Get-GhLog $c), 'CALL release view')).Count) -eq 1) (Get-GhLog $c)
+
+    # --- P5: digest path (a) with one tampered digest. The fake gh
+    #       reports a wrong digest for eizouden-windows-amd64.exe; step 7
+    #       must re-fetch and re-verify exactly that asset (body + its
+    #       .minisig via Assert-ReverifyAsset) and still succeed.
+    $c = New-CaseDir 'P5'
+    New-FakeGh -CaseDir $c -MirrorRoot $script:MirrorRoot -ProvideDigests -TamperDigestAsset 'eizouden-windows-amd64.exe'
+    Invoke-PublishChild -Name 'P5 digest mismatch' -CaseDir $c -ExtraArgs @('-SkipGitChecks') -ExpectSuccess
+    $p5out = Get-Content -Raw -LiteralPath (Join-Path $script:LogsDir 'P5 digest mismatch.out.log')
+    $p5sp = $p5out -replace '\s+', ' '
+    Check 'P5: digest path (a) re-verified and passed' ($p5sp.Contains('13 assets matched GitHub digests')) $p5sp
+    Check 'P5: tampered asset re-fetched (body + minisig)' (
+        $p5sp.Contains("publish: fetch $($script:Tag)/eizouden-windows-amd64.exe (test mirror)") -and
+        $p5sp.Contains("publish: fetch $($script:Tag)/eizouden-windows-amd64.exe.minisig (test mirror)")) $p5sp
+    Check 'P5: no other asset re-downloaded' (
+        (([regex]::Matches($p5sp, [regex]::Escape("publish: fetch $($script:Tag)/"))).Count) -eq 2) $p5sp
+
     # --- F1: invalid -Version
     $c = New-CaseDir 'F1'
     New-FakeGh -CaseDir $c -MirrorRoot $script:MirrorRoot
@@ -528,11 +591,14 @@ function Dynamic-Suite {
         -ExpectErrorPattern 'SHA-256 mismatch'
     Check 'F5: nothing published' (-not (Get-GhLog $c).Contains('CREATE')) (Get-GhLog $c)
 
-    # --- F6: manifest version mismatch detected at post-publish verification
+    # --- F6: tampered manifest detected at post-publish verification.
+    #       The re-fetched manifest fails Minisign verification, so the
+    #       publisher fails closed on the signature before the version
+    #       comparison ("does not match requested") can even run.
     $c = New-CaseDir 'F6'
     New-FakeGh -CaseDir $c -MirrorRoot $script:MirrorRoot -Mutation 'tamperVersion'
-    Invoke-PublishChild -Name 'F6 manifest version mismatch' -CaseDir $c -ExtraArgs @('-SkipGitChecks') `
-        -ExpectErrorPattern 'does not match requested'
+    Invoke-PublishChild -Name 'F6 manifest tampered' -CaseDir $c -ExtraArgs @('-SkipGitChecks') `
+        -ExpectErrorPattern 'signature verification failed'
 
     # --- F7: minisign version too old (fake minisign on PATH)
     $c = New-CaseDir 'F7'
