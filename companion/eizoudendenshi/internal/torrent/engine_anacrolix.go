@@ -208,6 +208,12 @@ func (e *engineAnacrolix) Start(ctx context.Context, magnet string) (TorrentHand
 		e.log.Warnf("torrent.engine", "metadata rejected")
 		return nil, errInvalidMagnet
 	}
+	// Start the engine diagnostics DURING metadata fetch (GotInfo): on a
+	// magnet that resolves slowly the 10s diag line is the only window
+	// into peer/DHT/announce activity before the 2-minute metadata
+	// timeout. diag() already tolerates t.Info() == nil (head="-",
+	// piece counts empty) — counts still come from the wired peer state.
+	go e.diagLoop(t)
 	select {
 	case <-ctx.Done():
 		t.Drop()
@@ -230,7 +236,6 @@ func (e *engineAnacrolix) Start(ctx context.Context, magnet string) (TorrentHand
 		return nil, errV2Unsupported
 	}
 	e.log.Infof("torrent.engine", "metadata ok files=%d", len(t.Files()))
-	go e.diagLoop(t)
 	return newAnacrolixHandle(t), nil
 }
 

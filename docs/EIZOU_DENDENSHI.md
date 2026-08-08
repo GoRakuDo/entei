@@ -145,8 +145,8 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 ## Security and data contract
 
 - listenerは`127.0.0.1` / loopbackだけ。`0.0.0.0`、LAN、tunnelは使わない。
-- CORSは`https://entei.gorakudo.org`と開発用`http://localhost:4321`だけを明示許可する。`*`は使わない。
-- Android ChromeのLAN DevTools QAでは、そのruntime固有の明示origin（例: 開発機のLAN dev-server origin）を`--allow-origin`でprocess起動時に一時追加する。これは開発専用オーバーライドであり、release allowlistのエントリには**絶対に追加しない**。値はメモリ内のみで永続化しない。
+- CORSは`https://entei.gorakudo.org`と開発用`http://localhost:4321`、**LAN開発用`http://192.168.100.*:4321`（192.168.100.0/24:4321、2026-08-08ユーザー決定: ローカルIP限定・token併用。octetを0-255で検証）**だけを明示許可する。`*`は使わない。
+- Android ChromeのLAN DevTools QAでは、このリスト以外のLAN dev-server origin（例: 別サブネット・別ポート）は`--allow-origin`でprocess起動時に一時追加する。これは開発専用オーバーライドであり、release allowlistのエントリには**絶対に追加しない**。値はメモリ内のみで永続化しない。
 - pairing前・tokenなし・Origin不一致のstate-changing requestは拒否する。
 - **Pairing credentialの永続化（2026-08-03実装）:** companion側はopaque tokenだけをplatform別のuser-private storageへ保持する — WindowsはDPAPI（`golang.org/x/sys/windows` `CryptProtectData`/`CryptUnprotectData`、user-scoped、`%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\credential.bin`にatomic書き込み）、Android/TermuxはTermux app-private storage（`$PREFIX/var/lib/eizouden/credential.bin`、mode 0600、atomic書き込み、symlink拒否）。schema-versioned envelope（`{"version":1,"token":…}`）に**tokenのみ**を保持し、pairing code・source URL・magnet・media・cookieは決して保存しない。破損 / 復号失敗 / profile不一致はfail-closed（credentialを受け入れず、fresh code + tokenを生成、詳細を漏らさない）。成功した最初のpairは**200を返す前に**tokenを永続化し、永続化失敗はpair request自体を失敗させる（token応答なし）。`GET /v1/pair/status?token=…`（Origin + token gate）はreload検証用の非センシティブacknowledgementのみを返し、token / code / path / storage errorを一切echoしない。`DELETE /v1/pair?token=…`（Origin + token gate）はpersisted credentialを削除し（best effort・in-memory無効化が正）、tokenをrotateし、fresh pairing codeを発行する。jobs / mediaは決して削除しない。
 - browser側はopaque tokenだけをschema-versioned localStorage envelope（`entei.eizou.pairing` = `{v:1, token}`）へ保存する。cookie file、cookie内容、media Blob、magnet、source URLをIndexedDB / localStorageへ保存しない。mount時にstatus endpointでtokenを再検証する（200 → connected、401/403 → 保存tokenをclearしてunpaired表示、companion不達 → token保持のままdisconnected表示）。
@@ -771,4 +771,9 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 **絶対に書かれないもの**: magnet全文・tracker URL（`tr=`）・infohash全文・token・pairing code・cookie・ローカル絶対パス・API URL・helper path・credential。anacrolix生ログはファイルへ書かない（peer IPを含みうるため）。
 
 **テスト**: `internal/diag`単体（書込み/回転/Close/ShortInfohash/DefaultDir）、redaction test（fake engineで実job実行 → magnet・`tr=`・64hex token・`127.0.0.1:4322`・`C:\`・pairing codeがログに無いことを実ログで確認、`?token=` がリクエストログに無いことも確認）、transport test（real anacrolix clientでnon-loopback bind確認）。全Go package回帰green、`go test -race ./...`・`go vet`・`gofmt -l` clean、release harness 91/91・Windows bootstrap harness 106/106。実機E2Eは未実施。
+
+### 開発記録（2026-08-08）: metadata フェーズ診断ログ + CORS LAN 許可
+
+- **metadata フェーズ診断**: 実機（Android / Termux）で「Seed 300台なのに metadata timed out（2分）→ job解放 → 404」が発生（コード側の脱落の可能性）。診断ログ（engine diag: peers / active / seeders / halfopen / dht_nodes / dht_good / announce_ok / announce_tried / v2 / v1 / head）を「選択後」だけでなく**metadata 取得待ち（`AddMagnet` 直後〜GotInfo）にも10秒間隔**で出力（`diagLoop` を移動・`t.Info()==nil` でも安全・redaction 契約維持）。timeout は 2 分のまま（変更しない）。
+- **CORS LAN デフォルト許可**: スマホの dev-server origin 問題のため、デフォルト許可に **`http://192.168.100.*:4321`**（192.168.100.0/24:4321）を追加（ユーザー決定・ローカル IP・token 併用）。`isLANDevOrigin` で octet を 0-255 検証し、ポート違い / https / 別サブネット / 不正値を拒否。既存の localhost・`https://entei.gorakudo.org`・`--allow-origin` は不変。Mimo 独立レビュー（新しい部屋）完全 APPROVE、`go test -race` 10/10。
 

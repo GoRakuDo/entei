@@ -40,6 +40,10 @@
 //     override (Config.AllowOrigins, e.g. --allow-origin) may add further
 //     exact origins for QA; it never replaces the fixed set and is never
 //     persisted.
+//   - Development LAN QA origins http://192.168.100.*:4321 are accepted
+//     (RFC 1918 private space, phone-on-LAN testing of the media
+//     endpoints) with full IPv4 octet + fixed-port validation; the
+//     capability-token gate still applies on top of CORS.
 //   - The pairing code is never logged, echoed, or exposed in errors. The
 //     capability token is returned exactly once by POST /v1/pair and is
 //     otherwise never logged, echoed, or exposed. With a configured
@@ -673,18 +677,52 @@ func (s *Server) handlePairStatusPreflight(w http.ResponseWriter, r *http.Reques
 }
 
 // originAllowed returns the request Origin only when it is exactly one of
-// the server's allowlisted origins (fixed set plus per-process extras).
-// Missing and disallowed origins both return false without leaking which
-// case occurred.
+// the server's allowlisted origins (fixed set plus per-process extras), or
+// a development LAN origin under http://192.168.100.*:4321 (explicit
+// prefix match with full IPv4 octet validation; 192.168.100.0/24 is RFC
+// 1918 private space, intended for phone-on-LAN developer testing of the
+// media endpoints. The capability-token gate still applies on top of
+// CORS). Missing and disallowed origins both return false without leaking
+// which case occurred.
 func (s *Server) originAllowed(r *http.Request) (string, bool) {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return "", false
 	}
-	if _, ok := s.allowedOrigins[origin]; !ok {
-		return "", false
+	if _, ok := s.allowedOrigins[origin]; ok {
+		return origin, true
 	}
-	return origin, true
+	if isLANDevOrigin(origin) {
+		return origin, true
+	}
+	return "", false
+}
+
+// lanDevOriginPrefix is the development-LAN origin family:
+// http://192.168.100.<host-0..255>:4321. Exact prefix + full IPv4 octet
+// validation + the fixed port — no wildcards, no suffix matches.
+const lanDevOriginPrefix = "http://192.168.100."
+
+// isLANDevOrigin reports whether origin is a LAN development origin
+// http://192.168.100.<0-255>:4321 (192.168.100.0/24, RFC 1918).
+func isLANDevOrigin(origin string) bool {
+	const suffix = ":4321"
+	if !strings.HasPrefix(origin, lanDevOriginPrefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(origin, lanDevOriginPrefix)
+	if !strings.HasSuffix(rest, suffix) {
+		return false
+	}
+	host := strings.TrimSuffix(rest, suffix)
+	if host == "" {
+		return false
+	}
+	n, err := strconv.Atoi(host)
+	if err != nil {
+		return false
+	}
+	return n >= 0 && n <= 255
 }
 
 // setOriginHeaders adds CORS headers when the request Origin is allowed.

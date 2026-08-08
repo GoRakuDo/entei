@@ -129,6 +129,53 @@ func TestHealthDisallowedOriginGetsNoCORSHeaders(t *testing.T) {
 	}
 }
 
+func TestIsLANDevOrigin(t *testing.T) {
+	cases := []struct {
+		origin string
+		want   bool
+	}{
+		{"http://192.168.100.10:4321", true},
+		{"http://192.168.100.1:4321", true},
+		{"http://192.168.100.255:4321", true},
+		{"http://192.168.100.0:4321", true},
+		// Wrong port / scheme / subnet are rejected.
+		{"http://192.168.100.10:4322", false},
+		{"https://192.168.100.10:4321", false},
+		{"http://192.168.101.10:4321", false},
+		{"http://192.168.100.10", false},
+		// Out-of-range or malformed octets are rejected.
+		{"http://192.168.100.256:4321", false},
+		{"http://192.168.100.abc:4321", false},
+		{"http://192.168.100.:4321", false},
+		// Not the LAN family at all.
+		{"http://localhost:4321", false},
+		{"https://entei.gorakudo.org", false},
+		{disallowedOrigin, false},
+	}
+	for _, c := range cases {
+		if got := isLANDevOrigin(c.origin); got != c.want {
+			t.Errorf("isLANDevOrigin(%q) = %v, want %v", c.origin, got, c.want)
+		}
+	}
+}
+
+func TestHealthLANDevOriginGetsCORSHeaders(t *testing.T) {
+	s := newTestServer(t)
+	origin := "http://192.168.100.42:4321"
+	rec := doRequest(t, s.Handler(), http.MethodGet, "/v1/health", origin, "")
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
+		t.Errorf("LAN dev origin: ACAO = %q, want %q", got, origin)
+	}
+	if !hasVary(rec, "Origin") {
+		t.Error("LAN dev origin: missing Vary: Origin")
+	}
+	// A near-miss LAN origin (wrong port) must NOT be allowed.
+	rec2 := doRequest(t, s.Handler(), http.MethodGet, "/v1/health", "http://192.168.100.42:9999", "")
+	if got := rec2.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("LAN near-miss origin received ACAO = %q, want empty", got)
+	}
+}
+
 func TestPairSuccessIssuesTokenOnlyOnce(t *testing.T) {
 	s := newTestServer(t)
 	code := s.PairingCode()
