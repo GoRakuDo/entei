@@ -781,6 +781,71 @@ func TestSelectedSubtitleContent(t *testing.T) {
 	}
 }
 
+// TestSelectedSubtitleContentBeforeComplete validates the contract:
+// subtitlePath gates the read, not state. The production flow sets
+// subtitlePath in finalize() after the helper exits; this test sets it
+// directly (while the job is still downloading) to isolate the contract —
+// the file being served pre-completion is the point, mirroring the
+// torrent-side interface where the selected file is served whenever it is
+// set.
+func TestSelectedSubtitleContentBeforeComplete(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "2048")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK", "512")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK_DELAY_MS", "1")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1") // job stays downloading
+	m := newTestManager(t, 0)
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", ModeSpeed)
+	if err != nil {
+		t.Fatalf("Start speed: %v", err)
+	}
+	defer func() { _, _ = m.Cancel(snap.ID) }()
+
+	// Wait until the job's private dir exists (the run loop creates it
+	// before the helper starts) and the state is downloading. PartPath
+	// is read under the manager/part locks, so it is race-free; the part
+	// file sits directly in the job dir.
+	deadline := time.Now().Add(5 * time.Second)
+	var jobDir string
+	var j *job
+	for {
+		m.mu.Lock()
+		j = m.current
+		m.mu.Unlock()
+		part := m.PartPath()
+		if j != nil && part != "" && j.getState() == StateDownloading {
+			jobDir = filepath.Dir(part)
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job dir/state never became ready")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Set subtitlePath directly to the file on disk, exactly as finalize
+	// does on completion (production sets it after the helper exits; this
+	// test injects it mid-download to isolate the contract).
+	subPath := filepath.Join(jobDir, "media.ja.vtt")
+	_ = os.WriteFile(subPath, []byte("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nこんにちは\n"), 0o600)
+	j.stateMu.Lock()
+	j.subtitlePath = subPath
+	j.stateMu.Unlock()
+
+	got, err := m.SelectedSubtitleContent(context.Background())
+	if err != nil {
+		t.Fatalf("SelectedSubtitleContent before complete: %v", err)
+	}
+	if !strings.Contains(got, "こんにちは") {
+		t.Errorf("subtitle content = %q, want the written VTT text", got)
+	}
+	// The job itself must still be downloading — the content was served
+	// pre-completion.
+	s := m.Get(snap.ID)
+	if s == nil || s.State != StateDownloading {
+		t.Fatalf("job state = %v, want downloading (content was served before complete)", s)
+	}
+}
+
 // TestHelperArgsSpeedUsesProgressive verifies that speed mode selects the
 // progressive single-file format (`b`) and DROPS `--no-part`, so yt-dlp
 // writes a growing .part file for instant streaming.

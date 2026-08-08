@@ -275,8 +275,16 @@ func (m *Manager) Height() int {
 }
 
 // SelectedSubtitleContent returns the text content of the selected Japanese
-// subtitle file for the active job. Returns an error when no job is active,
-// the job is not complete, or no subtitle was found.
+// subtitle file for the active job. Returns an error when no job is active
+// or no subtitle was found.
+//
+// The service read is gated ONLY on the subtitle path being set — the job
+// state does not gate it. subtitlePath is set in finalize() after the
+// helper exits; the previous state check was removed to align with the
+// torrent-side interface contract (torrent.SelectedSubtitleContent serves
+// the selected file whenever it is set, not gated on engine state). The
+// caller (subtitle endpoint) surfaces nothing until a file is actually
+// there.
 func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 	_ = ctx // os.ReadFile is synchronous; ctx kept for interface symmetry with torrent.SelectedSubtitleContent
 	m.mu.Lock()
@@ -286,12 +294,8 @@ func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 		return "", errors.New("no active job")
 	}
 	j.stateMu.Lock()
-	state := j.state
 	subPath := j.subtitlePath
 	j.stateMu.Unlock()
-	if state != StateComplete {
-		return "", errors.New("job not complete")
-	}
 	if subPath == "" {
 		return "", errors.New("subtitle not available")
 	}

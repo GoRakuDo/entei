@@ -139,6 +139,19 @@ function getDictionaryFor(locale: 'id' | 'ja' | 'en'): Dictionary {
  *  playing — always pauses after seek. */
 const SEEK_TIMEOUT_MS = 5000;
 
+/** Companion YouTube subtitle fetch retry (ED-2G): while the job is still
+ *  downloading in speed mode, the media is playable before the subtitle
+ *  file exists — the first fetch then 404s with "subtitle not available".
+ *  Retry every 5 seconds until the content appears, the component
+ *  unmounts, or the bounded 3-minute window passes. Failures are silent
+ *  (the panel simply fills in once the file exists). Exported for the
+ *  subtitle-fetch retry tests (companion-subtitle-retry.test.tsx). */
+export const SUBTITLE_RETRY_INTERVAL_MS = 5000;
+
+/** Upper bound for the subtitle retry window (3 minutes). Exported for
+ *  the subtitle-fetch retry tests. */
+export const SUBTITLE_RETRY_WINDOW_MS = 3 * 60 * 1000;
+
 /** Maximum length of a displayed media name (defense in depth). */
 const MAX_MEDIA_NAME_LENGTH = 255;
 
@@ -571,32 +584,53 @@ export default function PlayerApp() {
     }
   }, [jobSession.jobTitle]);
 
-  // ED-2G: Auto-fetch subtitle content from companion when a torrent job
+// ED-2G: Auto-fetch subtitle content from companion when a torrent job
   // selected a subtitle file, or from a YouTube job that has Japanese
   // subtitles. Fetches the text, parses it with the same subtitle-reader
   // used for local files, and populates the subtitle panel.
   //
   // Torrent: subtitle file is prioritized on selection so content is
   // available immediately — no need to wait for bridge 'ready'.
-  // YouTube: subtitle file only exists on disk after the job completes
-  // (yt-dlp writes it alongside the media), so we wait for
-  // phase === 'ready' || 'playing' before fetching.
+  // YouTube: the companion serves the subtitle as soon as the file is on
+  // disk, which happens in parallel with the media download (yt-dlp
+  // writes it while downloading; speed mode streams the .part early, so
+  // the bridge can report 'ready' before the VTT exists). The first
+  // fetch can therefore legitimately return 404 ("subtitle not
+  // available") — rather than giving up, retry in a bounded loop (every
+  // SUBTITLE_RETRY_INTERVAL_MS, until SUBTITLE_RETRY_WINDOW_MS or
+  // unmount/cancel). Failures stay silent: no toast, no error state;
+  // the panel simply fills in once the file appears.
   useEffect(() => {
     const url = jobSession.subtitleUrl;
     if (!url || !jobSession.active) return;
-    // YouTube subtitles are only available after the job completes;
-    // waiting for the bridge 'ready'/playing phase ensures the file
-    // exists on disk before we attempt to fetch it.
+    // YouTube subtitles are only fetchable once the bridge reports the
+    // media playable (the file can still be mid-write — the bounded
+    // retry below absorbs the gap); torrents fetch immediately.
+    // Note: the retry window starts here, so a phase gate that opens
+    // after SUBTITLE_RETRY_WINDOW_MS has elapsed (unlikely: ready/playing
+    // arrives within seconds of the media URL) would leave the subtitle
+    // unfetched until a re-render re-runs this effect. This is a known
+    // limit, not a regression — the gate exists to avoid fetching before
+    // any media is servable.
     if (jobSession.kind === 'youtube' && jobSession.phase !== 'ready' && jobSession.phase !== 'playing') return;
     let cancelled = false;
     const ac = new AbortController();
-    void (async () => {
+    const retryDeadline = Date.now() + SUBTITLE_RETRY_WINDOW_MS;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchOnce = async (): Promise<void> => {
       try {
         const res = await fetch(url, {
           cache: 'no-store',
           signal: ac.signal,
         });
-        if (cancelled || !res.ok) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          // 404 / 4xx / 5xx — not available yet; retry until the file
+          // is written (bounded), unless the component unmounted.
+          scheduleRetry();
+          return;
+        }
         const text = await res.text();
         if (cancelled) return;
         const result = parseSubtitle(text);
@@ -605,12 +639,29 @@ export default function PlayerApp() {
         setActiveCueId(null);
         subtitleTextRef.current = text;
       } catch {
-        // Network error or abort — subtitle panel stays empty.
+        // Network error or abort — stay silent and retry while bounded.
+        scheduleRetry();
       }
-    })();
+    };
+
+    const scheduleRetry = () => {
+      if (cancelled || Date.now() >= retryDeadline) return;
+      if (retryTimer !== null) return; // one pending retry at a time
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void fetchOnce();
+      }, SUBTITLE_RETRY_INTERVAL_MS);
+    };
+
+    void fetchOnce();
+
     return () => {
       cancelled = true;
       ac.abort();
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
     };
   }, [jobSession.subtitleUrl, jobSession.active, jobSession.kind, jobSession.phase]);
 
