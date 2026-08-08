@@ -3,6 +3,8 @@ package update
 import (
 	"archive/zip"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -25,10 +27,21 @@ const maxArtifactBytes = 1 << 30
 // maxManifestBytes caps the manifest fetch (the real manifest is ~1 KB).
 const maxManifestBytes = 1 << 20
 
+// termuxSystemCABundle is the CA bundle Termux installs and serves to
+// OpenSSL/curl clients (mirror of /data/.../usr/etc/tls/cert.pem). Go's
+// x509 system-root scan (root_linux.go) does NOT include it: on Android,
+// Go only looks at /etc/ssl/* (absent in Termux) and
+// /system/etc/security/cacerts (Android's own bundle, which a Termux-
+// provisioned app under CGO_ENABLED=0 may not resolve). Without this
+// fallback the update check fails TLS handshake with "could not check for
+// updates" even though curl on the same device succeeds.
+const termuxSystemCABundle = "/data/data/com.termux/files/usr/etc/tls/cert.pem"
+
 // newHardenedClient returns the default HTTP client: bounded total
-// timeout, at most 5 redirects, and HTTPS-only redirect targets. GitHub
-// Release asset URLs 302-redirect to the release CDN; any redirect that
-// leaves https:// fails closed.
+// timeout, at most 5 redirects, HTTPS-only redirect targets, and a TLS
+// root-pool that includes the Termux CA bundle when running on Termux.
+// GitHub Release asset URLs 302-redirect to the release CDN; any
+// redirect that leaves https:// fails closed.
 func newHardenedClient() *http.Client {
 	return &http.Client{
 		Timeout: 60 * time.Second,
@@ -44,7 +57,25 @@ func newHardenedClient() *http.Client {
 			}
 			return nil
 		},
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: systemRootPoolWithTermux()},
+		},
 	}
+}
+
+// systemRootPoolWithTermux returns a cert pool that starts from the OS
+// system roots and, when the Termux CA bundle is present on this device,
+// appends it. On non-Termux systems the pool contains the OS roots only
+// (identical to Go's default when the fallback file is absent).
+func systemRootPoolWithTermux() *x509.CertPool {
+	pool, errSys := x509.SystemCertPool()
+	if errSys != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if pem, err := os.ReadFile(termuxSystemCABundle); err == nil {
+		pool.AppendCertsFromPEM(pem)
+	}
+	return pool
 }
 
 // fetch downloads url into staging under name with a bounded size and
