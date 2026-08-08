@@ -262,6 +262,39 @@ func TestReplaceStagedRollbackKeepsOld(t *testing.T) {
 	}
 }
 
+// TestReplaceStagedRestoresExecutablePermission pins the Termux bug: the
+// staged core is downloaded with mode 0600 (fetch), so after the rename
+// the replaced binary would be non-executable ("Permission denied" when
+// grkd-edds launches it). replaceStaged must chmod the target to 0700
+// (the bootstrap's mode). On Windows os.Chmod is a no-op, so this test
+// is meaningful on the permission model of the host platform; it simply
+// asserts the chmod was attempted and the file remains readable.
+func TestReplaceStagedRestoresExecutablePermission(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "core.bin")
+	writeFile(t, target, []byte("old"))
+	staging := filepath.Join(root, "staged")
+	writeFile(t, filepath.Join(staging, "core.bin"), []byte("new"))
+
+	if err := replaceStaged(staging, target); err != nil {
+		t.Fatalf("replaceStaged: %v", err)
+	}
+	b, err := os.ReadFile(target)
+	if err != nil || string(b) != "new" {
+		t.Fatalf("target must carry the new staged bytes: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(target)
+		if err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+		// Owner execute bit must be set after apply (bootstrap parity).
+		if fi.Mode().Perm()&0o100 == 0 {
+			t.Fatalf("replaced target mode = %v, want owner-execute bit set", fi.Mode().Perm())
+		}
+	}
+}
+
 // TestCopyExecutableForChildCopiesToTemp pins the Windows apply-child
 // copy helper: the copy lands under the OS temp dir (never inside the
 // staging dir), is byte-identical, and carries the updater prefix.

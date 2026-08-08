@@ -137,6 +137,16 @@ func replaceStaged(staging, target string) error {
 		}
 		return err
 	}
+	// The staged file was downloaded with mode 0600 (fetch); after the
+	// rename the new core/helper would stay 0600 and be non-executable on
+	// Termux/Unix (grkd-edds: "Permission denied"). Restore the executable
+	// bit explicitly — matching the bootstrap's chmod 700. The chmod also
+	// covers the cross-device fallback (renameRetry → copyThenRemove,
+	// which creates the target fresh), so whatever path placed the new
+	// file, the target ends up 0700. On Windows os.Chmod is effectively a
+	// no-op; any error is ignored (a failure here must not abort an
+	// already-applied replacement).
+	_ = os.Chmod(target, 0o700)
 	// On Windows the just-exited parent's image section may still hold
 	// the old core for a few hundred ms; retry briefly instead of
 	// leaving a stale .bak behind. A final failure is harmless (the
