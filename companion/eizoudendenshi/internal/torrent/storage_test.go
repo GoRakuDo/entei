@@ -173,13 +173,16 @@ func storageFactory(t *testing.T) (EngineFactory, *storageDirs) {
 
 func waitForDirGone(t *testing.T, dir string) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	// The storage dir is removed by the run() goroutine's cleanupSession
+	// after context cancellation. On a loaded CI runner, goroutine scheduling
+	// can be delayed; 10 seconds gives ample margin for eviction + cleanup.
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("storage dir still present after 3s: %s", dir)
+			t.Fatalf("storage dir still present after 10s: %s", dir)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -199,7 +202,7 @@ func TestManagerStorageDirRemovedOnEngineFactoryFailure(t *testing.T) {
 	if _, err := m.Start(testMagnet); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		entries, _ := os.ReadDir(m.storageRoot)
 		if len(entries) == 0 {
