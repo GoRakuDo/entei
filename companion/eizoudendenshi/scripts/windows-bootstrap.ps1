@@ -12,9 +12,12 @@
 #     shell (no Invoke-Expression, no curl|sh, no remote script execution).
 #   - The pinned Minisign public key below MUST be replaced with the real
 #     release key before publishing; an unreplaced template fails closed.
-#   - The release base URL is an explicit input (-ReleaseBaseUrl or
-#     EIZOU_RELEASE_URL) and MUST be https://. Nothing is downloaded before
-#     it is validated, and every redirect is bounded and HTTPS-only.
+#   - The release base URL comes from (in priority order) -ReleaseBaseUrl,
+#     EIZOU_RELEASE_URL, or the EMBEDDED release URL baked into a
+#     distribution bootstrap by scripts/release.ps1 — so the public
+#     install is a plain one-liner. The URL MUST be https://. Nothing is
+#     downloaded before it is validated, and every redirect is bounded and
+#     HTTPS-only.
 #   - End users fetch ONLY from the signed Eizou release base. No helper is
 #     ever downloaded from a vendor at bootstrap time.
 #   - Helpers are release artifacts: each is individually Minisign-signed
@@ -32,7 +35,8 @@
 #     verified ffmpeg for the CLI it starts), and it never persists.
 #
 # Usage:
-#   pwsh eizouden-bootstrap.ps1 -ReleaseBaseUrl https://dl.example.org/eizouden/releases/0.2.0
+#   pwsh eizouden-bootstrap.ps1 [-ReleaseBaseUrl https://dl.example.org/eizouden/releases/0.2.0]
+#   (no argument: uses EIZOU_RELEASE_URL or the embedded release URL)
 #
 # Harness-only overrides (never used in production; verification and
 # fail-closed order are never relaxed):
@@ -52,6 +56,13 @@ $ProgressPreference = 'SilentlyContinue'
 
 # --- Pinned release signing key (replace at release time) ---
 $PinnedPubKey = 'REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
+
+# --- Embedded release base URL (injected by scripts/release.ps1) ---
+# A distribution-ready bootstrap carries the exact release download base
+# (https://github.com/GoRakuDo/entei/releases/download/eizoudendenshi-v<ver>/),
+# so the public install is a plain one-liner. An unreplaced template
+# placeholder fails closed below.
+$EmbeddedReleaseBaseUrl = 'REPLACE_ME_RELEASE_BASE_URL'
 
 # --- Pinned verifier (Minisign) trust bootstrap ---
 # The verifier is acquired ONLY from this pinned official source, before any
@@ -118,6 +129,9 @@ function Merge-UserPathRoot {
 function Assert-HttpsUrl {
     param([string]$Url, [string]$What)
     if ($Url -eq '') { Fail "missing $What (required)" }
+    if ($Url -match 'REPLACE_ME') {
+        Fail "$What is unsubstituted (template placeholder); refusing to run an un-baked bootstrap"
+    }
     if ($Url -notmatch '^https://') { Fail "$What must be https:// (refusing non-HTTPS download)" }
     if ($Url -match '@|\?|#|\s') { Fail "$What must not contain userinfo, a query, a fragment, or whitespace" }
     $hostPart = $Url.Substring('https://'.Length)
@@ -499,6 +513,9 @@ function Get-HelperExecutable {
 
 $script:TempDir = ''
 try {
+    # Inputs: -ReleaseBaseUrl > EIZOU_RELEASE_URL > embedded release URL.
+    if ($ReleaseBaseUrl -eq '') { $ReleaseBaseUrl = $env:EIZOU_RELEASE_URL }
+    if ($ReleaseBaseUrl -eq '') { $ReleaseBaseUrl = $EmbeddedReleaseBaseUrl }
     Assert-HttpsUrl $ReleaseBaseUrl 'release base URL'
     Assert-PinnedKey
     Assert-WindowsX64

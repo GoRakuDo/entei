@@ -86,6 +86,9 @@ function Static-Checks {
         $boot.Contains('refusing to run an unpinned bootstrap')) 'unreplaced template must fail closed'
     Check 'static: HTTPS-only release URL validation' (
         $boot.Contains('refusing non-HTTPS download')) 'non-HTTPS base URL must be rejected'
+    Check 'static: embedded release URL placeholder present and rejected' (
+        $boot.Contains('REPLACE_ME_RELEASE_BASE_URL') -and
+        $boot.Contains('un-baked bootstrap')) 'unreplaced release URL template must fail closed'
     Check 'static: PATH registration is CURRENT-USER scope only / no global installers' (
         $code -match "SetEnvironmentVariable\('Path', .*, 'User'\)" -and
         $code -notmatch "'Machine'" -and
@@ -128,14 +131,17 @@ function Invoke-WinBootstrapCase {
         [hashtable]$Env,
         [switch]$ExpectSuccess,
         [string]$ExpectErrorPattern = '',
-        [string]$Mirror
+        [string]$Mirror,
+        [switch]$NoUrl
     )
     $outFile = Join-Path $script:LogsDir "$Name.out.log"
     $errFile = Join-Path $script:LogsDir "$Name.err.log"
     $argsList = @('-NoProfile', '-File', "`"$BootstrapPath`"",
-        "-ReleaseBaseUrl", "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)",
         "-InstallRoot", "`"$InstallRoot`"",
         "-HarnessMirrorDir", "`"$Mirror`"")
+    if (-not $NoUrl) {
+        $argsList += @("-ReleaseBaseUrl", "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)")
+    }
     $proc = Start-Process -FilePath 'pwsh' -ArgumentList $argsList `
         -RedirectStandardOutput $outFile -RedirectStandardError $errFile `
         -PassThru -NoNewWindow -Environment $Env
@@ -161,14 +167,18 @@ function Invoke-WinBootstrapCase {
 }
 
 function New-BootstrapCopy {
-    param([string]$DestDir, [switch]$KeepPlaceholder)
+    param([string]$DestDir, [switch]$KeepPlaceholder, [string]$EmbeddedUrl = '')
     New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
     $dest = Join-Path $DestDir 'eizouden-bootstrap.ps1'
     if ($KeepPlaceholder) {
         [System.IO.File]::WriteAllText($dest, $BootstrapText, (New-Object System.Text.UTF8Encoding($false)))
     }
     else {
-        [System.IO.File]::WriteAllText($dest, $BootstrapText.Replace('REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY', $script:PubKey), (New-Object System.Text.UTF8Encoding($false)))
+        $text = $BootstrapText.Replace('REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY', $script:PubKey)
+        if ($EmbeddedUrl -ne '') {
+            $text = $text.Replace('REPLACE_ME_RELEASE_BASE_URL', $EmbeddedUrl)
+        }
+        [System.IO.File]::WriteAllText($dest, $text, (New-Object System.Text.UTF8Encoding($false)))
     }
     return $dest
 }
@@ -684,6 +694,14 @@ function Dynamic-Suite {
     # T16: user-private temp cleanup.
     $leftovers = @(Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter 'eizouden-win-bootstrap.*' -ErrorAction SilentlyContinue)
     Check 'T16: private temp dirs cleaned' ($leftovers.Count -eq 0) ('leftover: ' + ($leftovers.Name -join ','))
+
+    # W1: one-liner path — a bootstrap with the EMBEDDED release URL baked
+    #     in succeeds with NO -ReleaseBaseUrl argument.
+    $mirrorW1 = Copy-Mirror 'W1'
+    $rootW1 = Join-Path $script:WorkDir 'install-W1'
+    Invoke-WinBootstrapCase -Name 'W1 embedded URL, no -ReleaseBaseUrl' `
+        -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-W1') -EmbeddedUrl "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)") `
+        -InstallRoot $rootW1 -Mirror $mirrorW1 -NoUrl -Env $script:BaseEnv -ExpectSuccess
 }
 
 # --- Main -------------------------------------------------------------------

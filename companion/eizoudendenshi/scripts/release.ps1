@@ -413,9 +413,15 @@ foreach ($h in $helperArtifacts) {
 # --- Optional: emit distribution-ready bootstraps with the pinned key ---
 # The key was already read and validated BEFORE the builds above
 # ($script:PinnedUpdateKey); it is the exact same key the release cores
-# carry.
+# carry. Each bootstrap also gets the EXACT release base URL baked in
+# (REPLACE_ME_RELEASE_BASE_URL placeholder) so the public install is a
+# plain one-liner with no required arguments.
 if ($script:PinnedUpdateKey -ne '') {
     $placeholder = 'REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
+    $releaseUrlPlaceholder = 'REPLACE_ME_RELEASE_BASE_URL'
+    # GitHub Release asset base for this exact release tag. The version is
+    # validated semver (no quotes/spaces), so embedding it is safe.
+    $releaseBaseUrl = "https://github.com/GoRakuDo/entei/releases/download/eizoudendenshi-v$Version/"
     foreach ($pair in @(
             @('termux-bootstrap.sh', 'eizouden-bootstrap.sh'),
             @('termux-bootstrap-helper.sh', 'eizouden-bootstrap-helper.sh'),
@@ -425,10 +431,14 @@ if ($script:PinnedUpdateKey -ne '') {
         if (-not $text.Contains($placeholder)) {
             throw "bootstrap template $($pair[0]) does not contain the pinned-key placeholder (template changed?)"
         }
+        if (-not $text.Contains($releaseUrlPlaceholder)) {
+            throw "bootstrap template $($pair[0]) does not contain the release URL placeholder (template changed?)"
+        }
         $text = $text.Replace($placeholder, $script:PinnedUpdateKey)
+        $text = $text.Replace($releaseUrlPlaceholder, $releaseBaseUrl)
         $outBoot = Join-Path $OutDir $pair[1]
         [System.IO.File]::WriteAllText($outBoot, $text, (New-Object System.Text.UTF8Encoding($false)))
-        Write-Host "wrote  $($pair[1]) (public key pinned, distribution-ready)"
+        Write-Host "wrote  $($pair[1]) (public key pinned, release URL baked in, distribution-ready)"
     }
 }
 else {

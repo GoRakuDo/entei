@@ -122,6 +122,9 @@ function Static-Checks {
         $boot.Contains('refusing to run an unpinned bootstrap')) 'unreplaced template must fail closed'
     Check 'static: HTTPS-only release URL validation' (
         $boot.Contains('must be https://') -and $boot.Contains('refusing non-HTTPS download')) 'non-HTTPS base URL must be rejected'
+    Check 'static: embedded release URL placeholder present and rejected' (
+        $boot.Contains('REPLACE_ME_RELEASE_BASE_URL') -and
+        $boot.Contains('un-baked template')) 'unreplaced release URL template must fail closed'
     # Ordering is asserted inside main()'s body (function definitions
     # precede it in the file): the SHA-256 check and the signature checks
     # must come before the install call.
@@ -288,7 +291,7 @@ function Invoke-BootstrapCase {
 }
 
 function New-BootstrapCopy {
-    param([string]$DestDir, [switch]$KeepPlaceholder)
+    param([string]$DestDir, [switch]$KeepPlaceholder, [string]$EmbeddedUrl = '')
     New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
     $dest = Join-Path $DestDir 'eizouden-bootstrap.sh'
     if ($KeepPlaceholder) {
@@ -296,6 +299,9 @@ function New-BootstrapCopy {
     }
     else {
         $text = $BootstrapText.Replace('REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY', $script:PubKey)
+        if ($EmbeddedUrl -ne '') {
+            $text = $text.Replace('REPLACE_ME_RELEASE_BASE_URL', $EmbeddedUrl)
+        }
         [System.IO.File]::WriteAllText($dest, $text, (New-Object System.Text.UTF8Encoding($false)))
     }
     return $dest
@@ -391,7 +397,9 @@ function Invoke-TermuxHelperCase {
         [string]$Prefix,
         [string]$InputFile,
         [switch]$ExpectSuccess,
-        [string]$ExpectErrorPattern = ''
+        [string]$ExpectErrorPattern = '',
+        [string]$Url = '',
+        [switch]$NoUrl
     )
     $outFile = Join-Path $script:LogsDir "$Name.out.log"
     $errFile = Join-Path $script:LogsDir "$Name.err.log"
@@ -409,7 +417,8 @@ function Invoke-TermuxHelperCase {
         # demands a real minisign executable and fails closed without one.
         PATH = $script:GitBins + ';' + (Split-Path $script:Minisign) + ';' + $env:PATH
     }
-    $proc = Start-Process -FilePath $script:ShPath -ArgumentList @("`"$runner`"", "`"$BootstrapPath`"", "`"$($script:HelperBaseUrl)`"", "`"$InputFile`"") `
+    if (-not $NoUrl -and $Url -eq '') { $Url = $script:HelperBaseUrl }
+    $proc = Start-Process -FilePath $script:ShPath -ArgumentList @("`"$runner`"", "`"$BootstrapPath`"", "`"$Url`"", "`"$InputFile`"") `
         -RedirectStandardOutput $outFile -RedirectStandardError $errFile -PassThru -NoNewWindow -Environment $envH
     $exited = $proc.WaitForExit(90000)
     if (-not $exited) {
@@ -497,9 +506,12 @@ function Termux-Helper-Suite {
     $script:HelperBaseUrl = "https://release.example.test/eizouden/releases/$($script:ReleaseVersion)"
 
     function New-HelperBootstrapCopy {
-        param([string]$Name)
+        param([string]$Name, [string]$EmbeddedUrl = '')
         $text = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'termux-bootstrap-helper.sh'))
         $text = $text.Replace('REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY', $script:PubKey)
+        if ($EmbeddedUrl -ne '') {
+            $text = $text.Replace('REPLACE_ME_RELEASE_BASE_URL', $EmbeddedUrl)
+        }
         $dest = Join-Path $script:HelperWork "boot-$Name.sh"
         [System.IO.File]::WriteAllText($dest, $text, (New-Object System.Text.UTF8Encoding($false)))
         return $dest
@@ -564,6 +576,12 @@ function Termux-Helper-Suite {
     } else {
         Check 'H6: launcher execs the app-private core CLI' $false 'launcher missing'
     }
+
+    # H7: the one-liner path — a bootstrap with the EMBEDDED release URL
+    #     baked in succeeds with NO URL argument (helper contract).
+    $p7 = New-FakeTermuxPrefix 'H7' @{ ytdlp = '2026.07.04'; ffmpeg = '5.1.2' }
+    Invoke-TermuxHelperCase -Name 'H7 embedded URL, no args' -BootstrapPath (New-HelperBootstrapCopy 'H7' $script:HelperBaseUrl) `
+        -Prefix $p7 -InputFile $inputStatus -NoUrl -ExpectSuccess
 }
 
 function Dynamic-Suite {
@@ -775,7 +793,7 @@ function Dynamic-Suite {
     Invoke-BootstrapCase -Name 'T9 non-Termux env' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T9')) `
         -Url $baseUrl -Env $env9 -ExpectErrorPattern 'not running in Termux|not running on Linux' -PrefixPath $p
 
-    # T10: SHA-256 mismatch with valid signatures (isolates the SHA check).
+# T10: SHA-256 mismatch with valid signatures (isolates the SHA check).
     $p = New-Prefix 'T10'; $m = Copy-Mirror 'T10'
     $core = Join-Path $m 'eizouden-android-arm64'
     $wantSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $core).Hash.ToLowerInvariant()   # sha of the signed content
@@ -788,6 +806,29 @@ function Dynamic-Suite {
     Sign-Manifest $m
     Invoke-BootstrapCase -Name 'T10 SHA-256 mismatch' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T10')) `
         -Url $baseUrl -Env (New-CaseEnv $m $p) -ExpectErrorPattern 'SHA-256 mismatch' -PrefixPath $p
+
+    # T11: no-arg run uses the EMBEDDED release URL baked into the
+    #     distribution bootstrap (the one-liner path).
+    $p = New-Prefix 'T11'; $m = Copy-Mirror 'T11'
+    Invoke-BootstrapCase -Name 'T11 embedded URL, no args' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T11') -EmbeddedUrl $baseUrl) `
+        -Url '' -Env (New-CaseEnv $m $p) -ExpectSuccess -PrefixPath $p
+
+    # T12: an un-baked bootstrap (URL placeholder left in) fails closed even
+    #     when the pinned key was substituted.
+    $p = New-Prefix 'T12'; $m = Copy-Mirror 'T12'
+    Invoke-BootstrapCase -Name 'T12 un-baked embedded URL' -BootstrapPath (New-BootstrapCopy (Join-Path $script:WorkDir 'boot-T12')) `
+        -Url '' -Env (New-CaseEnv $m $p) -ExpectErrorPattern 'un-baked template' -PrefixPath $p
+
+    # T13: release.ps1 bakes the release URL + pinned key into the emitted
+    #     distribution bootstraps (no placeholder left).
+    $emitted = Join-Path $dist 'eizouden-bootstrap.sh'
+    $emittedText = if (Test-Path -LiteralPath $emitted) { Get-Content -Raw -LiteralPath $emitted } else { '' }
+    Check 'dynamic: release.ps1 emits a baked bootstrap (pinned key + embedded URL, no placeholders)' (
+        $emittedText -ne '' -and
+        -not $emittedText.Contains('REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY') -and
+        -not $emittedText.Contains('REPLACE_ME_RELEASE_BASE_URL') -and
+        $emittedText.Contains($script:PubKey) -and
+        $emittedText.Contains("https://github.com/GoRakuDo/entei/releases/download/eizoudendenshi-v$($script:ReleaseVersion)/")) ($emittedText.Substring(0, [Math]::Min(400, $emittedText.Length)))
 }
 
 # --- Main -------------------------------------------------------------------

@@ -14,8 +14,12 @@
 #     fetched over the network and piped into a shell (no curl|sh).
 #   - The pinned Minisign public key below MUST be replaced with the real
 #     release key before publishing. An unreplaced template fails closed.
-#   - The release base URL is an explicit input (arg 1 or EIZOU_RELEASE_URL)
-#     and MUST be https://. Nothing is downloaded before it is validated.
+#   - The release base URL comes from (in priority order) arg 1, the
+#     EIZOU_RELEASE_URL env var, or the EMBEDDED release URL baked into a
+#     distribution bootstrap by scripts/release.ps1 — so the public
+#     install is a plain one-liner: `curl -fsSL <bootstrap-url> | sh`.
+#     The URL MUST be https://. Nothing is downloaded before it is
+#     validated.
 #   - Only verifier/download prerequisites are installed (minisign, curl,
 #     coreutils from the official Termux repository). No source helpers
 #     (python-yt-dlp / aria2 / ffmpeg) and no Android permission bypass are
@@ -32,7 +36,8 @@
 #     provisions no helpers.
 #
 # Usage:
-#   sh eizouden-bootstrap.sh https://dl.example.org/eizouden/releases/0.2.0
+#   sh eizouden-bootstrap.sh [https://dl.example.org/eizouden/releases/0.2.0]
+#   (no argument: uses EIZOU_RELEASE_URL or the embedded release URL)
 #
 # Harness-only environment overrides (never used in production; they relax
 # ENVIRONMENT and SOURCE checks only — signature/SHA verification and
@@ -47,8 +52,17 @@ set -eu
 # --- Pinned release signing key (replace at release time) ---
 PINNED_PUBKEY='REPLACE_ME_PINNED_MINISIGN_PUBLIC_KEY'
 
-# --- Inputs ---
-RELEASE_BASE_URL="${1:-${EIZOU_RELEASE_URL:-}}"
+# --- Embedded release base URL (injected by scripts/release.ps1) ---
+# A distribution-ready bootstrap carries the exact release download base
+# (https://github.com/GoRakuDo/entei/releases/download/eizoudendenshi-v<ver>/),
+# so the public curl one-liner needs no arguments. An unreplaced template
+# placeholder fails closed below.
+EMBEDDED_RELEASE_BASE_URL='REPLACE_ME_RELEASE_BASE_URL'
+
+# --- Inputs: arg 1 > EIZOU_RELEASE_URL > embedded release URL ---
+RELEASE_BASE_URL="${1:-}"
+if [ -z "$RELEASE_BASE_URL" ]; then RELEASE_BASE_URL="${EIZOU_RELEASE_URL:-}"; fi
+if [ -z "$RELEASE_BASE_URL" ]; then RELEASE_BASE_URL="$EMBEDDED_RELEASE_BASE_URL"; fi
 
 # --- Release contract constants (must match scripts/release.ps1) ---
 MANIFEST_NAME='eizouden-manifest.json'
@@ -71,10 +85,15 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# 1. Input validation: the release base URL must be explicit and HTTPS.
+# 1. Input validation: the release base URL must be explicit (arg 1,
+#    EIZOU_RELEASE_URL, or the embedded release URL) and HTTPS.
 validate_release_url() {
+    case "$RELEASE_BASE_URL" in
+        *REPLACE_ME*)
+            fail 'embedded release base URL is not substituted into this bootstrap; refusing to run an un-baked template' ;;
+    esac
     [ -n "$RELEASE_BASE_URL" ] ||
-        fail 'release base URL is required (arg 1 or EIZOU_RELEASE_URL)'
+        fail 'release base URL is required (arg 1, EIZOU_RELEASE_URL, or the embedded release URL)'
     case "$RELEASE_BASE_URL" in
         https://*) ;;
         *) fail 'release base URL must be https:// (refusing non-HTTPS download)' ;;
