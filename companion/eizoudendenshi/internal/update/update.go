@@ -153,7 +153,14 @@ func Run(w io.Writer, cfg Config) bool {
 	plan, err := stageRelease(client, verifier, staging, cfg.InstallRoot, rel)
 	if err != nil {
 		os.RemoveAll(staging)
-		fmt.Fprintln(w, "update: release verification failed")
+		// Include a concise cause for debuggability (same shape as the
+		// "could not check" line above): releaseFailureCause keeps URLs,
+		// tokens, and paths out of the output.
+		msg := "update: release verification failed"
+		if cause := releaseFailureCause(err); cause != "" {
+			msg += ": " + cause
+		}
+		fmt.Fprintln(w, msg)
 		return false
 	}
 	if err := spawnApply(staging, plan); err != nil {
