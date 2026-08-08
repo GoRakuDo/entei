@@ -32,6 +32,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -76,6 +77,24 @@ func parseAllowOrigins(values []string) ([]string, error) {
 		out = append(out, norm)
 	}
 	return out, nil
+}
+
+// resolveYtdlp returns the yt-dlp helper path to use: the explicit
+// --ytdlp value when given, otherwise the result of a PATH lookup for
+// "yt-dlp". An explicit value always wins; PATH fallback is what enables
+// Termux (auto-started grkd-edds passes no flags, and the bootstrap
+// installs yt-dlp on PATH). A failed lookup leaves the value empty (the
+// YouTube source-job endpoints stay disabled, as before). The lookup
+// function is injectable for tests.
+func resolveYtdlp(explicit string, lookPath func(string) (string, error)) string {
+	if explicit != "" {
+		return explicit
+	}
+	p, err := lookPath("yt-dlp")
+	if err != nil {
+		return ""
+	}
+	return p
 }
 
 // resolveGrowSource validates the --grow-fixture/--grow-total pair and
@@ -139,6 +158,14 @@ func main() {
 	// DHT bootstrap, tracker metadata, and the updater all depend on it.
 	// No-op on other platforms.
 	installAndroidDNSResolver()
+
+	// YouTube helper auto-detection: Termux's grkd-edds (auto-start) never
+	// passes --ytdlp, but the bootstrap installs yt-dlp onto PATH
+	// ($PREFIX/bin/yt-dlp). Without it the job manager stays nil and the
+	// browser sees a CORS-less 404 on /v1/source/jobs. LookPath keeps the
+	// behavior explicit-only elsewhere (Windows keeps its old semantics
+	// unless yt-dlp happens to be on PATH).
+	*ytdlp = resolveYtdlp(*ytdlp, exec.LookPath)
 
 	args := flag.Args()
 	if len(args) > 0 && args[0] == "apply-update" {

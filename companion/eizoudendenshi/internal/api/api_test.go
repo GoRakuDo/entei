@@ -339,6 +339,28 @@ func TestUnknownRouteNotFound(t *testing.T) {
 	}
 }
 
+// TestUnknownRouteCORSHeaders pins that the catch-all 404 attaches CORS
+// headers for allowed origins on GET and OPTIONS alike — without this a
+// disabled source-job endpoint makes the browser report "CORS header
+// missing" instead of a concrete 404 (the Termux rc.51 YouTube failure).
+func TestUnknownRouteCORSHeaders(t *testing.T) {
+	s := newTestServer(t)
+	for _, method := range []string{http.MethodGet, http.MethodOptions} {
+		rec := doRequest(t, s.Handler(), method, "/v1/source/jobs", allowedOriginLocal, "")
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s unknown route: status = %d, want 404", method, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != allowedOriginLocal {
+			t.Errorf("%s unknown route: ACAO = %q, want %q", method, got, allowedOriginLocal)
+		}
+		// Disallowed origins must not receive CORS headers even on 404.
+		rec2 := doRequest(t, s.Handler(), method, "/v1/source/jobs", disallowedOrigin, "")
+		if got := rec2.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("%s unknown route (disallowed origin): ACAO = %q, want empty", method, got)
+		}
+	}
+}
+
 func TestUnknownMethodsRejected(t *testing.T) {
 	s := newTestServer(t)
 

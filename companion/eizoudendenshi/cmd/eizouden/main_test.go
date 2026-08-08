@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -329,5 +330,29 @@ func TestStartServerAutoPortInUse(t *testing.T) {
 	_, _, err = startServerAuto(cfg)
 	if err == nil {
 		t.Fatal("startServerAuto must fail when port is in use")
+	}
+}
+
+// TestResolveYtdlp pins the yt-dlp helper resolution: an explicit --ytdlp
+// always wins; an empty flag falls back to a PATH lookup; a failed lookup
+// leaves the helper disabled (source-job endpoints stay off, as before).
+func TestResolveYtdlp(t *testing.T) {
+	cases := []struct {
+		name     string
+		explicit string
+		found    string
+		lookErr  error
+		want     string
+	}{
+		{"explicit wins", "/opt/bin/yt-dlp", "/usr/bin/yt-dlp", nil, "/opt/bin/yt-dlp"},
+		{"path fallback found", "", "/data/data/com.termux/files/usr/bin/yt-dlp", nil, "/data/data/com.termux/files/usr/bin/yt-dlp"},
+		{"path fallback missing", "", "", errors.New("executable not found in PATH"), ""},
+		{"both empty", "", "", nil, ""},
+	}
+	for _, c := range cases {
+		got := resolveYtdlp(c.explicit, func(string) (string, error) { return c.found, c.lookErr })
+		if got != c.want {
+			t.Errorf("%s: resolveYtdlp = %q, want %q", c.name, got, c.want)
+		}
 	}
 }

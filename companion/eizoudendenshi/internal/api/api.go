@@ -305,7 +305,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/v1/source/torrents", s.handleTorrentCreate)
 		mux.HandleFunc("/v1/source/torrents/", s.handleTorrentByID)
 	}
-	mux.HandleFunc("/", handleNotFound)
+	mux.HandleFunc("/", s.handleNotFound)
 	if s.log == nil {
 		return mux
 	}
@@ -746,7 +746,12 @@ func validCodeFormat(code string) bool {
 	return true
 }
 
-func handleNotFound(w http.ResponseWriter, _ *http.Request) {
+// handleNotFound serves the catch-all 404. It attaches CORS headers for
+// allowed origins (including OPTIONS preflights to unknown routes) so the
+// browser reports a concrete 404/error instead of "CORS header missing",
+// which is what the player sees when a source-job endpoint is disabled.
+func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
+	s.setOriginHeaders(w, r)
 	writeJSON(w, http.StatusNotFound, errorBody("not found"))
 }
 
