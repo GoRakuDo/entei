@@ -229,7 +229,7 @@ func main() {
 		if st.Size() == 0 {
 			log.Fatalf("--ytdlp: %q is empty (reject zero-byte helper)", *ytdlp)
 		}
-		jobs, err = job.New(job.Config{HelperPath: *ytdlp, Timeout: *jobTimeout})
+		jobs, err = job.New(job.Config{HelperPath: *ytdlp, Timeout: *jobTimeout, Logger: diagLog})
 		if err != nil {
 			log.Fatalf("init jobs: %v", err)
 		}

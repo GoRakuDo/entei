@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"eizoudendenshi/internal/diag"
 )
 
 // fakeHelper is the compiled test-only helper binary; built once in
@@ -954,5 +956,102 @@ func TestStartEmptyModeDefaultsToSpeed(t *testing.T) {
 	defer func() { _, _ = m.Cancel(snap.ID) }()
 	if snap.Mode != ModeSpeed {
 		t.Fatalf("empty-mode Start = %q, want ModeSpeed (default)", snap.Mode)
+	}
+}
+
+// TestJobDiagErrorLineFormatAndRedaction pins the sanitized helper-error
+// diagnostic emitted on download failure: the line carries the short job
+// id, mode, state=error, the last refreshed bytes and .part label, and the
+// safe helper exit status — and NEVER leaks the URL, the full job id, the
+// helper path, a job temp dir, or the log dir.
+func TestJobDiagErrorLineFormatAndRedaction(t *testing.T) {
+	logDir := t.TempDir()
+	l, err := diag.NewLogger(logDir)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	defer l.Close()
+	m, err := New(Config{HelperPath: fakeHelper, Timeout: 10 * time.Second, Logger: l})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "200")
+	setFakeEnv(t, "EIZOU_FAKE_FAIL", "1")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
+	const url = "https://www.youtube.com/watch?v=abcdefghijk"
+	snap, err := m.Start(url)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		cur := m.Get(snap.ID)
+		if cur != nil && cur.State == StateError {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job never errored")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	raw, err := os.ReadFile(filepath.Join(logDir, "eizouden.log"))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	line := string(raw)
+	// The fake helper wrote 200 bytes to media.mp4.part before exiting 2,
+	// so the failure line must show the detected .part (speed mode) and the
+	// safe exit status.
+	for _, field := range []string{
+		"job=" + shortJobID(snap.ID),
+		"mode=speed",
+		"state=error",
+		"bytes=200",
+		"part=media.mp4.part",
+		"err=exit status 2",
+	} {
+		if !strings.Contains(line, field) {
+			t.Errorf("log line missing %q:\n%s", field, line)
+		}
+	}
+	// Redaction: no URL, full job id, helper path, job temp dir, or log
+	// dir may reach the diagnostic line.
+	for _, s := range []string{"youtube.com", "abcdefghijk", snap.ID, fakeHelper, "entei-job-", logDir} {
+		if strings.Contains(line, s) {
+			t.Errorf("redaction leak: log line contains %q:\n%s", s, line)
+		}
+	}
+}
+
+// TestSafeHelperErrRedaction pins the error-field sanitizer: plain exit
+// messages pass through, URL/path starters are cut at "<redacted>", long
+// messages are bounded, and nil yields "none".
+func TestSafeHelperErrRedaction(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"exit status", "exit status 2", "exit status 2"},
+		{"url squashed", "ERROR: not a URL: https://www.youtube.com/watch?v=abcdefghijk", "ERROR: not a URL: <redacted>"},
+		{"long bounded", strings.Repeat("x", 200), strings.Repeat("x", 120) + "..."},
+		{"empty fallback", "   ", "helper failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := safeHelperErr(errors.New(tc.in)); got != tc.want {
+				t.Errorf("safeHelperErr(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+	if got := safeHelperErr(nil); got != "none" {
+		t.Errorf("safeHelperErr(nil) = %q, want none", got)
+	}
+	if got := shortJobID("0123456789abcdef"); got != "0123456789ab" {
+		t.Errorf("shortJobID = %q, want the 12-char prefix", got)
+	}
+	if got := shortJobID("short"); got != "short" {
+		t.Errorf("shortJobID(short) = %q, want unchanged", got)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/media"
 	"eizoudendenshi/internal/youtube"
 )
@@ -32,6 +33,9 @@ type Config struct {
 	// Timeout bounds the whole job (spawn → final media). Zero selects the
 	// default (30 minutes).
 	Timeout time.Duration
+	// Logger, when set, receives sanitized job-lifecycle diagnostics
+	// (redaction-safe: no URLs, paths, tokens, or titles).
+	Logger *diag.Logger
 }
 
 // Manager supervises the single active job (one-session policy).
@@ -39,6 +43,7 @@ type Manager struct {
 	mu      sync.Mutex
 	helper  string
 	timeout time.Duration
+	logger  *diag.Logger // nil-safe diagnostic sink
 	current *job
 	closed  bool
 }
@@ -52,7 +57,7 @@ func New(cfg Config) (*Manager, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultTimeout
 	}
-	return &Manager{helper: cfg.HelperPath, timeout: cfg.Timeout}, nil
+	return &Manager{helper: cfg.HelperPath, timeout: cfg.Timeout, logger: cfg.Logger}, nil
 }
 
 // job is the internal supervised job. Everything sensitive lives here and
@@ -422,6 +427,7 @@ func (m *Manager) run(j *job, ctx context.Context) {
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+	lastDiag := time.Now()
 
 	for {
 		select {
@@ -456,6 +462,10 @@ func (m *Manager) run(j *job, ctx context.Context) {
 				return
 			}
 			if err != nil {
+				// Surface a sanitized helper error (never the command line
+				// or URL) before cleanup — this is what debugging "503
+				// stuck at 0 bytes" needs.
+				m.logJobDiag(j, err)
 				// Cleanup BEFORE the terminal error state is published:
 				// close the stderr log (an open handle blocks RemoveAll on
 				// Windows) and remove the private dir first, so an observer
@@ -473,8 +483,107 @@ func (m *Manager) run(j *job, ctx context.Context) {
 			return
 		case <-ticker.C:
 			j.refreshDownloadState(dir)
+			// One sanitized download-state line every 10s: bytes written,
+			// .part detection (speed mode), and the short job/mode — the
+			// diagnostic that separates "DL stalled at 0 bytes" from
+			// "streaming fine" on the real device.
+			if time.Since(lastDiag) >= jobDiagInterval {
+				lastDiag = time.Now()
+				m.logDownloadState(j)
+			}
 		}
 	}
+}
+
+// jobDiagInterval is how often the download-state diagnostic line is
+// emitted (10s matches the engine diagnostics cadence elsewhere).
+const jobDiagInterval = 10 * time.Second
+
+// diagIDLen is how many characters of the opaque job id are logged. The
+// id is 32 hex chars; a 12-char prefix is enough to correlate log lines
+// and never carries URL/path information.
+const diagIDLen = 12
+
+// shortJobID returns the redaction-safe short job id used in log lines.
+func shortJobID(id string) string {
+	if len(id) > diagIDLen {
+		return id[:diagIDLen]
+	}
+	return id
+}
+
+// safeHelperErr reduces a helper Wait() error to a short safe string.
+// exec.ExitError messages are already safe ("exit status N"); the guard
+// strips anything resembling a URL/path just in case and bounds length.
+func safeHelperErr(err error) string {
+	if err == nil {
+		return "none"
+	}
+	msg := err.Error()
+	msg = urlSquash(msg)
+	if len(msg) > 120 {
+		msg = msg[:120] + "..."
+	}
+	if strings.TrimSpace(msg) == "" {
+		return "helper failed"
+	}
+	return msg
+}
+
+// urlSquash removes common URL/path starters from a message (defense in
+// depth).
+func urlSquash(s string) string {
+	low := strings.ToLower(s)
+	for _, tok := range []string{"http://", "https://", "/data/", "$prefix", "c:\\", "%userprofile%", "%prefix%"} {
+		if i := strings.Index(low, tok); i >= 0 {
+			return s[:i] + "<redacted>"
+		}
+	}
+	return s
+}
+
+// logDownloadState emits one sanitized download-state diagnostic line
+// (bytes / .part detection / state / mode). Never includes the URL, title,
+// or any local path — the goal is to distinguish "DL stalled at 0 bytes"
+// from "streaming fine" on the real device.
+func (m *Manager) logDownloadState(j *job) {
+	m.mu.Lock()
+	l := m.logger
+	m.mu.Unlock()
+	if l == nil {
+		return
+	}
+	l.Infof("job", "state job=%s mode=%s state=%s bytes=%d part=%s err=none",
+		shortJobID(j.id), j.mode, j.getState(), j.bytes.load(), j.partLabel())
+}
+
+// logJobDiag emits the sanitized helper-error line on download failure.
+// The error class (exit status / signal) is safe; the command line and
+// URL are never included. bytes/part reflect the last refreshDownloadState
+// before the helper exited, so "bytes=0 part=-" reads as "DL never
+// started" while a nonzero bytes with part= shows the failure came after
+// real progress.
+func (m *Manager) logJobDiag(j *job, err error) {
+	m.mu.Lock()
+	l := m.logger
+	m.mu.Unlock()
+	if l == nil {
+		return
+	}
+	l.Infof("job", "state job=%s mode=%s state=error bytes=%d part=%s err=%s",
+		shortJobID(j.id), j.mode, j.bytes.load(), j.partLabel(), safeHelperErr(err))
+}
+
+// partLabel returns the redaction-safe label for the job's growing .part
+// file: the file basename when detected by refreshDownloadState, else "-".
+// The full local path never leaves the package (diag redaction contract).
+func (j *job) partLabel() string {
+	j.partMu.Lock()
+	defer j.partMu.Unlock()
+	if j.partPath == "" {
+		return "-"
+	}
+	return filepath.Base(j.partPath)
 }
 
 // refreshDownloadState snapshots the growing download state during the run:
