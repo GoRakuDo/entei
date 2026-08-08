@@ -2,12 +2,15 @@ package update
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -37,14 +40,25 @@ const maxManifestBytes = 1 << 20
 // updates" even though curl on the same device succeeds.
 const termuxSystemCABundle = "/data/data/com.termux/files/usr/etc/tls/cert.pem"
 
-// newHardenedClient returns the default HTTP client: bounded total
-// timeout, at most 5 redirects, HTTPS-only redirect targets, and a TLS
-// root-pool that includes the Termux CA bundle when running on Termux.
+// newHardenedClient returns the default HTTP client: a response-header
+// timeout (not a total-body deadline), at most 5 redirects, HTTPS-only
+// redirect targets, and a TLS root-pool that includes the Termux CA
+// bundle when running on Termux.
 // GitHub Release asset URLs 302-redirect to the release CDN; any
 // redirect that leaves https:// fails closed.
+//
+// A total client Timeout is deliberately NOT set: artifact downloads are
+// large (yt-dlp ~70MB, ffmpeg ~77MB) and may legitimately take minutes
+// on slow links. A 60s whole-request deadline turned into intermittent
+// "update: download failed" on real networks. Stall protection comes from
+// ResponseHeaderTimeout (server must answer headers promptly) and the
+// capped transfers in fetch.
 func newHardenedClient() *http.Client {
+	tr := &http.Transport{
+		TLSClientConfig:       &tls.Config{RootCAs: systemRootPoolWithTermux()},
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
 	return &http.Client{
-		Timeout: 60 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// via includes the original request, so len(via) > max
 			// allows exactly maxRedirects redirects (mirrors curl
@@ -57,10 +71,24 @@ func newHardenedClient() *http.Client {
 			}
 			return nil
 		},
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: systemRootPoolWithTermux()},
-		},
+		Transport: tr,
 	}
+}
+
+// transientErr reports whether err is worth a bounded retry: a transport
+// timeout or a temporary network failure. HTTP-level failures are not
+// transient and fail closed immediately.
+func transientErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	// Defensive: no current caller uses context; retained for
+	// forward-compatibility (a future caller may impose its own deadline).
+	return errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "connection reset")
 }
 
 // systemRootPoolWithTermux returns a cert pool that starts from the OS
@@ -79,8 +107,28 @@ func systemRootPoolWithTermux() *x509.CertPool {
 }
 
 // fetch downloads url into staging under name with a bounded size and
-// stores it mode 0600. Failures remove the partial file.
+// stores it mode 0600. Failures remove the partial file. Transient
+// transport errors (timeouts, resets) are retried up to two times with
+// short backoff; HTTP-level failures and size violations fail closed.
 func fetch(client *http.Client, staging, name, url string, cap int64) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+		dest, err := fetchOnce(client, staging, name, url, cap)
+		if err == nil {
+			return dest, nil
+		}
+		lastErr = err
+		if !transientErr(err) {
+			return "", err
+		}
+	}
+	return "", lastErr
+}
+
+func fetchOnce(client *http.Client, staging, name, url string, cap int64) (string, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -92,7 +140,7 @@ func fetch(client *http.Client, staging, name, url string, cap int64) (string, e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", errors.New("update: download failed")
+		return "", fmt.Errorf("update: download failed (HTTP %d)", resp.StatusCode)
 	}
 	dest := filepath.Join(staging, name)
 	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -101,9 +149,13 @@ func fetch(client *http.Client, staging, name, url string, cap int64) (string, e
 	}
 	n, err := io.Copy(f, io.LimitReader(resp.Body, cap+1))
 	closeErr := f.Close()
-	if err != nil || closeErr != nil || n > cap {
+	if err != nil {
 		os.Remove(dest)
-		return "", errors.New("update: download failed")
+		return "", fmt.Errorf("update: download failed: %w", err)
+	}
+	if closeErr != nil || n > cap {
+		os.Remove(dest)
+		return "", errors.New("update: download failed (size limit)")
 	}
 	return dest, nil
 }
