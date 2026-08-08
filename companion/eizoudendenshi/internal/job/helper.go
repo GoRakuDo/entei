@@ -31,6 +31,15 @@ const heightPrintTemplate = "%(height)s"
 // the video title for YouTube). Written early (per-video) before download.
 const titlePrintTemplate = "%(title)s"
 
+// totalPrintTemplate writes the estimated final media size (bytes) to a
+// sidecar file so the companion can pin the .part stream's total at
+// download start (speed mode instant playback): a fixed total makes the
+// HTTP layer answer 416 only for ranges that are permanently beyond the
+// file, while a merely-not-yet-downloaded prefix keeps long-polling.
+// yt-dlp prints "NA" when the size cannot be estimated; the manager treats
+// that (and unparseable input) as unpinned.
+const totalPrintTemplate = "%(filesize_approx)s"
+
 // helperArgs builds the fixed argument vector for the download helper.
 // The validated URL is the final element and the only user-derived value;
 // it is never interpolated into a flag. No shell is involved — the helper
@@ -71,6 +80,7 @@ func helperArgs(jobDir, url string, mode Mode) []string {
 		"-f", format,
 		"--print-to-file", heightPrintTemplate, filepath.Join(jobDir, "height.txt"),
 		"--print-to-file", titlePrintTemplate, filepath.Join(jobDir, "title.txt"),
+		"--print-to-file", totalPrintTemplate, filepath.Join(jobDir, "total.txt"),
 		"-o", filepath.Join(jobDir, "media.%(ext)s"),
 		url,
 	)

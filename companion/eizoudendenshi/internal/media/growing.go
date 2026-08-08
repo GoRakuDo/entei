@@ -36,6 +36,31 @@ type GrowingSource interface {
 	Available() int64
 }
 
+// fixedTotalSource is the optional capability reported by GrowingSource
+// implementations whose Total() is a determinate final size — the correct
+// 416 boundary. Sources that do not implement it are assumed to report a
+// fixed total (the historical contract: MemSource and FileSource are
+// constructed with a final size). The instance that does implement it is
+// the growing .part source, whose total is unknown until the downloader's
+// estimate is pinned (see internal/job PartSource).
+type fixedTotalSource interface {
+	// TotalFixed reports whether Total() is a fixed final size (true) or
+	// only the current progress (false: a range beyond it may become
+	// satisfiable as the download grows and must never be answered 416).
+	TotalFixed() bool
+}
+
+// TotalFixed reports whether src's Total() is the determinate final size.
+// The HTTP layer uses it to decide between 416 (fixed total and start at
+// or beyond it: permanently unsatisfiable) and the availability long-poll
+// (indeterminate total: merely not yet available).
+func TotalFixed(src GrowingSource) bool {
+	if f, ok := src.(fixedTotalSource); ok {
+		return f.TotalFixed()
+	}
+	return true
+}
+
 // MemSource is a deterministic in-memory growing fixture for tests and
 // local QA. The payload is fully known up front; Available() is advanced
 // explicitly with SetAvailable to simulate download progress without a

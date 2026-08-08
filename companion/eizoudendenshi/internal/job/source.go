@@ -78,17 +78,20 @@ func (s *JobSource) Close() error {
 }
 
 // PartSource is a growing media.GrowingSource over yt-dlp's `.part` file
-// (speed mode instant playback). Total is unknown while the download runs
-// (yt-dlp only knows the size at completion), so Total returns the current
-// size — the growing-media contract is served with end clamped to the
-// available prefix, and the client re-requests as data arrives.
+// (speed mode instant playback). The final size is unknown while the
+// download runs, so the total is pinned as soon as the downloader's
+// estimate is known (SetTotal): after that Total() reports the fixed
+// estimate — the correct 416 boundary — while Available() keeps tracking
+// the growing prefix. Before the pin Total() returns the current size, so
+// the HTTP layer long-polls a range instead of falsely answering 416.
 //
 // The file is append-only while the source is in use (yt-dlp writes then
 // renames at completion); the descriptor is reopened on every read so the
 // final rename never leaves a stale handle.
 type PartSource struct {
-	mu   sync.Mutex
-	path string
+	mu    sync.Mutex
+	path  string
+	total int64 // pinned estimated final size (0 = not yet pinned)
 }
 
 // NewPartSource opens a growing .part file for streaming. The file need not
@@ -99,10 +102,48 @@ func NewPartSource(path string) *PartSource {
 	return &PartSource{path: path}
 }
 
-// Total implements media.GrowingSource. During download the final size is
-// unknown; the current size is reported so `total` stays consistent with
-// what is actually servable (never larger than the disk state).
+// SetTotal pins the estimated final total of the download. It is valid
+// once: the first positive value is kept and later calls are ignored (a
+// second, larger estimate must not move the 416 boundary mid-stream).
+// Values <= 0 are ignored (the caller guards "total unknown"). A value
+// below the bytes already on disk is raised to the current size — a stale
+// estimate must never make Total smaller than what is actually servable.
+// Callers invoke it while the job's PartSource instance lives; see
+// Manager.refreshDownloadState.
+func (s *PartSource) SetTotal(total int64) {
+	if total <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.total != 0 {
+		return // already decided
+	}
+	if st, err := os.Stat(s.path); err == nil && !st.IsDir() && st.Size() > total {
+		total = st.Size()
+	}
+	s.total = total
+}
+
+// TotalFixed implements the fixed-total marker consumed by
+// media.TotalFixed: the estimate is pinned once SetTotal succeeded.
+func (s *PartSource) TotalFixed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.total > 0
+}
+
+// Total implements media.GrowingSource. Once SetTotal pinned the estimate
+// it returns that fixed value (the 416 boundary); before the pin it
+// returns the current size so `total` stays consistent with what is
+// actually servable (never larger than the disk state).
 func (s *PartSource) Total() int64 {
+	s.mu.Lock()
+	t := s.total
+	s.mu.Unlock()
+	if t > 0 {
+		return t
+	}
 	return s.Available()
 }
 

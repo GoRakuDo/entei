@@ -1,6 +1,7 @@
 package job
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -166,10 +167,11 @@ func TestFixedArgsNoInjection(t *testing.T) {
 		// streaming).
 		"-f", speedFormat,
 	}
-	// After the fixed vector: two --print-to-file pairs (height, title),
-	// then -o + value (media.%(ext)s), then the URL.
-	if len(argv) != len(want)+9 {
-		t.Fatalf("argv = %v, want fixed vector + 2 print pairs + -o pair + url", argv)
+	// After the fixed vector: three --print-to-file pairs (height, title,
+	// total) each spanning 3 argv elements, then -o <file> (media.%(ext)s),
+	// then the URL.
+	if len(argv) != len(want)+12 {
+		t.Fatalf("argv = %v, want fixed vector + 3 print pairs + -o pair + url", argv)
 	}
 	for i := range want {
 		if argv[i] != want[i] {
@@ -188,11 +190,17 @@ func TestFixedArgsNoInjection(t *testing.T) {
 	if !strings.HasSuffix(argv[len(want)+5], "title.txt") {
 		t.Errorf("title output path %q must resolve inside the job dir", argv[len(want)+5])
 	}
-	if argv[len(want)+6] != "-o" {
-		t.Errorf("argv[%d] = %q, want -o", len(want)+6, argv[len(want)+6])
+	if argv[len(want)+6] != "--print-to-file" || argv[len(want)+7] != totalPrintTemplate {
+		t.Errorf("total print pair = %q %q, want --print-to-file %q", argv[len(want)+6], argv[len(want)+7], totalPrintTemplate)
 	}
-	if !strings.HasSuffix(argv[len(want)+7], "media.%(ext)s") {
-		t.Errorf("-o value %q must resolve inside the job dir with the fixed template", argv[len(want)+7])
+	if !strings.HasSuffix(argv[len(want)+8], "total.txt") {
+		t.Errorf("total output path %q must resolve inside the job dir", argv[len(want)+8])
+	}
+	if argv[len(want)+9] != "-o" {
+		t.Errorf("argv[%d] = %q, want -o", len(want)+9, argv[len(want)+9])
+	}
+	if !strings.HasSuffix(argv[len(want)+10], "media.%(ext)s") {
+		t.Errorf("-o value %q must resolve inside the job dir with the fixed template", argv[len(want)+10])
 	}
 	if argv[len(argv)-1] != url {
 		t.Errorf("final argv element = %q, want the canonical url %q", argv[len(argv)-1], url)
@@ -838,8 +846,18 @@ func TestSpeedModeStreamsPartDuringDownload(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if avail <= 0 || avail != total {
-		t.Fatalf("part source avail/total = %d/%d, want growing >0 equal", avail, total)
+	if avail <= 0 {
+		t.Fatal("part source never became available")
+	}
+	// The estimated total is pinned from the fake helper's total.txt
+	// (2097152), so Total() is the fixed boundary while availability
+	// tracks the growing prefix — the fixed-total contract that stops the
+	// "loading → 1s play → loading" 416 loop.
+	if total != 2097152 {
+		t.Fatalf("part source total = %d, want the pinned estimate 2097152", total)
+	}
+	if avail >= total {
+		t.Fatalf("part avail/total = %d/%d, want growing avail below the pinned total", avail, total)
 	}
 	// The state must still be downloading (hold) — the .part is being
 	// streamed pre-completion.
@@ -901,6 +919,116 @@ func TestPartSourceGrowth(t *testing.T) {
 	}
 	if src.Available() != 21 {
 		t.Fatalf("avail after growth = %d, want 21", src.Available())
+	}
+}
+
+// TestPartSourceSetTotalPinsOnce verifies the fixed-total contract: Total()
+// returns the pinned estimate once SetTotal ran (even as the file grows),
+// the pin is one-shot (a second estimate is ignored), and an unpinned
+// source reports its current size with TotalFixed() == false.
+func TestPartSourceSetTotalPinsOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "media.mp4.part")
+	if err := os.WriteFile(path, []byte("hello world"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src := NewPartSource(path)
+	// Unpinned: Total follows Available (the growing contract).
+	if src.Total() != 11 || src.Available() != 11 {
+		t.Fatalf("unpinned total/avail = %d/%d, want 11/11", src.Total(), src.Available())
+	}
+	if src.TotalFixed() {
+		t.Fatal("unpinned source must report TotalFixed() == false")
+	}
+	// One-shot pin: the estimate is kept while the file grows.
+	src.SetTotal(100)
+	if !src.TotalFixed() {
+		t.Fatal("pinned source must report TotalFixed() == true")
+	}
+	if src.Total() != 100 || src.Available() != 11 {
+		t.Fatalf("pinned total/avail = %d/%d, want 100/11", src.Total(), src.Available())
+	}
+	if err := os.WriteFile(path, []byte("hello world extension"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if src.Total() != 100 || src.Available() != 21 {
+		t.Fatalf("pinned total after growth = %d/%d, want 100/21 (total must not move)", src.Total(), src.Available())
+	}
+
+	// Second pin (even a larger estimate) is ignored.
+	src.SetTotal(500)
+	if src.Total() != 100 {
+		t.Fatalf("second SetTotal moved the pin: total = %d, want 100", src.Total())
+	}
+
+	// Non-positive pins are ignored before any pin (guarded callers).
+	unpinned := NewPartSource(path)
+	unpinned.SetTotal(0)
+	unpinned.SetTotal(-1)
+	if unpinned.TotalFixed() || unpinned.Total() != 21 {
+		t.Fatalf("non-positive SetTotal must be ignored: total = %d, fixed = %v", unpinned.Total(), unpinned.TotalFixed())
+	}
+}
+
+// TestPartSourceSetTotalRaisesBelowDisk verifies the guard against a stale
+// estimate: pinning a total below the bytes already on disk raises the
+// boundary to the current size (a servable prefix must never exceed it).
+func TestPartSourceSetTotalRaisesBelowDisk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "media.mp4.part")
+	if err := os.WriteFile(path, bytes.Repeat([]byte{0x41}, 100), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src := NewPartSource(path)
+	src.SetTotal(50) // stale/rough estimate below the on-disk 100 bytes
+	if src.Total() != 100 || !src.TotalFixed() {
+		t.Fatalf("total = %d (fixed %v), want raised to 100 (fixed)", src.Total(), src.TotalFixed())
+	}
+}
+
+// TestReadTotalFile verifies the estimated-total sidecar parsing: a plain
+// byte count parses (including large values), "NA" / empty / malformed /
+// non-positive inputs are rejected (total stays unpinned).
+func TestReadTotalFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if body == "" {
+			return p // do not create
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	cases := []struct {
+		name string
+		body string
+		want int64
+		ok   bool
+	}{
+		{"plain", "2097152\n", 2097152, true},
+		{"whitespace", "  1048576  \n", 1048576, true},
+		{"large", "2147483648\n", 2147483648, true}, // > 2 GiB
+		{"na", "NA\n", 0, false},
+		{"na lower", "na", 0, false},
+		{"zero", "0\n", 0, false},
+		{"negative", "-5\n", 0, false},
+		{"garbage", "lots of bytes\n", 0, false},
+		{"empty file", "", 0, false}, // body "" => missing file path
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := write(tc.name+".txt", tc.body)
+			got, err := readTotalFile(p)
+			if tc.ok {
+				if err != nil || got != tc.want {
+					t.Fatalf("readTotalFile = %d, %v; want %d, nil", got, err, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("readTotalFile(%q) = %d, nil; want error", tc.body, got)
+			}
+		})
 	}
 }
 

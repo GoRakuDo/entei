@@ -196,4 +196,108 @@ describe('VideoPlayer', () => {
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith('Network failed');
   });
+
+  it('stops the element and drops the src on error (no residual buffered audio)', () => {
+    const onError = vi.fn();
+    const { container } = render(
+      <VideoPlayer
+        {...makeProps({
+          onError,
+          errorLabel: 'Network failed',
+          decodeErrorLabel: 'Decode failed',
+        })}
+      />,
+    );
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'error', {
+      value: { code: 2, message: 'NETWORK_ERROR' },
+      configurable: true,
+    });
+    // Mock the media-element API so the test pins the exact reset calls
+    // (pause / removeAttribute('src') / load) that stop the decoder and
+    // any buffered audio from a failed (auto)play.
+    const pause = vi.fn();
+    const load = vi.fn();
+    const removeAttribute = vi.fn();
+    video.pause = pause;
+    video.load = load;
+    video.removeAttribute = removeAttribute;
+    fireEvent.error(video);
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(removeAttribute).toHaveBeenCalledWith('src');
+    expect(load).toHaveBeenCalledTimes(1);
+    // The error classification/callback order is unchanged.
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('Network failed');
+  });
+
+  it('still resets the element on error while keepElementOnError keeps it mounted', () => {
+    const onError = vi.fn();
+    const { container } = render(
+      <VideoPlayer
+        {...makeProps({
+          error: null,
+          keepElementOnError: true,
+          onError,
+          errorLabel: 'Network failed',
+          decodeErrorLabel: 'Decode failed',
+        })}
+      />,
+    );
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'error', {
+      value: { code: 3, message: 'DEMUXER_ERROR' },
+      configurable: true,
+    });
+    const pause = vi.fn();
+    const load = vi.fn();
+    const removeAttribute = vi.fn();
+    video.pause = pause;
+    video.load = load;
+    video.removeAttribute = removeAttribute;
+    fireEvent.error(video);
+    // Element survives (bridge recovery) but its playback state is reset.
+    expect(container.querySelector('video')).not.toBeNull();
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(removeAttribute).toHaveBeenCalledWith('src');
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('Decode failed');
+  });
+
+  it('captures the MediaError before load() clears it (classification sees the pre-reset error)', () => {
+    const onError = vi.fn();
+    const { container } = render(
+      <VideoPlayer
+        {...makeProps({
+          onError,
+          errorLabel: 'Network failed',
+          decodeErrorLabel: 'Decode failed',
+        })}
+      />,
+    );
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'error', {
+      value: { code: 3, message: 'DEMUXER_ERROR' },
+      configurable: true,
+    });
+    const pause = vi.fn();
+    // Browser semantics: load() resets the element's error state. If the
+    // handler read e.currentTarget.error AFTER load(), classification
+    // would see null and fall back to the generic label.
+    const load = vi.fn(() => {
+      Object.defineProperty(video, 'error', { value: null, configurable: true });
+    });
+    const removeAttribute = vi.fn();
+    video.pause = pause;
+    video.load = load;
+    video.removeAttribute = removeAttribute;
+    fireEvent.error(video);
+    // The pre-reset MediaError (code 3 → decode) must win despite load()
+    // clearing the element's error.
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('Decode failed');
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(removeAttribute).toHaveBeenCalledWith('src');
+    expect(load).toHaveBeenCalledTimes(1);
+  });
 });

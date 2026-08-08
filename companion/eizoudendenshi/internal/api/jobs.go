@@ -329,7 +329,14 @@ func (s *Server) serveGrowingSource(src media.GrowingSource, w http.ResponseWrit
 
 	start, end, hasRange := parseSingleRange(r.Header.Get("Range"), total)
 	if hasRange {
-		if start >= total {
+		if start >= total && media.TotalFixed(src) {
+			// 416 only when the total is a determinate final boundary
+			// (fixed-size sources; a .part source after its estimated
+			// total was pinned). With an unpinned growing .part, "start
+			// beyond the current total" merely means "not downloaded
+			// yet" — those requests must fall through to the
+			// availability long-poll below (and 503 on hold timeout),
+			// never a permanent 416 that would fail the player.
 			w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(total, 10))
 			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 			return

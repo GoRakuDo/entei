@@ -70,6 +70,18 @@ func main() {
 				_ = os.WriteFile(out, []byte("720\n"), 0o600)
 			case "%(title)s":
 				_ = os.WriteFile(out, []byte("Sample YouTube Video Title\n"), 0o600)
+			case "%(filesize_approx)s":
+				// Estimated final total in bytes; EIZOU_FAKE_TOTAL
+				// overrides the default, and "0" emits "NA" (unknown —
+				// mirrors yt-dlp when the size cannot be estimated).
+				total := os.Getenv("EIZOU_FAKE_TOTAL")
+				if total == "" {
+					total = "2097152"
+				}
+				if total == "0" {
+					total = "NA"
+				}
+				_ = os.WriteFile(out, []byte(total+"\n"), 0o600)
 			}
 		}
 	}

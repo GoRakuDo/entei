@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -308,6 +309,61 @@ func TestJobUnknownIDReadAndCancel(t *testing.T) {
 	}
 	if rec := doJob(t, s, http.MethodPost, "/v1/source/jobs/"+unknown+"/cancel", allowedOriginLocal, ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown cancel = %d, want 404", rec.Code)
+	}
+}
+
+// TestServePartRange416OnlyWhenTotalPinned pins the fixed-total 416
+// contract on the growing .part source: while the estimated total is NOT
+// yet pinned, a range starting at/beyond the current size is long-polled
+// (503 after the hold timeout — a permanent 416 would wrongly kill the
+// player's "loading → 1s play → loading" loop); once pinned, the same
+// range is the true 416.
+func TestServePartRange416OnlyWhenTotalPinned(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "media.mp4.part")
+	if err := os.WriteFile(path, bytes.Repeat([]byte{0x41}, 100), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestServer(t)
+
+	// Unpinned .part (the real-device failure window): avail == total ==
+	// 100, total not decided. bytes=100- (Chrome's next bytes) must be
+	// HELD (availability long-poll) and end 503 after the short timeout —
+	// never 416.
+	withShortHold(t, func() {
+		for _, rng := range []string{"bytes=100-", "bytes=150-"} {
+			r := httptest.NewRequest(http.MethodGet, "/v1/media/fixture", nil)
+			r.Header.Set("Range", rng)
+			rec := httptest.NewRecorder()
+			s.serveGrowingSource(job.NewPartSource(path), rec, r)
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("unpinned %s = %d, want 503 (held, NOT 416)", rng, rec.Code)
+			}
+		}
+	})
+
+	// Pinned total == current size: the same ranges are permanent 416s.
+	pinned := job.NewPartSource(path)
+	pinned.SetTotal(100)
+	for _, rng := range []string{"bytes=100-", "bytes=200-", "bytes=100-20000"} {
+		r := httptest.NewRequest(http.MethodGet, "/v1/media/fixture", nil)
+		r.Header.Set("Range", rng)
+		rec := httptest.NewRecorder()
+		s.serveGrowingSource(pinned, rec, r)
+		if rec.Code != http.StatusRequestedRangeNotSatisfiable {
+			t.Errorf("pinned %s = %d, want 416", rng, rec.Code)
+			continue
+		}
+		if cr := rec.Header().Get("Content-Range"); cr != "bytes */100" {
+			t.Errorf("pinned %s Content-Range = %q, want bytes */100", rng, cr)
+		}
+	}
+	// A servable range inside the pinned total stays 206.
+	r := httptest.NewRequest(http.MethodGet, "/v1/media/fixture", nil)
+	r.Header.Set("Range", "bytes=0-99")
+	rec := httptest.NewRecorder()
+	s.serveGrowingSource(pinned, rec, r)
+	if rec.Code != http.StatusPartialContent || rec.Body.Len() != 100 {
+		t.Fatalf("pinned bytes=0-99 = %d, %d bytes; want 206, 100 bytes", rec.Code, rec.Body.Len())
 	}
 }
 

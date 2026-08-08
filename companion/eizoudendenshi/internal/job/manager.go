@@ -80,9 +80,10 @@ type job struct {
 	bytes        atomicInt64  // current media bytes on disk (polled)
 	quality      atomicInt64  // selected format height (0 = unknown, set once)
 	title        atomicString // YouTube video title (read once from title.txt)
-	subtitlePath string       // path to selected Japanese subtitle file (VTT)
+	subtitlePath string       // path to the selected Japanese subtitle file (VTT)
 	partMu       sync.Mutex
-	partPath     string // growing .part file path (speed mode streaming), "" if none
+	partPath     string      // growing .part file path (speed mode streaming), "" if none
+	partSrc      *PartSource // persistent stream source over partPath (total pinned once)
 }
 
 func (j *job) setState(s State) { j.stateMu.Lock(); j.state = s; j.stateMu.Unlock() }
@@ -230,10 +231,17 @@ func (m *Manager) ActiveMedia() (Snapshot, media.GrowingSource) {
 	case StateDownloading, StateBuffering:
 		if snap.Mode == ModeSpeed {
 			j.partMu.Lock()
-			path := j.partPath
+			src := j.partSrc
+			if j.partPath != "" && src == nil {
+				// First detection: the source is created ONCE per job and
+				// reused, so the pinned total (SetTotal) survives across
+				// ActiveMedia calls and polls.
+				src = NewPartSource(j.partPath)
+				j.partSrc = src
+			}
 			j.partMu.Unlock()
-			if path != "" {
-				return snap, NewPartSource(path)
+			if src != nil {
+				return snap, src
 			}
 		}
 	}
@@ -594,7 +602,21 @@ func (j *job) refreshDownloadState(dir string) {
 	j.bytes.store(mediaBytes(dir))
 	j.partMu.Lock()
 	j.partPath = partMediaPath(dir)
+	if j.partSrc == nil && j.partPath != "" {
+		j.partSrc = NewPartSource(j.partPath)
+	}
 	j.partMu.Unlock()
+	// Pin the stream's total once the helper has reported the estimated
+	// final size (total.txt = yt-dlp filesize_approx written at download
+	// start). The pin is one-shot inside SetTotal, so repeated refreshes
+	// and later/larger estimates never move the 416 boundary.
+	if total, err := readTotalFile(filepath.Join(dir, "total.txt")); err == nil && total > 0 {
+		j.partMu.Lock()
+		if j.partSrc != nil {
+			j.partSrc.SetTotal(total)
+		}
+		j.partMu.Unlock()
+	}
 	if j.quality.load() == 0 {
 		if h, err := readHeightFile(filepath.Join(dir, "height.txt")); err == nil && h > 0 {
 			j.quality.store(int64(h))
@@ -700,6 +722,26 @@ func readHeightFile(path string) (int, error) {
 	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil || n <= 0 {
 		return 0, errors.New("invalid height")
+	}
+	return n, nil
+}
+
+// readTotalFile parses the estimated final media size written by yt-dlp's
+// `--print-to-file "%(filesize_approx)s"` (bytes). Returns (0, error) when
+// absent, malformed, non-positive, or unknown ("NA" is printed when yt-dlp
+// cannot estimate) — the caller treats that as "total not pinned yet".
+func readTotalFile(path string) (int64, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "" || strings.EqualFold(s, "NA") {
+		return 0, errors.New("unknown total")
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, errors.New("invalid total")
 	}
 	return n, nil
 }

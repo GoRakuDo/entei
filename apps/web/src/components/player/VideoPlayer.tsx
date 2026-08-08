@@ -56,7 +56,18 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
     const handleError = useCallback(
       (e: React.SyntheticEvent<HTMLVideoElement>) => {
+        // Capture the MediaError FIRST: load() below resets the element's
+        // error state, so classification must read it before the reset.
         const mediaError = e.currentTarget.error;
+        // Stop the element on error: pause + drop the src + load() resets
+        // the decoder/buffers so a failed (auto)play never leaves buffered
+        // audio running — otherwise the next user-initiated play overlaps
+        // with the old stream (double audio). The element itself survives
+        // (keepElementOnError keeps the bridge's src/load recovery path).
+        const el = e.currentTarget;
+        el.pause();
+        el.removeAttribute('src');
+        el.load();
         const classified = classifyMediaError(mediaError, 'video');
         // P1.2: Never surface raw MediaError.message — use localized labels.
         // Decode errors get a distinct label from network/unsupported errors.
