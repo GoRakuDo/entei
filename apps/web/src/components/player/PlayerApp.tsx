@@ -1492,12 +1492,40 @@ export default function PlayerApp() {
       typeof media.requestVideoFrameCallback === 'function' &&
       typeof media.cancelVideoFrameCallback === 'function';
     let rvfcHandle: number | null = null;
-    const onFirstFrame = (_now: DOMHighResTimeStamp, _meta: unknown) => {
+    const onFirstFrame = (
+      _now: DOMHighResTimeStamp,
+      meta: VideoFrameCallbackMetadata,
+    ) => {
       // Idempotent: safe to call even if already cleared.
-      rvfcHandle = null;
-      bufferingShown = false;
-      clearStartBufferingTimers();
-      setIsStartBuffering(false);
+      rvfcHandle = null; // consumed
+      // The rVFC callback fires for every newly presented frame, and
+      // Chromium can present a black/empty frame (width=0/height=0)
+      // before the first real video sample arrives (audio-first
+      // interleave in .part streams). Only a frame with actual media
+      // pixels ends the "black screen" — keep the overlay up and
+      // re-register for the NEXT frame when the metadata is empty.
+      // The 15 s safety bound (START_BUFFERING_SAFETY_MS) is the
+      // ultimate upper limit, so this re-registration cannot loop
+      // forever.
+      if (meta && meta.width > 0 && meta.height > 0) {
+        bufferingShown = false;
+        clearStartBufferingTimers();
+        setIsStartBuffering(false);
+        return;
+      }
+      // Empty frame (still black): wait for the next frame. Only
+      // re-register while the overlay is actually shown — after the
+      // safety bound the overlay is gone and further frames are
+      // nothing to wait for.
+      // Temporary instrumentation: confirms whether Chromium really
+      // presents 0x0 frames on the real device (the rVFC spec says the
+      // callback fires per presented frame; the width/height here are
+      // the media pixel size). Harmless to keep; drop together with the
+      // black-frame re-registration if it is never seen.
+      console.debug('[entei] rVFC black frame', meta);
+      if (bufferingShown && startBufferingSafetyRef.current !== null) {
+        requestFirstFrame();
+      }
     };
     const requestFirstFrame = () => {
       if (!hasRVFC) return;

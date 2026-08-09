@@ -113,16 +113,27 @@ afterEach(() => {
  * Install requestVideoFrameCallback / cancelVideoFrameCallback on the
  * HTMLVideoElement prototype (= "Chromium-capable browser") for a single
  * test. The installed request mock records the pending frame callback so
- * a test can fire it manually (simulating the first painted frame), and
- * the cancel mock records invocations for cleanup assertions.
+ * a test can fire it manually with any VideoFrameCallbackMetadata
+ * (e.g. width/height = 0 for a black frame; 1280/720 for a real one),
+ * and the cancel mock records invocations for cleanup assertions. A new
+ * registration replaces the pending callback, mirroring Chromium's
+ * one-shot per-callback semantics.
  */
 function installRVFCPrototype() {
-  let pendingCallback: ((now: number, meta: unknown) => void) | null = null;
+  let callback: ((now: number, meta: unknown) => void) | null = null;
+  let nextHandle = 1;
   const requestMock = vi.fn((cb: (now: number, meta: unknown) => void) => {
-    pendingCallback = cb;
-    return 1;
+    callback = cb;
+    return nextHandle++;
   });
   const cancelMock = vi.fn();
+  const fire = (meta: unknown) => {
+    const cb = callback;
+    callback = null;
+    if (cb) {
+      cb(0, meta);
+    }
+  };
   (
     HTMLVideoElement.prototype as unknown as Record<string, unknown>
   ).requestVideoFrameCallback = requestMock;
@@ -130,14 +141,10 @@ function installRVFCPrototype() {
     HTMLVideoElement.prototype as unknown as Record<string, unknown>
   ).cancelVideoFrameCallback = cancelMock;
   return {
-    fire: () => {
-      if (pendingCallback) {
-        pendingCallback(0, {});
-      }
-    },
+    fire,
     requestMock,
     cancelMock,
-    hasRegisteredCallback: () => pendingCallback !== null,
+    hasRegisteredCallback: () => callback !== null,
   };
 }
 
@@ -380,9 +387,48 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
     expect(rvfc.hasRegisteredCallback()).toBe(true);
 
-    // The first frame is painted → the rVFC callback fires → cleared.
+    // The first frame with real pixels is painted → the rVFC callback
+    // fires with width/height metadata → cleared.
     act(() => {
-      rvfc.fire();
+      rvfc.fire({ width: 1280, height: 720 });
+    });
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
+  });
+
+  it('rVFC browser: a black frame (0x0 metadata) does NOT clear — the next real frame does', async () => {
+    const rvfc = installRVFCPrototype();
+    mockSession.active = true;
+    mockSession.kind = 'youtube';
+    mockSession.phase = 'ready';
+    mockSession.jobMediaUrl = MEDIA_URL;
+    const { container } = render(<PlayerApp />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+
+    // playing → rVFC registered.
+    const video = container.querySelector('video');
+    video!.dispatchEvent(new Event('playing'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(rvfc.hasRegisteredCallback()).toBe(true);
+
+    // Chromium can present a black/empty frame before the first real
+    // video sample: width/height = 0. The overlay must STAY and the
+    // NEXT frame must be requested (one-shot re-registration).
+    act(() => {
+      rvfc.fire({ width: 0, height: 0 });
+    });
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+    expect(rvfc.hasRegisteredCallback()).toBe(true); // re-registered
+    expect(rvfc.requestMock).toHaveBeenCalledTimes(2);
+
+    // The next frame has real pixels → cleared.
+    act(() => {
+      rvfc.fire({ width: 1280, height: 720 });
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
