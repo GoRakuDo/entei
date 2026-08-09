@@ -11,10 +11,15 @@
 //	EIZOU_FAKE_FAIL            — "1": exit 2 after writing (failed download)
 //	EIZOU_FAKE_HOLD            — "1": after writing, hold forever (cancel/timeout tests)
 //	EIZOU_FAKE_ALIVE_FILE      — path to append "alive-<n>" lines while holding
+//	EIZOU_FAKE_PART_SUFFIX     — replace the default ".part" suffix with this
+//	                             value (e.g. "-Frag0" mirrors yt-dlp's
+//	                             fragmented-download naming, where the growing
+//	                             file is NOT media.<ext>.part)
 //
 // It parses its own argv only to find the "-o <dir>/media.%(ext)s" argument
-// (fixed by the manager) and writes <dir>/media.mp4. It also writes
-// pid.txt into that directory so tests can observe the process.
+// (fixed by the manager) and writes <dir>/media.mp4 (+ suffix in speed
+// mode). It also writes pid.txt into that directory so tests can observe
+// the process.
 package main
 
 import (
@@ -86,19 +91,31 @@ func main() {
 		}
 	}
 	// Speed mode (no --no-part) writes a .part file that grows and is
-	// renamed on completion — mirroring yt-dlp for instant playback.
-	if !noPart {
-		outPath += ".part"
-	}
+	// renamed on completion — mirroring yt-dlp for instant playback. The
+	// suffix can be rerouted to a fragmented-download style name
+	// (EIZOU_FAKE_PART_SUFFIX, e.g. "-Frag0"), which yt-dlp actually uses
+	// for some formats; the classic naming is kept so existing tests
+	// still mirror the common case.
 	outPath = strings.Replace(outPath, "%(ext)s", "mp4", 1)
+	if !noPart {
+		suffix := os.Getenv("EIZOU_FAKE_PART_SUFFIX")
+		if suffix == "" {
+			suffix = ".part"
+		}
+		outPath += suffix
+	}
 	dir := filepath.Dir(outPath)
 	_ = os.WriteFile(filepath.Join(dir, "pid.txt"), []byte(strconv.Itoa(os.Getpid())), 0o600)
 
 	// On completion (no hold, no fail), rename the .part away — mirroring
 	// yt-dlp's completion rename so largestMedia sees the final file.
 	if !noPart && os.Getenv("EIZOU_FAKE_HOLD") != "1" && os.Getenv("EIZOU_FAKE_FAIL") != "1" {
+		suffix := os.Getenv("EIZOU_FAKE_PART_SUFFIX")
+		if suffix == "" {
+			suffix = ".part"
+		}
 		defer func() {
-			_ = os.Rename(outPath, strings.TrimSuffix(outPath, ".part"))
+			_ = os.Rename(outPath, strings.TrimSuffix(outPath, suffix))
 		}()
 	}
 

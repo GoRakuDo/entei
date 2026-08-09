@@ -878,6 +878,74 @@ func TestStartInvalidMode(t *testing.T) {
 	}
 }
 
+// TestPartMediaPathFragmentedSuffix verifies partMediaPath also detects
+// yt-dlp's fragmented-download naming (media.<ext>.part-Frag<n>) — not
+// just the classic media.<ext>.part. 2026-08-09 real-device speed job:
+// bytes=37M with part=- (classic glob missed the Frag suffix), so the
+// instant-playback source never materialized and the 206 only appeared
+// after complete. This pins the widened glob.
+func TestPartMediaPathFragmentedSuffix(t *testing.T) {
+	dir := t.TempDir()
+	// Fragmented naming: part file exists but NOT as media.<ext>.part.
+	_ = os.WriteFile(filepath.Join(dir, "media.mp4.part-Frag0"), []byte("fragbytes"), 0o600)
+	got := partMediaPath(dir)
+	if got == "" || !strings.Contains(got, "part-Frag0") {
+		t.Fatalf("partMediaPath = %q, want the .part-Frag<n> file", got)
+	}
+	// Classic naming still detected.
+	dir2 := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir2, "media.webm.part"), []byte("x"), 0o600)
+	if got := partMediaPath(dir2); got == "" || !strings.Contains(got, "media.webm.part") {
+		t.Fatalf("partMediaPath classic = %q, want media.webm.part", got)
+	}
+}
+
+// TestSpeedModeStreamsFragmentedPartDuringDownload is the fragmented-
+// naming twin of TestSpeedModeStreamsPartDuringDownload: with the fake
+// helper writing media.mp4.part-Frag0 (yt-dlp fragmented naming), the
+// manager must still surface a growing PartSource while downloading (the
+// instant-playback contract), not only after complete.
+func TestSpeedModeStreamsFragmentedPartDuringDownload(t *testing.T) {
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "2048")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK", "512")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK_DELAY_MS", "5")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")                  // keep downloading
+	setFakeEnv(t, "EIZOU_FAKE_PART_SUFFIX", ".part-Frag0") // fragmented naming (media.mp4.part-Frag0)
+	m := newTestManager(t, 0)
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", ModeSpeed)
+	if err != nil {
+		t.Fatalf("Start speed: %v", err)
+	}
+	defer func() { _, _ = m.Cancel(snap.ID) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	var avail int64
+	for {
+		cur, part := m.ActiveMedia()
+		if cur.State == StateError {
+			t.Fatalf("job errored: %s", cur.Error)
+		}
+		if part != nil && part.Available() > 0 {
+			avail = part.Available()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fragmented part source never became available within 5s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if avail <= 0 {
+		t.Fatal("fragmented part source never became available")
+	}
+	// The part path must be the fragmented file (label excludes the dir).
+	if got := m.PartPath(); got == "" || !strings.Contains(got, "part-Frag0") {
+		t.Fatalf("PartPath = %q, want the fragmented media.mp4.part-Frag0", got)
+	}
+	if s := m.Get(snap.ID); s == nil || s.State != StateDownloading {
+		t.Fatalf("job state = %v, want downloading while streaming the fragmented part", s)
+	}
+}
+
 // TestSpeedModeStreamsPartDuringDownload verifies that a speed-mode job in
 // StateDownloading exposes a growing source over the .part file, and that
 // ActiveMedia returns it (available > 0) while the helper holds.

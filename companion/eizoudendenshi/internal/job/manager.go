@@ -563,7 +563,11 @@ func urlSquash(s string) string {
 // logDownloadState emits one sanitized download-state diagnostic line
 // (bytes / .part detection / state / mode). Never includes the URL, title,
 // or any local path — the goal is to distinguish "DL stalled at 0 bytes"
-// from "streaming fine" on the real device.
+// from "streaming fine" on the real device. partmiss=1 marks the
+// bytes>0-without-part case explicitly: without the flag a silent
+// `.part` miss looks like a healthy stream and only the delayed 206
+// betrays it (2026-08-09 speed-mode observation: bytes=37M, part=- for
+// 33 s).
 func (m *Manager) logDownloadState(j *job) {
 	m.mu.Lock()
 	l := m.logger
@@ -571,8 +575,13 @@ func (m *Manager) logDownloadState(j *job) {
 	if l == nil {
 		return
 	}
-	l.Infof("job", "state job=%s mode=%s state=%s bytes=%d part=%s err=none",
-		shortJobID(j.id), j.mode, j.getState(), j.bytes.load(), j.partLabel())
+	partmiss := "0"
+	part := j.partLabel()
+	if part == "-" && j.bytes.load() > 0 {
+		partmiss = "1"
+	}
+	l.Infof("job", "state job=%s mode=%s state=%s bytes=%d part=%s err=none partmiss=%s",
+		shortJobID(j.id), j.mode, j.getState(), j.bytes.load(), part, partmiss)
 }
 
 // logJobDiag emits the sanitized helper-error line on download failure.
@@ -700,11 +709,15 @@ func mediaBytes(dir string) int64 {
 	return size
 }
 
-// partMediaPath returns the largest growing `.part` file in dir, or "".
-// yt-dlp writes `media.<ext>.part` and renames it to `media.<ext>` on
-// completion (speed mode streams the `.part` while it grows).
+// partMediaPath returns the largest growing `.part`-family file in dir, or
+// "" when none. yt-dlp writes `media.<ext>.part` and renames it to
+// `media.<ext>` on completion (speed mode streams the `.part` while it
+// grows). Some formats (fragmented adaptive streams) are written under
+// `media.<ext>.part-Frag<n>`-style names instead — matching the whole
+// `media.*.part` family keeps instant playback attached to the first DL
+// byte even for those formats.
 func partMediaPath(dir string) string {
-	matches, err := filepath.Glob(filepath.Join(dir, "media.*.part"))
+	matches, err := filepath.Glob(filepath.Join(dir, "media.*.part*"))
 	if err != nil {
 		return ""
 	}
