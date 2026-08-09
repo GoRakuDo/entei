@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"eizoudendenshi/internal/job"
+	"eizoudendenshi/internal/torrent"
 )
 
 // fakeHelper is the test-only yt-dlp stand-in, built once from
@@ -387,7 +388,56 @@ func TestJobCreateInvalidURLAndRedaction(t *testing.T) {
 	}
 }
 
-func TestJobConflictOneActive(t *testing.T) {
+// TestJobCreateAutoCancelsFailedState pins (c): a job that ended in an
+// ERROR state still occupies `current` (it stays current redacted until
+// cancelled); the create handler must auto-cancel it too so the next URL
+// is accepted.
+func TestJobCreateAutoCancelsFailedState(t *testing.T) {
+	s, m := newJobsServer(t)
+	t.Setenv("EIZOU_FAKE_SIZE", "200")
+	t.Setenv("EIZOU_FAKE_FAIL", "1")
+	t.Setenv("EIZOU_FAKE_HOLD", "")
+
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for the error state (fake fails immediately; the job stays
+	// current redacted).
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if snap := m.Get(created.ID); snap == nil || snap.State == job.StateError {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never errored")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if st := getStatus(t, s); st.State != "error" {
+		t.Fatalf("status after failed job = %+v, want error", st)
+	}
+
+	// A new URL must be accepted (201) even though the errored job is
+	// still current — the handler auto-cancels it first.
+	rec = doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=hgfedcbaijk"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create after error job = %d, want 201 (auto-cancel failed)", rec.Code)
+	}
+}
+
+// TestJobCreateAutoCancelsDownloading verifies the 2026-08-09 fix: a
+// previous YouTube job in ANY state (even complete, which stays current
+// to serve its media) is auto-cancelled by the create handler, so a new
+// URL is always accepted with 201. Previously the leftover completed job
+// blocked every new URL with 409 (on-device "Satu unduhan sudah
+// berjalan"). The web-side auto-cancel only targets downloading/
+// buffering, so the server covers complete (and error) states.
+func TestJobCreateAutoCancelsDownloading(t *testing.T) {
 	s, _ := newJobsServer(t)
 	t.Setenv("EIZOU_FAKE_SIZE", "0")
 	t.Setenv("EIZOU_FAKE_HOLD", "1")
@@ -395,9 +445,87 @@ func TestJobConflictOneActive(t *testing.T) {
 	if rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal, body); rec.Code != http.StatusCreated {
 		t.Fatalf("first create = %d, want 201", rec.Code)
 	}
+
+	// Second create for a NEW URL: the previous (held, downloading) job is
+	// auto-cancelled and the new one accepted.
+	body2 := `{"url":"https://www.youtube.com/watch?v=zyxwvutsrqp"}`
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal, body2)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("second create = %d, want 201 (auto-cancel)", rec.Code)
+	}
+}
+
+// TestJobCreateAutoCancelsCompleted pins the fix for a COMPLETED job:
+// a finished job stays current (serving its media) and would previously
+// have made every new URL 409. The create handler must auto-cancel it.
+func TestJobCreateAutoCancelsCompleted(t *testing.T) {
+	s, _ := newJobsServer(t)
+	// Small fake media completes quickly (no hold).
+	t.Setenv("EIZOU_FAKE_SIZE", "1024")
+	t.Setenv("EIZOU_FAKE_CHUNK", "1024")
+	t.Setenv("EIZOU_FAKE_CHUNK_DELAY_MS", "1")
+	t.Setenv("EIZOU_FAKE_HOLD", "")
+
+	body := `{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`
 	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal, body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201", rec.Code)
+	}
+	// Wait for completion (the completed job stays current).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if snap := s.jobs.Current(); snap != nil && snap.State == job.StateComplete {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake job never completed")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// New URL while a completed job is current: must be 201 with the old
+	// job released.
+	rec = doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=hgfedcbaijk"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create after complete = %d, want 201 (auto-cancel completed)", rec.Code)
+	}
+}
+
+// TestJobForeignModeConflictWithTorrent verifies the cross-kind
+// exclusivity remains: a torrent URL blocks a new YouTube job with
+// 409 before seeing any auto-cancel (only YouTube-vs-YouTube is
+// auto-cancelled).
+func TestJobForeignModeConflictWithTorrent(t *testing.T) {
+	torEngine := newAPIFakeEngine("media.mp4:200")
+	torFactory := func(_ string) (torrent.Engine, error) { return torEngine, nil }
+	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("torrent.New: %v", err)
+	}
+	t.Cleanup(func() { _ = mTor.Close() })
+	mJob, err := job.New(job.Config{HelperPath: fakeHelper, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	t.Cleanup(func() { _ = mJob.Close() })
+	s, err := New(Config{Jobs: mJob, Torrents: mTor})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Torrent session active.
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("torrent create = %d, want 201", rec.Code)
+	}
+	// YouTube create with a torrent active: still 409 (no auto-cancel
+	// across kinds — the two sessions are mutually exclusive).
+	rec = doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("second create = %d, want 409 conflict", rec.Code)
+		t.Fatalf("youtube create during torrent = %d, want 409", rec.Code)
 	}
 }
 

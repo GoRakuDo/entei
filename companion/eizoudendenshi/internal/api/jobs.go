@@ -95,10 +95,25 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody("invalid mode"))
 		return
 	}
-	// One active YouTube session (but torrents can have up to 2).
-	if s.jobs != nil && s.jobs.Current() != nil {
-		writeJSON(w, http.StatusConflict, errorBody("a YouTube job is already active"))
-		return
+	// One active YouTube session: the previous job (ANY state — including
+	// a completed one, which stays current to serve its media) is
+	// auto-cancelled before the new URL is created. The web-side
+	// auto-cancel (#39) only targets downloading/buffering jobs, so
+	// without this a completed job would block every new YouTube URL with
+	// 409 (2026-08-09 on-device: "Satu unduhan sudah berjalan"). Cancel is
+	// synchronous: a completed job releases its media immediately; a
+	// downloading job kills the helper tree (same cost as the cancel
+	// endpoint). A clean cancel is irrelevant for the response status —
+	// creating the new job is what matters, so a racing ErrNotFound
+	// (someone else cleared the session) is simply ignored.
+	if s.jobs != nil {
+		if prev := s.jobs.Current(); prev != nil {
+			// Concurrent requests are safe: Cancel is idempotent (a
+			// no-op or ErrNotFound once the session is freed) and
+			// Start is mutex-guarded inside the manager, so only one
+			// new job can ever take over the current slot.
+			_, _ = s.jobs.Cancel(prev.ID)
+		}
 	}
 	// Torrents active blocks YouTube create (cross-kind mix forbidden).
 	if s.torrents != nil && s.torrents.ActiveCount() > 0 {

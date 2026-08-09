@@ -308,7 +308,10 @@ func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 
 // Cancel stops the job (killing the helper tree), removes its private temp
 // directory, and frees the session. It returns a redacted cancelled
-// snapshot. Cancelling a completed job also removes its served media.
+// snapshot. Cancelling a completed job also removes its served media and
+// closes the GrowingSource, which may interrupt in-progress media
+// requests (the bridge/element then sees the session ended — expected
+// when the user has started a new job).
 func (m *Manager) Cancel(id string) (Snapshot, error) {
 	m.mu.Lock()
 	j := m.current

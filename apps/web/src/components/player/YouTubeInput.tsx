@@ -144,9 +144,11 @@ export function YouTubeInput({
       setError('invalid');
       return;
     }
-    // Magnet と同様に、新しい URL は前の job を自動キャンセルして新 job を開始
-    // （companion の one-active に対応）。companion の Cancel は同期で
-    // UI をブロックするため fire-and-forget で送信し、キャンセル完了を待たない。
+    // Server-side auto-cancel now handles this (ANY state): the create
+    // endpoint cancels a leftover YouTube job itself. The fire-and-forget
+    // cancel here is a belt-and-suspenders safety net for the
+    // downloading/buffering window before the server processes the new
+    // create (companion's Cancel is synchronous, so we do not await it).
     if (cancelActiveJob) cancelActiveJob();
     setSubmitting(true);
     setError(null);
