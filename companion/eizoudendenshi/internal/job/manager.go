@@ -439,7 +439,13 @@ func (m *Manager) run(j *job, ctx context.Context) {
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
-	lastDiag := time.Now()
+	// Follow the download loop. The first 10 s diag tick used to happen at
+	// lastDiag (now) + interval, so a job shorter than 10 s (speed mode can
+	// finish a .part in a few seconds) never logged a download-state line.
+	// Starting lastDiag in the PAST makes the first ticker tick emit one
+	// line immediately — the download state (incl. bytes=0 stalls) is
+	// always visible, then every 10 s while the download runs.
+	lastDiag := time.Now().Add(-jobDiagInterval)
 
 	for {
 		select {

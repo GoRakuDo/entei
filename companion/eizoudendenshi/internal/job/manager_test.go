@@ -1260,3 +1260,99 @@ func TestSafeHelperErrRedaction(t *testing.T) {
 		t.Errorf("shortJobID(short) = %q, want unchanged", got)
 	}
 }
+
+// TestJobDownloadDiagEmittedDuringHold verifies the steady download-state
+// diagnostics while a download is in progress:
+//
+//   - the FIRST line is emitted immediately (first poll tick — a speed
+//     job can complete in far under 10 s, so waiting for a 10 s mark used
+//     to leave short jobs entirely silent)
+//   - bytes=0 stalls still log (a zero-progress state must be visible,
+//     otherwise "DL stuck at 0 bytes" looks identical to "no log")
+//
+// The fake helper holds the job in StateDownloading (EIZOU_FAKE_HOLD with
+// a zero-byte media), and the log file must show "state=downloading
+// bytes=0" within a few seconds.
+func TestJobDownloadDiagEmitsImmediately(t *testing.T) {
+	logDir := t.TempDir()
+	l, err := diag.NewLogger(logDir)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	defer l.Close()
+	m, err := New(Config{HelperPath: fakeHelper, Timeout: 30 * time.Second, Logger: l})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "0") // no progress — empty media
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1") // stay downloading forever
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", ModeSpeed)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	deadline := time.Now().Add(8 * time.Second)
+	found := false
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(filepath.Join(logDir, "eizouden.log"))
+		if err == nil && strings.Contains(string(raw), "state=downloading bytes=0") {
+			found = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_, _ = m.Cancel(snap.ID)
+	if !found {
+		t.Fatal("first download-state diag line (bytes=0) never appeared while the job held")
+	}
+}
+
+// TestDiagnosticDownloadStateInterval verifies the 10 s cadence: while a
+// download is held, the log emits a download-state line every interval —
+// at least one line by the ~10 s mark and a second one after ~10 s more.
+func TestDiagnosticDownloadInterval(t *testing.T) {
+	logDir := t.TempDir()
+	l, err := diag.NewLogger(logDir)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	defer l.Close()
+	m, err := New(Config{HelperPath: fakeHelper, Timeout: 30 * time.Second, Logger: l})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "4096")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK", "1024")
+	setFakeEnv(t, "EIZOU_FAKE_CHUNK_DELAY_MS", "50")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "1")
+	snap, err := m.Start("https://www.youtube.com/watch?v=abcdefghijk", ModeSpeed)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Count download-state lines over ~12.5 s: with a 10 s interval and an
+	// immediate first line, we must see at least 2.
+	deadline := time.Now().Add(12500 * time.Millisecond)
+	lastCount := 0
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(filepath.Join(logDir, "eizouden.log"))
+		if err == nil {
+			n := strings.Count(string(raw), "state=downloading")
+			if n > lastCount {
+				lastCount = n
+			}
+			if lastCount >= 2 {
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_, _ = m.Cancel(snap.ID)
+	if lastCount < 2 {
+		t.Fatalf("download-state diag lines = %d over 12.5s, want at least 2 (immediate + 10s cadence)", lastCount)
+	}
+}
