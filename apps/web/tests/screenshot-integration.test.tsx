@@ -300,6 +300,8 @@ const mockDict = {
   ytModeQualityDesc: 'Quality first',
   ytModeSpeedDesc: 'Instant playback',
   ytModeToastFormat: 'Playing {quality}',
+  ytModeLabelSpeed: 'Speed',
+  ytModeLabelQuality: 'Quality',
   subtitleAppearance: 'Appearance',
   subtitleFontSize: 'Font size',
   subtitleTextColor: 'Text color',

@@ -75,6 +75,8 @@ export const baseMockDict = {
   ytModeQualityDesc: 'Quality first',
   ytModeSpeedDesc: 'Instant playback',
   ytModeToastFormat: 'Playing {quality}',
+  ytModeLabelSpeed: 'Speed',
+  ytModeLabelQuality: 'Quality',
   ankiConnect: 'Connect',
   ankiConnectDesc: 'Desc',
   ankiEndpointLabel: 'URL',

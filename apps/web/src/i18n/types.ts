@@ -138,6 +138,10 @@ export interface Dictionary {
     ytModeQualityDesc: string;
     ytModeSpeedDesc: string;
     ytModeToastFormat: string;
+    /** Short mode name for the quality toast's {mode} placeholder
+     *  (localized: "Speed"/"スピード"/"Quality"/「画質」 etc.). */
+    ytModeLabelSpeed: string;
+    ytModeLabelQuality: string;
     // AM-5: Anki Fields tab
     ankiConnect: string;
     ankiConnectDesc: string;

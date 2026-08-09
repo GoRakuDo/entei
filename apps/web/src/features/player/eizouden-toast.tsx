@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------------------
  * EIZOU_DENDENSHI.md "画質通知 (2026-08-07)": when yt-dlp finishes and the
  * media is handed to the Player, show an info toast with the selected quality
- * and mode (e.g. "360p（Speed モード）で再生します"). Quality metadata
+ * and mode (e.g. "スピードモード - 360p をすぐに再生します"). Quality metadata
  * arrives from the companion in a later integration; this module provides the
  * UI function and the Toaster host so wiring it up requires no further UI
  * work.
@@ -17,13 +17,14 @@
 'use client';
 
 import { toast } from 'sonner';
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, Info } from 'lucide-react';
 
 export const QUALITY_TOAST_KEY = 'eizouden-quality';
 
 /**
  * Substitute {quality} / {mode} into a localized template.
- * e.g. "Playing {quality} ({mode} mode)" → "Playing 360p (Speed mode)".
+ * e.g. "{mode} Mode - {quality} will start playing"
+ *      → "Speed Mode - 360p will start playing".
  */
 export function formatQualityToast(
   template: string,
@@ -36,6 +37,10 @@ export function formatQualityToast(
 /**
  * Emit the quality-notification info toast.
  *
+ * The icon is a Lucide Info (no default Sonner blue circle);
+ * centered with the text via the Entei toast CSS ([data-icon] flex + gap,
+ * same treatment as notifyCompanionError).
+ *
  * @param template - localized format string (playerUI.ytModeToastFormat).
  * @param quality  - text like "360p", "720p" or "1080p".
  * @param modeLabel - localized download-mode label ("Quality"/"Speed"/…).
@@ -47,6 +52,7 @@ export function notifyQuality(
 ): void {
   toast.info(formatQualityToast(template, quality, modeLabel), {
     id: QUALITY_TOAST_KEY + quality + modeLabel,
+    icon: <Info aria-hidden="true" />,
   });
 }
 

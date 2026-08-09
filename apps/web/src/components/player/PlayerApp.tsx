@@ -662,12 +662,12 @@ export default function PlayerApp() {
     if (!quality || quality <= 0 || !jobId) return;
     if (notifiedQualityJobRef.current === jobId) return; // once per job
     notifiedQualityJobRef.current = jobId;
-    const modeLabel = jobSession.jobMode === 'quality' ? 'Quality' : 'Speed';
-    notifyQuality(
-      dictRef.current.playerUI.ytModeToastFormat,
-      `${quality}p`,
-      modeLabel,
-    );
+    const ui = dictRef.current.playerUI;
+    const modeLabel =
+      jobSession.jobMode === 'quality'
+        ? ui.ytModeLabelQuality
+        : ui.ytModeLabelSpeed;
+    notifyQuality(ui.ytModeToastFormat, `${quality}p`, modeLabel);
   }, [jobSession.jobMediaUrl, jobSession.jobQuality, jobSession.jobId, jobSession.jobMode]);
 
   // Whether the companion-subtitle bounded retry has actually given up
@@ -1397,8 +1397,19 @@ export default function PlayerApp() {
   // written; the video element can mount but not start playback yet
   // (readyState < HAVE_FUTURE_DATA or a 'waiting' event). Mirror the
   // seek buffering logic: after 1 s of not-enough-data show the
-  // "Preparing video…" overlay; canplay clears it. The delay avoids
-  // flashing the overlay for fast starts.
+  // "Preparing video…" overlay; the PLAYING event clears it. The delay
+  // avoids flashing the overlay for fast starts.
+  //
+  // Clear condition is 'playing', NOT 'canplay' (2026-08-09 on-device):
+  // canplay fires when the element merely has data to start — the first
+  // decoded frame is often still a moment away, which left a bare black
+  // 00:00/00:00 frame for a few seconds after the overlay left. Playing
+  // only fires when playback actually began (first frame painting), so
+  // the overlay guards the black gap and disappears exactly when the
+  // picture appears. The 15 s safety bound still hides it when a
+  // stalled/autoplay-blocked download never plays. Seek buffering
+  // (isSeekBuffering above) deliberately keeps its own canplay-based
+  // clearing — this change is initial-load only.
   useEffect(() => {
     const media = mediaType === 'video' ? videoRef.current : null;
     if (!media) return;
@@ -1420,16 +1431,19 @@ export default function PlayerApp() {
     };
 
     const armStartBuffering = () => {
-      // If enough data is already here, nothing to show.
-      if (media.readyState >= HAVE_FUTURE_DATA) return;
+      // If enough data is already here AND playback is under way, nothing
+      // to show.
+      if (media.readyState >= HAVE_FUTURE_DATA && !media.paused) return;
       clearStartBufferingTimers();
       startBufferingDelayRef.current = setTimeout(() => {
         startBufferingDelayRef.current = null;
-        // Re-check after the delay: the element may have become playable.
-        if (media.readyState >= HAVE_FUTURE_DATA) return;
+        // Re-check after the delay: the element may have become playable
+        // (or actually started playing).
+        if (media.readyState >= HAVE_FUTURE_DATA && !media.paused) return;
         setIsStartBuffering(true);
-        // Safety bound: hide the overlay after 15 s even if canplay never
-        // fires (stalled download) — playback itself is unaffected.
+        // Safety bound: hide the overlay after 15 s even if playing never
+        // fires (stalled download or autoplay block) — playback itself is
+        // unaffected.
         startBufferingSafetyRef.current = setTimeout(() => {
           startBufferingSafetyRef.current = null;
           setIsStartBuffering(false);
@@ -1437,20 +1451,30 @@ export default function PlayerApp() {
       }, 1000);
     };
 
-    const onCanPlay = () => {
+    const onPlaying = () => {
       clearStartBufferingTimers();
       setIsStartBuffering(false);
     };
 
+    // If the element is already playing when the effect runs (e.g. a
+    // rapid ready→playing transition before the observer attaches), clear
+    // immediately instead of waiting for the next event.
+    if (!media.paused && media.currentTime > 0) {
+      clearStartBufferingTimers();
+      setIsStartBuffering(false);
+    }
+
     media.addEventListener('waiting', armStartBuffering);
-    media.addEventListener('canplay', onCanPlay);
+    media.addEventListener('playing', onPlaying);
     // Initial state: the element may already be short of data (typical
     // right after the companion surfaces the URL).
-    armStartBuffering();
+    if (media.paused || media.readyState < HAVE_FUTURE_DATA) {
+      armStartBuffering();
+    }
 
     return () => {
       media.removeEventListener('waiting', armStartBuffering);
-      media.removeEventListener('canplay', onCanPlay);
+      media.removeEventListener('playing', onPlaying);
       clearStartBufferingTimers();
       setIsStartBuffering(false);
     };

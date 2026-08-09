@@ -5,8 +5,14 @@
  * playback cannot start yet (readyState < HAVE_FUTURE_DATA or a `waiting`
  * event) for more than 1 s, PlayerApp shows the "Preparing video…" overlay
  * — the same copy as the pre-URL loading overlay, at a larger responsive
- * size. The 1 s debounce prevents flashing for fast starts; canplay clears
- * it.
+ * size. The 1 s debounce prevents flashing for fast starts.
+ *
+ * Clear condition is the PLAYING event, not canplay (2026-08-09): canplay
+ * only means the element has data to start, while the first decoded frame
+ * can still be a moment away — leaving a bare black 00:00/00:00 frame
+ * after the overlay left. Playing fires when the picture actually
+ * appears, so the overlay guards the black gap exactly. The 15 s safety
+ * bound still hides it for stalled/autoplay-blocked downloads.
  *
  * Drives the real PlayerApp with a mocked (controllable) job session and a
  * real <video> element (jsdom readyState = 0), advancing fake timers.
@@ -127,7 +133,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     ).not.toBeNull();
   });
 
-  it('does NOT show the overlay when canplay fires before 1 s', async () => {
+  it('stays visible after canplay alone (playing is what clears it)', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -137,7 +143,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const video = container.querySelector('video');
     expect(video).not.toBeNull();
 
-    // Data arrives quickly: canplay before the debounce elapses.
+    // Data arrives (canplay) before the debounce elapses, but playback
+    // has NOT started: the overlay must NOT clear on canplay — the first
+    // frame is not on screen yet, so the black gap stays guarded.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
@@ -145,10 +153,17 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+
+    // Only the actual playing event clears it (picture visible now).
+    video!.dispatchEvent(new Event('playing'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('hides the overlay once canplay fires', async () => {
+  it('hides the overlay once playing fires (first frame on screen)', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -161,9 +176,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
-    // canplay clears it.
+    // playing clears it.
     const video = container.querySelector('video');
-    fireEvent.canPlay(video!);
+    video!.dispatchEvent(new Event('playing'));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -216,7 +231,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('hides the overlay after the 15 s safety bound (no canplay)', async () => {
+  it('hides the overlay after the 15 s safety bound (no playing)', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -234,7 +249,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
-    // …and gone at 15 s even though canplay never fired.
+    // …and gone at 15 s even though playing never fired.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });

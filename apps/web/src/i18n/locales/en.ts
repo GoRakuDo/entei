@@ -310,7 +310,9 @@ export const en: Dictionary = {
       'Download DASH 1080p (max), plays after mux completes.',
     ytModeSpeedDesc:
       'Prefer progressive formats (360p-1080p) — plays while downloading.',
-    ytModeToastFormat: 'Playing {quality} ({mode} mode)',
+    ytModeToastFormat: '{mode} Mode - {quality} will start playing',
+    ytModeLabelSpeed: 'Speed',
+    ytModeLabelQuality: 'Quality',
     subtitleFontSize: 'Font size',
     subtitleTextColor: 'Text color',
     subtitleBackgroundColor: 'Background color',

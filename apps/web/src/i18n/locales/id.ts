@@ -315,7 +315,9 @@ export const id: Dictionary = {
       'Unduh DASH 1080p (maks), diputar setelah penggabungan selesai.',
     ytModeSpeedDesc:
       'Prioritaskan format progresif (360p-1080p) — langsung diputar sambil unduh.',
-    ytModeToastFormat: '{quality} ({mode}) akan diputar',
+    ytModeToastFormat: '{mode} Mode - {quality} segera diputar',
+    ytModeLabelSpeed: 'Speed',
+    ytModeLabelQuality: 'Quality',
     subtitleFontSize: 'Ukuran font',
     subtitleTextColor: 'Warna teks',
     subtitleBackgroundColor: 'Warna latar',

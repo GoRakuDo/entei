@@ -203,7 +203,12 @@ vi.mock('@i18n/locale-events', () => ({
 }));
 
 // Dict proxy reads the translation of a single key; returns '' otherwise.
+// The mode labels are served separately so the quality-toast wiring tests
+// can pin both en ("Speed"/"Quality") and ja ("スピード"/「画質」) forms.
 let mockDictKey = '';
+let mockDictValue = '';
+let mockModeLabelSpeed = 'Speed';
+let mockModeLabelQuality = 'Quality';
 vi.mock('@i18n/index', () => ({
   getDictionary: vi.fn(() => ({
     hub: { systemLabel: '', lead: '' },
@@ -211,8 +216,11 @@ vi.mock('@i18n/index', () => ({
     playerUI: new Proxy(
       {},
       {
-        get: (_target, prop: string) =>
-          prop === mockDictKey ? mockDictValue : '',
+        get: (_target, prop: string) => {
+          if (prop === 'ytModeLabelSpeed') return mockModeLabelSpeed;
+          if (prop === 'ytModeLabelQuality') return mockModeLabelQuality;
+          return prop === mockDictKey ? mockDictValue : '';
+        },
       },
     ),
     reader: { title: '', description: '', status: '' },
@@ -258,13 +266,13 @@ vi.mock('@/features/player/use-companion-job-session', () => ({
 // Import AFTER mocks
 import PlayerApp from '@/components/player/PlayerApp';
 
-let mockDictValue = '';
-
 beforeEach(() => {
   vi.useFakeTimers();
   mockJobSession = makeJobSession({});
   mockDictKey = '';
   mockDictValue = '';
+  mockModeLabelSpeed = 'Speed';
+  mockModeLabelQuality = 'Quality';
   toastSpy.info.mockReset();
   toastSpy.error.mockReset();
 
@@ -422,7 +430,7 @@ describe('Companion job error: loading cleared + toast', () => {
 describe('Quality toast wiring (notifyQuality)', () => {
   it('speed mode: fires exactly once when the media URL surfaces (playable)', async () => {
     mockDictKey = 'ytModeToastFormat';
-    mockDictValue = 'Playing {quality} ({mode} mode)';
+    mockDictValue = '{mode} Mode - {quality} will start playing';
     mockJobSession = makeJobSession({
       active: true,
       kind: 'youtube',
@@ -454,10 +462,13 @@ describe('Quality toast wiring (notifyQuality)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(toastSpy.info).toHaveBeenCalledTimes(1);
-    expect(toastSpy.info).toHaveBeenCalledWith(
-      'Playing 720p (Speed mode)',
-      { id: 'eizouden-quality720pSpeed' },
-    );
+    const infoCall = toastSpy.info.mock.calls[0] as [
+      string,
+      { id: string; icon: unknown },
+    ];
+    expect(infoCall[0]).toBe('Speed Mode - 720p will start playing');
+    expect(infoCall[1].id).toBe('eizouden-quality720pSpeed');
+    expect(infoCall[1].icon).toBeDefined(); // Lucide icon, not the default circle
 
     // Any subsequent render (same phase) must NOT fire a second toast.
     rerender(<PlayerApp />);
@@ -469,7 +480,7 @@ describe('Quality toast wiring (notifyQuality)', () => {
 
   it('quality mode: fires once after completion (complete → ready)', async () => {
     mockDictKey = 'ytModeToastFormat';
-    mockDictValue = 'Playing {quality} ({mode} mode)';
+    mockDictValue = '{mode} Mode - {quality} will start playing';
     mockJobSession = makeJobSession({
       active: true,
       kind: 'youtube',
@@ -502,15 +513,100 @@ describe('Quality toast wiring (notifyQuality)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(toastSpy.info).toHaveBeenCalledTimes(1);
-    expect(toastSpy.info).toHaveBeenCalledWith(
-      'Playing 1080p (Quality mode)',
-      { id: 'eizouden-quality1080pQuality' },
-    );
+    const qCall = toastSpy.info.mock.calls[0] as [
+      string,
+      { id: string; icon: unknown },
+    ];
+    expect(qCall[0]).toBe('Quality Mode - 1080p will start playing');
+    expect(qCall[1].id).toBe('eizouden-quality1080pQuality');
+    expect(qCall[1].icon).toBeDefined();
+  });
+
+  it('naturalized id format: "Speed Mode - 360p segera diputar" / "Quality Mode - 1080p segera diputar"', async () => {
+    mockDictKey = 'ytModeToastFormat';
+    mockDictValue = '{mode} Mode - {quality} segera diputar';
+    mockJobSession = makeJobSession({
+      active: true,
+      kind: 'youtube',
+      phase: 'ready',
+      jobMediaUrl: 'http://127.0.0.1:4322/v1/media/fixture?token=t',
+      jobId: 'job-id-speed-360',
+      jobQuality: 360,
+      jobMode: 'speed',
+    });
+
+    const { rerender } = render(<PlayerApp />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const speedCall = toastSpy.info.mock.calls[0] as [string, { id: string }];
+    expect(speedCall[0]).toBe('Speed Mode - 360p segera diputar');
+    expect(speedCall[1].id).toBe('eizouden-quality360pSpeed');
+
+    // Quality 1080p on the same format.
+    mockJobSession = makeJobSession({
+      active: true,
+      kind: 'youtube',
+      phase: 'ready',
+      jobMediaUrl: 'http://127.0.0.1:4322/v1/media/fixture?token=t',
+      jobId: 'job-id-quality-1080',
+      jobQuality: 1080,
+      jobMode: 'quality',
+    });
+    rerender(<PlayerApp />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const qualityCall = toastSpy.info.mock.calls[1] as [string, { id: string }];
+    expect(qualityCall[0]).toBe('Quality Mode - 1080p segera diputar');
+    expect(qualityCall[1].id).toBe('eizouden-quality1080pQuality');
+  });
+
+  it('ja naturalized format: "スピードモード - 360p をすぐに再生します" / "画質モード - 1080p をすぐに再生します"', async () => {
+    mockDictKey = 'ytModeToastFormat';
+    mockDictValue = '{mode}モード - {quality} をすぐに再生します';
+    mockModeLabelSpeed = 'スピード';
+    mockModeLabelQuality = '画質';
+    mockJobSession = makeJobSession({
+      active: true,
+      kind: 'youtube',
+      phase: 'ready',
+      jobMediaUrl: 'http://127.0.0.1:4322/v1/media/fixture?token=t',
+      jobId: 'job-ja-speed-360',
+      jobQuality: 360,
+      jobMode: 'speed',
+    });
+
+    const { rerender } = render(<PlayerApp />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const speedCall = toastSpy.info.mock.calls[0] as [string, { id: string }];
+    expect(speedCall[0]).toBe('スピードモード - 360p をすぐに再生します');
+    expect(speedCall[1].id).toBe('eizouden-quality360pスピード');
+
+    // Quality 1080p on the same ja format.
+    mockJobSession = makeJobSession({
+      active: true,
+      kind: 'youtube',
+      phase: 'ready',
+      jobMediaUrl: 'http://127.0.0.1:4322/v1/media/fixture?token=t',
+      jobId: 'job-ja-quality-1080',
+      jobQuality: 1080,
+      jobMode: 'quality',
+    });
+    rerender(<PlayerApp />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const qualityCall = toastSpy.info.mock.calls[1] as [string, { id: string }];
+    expect(qualityCall[0]).toBe('画質モード - 1080p をすぐに再生します');
+    expect(qualityCall[1].id).toBe('eizouden-quality1080p画質');
   });
 
   it('does NOT fire when quality is unknown (0)', async () => {
     mockDictKey = 'ytModeToastFormat';
-    mockDictValue = 'Playing {quality} ({mode} mode)';
+    mockDictValue = '{mode} Mode - {quality} will start playing';
     mockJobSession = makeJobSession({
       active: true,
       kind: 'youtube',
@@ -537,7 +633,7 @@ describe('Quality toast wiring (notifyQuality)', () => {
 
   it('does not fire twice across phase transitions of the same job', async () => {
     mockDictKey = 'ytModeToastFormat';
-    mockDictValue = 'Playing {quality} ({mode} mode)';
+    mockDictValue = '{mode} Mode - {quality} will start playing';
     mockJobSession = makeJobSession({
       active: true,
       kind: 'youtube',
