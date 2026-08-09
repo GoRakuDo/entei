@@ -17,6 +17,7 @@
 'use client';
 
 import { toast } from 'sonner';
+import { CircleAlert } from 'lucide-react';
 
 export const QUALITY_TOAST_KEY = 'eizouden-quality';
 
@@ -56,8 +57,14 @@ export const COMPANION_ERROR_TOAST_KEY = 'eizouden-companion-error';
  * again."). One toast per job failure: the id is fixed so a repeated
  * error re-render cannot stack multiple toasts on top of each other.
  *
+ * The icon is a Lucide CircleAlert (no default Sonner circle) centered
+ * with the text via the Entei toast CSS (flex + gap).
+ *
  * @param label - localized message (playerUI.companionJobError).
  */
 export function notifyCompanionError(label: string): void {
-  toast.error(label, { id: COMPANION_ERROR_TOAST_KEY });
+  toast.error(label, {
+    id: COMPANION_ERROR_TOAST_KEY,
+    icon: <CircleAlert aria-hidden="true" />,
+  });
 }

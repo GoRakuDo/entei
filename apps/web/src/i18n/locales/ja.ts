@@ -287,6 +287,7 @@ export const ja: Dictionary = {
       'ストリームの準備ができていません。データを待っています…',
     companionPreparingVideo: 'ビデオを準備中…',
     companionJobError: 'エラーが発生しました。もう一度お試しください。',
+    companionJobFailed: 'ダウンロードに失敗しました。新しいURLまたはファイルを選択してください。',
     eizouPairingErrorGeneric: '接続に失敗しました。もう一度お試しください。',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',

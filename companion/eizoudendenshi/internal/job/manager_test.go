@@ -1297,6 +1297,65 @@ func TestJobDiagErrorLineFormatAndRedaction(t *testing.T) {
 	}
 }
 
+// TestJobDiagErrorIncludesStderrTail pins the error-detail surfacing:
+// on helper failure the diag line carries the last meaningful stderr
+// line (redacted + bounded) after the exit status, and a URL embedded in
+// that stderr line is squashed to <redacted> — the cause becomes visible
+// (HTTP 403 etc.) without leaking anything unsafe.
+func TestJobDiagErrorIncludesStderrTail(t *testing.T) {
+	logDir := t.TempDir()
+	l, err := diag.NewLogger(logDir)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	defer l.Close()
+	m, err := New(Config{HelperPath: fakeHelper, Timeout: 10 * time.Second, Logger: l})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+	setFakeEnv(t, "EIZOU_FAKE_SIZE", "200")
+	setFakeEnv(t, "EIZOU_FAKE_FAIL", "1")
+	setFakeEnv(t, "EIZOU_FAKE_HOLD", "")
+	// The helper prints a cause line with an embedded URL: after the
+	// tail is squashed the URL must not reach the log.
+	setFakeEnv(t, "EIZOU_FAKE_STDERR_TAIL",
+		"ERROR: blocked by https://youtube.com/watch?v=abcdefghijk")
+	const url = "https://www.youtube.com/watch?v=abcdefghijk"
+	snap, err := m.Start(url)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		cur := m.Get(snap.ID)
+		if cur != nil && cur.State == StateError {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job never errored")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	raw, err := os.ReadFile(filepath.Join(logDir, "eizouden.log"))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	line := string(raw)
+	// The tail survives (visible cause) but with the URL squashed.
+	for _, want := range []string{"err=exit status 2", "stderr=ERROR: blocked by <redacted>"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("log line missing %q:\n%s", want, line)
+		}
+	}
+	// No URL or full job id may reach the line.
+	for _, s := range []string{"youtube.com", "abcdefghijk", snap.ID} {
+		if strings.Contains(line, s) {
+			t.Errorf("redaction leak: log line contains %q:\n%s", s, line)
+		}
+	}
+}
+
 // TestSafeHelperErrRedaction pins the error-field sanitizer: plain exit
 // messages pass through, URL/path starters are cut at "<redacted>", long
 // messages are bounded, and nil yields "none".

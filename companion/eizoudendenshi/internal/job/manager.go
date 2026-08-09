@@ -593,6 +593,12 @@ func (m *Manager) logDownloadState(j *job) {
 // before the helper exited, so "bytes=0 part=-" reads as "DL never
 // started" while a nonzero bytes with part= shows the failure came after
 // real progress.
+//
+// A short redacted tail of the helper's own stderr is appended to the
+// err= field when available — "exit status 1" alone tells nothing about
+// the cause (e.g. HTTP 403 from a network path), and the yt-dlp line is
+// what makes the on-device log actionable. The tail is bounded and
+// passes through the same URL/path squash as the error itself.
 func (m *Manager) logJobDiag(j *job, err error) {
 	m.mu.Lock()
 	l := m.logger
@@ -600,8 +606,39 @@ func (m *Manager) logJobDiag(j *job, err error) {
 	if l == nil {
 		return
 	}
+	detail := safeHelperErr(err)
+	if tail := helperStderrTail(j.dir); tail != "" {
+		detail += " stderr=" + tail
+	}
 	l.Infof("job", "state job=%s mode=%s state=error bytes=%d part=%s err=%s",
-		shortJobID(j.id), j.mode, j.bytes.load(), j.partLabel(), safeHelperErr(err))
+		shortJobID(j.id), j.mode, j.bytes.load(), j.partLabel(), detail)
+}
+
+// helperStderrTail returns the last meaningful line of the helper's
+// stderr log, redacted and length-bounded, or "" when there is none yet.
+// Called while the log handle is still open (before closeLog), which is
+// fine on Windows for a read-only open.
+func helperStderrTail(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "helper.stderr.log"))
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\r\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue // skip trailing blank lines (progress bars etc.)
+		}
+		line = urlSquash(line)
+		if len(line) > 120 {
+			line = line[:120] + "..."
+		}
+		return line
+	}
+	return ""
 }
 
 // partLabel returns the redaction-safe label for the job's growing .part

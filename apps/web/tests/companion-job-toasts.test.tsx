@@ -329,12 +329,16 @@ describe('Companion job error: loading cleared + toast', () => {
     // (a) Loading cleared.
     expect(container.querySelector('.entei-companion-loading')).toBeNull();
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
-    // (b) Error toast fired exactly once with the localized message.
+    // (b) Error toast fired exactly once with the localized message, the
+    // fixed dedupe id, and the Lucide icon (not Sonner's default circle).
     expect(toastSpy.error).toHaveBeenCalledTimes(1);
-    expect(toastSpy.error).toHaveBeenCalledWith(
-      'An error occurred. Please try again.',
-      { id: 'eizouden-companion-error' },
-    );
+    const errCall = toastSpy.error.mock.calls[0] as [
+      string,
+      { id: string; icon: unknown },
+    ];
+    expect(errCall[0]).toBe('An error occurred. Please try again.');
+    expect(errCall[1].id).toBe('eizouden-companion-error');
+    expect(errCall[1].icon).toBeDefined();
   });
 
   it('does not fire duplicate toasts across re-renders of the same error', async () => {
@@ -359,6 +363,34 @@ describe('Companion job error: loading cleared + toast', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(toastSpy.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a centered failure fallback in the player frame on error (no black void)', async () => {
+    mockDictKey = 'companionJobFailed';
+    mockDictValue = 'The download failed. Please try a new URL or choose a file.';
+    mockJobSession = makeJobSession({
+      active: true,
+      kind: 'youtube',
+      phase: 'error',
+      jobMediaUrl: null,
+    });
+
+    const { container } = render(<PlayerApp />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // The player frame must show the failure copy (not a black void and
+    // NOT a spinner — no loading overlay either).
+    const fallback = container.querySelector('.entei-player-job-error');
+    expect(fallback).not.toBeNull();
+    expect(
+      fallback!.querySelector('.entei-player-job-error-text')!.textContent,
+    ).toBe('The download failed. Please try a new URL or choose a file.');
+    expect(fallback!.querySelector('svg')).not.toBeNull(); // icon
+    // No loading surfaces on error.
+    expect(container.querySelector('.entei-companion-loading')).toBeNull();
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
   it('hides the start-buffering overlay when the job errors while buffering', async () => {

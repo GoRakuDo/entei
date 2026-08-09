@@ -315,6 +315,8 @@ export interface Dictionary {
     companionPreparingVideo: string;
     /** Toast shown when a companion job fails (state=error). */
     companionJobError: string;
+    /** Player-area fallback shown when a companion job errors. */
+    companionJobFailed: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
     youtubeInputLabel: string;
     youtubeInputTitle: string;

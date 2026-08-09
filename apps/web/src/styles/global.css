@@ -412,6 +412,22 @@ svg {
   font-family: var(--entei-font-system);
 }
 
+/* Centered Lucide icon + message: keep the flex row Sonner ships,
+   realign the custom icon cell so the SVG and the text sit on one
+   center line (no default-Sonner circle; icon comes from the caller,
+   e.g. notifyCompanionError's CircleAlert). */
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-icon] {
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-icon] svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-description] {
   color: var(--entei-text-muted);
   font-family: var(--entei-font-system);

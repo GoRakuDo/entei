@@ -720,6 +720,30 @@
   background-color: color-mix(in oklch, var(--entei-surface) 92%, transparent);
 }
 
+/* Companion job error fallback: centered, calm failure copy filling the
+   player frame (no spinner). Uses the existing OKLCH error tint for the
+   border/icon; the red text color matches the error-state border above. */
+.entei-player-job-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-48) var(--entei-space-16);
+  text-align: center;
+}
+
+.entei-player-job-error-icon {
+  color: oklch(60% 0.22 25deg);
+}
+
+.entei-player-job-error-text {
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  color: var(--entei-text);
+  max-width: 30rem;
+}
+
 /* Inline icon in error warnings title (replaces inline style). */
 .entei-player-errors-icon {
   display: inline;

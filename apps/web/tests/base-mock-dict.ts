@@ -15,6 +15,7 @@ export const baseMockDict = {
   noSubtitlesLoaded: 'None',
   preparingSubtitles: 'Preparing…',
   companionJobError: 'An error occurred. Please try again.',
+  companionJobFailed: 'The download failed. Please try a new URL or choose a file.',
   shortcuts: 'Shortcuts',
   shortcutsTitle: 'Shortcuts',
   shortcutsDesc: 'Desc',

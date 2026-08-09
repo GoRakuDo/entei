@@ -98,7 +98,7 @@ import { clampCompanionSeek } from '@/features/player/seek-limiter';
 import {
   notifyQuality,
   notifyCompanionError,
-} from '@/features/player/eizouden-toast';
+} from '@/features/player/eizouden-toast.tsx';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
@@ -3618,6 +3618,28 @@ export default function PlayerApp() {
               dialogClose: dict.dialogClose,
             }}
           />
+        </div>
+      )}
+
+      {/* --- Companion job error fallback --- */}
+      {/* While the companion job has failed (phase='error'), the loading
+          overlays above are suppressed; without this block the player
+          area would be a full black void. Show a calm, centered failure
+          message instead of a spinner (2026-08-09: second-URL job error
+          left a black player frame). New URL / local file entry points
+          remain accessible via the dialogs and pickers. */}
+      {jobSession.active && jobSession.phase === 'error' && (
+        <div
+          className="entei-player-job-error"
+          role="alert"
+          aria-label={dict.companionJobFailed}
+        >
+          <AlertTriangle
+            size={28}
+            aria-hidden="true"
+            className="entei-player-job-error-icon"
+          />
+          <p className="entei-player-job-error-text">{dict.companionJobFailed}</p>
         </div>
       )}
 

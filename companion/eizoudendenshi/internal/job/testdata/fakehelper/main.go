@@ -9,6 +9,10 @@
 //	EIZOU_FAKE_CHUNK           — bytes per write (default: size)
 //	EIZOU_FAKE_CHUNK_DELAY_MS  — delay between chunks (simulates slow download)
 //	EIZOU_FAKE_FAIL            — "1": exit 2 after writing (failed download)
+//	EIZOU_FAKE_STDERR_TAIL     — optional custom stderr line printed before the
+//	                             failure exit (defaults to a yt-dlp-style
+//	                             "HTTP Error 403" line; the job diag log
+//	                             surfaces the redacted tail of it)
 //	EIZOU_FAKE_HOLD            — "1": after writing, hold forever (cancel/timeout tests)
 //	EIZOU_FAKE_ALIVE_FILE      — path to append "alive-<n>" lines while holding
 //	EIZOU_FAKE_PART_SUFFIX     — replace the default ".part" suffix with this
@@ -161,6 +165,14 @@ func main() {
 	}
 
 	if fail {
+		// Emit a realistic yt-dlp-style stderr line (the job diag log
+		// surfaces the redacted tail of this on error) unless the test
+		// pins a custom line via EIZOU_FAKE_STDERR_TAIL.
+		line := os.Getenv("EIZOU_FAKE_STDERR_TAIL")
+		if line == "" {
+			line = "ERROR: [youtube] Extraction failed: HTTP Error 403: Forbidden"
+		}
+		_, _ = fmt.Fprintln(os.Stderr, line)
 		os.Exit(2)
 	}
 	if hold {
