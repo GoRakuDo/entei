@@ -1400,16 +1400,18 @@ export default function PlayerApp() {
   // "Preparing video…" overlay; the PLAYING event clears it. The delay
   // avoids flashing the overlay for fast starts.
   //
-  // Clear condition is 'playing', NOT 'canplay' (2026-08-09 on-device):
-  // canplay fires when the element merely has data to start — the first
-  // decoded frame is often still a moment away, which left a bare black
-  // 00:00/00:00 frame for a few seconds after the overlay left. Playing
-  // only fires when playback actually began (first frame painting), so
-  // the overlay guards the black gap and disappears exactly when the
-  // picture appears. The 15 s safety bound still hides it when a
-  // stalled/autoplay-blocked download never plays. Seek buffering
-  // (isSeekBuffering above) deliberately keeps its own canplay-based
-  // clearing — this change is initial-load only.
+  // Clear condition is the FIRST PAINTED FRAME, not 'playing'
+  // (2026-08-09 on-device: after the playing-based clearing a bare black
+  // 00:00/00:00 frame could still linger for seconds). 'playing' only
+  // reports that playback stalls cleared — for .part streams whose first
+  // bytes carry no video samples (audio-first interleave) the first
+  // picture comes later. requestVideoFrameCallback (Chromium) fires when
+  // a frame is actually presented, so the overlay then hides exactly
+  // when the image appears. Browsers without rVFC fall back to 'playing'
+  // (same behavior as before). The 15 s safety bound still hides it for
+  // stalled/autoplay-blocked loads. Seek buffering (isSeekBuffering
+  // above) deliberately keeps its own canplay-based clearing — this
+  // change is initial-load only.
   useEffect(() => {
     const media = mediaType === 'video' ? videoRef.current : null;
     if (!media) return;
@@ -1423,8 +1425,15 @@ export default function PlayerApp() {
     // stalled / autoplay-blocked job where 'playing' never comes), stop
     // re-arming on 'waiting' — the overlay must not come back and keep
     // the controls locked. Resets naturally when this effect re-runs
-    // (new job / media URL change).
+    // (new job / media URL change). Resets on effect re-run (new URL or
+    // re-activation).
     let startBufferingExhausted = false;
+
+    // Whether the overlay is currently visible, tracked inside this
+    // effect (render-round state would go stale in the event callbacks).
+    // Used to skip pointless rVFC registrations once the picture is
+    // already on screen.
+    let bufferingShown = false;
 
     const clearStartBufferingTimers = () => {
       if (startBufferingDelayRef.current !== null) {
@@ -1452,6 +1461,7 @@ export default function PlayerApp() {
         // (or actually started playing).
         if (media.readyState >= HAVE_FUTURE_DATA && !media.paused) return;
         setIsStartBuffering(true);
+        bufferingShown = true;
         // Safety bound: hide the overlay after 15 s even if playing never
         // fires (stalled download or autoplay block) — playback itself is
         // unaffected, and the controls stay usable thanks to the
@@ -1465,20 +1475,66 @@ export default function PlayerApp() {
     };
 
     const onPlaying = () => {
+      bufferingShown = false;
       clearStartBufferingTimers();
       setIsStartBuffering(false);
     };
 
-    // If the element is already playing when the effect runs (e.g. a
-    // rapid ready→playing transition before the observer attaches), clear
-    // immediately instead of waiting for the next event.
-    if (!media.paused && media.currentTime > 0) {
+    // First visible frame: when the video starts we register an rVFC
+    // callback that fires only after a frame has literally been painted.
+    // On rVFC-capable browsers this is what clears the overlay — playing
+    // alone is deliberately NOT enough (a black frame can still be on
+    // screen). On browsers without the API (rVFC undefined) we keep the
+    // 'playing' fallback above.
+    const hasRVFC =
+      // both are always present together per spec, but defensive check
+      // costs nothing
+      typeof media.requestVideoFrameCallback === 'function' &&
+      typeof media.cancelVideoFrameCallback === 'function';
+    let rvfcHandle: number | null = null;
+    const onFirstFrame = (_now: DOMHighResTimeStamp, _meta: unknown) => {
+      // Idempotent: safe to call even if already cleared.
+      rvfcHandle = null;
+      bufferingShown = false;
       clearStartBufferingTimers();
       setIsStartBuffering(false);
+    };
+    const requestFirstFrame = () => {
+      if (!hasRVFC) return;
+      if (rvfcHandle !== null) {
+        media.cancelVideoFrameCallback(rvfcHandle);
+      }
+      rvfcHandle = media.requestVideoFrameCallback(onFirstFrame as VideoFrameRequestCallback);
+    };
+    const onPlayingRVFC = () => {
+      // Already cleared (picture on screen) — skip the pointless
+      // re-registration/API calls on later playing transitions.
+      if (!bufferingShown) return;
+      // With rVFC the picture event is authoritative; playing alone must
+      // not clear. Re-register the frame callback on each playback
+      // transition so a frame painted during that segment is caught.
+      if (hasRVFC) {
+        requestFirstFrame();
+        return;
+      }
+      // Fallback path (non-rVFC browsers): onPlaying is the clearing
+      // handler used ONLY here.
+      onPlaying();
+    };
+
+    // If the element is already playing when the effect runs (e.g. a
+    // rapid ready→playing transition before the observer attaches), arm
+    // the rVFC callback (or clear immediately for non-rVFC browsers).
+    if (!media.paused && media.currentTime > 0) {
+      if (hasRVFC) {
+        requestFirstFrame();
+      } else {
+        onPlaying();
+      }
     }
 
     media.addEventListener('waiting', armStartBuffering);
-    media.addEventListener('playing', onPlaying);
+    media.addEventListener('playing', onPlayingRVFC);
     // Initial state: the element may already be short of data (typical
     // right after the companion surfaces the URL).
     if (media.paused || media.readyState < HAVE_FUTURE_DATA) {
@@ -1487,11 +1543,21 @@ export default function PlayerApp() {
 
     return () => {
       media.removeEventListener('waiting', armStartBuffering);
-      media.removeEventListener('playing', onPlaying);
+      media.removeEventListener('playing', onPlayingRVFC);
+      if (rvfcHandle !== null && typeof media.cancelVideoFrameCallback === 'function') {
+        media.cancelVideoFrameCallback(rvfcHandle);
+      }
       clearStartBufferingTimers();
+      bufferingShown = false;
       setIsStartBuffering(false);
     };
-  }, [mediaType, jobSession.active, jobSession.jobMediaUrl]);
+    // jobSession.phase is a dependency so an error/idle transition re-runs
+    // this effect: the cleanup above cancels the pending rVFC handle and
+    // resets bufferingShown, so the closure never keeps a stale "shown"
+    // flag after the global error handler cleared the overlay from a
+    // different effect. Re-arm is harmless for playable phases (arm
+    // requires paused || readyState < HAVE_FUTURE_DATA).
+  }, [mediaType, jobSession.active, jobSession.jobMediaUrl, jobSession.phase]);
 
   const handleVolumeChange = useCallback((val: number) => {
     setVolume(val);

@@ -7,10 +7,11 @@
  * — the same copy as the pre-URL loading overlay, at a larger responsive
  * size. The 1 s debounce prevents flashing for fast starts.
  *
- * Clear condition is the PLAYING event, not canplay (2026-08-09): canplay
- * only means the element has data to start, while the first decoded frame
- * can still be a moment away — leaving a bare black 00:00/00:00 frame
- * after the overlay left. Playing fires when the picture actually
+ * Clear condition is the first painted frame (rVFC on Chromium, PLAYING
+ * on other browsers), not canplay (2026-08-09): canplay only means the
+ * element has data to start, while the first decoded frame can still be
+ * a moment away — leaving a bare black 00:00/00:00 frame after the
+ * overlay left. The rVFC/playing event fires when the picture actually
  * appears, so the overlay guards the black gap exactly. The 15 s safety
  * bound still hides it for stalled/autoplay-blocked downloads.
  *
@@ -100,7 +101,45 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  // Remove the rVFC prototype mocks so other suites see the plain jsdom
+  // video element again.
+  delete (HTMLVideoElement.prototype as unknown as Record<string, unknown>)
+    .requestVideoFrameCallback;
+  delete (HTMLVideoElement.prototype as unknown as Record<string, unknown>)
+    .cancelVideoFrameCallback;
 });
+
+/**
+ * Install requestVideoFrameCallback / cancelVideoFrameCallback on the
+ * HTMLVideoElement prototype (= "Chromium-capable browser") for a single
+ * test. The installed request mock records the pending frame callback so
+ * a test can fire it manually (simulating the first painted frame), and
+ * the cancel mock records invocations for cleanup assertions.
+ */
+function installRVFCPrototype() {
+  let pendingCallback: ((now: number, meta: unknown) => void) | null = null;
+  const requestMock = vi.fn((cb: (now: number, meta: unknown) => void) => {
+    pendingCallback = cb;
+    return 1;
+  });
+  const cancelMock = vi.fn();
+  (
+    HTMLVideoElement.prototype as unknown as Record<string, unknown>
+  ).requestVideoFrameCallback = requestMock;
+  (
+    HTMLVideoElement.prototype as unknown as Record<string, unknown>
+  ).cancelVideoFrameCallback = cancelMock;
+  return {
+    fire: () => {
+      if (pendingCallback) {
+        pendingCallback(0, {});
+      }
+    },
+    requestMock,
+    cancelMock,
+    hasRegisteredCallback: () => pendingCallback !== null,
+  };
+}
 
 describe('companion start-buffering overlay (black-screen wait)', () => {
   it('shows the overlay when readyState < 2 persists for over 1 s', async () => {
@@ -133,7 +172,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     ).not.toBeNull();
   });
 
-  it('stays visible after canplay alone (playing is what clears it)', async () => {
+  it('stays visible after canplay alone (playing clears it on non-rVFC browsers)', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -146,6 +185,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     // Data arrives (canplay) before the debounce elapses, but playback
     // has NOT started: the overlay must NOT clear on canplay — the first
     // frame is not on screen yet, so the black gap stays guarded.
+    // (jsdom has no requestVideoFrameCallback, so this runs the 'playing'
+    // fallback — see the rVFC suites below for the frame-based clear.)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
@@ -163,7 +204,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('hides the overlay once playing fires (first frame on screen)', async () => {
+  it('hides the overlay once playing fires (non-rVFC fallback)', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -312,5 +353,97 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     // The visible loader is the seek-buffering one — the start overlay
     // is suppressed by the mutual exclusion.
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
+  });
+
+  it('rVFC browser: playing alone does NOT clear — the first painted frame does', async () => {
+    const rvfc = installRVFCPrototype();
+    mockSession.active = true;
+    mockSession.kind = 'youtube';
+    mockSession.phase = 'ready';
+    mockSession.jobMediaUrl = MEDIA_URL;
+    const { container } = render(<PlayerApp />);
+
+    // Overlay appears after 1 s of no data.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+
+    // playing fires (audio started) but no frame is painted yet — the
+    // overlay MUST stay: the black picture is exactly the case rVFC
+    // guards (audio-first interleave).
+    const video = container.querySelector('video');
+    video!.dispatchEvent(new Event('playing'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+    expect(rvfc.hasRegisteredCallback()).toBe(true);
+
+    // The first frame is painted → the rVFC callback fires → cleared.
+    act(() => {
+      rvfc.fire();
+    });
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
+  });
+
+  it('rVFC browser: re-registers on each playing transition (later frames caught)', async () => {
+    const rvfc = installRVFCPrototype();
+    mockSession.active = true;
+    mockSession.kind = 'youtube';
+    mockSession.phase = 'ready';
+    mockSession.jobMediaUrl = MEDIA_URL;
+    const { container } = render(<PlayerApp />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    const video = container.querySelector('video');
+
+    // First playing: rVFC registered (not fired).
+    video!.dispatchEvent(new Event('playing'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(rvfc.hasRegisteredCallback()).toBe(true);
+    expect(rvfc.requestMock).toHaveBeenCalledTimes(1);
+
+    // A second playing transition (seek/stall-recover) re-registers,
+    // cancelling the stale handle first.
+    video!.dispatchEvent(new Event('playing'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(rvfc.requestMock).toHaveBeenCalledTimes(2);
+    expect(rvfc.cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rVFC browser: switching jobs cancels the pending frame callback (cleanup)', async () => {
+    const rvfc = installRVFCPrototype();
+    mockSession.active = true;
+    mockSession.kind = 'youtube';
+    mockSession.phase = 'ready';
+    mockSession.jobMediaUrl = MEDIA_URL;
+    const { rerender } = render(<PlayerApp />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    const video = document.querySelector('video');
+    video!.dispatchEvent(new Event('playing'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(rvfc.hasRegisteredCallback()).toBe(true);
+    expect(rvfc.cancelMock).not.toHaveBeenCalled();
+
+    // New job media URL → effect cleanup must cancel the stale rVFC
+    // handle (the old source is being torn down).
+    mockSession.jobMediaUrl = 'http://127.0.0.1:4322/v1/media/fixture?token=other';
+    rerender(<PlayerApp />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(rvfc.cancelMock).toHaveBeenCalled();
   });
 });
