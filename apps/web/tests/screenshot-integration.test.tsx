@@ -50,6 +50,7 @@ const mockDict = {
   subtitles: 'Subtitles',
   noSubtitlesLoaded: 'None',
   preparingSubtitles: 'Preparing…',
+  companionJobError: 'An error occurred. Please try again.',
   shortcuts: 'Shortcuts',
   shortcutsTitle: 'Shortcuts',
   shortcutsDesc: 'Desc',

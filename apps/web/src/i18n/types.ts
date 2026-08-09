@@ -313,6 +313,8 @@ export interface Dictionary {
     eizouPairingErrorGeneric: string;
     companionStreamNotReady: string;
     companionPreparingVideo: string;
+    /** Toast shown when a companion job fails (state=error). */
+    companionJobError: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
     youtubeInputLabel: string;
     youtubeInputTitle: string;

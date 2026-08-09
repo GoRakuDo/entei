@@ -279,6 +279,7 @@ export const en: Dictionary = {
       'Invalid code. Check the code shown in the companion app.',
     companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
     companionPreparingVideo: 'Preparing video…',
+    companionJobError: 'An error occurred. Please try again.',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',

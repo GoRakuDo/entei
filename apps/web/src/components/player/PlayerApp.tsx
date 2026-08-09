@@ -93,7 +93,12 @@ import {
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
+import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
 import { clampCompanionSeek } from '@/features/player/seek-limiter';
+import {
+  notifyQuality,
+  notifyCompanionError,
+} from '@/features/player/eizouden-toast';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
@@ -609,6 +614,62 @@ export default function PlayerApp() {
     }
   }, [jobSession.jobTitle]);
 
+  // Companion job failure (state=error → bridge phase 'error'):
+  // (a) clear every loading surface immediately — the companion loading
+  // overlay (active && !jobMediaUrl) would otherwise spin forever, and
+  // the start-buffering overlay must not linger on a failed job;
+  // (b) surface the failure via the EizouToaster once per error (the
+  // fixed toast id already prevents stacking; the phase guard prevents
+  // a re-render from re-firing). No duplicate UI: the video element is
+  // unmounted during 'error' (jobMediaUrl null), so VideoPlayer's own
+  // errorLabel never renders for job errors — the toast is the single
+  // error surface. 2026-08-09 (WARP failure: spinner with no error).
+  const prevJobPhaseRef = useRef<CompanionBridgePhase | null>(null);
+  useEffect(() => {
+    const phase = jobSession.phase;
+    if (phase === 'error' && prevJobPhaseRef.current !== 'error') {
+      setIsStartBuffering(false);
+      setIsLoading(false);
+      notifyCompanionError(
+        dictRef.current.playerUI.companionJobError,
+      );
+    }
+    if (phase === 'error' || phase === 'idle') {
+      // A failed/ended job also releases the buffering overlays.
+      setIsStartBuffering(false);
+    }
+    prevJobPhaseRef.current = phase;
+  }, [jobSession.phase]);
+
+  // Quality toast wiring (2026-08-09): notifyQuality has existed since
+  // rc.46 but had ZERO call sites — the wiring was never done, which is
+  // why no quality toast appeared in any mode (not a speed-vs-quality
+  // bug). Fire once per job at the moment the media URL first surfaces,
+  // which is the same "handed to the player" moment for both modes:
+  // speed reports playable early, quality reports playable only at
+  // complete — the URL surfacing is the handoff in both cases.
+  const notifiedQualityJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!jobSession.jobMediaUrl) return;
+    // The quality toast is a YouTube-job surface: without a known mode
+    // (torrent sessions / idle) there is no "Speed/Quality" label to
+    // show — bail instead of falling back to Speed implicitly.
+    if (!jobSession.jobMode) return;
+    const quality = jobSession.jobQuality;
+    const jobId = jobSession.jobId;
+    // 0/NA/absent → no toast (a partial mock session without these
+    // fields must stay silent too).
+    if (!quality || quality <= 0 || !jobId) return;
+    if (notifiedQualityJobRef.current === jobId) return; // once per job
+    notifiedQualityJobRef.current = jobId;
+    const modeLabel = jobSession.jobMode === 'quality' ? 'Quality' : 'Speed';
+    notifyQuality(
+      dictRef.current.playerUI.ytModeToastFormat,
+      `${quality}p`,
+      modeLabel,
+    );
+  }, [jobSession.jobMediaUrl, jobSession.jobQuality, jobSession.jobId, jobSession.jobMode]);
+
   // Whether the companion-subtitle bounded retry has actually given up
   // (SUBTITLE_RETRY_WINDOW_MS elapsed with no 200). While false, the
   // subtitle panel shows "Preparing subtitles…"; once true it falls back
@@ -619,15 +680,18 @@ export default function PlayerApp() {
   // Companion job with a subtitle fetch still running (or not yet
   // attempted) and no content parsed yet — drives the "Preparing
   // subtitles…" panel state. Cleared once the bounded retry gives up
-  // (subtitleFetchFailed) or content arrives. Single source of truth so
-  // the desktop and mobile RightPanel receive the same computed value.
-  // The SubtitlePanel keeps no deadline knowledge: PlayerApp owns the
-  // retry window and the fallback.
+  // (subtitleFetchFailed), content arrives, or the job errors (the
+  // error toast takes over; a spinner must never linger on a failed
+  // job). Single source of truth so the desktop and mobile RightPanel
+  // receive the same computed value. The SubtitlePanel keeps no
+  // deadline knowledge: PlayerApp owns the retry window and the
+  // fallback.
   const isLoadingSubtitles =
     jobSession.active &&
     !!jobSession.subtitleUrl &&
     cues.length === 0 &&
-    !subtitleFetchFailed;
+    !subtitleFetchFailed &&
+    jobSession.phase !== 'error';
 
 // ED-2G: Auto-fetch subtitle content from companion when a torrent job
   // selected a subtitle file, or from a YouTube job that has Japanese
@@ -3327,14 +3391,19 @@ export default function PlayerApp() {
           Mutually exclusive with the seek-buffering overlay: when both
           are true only the seek one renders, so the surface never shows
           two stacked loaders. */}
-      {isStartBuffering && !isSeekBuffering && !isLoading && !loadError && (
-        <div className="entei-companion-loading entei-start-buffering" role="status" aria-label="Loading">
-          <TypewriterLoading aria-hidden="true" className="entei-typewriter--start" />
-          <p className="entei-companion-loading-text entei-companion-loading-text--start">
-            {dict.companionPreparingVideo}
-          </p>
-        </div>
-      )}
+      {isStartBuffering &&
+        !isSeekBuffering &&
+        !isLoading &&
+        !loadError &&
+        jobSession.phase !== 'error' &&
+        jobSession.phase !== 'rePairRequired' && (
+          <div className="entei-companion-loading entei-start-buffering" role="status" aria-label="Loading">
+            <TypewriterLoading aria-hidden="true" className="entei-typewriter--start" />
+            <p className="entei-companion-loading-text entei-companion-loading-text--start">
+              {dict.companionPreparingVideo}
+            </p>
+          </div>
+        )}
       <PlayerControls
         ref={controlsHandleRef}
         mediaRef={sharedMediaRef}
@@ -3553,12 +3622,21 @@ export default function PlayerApp() {
       )}
 
       {/* --- Companion loading overlay --- */}
-      {jobSession.active && !jobSession.jobMediaUrl && (
-        <div className="entei-companion-loading" role="status" aria-label="Loading">
-          <TypewriterLoading aria-hidden="true" />
-          <p className="entei-companion-loading-text">{dict.companionPreparingVideo}</p>
-        </div>
-      )}
+      {jobSession.active &&
+        !jobSession.jobMediaUrl &&
+        jobSession.phase !== 'error' &&
+        jobSession.phase !== 'rePairRequired' && (
+          <div
+            className="entei-companion-loading"
+            role="status"
+            aria-label="Loading"
+          >
+            <TypewriterLoading aria-hidden="true" />
+            <p className="entei-companion-loading-text">
+              {dict.companionPreparingVideo}
+            </p>
+          </div>
+        )}
 
       {/* ED-2G: Magnet source dialog — real companion torrent flow (pairing
            gate → create → poll → file selection → select). The

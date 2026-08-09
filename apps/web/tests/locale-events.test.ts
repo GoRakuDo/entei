@@ -65,6 +65,7 @@ describe('LocaleChangeDetail shape', () => {
       'dialogClose',
       'subtitleWarnings',
       'preparingSubtitles',
+      'companionJobError',
       'unsupportedFormat',
       'failedToRead',
       'failedToLoadAudio',

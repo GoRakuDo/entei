@@ -284,6 +284,7 @@ export const id: Dictionary = {
       'Kode tidak valid. Periksa kode yang ditampilkan di aplikasi.',
     companionStreamNotReady: 'Aliran belum siap. Menunggu data selanjutnya…',
     companionPreparingVideo: 'Menyiapkan video…',
+    companionJobError: 'Terjadi kesalahan. Silakan coba lagi.',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'URL YouTube',

@@ -70,6 +70,15 @@ export interface UseCompanionJobSessionResult {
   active: boolean;
   /** Source kind (YouTube vs torrent) drives the session label and cancel route. */
   kind: CompanionJobKind | null;
+  /** Opaque job id of the active session (null when idle). */
+  jobId: string | null;
+  /** Selected format height from the companion (0 = unknown/not yet
+   *  reported). Populated by the job poll for YouTube jobs; used for the
+   *  quality toast wiring (notifyQuality). */
+  jobQuality: number;
+  /** Download mode of the active YouTube job ("speed"/"quality"); null
+   *  while idle or for torrent jobs. Drives the quality-toast mode label. */
+  jobMode: 'speed' | 'quality' | null;
   phase: CompanionBridgePhase;
   progress: CompanionBridgeProgress | null;
   reason: string | null;
@@ -104,6 +113,9 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const bridge = useCompanionBridge();
   const [active, setActive] = useState(false);
   const [kind, setKind] = useState<CompanionJobKind | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobQuality, setJobQuality] = useState(0);
+  const [jobMode, setJobMode] = useState<'speed' | 'quality' | null>(null);
   const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState<string | null>(null);
   const activeRef = useRef(false);
@@ -127,13 +139,24 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       { cache: 'no-store' },
     )
       .then((res) => (res.ok ? res.json() : null))
-      .then((body: { title?: string; state?: string } | null) => {
+      .then((body: { title?: string; state?: string; quality?: number; mode?: string } | null) => {
         if (body?.title) {
           setJobTitle(body.title);
-          return; // title found — stop polling
+        }
+        // The job poll also carries the selected format height + mode for
+        // the quality toast (notifyQuality): yt-dlp writes height.txt as
+        // soon as the format is chosen, so quality arrives early — expose
+        // it without waiting for the download to finish.
+        if (body && typeof body.quality === 'number' && body.quality > 0) {
+          setJobQuality(body.quality);
+        }
+        if (body?.mode === 'speed' || body?.mode === 'quality') {
+          setJobMode(body.mode);
         }
         // Job failed (error/cancelled): the title will never appear — stop
-        // polling instead of burning the bounded retries.
+        // polling instead of burning the bounded retries. A job reported
+        // error also means the quality that may already have arrived is
+        // final; the session (and toast) surface that through phase.
         if (body?.state === 'error' || body?.state === 'cancelled') {
           return;
         }
@@ -212,6 +235,11 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       clearIntentListeners();
       setActive(true);
       setKind(source.kind);
+      setJobId(source.jobId);
+      setJobQuality(0);
+      setJobMode(source.kind === 'youtube' ? 'speed' : null);
+      // Speed is the unified default; the job poll corrects to "quality"
+      // when the job was created in quality mode.
       // Compute subtitle URL if a subtitle was selected.
       if (source.kind === 'torrent' && source.subtitleFileId) {
         setSubtitleUrl(
@@ -261,6 +289,9 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     setActive(false);
     setSubtitleUrl(null);
     setJobTitle(null);
+    setJobId(null);
+    setJobQuality(0);
+    setJobMode(null);
   }, [bridge, clearIntentListeners]);
 
   const cancelActiveJob = useCallback(async () => {
@@ -330,6 +361,9 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   return {
     active,
     kind,
+    jobId,
+    jobQuality,
+    jobMode,
     phase: bridge.phase,
     progress: bridge.progress,
     reason: bridge.reason,
