@@ -395,6 +395,10 @@ svg {
     0 0 0 1px color-mix(in oklch, var(--entei-surface) 70%, transparent);
   color: var(--entei-text);
   padding: var(--entei-space-12) var(--entei-space-16);
+  /* Center the icon + text row across the pill: Sonner ships the flex
+     row (display:flex; align-items:center; gap:6px); add the main-axis
+     centering so the row is centered instead of left-flushed. */
+  justify-content: center;
 }
 
 /* Error toasts (notifyCompanionError): surface background with a stronger
@@ -410,12 +414,20 @@ svg {
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-title] {
   color: var(--entei-text);
   font-family: var(--entei-font-system);
+  text-align: center;
 }
 
 /* Centered Lucide icon + message: keep the flex row Sonner ships,
    realign the custom icon cell so the SVG and the text sit on one
    center line (no default-Sonner circle; icon comes from the caller,
    e.g. notifyCompanionError's CircleAlert). */
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-content] {
+  /* The text column inside the content row: center the column items
+     and the wrapped text itself (multi-line messages stay centered). */
+  align-items: center;
+  text-align: center;
+}
+
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-icon] {
   align-items: center;
   justify-content: center;
@@ -423,14 +435,17 @@ svg {
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-icon] svg {
-  width: 18px;
-  height: 18px;
+  /* Match the 16px icon cell exactly (Mimo: the old 18px overflowed
+     the 16px [data-icon] box by 1px). */
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-description] {
   color: var(--entei-text-muted);
   font-family: var(--entei-font-system);
+  text-align: center;
 }
 
 [data-sonner-toaster] [data-sonner-toast] button[data-close-button] {
