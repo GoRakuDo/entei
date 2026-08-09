@@ -198,13 +198,113 @@ func TestJobCreateReadCancelFlow(t *testing.T) {
 	}
 }
 
+// TestSpeedNotPlayableBelowThreshold pins the playable gate: a
+// downloading Speed job whose .part is smaller than speedMinPlayableBytes
+// reports "buffering" (NOT "playable"), so the bridge keeps the media URL
+// hidden. Exposing at the first byte caused a 503 → error-code-4 →
+// re-expose loop and audio-only starts (2026-08-09). If the gate is ever
+// relaxed back to `> 0` this test fails.
+func TestSpeedNotPlayableBelowThreshold(t *testing.T) {
+	s, _ := newJobsServer(t)
+	// 1 MiB < speedMinPlayableBytes: the .part exists but is too small to
+	// start playback.
+	t.Setenv("EIZOU_FAKE_SIZE", "1048576")
+	t.Setenv("EIZOU_FAKE_CHUNK", "262144")
+	t.Setenv("EIZOU_FAKE_CHUNK_DELAY_MS", "5")
+	t.Setenv("EIZOU_FAKE_HOLD", "1")
+
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"speed"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Let the fake helper write its 1 MiB, then confirm the status stays
+	// buffering while the job downloads (never playable below the gate).
+	deadline := time.Now().Add(5 * time.Second)
+	sawBytes := false
+	for {
+		status := getStatus(t, s)
+		if status.State == statusPlayable {
+			t.Fatalf("speed status = playable with %d bytes (< %d gate); want buffering",
+				status.Available, speedMinPlayableBytes)
+		}
+		if status.Available > 0 {
+			sawBytes = true
+		}
+		if status.Available >= 1048576 {
+			break // helper finished writing; still buffering
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout; last status=%+v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sawBytes {
+		t.Fatal("fake helper never produced bytes")
+	}
+}
+
+// TestSpeedPlayableThresholdPinned guards the constant itself: exactly
+// 2 MiB (2 << 20). The gate compares Available >= this value, so both the
+// below/at boundary semantics depend on it staying 2 MiB.
+func TestSpeedPlayableThresholdPinned(t *testing.T) {
+	if speedMinPlayableBytes != 2<<20 {
+		t.Fatalf("speedMinPlayableBytes = %d, want %d (2 MiB)", speedMinPlayableBytes, 2<<20)
+	}
+}
+
+// TestSpeedPlayableAtExactThreshold pins the boundary: a downloading Speed
+// job whose .part has grown to EXACTLY speedMinPlayableBytes (2 MiB)
+// reports "playable". Together with the below-threshold test this fixes
+// the `<` vs `>=` boundary — relaxing the gate to `> speedMinPlayableBytes`
+// would leave the exact 2 MiB point unexposed (this test then fails).
+func TestSpeedPlayableAtExactThreshold(t *testing.T) {
+	s, _ := newJobsServer(t)
+	// Exactly 2 MiB — the boundary value itself (8 × 256 KiB chunks, so the
+	// helper lands on the threshold exactly and then holds).
+	t.Setenv("EIZOU_FAKE_SIZE", "2097152") // 2 MiB == speedMinPlayableBytes
+	t.Setenv("EIZOU_FAKE_CHUNK", "262144")
+	t.Setenv("EIZOU_FAKE_CHUNK_DELAY_MS", "5")
+	t.Setenv("EIZOU_FAKE_HOLD", "1")
+
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"speed"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// The helper writes 8 × 256 KiB chunks and then holds: the moment the
+	// available prefix reaches exactly 2 MiB, status must flip to playable
+	// (never before).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		status := getStatus(t, s)
+		if status.State == statusPlayable {
+			if status.Available != speedMinPlayableBytes {
+				t.Fatalf("playable at available=%d, want the exact threshold %d",
+					status.Available, speedMinPlayableBytes)
+			}
+			return // boundary exposed exactly at 2 MiB
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout; last status=%+v (want playable at exactly %d)",
+				status, speedMinPlayableBytes)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // TestJobCreateModeSpeed streams while downloading: the status reports
-// "playable" once the .part exists (not buffering), and the media endpoint
-// serves a Range (206) rather than a 503.
+// "playable" once the .part has grown past speedMinPlayableBytes (2 MiB),
+// and the media endpoint serves a Range (206) rather than a 503.
 func TestJobCreateModeSpeedStreamsWhileDownloading(t *testing.T) {
 	s, _ := newJobsServer(t)
-	t.Setenv("EIZOU_FAKE_SIZE", "4096")
-	t.Setenv("EIZOU_FAKE_CHUNK", "1024")
+	// Fake media must exceed the playable threshold — a "playable" at a
+	// few bytes would hand the browser a URL that cannot start playback
+	// (503/error-code-4 loop, audio-only start).
+	t.Setenv("EIZOU_FAKE_SIZE", "3145728") // 3 MiB > speedMinPlayableBytes
+	t.Setenv("EIZOU_FAKE_CHUNK", "262144")
 	t.Setenv("EIZOU_FAKE_CHUNK_DELAY_MS", "5")
 	t.Setenv("EIZOU_FAKE_HOLD", "1")
 

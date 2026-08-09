@@ -215,6 +215,17 @@ func (s *Server) handleJobPreflight(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// speedMinPlayableBytes is the availability threshold below which a
+// downloading Speed job reports "buffering" (not "playable"). The first
+// byte of a progressive MP4 is not enough to start playback: the container
+// header (ftyp/moov) and the first video samples must be present, or the
+// video element hits a 503 → error-code-4 → re-expose loop and, once a
+// tiny prefix slips through, can start audio-only with the video track
+// stuck (observed 2026-08-09: "audio only + double audio on replay").
+// 2 MiB covers the header + early samples for the formats Speed selects;
+// the download is fast, so the added exposure delay is seconds at most.
+const speedMinPlayableBytes = 2 << 20 // 2 MiB
+
 // activeJobStatus maps the current job onto the existing status states when
 // a job session is active. ok=false means no job is current (the caller
 // falls back to the configured fixture/grow source).
@@ -222,9 +233,12 @@ func (s *Server) activeJobStatus() (statusBody, bool) {
 	snap, _ := s.jobs.ActiveMedia()
 	switch snap.State {
 	case job.StateQueued, job.StateDownloading, job.StateBuffering:
-		// Speed mode is instantly streamable once the .part file exists:
-		// report "playable" so the bridge hands the URL to the element.
-		if snap.Mode == job.ModeSpeed && snap.Media.Available > 0 {
+		// Speed mode is streamable once enough of the .part file exists to
+		// start real playback (container header + first samples); below
+		// that threshold report "buffering" so the bridge keeps the URL
+		// hidden (no 503 → error-code-4 → re-expose loop, no audio-only
+		// start).
+		if snap.Mode == job.ModeSpeed && snap.Media.Available >= speedMinPlayableBytes {
 			return statusBody{
 				State:     statusPlayable,
 				Available: snap.Media.Available,
