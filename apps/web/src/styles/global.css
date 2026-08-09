@@ -369,3 +369,54 @@ svg {
     background-color: var(--entei-black-950);
   }
 }
+
+/* ===== SONNER TOASTS (Entei theming) =====
+ * EizouToaster renders <Toaster theme="dark" richColors …/>; these rules
+ * replace Sonner's default light/dark palette with the Entei OKLCH tokens:
+ * card surface background, card radius, system font, token-based text and a
+ * 1px OKLCH border (no new hex/rgb values). Type accents (error) keep
+ * Sonner's richColors red over the token surface.
+ *
+ * Unlayered so it beats Tailwind layers; the ancestor [data-sonner-toaster]
+ * scope raises specificity above Sonner's own injected rules (which JS
+ * appends to <head> after the stylesheet link — equal specificity would
+ * lose by source order).
+ */
+[data-sonner-toaster] {
+  font-family: var(--entei-font-system);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] {
+  background: var(--entei-surface-2);
+  border: 1px solid color-mix(in oklch, var(--entei-text-muted) 38%, transparent);
+  border-radius: var(--entei-radius-card);
+  box-shadow:
+    0 4px 16px color-mix(in oklch, var(--entei-black-950) 55%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--entei-surface) 70%, transparent);
+  color: var(--entei-text);
+  padding: var(--entei-space-12) var(--entei-space-16);
+}
+
+/* Error toasts (notifyCompanionError): surface background with a stronger
+ * OKLCH border — the rich-colors red stays on the icon for the error
+ * signal, instead of flushing the whole card red. */
+[data-sonner-toaster]
+  [data-rich-colors='true']
+  [data-sonner-toast][data-styled='true'][data-type='error'] {
+  background: var(--entei-surface-2);
+  border-color: color-mix(in oklch, var(--entei-text-muted) 70%, transparent);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-title] {
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-description] {
+  color: var(--entei-text-muted);
+  font-family: var(--entei-font-system);
+}
+
+[data-sonner-toaster] [data-sonner-toast] button[data-close-button] {
+  border-radius: var(--entei-radius-md);
+}
