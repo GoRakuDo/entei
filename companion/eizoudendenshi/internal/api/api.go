@@ -316,12 +316,53 @@ func (s *Server) Handler() http.Handler {
 // stripped) + status only. The status is captured via a recording writer so
 // streaming handlers (http.ServeContent, 206/503 media paths) log their
 // real final status.
+//
+// Steady-state polling (pair/status, media/status, job/torrent status GETs)
+// is logged ONLY on failure: the browser repeats those every 1–30 s while a
+// session is live, drowning the genuinely interesting lines. Successes of
+// those status-only GETs stay silent; errors of the same endpoints, and
+// every other request (media/fixture, subtitles, file listings, mutations)
+// is still logged as before.
 func (s *Server) requestLog(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &statusRecorder{ResponseWriter: w}
 		h.ServeHTTP(rec, r)
-		s.log.Infof("api", "%s %s %d", r.Method, r.URL.Path, rec.status())
+		status := rec.status()
+		if isStatusPolling(r.Method, r.URL.Path) && status >= 200 && status < 300 {
+			return
+		}
+		s.log.Infof("api", "%s %s %d", r.Method, r.URL.Path, status)
 	})
+}
+
+// isStatusPolling reports whether a GET/HEAD request is a steady-state
+// status poll whose 2xx responses are suppressed from the request log.
+// Accepted:
+//
+//	/v1/pair/status            — pair validation (5 s cadence)
+//	/v1/media/status           — buffering bridge snapshot (30 s cadence)
+//	/v1/source/jobs/{id}       — active job snapshot
+//	/v1/source/torrents/{id}   — active torrent snapshot
+//
+// Payload GETs (media/fixture, subtitles, file listings) and all mutations
+// (POST/DELETE) are never suppressed — only the bare status id endpoint.
+func isStatusPolling(method, path string) bool {
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	switch {
+	case path == "/v1/pair/status", path == "/v1/media/status":
+		return true
+	case strings.HasPrefix(path, "/v1/source/jobs/"):
+		// The bare status GET is /v1/source/jobs/{id}; any suffix
+		// ({id}/subtitle…) carries a payload and stays logged.
+		rest := strings.TrimPrefix(path, "/v1/source/jobs/")
+		return rest != "" && !strings.Contains(rest, "/")
+	case strings.HasPrefix(path, "/v1/source/torrents/"):
+		rest := strings.TrimPrefix(path, "/v1/source/torrents/")
+		return rest != "" && !strings.Contains(rest, "/")
+	}
+	return false
 }
 
 // statusRecorder captures the response status written by the handler.

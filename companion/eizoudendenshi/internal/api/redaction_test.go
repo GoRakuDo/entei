@@ -172,7 +172,9 @@ func TestDiagnosticLogRedaction(t *testing.T) {
 	positives := []string{
 		"[INFO] api: POST /v1/pair ",
 		"[INFO] api: POST /v1/source/torrents 201",
-		"[INFO] api: GET /v1/source/torrents/",
+		// The bare torrent status GETs are steady-state polls (silent on
+		// 2xx); the payload file listing still logs.
+		"[INFO] api: GET /v1/source/torrents/" + id + "/files 200",
 		"[INFO] api: POST /v1/source/torrents/" + id + "/select 200",
 		"[INFO] pairing: pair ok",
 		"[WARN] pairing: pair fail invalid code",

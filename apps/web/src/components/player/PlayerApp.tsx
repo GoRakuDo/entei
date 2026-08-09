@@ -152,6 +152,14 @@ export const SUBTITLE_RETRY_INTERVAL_MS = 5000;
  *  the subtitle-fetch retry tests. */
 export const SUBTITLE_RETRY_WINDOW_MS = 3 * 60 * 1000;
 
+/** Companion start-buffering safety timeout: if the overlay has shown but
+ *  canplay never fires (e.g. a stalled .part), hide it after 15 s so the
+ *  player does not sit on the overlay forever. Longer than the 5 s seek
+ *  buffer bound because the initial load can legitimately take longer
+ *  (the piece may still be downloading). Playback is unaffected — a
+ *  later canplay just proceeds normally. */
+const START_BUFFERING_SAFETY_MS = 15000;
+
 /** Maximum length of a displayed media name (defense in depth). */
 const MAX_MEDIA_NAME_LENGTH = 255;
 
@@ -266,6 +274,23 @@ export default function PlayerApp() {
     null,
   );
   const seekBufferingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  // --- Companion start buffering overlay ---
+  // The companion job media URL is surfaced (video element mounted) but
+  // playback cannot start yet: the element sits at readyState < 3 or a
+  // `waiting` event fires while the growing .part yields no playable
+  // data. After 1 s of that state the larger "Preparing video…" overlay
+  // shows (same 1 s debounce pattern as isSeekBuffering, so fast starts
+  // never flash); canplay/playing clears it.
+  const [isStartBuffering, setIsStartBuffering] = useState(false);
+  const startBufferingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  // Safety bound for the start-buffering overlay (START_BUFFERING_SAFETY_MS);
+  // cleared by canplay / error / unmount.
+  const startBufferingSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
 
@@ -1200,6 +1225,9 @@ export default function PlayerApp() {
     // Clear seek buffering on error — the overlay is meaningless if the
     // element has errored.
     setIsSeekBuffering(false);
+    // Symmetric for the companion start-buffering overlay: an errored
+    // element never becomes playable, so the overlay must not linger.
+    setIsStartBuffering(false);
   }, []);
 
   // --- Seek buffering: monitor readyState after seek events ---
@@ -1261,6 +1289,70 @@ export default function PlayerApp() {
       setIsSeekBuffering(false);
     };
   }, [mediaType, mediaUrl]);
+
+  // --- Companion start buffering: monitor the initial playability ---
+  // The companion surfaces jobMediaUrl while the .part is still being
+  // written; the video element can mount but not start playback yet
+  // (readyState < HAVE_FUTURE_DATA or a 'waiting' event). Mirror the
+  // seek buffering logic: after 1 s of not-enough-data show the
+  // "Preparing video…" overlay; canplay clears it. The delay avoids
+  // flashing the overlay for fast starts.
+  useEffect(() => {
+    const media = mediaType === 'video' ? videoRef.current : null;
+    if (!media) return;
+    // Only companion job sessions with a surfaced media URL qualify;
+    // the pre-URL loading overlay covers the earlier phase.
+    if (!jobSession.active || !jobSession.jobMediaUrl) return;
+
+    const HAVE_FUTURE_DATA = 2;
+
+    const clearStartBufferingTimers = () => {
+      if (startBufferingDelayRef.current !== null) {
+        clearTimeout(startBufferingDelayRef.current);
+        startBufferingDelayRef.current = null;
+      }
+      if (startBufferingSafetyRef.current !== null) {
+        clearTimeout(startBufferingSafetyRef.current);
+        startBufferingSafetyRef.current = null;
+      }
+    };
+
+    const armStartBuffering = () => {
+      // If enough data is already here, nothing to show.
+      if (media.readyState >= HAVE_FUTURE_DATA) return;
+      clearStartBufferingTimers();
+      startBufferingDelayRef.current = setTimeout(() => {
+        startBufferingDelayRef.current = null;
+        // Re-check after the delay: the element may have become playable.
+        if (media.readyState >= HAVE_FUTURE_DATA) return;
+        setIsStartBuffering(true);
+        // Safety bound: hide the overlay after 15 s even if canplay never
+        // fires (stalled download) — playback itself is unaffected.
+        startBufferingSafetyRef.current = setTimeout(() => {
+          startBufferingSafetyRef.current = null;
+          setIsStartBuffering(false);
+        }, START_BUFFERING_SAFETY_MS);
+      }, 1000);
+    };
+
+    const onCanPlay = () => {
+      clearStartBufferingTimers();
+      setIsStartBuffering(false);
+    };
+
+    media.addEventListener('waiting', armStartBuffering);
+    media.addEventListener('canplay', onCanPlay);
+    // Initial state: the element may already be short of data (typical
+    // right after the companion surfaces the URL).
+    armStartBuffering();
+
+    return () => {
+      media.removeEventListener('waiting', armStartBuffering);
+      media.removeEventListener('canplay', onCanPlay);
+      clearStartBufferingTimers();
+      setIsStartBuffering(false);
+    };
+  }, [mediaType, jobSession.active, jobSession.jobMediaUrl]);
 
   const handleVolumeChange = useCallback((val: number) => {
     setVolume(val);
@@ -3186,6 +3278,23 @@ export default function PlayerApp() {
       {isSeekBuffering && !isLoading && !loadError && (
         <div className="entei-companion-loading" role="status" aria-label="Loading">
           <TypewriterLoading aria-hidden="true" />
+        </div>
+      )}
+      {/* Companion start buffering overlay: the job media URL surfaced
+          but the .part has not yielded playable data yet (readyState
+          below HAVE_FUTURE_DATA / 'waiting' for over 1 s). Shows the
+          same "preparing video" copy as the pre-URL loading overlay, at
+          a larger size so the waiting-for-playback state is readable on
+          phones; clears on canplay / error / 15 s safety bound.
+          Mutually exclusive with the seek-buffering overlay: when both
+          are true only the seek one renders, so the surface never shows
+          two stacked loaders. */}
+      {isStartBuffering && !isSeekBuffering && !isLoading && !loadError && (
+        <div className="entei-companion-loading entei-start-buffering" role="status" aria-label="Loading">
+          <TypewriterLoading aria-hidden="true" className="entei-typewriter--start" />
+          <p className="entei-companion-loading-text entei-companion-loading-text--start">
+            {dict.companionPreparingVideo}
+          </p>
         </div>
       )}
       <PlayerControls

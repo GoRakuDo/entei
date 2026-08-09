@@ -668,6 +668,16 @@
   line-height: 1.4;
 }
 
+/* Companion START buffering (black-screen wait): the job media URL is up
+   but the .part has not yielded playable data yet. Larger, responsive
+   type (scale 1rem → 1.5rem, clamped by viewport) so the waiting state
+   reads on phones; same layout pattern as the loading overlay. */
+.entei-start-buffering .entei-typewriter--start,
+.entei-companion-loading-text--start {
+  font-size: clamp(1rem, 3vw, 1.5rem);
+  line-height: 1.4;
+}
+
 /* --- Error State --- */
 .entei-player-error-state {
   display: flex;
