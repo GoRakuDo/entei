@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/media"
 )
 
@@ -784,5 +787,66 @@ func TestGrowMutuallyExclusiveWithFixture(t *testing.T) {
 	src := media.NewMemSource(growData(100), 100)
 	if _, err := New(Config{FixturePath: "x.mp4", GrowSource: src}); err == nil {
 		t.Fatal("New with both FixturePath and GrowSource: want error")
+	}
+}
+
+// TestTemporaryFixtureDiagLine pins the temporary per-request diagnostic
+// emitted by serveGrowingSource: start timestamp, handler elapsed ms, and
+// the Range header. TEMPORARY measurement aid — remove together with the
+// log line after the companion streaming latency measurement.
+func TestTemporaryFixtureDiagLine(t *testing.T) {
+	logDir := t.TempDir()
+	logger, err := diag.NewLogger(logDir)
+	if err != nil {
+		t.Fatalf("diag.NewLogger: %v", err)
+	}
+	defer logger.Close()
+
+	data := growData(2048)
+	src := media.NewMemSource(data, 2048)
+	s, err := New(Config{GrowSource: src, Logger: logger})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Range 206 request (the common streaming case).
+	rec := growRequest(t, s.Handler(), s.token, http.MethodGet, "bytes=0-100")
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("status = %d, want 206", rec.Code)
+	}
+	// Buffering 503 request (avail=0 wait case) — also must log.
+	empty := media.NewMemSource(growData(10), 0)
+	s2, err := New(Config{GrowSource: empty, Logger: logger})
+	if err != nil {
+		t.Fatalf("New s2: %v", err)
+	}
+	rec2 := growRequest(t, s2.Handler(), s2.token, http.MethodGet, "bytes=0-")
+	if rec2.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec2.Code)
+	}
+
+	logger.Close()
+	raw, err := os.ReadFile(filepath.Join(logDir, "eizouden.log"))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	logContent := string(raw)
+
+	// Each fixture request logs one diag line with the three fields.
+	if !strings.Contains(logContent, "[TEMPORARY] media fixture start=") {
+		t.Error("log missing [TEMPORARY] media fixture start= marker")
+	}
+	if !strings.Contains(logContent, "elapsed_ms=") {
+		t.Error("log missing elapsed_ms= field")
+	}
+	if !strings.Contains(logContent, "range=bytes=0-100") {
+		t.Errorf("log missing Range header echo:\n%s", logContent)
+	}
+	if !strings.Contains(logContent, "range=bytes=0-") {
+		t.Errorf("log missing open-ended Range echo:\n%s", logContent)
+	}
+	// Two requests → two diag lines.
+	if got := strings.Count(logContent, "[TEMPORARY] media fixture"); got != 2 {
+		t.Errorf("diag lines = %d, want 2:\n%s", got, logContent)
 	}
 }

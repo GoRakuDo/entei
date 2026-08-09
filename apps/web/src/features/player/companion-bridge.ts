@@ -14,8 +14,13 @@
  * - Single-flight chained status poll (setTimeout chain, no setInterval),
  *   epoch + AbortController supersession; source switch / unmount / cancel
  *   abort everything.
- * - Poll interval starts at max(Retry-After, base), exponential ×2, capped
- *   at maxPollMs; resets to base when `available` advances.
+ * - Fixed-interval buffering poll: while the source reports `buffering`
+ *   (e.g. a Speed job waiting for the .part to appear, avail=0), the next
+ *   poll fires after the base interval (1 s) — no exponential growth, so
+ *   "avail>0" is detected within ~1 s of the file appearing (2026-08-09
+ *   latency fix; the old 1→2→4→8→16→30 s backoff delayed playback start by
+ *   up to 30 s). Exponential backoff remains for transient failures and
+ *   the slow completion poll after playable/complete.
  * - Bounded failures: transient non-2xx failures → `error`; transport
  *   failures → `disconnected` with fixed-interval retries → `error` after a
  *   bounded number of polls or the total-wait cap.
@@ -157,7 +162,6 @@ export class CompanionBridge {
   private inFlight = false;
 
   private progress: CompanionBridgeProgress | null = null;
-  private lastAvailable: number | null = null;
   private backoffStep = 0;
   private transientFailures = 0;
   private disconnectedPolls = 0;
@@ -208,7 +212,6 @@ export class CompanionBridge {
     this.source = source;
     this.media = media;
     this.progress = null;
-    this.lastAvailable = null;
     this.backoffStep = 0;
     this.transientFailures = 0;
     this.disconnectedPolls = 0;
@@ -476,27 +479,29 @@ export class CompanionBridge {
 
   private onBuffering(status: CompanionBridgeStatus): void {
     this.progress = { available: status.available, total: status.total };
-    const first = this.lastAvailable === null;
-    const advanced = !first && status.available > this.lastAvailable!;
-    if (first || advanced) {
-      this.backoffStep = 0; // progress (or a fresh start) resets backoff
-    } else {
-      this.backoffStep += 1;
-    }
-    this.lastAvailable = status.available;
+    // Tail-latency fix (2026-08-09, advisor): during companion buffering
+    // (Speed job, avail waiting for the .part to appear), the old
+    // exponential backoff grew 1→2→4→8→16→30 s — the .part completes in
+    // a few seconds, so "avail>0" detection lagged up to 30 s (measured
+    // ~33 s select→play). Buffering therefore polls at a FIXED 1 s (or
+    // configured base) until progress/playable appears; the exponential
+    // backoff is kept for transient failures/disconnected (onTransient
+    // Failure) and the slow completion poll after playable/complete.
+    // The 1 s cadence only runs while a session is active, so the
+    // companion sees at most one request per second.
     this.transientFailures = 0;
     this.disconnectedPolls = 0;
+    this.backoffStep = 0; // reset for cleanliness; not used by the fixed-interval path
     this.setPhase('buffering');
     if (Date.now() - this.startedAt > this.opts.totalWaitMs) {
       this.setPhase('error', 'buffering timed out');
       return;
     }
-    this.schedule(this.nextDelay(status.retryAfter));
+    this.schedule(this.opts.basePollMs);
   }
 
   private onComplete(status: CompanionBridgeStatus): void {
     this.progress = { available: status.total, total: status.total };
-    this.lastAvailable = status.total;
     this.setPhase('ready');
     this.startReadyTransition();
   }
@@ -642,13 +647,14 @@ export class CompanionBridge {
       return;
     }
     if (status.state === 'buffering') {
-      this.lastAvailable = status.available;
       this.backoffStep = 0;
       this.transientFailures = 0;
       this.disconnectedPolls = 0;
       this.progress = { available: status.available, total: status.total };
       this.setPhase('buffering');
-      this.schedule(this.nextDelay(status.retryAfter));
+      // Buffering polls at the fixed base interval (see onBuffering):
+      // fast playable detection instead of the old exponential backoff.
+      this.schedule(this.opts.basePollMs);
       return;
     }
     this.setPhase('error', 'source reported an error after media failure');

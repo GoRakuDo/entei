@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"eizoudendenshi/internal/job"
 	"eizoudendenshi/internal/media"
@@ -316,6 +317,19 @@ func (s *Server) serveJobMedia(w http.ResponseWriter, r *http.Request) bool {
 //     served); with avail == total → 200 full body
 //   - HEAD mirrors GET status/headers without a body
 func (s *Server) serveGrowingSource(src media.GrowingSource, w http.ResponseWriter, r *http.Request) {
+	// TEMPORARY diagnostic (2026-08-09): latency measurement for the
+	// companion streaming path. Logs one line per fixture request with
+	// the request start, the handler processing time (ms), and the Range
+	// header, so the "avail=0 → complete wait" latency can be measured on
+	// the device. Remove after the latency measurement is finished
+	// (by 2026-08-31).
+	reqStart := time.Now()
+	defer func() {
+		if s.log != nil {
+			s.log.Infof("api", "[TEMPORARY] media fixture start=%s elapsed_ms=%d range=%s",
+				reqStart.Format(time.RFC3339Nano), time.Since(reqStart).Milliseconds(), r.Header.Get("Range"))
+		}
+	}()
 	total := src.Total()
 	avail := src.Available()
 

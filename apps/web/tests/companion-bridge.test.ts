@@ -2,10 +2,12 @@
  * ED-2E companion buffering bridge — controller behavior tests.
  * ---------------------------------------------------------------------------
  * Covers the committed design contract: single-flight chained polling,
- * exponential backoff with progress reset, Retry-After honoring, complete →
- * explicit src/load/play transition with play + seek intent preservation,
- * 401/403 → re-pair (no retries), bounded transient/disconnect failures,
- * cancellation, and the media-error re-check path.
+ * fixed-interval buffering poll (1 s — avail>0 detection within ~1 s;
+ * 2026-08-09 latency fix), exponential backoff for transient failures,
+ * complete → explicit src/load/play transition with play + seek intent
+ * preservation, 401/403 → re-pair (no retries), bounded
+ * transient/disconnect failures, cancellation, and the media-error
+ * re-check path.
  * --------------------------------------------------------------------------- */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -138,7 +140,7 @@ afterEach(() => {
 });
 
 describe('ED-2E companion bridge', () => {
-  it('polls status with exponential backoff while availability is static', async () => {
+  it('polls status at the fixed base interval while availability is static (no exponential backoff during buffering)', async () => {
     const { calls, times, fetchFn } = makeFetcher([
       buffering(100, 1000),
       buffering(100, 1000),
@@ -156,59 +158,94 @@ describe('ED-2E companion bridge', () => {
     );
     const t0 = times[0] ?? 0;
 
+    // 2026-08-09 fix: buffering polls at the FIXED base interval — the old
+    // exponential backoff (1→2→4→8→16→30 s) delayed "avail>0" detection by
+    // up to 30 s even though the .part completes in seconds.
     await vi.advanceTimersByTimeAsync(BRIDGE_BASE_POLL_MS - 1);
     expect(calls).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1); // t0 + 1000
     expect(calls).toHaveLength(2);
-    await vi.advanceTimersByTimeAsync(2000); // +2000
+    await vi.advanceTimersByTimeAsync(1000); // +1000
     expect(calls).toHaveLength(3);
-    await vi.advanceTimersByTimeAsync(4000); // +4000
+    await vi.advanceTimersByTimeAsync(1000); // +1000
     expect(calls).toHaveLength(4);
-    await vi.advanceTimersByTimeAsync(8000); // +8000
+    await vi.advanceTimersByTimeAsync(1000); // +1000
     expect(calls).toHaveLength(5);
 
     const gaps = [1, 2, 3].map((i) => (times[i] ?? 0) - (times[i - 1] ?? 0));
-    expect(gaps).toEqual([1000, 2000, 4000]);
+    expect(gaps).toEqual([1000, 1000, 1000]);
     void t0;
   });
 
-  it('resets backoff to base when availability advances', async () => {
+  it('keeps the base poll interval whether availability is static or advances', async () => {
     const { calls, times, fetchFn } = makeFetcher([
       buffering(100, 1000),
-      buffering(200, 1000), // progress → reset
-      buffering(200, 1000), // static again → 2s
-      buffering(300, 1000), // progress → reset
+      buffering(200, 1000), // progress — still fixed interval
+      buffering(200, 1000),
+      buffering(300, 1000),
     ]);
     const { bridge } = makeController({ fetchFn });
     bridge.beginSession(SOURCE);
     await flush();
 
-    await vi.advanceTimersByTimeAsync(1000); // progress poll (gap 1000)
+    await vi.advanceTimersByTimeAsync(1000);
     await flush();
-    await vi.advanceTimersByTimeAsync(1000); // static poll (gap 1000 — reset worked)
+    await vi.advanceTimersByTimeAsync(1000);
     await flush();
     expect(calls).toHaveLength(3);
     expect((times[2] ?? 0) - (times[1] ?? 0)).toBe(1000);
 
-    await vi.advanceTimersByTimeAsync(2000); // progress poll (gap 2000 — step was 1)
+    await vi.advanceTimersByTimeAsync(1000);
     await flush();
     expect(calls).toHaveLength(4);
   });
 
-  it('honors Retry-After for the next poll delay', async () => {
+  it('ignores Retry-After during buffering (fixed fast poll wins)', async () => {
+    // Retry-After was honored by the old backoff; buffering now polls at
+    // the fixed base interval so the companion detects playable ~1 s after
+    // it appears, regardless of the hint.
     const { times, fetchFn } = makeFetcher([
-      buffering(100, 1000, 3), // Retry-After 3s
+      buffering(100, 1000, 3), // Retry-After 3s — ignored
       buffering(100, 1000),
     ]);
     const { bridge } = makeController({ fetchFn });
     bridge.beginSession(SOURCE);
     await flush();
 
-    await vi.advanceTimersByTimeAsync(2999);
+    await vi.advanceTimersByTimeAsync(999);
     expect(times).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(times).toHaveLength(2);
-    expect((times[1] ?? 0) - (times[0] ?? 0)).toBe(3000);
+    expect((times[1] ?? 0) - (times[0] ?? 0)).toBe(1000);
+  });
+
+  it('detects avail>0 quickly: playable within ~2 s of a buffering start', async () => {
+    // Companion job (Speed): .part completes a few seconds after the job
+    // starts. With the fixed 1 s buffering poll, the bridge must surface
+    // the media URL within ~2 s of the first poll.
+    const { fetchFn } = makeFetcher([
+      buffering(0, 1000),
+      buffering(0, 1000),
+      playable(300, 1000),
+    ]);
+    const media = makeMedia();
+    const { bridge, phases } = makeController({ fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+    expect(bridge.currentPhase).toBe('buffering');
+
+    await vi.advanceTimersByTimeAsync(1000); // 2nd poll: still buffering
+    await flush();
+    expect(bridge.currentPhase).toBe('buffering');
+
+    await vi.advanceTimersByTimeAsync(1000); // 3rd poll: playable
+    await flush();
+    expect(bridge.currentPhase).toBe('ready');
+    expect(phases).toContain('ready');
+    expect(media.setSrc).toHaveBeenCalledWith(
+      'http://127.0.0.1:4322/v1/media/fixture?token=tok123',
+    );
+    expect(media.load).toHaveBeenCalledTimes(1);
   });
 
   it('never runs parallel polls (single in-flight)', async () => {
