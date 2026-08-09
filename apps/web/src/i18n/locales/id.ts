@@ -26,6 +26,7 @@ export const id: Dictionary = {
     changeSubtitle: 'Ganti',
     subtitles: 'Subtitle',
     noSubtitlesLoaded: 'Belum ada subtitle. Tambahkan file SRT atau VTT.',
+    preparingSubtitles: 'Menyiapkan subtitle…',
     shortcuts: 'Pintasan',
     shortcutsTitle: 'Pintasan Keyboard',
     shortcutsDesc:

@@ -38,6 +38,7 @@ const mockDict = {
   changeSubtitle: 'Change',
   subtitles: 'Subtitles',
   noSubtitlesLoaded: 'None',
+  preparingSubtitles: 'Preparing…',
   shortcuts: 'Shortcuts',
   shortcutsTitle: 'Shortcuts',
   shortcutsDesc: 'Desc',

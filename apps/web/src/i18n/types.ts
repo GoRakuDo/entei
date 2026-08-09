@@ -60,6 +60,8 @@ export interface Dictionary {
     changeSubtitle: string;
     subtitles: string;
     noSubtitlesLoaded: string;
+    /** Shown while companion subtitles are still being fetched. */
+    preparingSubtitles: string;
     shortcuts: string;
     shortcutsTitle: string;
     shortcutsDesc: string;

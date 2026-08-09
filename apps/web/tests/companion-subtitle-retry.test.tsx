@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   ankiConnectClientCtor: vi.fn(),
   ankiExportClientCtor: vi.fn(),
   capturedSubtitle: null as SubtitleCue[] | null,
+  capturedIsLoadingSubtitles: false,
 }));
 
 vi.mock('@/features/player/anki-connect', () => ({
@@ -166,11 +167,12 @@ vi.mock('@/components/player/AnkiAppendPanel', () => ({
   AnkiAppendPanel: vi.fn(() => null),
 }));
 
-// RightPanel is mocked but records the cues prop it receives so the tests
-// can assert that a successful retry populated the player state.
+// RightPanel is mocked but records the cues + loading props it receives so
+// the tests can assert that a successful retry populated the player state.
 vi.mock('@/components/player/RightPanel', () => ({
-  RightPanel: vi.fn((props: { cues: SubtitleCue[] }) => {
+  RightPanel: vi.fn((props: { cues: SubtitleCue[]; isLoadingSubtitles: boolean }) => {
     mocks.capturedSubtitle = props.cues;
+    mocks.capturedIsLoadingSubtitles = props.isLoadingSubtitles;
     return null;
   }),
 }));
@@ -259,6 +261,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   mockSession = freshSession();
   mocks.capturedSubtitle = null;
+  mocks.capturedIsLoadingSubtitles = false;
   mocks.runAnkiConnectionFlow.mockResolvedValue({
     decks: ['Japanese'],
     models: ['Basic'],
@@ -300,20 +303,24 @@ describe('YouTube subtitle fetch — bounded retry in speed mode', () => {
 
     render(<Player />);
 
-    // Attempt #1 fires immediately → 404 (file not written yet).
+    // Attempt #1 fires immediately → 404 (file not written yet). While
+    // the fetch is pending, the subtitle panel must show the loading
+    // state (isLoadingSubtitles=true) instead of the empty picker.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(fetchStub).toHaveBeenCalledTimes(1);
     expect(mocks.capturedSubtitle).toEqual([]);
+    expect(mocks.capturedIsLoadingSubtitles).toBe(true);
 
     // One retry interval later the retry fires → 200 → cues are parsed
-    // and stored.
+    // and stored; the loading state clears.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SUBTITLE_RETRY_INTERVAL_MS);
     });
     expect(fetchStub).toHaveBeenCalledTimes(2);
     expect(mocks.capturedSubtitle).not.toBeNull();
+    expect(mocks.capturedIsLoadingSubtitles).toBe(false);
     const texts = mocks.capturedSubtitle!.map((c) => c.text);
     expect(texts).toContain('こんにちは世界');
     expect(texts).toContain('字幕リトライ成功');
@@ -359,6 +366,55 @@ describe('YouTube subtitle fetch — bounded retry in speed mode', () => {
     });
     const totalCallsAfter = fetchStub.mock.calls.length;
     expect(totalCallsAfter).toBe(totalCallsDone);
+    expect(mocks.capturedSubtitle).toEqual([]);
+    // Mimo BLOCKER (2026-08-09): after the retry deadline the loading
+    // state must clear so the panel falls back to the ordinary empty
+    // state — a video without subtitles must not show "Preparing
+    // subtitles…" forever.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SUBTITLE_RETRY_INTERVAL_MS);
+    });
+    expect(mocks.capturedIsLoadingSubtitles).toBe(false);
+  });
+
+  it('retry deadline → loading clears and the empty state returns', async () => {
+    mockSession.active = true;
+    mockSession.kind = 'youtube';
+    mockSession.phase = 'ready';
+    mockSession.subtitleUrl = SUBTITLE_URL;
+    mockSession.jobMediaUrl = MEDIA_URL;
+
+    const fetchStub = vi.fn(() =>
+      Promise.resolve(new Response('subtitle not available', { status: 404 })),
+    );
+    vi.stubGlobal('fetch', fetchStub);
+
+    render(<Player />);
+
+    // While retrying (before the deadline) the panel shows loading.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.capturedIsLoadingSubtitles).toBe(true);
+
+    // Run past SUBTITLE_RETRY_WINDOW_MS in retry steps: the bounded loop
+    // gives up at the deadline.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    for (
+      let i = 0;
+      i * SUBTITLE_RETRY_INTERVAL_MS <= SUBTITLE_RETRY_WINDOW_MS;
+      i++
+    ) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SUBTITLE_RETRY_INTERVAL_MS);
+      });
+    }
+
+    // Deadline reached: loading cleared (empty state falls back), cues
+    // stay empty (no subtitle): the video has no Japanese subtitle.
+    expect(mocks.capturedIsLoadingSubtitles).toBe(false);
     expect(mocks.capturedSubtitle).toEqual([]);
   });
 });

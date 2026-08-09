@@ -609,6 +609,26 @@ export default function PlayerApp() {
     }
   }, [jobSession.jobTitle]);
 
+  // Whether the companion-subtitle bounded retry has actually given up
+  // (SUBTITLE_RETRY_WINDOW_MS elapsed with no 200). While false, the
+  // subtitle panel shows "Preparing subtitles…"; once true it falls back
+  // to the ordinary empty/subtitle-less state so a video without
+  // subtitles does not show a spinner forever (2026-08-09, Mimo BLOCKER).
+  const [subtitleFetchFailed, setSubtitleFetchFailed] = useState(false);
+
+  // Companion job with a subtitle fetch still running (or not yet
+  // attempted) and no content parsed yet — drives the "Preparing
+  // subtitles…" panel state. Cleared once the bounded retry gives up
+  // (subtitleFetchFailed) or content arrives. Single source of truth so
+  // the desktop and mobile RightPanel receive the same computed value.
+  // The SubtitlePanel keeps no deadline knowledge: PlayerApp owns the
+  // retry window and the fallback.
+  const isLoadingSubtitles =
+    jobSession.active &&
+    !!jobSession.subtitleUrl &&
+    cues.length === 0 &&
+    !subtitleFetchFailed;
+
 // ED-2G: Auto-fetch subtitle content from companion when a torrent job
   // selected a subtitle file, or from a YouTube job that has Japanese
   // subtitles. Fetches the text, parses it with the same subtitle-reader
@@ -625,9 +645,19 @@ export default function PlayerApp() {
   // SUBTITLE_RETRY_INTERVAL_MS, until SUBTITLE_RETRY_WINDOW_MS or
   // unmount/cancel). Failures stay silent: no toast, no error state;
   // the panel simply fills in once the file appears.
+  //
+  // Mimo BLOCKER (2026-08-09): when the retry deadline passes without a
+  // 200, there is no reason to keep showing "Preparing subtitles…"
+  // forever (a video may simply have no Japanese subtitle). On the
+  // deadline, mark subtitleFetchFailed so the loading state clears and
+  // the panel falls back to the ordinary empty state. The SubtitlePanel
+  // itself owns NO deadline knowledge — PlayerApp owns the retry window
+  // and the fallback, which keeps the panel a pure presentation layer.
   useEffect(() => {
     const url = jobSession.subtitleUrl;
     if (!url || !jobSession.active) return;
+    // A new job/source resets the retry state.
+    setSubtitleFetchFailed(false);
     // YouTube subtitles are only fetchable once the bridge reports the
     // media playable (the file can still be mid-write — the bounded
     // retry below absorbs the gap); torrents fetch immediately.
@@ -670,7 +700,15 @@ export default function PlayerApp() {
     };
 
     const scheduleRetry = () => {
-      if (cancelled || Date.now() >= retryDeadline) return;
+      if (cancelled) return;
+      if (Date.now() >= retryDeadline) {
+        // Bounded retry exhausted without a 200: give up silently and
+        // let the panel fall back to the empty state (no "Preparing…
+        //" forever). A later phase/source change re-runs this effect
+        // and resets the flag.
+        setSubtitleFetchFailed(true);
+        return;
+      }
       if (retryTimer !== null) return; // one pending retry at a time
       retryTimer = setTimeout(() => {
         retryTimer = null;
@@ -3638,6 +3676,7 @@ export default function PlayerApp() {
               visible={isSubtitlePanelVisible}
               dict={dict}
               cues={cues}
+              isLoadingSubtitles={isLoadingSubtitles}
               activeCueId={activeCueId}
               onCueClick={handleCueClick}
               onSubtitleSelect={handleSubtitleSelect}
@@ -3660,6 +3699,7 @@ export default function PlayerApp() {
               visible={isSubtitlePanelVisible}
               dict={dict}
               cues={cues}
+              isLoadingSubtitles={isLoadingSubtitles}
               activeCueId={activeCueId}
               onCueClick={handleCueClick}
               onSubtitleSelect={handleSubtitleSelect}

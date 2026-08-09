@@ -57,6 +57,31 @@ function baseProps(overrides?: Record<string, unknown>) {
   };
 }
 
+/** Like baseProps but with no mine wiring (matches the panel props used by
+ *  RightPanel for the companion loading state). */
+function basePropsForLoading() {
+  return {
+    cues,
+    activeCueId: null,
+    onCueClick: vi.fn(),
+    onMineCue: vi.fn(),
+    canMineRow: false,
+    isMining: false,
+    mineRowLabel: 'Mine this cue',
+    mineRowDisabledLabel: 'Mining unavailable',
+    mineCapturingLabel: 'Mining…',
+  };
+}
+
+/** Minimal props for the empty/loading branches: no mining callbacks. */
+function basePropsWithoutMine() {
+  return {
+    cues,
+    activeCueId: null,
+    onCueClick: vi.fn(),
+  };
+}
+
 describe('SubtitlePanel row mining', () => {
   it('renders a mine button for each cue when onMineCue is provided', () => {
     render(<SubtitlePanel {...baseProps()} />);
@@ -166,5 +191,59 @@ describe('SubtitlePanel row mining', () => {
     fireEvent.click(seekButton);
     expect(props.onCueClick).toHaveBeenCalledTimes(1);
     expect(props.onCueClick).toHaveBeenCalledWith(cues[0]);
+  });
+});
+
+describe('SubtitlePanel loading state (companion subtitles pending)', () => {
+  it('shows centered loading indicator while subtitles are being fetched', () => {
+    render(
+      <SubtitlePanel
+        {...basePropsForLoading()}
+        cues={[]}
+        isLoadingSubtitles
+        preparingSubtitlesLabel="Preparing subtitles…"
+      />,
+    );
+    const status = screen.getByRole('status', {
+      name: 'Preparing subtitles…',
+    });
+    expect(status).not.toBeNull();
+    expect(
+      status.querySelector('.entei-typewriter--panel'),
+    ).not.toBeNull();
+    expect(
+      status.querySelector('.entei-subtitle-preparing-text'),
+    ).not.toBeNull();
+    // The picker/empty copy must be absent during loading.
+    expect(screen.queryByRole('button', { name: /subtitles/i })).toBeNull();
+    expect(screen.queryByText('No subtitles loaded. Add an SRT or VTT file.')).toBeNull();
+  });
+
+  it('hides loading if cues arrived', () => {
+    render(
+      <SubtitlePanel
+        {...baseProps()}
+        isLoadingSubtitles
+        preparingSubtitlesLabel="Preparing subtitles…"
+      />,
+    );
+    expect(screen.queryByRole('status', { name: 'Preparing subtitles…' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: /Seek to/ })).not.toHaveLength(0);
+  });
+
+  it('keeps the local-file empty picker state when not loading', () => {
+    render(
+      <SubtitlePanel
+        {...basePropsWithoutMine()}
+        cues={[]}
+        isLoadingSubtitles={false}
+        preparingSubtitlesLabel="Preparing subtitles…"
+        onSubtitleSelect={vi.fn()}
+        subtitleAccept=".srt,.vtt"
+        chooseSubtitleLabel="Choose"
+      />,
+    );
+    expect(screen.queryByRole('status', { name: 'Preparing subtitles…' })).toBeNull();
+    expect(screen.getByText('No subtitles loaded. Add an SRT or VTT file.')).not.toBeNull();
   });
 });

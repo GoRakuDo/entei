@@ -64,6 +64,7 @@ describe('LocaleChangeDetail shape', () => {
       'showShortcutsAriaLabel',
       'dialogClose',
       'subtitleWarnings',
+      'preparingSubtitles',
       'unsupportedFormat',
       'failedToRead',
       'failedToLoadAudio',

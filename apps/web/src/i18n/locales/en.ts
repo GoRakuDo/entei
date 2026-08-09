@@ -25,6 +25,7 @@ export const en: Dictionary = {
     changeSubtitle: 'Change',
     subtitles: 'Subtitles',
     noSubtitlesLoaded: 'No subtitles loaded. Add an SRT or VTT file.',
+    preparingSubtitles: 'Preparing subtitles…',
     shortcuts: 'Shortcuts',
     shortcutsTitle: 'Keyboard Shortcuts',
     shortcutsDesc:

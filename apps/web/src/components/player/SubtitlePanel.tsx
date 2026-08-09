@@ -15,6 +15,7 @@ import type { SubtitleCue } from '@/features/player/subtitle-reader';
 import { formatTime } from '@/features/player/control-helpers';
 import { ScrollArea } from './ui/scroll-area';
 import { SubtitlePicker } from './SubtitlePicker';
+import { TypewriterLoading } from './TypewriterLoading';
 import { Pickaxe } from 'lucide-react';
 
 interface SubtitlePanelProps {
@@ -26,6 +27,11 @@ interface SubtitlePanelProps {
   noSubtitlesLabel?: string;
   seekToLabel?: string;
   chooseSubtitleLabel?: string;
+  /** While true (companion job subtitles still being fetched) the empty
+   *  state is replaced with a centered loading indicator. */
+  isLoadingSubtitles?: boolean;
+  /** Localized label for the loading state. */
+  preparingSubtitlesLabel?: string;
   /** AM-4 Row Mining: callback to mine a specific cue. */
   onMineCue?: (cue: SubtitleCue) => void;
   /** Whether row mining is available (media loaded, not capturing). */
@@ -49,6 +55,11 @@ export function SubtitlePanel({
   noSubtitlesLabel = 'No subtitles loaded. Add an SRT or VTT file.',
   seekToLabel = 'Seek to',
   chooseSubtitleLabel = 'Choose Subtitles',
+  isLoadingSubtitles = false,
+  // English default matches the existing inline-label pattern (e.g.
+  // noSubtitlesLabel): the panel is a pure presentation component and
+  // the caller (RightPanel) always passes the localized dictionary value.
+  preparingSubtitlesLabel = 'Preparing subtitles…',
   onMineCue,
   canMineRow,
   isMining,
@@ -94,6 +105,30 @@ export function SubtitlePanel({
     const behavior = prefersReduced ? 'instant' : 'smooth';
     activeEl.scrollIntoView({ block: 'nearest', behavior });
   }, [activeCueId]);
+
+  if (cues.length === 0 && isLoadingSubtitles) {
+    // Companion job (YouTube/Magnet): subtitles are still being fetched
+    // (bounded retry in PlayerApp). Replace the otherwise empty state
+    // with a centered loading indicator so the panel does not look broken
+    // during the multi-second gap.
+    return (
+      <div className="entei-subtitle-panel">
+        <div
+          className="entei-subtitle-preparing"
+          role="status"
+          aria-label={preparingSubtitlesLabel}
+        >
+          <TypewriterLoading
+            aria-hidden="true"
+            className="entei-typewriter--panel"
+          />
+          <p className="entei-subtitle-preparing-text">
+            {preparingSubtitlesLabel}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (cues.length === 0) {
     return (

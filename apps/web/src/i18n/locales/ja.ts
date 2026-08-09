@@ -26,6 +26,7 @@ export const ja: Dictionary = {
     subtitles: '字幕',
     noSubtitlesLoaded:
       '字幕が読み込まれていません。SRTまたはVTTファイルを追加してください。',
+    preparingSubtitles: '字幕を準備中…',
     shortcuts: 'ショートカット',
     shortcutsTitle: 'キーボードショートカット',
     shortcutsDesc: '再生操作と字幕ナビゲーションのキーボードショートカット。',

@@ -104,7 +104,7 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 5. companionは最大1080p sourceを取得し、手動日本語字幕、次に自動日本語字幕を解決する。
 6. Enteiはlocalhost stream URLを既存Playerへ渡す。日本語字幕がなければ既存empty subtitle stateを表示する。
 
-### YouTube 再生モード設定（Quality / Speed、2026-08-07設計確定・未実装）
+### YouTube 再生モード設定（Quality / Speed、2026-08-07設計確定 → 2026-08-08 web/companion 実装済み）
 
 YouTube は「即再生」と「画質」がトレードオフ。**ユーザーが Quality / Speed のどちらでダウンロードするかを選べる**ようにする。
 
@@ -234,6 +234,7 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 37. YouTube字幕対応（2026-08-06）: YouTube 動画の日本語字幕をサイドパネル（SubtitlePanel）に表示。**投稿者（Manual）日本語字幕を優先し、なければ自動生成（Auto）日本語字幕**（日本語以外不要）。companion: yt-dlp の argv に `--write-subs --write-auto-subs --sub-langs "ja.*" --sub-format vtt` を追加。`selectJapaneseSubtitle`: **manual = `*.ja.vtt`（優先）、auto = `*.ja-orig.vtt`（フォールバック）**（yt-dlp の命名規則に準拠。当初 `.auto.` で判定したが yt-dlp は `-orig` サフィックスなので修正）。`GET /v1/source/jobs/{id}/subtitle` API（origin+token gate、text/plain、Cache-Control no-store、字幕なし404）。web: `use-companion-job-session.ts` で YouTube（kind='youtube'）の `subtitleUrl` を公開し、PlayerApp が **job 完了（phase='ready'/'playing'）後に** fetch → subtitle-reader でパース → SubtitlePanel 表示（Magnet と同様。当初 job 完了前に fetch して 404→再試行なしだったのを、phase ゲートで修正）。Mimo 独立レビュー（新しい部屋）REQUEST CHANGES（HIGH 2件: -orig 命名・fetch タイミング）→ 全部対応 → **完全 APPROVE**。`go test -race` 10/10、`npm test` 1439 PASS・check 0/0/0・build 成功。
 38. 字幕パーサーの空 cue 警告抑制（2026-08-06）: YouTube 字幕（yt-dlp VTT）ロード時に「Empty cue text」「Invalid timing line: ""」警告が大量に返り `entei-player-errors` に表示される問題。YouTube 字幕では**空の cue（音楽・無音セグメント）と空行が正常に発生**するため、`subtitle-reader.ts` の SRT/VTT/ASS 3パーサーで「空 cue text」と「空タイミング行」を**黙ってスキップ（警告にしない）**に修正。**真の解析エラー（非空でパース不能なタイミング行等）は警告維持**。Mimo 独立レビュー（新しい部屋）Approve with changes（MED 2件: テスト名の誤ラベル・空タイミングガードのディフェンシブコメント + LOW 1件）→ 対応済み。`npm test` 1441 PASS・check 0/0/0・build 成功。
 39. YouTube 自動キャンセル（2026-08-07）: YouTube でも「新しい URL が送られたら、前のアクティブな YouTube job を自動キャンセル → 新しい job を開始」を実装（Magnet と同様のパターン）。`YouTubeInput` に `cancelActiveJob` prop（useCompanionJobSession の cancelActiveJob）を追加し、`handleSubmit` で新 job 作成前に **fire-and-forget cancel**（companion の Cancel は同期のため await すると UI ブロック、Magnet と同じ理由）。conflict（409）エラー「Satu unduhan sudah berjalan」の代わりに自動キャンセルで新 job 開始。Mimo 独立レビュー（新しい部屋）**完全 APPROVE**（MED 1件: 理論上のサーバー側 409 race（Cancel の mutex 解放窓 ~100ms）は Optional・別 PR / LOW 1件: 409 時の自動再試行 UX は Optional）。`npm test` 1443 PASS・check 0/0/0・build 成功。
+40. 字幕取得の遅延実測と先取り取得（将来案・2026-08-09 記録）: 字幕は yt-dlp が動画 DL の**後**に書き出すため、subtitle API が 200 になるまで数十秒かかる。**rc.66 実測（2026-08-09 17:08:25 ジョブ）**: ジョブ開始 +3s（17:08:28.465）で subtitle 404 → **+30s（17:08:58.465）で subtitle 200**（404 at 3s → 200 at 30s）。この間 web は bounded retry（5s 間隔・最大 3 分）で待ち、Side panel の字幕欄は「字幕を準備中…（preparing subtitles）」ローディング表示になる。**将来案（実装予定・未着手）: 字幕の先取り取得** — メディア DL とは独立に「字幕だけを先に落とす yt-dlp（`--skip-download --write-subs --write-auto-subs`）プロセス」を並行起動し、1〜2 秒で字幕を揃える（= Side panel の「Preparing subtitles…」をほぼ消す）。実装時は検証が必要: 同一 URL の yt-dlp 2 プロセス並行（メディア DL + 字幕取得）が YouTube 側 rate に与える影響、字幕プロセス単体の失敗時のフォールバック（従来の後追い取得へ）。
 
 > **最終解決（2026-08-06確認済み）: シークループ（GPU Video Decode 100%）は完全解消。** サーバー: htorrent 方式（ServeContent + anacrolix Reader + modtime=CreationDate、rc.42）+ AnchorSeek（tiramisu 方式、rc.43）。Web: requestSeek 同値スキップ + playing 中 complete リセット防止 + Home キー clampSeek（commit 4a7fa0b）。ユーザー実機確認で「シークスムーズ・GPU100% 解消」。上記 #26-#33 はすべてこの解決に至る履歴。
 
@@ -277,7 +278,7 @@ ED-2Gのtorrent jobはanacrolix/torrent engine（v1.61・loopback-only・Seed=fa
 - **safe-early handoff predicate**（`structurallyPlayable`）: MP4/ISO-BMFFはcomplete ftyp+moovがverified prefix内に完全に収まり、stsd video codecがbrowser-decodeable（avc1/avc3/vp09/av01。hvc1/hev1等は拒否）かつverified sample boundaryが存在すること。Matroska/MKVはEBML header + Segment + complete Tracks（decodeable video TrackEntry: V_MPEG4/ISO/AVC, V_VP9, V_AV1。HEVC/unknown/audio-only拒否）+ completeな最初のClusterにvideo blockが含まれること。partial / truncated要素は誠実にbuffering継続。fixed byte thresholdなし。MKV random-seek capabilityは主張しない。
 - **Web bridge**: `playable`でmedia URLをsurfaceし、再生中もstatus poll継続。media error / seek超過時はprefix追いつき後に明示`load()`再適用（bounded）。
 - **companion controls修復**: callback refsがlocal mediaType stateではなくdisplayMediaTypeでsharedMediaRefをgateするよう修正（companion videoでtimestamp 00:00/00:00・Play/Pause no-opを解消）。
-### 共通CLIと初回helper導入（実装済み・実機gate未実施）
+### 共通CLIと初回helper導入（実装済み・実機gateは後述のQAで通過済み）
 
 Windows / Termuxともに、初回bootstrap後の入口は同じ`eizouden` CLIに統一する。CLIは現在起動中のcompanionへ接続するためのUIではなく、local companionの運用入口である。起動時はrelease versionを色付きheaderで表示し、選択肢は増やさない。
 
@@ -406,10 +407,10 @@ Goテストは契約全体（境界exact end・crossingの206クランプ・star
 
 `Available()`は**リクエスト毎に1回だけ**snapshotし、served windowはそのsnapshotから導出して決して跨がない。加えてsource自身が`ReadAt`で境界を強制し、availabilityはmonotonic（append-only契約）— 並行writerがunavailable byteを配信することは構造的に不可能。エラー応答 / logにdisk pathは出ない。
 
-### 未実装（PoC境界）
+### 未実装（PoC境界） — この節は ED-2C 段階（2026-07-31 時点）の記録。以降の # で実装済み:
 
-- downloaderなし（yt-dlp / aria2 / ffmpegのinstall・実行・呼出なし）。
-- production bridgeは未実装。**Windows Chromeのgrowing progressive再生は2026-07-31に計測済み**（旧契約: 503→error code 4・自動再試行なし・追記のみでは回復しない・明示`load()`+`play()`で206再生・reload後seek成功）。**2026-08-05修正で`bytes=0-`は206クランプになり、最初の503→error code 4経路は解消（再計測未実施）**。**Android Chromeのgrowing playbackは未計測**。bridgeは「Chromeの自動再試行に依存できない」前提で、buffering表示 + availabilityベースのretry/backoff + playable prefix到達時の明示`src`/`load()`リセットが必要。
+- downloaderなし（yt-dlp / aria2 / ffmpegのinstall・実行・呼出なし） — **2026-08-01 以降、yt-dlp 実 download QA で実装・実機確認済み**（#22・ED-2F 節）。
+- production bridgeは未実装。**Windows Chromeのgrowing progressive再生は2026-07-31に計測済み**（旧契約: 503→error code 4・自動再試行なし・追記のみでは回復しない・明示`load()`+`play()`で206再生・reload後seek成功）。**2026-08-05修正で`bytes=0-`は206クランプになり、最初の503→error code 4経路は解消（再計測未実施）**。**Android Chromeのgrowing playbackは未計測**。bridgeは「Chromeの自動再試行に依存できない」前提で、buffering表示 + availabilityベースのretry/backoff + playable prefix到達時の明示`src`/`load()`リセットが必要。 — **後続の ED-2E で bridge（companion-bridge.ts）実装済み**（下記セクション参照）。
 
  ## ED-2E companion buffering bridge（実装済み: status endpoint + bridge controller/hook・browser QA未実施）
 
@@ -540,6 +541,7 @@ loopback companion専用のYouTube source jobの基盤（create / read / cancel�
 ### subtitles境界
 
 本phaseでは**実装しない**。subtitle flagも渡さずavailability queryもしない。cookieなしで安全にqueryできる場合のみ記録する方針は、helper metadata出力のparseという別の安全・決定的ステップが必要なため延期（有効化前に再レビュー必須）。日本語字幕の選択/取得も同様に未実装。
+**（2026-08-06 追記・現在は実装済み）**: 上記は ED-2F 初期の設計記録。**#37（YouTube字幕対応・2026-08-06）で実装済み** — yt-dlp argv に `--write-subs --write-auto-subs --sub-langs "ja.*"` を追加し、`GET /v1/source/jobs/{id}/subtitle` API と web Side panel を実装。日本語字幕は「Preparing subtitles…」ローディング（2026-08-09）+ bounded retry で遅延取得する（遅延・先取り案は上記 #40）。
 
 ### テスト
 
@@ -558,7 +560,7 @@ emoveAllBestEffort（bounded retry 5s）を全cleanup pathに適用 + fake helpe
 
 ### 残るgate（主張しない）
 
-cookie / saved-profile、subtitles、Android / headed Windows Chromeのbrowser QA、production bridge接続（URL UIとjob-to-bridge接続は後述の通り実装済み）。
+cookie / saved-profile、Android / headed Windows Chromeのbrowser QA。**※subtitles は 2026-08-06 に実装済み・実機で subtitle 200 確認済み（遅延は # 40 に記録）** — 本行は subtitles 実装前（2026-08-01 QA 時点）の gate 記録。
 
 ## ED-2G torrent job foundation（companion backend実装）
 

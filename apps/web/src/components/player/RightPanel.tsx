@@ -30,6 +30,8 @@ interface RightPanelProps {
   dict: Dictionary['playerUI'];
   /** Subtitle panel props */
   cues: SubtitleCue[];
+  /** Companion job (YouTube/Magnet): subtitles still being fetched. */
+  isLoadingSubtitles?: boolean;
   activeCueId: number | null;
   onCueClick: (cue: SubtitleCue) => void;
   onSubtitleSelect: (file: File) => void;
@@ -54,6 +56,7 @@ export function RightPanel({
   visible,
   dict,
   cues,
+  isLoadingSubtitles = false,
   activeCueId,
   onCueClick,
   onSubtitleSelect,
@@ -177,6 +180,8 @@ export function RightPanel({
             onSubtitleSelect={onSubtitleSelect}
             subtitleAccept={subtitleAccept}
             noSubtitlesLabel={dict.noSubtitlesLoaded}
+            isLoadingSubtitles={isLoadingSubtitles}
+            preparingSubtitlesLabel={dict.preparingSubtitles}
             seekToLabel={dict.seekTo}
             chooseSubtitleLabel={dict.chooseSubtitle}
             onMineCue={onMineCue}
