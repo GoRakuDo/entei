@@ -1419,6 +1419,13 @@ export default function PlayerApp() {
 
     const HAVE_FUTURE_DATA = 2;
 
+    // One-shot escape hatch: once the 15 s safety bound has fired (a
+    // stalled / autoplay-blocked job where 'playing' never comes), stop
+    // re-arming on 'waiting' — the overlay must not come back and keep
+    // the controls locked. Resets naturally when this effect re-runs
+    // (new job / media URL change).
+    let startBufferingExhausted = false;
+
     const clearStartBufferingTimers = () => {
       if (startBufferingDelayRef.current !== null) {
         clearTimeout(startBufferingDelayRef.current);
@@ -1431,6 +1438,10 @@ export default function PlayerApp() {
     };
 
     const armStartBuffering = () => {
+      // After the safety bound the overlay must never reappear for this
+      // job/source — the user regains the controls (a manual play press
+      // then fires 'playing' and clears the state normally).
+      if (startBufferingExhausted) return;
       // If enough data is already here AND playback is under way, nothing
       // to show.
       if (media.readyState >= HAVE_FUTURE_DATA && !media.paused) return;
@@ -1443,9 +1454,11 @@ export default function PlayerApp() {
         setIsStartBuffering(true);
         // Safety bound: hide the overlay after 15 s even if playing never
         // fires (stalled download or autoplay block) — playback itself is
-        // unaffected.
+        // unaffected, and the controls stay usable thanks to the
+        // pointer-events:none on the overlay.
         startBufferingSafetyRef.current = setTimeout(() => {
           startBufferingSafetyRef.current = null;
+          startBufferingExhausted = true; // never re-arm for this source
           setIsStartBuffering(false);
         }, START_BUFFERING_SAFETY_MS);
       }, 1000);
@@ -3420,6 +3433,8 @@ export default function PlayerApp() {
         !isLoading &&
         !loadError &&
         jobSession.phase !== 'error' &&
+        // Pairing 復旧中はオーバーレイを出さない（前フレームを維持し、
+        // 再ペアリング UI が最前面で操作できるようにする意図）。
         jobSession.phase !== 'rePairRequired' && (
           <div className="entei-companion-loading entei-start-buffering" role="status" aria-label="Loading">
             <TypewriterLoading aria-hidden="true" className="entei-typewriter--start" />

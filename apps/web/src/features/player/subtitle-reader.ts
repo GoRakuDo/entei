@@ -204,20 +204,22 @@ function parseVTT(content: string): SubtitleParseResult {
     let timingLine = currentLine;
 
     if (!currentLine.includes('-->')) {
+      // Advance i BEFORE the EOF/nextLine checks below: when the loop
+      // breaks here the consumed identifier is simply dropped, and when
+      // it proceeds the parseTimingLine(line, i+1) report line matches
+      // the timing line's position. Do not reorder this increment.
       i++;
+      // A cue identifier with NO following timing line: the file ends
+      // before a timing line appears (YouTube VTT can end mid-cue).
+      // This is a truncated tail, not a real error — skip silently, same
+      // as the empty cue text handling below (2026-08-09: the warning
+      // flooded the error box at ~1788 and occupied 449 px of the
+      // screen).
       if (i >= lines.length) {
-        errors.push({
-          line: i + 1,
-          message: 'Unexpected end after cue identifier',
-        });
         break;
       }
       const nextLine = lines[i];
       if (nextLine === undefined) {
-        errors.push({
-          line: i + 1,
-          message: 'Unexpected end after cue identifier',
-        });
         break;
       }
       timingLine = nextLine;

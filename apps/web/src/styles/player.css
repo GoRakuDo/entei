@@ -670,7 +670,11 @@
 
 /* --- Companion Loading Overlay --- */
 /* Shown inside the surface while the companion bridge is buffering but
-   the job media URL has not yet been surfaced (playable not detected). */
+   the job media URL has not yet been surfaced (playable not detected).
+   pointer-events: none so the overlay never swallows clicks — the
+   control layer (z-index 10) stays fully usable even while the spinner
+   is up (2026-08-09: an autoplay-blocked load left the controls
+   unreachable until the overlay vanished). */
 .entei-companion-loading {
   position: absolute;
   inset: 0;
@@ -681,6 +685,7 @@
   gap: var(--entei-space-12);
   color: var(--entei-text-muted);
   z-index: 1;
+  pointer-events: none;
 }
 
 .entei-companion-loading-text {

@@ -209,6 +209,38 @@ Second cue`;
     expect(result.cues[1]!.text).toBe('Second cue');
   });
 
+  it('skips a trailing cue identifier with no timing line silently (no warning)', () => {
+    // YouTube VTT can end right after a cue identifier (truncated tail).
+    // This must be skipped like an empty cue text — no error surface
+    // (2026-08-09: the old warning flooded the error box ~1788).
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Valid cue
+
+1788`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('Valid cue');
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('skips a cue identifier whose next line is missing entirely', () => {
+    const vtt = `WEBVTT
+
+cue-1
+00:00:01.000 --> 00:00:04.000
+First cue
+
+orphan-identifier`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe('First cue');
+    expect(result.errors).toHaveLength(0);
+  });
+
   it('reports error for invalid timing in VTT', () => {
     const vtt = `WEBVTT
 

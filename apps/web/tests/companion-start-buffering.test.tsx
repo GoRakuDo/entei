@@ -256,6 +256,36 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
+  it('stays hidden after the 15 s safety bound — a later waiting event does NOT re-arm it', async () => {
+    mockSession.active = true;
+    mockSession.kind = 'youtube';
+    mockSession.phase = 'ready';
+    mockSession.jobMediaUrl = MEDIA_URL;
+    const { container } = render(<PlayerApp />);
+
+    // Overlay appears after 1 s of no data…
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+
+    // …and is force-cleared at the 15 s safety bound.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
+
+    // A later 'waiting' event must NOT re-arm the overlay: the job never
+    // plays (autoplay blocked), and the controls must stay usable — no
+    // perpetual re-showing loop.
+    const video = container.querySelector('video');
+    fireEvent.waiting(video!);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
+  });
+
   it('renders only ONE overlay when both start- and seek-buffering are armed', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
