@@ -859,7 +859,6 @@
 
 .entei-dialog-header {
   padding: var(--entei-space-16) var(--entei-space-24);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-dialog-title {
@@ -1458,7 +1457,6 @@
   flex-shrink: 0;
   padding: var(--entei-space-24);
   padding-right: 3.5rem;
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 /* Settings modal header — the pixel font (Pixelify Sans) brand title */
@@ -2522,7 +2520,6 @@
 .entei-screenshot-dialog .entei-dialog-header {
   flex-shrink: 0;
   padding: var(--entei-space-16) var(--entei-space-24);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-screenshot-body {
@@ -2682,7 +2679,6 @@
 .entei-audio-clip-dialog .entei-dialog-header {
   flex-shrink: 0;
   padding: var(--entei-space-16) var(--entei-space-24);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-audio-clip-body {
@@ -4191,6 +4187,10 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-dialog-title {
   display: flex;
   align-items: center;
+  /* Icon–label spacing (8 px) shared between the Magnet and YouTube
+     dialog titles. The SVG (16 px) used to sit flush against the text
+     (2026-08-10 user screenshot). */
+  gap: var(--entei-space-8);
   /* Pixel/game font (Pixelify Sans) — matches the settings modal title. */
   font-family: var(--entei-font-system);
   letter-spacing: 0.02em;
@@ -4626,6 +4626,10 @@ html.entei-player-immersive .entei-player-audio-area {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-16);
+  /* Same inset rhythm as .entei-magnet-shell (16/24/16). The dialog
+     header border (a thin divider) was removed, so the form now adds
+     top padding to visually separate from the header. OKLCH tokens. */
+  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
 }
 
 .entei-youtube-form-error {

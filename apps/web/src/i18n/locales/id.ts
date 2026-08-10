@@ -293,8 +293,6 @@ export const id: Dictionary = {
     youtubeInputTitle: 'Streaming YouTube',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'Mulai unduh',
-    youtubeInputUnpairedBody:
-      'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh dari YouTube.',
     youtubeInputErrorInvalid: 'URL YouTube tidak valid.',
     youtubeInputErrorRepair:
       'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',

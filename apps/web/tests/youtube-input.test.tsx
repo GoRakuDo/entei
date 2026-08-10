@@ -18,7 +18,6 @@ const baseDict: YouTubeInputDict = {
   youtubeInputTitle: 'YouTube streaming',
   youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
   youtubeInputSubmit: 'Start download',
-  youtubeInputUnpairedBody: 'Pair EizouDendenshi first to download from YouTube.',
   youtubeInputErrorInvalid: 'Invalid YouTube URL.',
   youtubeInputErrorRepair: 'The connection needs re-pairing. Open Setup and connect again.',
   youtubeInputErrorConflict: 'A download is already active. Cancel the previous download first.',
@@ -248,7 +247,7 @@ describe('YouTubeInput — paired flow', () => {
 });
 
 describe('YouTubeInput — unpaired gate', () => {
-  it('shows the pairing-needed notice and allows no input or submit', () => {
+  it('allows no input or submit while unpaired (title only)', () => {
     render(
       <YouTubeInput
         open={true}
@@ -259,7 +258,9 @@ describe('YouTubeInput — unpaired gate', () => {
         dict={baseDict}
       />,
     );
-    expect(screen.getByText(baseDict.youtubeInputUnpairedBody)).toBeInTheDocument();
+    // The sr-only pairing notice was removed (2026-08-10 cleanup): the
+    // dialog keeps the title and the pairing happens in the settings UI.
+    expect(screen.queryByText('Pair EizouDendenshi first to download from YouTube.')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: baseDict.youtubeInputSubmit })).not.toBeInTheDocument();
     // Only the X close remains.

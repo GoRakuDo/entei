@@ -22,7 +22,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
 import { Input } from '@/components/player/ui/input';
@@ -45,7 +44,6 @@ export interface YouTubeInputDict {
   youtubeInputTitle: string;
   youtubeInputPlaceholder: string;
   youtubeInputSubmit: string;
-  youtubeInputUnpairedBody: string;
   youtubeInputErrorInvalid: string;
   youtubeInputErrorRepair: string;
   youtubeInputErrorConflict: string;
@@ -216,11 +214,6 @@ export function YouTubeInput({
             <YouTubeMark width={16} height={16} aria-hidden="true" />
             {dict.youtubeInputTitle}
           </DialogTitle>
-          <DialogDescription>
-            {isPaired
-              ? dict.youtubeInputLabel
-              : dict.youtubeInputUnpairedBody}
-          </DialogDescription>
         </DialogHeader>
         {isPaired ? (
           <div className="entei-youtube-form">

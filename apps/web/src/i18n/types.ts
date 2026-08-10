@@ -326,7 +326,6 @@ export interface Dictionary {
     youtubeInputTitle: string;
     youtubeInputPlaceholder: string;
     youtubeInputSubmit: string;
-    youtubeInputUnpairedBody: string;
     youtubeInputErrorInvalid: string;
     youtubeInputErrorRepair: string;
     youtubeInputErrorConflict: string;

@@ -294,8 +294,6 @@ export const ja: Dictionary = {
     youtubeInputTitle: 'YouTubeストリーミング',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'ダウンロード開始',
-    youtubeInputUnpairedBody:
-      'YouTubeからダウンロードするには、先に映像伝電子をペアリングしてください。',
     youtubeInputErrorInvalid: 'YouTubeのURLが無効です。',
     youtubeInputErrorRepair:
       '再接続が必要です。「セットアップ」から接続し直してください。',

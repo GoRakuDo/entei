@@ -113,7 +113,6 @@
 
 .entei-dialog-header {
   padding: var(--entei-space-16) var(--entei-space-24);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-dialog-title {
@@ -174,7 +173,6 @@
   flex-shrink: 0;
   padding: var(--entei-space-24);
   padding-right: 3.5rem;
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 /* Settings modal header uses the pixel/game font (Pixelify Sans) — the

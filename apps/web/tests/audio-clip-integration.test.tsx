@@ -288,7 +288,6 @@ const mockDict = {
   youtubeInputTitle: 'YouTube streaming',
   youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
   youtubeInputSubmit: 'Start download',
-  youtubeInputUnpairedBody: 'Pair EizouDendenshi first to download from YouTube.',
   youtubeInputErrorInvalid: 'Invalid YouTube URL.',
   youtubeInputErrorRepair: 'The connection needs re-pairing. Open Setup and connect again.',
   youtubeInputErrorConflict: 'A download is already active. Cancel the previous download first.',
