@@ -102,7 +102,7 @@ export function EizouSettingsDialog({
         }}
       >
         <Settings aria-hidden="true" className="entei-nav-settings-icon" />
-        <span>{label}</span>
+        {variant === 'dock' && <span>{label}</span>}
       </button>
       <DialogContent
         closeLabel={playerUI.dialogClose}
