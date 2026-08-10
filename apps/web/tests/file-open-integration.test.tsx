@@ -121,6 +121,7 @@ const mockDict = {
   ankiFieldWord: 'Word',
   ankiFieldSource: 'Source',
   ankiFieldTags: 'Tags',
+    ankiTagsPlaceholder: 'anime n5 eizou',
   ankiFieldRequired: 'required',
   ankiFieldOptional: 'optional',
   ankiNoFields: 'None',

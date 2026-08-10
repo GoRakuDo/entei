@@ -57,7 +57,6 @@ const EMPTY_MAPPING: AnkiFieldMapping = {
   audio: null,
   word: null,
   source: null,
-  tags: null,
 };
 
 /** Drop mapping entries that do not exist on the note type's field list. */
@@ -73,7 +72,6 @@ function sanitizeMappingForModel(
     'audio',
     'word',
     'source',
-    'tags',
   ];
   for (const key of optionalKeys) {
     const v = next[key];
@@ -147,8 +145,9 @@ export function AnkiFieldsTab({
     audio: null,
     word: null,
     source: null,
-    tags: null,
   });
+  /** Space-separated tags (top-level setting, not a note field mapping). */
+  const [tags, setTags] = useState('');
 
   // --- Preferences-ready gate ---
   // Auto-connect and endpoint/API-key effects must not run until saved
@@ -170,8 +169,9 @@ export function AnkiFieldsTab({
   const endpointRef = useRef('http://127.0.0.1:8765');
   const fieldsRef = useRef<AnkiFieldMapping>({
     sentence: '', definition: null, image: null,
-    audio: null, word: null, source: null, tags: null,
+    audio: null, word: null, source: null,
   });
+  const tagsRef = useRef('');
   /** Non-empty once the field list has been fetched + sanitized for the
    *  model currently in selectedModelRef. Prevents field interactions
    *  during a pending model fetch from being persisted. */
@@ -191,6 +191,8 @@ export function AnkiFieldsTab({
     selectedModelRef.current = saved.noteType ?? '';
     setFields({ ...saved.fields });
     fieldsRef.current = { ...saved.fields };
+    setTags(saved.tags ?? '');
+    tagsRef.current = saved.tags ?? '';
     // restoredModelGate: the saved preset is restored as-is; do NOT mark
     // it resolved here — the connect-time modelFieldNames reload decides.
     resolvedModelRef.current = '';
@@ -376,6 +378,7 @@ export function AnkiFieldsTab({
       deck: selectedDeckRef.current || null,
       noteType: selectedModelRef.current || null,
       fields: { ...fieldsRef.current },
+      tags: tagsRef.current,
       exportMode: current.exportMode,
       mediaMode: current.mediaMode,
     };
@@ -452,6 +455,19 @@ export function AnkiFieldsTab({
     [saveValidPreset],
   );
 
+  // --- Handle space-separated tags change (top-level setting) ---
+  // Tags are not a note field mapping: no model-resolution gate. Still
+  // obeys the valid-preset-only auto-save rule (deck + note type +
+  // sentence must be set, otherwise nothing is written).
+  const handleTagsChange = useCallback(
+    (value: string) => {
+      tagsRef.current = value;
+      setTags(value);
+      saveValidPreset();
+    },
+    [saveValidPreset],
+  );
+
   // --- Determine error display text ---
   const errorDisplay = getLocalizedError(connectionState, errorMessage, dict);
 
@@ -483,7 +499,6 @@ export function AnkiFieldsTab({
     { key: 'audio', label: dict.ankiFieldAudio, required: false },
     { key: 'word', label: dict.ankiFieldWord, required: false },
     { key: 'source', label: dict.ankiFieldSource, required: false },
-    { key: 'tags', label: dict.ankiFieldTags, required: false },
   ];
 
   return (
@@ -574,64 +589,66 @@ export function AnkiFieldsTab({
       {/* Deck + Note Type + Field Mapping (only when connected) */}
       {connectionState === 'connected' && (
         <div className="entei-anki-mapping">
-          {/* Deck and Note Type */}
-          <div className="entei-anki-section">
-            <label id={deckLabelId} className="entei-anki-label">
-              {dict.ankiDeckLabel}
-            </label>
-            <Select
-              value={selectedDeck}
-              onValueChange={(v) => {
-                selectedDeckRef.current = v;
-                setSelectedDeck(v);
-                saveValidPreset();
-              }}
-            >
-              <SelectTrigger
-                className="entei-anki-select-trigger"
-                aria-labelledby={deckLabelId}
+          {/* Deck + Note Type — desktop 2-column, mobile stacked (unchanged) */}
+          <div className="entei-anki-pair-row">
+            <div className="entei-anki-section">
+              <label id={deckLabelId} className="entei-anki-label">
+                {dict.ankiDeckLabel}
+              </label>
+              <Select
+                value={selectedDeck}
+                onValueChange={(v) => {
+                  selectedDeckRef.current = v;
+                  setSelectedDeck(v);
+                  saveValidPreset();
+                }}
               >
-                <SelectValue placeholder={dict.ankiDeckPlaceholder} />
-              </SelectTrigger>
-              <SelectContent className="entei-anki-select-content">
-                {decks.length === 0 && (
-                  <SelectItem value="__none__" disabled>
-                    {dict.ankiNoDecks}
-                  </SelectItem>
-                )}
-                {decks.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {d}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+                <SelectTrigger
+                  className="entei-anki-select-trigger"
+                  aria-labelledby={deckLabelId}
+                >
+                  <SelectValue placeholder={dict.ankiDeckPlaceholder} />
+                </SelectTrigger>
+                <SelectContent className="entei-anki-select-content">
+                  {decks.length === 0 && (
+                    <SelectItem value="__none__" disabled>
+                      {dict.ankiNoDecks}
+                    </SelectItem>
+                  )}
+                  {decks.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="entei-anki-section">
-            <label id={noteTypeLabelId} className="entei-anki-label">
-              {dict.ankiNoteTypeLabel}
-            </label>
-            <Select value={selectedModel} onValueChange={handleModelChange}>
-              <SelectTrigger
-                className="entei-anki-select-trigger"
-                aria-labelledby={noteTypeLabelId}
-              >
-                <SelectValue placeholder={dict.ankiNoteTypePlaceholder} />
-              </SelectTrigger>
-              <SelectContent className="entei-anki-select-content">
-                {models.length === 0 && (
-                  <SelectItem value="__none__" disabled>
-                    {dict.ankiNoNoteTypes}
-                  </SelectItem>
-                )}
-                {models.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="entei-anki-section">
+              <label id={noteTypeLabelId} className="entei-anki-label">
+                {dict.ankiNoteTypeLabel}
+              </label>
+              <Select value={selectedModel} onValueChange={handleModelChange}>
+                <SelectTrigger
+                  className="entei-anki-select-trigger"
+                  aria-labelledby={noteTypeLabelId}
+                >
+                  <SelectValue placeholder={dict.ankiNoteTypePlaceholder} />
+                </SelectTrigger>
+                <SelectContent className="entei-anki-select-content">
+                  {models.length === 0 && (
+                    <SelectItem value="__none__" disabled>
+                      {dict.ankiNoNoteTypes}
+                    </SelectItem>
+                  )}
+                  {models.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Field mapping grid */}
@@ -697,6 +714,22 @@ export function AnkiFieldsTab({
             </>
           )}
 
+          {/* Tags — space-separated, top-level setting (not a note field) */}
+          <div className="entei-anki-section">
+            <label htmlFor="anki-tags" className="entei-anki-label">
+              {dict.ankiFieldTags}
+            </label>
+            <input
+              id="anki-tags"
+              type="text"
+              className="entei-anki-input"
+              value={tags}
+              onChange={(e) => handleTagsChange(e.target.value)}
+              placeholder={dict.ankiTagsPlaceholder}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
         </div>
       )}
     </div>

@@ -5,6 +5,7 @@ import {
   isValidPreset,
   isFieldInModel,
   validateMappingAgainstModel,
+  parseAnkiTags,
 } from '../src/features/player/anki-miner-preferences';
 
 const STORAGE_KEY = 'entei.player.anki-miner.v1';
@@ -34,7 +35,7 @@ describe('readAnkiMinerPreferences', () => {
     expect(prefs.fields.audio).toBeNull();
     expect(prefs.fields.word).toBeNull();
     expect(prefs.fields.source).toBeNull();
-    expect(prefs.fields.tags).toBeNull();
+    expect(prefs.tags).toBe('');
   });
 
   it('reads valid stored preferences', () => {
@@ -51,7 +52,6 @@ describe('readAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -85,7 +85,6 @@ describe('readAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -107,7 +106,6 @@ describe('readAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -128,7 +126,6 @@ describe('readAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -151,7 +148,6 @@ describe('readAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -202,7 +198,6 @@ describe('writeAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
 
@@ -231,7 +226,6 @@ describe('writeAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
 
@@ -245,6 +239,7 @@ describe('writeAnkiMinerPreferences', () => {
       'noteType',
       'presetName',
       'schemaVersion',
+      'tags',
     ]);
   });
 
@@ -261,7 +256,6 @@ describe('writeAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
 
@@ -283,7 +277,6 @@ describe('writeAnkiMinerPreferences', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
 
@@ -313,7 +306,6 @@ describe('writeAnkiMinerPreferences', () => {
           audio: null,
           word: null,
           source: null,
-          tags: null,
         },
       }),
     ).not.toThrow();
@@ -340,7 +332,6 @@ describe('isValidPreset', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
     expect(result).toBe(true);
@@ -359,7 +350,6 @@ describe('isValidPreset', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
     expect(result).toBe(false);
@@ -378,7 +368,6 @@ describe('isValidPreset', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
     expect(result).toBe(false);
@@ -397,7 +386,6 @@ describe('isValidPreset', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     });
     expect(result).toBe(false);
@@ -439,7 +427,6 @@ describe('validateMappingAgainstModel', () => {
       audio: null,
       word: null,
       source: null,
-      tags: null,
     };
     const result = validateMappingAgainstModel(fields, ['Front', 'Back']);
     expect(result).toEqual([]);
@@ -453,7 +440,6 @@ describe('validateMappingAgainstModel', () => {
       audio: null,
       word: null,
       source: null,
-      tags: null,
     };
     const result = validateMappingAgainstModel(fields, ['Front', 'Back']);
     expect(result).toContain('sentence');
@@ -467,7 +453,6 @@ describe('validateMappingAgainstModel', () => {
       audio: null,
       word: null,
       source: null,
-      tags: null,
     };
     const result = validateMappingAgainstModel(fields, ['Front', 'Back']);
     expect(result).toContain('definition');
@@ -528,7 +513,6 @@ describe('exportMode persistence', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(oldData));
@@ -554,7 +538,6 @@ describe('exportMode persistence', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
       exportMode: 'invalid_mode',
     };
@@ -578,7 +561,6 @@ describe('exportMode persistence', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
       exportMode: null,
     };
@@ -602,7 +584,6 @@ describe('exportMode persistence', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
       exportMode: 'update',
     };
@@ -626,7 +607,6 @@ describe('exportMode persistence', () => {
         audio: null,
         word: null,
         source: null,
-        tags: null,
       },
       exportMode: 'new',
     });
@@ -641,5 +621,97 @@ describe('exportMode persistence', () => {
     expect(prefs.noteType).toBe('Basic');
     expect(prefs.fields.sentence).toBe('Front');
     expect(prefs.fields.definition).toBe('Back');
+  });
+
+  it('ignores legacy fields.tags; top-level tags defaults to empty string', () => {
+    // Old schema: tags lived inside the field mapping. It must not
+    // surface as a mapping entry nor migrate into top-level tags.
+    const data = {
+      schemaVersion: 1,
+      presetName: 'Default',
+      ankiConnectUrl: 'http://localhost:8765',
+      deck: 'Legacy Deck',
+      noteType: 'Basic',
+      fields: {
+        sentence: 'Front',
+        definition: 'Back',
+        image: null,
+        audio: null,
+        word: null,
+        source: null,
+        tags: 'anime legacy',
+      },
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    const prefs = readAnkiMinerPreferences();
+    // The legacy mapping entry is gone from the sanitized mapping…
+    const mapping = prefs.fields as unknown as Record<string, unknown>;
+    expect('tags' in mapping).toBe(false);
+    // …and top-level tags defaults to '' (not migrated).
+    expect(prefs.tags).toBe('');
+  });
+
+  it('reads top-level tags string from storage', () => {
+    const data = {
+      schemaVersion: 1,
+      presetName: 'Default',
+      ankiConnectUrl: 'http://localhost:8765',
+      deck: 'Tags Deck',
+      noteType: 'Basic',
+      fields: {
+        sentence: 'Front',
+        definition: 'Back',
+        image: null,
+        audio: null,
+        word: null,
+        source: null,
+      },
+      tags: 'anime n5 eizou',
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    const prefs = readAnkiMinerPreferences();
+    expect(prefs.tags).toBe('anime n5 eizou');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseAnkiTags
+// ---------------------------------------------------------------------------
+
+describe('parseAnkiTags', () => {
+  it('splits on whitespace, trims, and drops empties', () => {
+    expect(parseAnkiTags('  anime   n5   eizou  ')).toEqual([
+      'anime',
+      'n5',
+      'eizou',
+    ]);
+    expect(parseAnkiTags('\tanime\nn5\reizou\u3000misc')).toEqual([
+      'anime',
+      'n5',
+      'eizou',
+      'misc',
+    ]);
+  });
+
+  it('deduplicates keeping first occurrence order', () => {
+    expect(
+      parseAnkiTags('anime anime n5 anime \u3000n5\u3000eizou'),
+    ).toEqual(['anime', 'n5', 'eizou']);
+  });
+
+  it('preserves Japanese and emoji tags', () => {
+    expect(parseAnkiTags('日本語 tシャツ 👀')).toEqual([
+      '日本語',
+      'tシャツ',
+      '👀',
+    ]);
+  });
+
+  it('returns [] for empty / whitespace-only / all-duplicate input', () => {
+    expect(parseAnkiTags('')).toEqual([]);
+    expect(parseAnkiTags('   \t \n ')).toEqual([]);
+    expect(parseAnkiTags('dup dup dup')).toEqual(['dup']);
   });
 });

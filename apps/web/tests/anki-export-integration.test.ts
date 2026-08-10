@@ -15,6 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   AnkiExportClient,
   generateMediaFilename,
+  updateNoteFieldsAndAddTags,
+  addTagsOnlyIfAny,
 } from '@/features/player/anki-export-client';
 
 function mockResponse(
@@ -427,5 +429,167 @@ describe('Export — duplicate policy (new card allows duplicates)', () => {
       Front: 'updated',
     });
     expect(result).toEqual({ noteId: 100 });
+  });
+
+  it('update contract: updateNoteFields succeeds, then additive addTags', async () => {
+    const callLog: string[] = [];
+    fetchSpy.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const action = getAction(init as RequestInit | undefined);
+      callLog.push(action);
+      if (action === 'updateNoteFields') return mockResponse({ noteId: 100 });
+      if (action === 'addTags') return mockResponse(null);
+      return mockResponse(null);
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    await client.updateNoteFields(100, { Front: 'updated' });
+    await client.addTags([100], 'anime n5');
+
+    expect(callLog).toEqual(['updateNoteFields', 'addTags']);
+    const addTagsCall = fetchSpy.mock.calls[1];
+    expect(getAction(addTagsCall![1] as RequestInit | undefined)).toBe(
+      'addTags',
+    );
+    expect(
+      getParams(addTagsCall![1] as RequestInit | undefined),
+    ).toEqual({ notes: [100], tags: 'anime n5' });
+  });
+
+  it('append contract: tags-only success (update skipped, addTags called)', async () => {
+    const callLog: string[] = [];
+    fetchSpy.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const action = getAction(init as RequestInit | undefined);
+      callLog.push(action);
+      if (action === 'addTags') return mockResponse(null);
+      return mockResponse({ noteId: 100 });
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    // The append flow with no field updates calls addTags only.
+    await client.addTags([100], 'n5');
+    expect(callLog).toEqual(['addTags']);
+  });
+
+  it('append contract: field update first, then addTags', async () => {
+    const callLog: string[] = [];
+    fetchSpy.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const action = getAction(init as RequestInit | undefined);
+      callLog.push(action);
+      if (action === 'updateNoteFields') return mockResponse({ noteId: 100 });
+      if (action === 'addTags') return mockResponse(null);
+      return mockResponse(null);
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    await client.updateNoteFields(100, { Front: 'appended' });
+    await client.addTags([100], 'eizou');
+    expect(callLog).toEqual(['updateNoteFields', 'addTags']);
+  });
+});
+
+describe('Tags contract — PlayerApp paths (ASB parity)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it('update path: addTags failure propagates (no success state)', async () => {
+    const callLog: string[] = [];
+    fetchSpy.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const action = getAction(init as RequestInit | undefined);
+      callLog.push(action);
+      if (action === 'updateNoteFields') return mockResponse({ noteId: 100 });
+      if (action === 'addTags')
+        return mockResponse(null, 'addTags rejected');
+      return mockResponse(null);
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    await expect(
+      updateNoteFieldsAndAddTags(
+        client,
+        100,
+        { Front: 'updated' },
+        'anime n5',
+      ),
+    ).rejects.toThrow();
+
+    // Order contract: updateNoteFields ran first, then addTags — and the
+    // failure was NOT swallowed (caller = PlayerApp outer catch → no
+    // success toast / history).
+    expect(callLog).toEqual(['updateNoteFields', 'addTags']);
+  });
+
+  it('update path: empty tags perform zero API calls beyond the field update', async () => {
+    const callLog: string[] = [];
+    fetchSpy.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const action = getAction(init as RequestInit | undefined);
+      callLog.push(action);
+      if (action === 'updateNoteFields') return mockResponse({ noteId: 100 });
+      return mockResponse(null);
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    await updateNoteFieldsAndAddTags(client, 100, { Front: 'x' }, '   ');
+    expect(callLog).toEqual(['updateNoteFields']);
+    expect(callLog).not.toContain('addTags');
+  });
+
+  it('append path: update → addTags order; addTags failure rejects (note -> failed)', async () => {
+    const callLog: string[] = [];
+    fetchSpy.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const action = getAction(init as RequestInit | undefined);
+      callLog.push(action);
+      if (action === 'updateNoteFields') return mockResponse({ noteId: 100 });
+      if (action === 'addTags')
+        return mockResponse(null, 'addTags rejected');
+      return mockResponse(null);
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    await expect(
+      updateNoteFieldsAndAddTags(
+        client,
+        100,
+        { Front: 'appended' },
+        'eizou',
+      ),
+    ).rejects.toThrow();
+    expect(callLog).toEqual(['updateNoteFields', 'addTags']);
+  });
+
+  it('append path: tags-only success via addTagsOnlyIfAny', async () => {
+    const callLog: string[] = [];
+    fetchSpy.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const action = getAction(init as RequestInit | undefined);
+      callLog.push(action);
+      if (action === 'addTags') return mockResponse(null);
+      return mockResponse(null);
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    await addTagsOnlyIfAny(client, 100, 'n5 eizou');
+    expect(callLog).toEqual(['addTags']);
+    const params = getParams(
+      fetchSpy.mock.calls[0]![1] as RequestInit | undefined,
+    );
+    expect(params).toEqual({ notes: [100], tags: 'n5 eizou' });
+  });
+
+  it('append path: empty tags-only is a zero-API no-op (old success behavior)', async () => {
+    const fetchCalls: number[] = [];
+    fetchSpy.mockImplementation(async (_url: string, _init?: RequestInit) => {
+      fetchCalls.push(1);
+      return mockResponse(null);
+    });
+
+    const client = new AnkiExportClient('http://test:8765', 'key');
+    await addTagsOnlyIfAny(client, 100, '   ');
+    expect(fetchCalls.length).toBe(0);
   });
 });

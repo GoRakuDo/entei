@@ -168,6 +168,7 @@ export interface Dictionary {
     ankiFieldWord: string;
     ankiFieldSource: string;
     ankiFieldTags: string;
+    ankiTagsPlaceholder: string;
     ankiFieldRequired: string;
     ankiFieldOptional: string;
     ankiNoFields: string;

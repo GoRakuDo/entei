@@ -119,6 +119,7 @@ export const id: Dictionary = {
     ankiFieldWord: 'Kata',
     ankiFieldSource: 'Sumber',
     ankiFieldTags: 'Tag',
+    ankiTagsPlaceholder: 'anime n5 eizou',
     ankiFieldRequired: 'wajib',
     ankiFieldOptional: 'opsional',
     ankiNoFields: 'Tidak ada field untuk tipe catatan ini',

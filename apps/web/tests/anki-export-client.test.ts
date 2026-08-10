@@ -315,6 +315,33 @@ describe('AnkiExportClient', () => {
       });
     });
   });
+  describe('addTags', () => {
+    it('sends exact request shape: action addTags, params {notes, tags}, result null', async () => {
+      fetchSpy.mockResolvedValue(mockFetchResponse(null));
+      const client = new AnkiExportClient('http://test:8765', 'secret-key');
+      await client.addTags([123, 456], 'anime n5 eizou');
+
+      const call = fetchSpy.mock.calls[0];
+      const body = JSON.parse(call![1].body as string);
+      expect(body.action).toBe('addTags');
+      expect(body.version).toBe(6);
+      expect(body.key).toBe('secret-key');
+      expect(body.params).toEqual({
+        notes: [123, 456],
+        tags: 'anime n5 eizou',
+      });
+    });
+
+    it('forwards abort signal and parses null result', async () => {
+      fetchSpy.mockResolvedValue(mockFetchResponse(null));
+      const client = new AnkiExportClient();
+      const controller = new AbortController();
+      const result = await client.addTags([1], 'tag', controller.signal);
+      expect(result).toBeNull();
+      const call = fetchSpy.mock.calls[0];
+      expect(call![1].signal).toBe(controller.signal);
+    });
+  });
 });
 
 describe('blobToBase64', () => {

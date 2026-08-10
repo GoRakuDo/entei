@@ -118,6 +118,7 @@ export const en: Dictionary = {
     ankiFieldWord: 'Word',
     ankiFieldSource: 'Source',
     ankiFieldTags: 'Tags',
+    ankiTagsPlaceholder: 'anime n5 eizou',
     ankiFieldRequired: 'required',
     ankiFieldOptional: 'optional',
     ankiNoFields: 'No fields found for this note type',

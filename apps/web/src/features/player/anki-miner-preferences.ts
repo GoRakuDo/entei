@@ -28,7 +28,6 @@ export interface AnkiFieldMapping {
   audio: string | null;
   word: string | null;
   source: string | null;
-  tags: string | null;
 }
 
 /** Persisted schema shape. exportMode is optional for backward compat. */
@@ -39,6 +38,8 @@ export interface AnkiMinerPreferencesV1 {
   deck: string | null;
   noteType: string | null;
   fields: AnkiFieldMapping;
+  /** Space-separated tags added to notes on export (top-level setting). */
+  tags?: string;
   exportMode?: 'new' | 'update';
   mediaMode?: 'image' | 'video';
 }
@@ -50,6 +51,8 @@ export interface AnkiMinerPreferences {
   deck: string | null;
   noteType: string | null;
   fields: AnkiFieldMapping;
+  /** Space-separated tags added to notes on export (top-level setting). */
+  tags?: string;
   exportMode?: 'new' | 'update';
   mediaMode?: 'image' | 'video';
 }
@@ -77,7 +80,6 @@ const DEFAULT_MAPPING: AnkiFieldMapping = {
   audio: null,
   word: null,
   source: null,
-  tags: null,
 };
 
 /** Default preferences when nothing is stored or data is invalid. */
@@ -87,6 +89,7 @@ const DEFAULT_PREFERENCES: AnkiMinerPreferencesRead = {
   deck: null,
   noteType: null,
   fields: { ...DEFAULT_MAPPING },
+  tags: '',
   exportMode: 'new',
   mediaMode: 'image',
 };
@@ -115,6 +118,10 @@ export function readAnkiMinerPreferences(): AnkiMinerPreferencesRead {
       deck: typeof parsed.deck === 'string' ? parsed.deck : null,
       noteType: typeof parsed.noteType === 'string' ? parsed.noteType : null,
       fields: sanitizeFieldMapping(parsed.fields),
+      // Top-level tags: string when present, otherwise ''. Legacy
+      // fields.tags (pre-top-level migration) is intentionally ignored.
+      tags:
+        typeof parsed.tags === 'string' ? parsed.tags : '',
       exportMode: sanitizeExportMode(parsed.exportMode),
       mediaMode: sanitizeMediaMode(parsed.mediaMode),
     };
@@ -133,6 +140,7 @@ export function writeAnkiMinerPreferences(prefs: AnkiMinerPreferences): void {
       deck: prefs.deck,
       noteType: prefs.noteType,
       fields: sanitizeFieldMapping(prefs.fields),
+      tags: typeof prefs.tags === 'string' ? prefs.tags : '',
       exportMode: prefs.exportMode,
       mediaMode: prefs.mediaMode,
     };
@@ -167,7 +175,6 @@ function isValidFieldMapping(value: unknown): value is AnkiFieldMapping {
     'audio',
     'word',
     'source',
-    'tags',
   ] as const;
   for (const key of optionalKeys) {
     const v = obj[key];
@@ -190,7 +197,6 @@ function sanitizeFieldMapping(value: unknown): AnkiFieldMapping {
     audio: value.audio ?? null,
     word: value.word ?? null,
     source: value.source ?? null,
-    tags: value.tags ?? null,
   };
 }
 
@@ -218,6 +224,26 @@ export function isValidPreset(prefs: AnkiMinerPreferences): boolean {
   );
 }
 
+/**
+ * Split a space-separated tag string into a deduplicated tag array.
+ * - Splits on Unicode whitespace, trims each tag, drops empty entries.
+ * - Keeps the FIRST occurrence of a duplicate (order preserved).
+ * - Japanese and emoji characters are preserved as-is.
+ * - Returns [] for an empty / whitespace-only input.
+ */
+export function parseAnkiTags(text: string): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of text.split(/\s+/)) {
+    const tag = raw.trim();
+    if (tag.length === 0) continue;
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
+}
+
 /** Check whether a field name exists in the current note type's field list. */
 export function isFieldInModel(
   fieldName: string | null,
@@ -242,7 +268,6 @@ export function validateMappingAgainstModel(
     'audio',
     'word',
     'source',
-    'tags',
   ];
   for (const key of optionalKeys) {
     const v = fields[key];

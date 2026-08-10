@@ -298,7 +298,7 @@ npm run build          ✅ static build complete
 | `src/features/player/audio-clip.ts`             | `recordAudioClip`に`signal?: AbortSignal`追加。AM-4のcancelがstandalone AM-3に影響しない                                                                                                                         |
 | `src/features/player/mining-viewport.ts`        | ASB-style range zoom純粋関数：`computeInitialViewport`、`zoomIn`、`zoomOut`、`canZoomIn`、`canZoomOut`、`reframeIfNeeded`                                                                                        |
 | `src/features/player/subtitle-interval.ts`      | ASB-style >=50% overlap rule純粋関数：`selectCueTextInRange`。zero-length skip、blank filter、newline join                                                                                                       |
-| `src/features/player/anki-export-client.ts`     | Stage 2 typed write client：`canAddNotes`、`addNote`、`storeMediaFile`、`findNotes`、`notesInfo`、`updateNoteFields`。read-only `AnkiConnectClient`とは構造分離。`blobToBase64`、`generateMediaFilename` helper付き |
+| `src/features/player/anki-export-client.ts`     | Stage 2 typed write client：`canAddNotes`、`addNote`、`storeMediaFile`、`findNotes`、`notesInfo`、`updateNoteFields`、`addTags`。read-only `AnkiConnectClient`とは構造分離。`blobToBase64`、`generateMediaFilename` helper付き |
 | `src/components/player/AnkiAppendPanel.tsx`     | AM-6c inline append panel: deck-auto-load on expand, explicit search, TanStack/shadcn Data Table with checkbox multi-select, pre-filtered saved note type, 100-bound, selection count/pagination footer, 44px checkbox containment |
 | `src/features/player/video-clip.ts`            | Video Clip recording: pure capability detection, codec order (AV1→VP8→VP9→generic), 45s center-clamp, 60s watchdog, Canvas frame capture → captureStream → silent WebM MediaRecorder, abort/epoch/mounted guards, full lifecycle cleanup |
 | `src/components/player/ui/toggle-group.tsx`    | shadcn ToggleGroup/Item (Mining Image/Video mode selection) |
@@ -362,9 +362,9 @@ npm run build          ✅ static build complete
 | AM-4: 全素材自動更新（range commit）                        | ✅   | `handleRangeCommit`がsentence（`selectCueTextInRange` ASB >=50% rule）、source（`formatTime` label）、screenshot（visible video seek→capture→restore）、audio（`recordAudioClip`）を一括更新。user-edited definition/word/tagsは上書きしない。`onValueCommit`で発火、manual buttonは削除済み |
 | AM-4: Range dock + subtitle markers                        | ✅   | Range areaを`.entei-mining-body`の外へbottom dock（`flex-shrink:0`）へ移動。subtitle-boundary marker ticksがviewport内のcue start位置に描画（`aria-hidden`、`pointer-events:none`）。footer Close button削除、Dialog X closeのみ。control row: ZoomOut LEFT / Send CENTER / ZoomIn RIGHT       |
 | AM-4 Stage 1.1: Range commit auto-refresh                  | ✅   | Slider `onValueCommit`（thumb release/keyboard commit）が`handleRangeCommit`を呼び出し、committed `[start,end]`値でsentence/source/screenshot/audioを一括refresh。`onValueChange`は即時UI stateのみ（drag中はrefreshしない）。manual Update materials button削除済み。refresh中はSlider/zoom disabled。AbortController/epoch/mounted guard適用。no fetch/localStorage/Anki write |
-| AM-6a Stage 2: New note export                             | ✅   | `AnkiExportClient`（write専用）。`handleExportSend`が`canAddNotes`→`storeMediaFile`（image/audio Blob base64）→`addNote`の順で実行。canAddNotes false→upload/addNoteしない。**新カード重複許可**: `options: { allowDuplicate: true, duplicateScope: 'deck', duplicateScopeOptions: { deckName: prefs.deck, checkChildren: false } }`をcanAddNotes/addNote両方へ送信（asbplayer互換）。Update modeは重複オプションなし。API keyはpage-lifetime React memory（localStorage非永続化）。`ToggleGroup type="single"`（New/Update/Append）。Lucide `Send` button。abort/epoch/double-submit guard |
-| AM-6b Stage 2: Update latest note                           | ✅   | Update mode one-click Send: `findNotes('added:1')`→max noteId→`notesInfo`→model validation→`storeMediaFile`（if available）→`updateNoteFields`。候補確認ステップ削除（candidate UI/state/i18n全削除）。missing mediaは既存fieldをwipeしない。target model mismatch/no candidate/notesInfo malformed→zero write。Send labelはNew/Update両モードで`Ankiへ送信`固定 |
-| AM-6c Stage 2: Append to existing cards                     | ✅   | 3つ目icon-only session-only ToggleGroupItem。選択で`AnkiAppendPanel`inline展開。saved deck auto-load → explicit typed search → TanStack/shadcn Data Table (checkbox multi-select, Sentence/Note type/Note ID)。saved note type pre-filter（不一致noteは非表示）。100件bounded。成功ID自動除去、失敗ID保持。append-only: `existing<br>incoming`。media Blob 1回upload再利用。AbortController/epoch/mounted/double-submit guard。no api/media/card/selection persistence |
+| AM-6a Stage 2: New note export                             | ✅   | `AnkiExportClient`（write専用）。`handleExportSend`が`canAddNotes`→`storeMediaFile`（image/audio Blob base64）→`addNote`の順で実行。canAddNotes false→upload/addNoteしない。**新カード重複許可**: `options: { allowDuplicate: true, duplicateScope: 'deck', duplicateScopeOptions: { deckName: prefs.deck, checkChildren: false } }`をcanAddNotes/addNote両方へ送信（asbplayer互換）。Update modeは重複オプションなし。API keyはpage-lifetime React memory（localStorage非永続化）。`ToggleGroup type="single"`（New/Update/Append）。Lucide `Send` button。abort/epoch/double-submit guard。**tags**: top-level `prefs.tags`を`parseAnkiTags`で`string[]`化しcanAddNotes/addNote両noteへ渡す（new pathで`addTags`は呼ばない） |
+| AM-6b Stage 2: Update latest note                           | ✅   | Update mode one-click Send: `findNotes('added:1')`→max noteId→`notesInfo`→model validation→`storeMediaFile`（if available）→`updateNoteFields`。候補確認ステップ削除（candidate UI/state/i18n全削除）。missing mediaは既存fieldをwipeしない。target model mismatch/no candidate/notesInfo malformed→zero write。Send labelはNew/Update両モードで`Ankiへ送信`固定。**tags**: `updateNoteFields`成功後、`prefs.tags.trim()`非空なら`addTags([noteId], tags)`（additive・失敗はexport error）。空なら呼ばない |
+| AM-6c Stage 2: Append to existing cards                     | ✅   | 3つ目icon-only session-only ToggleGroupItem。選択で`AnkiAppendPanel`inline展開。saved deck auto-load → explicit typed search → TanStack/shadcn Data Table (checkbox multi-select, Sentence/Note type/Note ID)。saved note type pre-filter（不一致noteは非表示）。100件bounded。成功ID自動除去、失敗ID保持。append-only: `existing<br>incoming`。media Blob 1回upload再利用。AbortController/epoch/mounted/double-submit guard。no api/media/card/selection persistence。**tags**: field update成功後に`addTags`（update→addTags順）・field更新なし+tags非空はaddTagsのみで成功・addTags失敗はfailed |
 
 ### 検証結果
 
@@ -454,9 +454,15 @@ Player frame右上のSettings iconを押すとModalを開く。現在のSettings
 | Audio Clip            | Audio      | 任意   |
 | 対象語                | Word       | 任意   |
 | media名やsource label | Source     | 任意   |
-| tags                  | Tags       | 任意   |
 
-Deckを変えてもNote typeを勝手に変えない。Note typeを変えたらfield一覧だけを再読込し、存在しなくなったmappingは「未選択」に戻してSaveを無効化する。
+Tagsはnote field mappingではない。**top-level設定**（`AnkiFieldsTab`のtext input・space区切り・例 `anime n5 eizou`）としてlocalStorageの`tags`に保存し、export時に:
+- New note: `note.tags`（`string[]`）へ渡す（`addTags`は呼ばない）
+- Update / Append: `updateNoteFields`成功後に**additive `addTags`**（`{ notes: [id], tags: '...' }`）で既存タグへ追加
+- 空白のみ/空欄: tag APIは一切呼ばない
+- tag文字列はphysical note fieldへ書かない
+- **ASB parity（asbplayer common/anki/anki.ts: updateNoteFields → await addTags）**: `updateNoteFields`成功後の`addTags`失敗はcatchしない。Updateはexport全体をfailed扱い（success toast / historyなし）、Appendはそのnoteをfailed扱い（succeededに入れない）。**field更新が先行し得るため、同じAppendの自動再試行はしない**（partial success state・tag-only retry・二重field update対策は設けない）
+
+Deckを変えてもNote typeを勝手に変えない。Note typeを変えたらfield一覧だけを再読込し、存在しなくなったmappingは「未選択」に戻す。auto-saveは有効なpreset（Deck、Note type、Sentence）が揃った時だけ発火する。
 
 ### 6.4 MiningはSettings tabを持たない
 

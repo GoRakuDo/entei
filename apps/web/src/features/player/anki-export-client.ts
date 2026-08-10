@@ -9,7 +9,7 @@
  * instance lifetime. The caller (PlayerApp) owns the key in React memory.
  *
  * Actions: canAddNotes, addNote, storeMediaFile, findNotes, notesInfo,
- *          updateNoteFields
+ *          updateNoteFields, addTags
  * --------------------------------------------------------------------------- */
 
 /** Write actions — distinct from ReadAction in anki-connect.ts. */
@@ -20,6 +20,7 @@ type WriteAction =
   | 'findNotes'
   | 'notesInfo'
   | 'updateNoteFields'
+  | 'addTags'
   | 'cardsInfo'
   | 'findCards';
 
@@ -278,6 +279,19 @@ export class AnkiExportClient {
     );
   }
 
+  /** Add tags to existing notes (additive: existing tags are kept). */
+  async addTags(
+    noteIds: number[],
+    tags: string,
+    signal?: AbortSignal,
+  ): Promise<null> {
+    return this.request<null>(
+      'addTags',
+      { notes: noteIds, tags },
+      signal,
+    );
+  }
+
   /** Get info for specific card IDs (batched). Returns deckName per card. */
   async cardsInfo(
     cardIds: number[],
@@ -335,4 +349,41 @@ export function generateMediaFilename(
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 8);
   return `${safePrefix}_${timestamp}_${random}.${safeExt}`;
+}
+
+/**
+ * Update a note's fields, then additively apply configured tags.
+ * ASB parity (asbplayer common/anki/anki.ts: updateNoteFields → await
+ * addTags): a tag failure is NOT caught here — the caller treats the
+ * whole export / note as failed (no partial success, no success toast,
+ * no history). Empty tags perform ZERO API calls.
+ */
+export async function updateNoteFieldsAndAddTags(
+  client: AnkiExportClient,
+  noteId: number,
+  fields: Record<string, string>,
+  tagsText: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await client.updateNoteFields(noteId, fields, signal);
+  const trimmed = tagsText.trim();
+  if (trimmed.length > 0) {
+    await client.addTags([noteId], trimmed, signal);
+  }
+}
+
+/**
+ * Apply tags only (append path with no field updates). Same ASB parity:
+ * a failure propagates to the caller (the note becomes failed). Empty
+ * tags are a no-op (zero API calls).
+ */
+export async function addTagsOnlyIfAny(
+  client: AnkiExportClient,
+  noteId: number,
+  tagsText: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const trimmed = tagsText.trim();
+  if (trimmed.length === 0) return;
+  await client.addTags([noteId], trimmed, signal);
 }

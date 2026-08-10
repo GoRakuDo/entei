@@ -118,6 +118,7 @@ export const ja: Dictionary = {
     ankiFieldWord: '単語',
     ankiFieldSource: '出典',
     ankiFieldTags: 'タグ',
+    ankiTagsPlaceholder: 'anime n5 eizou',
     ankiFieldRequired: '必須',
     ankiFieldOptional: '任意',
     ankiNoFields: 'このノートタイプにフィールドがありません',

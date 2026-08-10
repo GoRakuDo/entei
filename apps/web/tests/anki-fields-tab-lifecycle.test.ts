@@ -412,6 +412,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
   const readStorage = (): {
     deck?: string | null;
     noteType?: string | null;
+    tags?: string;
     fields?: { sentence?: string; definition?: string | null };
   } | null => {
     const raw = localStorage.getItem('entei.player.anki-miner.v1');
@@ -559,5 +560,66 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     const saved = readStorage();
     expect(saved?.noteType).toBe('Basic');
     expect(saved?.fields?.sentence).toBe('Front');
+  });
+
+  it('G: deck + note type selects live in the pair-row wrapper', async () => {
+    const fetchSpy = mockAnkiFlow();
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    const pairRow = container.querySelector('.entei-anki-pair-row');
+    expect(pairRow).not.toBeNull();
+    // Exactly two equal sections inside the pair row (deck, note type).
+    expect(
+      pairRow?.querySelectorAll(':scope > .entei-anki-section').length,
+    ).toBe(2);
+  });
+
+  it('H: tags input auto-saves only when preset is valid', async () => {
+    const fetchSpy = mockAnkiFlow();
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    // Invalid yet (no deck/note type): typing tags must not write.
+    const tagsInput = container.querySelector('#anki-tags') as HTMLInputElement;
+    expect(tagsInput).toBeTruthy();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      setter?.call(tagsInput, 'anime n5');
+      tagsInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    expect(readStorage()).toBeNull();
+
+    // Now complete a valid preset (deck + note type + sentence).
+    await pickRadio(container, 0, 'Japanese');
+    await pickRadio(container, 1, 'Basic');
+    await pickRadio(container, 2, 'Front');
+    expect(readStorage()?.fields?.sentence).toBe('Front');
+
+    // A further tags edit auto-saves the top-level tags string.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      setter?.call(tagsInput, 'anime n5 eizou');
+      tagsInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    const saved = readStorage();
+    expect(saved?.tags).toBe('anime n5 eizou');
+    expect(saved?.fields ? 'tags' in (saved.fields as object) : true).toBe(
+      false,
+    );
   });
 });

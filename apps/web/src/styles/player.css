@@ -1765,6 +1765,29 @@
   gap: var(--entei-space-8);
 }
 
+/* Deck + Note Type pair: stacked on mobile, two equal columns on
+   desktop (mirror: eizouden-settings.css). */
+.entei-anki-pair-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+}
+
+.entei-anki-pair-row > .entei-anki-section {
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .entei-anki-pair-row {
+    flex-direction: row;
+  }
+
+  .entei-anki-pair-row > .entei-anki-section {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
 .entei-anki-heading {
   font-family: var(--entei-font-display);
   font-size: 1.125rem;

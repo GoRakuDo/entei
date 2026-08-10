@@ -112,6 +112,7 @@ import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
   readAnkiMinerPreferences,
   writeAnkiMinerPreferences,
+  parseAnkiTags,
   type AnkiFieldMapping,
 } from '@/features/player/anki-miner-preferences';
 import {
@@ -123,6 +124,8 @@ import {
   AnkiExportClient,
   blobToBase64,
   generateMediaFilename,
+  updateNoteFieldsAndAddTags,
+  addTagsOnlyIfAny,
 } from '@/features/player/anki-export-client';
 import {
   AnkiConnectClient,
@@ -1085,9 +1088,6 @@ export default function PlayerApp() {
                 value: sourceLabel,
               },
             ]
-          : []),
-        ...(mapping.tags
-          ? [{ key: 'tags', physicalName: mapping.tags, value: '' }]
           : []),
       ];
 
@@ -2867,6 +2867,10 @@ export default function PlayerApp() {
 
     const prefs = readAnkiMinerPreferences();
     if (!prefs.deck || !prefs.noteType || !prefs.fields.sentence) return;
+    // Top-level space-separated tags → string[] for the new note payload.
+    // addTags is deliberately NOT called on the new-note path: the tags
+    // array is written by the note itself.
+    const exportTags = parseAnkiTags(prefs.tags ?? '');
 
     const epoch = exportEpochRef.current + 1;
     exportEpochRef.current = epoch;
@@ -2913,7 +2917,7 @@ export default function PlayerApp() {
               deckName: prefs.deck,
               modelName: prefs.noteType,
               fields: noteFields,
-              tags: [],
+              tags: exportTags,
               options: noteOptions,
             },
           ],
@@ -2967,7 +2971,7 @@ export default function PlayerApp() {
             deckName: prefs.deck,
             modelName: prefs.noteType,
             fields: noteFields,
-            tags: [],
+            tags: exportTags,
             options: noteOptions,
           },
           abortController.signal,
@@ -3061,9 +3065,14 @@ export default function PlayerApp() {
         if (!mountedRef.current || exportEpochRef.current !== epoch) return;
         if (abortController.signal.aborted) return;
 
-        await client.updateNoteFields(
+        // ASB parity (anki.ts: updateNoteFields → await addTags): a tag
+        // failure propagates → whole export fails (outer catch → no
+        // success toast, no history).
+        await updateNoteFieldsAndAddTags(
+          client,
           candidate.noteId,
           updateFields,
+          prefs.tags ?? '',
           abortController.signal,
         );
 
@@ -3150,6 +3159,9 @@ export default function PlayerApp() {
       if (!prefs.noteType || !prefs.fields.sentence) {
         return { succeeded: [] as number[], failed: selectedIds };
       }
+      // Top-level tags: one trimmed text per operation; applied additively
+      // after the field update (or alone when no fields changed).
+      const tagsText = (prefs.tags ?? '').trim();
 
       const epoch = appendEpochRef.current + 1;
       appendEpochRef.current = epoch;
@@ -3273,14 +3285,46 @@ export default function PlayerApp() {
           }
 
           if (Object.keys(updates).length === 0) {
-            succeeded.push(note.noteId);
+            // No fields to append — tags-only note. ASB parity: success
+            // depends on the addTags call; an addTags-only helper keeps
+            // empty tags a zero-API no-op while preserving success.
+            try {
+              // ASB parity — additive tags, failure → note failed.
+              await addTagsOnlyIfAny(
+                client,
+                note.noteId,
+                tagsText,
+                abortController.signal,
+              );
+              if (
+                mountedRef.current &&
+                appendEpochRef.current === epoch &&
+                !abortController.signal.aborted
+              ) {
+                succeeded.push(note.noteId);
+              }
+            } catch {
+              if (
+                mountedRef.current &&
+                appendEpochRef.current === epoch &&
+                !abortController.signal.aborted
+              ) {
+                failed.push(note.noteId);
+              }
+            }
             continue;
           }
 
           try {
-            await client.updateNoteFields(
+            // ASB parity (anki.ts): updateNoteFields → await addTags;
+            // an addTags failure marks the note failed — no partial
+            // success state is tracked, and the same append is never
+            // auto-retried (fields may already have been updated).
+            await updateNoteFieldsAndAddTags(
+              client,
               note.noteId,
               updates,
+              tagsText,
               abortController.signal,
             );
             if (
