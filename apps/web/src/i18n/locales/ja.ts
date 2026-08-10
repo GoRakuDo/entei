@@ -321,7 +321,6 @@ export const ja: Dictionary = {
     subtitleBackgroundOpacity: '背景の不透明度',
     subtitleBackgroundPadding: '背景の余白',
     subtitleVerticalPosition: '垂直位置',
-    subtitlePreview: 'プレビュー',
     subtitleReset: 'デフォルトに戻す',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'トラッカー',

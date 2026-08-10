@@ -115,6 +115,12 @@
   padding: var(--entei-space-16) var(--entei-space-24);
 }
 
+@media (min-width: 768px) {
+  .entei-dialog-header {
+    padding: var(--entei-space-16) var(--entei-space-24);
+  }
+}
+
 .entei-dialog-title {
   font-family: var(--entei-font-display);
   font-size: 1.125rem;
@@ -173,6 +179,13 @@
   flex-shrink: 0;
   padding: var(--entei-space-24);
   padding-right: 3.5rem;
+}
+
+@media (min-width: 768px) {
+  .entei-settings-dialog .entei-dialog-header {
+    padding: var(--entei-space-16) var(--entei-space-24);
+    padding-right: 3.5rem;
+  }
 }
 
 /* Settings modal header uses the pixel/game font (Pixelify Sans) — the
@@ -309,15 +322,16 @@
   align-items: center;
   justify-content: center;
   gap: var(--entei-space-8);
+  width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-4) var(--entei-space-12);
+  padding: var(--entei-space-12);
   color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   font-weight: 500;
   background: none;
   border: none;
-  border-radius: var(--entei-radius-card);
+  border-radius: var(--entei-radius-pill);
   text-decoration: none;
   transition:
     color var(--entei-duration-fast) var(--entei-ease-productive),
@@ -1037,8 +1051,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-12);
-  padding-top: var(--entei-space-12);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-subtitle-preview-container {
@@ -1075,14 +1087,15 @@
 .entei-subtitle-reset-section {
   display: flex;
   justify-content: flex-start;
-  padding-top: var(--entei-space-8);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+  padding-top: var(--entei-space-12);
 }
 
 .entei-subtitle-reset-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--entei-space-8);
+  width: 100%;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-16);
   background: none;
@@ -1100,7 +1113,6 @@
 
 .entei-subtitle-reset-btn:hover {
   background-color: var(--entei-surface-2);
-  border-color: var(--entei-text-muted);
   color: var(--entei-text);
 }
 

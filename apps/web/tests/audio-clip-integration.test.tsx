@@ -312,8 +312,7 @@ const mockDict = {
   subtitleBackgroundOpacity: 'Background opacity',
   subtitleBackgroundPadding: 'Padding',
   subtitleVerticalPosition: 'Vertical position',
-  subtitlePreview: 'Preview',
-  subtitleReset: 'Reset',
+    subtitleReset: 'Reset',
   // Tracker (IMMERSION_TRACKER Stage 2b)
   trackerLabel: 'Tracker',
   trackerOn: 'ON',

@@ -84,7 +84,6 @@ describe('SubtitleAppearanceTab', () => {
       />,
     );
 
-    expect(screen.getByText(dict.subtitlePreview)).toBeTruthy();
     expect(screen.getByText(/サンプル字幕テキスト/)).toBeTruthy();
   });
 

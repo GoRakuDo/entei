@@ -322,7 +322,6 @@ export const id: Dictionary = {
     subtitleBackgroundOpacity: 'Opasitas latar',
     subtitleBackgroundPadding: 'Padding latar',
     subtitleVerticalPosition: 'Posisi vertikal',
-    subtitlePreview: 'Pratinjau',
     subtitleReset: 'Kembalikan ke default',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'Tracker',

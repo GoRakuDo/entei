@@ -129,7 +129,6 @@ export interface Dictionary {
     subtitleBackgroundOpacity: string;
     subtitleBackgroundPadding: string;
     subtitleVerticalPosition: string;
-    subtitlePreview: string;
     subtitleReset: string;
     // EizouDen (2026-08-07): YouTube download mode settings tab
     settingsTabEizouDen: string;

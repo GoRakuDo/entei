@@ -260,6 +260,17 @@ export function SubtitleAppearanceTab({
 
   return (
     <div className="entei-subtitle-appearance-tab">
+      {/* Live Preview */}
+      <div className="entei-subtitle-preview-section">
+        <div className="entei-subtitle-preview-container">
+          <div className="entei-subtitle-preview-surface">
+            <p style={previewStyle} className="entei-subtitle-preview-text">
+              サンプル字幕テキスト / Sample subtitle text / Contoh teks subtitle
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="entei-subtitle-appearance-section">
         <p className="entei-settings-label">{dict.subtitleAppearance}</p>
 
@@ -380,18 +391,6 @@ export function SubtitleAppearanceTab({
               aria-label={dict.subtitleVerticalPosition}
             />
             <span className="entei-subtitle-value-display">{settings.verticalPosition}px</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Live Preview */}
-      <div className="entei-subtitle-preview-section">
-        <p className="entei-settings-label">{dict.subtitlePreview}</p>
-        <div className="entei-subtitle-preview-container">
-          <div className="entei-subtitle-preview-surface">
-            <p style={previewStyle} className="entei-subtitle-preview-text">
-              サンプル字幕テキスト / Sample subtitle text / Contoh teks subtitle
-            </p>
           </div>
         </div>
       </div>

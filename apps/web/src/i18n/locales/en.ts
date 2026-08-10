@@ -317,7 +317,6 @@ export const en: Dictionary = {
     subtitleBackgroundOpacity: 'Background opacity',
     subtitleBackgroundPadding: 'Background padding',
     subtitleVerticalPosition: 'Vertical position',
-    subtitlePreview: 'Preview',
     subtitleReset: 'Reset to defaults',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'Tracker',

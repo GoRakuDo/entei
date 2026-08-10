@@ -629,21 +629,21 @@ describe('Player trigger zone for hover reveal', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  15b. Player dwell-delay contract: 1.5s hover, immediate keyboard          */
+/*  15b. Player dwell-delay contract: 750ms hover, immediate keyboard         */
 /* -------------------------------------------------------------------------- */
 describe('Player dwell-delay CSS contract', () => {
-  it('hover reveal has 1.5s transition-delay (pointer must dwell)', async () => {
+  it('hover reveal has 750ms transition-delay (pointer must dwell)', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const css = fs.readFileSync(
       path.resolve(__dirname, '../src/components/home/TopBar.astro'),
       'utf-8',
     );
-    // Hover reveal transition must include 1.5s delay
-    expect(css).toMatch(/entei-desktop-pill-zone--player:hover[\s\S]*1\.5s/);
+    // Hover reveal transition must include 750ms delay
+    expect(css).toMatch(/entei-desktop-pill-zone--player:hover[\s\S]*750ms/);
   });
 
-  it('keyboard focus-within reveal has no 1.5s delay (immediate)', async () => {
+  it('keyboard focus-within reveal has no 750ms delay (immediate)', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const css = fs.readFileSync(
@@ -655,8 +655,8 @@ describe('Player dwell-delay CSS contract', () => {
       /\.entei-desktop-pill-zone--player:focus-within[\s\S]*?\{([\s\S]*?)\}/,
     );
     expect(focusBlock).not.toBeNull();
-    // Must NOT contain 1.5s
-    expect(focusBlock![1]).not.toMatch(/1\.5s/);
+    // Must NOT contain 750ms
+    expect(focusBlock![1]).not.toMatch(/750ms/);
   });
 });
 
