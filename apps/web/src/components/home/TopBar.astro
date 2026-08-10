@@ -469,7 +469,7 @@ const settingsUIProps = dictionary.playerUI;
    *   pointer events while the outer zone stays pointer-events:none (so it
    *   never blocks wordmark / controls outside its region). :hover propagates
    *   from the trigger-zone child to the parent zone via DOM tree.
-   *   Pointer must dwell 1.5s continuously before pill reveals.
+   *   Pointer must dwell 750ms continuously before pill reveals.
    *   Shared containment ensures pointer travel from trigger
    *   to pill never dismisses.
    * - Keyboard reveal: focus-within on the zone (immediate, no dwell delay).
@@ -517,17 +517,17 @@ const settingsUIProps = dictionary.playerUI;
     }
 
     /* Hover reveal (fine pointer devices only).
-       Pointer must dwell for 1.5s before reveal begins.
+        Pointer must dwell for 750ms before reveal begins.
        :hover propagates from trigger-zone child to parent zone. */
     @media (hover: hover) and (pointer: fine) {
       .entei-desktop-pill-zone--player:hover .entei-desktop-pill {
         opacity: 1;
         transform: translateY(0);
         pointer-events: auto;
-        /* 1.5s dwell delay, then 150ms reveal */
+        /* 750ms dwell delay, then reveal (var(--entei-duration-normal)) */
         transition:
-          opacity var(--entei-duration-normal) var(--entei-ease-productive) 1.5s,
-          transform var(--entei-duration-normal) var(--entei-ease-productive) 1.5s;
+          opacity var(--entei-duration-normal) var(--entei-ease-productive) 750ms,
+          transform var(--entei-duration-normal) var(--entei-ease-productive) 750ms;
       }
     }
 
