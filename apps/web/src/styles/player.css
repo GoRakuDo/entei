@@ -4626,6 +4626,7 @@ html.entei-player-immersive .entei-player-audio-area {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-16);
+  font-family: var(--entei-font-system); /* Pixel/brand — consistent with .entei-magnet-input */
   /* Same inset rhythm as .entei-magnet-shell (16/24/16). The dialog
      header border (a thin divider) was removed, so the form now adds
      top padding to visually separate from the header. OKLCH tokens. */
@@ -4709,7 +4710,12 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-eizou-title {
-  font-family: var(--entei-font-display);
+  /* Pixel/brand font (Pixelify Sans) — matches the dialog titles and
+     the site's display language for short labels.
+     Usage: font-system = Pixelify Sans (short labels / brand / UI);
+     font-display = Gen JP Display serif (section headings, wordmark).
+     Both defined in tokens.css. */
+  font-family: var(--entei-font-system);
   font-size: 2.25rem; /* 36px — mobile mock */
   font-weight: 700;
   line-height: 1.2;
@@ -4726,8 +4732,9 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 /* Non-interactive connection state: same outer control language as the
-   Setup button (132px wide, 44px min-height, outline/surface) but not an
-   actionable element — role="status" carries the live semantics. */
+   Setup button (132px wide, 44px min-height, surface/radius — no border
+   for a cleaner pill shape) but not an actionable element —
+   role="status" carries the live semantics. */
 .entei-eizou-status-control {
   display: inline-flex;
   align-items: center;
@@ -4735,7 +4742,6 @@ html.entei-player-immersive .entei-player-audio-area {
   gap: var(--entei-space-8);
   width: 132px;
   min-height: var(--entei-touch-min); /* 44px touch */
-  border: 1px solid var(--color-border);
   background-color: var(--entei-bg);
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
@@ -4746,6 +4752,9 @@ html.entei-player-immersive .entei-player-audio-area {
 /* Matches the existing Player connection-status colors (Anki panel):
    connected green / disconnected red — legible on the dark background. */
 .entei-eizou-status-control--connected {
+  width: 160px; /* 160px: accommodates connected-state label without
+     truncation while keeping Setup + Status pair on one line at
+    ≥ 320px viewport (144 setup + 16 gap + 160 = 320px). */
   color: oklch(65% 0.17 145deg);
 }
 
