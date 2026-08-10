@@ -14,7 +14,6 @@ export const ja: Dictionary = {
     description:
       '手元のメディアと字幕から学べる部屋を、次のPhaseで追加します。',
     cta: 'Playerの準備を見る',
-    status: '次のPhase',
   },
   playerUI: {
     selectMediaTitle: '再生するメディアを選択',
@@ -121,10 +120,6 @@ export const ja: Dictionary = {
     ankiFieldTags: 'タグ',
     ankiFieldRequired: '必須',
     ankiFieldOptional: '任意',
-    ankiSavePreset: 'デフォルトプリセットを保存',
-    ankiPresetSaved: 'プリセットを保存しました',
-    ankiPresetInvalid:
-      '保存するにはデッキ、ノートタイプ、文章フィールドを選択してください。',
     ankiNoFields: 'このノートタイプにフィールドがありません',
     ankiSelectNoteTypeFirst:
       'フィールドを表示するにはノートタイプを選択してください',

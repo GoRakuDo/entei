@@ -8,7 +8,9 @@
  * - API key type=password; session-only; cleared when modal closes
  * - After connection: deck + note type selects
  * - After note type selection: field mapping selects
- * - Save Default preset disabled unless deck, note type, sentence mapping valid
+ * - Selections auto-save as soon as the preset is valid (deck, note type,
+ *   sentence field); intermediate states are never persisted, and the API
+ *   key stays session-only.
  * - Rapid model-change race guarded by AbortController + epoch
  * --------------------------------------------------------------------------- */
 
@@ -28,7 +30,6 @@ import {
   type AnkiFieldMapping,
   type AnkiMinerPreferences,
 } from '@/features/player/anki-miner-preferences';
-import { Button } from '@/components/player/ui/button';
 import {
   Select,
   SelectContent,
@@ -46,6 +47,39 @@ const RETRY_INTERVAL_MS = 10_000;
 export interface AnkiSessionCredentials {
   endpoint: string;
   apiKey: string;
+}
+
+/** Empty field mapping (sentence required; optional fields unmapped). */
+const EMPTY_MAPPING: AnkiFieldMapping = {
+  sentence: '',
+  definition: null,
+  image: null,
+  audio: null,
+  word: null,
+  source: null,
+  tags: null,
+};
+
+/** Drop mapping entries that do not exist on the note type's field list. */
+function sanitizeMappingForModel(
+  mapping: AnkiFieldMapping,
+  modelFieldsList: string[],
+): AnkiFieldMapping {
+  const next: AnkiFieldMapping = { ...mapping };
+  if (!modelFieldsList.includes(next.sentence)) next.sentence = '';
+  const optionalKeys: (keyof Omit<AnkiFieldMapping, 'sentence'>)[] = [
+    'definition',
+    'image',
+    'audio',
+    'word',
+    'source',
+    'tags',
+  ];
+  for (const key of optionalKeys) {
+    const v = next[key];
+    if (v !== null && !modelFieldsList.includes(v)) next[key] = null;
+  }
+  return next;
 }
 
 interface AnkiFieldsTabProps {
@@ -116,9 +150,6 @@ export function AnkiFieldsTab({
     tags: null,
   });
 
-  // --- Preset state ---
-  const [presetSaved, setPresetSaved] = useState(false);
-
   // --- Preferences-ready gate ---
   // Auto-connect and endpoint/API-key effects must not run until saved
   // preferences have been applied, so the first attempt uses the saved URL.
@@ -130,6 +161,21 @@ export function AnkiFieldsTab({
 
   // --- Epoch for model-change race guard ---
   const modelEpochRef = useRef(0);
+  // --- Authoritative latest-value refs for async save guards ---
+  // State updates are async; these refs hold the current values so the
+  // model fetch (and any concurrent deck/field change) never auto-saves
+  // a stale combination (review P1/P2).
+  const selectedDeckRef = useRef('');
+  const selectedModelRef = useRef('');
+  const endpointRef = useRef('http://127.0.0.1:8765');
+  const fieldsRef = useRef<AnkiFieldMapping>({
+    sentence: '', definition: null, image: null,
+    audio: null, word: null, source: null, tags: null,
+  });
+  /** Non-empty once the field list has been fetched + sanitized for the
+   *  model currently in selectedModelRef. Prevents field interactions
+   *  during a pending model fetch from being persisted. */
+  const resolvedModelRef = useRef('');
 
   // --- Retry timer ref (no overlapping timers) ---
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,12 +184,16 @@ export function AnkiFieldsTab({
   useEffect(() => {
     const saved = readAnkiMinerPreferences();
     setEndpoint(saved.ankiConnectUrl);
+    endpointRef.current = saved.ankiConnectUrl;
     if (saved.deck) setSelectedDeck(saved.deck);
+    selectedDeckRef.current = saved.deck ?? '';
     if (saved.noteType) setSelectedModel(saved.noteType);
+    selectedModelRef.current = saved.noteType ?? '';
     setFields({ ...saved.fields });
-    if (isValidPreset(saved)) {
-      setPresetSaved(true);
-    }
+    fieldsRef.current = { ...saved.fields };
+    // restoredModelGate: the saved preset is restored as-is; do NOT mark
+    // it resolved here — the connect-time modelFieldNames reload decides.
+    resolvedModelRef.current = '';
     setPrefsReady(true);
   }, []);
 
@@ -168,7 +218,6 @@ export function AnkiFieldsTab({
     setIsConnecting(true);
     setConnectionState('connecting');
     setErrorMessage(null);
-    setPresetSaved(false);
     // W14: Do NOT clear showApiKeyInput here — it must persist across
     // automated retries so the user can enter/correct the key.
 
@@ -190,16 +239,28 @@ export function AnkiFieldsTab({
         setShowApiKeyInput(true);
       }
 
-      // If we have a saved model selection that still exists, reload its fields
-      if (selectedModel && result.models.includes(selectedModel)) {
+      // Reload the saved model's field list so a restored preset is
+      // usable without auto-writing anything: sanitize + sync refs, and
+      // only mark resolved when it matches the CURRENT model ref.
+      const savedModel = selectedModelRef.current;
+      if (savedModel && result.models.includes(savedModel)) {
         const fieldCtrl = new AbortController();
         modelAbortRef.current = fieldCtrl;
         const fieldsResult = await client.modelFieldNames(
-          selectedModel,
+          savedModel,
           fieldCtrl.signal,
         );
         if (!fieldCtrl.signal.aborted && !controller.signal.aborted) {
           setModelFields(fieldsResult);
+          if (selectedModelRef.current === savedModel) {
+            const next = sanitizeMappingForModel(
+              fieldsRef.current,
+              fieldsResult,
+            );
+            fieldsRef.current = next;
+            setFields(next);
+            resolvedModelRef.current = savedModel;
+          }
         }
       }
     } catch (e) {
@@ -297,11 +358,39 @@ export function AnkiFieldsTab({
     }
   }, [prefsReady, apiKey, attemptConnect]);
 
+  // --- Auto-save: persist only complete presets ---
+  // Triggered by deck / note type / field mapping selection. Writes the
+  // snapshot with the CURRENT endpoint; intermediate presets are never
+  // persisted (isValidPreset gate), and the API key is never included.
+  // Reads the AUTHORITATIVE refs internally (endpoint/deck/model/fields),
+  // so callers never pass stale closure values (review P1/P2).
+  const saveValidPreset = useCallback(() => {
+    // A model switch is in flight: the new note type's field list has
+    // not been fetched + sanitized yet, so suppress EVERY auto-save
+    // (deck changes included) until it resolves (review P1/P2).
+    if (resolvedModelRef.current !== selectedModelRef.current) return;
+    const current = readAnkiMinerPreferences();
+    const prefs: AnkiMinerPreferences = {
+      presetName: 'Default',
+      ankiConnectUrl: endpointRef.current,
+      deck: selectedDeckRef.current || null,
+      noteType: selectedModelRef.current || null,
+      fields: { ...fieldsRef.current },
+      exportMode: current.exportMode,
+      mediaMode: current.mediaMode,
+    };
+    if (!isValidPreset(prefs)) return;
+    writeAnkiMinerPreferences(prefs);
+  }, []);
+
   // --- Handle note type change ---
   const handleModelChange = useCallback(
     async (modelName: string) => {
       setSelectedModel(modelName);
-      setPresetSaved(false);
+      selectedModelRef.current = modelName;
+      // Field list for the new model is not yet verified/sanitized: no
+      // field interaction may be persisted until it resolves.
+      resolvedModelRef.current = '';
       // Cancel any in-flight modelFieldNames request
       modelAbortRef.current?.abort();
       const controller = new AbortController();
@@ -323,85 +412,45 @@ export function AnkiFieldsTab({
 
         setModelFields(newFields);
 
-        setFields((prev) => {
-          const next: AnkiFieldMapping = { ...prev };
-          if (!newFields.includes(next.sentence)) {
-            next.sentence = '';
-          }
-          const optionalKeys: (keyof Omit<AnkiFieldMapping, 'sentence'>)[] = [
-            'definition',
-            'image',
-            'audio',
-            'word',
-            'source',
-            'tags',
-          ];
-          for (const key of optionalKeys) {
-            const v = next[key];
-            if (v !== null && !newFields.includes(v)) {
-              next[key] = null;
-            }
-          }
-          return next;
-        });
+        // Sanitize against the new field list, then auto-save the next
+        // snapshot ONLY when the epoch/abort checks above passed and the
+        // sanitized preset is valid — a stale model response never saves.
+        const next = sanitizeMappingForModel(fieldsRef.current, newFields);
+        fieldsRef.current = next;
+        setFields(next);
+        resolvedModelRef.current = modelName;
+        saveValidPreset();
       } catch {
         if (epoch !== modelEpochRef.current) return;
         if (controller.signal.aborted) return;
         setModelFields([]);
-        setFields({
-          sentence: '',
-          definition: null,
-          image: null,
-          audio: null,
-          word: null,
-          source: null,
-          tags: null,
-        });
+        fieldsRef.current = { ...EMPTY_MAPPING };
+        setFields({ ...EMPTY_MAPPING });
+        resolvedModelRef.current = '';
       }
     },
-    [endpoint, apiKey],
+    [endpoint, apiKey, saveValidPreset],
   );
 
   // --- Handle field mapping change ---
   const handleFieldChange = useCallback(
     (key: keyof AnkiFieldMapping, value: string) => {
-      setFields((prev) => ({
-        ...prev,
-        [key]: value === '' ? null : value,
-      }));
-      setPresetSaved(false);
+      // Model switch in progress: the old field list must not be treated
+      // as the new model's mapping (review P1/P2 — "F" hole).
+      if (resolvedModelRef.current !== selectedModelRef.current) return;
+      const resolved = value === '' ? null : value;
+      // Build the next snapshot from the latest ref (do not wait for the
+      // state update), sync ref+state, then auto-save when valid.
+      const next: AnkiFieldMapping = {
+        ...fieldsRef.current,
+        [key]: resolved,
+      };
+      fieldsRef.current = next;
+      setFields(next);
+      saveValidPreset();
     },
-    [],
+    [saveValidPreset],
   );
-
-  // --- Save preset ---
-  const handleSavePreset = useCallback(() => {
-    const prefs: AnkiMinerPreferences = {
-      presetName: 'Default',
-      ankiConnectUrl: endpoint,
-      deck: selectedDeck || null,
-      noteType: selectedModel || null,
-      fields: { ...fields },
-      exportMode: readAnkiMinerPreferences().exportMode,
-    };
-
-    if (!isValidPreset(prefs)) return;
-
-    writeAnkiMinerPreferences(prefs);
-    setPresetSaved(true);
-  }, [endpoint, selectedDeck, selectedModel, fields]);
-
-  // --- Determine if preset can be saved (reuse isValidPreset) ---
-  const prefsForValidation: AnkiMinerPreferences = {
-    presetName: 'Default',
-    ankiConnectUrl: endpoint,
-    deck: selectedDeck || null,
-    noteType: selectedModel || null,
-    fields,
-    exportMode: 'new',
-  };
-  const canSave =
-    isValidPreset(prefsForValidation) && modelFields.includes(fields.sentence);
 
   // --- Determine error display text ---
   const errorDisplay = getLocalizedError(connectionState, errorMessage, dict);
@@ -459,8 +508,8 @@ export function AnkiFieldsTab({
               className="entei-anki-input"
               value={endpoint}
               onChange={(e) => {
+                endpointRef.current = e.target.value;
                 setEndpoint(e.target.value);
-                setPresetSaved(false);
               }}
               disabled={isConnecting}
               autoComplete="off"
@@ -533,8 +582,9 @@ export function AnkiFieldsTab({
             <Select
               value={selectedDeck}
               onValueChange={(v) => {
+                selectedDeckRef.current = v;
                 setSelectedDeck(v);
-                setPresetSaved(false);
+                saveValidPreset();
               }}
             >
               <SelectTrigger
@@ -647,27 +697,6 @@ export function AnkiFieldsTab({
             </>
           )}
 
-          {/* Save preset */}
-          <div className="entei-anki-save-area">
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              onClick={handleSavePreset}
-              disabled={!canSave}
-              className="entei-anki-save-btn"
-            >
-              {dict.ankiSavePreset}
-            </Button>
-            {presetSaved && (
-              <p className="entei-anki-saved" role="status">
-                {dict.ankiPresetSaved}
-              </p>
-            )}
-            {!canSave && !presetSaved && (
-              <p className="entei-anki-hint">{dict.ankiPresetInvalid}</p>
-            )}
-          </div>
         </div>
       )}
     </div>

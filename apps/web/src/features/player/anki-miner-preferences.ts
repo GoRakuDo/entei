@@ -4,7 +4,8 @@
  * Key: `entei.player.anki-miner.v1`
  *
  * Persists ONLY:
- *   - endpoint (only after user explicitly saves)
+ *   - endpoint (saved together with the preset the moment a valid
+ *     selection is made — deck, note type, and sentence mapping)
  *   - deck, note type, field mapping
  *   - exportMode UI preference ('new' | 'update', optional, defaults to 'new')
  *

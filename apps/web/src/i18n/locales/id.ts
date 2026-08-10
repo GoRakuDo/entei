@@ -15,7 +15,6 @@ export const id: Dictionary = {
     description:
       'Ruang untuk belajar dari media lokal dan subtitle milikmu, hadir di tahap berikutnya.',
     cta: 'Lihat ruang Player',
-    status: 'Tahap berikutnya',
   },
   playerUI: {
     selectMediaTitle: 'Pilih media untuk diputar',
@@ -122,10 +121,6 @@ export const id: Dictionary = {
     ankiFieldTags: 'Tag',
     ankiFieldRequired: 'wajib',
     ankiFieldOptional: 'opsional',
-    ankiSavePreset: 'Simpan Preset Default',
-    ankiPresetSaved: 'Preset disimpan',
-    ankiPresetInvalid:
-      'Pilih dek, tipe catatan, dan field kalimat untuk menyimpan.',
     ankiNoFields: 'Tidak ada field untuk tipe catatan ini',
     ankiSelectNoteTypeFirst: 'Pilih tipe catatan untuk melihat field',
     // AM-2: Screenshot capture

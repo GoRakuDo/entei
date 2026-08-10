@@ -50,7 +50,6 @@ export interface Dictionary {
     title: string;
     description: string;
     cta: string;
-    status: string;
   };
   playerUI: {
     selectMediaTitle: string;
@@ -171,9 +170,6 @@ export interface Dictionary {
     ankiFieldTags: string;
     ankiFieldRequired: string;
     ankiFieldOptional: string;
-    ankiSavePreset: string;
-    ankiPresetSaved: string;
-    ankiPresetInvalid: string;
     ankiNoFields: string;
     ankiSelectNoteTypeFirst: string;
     // AM-2: Screenshot capture

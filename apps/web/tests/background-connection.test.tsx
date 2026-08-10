@@ -183,7 +183,7 @@ vi.mock('@/components/player/MediaPicker', () => ({
 vi.mock('@i18n/index', () => ({
   getDictionary: vi.fn(() => ({
     hub: { systemLabel: '', lead: '' },
-    player: { title: '', description: '', cta: '', status: '' },
+    player: { title: '', description: '', cta: '', },
     playerUI: new Proxy({}, { get: () => '' }),
     reader: { title: '', description: '', status: '' },
     privacy: { local: '' },

@@ -29,8 +29,16 @@ import { House, Clapperboard, ChartNoAxesCombined } from '@lucide/astro';
 
 /** Single destination definition — desktop pill and mobile dock read from this. */
 const DESKTOP_DESTINATIONS = [
-  { route: '/player/', labelKey: 'destinationPlayer' as const, Icon: Clapperboard },
-  { route: '/tracker/', labelKey: 'destinationTracker' as const, Icon: ChartNoAxesCombined },
+  {
+    route: '/player/',
+    labelKey: 'destinationPlayer' as const,
+    Icon: Clapperboard,
+  },
+  {
+    route: '/tracker/',
+    labelKey: 'destinationTracker' as const,
+    Icon: ChartNoAxesCombined,
+  },
 ] as const;
 
 /**
@@ -39,7 +47,11 @@ const DESKTOP_DESTINATIONS = [
  */
 const MOBILE_DESTINATIONS = [
   { route: '/', labelKey: 'destinationHome' as const, Icon: House },
-  { route: '/tracker/', labelKey: 'destinationTracker' as const, Icon: ChartNoAxesCombined },
+  {
+    route: '/tracker/',
+    labelKey: 'destinationTracker' as const,
+    Icon: ChartNoAxesCombined,
+  },
 ] as const;
 
 const {
@@ -77,25 +89,24 @@ const settingsUIProps = dictionary.playerUI;
   Hidden on desktop via CSS (display:none ≥768px).
   Not rendered on Player mobile (Player has no top chrome).
   ============================================================
--->
-{!isPlayer && (
-  <header class="entei-topbar-mobile" role="banner">
-    <div class="entei-topbar-mobile-inner">
-      <a class="entei-wordmark" href="/">
-        <HubEmblem class="entei-wordmark-emblem" />
-        <span class="entei-wordmark-text">Entei</span>
-      </a>
-      {
-        showLanguageSelector && (
+-->{
+  !isPlayer && (
+    <header class="entei-topbar-mobile" role="banner">
+      <div class="entei-topbar-mobile-inner">
+        <a class="entei-wordmark" href="/">
+          <HubEmblem class="entei-wordmark-emblem" />
+          <span class="entei-wordmark-text">Entei</span>
+        </a>
+        {showLanguageSelector && (
           <LanguageSelector
             currentLocale={locale}
             selectLabel={dictionary.language.selectLabel}
           />
-        )
-      }
-    </div>
-  </header>
-)}
+        )}
+      </div>
+    </header>
+  )
+}
 
 <!--
   ============================================================
@@ -141,47 +152,49 @@ const settingsUIProps = dictionary.playerUI;
       <span>Entei</span>
     </a>
     {
-      DESKTOP_DESTINATIONS.map(
-        ({ route, labelKey, Icon }) => {
-          const isActive = normalisePath(route) === activePath;
-          return (
-            <a
-              class="entei-desktop-pill-link"
-              href={route}
-              aria-current={isActive ? 'page' : undefined}
-              data-entei-nav-destination={route}
-            >
-              <Icon class="entei-desktop-pill-icon" aria-hidden="true" />
-              <span data-i18n={`nav.${labelKey}`}>
-                {dictionary.nav[labelKey]}
-              </span>
-            </a>
-          );
-        },
-      )
+      DESKTOP_DESTINATIONS.map(({ route, labelKey, Icon }) => {
+        const isActive = normalisePath(route) === activePath;
+        return (
+          <a
+            class="entei-desktop-pill-link"
+            href={route}
+            aria-current={isActive ? 'page' : undefined}
+            data-entei-nav-destination={route}
+          >
+            <Icon class="entei-desktop-pill-icon" aria-hidden="true" />
+            <span data-i18n={`nav.${labelKey}`}>
+              {dictionary.nav[labelKey]}
+            </span>
+          </a>
+        );
+      })
     }
     {
-      /* Settings button — opens the EizouDen settings modal from any page
+      (
+        /* Settings button — opens the EizouDen settings modal from any page
          (NAVIGATION_BAR.md 2026-08-07). Not a route. */
-      <EizouSettingsDialog
-        client:load
-        label={dictionary.nav.destinationSettings}
-        triggerLabel={dictionary.playerUI.settingsLabel}
-        variant="pill"
-        playerUI={settingsUIProps}
-        showShortcuts={isPlayer}
-      />
+        <EizouSettingsDialog
+          client:load
+          label={dictionary.nav.destinationSettings}
+          triggerLabel={dictionary.playerUI.settingsLabel}
+          variant="pill"
+          playerUI={settingsUIProps}
+          showShortcuts={isPlayer}
+        />
+      )
     }
   </nav>
-  {!isPlayer && (
-    <div class="entei-desktop-combobox" data-entei-desktop-combobox>
-      <LanguageCombobox
-        client:load
-        currentLocale={locale}
-        selectLabel={dictionary.language.comboboxLabel}
-      />
-    </div>
-  )}
+  {
+    !isPlayer && (
+      <div class="entei-desktop-combobox" data-entei-desktop-combobox>
+        <LanguageCombobox
+          client:load
+          currentLocale={locale}
+          selectLabel={dictionary.language.comboboxLabel}
+        />
+      </div>
+    )
+  }
 </div>
 
 <!--
@@ -207,23 +220,23 @@ const settingsUIProps = dictionary.playerUI;
           data-entei-nav-destination={route}
         >
           <Icon class="entei-mobile-dock-icon" aria-hidden="true" />
-          <span data-i18n={`nav.${labelKey}`}>
-            {dictionary.nav[labelKey]}
-          </span>
+          <span data-i18n={`nav.${labelKey}`}>{dictionary.nav[labelKey]}</span>
         </a>
       );
     })
   }
   {
-    /* Settings — mobile Dock entry (NAVIGATION_BAR.md 2026-08-07). */
-    <EizouSettingsDialog
-      client:load
-      label={dictionary.nav.destinationSettings}
-      triggerLabel={dictionary.playerUI.settingsLabel}
-      variant="dock"
-      playerUI={settingsUIProps}
-      showShortcuts={isPlayer}
-    />
+    (
+      /* Settings — mobile Dock entry (NAVIGATION_BAR.md 2026-08-07). */
+      <EizouSettingsDialog
+        client:load
+        label={dictionary.nav.destinationSettings}
+        triggerLabel={dictionary.playerUI.settingsLabel}
+        variant="dock"
+        playerUI={settingsUIProps}
+        showShortcuts={isPlayer}
+      />
+    )
   }
 </nav>
 
@@ -330,7 +343,7 @@ const settingsUIProps = dictionary.playerUI;
       display: flex;
       align-items: center;
       gap: var(--entei-space-8);
-      padding: var(--entei-space-4) var(--entei-space-16);
+      padding: var(--entei-space-4) var(--entei-space-8);
       background-color: var(--entei-surface);
       border: 1px solid oklch(100% 0 0deg / 0.08);
       border-radius: var(--entei-radius-pill);
@@ -397,14 +410,14 @@ const settingsUIProps = dictionary.playerUI;
       color: var(--entei-text);
     }
 
-    .entei-desktop-pill-link[aria-current="page"] {
+    .entei-desktop-pill-link[aria-current='page'] {
       color: var(--entei-accent);
       font-weight: 600;
       background-color: oklch(57.74% 0.209 273.85deg / 0.12);
       border-radius: var(--entei-radius-card);
     }
 
-    .entei-desktop-pill-link[aria-current="page"]:hover {
+    .entei-desktop-pill-link[aria-current='page']:hover {
       color: var(--entei-accent-hover);
     }
 
@@ -440,8 +453,8 @@ const settingsUIProps = dictionary.playerUI;
         background-color: Highlight;
         color: HighlightText;
       }
-      .entei-desktop-pill-brand[aria-current="page"],
-      .entei-desktop-pill-link[aria-current="page"] {
+      .entei-desktop-pill-brand[aria-current='page'],
+      .entei-desktop-pill-link[aria-current='page'] {
         background-color: Highlight;
         color: HighlightText;
       }
@@ -512,7 +525,8 @@ const settingsUIProps = dictionary.playerUI;
       pointer-events: none;
       transition:
         opacity var(--entei-duration-normal) var(--entei-ease-productive) 200ms,
-        transform var(--entei-duration-normal) var(--entei-ease-productive) 200ms;
+        transform var(--entei-duration-normal) var(--entei-ease-productive)
+          200ms;
     }
 
     /* Hover reveal (fine pointer devices only).
@@ -525,8 +539,10 @@ const settingsUIProps = dictionary.playerUI;
         pointer-events: auto;
         /* 750ms dwell delay, then reveal (var(--entei-duration-normal)) */
         transition:
-          opacity var(--entei-duration-normal) var(--entei-ease-productive) 750ms,
-          transform var(--entei-duration-normal) var(--entei-ease-productive) 750ms;
+          opacity var(--entei-duration-normal) var(--entei-ease-productive)
+            750ms,
+          transform var(--entei-duration-normal) var(--entei-ease-productive)
+            750ms;
       }
     }
 
@@ -616,12 +632,12 @@ const settingsUIProps = dictionary.playerUI;
     }
 
     /* Active page state */
-    .entei-mobile-dock-link[aria-current="page"] {
+    .entei-mobile-dock-link[aria-current='page'] {
       color: var(--entei-accent);
       background-color: oklch(57.74% 0.209 273.85deg / 0.12);
     }
 
-    .entei-mobile-dock-link[aria-current="page"]:hover {
+    .entei-mobile-dock-link[aria-current='page']:hover {
       color: var(--entei-accent-hover);
       background-color: oklch(57.74% 0.209 273.85deg / 0.18);
     }
@@ -654,7 +670,7 @@ const settingsUIProps = dictionary.playerUI;
         background-color: Highlight;
         color: HighlightText;
       }
-      .entei-mobile-dock-link[aria-current="page"] {
+      .entei-mobile-dock-link[aria-current='page'] {
         background-color: Highlight;
         color: HighlightText;
       }

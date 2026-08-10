@@ -37,12 +37,6 @@ const { dictionary } = Astro.props;
       <a class="entei-destination-link" href="/player/" data-entei-player-link>
         <PlayerIcon />
         <div class="entei-destination-text">
-          <span
-            class="entei-destination-status entei-destination-status--next"
-            data-i18n="player.status"
-          >
-            {dictionary.player.status}
-          </span>
           <h2 class="entei-destination-title" data-i18n="player.title">
             {dictionary.player.title}
           </h2>
@@ -124,11 +118,12 @@ const { dictionary } = Astro.props;
       0 8px 24px oklch(0% 0 0deg / 0.25);
   }
 
-  /* Reader tile — quieter, but NOT low-opacity (7.184) */
+  /* Reader tile — quieter card, whole tile at 75% opacity (user
+     decision 2026-08-11; status text and aria kept intact). */
   .entei-destination--reader {
     background-color: var(--entei-surface);
     border: 1px solid oklch(85% 0.15 85deg / 0.25);
-    opacity: 1;
+    opacity: 0.75;
   }
 
   /* Hover lift on Player only — no layout reflow properties (13.348) */
@@ -190,13 +185,6 @@ const { dictionary } = Astro.props;
     padding: var(--entei-space-2) var(--entei-space-8);
     border-radius: var(--entei-radius-sm);
     width: fit-content;
-  }
-
-  /* Player status — purple accent (primary destination) */
-  .entei-destination-status--next {
-    color: var(--entei-accent-hover);
-    background-color: oklch(57.74% 0.209 273.85deg / 0.18);
-    border: 1px solid oklch(57.74% 0.209 273.85deg / 0.4);
   }
 
   /* Reader status — gold (locked, special state) (10.273-274) */

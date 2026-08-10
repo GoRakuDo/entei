@@ -919,34 +919,6 @@
   color: var(--entei-text);
 }
 
-/* --- Save Section --- */
-.entei-anki-save-area {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
-  padding-top: var(--entei-space-8);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
-}
-
-.entei-anki-save-btn {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-}
-
-.entei-anki-saved {
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
-  color: var(--entei-accent);
-  margin: 0;
-}
-
-.entei-anki-hint {
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
-  color: var(--entei-text-muted);
-  margin: 0;
-}
-
 .entei-subtitle-appearance-tab {
   display: flex;
   flex-direction: column;

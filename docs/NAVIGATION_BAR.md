@@ -78,7 +78,7 @@ desktopの黒いTopBar帯は撤去する。Home / Trackerでは、`[SVG emblem +
 - Home / Trackerのdestination pillは上中央に置く。brandはpillの最初のHome linkとしてまとめ、`Home / Player / Tracker`を続ける。3 linkはicon + 短い文字を表示し、active pageには`aria-current="page"`を付ける。
 - desktop Language Comboboxはpillへ入れず、viewport右端へ置く。Combobox triggerのwidthはlocale名でlayout shiftしない固定幅とし、popover contentはtriggerへanchorする。
 - Playerは通常時、desktop pillを表示しない。pointerがPlayer viewportの上端central trigger zoneへ入った時、またはkeyboard focusがnav pathへ入った時だけ、中央pillをrevealする。Language ComboboxはPlayerでrenderしない。RightPanelのSubtitle / History tabやtop-right controlsを塞がないためである。
-- Playerのreveal対象は`@media (hover: hover) and (pointer: fine)`だけにする。top-edge trigger zoneへpointerが**1.5秒連続で留まった時だけ**pillを表示し、通り過ぎただけでは表示しない。pillとtrigger zoneを同じcontainmentに置き、top-edgeからpillへpointerを移す途中で消さない。leave時は150〜250ms後に隠す。keyboard focus時は待機なしで即表示する。
+- Playerのreveal対象は`@media (hover: hover) and (pointer: fine)`だけにする。top-edge trigger zoneへpointerが**750ms連続で留まった時だけ**pillを表示し、通り過ぎただけでは表示しない。pillとtrigger zoneを同じcontainmentに置き、top-edgeからpillへpointerを移す途中で消さない。leave時は150〜250ms後に隠す。keyboard focus時は待機なしで即表示する。
 - keyboardはhoverに依存しない。Playerのpill、Combobox trigger、destination linkはDOM・accessibility tree・Tab順に残し、`focus-within`中は表示する。closed visual stateは`opacity`、小さな`transform`、`pointer-events`だけで表し、`display: none`、`visibility: hidden`、`inert`、`aria-hidden`でfocus pathを断たない。
 - Playerのnavはmediaを覆う一時surfaceであり、media selection・custom controls・immersive / fullscreen behaviorを変えない。
 
@@ -132,7 +132,7 @@ Dockへ常時`backdrop-filter`を重ねない。fixed surfaceに限定し、redu
 
 Mimoは非visual部分だけを担当する。
 
-1. `TopBar.astro`へroute contractを渡す。desktop Home / Trackerはscroll outする常時brand pill + right-edge Combobox、Playerは1.5秒dwell後のtop-edge reveal pillだけ、mobile Home / Trackerは既存chrome + Dock、PlayerはDockだけを同じdestination定義から描画する。
+1. `TopBar.astro`へroute contractを渡す。desktop Home / Trackerはscroll outする常時brand pill + right-edge Combobox、Playerは750ms dwell後のtop-edge reveal pillだけ、mobile Home / Trackerは既存chrome + Dock、PlayerはDockだけを同じdestination定義から描画する。
 2. id / ja / en dictionaryへnavigation copyとaccessible nameを追加する。
 3. static active-state markup、`aria-current`、landmark、Player landscape / fullscreen visibility stateのデータ境界を実装する。
 4. route / locale / active-state / immersion visibilityのtestを追加する。
@@ -142,7 +142,7 @@ Mimoは非visual部分だけを担当する。
 
 NemotronはUI / CSSだけを担当する。
 
-1. desktop Home / Trackerのscroll-out brand pill + right-edge Combobox、desktop Playerの1.5秒dwell後top-edge reveal pill、mobile Home / TrackerのTopBar + DockとPlayerのDock-only chromeをEntei tokenで整える。
+1. desktop Home / Trackerのscroll-out brand pill + right-edge Combobox、desktop Playerの750ms dwell後top-edge reveal pill、mobile Home / TrackerのTopBar + DockとPlayerのDock-only chromeをEntei tokenで整える。
 2. Lucide named iconを視覚的に揃え、desktop / mobileのhit area、active / hover / focus / pressed / reduced-motion stateを仕上げる。
 3. `safe-area-inset-bottom`、mobile content bottom padding、Player immersive non-displayをCSSで接続する。
 4. Trackerの学習集計 / read model、Playerのresume persistence、i18n型、test logicを変更しない。
@@ -155,7 +155,7 @@ NemotronはUI / CSSだけを担当する。
 | route                  | 各pageで正しい1件だけが`aria-current="page"`になる                                                              |
 | locale                 | id / ja / enで3 nav labelとaccessible nameが切り替わる                                                          |
 | desktop Home / Tracker | 768 / 1024 / 1440pxでbrand pillが上中央に常時あり、scroll outする。Language Comboboxは右端にあり、locale名変更でlayout shiftしない |
-| desktop Player         | 768 / 1024 / 1440pxで通常はpillなし。top-edge hoverを1.5秒維持、またはkeyboard focusで中央pillだけが現れ、Comboboxはrenderせずmedia immersive表示を保つ |
+| desktop Player         | 768 / 1024 / 1440pxで通常はpillなし。top-edge hoverを750ms維持、またはkeyboard focusで中央pillだけが現れ、Comboboxはrenderせずmedia immersive表示を保つ |
 | mobile portrait        | 320 / 360 / 390pxでDockがsafe areaを避け、footer / contentを覆わない。PlayerはTopBarなし、Home / Trackerはlanguage selectionを含むTopBarあり |
 | Player landscape       | 955×400相当でTopBar / Dock / footer / RightPanelが消え、portraitで復帰する                                      |
 | accessibility          | keyboard、200% zoom、400% reflow、reduced-motion、forced-colorsを確認する                                       |

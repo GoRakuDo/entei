@@ -160,7 +160,7 @@ Stage 2のmodeはMining Preview内のshadcn `ToggleGroup type="single"`で選ぶ
 | localStorage key: `entei.player.anki-miner.v1` | ✅   | `anki-miner-preferences.ts` で定義                                                                                                        |
 | 保存しないものが保存されていない               | ✅   | testで `apiKey` / `blob` / `path` / `subtitle` / `file` を検証                                                                            |
 | Note type変更で無効mappingクリア               | ✅   | `handleModelChange` で `modelFieldNames` 再取得後、存在しないfieldを `''`/nullに                                                          |
-| Save Default: deck + note type + sentence必須  | ✅   | `isValidPreset` 再利用 + `modelFields.includes(fields.sentence)`                                                                          |
+| 選択ごとに auto-save: deck + note type + sentence が揃った瞬間に localStorage へ保存 / 途中状態は保存しない | ✅ | `isValidPreset` + `saveValidPreset`（deck / note type / field mapping の各選択時に next snapshot が valid なら即保存）                   |
 | Dialog開閉がmediaをpauseしない                 | ✅   | `PlayerSettingsDialog` はplayback操作を持たない                                                                                           |
 | OKLCH tokenのみ                                | ✅   | 新規CSSで `--entei-*` / `oklch()` / `color-mix()` のみ（hex/rgb/hsl/namedなし）                                                           |
 | Home / mobile player untouched                 | ✅   | `PlayerControls.tsx` のみ変更、layout CSS不変                                                                                             |
@@ -441,7 +441,7 @@ Player frame右上のSettings iconを押すとModalを開く。現在のSettings
 | 未接続                | 接続説明、auto-connect開始                                 | なし   |
 | 接続中                | status badge (connecting)、PlugZap icon                    | なし   |
 | 接続失敗              | localized原因、10秒retry、CORS案内                         | なし   |
-| 接続成功・mapping未完 | Deck / Note type / field Select、Save preset               | なし   |
+| 接続成功・mapping未完 | Deck / Note type / field Select（選択で auto-save、valid 時のみ localStorage へ） | なし   |
 | 保存済み              | active `Default` preset、最後の検証時刻（session表示だけ） | なし   |
 
 最初に表示するfield mappingは以下。
@@ -566,7 +566,7 @@ Auto-connect on AnkiFieldsTab mount
   → userがNote typeを選択
   → modelFieldNames
   → field mappingをvalidate
-  → Save preset（local only）
+  → valid selection時だけ auto-save（local only・API key は含まない）
 
 On failure: continuous retry every 10 seconds until connected or unmount
 On endpoint/API key change: immediate reconnect

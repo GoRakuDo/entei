@@ -14,7 +14,6 @@ export const en: Dictionary = {
     description:
       'A space for learning from your own local media and subtitles, arriving in the next phase.',
     cta: 'Preview the Player space',
-    status: 'Next phase',
   },
   playerUI: {
     selectMediaTitle: 'Select media to play',
@@ -121,9 +120,6 @@ export const en: Dictionary = {
     ankiFieldTags: 'Tags',
     ankiFieldRequired: 'required',
     ankiFieldOptional: 'optional',
-    ankiSavePreset: 'Save Default Preset',
-    ankiPresetSaved: 'Preset saved',
-    ankiPresetInvalid: 'Select a deck, note type, and sentence field to save.',
     ankiNoFields: 'No fields found for this note type',
     ankiSelectNoteTypeFirst: 'Select a note type to view fields',
     // AM-2: Screenshot capture

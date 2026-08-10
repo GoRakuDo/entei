@@ -36,22 +36,6 @@ const { dictionary } = Astro.props;
     isolation: isolate;
   }
 
-  /* Background depth — gradient + subtle grid (PHASE0.md 6.150, 13.351) */
-  .entei-hub-identity::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background:
-      radial-gradient(
-        ellipse 60% 80% at 20% 0%,
-        oklch(57.74% 0.209 273.85deg / 0.12),
-        transparent 60%
-      ),
-      linear-gradient(180deg, transparent 0%, oklch(5% 0.005 270deg / 0.6) 100%);
-    pointer-events: none;
-  }
-
   .entei-system-label {
     font-family: var(--entei-font-system);
     font-size: 0.875rem;

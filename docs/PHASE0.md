@@ -141,7 +141,7 @@ Astro公式はlocale prefixを使うroutingを提供しているが、それは�
 
 2. **Top Bar**
    - 左：Entei wordmark。Homeへのリンクも兼ねる。
-    - desktopの黒いTop Bar帯は出さない。Home / Trackerでは上中央に`SVG emblem + Entei | Home | Player | Tracker`のpill navigationを常時置き、通常scrollで画面外へ流す。Playerだけは通常時にpillを隠し、上端hoverを1.5秒維持した時、またはkeyboard focus時に中央pillだけ出す。Language ComboboxはPlayerに出さず、RightPanelの操作域を塞がない。
+    - desktopの黒いTop Bar帯は出さない。Home / Trackerでは上中央に`SVG emblem + Entei | Home | Player | Tracker`のpill navigationを常時置き、通常scrollで画面外へ流す。Playerだけは通常時にpillを隠し、上端hoverを750ms維持した時、またはkeyboard focus時に中央pillだけ出す。Language ComboboxはPlayerに出さず、RightPanelの操作域を塞がない。
    - mobileでは、Home / Trackerで現在言語が見えるLanguage Selectorを保ち、Home / Player / Trackerの移動はfloating Dockへ置く。Playerは現行どおりSelectorを出さない。
    - mobileでは、Top Barはwordmarkと必要なSelectorだけにし、3 destinationはsafe-area対応のfloating bottom Dockへ移す。
    - 詳細なroute、responsive、accessibilityの契約は[`NAVIGATION_BAR.md`](./NAVIGATION_BAR.md)を正とする。
@@ -312,7 +312,7 @@ GoRakuDoの実装は、Display・JP・Pixel用aliasを既に分けている（`D
 **Base — 320px以上**
 
 - 1 column。
-- desktop Home / Trackerは上中央のbrand pillを常時表示し、右端へshadcn Language Comboboxを置く。desktop Playerは通常時にpillを隠し、上端hoverを1.5秒維持した時、またはkeyboard focus時に中央pillだけ出す。Language ComboboxはPlayerにrenderしない。mobileのHome / Trackerは既存native Language Selectorを保ち、destinationはfloating Dockへ置く。Player mobileはTopBarを出さずDockだけにし、Homeで保存した言語設定を読む。
+- desktop Home / Trackerは上中央のbrand pillを常時表示し、右端へshadcn Language Comboboxを置く。desktop Playerは通常時にpillを隠し、上端hoverを750ms維持した時、またはkeyboard focus時に中央pillだけ出す。Language ComboboxはPlayerにrenderしない。mobileのHome / Trackerは既存native Language Selectorを保ち、destinationはfloating Dockへ置く。Player mobileはTopBarを出さずDockだけにし、Homeで保存した言語設定を読む。
 - Hub Identityの後にPlayer、EPUBの順で縦配置する。
 - Tileの主要操作領域は最低44×44 CSS pxを確保する。
 - 左右paddingは`clamp(1rem, 4vw, 1.5rem)`を出発点にする。
