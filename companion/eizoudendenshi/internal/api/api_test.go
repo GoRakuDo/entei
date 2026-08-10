@@ -15,7 +15,11 @@ import (
 const (
 	allowedOriginEntei = "https://entei.gorakudo.org"
 	allowedOriginLocal = "http://localhost:4321"
-	disallowedOrigin   = "https://evil.example.com"
+	// Loopback dev-server origin (=== localhost, different serialization
+	// from the browser's perspective): the fixed allowlist carries both
+	// spellings (2026-08-10 emergency fix).
+	allowedOriginLoopback = "http://127.0.0.1:4321"
+	disallowedOrigin      = "https://evil.example.com"
 	// extraOrigin is a stand-in for a runtime-specific LAN dev-server origin
 	// (TEST-NET-1 documentation address; Android Chrome DevTools QA origin
 	// shape). It must never be needed in production.
@@ -107,7 +111,7 @@ func TestHealthReportsNonSensitiveData(t *testing.T) {
 
 func TestHealthCORSHappyPath(t *testing.T) {
 	s := newTestServer(t)
-	for _, origin := range []string{allowedOriginEntei, allowedOriginLocal} {
+	for _, origin := range []string{allowedOriginEntei, allowedOriginLocal, allowedOriginLoopback} {
 		rec := doRequest(t, s.Handler(), http.MethodGet, "/v1/health", origin, "")
 		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
 			t.Errorf("origin %q: ACAO = %q, want %q", origin, got, origin)
@@ -252,6 +256,45 @@ func TestPairDisallowedOriginRejected(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), s.token) || strings.Contains(rec.Body.String(), s.code) {
 		t.Fatal("disallowed-origin error leaks code or token")
+	}
+}
+
+// TestLoopbackOriginPairing pins the 2026-08-10 emergency fix: the dev
+// server reached via http://127.0.0.1:4321 must be treated exactly like
+// http://localhost:4321 — preflight passes with ACAO, pairing works, and
+// a disallowed origin is still rejected with 403 (no ACAO).
+func TestLoopbackOriginPairing(t *testing.T) {
+	s := newTestServer(t)
+	h := s.Handler()
+
+	// (a) Preflight from the loopback origin → 204 with ACAO.
+	rec := doRequest(t, h, http.MethodOptions, "/v1/pair", allowedOriginLoopback, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want 204", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != allowedOriginLoopback {
+		t.Errorf("preflight ACAO = %q, want %q", got, allowedOriginLoopback)
+	}
+
+	// (b) Pair POST from the loopback origin succeeds.
+	code := s.PairingCode()
+	rec = doRequest(t, h, http.MethodPost, "/v1/pair", allowedOriginLoopback,
+		`{"code":"`+code+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pair status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != allowedOriginLoopback {
+		t.Errorf("pair ACAO = %q, want %q", got, allowedOriginLoopback)
+	}
+
+	// (c) A disallowed origin is still rejected with 403 and no ACAO.
+	rec = doRequest(t, h, http.MethodPost, "/v1/pair", disallowedOrigin,
+		`{"code":"`+code+`"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("disallowed status = %d, want 403", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("disallowed rejection sent ACAO = %q, want empty", got)
 	}
 }
 
@@ -854,7 +897,7 @@ func TestExtraOriginWithoutFlagDenied(t *testing.T) {
 // The fixed two origins keep working unchanged when an extra origin is
 // configured (combined exact set, fixed set never replaced).
 func TestFixedOriginsRemainWithExtra(t *testing.T) {
-	for _, origin := range []string{allowedOriginEntei, allowedOriginLocal} {
+	for _, origin := range []string{allowedOriginEntei, allowedOriginLocal, allowedOriginLoopback} {
 		t.Run(origin, func(t *testing.T) {
 			s, _ := newTestServerWithFixture(t, extraOrigin)
 			h := s.Handler()

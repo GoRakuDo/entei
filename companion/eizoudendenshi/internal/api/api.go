@@ -88,10 +88,18 @@ const apiVersion = "v1"
 // fixedOrigins are the only production Origins accepted for pairing. Exact
 // string match only — no wildcards, no suffix/prefix matching. Per-process
 // development origins (Config.AllowOrigins) are added to the combined set
-// at New time; the fixed set itself never changes.
+// at New time; the fixed set changes only when a new production or dev
+// origin is identified.
+//
+// Both loopback spellings are listed: browsers resolve localhost and
+// 127.0.0.1 as distinct Origins, and the dev server can be reached via
+// either (2026-08-10: OPTIONS /v1/pair 403 from http://127.0.0.1:4321 —
+// the Origin was missing from the fixed set, so the preflight got no
+// Access-Control-Allow-Origin header).
 var fixedOrigins = map[string]struct{}{
 	"https://entei.gorakudo.org": {},
 	"http://localhost:4321":      {},
+	"http://127.0.0.1:4321":      {},
 }
 
 // ParseOrigin validates s as an exact HTTP(S) origin and returns its
