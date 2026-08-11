@@ -6,11 +6,12 @@
  * Static HTML is Indonesian (PHASE0.md 5.129). The locale switcher module
  * script (loaded by BaseLayout) applies the saved locale after first paint.
  *
- * Content order (PHASE0.md Section 6):
+ * Content order (PHASE0.md Section 6 + Home composition record):
  * 1. Skip link (in BaseLayout)
  * 2. Top Bar (in BaseLayout)
- * 3. Hub Identity
- * 4. Destination Dock (Player + EPUB locked)
+ * 3. Home hero (viewport-filling: Hub Identity 5/12 + Destination Dock
+ *    7/12 stacked vertically on mobile) — entei-home-hero
+ * 4. Roadmap (local MDX, full width, plain text below a thin separator)
  * 5. Local-first Note
  * 6. Footer (in BaseLayout)
  */
@@ -18,13 +19,113 @@ import BaseLayout from '@layouts/BaseLayout.astro';
 import HubIdentity from '@components/home/HubIdentity.astro';
 import DestinationDock from '@components/home/DestinationDock.astro';
 import LocalFirstNote from '@components/home/LocalFirstNote.astro';
+import Roadmap from '@/content/home/future-features.mdx';
 import { getDictionary } from '@i18n/index';
 
 const dictionary = getDictionary('id');
 ---
 
 <BaseLayout locale="id" path="/">
-  <HubIdentity dictionary={dictionary} />
-  <DestinationDock dictionary={dictionary} />
+  <div class="entei-home-hero">
+    <div class="entei-home-hero-inner">
+      <HubIdentity dictionary={dictionary} />
+      <DestinationDock dictionary={dictionary} />
+    </div>
+  </div>
+  <Roadmap />
   <LocalFirstNote dictionary={dictionary} />
 </BaseLayout>
+
+<style>
+  /* Home hero — fills the viewport, vertically centered (wireframe
+     "above the fold"). Spans the full shared desktop grid; the 5fr/7fr
+     split is recreated inside so BaseLayout stays untouched. */
+  :global(.entei-main-inner) :global(.entei-home-hero) {
+    grid-column: 1 / -1;
+    /* The hero sits inside .entei-main-inner, which adds 32px top and
+       64px bottom padding (BaseLayout shared rules). Subtract TopBar
+       (64px) plus both paddings so the hero fills exactly the visible
+       area and its center aligns with the visible viewport center. */
+    min-height: calc(
+      100dvh - var(--entei-topbar-height) - var(--entei-space-32) -
+        var(--entei-space-64)
+    );
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  :global(.entei-home-hero-inner) {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--entei-space-48);
+    width: 100%;
+    max-width: var(--entei-content-max);
+    margin-inline: auto;
+    align-items: start;
+  }
+
+  @media (min-width: 1024px) {
+    :global(.entei-home-hero-inner) {
+      grid-template-columns: 5fr 7fr;
+      gap: var(--entei-space-64);
+    }
+  }
+
+  /* Roadmap (local MDX): plain text directly on the page background —
+     no card, no surface, no border box. A thin separator above it
+     divides the viewport hero from the scrollable content below. */
+  :global(.entei-main-inner) :global(.entei-roadmap) {
+    grid-column: 1 / -1;
+    border-top: 1px solid oklch(100% 0 0deg / 0.12);
+    padding-top: var(--entei-space-24);
+    margin-top: var(--entei-space-16);
+    font-family: var(--entei-font-body);
+    color: var(--entei-text);
+  }
+
+  /* Roadmap typography via Tailwind Typography (`prose`), with prose
+     CSS variables mapped onto Entei tokens (always-dark theme). */
+  :global(.entei-roadmap.prose) {
+    --tw-prose-body: var(--entei-text-secondary);
+    --tw-prose-headings: var(--entei-text);
+    --tw-prose-bold: var(--entei-text);
+    --tw-prose-links: var(--entei-accent-hover);
+    --tw-prose-counters: var(--entei-text-secondary);
+    --tw-prose-bullets: var(--entei-text-secondary);
+    --tw-prose-lead: var(--entei-text-secondary);
+    --tw-prose-hr: oklch(100% 0 0deg / 0.12);
+    --tw-prose-quotes: var(--entei-text-secondary);
+    --tw-prose-quote-borders: var(--entei-accent);
+    --tw-prose-code: var(--entei-text);
+    --tw-prose-pre-bg: transparent;
+    /* Dark-mode invert overrides (Entei is always dark). */
+    --tw-prose-invert-body: var(--entei-text-secondary);
+    --tw-prose-invert-headings: var(--entei-text);
+    --tw-prose-invert-bold: var(--entei-text);
+    --tw-prose-invert-links: var(--entei-accent-hover);
+    --tw-prose-invert-counters: var(--entei-text-secondary);
+    --tw-prose-invert-bullets: var(--entei-text-secondary);
+    font-family: var(--entei-font-body);
+    color: var(--entei-text-secondary);
+    max-width: 56rem;
+    margin-inline: auto;
+  }
+
+  :global(.entei-roadmap.prose h2) {
+    font-family: var(--entei-font-system);
+  }
+
+  :global(.entei-roadmap.prose a) {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* LocalFirstNote follows the roadmap in DOM order. BaseLayout's shared
+     grid pins it to row 2; Home overrides that placement so the note
+     renders after the roadmap (BaseLayout itself unchanged). */
+  :global(.entei-main-inner) :global(.entei-home-local-note) {
+    grid-row: auto;
+    grid-column: 1 / -1;
+  }
+</style>

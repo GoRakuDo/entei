@@ -6,6 +6,7 @@
  * --------------------------------------------------------------------------- */
 
 @import 'tailwindcss';
+@plugin '@tailwindcss/typography';
 
 /*
  * Map shadcn theme variables to Entei OKLCH design tokens.

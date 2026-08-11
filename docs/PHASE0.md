@@ -169,6 +169,15 @@ Astro公式はlocale prefixを使うroutingを提供しているが、それは�
 
 スマートフォンでは自然に縦へ流し、デスクトップではHub IdentityとDestination Dockを左右非対称に置く。ゲームのメニュー画面のように「今いる場所」と「選べる行先」がひと続きに見えればよく、記事サイトのような長いsection列は作らない。
 
+### Home composition record（2026-08-11）: Hero wrapper + MDX Roadmap
+
+- **`entei-main-inner` は BaseLayout の共有インフラ**であり、Home hero に転用してはならない（Player / Tracker の global layout を壊さないため）。
+- Home は専用の **`entei-home-hero` wrapper** を追加し、その中に既存 `HubIdentity` + `DestinationDock` を置く（desktop / mobile とも中央寄せ・既存 BaseLayout の共有 desktop grid は変更しない）。
+- Hero の下に **MDX による Roadmap section**（`Fitur yang mendatang`）、その下に既存 `LocalFirstNote` の順で並べる。
+- **MDX は未導入だった**ため `npm install @astrojs/mdx` で導入し、`astro.config.mjs` の integrations へ `mdx()` を追加した。ローカル MDX 1 ファイル（`src/content/home/future-features.mdx`）を Home が直接 import する（content collection は使わない＝現時点で具体的な利益がないため最小構成）。
+- Roadmap 内容はインドネシア語で「イマージョン学習者のための versatile platform 計画」「multiplayer Quest 挑戦」「Context Library（YouTube / Anime Clip から単語の使用文脈を探す）」「ローカルデバイス・無料モデル継続のための支援」を明記し、一時的な**プレーンテキスト支援リンク**（YouTube Join / Trakteer・ボタンやカードにしない）を置く。
+- 本 record は Section 6（画面構成）の追記であり、他の PHASE0 section は変更しない。
+
 ## 7. Destinationの挙動と状態
 
 **Audio & Video Player — 主目的地**

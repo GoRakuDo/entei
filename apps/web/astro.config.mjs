@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 import react from '@astrojs/react';
+import mdx from '@astrojs/mdx';
 import tailwindcss from '@tailwindcss/vite';
 
 // Entei — game-hub home for the GoRakuDo local-first Japanese learning toolkit.
@@ -35,6 +36,7 @@ export default defineConfig({
 
   integrations: [
     react(),
+    mdx(),
     sitemap({
       // Phase 0: only the Home route `/` is indexable. Player preview and 404 are noindex.
       filter: (page) => {

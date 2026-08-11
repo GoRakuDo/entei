@@ -8,10 +8,12 @@
 @import './tokens.css';
 @import './fonts.css';
 @import './eizouden-settings.css';
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
 
 /* ===== RESET =====
  * Wrapped in @layer base so these declarations merge with Tailwind's base
- * layer (from @import 'tailwindcss' in player.css). Unlayered CSS always
+ * layer (from @import 'tailwindcss' above). Unlayered CSS always
  * beats layered CSS regardless of specificity, which caused Tailwind
  * utilities like px-3, py-2, text-sm, bg-* to be overridden by these
  * resets. Moving them into @layer base lets utilities layer win. */
