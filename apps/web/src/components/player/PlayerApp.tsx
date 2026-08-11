@@ -107,7 +107,6 @@ import { YouTubeInput } from '@/components/player/YouTubeInput';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { Music, AlertTriangle, Magnet } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
-import { buildShortcuts } from '@/features/player/player-shortcuts';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
   readAnkiMinerPreferences,
@@ -131,6 +130,11 @@ import {
   AnkiConnectClient,
   runAnkiConnectionFlow,
 } from '@/features/player/anki-connect';
+import {
+  listenForAnkiSessionCredentials,
+  listenForSubtitleSettingsChange,
+  type SubtitleSettings,
+} from '@/features/player/settings-bridge';
 
 function getInitialLocale(): 'id' | 'ja' | 'en' {
   const lang = document.documentElement.lang;
@@ -372,37 +376,13 @@ export default function PlayerApp() {
   );
 
   // --- P2.1: Subtitle appearance settings (persisted in prefs) ---
-  const [subtitleSettings, setSubtitleSettings] = useState<{
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  }>({
+  const [subtitleSettings, setSubtitleSettings] = useState<SubtitleSettings>({
     fontSize: prefsRef.current.subtitleFontSize,
     textColor: prefsRef.current.subtitleTextColor,
     backgroundColor: prefsRef.current.subtitleBackgroundColor,
     backgroundPadding: prefsRef.current.subtitleBackgroundPadding,
     verticalPosition: prefsRef.current.subtitleVerticalPosition,
   });
-
-  const handleSubtitleSettingsChange = useCallback(
-    (
-      settings: Partial<{
-        fontSize: number;
-        textColor: string;
-        backgroundColor: string;
-        backgroundPadding: number;
-        verticalPosition: number;
-      }>,
-    ) => {
-      setSubtitleSettings((prev) => ({ ...prev, ...settings }));
-      const prefs = readPlayerPreferences();
-      writePlayerPreferences({ ...prefs, ...settings });
-      prefsRef.current = { ...prefsRef.current, ...settings };
-    },
-    [],
-  );
 
   // --- AM-2: Screenshot state ---
   const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<
@@ -473,8 +453,6 @@ export default function PlayerApp() {
   const bgConnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track whether Settings has established a session (prevents background overwrite)
   const settingsSessionActiveRef = useRef(false);
-  // Ref to allow handleSessionCredentials to trigger background restart
-  const attemptBgRef = useRef<() => void>(() => {});
   // Export state
   const [exportMode, setExportModeState] = useState<'new' | 'update'>(
     () => readAnkiMinerPreferences().exportMode,
@@ -2514,34 +2492,6 @@ export default function PlayerApp() {
     return hasSentence || hasSource || hasImage || hasAudio;
   }, [mediaType, audioClipCaps.supported]);
 
-  // --- Stage 2: Export handlers ---
-  /** Handle session credentials from AnkiFieldsTab (page-lifetime, memory-only). */
-  const handleSessionCredentials = useCallback(
-    (creds: { endpoint: string; apiKey: string } | null) => {
-      // Advance epoch so any in-flight background request is superseded
-      bgConnEpochRef.current += 1;
-      bgConnAbortRef.current?.abort();
-
-      if (creds) {
-        settingsSessionActiveRef.current = true;
-        setAnkiSession({ endpoint: creds.endpoint, apiKey: creds.apiKey });
-      } else {
-        // Settings disconnected — allow background to try again
-        settingsSessionActiveRef.current = false;
-        setAnkiSession(null);
-        // Resume background connection attempts after a brief delay
-        if (bgConnTimerRef.current !== null) {
-          clearTimeout(bgConnTimerRef.current);
-        }
-        bgConnTimerRef.current = setTimeout(() => {
-          bgConnTimerRef.current = null;
-          attemptBgRef.current();
-        }, 1_000);
-      }
-    },
-    [],
-  );
-
   /** Stage 2: Background read-only AnkiConnect connection from saved endpoint.
    *  Enables Mining Preview Send without opening Settings. Retries every 10s
    *  on failure only — never retries after a successful connection. Resumes
@@ -2600,8 +2550,47 @@ export default function PlayerApp() {
     }, 10_000);
   }, []);
 
-  // Keep ref in sync for handleSessionCredentials to trigger background restart
-  attemptBgRef.current = attemptBackgroundConnect;
+  // Global navigation settings live in a separate React island. SettingsTabs
+  // persists subtitle changes; this listener only updates the in-memory
+  // overlay so the player reacts immediately.
+  useEffect(() => {
+    return listenForSubtitleSettingsChange((settings) => {
+      setSubtitleSettings((previous) => ({ ...previous, ...settings }));
+    });
+  }, []);
+
+  // Anki credentials are page-lifetime memory only. A Settings session
+  // supersedes background work; disconnect resumes the existing keyless
+  // background attempt after the same 1-second grace period as before.
+  useEffect(() => {
+    const handleSessionCredentials = (
+      credentials: { endpoint: string; apiKey: string } | null,
+    ) => {
+      bgConnEpochRef.current += 1;
+      bgConnAbortRef.current?.abort();
+
+      if (credentials !== null) {
+        settingsSessionActiveRef.current = true;
+        setAnkiSession({
+          endpoint: credentials.endpoint,
+          apiKey: credentials.apiKey,
+        });
+        return;
+      }
+
+      settingsSessionActiveRef.current = false;
+      setAnkiSession(null);
+      if (bgConnTimerRef.current !== null) {
+        clearTimeout(bgConnTimerRef.current);
+      }
+      bgConnTimerRef.current = setTimeout(() => {
+        bgConnTimerRef.current = null;
+        void attemptBackgroundConnect();
+      }, 1_000);
+    };
+
+    return listenForAnkiSessionCredentials(handleSessionCredentials);
+  }, [attemptBackgroundConnect]);
 
   // Mount: start background connection
   useEffect(() => {
@@ -3467,9 +3456,6 @@ export default function PlayerApp() {
     };
   }, [hasMedia]);
 
-  // --- Shortcuts list for settings popover (single source: player-shortcuts) ---
-  const shortcuts = buildShortcuts(dict);
-
   // --- Layout class ---
   const layoutClass = `entei-player-layout${isSubtitlePanelVisible ? ' entei-player-layout--with-panel' : ' entei-player-layout--no-panel'}`;
 
@@ -3613,7 +3599,6 @@ export default function PlayerApp() {
         onPlaybackRateChange={handlePlaybackRateChange}
         playMode={playMode}
         onPlayModeChange={handlePlayModeChange}
-        shortcuts={shortcuts}
         isTouchDevice={isTouchDevice}
         isMobileViewport={isMobileViewport}
         reducedMotion={reducedMotion}
@@ -3623,10 +3608,6 @@ export default function PlayerApp() {
         onFileOpen={handleFileOpen}
         fileAccept={`${MEDIA_ACCEPT},${SUBTITLE_ACCEPT}`}
         fileOpenLabel={dict.fileOpenLabel}
-        onSessionCredentials={handleSessionCredentials}
-        subtitleSettings={subtitleSettings}
-        onSubtitleSettingsChange={handleSubtitleSettingsChange}
-        onResetPairing={pairing.resetPairing}
         clampSeekTime={jobSession.active ? clampSeekTime : undefined}
       />
       <ScreenshotPreviewDialog

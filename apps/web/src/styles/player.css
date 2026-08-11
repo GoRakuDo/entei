@@ -1132,7 +1132,9 @@
 /* --- Top Bar --- */
 .entei-controls-top {
   display: flex;
-  align-items: flex-start;
+  /* Center the media name and the top-right icon group on a shared
+     centerline (user alignment fix). */
+  align-items: center;
   justify-content: space-between;
   gap: var(--entei-space-8);
 }
@@ -1198,10 +1200,6 @@
   position: absolute;
   top: 6px;
   right: 6px;
-}
-
-.entei-controls-settings-btn {
-  position: relative;
 }
 
 /* --- Two-row Bottom Bar ---

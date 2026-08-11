@@ -33,6 +33,10 @@ import {
 import { SettingsTabs } from '@/components/player/SettingsTabs';
 import { buildShortcuts } from '@/features/player/player-shortcuts';
 import {
+  dispatchAnkiSessionCredentials,
+  dispatchSubtitleSettingsChange,
+} from '@/features/player/settings-bridge';
+import {
   readStoredPairingToken,
   clearStoredPairingToken,
   COMPANION_PAIRING_BASE_URL,
@@ -117,6 +121,8 @@ export function EizouSettingsDialog({
           dict={playerUI}
           shortcuts={buildShortcuts(playerUI)}
           showShortcuts={showShortcuts}
+          onSubtitleSettingsChange={dispatchSubtitleSettingsChange}
+          onSessionCredentials={dispatchAnkiSessionCredentials}
           onResetPairing={handleResetPairing}
         />
       </DialogContent>

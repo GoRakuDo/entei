@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------------------
  * P1.1 Custom Control Layer:
  * - Top-left: media name (ellipsis + title) [Fix #1]
- * - Top-right: Timeline toggle, Settings popover [Fix #2, #13]
+ * - Top-right: Timeline toggle (settings live in the global nav dialog)
  * - Bottom: seek slider, play/pause, timestamps, volume, rate, fullscreen
  * - Visibility: auto-hide on idle (desktop + playing), throttled pointer [Fix #6]
  * - Seek: isSeeking prevents timeupdate overwriting drag [Fix #7]
@@ -50,7 +50,6 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from '@/components/player/ui/radio-group';
-import { PlayerSettingsDialog } from '@/components/player/PlayerSettingsDialog';
 import {
   formatTime,
   clampSeek,
@@ -64,7 +63,6 @@ import {
   type CaptionDisplayMode,
   type PlayMode,
 } from '@/features/player/control-helpers';
-import type { ShortcutEntry } from '@/components/player/KeyboardShortcutsHelp';
 
 interface PlayerControlsProps {
   mediaRef: RefObject<HTMLMediaElement | null>;
@@ -96,7 +94,6 @@ interface PlayerControlsProps {
   // P2.1: Playback mode
   playMode?: PlayMode;
   onPlayModeChange?: (mode: PlayMode) => void;
-  shortcuts: ShortcutEntry[];
   isTouchDevice: boolean;
   /** Mobile viewport hides volume controls; desktop touch devices stay unchanged. */
   isMobileViewport?: boolean;
@@ -113,28 +110,6 @@ interface PlayerControlsProps {
   fileAccept?: string;
   /** Localized aria-label for the file-open button. */
   fileOpenLabel?: string;
-  /** Stage 2: Session credentials bridge from AnkiFieldsTab to PlayerApp. */
-  onSessionCredentials?: (
-    creds: { endpoint: string; apiKey: string } | null,
-  ) => void;
-  // P2.1: Subtitle appearance settings
-  subtitleSettings?: {
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  };
-  onSubtitleSettingsChange?: (settings: Partial<{
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  }>) => void;
-  /** ED-3: Explicit destructive pairing reset, forwarded to the EizouDen
-   *  settings tab (supplied by PlayerApp's use-companion-pairing). */
-  onResetPairing?: () => void | Promise<void>;
   /** ED-2H: Optional seek time clamp for companion streaming. When provided,
    *  seek targets are clamped to the companion's verified byte range to
    *  prevent stalls from seeking beyond available data. */
@@ -175,7 +150,6 @@ export const PlayerControls = forwardRef<
     onPlaybackRateChange,
     playMode = 'normal',
     onPlayModeChange = () => {},
-    shortcuts,
     isTouchDevice,
     isMobileViewport = false,
     reducedMotion,
@@ -185,10 +159,6 @@ export const PlayerControls = forwardRef<
     onFileOpen,
     fileAccept,
     fileOpenLabel,
-    onSessionCredentials,
-    subtitleSettings,
-    onSubtitleSettingsChange,
-    onResetPairing,
     clampSeekTime,
   },
   ref,
@@ -200,8 +170,6 @@ export const PlayerControls = forwardRef<
   const [prevVolume, setPrevVolume] = useState(volume > 0 ? volume : 0.5);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [isRateOpen, setIsRateOpen] = useState(false);
-  // AM-1: Dialog-based Settings Modal
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   // Fix #7: isSeeking prevents timeupdate from overwriting dragged seek value
@@ -568,20 +536,6 @@ export const PlayerControls = forwardRef<
   );
   const formattedDuration = useMemo(() => formatTime(duration), [duration]);
 
-  // --- Fix #2: Close volume/rate when Settings opens ---
-  const handleSettingsOpenChange = useCallback((open: boolean) => {
-    setIsSettingsOpen(open);
-    if (open) {
-      setIsVolumeOpen(false);
-      setIsRateOpen(false);
-    }
-  }, []);
-
-  // Fix #2: Also close Settings when volume/rate opens
-  useEffect(() => {
-    if (isVolumeOpen || isRateOpen) setIsSettingsOpen(false);
-  }, [isVolumeOpen, isRateOpen]);
-
   // --- Whether controls should render ---
   if (!hasMedia) return null;
 
@@ -671,17 +625,6 @@ export const PlayerControls = forwardRef<
             <Timeline size={18} />
           </button>
 
-          {/* AM-1: Settings Dialog replacing Popover */}
-          <PlayerSettingsDialog
-            dict={dict}
-            shortcuts={shortcuts}
-            open={isSettingsOpen}
-            onOpenChange={handleSettingsOpenChange}
-            onSessionCredentials={onSessionCredentials}
-            subtitleSettings={subtitleSettings}
-            onSubtitleSettingsChange={onSubtitleSettingsChange}
-            onResetPairing={onResetPairing}
-          />
         </div>
       </div>
 

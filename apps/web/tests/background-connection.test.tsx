@@ -4,8 +4,7 @@
  * - Render PlayerApp (mocked children) → runAnkiConnectionFlow called on mount
  * - Failure → advancing ~10s fires retry; no concurrent duplicate
  * - Unmount after failure → advancing timers: no retry, AbortSignal aborted
- * - Settings credential handoff supersedes stale background promise
- *   (invokes real onSessionCredentials callback via captured PlayerControls prop)
+ * - Navigation settings events update subtitle appearance and Anki session state
  * - Background success → no retry scheduled
  * - API-key-required result leaves session null; no write client called
  * - No write actions invoked during background connection
@@ -13,6 +12,10 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
+import {
+  dispatchAnkiSessionCredentials,
+  dispatchSubtitleSettingsChange,
+} from '@/features/player/settings-bridge';
 
 // --- Mocks for heavy dependencies (must use vi.hoisted for shared access) ---
 
@@ -25,8 +28,14 @@ const mocks = vi.hoisted(() => ({
 // Capture callbacks from mocked child components for direct invocation
 const capture = vi.hoisted(() => ({
   onMediaSelect: null as ((file: File) => void) | null,
-  onSessionCredentials: null as
-    ((creds: { endpoint: string; apiKey: string } | null) => void) | null,
+  subtitleAppearance: null as {
+    fontSize: number;
+    textColor: string;
+    backgroundColor: string;
+    backgroundPadding: number;
+    verticalPosition: number;
+  } | null,
+  miningPreviewProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock('@/features/player/anki-connect', () => ({
@@ -89,6 +98,11 @@ vi.mock('@/features/player/preferences', () => ({
     volume: 1,
     playbackRate: 1,
     captionDisplayMode: 'visible',
+    subtitleFontSize: 18,
+    subtitleTextColor: 'oklch(98% 0 0deg)',
+    subtitleBackgroundColor: 'oklch(0% 0 0 / 0.72)',
+    subtitleBackgroundPadding: 8,
+    subtitleVerticalPosition: 96,
   })),
   writePlayerPreferences: vi.fn(),
 }));
@@ -131,15 +145,7 @@ vi.mock('@/features/player/use-keyboard-shortcuts', () => ({
 }));
 
 vi.mock('@/components/player/PlayerControls', () => ({
-  PlayerControls: vi.fn((props: Record<string, unknown>) => {
-    // Capture onSessionCredentials for testing Settings handoff
-    if (typeof props.onSessionCredentials === 'function') {
-      capture.onSessionCredentials = props.onSessionCredentials as (
-        creds: { endpoint: string; apiKey: string } | null,
-      ) => void;
-    }
-    return null;
-  }),
+  PlayerControls: vi.fn(() => null),
 }));
 
 vi.mock('@/components/player/ScreenshotPreviewDialog', () => ({
@@ -151,7 +157,10 @@ vi.mock('@/components/player/AudioClipPreviewDialog', () => ({
 }));
 
 vi.mock('@/components/player/MiningPreviewDialog', () => ({
-  MiningPreviewDialog: vi.fn(() => null),
+  MiningPreviewDialog: vi.fn((props: Record<string, unknown>) => {
+    capture.miningPreviewProps = props;
+    return null;
+  }),
 }));
 
 vi.mock('@/components/player/AnkiAppendPanel', () => ({
@@ -163,7 +172,10 @@ vi.mock('@/components/player/SubtitlePanel', () => ({
 }));
 
 vi.mock('@/components/player/SubtitleOverlay', () => ({
-  SubtitleOverlay: vi.fn(() => null),
+  SubtitleOverlay: vi.fn((props: Record<string, unknown>) => {
+    capture.subtitleAppearance = props.appearance as typeof capture.subtitleAppearance;
+    return null;
+  }),
 }));
 
 vi.mock('@/components/player/VideoPlayer', () => ({
@@ -183,8 +195,15 @@ vi.mock('@/components/player/MediaPicker', () => ({
 vi.mock('@i18n/index', () => ({
   getDictionary: vi.fn(() => ({
     hub: { systemLabel: '', lead: '' },
-    player: { title: '', description: '', cta: '', },
-    playerUI: new Proxy({}, { get: () => '' }),
+    player: { title: '', description: '', cta: '' },
+    playerUI: new Proxy({}, {
+      get: (_target, property) => {
+        if (property === 'exportSendDisabledNoConnection') return 'no-connection';
+        if (property === 'exportSendDisabledNoSentence') return 'no-sentence';
+        if (property === 'exportSendDisabledInvalidPreset') return 'invalid-preset';
+        return '';
+      },
+    }),
     reader: { title: '', description: '', status: '' },
     privacy: { local: '' },
     nav: { backToGorakudo: '', backToHome: '', skipToMain: '' },
@@ -214,7 +233,8 @@ beforeEach(() => {
     return {};
   });
   capture.onMediaSelect = null;
-  capture.onSessionCredentials = null;
+  capture.subtitleAppearance = null;
+  capture.miningPreviewProps = null;
   // JSDOM lacks matchMedia
   window.matchMedia =
     window.matchMedia ||
@@ -315,47 +335,75 @@ describe('Background AnkiConnect connection — behavioral', () => {
     expect(mocks.runAnkiConnectionFlow).toHaveBeenCalledTimes(1);
   });
 
-  it('Settings credential handoff supersedes stale background attempt', async () => {
-    // Background flow is slow; Settings connects meanwhile via the real
-    // onSessionCredentials callback captured from PlayerControls props.
-    let bgResolve!: (v: unknown) => void;
-    mocks.runAnkiConnectionFlow.mockReturnValue(
-      new Promise((resolve) => {
-        bgResolve = resolve;
-      }),
-    );
+  it('navigation subtitle event updates overlay state without PlayerControls props', async () => {
+    mocks.runAnkiConnectionFlow.mockResolvedValue({
+      decks: [],
+      models: [],
+      requireApiKey: true,
+    });
 
     render(<PlayerApp />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    // Background is in flight
-    expect(mocks.runAnkiConnectionFlow).toHaveBeenCalledTimes(1);
-    expect(capture.onMediaSelect).toBeDefined();
-
-    // Load media so PlayerControls renders and exposes onSessionCredentials
     await act(async () => {
       capture.onMediaSelect!(
         new File(['test'], 'test.mp4', { type: 'video/mp4' }),
       );
+      await vi.advanceTimersByTimeAsync(0);
     });
+
+    expect(capture.subtitleAppearance?.fontSize).toBe(18);
+
+    await act(async () => {
+      dispatchSubtitleSettingsChange({
+        fontSize: 40,
+        backgroundPadding: 48,
+        verticalPosition: 100,
+      });
+    });
+
+    expect(capture.subtitleAppearance).toMatchObject({
+      fontSize: 40,
+      backgroundPadding: 48,
+      verticalPosition: 100,
+    });
+  });
+
+  it('navigation credentials supersede stale background work and remain memory-only', async () => {
+    let bgResolve!: (value: unknown) => void;
+    mocks.runAnkiConnectionFlow.mockReturnValue(
+      new Promise((resolve) => {
+        bgResolve = resolve;
+      }),
+    );
+    localStorage.clear();
+
+    render(<PlayerApp />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    // PlayerControls rendered — callback captured
-    expect(capture.onSessionCredentials).toBeDefined();
-
-    // Settings connects — supersedes background via epoch guard
     await act(async () => {
-      capture.onSessionCredentials!({
+      capture.onMediaSelect!(
+        new File(['test'], 'test.mp4', { type: 'video/mp4' }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(capture.miningPreviewProps?.exportDisabledReason).toBe('no-connection');
+
+    await act(async () => {
+      dispatchAnkiSessionCredentials({
         endpoint: 'http://settings-host:8765',
-        apiKey: 'settings-key',
+        apiKey: 'fixture-key',
       });
     });
 
-    // Background resolves — should be dropped (epoch mismatch)
+    expect(capture.miningPreviewProps?.exportDisabledReason).toBe('no-sentence');
+    expect(localStorage.getItem('entei.player.anki-miner.v1')).toBeNull();
+
     await act(async () => {
       bgResolve({
         decks: ['Japanese'],
@@ -365,14 +413,15 @@ describe('Background AnkiConnect connection — behavioral', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    // Only the initial background call — no retry after Settings supersession
     expect(mocks.runAnkiConnectionFlow).toHaveBeenCalledTimes(1);
 
-    // Advance 10s — still no retry (background was superseded)
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
+      dispatchAnkiSessionCredentials(null);
+      await vi.advanceTimersByTimeAsync(1_000);
     });
-    expect(mocks.runAnkiConnectionFlow).toHaveBeenCalledTimes(1);
+
+    expect(capture.miningPreviewProps?.exportDisabledReason).toBe('no-sentence');
+    expect(mocks.runAnkiConnectionFlow).toHaveBeenCalledTimes(2);
   });
 
   it('background success → no retry scheduled', async () => {
