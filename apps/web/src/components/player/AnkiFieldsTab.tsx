@@ -80,6 +80,20 @@ function sanitizeMappingForModel(
   return next;
 }
 
+/**
+ * DenChou NoteType preset: semantic → physical field names.
+ * Applied as a whole when every physical name exists in the currently
+ * loaded model field list (atomic: no half application).
+ */
+const DENCHOU_PRESET_MAPPING: Record<keyof AnkiFieldMapping, string> = {
+  sentence: 'sentence',
+  definition: 'definition',
+  image: 'picture',
+  audio: 'sentenceCard',
+  word: 'word',
+  source: 'miscInfo',
+};
+
 interface AnkiFieldsTabProps {
   dict: Dictionary['playerUI'];
   onSessionCredentials?: (creds: AnkiSessionCredentials | null) => void;
@@ -468,6 +482,27 @@ export function AnkiFieldsTab({
     [saveValidPreset],
   );
 
+  // --- Apply DenChou Preset ---
+  // Atomic: applies every mapping only when all six physical field names
+  // exist in the currently loaded modelFields AND the current model is
+  // fully resolved. Otherwise the button is a visible no-op that keeps
+  // the current mapping and the stored preset untouched. Does NOT change
+  // the selected deck/note type, and tags are not a field mapping here.
+  const handleApplyDenChouPreset = useCallback(() => {
+    if (resolvedModelRef.current !== selectedModelRef.current) return;
+    const required = Object.values(DENCHOU_PRESET_MAPPING);
+    if (!required.every((name) => modelFields.includes(name))) return;
+    const next: AnkiFieldMapping = { ...fieldsRef.current };
+    for (const [semantic, physical] of Object.entries(
+      DENCHOU_PRESET_MAPPING,
+    )) {
+      next[semantic as keyof AnkiFieldMapping] = physical;
+    }
+    fieldsRef.current = next;
+    setFields(next);
+    saveValidPreset();
+  }, [modelFields, saveValidPreset]);
+
   // --- Determine error display text ---
   const errorDisplay = getLocalizedError(connectionState, errorMessage, dict);
 
@@ -708,27 +743,50 @@ export function AnkiFieldsTab({
                         </div>
                       );
                     })}
+                    {/* Tags — space-separated, top-level setting (not a
+                        note field). Desktop: sits beside Source in the
+                        last grid row (Source | Tags); mobile: full-width
+                        below Source (same 1-column stack). */}
+                    <div className="entei-anki-field-row">
+                      <label htmlFor="anki-tags" className="entei-anki-field-label">
+                        {dict.ankiFieldTags}
+                        <span className="entei-anki-field-badge">
+                          {dict.ankiFieldOptional}
+                        </span>
+                      </label>
+                      <input
+                        id="anki-tags"
+                        type="text"
+                        className="entei-anki-input"
+                        value={tags}
+                        onChange={(e) => handleTagsChange(e.target.value)}
+                        placeholder={dict.ankiTagsPlaceholder}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </div>
                   </div>
                 </>
               )}
             </>
           )}
 
-          {/* Tags — space-separated, top-level setting (not a note field) */}
-          <div className="entei-anki-section">
-            <label htmlFor="anki-tags" className="entei-anki-label">
-              {dict.ankiFieldTags}
-            </label>
-            <input
-              id="anki-tags"
-              type="text"
-              className="entei-anki-input"
-              value={tags}
-              onChange={(e) => handleTagsChange(e.target.value)}
-              placeholder={dict.ankiTagsPlaceholder}
-              autoComplete="off"
-              spellCheck={false}
-            />
+          {/* DenChou Preset — always visible below the mapping grid.
+              Atomic apply: silently no-ops unless every required DenChou
+              physical field exists in the loaded model and the model is
+              fully resolved. Never forces a deck/note-type change. */}
+          <div className="entei-anki-section entei-anki-denchou-preset">
+            <h4 className="entei-anki-heading">
+              {dict.ankiDenChouPresetTitle}
+            </h4>
+            <p className="entei-anki-desc">{dict.ankiDenChouPresetDesc}</p>
+            <button
+              type="button"
+              className="entei-anki-connect-btn"
+              onClick={handleApplyDenChouPreset}
+            >
+              {dict.ankiDenChouPresetApply}
+            </button>
           </div>
         </div>
       )}

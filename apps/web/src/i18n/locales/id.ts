@@ -122,6 +122,10 @@ export const id: Dictionary = {
     ankiTagsPlaceholder: 'anime n5 eizou',
     ankiFieldRequired: 'wajib',
     ankiFieldOptional: 'opsional',
+    ankiDenChouPresetTitle: 'Preset DenChou',
+    ankiDenChouPresetDesc:
+      'Preset ini dapat digunakan dengan tipe catatan DenChou.',
+    ankiDenChouPresetApply: 'Terapkan Preset DenChou',
     ankiNoFields: 'Tidak ada field untuk tipe catatan ini',
     ankiSelectNoteTypeFirst: 'Pilih tipe catatan untuk melihat field',
     // AM-2: Screenshot capture
@@ -303,6 +307,7 @@ export const id: Dictionary = {
     subtitleAppearance: 'Tampilan Subtitle',
     // EizouDen: YouTube download mode
     settingsTabEizouDen: 'EizouDen',
+    settingsEizouDenContentHeading: 'Mode Pemutaran YouTube',
     ytModeQuality: 'Quality (prioritas kualitas)',
     ytModeSpeed: 'Speed (putar instan)',
     ytModeQualityDesc:

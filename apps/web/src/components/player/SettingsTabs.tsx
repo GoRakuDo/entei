@@ -129,7 +129,7 @@ export function SettingsTabs({
           {showShortcuts && (
             <TabsContent value="shortcut" className="entei-settings-tab-content">
               <div className="entei-settings-section">
-                <p className="entei-settings-label">{dict.settingsShortcuts}</p>
+                <h3 className="entei-settings-label">{dict.settingsShortcuts}</h3>
                 <div className="entei-settings-shortcuts-list">
                   {shortcuts.map((s) => (
                     <div key={s.key} className="entei-settings-shortcut-row">

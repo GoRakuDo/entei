@@ -121,6 +121,10 @@ export const en: Dictionary = {
     ankiTagsPlaceholder: 'anime n5 eizou',
     ankiFieldRequired: 'required',
     ankiFieldOptional: 'optional',
+    ankiDenChouPresetTitle: 'DenChou Preset',
+    ankiDenChouPresetDesc:
+      'This preset can be used with the DenChou note type.',
+    ankiDenChouPresetApply: 'Apply DenChou Preset',
     ankiNoFields: 'No fields found for this note type',
     ankiSelectNoteTypeFirst: 'Select a note type to view fields',
     // AM-2: Screenshot capture
@@ -299,6 +303,7 @@ export const en: Dictionary = {
     subtitleAppearance: 'Subtitle Appearance',
     // EizouDen: YouTube download mode
     settingsTabEizouDen: 'EizouDen',
+    settingsEizouDenContentHeading: 'YouTube Playback Mode',
     ytModeQuality: 'Quality (quality first)',
     ytModeSpeed: 'Speed (instant playback)',
     ytModeQualityDesc:

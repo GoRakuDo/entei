@@ -121,6 +121,10 @@ export const ja: Dictionary = {
     ankiTagsPlaceholder: 'anime n5 eizou',
     ankiFieldRequired: '必須',
     ankiFieldOptional: '任意',
+    ankiDenChouPresetTitle: 'DenChouプリセット',
+    ankiDenChouPresetDesc:
+      'このプリセットは DenChou NoteType 向けに使用できます。',
+    ankiDenChouPresetApply: 'DenChouプリセットを適用',
     ankiNoFields: 'このノートタイプにフィールドがありません',
     ankiSelectNoteTypeFirst:
       'フィールドを表示するにはノートタイプを選択してください',
@@ -304,6 +308,7 @@ export const ja: Dictionary = {
     subtitleAppearance: '字幕の見た目',
     // EizouDen: YouTube download mode
     settingsTabEizouDen: 'EizouDen',
+    settingsEizouDenContentHeading: 'YouTubeの再生モード',
     ytModeQuality: 'Quality（画質優先）',
     ytModeSpeed: 'Speed（即再生優先）',
     ytModeQualityDesc: 'DASH 1080p（最大）をダウンロードし、結合完了後に再生。',

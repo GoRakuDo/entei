@@ -66,6 +66,11 @@ describe('SubtitleAppearanceTab', () => {
       />,
     );
 
+    // Semantic heading: h3 with settings-label class
+    const heading = screen.getByRole('heading', { level: 3, name: en.playerUI.subtitleAppearance });
+    expect(heading.tagName).toBe('H3');
+    expect(heading.getAttribute('class')).toContain('entei-settings-label');
+
     expect(screen.getByText(dict.subtitleFontSize)).toBeTruthy();
     expect(screen.getByText(dict.subtitleTextColor)).toBeTruthy();
     expect(screen.getByText(dict.subtitleBackgroundColor)).toBeTruthy();

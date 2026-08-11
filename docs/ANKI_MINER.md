@@ -462,6 +462,27 @@ Tagsはnote field mappingではない。**top-level設定**（`AnkiFieldsTab`の
 - tag文字列はphysical note fieldへ書かない
 - **ASB parity（asbplayer common/anki/anki.ts: updateNoteFields → await addTags）**: `updateNoteFields`成功後の`addTags`失敗はcatchしない。Updateはexport全体をfailed扱い（success toast / historyなし）、Appendはそのnoteをfailed扱い（succeededに入れない）。**field更新が先行し得るため、同じAppendの自動再試行はしない**（partial success state・tag-only retry・二重field update対策は設けない）
 
+### DenChou Preset section（Anki Fields）
+
+mapping grid の直下（desktop は `Source | Tags` の下、mobile は Tags の下）に常時表示する full-width section。
+
+- 見出し: `ankiDenChouPresetTitle`（DenChou Preset / DenChouプリセット / Preset DenChou）
+- 注記: `ankiDenChouPresetDesc`（DenChou NoteType 向けプリセットである旨の短い説明）
+- ボタン: `ankiDenChouPresetApply`（Apply DenChou Preset / DenChouプリセットを適用 / Terapkan Preset DenChou）
+
+クリック時の正確な mapping（semantic → physical）:
+
+| semantic | physical |
+|----------|----------|
+| sentence | `sentence` |
+| definition | `definition` |
+| image | `picture` |
+| audio | `sentenceCard` |
+| word | `word` |
+| source | `miscInfo` |
+
+**Safety contract（atomic）**: 6つのphysical field名がすべて現在読み込まれている `modelFields` に存在**かつ** `resolvedModelRef.current === selectedModelRef.current`（モデル解決済み）の時だけ全 mapping を1回で適用し、既存の `saveValidPreset()` を1回呼ぶ。それ以外は何もしない（current mapping / stored preset を維持・複雑な error toast なし・安全な no-op）。selected deck / note type は変えない。Tags は field mapping ではないため触れない。mapping 適用失敗時の部分適用はない。
+
 Deckを変えてもNote typeを勝手に変えない。Note typeを変えたらfield一覧だけを再読込し、存在しなくなったmappingは「未選択」に戻す。auto-saveは有効なpreset（Deck、Note type、Sentence）が揃った時だけ発火する。
 
 ### 6.4 MiningはSettings tabを持たない

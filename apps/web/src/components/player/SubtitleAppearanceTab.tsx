@@ -272,7 +272,7 @@ export function SubtitleAppearanceTab({
       </div>
 
       <div className="entei-subtitle-appearance-section">
-        <p className="entei-settings-label">{dict.subtitleAppearance}</p>
+        <h3 className="entei-settings-label">{dict.subtitleAppearance}</h3>
 
         {/* Font Size */}
         <div className="entei-subtitle-control-row">

@@ -44,6 +44,7 @@ import {
 export type EizouDenPlayerUI = Pick<
   Dictionary['playerUI'],
   | 'settingsTabEizouDen'
+  | 'settingsEizouDenContentHeading'
   | 'ytModeQuality'
   | 'ytModeSpeed'
   | 'ytModeQualityDesc'
@@ -98,12 +99,12 @@ export function EizouDenSettingsTab({
 
   return (
     <div className="entei-settings-section">
-      <p className="entei-settings-label">{dict.settingsTabEizouDen}</p>
+      <h3 className="entei-settings-label">{dict.settingsEizouDenContentHeading}</h3>
       <RadioGroup
         className="entei-eizouden-mode-group"
         value={mode}
         onValueChange={handleChange}
-        aria-label={dict.settingsTabEizouDen}
+        aria-label={dict.settingsEizouDenContentHeading}
       >
         <div className="entei-eizouden-mode-option">
           <RadioGroupItem

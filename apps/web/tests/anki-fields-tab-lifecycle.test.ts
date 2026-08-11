@@ -305,11 +305,13 @@ describe('AnkiFieldsTab lifecycle integration', () => {
   function mockAnkiFlow(overrides?: {
     modelFieldNames?: Record<string, string[]>;
     slowModels?: string[];
+    modelNames?: string[];
   }) {
     const fieldMap = overrides?.modelFieldNames ?? {
       Basic: ['Front', 'Back'],
       Cloze: ['Text', 'Extra'],
     };
+    const modelList = overrides?.modelNames ?? ['Basic', 'Cloze'];
     const slowModels = overrides?.slowModels ?? [];
     return vi.fn().mockImplementation(
       /** fetch-implementation shape for the mocked AnkiConnect server */
@@ -349,7 +351,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
               resolve(respond(['Japanese', 'Spanish']));
               return;
             case 'modelNames':
-              resolve(respond(['Basic', 'Cloze']));
+              resolve(respond(modelList));
               return;
             case 'modelFieldNames': {
               if (slowModels.includes(modelName)) {
@@ -413,10 +415,28 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     deck?: string | null;
     noteType?: string | null;
     tags?: string;
-    fields?: { sentence?: string; definition?: string | null };
+    fields?: {
+      sentence?: string;
+      definition?: string | null;
+      image?: string | null;
+      audio?: string | null;
+      word?: string | null;
+      source?: string | null;
+    };
   } | null => {
     const raw = localStorage.getItem('entei.player.anki-miner.v1');
     return raw ? JSON.parse(raw) : null;
+  };
+
+  const clickDenChouApply = async (container: HTMLElement) => {
+    const btn = container.querySelector(
+      '.entei-anki-connect-btn',
+    ) as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    await act(async () => {
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
   };
 
   it('A: no localStorage write until deck + note type + sentence are all set', async () => {
@@ -586,7 +606,11 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     });
     await flush();
 
-    // Invalid yet (no deck/note type): typing tags must not write.
+    // Deck + note type selected, sentence NOT yet selected: the mapping
+    // grid (with the tags input inside) is visible, but the preset is
+    // invalid — typing tags must not write anything.
+    await pickRadio(container, 0, 'Japanese');
+    await pickRadio(container, 1, 'Basic');
     const tagsInput = container.querySelector('#anki-tags') as HTMLInputElement;
     expect(tagsInput).toBeTruthy();
     await act(async () => {
@@ -600,13 +624,10 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     await flush();
     expect(readStorage()).toBeNull();
 
-    // Now complete a valid preset (deck + note type + sentence).
-    await pickRadio(container, 0, 'Japanese');
-    await pickRadio(container, 1, 'Basic');
+    // Sentence makes the preset valid — a further tags edit auto-saves.
     await pickRadio(container, 2, 'Front');
     expect(readStorage()?.fields?.sentence).toBe('Front');
 
-    // A further tags edit auto-saves the top-level tags string.
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
@@ -621,5 +642,206 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     expect(saved?.fields ? 'tags' in (saved.fields as object) : true).toBe(
       false,
     );
+  });
+
+  it('I: tags input lives inside the mapping grid after Source (desktop Source | Tags)', async () => {
+    const fetchSpy = mockAnkiFlow();
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    // Build a valid selection so the mapping grid (field rows + tags)
+    // renders.
+    await pickRadio(container, 0, 'Japanese');
+    await pickRadio(container, 1, 'Basic');
+    await pickRadio(container, 2, 'Front');
+
+    const grid = container.querySelector('.entei-anki-mapping-grid');
+    expect(grid).not.toBeNull();
+    const rows = Array.from(
+      grid!.querySelectorAll('.entei-anki-field-row'),
+    );
+    // sentence, definition, image, audio, word, source, tags
+    expect(rows.length).toBe(7);
+    const tagsRow = grid!.querySelector('.entei-anki-field-row #anki-tags');
+    expect(tagsRow).not.toBeNull();
+    // Source row must precede the Tags row (desktop 2nd column pairing).
+    const sourceIndex = rows.findIndex((r) =>
+      r.textContent?.includes(dict.ankiFieldSource),
+    );
+    const tagsIndex = rows.findIndex((r) =>
+      r.textContent?.includes(dict.ankiFieldTags),
+    );
+    expect(sourceIndex).toBeGreaterThanOrEqual(0);
+    expect(tagsIndex).toBe(sourceIndex + 1);
+  });
+
+  const DENCHOU_FIELDS = [
+    'sentence',
+    'definition',
+    'picture',
+    'sentenceCard',
+    'word',
+    'miscInfo',
+  ];
+
+  it('J: renders the DenChou preset section with title, note, and button', async () => {
+    const fetchSpy = mockAnkiFlow();
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    expect(container.textContent).toContain(dict.ankiDenChouPresetTitle);
+    expect(container.textContent).toContain(dict.ankiDenChouPresetDesc);
+    const btn = container.querySelector(
+      '.entei-anki-connect-btn',
+    ) as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain(dict.ankiDenChouPresetApply);
+  });
+
+  it('K: DenChou apply maps all six fields, one auto-save, tags/deck/model untouched', async () => {
+    const fetchSpy = mockAnkiFlow({
+      modelNames: ['DenChou'],
+      modelFieldNames: {
+        DenChou: DENCHOU_FIELDS,
+      },
+    });
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    // Valid preset first: deck + DenChou + a tags value + sentence.
+    await pickRadio(container, 0, 'Japanese');
+    await pickRadio(container, 1, 'DenChou');
+    // Set tags before mapping completes, to prove apply leaves them alone.
+    const tagsInput = container.querySelector(
+      '#anki-tags',
+    ) as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      setter?.call(tagsInput, 'anime n5');
+      tagsInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    // Sentence field select for a fully valid preset.
+    await pickRadio(container, 2, 'sentence');
+    await flush();
+
+    expect(readStorage()?.fields?.sentence).toBe('sentence');
+    expect(readStorage()?.tags).toBe('anime n5');
+    const deckBefore = readStorage()?.deck;
+    const modelBefore = readStorage()?.noteType;
+
+    await clickDenChouApply(container);
+
+    const saved = readStorage();
+    expect(saved?.fields).toMatchObject({
+      sentence: 'sentence',
+      definition: 'definition',
+      image: 'picture',
+      audio: 'sentenceCard',
+      word: 'word',
+      source: 'miscInfo',
+    });
+    // Tags + deck + model untouched.
+    expect(saved?.tags).toBe('anime n5');
+    expect(saved?.deck).toBe(deckBefore);
+    expect(saved?.noteType).toBe(modelBefore);
+  });
+
+  it('L: missing one required DenChou field → no-op, no save, no partial application', async () => {
+    const fetchSpy = mockAnkiFlow({
+      modelNames: ['DenChou'],
+      modelFieldNames: {
+        // miscInfo missing → all six required names not present
+        DenChou: ['sentence', 'definition', 'picture', 'sentenceCard', 'word'],
+      },
+    });
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    await pickRadio(container, 0, 'Japanese');
+    await pickRadio(container, 1, 'DenChou');
+    await pickRadio(container, 2, 'sentence');
+    await flush();
+    const before = readStorage();
+
+    await clickDenChouApply(container);
+
+    // Preserved mapping entirely (no half application), no additional save.
+    expect(readStorage()?.fields).toEqual(before?.fields);
+    expect(readStorage()?.fields?.image).not.toBe('picture');
+    expect(readStorage()?.fields?.audio).not.toBe('sentenceCard');
+  });
+
+  it('M: unresolved model (pending field fetch) blocks DenChou apply', async () => {
+    const fetchSpy = mockAnkiFlow({
+      modelNames: ['Basic', 'DenChou'],
+      slowModels: ['DenChou'],
+      modelFieldNames: {
+        Basic: ['Front', 'Back'],
+        DenChou: DENCHOU_FIELDS,
+      },
+    });
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    // Fully resolved + valid on Basic first.
+    await pickRadio(container, 0, 'Japanese');
+    await pickRadio(container, 1, 'Basic');
+    await pickRadio(container, 2, 'Front');
+    await flush();
+    const before = readStorage();
+
+    // Switch to DenChou: its field fetch is pending (slow) → unresolved.
+    await pickRadio(container, 1, 'DenChou');
+    await clickDenChouApply(container);
+
+    // No-op: mapping + storage preserved (resolvedModelRef gate).
+    expect(readStorage()?.fields).toEqual(before?.fields);
+  });
+
+  it('N: no partial field updates when the gate rejects the apply', async () => {
+    const fetchSpy = mockAnkiFlow({
+      modelNames: ['DenChou'],
+      modelFieldNames: {
+        DenChou: ['sentence', 'definition', 'picture', 'sentenceCard', 'word'],
+      },
+    });
+    global.fetch = fetchSpy;
+    const { container } = await act(async () => {
+      return render(createElement(AnkiFieldsTab, { dict }));
+    });
+    await flush();
+
+    await pickRadio(container, 0, 'Japanese');
+    await pickRadio(container, 1, 'DenChou');
+    await pickRadio(container, 2, 'sentence');
+    await flush();
+    const before = readStorage();
+
+    await clickDenChouApply(container);
+
+    // Every mapping key stays exactly as before — nothing half-applied.
+    const after = readStorage();
+    expect(after?.fields).toEqual(before?.fields);
+    expect(after?.fields?.sentence).toBe(before?.fields?.sentence);
+    expect(after?.fields?.source).toBe(before?.fields?.source ?? null);
   });
 });

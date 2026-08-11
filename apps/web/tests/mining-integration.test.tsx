@@ -159,6 +159,10 @@ const mockDict = {
     ankiTagsPlaceholder: 'anime n5 eizou',
   ankiFieldRequired: 'required',
   ankiFieldOptional: 'optional',
+    ankiDenChouPresetTitle: 'DenChou Preset',
+    ankiDenChouPresetDesc: 'DenChou note type preset.',
+    ankiDenChouPresetApply: 'Apply DenChou Preset',
+
   ankiNoFields: 'None',
   ankiSelectNoteTypeFirst: 'Select first',
   screenshotCaptureLabel: 'Capture screenshot',
@@ -316,6 +320,7 @@ const mockDict = {
   // P2.1: Subtitle Appearance Settings
   settingsTabSubtitle: 'Subtitle',
   settingsTabEizouDen: 'EizouDen',
+    settingsEizouDenContentHeading: 'YouTube Playback Mode',
   ytModeQuality: 'Quality',
   ytModeSpeed: 'Speed',
   ytModeQualityDesc: 'Quality first',

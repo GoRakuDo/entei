@@ -131,6 +131,7 @@ export interface Dictionary {
     subtitleReset: string;
     // EizouDen (2026-08-07): YouTube download mode settings tab
     settingsTabEizouDen: string;
+    settingsEizouDenContentHeading: string;
     ytModeQuality: string;
     ytModeSpeed: string;
     ytModeQualityDesc: string;
@@ -171,6 +172,9 @@ export interface Dictionary {
     ankiTagsPlaceholder: string;
     ankiFieldRequired: string;
     ankiFieldOptional: string;
+    ankiDenChouPresetTitle: string;
+    ankiDenChouPresetDesc: string;
+    ankiDenChouPresetApply: string;
     ankiNoFields: string;
     ankiSelectNoteTypeFirst: string;
     // AM-2: Screenshot capture

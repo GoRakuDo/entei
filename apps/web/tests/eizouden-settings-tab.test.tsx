@@ -16,6 +16,7 @@ import { YT_MODE_KEY } from '../src/features/player/yt-download-mode';
 
 const dict = {
   settingsTabEizouDen: 'EizouDen',
+  settingsEizouDenContentHeading: 'YouTube Playback Mode',
   ytModeQuality: 'Quality (quality first)',
   ytModeSpeed: 'Speed (instant playback)',
   ytModeQualityDesc: 'Download DASH 1080p',
@@ -52,6 +53,16 @@ describe('EizouDenSettingsTab', () => {
     expect(screen.getByText(dict.ytModeSpeedDesc)).toBeInTheDocument();
   });
 
+
+  it('renders a semantic h3 heading with the content heading text', () => {
+    render(<EizouDenSettingsTab dict={dict} />);
+    const h3 = screen.getByRole('heading', { level: 3, name: dict.settingsEizouDenContentHeading });
+    expect(h3).toBeInTheDocument();
+    expect(h3.tagName).toBe('H3');
+    expect(h3).toHaveClass('entei-settings-label');
+    const radioGroup = screen.getByRole('radiogroup', { name: dict.settingsEizouDenContentHeading });
+    expect(radioGroup).toBeInTheDocument();
+  });
   it('defaults to speed (no localStorage value)', () => {
     const { container } = render(<EizouDenSettingsTab dict={dict} />);
     const quality = findRadio(container, 'quality');
