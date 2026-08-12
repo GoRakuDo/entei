@@ -1,6 +1,6 @@
 # Thanks To Members — アクティブ会員表示
 
-> Entei のホームページ下部に「Thanks To」セクションを追加し、YouTube チャンネルの**アクティブ会員**（= 現在メンバーシップ加入中のユーザー）を、アバター・名前・レベル・総額とともに表示する機能の設計ドキュメント。
+> Entei のホームページ下部に「Thanks To」セクションを追加し、YouTube チャンネルの**アクティブ会員**（= 現在メンバーシップ加入中のユーザー）を、アバター・名前・レベルバッジとともに表示する機能の設計ドキュメント。
 >
 > 状態: **設計確定（2026-08-12）・未実装**。ユーザー確定事項の一次ソース。
 
@@ -9,7 +9,7 @@
 YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入を促進する。ホームページの Roadmap セクションの下に、アクティブ会員の一覧を**総額（= レベル別月額 × 滞在月数の合計）の降順**で表示する。
 
 - **総額の大きい会員が最上位**。1 番デカい（= 一番長く・高いレベルで支援してくれている）順に並ぶ。
-- 表示は「アバター + 名前 + レベルバッジ + 総額」を基本とする（詳細は §5）。
+- 表示は「アバター + 名前 + レベルバッジ」を基本とする（詳細は §5）。**月額・総額は画面に表示しない**（総額は並び順の計算にのみ使用）。
 - データは**週次でローカル自動取得**し、デプロイ（ビルド）時に反映する（= 静的サイトのまま維持）。
 
 ## 2. 確定スペック（ユーザー確定・2026-08-12）
@@ -18,9 +18,14 @@ YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入
 2. **取得方式**: Node スクリプトを `scripts/` に置く（EizouDendenshi には**統合しない**）。
 3. **秘密情報**: API キー・OAuth クライアント secret・refresh token は**ローカルの gitignore 済みファイル**にのみ保存し、リポジトリ・サイト・ログには一切公開しない。
 4. **自動更新**: ビルドスクリプト（`prebuild` フック）が、生成済み JSON のタイムスタンプを確認し、**1 週間を超えていた場合のみ**自動で再取得して JSON を上書きする。
-5. **デプロイ反映**: 生成される `members.json` は秘密を含まない（名前・アバター URL・レベル・滞在月数・総額のみ）ためコミット可能。GitHub Pages 等の CI ビルドはコミット済み JSON をそのまま使用する（= CI に秘密を持ち込まない）。
+5. **デプロイ反映**: 生成される `members.json` は秘密を含まない（名前・アバター URL・レベル ID・滞在月数のみ）ためコミット可能。デプロイの流れは「ローカルで取得 → コミット → **手動 push → GitHub Actions が認識 → GitHub Pages へ反映**（= GA 環境に秘密を持ち込まない）」。GA が未導入の期間は、コミット済み JSON をそのまま使う。
 6. **並び順**: 総額（= Σ（レベル月額 × そのレベルでの滞在月数））の降順。1 番総額が大きい会員が最上位。
 7. **実行タイミング**: ローカルでの手動実行（例: `npm run fetch-members`）と、ビルド時の自動チェック（1 週間超過時のみ更新）の 2 経路。
+8. **レベル情報の取得**: `membershipsLevels.list` で**自動取得**し、**キャッシュ方式**（毎回 fetch して同一なら即スキップ・変わっていれば更新）。
+9. **月額・総額は UI 非表示**: 月額は総額計算の内部用のみ。総額は並び順のソートにのみ使用し、画面には表示しない。
+10. **アバターはホットリンク**: `profileImageUrl` をそのまま `<img src>` に使用（ローカル保存しない）。
+11. **空状態**: 会員が 0 人・データ未取得時は**セクションごと非表示**。
+12. **OAuth Client はユーザーが自動作成**（Google Cloud Console・デスクトップアプリ型・手順は §6 の 1 に記載）。
 
 ## 3. API の事実（公式ドキュメント確認済み・2026-08-12）
 
@@ -37,7 +42,7 @@ YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入
 - `GET /youtube/v3/membershipsLevels?part=snippet` — チャンネルのメンバーシップレベル一覧を返す（同じ OAuth scope）。
 - `snippet.levelDetails.displayName` — レベルの表示名
 - `snippet.monthlyPrice` — `{ currency, value }`（月額・通貨）
-- `members.list` は価格を返さないが、**価格自体はこのエンドポイントで API から取得可能**。ただしレベル数は固定的なので、ローカル設定（`levels.mjs`）で持つ方がシンプル（= 実装時はローカル設定を優先し、`membershipsLevels.list` は確認用/初回生成用として使う）。
+- `members.list` は価格を返さないが、**価格自体はこのエンドポイントで API から取得可能**。レベル数は固定的なので、**キャッシュ方式**（初回に取得して保持・以降は毎回 fetch して同一ならスキップ）で `levels.json` に保持する（= 手動入力不要・ドリフトなし）。
 
 ### 3.2 レスポンスに含まれる情報（member リソース）
 
@@ -58,21 +63,8 @@ YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入
 ```
 
 - 滞在月数は `membershipsDurationAtLevel[].memberTotalDurationMonths` を使用。
-- `membershipsDurationAtLevel[].level` は**レベル ID** なので、月額のマッピングは**レベル ID → 月額**の形にする（`scripts/entei-members/levels.mjs`）。表示名（`displayName`）は `membershipsLevels.list` かローカル設定から得る。
-- レベル→月額マッピングは**秘密ではない**（= サイト上で公開している加入情報）のでコミット可能。ただし**月額の通貨・実際の値はユーザーから提供を受けてから確定**（未確定・要入力）。
-
-`levels.mjs` の推奨インターフェース（= ID によるルックアップが直結する配列形式）:
-
-```js
-// scripts/entei-members/levels.mjs（秘密ではない・コミット可）
-export const LEVELS = [
-  { id: 'level_1_ID', name: 'Level 1', price: 50000, currency: 'IDR' },
-  { id: 'level_2_ID', name: 'Level 2', price: 100000, currency: 'IDR' },
-  { id: 'level_3_ID', name: 'Level 3', price: 250000, currency: 'IDR' },
-];
-```
-
-※ 実際のレベル ID・名前・月額はユーザーから提供を受けてから確定（未確定・要入力）。
+- `membershipsDurationAtLevel[].level` は**レベル ID** なので、月額のマッピングは**レベル ID → 月額**の形にする（`scripts/entei-members/levels.json`）。表示名（`displayName`）は `membershipsLevels.list` から得る。
+- レベル→月額マッピングは**秘密ではない**（= サイト上で公開している加入情報）のでコミット可能。`membershipsLevels.list` から自動生成する `levels.json` を保持する（形式: `{ id: string, name: string, price: number, currency: string }[]`・ID によるルックアップが直結する配列形式）。
 
 ## 4. アーキテクチャ
 
@@ -81,20 +73,23 @@ export const LEVELS = [
   scripts/entei-members/
     fetch-members.mjs      … 取得スクリプト（Node・Esm）
     oauth.mjs              … OAuth 2.0 フロー（初回のみブラウザ同意 → refresh token 保存）
-    levels.mjs             … レベル ID → 月額マッピング（コミット可・要ユーザー入力）
+    levels.json            … レベル ID → 月額マッピング（`membershipsLevels.list` から自動生成・コミット可）
     .secrets/              … gitignore 済み（client secret・refresh token）
   apps/web/src/content/home/members.json  … 生成物（コミット可・秘密なし）
 
 [ビルド時]
   npm run build
     └─ prebuild: node scripts/entei-members/fetch-members.mjs
-         └─ members.json の fetchedAt を確認
+         ├─ .secrets/ が無い（= GitHub Actions 環境）→ スキップ（コミット済み JSON を使用）
+         └─ .secrets/ が有る（= ローカル）→ members.json の fetchedAt を確認
               ├─ 1 週間以内 → 何もしない
-              └─ 1 週間超過 → OAuth refresh → members.list 取得 → 総額計算・降順ソート → JSON 上書き
+              └─ 1 週間超過 → OAuth refresh → members.list + membershipsLevels.list 取得
+                    → levels.json と比較（同一ならスキップ）→ 総額計算・降順ソート → JSON 上書き
 
 [デプロイ]
-  GitHub Pages（CI）
-    └─ コミット済み members.json をそのまま使用（CI に秘密なし）
+  手動 push → GitHub Actions が認識 → GitHub Pages へ反映
+    └─ GA はコミット済み members.json をそのまま使用（GA に秘密なし）
+    └─ GA 未導入の間は、コミット済み JSON がそのまま公開される
 ```
 
 ## 5. UI 仕様（Thanks To セクション）
@@ -105,27 +100,25 @@ export const LEVELS = [
   - アバター画像（`profileImageUrl`）
   - 表示名（`displayName`）
   - レベルバッジ（`highestAccessibleLevelDisplayName`）
-  - 総額（計算値・通貨表示）
+- **非表示**: 月額・総額は表示しない（総額は並び順の計算にのみ使用）。
 - **並び**: 総額降順（1 番大きいのが最上位）。
 - **スタイル**: 既存デザイントークン（OKLCH・DESIGN.md）に準拠。グリッド/チップ表示の詳細は実装時に DevTools で調整（静的 CSS テストは作らない — プロジェクトルール）。
-- **空状態**: 会員が 0 人・データ未取得時はセクション自体を非表示（または「準備中」表示を出すかは実装時決定）。
+- **空状態**: 会員が 0 人・データ未取得時は**セクション自体を非表示**（プレースホルダーは出さない）。
 
 ## 6. 実装手順（見積もり）
 
-1. **前提確認**: ユーザーからレベル名と月額（通貨含む）を収集 → `levels.mjs` に反映。
-2. **OAuth 準備**: Google Cloud Console で OAuth Client（デスクトップアプリ型）作成・scope 追加。初回の同意フローで refresh token を `scripts/entei-members/.secrets/` に保存（gitignore 済み）。
-3. **取得スクリプト**: `fetch-members.mjs` 実装（OAuth refresh → `members.list` 全ページ取得 → 総額計算 → 降順ソート → `members.json` 書き出し + `fetchedAt` 記録）。
-4. **prebuild フック**: `package.json` の `prebuild` にスクリプト追加（1 週間超過時のみ更新）。
-5. **UI 実装**: Thanks To セクションの Astro コンポーネント + i18n + スタイル（DESIGN.md 準拠・DevTools 実測）。
-6. **テスト**: ロジック（総額計算・ソート・1 週間判定）のみユニットテスト。UI は DevTools 実測。
+1. **OAuth 準備（ユーザー作業）**: Google Cloud Console で OAuth Client（デスクトップアプリ型）作成。scope: `https://www.googleapis.com/auth/youtube.channel-memberships.creator`。初回の同意フロー（ブラウザ承認）で refresh token を `scripts/entei-members/.secrets/` に保存（gitignore 済み）。
+2. **取得スクリプト**: `fetch-members.mjs` 実装（OAuth refresh → `members.list` 全ページ取得 → `membershipsLevels.list` 取得 → levels キャッシュ比較 → 総額計算 → 降順ソート → `members.json` 書き出し + `fetchedAt` 記録）。`.secrets/` が無い環境（GA）では即スキップ。
+3. **prebuild フック**: `package.json` の `prebuild` にスクリプト追加（1 週間超過時のみ更新・秘密なし環境ではスキップ）。
+4. **gitignore**: `scripts/entei-members/.secrets/` を `.gitignore` に追加。
+5. **UI 実装**: Thanks To セクションの Astro コンポーネント + i18n + スタイル（DESIGN.md 準拠・DevTools 実測）。会員 0 人・未取得時は非表示。
+6. **テスト**: ロジック（総額計算・ソート・1 週間判定・levels キャッシュ比較）のみユニットテスト。UI は DevTools 実測。
 
 ## 7. 未確定事項（要ユーザー入力）
 
-- [ ] **レベル ID・レベル名・月額**（通貨・実際の値）→ `levels.mjs`（ID キーの配列形式）に反映
-- [ ] 総額の通貨表示フォーマット（例: `Rp 50.000` / `¥ 500`）
-- [ ] アバターの表示方法（ホットリンク vs ローカル保存）
-- [ ] 会員 0 人時の表示（非表示 or 準備中）
+- [ ] 同額時の並び順（名前順 or 加入順）— 実装時に軽く確認すればよい
 - [ ] 手動実行コマンド名（例: `npm run fetch-members`）
+- [ ] OAuth 審査の要否（個人利用ならテスト状態で動く見込み・公開アプリ化時に確認）
 
 ## 8. 禁止事項
 
