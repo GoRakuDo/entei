@@ -120,7 +120,18 @@ YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入
 - [ ] 手動実行コマンド名（例: `npm run fetch-members`）
 - [ ] OAuth 審査の要否（個人利用ならテスト状態で動く見込み・公開アプリ化時に確認）
 
-## 8. 禁止事項
+## 8. 配布URL
+
+Entei サイト（https://entei.gorakudo.org）経由の短いインストールURL。中身は署名検証付き bootstrap への委譲（ラッパー方式）。
+
+| プラットフォーム | コマンド |
+|---|---|
+| Termux | `curl -fsSL https://entei.gorakudo.org/eizouden-install.sh \| bash` |
+| Windows | `irm https://entei.gorakudo.org/eizouden-install.ps1 \| iex` |
+
+**運用ルール**: 新しい EizouDendenshi release（rc.XX）が出たら、`apps/web/public/eizouden-install.sh` と `eizouden-install.ps1` の GitHub release URL（`eizoudendenshi-v0.2.0-rc.XX` 部分）を更新すること。ラッパー自体は未署名で良い（= 委譲先の実 bootstrap が Minisign 検証済みのため・ラッパーが改竄されても実 bootstrap の署名検証が守る）。
+
+## 9. 禁止事項
 
 - OAuth client secret・refresh token をリポジトリ・サイト・ログ・チャットに公開しない（= EizouDendenshi の Minisign private key と同じ扱い・#1733 準拠の精神）。
 - EizouDendenshi（companion）には統合しない（= ユーザー確定）。
