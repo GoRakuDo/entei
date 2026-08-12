@@ -33,6 +33,8 @@
 
   /* Hover state, lighter accent — global.css:17 */
   --entei-purple-400: oklch(65% 0.22 273.85deg);
+  /* Mid-purple for bold prose text — same lightness as text-secondary, higher chroma */
+  --entei-purple-300: oklch(86% 0.15 273.85deg);
 
   /* System label, locked status accent — global.css:22 */
   --entei-gold-base: oklch(85% 0.15 85deg);
