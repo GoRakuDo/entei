@@ -1,0 +1,150 @@
+---
+/**
+ * Thanks To — active YouTube members (docs/THANKS_TO_MEMBERS.md §5).
+ *
+ * Reads the committed `members.json` snapshot (written by the Stage 1
+ * fetch-members script; sorted by total, descending). Renders avatar +
+ * display name + level badge chips. Hidden entirely when there are no
+ * members or the snapshot was never fetched (fetchedAt === null).
+ * Monthly totals are used for ordering only and never shown in the UI.
+ */
+import type { Dictionary } from '@i18n/types';
+import members from '@/content/home/members.json';
+
+interface Props {
+  dictionary: Dictionary;
+}
+
+const { dictionary } = Astro.props;
+interface Member {
+  displayName: string | null;
+  profileImageUrl: string | null;
+  levelName: string | null;
+  total: number;
+}
+
+const list: Member[] = (members?.members ?? []) as Member[];
+const visible =
+  members?.fetchedAt !== null && members?.fetchedAt !== undefined && list.length > 0;
+---
+
+{visible && (
+  <section class="entei-thanks-to" aria-labelledby="entei-thanks-to-heading">
+    <h2 id="entei-thanks-to-heading" class="entei-thanks-to-heading">
+      {dictionary.thanksTo.heading}
+    </h2>
+    <p class="entei-thanks-to-sub">{dictionary.thanksTo.sub}</p>
+    <ul class="entei-thanks-to-grid">
+      {list.map((m) => (
+        <li class="entei-thanks-to-card">
+          {m.profileImageUrl && (
+            <img
+              class="entei-thanks-to-avatar"
+              src={m.profileImageUrl}
+              alt={m.displayName ?? ''}
+              loading="lazy"
+              width={48}
+              height={48}
+            />
+          )}
+          <div class="entei-thanks-to-body">
+            <span class="entei-thanks-to-name">{m.displayName}</span>
+            {m.levelName && (
+              <span class="entei-thanks-to-badge">{m.levelName}</span>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}
+
+<style>
+  /* Thanks To section — visual sibling of the roadmap heading: gold Pixelify
+     title, then a responsive grid of member chips (DESIGN.md OKLCH tokens). */
+  :global(.entei-main-inner) :global(.entei-thanks-to) {
+    grid-column: 1 / -1;
+    margin-top: var(--entei-space-32);
+  }
+
+  .entei-thanks-to-heading {
+    font-family: var(--entei-font-system);
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--entei-gold-base);
+    margin: 0 0 var(--entei-space-8);
+  }
+
+  .entei-thanks-to-sub {
+    font-family: var(--entei-font-body);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+    margin: 0 0 var(--entei-space-16);
+  }
+
+  .entei-thanks-to-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--entei-space-12);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  @media (min-width: 640px) {
+    .entei-thanks-to-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .entei-thanks-to-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  .entei-thanks-to-card {
+    display: flex;
+    align-items: center;
+    gap: var(--entei-space-12);
+    padding: var(--entei-space-12) var(--entei-space-16);
+    background-color: var(--entei-surface-2);
+    border: 1px solid oklch(100% 0 0deg / 0.06);
+    border-radius: var(--entei-radius-card);
+    min-width: 0;
+  }
+
+  .entei-thanks-to-avatar {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .entei-thanks-to-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-4);
+    min-width: 0;
+  }
+
+  .entei-thanks-to-name {
+    font-family: var(--entei-font-body);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--entei-text);
+    overflow-wrap: anywhere;
+  }
+
+  .entei-thanks-to-badge {
+    align-self: flex-start;
+    font-family: var(--entei-font-system);
+    font-size: 0.75rem;
+    padding: var(--entei-space-2) var(--entei-space-8);
+    color: var(--entei-gold-base);
+    background-color: oklch(85% 0.15 85deg / 0.14);
+    border-radius: var(--entei-radius-pill);
+  }
+</style>

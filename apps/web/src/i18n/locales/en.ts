@@ -338,6 +338,10 @@ export const en: Dictionary = {
   privacy: {
     local: 'No account. Your media stays on your device.',
   },
+  thanksTo: {
+    heading: 'Thanks to',
+    sub: 'Active members supporting Entei',
+  },
   nav: {
     backToGorakudo: 'Back to GoRakuDo',
     backToHome: 'Back to Home',

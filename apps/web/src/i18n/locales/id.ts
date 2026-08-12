@@ -342,6 +342,10 @@ export const id: Dictionary = {
   privacy: {
     local: 'Tanpa akun. Media tetap di perangkatmu.',
   },
+  thanksTo: {
+    heading: 'Terima kasih kepada',
+    sub: 'Anggota aktif yang mendukung Entei',
+  },
   nav: {
     backToGorakudo: 'Kembali ke GoRakuDo',
     backToHome: 'Kembali ke Home',

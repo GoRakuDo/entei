@@ -348,6 +348,10 @@ export interface Dictionary {
   privacy: {
     local: string;
   };
+  thanksTo: {
+    heading: string;
+    sub: string;
+  };
   nav: {
     backToGorakudo: string;
     backToHome: string;

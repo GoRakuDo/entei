@@ -340,6 +340,10 @@ export const ja: Dictionary = {
   privacy: {
     local: 'アカウント不要。メディアは端末内に残ります。',
   },
+  thanksTo: {
+    heading: 'ありがとう',
+    sub: 'Enteiを支援してくれているアクティブ会員',
+  },
   nav: {
     backToGorakudo: 'GoRakuDoへ戻る',
     backToHome: 'Homeへ戻る',

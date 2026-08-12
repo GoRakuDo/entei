@@ -19,6 +19,7 @@ import BaseLayout from '@layouts/BaseLayout.astro';
 import HubIdentity from '@components/home/HubIdentity.astro';
 import DestinationDock from '@components/home/DestinationDock.astro';
 import LocalFirstNote from '@components/home/LocalFirstNote.astro';
+import ThanksTo from '@components/home/ThanksTo.astro';
 import Roadmap from '@/content/home/future-features.mdx';
 import { getDictionary } from '@i18n/index';
 
@@ -33,6 +34,7 @@ const dictionary = getDictionary('id');
     </div>
   </div>
   <Roadmap />
+  <ThanksTo dictionary={dictionary} />
   <LocalFirstNote dictionary={dictionary} />
 </BaseLayout>
 
