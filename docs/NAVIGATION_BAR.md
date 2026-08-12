@@ -1,6 +1,6 @@
 # NAVIGATION_BAR — Entei共通ナビゲーション設計
 
-> **状態:** IMPLEMENTATION PLANNED — route / copy / accessibilityの土台をMimo、UI / CSSをNemotronへ分けて実装する。
+> **状態:** IMPLEMENTED — デスクトップは中央ブランドピル（Home/Player/Tracker）+ 右端Combobox、モバイルはTopBar + Dock、Playerは上端dwellでピル表示（2026-07-30実装・以降の調整は各コミット参照）。
 > **対象:** `Entei/apps/web` の `/`、`/player/`、`/tracker/`。EPUB Readerは対象外。
 > **決定日:** 2026-07-30
 

@@ -87,7 +87,10 @@ Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanion�
 
 ### First install and pairing
 
-1. ユーザーがWindows CMDまたはTermuxでplatform別の一発install commandを実行する。
+1. ユーザーがWindows CMDまたはTermuxでplatform別の一発install commandを実行する。短い配布URL（Enteiサイト経由・2026-08-12導入）:
+   - **Termux**: `curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash`
+   - **Windows**: `irm https://entei.gorakudo.org/eizouden-install.ps1 | iex`
+   - ラッパーは署名検証付きの実 bootstrap（`eizouden-bootstrap-helper.sh` / `eizouden-bootstrap.ps1`）へ委譲。新しい release が出たらラッパー内の rc.XX を更新する（docs/THANKS_TO_MEMBERS.md「配布URL」参照）。
 2. launcherはrelease asset / manifestのMinisign署名を検証する。
 3. EizouDendenshiが`127.0.0.1`で起動し、pairing codeをterminalへ表示する。
 4. EnteiのCompanion接続UIへcodeを一度入力する。

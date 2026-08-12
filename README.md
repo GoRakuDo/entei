@@ -1,6 +1,6 @@
 # Entei
 
-Entei is an open-source, static, and local-first media player designed for Japanese language learning. It is built with **Astro + React** for GitHub Pages / [entei.gorakudo.org](https://entei.gorakudo.org) (deployment is currently pending; the site is not yet live).
+Entei is an open-source, static, and local-first media player designed for Japanese language learning. It is built with **Astro + React** and deployed to GitHub Pages / [entei.gorakudo.org](https://entei.gorakudo.org) (live since 2026-08-12; main-branch pushes auto-deploy via GitHub Actions).
 
 Entei has **no server-side application backend**. Everything runs entirely inside your web browser.
 
@@ -53,10 +53,13 @@ You can capture material from your media and export it to your flashcards:
 
 For more details on mining and Anki integration, check out the [ANKI_MINER.md](./docs/ANKI_MINER.md) and [VIDEO_CLIP.md](./docs/VIDEO_CLIP.md) specs.
 
-The [THANKS_TO_MEMBERS.md](./docs/THANKS_TO_MEMBERS.md) spec describes a
-planned "Thanks To" section that shows active YouTube channel members
-(name, avatar, level, total support) fetched weekly via the YouTube Data API
-`members.list` endpoint (design confirmed, not yet implemented).
+The [THANKS_TO_MEMBERS.md](./docs/THANKS_TO_MEMBERS.md) spec describes the
+"Thanks To" section that shows active YouTube channel members
+(name, avatar, level). Implemented since 2026-08-12: data is currently
+imported weekly from a YouTube Studio member CSV export
+(`members-supporter/import-csv.mjs`), with an automatic `members.list`
+fetch pipeline (`members-supporter/fetch-members.mjs`) ready once YouTube
+grants API access.
 
 ### 5. WebTorrent Streaming (Optional)
 
@@ -189,10 +192,17 @@ Entei is currently in the **Testing & Refinement** phase. The core features for 
 ## EizouDendenshi Companion — Delivery Status
 
 [EizouDendenshi (映像電伝師)](./companion/eizoudendenshi/README.md) is Entei's
-planned loopback-only Windows / Termux companion. It will hand user-entered
-YouTube and magnet sources to the player without server involvement; that
-source integration remains in later ED-3 / ED-4 stages. See
-[docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md) for the full plan.
+loopback-only Windows / Termux companion (127.0.0.1-only). It hands
+user-entered YouTube and magnet sources to the player without server
+involvement — pairing, YouTube jobs, torrent jobs, and streaming are
+implemented and shipped as signed pre-releases (latest:
+`eizoudendenshi-v0.2.0-rc.69`). One-line installs via the Entei site:
+
+- **Termux:** `curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash`
+- **Windows:** `irm https://entei.gorakudo.org/eizouden-install.ps1 | iex`
+- Launch with `grkd-edds` on either platform.
+
+See [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md) for the full plan.
 
 **Delivery is not complete.**
 
