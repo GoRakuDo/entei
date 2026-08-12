@@ -45,4 +45,4 @@ companion/eizoudendenshi/eizouden
 next-env.d.ts
 
 # Thanks To members — local OAuth secrets
-scripts/entei-members/.secrets/
+members-supporter/.secrets/

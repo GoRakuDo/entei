@@ -63,14 +63,14 @@ YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入
 ```
 
 - 滞在月数は `membershipsDurationAtLevel[].memberTotalDurationMonths` を使用。
-- `membershipsDurationAtLevel[].level` は**レベル ID** なので、月額のマッピングは**レベル ID → 月額**の形にする（`scripts/entei-members/levels.json`）。表示名（`displayName`）は `membershipsLevels.list` から得る。
+- `membershipsDurationAtLevel[].level` は**レベル ID** なので、月額のマッピングは**レベル ID → 月額**の形にする（`members-supporter/levels.json`）。表示名（`displayName`）は `membershipsLevels.list` から得る。
 - レベル→月額マッピングは**秘密ではない**（= サイト上で公開している加入情報）のでコミット可能。`membershipsLevels.list` から自動生成する `levels.json` を保持する（形式: `{ id: string, name: string, price: number, currency: string }[]`・ID によるルックアップが直結する配列形式）。
 
 ## 4. アーキテクチャ
 
 ```text
 [ローカルマシン]
-  scripts/entei-members/
+  members-supporter/
     fetch-members.mjs      … 取得スクリプト（Node・Esm）
     oauth.mjs              … OAuth 2.0 フロー（初回のみブラウザ同意 → refresh token 保存）
     levels.json            … レベル ID → 月額マッピング（`membershipsLevels.list` から自動生成・コミット可）
@@ -79,7 +79,7 @@ YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入
 
 [ビルド時]
   npm run build
-    └─ prebuild: node scripts/entei-members/fetch-members.mjs
+    └─ prebuild: node members-supporter/fetch-members.mjs
          ├─ .secrets/ が無い（= GitHub Actions 環境）→ スキップ（コミット済み JSON を使用）
          └─ .secrets/ が有る（= ローカル）→ members.json の fetchedAt を確認
               ├─ 1 週間以内 → 何もしない
@@ -107,10 +107,10 @@ YouTube チャンネルのメンバーシップ会員へ感謝を示し、加入
 
 ## 6. 実装手順（見積もり）
 
-1. **OAuth 準備（ユーザー作業）**: Google Cloud Console で OAuth Client（デスクトップアプリ型）作成。scope: `https://www.googleapis.com/auth/youtube.channel-memberships.creator`。初回の同意フロー（ブラウザ承認）で refresh token を `scripts/entei-members/.secrets/` に保存（gitignore 済み）。
+1. **OAuth 準備（ユーザー作業）**: Google Cloud Console で OAuth Client（デスクトップアプリ型）作成。scope: `https://www.googleapis.com/auth/youtube.channel-memberships.creator`。初回の同意フロー（ブラウザ承認）で refresh token を `members-supporter/.secrets/` に保存（gitignore 済み）。
 2. **取得スクリプト**: `fetch-members.mjs` 実装（OAuth refresh → `members.list` 全ページ取得 → `membershipsLevels.list` 取得 → levels キャッシュ比較 → 総額計算 → 降順ソート → `members.json` 書き出し + `fetchedAt` 記録）。`.secrets/` が無い環境（GA）では即スキップ。
 3. **prebuild フック**: `package.json` の `prebuild` にスクリプト追加（1 週間超過時のみ更新・秘密なし環境ではスキップ）。
-4. **gitignore**: `scripts/entei-members/.secrets/` を `.gitignore` に追加。
+4. **gitignore**: `members-supporter/.secrets/` を `.gitignore` に追加。
 5. **UI 実装**: Thanks To セクションの Astro コンポーネント + i18n + スタイル（DESIGN.md 準拠・DevTools 実測）。会員 0 人・未取得時は非表示。
 6. **テスト**: ロジック（総額計算・ソート・1 週間判定・levels キャッシュ比較）のみユニットテスト。UI は DevTools 実測。
 

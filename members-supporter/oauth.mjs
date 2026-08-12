@@ -11,9 +11,9 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, exec } from 'node:child_process';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -45,10 +45,16 @@ async function writeJson(path, value) {
 
 function openBrowser(url) {
   const platform = process.platform;
-  const opener =
-    platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] :
-    platform === 'darwin' ? ['open', [url]] :
-    ['xdg-open', [url]]; // linux
+  if (platform === 'win32') {
+    // exec runs through cmd.exe: the whole command line (empty window title
+    // + quoted URL) survives cmd's re-parsing, so `&` in the query is never
+    // treated as a command separator. (spawn's argv joining broke this.)
+    exec(`start "" "${url}"`, (err) => {
+      if (err) console.log(`\nOpen this URL in your browser to authorize:\n${url}\n`);
+    });
+    return;
+  }
+  const opener = platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]; // linux
   try {
     const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
     child.unref();
@@ -176,7 +182,7 @@ export async function getAccessToken() {
 // Robust to spaces/odd paths in argv[1]: decide on the flag, not the URL.
 const isMainModule =
   process.argv[1] &&
-  import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMainModule && process.argv.includes('--auth')) {
   startAuthFlow()
     .then((p) => console.log(`tokens saved to ${p}`))

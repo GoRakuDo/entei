@@ -4,7 +4,7 @@ import {
   sortByTotal,
   isStale,
   levelsUnchanged,
-} from '../../../scripts/entei-members/lib.mjs';
+} from '../../../members-supporter/lib.mjs';
 
 // ---------------------------------------------------------------------------
 // Thanks To members — pure pipeline logic (Stage 1, docs/THANKS_TO_MEMBERS.md)

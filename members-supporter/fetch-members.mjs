@@ -20,8 +20,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const secretsDir = join(__dirname, '.secrets');
 const levelsPath = join(__dirname, 'levels.json');
 const membersPath = join(
-  __dirname, '..', '..', 'apps', 'web', 'src', 'content', 'home', 'members.json',
-);
+    __dirname, '..', 'apps', 'web', 'src', 'content', 'home', 'members.json',
+  );
 
 const MEMBERS_URL = 'https://www.googleapis.com/youtube/v3/members';
 const LEVELS_URL = 'https://www.googleapis.com/youtube/v3/membershipsLevels';
