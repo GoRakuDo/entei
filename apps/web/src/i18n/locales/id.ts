@@ -7,7 +7,7 @@ import type { Dictionary } from '../types';
  */
 export const id: Dictionary = {
   hub: {
-    systemLabel: 'ENTEI // MARKAS BELAJAR',
+    systemLabel: 'ENTEI // PLATFORM IMMERISON TERPADU',
     lead: 'Kami sedang membangun ruang belajar untuk video, audio, dan buku berbahasa Jepang dari perangkatmu sendiri.',
   },
   player: {
