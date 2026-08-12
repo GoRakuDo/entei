@@ -71,3 +71,73 @@ export function levelsUnchanged(cached, freshItems) {
   }
   return true;
 }
+
+/**
+ * Split one CSV line into fields, honoring double-quoted fields (commas and
+ * escaped `""` inside quotes). Standard-library only — no CSV dependency.
+ *
+ * @param {string} line
+ * @returns {string[]}
+ */
+export function parseCsvLine(line) {
+  const fields = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"'; // escaped quote
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      fields.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  fields.push(cur);
+  return fields;
+}
+
+/**
+ * Parse a YouTube Studio member CSV price field, e.g. `"IDR 19,900"` or
+ * `"IDR\u00A019,900"` (YouTube uses a no-break space between currency and
+ * amount). Returns `{ currency, value }` or null when unparseable.
+ *
+ * @param {string} text
+ * @returns {{ currency: string, value: number } | null}
+ */
+export function parsePrice(text) {
+  if (typeof text !== 'string') return null;
+  // Strict: currency + group-separated or plain value; rejects malformed
+  // inputs like ".900" or "1,2,3".
+  const m = /^([A-Za-z]{2,4})[\s\u00A0]*(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)$/.exec(text.trim());
+  if (!m) return null;
+  const value = Number(m[2].replace(/[,\u00A0]/g, ''));
+  if (!Number.isFinite(value)) return null;
+  return { currency: m[1], value };
+}
+
+/**
+ * Extract the channel id from a YouTube profile URL, e.g.
+ * `https://www.youtube.com/channel/UCfFchxuoTj6ynJHzmickoTA` → `UCfFchxuoTj6ynJHzmickoTA`.
+ * Returns null when the URL has no `/channel/<id>` segment.
+ *
+ * @param {string} url
+ * @returns {string | null}
+ */
+export function extractChannelId(url) {
+  if (typeof url !== 'string') return null;
+  const m = /\/channel\/(UC[\w-]+)/.exec(url);
+  return m ? m[1] : null;
+}

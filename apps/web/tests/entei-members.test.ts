@@ -4,6 +4,9 @@ import {
   sortByTotal,
   isStale,
   levelsUnchanged,
+  parseCsvLine,
+  parsePrice,
+  extractChannelId,
 } from '../../../members-supporter/lib.mjs';
 
 // ---------------------------------------------------------------------------
@@ -104,5 +107,52 @@ describe('levelsUnchanged', () => {
     ];
     expect(levelsUnchanged(cached, added)).toBe(false);
     expect(levelsUnchanged({ levels: [] }, added)).toBe(false);
+  });
+});
+
+describe('parseCsvLine', () => {
+  it('splits plain comma fields', () => {
+    expect(parseCsvLine('a,b,c')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('keeps commas inside double-quoted fields', () => {
+    expect(parseCsvLine('a,"IDR 19,900",c')).toEqual(['a', 'IDR 19,900', 'c']);
+  });
+
+  it('handles escaped quotes inside quoted fields', () => {
+    expect(parseCsvLine('"say ""hi""",b')).toEqual(['say "hi"', 'b']);
+  });
+});
+
+describe('parsePrice', () => {
+  it('parses currency + comma-grouped value', () => {
+    expect(parsePrice('IDR 19,900')).toEqual({ currency: 'IDR', value: 19900 });
+  });
+
+  it('parses no-break space (U+00A0) between currency and value', () => {
+    expect(parsePrice('IDR\u00A019,900')).toEqual({ currency: 'IDR', value: 19900 });
+  });
+
+  it('handles plain integer values without grouping', () => {
+    expect(parsePrice('IDR 20000')).toEqual({ currency: 'IDR', value: 20000 });
+  });
+
+  it('returns null for unparseable input', () => {
+    expect(parsePrice('gratis')).toBeNull();
+    expect(parsePrice('')).toBeNull();
+    expect(parsePrice(null as unknown as string)).toBeNull();
+  });
+});
+
+describe('extractChannelId', () => {
+  it('extracts UC id from a /channel/ URL', () => {
+    expect(extractChannelId('https://www.youtube.com/channel/UCfFchxuoTj6ynJHzmickoTA'))
+      .toBe('UCfFchxuoTj6ynJHzmickoTA');
+  });
+
+  it('returns null for URLs without a channel segment', () => {
+    expect(extractChannelId('https://www.youtube.com/@yosiakefas')).toBeNull();
+    expect(extractChannelId('')).toBeNull();
+    expect(extractChannelId(null as unknown as string)).toBeNull();
   });
 });
