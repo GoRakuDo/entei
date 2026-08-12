@@ -53,6 +53,11 @@ You can capture material from your media and export it to your flashcards:
 
 For more details on mining and Anki integration, check out the [ANKI_MINER.md](./docs/ANKI_MINER.md) and [VIDEO_CLIP.md](./docs/VIDEO_CLIP.md) specs.
 
+The [THANKS_TO_MEMBERS.md](./docs/THANKS_TO_MEMBERS.md) spec describes a
+planned "Thanks To" section that shows active YouTube channel members
+(name, avatar, level, total support) fetched weekly via the YouTube Data API
+`members.list` endpoint (design confirmed, not yet implemented).
+
 ### 5. WebTorrent Streaming (Optional)
 
 - **P2P Playback:** Stream video and audio directly in the browser by pasting a magnet URI.
