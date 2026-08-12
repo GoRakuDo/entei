@@ -23,9 +23,9 @@ export const dictionaries: Record<Locale, Dictionary> = { id, ja, en };
 /** Per-locale document `<title>` and `<meta description>`. */
 export const documentMetadata: Record<Locale, DocumentMetadata> = {
   id: {
-    title: 'Entei — Markas Belajar Bahasa Jepang',
+    title: 'Entei — Platform Immerison Terpadu',
     description:
-      'Entei adalah markas untuk belajar bahasa Jepang dari video, audio, dan buku di perangkatmu sendiri. Tanpa akun, media tetap di perangkatmu.',
+      'Entei adalah platform immerison terpadu untuk belajar bahasa Jepang dari video, audio, dan buku di perangkatmu sendiri. Tanpa akun, media tetap di perangkatmu.',
   },
   ja: {
     title: 'Entei — 日本語学習の拠点',

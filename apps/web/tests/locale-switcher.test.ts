@@ -335,7 +335,7 @@ describe('persisted pageshow restores saved locale (reviewer P1 #3)', () => {
 
     // getSavedLocale() returns DEFAULT_LOCALE ('id') when no preference
     expect(document.documentElement.lang).toBe('id');
-    expect(document.title).toBe('Entei — Markas Belajar Bahasa Jepang');
+    expect(document.title).toBe('Entei — Platform Immerison Terpadu');
   });
 
   it('does not apply locale on non-persisted pageshow (normal page load)', () => {
