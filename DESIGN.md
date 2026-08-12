@@ -120,8 +120,8 @@ The current implemented palette lives in `apps/web/src/styles/tokens.css`.
 | `--entei-black-950` | `oklch(5% 0.005 270deg)` | page background |
 | `--entei-surface` | `oklch(17.8% 0.058 275.81deg)` | standard panels, dialogs, navigation |
 | `--entei-surface-2` | `oklch(30.96% 0.15 271.29deg)` | selected and elevated surfaces |
-| `--entei-purple-500` | `oklch(57.74% 0.209 273.85deg)` | primary accent, focus, active states |
-| `--entei-purple-400` | `oklch(65% 0.22 273.85deg)` | accent hover |
+| `--entei-purple-500` | `oklch(68% 0.21 273.85deg)` | primary accent, focus, active states |
+| `--entei-purple-400` | `oklch(76% 0.22 273.85deg)` | accent hover |
 | `--entei-gold-base` | `oklch(85% 0.15 85deg)` | rare status and system emphasis |
 | `--entei-muted` | `oklch(85.99% 0.071 282.16deg)` | secondary text |
 | `--entei-text-global-muted` | `oklch(70% 0.01 270deg)` | supplementary text |

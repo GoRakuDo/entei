@@ -29,12 +29,10 @@
   --entei-surface-2: oklch(30.96% 0.15 271.29deg);
 
   /* Primary accent, focus ring, active border — global.css:18 (Discord Blurple) */
-  --entei-purple-500: oklch(57.74% 0.209 273.85deg);
+  --entei-purple-500: oklch(68% 0.21 273.85deg);
 
   /* Hover state, lighter accent — global.css:17 */
-  --entei-purple-400: oklch(65% 0.22 273.85deg);
-  /* Mid-purple for bold prose text — same lightness as text-secondary, higher chroma */
-  --entei-purple-300: oklch(80% 0.19 273.85deg);
+  --entei-purple-400: oklch(76% 0.22 273.85deg);
 
   /* System label, locked status accent — global.css:22 */
   --entei-gold-base: oklch(85% 0.15 85deg);

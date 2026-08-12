@@ -73,11 +73,10 @@ const dictionary = getDictionary('id');
   }
 
   /* Roadmap (local MDX): plain text directly on the page background —
-     no card, no surface, no border box. A thin separator above it
-     divides the viewport hero from the scrollable content below. */
+     no card, no surface, no border box. Spacing above the roadmap
+     separates it from the hero; no border is used. */
   :global(.entei-main-inner) :global(.entei-roadmap) {
     grid-column: 1 / -1;
-    border-top: 1px solid oklch(100% 0 0deg / 0.12);
     padding-top: var(--entei-space-24);
     margin-top: var(--entei-space-16);
     font-family: var(--entei-font-body);
@@ -89,7 +88,7 @@ const dictionary = getDictionary('id');
   :global(.entei-roadmap.prose) {
     --tw-prose-body: var(--entei-text-secondary);
     --tw-prose-headings: var(--entei-text);
-    --tw-prose-bold: var(--entei-purple-300);
+    --tw-prose-bold: var(--entei-accent);
     --tw-prose-links: var(--entei-accent-hover);
     --tw-prose-counters: var(--entei-text-secondary);
     --tw-prose-bullets: var(--entei-text-secondary);
@@ -102,7 +101,7 @@ const dictionary = getDictionary('id');
     /* Dark-mode invert overrides (Entei is always dark). */
     --tw-prose-invert-body: var(--entei-text-secondary);
     --tw-prose-invert-headings: var(--entei-text);
-    --tw-prose-invert-bold: var(--entei-purple-300);
+    --tw-prose-invert-bold: var(--entei-accent);
     --tw-prose-invert-links: var(--entei-accent-hover);
     --tw-prose-invert-counters: var(--entei-text-secondary);
     --tw-prose-invert-bullets: var(--entei-text-secondary);
@@ -120,6 +119,11 @@ const dictionary = getDictionary('id');
   :global(.entei-roadmap.prose a) {
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+
+  /* List numbers (1. 2. 3.) use Pixelify; body text stays in prose font. */
+  :global(.entei-roadmap.prose ol li::marker) {
+    font-family: var(--entei-font-system);
   }
 
   /* LocalFirstNote follows the roadmap in DOM order. BaseLayout's shared
