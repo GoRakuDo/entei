@@ -43,3 +43,6 @@ companion/eizoudendenshi/eizouden
 # Next.js stray artifacts (not part of the Astro build)
 .next/
 next-env.d.ts
+
+# Thanks To members — local OAuth secrets
+scripts/entei-members/.secrets/

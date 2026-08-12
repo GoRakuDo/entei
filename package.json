@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace=web",
+    "fetch-members": "node scripts/entei-members/fetch-members.mjs",
+    "prebuild": "npm run fetch-members",
     "build": "npm run build --workspace=web",
     "preview": "npm run preview --workspace=web",
     "check": "npm run check --workspace=web",
