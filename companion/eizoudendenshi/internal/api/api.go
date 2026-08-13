@@ -174,6 +174,12 @@ type Config struct {
 	// configured.
 	GrowSource media.GrowingSource
 
+	// Ffmpeg, when set, is the pinned ffmpeg executable used by
+	// /v1/media/pcm to convert the completed media to 16 kHz mono f32 PCM
+	// (sub-to-audio subtitle sync). Empty disables the PCM endpoint.
+	// The path must be validated by the caller (cmd/eizouden does).
+	Ffmpeg string
+
 	// AllowOrigins are additional exact HTTP(S) origins permitted by CORS
 	// for this process only — a development/QA override (ED-2C). Each entry
 	// is validated and normalized with ParseOrigin; an invalid entry makes
@@ -224,6 +230,7 @@ type Server struct {
 	log            *diag.Logger        // optional diagnostic sink (nil-safe)
 	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
 	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
+	ffmpegPath     string              // ED-2H /v1/media/pcm converter (16 kHz mono PCM for sub-to-audio)
 	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
 	torrents       *torrent.Manager    // ED-2G: optional torrent-job manager (nil = disabled)
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
@@ -276,6 +283,7 @@ func New(cfg Config) (*Server, error) {
 		log:            cfg.Logger,
 		fixturePath:    cfg.FixturePath,
 		growSource:     cfg.GrowSource,
+		ffmpegPath:     cfg.Ffmpeg,
 		jobs:           cfg.Jobs,
 		torrents:       cfg.Torrents,
 		allowedOrigins: allowed,
@@ -300,6 +308,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/pair", s.handlePair)
 	mux.HandleFunc("/v1/pair/status", s.handlePairStatus)
 	mux.HandleFunc("/v1/media/fixture", s.handleMediaFixture)
+	mux.HandleFunc("/v1/media/pcm", s.handleMediaPcm)
 	mux.HandleFunc("/v1/media/status", s.handleMediaStatus)
 	if s.jobs != nil {
 		// ED-2F: YouTube source jobs. Registered only when a job manager is

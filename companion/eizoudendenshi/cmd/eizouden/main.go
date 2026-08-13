@@ -288,6 +288,7 @@ func main() {
 			bind:     bind,
 			fixture:  *fixture,
 			grow:     growSource,
+			ffmpeg:   *ffmpeg,
 			origins:  allowOrigins,
 			jobs:     jobs,
 			torrents: torrents,
@@ -317,6 +318,7 @@ func main() {
 		bind:     bind,
 		fixture:  *fixture,
 		grow:     growSource,
+		ffmpeg:   *ffmpeg,
 		origins:  allowOrigins,
 		jobs:     jobs,
 		torrents: torrents,
@@ -337,6 +339,7 @@ func startServerCore(cfg serverConfig) (*api.Server, net.Listener, error) {
 	srv, err := api.New(api.Config{
 		FixturePath:  cfg.fixture,
 		GrowSource:   cfg.grow,
+		Ffmpeg:       cfg.ffmpeg,
 		AllowOrigins: cfg.origins,
 		Jobs:         cfg.jobs,
 		Torrents:     cfg.torrents,
@@ -418,6 +421,7 @@ type serverConfig struct {
 	bind     string
 	fixture  string
 	grow     media.GrowingSource
+	ffmpeg   string
 	origins  []string
 	jobs     *job.Manager
 	torrents *torrent.Manager
