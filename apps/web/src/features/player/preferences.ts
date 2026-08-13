@@ -54,6 +54,7 @@ const DEFAULT_SUBTITLE_TEXT_COLOR = 'oklch(98% 0 0deg)';
 const DEFAULT_SUBTITLE_BACKGROUND_COLOR = 'oklch(0% 0 0 / 0.72)';
 const DEFAULT_SUBTITLE_BACKGROUND_PADDING = 8;
 const DEFAULT_SUBTITLE_VERTICAL_POSITION = 96;
+const DEFAULT_SUBTITLE_SYNC_MODE: SubtitleSyncMode = 'subtitle';
 
 /** Persisted player preference shape (v1, extended with optional subtitle appearance fields). */
 interface PlayerPreferenceData {
@@ -66,6 +67,7 @@ interface PlayerPreferenceData {
   subtitleBackgroundColor?: string;
   subtitleBackgroundPadding?: number;
   subtitleVerticalPosition?: number;
+  subtitleSyncMode?: SubtitleSyncMode;
 }
 
 /** Public interface. */
@@ -78,7 +80,11 @@ export interface PlayerPreferences {
   subtitleBackgroundColor: string;
   subtitleBackgroundPadding: number;
   subtitleVerticalPosition: number;
+  subtitleSyncMode?: SubtitleSyncMode;
 }
+
+/** Sync mode for the subomatic engine (stage ③). */
+export type SubtitleSyncMode = 'subtitle' | 'audio' | 'auto';
 
 /**
  * Read player preferences from localStorage.
@@ -107,6 +113,7 @@ export function readPlayerPreferences(): PlayerPreferences {
       subtitleBackgroundColor: parseSubtitleBackgroundColor(parsed.subtitleBackgroundColor),
       subtitleBackgroundPadding: parseSubtitleBackgroundPadding(parsed.subtitleBackgroundPadding),
       subtitleVerticalPosition: parseSubtitleVerticalPosition(parsed.subtitleVerticalPosition),
+      subtitleSyncMode: parseSubtitleSyncMode(parsed.subtitleSyncMode),
     };
   } catch {
     // localStorage unavailable or JSON corrupted
@@ -124,6 +131,7 @@ function getDefaultPreferences(): PlayerPreferences {
     subtitleBackgroundColor: DEFAULT_SUBTITLE_BACKGROUND_COLOR,
     subtitleBackgroundPadding: DEFAULT_SUBTITLE_BACKGROUND_PADDING,
     subtitleVerticalPosition: DEFAULT_SUBTITLE_VERTICAL_POSITION,
+    subtitleSyncMode: DEFAULT_SUBTITLE_SYNC_MODE,
   };
 }
 
@@ -143,6 +151,7 @@ export function writePlayerPreferences(prefs: PlayerPreferences): void {
       subtitleBackgroundColor: parseSubtitleBackgroundColor(prefs.subtitleBackgroundColor),
       subtitleBackgroundPadding: parseSubtitleBackgroundPadding(prefs.subtitleBackgroundPadding),
       subtitleVerticalPosition: parseSubtitleVerticalPosition(prefs.subtitleVerticalPosition),
+      subtitleSyncMode: parseSubtitleSyncMode(prefs.subtitleSyncMode),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
@@ -177,6 +186,15 @@ function isValidPreferenceData(value: unknown): value is PlayerPreferenceData {
   if (obj.subtitleBackgroundPadding !== undefined && typeof obj.subtitleBackgroundPadding !== 'number') return false;
   // subtitleVerticalPosition: optional, if present must be number
   if (obj.subtitleVerticalPosition !== undefined && typeof obj.subtitleVerticalPosition !== 'number') return false;
+  // subtitleSyncMode: optional, if present must be subtitle | audio | auto
+  if (
+    obj.subtitleSyncMode !== undefined &&
+    obj.subtitleSyncMode !== 'subtitle' &&
+    obj.subtitleSyncMode !== 'audio' &&
+    obj.subtitleSyncMode !== 'auto'
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -262,6 +280,11 @@ function parseSubtitleVerticalPosition(value: unknown): number {
     return Math.max(0, Math.min(200, Math.round(value)));
   }
   return DEFAULT_SUBTITLE_VERTICAL_POSITION;
+}
+
+/** Sync mode (subtitle | audio | auto); anything else falls back to subtitle. */
+function parseSubtitleSyncMode(value: unknown): SubtitleSyncMode {
+  return value === 'audio' || value === 'auto' ? value : DEFAULT_SUBTITLE_SYNC_MODE;
 }
 
 /**

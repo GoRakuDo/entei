@@ -647,6 +647,7 @@ describe('writePlayerPreferences', () => {
       subtitleBackgroundColor: 'oklch(10% 0.02 270deg / 0.8)',
       subtitleBackgroundPadding: 10,
       subtitleVerticalPosition: 100,
+      subtitleSyncMode: 'auto',
     });
 
     const raw = localStorage.getItem('entei.player.prefs.v1');
@@ -659,6 +660,7 @@ describe('writePlayerPreferences', () => {
       'subtitleBackgroundColor',
       'subtitleBackgroundPadding',
       'subtitleFontSize',
+      'subtitleSyncMode',
       'subtitleTextColor',
       'subtitleVerticalPosition',
       'volume',

@@ -323,6 +323,13 @@ export const ja: Dictionary = {
     subtitleBackgroundPadding: '背景の余白',
     subtitleVerticalPosition: '垂直位置',
     subtitleReset: 'デフォルトに戻す',
+    subtitleSyncMode: '字幕同期モード',
+    subtitleSyncSubtitle: '字幕',
+    subtitleSyncAudio: '音声',
+    subtitleSyncAuto: '自動',
+    subtitleSyncSubtitleDesc: '動画内の字幕を参照として同期します',
+    subtitleSyncAudioDesc: '音声から同期します',
+    subtitleSyncAutoDesc: '字幕を優先し、なければ音声で同期します',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'トラッカー',
     trackerOn: 'オン',

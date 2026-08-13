@@ -324,6 +324,13 @@ export const id: Dictionary = {
     subtitleBackgroundPadding: 'Padding latar',
     subtitleVerticalPosition: 'Posisi vertikal',
     subtitleReset: 'Kembalikan ke default',
+    subtitleSyncMode: 'Mode Sinkronisasi Subtitle',
+    subtitleSyncSubtitle: 'Subtitle',
+    subtitleSyncAudio: 'Audio',
+    subtitleSyncAuto: 'Otomatis',
+    subtitleSyncSubtitleDesc: 'Sinkronkan menggunakan subtitle bawaan video',
+    subtitleSyncAudioDesc: 'Sinkronkan dari trek audio',
+    subtitleSyncAutoDesc: 'Utamakan subtitle, jika tidak ada gunakan audio',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'Tracker',
     trackerOn: 'HIDUP',

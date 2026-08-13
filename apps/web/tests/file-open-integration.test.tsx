@@ -301,6 +301,13 @@ const mockDict = {
   subtitleBackgroundPadding: 'Padding',
   subtitleVerticalPosition: 'Vertical position',
     subtitleReset: 'Reset',
+    subtitleSyncMode: 'Subtitle Sync Mode',
+    subtitleSyncSubtitle: 'Subtitle',
+    subtitleSyncAudio: 'Audio',
+    subtitleSyncAuto: 'Auto',
+    subtitleSyncSubtitleDesc: 'Sync using the video embedded subtitle',
+    subtitleSyncAudioDesc: 'Sync from the audio track',
+    subtitleSyncAutoDesc: 'Prefer subtitle, fall back to audio',
   // Tracker (IMMERSION_TRACKER Stage 2b)
   trackerLabel: 'Tracker',
   trackerOn: 'ON',

@@ -1210,6 +1210,7 @@ export default function PlayerApp() {
         subtitleBackgroundColor: prefsRef.current.subtitleBackgroundColor,
         subtitleBackgroundPadding: prefsRef.current.subtitleBackgroundPadding,
         subtitleVerticalPosition: prefsRef.current.subtitleVerticalPosition,
+        subtitleSyncMode: prefsRef.current.subtitleSyncMode,
       });
       // Keep prefsRef in sync to avoid stale reads in other callbacks
       prefsRef.current = { ...prefsRef.current, captionDisplayMode: next };
@@ -1576,6 +1577,7 @@ export default function PlayerApp() {
       subtitleBackgroundColor: prefsRef.current.subtitleBackgroundColor,
       subtitleBackgroundPadding: prefsRef.current.subtitleBackgroundPadding,
       subtitleVerticalPosition: prefsRef.current.subtitleVerticalPosition,
+      subtitleSyncMode: prefsRef.current.subtitleSyncMode,
     });
     prefsRef.current = { ...prefsRef.current, volume: val };
   }, []);
@@ -1592,6 +1594,7 @@ export default function PlayerApp() {
       subtitleBackgroundColor: prefsRef.current.subtitleBackgroundColor,
       subtitleBackgroundPadding: prefsRef.current.subtitleBackgroundPadding,
       subtitleVerticalPosition: prefsRef.current.subtitleVerticalPosition,
+      subtitleSyncMode: prefsRef.current.subtitleSyncMode,
     });
     prefsRef.current = { ...prefsRef.current, playbackRate: rate };
   }, []);
