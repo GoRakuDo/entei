@@ -1,0 +1,503 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The alignment engine.
+//!
+//! Both the reference (voice-activity spans, or a known-good subtitle's cues)
+//! and the target subtitle are treated as sets of time [`Span`]s. Alignment
+//! finds the timing correction that maximizes their overlap.
+//!
+//! One unified dynamic program does both jobs: `align_offsets` assigns each
+//! cue an offset on a quantized grid, maximizing total overlap minus a
+//! `split_penalty` per change of offset between consecutive cues.
+//! `split_penalty = i64::MAX` forces a single shared offset (a global shift,
+//! ffsubsync-style); smaller values allow piecewise shifts that absorb ad-breaks
+//! or different cuts (alass-style). [`best_alignment`] wraps that in a scan over
+//! common frame-rate ratios to also correct play-rate drift (e.g. 23.976↔25).
+
+use crate::Span;
+
+/// The range of offsets to search, in milliseconds.
+#[derive(Clone, Copy, Debug)]
+pub struct SearchRange {
+    pub min_delta: i64,
+    pub max_delta: i64,
+    pub step: i64,
+}
+
+impl Default for SearchRange {
+    fn default() -> Self {
+        // ±60 s at 20 ms resolution: covers typical real-world offsets.
+        SearchRange {
+            min_delta: -60_000,
+            max_delta: 60_000,
+            step: 20,
+        }
+    }
+}
+
+/// Parameters for `align_offsets` / [`best_alignment`].
+#[derive(Clone, Copy, Debug)]
+pub struct AlignParams {
+    pub range: SearchRange,
+    /// Overlap (ms) charged each time consecutive cues take a different offset.
+    /// `i64::MAX` forces one global shift; smaller values permit piecewise shifts
+    /// (ad-breaks, different cuts). Tunable.
+    pub split_penalty: i64,
+}
+
+impl Default for AlignParams {
+    fn default() -> Self {
+        // Default to a single global shift; lower `split_penalty` to allow splits.
+        AlignParams {
+            range: SearchRange::default(),
+            split_penalty: i64::MAX,
+        }
+    }
+}
+
+/// The chosen warp: a global frame-rate scale plus a per-cue offset applied
+/// after scaling, with the alignment's overlap score.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Alignment {
+    pub fps_ratio: f64,
+    pub offsets: Vec<i64>,
+    pub score: i64,
+}
+
+/// Merge spans into sorted, disjoint intervals (overlapping or touching spans are
+/// combined) so overlap is measured against their union rather than
+/// double-counted where reference spans overlap.
+fn merge_spans(spans: &[Span]) -> Vec<Span> {
+    let mut sorted: Vec<Span> = spans.iter().copied().filter(|s| !s.is_empty()).collect();
+    sorted.sort_by_key(|s| s.start);
+
+    let mut merged: Vec<Span> = Vec::with_capacity(sorted.len());
+    for span in sorted {
+        match merged.last_mut() {
+            Some(last) if span.start <= last.end => last.end = last.end.max(span.end),
+            _ => merged.push(span),
+        }
+    }
+    merged
+}
+
+/// The offsets to evaluate, from `min_delta` to `max_delta` in `step` increments.
+fn delta_grid(range: SearchRange) -> Vec<i64> {
+    let step = range.step.max(1);
+    let mut grid = Vec::new();
+    let mut delta = range.min_delta;
+    while delta <= range.max_delta {
+        grid.push(delta);
+        let Some(next) = delta.checked_add(step) else {
+            break;
+        };
+        delta = next;
+    }
+    grid
+}
+
+/// Cumulative coverage of sorted, disjoint reference intervals, for O(log n)
+/// total-overlap queries instead of an O(n) per-shift scan.
+///
+/// `covered(t)` is the total reference length lying before `t`; the overlap of
+/// any interval `[a, b)` with the reference union is then exactly
+/// `covered(b) - covered(a)`. This is an *exact* rewrite of the naive per-span
+/// sum — not an approximation — so the alignment it yields is identical, just
+/// far cheaper. The `coverage_overlap_matches_naive_scan` test pins that
+/// equivalence against [`overlap_at`].
+struct Coverage {
+    /// Interval start times, ascending (one per disjoint reference interval).
+    starts: Vec<i64>,
+    /// Matching interval end times.
+    ends: Vec<i64>,
+    /// `prefix[i]` = total length of intervals `0..i` (so `prefix[0] == 0`).
+    prefix: Vec<i64>,
+}
+
+impl Coverage {
+    /// Build from already-merged (sorted, disjoint) reference spans.
+    fn new(merged: &[Span]) -> Self {
+        let mut starts = Vec::with_capacity(merged.len());
+        let mut ends = Vec::with_capacity(merged.len());
+        let mut prefix = Vec::with_capacity(merged.len());
+        let mut total = 0i64;
+        for span in merged {
+            starts.push(span.start);
+            ends.push(span.end);
+            prefix.push(total);
+            total = total.saturating_add(span.end - span.start);
+        }
+        Coverage {
+            starts,
+            ends,
+            prefix,
+        }
+    }
+
+    /// Total reference length lying strictly before `t`.
+    fn covered(&self, t: i64) -> i64 {
+        // Intervals whose start precedes `t`. Since they're sorted and disjoint,
+        // all but the last also *end* before `t` (their full length is
+        // `prefix[i-1]`); the last is clipped to `t`.
+        let i = self.starts.partition_point(|&s| s < t);
+        if i == 0 {
+            return 0;
+        }
+        self.prefix[i - 1] + (self.ends[i - 1].min(t) - self.starts[i - 1])
+    }
+
+    /// Exact total overlap between `span` and the reference union.
+    fn overlap(&self, span: Span) -> i64 {
+        (self.covered(span.end) - self.covered(span.start)).max(0)
+    }
+}
+
+/// Overlap (ms) between one `cue` shifted by `delta` and the (disjoint)
+/// reference, by a direct per-span scan. Retained only as the exact oracle the
+/// fast [`Coverage`] path is tested against.
+#[cfg(test)]
+fn overlap_at(reference: &[Span], cue: Span, delta: i64) -> i64 {
+    let shifted = cue.shifted(delta);
+    reference.iter().map(|r| shifted.overlap(r)).sum()
+}
+
+/// Index of the highest score, breaking ties toward the offset closest to zero
+/// so a no-evidence (all-equal) result lands on the smallest shift.
+fn best_index(scores: &[i64], deltas: &[i64]) -> usize {
+    let mut best = 0usize;
+    for (i, (&score, &delta)) in scores.iter().zip(deltas).enumerate() {
+        if score > scores[best]
+            || (score == scores[best] && delta.unsigned_abs() < deltas[best].unsigned_abs())
+        {
+            best = i;
+        }
+    }
+    best
+}
+
+/// Assign each cue an offset (ms, to add) via the piecewise dynamic program,
+/// reporting progress as a fraction in `0.0..=1.0` of cues processed so a caller
+/// (e.g. the WASM/web front-end) can drive a progress bar. The dynamic program
+/// is the dominant cost of a sync, so its inner cue loop is the natural place to
+/// sample progress.
+///
+/// Returns the per-cue offsets and the alignment's score (total overlap minus
+/// split penalties). See the module docs for the `split_penalty` knob.
+pub(crate) fn align_offsets_with_progress(
+    reference: &[Span],
+    cues: &[Span],
+    params: &AlignParams,
+    progress: &mut dyn FnMut(f64),
+) -> (Vec<i64>, i64) {
+    if cues.is_empty() {
+        return (Vec::new(), 0);
+    }
+    let reference = merge_spans(reference);
+    let deltas = delta_grid(params.range);
+    if reference.is_empty() || deltas.is_empty() {
+        return (vec![0; cues.len()], 0);
+    }
+    let coverage = Coverage::new(&reference);
+
+    // `dp[k]` = best score for cues so far with the current cue at `deltas[k]`.
+    let mut dp: Vec<i64> = deltas
+        .iter()
+        .map(|&delta| coverage.overlap(cues[0].shifted(delta)))
+        .collect();
+    // `back[i][k]` = delta-index chosen for cue `i`, given cue `i+1` sits at `k`.
+    let mut back: Vec<Vec<usize>> = Vec::with_capacity(cues.len().saturating_sub(1));
+
+    let total = (cues.len() - 1).max(1) as f64;
+    for (idx, &cue) in cues[1..].iter().enumerate() {
+        let prev_best = best_index(&dp, &deltas);
+        // Cost of arriving from a *different* previous offset (a split).
+        let switch_score = dp[prev_best].saturating_sub(params.split_penalty);
+
+        let mut row = vec![0i64; deltas.len()];
+        let mut row_back = vec![0usize; deltas.len()];
+        for (k, &delta) in deltas.iter().enumerate() {
+            // Staying at the same offset (no penalty) vs. switching (penalty).
+            let (from, base) = if dp[k] >= switch_score {
+                (k, dp[k])
+            } else {
+                (prev_best, switch_score)
+            };
+            row[k] = coverage.overlap(cue.shifted(delta)).saturating_add(base);
+            row_back[k] = from;
+        }
+        dp = row;
+        back.push(row_back);
+        // Sample progress every so often (the inner delta loop, not these calls,
+        // is the cost) so the front-end can advance a bar without flooding it.
+        if idx % 64 == 0 {
+            progress((idx + 1) as f64 / total);
+        }
+    }
+    progress(1.0);
+
+    // Backtrack from the best final cell.
+    let mut k = best_index(&dp, &deltas);
+    let score = dp[k];
+    let mut offsets = vec![0i64; cues.len()];
+    offsets[cues.len() - 1] = deltas[k];
+    for i in (1..cues.len()).rev() {
+        k = back[i - 1][k];
+        offsets[i - 1] = deltas[k];
+    }
+    (offsets, score)
+}
+
+/// Common play-rate conversion ratios to test for frame-rate drift, using exact
+/// NTSC fractions (23.976 = 24000/1001, 29.97 = 30000/1001).
+fn fps_ratios() -> [f64; 9] {
+    let film = crate::NTSC_FILM_FPS; // 23.976 (NTSC film)
+    let video = 30_000.0 / 1_001.0; // 29.97
+    [
+        1.0,
+        25.0 / 24.0,
+        24.0 / 25.0,
+        24.0 / film,
+        film / 24.0,
+        25.0 / film,
+        film / 25.0,
+        30.0 / video,
+        video / 30.0,
+    ]
+}
+
+/// Scale a timestamp by a frame-rate `ratio` (saturating float→int cast).
+pub fn scale_time(t: i64, ratio: f64) -> i64 {
+    (t as f64 * ratio).round() as i64
+}
+
+/// Find the best [`Alignment`] (frame-rate ratio + per-cue offsets) by scanning
+/// common play-rate ratios and running `align_offsets` for each.
+pub fn best_alignment(reference: &[Span], cues: &[Span], params: &AlignParams) -> Alignment {
+    best_alignment_with_progress(reference, cues, params, &mut |_| {})
+}
+
+/// [`best_alignment`] that reports overall progress as a fraction in `0.0..=1.0`.
+///
+/// The scan tries [`fps_ratios`] in turn, so each ratio owns an equal `1/N`
+/// slice of the bar and the per-cue progress from `align_offsets_with_progress`
+/// fills that slice — giving smooth, monotonic forward motion across the whole
+/// search.
+pub fn best_alignment_with_progress(
+    reference: &[Span],
+    cues: &[Span],
+    params: &AlignParams,
+    progress: &mut dyn FnMut(f64),
+) -> Alignment {
+    let mut best = Alignment {
+        fps_ratio: 1.0,
+        offsets: vec![0; cues.len()],
+        score: i64::MIN,
+    };
+    let ratios = fps_ratios();
+    let n = ratios.len() as f64;
+    for (i, ratio) in ratios.into_iter().enumerate() {
+        let scaled: Vec<Span> = cues
+            .iter()
+            .map(|c| Span::new(scale_time(c.start, ratio), scale_time(c.end, ratio)))
+            .collect();
+        let base = i as f64 / n;
+        let (offsets, score) =
+            align_offsets_with_progress(reference, &scaled, params, &mut |local| {
+                progress(base + local / n);
+            });
+        if score > best.score {
+            best = Alignment {
+                fps_ratio: ratio,
+                offsets,
+                score,
+            };
+        }
+    }
+    progress(1.0);
+    best
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spans<const N: usize>(intervals: [(i64, i64); N]) -> Vec<Span> {
+        intervals.iter().map(|&(a, b)| Span::new(a, b)).collect()
+    }
+
+    /// The fast prefix-sum [`Coverage`] must return the *exact* same overlap as
+    /// the naive per-span scan ([`overlap_at`]) — it's an optimization, not an
+    /// approximation. A randomized oracle check over many references, cues and
+    /// shifts (deliberately ranging past the reference ends and through the
+    /// boundary cases that trip such code up).
+    #[test]
+    fn coverage_overlap_matches_naive_scan() {
+        // Deterministic xorshift PRNG (keeps the core dependency-free).
+        struct Rng(u64);
+        impl Rng {
+            fn bits(&mut self) -> u64 {
+                self.0 ^= self.0 << 13;
+                self.0 ^= self.0 >> 7;
+                self.0 ^= self.0 << 17;
+                self.0
+            }
+            fn range(&mut self, n: i64) -> i64 {
+                (self.bits() % n as u64) as i64
+            }
+        }
+        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+
+        for _ in 0..5_000 {
+            // Build a random reference, then merge it into the sorted, disjoint
+            // form the engine feeds Coverage.
+            let mut t = rng.range(40);
+            let mut raw = Vec::new();
+            for _ in 0..rng.range(7) {
+                t += rng.range(25); // gap (>= 0; 0 means touching)
+                let len = 1 + rng.range(35);
+                raw.push(Span::new(t, t + len));
+                t += len;
+            }
+            let merged = merge_spans(&raw);
+            let coverage = Coverage::new(&merged);
+
+            let a = rng.range(160) - 20;
+            let cue = Span::new(a, a + rng.range(50));
+            let delta = rng.range(120) - 60;
+
+            assert_eq!(
+                coverage.overlap(cue.shifted(delta)),
+                overlap_at(&merged, cue, delta),
+                "mismatch: merged={merged:?} cue={cue:?} delta={delta}"
+            );
+        }
+    }
+
+    #[test]
+    fn coverage_overlap_boundary_cases() {
+        let merged = merge_spans(&spans([(10, 20), (30, 40)]));
+        let c = Coverage::new(&merged);
+        assert_eq!(c.overlap(Span::new(0, 5)), 0); // entirely before
+        assert_eq!(c.overlap(Span::new(50, 60)), 0); // entirely after
+        assert_eq!(c.overlap(Span::new(10, 20)), 10); // exactly one interval
+        assert_eq!(c.overlap(Span::new(20, 30)), 0); // the gap (half-open)
+        assert_eq!(c.overlap(Span::new(15, 35)), 10); // [15,20)=5 + [30,35)=5
+        assert_eq!(c.overlap(Span::new(0, 100)), 20); // spans both + the gap
+        assert_eq!(c.overlap(Span::new(25, 25)), 0); // empty query
+        assert_eq!(Coverage::new(&[]).overlap(Span::new(0, 100)), 0); // empty reference
+    }
+
+    #[test]
+    fn merge_spans_unions_overlapping_intervals() {
+        let merged = merge_spans(&spans([(0, 100), (50, 150), (200, 250)]));
+        assert_eq!(merged, spans([(0, 150), (200, 250)]));
+    }
+
+    #[test]
+    fn align_recovers_a_two_segment_split() {
+        // First three cues are 1 s late; the last three are 4 s late (ad break).
+        let reference = spans([
+            (1_000, 2_000),
+            (3_000, 4_000),
+            (5_000, 6_000),
+            (10_000, 11_000),
+            (12_000, 13_000),
+            (14_000, 15_000),
+        ]);
+        let cues: Vec<Span> = reference
+            .iter()
+            .enumerate()
+            .map(|(i, r)| r.shifted(if i < 3 { 1_000 } else { 4_000 }))
+            .collect();
+
+        let params = AlignParams {
+            range: SearchRange::default(),
+            split_penalty: 200,
+        };
+        let (offsets, _) = align_offsets_with_progress(&reference, &cues, &params, &mut |_| {});
+
+        for (i, &off) in offsets.iter().enumerate() {
+            let expected = if i < 3 { -1_000 } else { -4_000 };
+            assert!(
+                (off - expected).abs() <= SearchRange::default().step,
+                "cue {i}: expected ~{expected}, got {off}"
+            );
+        }
+    }
+
+    #[test]
+    fn align_with_infinite_penalty_is_a_global_shift() {
+        let reference = spans([(1_000, 2_000), (5_000, 6_000), (9_000, 10_000)]);
+        let cues: Vec<Span> = reference.iter().map(|s| s.shifted(1_500)).collect();
+
+        let (offsets, _) =
+            align_offsets_with_progress(&reference, &cues, &AlignParams::default(), &mut |_| {});
+
+        assert!(offsets.iter().all(|&o| o == offsets[0]), "offsets differ");
+        assert!((offsets[0] + 1_500).abs() <= SearchRange::default().step);
+    }
+
+    #[test]
+    fn align_with_no_cues_is_empty() {
+        let (offsets, score) = align_offsets_with_progress(
+            &spans([(0, 1_000)]),
+            &spans([]),
+            &AlignParams::default(),
+            &mut |_| {},
+        );
+        assert!(offsets.is_empty());
+        assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn progress_is_monotonic_bounded_and_matches_plain_result() {
+        let reference = spans([(1_000, 2_000), (5_000, 6_000), (9_000, 10_000)]);
+        let cues: Vec<Span> = reference.iter().map(|s| s.shifted(1_500)).collect();
+
+        let mut seen: Vec<f64> = Vec::new();
+        let with =
+            best_alignment_with_progress(&reference, &cues, &AlignParams::default(), &mut |f| {
+                seen.push(f)
+            });
+
+        assert!(!seen.is_empty(), "no progress reported");
+        assert!(
+            seen.iter().all(|&f| (0.0..=1.0).contains(&f)),
+            "progress out of [0,1]: {seen:?}"
+        );
+        assert!(
+            seen.windows(2).all(|w| w[1] >= w[0]),
+            "progress not monotonic: {seen:?}"
+        );
+        assert_eq!(seen.last(), Some(&1.0), "progress must end at 1.0");
+        // Reporting progress must not change the alignment the plain path finds.
+        assert_eq!(
+            with,
+            best_alignment(&reference, &cues, &AlignParams::default())
+        );
+    }
+
+    #[test]
+    fn best_alignment_recovers_an_fps_speedup() {
+        let reference = spans([(1_000, 2_000), (60_000, 61_000), (3_600_000, 3_601_000)]);
+        let film = 24_000.0 / 1_001.0; // 23.976
+        let ratio = 25.0 / film; // the scale that restores the timing
+                                 // Author cues as if mistimed at the other rate (compressed by 1/ratio).
+        let cues: Vec<Span> = reference
+            .iter()
+            .map(|s| {
+                Span::new(
+                    (s.start as f64 / ratio).round() as i64,
+                    (s.end as f64 / ratio).round() as i64,
+                )
+            })
+            .collect();
+
+        let alignment = best_alignment(&reference, &cues, &AlignParams::default());
+
+        assert!(
+            (alignment.fps_ratio - ratio).abs() < 1e-6,
+            "expected ratio ~{ratio}, got {}",
+            alignment.fps_ratio
+        );
+    }
+}
