@@ -2,7 +2,7 @@
 
 > Entei の字幕タイミングズレ問題を解決する機能。サブタイトル同期エンジン **subomatic**（Apache-2.0・Rust・WASM対応）を Entei に統合し、字幕のタイミングを**音声**または**動画内字幕（参照）**に自動で合わせる。
 >
-> 状態: **設計確定（2026-08-13）・未実装**。ユーザー確定事項の一次ソース。
+> 状態: **設計確定（2026-08-13）・エンジン実装フェーズ**。ユーザー確定事項の一次ソース。
 
 ## 1. 目的
 
@@ -19,6 +19,10 @@
 4. **クレジット追加機能は除去する**: subomatic の WASM バインディングは出力字幕の末尾に「Synced with subomatic.github.io」クレジットを追加するが（`lib.rs:19`・web アプリ用）、**Entei 統合ではこの Function を外す**カスタムビルドを行う。
 5. **音声デコード**: sub-to-audio はブラウザの **WebAudio API**（`AudioContext` + `decodeAudioData`）でデコードし、モノラル f32 PCM を WASM へ渡す（= ffmpeg 不要・ブラウザ再生できる形式なら何でも対応）。
 6. **ライセンス**: Apache-2.0・`NOTICE` 保存義務あり（§4(d)）。Entei への統合は問題なし。サードパーティ（libav 等）は CLI のみで WASM パスは不使用。
+7. **Sync モード（設定モーダルの 3 トグル・排他選択）**: **字幕 / 音声 / 自動** の 3 モード。**デフォルトは字幕モード**。
+8. **字幕モードの挙動**: 動画内字幕（参照）がない場合、Toast 通知「この動画のベース字幕はないため同期されない」を表示し、**以降何もしない**（= 自動で音声モードにフォールバックしない。ユーザーは手動で音声モードへ切り替えられる）。
+9. **自動モードの挙動**: **sub-to-sub を優先**し、動画内字幕がない場合に**自動で sub-to-audio** へフォールバックする。
+10. **実装順**: ①エンジン（WASM カスタムビルド + Worker）→ ②データフロー（同期処理の流れ）→ ③設定トグル UI → ④同期ボタン等のフロント UI（**フロント UI は最後**）。
 
 ## 3. subomatic 調査結果（2026-08-13・ローカル `A:\subomatic` + GitHub 確認）
 
@@ -81,7 +85,7 @@ const channel = audio.getChannelData(c);           // f32 PCM
 [Entei /player/]
   SubtitlePanel
     └─ 「同期」ボタン（字幕選択時・動画再生中）
-         ├─ モード: sub-to-audio（音声から） / sub-to-sub（動画内字幕から）
+         ├─ モード: 字幕 / 音声 / 自動（§2 の 7-9 参照）
          ├─ 参照字幕: 動画内蔵/紐づく字幕トラック（sub-to-sub）
          ├─ 音声: WebAudio デコード → モノラル f32 PCM（sub-to-audio）
          └─ sync-worker（Web Worker）
@@ -106,23 +110,36 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 
 ## 5. UI 仕様
 
-- **場所**: SubtitlePanel（字幕パネル）に「同期」ボタン/アクションを追加。
-- **モード選択**: sub-to-audio（音声から） / sub-to-sub（動画内字幕から）の 2 択。
+### 5.1 Sync モード設定（設定モーダル・優先実装は UI の中でも後）
+
+- 設定モーダル（SettingsTabs）に **Sync モード**の 3 トグル（排他）を追加:
+  - **字幕**（デフォルト）— sub-to-sub
+  - **音声** — sub-to-audio
+  - **自動** — sub-to-sub 優先 → 動画内字幕なければ自動で sub-to-audio
+- 既定は**字幕モード**（localStorage に永続化、既存の設定パターンに倣う）。
+- 字幕モードで動画内字幕がない場合: Toast 通知「**この動画のベース字幕はないため同期されない**」（i18n 3 言語）→ 以降何もしない。
+- 自動モード: 動画内字幕があるなら sub-to-sub、なければ sub-to-audio を自動選択。
+
+- **場所**: SubtitlePanel（字幕パネル）に「同期」ボタン/アクションを追加（= ④フロント UI・最後に実装）。
 - **sub-to-sub の参照選択**: 動画に内蔵/紐づく字幕トラックの一覧から参照を選ぶ（英語字幕など）。ユーザーが選択・インポートした字幕が参照に合わせて同期される。※ 参照字幕の**取得手段**（ローカル MKV 内蔵トラック / companion 経由 / ユーザー選択ファイル）は §7 未確定事項。
 - **プログレス**: `onProgress` を表示（TypewriterLoading 等の既存パターン）。フェーズはモードで異なる: **sub-to-audio** は `"speech"` → `"align"` の2フェーズ、**sub-to-sub** は `"align"` の1フェーズのみ。
 - **結果**: 同期済み字幕でプレイヤー字幕を差し替え。保存は「適用」ボタン（メモリ内 or エクスポート）。
 - **エラー時**: 既存のエラートースト/フォールバック表示。
 - スタイルは既存デザイントークン（OKLCH・DESIGN.md）準拠・DevTools 実測（静的 CSS テストは作らない — プロジェクトルール）。
 
-## 6. 実装手順（見積もり）
+## 6. 実装手順
+
+**実装順（ユーザー確定・2026-08-13）: ①エンジン → ②データフロー → ③設定トグル UI → ④フロント UI（最後）**
 
 1. **カスタム WASM ビルド**: `A:\subomatic` をフォーク（Entei 配下にコピー or git submodule 判断）→ クレジット除去 → `wasm-pack build` → `apps/web/public/wasm/` へ配置。`NOTICE` を Entei に保持。
 2. **Worker**: `sync-worker.ts`（subomatic の `worker.js` パターン踏襲・`onmessage` で `sync_to_audio` / `sync_to_reference` 実行・progress relay）。
 3. **音声デコード**: ローカル/companion 音声ソースから `AudioContext.decodeAudioData` → モノラル f32 PCM（`app.js:119-130` パターン）。
 4. **sub-to-sub 参照取得**: 動画内蔵/紐づく字幕トラックの抽出・選択 UI。
-5. **UI 統合**: SubtitlePanel に同期ボタン・モード選択・プログレス・結果反映（i18n 3言語）。
-6. **テスト**: ロジック（Worker 契約・PCM 変換・プログレス・エラー経路）のみユニットテスト。WASM 自体は subomatic 側のテストで担保。
-7. **ドキュメント同期**: 本ドキュメント + PLAYER_PHASES.md 等。
+5. **モード解決ロジック**: 設定モード（字幕/音声/自動）から実行モードを決定（字幕モードで参照字幕なし → Toast「この動画のベース字幕はないため同期されない」で中断。自動モード → sub-to-sub 優先・なければ sub-to-audio）。
+6. **設定トグル UI**: 設定モーダルに Sync モード 3 トグル（字幕/音声/自動・デフォルト字幕・localStorage 永続化・i18n 3言語）。
+7. **フロント UI（最後）**: SubtitlePanel に同期ボタン・プログレス・結果反映（i18n 3言語）。
+8. **テスト**: ロジック（Worker 契約・PCM 変換・モード解決・プログレス・エラー経路）のみユニットテスト。WASM 自体は subomatic 側のテストで担保。
+9. **ドキュメント同期**: 本ドキュメント + PLAYER_PHASES.md 等。
 
 ## 7. 未確定事項（要確認）
 
