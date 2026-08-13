@@ -23,6 +23,16 @@
 8. **字幕モードの挙動**: 動画内字幕（参照）がない場合、Toast 通知「この動画のベース字幕はないため同期されない」を表示し、**以降何もしない**（= 自動で音声モードにフォールバックしない。ユーザーは手動で音声モードへ切り替えられる）。
 9. **自動モードの挙動**: **sub-to-sub を優先**し、動画内字幕がない場合に**自動で sub-to-audio** へフォールバックする。
 10. **実装順**: ①エンジン（WASM カスタムビルド + Worker）→ ②データフロー（同期処理の流れ）→ ③設定トグル UI → ④同期ボタン等のフロント UI（**フロント UI は最後**）。
+11. **ソース種別ごとの対応（2026-08-13 確定）**:
+    - **YouTube 動画**: 検知して**同期ボタンを出さない**（= YouTube の自動字幕タイミングはほぼ正確なため同期不要）。
+    - **ローカルファイル**: `decodeAudioData` で高速フルデコード（EizouDendenshi 不要）。
+    - **companion 動画（Magnet）の sub-to-sub**: **高速処理可**（字幕ファイル数十 KB の DL だけで完了・動画本体の DL 完了は待たない）。
+    - **companion 動画（Magnet）の sub-to-audio**: **動画全体の DL 完了が必要**（音声 PCM は全編必要）。DL 完了待ちの確認ダイアログ → 進捗 % 表示 → 完了後に同期。
+12. **Magnet sub-to-audio の DL 待ち UI（2026-08-13 確定）**: ストリーミング動画では音声ベース同期が即時不可能なため、**shadcn AlertDialog**（Radix AlertDialog）で確認:
+    - 文言: 「ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？」
+    - ボタン: **「キャンセル」** / **「はい、大丈夫です」**
+    - 「はい」→ ボタンが **DL 進捗 %** に変化（companion の `available/total` をポーリング・既存 `/v1/media/status` 利用）: `[キャンセル] [23%] → [30%] → [35%] → … → 100%`（23% は例示・実際は `available/total` から算出した実進捗率を表示）
+    - 100% 到達 → 同期実行（companion PCM 変換 → WASM）・「キャンセル」→ 何もしない
 
 ## 3. subomatic 調査結果（2026-08-13・ローカル `A:\subomatic` + GitHub 確認）
 
@@ -86,8 +96,11 @@ const channel = audio.getChannelData(c);           // f32 PCM
   SubtitlePanel
     └─ 「同期」ボタン（字幕選択時・動画再生中）
          ├─ モード: 字幕 / 音声 / 自動（§2 の 7-9 参照）
-         ├─ 参照字幕: 動画内蔵/紐づく字幕トラック（sub-to-sub）
-         ├─ 音声: WebAudio デコード → モノラル f32 PCM（sub-to-audio）
+         ├─ ソース種別で分岐（§2 の 11-12）:
+         │    ├─ YouTube → 同期ボタン非表示
+         │    ├─ ローカル → WebAudio デコード → モノラル f32 PCM
+         │    ├─ Magnet sub-to-sub → companion 字幕 DL（数十 KB・DL 完了不要）→ 直接 sync_to_reference
+         │    └─ Magnet sub-to-audio → AlertDialog 確認 → DL% 待ち → companion PCM 変換
          └─ sync-worker（Web Worker）
               └─ subomatic WASM（custom build・クレジット除去）
                    ├─ sync_to_audio / sync_to_reference
@@ -125,6 +138,11 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 - **プログレス**: `onProgress` を表示（TypewriterLoading 等の既存パターン）。フェーズはモードで異なる: **sub-to-audio** は `"speech"` → `"align"` の2フェーズ、**sub-to-sub** は `"align"` の1フェーズのみ。
 - **結果**: 同期済み字幕でプレイヤー字幕を差し替え。保存は「適用」ボタン（メモリ内 or エクスポート）。
 - **エラー時**: 既存のエラートースト/フォールバック表示。
+- **Magnet + 音声モードの DL 待ちダイアログ**: ストリーミング動画のため音声ベース同期が即時不可能な場合、**shadcn AlertDialog**（Radix AlertDialog）を表示:
+  - タイトル/本文: 「ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？」
+  - ボタン: 「キャンセル」 / 「はい、大丈夫です」
+  - 「はい」→ ボタンが **DL 進捗 %** に変化（`[キャンセル] [23%] → [30%] → [35%] → …`・companion の `available/total` をポーリング・23% は例示で実際は実進捗率）
+  - 100% 到達 → 同期実行（companion PCM 変換 → WASM）・「キャンセル」→ 何もしない
 - スタイルは既存デザイントークン（OKLCH・DESIGN.md）準拠・DevTools 実測（静的 CSS テストは作らない — プロジェクトルール）。
 
 ## 6. 実装手順
@@ -133,9 +151,9 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 
 1. **カスタム WASM ビルド**: `A:\subomatic` をフォーク（Entei 配下にコピー or git submodule 判断）→ クレジット除去 → `wasm-pack build` → `apps/web/public/wasm/` へ配置。`NOTICE` を Entei に保持。
 2. **Worker**: `sync-worker.ts`（subomatic の `worker.js` パターン踏襲・`onmessage` で `sync_to_audio` / `sync_to_reference` 実行・progress relay）。
-3. **音声デコード**: ローカル/companion 音声ソースから `AudioContext.decodeAudioData` → モノラル f32 PCM（`app.js:119-130` パターン）。
+3. **音声デコード**: ローカル音声ソースから `AudioContext.decodeAudioData` → モノラル f32 PCM（`app.js:119-130` パターン）。companion 動画は DL 完了後に companion 側 PCM 変換（§2 の 11-12 参照）。
 4. **sub-to-sub 参照取得**: 動画内蔵/紐づく字幕トラックの抽出・選択 UI。
-5. **モード解決ロジック**: 設定モード（字幕/音声/自動）から実行モードを決定（字幕モードで参照字幕なし → Toast「この動画のベース字幕はないため同期されない」で中断。自動モード → sub-to-sub 優先・なければ sub-to-audio）。
+5. **モード解決ロジック**: 設定モード（字幕/音声/自動）× ソース種別（YouTube/ローカル/Magnet）から実行モードを決定（YouTube → 同期ボタン非表示。字幕モードで参照字幕なし → Toast「この動画のベース字幕はないため同期されない」で中断。自動モード → sub-to-sub 優先・なければ sub-to-audio。Magnet + 字幕 → companion 字幕 DL（数十 KB）→ 直接 sync_to_reference。Magnet + 音声 → AlertDialog → DL% 待ち → companion PCM）。
 6. **設定トグル UI**: 設定モーダルに Sync モード 3 トグル（字幕/音声/自動・デフォルト字幕・localStorage 永続化・i18n 3言語）。
 7. **フロント UI（最後）**: SubtitlePanel に同期ボタン・プログレス・結果反映（i18n 3言語）。
 8. **テスト**: ロジック（Worker 契約・PCM 変換・モード解決・プログレス・エラー経路）のみユニットテスト。WASM 自体は subomatic 側のテストで担保。
