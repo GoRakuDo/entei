@@ -2,7 +2,7 @@
 
 > Entei の字幕タイミングズレ問題を解決する機能。サブタイトル同期エンジン **subomatic**（Apache-2.0・Rust・WASM対応）を Entei に統合し、字幕のタイミングを**音声**または**動画内字幕（参照）**に自動で合わせる。
 >
-> 状態: **設計確定（2026-08-13）・エンジン実装フェーズ**。ユーザー確定事項の一次ソース。
+> 状態: **設計確定（2026-08-13）・字幕取得手段確定（2026-08-13）・エンジン実装フェーズ**。ユーザー確定事項の一次ソース。
 
 ## 1. 目的
 
@@ -26,7 +26,8 @@
 11. **ソース種別ごとの対応（2026-08-13 確定）**:
     - **YouTube 動画**: 検知して**同期ボタンを出さない**（= YouTube の自動字幕タイミングはほぼ正確なため同期不要）。
     - **ローカルファイル**: `decodeAudioData` で高速フルデコード（EizouDendenshi 不要）。
-    - **companion 動画（Magnet）の sub-to-sub**: **高速処理可**（字幕ファイル数十 KB の DL だけで完了・動画本体の DL 完了は待たない）。
+    - **companion 動画（Magnet）の sub-to-sub**: **高速処理可**（字幕ファイル数十 KB の DL だけで完了・動画本体の DL 完了は待たない）。参照字幕は companion の `fetchMagnetSubtitle` で内蔵字幕ファイルを取得（実装済み）。
+    - **ローカル動画の sub-to-sub**: MKV 内蔵トラックはブラウザの `video.textTracks` に公開されないため（実測確認）、**参照用の字幕ファイルをユーザーが選択**する。
     - **companion 動画（Magnet）の sub-to-audio**: **動画全体の DL 完了が必要**（音声 PCM は全編必要）。DL 完了待ちの確認ダイアログ → 進捗 % 表示 → 完了後に同期。
 12. **Magnet sub-to-audio の DL 待ち UI（2026-08-13 確定）**: ストリーミング動画では音声ベース同期が即時不可能なため、**shadcn AlertDialog**（Radix AlertDialog）で確認:
     - 文言: 「ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？」
@@ -134,7 +135,7 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 - 自動モード: 動画内字幕があるなら sub-to-sub、なければ sub-to-audio を自動選択。
 
 - **場所**: SubtitlePanel（字幕パネル）に「同期」ボタン/アクションを追加（= ④フロント UI・最後に実装）。
-- **sub-to-sub の参照選択**: 動画に内蔵/紐づく字幕トラックの一覧から参照を選ぶ（英語字幕など）。ユーザーが選択・インポートした字幕が参照に合わせて同期される。※ 参照字幕の**取得手段**（ローカル MKV 内蔵トラック / companion 経由 / ユーザー選択ファイル）は §7 未確定事項。
+- **sub-to-sub の参照選択**: **Magnet** は companion 経由で取得した内蔵字幕ファイルの一覧から参照を選ぶ。**ローカル**は参照用の字幕ファイルをユーザーが選択（MKV 内蔵トラックはブラウザから読めないため）。ユーザーがロードした字幕が参照に合わせて同期される。
 - **プログレス**: `onProgress` を表示（TypewriterLoading 等の既存パターン）。フェーズはモードで異なる: **sub-to-audio** は `"speech"` → `"align"` の2フェーズ、**sub-to-sub** は `"align"` の1フェーズのみ。
 - **結果**: 同期済み字幕でプレイヤー字幕を差し替え。保存は「適用」ボタン（メモリ内 or エクスポート）。
 - **エラー時**: 既存のエラートースト/フォールバック表示。
@@ -152,7 +153,7 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 1. **カスタム WASM ビルド**: `A:\subomatic` をフォーク（Entei 配下にコピー or git submodule 判断）→ クレジット除去 → `wasm-pack build` → `apps/web/public/wasm/` へ配置。`NOTICE` を Entei に保持。
 2. **Worker**: `sync-worker.ts`（subomatic の `worker.js` パターン踏襲・`onmessage` で `sync_to_audio` / `sync_to_reference` 実行・progress relay）。
 3. **音声デコード**: ローカル音声ソースから `AudioContext.decodeAudioData` → モノラル f32 PCM（`app.js:119-130` パターン）。companion 動画は DL 完了後に companion 側 PCM 変換（§2 の 11-12 参照）。
-4. **sub-to-sub 参照取得**: 動画内蔵/紐づく字幕トラックの抽出・選択 UI。
+4. **sub-to-sub 参照取得**: Magnet → companion 経由で内蔵字幕取得（`fetchMagnetSubtitle`）。ローカル → 参照用字幕ファイルのユーザー選択 UI。
 5. **モード解決ロジック**: 設定モード（字幕/音声/自動）× ソース種別（YouTube/ローカル/Magnet）から実行モードを決定（YouTube → 同期ボタン非表示。字幕モードで参照字幕なし → Toast「この動画のベース字幕はないため同期されない」で中断。自動モード → sub-to-sub 優先・なければ sub-to-audio。Magnet + 字幕 → companion 字幕 DL（数十 KB）→ 直接 sync_to_reference。Magnet + 音声 → AlertDialog → DL% 待ち → companion PCM）。
 6. **設定トグル UI**: 設定モーダルに Sync モード 3 トグル（字幕/音声/自動・デフォルト字幕・localStorage 永続化・i18n 3言語）。
 7. **フロント UI（最後）**: SubtitlePanel に同期ボタン・プログレス・結果反映（i18n 3言語）。
@@ -161,7 +162,7 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 
 ## 7. 未確定事項（要確認）
 
-- [ ] sub-to-sub の「動画内字幕」の取得手段（ローカル MKV 内蔵トラック / companion 経由 / ユーザー選択ファイル）— どのソースを参照対象にするか
+- [x] **sub-to-sub の「動画内字幕」の取得手段 — 確定（2026-08-13・実測済み）**: **Magnet 動画**は companion の `fetchMagnetSubtitle`（実装済み）で内蔵字幕ファイルを取得。**ローカル動画**は MKV 内蔵の字幕トラックが `video.textTracks` に公開されないことを実測確認（Chromium は Matroska の字幕トラックを無視）→ **参照用の字幕ファイルをユーザーが選択**する形にフォールバック。
 - [ ] 同期結果の保存方法（プレイヤーセッション内のみ / ファイル書き出し）
 - [ ] subomatic のフォーク配置（Entei リポジトリ内コピー / 別リポジトリ）
 - [ ] earshot（ニューラル VAD）の WASM サイズ・実行時間の実測
