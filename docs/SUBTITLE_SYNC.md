@@ -1,0 +1,139 @@
+# Subtitle Sync — subomatic 統合（字幕タイミング自動同期）
+
+> Entei の字幕タイミングズレ問題を解決する機能。サブタイトル同期エンジン **subomatic**（Apache-2.0・Rust・WASM対応）を Entei に統合し、字幕のタイミングを**音声**または**動画内字幕（参照）**に自動で合わせる。
+>
+> 状態: **設計確定（2026-08-13）・未実装**。ユーザー確定事項の一次ソース。
+
+## 1. 目的
+
+ユーザーがインポート・選択した字幕（SRT/VTT/ASS等）が動画のタイミングとズレている問題を、**手動調整なし**で解決する。2つの同期モードを提供する:
+
+- **sub-to-audio**: 字幕を動画の**音声**（人の声の活動）に合わせる。
+- **sub-to-sub**: 字幕を**動画内の字幕**（参照トラック・例: 英語字幕）に合わせる。ユーザーが選択・インポートした字幕を、動画に内蔵された字幕のタイミングに自動で揃える。
+
+## 2. 確定スペック（ユーザー確定・2026-08-13）
+
+1. **同期モードは両方実装する**（sub-to-audio + sub-to-sub）。
+2. **sub-to-sub の参照ソース**は**動画に入った字幕**（= 動画に内蔵/紐づく字幕トラック）。例: 動画内の英語字幕を参照として、ユーザーが選択・インポートした字幕を自動でタイミング合わせする。
+3. **エンジン**: subomatic（Apache-2.0・クリーンルーム実装・kaegi論文ベース・alass の GPL ソース不使用）を **WASM でブラウザ内実行**。アップロードなし・ローカル完結。
+4. **クレジット追加機能は除去する**: subomatic の WASM バインディングは出力字幕の末尾に「Synced with subomatic.github.io」クレジットを追加するが（`lib.rs:19`・web アプリ用）、**Entei 統合ではこの Function を外す**カスタムビルドを行う。
+5. **音声デコード**: sub-to-audio はブラウザの **WebAudio API**（`AudioContext` + `decodeAudioData`）でデコードし、モノラル f32 PCM を WASM へ渡す（= ffmpeg 不要・ブラウザ再生できる形式なら何でも対応）。
+6. **ライセンス**: Apache-2.0・`NOTICE` 保存義務あり（§4(d)）。Entei への統合は問題なし。サードパーティ（libav 等）は CLI のみで WASM パスは不使用。
+
+## 3. subomatic 調査結果（2026-08-13・ローカル `A:\subomatic` + GitHub 確認）
+
+### 3.1 プロジェクト構成
+
+| クレート | 役割 |
+|---|---|
+| `subomatic-core` | 純 Rust・`#![forbid(unsafe_code)]`・ネイティブ/WASM 両対応。字幕モデル・フォーマットアダプタ・VAD・同期エンジン |
+| `subomatic-cli` | CLI（libav FFI リンクで音声デコード） |
+| `subomatic-wasm` | wasm-bindgen バインディング（ブラウザ向け） |
+| `web/` | ブラウザアプリ（static HTML/JS + WASM） |
+
+### 3.2 同期エンジン（コア）
+
+- **1つの統一動的計画法（DP）**。`split_penalty` で 1 つのグローバルシフト（= ffsubsync 相当）とピースワイズシフト（= alass 相当・広告/カット吸収）を切り替え。
+- fps ドリフトスキャン（23.976/24/25/29.97）でフレームレート差も吸収。
+- 入力は**区間集合**（参照の活動スパン + 字幕の各行スパン）。エンジンは PCM を直接見ない（VAD は外側）。
+
+### 3.3 VAD（音声活動検出・sub-to-audio 用）
+
+| VAD | 特徴 |
+|---|---|
+| `EnergyVad`（`vad: "energy"`） | 依存なし RMS エネルギー検出・高速・簡易。音楽/効果音が多い音声では誤検出しやすい |
+| `EarshotVad`（`vad: ""` または `"earshot"`） | 純 Rust のニューラル音声検出（FFT + mel 特徴）。**既定**・より高精度 |
+
+### 3.4 WASM API（`lib.rs` 確認済み）
+
+```js
+// sub-to-sub: 字幕を参照字幕に合わせる
+sync_to_reference(input, format, referenceText, referenceFormat, fps, outFormat, onProgress)
+
+// sub-to-audio: 字幕を音声 PCM に合わせる
+sync_to_audio(input, format, samples: Float32Array, sampleRate, fps, outFormat, vad, onProgress)
+// vad: "energy"（高速） / "" or "earshot"（高精度・既定）
+// onProgress(stage, fraction): "speech" → "align" の 2 フェーズ・0.0〜1.0
+```
+
+- `format` / `outFormat`: `"srt"` / `"vtt"` / `"sub"` / `"ass"` / `"ssa"`（大文字小文字不問・`""` で入力形式を維持）
+- `fps`: MicroDVD 用（`is_valid_fps` チェック）
+- **クレジット**: 出力末尾に `Synced with subomatic.github.io` を 1 秒ギャップ + 3 秒間で追加（`lib.rs:19-22,132,157`）→ **Entei では除去**
+
+### 3.5 Web 側の音声デコード（`web/app.js` 確認済み）
+
+```js
+const Ctx = window.AudioContext || window.webkitAudioContext;
+const audio = await ctx.decodeAudioData(bytes);   // ブラウザがデコード
+const channel = audio.getChannelData(c);           // f32 PCM
+// → モノラル化して Worker へ転送 → WASM 実行
+```
+
+### 3.6 Worker 構成（`web/worker.js` 確認済み）
+
+- WASM はメインスレッドで動かさず **Worker で実行**（同期・数秒の可能性があるためページ応答性維持）。
+- `AudioContext` は Worker で使えないため、**デコードはメインスレッド**・PCM のみ Worker へ転送。
+- `init()` を即時実行して WASM を事前ロード。
+
+## 4. Entei 統合アーキテクチャ
+
+```text
+[Entei /player/]
+  SubtitlePanel
+    └─ 「同期」ボタン（字幕選択時・動画再生中）
+         ├─ モード: sub-to-audio（音声から） / sub-to-sub（動画内字幕から）
+         ├─ 参照字幕: 動画内蔵/紐づく字幕トラック（sub-to-sub）
+         ├─ 音声: WebAudio デコード → モノラル f32 PCM（sub-to-audio）
+         └─ sync-worker（Web Worker）
+              └─ subomatic WASM（custom build・クレジット除去）
+                   ├─ sync_to_audio / sync_to_reference
+                   └─ onProgress("speech"/"align") → プログレス表示
+    └─ 結果: 同期済み字幕を表示・必要なら保存（i18n 済み）
+```
+
+### 4.1 資産配置
+
+- `apps/web/public/wasm/` — カスタムビルドした `subomatic_wasm.js` / `.wasm` / `.worker.js` 等
+- Worker コードは React 側（`src/`）に配置
+
+### 4.2 カスタムビルド（クレジット除去）
+
+subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
+
+- `CREDIT_TEXT` / `CREDIT_GAP_MS` / `CREDIT_DURATION_MS` 定数と `append_credit()` 呼び出し（`sync_to_reference_impl` / `sync_to_audio_impl`）を削除
+- ビルド: `wasm-pack build crates/subomatic-wasm --target web --out-dir <Entei>/apps/web/public/wasm`
+- ライセンス遵守: Apache-2.0 の `NOTICE` を Entei 内に保持（`THIRD_PARTY_NOTICES` 等）
+
+## 5. UI 仕様
+
+- **場所**: SubtitlePanel（字幕パネル）に「同期」ボタン/アクションを追加。
+- **モード選択**: sub-to-audio（音声から） / sub-to-sub（動画内字幕から）の 2 択。
+- **sub-to-sub の参照選択**: 動画に内蔵/紐づく字幕トラックの一覧から参照を選ぶ（英語字幕など）。ユーザーが選択・インポートした字幕が参照に合わせて同期される。※ 参照字幕の**取得手段**（ローカル MKV 内蔵トラック / companion 経由 / ユーザー選択ファイル）は §7 未確定事項。
+- **プログレス**: `onProgress` を表示（TypewriterLoading 等の既存パターン）。フェーズはモードで異なる: **sub-to-audio** は `"speech"` → `"align"` の2フェーズ、**sub-to-sub** は `"align"` の1フェーズのみ。
+- **結果**: 同期済み字幕でプレイヤー字幕を差し替え。保存は「適用」ボタン（メモリ内 or エクスポート）。
+- **エラー時**: 既存のエラートースト/フォールバック表示。
+- スタイルは既存デザイントークン（OKLCH・DESIGN.md）準拠・DevTools 実測（静的 CSS テストは作らない — プロジェクトルール）。
+
+## 6. 実装手順（見積もり）
+
+1. **カスタム WASM ビルド**: `A:\subomatic` をフォーク（Entei 配下にコピー or git submodule 判断）→ クレジット除去 → `wasm-pack build` → `apps/web/public/wasm/` へ配置。`NOTICE` を Entei に保持。
+2. **Worker**: `sync-worker.ts`（subomatic の `worker.js` パターン踏襲・`onmessage` で `sync_to_audio` / `sync_to_reference` 実行・progress relay）。
+3. **音声デコード**: ローカル/companion 音声ソースから `AudioContext.decodeAudioData` → モノラル f32 PCM（`app.js:119-130` パターン）。
+4. **sub-to-sub 参照取得**: 動画内蔵/紐づく字幕トラックの抽出・選択 UI。
+5. **UI 統合**: SubtitlePanel に同期ボタン・モード選択・プログレス・結果反映（i18n 3言語）。
+6. **テスト**: ロジック（Worker 契約・PCM 変換・プログレス・エラー経路）のみユニットテスト。WASM 自体は subomatic 側のテストで担保。
+7. **ドキュメント同期**: 本ドキュメント + PLAYER_PHASES.md 等。
+
+## 7. 未確定事項（要確認）
+
+- [ ] sub-to-sub の「動画内字幕」の取得手段（ローカル MKV 内蔵トラック / companion 経由 / ユーザー選択ファイル）— どのソースを参照対象にするか
+- [ ] 同期結果の保存方法（プレイヤーセッション内のみ / ファイル書き出し）
+- [ ] subomatic のフォーク配置（Entei リポジトリ内コピー / 別リポジトリ）
+- [ ] earshot（ニューラル VAD）の WASM サイズ・実行時間の実測
+
+## 8. ライセンス・禁止事項
+
+- subomatic は **Apache-2.0**（`NOTICE` の保持義務）。Entei への統合は許可。`NOTICE` を必ず同梱する。
+- **alass の GPL ソースは使用しない**（subomatic はクリーンルーム実装・Entei 側でも踏襲）。
+- libav は CLI 専用（WASM パスでは不使用）— Entei ブラウザ側には関係なし。
+- 音声・字幕データを外部にアップロードしない（ローカル完結・WASM 実行）。
