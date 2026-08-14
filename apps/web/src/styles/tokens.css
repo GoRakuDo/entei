@@ -54,6 +54,9 @@
   --entei-text-muted: var(--entei-text-global-muted);
   --entei-accent: var(--entei-purple-500);
   --entei-accent-hover: var(--entei-purple-400);
+  /* Button hover/active/default background — unified semi-transparent accent
+     fill across all pages and modals (hover, active, and primary states). */
+  --entei-btn-hover-bg: oklch(0.62 0.19 275deg / 0.34);
   --entei-status-locked: var(--entei-gold-base);
 
   /* Focus ring — derived from --entei-purple-500 with alpha for AA 3:1 boundary.

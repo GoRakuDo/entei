@@ -248,7 +248,7 @@ svg {
 
 .entei-combobox-trigger:hover {
   border-color: var(--entei-accent);
-  background-color: var(--entei-surface-2);
+  background-color: var(--entei-btn-hover-bg);
 }
 
 .entei-combobox-trigger:focus-visible {
@@ -323,7 +323,7 @@ svg {
 
 .entei-command-item:hover,
 .entei-command-item[data-selected="true"] {
-  background-color: var(--entei-surface-2);
+  background-color: var(--entei-btn-hover-bg);
   color: var(--entei-text);
 }
 
@@ -353,7 +353,7 @@ svg {
     border-color: ButtonText;
   }
   .entei-combobox-trigger:hover {
-    background-color: Highlight;
+    background-color: var(--entei-btn-hover-bg);
     color: HighlightText;
   }
   .entei-combobox-content {
@@ -363,7 +363,7 @@ svg {
   .entei-command-item:hover,
   .entei-command-item[data-selected="true"],
   .entei-command-item[aria-selected="true"] {
-    background-color: Highlight;
+    background-color: var(--entei-btn-hover-bg);
     color: HighlightText;
   }
 }

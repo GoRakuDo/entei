@@ -340,7 +340,7 @@
 .entei-desktop-pill .entei-nav-settings-trigger:hover,
 .entei-desktop-pill .entei-nav-settings-trigger:focus-visible {
   color: var(--entei-text);
-  background-color: oklch(100% 0 0deg / 0.06);
+  background-color: var(--entei-btn-hover-bg);
 }
 
 .entei-desktop-pill .entei-nav-settings-trigger:focus-visible {
@@ -374,7 +374,7 @@
 .entei-mobile-dock .entei-nav-settings-trigger:hover,
 .entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
   color: var(--entei-text);
-  background-color: var(--entei-surface-2);
+  background-color: var(--entei-btn-hover-bg);
 }
 
 .entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
@@ -496,7 +496,7 @@
 .entei-settings-tabs-list [data-slot='tabs-trigger']:hover {
   color: var(--entei-text-secondary);
   /* W2: very subtle surface tint only — no pill bg */
-  background-color: oklch(100% 0 0deg / 0.03);
+  background-color: var(--entei-btn-hover-bg);
 }
 
 .entei-settings-tabs-list [data-slot='tabs-trigger'][data-state='active'] {
@@ -742,7 +742,7 @@
   align-self: flex-start;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-24);
-  background-color: var(--entei-accent);
+  background-color: var(--entei-btn-hover-bg);
   color: var(--entei-surface);
   border: 1px solid var(--entei-accent);
   border-radius: var(--entei-radius-md);
@@ -1112,7 +1112,7 @@
 }
 
 .entei-subtitle-reset-btn:hover {
-  background-color: var(--entei-surface-2);
+  background-color: var(--entei-btn-hover-bg);
   color: var(--entei-text);
 }
 
