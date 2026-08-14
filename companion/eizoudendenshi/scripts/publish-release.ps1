@@ -35,10 +35,13 @@
 #   6. publish (skipped with -SkipPublish): gh release create
 #      eizoudendenshi-v<v> <13 assets> --repo <repo> --target <HEAD
 #      full sha> --title 'EizouDendenshi v<v>' --notes-file <notes>
-#      --prerelease. Notes come from -NotesFile or a generated default.
+#      (with --prerelease unless -Prerelease:$false is given, which
+#      publishes a formal stable release instead). Notes come from
+#      -NotesFile or a generated default.
 #   7. post-publish verification: gh release view --json
 #      tagName,isPrerelease,targetCommitish,assets must report the
-#      prerelease at HEAD with exactly the 13 assets; then, instead of
+#      expected prerelease flag (-Prerelease) at HEAD with exactly the
+#      13 assets; then, instead of
 #      re-downloading all of them, the dist files (already verified in
 #      step 5) are checked against the per-asset digest that gh reports
 #      (or, without a digest, against the re-fetched signed manifest +
@@ -80,9 +83,9 @@ param(
 
     [string]$WorkRoot = '',
 
-    [switch]$SkipPublish,
-
-    [switch]$SkipGitChecks
+[switch]$SkipPublish,
+[switch]$SkipGitChecks,
+[switch]$Prerelease = $true
 )
 
 $ErrorActionPreference = 'Stop'
@@ -438,8 +441,9 @@ try {
         }
         else {
             $notesPath = Join-Path $script:WorkRoot 'notes.md'
+            $releaseLabel = if ($Prerelease) { 'prerelease' } else { 'release' }
             $notes = @(
-                "EizouDendenshi v$Version (prerelease)"
+                "EizouDendenshi v$Version ($releaseLabel)"
                 ''
                 'Automated release published by scripts/publish-release.ps1:'
                 '- the windows/amd64 + android/arm64 cores, the Windows helpers (yt-dlp,'
@@ -464,11 +468,11 @@ try {
             '--repo', $Repo,
             '--target', $fullSha,
             '--title', "EizouDendenshi v$Version",
-            '--notes-file', $notesPath,
-            '--prerelease'
+            '--notes-file', $notesPath
         )
+        if ($Prerelease) { $createArgs += '--prerelease' }
         Invoke-Gh -GhArgs $createArgs | Out-Null
-        Write-Host "publish: 6/7 GitHub prerelease created: $Tag"
+        Write-Host "publish: 6/7 GitHub $releaseLabel created: $Tag"
     }
     else {
         Write-Host 'publish: 6/7 publish skipped (-SkipPublish)'
@@ -481,8 +485,8 @@ try {
         if ([string]$view.tagName -ne $Tag) {
             throw "post-publish verification failed: release tagName '$($view.tagName)' does not match '$Tag'"
         }
-        if (-not [bool]$view.isPrerelease) {
-            throw 'post-publish verification failed: release is not a prerelease'
+        if ([bool]$view.isPrerelease -ne [bool]$Prerelease) {
+            throw "post-publish verification failed: release isPrerelease=$($view.isPrerelease), expected=$Prerelease"
         }
         if ([string]$view.targetCommitish -ne $fullSha) {
             throw "post-publish verification failed: release target commit '$($view.targetCommitish)' does not match HEAD '$fullSha'"

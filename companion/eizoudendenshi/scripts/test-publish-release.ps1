@@ -123,7 +123,8 @@ function New-FakeGh {
         [string]$Mutation = 'none',
         [object[]]$ListResponse = $null,
         [switch]$ProvideDigests,
-        [string]$TamperDigestAsset = ''
+        [string]$TamperDigestAsset = '',
+        [switch]$NotPrerelease
     )
     New-Item -ItemType Directory -Force -Path $CaseDir | Out-Null
     $log = Join-Path $CaseDir 'gh-calls.log'
@@ -133,7 +134,7 @@ function New-FakeGh {
     [System.IO.File]::WriteAllText($listJson, ($listData | ConvertTo-Json -Depth 4 -Compress), $Utf8NoBom)
     $viewBody = [ordered]@{
         tagName         = $script:Tag
-        isPrerelease    = $true
+        isPrerelease    = -not $NotPrerelease
         targetCommitish = $script:HeadSha
         assets          = @($script:ViewAssetNames | Select-Object -First $ViewAssets | ForEach-Object { [pscustomobject]@{ name = $_ } })
     }
@@ -493,6 +494,20 @@ function Dynamic-Suite {
     $log = Get-GhLog $c
     Check 'P2: no release created' (-not $log.Contains('CREATE')) $log
     Check 'P2: -PreviousTag honored (no release list call)' (-not $log.Contains('CALL release list')) $log
+
+    # --- P2.5: -Prerelease:$false publishes a formal (non-prerelease) release
+    $c = New-CaseDir 'P2_5'
+    New-FakeGh -CaseDir $c -MirrorRoot $script:MirrorRoot -NotPrerelease
+    Invoke-PublishChild -Name 'P2_5 FormalRelease' -CaseDir $c `
+        -ExtraArgs @('-SkipGitChecks', '-Prerelease:$false') -ExpectSuccess
+    $log = Get-GhLog $c
+    Check 'P2.5: gh release create present' $log.Contains('CREATE') $log
+    Check 'P2.5: --prerelease NOT passed for a formal release' (
+        $log -notmatch '--prerelease'
+    ) 'formal release must omit --prerelease'
+    Check 'P2.5: isPrerelease=false verification passed' (
+        $log.Contains('CALL release view') -and -not $log.Contains('isPrerelease=true')
+    ) 'post-publish verification must accept isPrerelease=false'
 
     # --- P3: -HelpersFile skips helper reuse
     $c = New-CaseDir 'P3'
