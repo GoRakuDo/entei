@@ -313,7 +313,7 @@
   gap: var(--entei-space-8);
   width: auto;
   min-height: var(--entei-touch-min);
-  margin: var(--entei-space-8) var(--entei-space-12);
+  margin: 0 var(--entei-space-12) var(--entei-space-8);
   padding: 0 var(--entei-space-12);
   border-radius: var(--entei-radius-md);
   border: 1px solid oklch(100% 0 0deg / 0.12);
