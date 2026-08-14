@@ -66,6 +66,7 @@ describe('syncSubtitleToAudio', () => {
         subFormat: 'srt',
         samples,
         sampleRate: 8000,
+        fps: 25,
         outFormat: 'vtt',
         vad: 'energy',
       },
@@ -136,6 +137,7 @@ describe('syncSubtitleToReference', () => {
       subFormat: 'srt',
       refText: 'REF',
       refFormat: 'vtt',
+      fps: 25,
       outFormat: 'ass',
       vad: '',
     });

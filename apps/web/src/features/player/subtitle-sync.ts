@@ -9,6 +9,10 @@ import type {
   SubtitleSyncWorkerMessage,
 } from './subtitle-sync-types';
 
+/** Bump when subtitle-sync.worker.js changes (public/ is served raw). */
+// BUMP THIS when editing subtitle-sync.worker.js
+const SUBTITLE_SYNC_WORKER_VERSION = 2;
+
 export interface SubtitleSyncOptions {
   /** "energy" (fast) or "" / "earshot" (accurate, default) — audio mode only */
   vad?: string;
@@ -29,7 +33,9 @@ function postJob(
       reject(new Error('Web Worker is not supported in this browser'));
       return;
     }
-    const worker = new Worker('/wasm/subtitle-sync.worker.js', {
+    // Cache-bust the worker: the raw JS lives in public/ and would otherwise
+    // be cached across deploys, silently running an old WASM-init version.
+    const worker = new Worker(`/wasm/subtitle-sync.worker.js?v=${SUBTITLE_SYNC_WORKER_VERSION}`, {
       type: 'module',
     });
     const cleanup = () => {
@@ -59,6 +65,12 @@ function postJob(
     };
     const payload = {
       ...job,
+      // Rust's check_fps rejects non-positive fps; default to 25 like the
+      // worker when the caller did not provide a valid value.
+      fps:
+        job.fps != null && job.fps > 0 && Number.isFinite(job.fps)
+          ? job.fps
+          : 25,
       outFormat: outFormat ?? '',
       vad: vad ?? '',
     };

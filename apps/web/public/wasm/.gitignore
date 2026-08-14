@@ -1,8 +1,6 @@
-# wasm-pack 生成物はコミットする（デプロイに必要）
-# 一時ファイルのみ無視
-*.tsbuildinfo
-#
-# 注意: wasm-pack は再ビルド時にこの .gitignore を `*`（全て無視）で上書きする。
-# 再ビルド後は必ずこのファイルを再適用すること:
+# wasm-pack 生成物（subomatic_wasm.js / .wasm / package.json）はデプロイに
+# 必要なのでコミット対象とする（GitHub Actions でビルドされるため）。
+# 一時ファイルのみ無視。注意: wasm-pack 再ビルドはこのファイルを `*` で
+# 上書きするため、ビルド後は再適用すること:
 #   echo '*.tsbuildinfo' > apps/web/public/wasm/.gitignore
-# （または再ビルド後に `*` を上記の内容に手動で戻す）
+*.tsbuildinfo

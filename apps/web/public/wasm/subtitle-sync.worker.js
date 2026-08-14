@@ -19,7 +19,25 @@ let wasmPromise = null;
 
 function loadWasm() {
   if (!wasmPromise) {
-    wasmPromise = import(/* @vite-ignore */ '/wasm/subomatic_wasm.js');
+    // The wasm JS exposes the wrapper functions (sync_to_audio /
+    // sync_to_reference) as top-level exports AND a default init
+    // (__wbg_init). We must run the init first (it creates the WASM
+    // instance), then use the top-level wrapper exports — NOT the raw
+    // instance exports returned by default(), which are native functions
+    // that bypass the argument/return encoding (causing array-shaped
+    // garbage instead of strings).
+    wasmPromise = import(/* @vite-ignore */ '/wasm/subomatic_wasm.js').then(
+      async (m) => {
+        if (typeof m.default === 'function') {
+          await m.default();
+        } else {
+          throw new Error(
+            'subomatic_wasm.js: default export is not a function — WASM init failed',
+          );
+        }
+        return m;
+      },
+    );
   }
   return wasmPromise;
 }
@@ -38,7 +56,10 @@ self.onmessage = async (event) => {
     // the input's format. `vad` is "energy" (fast) or "" / "earshot".
     const outFormat = job.outFormat ?? '';
     const vad = job.vad ?? '';
-    const fps = job.fps ?? 0;
+    // SRT/VTT/ASS don't depend on fps, but the Rust engine validates it
+    // (check_fps) and rejects 0 ("fps must be positive and finite, got 0").
+    // 25 is the general-purpose default when the caller doesn't supply one.
+    const fps = job.fps ?? 25;
     let result;
     if (job.mode === 'audio') {
       // Use the transferred buffer directly (zero-copy); no copy of the
