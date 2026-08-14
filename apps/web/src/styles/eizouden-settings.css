@@ -337,13 +337,13 @@
     background-color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-desktop-pill .entei-nav-settings-trigger:hover,
-.entei-desktop-pill .entei-nav-settings-trigger:focus-visible {
-  color: var(--entei-text);
+.entei-desktop-pill .entei-nav-settings-trigger:hover {
   background-color: var(--entei-btn-hover-bg);
 }
 
 .entei-desktop-pill .entei-nav-settings-trigger:focus-visible {
+  color: var(--entei-text);
+  background-color: var(--entei-btn-hover-bg);
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
 }
@@ -371,13 +371,13 @@
     background-color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-mobile-dock .entei-nav-settings-trigger:hover,
-.entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
-  color: var(--entei-text);
+.entei-mobile-dock .entei-nav-settings-trigger:hover {
   background-color: var(--entei-btn-hover-bg);
 }
 
 .entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
+  color: var(--entei-text);
+  background-color: var(--entei-btn-hover-bg);
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
 }

@@ -369,8 +369,10 @@ const settingsUIProps = dictionary.playerUI;
       transition: color var(--entei-duration-fast) var(--entei-ease-productive);
     }
 
+    /* brand hover: no visual change (text + SVG color stay).
+       color: inherit overrides the global a:hover accent tint. */
     .entei-desktop-pill-brand:hover {
-      color: var(--entei-text);
+      color: inherit;
     }
 
     .entei-desktop-pill-brand:focus-visible {
@@ -398,9 +400,9 @@ const settingsUIProps = dictionary.playerUI;
         background-color var(--entei-duration-fast) var(--entei-ease-productive);
     }
 
-.entei-desktop-pill-link:hover {
-  color: var(--entei-text);
-  background-color: var(--entei-btn-hover-bg);
+    .entei-desktop-pill-link:hover {
+      color: inherit; /* keep text + SVG color on hover (no global a:hover tint) */
+      background-color: var(--entei-btn-hover-bg);
       border-radius: var(--entei-radius-pill);
     }
 
