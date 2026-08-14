@@ -418,6 +418,14 @@ export function SubtitleAppearanceTab({
       {/* Subtitle Sync Mode (stage ③ — value persisted, engine wired later) */}
       <div className="entei-subtitle-sync-section">
         <h3 className="entei-settings-label">{dict.subtitleSyncMode}</h3>
+        {/* Description above the toggle row, styled like the Anki desc. */}
+        <p className="entei-anki-desc entei-subtitle-sync-desc">
+          {settings.syncMode === 'audio'
+            ? dict.subtitleSyncAudioDesc
+            : settings.syncMode === 'auto'
+              ? dict.subtitleSyncAutoDesc
+              : dict.subtitleSyncSubtitleDesc}
+        </p>
         {/* ToggleGroup with the same mining-controls-row style as export mode picker */}
         <div className="entei-mining-controls-row">
           <ToggleGroup
@@ -447,13 +455,6 @@ export function SubtitleAppearanceTab({
             })}
           </ToggleGroup>
         </div>
-        <p className="entei-subtitle-sync-desc">
-          {settings.syncMode === 'audio'
-            ? dict.subtitleSyncAudioDesc
-            : settings.syncMode === 'auto'
-              ? dict.subtitleSyncAutoDesc
-              : dict.subtitleSyncSubtitleDesc}
-        </p>
       </div>
 
       {/* Reset Button */}
