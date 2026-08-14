@@ -40,6 +40,8 @@ interface RightPanelProps {
   onSyncSubtitle?: () => void;
   canSyncSubtitle?: boolean;
   isSyncingSubtitle?: boolean;
+  /** Hide the sync button entirely (YouTube source — design §2-11). */
+  hideSyncSubtitle?: boolean;
   /** History panel refresh trigger — increment after a successful Anki send. */
   historyRefreshKey?: number;
   /** AM-4 Row Mining: callback to mine a specific cue. */
@@ -68,6 +70,7 @@ export function RightPanel({
   onSyncSubtitle,
   canSyncSubtitle = false,
   isSyncingSubtitle = false,
+  hideSyncSubtitle = false,
   historyRefreshKey,
   onMineCue,
   canMineRow,
@@ -180,17 +183,19 @@ export function RightPanel({
           aria-label={dict.rightPanelTabCaptions}
           className="entei-right-panel-content"
         >
-          <button
-            type="button"
-            className="entei-subtitle-sync-button"
-            onClick={onSyncSubtitle}
-            aria-label={dict.subtitleSyncButtonLabel}
-            title={dict.subtitleSyncButton}
-            disabled={!canSyncSubtitle || isSyncingSubtitle}
-          >
-            <RotateCwFadingClock size={16} aria-hidden="true" />
-            <span>{dict.subtitleSyncButton}</span>
-          </button>
+          {!hideSyncSubtitle && (
+            <button
+              type="button"
+              className="entei-subtitle-sync-button"
+              onClick={onSyncSubtitle}
+              aria-label={dict.subtitleSyncButtonLabel}
+              title={dict.subtitleSyncButton}
+              disabled={!canSyncSubtitle || isSyncingSubtitle}
+            >
+              <RotateCwFadingClock size={16} aria-hidden="true" />
+              <span>{dict.subtitleSyncButton}</span>
+            </button>
+          )}
           <SubtitlePanel
             cues={cues}
             activeCueId={activeCueId}

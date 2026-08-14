@@ -9,6 +9,7 @@ function renderPanel(overrides: {
   onSyncSubtitle?: () => void;
   canSyncSubtitle?: boolean;
   isSyncingSubtitle?: boolean;
+  hideSyncSubtitle?: boolean;
 } = {}) {
   return render(
     <RightPanel
@@ -22,6 +23,7 @@ function renderPanel(overrides: {
       onSyncSubtitle={overrides.onSyncSubtitle}
       canSyncSubtitle={overrides.canSyncSubtitle}
       isSyncingSubtitle={overrides.isSyncingSubtitle}
+      hideSyncSubtitle={overrides.hideSyncSubtitle}
     />,
   );
 }
@@ -65,5 +67,12 @@ describe('RightPanel sync button', () => {
     expect(btn.getAttribute('disabled')).not.toBeNull();
     fireEvent.click(btn);
     expect(onSync).not.toHaveBeenCalled();
+  });
+
+  it('hides the sync button when hideSyncSubtitle is true', () => {
+    renderPanel({ hideSyncSubtitle: true });
+    expect(
+      screen.queryByRole('button', { name: dict.subtitleSyncButtonLabel }),
+    ).toBeNull();
   });
 });

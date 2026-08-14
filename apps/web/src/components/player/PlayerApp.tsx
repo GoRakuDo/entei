@@ -4097,6 +4097,7 @@ export default function PlayerApp() {
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
+              hideSyncSubtitle={jobSession.kind === 'youtube'}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
@@ -4123,6 +4124,7 @@ export default function PlayerApp() {
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
+              hideSyncSubtitle={jobSession.kind === 'youtube'}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
