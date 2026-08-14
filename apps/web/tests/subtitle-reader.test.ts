@@ -98,16 +98,57 @@ Hello`;
     expect(result.errors[0]!.message).toContain('Invalid timing');
   });
 
-  it('reports error when end time is not after start time', () => {
+  it('silently drops a zero/negative-length cue (not an error)', () => {
     const srt = `1
 00:00:05,000 --> 00:00:01,000
 End before start`;
 
     const result = parseSubtitle(srt);
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors.some((e) => e.message.includes('not after'))).toBe(
-      true,
-    );
+    // The sync engine can clamp to a 0-length cue after a large shift;
+    // such cues are dropped silently — no error, no rendered cue.
+    expect(result.errors.length).toBe(0);
+    expect(result.cues).toHaveLength(0);
+  });
+
+  it('VTT: silently drops a zero/negative-length cue (not an error)', () => {
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 00:00:00.000
+Zero cue
+
+00:00:02.000 --> 00:00:04.000
+Valid cue
+`;
+    const result = parseSubtitle(vtt);
+    expect(result.errors.length).toBe(0);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]?.text).toContain('Valid cue');
+  });
+
+  it('VTT: only zero/negative-length cues → empty result, no errors', () => {
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:00.000
+Backwards cue
+`;
+    const result = parseSubtitle(vtt);
+    expect(result.errors.length).toBe(0);
+    expect(result.cues).toHaveLength(0);
+  });
+
+  it('ASS: silently drops a zero-length cue (not an error)', () => {
+    const ass = `[Script Info]
+ScriptType: v4.00+
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:00.00,Default,,0,0,0,,Zero cue
+Dialogue: 0,0:00:02.00,0:00:04.00,Default,,0,0,0,,Valid cue
+`;
+    const result = parseSubtitle(ass);
+    expect(result.errors.length).toBe(0);
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]?.text).toContain('Valid cue');
   });
 
   it('skips empty cue text without errors (YouTube music/silence gaps)', () => {

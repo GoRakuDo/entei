@@ -149,6 +149,9 @@ function parseSRT(content: string): SubtitleParseResult {
       continue;
     }
 
+    // Zero/negative-length cues (sync engine can clamp to 0 after a large
+    // shift) are silently dropped — not errors, and not rendered.
+    if (timingResult.end <= timingResult.start) continue;
     cues.push({
       id: cues.length,
       start: timingResult.start,
@@ -263,6 +266,8 @@ function parseVTT(content: string): SubtitleParseResult {
       continue;
     }
 
+    // Zero/negative-length cues are silently dropped (see SRT above).
+    if (timingResult.end <= timingResult.start) continue;
     cues.push({
       id: cues.length,
       start: timingResult.start,
@@ -346,13 +351,6 @@ function parseASS(content: string): SubtitleParseResult {
       continue;
     }
 
-    if (end <= start) {
-      errors.push({
-        line: 0,
-        message: `Dialogue #${i + 1}: end time (${end}s) is not after start time (${start}s)`,
-      });
-    }
-
     // Extract text from all slices/fragments
     const textParts: string[] = [];
     if (Array.isArray(d.slices)) {
@@ -378,6 +376,8 @@ function parseASS(content: string): SubtitleParseResult {
       continue;
     }
 
+    // Zero/negative-length cues are silently dropped (see SRT above).
+    if (end <= start) continue;
     cues.push({
       id: cues.length,
       start,
@@ -440,13 +440,6 @@ function parseTimingLine(
 
   if (start === null || end === null) {
     return { start: start ?? 0, end: end ?? 0, errors };
-  }
-
-  if (end <= start) {
-    errors.push({
-      line: lineNumber,
-      message: `End time (${end}s) is not after start time (${start}s)`,
-    });
   }
 
   return { start, end, errors };

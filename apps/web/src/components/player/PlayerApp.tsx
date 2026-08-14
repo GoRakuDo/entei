@@ -3849,23 +3849,12 @@ export default function PlayerApp() {
   );
 
   // --- Errors block (shared between desktop/mobile) ---
-  const subtitleErrorsBlock =
-    subtitleErrors.length > 0 ? (
-      <div className="entei-player-errors">
-        <p className="entei-player-errors-title">
-          <AlertTriangle size={14} className="entei-player-errors-icon" />
-          {dict.subtitleWarnings}:
-        </p>
-        <ul className="entei-player-errors-list">
-          {subtitleErrors.map((err, i) => (
-            <li key={i}>
-              {err.line > 0 ? `${dict.linePrefix} ${err.line}: ` : ''}
-              {err.message}
-            </li>
-          ))}
-        </ul>
-      </div>
-    ) : null;
+  // Per user request (2026-08-14): subtitle parse warnings are intentionally
+  // NOT shown — they clutter the player frame. The parsing logic and state
+  // (subtitleErrors / setSubtitleErrors) stay intact for future use; only the
+  // display is suppressed.
+  void subtitleErrors; // keep state read (future re-enable of the block)
+  const subtitleErrorsBlock = null;
 
   return (
     <div
