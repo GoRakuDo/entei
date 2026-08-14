@@ -259,6 +259,7 @@ export default function PlayerApp() {
   const mediaFileRef = useRef<File | null>(null);
   // Stage 2a: Track subtitle text content for tracker digest computation
   const subtitleTextRef = useRef<string | null>(null);
+  const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -1874,6 +1875,18 @@ export default function PlayerApp() {
   /** Mine a cue. When `overrideCue` is provided (row mining), the media is
    *  paused and seeked to cue.start before capture. Without override, mines
    *  the current active cue at whatever time the media is at. */
+  /** Stage 4a: sync button base — real engine wiring lands in 4b. */
+  const handleSyncSubtitle = useCallback(() => {
+    const prefs = readPlayerPreferences();
+    const mode = prefs.subtitleSyncMode ?? 'subtitle';
+    if (!subtitleTextRef.current) return;
+    setIsSyncingSubtitle(true);
+    console.info('[subtitle-sync] button clicked mode=' + mode);
+    // 4b: planner + WASM sync (syncSubtitleToAudio / syncSubtitleToReference)
+    //      connected here, with progress + result wiring.
+    setTimeout(() => setIsSyncingSubtitle(false), 500);
+  }, []);
+
   const handleMine = useCallback(
     async (overrideCue?: SubtitleCue) => {
       if (!mediaUrl) return;
@@ -3941,6 +3954,9 @@ export default function PlayerApp() {
               onCueClick={handleCueClick}
               onSubtitleSelect={handleSubtitleSelect}
               subtitleAccept={SUBTITLE_ACCEPT}
+              onSyncSubtitle={handleSyncSubtitle}
+              canSyncSubtitle={!!subtitleTextRef.current}
+              isSyncingSubtitle={isSyncingSubtitle}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
@@ -3964,6 +3980,9 @@ export default function PlayerApp() {
               onCueClick={handleCueClick}
               onSubtitleSelect={handleSubtitleSelect}
               subtitleAccept={SUBTITLE_ACCEPT}
+              onSyncSubtitle={handleSyncSubtitle}
+              canSyncSubtitle={!!subtitleTextRef.current}
+              isSyncingSubtitle={isSyncingSubtitle}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}

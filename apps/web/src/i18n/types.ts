@@ -136,6 +136,8 @@ export interface Dictionary {
   subtitleSyncSubtitleDesc: string;
   subtitleSyncAudioDesc: string;
   subtitleSyncAutoDesc: string;
+  subtitleSyncButton: string;
+  subtitleSyncButtonLabel: string;
     // EizouDen (2026-08-07): YouTube download mode settings tab
     settingsTabEizouDen: string;
     settingsEizouDenContentHeading: string;

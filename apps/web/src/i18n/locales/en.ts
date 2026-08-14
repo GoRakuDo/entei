@@ -326,7 +326,9 @@ export const en: Dictionary = {
   subtitleSyncAuto: 'Auto',
   subtitleSyncSubtitleDesc: "Sync using the video's embedded subtitle",
   subtitleSyncAudioDesc: 'Sync from the audio track',
-  subtitleSyncAutoDesc: 'Prefer subtitle, fall back to audio',
+    subtitleSyncAutoDesc: 'Prefer subtitle, fall back to audio',
+    subtitleSyncButton: 'Sync subtitle timing',
+    subtitleSyncButtonLabel: 'Sync subtitle timing',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'Tracker',
     trackerOn: 'ON',

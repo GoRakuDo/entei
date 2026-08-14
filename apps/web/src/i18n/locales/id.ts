@@ -330,7 +330,9 @@ export const id: Dictionary = {
     subtitleSyncAuto: 'Otomatis',
     subtitleSyncSubtitleDesc: 'Sinkronkan menggunakan subtitle bawaan video',
     subtitleSyncAudioDesc: 'Sinkronkan dari trek audio',
-    subtitleSyncAutoDesc: 'Utamakan subtitle, jika tidak ada gunakan audio',
+  subtitleSyncAutoDesc: 'Utamakan subtitle, jika tidak ada gunakan audio',
+  subtitleSyncButton: 'Sinkronkan waktu subtitle',
+  subtitleSyncButtonLabel: 'Sinkronkan waktu subtitle',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'Tracker',
     trackerOn: 'HIDUP',

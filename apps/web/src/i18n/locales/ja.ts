@@ -330,6 +330,8 @@ export const ja: Dictionary = {
     subtitleSyncSubtitleDesc: '動画内の字幕を参照として同期します',
     subtitleSyncAudioDesc: '音声から同期します',
     subtitleSyncAutoDesc: '字幕を優先し、なければ音声で同期します',
+    subtitleSyncButton: 'タイミングズレを同期する',
+    subtitleSyncButtonLabel: '字幕のタイミングを同期',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'トラッカー',
     trackerOn: 'オン',
