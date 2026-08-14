@@ -963,7 +963,7 @@
 .entei-subtitle-control-row {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-16);
 }
 
 @media (min-width: 768px) {
@@ -1088,7 +1088,6 @@
 .entei-subtitle-reset-section {
   display: flex;
   justify-content: flex-start;
-  padding-top: var(--entei-space-12);
 }
 
 .entei-subtitle-reset-btn {
@@ -1098,7 +1097,7 @@
   gap: var(--entei-space-8);
   width: 100%;
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-16);
+  padding: var(--entei-space-16);
   background: none;
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
