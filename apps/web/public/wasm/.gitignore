@@ -1,0 +1,6 @@
+# wasm-pack 生成物（subomatic_wasm.js / .wasm / package.json）はデプロイに
+# 必要なのでコミット対象とする（GitHub Actions でビルドされるため）。
+# 一時ファイルのみ無視。注意: wasm-pack 再ビルドはこのファイルを `*` で
+# 上書きするため、ビルド後は再適用すること:
+#   echo '*.tsbuildinfo' > apps/web/public/wasm/.gitignore
+*.tsbuildinfo

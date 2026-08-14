@@ -18,7 +18,18 @@ import { useMemo, useCallback, useState, useEffect } from 'react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from './ui/slider';
 import { Button } from './ui/button';
-import { Palette, RotateCcw, Type, Square, MoveVertical } from 'lucide-react';
+import { ToggleGroup, ToggleGroupItem } from '@/components/player/ui/toggle-group';
+import type { SubtitleSyncMode } from '@/features/player/preferences';
+import {
+  Palette,
+  RotateCcw,
+  Type,
+  Square,
+  MoveVertical,
+  Captions,
+  AudioLines,
+  Wand2,
+} from 'lucide-react';
 
 interface SubtitleAppearanceSettings {
   fontSize: number; // 16-48
@@ -26,6 +37,8 @@ interface SubtitleAppearanceSettings {
   backgroundColor: string; // oklch(...) string with alpha
   backgroundPadding: number; // 0-32
   verticalPosition: number; // 0-200 (bottom offset in px)
+  // subomatic sync mode — engine wiring deferred to a later stage
+  syncMode?: SubtitleSyncMode;
 }
 
 export type { SubtitleAppearanceSettings };
@@ -36,6 +49,13 @@ interface SubtitleAppearanceTabProps {
   onChange: (settings: Partial<SubtitleAppearanceSettings>) => void;
   onReset: () => void;
 }
+
+/** Sync mode options for the subomatic engine (stage ③). */
+const SYNC_MODES = [
+  { value: 'subtitle', icon: Captions },
+  { value: 'audio', icon: AudioLines },
+  { value: 'auto', icon: Wand2 },
+] as const;
 
 /** Safe default returned when hex input is malformed or non-finite. */
 const SAFE_HEX_DEFAULT = '#fcfcfc';
@@ -392,6 +412,48 @@ export function SubtitleAppearanceTab({
             />
             <span className="entei-subtitle-value-display">{settings.verticalPosition}px</span>
           </div>
+        </div>
+      </div>
+
+      {/* Subtitle Sync Mode (stage ③ — value persisted, engine wired later) */}
+      <div className="entei-subtitle-sync-section">
+        <h3 className="entei-settings-label">{dict.subtitleSyncMode}</h3>
+        {/* Description above the toggle row, styled like the Anki desc. */}
+        <p className="entei-anki-desc entei-subtitle-sync-desc">
+          {settings.syncMode === 'audio'
+            ? dict.subtitleSyncAudioDesc
+            : settings.syncMode === 'auto'
+              ? dict.subtitleSyncAutoDesc
+              : dict.subtitleSyncSubtitleDesc}
+        </p>
+        {/* ToggleGroup with the same mining-controls-row style as export mode picker */}
+        <div className="entei-mining-controls-row">
+          <ToggleGroup
+            type="single"
+            value={settings.syncMode ?? 'subtitle'}
+            onValueChange={(v) => {
+              if (v === 'subtitle' || v === 'audio' || v === 'auto') {
+                onChange({ syncMode: v });
+              }
+            }}
+            variant="outline"
+            aria-label={dict.subtitleSyncMode}
+          >
+            {SYNC_MODES.map(({ value, icon: Icon }) => {
+              const label =
+                value === 'subtitle'
+                  ? dict.subtitleSyncSubtitle
+                  : value === 'audio'
+                    ? dict.subtitleSyncAudio
+                    : dict.subtitleSyncAuto;
+              return (
+                <ToggleGroupItem key={value} value={value} aria-label={label}>
+                  <Icon size={16} aria-hidden="true" />
+                  <span>{label}</span>
+                </ToggleGroupItem>
+              );
+            })}
+          </ToggleGroup>
         </div>
       </div>
 

@@ -74,3 +74,11 @@ export function notifyCompanionError(label: string): void {
     icon: <CircleAlert aria-hidden="true" />,
   });
 }
+
+/** Generic subtitle-sync error toast (no base subtitle, sync failure…). */
+export function notifySubtitleSyncError(label: string): void {
+  toast.error(label, {
+    id: 'eizouden-subtitle-sync-error',
+    icon: <CircleAlert aria-hidden="true" />,
+  });
+}

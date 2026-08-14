@@ -305,6 +305,35 @@
   outline-offset: 2px;
 }
 
+/* --- Subtitle sync (stage 4a) --- */
+.entei-subtitle-sync-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  width: auto;
+  min-height: var(--entei-touch-min);
+  margin: 0 var(--entei-space-12) var(--entei-space-8);
+  padding: 0 var(--entei-space-12);
+  border-radius: var(--entei-radius-md);
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  background-color: var(--entei-surface);
+  color: var(--entei-text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+.entei-subtitle-sync-button:hover:not(:disabled) {
+  background-color: var(--entei-surface-2);
+  color: var(--entei-accent-hover);
+}
+.entei-subtitle-sync-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* --- Subtitle Row --- */
 .entei-player-subtitle-row {
   display: flex;
@@ -2076,7 +2105,7 @@
 .entei-subtitle-control-row {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-16);
 }
 
 @media (min-width: 768px) {
@@ -2201,7 +2230,6 @@
 .entei-subtitle-reset-section {
   display: flex;
   justify-content: flex-start;
-  padding-top: var(--entei-space-12);
 }
 
 .entei-subtitle-reset-btn {
@@ -2211,7 +2239,7 @@
   gap: var(--entei-space-8);
   width: 100%;
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-16);
+  padding: var(--entei-space-16);
   background: none;
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
@@ -3494,8 +3522,8 @@ html.entei-player-immersive .entei-player-audio-area {
   flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-8) 0;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-16) 0;
 }
 
 /* --- Inline Append Panel (collapsible, ephemeral) --- */
@@ -3921,9 +3949,9 @@ html.entei-player-immersive .entei-player-audio-area {
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
   white-space: nowrap;
 }
 
@@ -4156,7 +4184,7 @@ html.entei-player-immersive .entei-player-audio-area {
   border-radius: 2px;
   background-color: oklch(0.75 0 0deg);
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--entei-duration-fast);
 }
 
 .entei-resizable-handle:hover::after,

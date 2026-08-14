@@ -36,6 +36,7 @@ const DEFAULT_SUBTITLE_SETTINGS: SubtitleAppearanceSettings = {
   backgroundColor: 'oklch(0% 0 0 / 0.72)',
   backgroundPadding: 8,
   verticalPosition: 96,
+  syncMode: 'subtitle',
 };
 
 export interface SettingsTabsProps {
@@ -80,6 +81,7 @@ export function SettingsTabs({
       backgroundColor: prefs.subtitleBackgroundColor,
       backgroundPadding: prefs.subtitleBackgroundPadding,
       verticalPosition: prefs.subtitleVerticalPosition,
+      syncMode: prefs.subtitleSyncMode,
     };
   });
 
@@ -93,9 +95,22 @@ export function SettingsTabs({
   const handleSubtitleChange = useCallback(
     (settings: Partial<SubtitleAppearanceSettings>) => {
       setLocalSubtitle((prev) => ({ ...prev, ...settings }));
-      // Persist to the same preferences store the player reads.
+      // NOTE: every SubtitleAppearanceSettings field MUST have an explicit
+      // mapping line here (and in handleSubtitleReset). A plain spread
+      // silently drops every change because the key names differ between
+      // the two types (fontSize vs subtitleFontSize — this was a real bug
+      // fixed on 2026-08-13). When adding a new field, add its mapping in
+      // BOTH places or it will never be persisted.
       const prefs = readPlayerPreferences();
-      writePlayerPreferences({ ...prefs, ...settings });
+      writePlayerPreferences({
+        ...prefs,
+        ...(settings.fontSize !== undefined && { subtitleFontSize: settings.fontSize }),
+        ...(settings.textColor !== undefined && { subtitleTextColor: settings.textColor }),
+        ...(settings.backgroundColor !== undefined && { subtitleBackgroundColor: settings.backgroundColor }),
+        ...(settings.backgroundPadding !== undefined && { subtitleBackgroundPadding: settings.backgroundPadding }),
+        ...(settings.verticalPosition !== undefined && { subtitleVerticalPosition: settings.verticalPosition }),
+        ...(settings.syncMode !== undefined && { subtitleSyncMode: settings.syncMode }),
+      });
       onSubtitleSettingsChange?.(settings);
     },
     [onSubtitleSettingsChange],
@@ -104,7 +119,16 @@ export function SettingsTabs({
   const handleSubtitleReset = useCallback(() => {
     setLocalSubtitle(DEFAULT_SUBTITLE_SETTINGS);
     const prefs = readPlayerPreferences();
-    writePlayerPreferences({ ...prefs, ...DEFAULT_SUBTITLE_SETTINGS });
+    // Same key mapping as handleSubtitleChange (reset is a full replace).
+    writePlayerPreferences({
+      ...prefs,
+      subtitleFontSize: DEFAULT_SUBTITLE_SETTINGS.fontSize,
+      subtitleTextColor: DEFAULT_SUBTITLE_SETTINGS.textColor,
+      subtitleBackgroundColor: DEFAULT_SUBTITLE_SETTINGS.backgroundColor,
+      subtitleBackgroundPadding: DEFAULT_SUBTITLE_SETTINGS.backgroundPadding,
+      subtitleVerticalPosition: DEFAULT_SUBTITLE_SETTINGS.verticalPosition,
+      subtitleSyncMode: DEFAULT_SUBTITLE_SETTINGS.syncMode ?? 'subtitle',
+    });
     onSubtitleSettingsChange?.(DEFAULT_SUBTITLE_SETTINGS);
   }, [onSubtitleSettingsChange]);
 

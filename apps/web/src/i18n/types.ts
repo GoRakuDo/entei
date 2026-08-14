@@ -128,7 +128,23 @@ export interface Dictionary {
     subtitleBackgroundOpacity: string;
     subtitleBackgroundPadding: string;
     subtitleVerticalPosition: string;
-    subtitleReset: string;
+  subtitleReset: string;
+  subtitleSyncMode: string;
+  subtitleSyncSubtitle: string;
+  subtitleSyncAudio: string;
+  subtitleSyncAuto: string;
+  subtitleSyncSubtitleDesc: string;
+  subtitleSyncAudioDesc: string;
+  subtitleSyncAutoDesc: string;
+  subtitleSyncButton: string;
+  subtitleSyncButtonLabel: string;
+  subtitleSyncNoReference: string;
+  subtitleSyncNoSubtitle: string;
+  subtitleSyncWaitTitle: string;
+  subtitleSyncWaitDesc: string;
+  subtitleSyncWaitCancel: string;
+  subtitleSyncWaitConfirm: string;
+  subtitleSyncProgress: string;
     // EizouDen (2026-08-07): YouTube download mode settings tab
     settingsTabEizouDen: string;
     settingsEizouDenContentHeading: string;

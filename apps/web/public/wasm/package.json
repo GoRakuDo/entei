@@ -1,0 +1,20 @@
+{
+  "name": "subomatic-wasm",
+  "type": "module",
+  "collaborators": [
+    "Luca Gibelli <luca@gibelli.it>"
+  ],
+  "description": "WebAssembly bindings for the Subomatic subtitle-sync core.",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "files": [
+    "subomatic_wasm_bg.wasm",
+    "subomatic_wasm.js",
+    "subomatic_wasm.d.ts"
+  ],
+  "main": "subomatic_wasm.js",
+  "types": "subomatic_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

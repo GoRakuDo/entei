@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Thanks To members — local OAuth secrets
 members-supporter/.secrets/
+
+# subomatic Rust build cache
+vendor/subomatic/target/
