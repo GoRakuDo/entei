@@ -53,3 +53,20 @@ export function planSync(
     }
   }
 }
+
+/**
+ * Maps a job session to the source kind the planner works with:
+ * youtube → 'youtube', torrent → 'magnet', everything else (local file)
+ * → 'local'. A subtitle is only syncable when media is present, so a
+ * missing job with local media still counts as 'local'.
+ */
+export function detectSourceKind(
+  jobKind: 'youtube' | 'torrent' | null,
+  hasLocalMedia: boolean,
+): SourceKind {
+  if (jobKind === 'youtube') return 'youtube';
+  if (jobKind === 'torrent') return 'magnet';
+  // No companion session → local media (subtitles imply media is loaded).
+  void hasLocalMedia;
+  return 'local';
+}

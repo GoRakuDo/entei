@@ -333,6 +333,14 @@ export const id: Dictionary = {
   subtitleSyncAutoDesc: 'Utamakan subtitle, jika tidak ada gunakan audio',
   subtitleSyncButton: 'Sinkronkan waktu subtitle',
   subtitleSyncButtonLabel: 'Sinkronkan waktu subtitle',
+  subtitleSyncNoReference: 'Tidak ada subtitle dasar di video ini, tidak dapat disinkronkan',
+  subtitleSyncNoSubtitle: 'Tidak ada subtitle yang dimuat',
+  subtitleSyncWaitTitle: 'Sinkronisasi berbasis suara tidak tersedia',
+  subtitleSyncWaitDesc:
+    'Video streaming memerlukan unduhan penuh untuk sinkronisasi suara. Tunggu sedikit lebih lama?',
+  subtitleSyncWaitCancel: 'Batal',
+  subtitleSyncWaitConfirm: 'Ya, tidak apa-apa',
+  subtitleSyncProgress: 'Mengunduh… {pct}%',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'Tracker',
     trackerOn: 'HIDUP',

@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  detectSourceKind,
   planSync,
   type SourceKind,
   type SyncSettingMode,
@@ -98,6 +99,18 @@ describe('planSync', () => {
     expect(plans.has('sub-to-audio-magnet')).toBe(true);
     expect(plans.has('sub-to-sub')).toBe(true);
     expect(plans.has('no-reference-subtitle')).toBe(true);
+  });
+});
+
+describe('detectSourceKind', () => {
+  it('maps job kinds to source kinds', () => {
+    expect(detectSourceKind('youtube', false)).toBe('youtube');
+    expect(detectSourceKind('torrent', false)).toBe('magnet');
+  });
+
+  it('falls back to local when no companion job is active', () => {
+    expect(detectSourceKind(null, true)).toBe('local');
+    expect(detectSourceKind(null, false)).toBe('local');
   });
 });
 

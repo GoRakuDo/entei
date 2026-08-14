@@ -25,6 +25,17 @@ import {
   findActiveCue,
 } from '@/features/player/subtitle-reader';
 import {
+  detectSourceKind,
+  planSync,
+} from '@/features/player/subtitle-sync-planner';
+import {
+  syncSubtitleToAudio,
+  syncSubtitleToReference,
+} from '@/features/player/subtitle-sync';
+import { decodeToMono16k } from '@/features/player/audio-decoder';
+import { fetchMagnetSubtitle } from '@/features/player/companion-media';
+import { SubtitleSyncDialog } from '@/components/player/SubtitleSyncDialog';
+import {
   createMediaUrl,
   revokeUrl,
   MEDIA_ACCEPT,
@@ -98,6 +109,7 @@ import { clampCompanionSeek } from '@/features/player/seek-limiter';
 import {
   notifyQuality,
   notifyCompanionError,
+  notifySubtitleSyncError,
 } from '@/features/player/eizouden-toast.tsx';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
@@ -260,6 +272,8 @@ export default function PlayerApp() {
   // Stage 2a: Track subtitle text content for tracker digest computation
   const subtitleTextRef = useRef<string | null>(null);
   const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
+  const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
+    useState(false);
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -1875,17 +1889,147 @@ export default function PlayerApp() {
   /** Mine a cue. When `overrideCue` is provided (row mining), the media is
    *  paused and seeked to cue.start before capture. Without override, mines
    *  the current active cue at whatever time the media is at. */
-  /** Stage 4a: sync button base — real engine wiring lands in 4b. */
+  /** Apply the detected subtitle text (parsed cues + raw text) after sync. */
+  const applySyncedSubtitle = useCallback(
+    (syncedText: string) => {
+      const result = parseSubtitle(syncedText);
+      setCues(result.cues);
+      setSubtitleErrors(result.errors);
+      setActiveCueId(null);
+      subtitleTextRef.current = syncedText;
+    },
+    [setCues, setSubtitleErrors, setActiveCueId],
+  );
+
+  /**
+   * Stage 4b: wire the sync button to the planner + subomatic engine.
+   *  - skip-youtube          → no-op (button disabled for youtube)
+   *  - no-reference-subtitle → toast (nothing to sync against)
+   *  - sub-to-sub (magnet)   → fetch the torrent subtitle, sync to reference
+   *  - sub-to-audio-local    → decode local media → sync to audio
+   *  - sub-to-audio-magnet   → SubtitleSyncDialog (wait for DL → PCM)
+   */
+  /** Shared try/catch/finally for sync tasks (subtitle + audio paths). */
+  const runSync = useCallback(async (task: () => Promise<void>) => {
+    setIsSyncingSubtitle(true);
+    try {
+      await task();
+    } catch (err) {
+      notifySubtitleSyncError(
+        err instanceof Error ? err.message : 'subtitle sync failed',
+      );
+    } finally {
+      setIsSyncingSubtitle(false);
+    }
+  }, []);
+
   const handleSyncSubtitle = useCallback(() => {
+    const text = subtitleTextRef.current;
+    if (!text) {
+      notifySubtitleSyncError(dictRef.current.playerUI.subtitleSyncNoSubtitle);
+      return;
+    }
     const prefs = readPlayerPreferences();
     const mode = prefs.subtitleSyncMode ?? 'subtitle';
-    if (!subtitleTextRef.current) return;
-    setIsSyncingSubtitle(true);
-    console.info('[subtitle-sync] button clicked mode=' + mode);
-    // 4b: planner + WASM sync (syncSubtitleToAudio / syncSubtitleToReference)
-    //      connected here, with progress + result wiring.
-    setTimeout(() => setIsSyncingSubtitle(false), 500);
-  }, []);
+    const source = detectSourceKind(jobSession.kind, !!mediaUrl);
+    // Reference subtitle only for Magnet with a selected subtitle file
+    // (local reference picker UI lands in a later stage → false here).
+    const hasRef =
+      source === 'magnet' ? !!jobSession.subtitleFileId : false;
+    const plan = planSync(mode, source, hasRef);
+    void runSync(async () => {
+      if (plan.kind === 'skip-youtube') return;
+      if (plan.kind === 'no-reference-subtitle') {
+        notifySubtitleSyncError(
+          dictRef.current.playerUI.subtitleSyncNoReference,
+        );
+        return;
+      }
+      const detected = parseSubtitle(text);
+      const inFormat = detected.format ?? 'vtt';
+      if (plan.kind === 'sub-to-sub') {
+        // Reference subtitle source: Magnet (torrent subtitle file).
+        if (
+          jobSession.kind !== 'torrent' ||
+          !jobSession.jobId ||
+          !jobSession.token ||
+          !jobSession.subtitleFileId
+        ) {
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
+        const ref = await fetchMagnetSubtitle(
+          jobSession.token,
+          jobSession.jobId,
+          jobSession.subtitleFileId,
+        );
+        const refDetected = parseSubtitle(ref.text);
+        const synced = await syncSubtitleToReference(
+          text,
+          inFormat,
+          ref.text,
+          refDetected.format ?? 'vtt',
+          { onProgress: () => {} },
+        );
+        applySyncedSubtitle(synced);
+        return;
+      }
+      if (plan.kind === 'sub-to-audio-local') {
+        if (!mediaUrl) {
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
+        const res = await fetch(mediaUrl);
+        const buffer = await res.arrayBuffer();
+        const { samples, sampleRate } = await decodeToMono16k(buffer);
+        const synced = await syncSubtitleToAudio(
+          text,
+          inFormat,
+          samples,
+          sampleRate,
+          { onProgress: () => {} },
+        );
+        applySyncedSubtitle(synced);
+        return;
+      }
+      if (plan.kind === 'sub-to-audio-magnet') {
+        setIsSubtitleSyncDialogOpen(true);
+      }
+    });
+  }, [
+    jobSession.kind,
+    jobSession.jobId,
+    jobSession.token,
+    jobSession.subtitleFileId,
+    mediaUrl,
+    applySyncedSubtitle,
+    runSync,
+  ]);
+
+  /** Magnet audio sync: dialog handed us decoded PCM — run sub-to-audio. */
+  const handleAudioSyncComplete = useCallback(
+    async (audio: { samples: Float32Array; sampleRate: number }) => {
+      const text = subtitleTextRef.current;
+      if (!text) return;
+      const detected = parseSubtitle(text);
+      const inFormat = detected.format ?? 'vtt';
+      await runSync(async () => {
+        const synced = await syncSubtitleToAudio(
+          text,
+          inFormat,
+          audio.samples,
+          audio.sampleRate,
+          { onProgress: () => {} },
+        );
+        applySyncedSubtitle(synced);
+      });
+    },
+    [applySyncedSubtitle, runSync],
+  );
 
   const handleMine = useCallback(
     async (overrideCue?: SubtitleCue) => {
@@ -3646,6 +3790,13 @@ export default function PlayerApp() {
         onClose={handleAudioClipDialogClose}
         isRecording={isRecordingAudio}
         dict={dict}
+      />
+      <SubtitleSyncDialog
+        open={isSubtitleSyncDialogOpen}
+        onOpenChange={setIsSubtitleSyncDialogOpen}
+        dict={dict}
+        token={jobSession.token ?? ''}
+        onComplete={handleAudioSyncComplete}
       />
       <MiningPreviewDialog
         open={isMiningPreviewOpen}

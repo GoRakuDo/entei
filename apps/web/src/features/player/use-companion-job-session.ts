@@ -85,6 +85,10 @@ export interface UseCompanionJobSessionResult {
   /** Stable error code from the source (e.g. "torrent_concurrency_limit").
    *  Only present when phase is 'error'. */
   errorCode: string | null;
+  /** Companion API token of the active session (null when idle). */
+  token: string | null;
+  /** Torrent subtitle file id selected at session start (null when idle). */
+  subtitleFileId: string | null;
   /** Begin the bridge session for an accepted YouTube job. */
   beginJobSession: (source: CompanionJobSource) => void;
   /** Cancel the job on the companion, then end the local session. */
@@ -114,6 +118,9 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const [active, setActive] = useState(false);
   const [kind, setKind] = useState<CompanionJobKind | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  /** Session API token / selected torrent subtitle file id (for sync). */
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [subtitleFileId, setSubtitleFileId] = useState<string | null>(null);
   const [jobQuality, setJobQuality] = useState(0);
   const [jobMode, setJobMode] = useState<'speed' | 'quality' | null>(null);
   const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
@@ -234,8 +241,10 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       attachedRef.current = false;
       clearIntentListeners();
       setActive(true);
-      setKind(source.kind);
-      setJobId(source.jobId);
+    setKind(source.kind);
+    setJobId(source.jobId);
+    setSessionToken(source.token ?? null);
+    setSubtitleFileId(source.subtitleFileId ?? null);
       setJobQuality(0);
       setJobMode(source.kind === 'youtube' ? 'speed' : null);
       // Speed is the unified default; the job poll corrects to "quality"
@@ -290,6 +299,8 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     setSubtitleUrl(null);
     setJobTitle(null);
     setJobId(null);
+    setSessionToken(null);
+    setSubtitleFileId(null);
     setJobQuality(0);
     setJobMode(null);
   }, [bridge, clearIntentListeners]);
@@ -362,6 +373,8 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     active,
     kind,
     jobId,
+    token: sessionToken,
+    subtitleFileId,
     jobQuality,
     jobMode,
     phase: bridge.phase,

@@ -331,7 +331,15 @@ export const ja: Dictionary = {
     subtitleSyncAudioDesc: '音声から同期します',
     subtitleSyncAutoDesc: '字幕を優先し、なければ音声で同期します',
     subtitleSyncButton: 'タイミングズレを同期する',
-    subtitleSyncButtonLabel: '字幕のタイミングを同期',
+  subtitleSyncButtonLabel: '字幕のタイミングを同期',
+  subtitleSyncNoReference: 'この動画のベース字幕はないため同期されない',
+  subtitleSyncNoSubtitle: '字幕が読み込まれていません',
+  subtitleSyncWaitTitle: '音声ベースの同期は利用できません',
+  subtitleSyncWaitDesc:
+    'ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？',
+  subtitleSyncWaitCancel: 'キャンセル',
+  subtitleSyncWaitConfirm: 'はい、大丈夫です',
+  subtitleSyncProgress: 'ダウンロード中… {pct}%',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'トラッカー',
     trackerOn: 'オン',
