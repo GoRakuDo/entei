@@ -2,7 +2,7 @@
 
 > Entei の字幕タイミングズレ問題を解決する機能。サブタイトル同期エンジン **subomatic**（Apache-2.0・Rust・WASM対応）を Entei に統合し、字幕のタイミングを**音声**または**動画内字幕（参照）**に自動で合わせる。
 >
-> 状態: **設計確定（2026-08-13）・字幕取得手段確定（2026-08-13）・エンジン実装フェーズ**。ユーザー確定事項の一次ソース。
+> 状態: **実装完了（2026-08-14・ブランチ `feature/subtitle-sync`・未マージ/未プッシュ）**。ユーザー確定事項の一次ソース。実装記録は §9 参照。
 
 ## 1. 目的
 
@@ -163,9 +163,9 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 ## 7. 未確定事項（要確認）
 
 - [x] **sub-to-sub の「動画内字幕」の取得手段 — 確定（2026-08-13・実測済み）**: **Magnet 動画**は companion の `fetchMagnetSubtitle`（実装済み）で内蔵字幕ファイルを取得。**ローカル動画**は MKV 内蔵の字幕トラックが `video.textTracks` に公開されないことを実測確認（Chromium は Matroska の字幕トラックを無視）→ **参照用の字幕ファイルをユーザーが選択**する形にフォールバック。
-- [ ] 同期結果の保存方法（プレイヤーセッション内のみ / ファイル書き出し）
+- [ ] 同期結果の保存方法（プレイヤーセッション内のみ / ファイル書き出し）— 現状はセッション内反映のみ
 - [ ] subomatic のフォーク配置（Entei リポジトリ内コピー / 別リポジトリ）
-- [ ] earshot（ニューラル VAD）の WASM サイズ・実行時間の実測
+- [x] earshot（ニューラル VAD）の WASM サイズ — **実測済み: 234,656 bytes（0.22 MB）**。実行時間は実機テストで 3 分音声が数十秒で完了（VAD + align フェーズ）を確認。
 
 ## 8. ライセンス・禁止事項
 
@@ -173,3 +173,40 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 - **alass の GPL ソースは使用しない**（subomatic はクリーンルーム実装・Entei 側でも踏襲）。
 - libav は CLI 専用（WASM パスでは不使用）— Entei ブラウザ側には関係なし。
 - 音声・字幕データを外部にアップロードしない（ローカル完結・WASM 実行）。
+
+## 9. 実装記録（2026-08-14・ブランチ `feature/subtitle-sync`）
+
+### 9.1 実装済み（コミット一覧・全てローカル・未マージ/未プッシュ）
+
+| コミット | 内容 |
+|---|---|
+| `4f98f77` | Sync モード仕様（字幕/音声/自動・実装順）をドキュメント化 |
+| `78c47fa` | ソース種別対応（YouTube/ローカル/Magnet）と DL 待ちダイアログ仕様 |
+| `e948a9a` | **ステージ①**: subomatic WASM エンジン + Worker + クライアントヘルパー |
+| `2ad53e2` | **ステージ2a**: 音声デコード（16kHz モノラル）+ モード解決ロジック |
+| `46b51df` | **ステージ2b**: companion PCM エンドポイント + Magnet ヘルパー |
+| `07a4f7b` | **ステージ③**: Sync モード設定トグル + 字幕設定の永続化バグ修正 |
+| `1abebad` | 参照字幕の取得手段確定（Magnet=companion / ローカル=ユーザー選択） |
+| `d3c2d88` | **ステージ4a**: 同期ボタン UI（RotateCwFadingClock）+ lucide-react 更新 |
+| `809df1d` | **ステージ4b**: 同期ロジック接続（plan 分岐・Toast・DL 待ち Dialog） |
+| `45fec29` | **WASM バグ修正**: init 呼び出し・fps デフォルト 25・キャッシュバスター |
+
+### 9.2 実機テストで発見・修正したバグ（2026-08-14・`45fec29`）
+
+1. **`__wbindgen_free` エラー** — Worker の `loadWasm()` が WASM 初期化（`__wbg_init`）を呼ばず、生の wasm インスタンスのエクスポートを直接呼んでいた。wasm-bindgen のラッパーは初期化後に**トップレベルのラッパー関数**（`sync_to_audio` / `sync_to_reference`）を使う必要がある（生インスタンスを呼ぶと戻り値が `[0,0,1028,1]` のような配列になり文字列が壊れる）。
+2. **`fps must be positive and finite, got 0`** — fps 未指定時に Worker が 0 を渡し、Rust の `check_fps` が拒否。デフォルト 25 に設定（クライアント `subtitle-sync.ts` と Worker の二重バリデーション）。
+3. **ブラウザキャッシュ** — public/ 配下の raw JS（worker）がブラウザにキャッシュされ、修正が反映されなかった。`?v=2` キャッシュバスター（`SUBTITLE_SYNC_WORKER_VERSION` 定数・BUMP コメント付き）を追加。**注意: worker.js を変更したら `SUBTITLE_SYNC_WORKER_VERSION` をインクリメントすること**（忘れるとブラウザが古い worker を使い続ける）。
+4. **字幕設定の永続化バグ（副産物）** — `SettingsTabs` が `SubtitleAppearanceSettings`（`fontSize` 等）を `PlayerPreferences`（`subtitleFontSize` 等）に**キー名変換せずスプレッド**していたため、字幕設定が一切保存されていなかった。明示的マッピングで修正（`07a4f7b` に含む）。
+
+### 9.3 実機検証結果（2026-08-14・ローカル動画 + 実際のドラマクリップ）
+
+- **エンジン動作**: Worker 直接テストで reference / audio 両モードが正常動作（progress フェーズ完走・同期済み字幕の文字列が返る）。
+- **実動画（Meitantei・人の声入り・3 分クリップ）での sub-to-audio**: +5 秒ずらした字幕を読み込み → 同期ボタン → **字幕タイミングが音声に合わせて修正された**（cue 3570→3558・最初の cue が 00:11→00:00 に移動）。
+- **earshot（ニューラル VAD）**: speech → align フェーズが動作。WASM サイズ 234KB。
+- テスト用の一時ファイル（public/ の mp4/srt）は削除済み。
+
+### 9.4 残タスク（4c・任意）
+
+- onProgress の詳細表示（speech/align フェーズを UI に表示）
+- ローカル参照字幕の選択 UI（sub-to-sub・ローカル動画用）
+- 同期結果の保存（現状はセッション内反映のみ）
