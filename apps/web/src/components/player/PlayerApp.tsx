@@ -583,8 +583,9 @@ const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
       setActiveCueId(null);
       subtitleTextRef.current = text;
     },
-    onOpenSearch: () => {
-      // P4: open the search modal with the parsed title pre-filled.
+    onOpenSearch: (_title, _animeLastTried) => {
+      // P4: open the search modal with _title pre-filled and _animeLastTried
+      // to restore the anime/drama toggle state.
     },
     onToast: (kind) => {
       const ui = dictRef.current.playerUI;

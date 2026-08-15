@@ -50,11 +50,15 @@ export function useJimakuAutoLoad({
   onOpenSearch,
   onToast,
 }: JimakuAutoLoadCallbacks) {
-  // Same media must not auto-load twice.
+  // Latest-trigger-wins guard: a newer runAutoLoad supersedes an in-flight
+  // one, so a stale download can never replace newer subtitles.
   const lastTriggerRef = useRef<string | null>(null);
 
   const runAutoLoad = useCallback(
     async (mediaName: string, triggerKey: string) => {
+      // Claim this trigger before any await — a newer run overwrites the ref,
+      // and the stale-DL check below aborts this run if it lost the race.
+      lastTriggerRef.current = triggerKey;
       const prefs = readJimakuPreferences();
       if (!prefs.autoLoadEnabled) return;
       if (!prefs.apiKey) {
@@ -129,6 +133,7 @@ export function useJimakuAutoLoad({
         if (dl.error === 'rate-limit') onToast('rate-limit');
         return;
       }
+      if (lastTriggerRef.current !== triggerKey) return; // newer load took over
       onSubtitleLoaded(dl.data);
       lastTriggerRef.current = triggerKey;
     },

@@ -146,4 +146,59 @@ describe('useJimakuAutoLoad', () => {
     expect(client.search).toHaveBeenCalledTimes(1);
     expect(onOpenSearch).not.toHaveBeenCalled();
   });
+
+  it('aborts a stale download when a newer trigger takes over', async () => {
+    // Media A: search + files resolve, download stays pending (slow).
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [{ id: 1, name: 'Media A', flags: { anime: true } }],
+    });
+    client.files.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        { url: 'https://jimaku.cc/dl/a.srt', name: 'a.srt', size: 100, last_modified: '' },
+      ],
+    });
+    let resolveA!: (value: { ok: boolean; data?: string }) => void;
+    client.download.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveA = res;
+        }),
+    );
+    // Media B: full happy path — completes while A's download is still pending.
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [{ id: 2, name: 'Media B', flags: { anime: true } }],
+    });
+    client.files.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        { url: 'https://jimaku.cc/dl/b.srt', name: 'b.srt', size: 200, last_modified: '' },
+      ],
+    });
+    client.download.mockResolvedValueOnce({
+      ok: true,
+      data: 'WEBVTT\n\n00:00:00 --> 00:00:01\nB subtitles',
+    });
+
+    const { result } = render();
+    const runA = result.current.runAutoLoad('Media A EP01.mkv', 'kA');
+    const runB = result.current.runAutoLoad('Media B EP01.mkv', 'kB');
+
+    // B wins the race and its subtitles are applied.
+    await act(async () => {
+      await runB;
+    });
+    expect(onSubtitleLoaded).toHaveBeenCalledTimes(1);
+    expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('B subtitles'));
+
+    // A's stale download resolves afterwards — it must not overwrite B.
+    await act(async () => {
+      resolveA({ ok: true, data: 'WEBVTT\n\n00:00:00 --> 00:00:01\nA subtitles' });
+      await runA;
+    });
+    expect(onSubtitleLoaded).toHaveBeenCalledTimes(1);
+    expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('B subtitles'));
+  });
 });
