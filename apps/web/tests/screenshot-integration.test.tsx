@@ -319,6 +319,12 @@ const mockDict = {
     subtitleSyncSubtitleDesc: 'Sync using the video embedded subtitle',
     subtitleSyncAudioDesc: 'Sync from the audio track',
       subtitleSyncAutoDesc: 'Prefer subtitle, fall back to audio',
+      jimakuHeading: 'JIMAKU.CC',
+      jimakuDesc: 'Auto-load Japanese subtitles from jimaku.cc',
+      jimakuApiKeyLabel: 'API key',
+      jimakuApiKeyPlaceholder: 'Enter your jimaku.cc API key',
+      jimakuAutoLoadLabel: 'Auto-load',
+      jimakuAutoLoadDesc: 'Load subtitles when media is selected',
       subtitleSyncButton: 'Sync subtitle timing',
   subtitleSyncButtonLabel: 'Sync subtitle timing',
   subtitleSyncNoReference: 'No base subtitle in this video, cannot sync',
@@ -335,6 +341,10 @@ const mockDict = {
   trackerAriaLabel: 'Immersion tracker enabled',
   trackerEnabledAriaDescription: 'Recording watch time and mining history',
   trackerDisabledAriaDescription: 'Tracker is off — no new recording, existing history preserved',
+  // P3 jimaku auto-load toasts
+  jimakuRateLimit: 'Rate limit reached. Please try again shortly.',
+  jimakuAuthError: 'Invalid jimaku API key. Check it in settings.',
+  jimakuKeyMissing: 'Set your jimaku API key to auto-load subtitles',
 };
 
 const baseControlsProps = {

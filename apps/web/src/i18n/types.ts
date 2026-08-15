@@ -142,6 +142,9 @@ export interface Dictionary {
     jimakuApiKeyPlaceholder: string;
     jimakuAutoLoadLabel: string;
     jimakuAutoLoadDesc: string;
+    jimakuRateLimit: string;
+    jimakuAuthError: string;
+    jimakuKeyMissing: string;
     subtitleSyncButton: string;
     subtitleSyncButtonLabel: string;
     subtitleSyncNoReference: string;

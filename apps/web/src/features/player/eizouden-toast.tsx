@@ -82,3 +82,10 @@ export function notifySubtitleSyncError(label: string): void {
     icon: <CircleAlert aria-hidden="true" />,
   });
 }
+
+/** jimaku auto-load toast (rate-limit / auth / key-missing) — info level. */
+export function notifyJimakuToast(label: string): void {
+  toast.info(label, {
+    id: 'eizouden-jimaku-toast',
+  });
+}

@@ -110,7 +110,9 @@ import {
   notifyQuality,
   notifyCompanionError,
   notifySubtitleSyncError,
+  notifyJimakuToast,
 } from '@/features/player/eizouden-toast.tsx';
+import { useJimakuAutoLoad } from '@/features/player/use-jimaku-auto-load';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
@@ -271,9 +273,10 @@ export default function PlayerApp() {
   const mediaFileRef = useRef<File | null>(null);
   // Stage 2a: Track subtitle text content for tracker digest computation
   const subtitleTextRef = useRef<string | null>(null);
-  const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
-  const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
-    useState(false);
+const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
+const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
+  useState(false);
+// P3 jimaku auto-load — search modal state lands in P4 (no unused state).
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -569,6 +572,32 @@ export default function PlayerApp() {
     [jobSession, pairing.tokenRef],
   );
 
+  // P3 jimaku auto-load (§2.2): fires on local media select / Magnet handoff
+  // when the switch is ON. Exact match replaces subtitles; otherwise the
+  // search modal is opened (P4 — state and modal UI land there).
+  const jimakuAutoLoad = useJimakuAutoLoad({
+    onSubtitleLoaded: (text) => {
+      const result = parseSubtitle(text);
+      setCues(result.cues);
+      setSubtitleErrors(result.errors);
+      setActiveCueId(null);
+      subtitleTextRef.current = text;
+    },
+    onOpenSearch: () => {
+      // P4: open the search modal with the parsed title pre-filled.
+    },
+    onToast: (kind) => {
+      const ui = dictRef.current.playerUI;
+      notifyJimakuToast(
+        kind === 'rate-limit'
+          ? ui.jimakuRateLimit
+          : kind === 'auth'
+            ? ui.jimakuAuthError
+            : ui.jimakuKeyMissing,
+      );
+    },
+  });
+
   const handleMagnetJobAccepted = useCallback(
     (jobId: string, selectedName: string, subtitleFileId: string) => {
       const token = pairing.tokenRef.current;
@@ -584,9 +613,13 @@ export default function PlayerApp() {
         kind: 'torrent',
         subtitleFileId: subtitleFileId || undefined,
       });
+      // P3 auto-load: only when no subtitle was picked in the Magnet modal.
+      if (!subtitleFileId) {
+        void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${jobId}`);
+      }
       setIsMagnetDialogOpen(false);
     },
-    [jobSession, pairing.tokenRef],
+    [jobSession, pairing.tokenRef, jimakuAutoLoad],
   );
 
   // Attach the actual video element on the complete gate (existing ref).
@@ -1125,6 +1158,8 @@ export default function PlayerApp() {
       setActiveCueId(null);
       // Stage 2a: Clear subtitle text on media change (subtitles are media-specific)
       subtitleTextRef.current = null;
+      // P3 auto-load: local file selected — auto-load jimaku subtitles.
+      void jimakuAutoLoad.runAutoLoad(file.name, `local:${file.name}`);
       // AM-2: Invalidate any prior screenshot when selecting new media
       clearScreenshot();
       // AM-3: Invalidate any prior audio clip when selecting new media
@@ -1141,7 +1176,13 @@ export default function PlayerApp() {
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
     },
-    [clearScreenshot, clearAudioClip, clearMiningPreview, jobSession],
+    [
+      clearScreenshot,
+      clearAudioClip,
+      clearMiningPreview,
+      jobSession,
+      jimakuAutoLoad,
+    ],
   );
 
   const handleSubtitleSelect = useCallback((file: File) => {
