@@ -1060,6 +1060,39 @@ func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 	return h.SubtitleContent(ctx)
 }
 
+// SelectedMediaSource adapts the active session's selected media to a
+// GrowingMediaSource for the PCM endpoint (sub-to-audio subtitle sync). The
+// source tracks the session's job end and fails closed after cancel /
+// eviction. Returns an error when no session is active or no video is
+// selected.
+func (m *Manager) SelectedMediaSource() (GrowingMediaSource, error) {
+	m.mu.Lock()
+	if len(m.sessionOrder) == 0 {
+		m.mu.Unlock()
+		return nil, errors.New("no active session")
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		m.mu.Unlock()
+		return nil, errors.New("no active session")
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	h := j.handle
+	hasVideo := j.videoV != nil
+	done := j.done
+	j.stateMu.Unlock()
+	m.mu.Unlock()
+	if h == nil {
+		return nil, errors.New("no handle")
+	}
+	if !hasVideo {
+		return nil, errors.New("no media selected")
+	}
+	return newTorrentMediaSource(h, done), nil
+}
+
 // CreationDate returns the active session's torrent creation date as a Unix
 // timestamp. Used as the modtime for http.ServeContent so Chrome's If-Range
 // header works correctly. Returns 0 when no session is active.

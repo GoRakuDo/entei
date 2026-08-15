@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+
+	"eizoudendenshi/internal/media"
 )
 
 // SampleRatePCM is the fixed output rate of /v1/media/pcm (16 kHz mono).
@@ -16,16 +18,13 @@ const SampleRatePCM = 16000
 // Contract (same availability gate as /v1/media/fixture):
 //   - available < total  → 503 + bufferingBody (DL not finished; retry later)
 //   - available == total → ffmpeg decode of the full media to PCM
-//   - GrowSource or Ffmpeg unset → 404 (endpoint honestly disabled)
+//   - no media source (fixture GrowSource AND Magnet session) or Ffmpeg
+//     unset → 404 (endpoint honestly disabled)
 //
 // Response: application/octet-stream (f32 LE, 16 kHz, mono) with an
 // X-Sample-Rate header. ffmpeg stderr and paths are never logged or
 // echoed (redaction contract).
 func (s *Server) handleMediaPcm(w http.ResponseWriter, r *http.Request) {
-	if s.growSource == nil || s.ffmpegPath == "" {
-		http.NotFound(w, r)
-		return
-	}
 	if r.Method == http.MethodOptions {
 		// PCM endpoint supports GET only (no HEAD); preflight advertises
 		// exactly that to stay honest.
@@ -58,8 +57,19 @@ func (s *Server) handleMediaPcm(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 
-	avail := s.growSource.Available()
-	total := s.growSource.Total()
+	if s.ffmpegPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	src, closeSrc, ok := s.mediaSourceForPCM()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	defer closeSrc()
+
+	avail := src.Available()
+	total := src.Total()
 	if avail < total {
 		s.writeBuffering(w, r, avail, total)
 		return
@@ -81,7 +91,7 @@ func (s *Server) handleMediaPcm(w http.ResponseWriter, r *http.Request) {
 	buf := make([]byte, 64*1024)
 	remaining := total
 	for remaining > 0 {
-		n, err := s.growSource.ReadAt(buf, total-remaining)
+		n, err := src.ReadAt(buf, total-remaining)
 		if n > 0 {
 			if _, werr := tmp.Write(buf[:n]); werr != nil {
 				http.Error(w, "media conversion unavailable", http.StatusInternalServerError)
@@ -123,4 +133,22 @@ func (s *Server) handleMediaPcm(w http.ResponseWriter, r *http.Request) {
 		// never reach the client or logs (redaction contract).
 		return
 	}
+}
+
+// mediaSourceForPCM resolves the media source for /v1/media/pcm: the fixture
+// growing source when configured, otherwise the active Magnet job's selected
+// media (sub-to-audio). Returns ok=false when neither is available. The
+// returned closer must be deferred by the caller to release any backing
+// reader.
+func (s *Server) mediaSourceForPCM() (media.GrowingSource, func(), bool) {
+	if s.growSource != nil {
+		return s.growSource, func() {}, true
+	}
+	if s.torrents != nil {
+		src, err := s.torrents.SelectedMediaSource()
+		if err == nil {
+			return src, func() { _ = src.Close() }, true
+		}
+	}
+	return nil, func() {}, false
 }
