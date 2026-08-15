@@ -5605,6 +5605,28 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
+.entei-jimaku-search-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-32) var(--entei-space-16);
+  text-align: center;
+}
+
+.entei-jimaku-search-empty-icon {
+  color: var(--entei-text-secondary);
+  opacity: 0.7;
+}
+
+.entei-jimaku-search-empty-title {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--entei-text-secondary);
+  line-height: 1.5;
+}
+
 .entei-jimaku-search-no-key {
   display: flex;
   flex-direction: column;

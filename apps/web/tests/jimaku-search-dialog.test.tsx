@@ -225,13 +225,18 @@ describe('JimakuSearchDialog', () => {
     expect(onToast).toHaveBeenCalledWith('auth');
   });
 
-  it('shows the no-key message and toasts when the API key is missing', async () => {
+  it('replaces the search form with an empty state when the key is missing', () => {
     prefs.apiKey = '';
     renderDialog();
 
+    // Empty state: message + settings button.
     expect(screen.getByText(dict.jimakuSearchNoKey)).toBeTruthy();
-    await searchForEntry();
-    expect(onToast).toHaveBeenCalledWith('key-missing');
+    expect(screen.getByText(dict.jimakuOpenSettings)).toBeTruthy();
+    // The whole form is hidden — no search button, no inputs, no toggle.
+    expect(screen.queryByText(dict.jimakuSearchButton)).toBeNull();
+    expect(screen.queryByLabelText(dict.jimakuSearchTitle)).toBeNull();
+    expect(screen.queryByLabelText(dict.jimakuSearchEpisode)).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
   });
 
   it('clears the no-key message when the key is set while the dialog is open', async () => {
@@ -246,6 +251,8 @@ describe('JimakuSearchDialog', () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(screen.queryByText(dict.jimakuSearchNoKey)).toBeNull();
+    // The form is back once the key exists.
+    expect(screen.getByLabelText(dict.jimakuSearchTitle)).toBeTruthy();
   });
 
   it('opens the settings modal from the no-key message', () => {

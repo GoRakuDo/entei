@@ -351,7 +351,7 @@ export const id: Dictionary = {
     jimakuSearchFilesLabel: 'File subtitle',
     jimakuSearchSelectEntry: 'Pilih entri untuk melihat file',
     jimakuSearchOpenButton: 'Cari subtitle jimaku',
-    jimakuSearchNoKey: 'Atur kunci API jimaku di pengaturan',
+    jimakuSearchNoKey: 'Masukkan kunci API JIMAKU.CC di pengaturan',
     jimakuOpenSettings: 'Buka pengaturan',
     jimakuSearchBack: 'Kembali',
     subtitleSyncButton: 'Sinkronkan waktu subtitle',

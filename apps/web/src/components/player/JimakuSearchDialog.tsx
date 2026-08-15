@@ -15,7 +15,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Search, Settings } from 'lucide-react';
+import { ChevronLeft, KeyRound, Search, Settings } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -284,6 +284,31 @@ export function JimakuSearchDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="entei-jimaku-search-body">
+          {noKey ? (
+            /* No API key — the whole form is replaced by a centered empty
+               state; the user sets the key in the settings modal first. */
+            <div className="entei-jimaku-search-empty-state">
+              <KeyRound
+                size={48}
+                aria-hidden="true"
+                className="entei-jimaku-search-empty-icon"
+              />
+              <p className="entei-jimaku-search-empty-title">
+                {dict.jimakuSearchNoKey}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onOpenSettings}
+                className="entei-jimaku-search-settings-btn"
+              >
+                <Settings size={14} aria-hidden="true" />
+                <span>{dict.jimakuOpenSettings}</span>
+              </Button>
+            </div>
+          ) : (
+            <>
           {/* Title input (§2.3-1) */}
           <div className="entei-jimaku-search-field">
             <label htmlFor="jimaku-search-title" className="entei-jimaku-search-label">
@@ -359,24 +384,6 @@ export function JimakuSearchDialog({
             <span>{dict.jimakuSearchButton}</span>
           </Button>
 
-          {noKey && (
-            <div className="entei-jimaku-search-no-key">
-              <p className="entei-jimaku-search-error" role="alert">
-                {dict.jimakuSearchNoKey}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onOpenSettings}
-                className="entei-jimaku-search-settings-btn"
-              >
-                <Settings size={14} aria-hidden="true" />
-                <span>{dict.jimakuOpenSettings}</span>
-              </Button>
-            </div>
-          )}
-
           {/* Entry list (results stage) */}
           {status === 'results' && (
             <div className="entei-jimaku-search-section">
@@ -438,6 +445,8 @@ export function JimakuSearchDialog({
                 )}
               </div>
             </div>
+          )}
+            </>
           )}
         </div>
       </DialogContent>

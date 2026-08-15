@@ -59,7 +59,7 @@ export const baseMockDict = {
   jimakuSearchFilesLabel: 'Subtitle files',
   jimakuSearchSelectEntry: 'Select an entry to see files',
   jimakuSearchOpenButton: 'Search jimaku subtitles',
-  jimakuSearchNoKey: 'Set your jimaku API key in settings',
+  jimakuSearchNoKey: 'Enter your JIMAKU.CC API key in settings',
   jimakuOpenSettings: 'Open settings',
   jimakuSearchBack: 'Back',
   unsupportedFormat: 'Unsupported',
