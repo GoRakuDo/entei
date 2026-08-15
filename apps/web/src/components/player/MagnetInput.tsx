@@ -894,7 +894,7 @@ export function MagnetInput({
                 <Button
                   type="button"
                   variant="outline"
-                  className="entei-magnet-submit"
+                  className="entei-magnet-submit entei-magnet-cancel"
                   onClick={handleCancel}
                 >
                   {dict.magnetCancel}

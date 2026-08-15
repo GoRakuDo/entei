@@ -4620,7 +4620,17 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-select-play {
   flex: 1;
   min-height: var(--entei-touch-min);
-}
+  }
+
+/* Cancel (Batal) during metadata check / submit — same full width as the
+   Select & play button, with the unified button fill instead of the dark
+   outline look. */
+.entei-magnet-cancel {
+  flex: 1;
+  background-color: var(--entei-btn-hover-bg);
+  border-color: transparent;
+  color: var(--entei-text);
+  }
 
 /* --- Reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
