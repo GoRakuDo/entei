@@ -534,6 +534,13 @@ func tailWindowPieces(f *torrent.File) (begin, end int) {
 // pieces are still pending (e.g. a job ends mid-download). The torrent
 // state remains usable after the panic; we log it and keep the process
 // alive. Use this instead of a plain Close for every torrent-backed reader.
+//
+// Logging note: this package-level helper is called from other packages
+// (internal/api), so it logs via the default slog handler (stderr) rather
+// than the diag.Logger file — the diag-path log for the bootstrap reader is
+// emitted by StartBootstrap's goroutine recover. The asymmetry is
+// intentional: the recover is what matters, and the stderr line still
+// reaches the companion's captured output.
 func SafeCloseReader(r io.Closer) {
 	if r == nil {
 		return
@@ -570,10 +577,11 @@ func (h *anacrolixHandle) StartBootstrap(ctx context.Context) error {
 		return err
 	}
 	go func() {
-		// anacrolix's internal invariant check (checkPendingPiecesMatches
-		// RequestOrder) can panic when a reader is closed mid priority
-		// update. The torrent state is still usable; log and keep the
-		// process alive.
+		// The goroutine-level recover catches panics from r.Read(); the
+		// SafeCloseReader calls below separately catch panics from r.Close().
+		// Both are needed — anacrolix v1.61.0 can panic in its invariant
+		// check (checkPendingPiecesMatchesRequestOrder) from either path.
+		// The torrent state is still usable; log and keep the process alive.
 		defer func() {
 			if rec := recover(); rec != nil {
 				h.log.Errorf("torrent.engine", "recovered panic in StartBootstrap reader: %v", rec)

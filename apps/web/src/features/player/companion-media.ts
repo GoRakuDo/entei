@@ -125,6 +125,25 @@ export type PlayableWaitResult =
   | { ok: true; reason: 'playable' }
   | { ok: false; reason: 'error' | 'network' | 'timeout' | 'aborted' };
 
+/** Sleep for ms, rejecting early when the abort signal fires. */
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /**
  * Poll /v1/media/status until the active companion job becomes playable.
  *
@@ -154,23 +173,6 @@ export async function waitForPlayable(
   const maxConsecutiveFailures = 5;
   const deadline = Date.now() + timeoutMs;
   let consecutiveFailures = 0;
-
-  const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
-    new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new DOMException('Aborted', 'AbortError'));
-        return;
-      }
-      const onAbort = () => {
-        clearTimeout(timer);
-        reject(new DOMException('Aborted', 'AbortError'));
-      };
-      const timer = setTimeout(() => {
-        signal?.removeEventListener('abort', onAbort);
-        resolve();
-      }, ms);
-      signal?.addEventListener('abort', onAbort, { once: true });
-    });
 
   while (true) {
     if (Date.now() >= deadline) return { ok: false, reason: 'timeout' };
