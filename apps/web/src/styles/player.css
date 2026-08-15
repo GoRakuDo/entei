@@ -366,7 +366,7 @@
 
 .entei-subtitle-sync-dialog-cancel {
   background-color: transparent;
-  border: 1px solid var(--entei-text-muted);
+  border: none;
   color: var(--entei-text);
 }
 
