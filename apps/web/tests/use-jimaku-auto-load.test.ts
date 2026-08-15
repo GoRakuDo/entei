@@ -96,8 +96,13 @@ describe('useJimakuAutoLoad', () => {
     await act(async () => {
       await result.current.runAutoLoad('Sousou no Frieren EP01.mkv', 'k1');
     });
-    expect(client.search).toHaveBeenCalledWith('test-key', 'Sousou no Frieren', true);
-    expect(client.files).toHaveBeenCalledWith('test-key', 729, 1);
+    expect(client.search).toHaveBeenCalledWith(
+      'test-key',
+      'Sousou no Frieren',
+      true,
+      expect.any(AbortSignal),
+    );
+    expect(client.files).toHaveBeenCalledWith('test-key', 729, 1, expect.any(AbortSignal));
     expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('WEBVTT'));
     expect(onOpenSearch).not.toHaveBeenCalled();
   });
@@ -117,8 +122,20 @@ describe('useJimakuAutoLoad', () => {
         'k1',
       );
     });
-    expect(client.search).toHaveBeenNthCalledWith(1, 'test-key', expect.any(String), true);
-    expect(client.search).toHaveBeenNthCalledWith(2, 'test-key', expect.any(String), false);
+    expect(client.search).toHaveBeenNthCalledWith(
+      1,
+      'test-key',
+      expect.any(String),
+      true,
+      expect.any(AbortSignal),
+    );
+    expect(client.search).toHaveBeenNthCalledWith(
+      2,
+      'test-key',
+      expect.any(String),
+      false,
+      expect.any(AbortSignal),
+    );
     // Exact match found, but zero Japanese files → search modal fallback.
     expect(onOpenSearch).toHaveBeenCalledWith(expect.any(String), false);
   });
@@ -147,58 +164,67 @@ describe('useJimakuAutoLoad', () => {
     expect(onOpenSearch).not.toHaveBeenCalled();
   });
 
-  it('aborts a stale download when a newer trigger takes over', async () => {
-    // Media A: search + files resolve, download stays pending (slow).
+  it('stays silent when superseded by a newer trigger (media switch)', async () => {
+    // Media A's search resolves, but runB starts before A can proceed — A is
+    // aborted at its first checkpoint and must produce no side effects.
     client.search.mockResolvedValueOnce({
       ok: true,
       data: [{ id: 1, name: 'Media A', flags: { anime: true } }],
     });
-    client.files.mockResolvedValueOnce({
-      ok: true,
-      data: [
-        { url: 'https://jimaku.cc/dl/a.srt', name: 'a.srt', size: 100, last_modified: '' },
-      ],
-    });
-    let resolveA!: (value: { ok: boolean; data?: string }) => void;
-    client.download.mockImplementationOnce(
-      () =>
-        new Promise((res) => {
-          resolveA = res;
-        }),
-    );
-    // Media B: full happy path — completes while A's download is still pending.
+    // Media B: no JP files → search modal fallback. These mocks are consumed
+    // by runB (runA aborts before reaching the files/download stages).
     client.search.mockResolvedValueOnce({
       ok: true,
       data: [{ id: 2, name: 'Media B', flags: { anime: true } }],
     });
-    client.files.mockResolvedValueOnce({
-      ok: true,
-      data: [
-        { url: 'https://jimaku.cc/dl/b.srt', name: 'b.srt', size: 200, last_modified: '' },
-      ],
-    });
-    client.download.mockResolvedValueOnce({
-      ok: true,
-      data: 'WEBVTT\n\n00:00:00 --> 00:00:01\nB subtitles',
-    });
+    client.files.mockResolvedValueOnce({ ok: true, data: [] });
 
     const { result } = render();
     const runA = result.current.runAutoLoad('Media A EP01.mkv', 'kA');
     const runB = result.current.runAutoLoad('Media B EP01.mkv', 'kB');
-
-    // B wins the race and its subtitles are applied.
     await act(async () => {
       await runB;
+      await runA; // aborted at its first checkpoint — resolves silently
     });
-    expect(onSubtitleLoaded).toHaveBeenCalledTimes(1);
-    expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('B subtitles'));
 
-    // A's stale download resolves afterwards — it must not overwrite B.
-    await act(async () => {
-      resolveA({ ok: true, data: 'WEBVTT\n\n00:00:00 --> 00:00:01\nA subtitles' });
-      await runA;
+    // A must neither load subtitles nor open the search modal…
+    expect(onSubtitleLoaded).not.toHaveBeenCalled();
+    // …and only B's fallback fires.
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+    expect(onOpenSearch).toHaveBeenCalledWith('Media B', true);
+  });
+
+  it('aborts the previous run\'s requests when a newer trigger starts', async () => {
+    // Media A: search resolves (captures the signal). A is aborted at its
+    // search checkpoint before reaching the files stage.
+    let firstSignal: AbortSignal | undefined;
+    client.search.mockImplementationOnce(
+      (_key: string, _query: string, _anime: boolean, signal?: AbortSignal) => {
+        firstSignal = signal;
+        return Promise.resolve({
+          ok: true,
+          data: [{ id: 1, name: 'Media A', flags: { anime: true } }],
+        });
+      },
+    );
+    // Media B: completes its flow — the files mock below is consumed by runB.
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [{ id: 2, name: 'Media B', flags: { anime: true } }],
     });
-    expect(onSubtitleLoaded).toHaveBeenCalledTimes(1);
-    expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('B subtitles'));
+    client.files.mockResolvedValueOnce({ ok: true, data: [] });
+
+    const { result } = render();
+    const runA = result.current.runAutoLoad('Media A EP01.mkv', 'kA');
+    const runB = result.current.runAutoLoad('Media B EP01.mkv', 'kB');
+    await act(async () => {
+      await runB;
+      await runA; // A aborts at its search checkpoint — resolves silently
+    });
+
+    // B's start must abort A's in-flight controller…
+    expect(firstSignal?.aborted).toBe(true);
+    // …while B's own flow still completes (fallback to the search modal).
+    expect(onOpenSearch).toHaveBeenCalledWith('Media B', true);
   });
 });
