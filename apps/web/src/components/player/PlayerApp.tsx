@@ -113,6 +113,7 @@ import {
   notifySubtitleSyncError,
   notifyJimakuToast,
 } from '@/features/player/eizouden-toast.tsx';
+import { parseMediaFileName } from '@/features/player/filename-parser';
 import { useJimakuAutoLoad } from '@/features/player/use-jimaku-auto-load';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
@@ -623,7 +624,11 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
 
   // P4: RightPanel search button — pre-fill with the current media name.
   const handleOpenJimakuSearch = useCallback(() => {
-    setJimakuSearchPrefill({ title: mediaName });
+    // Parse the media filename so the search box is pre-filled with the
+    // clean title (e.g. "Meitantei no Mama de Ite" from the raw .mkv name)
+    // instead of the raw filename — raw names never match jimaku.
+    const parsed = parseMediaFileName(mediaName);
+    setJimakuSearchPrefill({ title: parsed.title || mediaName });
     setIsJimakuSearchOpen(true);
   }, [mediaName]);
 
