@@ -1031,10 +1031,12 @@ func (m *Manager) SelectedDiskPath() (string, error) {
 	return abs, nil
 }
 
-// SelectedSubtitleContent reads the entire selected subtitle file from the
-// active session and returns its text content. Blocks until data is
-// available or ctx is done. Returns an error when no subtitle is selected,
-// no active session exists, or the read fails.
+// SelectedSubtitleContent reads the subtitle reference text from the active
+// session and returns it. The engine serves the explicitly selected
+// subtitle, or auto-detects the first subtitle file in the torrent when none
+// was selected (embedded-subtitle reference for sub-to-sub sync). Blocks
+// until data is available or ctx is done. Returns an error when no active
+// session exists, the torrent has no subtitle file, or the read fails.
 func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	if len(m.sessionOrder) == 0 {
@@ -1050,12 +1052,8 @@ func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 	j := sess.job
 	j.stateMu.Lock()
 	h := j.handle
-	hasSub := j.subV != nil
 	j.stateMu.Unlock()
 	m.mu.Unlock()
-	if !hasSub {
-		return "", errors.New("subtitle not selected")
-	}
 	if h == nil {
 		return "", errors.New("no handle")
 	}

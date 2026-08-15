@@ -57,6 +57,25 @@ describe('fetchMagnetSubtitle', () => {
     expect(url).toContain('file=file-2');
   });
 
+  it('omits the file param when auto-detecting the embedded subtitle', async () => {
+    const spy = vi.fn().mockResolvedValue(
+      new Response('WEBVTT\n\n00:00:01 --> 00:00:03\nembedded', {
+        status: 200,
+        headers: { 'content-type': 'text/vtt' },
+      }),
+    );
+    vi.stubGlobal('fetch', spy);
+
+    const out = await fetchMagnetSubtitle('tok', 'job-1', '');
+    expect(out.text).toContain('embedded');
+    const url = spy.mock.calls[0]![0] as string;
+    expect(url).toContain(`${ORIGIN}/v1/source/torrents/job-1/subtitle`);
+    expect(url).toContain('token=tok');
+    // An empty file id means the companion auto-detects the embedded
+    // subtitle — no `file=` query parameter is sent.
+    expect(url).not.toContain('file=');
+  });
+
   it('throws on non-ok response', async () => {
     vi.stubGlobal(
       'fetch',

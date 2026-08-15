@@ -43,6 +43,28 @@ func buildNestedTestInfo(t *testing.T, name string, paths [][]string) *metainfo.
 	return info
 }
 
+// TestFirstSubtitleIndex pins the embedded-subtitle auto-detection helper.
+func TestFirstSubtitleIndex(t *testing.T) {
+	withSub := []TorrentFile{
+		{ID: "f0", Path: "ep.mkv", Kind: KindVideo},
+		{ID: "f1", Path: "ep.ass", Kind: KindSubtitle},
+		{ID: "f2", Path: "ep.srt", Kind: KindSubtitle},
+		{ID: "f3", Path: "readme.txt", Kind: KindOther},
+	}
+	if got := firstSubtitleIndex(withSub); got != 1 {
+		t.Errorf("firstSubtitleIndex(with subtitle) = %d, want 1", got)
+	}
+	if got := firstSubtitleIndex([]TorrentFile{
+		{ID: "f0", Path: "ep.mkv", Kind: KindVideo},
+		{ID: "f1", Path: "readme.txt", Kind: KindOther},
+	}); got != -1 {
+		t.Errorf("firstSubtitleIndex(no subtitle) = %d, want -1", got)
+	}
+	if got := firstSubtitleIndex(nil); got != -1 {
+		t.Errorf("firstSubtitleIndex(nil) = %d, want -1", got)
+	}
+}
+
 // panicCloseCloser models an anacrolix reader whose Close trips the
 // invariant-check panic (checkPendingPiecesMatchesRequestOrder, v1.61.0 bug).
 type panicCloseCloser struct {

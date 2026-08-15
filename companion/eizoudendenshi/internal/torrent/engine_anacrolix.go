@@ -392,8 +392,25 @@ type anacrolixHandle struct {
 	log         *diag.Logger // nil-safe; set by the engine for diagnostics
 }
 
+// firstSubtitleIndex returns the index of the first subtitle file in the
+// sanitized listing, or -1 when the torrent has no subtitle file. Used for
+// the embedded-subtitle auto-detection (sub-to-sub sync reference): a
+// video-only selection still makes the first .srt/.vtt/.ass available
+// without the user picking it in the magnet modal.
+func firstSubtitleIndex(files []TorrentFile) int {
+	for i, f := range files {
+		if f.Kind == KindSubtitle {
+			return i
+		}
+	}
+	return -1
+}
+
 func newAnacrolixHandle(t *torrent.Torrent) *anacrolixHandle {
-	h := &anacrolixHandle{t: t}
+	// subtitleIdx must start at -1 (Go zero value 0 would point at the first
+	// file — the video — and SubtitleContent would read the video as
+	// subtitle before any Select).
+	h := &anacrolixHandle{t: t, subtitleIdx: -1}
 	for i, f := range t.Files() {
 		displayPath := f.DisplayPath()
 		base := filepath.Base(displayPath)
@@ -442,9 +459,16 @@ func (h *anacrolixHandle) Select(videoFileID string, subtitleFileID string) erro
 		return errInvalidSelection
 	}
 	anacrolixFiles := h.t.Files()
+	// Auto-detect the embedded subtitle when none was picked: its pieces are
+	// tiny but would otherwise sit at priority None and never download, so
+	// the sub-to-sub sync reference (SubtitleContent) has nothing to read.
+	autoSubIdx := -1
+	if subIdx < 0 {
+		autoSubIdx = firstSubtitleIndex(h.files)
+	}
 	for i, f := range anacrolixFiles {
 		prio := types.PiecePriorityNone
-		if i == videoIdx || i == subIdx {
+		if i == videoIdx || i == subIdx || i == autoSubIdx {
 			prio = types.PiecePriorityNormal
 		}
 		f.SetPriority(prio)
@@ -699,19 +723,26 @@ func (h *anacrolixHandle) SelectedLength() int64 {
 	return h.selected.Length()
 }
 
-// SubtitleContent reads the entire selected subtitle file and returns its
-// text content. Blocks until data is available or ctx is done. Returns an
-// error when no subtitle is selected or the read fails.
+// SubtitleContent reads the subtitle reference text and returns it. When a
+// subtitle was explicitly selected it reads that file; otherwise the first
+// subtitle file in the torrent is auto-detected (embedded-subtitle
+// reference for sub-to-sub sync — Select elevates its pieces so the data is
+// downloaded). Blocks until data is available or ctx is done. Returns an
+// error when the torrent has no subtitle file at all or the read fails.
 func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 	h.mu.Lock()
 	idx := h.subtitleIdx
+	files := h.files
 	h.mu.Unlock()
-	if idx < 0 {
-		return "", errSubtitleNotSelected
-	}
 	anacrolixFiles := h.t.Files()
-	if idx >= len(anacrolixFiles) {
-		return "", errSubtitleNotSelected
+	if idx < 0 || idx >= len(anacrolixFiles) {
+		// No explicit subtitle — auto-detect the first subtitle file in the
+		// torrent (the selection contract allows a video-only pick; the
+		// torrent may still carry a .srt/.vtt/.ass next to the video).
+		idx = firstSubtitleIndex(files)
+		if idx < 0 || idx >= len(anacrolixFiles) {
+			return "", errSubtitleNotSelected
+		}
 	}
 	f := anacrolixFiles[idx]
 	r := f.NewReader()

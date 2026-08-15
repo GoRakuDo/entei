@@ -36,12 +36,12 @@ describe('planSync', () => {
     });
   });
 
-  it('subtitle mode: no-reference-subtitle when none exists', () => {
+  it('subtitle mode: auto-ref on magnet, no-reference on local when none exists', () => {
     expect(planSync('subtitle', 'local', false)).toEqual({
       kind: 'no-reference-subtitle',
     });
     expect(planSync('subtitle', 'magnet', false)).toEqual({
-      kind: 'no-reference-subtitle',
+      kind: 'sub-to-sub-auto-ref',
     });
   });
 
@@ -98,6 +98,7 @@ describe('planSync', () => {
     expect(plans.has('sub-to-audio-local')).toBe(true);
     expect(plans.has('sub-to-audio-magnet')).toBe(true);
     expect(plans.has('sub-to-sub')).toBe(true);
+    expect(plans.has('sub-to-sub-auto-ref')).toBe(true);
     expect(plans.has('no-reference-subtitle')).toBe(true);
   });
 });

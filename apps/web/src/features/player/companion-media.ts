@@ -32,18 +32,24 @@ export function dlProgressPercent(status: MediaStatus): number {
 }
 
 /**
- * Fetch a Magnet job's subtitle text (sub-to-sub). The subtitle file is
- * tiny and available as soon as the torrent metadata resolves, so this
- * does not wait for the media download.
+ * Fetch a Magnet job's subtitle text (sub-to-sub reference). Pass the
+ * selected subtitle file id, or an empty string to let the companion
+ * auto-detect the torrent's embedded subtitle (the first .srt/.vtt/.ass).
+ * The subtitle file is tiny and available as soon as the torrent metadata
+ * resolves, so this does not wait for the media download.
  */
 export async function fetchMagnetSubtitle(
   token: string,
   jobId: string,
   subtitleFileId: string,
 ): Promise<MagnetSubtitle> {
-  const url =
-    `${COMPANION_ORIGIN}/v1/source/torrents/${encodeURIComponent(jobId)}/subtitle` +
-    `?token=${encodeURIComponent(token)}&file=${encodeURIComponent(subtitleFileId)}`;
+  let url = `${COMPANION_ORIGIN}/v1/source/torrents/${encodeURIComponent(jobId)}/subtitle` +
+    `?token=${encodeURIComponent(token)}`;
+  // The companion auto-detects the embedded subtitle when no file id is
+  // given (sub-to-sub without an explicit subtitle selection).
+  if (subtitleFileId !== '') {
+    url += `&file=${encodeURIComponent(subtitleFileId)}`;
+  }
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) {
     throw new Error(`companion subtitle fetch failed (${res.status})`);

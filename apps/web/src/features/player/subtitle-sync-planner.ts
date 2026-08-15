@@ -10,6 +10,7 @@ export type SourceKind = 'youtube' | 'local' | 'magnet';
 export type SyncPlan =
   | { kind: 'skip-youtube' }
   | { kind: 'sub-to-sub'; refText: string; refFormat: string }
+  | { kind: 'sub-to-sub-auto-ref' }
   | { kind: 'sub-to-audio-local' }
   | { kind: 'sub-to-audio-magnet' }
   | { kind: 'no-reference-subtitle' };
@@ -17,8 +18,9 @@ export type SyncPlan =
 /**
  * Decision table (§2 7-12):
  * - youtube → skip (never sync)
- * - subtitle mode → sub-to-sub if a reference subtitle exists, else
- *   no-reference-subtitle (toast: nothing to sync against)
+ * - subtitle mode → sub-to-sub if a reference subtitle exists; on Magnet,
+ *   sub-to-sub-auto-ref (the torrent's embedded subtitle is auto-detected
+ *   and fetched as the reference); otherwise no-reference-subtitle
  * - audio mode → sub-to-audio (local / magnet variant)
  * - auto → reference subtitle first, else fall back to sub-to-audio
  */
@@ -32,8 +34,14 @@ export function planSync(
   }
   switch (mode) {
     case 'subtitle':
-      return hasReferenceSubtitle
-        ? { kind: 'sub-to-sub', refText: '', refFormat: '' }
+      if (hasReferenceSubtitle) {
+        return { kind: 'sub-to-sub', refText: '', refFormat: '' };
+      }
+      // Magnet: the companion can auto-detect the torrent's embedded
+      // subtitle (no manual subtitle pick needed) and serve it as the
+      // sub-to-sub reference.
+      return source === 'magnet'
+        ? { kind: 'sub-to-sub-auto-ref' }
         : { kind: 'no-reference-subtitle' };
     case 'audio':
       return source === 'local'

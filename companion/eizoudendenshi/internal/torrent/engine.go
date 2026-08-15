@@ -81,9 +81,11 @@ type TorrentHandle interface {
 	AvailablePrefix() int64
 	// SelectedLength is the selected video's total byte length.
 	SelectedLength() int64
-	// SubtitleContent reads the entire selected subtitle file and returns
-	// its text content. Blocks until data is available or ctx is done.
-	// Returns an error when no subtitle is selected or the read fails.
+	// SubtitleContent reads the subtitle reference text: the selected
+	// subtitle file when one was chosen, otherwise the first subtitle file
+	// in the torrent (auto-detected embedded subtitle). Blocks until data is
+	// available or ctx is done. Returns an error when the torrent has no
+	// subtitle file or the read fails.
 	SubtitleContent(ctx context.Context) (string, error)
 	// CreationDate returns the torrent's creation date as a Unix timestamp.
 	// Used as the modtime for http.ServeContent so Chrome's If-Range

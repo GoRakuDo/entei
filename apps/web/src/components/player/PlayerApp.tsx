@@ -1906,6 +1906,9 @@ export default function PlayerApp() {
    *  - skip-youtube          → no-op (button disabled for youtube)
    *  - no-reference-subtitle → toast (nothing to sync against)
    *  - sub-to-sub (magnet)   → fetch the torrent subtitle, sync to reference
+   *  - sub-to-sub-auto-ref   → magnet without a picked subtitle: the
+   *                            companion auto-detects the embedded subtitle
+   *                            and serves it as the reference
    *  - sub-to-audio-local    → decode local media → sync to audio
    *  - sub-to-audio-magnet   → SubtitleSyncDialog (wait for DL → PCM)
    */
@@ -1974,6 +1977,43 @@ export default function PlayerApp() {
           { onProgress: () => {} },
         );
         applySyncedSubtitle(synced);
+        return;
+      }
+      if (plan.kind === 'sub-to-sub-auto-ref') {
+        // No manual subtitle selection — the torrent's embedded subtitle is
+        // auto-detected by the companion (empty file id) and used as the
+        // sub-to-sub reference.
+        if (
+          jobSession.kind !== 'torrent' ||
+          !jobSession.jobId ||
+          !jobSession.token
+        ) {
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
+        try {
+          const ref = await fetchMagnetSubtitle(
+            jobSession.token,
+            jobSession.jobId,
+            '',
+          );
+          const refDetected = parseSubtitle(ref.text);
+          const synced = await syncSubtitleToReference(
+            text,
+            inFormat,
+            ref.text,
+            refDetected.format ?? 'vtt',
+            { onProgress: () => {} },
+          );
+          applySyncedSubtitle(synced);
+        } catch {
+          // 404 (no embedded subtitle in the torrent) or companion down.
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+        }
         return;
       }
       if (plan.kind === 'sub-to-audio-local') {

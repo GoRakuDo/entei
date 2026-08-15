@@ -61,7 +61,7 @@ func newAPIFakeEngine(filesSpec string) *apiFakeEngine {
 }
 
 func (e *apiFakeEngine) Start(_ context.Context, _ string) (torrent.TorrentHandle, error) {
-	h := &apiFakeHandle{files: e.files}
+	h := &apiFakeHandle{files: e.files, selected: -1, subtitleIdx: -1}
 	e.mu.Lock()
 	e.h = h
 	e.mu.Unlock()
@@ -114,14 +114,28 @@ func (h *apiFakeHandle) Select(videoFileID, subtitleFileID string) error {
 	return errors.New("invalid selection")
 }
 
-// SubtitleContent returns the subtitle file content as text.
+// SubtitleContent returns the subtitle file content as text. When no
+// subtitle was selected, the first subtitle file in the torrent is
+// auto-detected (embedded-subtitle reference), mirroring the real engine.
 func (h *apiFakeHandle) SubtitleContent(_ context.Context) (string, error) {
-	if h.subtitleIdx < 0 || h.subtitleIdx >= len(h.files) {
+	idx := h.subtitleIdx
+	if idx < 0 {
+		for i, f := range h.files {
+			if f.Kind == torrent.KindSubtitle {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return "", errors.New("subtitle not selected")
+		}
+	}
+	if idx >= len(h.files) {
 		return "", errors.New("subtitle not selected")
 	}
 	// Return deterministic content based on the file's extension.
 	ext := ""
-	base := h.files[h.subtitleIdx].Path
+	base := h.files[idx].Path
 	if idx := strings.LastIndexByte(base, '.'); idx >= 0 {
 		ext = base[idx+1:]
 	}
@@ -239,10 +253,14 @@ func (t *trackedEngines) byIndex(i int) *apiFakeEngine {
 }
 
 func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager, *trackedEngines) {
+	return newTorrentsServerSpec(t, "Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10")
+}
+
+func newTorrentsServerSpec(t *testing.T, spec string) (*Server, *torrent.Manager, *trackedEngines) {
 	t.Helper()
 	tracked := &trackedEngines{}
 	m, err := torrent.New(torrent.Config{
-		EngineFactory: tracked.factory("Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10"),
+		EngineFactory: tracked.factory(spec),
 		Timeout:       20 * time.Second,
 	})
 	if err != nil {
@@ -1354,10 +1372,14 @@ func TestTorrentSubtitleContentAfterSelection(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 
-	// Before selection, subtitle endpoint returns 404.
+	// Before selection, the embedded subtitle (Episode 01.ass) is
+	// auto-detected and served.
 	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("subtitle before selection = %d, want 404", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subtitle before selection = %d, want 200 (auto-detected)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Hello world") {
+		t.Errorf("auto-detected subtitle body = %q, want 'Hello world'", rec.Body.String())
 	}
 
 	// Select video + subtitle.
@@ -1435,10 +1457,9 @@ func TestTorrentSubtitleContentAfterSelection(t *testing.T) {
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
 }
 
-// TestTorrentSubtitleContentNotFoundWithoutSubtitle verifies that GET
-// /v1/source/torrents/{id}/subtitle returns 404 when only a video is
-// selected (no subtitle).
-func TestTorrentSubtitleContentNotFoundWithoutSubtitle(t *testing.T) {
+// TestTorrentSubtitleContentAutoDetected verifies that a video-only
+// selection still serves the torrent's embedded subtitle.
+func TestTorrentSubtitleContentAutoDetected(t *testing.T) {
 	s, _, tracked := newTorrentsServer(t)
 
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
@@ -1490,10 +1511,50 @@ func TestTorrentSubtitleContentNotFoundWithoutSubtitle(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 
-	// Subtitle endpoint returns 404 when no subtitle is selected.
+	// The embedded subtitle (Episode 01.ass) is auto-detected and served.
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subtitle without explicit selection = %d, want 200 (auto-detected)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Hello world") {
+		t.Errorf("auto-detected subtitle body = %q, want 'Hello world'", rec.Body.String())
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentSubtitleNotFoundWithoutSubtitleFile verifies that GET
+// /v1/source/torrents/{id}/subtitle returns 404 when the torrent has no
+// subtitle file at all (nothing to auto-detect).
+func TestTorrentSubtitleNotFoundWithoutSubtitleFile(t *testing.T) {
+	s, _, _ := newTorrentsServerSpec(t, "Episode 01.mkv:200|readme.txt:10")
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
 	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("subtitle without selection = %d, want 404", rec.Code)
+		t.Fatalf("subtitle with no subtitle file = %d, want 404; body=%q", rec.Code, rec.Body.String())
 	}
 
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
