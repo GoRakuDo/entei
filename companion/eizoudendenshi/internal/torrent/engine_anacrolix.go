@@ -559,10 +559,11 @@ func SafeCloseReader(r io.Closer) {
 // "Now" (highest urgency) and the readahead window "Readahead" — the head
 // pieces are requested immediately, without waiting for the player's first
 // HTTP range request. The read blocks until the first verified piece
-// arrives or ctx ends, then the reader is closed right away (it does NOT
-// stay open until ctx.Done — see below). Reads pull from shared piece
-// storage, so no data is consumed that the HTTP readers need, and the
-// manager's state machine is never blocked.
+// arrives or ctx ends; the demand persists while the reader lives, so the
+// goroutine parks on ctx.Done and closes the reader on job end (the close
+// is guarded by SafeCloseReader). Reads pull from shared piece storage, so
+// no data is consumed that the HTTP readers need, and the manager's state
+// machine is never blocked.
 func (h *anacrolixHandle) StartBootstrap(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -578,7 +579,7 @@ func (h *anacrolixHandle) StartBootstrap(ctx context.Context) error {
 	}
 	go func() {
 		// The goroutine-level recover catches panics from r.Read(); the
-		// SafeCloseReader calls below separately catch panics from r.Close().
+		// SafeCloseReader defer below catches panics from r.Close().
 		// Both are needed — anacrolix v1.61.0 can panic in its invariant
 		// check (checkPendingPiecesMatchesRequestOrder) from either path.
 		// The torrent state is still usable; log and keep the process alive.
@@ -587,19 +588,18 @@ func (h *anacrolixHandle) StartBootstrap(ctx context.Context) error {
 				h.log.Errorf("torrent.engine", "recovered panic in StartBootstrap reader: %v", rec)
 			}
 		}()
-		// A single read registers the demand (Seek alone does not: the
-		// reader's piece range is empty until the first Read) and returns
-		// as soon as the head byte is available. Close immediately
-		// afterwards: keeping the reader open until ctx.Done() lets DL
-		// progress pile up pending pieces, and closing it later trips
-		// anacrolix's invariant check (v1.61.0 bug). The HTTP readers take
-		// over the piece demand once the head byte is out.
+		// Keep the bootstrap reader alive until the job context ends: its
+		// readahead is what keeps requesting the head pieces. Closing it
+		// after the first byte (6dbfe2e attempt) left no reader demanding
+		// the head — effective priority dropped to None and DL stalled.
+		// The close is guarded by SafeCloseReader (anacrolix v1.61.0
+		// invariant-check panic); the process stays alive.
+		defer SafeCloseReader(r)
 		buf := make([]byte, 1)
 		if _, err := r.Read(buf); err != nil {
-			SafeCloseReader(r)
 			return // ctx done or torrent closed; demand moot
 		}
-		SafeCloseReader(r)
+		<-ctx.Done()
 	}()
 	return nil
 }
