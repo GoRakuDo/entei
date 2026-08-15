@@ -27,7 +27,8 @@ const COMPANION_ORIGIN = 'http://127.0.0.1:4322';
 
 /** Subtitle fetch bound: slightly longer than the companion's 30s
  *  SubtitleContent timeout, so a slow swarm fails cleanly on the web side
- *  instead of hanging the sync button indefinitely. */
+ *  instead of hanging the sync button indefinitely.
+ *  Must stay > subtitleReadTimeout in engine_anacrolix.go. */
 const MAGNET_SUBTITLE_TIMEOUT_MS = 35_000;
 
 /** Clamp 0..100 DL percent from /v1/media/status. */

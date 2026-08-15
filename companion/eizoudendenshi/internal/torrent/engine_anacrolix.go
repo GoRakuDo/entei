@@ -777,6 +777,10 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 	// readable while the download is still in progress (not only after the
 	// media completes). The read is bounded by subtitleReadTimeout so a slow
 	// swarm fails cleanly instead of hanging the sync button.
+	// Responsive mode returns chunks as they arrive, without waiting for
+	// piece verification. For tiny subtitle files (<1 MiB) this trades
+	// unverified-chunk risk for availability: pieces verify quickly and
+	// the reference read is bounded by subtitleReadTimeout below.
 	r.SetResponsive()
 	readCtx, cancel := context.WithTimeout(ctx, subtitleReadTimeout)
 	defer cancel()

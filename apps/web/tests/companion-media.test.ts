@@ -77,6 +77,14 @@ describe('fetchMagnetSubtitle', () => {
       'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
     );
   });
+
+  it('maps an external AbortError to the same user-facing message', async () => {
+    const abortErr = new DOMException('The operation was aborted', 'AbortError');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortErr));
+    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).rejects.toThrow(
+      'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
+    );
+  });
 });
 
 describe('fetchMagnetPcm', () => {
