@@ -170,6 +170,8 @@
   max-width: 100%;
   overflow: hidden;
   cursor: pointer;
+  background-color: var(--entei-btn-hover-bg);
+  border-color: transparent;
 }
 
 /* Picker button hover — match the unified button hover color (the shadcn
@@ -5556,7 +5558,13 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-jimaku-search-dialog {
   max-width: 28rem;
-}
+  }
+
+/* Dialog title — pixel/brand font (Pixelify Sans), matching the settings
+   modal titles (design: tokens.css --entei-font-system). */
+.entei-jimaku-search-dialog .entei-jimaku-search-title {
+  font-family: var(--entei-font-system);
+  }
 
 .entei-jimaku-search-body {
   display: flex;
@@ -5637,7 +5645,9 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-jimaku-search-settings-btn {
   min-height: var(--entei-touch-min);
-}
+  background-color: var(--entei-btn-hover-bg);
+  border-color: transparent;
+  }
 
 .entei-jimaku-search-section {
   display: flex;
