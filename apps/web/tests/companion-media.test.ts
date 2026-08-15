@@ -106,6 +106,16 @@ describe('fetchMagnetPcm', () => {
       expect(e.total).toBe(100);
     });
   });
+
+  it('maps a 404 to a user-facing unavailable message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('nope', { status: 404 })),
+    );
+    await expect(fetchMagnetPcm('tok')).rejects.toThrow(
+      'voice-based sync is unavailable: no active media',
+    );
+  });
 });
 
 describe('fetchMediaStatus', () => {

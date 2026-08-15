@@ -92,7 +92,14 @@ export async function fetchMagnetPcm(
     throw new CompanionBufferingError(available, total);
   }
   if (!res.ok) {
-    throw new Error(`companion PCM fetch failed (${res.status})`);
+    // 404: the companion has no active media to convert (no Magnet session
+    // with a selected file, no fixture, or ffmpeg disabled) — surface a
+    // message instead of the raw status.
+    throw new Error(
+      res.status === 404
+        ? 'voice-based sync is unavailable: no active media'
+        : `companion PCM fetch failed (${res.status})`,
+    );
   }
   const sampleRate = Number(res.headers.get('x-sample-rate') ?? 16000);
   const buf = await res.arrayBuffer();

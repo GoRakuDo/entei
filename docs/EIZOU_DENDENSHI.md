@@ -789,3 +789,8 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 - **metadata フェーズ診断**: 実機（Android / Termux）で「Seed 300台なのに metadata timed out（2分）→ job解放 → 404」が発生（コード側の脱落の可能性）。診断ログ（engine diag: peers / active / seeders / halfopen / dht_nodes / dht_good / announce_ok / announce_tried / v2 / v1 / head）を「選択後」だけでなく**metadata 取得待ち（`AddMagnet` 直後〜GotInfo）にも10秒間隔**で出力（`diagLoop` を移動・`t.Info()==nil` でも安全・redaction 契約維持）。timeout は 2 分のまま（変更しない）。
 - **CORS LAN デフォルト許可**: スマホの dev-server origin 問題のため、デフォルト許可に **`http://192.168.100.*:4321`**（192.168.100.0/24:4321）を追加（ユーザー決定・ローカル IP・token 併用）。`isLANDevOrigin` で octet を 0-255 検証し、ポート違い / https / 別サブネット / 不正値を拒否。既存の localhost・`https://entei.gorakudo.org`・`--allow-origin` は不変。Mimo 独立レビュー（新しい部屋）完全 APPROVE、`go test -race` 10/10。
 
+### 開発記録（2026-08-16）: `/v1/media/pcm` の Magnet 対応（sub-to-audio Phase 2）
+
+- **`/v1/media/pcm` が「growSource（fixture）」と「現在の Magnet ジョブの選択メディア」の両方に対応**（commit 8752122）。`internal/torrent/media_source.go` の `torrentMediaSource` アダプタが選択メディアを `media.GrowingSource` に適合（`ReadAt` = 共有 anacrolix `HTTPReader` の Seek+Read・mutex 直列化・`Available` = 検証済み prefix・ジョブ終了後は fail closed）。`pcm.go` はソース解決を growSource → `torrents.SelectedMediaSource()` のフォールバックに変更し、**404 でも CORS ヘッダーを付与**（ブラウザの Failed to fetch を解消）。503 buffering 契約（`available`/`total` → Retry-After）は fixture / Magnet 共通。
+- **web 側**: Magnet の sub-to-audio 字幕同期（`fetchMagnetPcm` → `SubtitleSyncDialog` の DL % ポーリング → complete で同期）がこの拡張で動作。`fetchMagnetPcm` の 404 は技術文言（`companion PCM fetch failed (404)`）ではなくユーザー向け文言（`voice-based sync is unavailable: no active media`）を返すよう調整。
+
