@@ -146,6 +146,7 @@ import {
   runAnkiConnectionFlow,
 } from '@/features/player/anki-connect';
 import {
+  dispatchOpenSettings,
   listenForAnkiSessionCredentials,
   listenForSubtitleSettingsChange,
   type SubtitleSettings,
@@ -625,6 +626,14 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
     setJimakuSearchPrefill({ title: mediaName });
     setIsJimakuSearchOpen(true);
   }, [mediaName]);
+
+  // P4: "Open settings" from the jimaku search modal — the settings modal
+  // lives in the TopBar island, so bridge via CustomEvent; close the search
+  // modal so the two never stack.
+  const handleOpenSettingsFromSearch = useCallback(() => {
+    dispatchOpenSettings();
+    setIsJimakuSearchOpen(false);
+  }, []);
 
   const handleMagnetJobAccepted = useCallback(
     (jobId: string, selectedName: string, subtitleFileId: string) => {
@@ -3882,6 +3891,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
         initialAnime={jimakuSearchPrefill.anime}
         onSubtitleLoaded={handleSubtitleText}
         onToast={handleJimakuToast}
+        onOpenSettings={handleOpenSettingsFromSearch}
         dict={dict}
       />
       <MiningPreviewDialog

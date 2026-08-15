@@ -15,7 +15,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Search } from 'lucide-react';
+import { ChevronLeft, Search, Settings } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -50,6 +50,7 @@ export interface JimakuSearchDialogDict {
   jimakuSearchSelectEntry: string;
   jimakuSearchOpenButton: string;
   jimakuSearchNoKey: string;
+  jimakuOpenSettings: string;
   jimakuSearchBack: string;
   jimakuRateLimit: string;
   jimakuAuthError: string;
@@ -74,6 +75,8 @@ interface JimakuSearchDialogProps {
   onSubtitleLoaded: (text: string) => void;
   /** Localized toast (rate-limit / auth / key-missing), design §2.2-7. */
   onToast: (kind: 'rate-limit' | 'auth' | 'key-missing') => void;
+  /** Opens the settings modal (where the API key is managed). */
+  onOpenSettings: () => void;
   dict: JimakuSearchDialogDict;
 }
 
@@ -84,6 +87,7 @@ export function JimakuSearchDialog({
   initialAnime,
   onSubtitleLoaded,
   onToast,
+  onOpenSettings,
   dict,
 }: JimakuSearchDialogProps) {
   const [status, setStatus] = useState<JimakuSearchStatus>('idle');
@@ -98,6 +102,17 @@ export function JimakuSearchDialog({
   // are aborted so an older search or file fetch can never win.
   const epochRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Keep the no-key error in sync with the stored API key: the user may set
+  // the key in the settings modal while this dialog stays open, and the
+  // stale "set your key" message must not linger.
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => {
+      setNoKey(!readJimakuPreferences().apiKey);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [open]);
 
   // Reset to a fresh form every time the dialog opens, with the caller's
   // pre-fill (current media name) and the persisted/derived anime state.
@@ -345,9 +360,21 @@ export function JimakuSearchDialog({
           </Button>
 
           {noKey && (
-            <p className="entei-jimaku-search-error" role="alert">
-              {dict.jimakuSearchNoKey}
-            </p>
+            <div className="entei-jimaku-search-no-key">
+              <p className="entei-jimaku-search-error" role="alert">
+                {dict.jimakuSearchNoKey}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onOpenSettings}
+                className="entei-jimaku-search-settings-btn"
+              >
+                <Settings size={14} aria-hidden="true" />
+                <span>{dict.jimakuOpenSettings}</span>
+              </Button>
+            </div>
           )}
 
           {/* Entry list (results stage) */}

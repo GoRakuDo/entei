@@ -5605,6 +5605,18 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
+.entei-jimaku-search-no-key {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--entei-space-8);
+  margin-top: var(--entei-space-8);
+}
+
+.entei-jimaku-search-settings-btn {
+  min-height: var(--entei-touch-min);
+}
+
 .entei-jimaku-search-section {
   display: flex;
   flex-direction: column;

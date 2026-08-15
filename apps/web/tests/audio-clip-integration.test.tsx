@@ -361,6 +361,7 @@ const mockDict = {
   jimakuSearchSelectEntry: 'Select an entry to see files',
   jimakuSearchOpenButton: 'Search jimaku subtitles',
   jimakuSearchNoKey: 'Set your jimaku API key in settings',
+  jimakuOpenSettings: 'Open settings',
   jimakuSearchBack: 'Back',
 };
 

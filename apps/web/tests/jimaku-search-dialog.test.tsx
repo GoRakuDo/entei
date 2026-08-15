@@ -35,6 +35,7 @@ const dict = en.playerUI;
 const onOpenChange = vi.fn();
 const onSubtitleLoaded = vi.fn();
 const onToast = vi.fn();
+const onOpenSettings = vi.fn();
 
 function renderDialog(open = true) {
   return render(
@@ -45,6 +46,7 @@ function renderDialog(open = true) {
       initialAnime={true}
       onSubtitleLoaded={onSubtitleLoaded}
       onToast={onToast}
+      onOpenSettings={onOpenSettings}
       dict={dict}
     />,
   );
@@ -68,6 +70,7 @@ describe('JimakuSearchDialog', () => {
     vi.clearAllMocks();
     // Restore the shared prefs fixture (tests may mutate it, e.g. no-key).
     prefs.apiKey = 'test-key';
+    vi.useRealTimers();
   });
 
   it('pre-fills the title from the media name and searches on button click', async () => {
@@ -229,6 +232,27 @@ describe('JimakuSearchDialog', () => {
     expect(screen.getByText(dict.jimakuSearchNoKey)).toBeTruthy();
     await searchForEntry();
     expect(onToast).toHaveBeenCalledWith('key-missing');
+  });
+
+  it('clears the no-key message when the key is set while the dialog is open', async () => {
+    vi.useFakeTimers();
+    prefs.apiKey = '';
+    renderDialog();
+    expect(screen.getByText(dict.jimakuSearchNoKey)).toBeTruthy();
+
+    // The key is set in the settings modal — the 1s poll notices it.
+    prefs.apiKey = 'new-key';
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.queryByText(dict.jimakuSearchNoKey)).toBeNull();
+  });
+
+  it('opens the settings modal from the no-key message', () => {
+    prefs.apiKey = '';
+    renderDialog();
+    fireEvent.click(screen.getByText(dict.jimakuOpenSettings));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it('persists the anime/drama toggle and re-searches with the new flag', async () => {

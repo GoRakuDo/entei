@@ -157,6 +157,7 @@ export interface Dictionary {
     jimakuSearchSelectEntry: string;
     jimakuSearchOpenButton: string;
     jimakuSearchNoKey: string;
+    jimakuOpenSettings: string;
     jimakuSearchBack: string;
     subtitleSyncButton: string;
     subtitleSyncButtonLabel: string;
