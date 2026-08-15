@@ -331,7 +331,7 @@ export const en: Dictionary = {
   subtitleSyncButtonLabel: 'Sync subtitle timing',
   subtitleSyncNoReference: 'No base subtitle in this video, cannot sync',
   subtitleSyncNoSubtitle: 'No subtitle loaded',
-  subtitleSyncWaitTitle: 'Voice-based sync unavailable',
+    subtitleSyncWaitTitle: 'Voice sync unavailable',
   subtitleSyncWaitDesc:
     'Streaming video requires full download for voice sync. Wait a bit longer?',
   subtitleSyncWaitCancel: 'Cancel',

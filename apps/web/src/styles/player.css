@@ -337,6 +337,66 @@
   cursor: not-allowed;
 }
 
+/* --- SubtitleSyncDialog (sub-to-audio DL wait, SubtitleSyncDialog.tsx) --- */
+.entei-subtitle-sync-dialog {
+  max-width: 28rem;
+}
+
+.entei-subtitle-sync-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-16) var(--entei-space-24);
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+.entei-subtitle-sync-dialog-cancel,
+.entei-subtitle-sync-dialog-confirm {
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-16);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-subtitle-sync-dialog-cancel {
+  background-color: transparent;
+  border: 1px solid var(--entei-text-muted);
+  color: var(--entei-text);
+}
+
+.entei-subtitle-sync-dialog-cancel:hover:not(:disabled) {
+  background-color: var(--entei-btn-hover-bg);
+}
+
+.entei-subtitle-sync-dialog-confirm {
+  background-color: var(--entei-accent);
+  border: 1px solid transparent;
+  color: var(--entei-text);
+}
+
+.entei-subtitle-sync-dialog-confirm:hover:not(:disabled) {
+  background-color: var(--entei-accent-hover);
+}
+
+.entei-subtitle-sync-dialog-progress {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--entei-touch-min);
+  font-family: var(--entei-font-body);
+  color: var(--entei-text-secondary);
+}
+
+.entei-subtitle-sync-dialog-error {
+  margin-top: var(--entei-space-12);
+  color: var(--color-destructive);
+}
+
 /* --- Subtitle Row --- */
 .entei-player-subtitle-row {
   display: flex;

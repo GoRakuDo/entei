@@ -335,7 +335,7 @@ export const id: Dictionary = {
   subtitleSyncButtonLabel: 'Sinkronkan waktu subtitle',
   subtitleSyncNoReference: 'Tidak ada subtitle dasar di video ini, tidak dapat disinkronkan',
   subtitleSyncNoSubtitle: 'Tidak ada subtitle yang dimuat',
-  subtitleSyncWaitTitle: 'Sinkronisasi berbasis suara tidak tersedia',
+    subtitleSyncWaitTitle: 'Sinkron suara tak tersedia',
   subtitleSyncWaitDesc:
     'Video streaming memerlukan unduhan penuh untuk sinkronisasi suara. Tunggu sedikit lebih lama?',
   subtitleSyncWaitCancel: 'Batal',
