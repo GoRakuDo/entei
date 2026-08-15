@@ -2262,6 +2262,13 @@
 }
 
 /* JIMAKU.CC settings (P2) — API key input + auto-load switch */
+.entei-jimaku-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-16) 0;
+}
+
 .entei-jimaku-key-row {
   display: flex;
   flex-direction: column;
