@@ -43,6 +43,33 @@ func buildNestedTestInfo(t *testing.T, name string, paths [][]string) *metainfo.
 	return info
 }
 
+// panicCloseCloser models an anacrolix reader whose Close trips the
+// invariant-check panic (checkPendingPiecesMatchesRequestOrder, v1.61.0 bug).
+type panicCloseCloser struct {
+	closed bool
+}
+
+func (p *panicCloseCloser) Close() error {
+	p.closed = true
+	panic("piece request order has {} and pending pieces has {62,63}")
+}
+
+// TestSafeCloseReaderRecoversPanic pins the process-survival contract: a
+// reader Close that panics inside anacrolix must be recovered and logged,
+// never propagate into the caller (a panic there would kill the process).
+func TestSafeCloseReaderRecoversPanic(t *testing.T) {
+	c := &panicCloseCloser{}
+	SafeCloseReader(c) // must not panic
+	if !c.closed {
+		t.Fatal("SafeCloseReader did not call Close")
+	}
+}
+
+// TestSafeCloseReaderNilNoop pins nil-safety (no panic on a nil closer).
+func TestSafeCloseReaderNilNoop(t *testing.T) {
+	SafeCloseReader(nil) // must not panic
+}
+
 func newHandleForInfo(t *testing.T, info *metainfo.Info) *anacrolixHandle {
 	t.Helper()
 	ib, err := bencode.Marshal(info)

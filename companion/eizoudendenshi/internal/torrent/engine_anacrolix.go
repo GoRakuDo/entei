@@ -236,7 +236,9 @@ func (e *engineAnacrolix) Start(ctx context.Context, magnet string) (TorrentHand
 		return nil, errV2Unsupported
 	}
 	e.log.Infof("torrent.engine", "metadata ok files=%d", len(t.Files()))
-	return newAnacrolixHandle(t), nil
+	h := newAnacrolixHandle(t)
+	h.log = e.log
+	return h, nil
 }
 
 // isV2Only reports whether the torrent is a v2-only torrent (BEP 52): the
@@ -363,6 +365,7 @@ type anacrolixHandle struct {
 	selected    *torrent.File
 	subtitleIdx int // index into h.t.Files(); -1 = none
 	mu          sync.Mutex
+	log         *diag.Logger // nil-safe; set by the engine for diagnostics
 }
 
 func newAnacrolixHandle(t *torrent.Torrent) *anacrolixHandle {
@@ -525,16 +528,34 @@ func tailWindowPieces(f *torrent.File) (begin, end int) {
 	return tailBegin, fileEnd
 }
 
+// SafeCloseReader closes an anacrolix torrent reader, recovering the
+// invariant-check panic (checkPendingPiecesMatchesRequestOrder — anacrolix
+// v1.61.0 bug) that can fire when a reader closes while a large number of
+// pieces are still pending (e.g. a job ends mid-download). The torrent
+// state remains usable after the panic; we log it and keep the process
+// alive. Use this instead of a plain Close for every torrent-backed reader.
+func SafeCloseReader(r io.Closer) {
+	if r == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("recovered panic closing torrent reader", "panic", rec)
+		}
+	}()
+	_ = r.Close()
+}
+
 // StartBootstrap registers an anacrolix Reader demand for the selected
 // video's head. A dedicated reader seeks to byte 0 and issues one bounded
 // read: anacrolix's Reader scheduling then marks the first demanded piece
 // "Now" (highest urgency) and the readahead window "Readahead" — the head
 // pieces are requested immediately, without waiting for the player's first
 // HTTP range request. The read blocks until the first verified piece
-// arrives or ctx ends; the demand persists while the reader lives, so the
-// goroutine parks on ctx.Done and closes the reader on job end. Reads pull
-// from shared piece storage, so no data is consumed that the HTTP readers
-// need, and the manager's state machine is never blocked.
+// arrives or ctx ends, then the reader is closed right away (it does NOT
+// stay open until ctx.Done — see below). Reads pull from shared piece
+// storage, so no data is consumed that the HTTP readers need, and the
+// manager's state machine is never blocked.
 func (h *anacrolixHandle) StartBootstrap(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -545,19 +566,32 @@ func (h *anacrolixHandle) StartBootstrap(ctx context.Context) error {
 	r.SetContext(ctx)
 	r.SetReadahead(bootstrapWindowBytes)
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		_ = r.Close()
+		SafeCloseReader(r)
 		return err
 	}
 	go func() {
-		defer r.Close()
+		// anacrolix's internal invariant check (checkPendingPiecesMatches
+		// RequestOrder) can panic when a reader is closed mid priority
+		// update. The torrent state is still usable; log and keep the
+		// process alive.
+		defer func() {
+			if rec := recover(); rec != nil {
+				h.log.Errorf("torrent.engine", "recovered panic in StartBootstrap reader: %v", rec)
+			}
+		}()
 		// A single read registers the demand (Seek alone does not: the
-		// reader's piece range is empty until the first Read) and parks
-		// until the head piece completes or the job context ends.
+		// reader's piece range is empty until the first Read) and returns
+		// as soon as the head byte is available. Close immediately
+		// afterwards: keeping the reader open until ctx.Done() lets DL
+		// progress pile up pending pieces, and closing it later trips
+		// anacrolix's invariant check (v1.61.0 bug). The HTTP readers take
+		// over the piece demand once the head byte is out.
 		buf := make([]byte, 1)
 		if _, err := r.Read(buf); err != nil {
+			SafeCloseReader(r)
 			return // ctx done or torrent closed; demand moot
 		}
-		<-ctx.Done()
+		SafeCloseReader(r)
 	}()
 	return nil
 }
@@ -650,7 +684,7 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 	f := anacrolixFiles[idx]
 	r := f.NewReader()
 	r.SetContext(ctx)
-	defer r.Close()
+	defer SafeCloseReader(r)
 	// Read the entire subtitle file (typically small, <1 MB).
 	var buf strings.Builder
 	tmp := make([]byte, 32*1024)

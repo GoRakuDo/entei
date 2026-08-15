@@ -26,7 +26,9 @@ import {
 import { Button } from '@/components/player/ui/button';
 import { Input } from '@/components/player/ui/input';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
+import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { readYtDownloadMode } from '@/features/player/yt-download-mode';
+import { waitForPlayable } from '@/features/player/companion-media';
 
 /** Loopback companion origin; the only accepted job endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -117,15 +119,22 @@ export function YouTubeInput({
   // mutate UI state.
   const mountedRef = useRef(true);
   const openRef = useRef(open);
+  // Aborts the playable-wait poll when the dialog closes or unmounts (the
+  // late result is additionally dropped by the mounted/open guards).
+  const waitAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      waitAbortRef.current?.abort();
     };
   }, []);
   useEffect(() => {
     openRef.current = open;
-    if (!open) setSubmitting(false);
+    if (!open) {
+      setSubmitting(false);
+      waitAbortRef.current?.abort();
+    }
   }, [open]);
 
   // Clear the URL and error whenever the dialog (re)opens.
@@ -180,6 +189,24 @@ export function YouTubeInput({
           return;
         }
         if (!mountedRef.current || !openRef.current) return; // stale close/unmount
+        // Job created — wait until the companion reports playable before
+        // handing it to the Player; otherwise the Player mounts a media
+        // element over a still-preparing job and shows the "Unduhan gagal"
+        // error fallback. The wait stays inside the modal (the submit
+        // button shows the loading animation).
+        waitAbortRef.current?.abort();
+        const waitAbort = new AbortController();
+        waitAbortRef.current = waitAbort;
+        const playable = await waitForPlayable(token, {
+          signal: waitAbort.signal,
+        });
+        if (!mountedRef.current || !openRef.current) return; // stale close/unmount
+        if (!playable.ok) {
+          // Do NOT hand the job to the Player — stay in the modal with a
+          // localized error (companion down / job error / timeout).
+          setError(playable.reason === 'network' ? 'network' : 'generic');
+          return;
+        }
         setUrl('');
         setSubmitting(false);
         onJobAccepted(jobId);
@@ -242,10 +269,16 @@ export function YouTubeInput({
               className="entei-youtube-form-submit"
               onClick={() => void handleSubmit()}
               disabled={submitting || url.trim() === ''}
+              aria-label={dict.youtubeInputSubmit}
             >
-              {submitting
-                ? dict.youtubeInputSubmitting
-                : dict.youtubeInputSubmit}
+              {submitting ? (
+                <TypewriterLoading
+                  aria-hidden="true"
+                  className="entei-typewriter--btn"
+                />
+              ) : (
+                dict.youtubeInputSubmit
+              )}
             </Button>
           </div>
         ) : null}

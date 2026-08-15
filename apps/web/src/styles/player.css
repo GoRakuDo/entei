@@ -4344,6 +4344,13 @@ html.entei-player-immersive .entei-player-audio-area {
   animation: entei-caret-blink 0.6s ease-in-out infinite alternate;
 }
 
+/* Typewriter inside a submit button (Magnet / YouTube source dialogs):
+   keep the animated text on one line so the button never grows during the
+   playable wait. */
+.entei-typewriter--btn {
+  white-space: nowrap;
+}
+
 @keyframes entei-caret-blink {
   from { opacity: 1; }
   to   { opacity: 0; }

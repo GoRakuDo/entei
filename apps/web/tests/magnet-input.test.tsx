@@ -492,6 +492,8 @@ describe('MagnetInput — selection contracts (checkbox per kind)', () => {
       jsonResponse({ state: 'buffering', media: { available: 5_000_000, total: 5_000_000 } }, 200),
       jsonResponse({ files: TWO_VIDEOS }, 200),
       jsonResponse({ id: 'jobRep', state: 'complete' }, 200),
+      // /v1/media/status poll → playable (accepted job becomes playable).
+      jsonResponse({ state: 'playable', available: 5_000_000, total: 5_000_000 }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
@@ -530,6 +532,8 @@ describe('MagnetInput — selection flow', () => {
       jsonResponse({ state: 'buffering', media: { available: 2_000_000, total: 2_000_000 } }, 200),
       jsonResponse({ files: FILES }, 200),
       jsonResponse({ id: 'jobSel', state: 'complete' }, 200),
+      // /v1/media/status poll → playable (accepted job becomes playable).
+      jsonResponse({ state: 'playable', available: 2_000_000, total: 2_000_000 }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
@@ -1187,6 +1191,8 @@ describe('MagnetInput — folder navigation robustness', () => {
       ), // root files: folder only
       jsonResponse({ files: [FILES[0], FILES[1]] }, 200), // inside Subs: video + subtitle
       jsonResponse({ id: 'jobFoldOnly', state: 'complete' }, 200), // select ack
+      // /v1/media/status poll → playable (accepted job becomes playable).
+      jsonResponse({ state: 'playable', available: 2_000_000, total: 2_000_000 }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();

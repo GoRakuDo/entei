@@ -109,3 +109,97 @@ export async function fetchMediaStatus(
   }
   return (await res.json()) as MediaStatus;
 }
+
+export interface WaitForPlayableOptions {
+  /** Poll interval in ms (default 1000). */
+  intervalMs?: number;
+  /** Hard timeout in ms (default 120000 = 2 min). */
+  timeoutMs?: number;
+  /** Abort signal — stops polling immediately (close / unmount). */
+  signal?: AbortSignal;
+  /** Optional per-poll progress callback (status snapshot). */
+  onState?: (status: MediaStatus) => void;
+}
+
+export type PlayableWaitResult =
+  | { ok: true; reason: 'playable' }
+  | { ok: false; reason: 'error' | 'network' | 'timeout' | 'aborted' };
+
+/**
+ * Poll /v1/media/status until the active companion job becomes playable.
+ *
+ * The caller (Magnet / YouTube source dialog) must NOT hand the job to the
+ * Player until this returns { ok: true } — otherwise the Player mounts a
+ * media element over a still-preparing job and falls into the "Unduhan
+ * gagal" error fallback. This wait stays inside the source modal so the
+ * user sees the loading animation instead of an error stack.
+ *
+ * Resolution rules:
+ *   - `playable` / `complete` state  → ok:true
+ *   - `error` state                  → ok:false ('error')
+ *   - fetch failures (companion down / panic) for 5 consecutive polls
+ *                                     → ok:false ('network')
+ *   - timeoutMs elapsed              → ok:false ('timeout')
+ *   - signal aborted (close/unmount) → ok:false ('aborted')
+ *
+ * The token travels only in the query string (existing pattern) and never
+ * in logs or error text (design §9).
+ */
+export async function waitForPlayable(
+  token: string,
+  opts: WaitForPlayableOptions = {},
+): Promise<PlayableWaitResult> {
+  const intervalMs = opts.intervalMs ?? 1000;
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const maxConsecutiveFailures = 5;
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveFailures = 0;
+
+  const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+
+  while (true) {
+    if (Date.now() >= deadline) return { ok: false, reason: 'timeout' };
+    let status: MediaStatus | null = null;
+    let fetchFailed = false;
+    try {
+      status = await fetchMediaStatus(token, { signal: opts.signal });
+      consecutiveFailures = 0;
+    } catch {
+      if (opts.signal?.aborted) return { ok: false, reason: 'aborted' };
+      fetchFailed = true;
+    }
+    if (!fetchFailed && status) {
+      if (status.state === 'playable' || status.state === 'complete') {
+        opts.onState?.(status);
+        return { ok: true, reason: 'playable' };
+      }
+      if (status.state === 'error') return { ok: false, reason: 'error' };
+      opts.onState?.(status);
+    } else {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        return { ok: false, reason: 'network' };
+      }
+    }
+    try {
+      await sleep(intervalMs, opts.signal);
+    } catch {
+      return { ok: false, reason: 'aborted' };
+    }
+  }
+}

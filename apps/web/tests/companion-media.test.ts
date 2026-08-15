@@ -8,6 +8,7 @@ import {
   fetchMagnetPcm,
   fetchMagnetSubtitle,
   fetchMediaStatus,
+  waitForPlayable,
 } from '../src/features/player/companion-media';
 
 const ORIGIN = 'http://127.0.0.1:4322';
@@ -117,5 +118,103 @@ describe('fetchMediaStatus', () => {
     expect(out.available).toBe(40);
     expect(out.total).toBe(100);
     expect(dlProgressPercent(out)).toBe(40);
+  });
+});
+
+describe('waitForPlayable', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns ok immediately on a playable status', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'playable', available: 50, total: 100 }),
+      ),
+    );
+    expect(await waitForPlayable('tok')).toEqual({ ok: true, reason: 'playable' });
+  });
+
+  it('treats the complete state as playable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'complete', available: 100, total: 100 }),
+      ),
+    );
+    expect(await waitForPlayable('tok')).toEqual({ ok: true, reason: 'playable' });
+  });
+
+  it('polls until playable and reports intermediate states via onState', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ state: 'buffering', available: 10, total: 100 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ state: 'buffering', available: 40, total: 100 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ state: 'playable', available: 60, total: 100 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const seen: string[] = [];
+    const pending = waitForPlayable('tok', {
+      intervalMs: 1000,
+      onState: (s) => seen.push(s.state),
+    });
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(await pending).toEqual({ ok: true, reason: 'playable' });
+    // First poll is immediate; each subsequent poll follows one interval.
+    expect(seen).toEqual(['buffering', 'buffering', 'playable']);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns an error result on the error state', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'error', available: 0, total: 0 }),
+      ),
+    );
+    expect(await waitForPlayable('tok')).toEqual({ ok: false, reason: 'error' });
+  });
+
+  it('returns network after 5 consecutive fetch failures', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('down')));
+    const pending = waitForPlayable('tok', { intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await pending).toEqual({ ok: false, reason: 'network' });
+  });
+
+  it('returns timeout when the deadline passes', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'buffering', available: 0, total: 100 }),
+      ),
+    );
+    const pending = waitForPlayable('tok', { intervalMs: 1000, timeoutMs: 2500 });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(await pending).toEqual({ ok: false, reason: 'timeout' });
+  });
+
+  it('returns aborted when the signal aborts during the wait', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'buffering', available: 0, total: 100 }),
+      ),
+    );
+    const ac = new AbortController();
+    const pending = waitForPlayable('tok', { intervalMs: 1000, signal: ac.signal });
+    ac.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await pending).toEqual({ ok: false, reason: 'aborted' });
   });
 });

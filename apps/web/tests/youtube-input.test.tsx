@@ -65,9 +65,16 @@ describe('YouTubeInput — paired flow', () => {
   });
 
   it('submits the exact payload to the job endpoint with the token in the query', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ id: 'job123' }, 201),
-    );
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      // The playable wait polls /v1/media/status after the job is created.
+      if (url.includes('/v1/media/status')) {
+        return Promise.resolve(
+          jsonResponse({ state: 'playable', available: 0, total: 0 }, 200),
+        );
+      }
+      return Promise.resolve(jsonResponse({ id: 'job123' }, 201));
+    });
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
     const onOpenChange = vi.fn();
@@ -93,9 +100,15 @@ describe('YouTubeInput — paired flow', () => {
 
   it('sends the persisted quality mode when set in the EizouDen settings', async () => {
     localStorage.setItem(YT_MODE_KEY, '"quality"');
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ id: 'jobX' }, 201),
-    );
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      if (url.includes('/v1/media/status')) {
+        return Promise.resolve(
+          jsonResponse({ state: 'playable', available: 0, total: 0 }, 200),
+        );
+      }
+      return Promise.resolve(jsonResponse({ id: 'jobX' }, 201));
+    });
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
     render(
@@ -157,7 +170,15 @@ describe('YouTubeInput — paired flow', () => {
   });
 
   it('never touches storage during the flow', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ id: 'job123' }, 201));
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      if (url.includes('/v1/media/status')) {
+        return Promise.resolve(
+          jsonResponse({ state: 'playable', available: 0, total: 0 }, 200),
+        );
+      }
+      return Promise.resolve(jsonResponse({ id: 'job123' }, 201));
+    });
     vi.stubGlobal('fetch', fetchMock);
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
     render(<YouTubeInput {...defaultProps} />);
@@ -198,23 +219,40 @@ describe('YouTubeInput — paired flow', () => {
 
   it('disables submit while a request is in flight', async () => {
     let resolveFetch: (r: Response) => void = () => {};
-    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
-      () => new Promise<Response>((res) => { resolveFetch = res; }),
-    );
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      if (url.includes('/v1/media/status')) {
+        return Promise.resolve(
+          jsonResponse({ state: 'playable', available: 0, total: 0 }, 200),
+        );
+      }
+      return new Promise<Response>((res) => {
+        resolveFetch = res;
+      });
+    });
     vi.stubGlobal('fetch', fetchMock);
-    render(<YouTubeInput {...defaultProps} />);
+    const onJobAccepted = vi.fn();
+    render(<YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />);
     fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
     fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
-    const submit = screen.getByRole('button', { name: baseDict.youtubeInputSubmitting });
+    // While the request is in flight the button stays disabled and shows
+    // the TypewriterLoading animation (no text change needed).
+    const submit = screen.getByRole('button', { name: baseDict.youtubeInputSubmit });
     expect(submit).toBeDisabled();
     resolveFetch(jsonResponse({ id: 'job123' }, 201));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('job123'));
   });
 
   it('cancels the active job before creating a new one (auto-cancel)', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ id: 'job456' }, 201),
-    );
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      if (url.includes('/v1/media/status')) {
+        return Promise.resolve(
+          jsonResponse({ state: 'playable', available: 0, total: 0 }, 200),
+        );
+      }
+      return Promise.resolve(jsonResponse({ id: 'job456' }, 201));
+    });
     vi.stubGlobal('fetch', fetchMock);
     const cancelActiveJob = vi.fn();
     render(
@@ -224,15 +262,21 @@ describe('YouTubeInput — paired flow', () => {
     fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
 
     await waitFor(() => expect(cancelActiveJob).toHaveBeenCalledTimes(1));
-    // The new job creation request is also sent.
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // The new job creation request is sent, then the playable status poll.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('works without cancelActiveJob prop (no active job)', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ id: 'job789' }, 201),
-    );
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      if (url.includes('/v1/media/status')) {
+        return Promise.resolve(
+          jsonResponse({ state: 'playable', available: 0, total: 0 }, 200),
+        );
+      }
+      return Promise.resolve(jsonResponse({ id: 'job789' }, 201));
+    });
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
     render(
@@ -242,7 +286,8 @@ describe('YouTubeInput — paired flow', () => {
     fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
 
     await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('job789'));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Job POST + the immediate playable status poll.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

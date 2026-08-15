@@ -364,7 +364,7 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
 		return
 	}
-	defer reader.Close()
+	defer torrent.SafeCloseReader(reader)
 	fw := &flushResponseWriter{ResponseWriter: w}
 	modtime := time.Unix(s.torrents.CreationDate(), 0)
 	http.ServeContent(fw, r, fileName, modtime, reader)
