@@ -16,6 +16,7 @@ import (
 	"github.com/anacrolix/dht/v2"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
+	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
 
 	"eizoudendenshi/internal/diag"
@@ -54,6 +55,12 @@ type engineAnacrolix struct {
 	mu     sync.Mutex
 	client *torrent.Client
 	log    *diag.Logger // nil-safe; set via SetLogger before Start
+	// storage is the explicit DefaultStorage closer (stremio-server-go
+	// pattern). anacrolix v1.61 does NOT close an explicitly-provided
+	// DefaultStorage on client.Close (the onClose hook is only registered in
+	// the nil branch), so the engine owns it and releases the bolt
+	// piece-completion DB in Close.
+	storage storage.ClientImplCloser
 }
 
 // bootstrapWindowBytes is the bounded byte extent of the head bootstrap
@@ -85,13 +92,13 @@ const TailWindowBytes = 8 << 20 // 8 MiB
 const httpReadaheadBytes = 16 << 20 // 16 MiB
 
 // clientConfig returns a torrent.NewDefaultClientConfig() with the standard
-// EizouDendenshi settings applied AND an explicit private DataDir. Without
-// a DataDir, anacrolix v1.61 opens its piece-completion DB at an undefined
-// default location (observed on Windows as `couldn't open piece completion
-// db in "\" : timeout`), which fails metadata fetch. The storage dir must
-// be a non-empty ABSOLUTE directory path: empty, relative, or existing
-// non-directory paths fail closed. The dir is created with user-private
-// permissions when absent.
+// EizouDendenshi settings applied AND an explicit private DataDir +
+// DefaultStorage. Without a DataDir, anacrolix v1.61 opens its
+// piece-completion DB at an undefined default location (observed on Windows
+// as `couldn't open piece completion db in "\" : timeout`), which fails
+// metadata fetch. The storage dir must be a non-empty ABSOLUTE directory
+// path: empty, relative, or existing non-directory paths fail closed. The
+// dir is created with user-private permissions when absent.
 //
 // The peer transport intentionally binds ALL interfaces (ListenHost left at
 // the anacrolix default = empty = 0.0.0.0/::): anacrolix v1.61 runs the uTP
@@ -108,12 +115,12 @@ const httpReadaheadBytes = 16 << 20 // 16 MiB
 // Each torrent session creates its own Client from a fresh config to avoid
 // anacrolix v1.61 issue #1048 (stale tracker weakref when the same Client
 // re-adds the same infohash after Drop).
-func clientConfig(storageDir string) (*torrent.ClientConfig, error) {
+func clientConfig(storageDir string) (*torrent.ClientConfig, storage.ClientImplCloser, error) {
 	if storageDir == "" {
-		return nil, errors.New("anacrolix storage dir required")
+		return nil, nil, errors.New("anacrolix storage dir required")
 	}
 	if !filepath.IsAbs(storageDir) {
-		return nil, fmt.Errorf("anacrolix storage dir must be absolute: %q", storageDir)
+		return nil, nil, fmt.Errorf("anacrolix storage dir must be absolute: %q", storageDir)
 	}
 	// Normalize (clean ".."/"." segments, drive-letter case on Windows)
 	// after the IsAbs gate; the absolute check above is the actual
@@ -121,20 +128,28 @@ func clientConfig(storageDir string) (*torrent.ClientConfig, error) {
 	// and DataDir.
 	abs, err := filepath.Abs(storageDir)
 	if err != nil {
-		return nil, fmt.Errorf("anacrolix storage dir: %w", err)
+		return nil, nil, fmt.Errorf("anacrolix storage dir: %w", err)
 	}
 	info, err := os.Stat(abs)
 	if err == nil {
 		if !info.IsDir() {
-			return nil, fmt.Errorf("anacrolix storage dir is not a directory: %q", abs)
+			return nil, nil, fmt.Errorf("anacrolix storage dir is not a directory: %q", abs)
 		}
 	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("anacrolix storage dir: %w", err)
+		return nil, nil, fmt.Errorf("anacrolix storage dir: %w", err)
 	} else if err := os.MkdirAll(abs, 0o700); err != nil {
-		return nil, fmt.Errorf("anacrolix storage dir: %w", err)
+		return nil, nil, fmt.Errorf("anacrolix storage dir: %w", err)
 	}
 	cfg := torrent.NewDefaultClientConfig()
 	cfg.DataDir = abs
+	// stremio-server-go pattern: explicitly set DefaultStorage so NewClient
+	// never falls back to the DataDir-only path. The fallback (storage.NewFile
+	// under an OS temp dir on a Ramdisk) failed to open the bolt
+	// piece-completion DB → Map pieceCompletion fallback →
+	// storageCompletionOk false → download stall (head piece stuck at
+	// effectivePriority None).
+	stor := storage.NewFileByInfoHash(abs)
+	cfg.DefaultStorage = stor
 	// NOTE: ListenHost is deliberately NOT set — the anacrolix default
 	// (empty = all interfaces) is required for the peer transport to work
 	// (see the clientConfig doc comment above). The HTTP API is a separate
@@ -153,7 +168,7 @@ func clientConfig(storageDir string) (*torrent.ClientConfig, error) {
 	// forbids. The file log only carries the engine's own sanitized
 	// diagnostics (counts and short infohashes).
 	cfg.Slogger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	return cfg, nil
+	return cfg, stor, nil
 }
 
 // SetLogger injects the diagnostic logger (nil-safe). The manager calls it
@@ -167,15 +182,16 @@ func (e *engineAnacrolix) SetLogger(l *diag.Logger) { e.log = l }
 // piece-completion DB under the given session-private storageDir (an
 // absolute path the caller owns).
 func NewAnacrolixEngine(storageDir string) (Engine, error) {
-	cfg, err := clientConfig(storageDir)
+	cfg, stor, err := clientConfig(storageDir)
 	if err != nil {
 		return nil, err
 	}
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
+		_ = stor.Close() // release the bolt piece-completion DB on failure too
 		return nil, fmt.Errorf("anacrolix client: %w", err)
 	}
-	return &engineAnacrolix{client: cl}, nil
+	return &engineAnacrolix{client: cl, storage: stor}, nil
 }
 
 func (e *engineAnacrolix) Close() error {
@@ -186,10 +202,15 @@ func (e *engineAnacrolix) Close() error {
 	// progress.
 	e.mu.Lock()
 	cl := e.client
+	st := e.storage
 	e.client = nil
+	e.storage = nil
 	e.mu.Unlock()
 	if cl != nil {
 		cl.Close()
+	}
+	if st != nil {
+		_ = st.Close() // release the bolt piece-completion DB lock
 	}
 	return nil
 }

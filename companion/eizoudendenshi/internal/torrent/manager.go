@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -74,13 +75,16 @@ type Config struct {
 	OnMetadataTimeout func(elapsed time.Duration)
 
 	// StorageRoot is the parent directory for per-session private storage
-	// dirs. Empty selects a fresh OS temp root (os.MkdirTemp), owned by
-	// the Manager and removed on Close. A caller-provided root is never
-	// removed; only the per-session subdirectories created by the Manager
-	// are. Each torrent session gets its own subdirectory, so concurrent
-	// sessions never share anacrolix state and the piece-completion DB is
-	// always opened at an explicit absolute path (never an undefined
-	// default, which fails on Windows).
+	// dirs. Empty selects the persistent companion data directory (see
+	// defaultStorageRoot) — never the OS temp dir, which can sit on a
+	// Ramdisk where bbolt's mmap piece-completion DB fails to open and the
+	// download stalls. A caller-provided root is never removed; neither is
+	// the default root — only the per-session subdirectories the Manager
+	// creates are (plus leftover session-* dirs via CleanupStaleSessions).
+	// Each torrent session gets its own subdirectory, so concurrent sessions
+	// never share anacrolix state and the piece-completion DB is always
+	// opened at an explicit absolute path (never an undefined default, which
+	// fails on Windows).
 	StorageRoot string
 
 	// Logger, when set, receives sanitized job lifecycle diagnostics
@@ -127,7 +131,39 @@ type Manager struct {
 	evicted           map[string]*evictedState
 	closed            bool
 	storageRoot       string
-	storageRootOwned  bool
+}
+
+// defaultStorageRoot resolves the persistent per-session storage root,
+// mirroring diag.DefaultDir's platform pattern:
+//
+//   - Windows: %LOCALAPPDATA%\GoRakuDo\EizouDendenshi\torrent-sessions;
+//   - Android/Termux ($PREFIX set): $PREFIX/var/lib/eizouden/torrent-sessions;
+//   - other platforms: os.UserCacheDir()/GoRakuDo/EizouDendenshi/torrent-sessions,
+//     falling back to the OS temp dir (degraded but functional).
+//
+// The OS temp dir must be avoided for bbolt: it mmaps the piece-completion
+// DB, and a Ramdisk temp (e.g. A:\Temp) fails to open the bolt DB → anacrolix
+// falls back to an in-memory Map pieceCompletion → storageCompletionOk stays
+// false → every piece's effectivePriority is None → the download stalls.
+func defaultStorageRoot() (string, error) {
+	var base string
+	switch {
+	case runtime.GOOS == "windows":
+		b := os.Getenv("LOCALAPPDATA")
+		if b == "" {
+			return "", errors.New("torrent: LOCALAPPDATA not set")
+		}
+		base = filepath.Join(b, "GoRakuDo", "EizouDendenshi")
+	case os.Getenv("PREFIX") != "":
+		base = filepath.Join(os.Getenv("PREFIX"), "var", "lib", "eizouden")
+	default:
+		cache, err := os.UserCacheDir()
+		if err != nil || cache == "" {
+			cache = os.TempDir()
+		}
+		base = filepath.Join(cache, "GoRakuDo", "EizouDendenshi")
+	}
+	return filepath.Join(base, "torrent-sessions"), nil
 }
 
 // New validates the configuration and builds a Manager.
@@ -143,14 +179,15 @@ func New(cfg Config) (*Manager, error) {
 		evictedTTL = EvictedTTLDefault
 	}
 	storageRoot := cfg.StorageRoot
-	storageRootOwned := false
 	if storageRoot == "" {
-		dir, err := os.MkdirTemp("", "eizouden-torrent-")
+		dir, err := defaultStorageRoot()
 		if err != nil {
 			return nil, fmt.Errorf("torrent storage root: %w", err)
 		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("torrent storage root: %w", err)
+		}
 		storageRoot = dir
-		storageRootOwned = true
 	} else {
 		// A caller-provided root is validated but never removed.
 		abs, err := filepath.Abs(storageRoot)
@@ -172,7 +209,6 @@ func New(cfg Config) (*Manager, error) {
 		sessions:          make(map[string]*torrentSession),
 		evicted:           make(map[string]*evictedState),
 		storageRoot:       storageRoot,
-		storageRootOwned:  storageRootOwned,
 	}, nil
 }
 
@@ -554,11 +590,6 @@ func (m *Manager) Close() error {
 		j.stateMu.Unlock()
 		m.releaseSession(h, eng, sess.storageDir)
 	}
-	// Remove the auto-created storage root the Manager owns; a
-	// caller-provided root is never removed.
-	if m.storageRootOwned {
-		removeStorageDir(m.storageRoot)
-	}
 	return nil
 }
 
@@ -575,10 +606,9 @@ func (m *Manager) clear(j *torrentJob) {
 }
 
 // removeStorageDir removes a session storage directory the Manager created
-// with os.MkdirTemp (always absolute). Only absolute paths are removed, so
-// a misconfigured relative path can never delete something unintended; a
-// caller-provided storage root is never passed here. Removal is best-effort
-// and idempotent.
+// (always absolute). Only absolute paths are removed, so a misconfigured
+// relative path can never delete something unintended; the storage root
+// itself is never passed here. Removal is best-effort and idempotent.
 func removeStorageDir(dir string) {
 	if dir == "" || !filepath.IsAbs(dir) {
 		return

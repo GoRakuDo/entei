@@ -30,7 +30,7 @@ import (
 // upload — the transport is open, but the client never publishes or
 // uploads anything.
 func TestClientConfigBindsAllInterfaces(t *testing.T) {
-	cfg, err := clientConfig(t.TempDir())
+	cfg, stor, err := clientConfig(t.TempDir())
 	if err != nil {
 		t.Fatalf("clientConfig: %v", err)
 	}
@@ -55,7 +55,12 @@ func TestClientConfigBindsAllInterfaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new client: %v", err)
 	}
-	t.Cleanup(func() { cl.Close() })
+	t.Cleanup(func() {
+		cl.Close()
+		// The explicitly-provided DefaultStorage is owned by the caller —
+		// release the bolt piece-completion DB before the TempDir cleanup.
+		stor.Close()
+	})
 
 	listeners := cl.Listeners()
 	if len(listeners) == 0 {
