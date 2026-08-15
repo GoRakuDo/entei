@@ -306,6 +306,9 @@ func TestManagerStorageDirRemovedOnEviction(t *testing.T) {
 		EngineFactory: factory,
 		Timeout:       10 * time.Second,
 		EvictedTTL:    5 * time.Second,
+		// Hermetic root: this timing-sensitive eviction test must never race
+		// the shared persistent default (real companion) under load.
+		StorageRoot: t.TempDir(),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

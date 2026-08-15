@@ -89,6 +89,14 @@ const TailWindowBytes = 8 << 20 // 8 MiB
 // bounded to avoid excessive piece-priority churn.
 const httpReadaheadBytes = 16 << 20 // 16 MiB
 
+// subtitleReadTimeout bounds how long SubtitleContent waits for the subtitle
+// file's data. The embedded-subtitle reference is read with a responsive
+// reader (no piece-verification wait), but a slow swarm must not hang the
+// sync button forever — after this bound the read fails and the API surfaces
+// it as 404 ("subtitle not available"). Var (not const) so tests can shorten
+// it.
+var subtitleReadTimeout = 30 * time.Second
+
 // clientConfig returns a torrent.NewDefaultClientConfig() with the standard
 // EizouDendenshi settings applied AND an explicit private DataDir +
 // DefaultStorage. Without a DataDir, anacrolix v1.61 opens its
@@ -516,6 +524,18 @@ func (h *anacrolixHandle) Select(videoFileID string, subtitleFileID string) erro
 		h.t.Piece(i).SetPriority(types.PiecePriorityHigh)
 		h.t.Piece(i).UpdateCompletion()
 	}
+	// The embedded subtitle's head window gets High too: the file is small
+	// (typically <1 MiB), so the head window covers essentially all of it —
+	// its download starts immediately and SubtitleContent (responsive) can
+	// read the reference while the video is still downloading.
+	if autoSubIdx >= 0 {
+		subFile := anacrolixFiles[autoSubIdx]
+		subBegin, subEnd := headWindowPieces(subFile)
+		for i := subBegin; i < subEnd; i++ {
+			h.t.Piece(i).SetPriority(types.PiecePriorityHigh)
+			h.t.Piece(i).UpdateCompletion()
+		}
+	}
 	h.selected = anacrolixFiles[videoIdx]
 	if subIdx >= 0 {
 		h.subtitleIdx = subIdx
@@ -752,7 +772,15 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 	}
 	f := anacrolixFiles[idx]
 	r := f.NewReader()
-	r.SetContext(ctx)
+	// Responsive mode: serve chunks as soon as they arrive instead of
+	// waiting for piece verification, so the embedded-subtitle reference is
+	// readable while the download is still in progress (not only after the
+	// media completes). The read is bounded by subtitleReadTimeout so a slow
+	// swarm fails cleanly instead of hanging the sync button.
+	r.SetResponsive()
+	readCtx, cancel := context.WithTimeout(ctx, subtitleReadTimeout)
+	defer cancel()
+	r.SetContext(readCtx)
 	defer SafeCloseReader(r)
 	// Read the entire subtitle file (typically small, <1 MB).
 	var buf strings.Builder
@@ -765,6 +793,9 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				return "", fmt.Errorf("subtitle read timed out: %w", err)
 			}
 			return "", err
 		}

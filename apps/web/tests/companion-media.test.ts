@@ -69,6 +69,14 @@ describe('fetchMagnetSubtitle', () => {
       'companion subtitle fetch failed (404)',
     );
   });
+
+  it('maps an AbortSignal.timeout abort to a clear user-facing message', async () => {
+    const timeoutErr = new DOMException('The operation timed out', 'TimeoutError');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(timeoutErr));
+    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).rejects.toThrow(
+      'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
+    );
+  });
 });
 
 describe('fetchMagnetPcm', () => {

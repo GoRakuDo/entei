@@ -25,6 +25,11 @@ export interface MediaStatus {
 
 const COMPANION_ORIGIN = 'http://127.0.0.1:4322';
 
+/** Subtitle fetch bound: slightly longer than the companion's 30s
+ *  SubtitleContent timeout, so a slow swarm fails cleanly on the web side
+ *  instead of hanging the sync button indefinitely. */
+const MAGNET_SUBTITLE_TIMEOUT_MS = 35_000;
+
 /** Clamp 0..100 DL percent from /v1/media/status. */
 export function dlProgressPercent(status: MediaStatus): number {
   if (!status || status.total <= 0) return 0;
@@ -47,7 +52,28 @@ export async function fetchMagnetSubtitle(
 ): Promise<MagnetSubtitle> {
   const url = `${COMPANION_ORIGIN}/v1/source/torrents/${encodeURIComponent(jobId)}/subtitle` +
     `?token=${encodeURIComponent(token)}`;
-  const res = await fetch(url, { cache: 'no-store' });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(MAGNET_SUBTITLE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    // AbortSignal.timeout aborts the fetch with a TimeoutError DOMException
+    // (not an Error subclass in every environment) when the companion does
+    // not answer within the bound — surface a clear, user-facing message
+    // instead of the raw abort.
+    const name =
+      typeof err === 'object' && err !== null && 'name' in err
+        ? String((err as { name: unknown }).name)
+        : '';
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new Error(
+        'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
+      );
+    }
+    throw err;
+  }
   if (!res.ok) {
     throw new Error(`companion subtitle fetch failed (${res.status})`);
   }

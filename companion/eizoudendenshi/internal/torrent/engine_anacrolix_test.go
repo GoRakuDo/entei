@@ -65,6 +65,56 @@ func TestFirstSubtitleIndex(t *testing.T) {
 	}
 }
 
+// TestSubtitleContentResponsiveTimeout pins the read bound of the embedded
+// subtitle: on a torrent with no peers (data never arrives) the responsive
+// reader must fail via the subtitleReadTimeout instead of blocking the sync
+// button forever.
+func TestSubtitleContentResponsiveTimeout(t *testing.T) {
+	info := &metainfo.Info{
+		Name:        "subtitle_timeout_test.mkv",
+		PieceLength: 16384,
+	}
+	info.Files = []metainfo.FileInfo{
+		{Length: 16384 * 4, Path: []string{"ep.mkv"}},
+		{Length: 4096, Path: []string{"sub.srt"}},
+	}
+	info.Pieces = make([]byte, 5*20) // one dummy hash per piece
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	dir := t.TempDir()
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cfg.DataDir = dir
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+	tt, _ := cl.AddTorrent(&metainfo.MetaInfo{InfoBytes: ib})
+	<-tt.GotInfo()
+	h := newAnacrolixHandle(tt)
+
+	orig := subtitleReadTimeout
+	subtitleReadTimeout = 200 * time.Millisecond
+	defer func() { subtitleReadTimeout = orig }()
+
+	_, err = h.SubtitleContent(context.Background())
+	if err == nil {
+		t.Fatal("SubtitleContent on an empty torrent must fail (timeout)")
+	}
+	if !strings.Contains(err.Error(), "subtitle read timed out") {
+		t.Fatalf("SubtitleContent err = %q, want a subtitle read timeout", err)
+	}
+}
+
 // panicCloseCloser models an anacrolix reader whose Close trips the
 // invariant-check panic (checkPendingPiecesMatchesRequestOrder, v1.61.0 bug).
 type panicCloseCloser struct {
