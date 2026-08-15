@@ -2,7 +2,7 @@
  * JimakuSearchDialog — P4 manual search modal (design: docs/JIMAKU_SUBS.md §2.3).
  * ---------------------------------------------------------------------------
  * Manual subtitle search flow: title + episode inputs (title pre-filled from
- * the current media name), anime/drama Switch (persisted via
+ * the current media name), anime/drama ToggleGroup (persisted via
  * jimaku-preferences), entry list → file list, and file selection downloads
  * the subtitle body back to the parent. Episode changes re-fetch the file
  * list (§2.3-5). Files are filtered to uncompressed + Japanese-only (§2.3-3/4),
@@ -24,7 +24,10 @@ import {
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
 import { Input } from '@/components/player/ui/input';
-import { Switch } from '@/components/player/ui/switch';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/player/ui/toggle-group';
 import {
   searchJimakuEntries,
   getJimakuEntryFiles,
@@ -309,68 +312,59 @@ export function JimakuSearchDialog({
             </div>
           ) : (
             <>
-          {/* Title input (§2.3-1) */}
-          <div className="entei-jimaku-search-field">
-            <label htmlFor="jimaku-search-title" className="entei-jimaku-search-label">
-              {dict.jimakuSearchTitle}
-            </label>
-            <Input
-              id="jimaku-search-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={dict.jimakuSearchTitle}
-              disabled={isBusy}
-            />
-          </div>
+            {/* Title + episode side by side (§2.3-1) — title flexes, EP is a
+                narrow fixed-width field. Stacks on narrow screens. */}
+            <div className="entei-jimaku-search-fields-row">
+              <div className="entei-jimaku-search-field">
+                <label htmlFor="jimaku-search-title" className="entei-jimaku-search-label">
+                  {dict.jimakuSearchTitle}
+                </label>
+                <Input
+                  id="jimaku-search-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={dict.jimakuSearchTitle}
+                  disabled={isBusy}
+                />
+              </div>
+              <div className="entei-jimaku-search-field entei-jimaku-search-episode-field">
+                <label htmlFor="jimaku-search-episode" className="entei-jimaku-search-label">
+                  {dict.jimakuSearchEpisode}
+                </label>
+                <Input
+                  id="jimaku-search-episode"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={episode}
+                  onChange={(e) => handleEpisodeChange(e.target.value)}
+                  placeholder={dict.jimakuSearchEpisode}
+                  disabled={isBusy}
+                />
+              </div>
+            </div>
 
-          {/* Episode input (§2.3-1): empty → all files */}
-          <div className="entei-jimaku-search-field">
-            <label htmlFor="jimaku-search-episode" className="entei-jimaku-search-label">
-              {dict.jimakuSearchEpisode}
-            </label>
-            <Input
-              id="jimaku-search-episode"
-              type="number"
-              min={1}
-              step={1}
-              value={episode}
-              onChange={(e) => handleEpisodeChange(e.target.value)}
-              placeholder={dict.jimakuSearchEpisode}
-              disabled={isBusy}
-            />
-          </div>
-
-          {/* Anime/drama toggle (§2.3-2) — persisted via jimaku-preferences */}
-          <div
-            className="entei-jimaku-search-toggle-row"
-            role="group"
-            aria-label={`${dict.jimakuSearchAnimeToggle} / ${dict.jimakuSearchDramaToggle}`}
-          >
-            <span
-              className={
-                anime
-                  ? 'entei-jimaku-search-toggle-state entei-jimaku-search-toggle-state--on'
-                  : 'entei-jimaku-search-toggle-state'
-              }
-            >
-              {dict.jimakuSearchAnimeToggle}
-            </span>
-            <Switch
-              checked={anime}
-              onCheckedChange={handleAnimeToggle}
-              aria-label={`${dict.jimakuSearchAnimeToggle} / ${dict.jimakuSearchDramaToggle}`}
-              disabled={isBusy}
-            />
-            <span
-              className={
-                !anime
-                  ? 'entei-jimaku-search-toggle-state entei-jimaku-search-toggle-state--on'
-                  : 'entei-jimaku-search-toggle-state'
-              }
-            >
-              {dict.jimakuSearchDramaToggle}
-            </span>
-          </div>
+            {/* Anime/drama toggle (§2.3-2) — centered ToggleGroup, persisted
+                via jimaku-preferences (same pattern as the mining controls). */}
+            <div className="entei-mining-controls-row">
+              <ToggleGroup
+                type="single"
+                value={anime ? 'anime' : 'drama'}
+                onValueChange={(v) => {
+                  if (v === 'anime' || v === 'drama') handleAnimeToggle(v === 'anime');
+                }}
+                variant="outline"
+                aria-label={`${dict.jimakuSearchAnimeToggle} / ${dict.jimakuSearchDramaToggle}`}
+                disabled={isBusy}
+              >
+                <ToggleGroupItem value="anime" aria-label={dict.jimakuSearchAnimeToggle}>
+                  <span>{dict.jimakuSearchAnimeToggle}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="drama" aria-label={dict.jimakuSearchDramaToggle}>
+                  <span>{dict.jimakuSearchDramaToggle}</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
 
           {/* Search button */}
           <Button

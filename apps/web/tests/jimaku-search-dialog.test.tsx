@@ -236,7 +236,7 @@ describe('JimakuSearchDialog', () => {
     expect(screen.queryByText(dict.jimakuSearchButton)).toBeNull();
     expect(screen.queryByLabelText(dict.jimakuSearchTitle)).toBeNull();
     expect(screen.queryByLabelText(dict.jimakuSearchEpisode)).toBeNull();
-    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.queryByText(dict.jimakuSearchAnimeToggle)).toBeNull();
   });
 
   it('clears the no-key message when the key is set while the dialog is open', async () => {
@@ -281,8 +281,8 @@ describe('JimakuSearchDialog', () => {
       expect.any(AbortSignal),
     );
 
-    // Toggle anime → drama: persisted via setJimakuSearchAnime.
-    fireEvent.click(screen.getByRole('switch'));
+    // Toggle anime → drama (ToggleGroup): persisted via setJimakuSearchAnime.
+    fireEvent.click(screen.getByText(dict.jimakuSearchDramaToggle));
     expect(setSearchAnime).toHaveBeenCalledWith(false);
 
     await searchForEntry();

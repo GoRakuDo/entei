@@ -5557,8 +5557,10 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-jimaku-search-dialog {
-  max-width: 28rem;
-  }
+  /* Desktop-expanded modal (P4 review): 28rem → 34rem. Narrow screens still
+     shrink the dialog via the 100% width rule, so no media query is needed. */
+  max-width: 34rem;
+}
 
 /* Dialog title — pixel/brand font (Pixelify Sans), matching the settings
    modal titles (design: tokens.css --entei-font-system). */
@@ -5585,21 +5587,32 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
-.entei-jimaku-search-toggle-row {
+.entei-jimaku-search-fields-row {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: var(--entei-space-12);
-  min-height: var(--entei-touch-min);
+  /* Bottom-align the inputs so a wrapping label (e.g. the long episode
+     label) never pushes its field out of alignment with the neighbor. */
+  align-items: flex-end;
 }
 
-.entei-jimaku-search-toggle-state {
-  color: var(--entei-text-muted);
-  font-size: 0.8125rem;
-  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+.entei-jimaku-search-fields-row .entei-jimaku-search-field {
+  flex: 1;
+  min-width: 0;
 }
 
-.entei-jimaku-search-toggle-state--on {
-  color: var(--entei-accent-hover);
+.entei-jimaku-search-fields-row .entei-jimaku-search-episode-field {
+  flex: 0 0 8rem; /* episode field is a narrow fixed-width column */
+}
+
+@media (max-width: 480px) {
+  .entei-jimaku-search-fields-row {
+    flex-direction: column;
+  }
+
+  .entei-jimaku-search-fields-row .entei-jimaku-search-episode-field {
+    flex: 1;
+  }
 }
 
 .entei-jimaku-search-submit {
