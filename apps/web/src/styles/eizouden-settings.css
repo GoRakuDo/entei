@@ -66,7 +66,8 @@
   transform: translate(-50%, -50%);
   z-index: 201;
   width: 100%;
-  max-width: 24rem;
+  /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+  max-width: 42.5rem;
   max-height: 85vh;
   overflow-y: auto;
   background-color: var(--entei-surface);
@@ -157,7 +158,8 @@
     right: auto;
     bottom: auto;
     transform: translate(-50%, -50%);
-    width: clamp(34rem, 46vw, 42rem);
+    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+    width: 42.5rem;
     height: min(36rem, calc(100dvh - 2rem));
     max-height: calc(100dvh - 2rem);
     border-radius: var(--entei-radius-lg);

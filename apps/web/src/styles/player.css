@@ -847,7 +847,8 @@
   /* W5: z-[201] — above overlay z-[200], below select z-[202] */
   z-index: 201;
   width: 100%;
-  max-width: 24rem;
+  /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+  max-width: 42.5rem;
   max-height: 85vh;
   overflow-y: auto;
   background-color: var(--entei-surface);
@@ -1460,7 +1461,8 @@
     right: auto;
     bottom: auto;
     transform: translate(-50%, -50%);
-    width: clamp(34rem, 46vw, 42rem);
+    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+    width: 42.5rem;
     /* W13: stable tablet height — content scrolls in panel */
     height: min(36rem, calc(100dvh - 2rem));
     max-height: calc(100dvh - 2rem);
@@ -2574,7 +2576,8 @@
     right: auto;
     bottom: auto;
     transform: translate(-50%, -50%);
-    width: clamp(28rem, 50vw, 44rem);
+    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+    width: 42.5rem;
     height: auto;
     max-height: calc(100dvh - 2rem);
     border-radius: var(--entei-radius-lg);
@@ -2733,7 +2736,8 @@
     right: auto;
     bottom: auto;
     transform: translate(-50%, -50%);
-    width: clamp(28rem, 50vw, 44rem);
+    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+    width: 42.5rem;
     height: auto;
     max-height: calc(100dvh - 2rem);
     border-radius: var(--entei-radius-lg);
@@ -3019,7 +3023,8 @@ html.entei-player-immersive .entei-player-audio-area {
     right: auto;
     bottom: auto;
     transform: translate(-50%, -50%);
-    width: clamp(28rem, 50vw, 44rem);
+    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+    width: 42.5rem;
     height: calc(100dvh - 2rem);
     border-radius: var(--entei-radius-lg);
     border: 1px solid oklch(100% 0 0deg / 0.1);
@@ -4656,7 +4661,8 @@ html.entei-player-immersive .entei-player-audio-area {
 /* --- Desktop: larger magnet dialog --- */
 @media (min-width: 768px) {
   .entei-magnet-dialog {
-    max-width: 32rem;
+    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+    max-width: 42.5rem;
   }
 }
 
@@ -5557,9 +5563,9 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-jimaku-search-dialog {
-  /* Desktop-expanded modal (P4 review): 28rem → 34rem. Narrow screens still
-     shrink the dialog via the 100% width rule, so no media query is needed. */
-  max-width: 34rem;
+  /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. Narrow
+     screens still shrink the dialog via the 100% width rule. */
+  max-width: 42.5rem;
 }
 
 /* Dialog title — pixel/brand font (Pixelify Sans), matching the settings
