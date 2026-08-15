@@ -105,6 +105,8 @@ describe('useJimakuAutoLoad', () => {
     expect(client.files).toHaveBeenCalledWith('test-key', 729, 1, expect.any(AbortSignal));
     expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('WEBVTT'));
     expect(onOpenSearch).not.toHaveBeenCalled();
+    // P4-1: spinner cleared once the subtitle is applied.
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('falls back to anime=false when anime search is empty', async () => {
@@ -138,6 +140,7 @@ describe('useJimakuAutoLoad', () => {
     );
     // Exact match found, but zero Japanese files → search modal fallback.
     expect(onOpenSearch).toHaveBeenCalledWith(expect.any(String), false);
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('opens the search modal when the top entry does not match', async () => {
@@ -151,6 +154,8 @@ describe('useJimakuAutoLoad', () => {
     });
     expect(onOpenSearch).toHaveBeenCalledWith('Frieren', true);
     expect(client.files).not.toHaveBeenCalled();
+    // P4-1: fallback to the search modal stops the spinner (no lingering glow).
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('shows a rate-limit toast and does not retry', async () => {
@@ -162,6 +167,7 @@ describe('useJimakuAutoLoad', () => {
     expect(onToast).toHaveBeenCalledWith('rate-limit');
     expect(client.search).toHaveBeenCalledTimes(1);
     expect(onOpenSearch).not.toHaveBeenCalled();
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('stays silent when superseded by a newer trigger (media switch)', async () => {
@@ -226,5 +232,28 @@ describe('useJimakuAutoLoad', () => {
     expect(firstSignal?.aborted).toBe(true);
     // …while B's own flow still completes (fallback to the search modal).
     expect(onOpenSearch).toHaveBeenCalledWith('Media B', true);
+  });
+
+  it('keeps isLoading true while the search is in flight, then clears it', async () => {
+    let resolveSearch!: (value: unknown) => void;
+    client.search.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveSearch = res;
+        }),
+    );
+    const { result } = render();
+    let runPromise!: Promise<void>;
+    act(() => {
+      runPromise = result.current.runAutoLoad('Sousou no Frieren EP01.mkv', 'k1');
+    });
+    // P4-1: spinner is on while the search is pending (no subtitles yet).
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => {
+      resolveSearch({ ok: false, error: 'network' });
+      await runPromise;
+    });
+    expect(result.current.isLoading).toBe(false);
   });
 });

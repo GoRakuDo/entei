@@ -5544,6 +5544,7 @@ html.entei-player-immersive .entei-player-audio-area {
   display: flex;
   align-items: center;
   gap: var(--entei-space-8);
+  padding: 0 var(--entei-space-12);
   margin-bottom: var(--entei-space-8);
 }
 

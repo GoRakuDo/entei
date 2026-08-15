@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   readJimakuPreferences,
   shouldShowJimakuToast,
@@ -62,6 +62,10 @@ export function useJimakuAutoLoad({
   // an aborted fetch maps to 'network' in jimaku-client, so the
   // `signal.aborted` checks below keep those paths silent.
   const abortRef = useRef<AbortController | null>(null);
+  // P4-1: spinner state — true while an actual search is in flight, cleared
+  // on every terminal path (success / fallback / error / abort). Only the
+  // latest run may clear it (see the finally guard below).
+  const [isLoading, setIsLoading] = useState(false);
 
   const runAutoLoad = useCallback(
     async (mediaName: string, triggerKey: string) => {
@@ -87,6 +91,8 @@ export function useJimakuAutoLoad({
         const parsed = parseMediaFileName(mediaName);
         if (!parsed.title) return; // nothing to search — stay quiet
         const title = parsed.title;
+        // An actual search is starting — surface the subtitle-panel spinner.
+        setIsLoading(true);
 
         // Two-stage search: anime first, then drama (§2.2-4).
         let entries = await searchJimakuEntries(prefs.apiKey, title, true, signal);
@@ -161,10 +167,13 @@ export function useJimakuAutoLoad({
         lastTriggerRef.current = triggerKey;
       } finally {
         abortRef.current = null;
+        // Only the latest run clears the spinner: a superseded run's finally
+        // must not switch it off while a newer run is still loading.
+        if (lastTriggerRef.current === triggerKey) setIsLoading(false);
       }
     },
     [onSubtitleLoaded, onOpenSearch, onToast],
   );
 
-  return { runAutoLoad, lastTriggerRef };
+  return { runAutoLoad, lastTriggerRef, isLoading };
 }

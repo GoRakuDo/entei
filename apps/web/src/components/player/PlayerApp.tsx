@@ -617,6 +617,8 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
     },
     onToast: handleJimakuToast,
   });
+  // P4-1: spinner while the jimaku auto-load search is in flight.
+  const jimakuLoading = jimakuAutoLoad.isLoading;
 
   // P4: RightPanel search button — pre-fill with the current media name.
   const handleOpenJimakuSearch = useCallback(() => {
@@ -742,11 +744,14 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
   // deadline knowledge: PlayerApp owns the retry window and the
   // fallback.
   const isLoadingSubtitles =
-    jobSession.active &&
-    !!jobSession.subtitleUrl &&
-    cues.length === 0 &&
-    !subtitleFetchFailed &&
-    jobSession.phase !== 'error';
+    (jobSession.active &&
+      !!jobSession.subtitleUrl &&
+      cues.length === 0 &&
+      !subtitleFetchFailed &&
+      jobSession.phase !== 'error') ||
+    // P4-1: jimaku auto-load in flight with no subtitles yet — shows the
+    // same "Preparing subtitles…" spinner until the load settles.
+    (jimakuLoading && cues.length === 0);
 
 // ED-2G: Auto-fetch subtitle content from companion when a torrent job
   // selected a subtitle file, or from a YouTube job that has Japanese
@@ -1184,6 +1189,9 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       setActiveCueId(null);
       // Stage 2a: Clear subtitle text on media change (subtitles are media-specific)
       subtitleTextRef.current = null;
+      // Also clear the rendered cues so stale subtitles don't linger — this
+      // also lets the jimaku auto-load spinner show (cues.length === 0).
+      setCues([]);
       // P3 auto-load: local file selected — auto-load jimaku subtitles.
       void jimakuAutoLoad.runAutoLoad(file.name, `local:${file.name}`);
       // AM-2: Invalidate any prior screenshot when selecting new media
