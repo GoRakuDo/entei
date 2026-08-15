@@ -467,6 +467,22 @@ const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(() => readJimakuPrefer
         </div>
       </div>
 
+      {/* Reset Button — placed above the JIMAKU.CC section so the reset
+          stays visually separate from the jimaku settings. This reset only
+          affects subtitle appearance settings (entei.player.prefs.v1); jimaku
+          (JIMAKU.CC, entei.jimaku.v1) preferences are untouched. */}
+      <div className="entei-subtitle-reset-section">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onReset}
+          className="entei-subtitle-reset-btn"
+        >
+          <RotateCcw size={14} />
+          <span>{dict.subtitleReset}</span>
+        </Button>
+      </div>
+
       {/* JIMAKU.CC — auto-load Japanese subtitles (P2) */}
       <div className="entei-jimaku-section">
         <h3 className="entei-settings-label">{dict.jimakuHeading}</h3>
@@ -500,19 +516,6 @@ const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(() => readJimakuPrefer
             aria-label={dict.jimakuAutoLoadLabel}
           />
         </div>
-      </div>
-
-      {/* Reset Button */}
-      <div className="entei-subtitle-reset-section">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onReset}
-          className="entei-subtitle-reset-btn"
-        >
-          <RotateCcw size={14} />
-          <span>{dict.subtitleReset}</span>
-        </Button>
       </div>
     </div>
   );
