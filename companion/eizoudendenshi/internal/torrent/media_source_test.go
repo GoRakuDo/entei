@@ -67,6 +67,55 @@ func TestTorrentMediaSourceBuffering(t *testing.T) {
 	}
 }
 
+func TestTorrentMediaSourceAvailabilityBoundary(t *testing.T) {
+	h := fakeVideoHandle(t, 100, 40) // 40 bytes verified of 100
+	src := newTorrentMediaSource(h, make(chan struct{}))
+	defer src.Close()
+
+	// Reads at or beyond the verified prefix are never served (GrowingSource
+	// contract) — EOF, not partial bytes from the unverified tail.
+	if _, err := src.ReadAt(make([]byte, 1), 40); err != io.EOF {
+		t.Errorf("ReadAt at avail = %v, want io.EOF", err)
+	}
+	if _, err := src.ReadAt(make([]byte, 1), 200); err != io.EOF {
+		t.Errorf("ReadAt beyond avail = %v, want io.EOF", err)
+	}
+	if _, err := src.ReadAt(make([]byte, 1), -1); err != io.EOF {
+		t.Errorf("ReadAt negative off = %v, want io.EOF", err)
+	}
+
+	// A read crossing the boundary is truncated to the available prefix.
+	buf := make([]byte, 20)
+	n, err := src.ReadAt(buf, 35)
+	if err != nil || n != 5 {
+		t.Fatalf("ReadAt(20, 35) = (%d, %v), want (5, nil) — truncated to avail", n, err)
+	}
+	if buf[0] != 35 {
+		t.Errorf("ReadAt content[0] = %d, want 35 (byte((off+i)&0xff))", buf[0])
+	}
+}
+
+func TestTorrentMediaSourceCloseStopsWatcher(t *testing.T) {
+	// The done-watcher goroutine must not leak: Close() stops it even when
+	// the session's job is still running (done never closes). Run many
+	// cycles under -race to catch a leak / double-cancel panic.
+	for i := 0; i < 50; i++ {
+		h := fakeVideoHandle(t, 100, 100)
+		src := newTorrentMediaSource(h, make(chan struct{}))
+		if _, err := src.ReadAt(make([]byte, 1), 0); err != nil {
+			t.Fatalf("ReadAt: %v", err)
+		}
+		if err := src.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		// Close is idempotent — a second call must not panic (double-close
+		// of the watcher stop channel).
+		if err := src.Close(); err != nil {
+			t.Fatalf("second Close: %v", err)
+		}
+	}
+}
+
 func TestTorrentMediaSourceJobEnded(t *testing.T) {
 	h := fakeVideoHandle(t, 100, 100)
 	done := make(chan struct{})
