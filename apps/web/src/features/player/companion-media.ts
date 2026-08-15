@@ -36,20 +36,17 @@ export function dlProgressPercent(status: MediaStatus): number {
  * selected subtitle file id, or an empty string to let the companion
  * auto-detect the torrent's embedded subtitle (the first .srt/.vtt/.ass).
  * The subtitle file is tiny and available as soon as the torrent metadata
- * resolves, so this does not wait for the media download.
+ * resolves, so this does not wait for the media download. The companion
+ * serves the selected subtitle (or auto-detects when none was selected), so
+ * no file id travels in the URL — the selection state lives server-side.
  */
 export async function fetchMagnetSubtitle(
   token: string,
   jobId: string,
-  subtitleFileId: string,
+  _subtitleFileId: string,
 ): Promise<MagnetSubtitle> {
-  let url = `${COMPANION_ORIGIN}/v1/source/torrents/${encodeURIComponent(jobId)}/subtitle` +
+  const url = `${COMPANION_ORIGIN}/v1/source/torrents/${encodeURIComponent(jobId)}/subtitle` +
     `?token=${encodeURIComponent(token)}`;
-  // The companion auto-detects the embedded subtitle when no file id is
-  // given (sub-to-sub without an explicit subtitle selection).
-  if (subtitleFileId !== '') {
-    url += `&file=${encodeURIComponent(subtitleFileId)}`;
-  }
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) {
     throw new Error(`companion subtitle fetch failed (${res.status})`);

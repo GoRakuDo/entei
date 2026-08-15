@@ -74,12 +74,13 @@ describe('planSync', () => {
     });
   });
 
-  it('auto without reference: audio fallback by source', () => {
+  it('auto without reference: embedded subtitle on magnet, audio on local', () => {
     expect(planSync('auto', 'local', false)).toEqual({
       kind: 'sub-to-audio-local',
     });
     expect(planSync('auto', 'magnet', false)).toEqual({
-      kind: 'sub-to-audio-magnet',
+      kind: 'sub-to-sub-auto-ref',
+      fallbackToAudio: true,
     });
   });
 

@@ -10,7 +10,9 @@ export type SourceKind = 'youtube' | 'local' | 'magnet';
 export type SyncPlan =
   | { kind: 'skip-youtube' }
   | { kind: 'sub-to-sub'; refText: string; refFormat: string }
-  | { kind: 'sub-to-sub-auto-ref' }
+  /** Magnet embedded-subtitle reference. In auto mode (fallbackToAudio)
+   *  a missing embedded subtitle falls back to sub-to-audio. */
+  | { kind: 'sub-to-sub-auto-ref'; fallbackToAudio?: boolean }
   | { kind: 'sub-to-audio-local' }
   | { kind: 'sub-to-audio-magnet' }
   | { kind: 'no-reference-subtitle' };
@@ -51,9 +53,12 @@ export function planSync(
       if (hasReferenceSubtitle) {
         return { kind: 'sub-to-sub', refText: '', refFormat: '' };
       }
-      return source === 'local'
-        ? { kind: 'sub-to-audio-local' }
-        : { kind: 'sub-to-audio-magnet' };
+      // Magnet: try the embedded subtitle first (sub-to-sub is more accurate
+      // than audio), falling back to sub-to-audio when none exists.
+      if (source === 'magnet') {
+        return { kind: 'sub-to-sub-auto-ref', fallbackToAudio: true };
+      }
+      return { kind: 'sub-to-audio-local' };
     default: {
       // Exhaustive: forces a type error if SyncSettingMode grows a new value.
       const _exhaustive: never = mode;

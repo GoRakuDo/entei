@@ -1628,7 +1628,7 @@ func waitForState(t *testing.T, m *Manager, id string, want State, timeout time.
 
 // TestSelectedSubtitleContentAfterSelection verifies that
 // SelectedSubtitleContent returns the subtitle text after selection.
-func TestSelectedSubtitleContentAfterSelection(t *testing.T) {
+func TestSelectedSubtitleContentAutoDetectThenExplicit(t *testing.T) {
 	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
 	m := newTestManagerWithEngine(t, engine, 10*time.Second)
 	snap, err := m.Start(testMagnet)

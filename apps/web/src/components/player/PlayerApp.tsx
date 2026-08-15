@@ -2010,9 +2010,15 @@ export default function PlayerApp() {
           applySyncedSubtitle(synced);
         } catch {
           // 404 (no embedded subtitle in the torrent) or companion down.
-          notifySubtitleSyncError(
-            dictRef.current.playerUI.subtitleSyncNoReference,
-          );
+          if (plan.fallbackToAudio) {
+            // auto mode: sub-to-sub failed → fall back to sub-to-audio
+            // (magnet waits for the full DL via the sync dialog).
+            setIsSubtitleSyncDialogOpen(true);
+          } else {
+            notifySubtitleSyncError(
+              dictRef.current.playerUI.subtitleSyncNoReference,
+            );
+          }
         }
         return;
       }

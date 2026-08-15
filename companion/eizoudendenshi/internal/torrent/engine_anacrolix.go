@@ -462,6 +462,8 @@ func (h *anacrolixHandle) Select(videoFileID string, subtitleFileID string) erro
 	// Auto-detect the embedded subtitle when none was picked: its pieces are
 	// tiny but would otherwise sit at priority None and never download, so
 	// the sub-to-sub sync reference (SubtitleContent) has nothing to read.
+	// autoSubIdx is resolved once before the loop (not inside it) so the
+	// elevated subtitle window is stable while the head/tail loops run.
 	autoSubIdx := -1
 	if subIdx < 0 {
 		autoSubIdx = firstSubtitleIndex(h.files)
@@ -739,6 +741,10 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 		// No explicit subtitle — auto-detect the first subtitle file in the
 		// torrent (the selection contract allows a video-only pick; the
 		// torrent may still carry a .srt/.vtt/.ass next to the video).
+		// files mirrors h.t.Files() indices 1:1 from construction time
+		// (anacrolix treats the file list as immutable after metadata
+		// resolves), so the index from firstSubtitleIndex(files) is valid
+		// against anacrolixFiles below.
 		idx = firstSubtitleIndex(files)
 		if idx < 0 || idx >= len(anacrolixFiles) {
 			return "", errSubtitleNotSelected

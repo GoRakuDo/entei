@@ -39,7 +39,7 @@ describe('dlProgressPercent', () => {
 });
 
 describe('fetchMagnetSubtitle', () => {
-  it('fetches the torrent subtitle with token + file id', async () => {
+  it('fetches the torrent subtitle with the token (no file id in the URL)', async () => {
     const spy = vi.fn().mockResolvedValue(
       new Response('WEBVTT\n\n00:00:01 --> 00:00:03\nhello', {
         status: 200,
@@ -54,25 +54,9 @@ describe('fetchMagnetSubtitle', () => {
     const url = spy.mock.calls[0]![0] as string;
     expect(url).toContain(`${ORIGIN}/v1/source/torrents/job-1/subtitle`);
     expect(url).toContain('token=tok');
-    expect(url).toContain('file=file-2');
-  });
-
-  it('omits the file param when auto-detecting the embedded subtitle', async () => {
-    const spy = vi.fn().mockResolvedValue(
-      new Response('WEBVTT\n\n00:00:01 --> 00:00:03\nembedded', {
-        status: 200,
-        headers: { 'content-type': 'text/vtt' },
-      }),
-    );
-    vi.stubGlobal('fetch', spy);
-
-    const out = await fetchMagnetSubtitle('tok', 'job-1', '');
-    expect(out.text).toContain('embedded');
-    const url = spy.mock.calls[0]![0] as string;
-    expect(url).toContain(`${ORIGIN}/v1/source/torrents/job-1/subtitle`);
-    expect(url).toContain('token=tok');
-    // An empty file id means the companion auto-detects the embedded
-    // subtitle — no `file=` query parameter is sent.
+    // The selection state lives server-side; the client never sends a
+    // `file=` query parameter (the companion serves the selected subtitle
+    // or auto-detects the embedded one).
     expect(url).not.toContain('file=');
   });
 
