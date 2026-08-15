@@ -36,13 +36,22 @@ describe('planSync', () => {
     });
   });
 
-  it('subtitle mode: auto-ref on magnet, no-reference on local when none exists', () => {
+  it('subtitle mode: auto-ref (embedded subtitle) on magnet and local when none exists', () => {
     expect(planSync('subtitle', 'local', false)).toEqual({
-      kind: 'no-reference-subtitle',
+      kind: 'sub-to-sub-auto-ref',
     });
     expect(planSync('subtitle', 'magnet', false)).toEqual({
       kind: 'sub-to-sub-auto-ref',
     });
+  });
+
+  it('subtitle mode: local without a reference no longer returns no-reference-subtitle (mkvgo covers it)', () => {
+    // With local embedded-subtitle extraction (mkvgo) in place, the local
+    // no-reference case plans sub-to-sub-auto-ref like magnet; the old
+    // no-reference-subtitle plan is no longer produced.
+    expect(planSync('subtitle', 'local', false).kind).not.toBe(
+      'no-reference-subtitle',
+    );
   });
 
   it('audio mode: sub-to-audio-local for local', () => {
@@ -74,9 +83,13 @@ describe('planSync', () => {
     });
   });
 
-  it('auto without reference: embedded subtitle on magnet, audio on local', () => {
+  it('auto without reference: embedded subtitle first on local and magnet, audio fallback', () => {
+    // Local is unified with magnet: try the embedded subtitle as the
+    // reference first (sub-to-sub is more accurate than audio); fall back
+    // to sub-to-audio when no embedded subtitle exists.
     expect(planSync('auto', 'local', false)).toEqual({
-      kind: 'sub-to-audio-local',
+      kind: 'sub-to-sub-auto-ref',
+      fallbackToAudio: true,
     });
     expect(planSync('auto', 'magnet', false)).toEqual({
       kind: 'sub-to-sub-auto-ref',
@@ -100,7 +113,9 @@ describe('planSync', () => {
     expect(plans.has('sub-to-audio-magnet')).toBe(true);
     expect(plans.has('sub-to-sub')).toBe(true);
     expect(plans.has('sub-to-sub-auto-ref')).toBe(true);
-    expect(plans.has('no-reference-subtitle')).toBe(true);
+    // The no-reference plan is retired: local files are covered by mkvgo
+    // via sub-to-sub-auto-ref, so no combination produces it anymore.
+    expect(plans.has('no-reference-subtitle')).toBe(false);
   });
 });
 

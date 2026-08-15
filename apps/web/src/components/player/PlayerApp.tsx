@@ -34,6 +34,7 @@ import {
 } from '@/features/player/subtitle-sync';
 import { decodeToMono16k } from '@/features/player/audio-decoder';
 import { fetchMagnetSubtitle } from '@/features/player/companion-media';
+import { loadMkvGo } from '@/features/player/mkvgo';
 import { SubtitleSyncDialog } from '@/components/player/SubtitleSyncDialog';
 import {
   createMediaUrl,
@@ -186,6 +187,17 @@ const START_BUFFERING_SAFETY_MS = 15000;
 
 /** Maximum length of a displayed media name (defense in depth). */
 const MAX_MEDIA_NAME_LENGTH = 255;
+
+/**
+ * Ceiling for embedded-subtitle extraction input. mkvgo's
+ * extractSubtitleVTT only accepts a Uint8Array, so the entire file is read
+ * into memory via file.arrayBuffer() — this ceiling prevents an OOM / tab
+ * crash on multi-GiB MKVs. probe() is unaffected (head-only ranged reads).
+ * Exported for the size-guard test.
+ */
+// 2 * 2^30 — note: `2 << 30` would be wrong (bitwise ops coerce to a signed
+// 32-bit int, overflowing to -2^31, which would reject every file).
+export const MAX_EMBEDDED_EXTRACT_BYTES = 2 * 2 ** 30; // 2 GiB
 
 /** sanitizeDisplayName — safe display text for the top-left controls and
  *  history. The companion already serves sanitized basenames (no paths),
@@ -1904,13 +1916,18 @@ export default function PlayerApp() {
   /**
    * Stage 4b: wire the sync button to the planner + subomatic engine.
    *  - skip-youtube          → no-op (button disabled for youtube)
-   *  - no-reference-subtitle → toast (nothing to sync against)
-   *  - sub-to-sub (magnet)   → fetch the torrent subtitle, sync to reference
-   *  - sub-to-sub-auto-ref   → magnet without a picked subtitle: the
-   *                            companion auto-detects the embedded subtitle
-   *                            and serves it as the reference
+   *  - sub-to-sub            → sync to a picked reference subtitle
+   *  - sub-to-sub-auto-ref   → the embedded subtitle is auto-detected and
+   *                            used as the reference: Magnet via the
+   *                            companion (empty file id), local files via
+   *                            mkvgo (first embedded subtitle track). In
+   *                            auto mode (fallbackToAudio) a missing
+   *                            embedded subtitle falls back to sub-to-audio
+   *                            (magnet → dialog, local → direct decode).
    *  - sub-to-audio-local    → decode local media → sync to audio
    *  - sub-to-audio-magnet   → SubtitleSyncDialog (wait for DL → PCM)
+   *  - no-reference-subtitle → retired: no plan produces it anymore; the
+   *                            branch remains for defensive narrowing.
    */
   /** Shared try/catch/finally for sync tasks (subtitle + audio paths). */
   const runSync = useCallback(async (task: () => Promise<void>) => {
@@ -1950,6 +1967,24 @@ export default function PlayerApp() {
       }
       const detected = parseSubtitle(text);
       const inFormat = detected.format ?? 'vtt';
+      // Local audio sync — shared by the sub-to-audio-local plan and the
+      // auto fallback when the embedded-subtitle reference is missing.
+      // SubtitleSyncDialog is magnet-only, so local media decodes directly.
+      const runSubToAudioLocal = async (t: string, f: string) => {
+        if (!mediaUrl) {
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
+        const res = await fetch(mediaUrl);
+        const buffer = await res.arrayBuffer();
+        const { samples, sampleRate } = await decodeToMono16k(buffer);
+        const synced = await syncSubtitleToAudio(t, f, samples, sampleRate, {
+          onProgress: () => {},
+        });
+        applySyncedSubtitle(synced);
+      };
       if (plan.kind === 'sub-to-sub') {
         // Reference subtitle source: Magnet (torrent subtitle file).
         if (
@@ -1980,40 +2015,80 @@ export default function PlayerApp() {
         return;
       }
       if (plan.kind === 'sub-to-sub-auto-ref') {
-        // No manual subtitle selection — the torrent's embedded subtitle is
-        // auto-detected by the companion (empty file id) and used as the
-        // sub-to-sub reference.
-        if (
-          jobSession.kind !== 'torrent' ||
-          !jobSession.jobId ||
-          !jobSession.token
-        ) {
+        // No manual subtitle selection — the embedded subtitle is
+        // auto-detected and used as the sub-to-sub reference: Magnet via
+        // the companion (empty file id), local files via mkvgo (first
+        // embedded subtitle track).
+        if (jobSession.kind !== 'torrent' && !mediaFileRef.current) {
           notifySubtitleSyncError(
             dictRef.current.playerUI.subtitleSyncNoReference,
           );
           return;
         }
         try {
-          const ref = await fetchMagnetSubtitle(
-            jobSession.token,
-            jobSession.jobId,
-            '',
-          );
-          const refDetected = parseSubtitle(ref.text);
+          let refText: string;
+          if (jobSession.kind === 'torrent') {
+            if (!jobSession.jobId || !jobSession.token) {
+              notifySubtitleSyncError(
+                dictRef.current.playerUI.subtitleSyncNoReference,
+              );
+              return;
+            }
+            const ref = await fetchMagnetSubtitle(
+              jobSession.token,
+              jobSession.jobId,
+              '',
+            );
+            refText = ref.text;
+          } else {
+            // Local embedded subtitle via mkvgo.
+            const file = mediaFileRef.current;
+            if (!file) throw new Error('no embedded subtitle');
+            // extractSubtitleVTT only accepts a Uint8Array, so the whole
+            // file would be read into memory via file.arrayBuffer() — a
+            // size ceiling prevents an OOM / tab crash on multi-GiB MKVs.
+            // probe() is unaffected (head-only ranged reads).
+            if (file.size > MAX_EMBEDDED_EXTRACT_BYTES) {
+              throw new Error(
+                'embedded subtitle extraction unavailable: file too large',
+              );
+            }
+            const mkvgo = await loadMkvGo({
+              wasmUrl: '/wasm/mkvgo.wasm',
+              wasmExecUrl: '/wasm/wasm_exec.js',
+            });
+            const probe = await mkvgo.probe(file);
+            const subTrack = probe.tracks.find(
+              (t) => t.type === 'subtitle',
+            );
+            if (!subTrack) throw new Error('no embedded subtitle');
+            refText = await mkvgo.extractSubtitleVTT(
+              new Uint8Array(await file.arrayBuffer()),
+              subTrack.id,
+            );
+          }
+          const refDetected = parseSubtitle(refText);
           const synced = await syncSubtitleToReference(
             text,
             inFormat,
-            ref.text,
+            refText,
             refDetected.format ?? 'vtt',
             { onProgress: () => {} },
           );
           applySyncedSubtitle(synced);
-        } catch {
-          // 404 (no embedded subtitle in the torrent) or companion down.
+        } catch (err) {
+          // No embedded subtitle in the source (404 from the companion /
+          // missing track), or the mkvgo extraction failed.
+          console.error('[entei] embedded subtitle extraction failed', err);
           if (plan.fallbackToAudio) {
-            // auto mode: sub-to-sub failed → fall back to sub-to-audio
-            // (magnet waits for the full DL via the sync dialog).
-            setIsSubtitleSyncDialogOpen(true);
+            // auto mode: sub-to-sub failed → fall back to sub-to-audio.
+            // Magnet waits for the full DL via the sync dialog; local
+            // files decode directly (the dialog needs a companion token).
+            if (jobSession.kind === 'torrent') {
+              setIsSubtitleSyncDialogOpen(true);
+            } else {
+              await runSubToAudioLocal(text, inFormat);
+            }
           } else {
             notifySubtitleSyncError(
               dictRef.current.playerUI.subtitleSyncNoReference,
@@ -2023,23 +2098,7 @@ export default function PlayerApp() {
         return;
       }
       if (plan.kind === 'sub-to-audio-local') {
-        if (!mediaUrl) {
-          notifySubtitleSyncError(
-            dictRef.current.playerUI.subtitleSyncNoReference,
-          );
-          return;
-        }
-        const res = await fetch(mediaUrl);
-        const buffer = await res.arrayBuffer();
-        const { samples, sampleRate } = await decodeToMono16k(buffer);
-        const synced = await syncSubtitleToAudio(
-          text,
-          inFormat,
-          samples,
-          sampleRate,
-          { onProgress: () => {} },
-        );
-        applySyncedSubtitle(synced);
+        await runSubToAudioLocal(text, inFormat);
         return;
       }
       if (plan.kind === 'sub-to-audio-magnet') {

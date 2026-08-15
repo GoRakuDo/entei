@@ -15,16 +15,23 @@ export type SyncPlan =
   | { kind: 'sub-to-sub-auto-ref'; fallbackToAudio?: boolean }
   | { kind: 'sub-to-audio-local' }
   | { kind: 'sub-to-audio-magnet' }
+  /**
+   * Retired — no planner path produces this anymore (local files are
+   * covered by mkvgo via sub-to-sub-auto-ref). Kept only for defensive
+   * narrowing in callers.
+   */
   | { kind: 'no-reference-subtitle' };
 
 /**
  * Decision table (§2 7-12):
  * - youtube → skip (never sync)
- * - subtitle mode → sub-to-sub if a reference subtitle exists; on Magnet,
- *   sub-to-sub-auto-ref (the torrent's embedded subtitle is auto-detected
- *   and fetched as the reference); otherwise no-reference-subtitle
+ * - subtitle mode → sub-to-sub if a reference subtitle exists; otherwise
+ *   sub-to-sub-auto-ref (the embedded subtitle is auto-detected and used as
+ *   the reference — Magnet via the companion, local files via mkvgo)
  * - audio mode → sub-to-audio (local / magnet variant)
- * - auto → reference subtitle first, else fall back to sub-to-audio
+ * - auto → reference subtitle first; otherwise the embedded subtitle as
+ *   the reference (sub-to-sub-auto-ref, local + magnet alike), falling
+ *   back to sub-to-audio when no embedded subtitle exists
  */
 export function planSync(
   mode: SyncSettingMode,
@@ -39,12 +46,9 @@ export function planSync(
       if (hasReferenceSubtitle) {
         return { kind: 'sub-to-sub', refText: '', refFormat: '' };
       }
-      // Magnet: the companion can auto-detect the torrent's embedded
-      // subtitle (no manual subtitle pick needed) and serve it as the
-      // sub-to-sub reference.
-      return source === 'magnet'
-        ? { kind: 'sub-to-sub-auto-ref' }
-        : { kind: 'no-reference-subtitle' };
+      // Embedded-subtitle reference without a manual pick: Magnet via the
+      // companion, local files via mkvgo (both run at sync time).
+      return { kind: 'sub-to-sub-auto-ref' };
     case 'audio':
       return source === 'local'
         ? { kind: 'sub-to-audio-local' }
@@ -53,12 +57,11 @@ export function planSync(
       if (hasReferenceSubtitle) {
         return { kind: 'sub-to-sub', refText: '', refFormat: '' };
       }
-      // Magnet: try the embedded subtitle first (sub-to-sub is more accurate
-      // than audio), falling back to sub-to-audio when none exists.
-      if (source === 'magnet') {
-        return { kind: 'sub-to-sub-auto-ref', fallbackToAudio: true };
-      }
-      return { kind: 'sub-to-audio-local' };
+      // Embedded-subtitle reference first (subtitle sync is more accurate
+      // than audio); fall back to audio when no embedded subtitle exists.
+      // Local and magnet both take this path — the runtime source decides
+      // how the reference is fetched and how the audio fallback runs.
+      return { kind: 'sub-to-sub-auto-ref', fallbackToAudio: true };
     default: {
       // Exhaustive: forces a type error if SyncSettingMode grows a new value.
       const _exhaustive: never = mode;
