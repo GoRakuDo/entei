@@ -345,6 +345,19 @@ const mockDict = {
   jimakuRateLimit: 'Rate limit reached. Please try again shortly.',
   jimakuAuthError: 'Invalid jimaku API key. Check it in settings.',
   jimakuKeyMissing: 'Set your jimaku API key to auto-load subtitles',
+  // P4 jimaku search modal
+  jimakuSearchTitle: 'Search title',
+  jimakuSearchEpisode: 'Episode number (optional)',
+  jimakuSearchButton: 'Search',
+  jimakuSearchAnimeToggle: 'Anime',
+  jimakuSearchDramaToggle: 'Drama',
+  jimakuSearchResultsEmpty: 'No results',
+  jimakuSearchFilesEmpty: 'No subtitle files',
+  jimakuSearchFilesLabel: 'Subtitle files',
+  jimakuSearchSelectEntry: 'Select an entry to see files',
+  jimakuSearchOpenButton: 'Search jimaku subtitles',
+  jimakuSearchNoKey: 'Set your jimaku API key in settings',
+  jimakuSearchBack: 'Back',
 };
 
 const baseControlsProps = {

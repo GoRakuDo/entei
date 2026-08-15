@@ -12,7 +12,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Captions, History, RotateCwFadingClock } from 'lucide-react';
+import { Captions, History, RotateCwFadingClock, Search } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
 import { Switch } from '@/components/player/ui/switch';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
@@ -42,6 +42,8 @@ interface RightPanelProps {
   isSyncingSubtitle?: boolean;
   /** Hide the sync button entirely (YouTube source — design §2-11). */
   hideSyncSubtitle?: boolean;
+  /** P4 jimaku: opens the search modal (title pre-filled from media name). */
+  onOpenJimakuSearch?: () => void;
   /** History panel refresh trigger — increment after a successful Anki send. */
   historyRefreshKey?: number;
   /** AM-4 Row Mining: callback to mine a specific cue. */
@@ -71,6 +73,7 @@ export function RightPanel({
   canSyncSubtitle = false,
   isSyncingSubtitle = false,
   hideSyncSubtitle = false,
+  onOpenJimakuSearch,
   historyRefreshKey,
   onMineCue,
   canMineRow,
@@ -183,19 +186,33 @@ export function RightPanel({
           aria-label={dict.rightPanelTabCaptions}
           className="entei-right-panel-content"
         >
-          {!hideSyncSubtitle && (
-            <button
-              type="button"
-              className="entei-subtitle-sync-button"
-              onClick={onSyncSubtitle}
-              aria-label={dict.subtitleSyncButtonLabel}
-              title={dict.subtitleSyncButton}
-              disabled={!canSyncSubtitle || isSyncingSubtitle}
-            >
-              <RotateCwFadingClock size={16} aria-hidden="true" />
-              <span>{dict.subtitleSyncButton}</span>
-            </button>
-          )}
+          <div className="entei-right-panel-actions">
+            {!hideSyncSubtitle && (
+              <button
+                type="button"
+                className="entei-subtitle-sync-button"
+                onClick={onSyncSubtitle}
+                aria-label={dict.subtitleSyncButtonLabel}
+                title={dict.subtitleSyncButton}
+                disabled={!canSyncSubtitle || isSyncingSubtitle}
+              >
+                <RotateCwFadingClock size={16} aria-hidden="true" />
+                <span>{dict.subtitleSyncButton}</span>
+              </button>
+            )}
+            {onOpenJimakuSearch && (
+              <button
+                type="button"
+                className="entei-subtitle-sync-button entei-jimaku-search-button"
+                onClick={onOpenJimakuSearch}
+                aria-label={dict.jimakuSearchOpenButton}
+                title={dict.jimakuSearchOpenButton}
+              >
+                <Search size={16} aria-hidden="true" />
+                <span>{dict.jimakuSearchOpenButton}</span>
+              </button>
+            )}
+          </div>
           <SubtitlePanel
             cues={cues}
             activeCueId={activeCueId}

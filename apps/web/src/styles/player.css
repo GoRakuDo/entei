@@ -5528,3 +5528,167 @@ html.entei-player-immersive .entei-player-audio-area {
     margin-left: 0;
   }
 }
+
+/* --- P4: jimaku search modal + right-panel action row (§2.3) --- */
+
+/* Sync + search buttons sit side-by-side; the sync button's own margins are
+   reset inside the row so the two line up with the panel's content inset. */
+.entei-right-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  margin-bottom: var(--entei-space-8);
+}
+
+.entei-right-panel-actions .entei-subtitle-sync-button {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.entei-jimaku-search-dialog {
+  max-width: 28rem;
+}
+
+.entei-jimaku-search-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
+}
+
+.entei-jimaku-search-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+}
+
+.entei-jimaku-search-label {
+  color: var(--entei-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.entei-jimaku-search-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  min-height: var(--entei-touch-min);
+}
+
+.entei-jimaku-search-toggle-state {
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-jimaku-search-toggle-state--on {
+  color: var(--entei-accent-hover);
+}
+
+.entei-jimaku-search-submit {
+  min-height: var(--entei-touch-min);
+}
+
+.entei-jimaku-search-error {
+  margin: 0;
+  color: var(--color-destructive);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.entei-jimaku-search-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-jimaku-search-hint {
+  margin: 0;
+  color: var(--entei-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* Bounded internal scroll for entry / file lists (§2.3-6) */
+.entei-jimaku-search-scroll {
+  max-height: 20rem;
+  overflow-y: auto;
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+}
+
+.entei-jimaku-search-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--entei-space-2);
+  width: 100%;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  border: none;
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.05);
+  background: none;
+  color: var(--entei-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-jimaku-search-item:last-child {
+  border-bottom: none;
+}
+
+.entei-jimaku-search-item:hover:not(:disabled) {
+  background-color: var(--entei-btn-hover-bg);
+  color: var(--entei-accent-hover);
+}
+
+.entei-jimaku-search-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.entei-jimaku-search-item-name {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.entei-jimaku-search-item-sub,
+.entei-jimaku-search-item-size {
+  color: var(--entei-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.entei-jimaku-search-empty {
+  margin: 0;
+  padding: var(--entei-space-12);
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+}
+
+.entei-jimaku-search-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  align-self: flex-start;
+  padding: var(--entei-space-4) var(--entei-space-8);
+  border: none;
+  background: none;
+  color: var(--entei-text-secondary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-jimaku-search-back:hover:not(:disabled) {
+  color: var(--entei-accent-hover);
+}
+
+.entei-jimaku-search-back:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

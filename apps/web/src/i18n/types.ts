@@ -145,6 +145,19 @@ export interface Dictionary {
     jimakuRateLimit: string;
     jimakuAuthError: string;
     jimakuKeyMissing: string;
+    // P4: jimaku search modal (design §2.3)
+    jimakuSearchTitle: string;
+    jimakuSearchEpisode: string;
+    jimakuSearchButton: string;
+    jimakuSearchAnimeToggle: string;
+    jimakuSearchDramaToggle: string;
+    jimakuSearchResultsEmpty: string;
+    jimakuSearchFilesEmpty: string;
+    jimakuSearchFilesLabel: string;
+    jimakuSearchSelectEntry: string;
+    jimakuSearchOpenButton: string;
+    jimakuSearchNoKey: string;
+    jimakuSearchBack: string;
     subtitleSyncButton: string;
     subtitleSyncButtonLabel: string;
     subtitleSyncNoReference: string;

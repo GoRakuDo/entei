@@ -22,15 +22,16 @@ function normalizeTitle(t: string): string {
  * Non-Japanese when a language tag is present; untagged files are Japanese.
  * `ja` / `jpn` / `[JP]` tags are intentionally NOT matched here — they fall
  * through as Japanese (§2.3-3).
+ * Shared with the P4 search dialog (JimakuSearchDialog).
  */
-function isNonJapanese(name: string): boolean {
+export function isNonJapanese(name: string): boolean {
   return /(?:\[(?:en|eng|english|spa|esp|es|fr|fra|chi|zho|kr|kor|ru)\])|\.(?:en|eng|es|fr|zh|ko)\./i.test(
     name,
   );
 }
 
 /** Only uncompressed subtitle files (.srt/.ass/.ssa/.vtt). */
-function isUncompressed(name: string): boolean {
+export function isUncompressed(name: string): boolean {
   return /\.(?:srt|ass|ssa|vtt)$/i.test(name);
 }
 

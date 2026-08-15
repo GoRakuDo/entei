@@ -76,6 +76,7 @@ import { MediaPicker } from '@/components/player/MediaPicker';
 import { Button } from '@/components/player/ui/button';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
 import { RightPanel } from '@/components/player/RightPanel';
+import { JimakuSearchDialog } from '@/components/player/JimakuSearchDialog';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -276,7 +277,14 @@ export default function PlayerApp() {
 const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
 const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
   useState(false);
-// P3 jimaku auto-load — search modal state lands in P4 (no unused state).
+// P4 jimaku search modal: open flag + prefill (title + anime/drama) chosen by
+// the opener — RightPanel button (current media name) or the P3 auto-load
+// fallback (parsed title + last-tried mode).
+const [isJimakuSearchOpen, setIsJimakuSearchOpen] = useState(false);
+const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
+  title: string;
+  anime?: boolean;
+}>({ title: '' });
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -572,22 +580,20 @@ const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
     [jobSession, pairing.tokenRef],
   );
 
-  // P3 jimaku auto-load (§2.2): fires on local media select / Magnet handoff
-  // when the switch is ON. Exact match replaces subtitles; otherwise the
-  // search modal is opened (P4 — state and modal UI land there).
-  const jimakuAutoLoad = useJimakuAutoLoad({
-    onSubtitleLoaded: (text) => {
-      const result = parseSubtitle(text);
-      setCues(result.cues);
-      setSubtitleErrors(result.errors);
-      setActiveCueId(null);
-      subtitleTextRef.current = text;
-    },
-    onOpenSearch: (_title, _animeLastTried) => {
-      // P4: open the search modal with _title pre-filled and _animeLastTried
-      // to restore the anime/drama toggle state.
-    },
-    onToast: (kind) => {
+  // Shared subtitle-text pipeline: parse + replace cues (used by the P3
+  // auto-load hook AND the P4 search modal).
+  const handleSubtitleText = useCallback((text: string) => {
+    const result = parseSubtitle(text);
+    setCues(result.cues);
+    setSubtitleErrors(result.errors);
+    setActiveCueId(null);
+    subtitleTextRef.current = text;
+  }, []);
+
+  // Localized jimaku toast (rate-limit / auth / key-missing) — shared by the
+  // auto-load hook and the search modal.
+  const handleJimakuToast = useCallback(
+    (kind: 'rate-limit' | 'auth' | 'key-missing') => {
       const ui = dictRef.current.playerUI;
       notifyJimakuToast(
         kind === 'rate-limit'
@@ -597,7 +603,26 @@ const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
             : ui.jimakuKeyMissing,
       );
     },
+    [],
+  );
+
+  // P3 jimaku auto-load (§2.2): fires on local media select / Magnet handoff
+  // when the switch is ON. Exact match replaces subtitles; otherwise the
+  // search modal opens with the parsed title and the last-tried mode.
+  const jimakuAutoLoad = useJimakuAutoLoad({
+    onSubtitleLoaded: handleSubtitleText,
+    onOpenSearch: (_title, _animeLastTried) => {
+      setJimakuSearchPrefill({ title: _title, anime: _animeLastTried });
+      setIsJimakuSearchOpen(true);
+    },
+    onToast: handleJimakuToast,
   });
+
+  // P4: RightPanel search button — pre-fill with the current media name.
+  const handleOpenJimakuSearch = useCallback(() => {
+    setJimakuSearchPrefill({ title: mediaName });
+    setIsJimakuSearchOpen(true);
+  }, [mediaName]);
 
   const handleMagnetJobAccepted = useCallback(
     (jobId: string, selectedName: string, subtitleFileId: string) => {
@@ -3840,6 +3865,17 @@ const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
         token={jobSession.token ?? ''}
         onComplete={handleAudioSyncComplete}
       />
+      {/* P4: jimaku search modal (§2.3) — opened from the RightPanel button
+          or the P3 auto-load fallback (title pre-filled either way). */}
+      <JimakuSearchDialog
+        open={isJimakuSearchOpen}
+        onOpenChange={setIsJimakuSearchOpen}
+        initialTitle={jimakuSearchPrefill.title}
+        initialAnime={jimakuSearchPrefill.anime}
+        onSubtitleLoaded={handleSubtitleText}
+        onToast={handleJimakuToast}
+        dict={dict}
+      />
       <MiningPreviewDialog
         open={isMiningPreviewOpen}
         onOpenChange={handleMiningPreviewClose}
@@ -4140,6 +4176,7 @@ const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
               hideSyncSubtitle={jobSession.kind === 'youtube'}
+              onOpenJimakuSearch={handleOpenJimakuSearch}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
@@ -4167,6 +4204,7 @@ const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
               hideSyncSubtitle={jobSession.kind === 'youtube'}
+              onOpenJimakuSearch={handleOpenJimakuSearch}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
