@@ -793,4 +793,11 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 
 - **`/v1/media/pcm` が「growSource（fixture）」と「現在の Magnet ジョブの選択メディア」の両方に対応**（commit 8752122）。`internal/torrent/media_source.go` の `torrentMediaSource` アダプタが選択メディアを `media.GrowingSource` に適合（`ReadAt` = 共有 anacrolix `HTTPReader` の Seek+Read・mutex 直列化・`Available` = 検証済み prefix・ジョブ終了後は fail closed）。`pcm.go` はソース解決を growSource → `torrents.SelectedMediaSource()` のフォールバックに変更し、**404 でも CORS ヘッダーを付与**（ブラウザの Failed to fetch を解消）。503 buffering 契約（`available`/`total` → Retry-After）は fixture / Magnet 共通。
 - **web 側**: Magnet の sub-to-audio 字幕同期（`fetchMagnetPcm` → `SubtitleSyncDialog` の DL % ポーリング → complete で同期）がこの拡張で動作。`fetchMagnetPcm` の 404 は技術文言（`companion PCM fetch failed (404)`）ではなくユーザー向け文言（`voice-based sync is unavailable: no active media`）を返すよう調整。
+- **堅牢化（commit 3689ad9）**: `ReadAt` が可用性境界を self-enforce（`off >= avail` → EOF・境界跨ぎは切り詰め・MemSource パターン）・**done 監視 goroutine** がジョブ終了時に `cancel()` して in-flight Read のブロックを解除（`Close()` は `sync.Once` で watcher 停止・二重 Close 安全・mutex を取らずに cancel でデッドロック回避）。
+
+### 開発記録（2026-08-16）: 内蔵字幕の自動参照（sub-to-sub Phase 1）
+
+- **Magnet 動画の内蔵字幕（SRT/VTT/ASS）を参照字幕として自動取得し、ユーザーがロードしたズレ字幕を sub-to-sub 同期できるようにした**（commit fdf4be1）。従来は「ファイル選択で字幕を選ぶ」必要があり、選ばないと「内蔵字幕ない」Toast になっていた。Chromium は MKV コンテナの内蔵字幕を `video.textTracks` に公開しないが、companion の subtitle API 経由で torrent 内の字幕ファイルを直接取得できる。
+- **companion**: `SubtitleContent` が「選択済み字幕」に加え「**未選択なら torrent 内の字幕ファイルを自動検出**（`firstSubtitleIndex`・KindSubtitle）」して内容を返す。`Select` はビデオのみ選択時でも**内蔵字幕を Normal 優先度に昇格**（未選択字幕が DL されず読み取りがブロックする問題）。**潜在バグ修正**: `subtitleIdx` が Go ゼロ値（0 = 先頭ファイル = 動画）のままだった → `-1` 初期化（内蔵字幕なし時に動画を字幕として返すバグを防止）。
+- **web**: `planSync` に `sub-to-sub-auto-ref`（Magnet + 字幕モード + 参照字幕なし → 内蔵字幕を自動取得）を追加。`fetchMagnetSubtitle` の fileId をオプショナル化（空 = companion が自動検出）。`auto` モードも内蔵字幕を先に試し（sub-to-sub は audio より正確）、取得失敗時は `fallbackToAudio` で sub-to-audio にフォールバック（commit 5420278）。
 
