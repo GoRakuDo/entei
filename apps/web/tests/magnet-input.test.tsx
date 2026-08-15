@@ -574,6 +574,47 @@ describe('MagnetInput — selection flow', () => {
     expect(onJobAccepted).toHaveBeenCalledWith('jobSel', 'movie.mkv', 'f1');
   });
 
+  it('keeps the file list and shows a loading cancel button while waiting for playable', async () => {
+    let resolveSelect!: (r: Response) => void;
+    const selectGate = new Promise<Response>((res) => {
+      resolveSelect = res;
+    });
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobWait' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+      () => selectGate, // select POST — held open (playable-wait window)
+      jsonResponse({ state: 'playable', available: 2_000_000, total: 2_000_000 }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    render(<MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />);
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit }));
+    await flush(0);
+
+    // The file list stays visible (no empty state) while the wait runs…
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+    // …and the bottom button is the loading cancel (TypewriterLoading; the
+    // accessible name still says "Batalkan").
+    const cancelBtn = screen.getByRole('button', { name: baseDict.magnetCancel });
+    expect(cancelBtn.querySelector('.entei-typewriter')).toBeTruthy();
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobWait/select'))).toBe(true);
+
+    // Complete the playable wait → the job reaches the Player.
+    resolveSelect(jsonResponse({ id: 'jobWait', state: 'complete' }, 200));
+    await flush(0);
+    expect(onJobAccepted).toHaveBeenCalledWith('jobWait', 'movie.mkv', '');
+  });
+
   it('no selectable video shows the localized no-video error', async () => {
     const { fetchMock } = makeFetcher([
       jsonResponse({ id: 'jobNoVid' }, 201),

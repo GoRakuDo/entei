@@ -683,7 +683,10 @@ export function MagnetInput({
   const busy = phase === 'creating' || phase === 'submitting' || phase === 'settling';
   const canCreate = isPaired && !busy && isValidMagnetUri(magnet);
   const hasVideoSelected = videoId !== '';
-  const showTable = phase === 'selecting';
+  // Keep the file list visible during the playable wait (submitting): the
+  // entries are still held and must not collapse into the empty state while
+  // waitForPlayable runs after /select.
+  const showTable = phase === 'selecting' || phase === 'submitting';
   const showChecking = phase === 'checking';
 
   return (
@@ -896,8 +899,15 @@ export function MagnetInput({
                   variant="outline"
                   className="entei-magnet-submit entei-magnet-cancel"
                   onClick={handleCancel}
+                  aria-label={dict.magnetCancel}
                 >
-                  {dict.magnetCancel}
+                  {/* Loading animation while the dialog is busy (metadata
+                      check / playable wait / cancel settle); the accessible
+                      name above keeps the cancel affordance for SR users. */}
+                  <TypewriterLoading
+                    aria-hidden="true"
+                    className="entei-typewriter--btn"
+                  />
                 </Button>
               ) : (
                 <Button
