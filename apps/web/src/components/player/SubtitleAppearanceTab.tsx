@@ -18,8 +18,15 @@ import { useMemo, useCallback, useState, useEffect } from 'react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from './ui/slider';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Switch } from './ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/player/ui/toggle-group';
 import type { SubtitleSyncMode } from '@/features/player/preferences';
+import {
+  readJimakuPreferences,
+  setJimakuApiKey,
+  setJimakuAutoLoad,
+} from '@/features/player/jimaku-preferences';
 import {
   Palette,
   RotateCcw,
@@ -212,8 +219,11 @@ export function SubtitleAppearanceTab({
   onReset,
 }: SubtitleAppearanceTabProps) {
   // Local state for color inputs (hex) - synced from oklch props
-  const [textColorHex, setTextColorHex] = useState(() => oklchToHex(settings.textColor));
-  const [bgColorHex, setBgColorHex] = useState(() => oklchToHex(settings.backgroundColor));
+const [textColorHex, setTextColorHex] = useState(() => oklchToHex(settings.textColor));
+const [bgColorHex, setBgColorHex] = useState(() => oklchToHex(settings.backgroundColor));
+// jimaku.cc preferences — mounted once from localStorage (P2 settings UI).
+const [jimakuApiKey, setJimakuApiKeyState] = useState(() => readJimakuPreferences().apiKey);
+const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(() => readJimakuPreferences().autoLoadEnabled);
 
   // Extract current alpha from the background oklch string
   const bgAlpha = useMemo(() => parseOklchAlpha(settings.backgroundColor), [settings.backgroundColor]);
@@ -454,6 +464,41 @@ export function SubtitleAppearanceTab({
               );
             })}
           </ToggleGroup>
+        </div>
+      </div>
+
+      {/* JIMAKU.CC — auto-load Japanese subtitles (P2) */}
+      <div className="entei-jimaku-section">
+        <h3 className="entei-settings-label">{dict.jimakuHeading}</h3>
+        <p className="entei-anki-desc">{dict.jimakuDesc}</p>
+        <div className="entei-jimaku-key-row">
+          <label htmlFor="entei-jimaku-api-key">{dict.jimakuApiKeyLabel}</label>
+          <Input
+            id="entei-jimaku-api-key"
+            type="password"
+            value={jimakuApiKey}
+            onChange={(e) => {
+              const v = e.target.value;
+              setJimakuApiKeyState(v);
+              setJimakuApiKey(v); // persist immediately
+            }}
+            placeholder={dict.jimakuApiKeyPlaceholder}
+            autoComplete="off"
+          />
+        </div>
+        <div className="entei-jimaku-auto-row">
+          <div>
+            <span>{dict.jimakuAutoLoadLabel}</span>
+            <p className="entei-anki-desc">{dict.jimakuAutoLoadDesc}</p>
+          </div>
+          <Switch
+            checked={jimakuAutoLoad}
+            onCheckedChange={(v) => {
+              setJimakuAutoLoadState(v);
+              setJimakuAutoLoad(v); // persist immediately
+            }}
+            aria-label={dict.jimakuAutoLoadLabel}
+          />
         </div>
       </div>
 

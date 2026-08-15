@@ -1116,6 +1116,23 @@
   color: var(--entei-text);
 }
 
+/* JIMAKU.CC settings (P2) — mirror of player.css */
+.entei-jimaku-key-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+.entei-jimaku-key-row label {
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+}
+.entei-jimaku-auto-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-16);
+}
+
 .entei-subtitle-reset-btn:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
