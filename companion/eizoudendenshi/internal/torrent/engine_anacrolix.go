@@ -55,11 +55,9 @@ type engineAnacrolix struct {
 	mu     sync.Mutex
 	client *torrent.Client
 	log    *diag.Logger // nil-safe; set via SetLogger before Start
-	// storage is the explicit DefaultStorage closer (stremio-server-go
-	// pattern). anacrolix v1.61 does NOT close an explicitly-provided
-	// DefaultStorage on client.Close (the onClose hook is only registered in
-	// the nil branch), so the engine owns it and releases the bolt
-	// piece-completion DB in Close.
+	// storage is the explicit DefaultStorage closer the engine owns: anacrolix
+	// v1.61 does not close an explicitly-provided DefaultStorage, and the bolt
+	// Close is idempotent (a future double-close is safe). See Close.
 	storage storage.ClientImplCloser
 }
 
@@ -194,6 +192,11 @@ func NewAnacrolixEngine(storageDir string) (Engine, error) {
 	return &engineAnacrolix{client: cl, storage: stor}, nil
 }
 
+// Close shuts down the anacrolix client and releases the session storage
+// (the explicit DefaultStorage closer — see the engine's storage field).
+// Double Close is safe: both the client and the bolt piece-completion DB
+// close idempotently (the second bolt Close returns ErrDatabaseNotOpen,
+// which is ignored here).
 func (e *engineAnacrolix) Close() error {
 	// Capture under the lock, close after unlocking: a concurrent diag()
 	// either sees the client (and finishes with the closed client, which

@@ -75,16 +75,10 @@ type Config struct {
 	OnMetadataTimeout func(elapsed time.Duration)
 
 	// StorageRoot is the parent directory for per-session private storage
-	// dirs. Empty selects the persistent companion data directory (see
-	// defaultStorageRoot) — never the OS temp dir, which can sit on a
-	// Ramdisk where bbolt's mmap piece-completion DB fails to open and the
-	// download stalls. A caller-provided root is never removed; neither is
-	// the default root — only the per-session subdirectories the Manager
-	// creates are (plus leftover session-* dirs via CleanupStaleSessions).
-	// Each torrent session gets its own subdirectory, so concurrent sessions
-	// never share anacrolix state and the piece-completion DB is always
-	// opened at an explicit absolute path (never an undefined default, which
-	// fails on Windows).
+	// dirs. Empty selects the persistent data dir (defaultStorageRoot) —
+	// never the OS temp dir (Ramdisk bbolt hazard). The root is never
+	// removed; only per-session subdirectories are (plus stale session-*
+	// dirs via CleanupStaleSessions).
 	StorageRoot string
 
 	// Logger, when set, receives sanitized job lifecycle diagnostics
@@ -138,13 +132,15 @@ type Manager struct {
 //
 //   - Windows: %LOCALAPPDATA%\GoRakuDo\EizouDendenshi\torrent-sessions;
 //   - Android/Termux ($PREFIX set): $PREFIX/var/lib/eizouden/torrent-sessions;
-//   - other platforms: os.UserCacheDir()/GoRakuDo/EizouDendenshi/torrent-sessions,
-//     falling back to the OS temp dir (degraded but functional).
+//   - other platforms: os.UserCacheDir()/GoRakuDo/EizouDendenshi/torrent-sessions.
 //
 // The OS temp dir must be avoided for bbolt: it mmaps the piece-completion
 // DB, and a Ramdisk temp (e.g. A:\Temp) fails to open the bolt DB → anacrolix
 // falls back to an in-memory Map pieceCompletion → storageCompletionOk stays
 // false → every piece's effectivePriority is None → the download stalls.
+// There is therefore NO os.TempDir() fallback: when the user cache dir is
+// unavailable, the caller must supply StorageRoot explicitly instead of
+// silently re-introducing the Ramdisk hazard.
 func defaultStorageRoot() (string, error) {
 	var base string
 	switch {
@@ -157,11 +153,10 @@ func defaultStorageRoot() (string, error) {
 	case os.Getenv("PREFIX") != "":
 		base = filepath.Join(os.Getenv("PREFIX"), "var", "lib", "eizouden")
 	default:
-		cache, err := os.UserCacheDir()
-		if err != nil || cache == "" {
-			cache = os.TempDir()
+		if base, err := os.UserCacheDir(); err == nil && base != "" {
+			return filepath.Join(base, "GoRakuDo", "EizouDendenshi", "torrent-sessions"), nil
 		}
-		base = filepath.Join(cache, "GoRakuDo", "EizouDendenshi")
+		return "", errors.New("torrent: user cache dir unavailable; set StorageRoot explicitly")
 	}
 	return filepath.Join(base, "torrent-sessions"), nil
 }
