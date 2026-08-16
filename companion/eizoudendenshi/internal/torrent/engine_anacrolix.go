@@ -18,6 +18,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
+	"github.com/gravity-zero/mkvgo/matroska"
 
 	"eizoudendenshi/internal/diag"
 )
@@ -759,8 +760,11 @@ func (h *anacrolixHandle) SelectedLength() int64 {
 // subtitle was explicitly selected it reads that file; otherwise the first
 // subtitle file in the torrent is auto-detected (embedded-subtitle
 // reference for sub-to-sub sync — Select elevates its pieces so the data is
-// downloaded). Blocks until data is available or ctx is done. Returns an
-// error when the torrent has no subtitle file at all or the read fails.
+// downloaded). A torrent with no subtitle file at all falls back to the
+// selected video's embedded subtitle track (MKV text tracks), extracted with
+// mkvgo once the download is complete. Blocks until data is available or ctx
+// is done. Returns an error when there is no subtitle reference to read or
+// the read fails.
 func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 	h.mu.Lock()
 	idx := h.subtitleIdx
@@ -777,7 +781,10 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 		// against anacrolixFiles below.
 		idx = firstSubtitleIndex(files)
 		if idx < 0 || idx >= len(anacrolixFiles) {
-			return "", errSubtitleNotSelected
+			// No subtitle file in the torrent: fall back to the selected
+			// video's embedded subtitle track (single-file MKV with its
+			// subtitles muxed in).
+			return h.embeddedSubtitleContent(ctx)
 		}
 	}
 	f := anacrolixFiles[idx]
@@ -813,6 +820,40 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 			}
 			return "", err
 		}
+	}
+	return buf.String(), nil
+}
+
+// embeddedSubtitleContent extracts the selected video's FIRST embedded text
+// subtitle track (MKV SRT/ASS/VTT) with mkvgo and returns it as WebVTT. It is
+// the last-resort subtitle reference for a torrent that carries no subtitle
+// file. The download must be complete before this runs — the extraction seeks
+// across the whole file and reads blocks, which blocks on missing or
+// unverified pieces. Returns errSubtitleNotSelected (surfaced as 404 by the
+// API) when the file is incomplete or carries no extractable text track;
+// probe/extract failures carry the underlying cause.
+func (h *anacrolixHandle) embeddedSubtitleContent(ctx context.Context) (string, error) {
+	// Complete-only contract: the anacrolix Reader blocks while data is
+	// missing, and an incomplete file would yield a partial/garbage parse.
+	if !h.SelectedComplete() {
+		h.log.Warnf("torrent.engine", "embedded subtitle skipped: file incomplete")
+		return "", errSubtitleNotSelected
+	}
+	// Bound the whole probe+extract so a pathological or huge file cannot
+	// hang the sync button beyond the subtitle read bound.
+	extractCtx, cancel := context.WithTimeout(ctx, subtitleReadTimeout)
+	defer cancel()
+	fs := mkvFSFor(extractCtx, h)
+	trackID, err := firstTextSubtitleTrack(extractCtx, fs)
+	if err != nil {
+		if errors.Is(err, errNoEmbeddedSubtitle) {
+			return "", errSubtitleNotSelected
+		}
+		return "", fmt.Errorf("embedded subtitle probe: %w", err)
+	}
+	var buf strings.Builder
+	if err := matroska.ExtractSubtitleWebVTT(extractCtx, "in", trackID, &buf, matroska.Options{FS: fs}); err != nil {
+		return "", fmt.Errorf("embedded subtitle extract: %w", err)
 	}
 	return buf.String(), nil
 }

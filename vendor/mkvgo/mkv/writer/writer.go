@@ -675,6 +675,9 @@ func WriteCues(w io.Writer, cues []mkv.CuePoint, timecodeScale int64) error {
 			ce.master(mkv.IDCueTrackPositions, func(tp *ew) {
 				tp.uint(mkv.IDCueTrack, cp.Track)
 				tp.uint(mkv.IDCueClusterPos, uint64(cp.ClusterPos))
+				if cp.RelativePos > 0 {
+					tp.uint(mkv.IDCueRelativePos, uint64(cp.RelativePos))
+				}
 			})
 		})
 	}

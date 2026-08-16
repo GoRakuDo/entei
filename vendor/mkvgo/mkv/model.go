@@ -451,6 +451,12 @@ type CuePoint struct {
 	TimeMs     int64
 	Track      uint64
 	ClusterPos int64 // relative to the Segment body (Container.SegmentStart)
+	// RelativePos is the CueRelativePosition (0xF0): the referenced block's
+	// offset from the first byte of its cluster's DATA (right after the
+	// cluster's ID + size field). 0 when the index does not carry one. The
+	// Cues-driven subtitle extraction uses it to jump straight to the block
+	// instead of scanning the cluster prefix (which is media on other tracks).
+	RelativePos int64 `json:"relativePos,omitempty"`
 }
 
 type MuxOptions struct {

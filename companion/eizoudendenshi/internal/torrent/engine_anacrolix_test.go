@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
+	"github.com/gravity-zero/mkvgo/mkv"
 )
 
 // These tests pin the engine contract with the real anacrolix library, so a
@@ -113,6 +115,137 @@ func TestSubtitleContentResponsiveTimeout(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "subtitle read timed out") {
 		t.Fatalf("SubtitleContent err = %q, want a subtitle read timeout", err)
+	}
+}
+
+// TestSubtitleContentExtractsEmbeddedTrack runs SubtitleContent end-to-end
+// against a real anacrolix torrent whose single file is an MKV with an
+// embedded SRT track. The torrent has NO subtitle file (firstSubtitleIndex
+// is -1), so the last-resort path must extract the embedded track from the
+// completed download and return it as WebVTT — the single-file-MKV-with-muxed
+// subtitles user scenario that previously 404'd.
+func TestSubtitleContentExtractsEmbeddedTrack(t *testing.T) {
+	mkvBytes := buildTestMKVWithSubtitle(t,
+		[]mkv.Track{
+			{ID: 1, Type: mkv.VideoTrack, Codec: "h264", Language: "eng"},
+			{ID: 2, Type: mkv.SubtitleTrack, Codec: "srt", Language: "jpn"},
+		},
+		[]mkv.Block{
+			{TrackNumber: 1, Timecode: 0, Keyframe: true, Data: []byte("video0")},
+			{TrackNumber: 2, Timecode: 1000, Duration: 1000, Data: []byte("Hello")},
+			{TrackNumber: 2, Timecode: 3000, Duration: 2000, Data: []byte("World")},
+		},
+		5000)
+	// One 1 MiB piece covers the whole MKV: a single complete piece makes
+	// SelectedComplete() true, which the embedded path gates on.
+	info := &metainfo.Info{
+		Name:        "embedded.mkv",
+		PieceLength: 1 << 20,
+		Length:      int64(len(mkvBytes)),
+	}
+	info.Pieces = make([]byte, 20) // one dummy piece hash
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	// The data dir is created manually (not via t.TempDir): anacrolix's
+	// file storage reads the data file per ReadAt, and on Windows the final
+	// os.File handle is only released by its GC finalizer — a RemoveAll
+	// racing that release fails with "Access is denied". A few KB left in
+	// the OS temp dir must not fail the test, so the removal is best-effort.
+	dir, err := os.MkdirTemp("", "embedded-subtitle-test-*")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() {
+		runtime.GC()
+		runtime.Gosched()
+		_ = os.RemoveAll(dir)
+	})
+	// In-memory piece completion: the bolt DB file stays open for the
+	// torrent's lifetime, and on Windows a data dir containing a locked
+	// bolt file (or one whose Close races the GC finalizer) makes the
+	// TempDir removal fail with "Access is denied". The piece-completion
+	// backend is not what this test exercises, so keep it off the disk.
+	pc := storage.NewMapPieceCompletion()
+	ci := storage.NewFileWithCompletion(dir, pc)
+	t.Cleanup(func() { _ = pc.Close() })
+	t.Cleanup(func() { _ = ci.Close() })
+
+	// The single-file storage path is baseDir/<info.Name> — write the MKV
+	// bytes there so the reader serves hash-verified data (the path layout
+	// is pinned by TestSelectRefreshesHeadCompletionFromStorage).
+	if err := os.WriteFile(filepath.Join(dir, "embedded.mkv"), mkvBytes, 0o600); err != nil {
+		t.Fatalf("write data file: %v", err)
+	}
+
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.DefaultStorage = ci
+	cfg.DataDir = dir
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+
+	mi := &metainfo.MetaInfo{InfoBytes: ib}
+	tt, new := cl.AddTorrentOpt(torrent.AddTorrentOpts{
+		InfoHash:                 mi.HashInfoBytes(),
+		InfoBytes:                ib,
+		DisableInitialPieceCheck: true,
+	})
+	if !new {
+		t.Fatal("torrent must be new")
+	}
+	<-tt.GotInfo()
+	h := newAnacrolixHandle(tt)
+
+	// Mark the sole piece complete BEFORE Select: the selection-time
+	// UpdateCompletion refresh reads it from the store (same mechanism
+	// TestSelectRefreshesHeadCompletionFromStorage pins).
+	ih := tt.InfoHash()
+	if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: 0}, true); err != nil {
+		t.Fatalf("set piece 0 complete: %v", err)
+	}
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if !h.SelectedComplete() {
+		t.Fatal("selected file must be complete before embedded extraction")
+	}
+
+	got, err := h.SubtitleContent(context.Background())
+	if err != nil {
+		t.Fatalf("SubtitleContent: %v", err)
+	}
+	for _, want := range []string{"WEBVTT", "00:00:01.000 --> 00:00:02.000\nHello", "World"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("embedded subtitle output missing %q:\n%s", want, got)
+		}
+	}
+	// Drop the torrent and close the client while the torrent objects are
+	// still in scope, then force a collection: anacrolix's file storage
+	// reads the data file per ReadAt, and on Windows the final os.File
+	// handle is only released by its GC finalizer. The directory removal
+	// retries until the OS releases every handle — a single RemoveAll races
+	// the finalizer and fails with "Access is denied".
+	h.Close()
+	cl.Close()
+	runtime.GC()
+	runtime.Gosched()
+	for i := 0; i < 10; i++ {
+		if err := os.RemoveAll(dir); err == nil {
+			return
+		}
+		runtime.GC()
+		runtime.Gosched()
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

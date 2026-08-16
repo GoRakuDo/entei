@@ -95,10 +95,13 @@ func ExtractSubtitle(ctx context.Context, srcPath string, trackID uint64, outPat
 // cue's start (then a default) when absent. Bitmap subtitles are not supported.
 //
 // When the file's Cues index references the track (the shape mainstream muxers
-// produce), the blocks are read by seeking straight to each cued cluster - a few
-// ranged reads, never a walk over the file's other (often multi-GB) clusters. A
-// file whose index does not reference the track, or names a non-cluster
-// position, falls back to the sequential walk, which always yields every block.
+// produce), the blocks are read by seeking straight to each cue: a cluster
+// whose entries carry a CueRelativePosition is served by direct block jumps
+// (nothing before the block is read - not even the media that precedes it), and
+// one without is scanned alone. A file whose index does not reference the track
+// falls back to the sequential walk, which always yields every block.
+// Approach derived from cryguy/mkv-subtitle-extractor (MIT): direct block jumps
+// via CueRelativePosition + pure-seek discard of non-target payloads.
 func ExtractSubtitleWebVTT(ctx context.Context, srcPath string, trackID uint64, w io.Writer, opts ...mkv.Options) error {
 	fs := mkv.FSFrom(opts)
 	c, err := reader.OpenWithFS(ctx, srcPath, fs)
@@ -129,9 +132,9 @@ func ExtractSubtitleWebVTT(ctx context.Context, srcPath string, trackID uint64, 
 
 	// Preferred path: seek straight to the clusters the Cues index names for
 	// this track instead of walking every cluster of the file. Falls back to the
-	// sequential walk when the index does not reference the track or a named
-	// position is stale - the walk is always correct, the index just makes it
-	// cheap.
+	// sequential walk only when the index does not reference the track at all -
+	// a stale position is dropped, and the rest of the plan still drives the
+	// seek path. The walk is always correct, the index just makes it cheap.
 	if positions, ok := subtitleCuePlan(f, c, trackID); ok {
 		return extractSubtitleWebVTTViaCues(ctx, f, c, codec, trackID, positions, w)
 	}
@@ -143,6 +146,7 @@ func ExtractSubtitleWebVTT(ctx context.Context, srcPath string, trackID uint64, 
 	if err != nil {
 		return err
 	}
+	br.KeepTracks(trackID)
 
 	var cues []subtitle.Cue
 	for {
@@ -167,31 +171,61 @@ func ExtractSubtitleWebVTT(ctx context.Context, srcPath string, trackID uint64, 
 	return subtitle.WriteWebVTT(w, cues)
 }
 
+// cueSeek is one validated seek target of the Cues-driven subtitle extraction.
+// clusterPos is Segment-relative (add Container.SegmentStart for the absolute
+// offset); relPos is the block's offset from the cluster data start - the
+// CueRelativePosition - or 0 when the index carries none; timeMs is the cue's
+// timestamp in milliseconds. A direct jump never reads the cluster prefix, so
+// the CueTime stands in for the block timecode it would have derived there.
+type cueSeek struct {
+	clusterPos int64
+	relPos     int64
+	timeMs     int64
+}
+
 // subtitleCuePlan resolves the seek plan for extracting trackID through the
-// Cues index: the track's cue points in file order, de-duplicated. ok is false
-// when the index does not reference the track, or any named position is stale
-// (not a real Cluster element) - callers then fall back to a sequential walk,
-// which is always correct. Each CuePoint.ClusterPos is Segment-relative, so the
+// Cues index: the track's cue points in file order, de-duplicated by the block
+// they name (cluster + relative position). ok is false when the index does not
+// reference the track, or no named position is a real Cluster element - callers
+// then fall back to the sequential walk, which is always correct. Validation is
+// per-position: a stale entry (clusterAt failure) is dropped and the rest of
+// the plan stays usable - one bad cue must not throw the extraction to a
+// whole-file walk. Each CuePoint.ClusterPos is Segment-relative, so the
 // absolute seek offset is c.SegmentStart + pos.
-func subtitleCuePlan(f mkv.ReadSeekCloser, c *mkv.Container, trackID uint64) (positions []int64, ok bool) {
-	seen := make(map[int64]bool)
+func subtitleCuePlan(f mkv.ReadSeekCloser, c *mkv.Container, trackID uint64) (plan []cueSeek, ok bool) {
+	scale := c.Info.TimecodeScale
+	if scale <= 0 {
+		scale = 1_000_000 // malformed source; sane cue timestamps beat zeroed ones
+	}
+	seen := make(map[[2]int64]bool)
 	for _, cue := range c.Cues {
-		if cue.Track != trackID || cue.ClusterPos <= 0 || seen[cue.ClusterPos] {
+		if cue.Track != trackID || cue.ClusterPos <= 0 {
 			continue
 		}
-		seen[cue.ClusterPos] = true
-		positions = append(positions, cue.ClusterPos)
+		key := [2]int64{cue.ClusterPos, cue.RelativePos}
+		if seen[key] {
+			continue
+		}
+		if !clusterAt(f, c.SegmentStart+cue.ClusterPos) {
+			continue // stale entry: drop it, keep the rest
+		}
+		seen[key] = true
+		plan = append(plan, cueSeek{
+			clusterPos: cue.ClusterPos,
+			relPos:     cue.RelativePos,
+			timeMs:     cue.TimeMs * scale / 1_000_000,
+		})
 	}
-	if len(positions) == 0 {
+	if len(plan) == 0 {
 		return nil, false
 	}
-	sort.Slice(positions, func(i, j int) bool { return positions[i] < positions[j] })
-	for _, pos := range positions {
-		if !clusterAt(f, c.SegmentStart+pos) {
-			return nil, false
+	sort.Slice(plan, func(i, j int) bool {
+		if plan[i].clusterPos != plan[j].clusterPos {
+			return plan[i].clusterPos < plan[j].clusterPos
 		}
-	}
-	return positions, true
+		return plan[i].relPos < plan[j].relPos
+	})
+	return plan, true
 }
 
 // clusterAt reports whether a Cluster element starts at the absolute file
@@ -205,46 +239,174 @@ func clusterAt(r io.ReadSeeker, off int64) bool {
 	return err == nil && h.ID == mkv.IDCluster
 }
 
-// extractSubtitleWebVTTViaCues reads only the clusters the cue plan names. Each
-// walk starts at a cued cluster and stops the moment it enters the NEXT cued
-// cluster (compared by absolute offset), so the span of uncued clusters between
-// two cues is walked header-only - KeepTracks skips every other track's payload
-// and reads no media that is not the subtitle track's. The last walk runs to
-// EOF, picking up any blocks after the final cue.
-func extractSubtitleWebVTTViaCues(ctx context.Context, f mkv.ReadSeekCloser, c *mkv.Container, codec string, trackID uint64, positions []int64, w io.Writer) error {
+// extractSubtitleWebVTTViaCues reads only the clusters the cue plan names. A
+// cluster whose entries all carry a CueRelativePosition is served by direct
+// block jumps (nothing before the block is read); one without is scanned alone,
+// bounded to its own bytes - the uncued span to the next cued cluster is never
+// walked, and every skipped payload inside a scanned cluster is seeked over,
+// never read. A 13 GiB file therefore costs a few hundred ranged reads, not a
+// walk of its media.
+func extractSubtitleWebVTTViaCues(ctx context.Context, f mkv.ReadSeekCloser, c *mkv.Container, codec string, trackID uint64, plan []cueSeek, w io.Writer) error {
 	var cues []subtitle.Cue
-	for i, pos := range positions {
-		if err := ctx.Err(); err != nil {
+	for i := 0; i < len(plan); {
+		// Group the entries that name the same cluster. The jump-vs-scan
+		// decision is per cluster (cryguy's fallbackClusters rule): all direct
+		// jumps or one scan, never a mix - a scan after jumps would deliver the
+		// jumped blocks a second time.
+		j := i + 1
+		for j < len(plan) && plan[j].clusterPos == plan[i].clusterPos {
+			j++
+		}
+		group := plan[i:j]
+		if err := extractClusterCues(ctx, f, c, codec, trackID, group, c.SegmentStart+group[0].clusterPos, &cues); err != nil {
 			return err
 		}
-		start := c.SegmentStart + pos
-		next := int64(-1)
-		if i+1 < len(positions) {
-			next = c.SegmentStart + positions[i+1]
-		}
-		br, err := reader.NewBlockReaderAt(f, c.Info.TimecodeScale, start)
-		if err != nil {
-			return err
-		}
-		br.KeepTracks(trackID)
-		for {
-			blk, err := br.Next()
-			if errors.Is(err, io.EOF) {
-				break // end of the file
-			}
-			if err != nil {
-				return err
-			}
-			if next >= 0 && br.ClusterOffset() == next {
-				break // entered the next cued cluster: its blocks come from the next seek
-			}
-			if cue, ok := subtitleCueFromBlock(codec, blk); ok {
-				cues = append(cues, cue)
-			}
-		}
+		i = j
 	}
 	subtitle.ResolveCueEnds(cues, defaultSubDurationMs)
 	return subtitle.WriteWebVTT(w, cues)
+}
+
+// extractClusterCues delivers the subtitle cues of one cued cluster: direct
+// block jumps when every entry carries a valid CueRelativePosition, otherwise
+// a single scan of the cluster's own bytes.
+func extractClusterCues(ctx context.Context, f mkv.ReadSeekCloser, c *mkv.Container, codec string, trackID uint64, group []cueSeek, clusterAbs int64, out *[]subtitle.Cue) error {
+	if allRelPos(group) {
+		if dataStart, dataEnd, ok := clusterDataBounds(f, clusterAbs); ok && blockTargetsValid(f, group, dataStart) {
+			return extractCuesViaDirectJumps(ctx, f, c, codec, trackID, group, clusterAbs, dataStart, dataEnd, out)
+		}
+		// A stale relative position falls back to scanning the whole cluster
+		// (cryguy's fallbackClusters): the blocks are still in there, the scan
+		// is bounded to the cluster's own bytes, and the payloads are seeked.
+	}
+	return extractCuesViaClusterScan(ctx, f, c, codec, trackID, clusterAbs, out)
+}
+
+// allRelPos reports whether every group entry names its block by a
+// CueRelativePosition. A cluster is jumped to block-by-block only when all of
+// its entries do: a scan after any jump would deliver the jumped blocks twice.
+func allRelPos(group []cueSeek) bool {
+	for _, e := range group {
+		if e.relPos <= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// clusterDataBounds reads the Cluster element header at the absolute file
+// offset off and returns the start and end of its data - the end is -1 for an
+// unknown-size cluster. ok is false when no Cluster starts at off.
+func clusterDataBounds(r io.ReadSeeker, off int64) (dataStart, dataEnd int64, ok bool) {
+	if _, err := r.Seek(off, io.SeekStart); err != nil {
+		return 0, 0, false
+	}
+	h, n, err := ebml.ReadElementHeader(r)
+	if err != nil || h.ID != mkv.IDCluster {
+		return 0, 0, false
+	}
+	dataStart = off + int64(n) // ID + size field
+	dataEnd = -1
+	if h.Size >= 0 {
+		dataEnd = dataStart + h.Size
+	}
+	return dataStart, dataEnd, true
+}
+
+// blockTargetsValid reports whether every group entry's CueRelativePosition
+// names a real block element. A stale position pointing at arbitrary bytes
+// would otherwise be parsed as an element of whatever size those bytes happen
+// to encode - the scan fallback is just as cheap and never mis-parses.
+func blockTargetsValid(f mkv.ReadSeekCloser, group []cueSeek, dataStart int64) bool {
+	for _, e := range group {
+		if !blockAt(f, dataStart+e.relPos) {
+			return false
+		}
+	}
+	return true
+}
+
+// blockAt reports whether a SimpleBlock or BlockGroup element starts at the
+// absolute file offset off - the target of a CueRelativePosition direct jump.
+func blockAt(r io.ReadSeeker, off int64) bool {
+	if _, err := r.Seek(off, io.SeekStart); err != nil {
+		return false
+	}
+	h, _, err := ebml.ReadElementHeader(r)
+	return err == nil && (h.ID == mkv.IDSimpleBlock || h.ID == mkv.IDBlockGroup)
+}
+
+// extractCuesViaDirectJumps reads exactly the block each group entry's
+// CueRelativePosition names - one element per cue, and nothing before it in the
+// cluster: not the cluster Timestamp, not the media blocks that precede the
+// subtitle block (cryguy's direct-jump path). The block's timestamp is the
+// cue's CueTime - the block's own relative timecode is meaningless without the
+// cluster Timestamp this path never reads. A BlockGroup's BlockDuration is
+// still read: it carries the subtitle cue's on-screen end.
+func extractCuesViaDirectJumps(ctx context.Context, f mkv.ReadSeekCloser, c *mkv.Container, codec string, trackID uint64, group []cueSeek, clusterAbs, dataStart, dataEnd int64, out *[]subtitle.Cue) error {
+	for _, e := range group {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		br, err := reader.NewBlockReaderFrom(f, c.Info.TimecodeScale, reader.BlockPos{
+			Off:          dataStart + e.relPos,
+			ClusterStart: clusterAbs,
+			ClusterEnd:   dataEnd,
+			ClusterTS:    0, // unused: the CueTime below replaces the derived timecode
+		})
+		if err != nil {
+			return err
+		}
+		blk, err := br.Next()
+		if errors.Is(err, io.EOF) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if blk.TrackNumber != trackID {
+			// The index named a block of another track (stale entry): skip it.
+			// The walk is not continued - the cluster's other cues name their
+			// own blocks - so nothing past the jump position is read either.
+			continue
+		}
+		blk.Timecode = e.timeMs
+		blk.BlockTimecode = e.timeMs
+		if cue, ok := subtitleCueFromBlock(codec, blk); ok {
+			*out = append(*out, cue)
+		}
+	}
+	return nil
+}
+
+// extractCuesViaClusterScan walks exactly the cued cluster, delivering every
+// kept block. Other tracks' payloads are seeked over - never read - so the
+// walk's cost is the cluster's block-header count, not a byte of media.
+// StopAtClusterEnd keeps the walk inside the cluster: the uncued span to the
+// next cued cluster is never walked at all.
+func extractCuesViaClusterScan(ctx context.Context, f mkv.ReadSeekCloser, c *mkv.Container, codec string, trackID uint64, clusterAbs int64, out *[]subtitle.Cue) error {
+	br, err := reader.NewBlockReaderAt(f, c.Info.TimecodeScale, clusterAbs)
+	if err != nil {
+		return err
+	}
+	br.KeepTracks(trackID)
+	br.SetDiscardAlwaysSeek(true)
+	br.StopAtClusterEnd()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		blk, err := br.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if cue, ok := subtitleCueFromBlock(codec, blk); ok {
+			*out = append(*out, cue)
+		}
+	}
 }
 
 // subtitleCueFromBlock turns one subtitle block into a WebVTT cue by codec,

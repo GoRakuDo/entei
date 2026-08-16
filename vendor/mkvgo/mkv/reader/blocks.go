@@ -65,6 +65,14 @@ type countingReader struct {
 	pos   int64  // logical position of the next byte the caller consumes
 	end   int64  // source size, resolved on the first seek-skip; -1 until then
 	chunk int    // current read-ahead size; grows sequentially, shrinks on jumps
+	// alwaysSeek forces discard to seek over every skipped remainder instead
+	// of reading it forward through the growing window (seekSkipMin ignored).
+	// A seek is arithmetic-only on the seekable sources mkvgo runs on (in
+	// WASM, blobReader.Seek never touches the blob), while reading a payload
+	// costs a JS boundary call per block - the subtitle extraction path sets
+	// this so skipping other tracks' few-KiB blocks never degrades into a bulk
+	// read of the file's media.
+	alwaysSeek bool
 }
 
 func newCountingReader(src io.ReadSeeker, startPos int64) *countingReader {
@@ -138,7 +146,7 @@ func (c *countingReader) discard(n int64) error {
 		c.pos += n
 		return nil
 	}
-	if n-avail <= seekSkipMin {
+	if !c.alwaysSeek && n-avail <= seekSkipMin {
 		_, err := io.CopyN(io.Discard, c, n)
 		return err
 	}
@@ -231,6 +239,7 @@ type BlockReader struct {
 	progressFn    mkv.ProgressFunc
 	progressTotal int64
 	progressTick  int
+	clusterOnly   bool // stop with io.EOF at the end of the cluster the walk started in
 }
 
 func NewBlockReader(r io.ReadSeeker, timecodeScale int64) (*BlockReader, error) {
@@ -356,6 +365,29 @@ func (br *BlockReader) KeepTracks(tracks ...uint64) {
 // the kept track's block-header count, never by any payload bytes.
 func (br *BlockReader) SetHeaderOnly(on bool) {
 	br.headerOnly = on
+}
+
+// SetDiscardAlwaysSeek makes the walk seek over every skipped payload rather
+// than reading it forward through the read-ahead window (seekSkipMin is
+// ignored). A seek is arithmetic-only on the seekable sources mkvgo runs on,
+// while a read costs a cross-boundary call per block in WASM - the subtitle
+// extraction path sets this so skipping other tracks' payloads - typically a
+// few KiB of video frames, far below seekSkipMin - never degrades the walk
+// into a bulk read of the file's media. All other uses keep the adaptive
+// read-through behaviour.
+func (br *BlockReader) SetDiscardAlwaysSeek(on bool) {
+	if br.r != nil {
+		br.r.alwaysSeek = on
+	}
+}
+
+// StopAtClusterEnd bounds the walk to the single cluster it starts in: Next
+// returns io.EOF when the walk would exit that cluster, so nothing past it is
+// read. The Cues-driven subtitle extraction scans one cued cluster at a time -
+// the span to the next cued cluster carries exactly the media the extraction
+// must not read, so it is never walked, header-only or otherwise.
+func (br *BlockReader) StopAtClusterEnd() {
+	br.clusterOnly = true
 }
 
 // maxLacedFrameDurNs bounds a plausible per-frame duration (10 s): a larger
@@ -544,6 +576,9 @@ func (br *BlockReader) Next() (mkv.Block, error) {
 		if br.inCluster {
 			// Check known-size cluster boundary.
 			if br.clusterEnd >= 0 && br.r.tell() >= br.clusterEnd {
+				if br.clusterOnly {
+					return mkv.Block{}, io.EOF
+				}
 				br.inCluster = false
 				br.clusterEnd = -1
 				continue
@@ -570,6 +605,9 @@ func (br *BlockReader) Next() (mkv.Block, error) {
 
 			// For unknown-size clusters, a segment-level element ends the cluster.
 			if br.clusterEnd < 0 && isSegmentLevelID(h.ID) {
+				if br.clusterOnly {
+					return mkv.Block{}, io.EOF
+				}
 				br.inCluster = false
 				br.clusterEnd = -1
 				br.peeked = &peekedHeader{h: h, start: hdrStart}
