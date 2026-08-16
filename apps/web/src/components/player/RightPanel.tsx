@@ -52,9 +52,6 @@ interface RightPanelProps {
   lazySyncOn?: boolean;
   /** LazySync toggle click handler (Magnet only). */
   onToggleLazySync?: () => void;
-  /** Whether a LazySync run is in flight and has not applied yet — drives
-   *  the PROCESSING typewriter inside the toggle while it is on. */
-  isLazySyncProcessing?: boolean;
   /** Hide the sync button entirely (YouTube source — design §2-11). */
   hideSyncSubtitle?: boolean;
   /** History panel refresh trigger — increment after a successful Anki send. */
@@ -89,7 +86,6 @@ export function RightPanel({
   isMagnet = false,
   lazySyncOn = false,
   onToggleLazySync,
-  isLazySyncProcessing = false,
   hideSyncSubtitle = false,
   historyRefreshKey,
   onMineCue,
@@ -206,8 +202,8 @@ export function RightPanel({
           {!hideSyncSubtitle && (
             isMagnet ? (
               /* Magnet: LazySync toggle — colored while on, click toggles.
-               * The on-state keeps the PROCESSING typewriter while a sync
-               * run is in flight (docs §10.3). */
+               * The on-state shows the static "activated" label instead of
+               * a typewriter (docs §10.3). */
               <button
                 type="button"
                 className={
@@ -221,20 +217,12 @@ export function RightPanel({
                 title={lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
                 disabled={!canSyncSubtitle}
               >
-                {lazySyncOn && isLazySyncProcessing ? (
-                  <TypewriterLoading
-                    text="PROCESSING"
-                    className="entei-typewriter--btn"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <>
-                    <RotateCwFadingClock size={16} aria-hidden="true" />
-                    <span>
-                      {lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
-                    </span>
-                  </>
-                )}
+                <RotateCwFadingClock size={16} aria-hidden="true" />
+                <span>
+                  {lazySyncOn
+                    ? dict.subtitleSyncLazyActive
+                    : dict.subtitleSyncLazyOff}
+                </span>
               </button>
             ) : (
               /* Local media: classic click-to-sync button (unchanged). */

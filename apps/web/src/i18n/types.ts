@@ -145,6 +145,10 @@ export interface Dictionary {
   subtitleSyncLazyOn: string;
   /** LazySync toggle OFF state (Magnet only). */
   subtitleSyncLazyOff: string;
+  /** LazySync active button label shown while Magnet sync is on (docs
+   *  §10.3): the static "activated" text replaces the PROCESSING
+   *  typewriter. */
+  subtitleSyncLazyActive: string;
   /** Magnet + audio mode: audio-based sync is unavailable (§10.4). */
   subtitleSyncAudioUnavailable: string;
   subtitleSyncWaitTitle: string;

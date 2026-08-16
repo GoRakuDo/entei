@@ -290,10 +290,6 @@ export default function PlayerApp() {
   // Session-memory toggle state: ON runs the DL-prefix cue polling that
   // estimates and applies a constant offset to the loaded subtitle.
   const [isLazySyncOn, setIsLazySyncOn] = useState(false);
-  // True from toggle-ON until the first offset has been applied — drives
-  // the PROCESSING typewriter inside the toggle. Later refinement polls
-  // run silently (the colored toggle communicates the active state).
-  const [isLazySyncProcessing, setIsLazySyncProcessing] = useState(false);
   /** Mutable LazySync loop state (no re-renders between polls). */
   const lazySyncStateRef = useRef<{
     /** Original user-loaded cues — the base every offset is applied to. */
@@ -2038,6 +2034,15 @@ export default function PlayerApp() {
           jobSession.jobId,
           jobSession.subtitleFileId,
         );
+        if (ref.kind !== 'ok') {
+          // Explicit selection yet the companion cannot serve it (no
+          // embedded track / still preparing) — surface the reference
+          // error instead of parsing a non-existent body.
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
         const refDetected = parseSubtitle(ref.text);
         const synced = await syncSubtitleToReference(
           text,
@@ -2074,6 +2079,11 @@ export default function PlayerApp() {
               jobSession.jobId,
               '',
             );
+            // Any non-ok result (no embedded track / cues still pending /
+            // timeout) means the reference is unavailable right now — the
+            // shared catch below routes it to the auto fallback or the
+            // reference error, as before.
+            if (ref.kind !== 'ok') throw new Error('no embedded subtitle');
             refText = ref.text;
           } else {
             // Local embedded subtitle via mkvgo.
@@ -2165,7 +2175,6 @@ export default function PlayerApp() {
     const ui = dictRef.current.playerUI;
     if (isLazySyncOn) {
       setIsLazySyncOn(false);
-      setIsLazySyncProcessing(false);
       lazySyncStateRef.current = null;
       notifyLazySyncInfo(ui.subtitleSyncLazyOff);
       return;
@@ -2197,7 +2206,6 @@ export default function PlayerApp() {
       noMatchPollCount: 0,
     };
     setIsLazySyncOn(true);
-    setIsLazySyncProcessing(true);
     notifyLazySyncInfo(ui.subtitleSyncLazyOn);
   }, [isLazySyncOn]);
 
@@ -2227,7 +2235,6 @@ export default function PlayerApp() {
 
     const stop = () => {
       setIsLazySyncOn(false);
-      setIsLazySyncProcessing(false);
       lazySyncStateRef.current = null;
     };
 
@@ -2247,16 +2254,48 @@ export default function PlayerApp() {
       if (!state) return;
 
       try {
-        const ref = await fetchMagnetSubtitle(
+        const result = await fetchMagnetSubtitle(
           session.token,
           session.jobId,
           session.subtitleFileId ?? '',
         );
+        if (result.kind === 'no-track') {
+          // The torrent has NO embedded subtitle track (404, permanent):
+          // a reference can never appear, so stop immediately instead of
+          // waiting out the bounded wait.
+          stop();
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
+        if (result.kind === 'cues-pending') {
+          // The embedded track exists but the DL'd prefix has no cues yet
+          // (503, temporary — Growing Media contract). Same waiting state
+          // as a 0-cue body, bounded so it cannot run forever.
+          state.waitPollCount += 1;
+          state.noMatchPollCount = 0;
+          if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
+            stop();
+            notifySubtitleSyncError(
+              dictRef.current.playerUI.subtitleSyncNoSubtitle,
+            );
+            return;
+          }
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+        if (result.kind === 'error') {
+          // Transient failure (timeout / companion hiccup) — keep the
+          // waiting state and try again on the next poll.
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+        const ref = result;
         const refCues = parseSubtitle(ref.text).cues;
         if (refCues.length === 0) {
           // Downloaded prefix has no subtitle cues yet — waiting state
-          // (docs §10.2). Bounded so the PROCESSING typewriter cannot
-          // run forever.
+          // (docs §10.2). Bounded so the waiting state cannot run forever.
           state.waitPollCount += 1;
           state.noMatchPollCount = 0;
           if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
@@ -2313,7 +2352,6 @@ export default function PlayerApp() {
         }
         if (!state.appliedOnce) {
           state.appliedOnce = true;
-          setIsLazySyncProcessing(false);
         }
         // Offset converged (change ≤ threshold): one success toast, then
         // polling continues to refine (docs §10.2-10.3).
@@ -4432,7 +4470,6 @@ export default function PlayerApp() {
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
-              isLazySyncProcessing={isLazySyncProcessing}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
@@ -4464,7 +4501,6 @@ export default function PlayerApp() {
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
-              isLazySyncProcessing={isLazySyncProcessing}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}

@@ -21,10 +21,10 @@ export const LAZY_SYNC_POLL_INTERVAL_MS = 3000;
 /** Offset is considered stable when consecutive estimates change by ≤ 50 ms. */
 export const LAZY_SYNC_STABLE_THRESHOLD_MS = 50;
 
-/** Upper bound for the 0-cue waiting state (~3 min): if the embedded
- *  subtitle never yields a cue by then, give up instead of showing the
- *  PROCESSING typewriter forever. */
-export const LAZY_SYNC_MAX_WAIT_POLLS = 60;
+/** Upper bound for the 0-cue waiting state (~12 min = 240 polls × 3 s):
+ *  if the embedded subtitle never yields a cue by then, give up instead
+ *  of showing the state forever. */
+export const LAZY_SYNC_MAX_WAIT_POLLS = 240;
 
 /** Upper bound for "reference cues exist but none match the user subtitle"
  *  (~18 s): the embedded track is a different language / different lines —

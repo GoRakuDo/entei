@@ -860,13 +860,16 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 // mkvgo sees a prefix-truncated MKV and returns exactly the subtitle cues the
 // downloaded part holds — the sync reference grows as the download
 // progresses. The clamp keeps reads inside verified pieces, so they never
-// block on missing data (a cue straddling the boundary yields a transient
-// extract error, surfaced as 404, until the next poll's prefix covers it).
+// block on missing data (a cue straddling the boundary is dropped from the
+// DL'd-prefix output — reported as ErrSubtitleCuesPending until the next
+// poll's prefix covers it).
 //
-// Returns errSubtitleNotSelected (surfaced as 404 by the API) when the DL'd
-// prefix is below minimumEmbeddedSubtitlePrefix (head not readable), holds no
-// subtitle cue yet (the web layer waits for more data), or the file carries no
-// extractable text track; probe/extract failures carry the underlying cause.
+// Returns ErrNoEmbeddedSubtitleTrack (surfaced as 404 by the API) when the
+// file carries no extractable text track, or ErrSubtitleCuesPending (surfaced
+// as 503 by the API) while the DL'd prefix is below
+// minimumEmbeddedSubtitlePrefix (head not readable) or holds no subtitle cue
+// yet (the web layer waits for more data); probe/extract failures carry the
+// underlying cause.
 func (h *anacrolixHandle) embeddedSubtitleContent(ctx context.Context) (string, error) {
 	avail := h.AvailablePrefix()
 	// Gate: the DL'd prefix must be large enough to hold the MKV container
@@ -876,7 +879,7 @@ func (h *anacrolixHandle) embeddedSubtitleContent(ctx context.Context) (string, 
 	total := h.SelectedLength()
 	if avail < minimumEmbeddedSubtitlePrefix && avail < total {
 		h.log.Warnf("torrent.engine", "embedded subtitle skipped: prefix %d below minimum %d", avail, minimumEmbeddedSubtitlePrefix)
-		return "", errSubtitleNotSelected
+		return "", ErrSubtitleCuesPending
 	}
 	// Bound the whole probe+extract so a pathological or huge file cannot
 	// hang the sync button beyond the subtitle read bound.
@@ -886,7 +889,7 @@ func (h *anacrolixHandle) embeddedSubtitleContent(ctx context.Context) (string, 
 	trackID, err := firstTextSubtitleTrack(extractCtx, fs)
 	if err != nil {
 		if errors.Is(err, errNoEmbeddedSubtitle) {
-			return "", errSubtitleNotSelected
+			return "", ErrNoEmbeddedSubtitleTrack
 		}
 		return "", fmt.Errorf("embedded subtitle probe: %w", err)
 	}
@@ -899,7 +902,7 @@ func (h *anacrolixHandle) embeddedSubtitleContent(ctx context.Context) (string, 
 	// output always carries at least one "-->" timing line.
 	if !strings.Contains(buf.String(), "-->") {
 		h.log.Warnf("torrent.engine", "embedded subtitle skipped: no cues in DL'd prefix")
-		return "", errSubtitleNotSelected
+		return "", ErrSubtitleCuesPending
 	}
 	return buf.String(), nil
 }
@@ -1096,11 +1099,24 @@ func (h *anacrolixHandle) AnchorSeek(offset int64) {
 }
 
 var (
-	errInvalidMagnet       = errors.New("invalid magnet")
-	errInvalidSelection    = errors.New("invalid selection")
-	errSubtitleNotSelected = errors.New("subtitle not selected")
+	errInvalidMagnet    = errors.New("invalid magnet")
+	errInvalidSelection = errors.New("invalid selection")
 	// errV2Unsupported is returned by Start when the fetched metainfo is a
 	// v2-only torrent (BEP 52), which anacrolix v1.61 cannot download. The
 	// manager maps it to ErrCodeV2Unsupported (StateError).
 	errV2Unsupported = errors.New("v2-only torrent not supported")
 )
+
+// ErrNoEmbeddedSubtitleTrack is the permanent "no embedded text subtitle
+// track" outcome: the selected video's MKV carries no text subtitle track
+// mkvgo can extract, so the embedded-subtitle fallback can never succeed. The
+// subtitle API surfaces it as 404 (no_embedded_subtitle_track) so the web
+// layer shows an immediate "no subtitle track" toast instead of waiting.
+var ErrNoEmbeddedSubtitleTrack = errors.New("no embedded subtitle track")
+
+// ErrSubtitleCuesPending is the transient "not ready yet" outcome: the DL'd
+// prefix is below minimumEmbeddedSubtitlePrefix (container head not readable)
+// or holds no subtitle cue yet, so the sync reference has nothing to read. The
+// subtitle API surfaces it as 503 (cues_pending, Retry-After) — the Growing
+// Media buffering contract — so the web layer waits for more data.
+var ErrSubtitleCuesPending = errors.New("subtitle cues pending")

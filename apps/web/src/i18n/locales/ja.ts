@@ -337,6 +337,7 @@ export const ja: Dictionary = {
   subtitleSyncNoSubtitle: '字幕が読み込まれていません',
   subtitleSyncLazyOn: 'LazySync 有効',
   subtitleSyncLazyOff: 'LazySync 無効',
+  subtitleSyncLazyActive: 'LazySync 有効中',
   subtitleSyncAudioUnavailable:
     'Magnet では音声ベースの同期は利用できません。字幕モードを使用してください',
     subtitleSyncWaitTitle: '音声同期が使えません',

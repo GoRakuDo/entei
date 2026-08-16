@@ -71,11 +71,12 @@ func (e *apiFakeEngine) Start(_ context.Context, _ string) (torrent.TorrentHandl
 func (e *apiFakeEngine) Close() error { return nil }
 
 type apiFakeHandle struct {
-	files           []torrent.TorrentFile
-	selected        int
-	subtitleIdx     int
-	avail           atomic.Int64
-	anchorSeekOff   atomic.Int64 // last AnchorSeek offset (for testing)
+	files         []torrent.TorrentFile
+	selected      int
+	subtitleIdx   int
+	avail         atomic.Int64
+	anchorSeekOff atomic.Int64 // last AnchorSeek offset (for testing)
+	subtitleErr   error        // injected SubtitleContent error (for testing)
 }
 
 func (h *apiFakeHandle) Name() string                 { return "test-torrent" }
@@ -118,6 +119,9 @@ func (h *apiFakeHandle) Select(videoFileID, subtitleFileID string) error {
 // subtitle was selected, the first subtitle file in the torrent is
 // auto-detected (embedded-subtitle reference), mirroring the real engine.
 func (h *apiFakeHandle) SubtitleContent(_ context.Context) (string, error) {
+	if h.subtitleErr != nil {
+		return "", h.subtitleErr
+	}
 	idx := h.subtitleIdx
 	if idx < 0 {
 		for i, f := range h.files {
@@ -1580,4 +1584,100 @@ func TestTorrentSubtitleWrongMethod(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST subtitle = %d, want 405", rec.Code)
 	}
+}
+
+// TestTorrentSubtitleNoEmbeddedTrack404 verifies that a permanent "no
+// embedded text subtitle track" engine outcome maps to 404 with the
+// no_embedded_subtitle_track error code — the web layer shows a toast instead
+// of waiting.
+func TestTorrentSubtitleNoEmbeddedTrack404(t *testing.T) {
+	s, _, tracked := newTorrentsServer(t)
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for the handle to exist (engine Start completed).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	tracked.last().h.subtitleErr = torrent.ErrNoEmbeddedSubtitleTrack
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subtitle no-track = %d, want 404; body=%q", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no_embedded_subtitle_track") {
+		t.Errorf("subtitle no-track body = %q, want no_embedded_subtitle_track", rec.Body.String())
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") == "" {
+		t.Error("subtitle no-track response missing CORS origin header")
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentSubtitleCuesPending503 verifies that a transient "cues pending"
+// engine outcome maps to 503 with Retry-After and the cues_pending body — the
+// Growing Media buffering contract — so the web layer waits for more data.
+func TestTorrentSubtitleCuesPending503(t *testing.T) {
+	s, _, tracked := newTorrentsServer(t)
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	tracked.last().h.subtitleErr = torrent.ErrSubtitleCuesPending
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("subtitle cues-pending = %d, want 503; body=%q", rec.Code, rec.Body.String())
+	}
+	if ra := rec.Header().Get("Retry-After"); ra != bufferingRetryAfter {
+		t.Errorf("subtitle cues-pending Retry-After = %q, want %q", ra, bufferingRetryAfter)
+	}
+	if !strings.Contains(rec.Body.String(), "cues_pending") {
+		t.Errorf("subtitle cues-pending body = %q, want cues_pending", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"retryAfter":1`) {
+		t.Errorf("subtitle cues-pending body = %q, want retryAfter:1", rec.Body.String())
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") == "" {
+		t.Error("subtitle cues-pending response missing CORS origin header")
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
 }

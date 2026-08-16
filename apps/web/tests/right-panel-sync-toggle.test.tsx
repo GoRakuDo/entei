@@ -9,7 +9,6 @@ function renderPanel(overrides: {
   isMagnet?: boolean;
   lazySyncOn?: boolean;
   onToggleLazySync?: () => void;
-  isLazySyncProcessing?: boolean;
   onSyncSubtitle?: () => void;
   canSyncSubtitle?: boolean;
 } = {}) {
@@ -27,7 +26,6 @@ function renderPanel(overrides: {
       isMagnet={overrides.isMagnet}
       lazySyncOn={overrides.lazySyncOn}
       onToggleLazySync={overrides.onToggleLazySync}
-      isLazySyncProcessing={overrides.isLazySyncProcessing}
     />,
   );
 }
@@ -54,7 +52,7 @@ describe('RightPanel Magnet LazySync toggle', () => {
     });
     expect(btn.getAttribute('aria-pressed')).toBe('true');
     expect(btn.className).toContain('entei-subtitle-sync-button--active');
-    expect(btn.textContent).toContain(dict.subtitleSyncLazyOn);
+    expect(btn.textContent).toContain(dict.subtitleSyncLazyActive);
   });
 
   it('fires onToggleLazySync on click', () => {
@@ -79,26 +77,24 @@ describe('RightPanel Magnet LazySync toggle', () => {
     expect(btn.getAttribute('disabled')).not.toBeNull();
   });
 
-  it('shows the PROCESSING typewriter while on and a run is in flight', () => {
+  it('shows the static activated label (no typewriter) while on, even in flight', () => {
     renderPanel({
       isMagnet: true,
       lazySyncOn: true,
-      isLazySyncProcessing: true,
       canSyncSubtitle: true,
     });
     const btn = screen.getByRole('button', {
       name: dict.subtitleSyncLazyOn,
     });
-    expect(btn.querySelector('.entei-typewriter--btn')).not.toBeNull();
-    expect(btn.querySelector('svg')).toBeNull();
-    expect(btn.textContent).not.toContain(dict.subtitleSyncLazyOn);
+    expect(btn.querySelector('.entei-typewriter')).toBeNull();
+    expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn.textContent).toContain(dict.subtitleSyncLazyActive);
   });
 
-  it('keeps the colored toggle (no typewriter) when on but not processing', () => {
+  it('keeps the colored toggle with the static label when on but not processing', () => {
     renderPanel({
       isMagnet: true,
       lazySyncOn: true,
-      isLazySyncProcessing: false,
       canSyncSubtitle: true,
     });
     const btn = screen.getByRole('button', {
@@ -107,6 +103,7 @@ describe('RightPanel Magnet LazySync toggle', () => {
     expect(btn.className).toContain('entei-subtitle-sync-button--active');
     expect(btn.querySelector('.entei-typewriter')).toBeNull();
     expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn.textContent).toContain(dict.subtitleSyncLazyActive);
   });
 });
 

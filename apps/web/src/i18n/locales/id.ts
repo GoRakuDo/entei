@@ -338,6 +338,7 @@ export const id: Dictionary = {
   subtitleSyncNoSubtitle: 'Tidak ada subtitle yang dimuat',
   subtitleSyncLazyOn: 'LazySync aktif',
   subtitleSyncLazyOff: 'LazySync nonaktif',
+  subtitleSyncLazyActive: 'LazySync aktif',
   subtitleSyncAudioUnavailable:
     'Sinkronisasi berbasis suara tidak tersedia untuk Magnet. Gunakan mode subtitle',
     subtitleSyncWaitTitle: 'Sinkron suara tak tersedia',

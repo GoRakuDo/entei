@@ -75,6 +75,7 @@ describe('LocaleChangeDetail shape', () => {
       'failedToLoadVideo',
       'subtitleSyncLazyOn',
       'subtitleSyncLazyOff',
+      'subtitleSyncLazyActive',
       'subtitleSyncAudioUnavailable',
       'cuesCount',
       'seekTo',

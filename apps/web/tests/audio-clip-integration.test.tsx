@@ -330,6 +330,7 @@ const mockDict = {
   subtitleSyncNoSubtitle: 'No subtitle loaded',
   subtitleSyncLazyOn: 'LazySync enabled',
   subtitleSyncLazyOff: 'LazySync disabled',
+  subtitleSyncLazyActive: "LazySync-Sub's Activated",
   subtitleSyncAudioUnavailable:
     'Audio-based sync is unavailable for Magnet. Use subtitle mode',
   subtitleSyncWaitTitle: 'Voice-based sync unavailable',

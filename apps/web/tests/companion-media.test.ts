@@ -49,6 +49,8 @@ describe('fetchMagnetSubtitle', () => {
     vi.stubGlobal('fetch', spy);
 
     const out = await fetchMagnetSubtitle('tok', 'job-1', 'file-2');
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok') return;
     expect(out.text).toContain('WEBVTT');
     expect(out.format).toBe('vtt');
     const url = spy.mock.calls[0]![0] as string;
@@ -60,30 +62,58 @@ describe('fetchMagnetSubtitle', () => {
     expect(url).not.toContain('file=');
   });
 
-  it('throws on non-ok response', async () => {
+  it('maps a 404 to no-track (no embedded subtitle track — permanent)', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(new Response('nope', { status: 404 })),
     );
-    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).rejects.toThrow(
-      'companion subtitle fetch failed (404)',
-    );
+    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).resolves.toEqual({
+      kind: 'no-track',
+    });
   });
 
-  it('maps an AbortSignal.timeout abort to a clear user-facing message', async () => {
+  it('maps a 503 to cues-pending (track exists, cues not ready — temporary)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'cues_pending' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).resolves.toEqual({
+      kind: 'cues-pending',
+    });
+  });
+
+  it('maps any other non-ok status to a generic error result', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('nope', { status: 500 })),
+    );
+    const out = await fetchMagnetSubtitle('tok', 'job-1', 'f');
+    expect(out.kind).toBe('error');
+    if (out.kind !== 'error') return;
+    expect(out.status).toBe(500);
+  });
+
+  it('maps an AbortSignal.timeout abort to a clear error result', async () => {
     const timeoutErr = new DOMException('The operation timed out', 'TimeoutError');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(timeoutErr));
-    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).rejects.toThrow(
-      'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
-    );
+    const out = await fetchMagnetSubtitle('tok', 'job-1', 'f');
+    expect(out.kind).toBe('error');
+    if (out.kind !== 'error') return;
+    expect(out.message).toContain('subtitle fetch timed out');
   });
 
-  it('maps an external AbortError to the same user-facing message', async () => {
+  it('maps an external AbortError to the same user-facing error result', async () => {
     const abortErr = new DOMException('The operation was aborted', 'AbortError');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortErr));
-    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).rejects.toThrow(
-      'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
-    );
+    const out = await fetchMagnetSubtitle('tok', 'job-1', 'f');
+    expect(out.kind).toBe('error');
+    if (out.kind !== 'error') return;
+    expect(out.message).toContain('subtitle fetch timed out');
   });
 });
 

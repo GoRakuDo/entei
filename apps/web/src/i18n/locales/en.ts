@@ -334,6 +334,7 @@ export const en: Dictionary = {
   subtitleSyncNoSubtitle: 'No subtitle loaded',
   subtitleSyncLazyOn: 'LazySync enabled',
   subtitleSyncLazyOff: 'LazySync disabled',
+  subtitleSyncLazyActive: "LazySync-Sub's Activated",
   subtitleSyncAudioUnavailable:
     'Audio-based sync is unavailable for Magnet. Use subtitle mode',
     subtitleSyncWaitTitle: 'Voice sync unavailable',

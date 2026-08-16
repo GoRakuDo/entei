@@ -10,6 +10,27 @@ export interface MagnetSubtitle {
   format: string;
 }
 
+/**
+ * Result of a Magnet subtitle fetch, discriminated by `kind` (docs
+ * SUBTITLE_SYNC.md §10). The companion distinguishes the two failure
+ * classes by status so the web side can tell a permanent "no embedded
+ * subtitle track" from a temporary "cues still pending":
+ *  - 'ok'           → the embedded subtitle text (the sync reference)
+ *  - 'no-track'     → 404 (error code `no_embedded_subtitle_track`): the
+ *                     torrent has NO embedded subtitle track — permanent,
+ *                     syncing can never start, stop immediately.
+ *  - 'cues-pending' → 503 (error code `cues_pending`): the track exists but
+ *                     the downloaded prefix holds no cues yet (Growing
+ *                     Media contract) — temporary, keep polling.
+ *  - 'error'        → any other failure (timeout, network, other status):
+ *                     transient, retry on the next poll.
+ */
+export type MagnetSubtitleResult =
+  | ({ kind: 'ok' } & MagnetSubtitle)
+  | { kind: 'no-track' }
+  | { kind: 'cues-pending' }
+  | { kind: 'error'; status: number; message: string };
+
 export interface MagnetPcm {
   samples: Float32Array;
   sampleRate: number;
@@ -50,7 +71,7 @@ export async function fetchMagnetSubtitle(
   token: string,
   jobId: string,
   _subtitleFileId: string, // kept for API symmetry with the select payload
-): Promise<MagnetSubtitle> {
+): Promise<MagnetSubtitleResult> {
   const url = `${COMPANION_ORIGIN}/v1/source/torrents/${encodeURIComponent(jobId)}/subtitle` +
     `?token=${encodeURIComponent(token)}`;
   let res: Response;
@@ -69,21 +90,43 @@ export async function fetchMagnetSubtitle(
         ? String((err as { name: unknown }).name)
         : '';
     if (name === 'TimeoutError' || name === 'AbortError') {
-      throw new Error(
-        'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
-      );
+      return {
+        kind: 'error',
+        status: 0,
+        message:
+          'subtitle fetch timed out — subtitles may still be preparing; try again shortly',
+      };
     }
-    throw err;
+    return {
+      kind: 'error',
+      status: 0,
+      message:
+        err instanceof Error ? err.message : 'companion subtitle fetch failed',
+    };
+  }
+  if (res.status === 404) {
+    // 404 (`no_embedded_subtitle_track`, or the legacy generic 404): the
+    // torrent has no embedded subtitle track — permanent.
+    return { kind: 'no-track' };
+  }
+  if (res.status === 503) {
+    // 503 (`cues_pending`, Growing Media contract): the track exists but
+    // the DL'd prefix has no cues yet — temporary.
+    return { kind: 'cues-pending' };
   }
   if (!res.ok) {
-    throw new Error(`companion subtitle fetch failed (${res.status})`);
+    return {
+      kind: 'error',
+      status: res.status,
+      message: `companion subtitle fetch failed (${res.status})`,
+    };
   }
   const text = await res.text();
   // The companion serves VTT text; detect format from content type if
   // present, otherwise default to vtt.
   const ct = res.headers.get('content-type') ?? '';
   const format = ct.includes('srt') ? 'srt' : 'vtt';
-  return { text, format };
+  return { kind: 'ok', text, format };
 }
 
 /**

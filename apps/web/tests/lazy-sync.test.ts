@@ -10,6 +10,8 @@ import {
   normalizeCueText,
   shiftCuesByOffset,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
+  LAZY_SYNC_MAX_WAIT_POLLS,
+  LAZY_SYNC_POLL_INTERVAL_MS,
 } from '../src/features/player/lazy-sync';
 
 function cue(
@@ -176,5 +178,12 @@ describe('shiftCuesByOffset', () => {
 describe('LazySync constants', () => {
   it('stable threshold is 50 ms per docs §10.3', () => {
     expect(LAZY_SYNC_STABLE_THRESHOLD_MS).toBe(50);
+  });
+
+  it('max wait bound is 240 polls = 12 min at the 3 s interval', () => {
+    expect(LAZY_SYNC_MAX_WAIT_POLLS).toBe(240);
+    expect(LAZY_SYNC_MAX_WAIT_POLLS * LAZY_SYNC_POLL_INTERVAL_MS).toBe(
+      12 * 60 * 1000,
+    );
   });
 });

@@ -1316,11 +1316,11 @@ func TestEmbeddedSubtitleContentPrefixExtraction(t *testing.T) {
 	}
 }
 
-// TestEmbeddedSubtitleContentZeroCues404 pins the "DL'd prefix holds no
+// TestEmbeddedSubtitleContentZeroCues503 pins the "DL'd prefix holds no
 // subtitle cue" contract: extraction succeeds at the container level but
-// yields zero cues, so the engine reports errSubtitleNotSelected — the API
-// surfaces it as 404 and the web layer waits for more data.
-func TestEmbeddedSubtitleContentZeroCues404(t *testing.T) {
+// yields zero cues, so the engine reports ErrSubtitleCuesPending — the API
+// surfaces it as 503 and the web layer waits for more data.
+func TestEmbeddedSubtitleContentZeroCues503(t *testing.T) {
 	_, tt, pc, _ := newSingleFileTorrent(t, "zerocues.mkv", prefixMkvBytes(t, false), 2<<20)
 	h := newAnacrolixHandle(tt)
 	ih := tt.InfoHash()
@@ -1331,14 +1331,14 @@ func TestEmbeddedSubtitleContentZeroCues404(t *testing.T) {
 		t.Fatalf("Select: %v", err)
 	}
 	// Both subtitle cues sit after the 3 MiB video block, beyond piece 0.
-	if _, err := h.SubtitleContent(context.Background()); !errors.Is(err, errSubtitleNotSelected) {
-		t.Fatalf("SubtitleContent = %v, want errSubtitleNotSelected", err)
+	if _, err := h.SubtitleContent(context.Background()); !errors.Is(err, ErrSubtitleCuesPending) {
+		t.Fatalf("SubtitleContent = %v, want ErrSubtitleCuesPending", err)
 	}
 }
 
 // TestEmbeddedSubtitleContentPrefixGate pins the prefix gate: with nothing
-// downloaded the extraction is refused up front (errSubtitleNotSelected /
-// 404) instead of attempting a probe on an unreadable head.
+// downloaded the extraction is refused up front (ErrSubtitleCuesPending /
+// 503) instead of attempting a probe on an unreadable head.
 func TestEmbeddedSubtitleContentPrefixGate(t *testing.T) {
 	_, tt, _, _ := newSingleFileTorrent(t, "gate.mkv", prefixMkvBytes(t, true), 2<<20)
 	h := newAnacrolixHandle(tt)
@@ -1348,8 +1348,34 @@ func TestEmbeddedSubtitleContentPrefixGate(t *testing.T) {
 	if got := h.AvailablePrefix(); got != 0 {
 		t.Fatalf("AvailablePrefix = %d, want 0", got)
 	}
-	if _, err := h.SubtitleContent(context.Background()); !errors.Is(err, errSubtitleNotSelected) {
-		t.Fatalf("SubtitleContent = %v, want errSubtitleNotSelected", err)
+	if _, err := h.SubtitleContent(context.Background()); !errors.Is(err, ErrSubtitleCuesPending) {
+		t.Fatalf("SubtitleContent = %v, want ErrSubtitleCuesPending", err)
+	}
+}
+
+// TestEmbeddedSubtitleContentNoTrack404 pins the permanent "no embedded text
+// subtitle track" contract: a video-only MKV probes successfully but carries
+// no text subtitle track, so the engine reports ErrNoEmbeddedSubtitleTrack —
+// the API surfaces it as 404 (no_embedded_subtitle_track) and the web layer
+// shows a toast instead of waiting.
+func TestEmbeddedSubtitleContentNoTrack404(t *testing.T) {
+	data := buildTestMKVWithSubtitle(t,
+		[]mkv.Track{{ID: 1, Type: mkv.VideoTrack, Codec: "h264", Language: "eng"}},
+		[]mkv.Block{{TrackNumber: 1, Timecode: 0, Keyframe: true, Data: []byte("video")}},
+		1000)
+	_, tt, pc, _ := newSingleFileTorrent(t, "notrack.mkv", data, int64(len(data)))
+	h := newAnacrolixHandle(tt)
+	ih := tt.InfoHash()
+	if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: 0}, true); err != nil {
+		t.Fatalf("set piece 0 complete: %v", err)
+	}
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	// Single fully-downloaded piece: the prefix gate is exempt, the probe
+	// runs on the whole file, and the missing text track is permanent.
+	if _, err := h.SubtitleContent(context.Background()); !errors.Is(err, ErrNoEmbeddedSubtitleTrack) {
+		t.Fatalf("SubtitleContent = %v, want ErrNoEmbeddedSubtitleTrack", err)
 	}
 }
 

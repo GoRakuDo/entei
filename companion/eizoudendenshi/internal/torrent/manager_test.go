@@ -155,7 +155,7 @@ func (h *fakeHandle) SubtitleContent(ctx context.Context) (string, error) {
 	if idx < 0 {
 		idx = firstSubtitleIndex(h.files)
 		if idx < 0 {
-			return "", errSubtitleNotSelected
+			return "", errors.New("subtitle not selected")
 		}
 	}
 	h.mu.Lock()

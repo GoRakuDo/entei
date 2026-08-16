@@ -185,7 +185,6 @@ vi.mock('@/components/player/RightPanel', () => ({
   RightPanel: vi.fn((props: {
     cues: SubtitleCue[];
     lazySyncOn?: boolean;
-    isLazySyncProcessing?: boolean;
     onToggleLazySync?: () => void;
     isMagnet?: boolean;
   }) => {
@@ -214,6 +213,7 @@ vi.mock('@i18n/index', () => ({
     playerUI: {
       subtitleSyncLazyOn: 'LazySync enabled',
       subtitleSyncLazyOff: 'LazySync disabled',
+      subtitleSyncLazyActive: "LazySync-Sub's Activated",
       subtitleSyncAudioUnavailable:
         'Audio-based sync is unavailable for Magnet. Use subtitle mode',
       subtitleSyncSuccess: 'Subtitle sync successful!',
@@ -374,8 +374,6 @@ describe('Magnet LazySync flow (docs §10)', () => {
     // First poll: fetch embedded cues → match → offset +1500 ms applied.
     expect(fetchStub).toHaveBeenCalledTimes(2);
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([11.5, 21.5, 31.5]);
-    // First apply turns the PROCESSING typewriter off.
-    expect(mocks.capturedProps.isLazySyncProcessing).toBe(false);
 
     // Second poll: offset unchanged → stable → success toast (once).
     await act(async () => {
@@ -452,8 +450,85 @@ describe('Magnet LazySync flow (docs §10)', () => {
     });
     // 0 cue → no offset applied, still processing, display unchanged.
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([10, 20, 30]);
-    expect(mocks.capturedProps.isLazySyncProcessing).toBe(true);
     expect(toastSpy.success).not.toHaveBeenCalled();
+  });
+
+  it('404 (no embedded subtitle track) → immediate error toast + stop, no waiting', async () => {
+    const fetchStub = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/source/torrents/')) {
+        // No embedded subtitle track in the torrent (permanent).
+        return Promise.resolve(new Response('not found', { status: 404 }));
+      }
+      return Promise.resolve(new Response(USER_VTT, { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    render(<Player />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      (mocks.capturedProps.onToggleLazySync as () => void)();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // The first poll sees the 404 → immediate error toast, toggle stops,
+    // and the polling loop does not keep running.
+    expect(toastSpy.error).toHaveBeenCalledWith(
+      'No base subtitle in this video, cannot sync',
+      expect.anything(),
+    );
+    expect(mocks.capturedProps.lazySyncOn).toBe(false);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([10, 20, 30]);
+
+    // No further polls after the stop.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * LAZY_SYNC_POLL_INTERVAL_MS);
+    });
+    expect(fetchStub.mock.calls.length).toBe(2);
+  });
+
+  it('503 (cues pending) → keeps waiting; polls continue and the toggle stays on', async () => {
+    const fetchStub = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/source/torrents/')) {
+        // Track exists but the DL'd prefix has no cues yet (temporary).
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'cues_pending' }), {
+            status: 503,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(new Response(USER_VTT, { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    render(<Player />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => {
+      (mocks.capturedProps.onToggleLazySync as () => void)();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // First poll: 503 → waiting state, no apply, no error, still on.
+    expect(mocks.capturedProps.lazySyncOn).toBe(true);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([10, 20, 30]);
+    expect(toastSpy.error).not.toHaveBeenCalled();
+
+    // Subsequent polls keep fetching (the wait is bounded, not stopped).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * LAZY_SYNC_POLL_INTERVAL_MS);
+    });
+    expect(fetchStub.mock.calls.length).toBeGreaterThan(2);
+    expect(mocks.capturedProps.lazySyncOn).toBe(true);
+    expect(toastSpy.error).not.toHaveBeenCalled();
   });
 });
 

@@ -200,7 +200,24 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 		}
 		content, err := s.torrents.SelectedSubtitleContent(r.Context())
 		if err != nil {
-			writeJSON(w, http.StatusNotFound, errorBody("subtitle not available"))
+			switch {
+			case errors.Is(err, torrent.ErrNoEmbeddedSubtitleTrack):
+				// Permanent: the selected video carries no embedded text
+				// subtitle track — nothing more to wait for, so the web
+				// layer shows a toast instead of polling again.
+				writeJSON(w, http.StatusNotFound, errorBody("no_embedded_subtitle_track"))
+			case errors.Is(err, torrent.ErrSubtitleCuesPending):
+				// Transient: the DL'd prefix holds no subtitle cue yet.
+				// 503 + Retry-After (Growing Media buffering contract) so
+				// the web layer waits for more data.
+				w.Header().Set("Retry-After", bufferingRetryAfter)
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+					"error":      "cues_pending",
+					"retryAfter": 1,
+				})
+			default:
+				writeJSON(w, http.StatusNotFound, errorBody("subtitle not available"))
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
