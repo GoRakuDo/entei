@@ -28,12 +28,11 @@
     - **ローカルファイル**: `decodeAudioData` で高速フルデコード（EizouDendenshi 不要）。
     - **companion 動画（Magnet）の sub-to-sub**: **高速処理可**（字幕ファイル数十 KB の DL だけで完了・動画本体の DL 完了は待たない）。参照字幕は companion の `fetchMagnetSubtitle` で内蔵字幕ファイルを取得（実装済み）。
     - **ローカル動画の sub-to-sub**: MKV 内蔵トラックはブラウザの `video.textTracks` に公開されないため（実測確認）、**参照用の字幕ファイルをユーザーが選択**する。
-    - **companion 動画（Magnet）の sub-to-audio**: **動画全体の DL 完了が必要**（音声 PCM は全編必要）。DL 完了待ちの確認ダイアログ → 進捗 % 表示 → 完了後に同期。
-12. **Magnet sub-to-audio の DL 待ち UI（2026-08-13 確定）**: ストリーミング動画では音声ベース同期が即時不可能なため、**shadcn AlertDialog**（Radix AlertDialog）で確認:
-    - 文言: 「ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？」
-    - ボタン: **「キャンセル」** / **「はい、大丈夫です」**
-    - 「はい」→ ボタンが **DL 進捗 %** に変化（companion の `available/total` をポーリング・既存 `/v1/media/status` 利用）: `[キャンセル] [23%] → [30%] → [35%] → … → 100%`（23% は例示・実際は `available/total` から算出した実進捗率を表示）
-    - 100% 到達 → 同期実行（companion PCM 変換 → WASM）・「キャンセル」→ 何もしない
+    - **companion 動画（Magnet）の sub-to-audio**: **無効化（2026-08-17 確定）**。音声ベースは DL 完了 + 全編 PCM 変換 + VAD が必要で、ストリーミング中の即時同期に不向き。詳細は §10.4。
+12. **Magnet での音声ベース無効化（2026-08-17 確定・§10.4 に詳細）**: Magnet 再生中は音声ベースの字幕同期（sub-to-audio）を使えない:
+    - 音声モード選択時: Toast「Magnet では音声ベースの同期は利用できません。字幕モードを使用してください」（ローカルは従来どおり）。
+    - 自動モード（Magnet 再生中）: 字幕 LazySync（§10）を優先・音声フォールバックなし。
+    - 旧仕様の「DL 待ち AlertDialog（2026-08-13）」は**廃止**。
 
 ## 3. subomatic 調査結果（2026-08-13・ローカル `A:\subomatic` + GitHub 確認）
 
@@ -101,7 +100,7 @@ const channel = audio.getChannelData(c);           // f32 PCM
          │    ├─ YouTube → 同期ボタン非表示
          │    ├─ ローカル → WebAudio デコード → モノラル f32 PCM
          │    ├─ Magnet sub-to-sub → companion 字幕 DL（数十 KB・DL 完了不要）→ 直接 sync_to_reference
-         │    └─ Magnet sub-to-audio → AlertDialog 確認 → DL% 待ち → companion PCM 変換
+         │    └─ Magnet sub-to-audio → 無効化（§10.4・Toast 案内のみ）
          └─ sync-worker（Web Worker）
               └─ subomatic WASM（custom build・クレジット除去）
                    ├─ sync_to_audio / sync_to_reference
@@ -139,11 +138,7 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 - **プログレス**: `onProgress` を表示（TypewriterLoading 等の既存パターン）。フェーズはモードで異なる: **sub-to-audio** は `"speech"` → `"align"` の2フェーズ、**sub-to-sub** は `"align"` の1フェーズのみ。
 - **結果**: 同期済み字幕でプレイヤー字幕を差し替え。保存は「適用」ボタン（メモリ内 or エクスポート）。
 - **エラー時**: 既存のエラートースト/フォールバック表示。
-- **Magnet + 音声モードの DL 待ちダイアログ**: ストリーミング動画のため音声ベース同期が即時不可能な場合、**shadcn AlertDialog**（Radix AlertDialog）を表示:
-  - タイトル/本文: 「ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？」
-  - ボタン: 「キャンセル」 / 「はい、大丈夫です」
-  - 「はい」→ ボタンが **DL 進捗 %** に変化（`[キャンセル] [23%] → [30%] → [35%] → …`・companion の `available/total` をポーリング・23% は例示で実際は実進捗率）
-  - 100% 到達 → 同期実行（companion PCM 変換 → WASM）・「キャンセル」→ 何もしない
+- **Magnet + 音声モード**: **無効化（§10.4）**。音声モード選択時は Toast 案内のみ（旧「DL 待ち AlertDialog」は廃止）。ローカルは従来どおり sub-to-audio。
 - スタイルは既存デザイントークン（OKLCH・DESIGN.md）準拠・DevTools 実測（静的 CSS テストは作らない — プロジェクトルール）。
 
 ## 6. 実装手順
@@ -152,9 +147,9 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 
 1. **カスタム WASM ビルド**: `A:\subomatic` をフォーク（Entei 配下にコピー or git submodule 判断）→ クレジット除去 → `wasm-pack build` → `apps/web/public/wasm/` へ配置。`NOTICE` を Entei に保持。
 2. **Worker**: `sync-worker.ts`（subomatic の `worker.js` パターン踏襲・`onmessage` で `sync_to_audio` / `sync_to_reference` 実行・progress relay）。
-3. **音声デコード**: ローカル音声ソースから `AudioContext.decodeAudioData` → モノラル f32 PCM（`app.js:119-130` パターン）。companion 動画は DL 完了後に companion 側 PCM 変換（§2 の 11-12 参照）。
+3. **音声デコード**: ローカル音声ソースから `AudioContext.decodeAudioData` → モノラル f32 PCM（`app.js:119-130` パターン）。Magnet での sub-to-audio は無効化（§10.4）のため、companion 側 PCM 変換は不要。
 4. **sub-to-sub 参照取得**: Magnet → companion 経由で内蔵字幕取得（`fetchMagnetSubtitle`）。ローカル → 参照用字幕ファイルのユーザー選択 UI。
-5. **モード解決ロジック**: 設定モード（字幕/音声/自動）× ソース種別（YouTube/ローカル/Magnet）から実行モードを決定（YouTube → 同期ボタン非表示。字幕モードで参照字幕なし → Toast「この動画のベース字幕はないため同期されない」で中断。自動モード → sub-to-sub 優先・なければ sub-to-audio。Magnet + 字幕 → companion 字幕 DL（数十 KB）→ 直接 sync_to_reference。Magnet + 音声 → AlertDialog → DL% 待ち → companion PCM）。
+5. **モード解決ロジック**: 設定モード（字幕/音声/自動）× ソース種別（YouTube/ローカル/Magnet）から実行モードを決定（YouTube → 同期ボタン非表示。字幕モードで参照字幕なし → Toast「この動画のベース字幕はないため同期されない」で中断。自動モード → sub-to-sub 優先・なければ sub-to-audio。Magnet + 字幕 → LazySync（§10・DL 済み cue から同期）。Magnet + 音声 → 無効化（§10.4・Toast「Magnet では音声ベースの同期は利用できません。字幕モードを使用してください」）。ローカル + 音声 → sub-to-audio 従来どおり）。
 6. **設定トグル UI**: 設定モーダルに Sync モード 3 トグル（字幕/音声/自動・デフォルト字幕・localStorage 永続化・i18n 3言語）。
 7. **フロント UI（最後）**: SubtitlePanel に同期ボタン・プログレス・結果反映（i18n 3言語）。
 8. **テスト**: ロジック（Worker 契約・PCM 変換・モード解決・プログレス・エラー経路）のみユニットテスト。WASM 自体は subomatic 側のテストで担保。
@@ -210,3 +205,89 @@ subomatic の `crates/subomatic-wasm/src/lib.rs` をフォーク・変更:
 - onProgress の詳細表示（speech/align フェーズを UI に表示）
 - ローカル参照字幕の選択 UI（sub-to-sub・ローカル動画用）
 - 同期結果の保存（現状はセッション内反映のみ）
+
+## 10. LazySync（Magnet 専用・DL 済み部分から即座に同期）
+
+### 10.1 コンセプト
+
+Magnet ストリーミング再生中に、動画の内蔵字幕トラックの「**DL 済み部分**」の cue を
+即座に取得して字幕同期を行う方式。字幕全体の DL 完了を待たずに同期を開始できる。
+
+- 対象: **Magnet（torrent）動画のみ**。ローカル動画は従来方式のまま（変更なし）。
+- 前提: MKV の字幕クラスタは**時系列（再生順）にインターリーブ**されているため、
+  DL 済みの先頭部分から順次 cue が読める。
+- 目的: 「同期ボタン → DL 完了待ち → 同期」という待ち時間をなくし、
+  再生と並行して段階的に同期を進める。
+
+### 10.2 フロー
+
+```
+Magnet で動画選択 → 再生開始（既存・progressive・serveTorrentMedia）
+  └─ probe で内蔵字幕トラックの存在を確認（先頭メタデータ + Cues・数 MB）
+  └─ 字幕同期ボタン押下 → LazySync 開始
+       1. companion: 「DL 済み字幕 cue」を抽出
+          （Cues から字幕クラスタ位置を特定 → piece 優先 DL → DL 済み範囲の cue のみ）
+       2. web: cue を取得 → ズレ字幕の対応 cue と比較 → オフセット推定
+       3. オフセットを字幕全体に適用（setCues でシフト表示）
+       4. DL が進む → より多くの cue でオフセットを更新（累積的に精度向上）
+  └─ オフセットが安定したら完了（Toast「字幕同期成功!」）
+```
+
+### 10.3 技術詳細
+
+**companion（Go・eizoudendenshi）**
+
+- 既存の mkvgo 内蔵トラック抽出（`SubtitleContent`・Cues ベース直接ジャンプ）を
+  「**DL 済み範囲の cue のみ**」に拡張する:
+  - `AvailablePrefix()`（SHA-1 検証済み prefix）までを抽出対象とする。
+  - `SelectedComplete()` の全完了ゲートは使わず、DL 済み prefix の cue を返す。
+- **字幕トラックの piece を優先 DL**:
+  - Cues から字幕クラスタの位置を特定し、該当 piece を `PiecePriorityHigh` に昇格。
+  - 再生用 Reader とは別に「字幕 piece を要求する Reader」を設ける（DL を引き寄せる）。
+  - 字幕 piece はビデオ/オーディオと混在するため、優先 DL しても字幕全体には
+    ほぼ全編の piece が必要。ただし**ビデオ piece より先行して揃う**ため、
+    DL 完了待ちの体感を大きく減らせる（※ torrent クライアントの
+    rarest-first 等の piece 選択ポリシーにより、優先 DL の効果は環境依存）。
+- 字幕が 0 cue（DL 済み部分に字幕なし）の場合は cue なし（従来の 404 相当）→
+  web が待機状態（DL 進行中）を表示。
+
+**web（apps/web）**
+
+- オフセット推定: 参照 cue（内蔵字幕）とズレ字幕の対応 cue の
+  「開始時間の差」を比較。複数 cue の平均で安定させる（タイミングズレは
+  大抵**一定オフセット**のため、数 cue から推定可能）。※ VFR（可変フレーム
+  レート）や途中でドリフトが変わるファイルでは一定オフセット仮定が崩れ、
+  精度が落ちる可能性がある（LazySync は「クイック同期」として割り切り、
+  高精度が要る場合は DL 完了後の subomatic 全体比較を使う）。
+- オフセット適用: ズレ字幕全体をオフセットでシフト（`setCues` で再表示）。
+- 更新: DL が進むたび（ポーリング）に新しい cue でオフセットを再計算し、
+  ズレが小さくなる方向に更新。ボタン内は「PROCESSING...」タイプライター
+  （既存・字幕ベース同期中）。
+- 完了: オフセットが安定（変化が閾値以下）したら Toast「字幕同期成功!」。
+
+### 10.4 Magnet での音声ベース無効化
+
+Magnet 再生では**音声ベースの字幕同期（sub-to-audio）を無効化**する。
+
+- 理由: 音声ベースは「DL 完了 + 全編 PCM 変換 + VAD」が必要。
+  DL 済み部分だけでは VAD（音声活動検出）が不正確で、同期精度が出ない。
+- 挙動:
+  - 音声モード選択時（Magnet 再生中）: Toast「Magnet では音声ベースの
+    同期は利用できません。字幕モードを使用してください」（ローカルは従来どおり）。
+  - 自動モード（Magnet 再生中）: 字幕 LazySync を優先・音声フォールバックなし。
+- ローカル動画は従来どおり音声ベース（sub-to-audio）を使用可能。
+
+### 10.5 ローカル動画は従来どおり（変更なし）
+
+- 字幕ベース: 字幕全体の sub-to-sub（mkvgo 抽出 + subomatic 全体比較・既存）。
+- 音声ベース: sub-to-audio（decodeAudioData / companion PCM・既存）。
+- LazySync は Magnet 専用（ローカルには適用しない）。
+
+### 10.6 実装ステップ
+
+1. **companion**: DL 済み字幕 cue の抽出（ウィンドウ抽出・piece 優先・別 Reader）。
+2. **web**: LazySync フロー（cue 取得・オフセット推定・適用・更新）+
+   Magnet の音声ベース無効化（音声モード Toast・自動モードの音声フォールバック除去）。
+3. **テスト**: companion（DL 済み prefix の cue 抽出・piece 優先）+ web
+   （オフセット推定・適用・更新・Magnet 音声無効化）。
+4. **レビュー → リリース → 実機確認**。
