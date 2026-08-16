@@ -336,6 +336,10 @@ export const id: Dictionary = {
   subtitleSyncSuccess: 'Sinkronisasi subtitle berhasil!',
   subtitleSyncNoReference: 'Tidak ada subtitle dasar di video ini, tidak dapat disinkronkan',
   subtitleSyncNoSubtitle: 'Tidak ada subtitle yang dimuat',
+  subtitleSyncLazyOn: 'LazySync aktif',
+  subtitleSyncLazyOff: 'LazySync nonaktif',
+  subtitleSyncAudioUnavailable:
+    'Sinkronisasi berbasis suara tidak tersedia untuk Magnet. Gunakan mode subtitle',
     subtitleSyncWaitTitle: 'Sinkron suara tak tersedia',
   subtitleSyncWaitDesc:
     'Video streaming memerlukan unduhan penuh untuk sinkronisasi suara. Tunggu sedikit lebih lama?',

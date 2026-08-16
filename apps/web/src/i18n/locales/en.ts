@@ -332,6 +332,10 @@ export const en: Dictionary = {
   subtitleSyncSuccess: 'Subtitle sync successful!',
   subtitleSyncNoReference: 'No base subtitle in this video, cannot sync',
   subtitleSyncNoSubtitle: 'No subtitle loaded',
+  subtitleSyncLazyOn: 'LazySync enabled',
+  subtitleSyncLazyOff: 'LazySync disabled',
+  subtitleSyncAudioUnavailable:
+    'Audio-based sync is unavailable for Magnet. Use subtitle mode',
     subtitleSyncWaitTitle: 'Voice sync unavailable',
   subtitleSyncWaitDesc:
     'Streaming video requires full download for voice sync. Wait a bit longer?',

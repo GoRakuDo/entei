@@ -335,6 +335,10 @@ export const ja: Dictionary = {
   subtitleSyncSuccess: '字幕同期成功!',
   subtitleSyncNoReference: 'この動画のベース字幕はないため同期されない',
   subtitleSyncNoSubtitle: '字幕が読み込まれていません',
+  subtitleSyncLazyOn: 'LazySync 有効',
+  subtitleSyncLazyOff: 'LazySync 無効',
+  subtitleSyncAudioUnavailable:
+    'Magnet では音声ベースの同期は利用できません。字幕モードを使用してください',
     subtitleSyncWaitTitle: '音声同期が使えません',
   subtitleSyncWaitDesc:
     'ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？',

@@ -141,6 +141,12 @@ export interface Dictionary {
   subtitleSyncSuccess: string;
   subtitleSyncNoReference: string;
   subtitleSyncNoSubtitle: string;
+  /** LazySync toggle ON state (Magnet only, docs SUBTITLE_SYNC.md §10). */
+  subtitleSyncLazyOn: string;
+  /** LazySync toggle OFF state (Magnet only). */
+  subtitleSyncLazyOff: string;
+  /** Magnet + audio mode: audio-based sync is unavailable (§10.4). */
+  subtitleSyncAudioUnavailable: string;
   subtitleSyncWaitTitle: string;
   subtitleSyncWaitDesc: string;
   subtitleSyncWaitCancel: string;

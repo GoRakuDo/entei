@@ -83,6 +83,15 @@ export function notifySubtitleSyncError(label: string): void {
   });
 }
 
+/** LazySync toggle notice ("LazySync enabled"/"disabled"). Neutral info
+ *  toast with a fixed id so toggling cannot stack duplicates. */
+export function notifyLazySyncInfo(label: string): void {
+  toast.info(label, {
+    id: 'eizouden-lazy-sync',
+    icon: <Info aria-hidden="true" />,
+  });
+}
+
 /**
  * Subtitle-sync success toast (sub-to-sub / sub-to-audio completed and the
  * synced cues were applied). One toast per completion: the id is fixed so a

@@ -188,6 +188,10 @@ export const baseMockDict = {
   rightPanelTabCaptions: 'Captions',
   rightPanelTabHistory: 'History',
   subtitleSyncSuccess: 'Subtitle sync successful!',
+  subtitleSyncLazyOn: 'LazySync enabled',
+  subtitleSyncLazyOff: 'LazySync disabled',
+  subtitleSyncAudioUnavailable:
+    'Audio-based sync is unavailable for Magnet. Use subtitle mode',
   historyEmpty: 'No history yet',
   historyUnavailable: 'History unavailable',
   historySentence: 'Sentence',

@@ -336,6 +336,14 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Magnet LazySync toggle ON state: colored active fill + accent border
+   (docs SUBTITLE_SYNC.md §10 — オン=色付きのアクティブ表示). */
+.entei-subtitle-sync-button--active,
+.entei-subtitle-sync-button--active:hover:not(:disabled) {
+  background-color: var(--entei-btn-hover-bg);
+  border-color: var(--entei-accent);
+  color: var(--entei-accent-hover);
+}
 
 /* --- SubtitleSyncDialog (sub-to-audio DL wait, SubtitleSyncDialog.tsx) --- */
 .entei-subtitle-sync-dialog {

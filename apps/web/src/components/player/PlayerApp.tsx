@@ -112,7 +112,17 @@ import {
   notifyCompanionError,
   notifySubtitleSyncError,
   notifySubtitleSyncSuccess,
+  notifyLazySyncInfo,
 } from '@/features/player/eizouden-toast.tsx';
+import {
+  LAZY_SYNC_POLL_INTERVAL_MS,
+  LAZY_SYNC_STABLE_THRESHOLD_MS,
+  LAZY_SYNC_MAX_WAIT_POLLS,
+  LAZY_SYNC_MAX_NO_MATCH_POLLS,
+  matchCueOffsets,
+  estimateOffsetMs,
+  shiftCuesByOffset,
+} from '@/features/player/lazy-sync';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
@@ -276,6 +286,29 @@ export default function PlayerApp() {
   const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
   const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
     useState(false);
+  // --- LazySync (Magnet-only, docs SUBTITLE_SYNC.md §10) ---
+  // Session-memory toggle state: ON runs the DL-prefix cue polling that
+  // estimates and applies a constant offset to the loaded subtitle.
+  const [isLazySyncOn, setIsLazySyncOn] = useState(false);
+  // True from toggle-ON until the first offset has been applied — drives
+  // the PROCESSING typewriter inside the toggle. Later refinement polls
+  // run silently (the colored toggle communicates the active state).
+  const [isLazySyncProcessing, setIsLazySyncProcessing] = useState(false);
+  /** Mutable LazySync loop state (no re-renders between polls). */
+  const lazySyncStateRef = useRef<{
+    /** Original user-loaded cues — the base every offset is applied to. */
+    baseCues: SubtitleCue[];
+    /** Whether at least one offset has been applied (typewriter off). */
+    appliedOnce: boolean;
+    /** Last applied offset (ms) — stability is measured against this. */
+    lastOffsetMs: number | null;
+    /** Whether the success toast already fired for a stable offset. */
+    successNotified: boolean;
+    /** Consecutive polls with 0 reference cues (waiting for the DL). */
+    waitPollCount: number;
+    /** Consecutive polls with reference cues but zero text matches. */
+    noMatchPollCount: number;
+  } | null>(null);
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -538,6 +571,13 @@ export default function PlayerApp() {
   const jobSession = useCompanionJobSession();
   const displayMediaUrl = jobSession.jobMediaUrl ?? mediaUrl;
   const displayMediaType = jobSession.jobMediaUrl ? 'video' : mediaType;
+  // LazySync polling loop reads the session through this ref so the loop
+  // closure never goes stale across renders (token/jobId may arrive after
+  // the loop starts).
+  const jobSessionRef = useRef(jobSession);
+  jobSessionRef.current = jobSession;
+  /** Magnet (torrent) source — drives the LazySync toggle rendering. */
+  const isMagnet = jobSession.kind === 'torrent';
 
   // ED-2H: Seek clamp — when streaming from a companion, clamp seek targets
   // to the verified byte range (available) to prevent the player from seeking
@@ -2069,10 +2109,13 @@ export default function PlayerApp() {
           console.error('[entei] embedded subtitle extraction failed', err);
           if (plan.fallbackToAudio) {
             // auto mode: sub-to-sub failed → fall back to sub-to-audio.
-            // Magnet waits for the full DL via the sync dialog; local
-            // files decode directly (the dialog needs a companion token).
+            // Magnet audio is disabled (docs SUBTITLE_SYNC.md §10.4): the
+            // user is told to use subtitle mode instead. Local files
+            // decode directly.
             if (jobSession.kind === 'torrent') {
-              setIsSubtitleSyncDialogOpen(true);
+              notifySubtitleSyncError(
+                dictRef.current.playerUI.subtitleSyncAudioUnavailable,
+              );
             } else {
               await runSubToAudioLocal(text, inFormat);
             }
@@ -2089,7 +2132,13 @@ export default function PlayerApp() {
         return;
       }
       if (plan.kind === 'sub-to-audio-magnet') {
-        setIsSubtitleSyncDialogOpen(true);
+        // Magnet audio sync is disabled (docs SUBTITLE_SYNC.md §10.4):
+        // full-DL + PCM conversion is not viable while streaming. The
+        // sync button is a LazySync toggle for Magnet anyway — this branch
+        // is defense-in-depth for any residual call path.
+        notifySubtitleSyncError(
+          dictRef.current.playerUI.subtitleSyncAudioUnavailable,
+        );
       }
     });
   }, [
@@ -2101,6 +2150,195 @@ export default function PlayerApp() {
     applySyncedSubtitle,
     runSync,
   ]);
+
+  /**
+   * LazySync toggle (Magnet only, docs SUBTITLE_SYNC.md §10).
+   *  - OFF → ON: validate a loaded subtitle, snapshot its cues as the base,
+   *    start the polling loop, toast "LazySync enabled".
+   *  - ON → OFF: stop the loop (the polling effect aborts), keep the
+   *    already-shifted display as-is, toast "LazySync disabled".
+   *  - Audio sync mode on Magnet is unavailable (§10.4): clicking the
+   *    toggle in audio mode only explains why (no state change).
+   */
+  const handleToggleLazySync = useCallback(() => {
+    if (jobSessionRef.current.kind !== 'torrent') return;
+    const ui = dictRef.current.playerUI;
+    if (isLazySyncOn) {
+      setIsLazySyncOn(false);
+      setIsLazySyncProcessing(false);
+      lazySyncStateRef.current = null;
+      notifyLazySyncInfo(ui.subtitleSyncLazyOff);
+      return;
+    }
+    // Audio-based sync is disabled for Magnet (docs §10.4): the toggle
+    // would only ever run the subtitle-based LazySync, so a user in audio
+    // mode gets the guidance toast instead of a dead toggle.
+    const mode = readPlayerPreferences().subtitleSyncMode ?? 'subtitle';
+    if (mode === 'audio') {
+      notifySubtitleSyncError(ui.subtitleSyncAudioUnavailable);
+      return;
+    }
+    const text = subtitleTextRef.current;
+    if (!text) {
+      notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
+      return;
+    }
+    const baseCues = parseSubtitle(text).cues;
+    if (baseCues.length === 0) {
+      notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
+      return;
+    }
+    lazySyncStateRef.current = {
+      baseCues,
+      appliedOnce: false,
+      lastOffsetMs: null,
+      successNotified: false,
+      waitPollCount: 0,
+      noMatchPollCount: 0,
+    };
+    setIsLazySyncOn(true);
+    setIsLazySyncProcessing(true);
+    notifyLazySyncInfo(ui.subtitleSyncLazyOn);
+  }, [isLazySyncOn]);
+
+  /**
+   * LazySync polling loop (docs §10.2-10.3): every LAZY_SYNC_POLL_INTERVAL_MS
+   * fetch the embedded subtitle's downloaded-prefix cues, match them to the
+   * base (user-loaded) cues, estimate the constant offset (median), apply it
+   * to the base cues via setCues, and keep refining as the download grows.
+   * Stops on abort (toggle off / unmount), on a Magnet session that no
+   * longer qualifies, and on the bounded give-ups (0-cue wait / no text
+   * match). All mutable data flows through lazySyncStateRef so the loop
+   * never depends on a render's closure.
+   */
+  const runLazySyncPolling = useCallback(async (signal: AbortSignal) => {
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, ms);
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+
+    const stop = () => {
+      setIsLazySyncOn(false);
+      setIsLazySyncProcessing(false);
+      lazySyncStateRef.current = null;
+    };
+
+    while (!signal.aborted) {
+      const session = jobSessionRef.current;
+      if (
+        session.kind !== 'torrent' ||
+        !session.token ||
+        !session.jobId
+      ) {
+        // The Magnet session ended or changed while the loop ran — reset
+        // the toggle so it cannot linger on a stale session.
+        stop();
+        return;
+      }
+      const state = lazySyncStateRef.current;
+      if (!state) return;
+
+      try {
+        const ref = await fetchMagnetSubtitle(
+          session.token,
+          session.jobId,
+          session.subtitleFileId ?? '',
+        );
+        const refCues = parseSubtitle(ref.text).cues;
+        if (refCues.length === 0) {
+          // Downloaded prefix has no subtitle cues yet — waiting state
+          // (docs §10.2). Bounded so the PROCESSING typewriter cannot
+          // run forever.
+          state.waitPollCount += 1;
+          state.noMatchPollCount = 0;
+          if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
+            stop();
+            notifySubtitleSyncError(
+              dictRef.current.playerUI.subtitleSyncNoSubtitle,
+            );
+            return;
+          }
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        const matches = matchCueOffsets(state.baseCues, refCues);
+        if (matches.length === 0) {
+          // The embedded track exists but shares no lines with the user
+          // subtitle (different language / different cut) — no offset can
+          // be estimated. Bounded, then give up.
+          state.noMatchPollCount += 1;
+          state.waitPollCount = 0;
+          if (state.noMatchPollCount > LAZY_SYNC_MAX_NO_MATCH_POLLS) {
+            stop();
+            notifySubtitleSyncError(
+              dictRef.current.playerUI.subtitleSyncNoReference,
+            );
+            return;
+          }
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        const offsetMs = estimateOffsetMs(matches);
+        if (offsetMs === null) {
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        const prev = state.lastOffsetMs;
+        const changed =
+          prev === null || Math.abs(offsetMs - prev) > 0.001;
+        const stable =
+          prev !== null &&
+          Math.abs(offsetMs - prev) <= LAZY_SYNC_STABLE_THRESHOLD_MS;
+        state.lastOffsetMs = offsetMs;
+        state.waitPollCount = 0;
+        state.noMatchPollCount = 0;
+
+        if (changed) {
+          // Apply to the ORIGINAL base cues every time — never to the
+          // previously shifted display — so refinement cannot drift.
+          setCues(shiftCuesByOffset(state.baseCues, offsetMs));
+          setSubtitleErrors([]);
+          setActiveCueId(null);
+        }
+        if (!state.appliedOnce) {
+          state.appliedOnce = true;
+          setIsLazySyncProcessing(false);
+        }
+        // Offset converged (change ≤ threshold): one success toast, then
+        // polling continues to refine (docs §10.2-10.3).
+        if (stable && !state.successNotified) {
+          state.successNotified = true;
+          notifySubtitleSyncSuccess(
+            dictRef.current.playerUI.subtitleSyncSuccess,
+          );
+        }
+      } catch {
+        // Transient fetch failure (subtitle still preparing) — keep the
+        // waiting state and try again on the next poll.
+      }
+      await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+    }
+  }, []);
+
+  // Start / stop the LazySync loop with the toggle. The cleanup abort also
+  // covers unmount.
+  useEffect(() => {
+    if (!isLazySyncOn) return;
+    const ac = new AbortController();
+    void runLazySyncPolling(ac.signal);
+    return () => ac.abort();
+  }, [isLazySyncOn, runLazySyncPolling]);
 
   /** Magnet audio sync: dialog handed us decoded PCM — run sub-to-audio. */
   const handleAudioSyncComplete = useCallback(
@@ -4191,6 +4429,10 @@ export default function PlayerApp() {
               isSyncingSubtitle={isSyncingSubtitle}
               syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
               hideSyncSubtitle={jobSession.kind === 'youtube'}
+              isMagnet={isMagnet}
+              lazySyncOn={isLazySyncOn}
+              onToggleLazySync={handleToggleLazySync}
+              isLazySyncProcessing={isLazySyncProcessing}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
@@ -4219,6 +4461,10 @@ export default function PlayerApp() {
               isSyncingSubtitle={isSyncingSubtitle}
               syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
               hideSyncSubtitle={jobSession.kind === 'youtube'}
+              isMagnet={isMagnet}
+              lazySyncOn={isLazySyncOn}
+              onToggleLazySync={handleToggleLazySync}
+              isLazySyncProcessing={isLazySyncProcessing}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
