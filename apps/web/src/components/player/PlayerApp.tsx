@@ -188,17 +188,6 @@ const START_BUFFERING_SAFETY_MS = 15000;
 /** Maximum length of a displayed media name (defense in depth). */
 const MAX_MEDIA_NAME_LENGTH = 255;
 
-/**
- * Ceiling for embedded-subtitle extraction input. mkvgo's
- * extractSubtitleVTT only accepts a Uint8Array, so the entire file is read
- * into memory via file.arrayBuffer() — this ceiling prevents an OOM / tab
- * crash on multi-GiB MKVs. probe() is unaffected (head-only ranged reads).
- * Exported for the size-guard test.
- */
-// 2 * 2^30 — note: `2 << 30` would be wrong (bitwise ops coerce to a signed
-// 32-bit int, overflowing to -2^31, which would reject every file).
-export const MAX_EMBEDDED_EXTRACT_BYTES = 2 * 2 ** 30; // 2 GiB
-
 /** sanitizeDisplayName — safe display text for the top-left controls and
  *  history. The companion already serves sanitized basenames (no paths),
  *  but the browser never trusts that alone: control characters are
@@ -2044,15 +2033,10 @@ export default function PlayerApp() {
             // Local embedded subtitle via mkvgo.
             const file = mediaFileRef.current;
             if (!file) throw new Error('no embedded subtitle');
-            // extractSubtitleVTT only accepts a Uint8Array, so the whole
-            // file would be read into memory via file.arrayBuffer() — a
-            // size ceiling prevents an OOM / tab crash on multi-GiB MKVs.
-            // probe() is unaffected (head-only ranged reads).
-            if (file.size > MAX_EMBEDDED_EXTRACT_BYTES) {
-              throw new Error(
-                'embedded subtitle extraction unavailable: file too large',
-              );
-            }
+            // extractSubtitleVTT accepts a Blob/File and reads it through
+            // ranged slices (memory-bounded, like probe()), so even a
+            // 13.4 GiB MKV extracts without loading the whole file into
+            // memory — no size ceiling needed. probe() is also ranged.
             const mkvgo = await loadMkvGo({
               wasmUrl: '/wasm/mkvgo.wasm',
               wasmExecUrl: '/wasm/wasm_exec.js',
@@ -2062,10 +2046,7 @@ export default function PlayerApp() {
               (t) => t.type === 'subtitle',
             );
             if (!subTrack) throw new Error('no embedded subtitle');
-            refText = await mkvgo.extractSubtitleVTT(
-              new Uint8Array(await file.arrayBuffer()),
-              subTrack.id,
-            );
+            refText = await mkvgo.extractSubtitleVTT(file, subTrack.id);
           }
           const refDetected = parseSubtitle(refText);
           const synced = await syncSubtitleToReference(

@@ -243,9 +243,7 @@ vi.mock('@i18n/locale-events', () => ({
 }));
 
 // The REAL subtitle reader is used: parseSubtitle runs on the synced output.
-import Player, {
-  MAX_EMBEDDED_EXTRACT_BYTES,
-} from '@/components/player/PlayerApp';
+import Player from '@/components/player/PlayerApp';
 
 // --- Controllable companion job session (local media → kind stays null) ---
 let mockSession: any;
@@ -511,17 +509,27 @@ describe('local embedded-subtitle sync (sub-to-sub-auto-ref)', () => {
     expect(mocks.syncSubtitleToReference).not.toHaveBeenCalled();
   });
 
-  it('toasts (no extraction) when the media file exceeds the extraction size ceiling', async () => {
+  it('passes a 13.4 GiB-class File straight to extractSubtitleVTT (Blob, no arrayBuffer)', async () => {
+    // A 13.4 GiB MKV must not be read into memory via arrayBuffer():
+    // extractSubtitleVTT takes the File/Blob itself and ranges over it.
+    // Shadow the Blob size getter so the test never allocates the bytes.
     const file = new File(['video'], 'big.mkv');
-    // Shadow the Blob size getter: a 2 GiB+ file must never be read into
-    // memory via arrayBuffer() (mkvgo extraction takes a full Uint8Array).
-    Object.defineProperty(file, 'size', {
-      value: MAX_EMBEDDED_EXTRACT_BYTES + 1,
-    });
+    Object.defineProperty(file, 'size', { value: 13.4 * 2 ** 30 });
+    // A Uint8Array input would mean an arrayBuffer() happened — fail the
+    // test if PlayerApp ever builds one.
+    const arrayBufferSpy = vi
+      .spyOn(file, 'arrayBuffer')
+      .mockRejectedValue(new Error('arrayBuffer must not be called'));
+    const mkvgo = {
+      probe: vi.fn(async (_input: File) => subtitleProbe()),
+      extractSubtitleVTT: vi.fn(async (_input: Blob, _id: number) =>
+        EMBEDDED_VTT,
+      ),
+    };
     mocks.loadMkvGo.mockResolvedValue({
-      probe: vi.fn(),
-      extractSubtitleVTT: vi.fn(),
+      ...mkvgo,
     });
+    mocks.syncSubtitleToReference.mockResolvedValue(SYNCED_VTT);
 
     render(<Player />);
     act(() => {
@@ -538,10 +546,19 @@ describe('local embedded-subtitle sync (sub-to-sub-auto-ref)', () => {
       mocks.rightPanelProps!.onSyncSubtitle();
     });
     await waitFor(() => {
-      expect(mocks.notifySubtitleSyncError).toHaveBeenCalledTimes(1);
+      expect(mkvgo.extractSubtitleVTT).toHaveBeenCalledTimes(1);
     });
 
-    // The guard rejects before mkvgo even loads or the file is read.
-    expect(mocks.loadMkvGo).not.toHaveBeenCalled();
+    // The File (a Blob) was handed to extractSubtitleVTT untouched — no
+    // arrayBuffer(), no size guard, no toast.
+    expect(arrayBufferSpy).not.toHaveBeenCalled();
+    const extractArgs = mkvgo.extractSubtitleVTT.mock.calls[0] as [
+      Blob,
+      number,
+    ];
+    expect(extractArgs[0]).toBe(file);
+    expect(extractArgs[0]).toBeInstanceOf(File);
+    expect(extractArgs[1]).toBe(7); // track id from the probe
+    expect(mocks.notifySubtitleSyncError).not.toHaveBeenCalled();
   });
 });

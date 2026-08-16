@@ -135,8 +135,13 @@ export interface MkvGoApi {
    * larger than memory (a 40 GB File transfers a few hundred kilobytes).
    */
   probe(input: Uint8Array | Blob, options?: ProbeOptions): Promise<ProbeResult>;
-  /** Extract one subtitle track as a WebVTT string (MKV or MP4 input). */
-  extractSubtitleVTT(input: Uint8Array, trackId: number): Promise<string>;
+  /**
+   * Extract one subtitle track as a WebVTT string (MKV or MP4 input).
+   * A Blob/File is read through ranged slices (memory-bounded, so
+   * multi-GiB MKVs — e.g. 13.4 GiB — extract without loading the whole
+   * file into memory); a Uint8Array is read in place (full input in memory).
+   */
+  extractSubtitleVTT(input: Uint8Array | Blob, trackId: number): Promise<string>;
 }
 
 // ---------------------------------------------------------------------------

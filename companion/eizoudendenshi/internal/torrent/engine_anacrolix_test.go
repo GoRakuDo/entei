@@ -14,6 +14,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
+	"github.com/anacrolix/torrent/types"
 )
 
 // These tests pin the engine contract with the real anacrolix library, so a
@@ -629,6 +630,135 @@ func TestSelectElevatesTailPieces(t *testing.T) {
 	// ensures MKV Cues are downloadable early.
 	if st := tt.Piece(numPieces - 1).State(); !st.Ok || !st.Complete {
 		t.Errorf("tail piece %d after Select: state=%+v, want Ok+Complete (tail UpdateCompletion refresh)", numPieces-1, st)
+	}
+}
+
+// TestSelectElevatesSubtitleHeadPieces pins the subtitle head-window
+// elevation for BOTH the explicitly selected subtitle (subIdx) and the
+// auto-detected one (autoSubIdx): the subtitle's head pieces must get
+// PiecePriorityHigh so their download does not lose to the video's High
+// head window. Without the explicit-selection elevation, the subtitle
+// stays at Normal, its DL stalls behind the video, and SubtitleContent
+// times out (404) before it can read the reference.
+func TestSelectElevatesSubtitleHeadPieces(t *testing.T) {
+	const (
+		pieceLength    = 16384
+		numVideoPieces = 2048 // 32 MiB video: 2048 pieces of 16 KiB
+	)
+	info := &metainfo.Info{
+		Name:        "subtitle_select.mkv",
+		PieceLength: pieceLength,
+	}
+	info.Files = []metainfo.FileInfo{
+		{Length: int64(numVideoPieces) * pieceLength, Path: []string{"ep.mkv"}},
+		{Length: pieceLength, Path: []string{"sub.srt"}}, // aligned to its own piece 2048
+	}
+	info.Pieces = make([]byte, (numVideoPieces+1)*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		videoID string
+		subID   string
+	}{
+		{name: "explicit selection", videoID: "f0", subID: "f1"},
+		{name: "auto-detected", videoID: "f0", subID: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			// effectivePriority is gated by storageCompletionOk: with no
+			// completion record the storage returns Ok=false and the piece
+			// reports priority None regardless of the elevation. Record an
+			// explicit "not complete" for every piece (Ok=true,
+			// Complete=false) so purePriority (file-level Normal raised by
+			// the piece-level High) is observable via State().Priority.
+			// Marking pieces Complete=true would have the opposite effect:
+			// ignoreForRequests returns true for completed pieces.
+			pc, err := storage.NewBoltPieceCompletion(dir)
+			if err != nil {
+				t.Fatalf("bolt piece completion: %v", err)
+			}
+			ci := storage.NewFileWithCompletion(dir, pc)
+			t.Cleanup(func() { _ = ci.Close() })
+			t.Cleanup(func() { _ = pc.Close() })
+			cfg := torrent.NewDefaultClientConfig()
+			cfg.DefaultStorage = ci
+			cfg.ListenHost = torrent.LoopbackListenHost
+			cfg.ListenPort = 0
+			cfg.Seed = false
+			cfg.NoUpload = true
+			cfg.NoDHT = true
+			cfg.DisableUTP = true
+			cfg.DataDir = dir
+			cl, err := torrent.NewClient(cfg)
+			if err != nil {
+				t.Fatalf("client: %v", err)
+			}
+			t.Cleanup(func() { cl.Close() })
+			mi := &metainfo.MetaInfo{InfoBytes: ib}
+			tt, new := cl.AddTorrentOpt(torrent.AddTorrentOpts{
+				InfoHash:                 mi.HashInfoBytes(),
+				InfoBytes:                ib,
+				DisableInitialPieceCheck: true,
+			})
+			if !new {
+				t.Fatal("torrent must be new")
+			}
+			<-tt.GotInfo()
+			h := newAnacrolixHandle(tt)
+			// The effective priority (PieceState.Priority) is gated by
+			// storageCompletionOk: a piece whose data file is missing or too
+			// small reports priority None (0) regardless of the elevation.
+			// Write the full data files so the completion size check passes
+			// (mirrors TestSelectRefreshesHeadCompletionFromStorage). The
+			// storage layout nests files under the torrent name directory
+			// (FilePathMaker joins Info.BestName + BestPath).
+			for _, f := range h.t.Files() {
+				p := filepath.Join(dir, h.t.Info().BestName(), f.DisplayPath())
+				if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+					t.Fatalf("mkdir data dir %q: %v", filepath.Dir(p), err)
+				}
+				if err := os.WriteFile(p, make([]byte, f.Length()), 0o600); err != nil {
+					t.Fatalf("write data file %q: %v", p, err)
+				}
+			}
+			ih := tt.InfoHash()
+			for i := 0; i < numVideoPieces+1; i++ {
+				if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: i}, false); err != nil {
+					t.Fatalf("set piece %d not-complete: %v", i, err)
+				}
+			}
+			if err := h.Select(tc.videoID, tc.subID); err != nil {
+				t.Fatalf("Select: %v", err)
+			}
+			subFile := h.t.Files()[1]
+			subBegin, subEnd := headWindowPieces(subFile)
+			if subBegin >= subEnd {
+				t.Fatalf("subtitle head window empty: [%d, %d)", subBegin, subEnd)
+			}
+			for i := subBegin; i < subEnd; i++ {
+				if st := h.t.Piece(i).State(); st.Priority != types.PiecePriorityHigh {
+					t.Errorf("subtitle piece %d priority = %v, want PiecePriorityHigh", i, st.Priority)
+				}
+			}
+			// The video's head window must stay High (no regression).
+			// Pieces outside the head/tail/subtitle windows are never
+			// completion-refreshed by Select — they keep their initial
+			// storageCompletionOk=false and report priority None — that
+			// negative control already lives in
+			// TestSelectRefreshesHeadCompletionFromStorage (midPiece).
+			videoFile := h.t.Files()[0]
+			vBegin, vEnd := headWindowPieces(videoFile)
+			for i := vBegin; i < vEnd; i++ {
+				if st := h.t.Piece(i).State(); st.Priority != types.PiecePriorityHigh {
+					t.Errorf("video head piece %d priority = %v, want PiecePriorityHigh", i, st.Priority)
+				}
+			}
+		})
 	}
 }
 

@@ -524,12 +524,22 @@ func (h *anacrolixHandle) Select(videoFileID string, subtitleFileID string) erro
 		h.t.Piece(i).SetPriority(types.PiecePriorityHigh)
 		h.t.Piece(i).UpdateCompletion()
 	}
-	// The embedded subtitle's head window gets High too: the file is small
-	// (typically <1 MiB), so the head window covers essentially all of it —
-	// its download starts immediately and SubtitleContent (responsive) can
-	// read the reference while the video is still downloading.
-	if autoSubIdx >= 0 {
-		subFile := anacrolixFiles[autoSubIdx]
+	// The selected/auto-detected subtitle's head window gets High too: the
+	// file is small (typically <1 MiB), so the head window covers
+	// essentially all of it — its download starts immediately and
+	// SubtitleContent (responsive) can read the reference while the video
+	// is still downloading. This must apply to the EXPLICITLY selected
+	// subtitle (subIdx) as well: without the elevation its Normal
+	// priority loses to the video's High head window, the DL stalls, and
+	// SubtitleContent times out (404) before it can read the reference.
+	// autoSubIdx keeps its existing behavior (auto-detect when no subtitle
+	// was picked). The loop is safe when both indices match or overlap:
+	// SetPriority on the same piece is idempotent.
+	for _, sub := range []int{subIdx, autoSubIdx} {
+		if sub < 0 {
+			continue
+		}
+		subFile := anacrolixFiles[sub]
 		subBegin, subEnd := headWindowPieces(subFile)
 		for i := subBegin; i < subEnd; i++ {
 			h.t.Piece(i).SetPriority(types.PiecePriorityHigh)
