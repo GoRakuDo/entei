@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anacrolix/generics"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
@@ -1170,4 +1171,337 @@ func TestAnchorSeekNoopWithoutSelection(t *testing.T) {
 	h.AnchorSeek(0)
 	h.AnchorSeek(pieceLen)
 	h.AnchorSeek(fileSize - 1)
+}
+
+// --- LazySync: DL'd-prefix embedded subtitle extraction ---
+
+// prefixMkvBytes builds a real MKV whose subtitle cues straddle a 2 MiB piece
+// boundary: the "Hello" cue is written before a 3 MiB video block (inside
+// piece 0) and the "World" cue after it (in piece 1). When subFirst is false
+// the video block comes first and BOTH cues land beyond piece 0. The returned
+// bytes are padded with zeros to the 6 MiB (3 × 2 MiB) file length anacrolix's
+// storage expects.
+func prefixMkvBytes(t *testing.T, subFirst bool) []byte {
+	t.Helper()
+	bigVideo := make([]byte, 3<<20)
+	subs := []mkv.Block{
+		{TrackNumber: 2, Timecode: 1000, Duration: 1000, Data: []byte("Hello")},
+		{TrackNumber: 1, Timecode: 0, Keyframe: true, Data: bigVideo},
+		{TrackNumber: 2, Timecode: 3000, Duration: 2000, Data: []byte("World")},
+	}
+	if !subFirst {
+		subs = []mkv.Block{
+			{TrackNumber: 1, Timecode: 0, Keyframe: true, Data: bigVideo},
+			{TrackNumber: 2, Timecode: 1000, Duration: 1000, Data: []byte("Hello")},
+		}
+	}
+	data := buildTestMKVWithSubtitle(t,
+		[]mkv.Track{
+			{ID: 1, Type: mkv.VideoTrack, Codec: "h264", Language: "eng"},
+			{ID: 2, Type: mkv.SubtitleTrack, Codec: "srt", Language: "jpn"},
+		},
+		subs, 5000)
+	fileLen := 3 * (2 << 20)
+	if len(data) > fileLen {
+		t.Fatalf("MKV fixture %d bytes exceeds declared file length %d", len(data), fileLen)
+	}
+	return append(data, make([]byte, fileLen-len(data))...)
+}
+
+// newSingleFileTorrent builds the loopback anacrolix client for a single-file
+// torrent whose data file (padded to the metainfo length) is already written
+// under a private dir, with an in-memory piece-completion store. The dir is
+// removed with the GC-retry pattern Windows file storage needs. Returns the
+// client, torrent, completion store, and dir.
+func newSingleFileTorrent(t *testing.T, name string, fileData []byte, pieceLength int64) (*torrent.Client, *torrent.Torrent, storage.PieceCompletion, string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "prefix-subtitle-test-*")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() {
+		runtime.GC()
+		runtime.Gosched()
+		_ = os.RemoveAll(dir)
+	})
+	info := &metainfo.Info{Name: name, PieceLength: pieceLength, Length: int64(len(fileData))}
+	info.Pieces = make([]byte, ((len(fileData)+int(pieceLength)-1)/int(pieceLength))*20)
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), fileData, 0o600); err != nil {
+		t.Fatalf("write data file: %v", err)
+	}
+	pc := storage.NewMapPieceCompletion()
+	// Part files must be OFF: with them on (the v1.61 default) the file
+	// storage infers completion from the final file's presence and size, so
+	// the completion store's records (which these tests control to simulate a
+	// partially-downloaded prefix) would be ignored and every piece would
+	// report complete.
+	ci := storage.NewFileOpts(storage.NewFileClientOpts{
+		ClientBaseDir:   dir,
+		PieceCompletion: pc,
+		UsePartFiles:    partFilesDisabled(),
+	})
+	t.Cleanup(func() { _ = pc.Close() })
+	t.Cleanup(func() { _ = ci.Close() })
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.DefaultStorage = ci
+	cfg.DataDir = dir
+	cfg.ListenHost = torrent.LoopbackListenHost
+	cfg.ListenPort = 0
+	cfg.Seed = false
+	cfg.NoUpload = true
+	cfg.NoDHT = true
+	cfg.DisableUTP = true
+	cl, err := torrent.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { cl.Close() })
+	mi := &metainfo.MetaInfo{InfoBytes: ib}
+	tt, new := cl.AddTorrentOpt(torrent.AddTorrentOpts{
+		InfoHash:                 mi.HashInfoBytes(),
+		InfoBytes:                ib,
+		DisableInitialPieceCheck: true,
+	})
+	if !new {
+		t.Fatal("torrent must be new")
+	}
+	<-tt.GotInfo()
+	return cl, tt, pc, dir
+}
+
+// partFilesDisabled returns an Option[bool] that turns off anacrolix's
+// part-file completion inference (see newSingleFileTorrent).
+func partFilesDisabled() generics.Option[bool] {
+	var o generics.Option[bool]
+	o.Set(false)
+	return o
+}
+
+// TestEmbeddedSubtitleContentPrefixExtraction pins the LazySync gate change:
+// the embedded subtitle reference is extracted from the DL'd PREFIX — a single
+// completed piece suffices — and contains exactly the cues whose bytes are in
+// that prefix. "Hello" (before the 3 MiB video block, inside piece 0) appears;
+// "World" (after it, in the not-yet-downloaded piece 1) does not, and the read
+// never blocks on the missing piece.
+func TestEmbeddedSubtitleContentPrefixExtraction(t *testing.T) {
+	_, tt, pc, _ := newSingleFileTorrent(t, "prefix.mkv", prefixMkvBytes(t, true), 2<<20)
+	h := newAnacrolixHandle(tt)
+	ih := tt.InfoHash()
+	if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: 0}, true); err != nil {
+		t.Fatalf("set piece 0 complete: %v", err)
+	}
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if h.SelectedComplete() {
+		t.Fatal("fixture must be incomplete (piece 1 not downloaded)")
+	}
+	if got := h.AvailablePrefix(); got != 2<<20 {
+		t.Fatalf("AvailablePrefix = %d, want %d", got, 2<<20)
+	}
+
+	got, err := h.SubtitleContent(context.Background())
+	if err != nil {
+		t.Fatalf("SubtitleContent on partial download: %v", err)
+	}
+	if !strings.Contains(got, "Hello") {
+		t.Errorf("prefix extraction missing in-prefix cue \"Hello\":\n%s", got)
+	}
+	if strings.Contains(got, "World") {
+		t.Errorf("prefix extraction leaked beyond-prefix cue \"World\":\n%s", got)
+	}
+}
+
+// TestEmbeddedSubtitleContentZeroCues404 pins the "DL'd prefix holds no
+// subtitle cue" contract: extraction succeeds at the container level but
+// yields zero cues, so the engine reports errSubtitleNotSelected — the API
+// surfaces it as 404 and the web layer waits for more data.
+func TestEmbeddedSubtitleContentZeroCues404(t *testing.T) {
+	_, tt, pc, _ := newSingleFileTorrent(t, "zerocues.mkv", prefixMkvBytes(t, false), 2<<20)
+	h := newAnacrolixHandle(tt)
+	ih := tt.InfoHash()
+	if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: 0}, true); err != nil {
+		t.Fatalf("set piece 0 complete: %v", err)
+	}
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	// Both subtitle cues sit after the 3 MiB video block, beyond piece 0.
+	if _, err := h.SubtitleContent(context.Background()); !errors.Is(err, errSubtitleNotSelected) {
+		t.Fatalf("SubtitleContent = %v, want errSubtitleNotSelected", err)
+	}
+}
+
+// TestEmbeddedSubtitleContentPrefixGate pins the prefix gate: with nothing
+// downloaded the extraction is refused up front (errSubtitleNotSelected /
+// 404) instead of attempting a probe on an unreadable head.
+func TestEmbeddedSubtitleContentPrefixGate(t *testing.T) {
+	_, tt, _, _ := newSingleFileTorrent(t, "gate.mkv", prefixMkvBytes(t, true), 2<<20)
+	h := newAnacrolixHandle(tt)
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if got := h.AvailablePrefix(); got != 0 {
+		t.Fatalf("AvailablePrefix = %d, want 0", got)
+	}
+	if _, err := h.SubtitleContent(context.Background()); !errors.Is(err, errSubtitleNotSelected) {
+		t.Fatalf("SubtitleContent = %v, want errSubtitleNotSelected", err)
+	}
+}
+
+// TestElevateSubtitleCuePieces pins the piece-priority mapping: the pieces
+// containing the embedded subtitle track's cluster positions (Cues, resolved
+// through SegmentStart + ClusterPos + RelativePos) are raised to
+// PiecePriorityHigh, pieces of other tracks' cues are not, and out-of-file
+// pieces are never touched. This is the deterministic core of the subtitle
+// cue pump.
+func TestElevateSubtitleCuePieces(t *testing.T) {
+	const (
+		pieceLength = 16384
+		// 16 MiB with the pump's targets in the middle band [4 MiB, 8 MiB):
+		// Select elevates the head (4 MiB) and tail (8 MiB) windows, leaving
+		// pieces [256, 512) as a clean negative control.
+		numPieces = 1024
+	)
+	_, tt, pc, _ := newSingleFileTorrent(t, "elevate.mkv", make([]byte, numPieces*pieceLength), pieceLength)
+	h := newAnacrolixHandle(tt)
+	ih := tt.InfoHash()
+	for i := 0; i < numPieces; i++ {
+		if err := pc.Set(metainfo.PieceKey{InfoHash: ih, Index: i}, false); err != nil {
+			t.Fatalf("set piece %d not-complete: %v", i, err)
+		}
+	}
+	if err := h.Select("f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	// Cues naming the subtitle track at 5 MiB (piece 320) and 6 MiB+42 (piece
+	// 384, via RelativePos); a video-track cue at 7 MiB (piece 448) that must
+	// NOT elevate; a cue far outside the file that must be clamped away.
+	c := &mkv.Container{
+		SegmentStart: 0,
+		Cues: []mkv.CuePoint{
+			{Track: 2, ClusterPos: 5 << 20},
+			{Track: 2, ClusterPos: 6<<20 + 42, RelativePos: 42},
+			{Track: 1, ClusterPos: 7 << 20},
+			{Track: 2, ClusterPos: 100 << 20}, // far outside the 16 MiB file
+		},
+	}
+	n := h.elevateSubtitleCuePieces(c, 2, tt.Info())
+	if n != 4 {
+		t.Errorf("elevated %d pieces, want 4 (320,321 and 384,385)", n)
+	}
+	for _, i := range []int{320, 321, 384, 385} {
+		if st := h.t.Piece(i).State(); st.Priority != types.PiecePriorityHigh {
+			t.Errorf("subtitle cue piece %d priority = %v, want PiecePriorityHigh", i, st.Priority)
+		}
+	}
+	// Piece 300 (mid-file, no cue) and 448 (the video-track cue) sit outside
+	// Select's head/tail windows and must stay unelevated.
+	for _, i := range []int{300, 448} {
+		if st := h.t.Piece(i).State(); st.Priority == types.PiecePriorityHigh {
+			t.Errorf("piece %d priority = High, want not elevated", i)
+		}
+	}
+}
+
+// TestStartSubtitleCuePumpSelection pins the pump's start contract: it errors
+// without a selection, does not start when a standalone subtitle file exists
+// (the embedded fallback is unused), and starts once for a video-only torrent.
+func TestStartSubtitleCuePumpSelection(t *testing.T) {
+	t.Run("no selection", func(t *testing.T) {
+		_, tt, _, _ := newSingleFileTorrent(t, "noselect.mkv", make([]byte, 10*16384), 16384)
+		h := newAnacrolixHandle(tt)
+		if err := h.StartSubtitleCuePump(context.Background()); !errors.Is(err, errInvalidSelection) {
+			t.Fatalf("StartSubtitleCuePump = %v, want errInvalidSelection", err)
+		}
+	})
+
+	t.Run("subtitle file present", func(t *testing.T) {
+		const pieceLength = 16384
+		info := &metainfo.Info{Name: "withsub", PieceLength: pieceLength}
+		info.Files = []metainfo.FileInfo{
+			{Length: 10 * pieceLength, Path: []string{"ep.mkv"}},
+			{Length: pieceLength, Path: []string{"sub.srt"}},
+		}
+		info.Pieces = make([]byte, 11*20)
+		ib, err := bencode.Marshal(info)
+		if err != nil {
+			t.Fatalf("marshal info: %v", err)
+		}
+		dir := t.TempDir()
+		for _, f := range []string{"ep.mkv", "sub.srt"} {
+			if err := os.WriteFile(filepath.Join(dir, f), make([]byte, pieceLength), 0o600); err != nil {
+				t.Fatalf("write %s: %v", f, err)
+			}
+		}
+		pc := storage.NewMapPieceCompletion()
+		ci := storage.NewFileWithCompletion(dir, pc)
+		t.Cleanup(func() { _ = pc.Close() })
+		t.Cleanup(func() { _ = ci.Close() })
+		cfg := torrent.NewDefaultClientConfig()
+		cfg.DefaultStorage = ci
+		cfg.DataDir = dir
+		cfg.ListenHost = torrent.LoopbackListenHost
+		cfg.ListenPort = 0
+		cfg.Seed = false
+		cfg.NoUpload = true
+		cfg.NoDHT = true
+		cfg.DisableUTP = true
+		cl, err := torrent.NewClient(cfg)
+		if err != nil {
+			t.Fatalf("client: %v", err)
+		}
+		t.Cleanup(func() { cl.Close() })
+		mi := &metainfo.MetaInfo{InfoBytes: ib}
+		tt, new := cl.AddTorrentOpt(torrent.AddTorrentOpts{
+			InfoHash:                 mi.HashInfoBytes(),
+			InfoBytes:                ib,
+			DisableInitialPieceCheck: true,
+		})
+		if !new {
+			t.Fatal("torrent must be new")
+		}
+		<-tt.GotInfo()
+		h := newAnacrolixHandle(tt)
+		if err := h.Select("f0", ""); err != nil {
+			t.Fatalf("Select: %v", err)
+		}
+		if err := h.StartSubtitleCuePump(context.Background()); err != nil {
+			t.Fatalf("StartSubtitleCuePump: %v", err)
+		}
+		h.mu.Lock()
+		started := h.pumpStarted
+		h.mu.Unlock()
+		if started {
+			t.Error("pump started despite a standalone subtitle file")
+		}
+	})
+
+	t.Run("video only", func(t *testing.T) {
+		_, tt, _, _ := newSingleFileTorrent(t, "videoonly.mkv", make([]byte, 10*16384), 16384)
+		h := newAnacrolixHandle(tt)
+		if err := h.Select("f0", ""); err != nil {
+			t.Fatalf("Select: %v", err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		if err := h.StartSubtitleCuePump(ctx); err != nil {
+			t.Fatalf("StartSubtitleCuePump: %v", err)
+		}
+		h.mu.Lock()
+		started := h.pumpStarted
+		h.mu.Unlock()
+		if !started {
+			t.Error("pump did not start for a video-only torrent")
+		}
+		// A second start is a no-op (idempotent).
+		if err := h.StartSubtitleCuePump(ctx); err != nil {
+			t.Fatalf("second StartSubtitleCuePump: %v", err)
+		}
+	})
 }

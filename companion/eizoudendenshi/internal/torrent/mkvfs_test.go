@@ -91,6 +91,12 @@ func (s *fakeMkvSource) openFile(context.Context) (mkv.ReadSeekCloser, error) {
 
 func (s *fakeMkvSource) fileLength() int64 { return int64(len(s.data)) }
 
+// fullMKVFS adapts a fake source with an unbounded maxOffset — the pre-LazySync
+// behavior, used by tests that read the whole file.
+func fullMKVFS(ctx context.Context, src *fakeMkvSource) *mkv.FS {
+	return mkvFSFor(ctx, src, src.fileLength())
+}
+
 type nopCloserReadSeeker struct {
 	*bytes.Reader
 }
@@ -102,7 +108,7 @@ func (r *nopCloserReadSeeker) Close() error { return nil }
 // plain file.
 func TestMkvFSAdapterStat(t *testing.T) {
 	src := &fakeMkvSource{data: []byte("0123456789")}
-	fs := mkvFSFor(context.Background(), src)
+	fs := fullMKVFS(context.Background(), src)
 	fi, err := fs.DoStat("in")
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
@@ -127,7 +133,7 @@ func TestMkvFSAdapterOpenFreshReader(t *testing.T) {
 		[]mkv.Track{{ID: 2, Type: mkv.SubtitleTrack, Codec: "srt", Language: "jpn"}},
 		[]mkv.Block{{TrackNumber: 2, Timecode: 1000, Duration: 1000, Data: []byte("Hello")}},
 		5000)}
-	fs := mkvFSFor(context.Background(), src)
+	fs := fullMKVFS(context.Background(), src)
 	r1, err := fs.DoOpen("in")
 	if err != nil {
 		t.Fatalf("Open #1: %v", err)
@@ -168,7 +174,7 @@ func TestMkvFSAdapterExtractsEmbeddedSubtitle(t *testing.T) {
 		},
 		5000)}
 	ctx := context.Background()
-	fs := mkvFSFor(ctx, src)
+	fs := fullMKVFS(ctx, src)
 
 	trackID, err := firstTextSubtitleTrack(ctx, fs)
 	if err != nil {
@@ -217,13 +223,13 @@ func TestFirstTextSubtitleTrack(t *testing.T) {
 		},
 		nil, 1000)}
 
-	if _, err := firstTextSubtitleTrack(ctx, mkvFSFor(ctx, noSubs)); !errors.Is(err, errNoEmbeddedSubtitle) {
+	if _, err := firstTextSubtitleTrack(ctx, fullMKVFS(ctx, noSubs)); !errors.Is(err, errNoEmbeddedSubtitle) {
 		t.Errorf("video-only: err = %v, want errNoEmbeddedSubtitle", err)
 	}
-	if _, err := firstTextSubtitleTrack(ctx, mkvFSFor(ctx, bitmapOnly)); !errors.Is(err, errNoEmbeddedSubtitle) {
+	if _, err := firstTextSubtitleTrack(ctx, fullMKVFS(ctx, bitmapOnly)); !errors.Is(err, errNoEmbeddedSubtitle) {
 		t.Errorf("bitmap-only: err = %v, want errNoEmbeddedSubtitle", err)
 	}
-	id, err := firstTextSubtitleTrack(ctx, mkvFSFor(ctx, bitmapThenText))
+	id, err := firstTextSubtitleTrack(ctx, fullMKVFS(ctx, bitmapThenText))
 	if err != nil {
 		t.Fatalf("bitmap+text: %v", err)
 	}
@@ -233,8 +239,197 @@ func TestFirstTextSubtitleTrack(t *testing.T) {
 	// Not a container at all: the probe error is NOT the sentinel, so the
 	// caller can distinguish "no track" from "cannot read".
 	notMKV := &fakeMkvSource{data: []byte("this is not a matroska file")}
-	if _, err := firstTextSubtitleTrack(ctx, mkvFSFor(ctx, notMKV)); err == nil || errors.Is(err, errNoEmbeddedSubtitle) {
+	if _, err := firstTextSubtitleTrack(ctx, fullMKVFS(ctx, notMKV)); err == nil || errors.Is(err, errNoEmbeddedSubtitle) {
 		t.Errorf("non-MKV: err = %v, want a probe error (not the sentinel)", err)
 	}
 }
 
+// TestClampedReadSeekCloser pins the clamp wrapper's contract — the piece the
+// LazySync extraction relies on: reads past max return EOF without touching
+// the underlying reader (so a not-yet-downloaded range can never block),
+// reads crossing max return only the in-range part, SeekEnd reports the REAL
+// source end (mkvgo's tail scans compute windows against the true length),
+// and invalid seeks fail cleanly.
+func TestClampedReadSeekCloser(t *testing.T) {
+	c := &clampedReadSeekCloser{
+		r:   &nopCloserReadSeeker{Reader: bytes.NewReader([]byte("0123456789"))},
+		max: 5,
+	}
+	buf := make([]byte, 4)
+
+	// Read fully within the limit.
+	n, err := c.Read(buf)
+	if n != 4 || err != nil || string(buf) != "0123" {
+		t.Fatalf("first Read = %d, %v, %q; want 4, nil, \"0123\"", n, err, buf)
+	}
+	// Read crossing the limit returns only the in-range remainder.
+	n, err = c.Read(buf)
+	if n != 1 || err != nil || string(buf[:1]) != "4" {
+		t.Fatalf("boundary Read = %d, %v, %q; want 1, nil, \"4\"", n, err, buf)
+	}
+	// Read at/after the limit: EOF immediately, no underlying read.
+	if n, err := c.Read(buf); n != 0 || err != io.EOF {
+		t.Fatalf("past-limit Read = %d, %v; want 0, io.EOF", n, err)
+	}
+	// Seek back inside the limit resumes reading there.
+	if _, err := c.Seek(2, io.SeekStart); err != nil {
+		t.Fatalf("seek 2: %v", err)
+	}
+	if n, err := c.Read(buf); n != 3 || string(buf[:3]) != "234" {
+		t.Fatalf("read after re-seek = %d, %v, %q; want 3, nil, \"234\"", n, err, buf)
+	}
+	// Seek beyond the limit: reads still EOF (no panic, no underlying read).
+	if _, err := c.Seek(9, io.SeekStart); err != nil {
+		t.Fatalf("seek 9: %v", err)
+	}
+	if n, err := c.Read(buf); n != 0 || err != io.EOF {
+		t.Fatalf("read at offset 9 = %d, %v; want 0, io.EOF", n, err)
+	}
+	// SeekEnd reports the REAL source end, not the clamp.
+	if pos, err := c.Seek(0, io.SeekEnd); err != nil || pos != 10 {
+		t.Fatalf("SeekEnd = %d, %v; want 10, nil", pos, err)
+	}
+	if pos, err := c.Seek(-3, io.SeekEnd); err != nil || pos != 7 {
+		t.Fatalf("SeekEnd(-3) = %d, %v; want 7, nil", pos, err)
+	}
+	// Position 7 is past the clamp (5): reads EOF — the graceful stop mkvgo's
+	// tail scan relies on. SeekEnd reports the real end so mkvgo's windows
+	// are computed against the true length; the clamp lives in Read.
+	if n, err := c.Read(buf); n != 0 || err != io.EOF {
+		t.Fatalf("read after SeekEnd(-3) = %d, %v; want 0, io.EOF", n, err)
+	}
+	// SeekCurrent tracks the clamped position.
+	if pos, err := c.Seek(-5, io.SeekCurrent); err != nil || pos != 2 {
+		t.Fatalf("SeekCurrent(-5) = %d, %v; want 2, nil", pos, err)
+	}
+	if n, err := c.Read(buf); n != 3 || string(buf[:3]) != "234" {
+		t.Fatalf("read after SeekCurrent(-5) = %d, %v, %q; want 3, nil, \"234\"", n, err, buf)
+	}
+	// Invalid seeks fail cleanly.
+	if _, err := c.Seek(-1, io.SeekStart); err == nil {
+		t.Error("negative SeekStart: want error")
+	}
+	if _, err := c.Seek(0, 99); err == nil {
+		t.Error("invalid whence: want error")
+	}
+}
+
+// TestClampedReadSeekCloserReadsNoBlock verifies the clamp never forwards a
+// read that would cross the limit to the underlying reader: a past-limit Read
+// must return EOF synthesized by the clamp, leaving the underlying reader
+// untouched (a real anacrolix reader would BLOCK on a request for
+// not-yet-downloaded bytes).
+func TestClampedReadSeekCloserReadsNoBlock(t *testing.T) {
+	underlying := &nopCloserReadSeeker{Reader: bytes.NewReader([]byte("0123456789"))}
+	c := &clampedReadSeekCloser{r: underlying, max: 4}
+	buf := make([]byte, 10)
+	if _, err := c.Read(buf); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, err := c.Read(buf); err != io.EOF {
+		t.Fatalf("second read: %v, want io.EOF", err)
+	}
+	// Only the in-range 4 bytes were ever forwarded: 6 of 10 remain unread.
+	if remaining := underlying.Len(); remaining != 6 {
+		t.Errorf("underlying reader has %d bytes unread, want 6 (only 4 forwarded)", remaining)
+	}
+}
+
+// TestMkvFSAdapterClampedPrefixExtraction pins the LazySync extraction
+// contract at the FS level: with maxOffset cutting the file mid-cluster, the
+// extraction returns exactly the subtitle cues whose bytes are inside the
+// downloaded prefix — the cue before the boundary appears, the one after it
+// does not, and the walk stops cleanly at the boundary instead of erroring or
+// blocking.
+func TestMkvFSAdapterClampedPrefixExtraction(t *testing.T) {
+	// One cluster: subtitle "Hello" first (inside the prefix), then a 2 MiB
+	// video block that pushes the cluster's tail (subtitle "World" and the
+	// Cues) beyond the 64 KiB prefix.
+	bigVideo := make([]byte, 2<<20)
+	src := &fakeMkvSource{data: buildTestMKVWithSubtitle(t,
+		[]mkv.Track{
+			{ID: 1, Type: mkv.VideoTrack, Codec: "h264", Language: "eng"},
+			{ID: 2, Type: mkv.SubtitleTrack, Codec: "srt", Language: "jpn"},
+		},
+		[]mkv.Block{
+			{TrackNumber: 2, Timecode: 1000, Duration: 1000, Data: []byte("Hello")},
+			{TrackNumber: 1, Timecode: 0, Keyframe: true, Data: bigVideo},
+			{TrackNumber: 2, Timecode: 3000, Duration: 2000, Data: []byte("World")},
+		},
+		5000)}
+	ctx := context.Background()
+	fs := mkvFSFor(ctx, src, 64<<10)
+
+	trackID, err := firstTextSubtitleTrack(ctx, fs)
+	if err != nil {
+		t.Fatalf("probe on clamped FS: %v", err)
+	}
+	var out strings.Builder
+	if err := matroska.ExtractSubtitleWebVTT(ctx, "in", trackID, &out, matroska.Options{FS: fs}); err != nil {
+		t.Fatalf("ExtractSubtitleWebVTT on clamped FS: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Hello") {
+		t.Errorf("prefix extraction missing in-prefix cue \"Hello\":\n%s", got)
+	}
+	if strings.Contains(got, "World") {
+		t.Errorf("prefix extraction leaked beyond-prefix cue \"World\":\n%s", got)
+	}
+	if !strings.Contains(got, "-->") {
+		t.Errorf("prefix extraction produced no cue at all:\n%s", got)
+	}
+}
+
+// TestMkvFSAdapterClampedZeroCues pins the "DL'd prefix holds no subtitle cue"
+// shape: a prefix that covers only the head and the cluster's leading video
+// bytes yields an empty WebVTT body — the signal the engine turns into 404 so
+// the web layer keeps waiting for more data.
+func TestMkvFSAdapterClampedZeroCues(t *testing.T) {
+	bigVideo := make([]byte, 2<<20)
+	src := &fakeMkvSource{data: buildTestMKVWithSubtitle(t,
+		[]mkv.Track{
+			{ID: 1, Type: mkv.VideoTrack, Codec: "h264", Language: "eng"},
+			{ID: 2, Type: mkv.SubtitleTrack, Codec: "srt", Language: "jpn"},
+		},
+		[]mkv.Block{
+			{TrackNumber: 1, Timecode: 0, Keyframe: true, Data: bigVideo},
+			{TrackNumber: 2, Timecode: 1000, Duration: 1000, Data: []byte("Hello")},
+		},
+		5000)}
+	ctx := context.Background()
+	fs := mkvFSFor(ctx, src, 64<<10)
+
+	trackID, err := firstTextSubtitleTrack(ctx, fs)
+	if err != nil {
+		t.Fatalf("probe on clamped FS: %v", err)
+	}
+	var out strings.Builder
+	if err := matroska.ExtractSubtitleWebVTT(ctx, "in", trackID, &out, matroska.Options{FS: fs}); err != nil {
+		t.Fatalf("ExtractSubtitleWebVTT on clamped FS: %v", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "-->") {
+		t.Errorf("zero-cue prefix produced a cue:\n%s", got)
+	}
+	if strings.Contains(got, "Hello") {
+		t.Errorf("zero-cue prefix leaked \"Hello\":\n%s", got)
+	}
+	if !strings.HasPrefix(got, "WEBVTT") {
+		t.Errorf("zero-cue prefix output lacks the WebVTT header:\n%s", got)
+	}
+}
+
+// TestMkvFSAdapterClampedStat pins the clamped Stat: the FS reports the
+// clamped extent as the file size, consistent with the truncated-file view
+// reads present.
+func TestMkvFSAdapterClampedStat(t *testing.T) {
+	src := &fakeMkvSource{data: []byte("0123456789")}
+	fs := mkvFSFor(context.Background(), src, 5)
+	fi, err := fs.DoStat("in")
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if fi.Size() != 5 {
+		t.Errorf("clamped Stat.Size() = %d, want 5", fi.Size())
+	}
+}

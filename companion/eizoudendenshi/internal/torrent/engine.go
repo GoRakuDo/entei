@@ -76,6 +76,13 @@ type TorrentHandle interface {
 	// range request arrives. It must not block; the reader is closed when
 	// ctx is done. Fails only when the selection is not readable.
 	StartBootstrap(ctx context.Context) error
+	// StartSubtitleCuePump begins best-effort background demand for the
+	// selected video's embedded subtitle pieces (LazySync companion to
+	// StartBootstrap): once the head prefix and the tail Cues are downloaded,
+	// the embedded text subtitle track's cluster pieces are raised to High so
+	// the DL'd-prefix subtitle extraction gains cues sooner. Non-blocking;
+	// exits when ctx is done. Fails only when the selection is not readable.
+	StartSubtitleCuePump(ctx context.Context) error
 	// AvailablePrefix returns the verified contiguous prefix length of the
 	// selected video (piece-accurate; never the allocated size).
 	AvailablePrefix() int64

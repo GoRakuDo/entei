@@ -193,6 +193,10 @@ func (h *fakeHandle) StartBootstrap(ctx context.Context) error {
 	return nil
 }
 
+// StartSubtitleCuePump is a no-op in the fake: the pump is a best-effort
+// scheduling optimization with no observable manager-level contract.
+func (h *fakeHandle) StartSubtitleCuePump(_ context.Context) error { return nil }
+
 func (h *fakeHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error) {
 	if h.selected < 0 {
 		return nil, errInvalidSelection

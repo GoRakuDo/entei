@@ -172,6 +172,8 @@ func (h *apiFakeHandle) StartBootstrap(_ context.Context) error {
 	return nil
 }
 
+func (h *apiFakeHandle) StartSubtitleCuePump(_ context.Context) error { return nil }
+
 type apiFakeReader struct {
 	data  []byte
 	avail *atomic.Int64

@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -43,18 +44,90 @@ func (i *mkvFileInfo) ModTime() time.Time { return time.Time{} }
 func (i *mkvFileInfo) IsDir() bool        { return false }
 func (i *mkvFileInfo) Sys() any           { return nil }
 
+// clampedReadSeekCloser wraps a torrent-backed reader and presents the file
+// truncated at max bytes: reads at or past max return EOF immediately (the
+// anacrolix reader is never touched, so a not-yet-downloaded range can never
+// block) and reads crossing max return only the in-range part. Seeks are
+// forwarded unchanged and SeekEnd reports the REAL source end — mkvgo's tail
+// scan and payload skips compute offsets against the true length, and a
+// clamped end would turn those skips into errors instead of graceful
+// EOF-stops at the DL'd boundary. The wrapper stays position-synchronized
+// with the underlying reader at all times (both advance on Read and are set
+// on Seek), so a Read never issues against a stale underlying offset.
+type clampedReadSeekCloser struct {
+	r   io.ReadSeekCloser
+	max int64
+	pos int64
+}
+
+func (c *clampedReadSeekCloser) Read(p []byte) (int, error) {
+	if c.pos >= c.max {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > c.max-c.pos {
+		p = p[:c.max-c.pos]
+	}
+	n, err := c.r.Read(p)
+	c.pos += int64(n)
+	return n, err
+}
+
+func (c *clampedReadSeekCloser) Seek(offset int64, whence int) (int64, error) {
+	var abs int64
+	switch whence {
+	case io.SeekStart:
+		abs = offset
+	case io.SeekCurrent:
+		abs = c.pos + offset
+	case io.SeekEnd:
+		n, err := c.r.Seek(offset, io.SeekEnd)
+		if err == nil {
+			c.pos = n
+		}
+		return n, err
+	default:
+		return 0, errors.New("clampedReadSeekCloser: invalid whence")
+	}
+	if abs < 0 {
+		return 0, errors.New("clampedReadSeekCloser: negative position")
+	}
+	n, err := c.r.Seek(abs, io.SeekStart)
+	if err == nil {
+		c.pos = n
+	}
+	return n, err
+}
+
+func (c *clampedReadSeekCloser) Close() error { return c.r.Close() }
+
 // mkvFSFor adapts a torrent file source to mkvgo's mkv.FS. Open and Stat are
 // wired; every other field stays nil so mkvgo falls back to the real OS (the
 // probe/extract paths never touch those operations). The ctx is captured once
 // and bound to every reader the FS opens — the caller wraps it with the
 // subtitle read timeout so a blocking anacrolix read cannot hang.
-func mkvFSFor(ctx context.Context, src torrentFileSource) *mkv.FS {
+//
+// maxOffset is the byte extent the FS presents: every reader Open yields is
+// clamped to [0, maxOffset), so reads past the DL'd verified prefix return
+// EOF instead of blocking on missing pieces, and Stat reports the clamped
+// size. mkvgo then sees a prefix-truncated MKV: the container head parses,
+// the block walk stops at the boundary, and Cues-driven jumps beyond it
+// validate as stale and are dropped — the extraction returns exactly the
+// subtitle cues the downloaded prefix holds.
+func mkvFSFor(ctx context.Context, src torrentFileSource, maxOffset int64) *mkv.FS {
 	return &mkv.FS{
 		Open: func(_ string) (mkv.ReadSeekCloser, error) {
-			return src.openFile(ctx)
+			r, err := src.openFile(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &clampedReadSeekCloser{r: r, max: maxOffset}, nil
 		},
 		Stat: func(_ string) (os.FileInfo, error) {
-			return &mkvFileInfo{size: src.fileLength()}, nil
+			size := src.fileLength()
+			if maxOffset >= 0 && maxOffset < size {
+				size = maxOffset
+			}
+			return &mkvFileInfo{size: size}, nil
 		},
 	}
 }
@@ -74,12 +147,23 @@ func firstTextSubtitleTrack(ctx context.Context, fs *mkv.FS) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("probe container: %w", err)
 	}
-	for _, t := range c.Tracks {
-		if t.Type == matroska.SubtitleTrack && isTextSubtitleCodec(t.Codec) {
-			return t.ID, nil
-		}
+	if id := firstTextSubtitleTrackID(c.Tracks); id != 0 {
+		return id, nil
 	}
 	return 0, errNoEmbeddedSubtitle
+}
+
+// firstTextSubtitleTrackID returns the ID of the first TEXT subtitle track
+// (srt/ass/ssa/webvtt) in a parsed container's track list, or 0 when there is
+// none. Shared by the probe (firstTextSubtitleTrack) and the subtitle cue
+// pump, which works from an already-parsed container.
+func firstTextSubtitleTrackID(tracks []mkv.Track) uint64 {
+	for _, t := range tracks {
+		if t.Type == matroska.SubtitleTrack && isTextSubtitleCodec(t.Codec) {
+			return t.ID
+		}
+	}
+	return 0
 }
 
 // isTextSubtitleCodec reports whether an mkvgo codec short name is a text
@@ -97,10 +181,10 @@ func isTextSubtitleCodec(codec string) bool {
 // openFile implements torrentFileSource for anacrolixHandle: a fresh
 // non-responsive reader over the selected video with the given context. The
 // responsive HTTP reader is deliberately NOT used here — embedded-subtitle
-// extraction needs hash-verified bytes, and the caller only runs it once the
-// file is complete, so reads never block on piece verification. The close is
-// mkvgo's own (it closes every reader it opens); on a completed file no pieces
-// are pending, so the anacrolix v1.61 invariant-check close panic cannot fire.
+// extraction needs hash-verified bytes (the LazySync prefix path clamps reads
+// to verified pieces, and the completed-file path reads fully verified data),
+// so reads never block on piece verification. The close is mkvgo's own (it
+// closes every reader it opens).
 func (h *anacrolixHandle) openFile(ctx context.Context) (mkv.ReadSeekCloser, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -118,10 +202,12 @@ func (h *anacrolixHandle) fileLength() int64 {
 }
 
 // SelectedComplete reports whether every piece of the selected file has been
-// downloaded and verified. Embedded-subtitle extraction reads arbitrary byte
-// ranges across the whole file (container head, Cues, subtitle blocks), which
-// blocks on missing or unverified pieces — callers must gate on this and only
-// extract once the file is complete.
+// downloaded and verified. It remains the gate for operations that must read
+// arbitrary byte ranges across the whole file (container head, Cues, subtitle
+// blocks); the LazySync embedded-subtitle path no longer requires it — that
+// extraction runs on the DL'd verified prefix (see embeddedSubtitleContent and
+// the maxOffset clamping in mkvFSFor) — but the subtitle cue pump uses it to
+// know when there is nothing left to prioritize.
 func (h *anacrolixHandle) SelectedComplete() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()

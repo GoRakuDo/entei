@@ -19,6 +19,8 @@ import (
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
 	"github.com/gravity-zero/mkvgo/matroska"
+	"github.com/gravity-zero/mkvgo/mkv"
+	"github.com/gravity-zero/mkvgo/mkv/reader"
 
 	"eizoudendenshi/internal/diag"
 )
@@ -97,6 +99,26 @@ const httpReadaheadBytes = 16 << 20 // 16 MiB
 // it as 404 ("subtitle not available"). Var (not const) so tests can shorten
 // it.
 var subtitleReadTimeout = 30 * time.Second
+
+// minimumEmbeddedSubtitlePrefix is the verified DL'd prefix required before
+// the embedded-subtitle extraction is attempted: the MKV container head (EBML
+// header + Segment + SeekHead + Info + Tracks) must be readable for the probe
+// to find the subtitle track, with margin for the first cluster. Below it the
+// probe cannot find the track and would only fail — the caller reports
+// "subtitle not available" and the web layer waits for more data. Var (not
+// const) so tests can adjust it.
+var minimumEmbeddedSubtitlePrefix = int64(2 << 20) // 2 MiB
+
+// subtitleCuePumpInterval is how often the subtitle cue pump retries parsing
+// the selected video's head + tail Cues to locate the embedded subtitle
+// track's clusters. Var (not const) so tests can shorten it.
+var subtitleCuePumpInterval = 2 * time.Second
+
+// subtitleCuePumpAttemptTimeout bounds ONE pump parse attempt: the parse
+// reads the DL'd head and the (elevated) tail Cues, but a tail window that has
+// not arrived must not wedge the pump goroutine forever — on timeout it
+// retries on the next tick. Var (not const) so tests can shorten it.
+var subtitleCuePumpAttemptTimeout = 10 * time.Second
 
 // clientConfig returns a torrent.NewDefaultClientConfig() with the standard
 // EizouDendenshi settings applied AND an explicit private DataDir +
@@ -397,6 +419,10 @@ type anacrolixHandle struct {
 	files       []TorrentFile
 	selected    *torrent.File
 	subtitleIdx int // index into h.t.Files(); -1 = none
+	// pumpStarted guards StartSubtitleCuePump against starting the pump
+	// goroutine more than once (the pump is idempotent, so a second start is
+	// harmless but wasteful).
+	pumpStarted bool
 	mu          sync.Mutex
 	log         *diag.Logger // nil-safe; set by the engine for diagnostics
 }
@@ -827,23 +853,36 @@ func (h *anacrolixHandle) SubtitleContent(ctx context.Context) (string, error) {
 // embeddedSubtitleContent extracts the selected video's FIRST embedded text
 // subtitle track (MKV SRT/ASS/VTT) with mkvgo and returns it as WebVTT. It is
 // the last-resort subtitle reference for a torrent that carries no subtitle
-// file. The download must be complete before this runs — the extraction seeks
-// across the whole file and reads blocks, which blocks on missing or
-// unverified pieces. Returns errSubtitleNotSelected (surfaced as 404 by the
-// API) when the file is incomplete or carries no extractable text track;
-// probe/extract failures carry the underlying cause.
+// file.
+//
+// LazySync contract: the extraction runs on the verified DL'd PREFIX instead
+// of waiting for the whole file. mkvFSFor clamps every read to the prefix, so
+// mkvgo sees a prefix-truncated MKV and returns exactly the subtitle cues the
+// downloaded part holds — the sync reference grows as the download
+// progresses. The clamp keeps reads inside verified pieces, so they never
+// block on missing data (a cue straddling the boundary yields a transient
+// extract error, surfaced as 404, until the next poll's prefix covers it).
+//
+// Returns errSubtitleNotSelected (surfaced as 404 by the API) when the DL'd
+// prefix is below minimumEmbeddedSubtitlePrefix (head not readable), holds no
+// subtitle cue yet (the web layer waits for more data), or the file carries no
+// extractable text track; probe/extract failures carry the underlying cause.
 func (h *anacrolixHandle) embeddedSubtitleContent(ctx context.Context) (string, error) {
-	// Complete-only contract: the anacrolix Reader blocks while data is
-	// missing, and an incomplete file would yield a partial/garbage parse.
-	if !h.SelectedComplete() {
-		h.log.Warnf("torrent.engine", "embedded subtitle skipped: file incomplete")
+	avail := h.AvailablePrefix()
+	// Gate: the DL'd prefix must be large enough to hold the MKV container
+	// head (EBML header + Segment + SeekHead + Info + Tracks) before the probe
+	// can find the subtitle track. A file already fully downloaded is exempt —
+	// a small MKV (< 2 MiB) may be complete yet below the absolute minimum.
+	total := h.SelectedLength()
+	if avail < minimumEmbeddedSubtitlePrefix && avail < total {
+		h.log.Warnf("torrent.engine", "embedded subtitle skipped: prefix %d below minimum %d", avail, minimumEmbeddedSubtitlePrefix)
 		return "", errSubtitleNotSelected
 	}
 	// Bound the whole probe+extract so a pathological or huge file cannot
 	// hang the sync button beyond the subtitle read bound.
 	extractCtx, cancel := context.WithTimeout(ctx, subtitleReadTimeout)
 	defer cancel()
-	fs := mkvFSFor(extractCtx, h)
+	fs := mkvFSFor(extractCtx, h, avail)
 	trackID, err := firstTextSubtitleTrack(extractCtx, fs)
 	if err != nil {
 		if errors.Is(err, errNoEmbeddedSubtitle) {
@@ -855,7 +894,148 @@ func (h *anacrolixHandle) embeddedSubtitleContent(ctx context.Context) (string, 
 	if err := matroska.ExtractSubtitleWebVTT(extractCtx, "in", trackID, &buf, matroska.Options{FS: fs}); err != nil {
 		return "", fmt.Errorf("embedded subtitle extract: %w", err)
 	}
+	// Zero cues in the DL'd prefix: nothing to sync yet — report "subtitle not
+	// available" so the web layer keeps waiting for more data. A real WebVTT
+	// output always carries at least one "-->" timing line.
+	if !strings.Contains(buf.String(), "-->") {
+		h.log.Warnf("torrent.engine", "embedded subtitle skipped: no cues in DL'd prefix")
+		return "", errSubtitleNotSelected
+	}
 	return buf.String(), nil
+}
+
+// StartSubtitleCuePump begins background demand for the selected video's
+// embedded subtitle pieces (the LazySync companion to StartBootstrap): once
+// the video's head prefix and elevated tail window (MKV Cues) are downloaded,
+// the pump parses the container, converts the embedded text subtitle track's
+// Cues entries to piece indices, and raises those pieces to
+// PiecePriorityHigh — ahead of the pure-video pieces that share their
+// clusters — so the DL'd-prefix extraction (embeddedSubtitleContent) gains
+// cues sooner. It is best-effort and non-blocking: parse failures retry on
+// the next tick, and it exits early when a standalone subtitle file exists
+// (the embedded fallback is unused) or the download completes. Returns an
+// error only when the selection is not readable.
+func (h *anacrolixHandle) StartSubtitleCuePump(ctx context.Context) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.selected == nil {
+		return errInvalidSelection
+	}
+	// A torrent with a subtitle FILE never falls back to the embedded track
+	// (SubtitleContent reads the file), so there are no embedded pieces to
+	// prioritize.
+	if firstSubtitleIndex(h.files) >= 0 {
+		return nil
+	}
+	if h.pumpStarted {
+		return nil
+	}
+	h.pumpStarted = true
+	go h.subtitleCuePump(ctx)
+	return nil
+}
+
+// subtitleCuePump is the pump's background loop (StartBootstrap pattern):
+// retry the parse on a ticker until it succeeds or ctx ends. The goroutine-
+// level recover mirrors StartBootstrap — anacrolix v1.61.0 can panic in its
+// reader invariant check — so the process survives.
+func (h *anacrolixHandle) subtitleCuePump(ctx context.Context) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			h.log.Errorf("torrent.engine", "recovered panic in subtitle cue pump: %v", rec)
+		}
+	}()
+	ticker := time.NewTicker(subtitleCuePumpInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if h.subtitleCuePumpTick(ctx) {
+				return
+			}
+		}
+	}
+}
+
+// subtitleCuePumpTick performs one pump attempt and reports whether the pump
+// is done. It is a no-op when the file is already complete, the head prefix is
+// not yet parseable, or the container has no embedded text subtitle track. One
+// successful Cues parse is final: the index names every subtitle cluster, so
+// all target pieces are elevated in a single pass.
+func (h *anacrolixHandle) subtitleCuePumpTick(ctx context.Context) bool {
+	if h.SelectedComplete() {
+		return true // whole file downloaded: nothing left to prioritize
+	}
+	avail := h.AvailablePrefix()
+	if avail < minimumEmbeddedSubtitlePrefix {
+		return false // head not parseable yet; retry next tick
+	}
+	info := h.t.Info()
+	if info == nil || info.PieceLength <= 0 {
+		return true // no piece geometry: nothing to elevate
+	}
+	// Unclamped FS: the parse must reach the tail Cues (elevated by Select's
+	// tail window) as well as the DL'd head. Every read is bounded by the
+	// per-attempt timeout, so a tail window that has not arrived just fails
+	// this attempt and retries next tick.
+	attemptCtx, cancel := context.WithTimeout(ctx, subtitleCuePumpAttemptTimeout)
+	defer cancel()
+	c, err := reader.OpenWithFS(attemptCtx, "in", mkvFSFor(attemptCtx, h, h.SelectedLength()))
+	if err != nil {
+		h.log.Warnf("torrent.engine", "subtitle cue pump parse failed: %v", err)
+		return false
+	}
+	trackID := firstTextSubtitleTrackID(c.Tracks)
+	if trackID == 0 {
+		return true // no embedded text subtitle: nothing to elevate
+	}
+	n := h.elevateSubtitleCuePieces(c, trackID, info)
+	h.log.Infof("torrent.engine", "subtitle cue pump elevated pieces=%d", n)
+	return true
+}
+
+// elevateSubtitleCuePieces raises the torrent pieces covering the embedded
+// subtitle track's clusters to PiecePriorityHigh, converting each Cues entry's
+// absolute offset to a piece index. The block position itself is targeted via
+// CueRelativePosition when the index carries one (falling back to the cluster
+// position), plus one following piece for a straddling block; UpdateCompletion
+// refreshes each piece's storage state exactly as Select's windows do. Pieces
+// outside the selected file are never touched. Returns the number of pieces
+// elevated (deduplicated).
+func (h *anacrolixHandle) elevateSubtitleCuePieces(c *mkv.Container, trackID uint64, info *metainfo.Info) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.selected == nil || info == nil || info.PieceLength <= 0 {
+		return 0
+	}
+	fileBegin := h.selected.BeginPieceIndex()
+	fileEnd := h.selected.EndPieceIndex()
+	elevated := make(map[int]bool)
+	for _, cue := range c.Cues {
+		if cue.Track != trackID {
+			continue
+		}
+		// ClusterPos is Segment-relative; the FS the container was parsed
+		// through starts at the file's byte 0, so the absolute file offset is
+		// SegmentStart + ClusterPos (+ RelativePos when the index names the
+		// block directly). The selected file's torrent offset is Offset()+off.
+		off := c.SegmentStart + cue.ClusterPos
+		if cue.RelativePos > 0 {
+			off += cue.RelativePos
+		}
+		idx := int((h.selected.Offset() + off) / info.PieceLength)
+		for i := idx; i <= idx+1; i++ {
+			if i < fileBegin || i >= fileEnd || elevated[i] {
+				continue
+			}
+			elevated[i] = true
+			h.t.Piece(i).SetPriority(types.PiecePriorityHigh)
+			h.t.Piece(i).UpdateCompletion()
+		}
+	}
+	return len(elevated)
 }
 
 func (h *anacrolixHandle) Close() error {

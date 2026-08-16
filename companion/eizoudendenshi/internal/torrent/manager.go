@@ -808,6 +808,13 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 		m.cleanupSession(j, sess, handle, engine)
 		return
 	}
+	// Best-effort embedded-subtitle cue pump (LazySync): raise the video's
+	// subtitle-cluster pieces ahead of the plain video pieces so the
+	// DL'd-prefix subtitle extraction gains cues sooner. A failure only delays
+	// sync availability — never playback — so it is logged and ignored.
+	if err := handle.StartSubtitleCuePump(bootCtx); err != nil {
+		m.logger.Warnf("torrent", "job=%s subtitle cue pump failed: %v", j.id, err)
+	}
 
 	poll := time.NewTicker(200 * time.Millisecond)
 	defer poll.Stop()
