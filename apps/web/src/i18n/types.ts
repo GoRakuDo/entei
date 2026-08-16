@@ -138,6 +138,7 @@ export interface Dictionary {
   subtitleSyncAutoDesc: string;
   subtitleSyncButton: string;
   subtitleSyncButtonLabel: string;
+  subtitleSyncSuccess: string;
   subtitleSyncNoReference: string;
   subtitleSyncNoSubtitle: string;
   subtitleSyncWaitTitle: string;

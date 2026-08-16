@@ -111,6 +111,7 @@ import {
   notifyQuality,
   notifyCompanionError,
   notifySubtitleSyncError,
+  notifySubtitleSyncSuccess,
 } from '@/features/player/eizouden-toast.tsx';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
@@ -1898,6 +1899,11 @@ export default function PlayerApp() {
       setSubtitleErrors(result.errors);
       setActiveCueId(null);
       subtitleTextRef.current = syncedText;
+      // Every sync path (sub-to-sub / sub-to-audio-local / sub-to-audio-magnet)
+      // converges here — a single success toast for all of them.
+      notifySubtitleSyncSuccess(
+        dictRef.current.playerUI.subtitleSyncSuccess,
+      );
     },
     [setCues, setSubtitleErrors, setActiveCueId],
   );
@@ -4183,6 +4189,7 @@ export default function PlayerApp() {
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
+              syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
               hideSyncSubtitle={jobSession.kind === 'youtube'}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
@@ -4210,6 +4217,7 @@ export default function PlayerApp() {
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
+              syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
               hideSyncSubtitle={jobSession.kind === 'youtube'}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}

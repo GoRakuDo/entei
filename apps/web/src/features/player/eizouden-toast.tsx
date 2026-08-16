@@ -17,7 +17,7 @@
 'use client';
 
 import { toast } from 'sonner';
-import { CircleAlert, Info } from 'lucide-react';
+import { CircleAlert, CircleCheck, Info } from 'lucide-react';
 
 export const QUALITY_TOAST_KEY = 'eizouden-quality';
 
@@ -80,5 +80,22 @@ export function notifySubtitleSyncError(label: string): void {
   toast.error(label, {
     id: 'eizouden-subtitle-sync-error',
     icon: <CircleAlert aria-hidden="true" />,
+  });
+}
+
+/**
+ * Subtitle-sync success toast (sub-to-sub / sub-to-audio completed and the
+ * synced cues were applied). One toast per completion: the id is fixed so a
+ * repeated success cannot stack multiple toasts on top of each other.
+ *
+ * The icon is a Lucide CircleCheck (no default Sonner circle) centered with
+ * the text via the Entei toast CSS (flex + gap).
+ *
+ * @param label - localized message (playerUI.subtitleSyncSuccess).
+ */
+export function notifySubtitleSyncSuccess(label: string): void {
+  toast.success(label, {
+    id: 'eizouden-subtitle-sync-success',
+    icon: <CircleCheck aria-hidden="true" />,
   });
 }

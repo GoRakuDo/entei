@@ -17,6 +17,7 @@ import { Button } from '@/components/player/ui/button';
 import { Switch } from '@/components/player/ui/switch';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
 import { MiningHistoryPanel } from '@/components/player/MiningHistoryPanel';
+import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 import type { Dictionary } from '@i18n/types';
 import { isTrackerEnabled, setTrackerEnabled, flushCurrentSegment } from '@/features/player/tracker/tracker-enabled';
@@ -40,6 +41,10 @@ interface RightPanelProps {
   onSyncSubtitle?: () => void;
   canSyncSubtitle?: boolean;
   isSyncingSubtitle?: boolean;
+  /** Subtitle sync mode (subtitle / audio / auto). The button shows the
+   *  TypewriterLoading while syncing only for non-audio modes — audio sync
+   *  keeps the icon + label because the DL-wait dialog reports progress. */
+  syncMode?: 'subtitle' | 'audio' | 'auto';
   /** Hide the sync button entirely (YouTube source — design §2-11). */
   hideSyncSubtitle?: boolean;
   /** History panel refresh trigger — increment after a successful Anki send. */
@@ -70,6 +75,7 @@ export function RightPanel({
   onSyncSubtitle,
   canSyncSubtitle = false,
   isSyncingSubtitle = false,
+  syncMode = 'subtitle',
   hideSyncSubtitle = false,
   historyRefreshKey,
   onMineCue,
@@ -192,8 +198,18 @@ export function RightPanel({
               title={dict.subtitleSyncButton}
               disabled={!canSyncSubtitle || isSyncingSubtitle}
             >
-              <RotateCwFadingClock size={16} aria-hidden="true" />
-              <span>{dict.subtitleSyncButton}</span>
+              {isSyncingSubtitle && syncMode !== 'audio' ? (
+                <TypewriterLoading
+                  text="PROCESSING"
+                  className="entei-typewriter--btn"
+                  aria-hidden="true"
+                />
+              ) : (
+                <>
+                  <RotateCwFadingClock size={16} aria-hidden="true" />
+                  <span>{dict.subtitleSyncButton}</span>
+                </>
+              )}
             </button>
           )}
           <SubtitlePanel

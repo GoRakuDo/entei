@@ -332,6 +332,7 @@ export const ja: Dictionary = {
     subtitleSyncAutoDesc: '字幕を優先し、なければ音声で同期します',
     subtitleSyncButton: 'タイミングズレを同期する',
   subtitleSyncButtonLabel: '字幕のタイミングを同期',
+  subtitleSyncSuccess: '字幕同期成功!',
   subtitleSyncNoReference: 'この動画のベース字幕はないため同期されない',
   subtitleSyncNoSubtitle: '字幕が読み込まれていません',
     subtitleSyncWaitTitle: '音声同期が使えません',

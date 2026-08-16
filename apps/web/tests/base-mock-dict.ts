@@ -187,6 +187,7 @@ export const baseMockDict = {
   rightPanelTabsLabel: 'Panel',
   rightPanelTabCaptions: 'Captions',
   rightPanelTabHistory: 'History',
+  subtitleSyncSuccess: 'Subtitle sync successful!',
   historyEmpty: 'No history yet',
   historyUnavailable: 'History unavailable',
   historySentence: 'Sentence',

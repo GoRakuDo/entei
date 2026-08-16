@@ -329,6 +329,7 @@ export const en: Dictionary = {
     subtitleSyncAutoDesc: 'Prefer subtitle, fall back to audio',
     subtitleSyncButton: 'Sync subtitle timing',
   subtitleSyncButtonLabel: 'Sync subtitle timing',
+  subtitleSyncSuccess: 'Subtitle sync successful!',
   subtitleSyncNoReference: 'No base subtitle in this video, cannot sync',
   subtitleSyncNoSubtitle: 'No subtitle loaded',
     subtitleSyncWaitTitle: 'Voice sync unavailable',

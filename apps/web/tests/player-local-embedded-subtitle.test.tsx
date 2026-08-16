@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   ankiConnectClientCtor: vi.fn(),
   ankiExportClientCtor: vi.fn(),
   notifySubtitleSyncError: vi.fn(),
+  notifySubtitleSyncSuccess: vi.fn(),
   loadMkvGo: vi.fn(),
   syncSubtitleToAudio: vi.fn(),
   syncSubtitleToReference: vi.fn(),
@@ -156,6 +157,7 @@ vi.mock('@/features/player/eizouden-toast', () => ({
   notifyQuality: vi.fn(),
   notifyCompanionError: vi.fn(),
   notifySubtitleSyncError: mocks.notifySubtitleSyncError,
+  notifySubtitleSyncSuccess: mocks.notifySubtitleSyncSuccess,
 }));
 
 // mkvgo is fully mocked: the wasm module never loads in tests.
@@ -338,6 +340,7 @@ beforeEach(() => {
   mocks.mediaPickerProps = null;
   mocks.rightPanelProps = null;
   mocks.notifySubtitleSyncError.mockClear();
+  mocks.notifySubtitleSyncSuccess.mockClear();
   mocks.loadMkvGo.mockClear();
   mocks.syncSubtitleToReference.mockClear();
   mocks.syncSubtitleToAudio.mockClear();
@@ -434,6 +437,8 @@ describe('local embedded-subtitle sync (sub-to-sub-auto-ref)', () => {
       expect(mocks.capturedCues).not.toBeNull();
       expect(mocks.capturedCues!.map((c) => c.text)).toContain('こんにちは世界');
     });
+    // The synced cues were applied → the success toast fired exactly once.
+    expect(mocks.notifySubtitleSyncSuccess).toHaveBeenCalledTimes(1);
     expect(mocks.notifySubtitleSyncError).not.toHaveBeenCalled();
   });
 
