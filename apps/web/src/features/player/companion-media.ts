@@ -49,7 +49,7 @@ export function dlProgressPercent(status: MediaStatus): number {
 export async function fetchMagnetSubtitle(
   token: string,
   jobId: string,
-  _subtitleFileId: string,
+  _subtitleFileId: string, // kept for API symmetry with the select payload
 ): Promise<MagnetSubtitle> {
   const url = `${COMPANION_ORIGIN}/v1/source/torrents/${encodeURIComponent(jobId)}/subtitle` +
     `?token=${encodeURIComponent(token)}`;
