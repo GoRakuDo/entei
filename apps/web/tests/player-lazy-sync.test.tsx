@@ -8,7 +8,10 @@
  *   - /v1/source/jobs/...  → the user's drift subtitle (loaded via the
  *     standard auto-fetch effect, which sets subtitleTextRef)
  *   - /v1/source/torrents/ → the embedded subtitle (fetchMagnetSubtitle),
- *     served at +1.5 s so the estimated offset must be +1500 ms
+ *     served at +1.5 s so the estimated offset must be +1500 ms.
+ * Both tracks are 101 cues so that the histogram's 50-cue sampling (ref
+ * indices 0/50/100) yields 3 sampled refs that each sit 1.5 s after a
+ * corresponding user cue — a 3-pair peak that clears the quality gate.
  * ---------------------------------------------------------------------
  */
 
@@ -255,107 +258,65 @@ const TOKEN = 't';
 const USER_SUBTITLE_URL = `http://127.0.0.1:4322/v1/source/jobs/${JOB_ID}/subtitle?token=${TOKEN}`;
 const MEDIA_URL = 'http://127.0.0.1:4322/v1/media/fixture?token=t';
 
-const USER_VTT = [
-  'WEBVTT',
-  '',
-  '00:00:10.000 --> 00:00:12.000',
-  'First line',
-  '',
-  '00:00:20.000 --> 00:00:22.000',
-  'Second line',
-  '',
-  '00:00:30.000 --> 00:00:32.000',
-  'Third line',
-  '',
-  '00:00:40.000 --> 00:00:42.000',
-  'Fourth line',
-  '',
-  '00:00:50.000 --> 00:00:52.000',
-  'Fifth line',
-  '',
-  '00:00:55.000 --> 00:00:57.000',
-  'Sixth line',
-].join('\n');
+// --- Fixtures -----------------------------------------------------------
+// The user subtitle is the FULL track (101 cues at 10, 15, …, 510 s; 5 s
+// spacing so the +1.5 s offset stays inside the nearest-neighbor detection
+// envelope of half the drift spacing) and the embedded track is the same
+// content at +1.5 s. The estimator samples every 50th ref cue (indices
+// 0, 50, 100 → 11.5, 261.5, 511.5 s), each of which sits exactly 1.5 s
+// after a user cue (10, 260, 510 s) — a 3-pair peak at +1500 ms that
+// clears LAZY_SYNC_MIN_PEAK_COUNT and the margin gate.
 
-const EMBEDDED_VTT = [
-  'WEBVTT',
-  '',
-  '00:00:11.500 --> 00:00:13.500',
-  'First line',
-  '',
-  '00:00:21.500 --> 00:00:23.500',
-  'Second line',
-  '',
-  '00:00:31.500 --> 00:00:33.500',
-  'Third line',
-  '',
-  '00:00:41.500 --> 00:00:43.500',
-  'Fourth line',
-  '',
-  '00:00:51.500 --> 00:00:53.500',
-  'Fifth line',
-  '',
-  '00:00:56.500 --> 00:00:58.500',
-  'Sixth line',
-].join('\n');
+function vttTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return `00:${String(m).padStart(2, '0')}:${s.toFixed(3).padStart(6, '0')}`;
+}
+
+function vttFromStarts(
+  starts: number[],
+  textFor: (start: number, index: number) => string = (start) => `line ${start}`,
+): string {
+  return [
+    'WEBVTT',
+    '',
+    ...starts.flatMap((start, i) => [
+      `${vttTime(start)} --> ${vttTime(start + 2)}`,
+      textFor(start, i),
+      '',
+    ]),
+  ].join('\n');
+}
+
+const USER_CUE_COUNT = 101;
+const USER_STARTS = Array.from({ length: USER_CUE_COUNT }, (_, i) => 10 + 5 * i);
+const USER_SHIFTED_STARTS = USER_STARTS.map((s) => s + 1.5);
+
+const USER_VTT = vttFromStarts(USER_STARTS);
+const EMBEDDED_VTT = vttFromStarts(USER_SHIFTED_STARTS);
 
 /** Downloaded prefix with only 3 cues — under the first-sync gate. */
-const EMBEDDED_SHORT_VTT = [
-  'WEBVTT',
-  '',
-  '00:00:11.500 --> 00:00:13.500',
-  'First line',
-  '',
-  '00:00:21.500 --> 00:00:23.500',
-  'Second line',
-  '',
-  '00:00:31.500 --> 00:00:33.500',
-  'Third line',
-].join('\n');
+const EMBEDDED_SHORT_VTT = vttFromStarts([11.5, 12.5, 13.5]);
 
-/** 5 downloaded cues, but only 2 land inside the ±5 s match window —
- *  below the quality gate. */
-const EMBEDDED_SPARSE_VTT = [
-  'WEBVTT',
-  '',
-  '00:00:11.500 --> 00:00:13.500',
-  'First line',
-  '',
-  '00:00:21.500 --> 00:00:23.500',
-  'Second line',
-  '',
-  '00:01:30.000 --> 00:01:32.000',
-  'Late line A',
-  '',
-  '00:01:40.000 --> 00:01:42.000',
-  'Late line B',
-  '',
-  '00:01:50.000 --> 00:01:52.000',
-  'Late line C',
-].join('\n');
+/** 5 downloaded cues: the stride-10 small-prefix sampling picks only ref
+ * index 0, so the
+ *  histogram peak holds a single pair — below the 3-pair quality gate. */
+const EMBEDDED_SPARSE_VTT = vttFromStarts([11.5, 21.5, 97.7, 163.4, 254.9]);
 
 /** Embedded track runs only +50 ms ahead — already in sync. */
-const EMBEDDED_IN_SYNC_VTT = [
-  'WEBVTT',
-  '',
-  '00:00:10.050 --> 00:00:12.050',
-  'First line',
-  '',
-  '00:00:20.050 --> 00:00:22.050',
-  'Second line',
-  '',
-  '00:00:30.050 --> 00:00:32.050',
-  'Third line',
-  '',
-  '00:00:40.050 --> 00:00:42.050',
-  'Fourth line',
-  '',
-  '00:00:50.050 --> 00:00:52.050',
-  'Fifth line',
-  '',
-  '00:00:55.050 --> 00:00:57.050',
-  'Sixth line',
-].join('\n');
+const EMBEDDED_IN_SYNC_VTT = vttFromStarts(USER_STARTS.map((s) => s + 0.05));
+
+// Text-matching fixtures: the embedded track shares the user subtitle's
+// texts verbatim but drifts +10 s — beyond half the 5 s user cue spacing,
+// so only the text-matching phase can recover the offset.
+const USER_TEXT_MATCH_VTT = vttFromStarts(
+  USER_STARTS,
+  (_start, i) => `text ${i}`,
+);
+const EMBEDDED_TEXT_MATCH_VTT = vttFromStarts(
+  USER_STARTS.map((s) => s + 10),
+  (_start, i) => `text ${i}`,
+);
 
 function freshSession() {
   return {
@@ -427,13 +388,13 @@ describe('Magnet LazySync flow (docs §10)', () => {
     vi.stubGlobal('fetch', fetchStub);
     render(<Player />);
 
-    // The auto-fetch loads the user's drift subtitle (10/20/30 s).
+    // The auto-fetch loads the user's full drift subtitle (10…110 s).
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(fetchStub).toHaveBeenCalledTimes(1);
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
 
     // Toggle ON: toast + the polling loop starts.
@@ -452,7 +413,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     // First poll: fetch embedded cues → match → offset +1500 ms applied.
     expect(fetchStub).toHaveBeenCalledTimes(2);
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
+      ...USER_SHIFTED_STARTS,
     ]);
 
     // Second poll: offset unchanged → stable → no success toast (Magnet
@@ -471,7 +432,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     expect(fetchStub).toHaveBeenCalledTimes(4);
     expect(toastSpy.success).not.toHaveBeenCalled();
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
+      ...USER_SHIFTED_STARTS,
     ]);
   });
 
@@ -491,7 +452,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     });
     const callsAfterApply = fetchStub.mock.calls.length;
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
+      ...USER_SHIFTED_STARTS,
     ]);
 
     // OFF: toast, loop aborts, and no further fetches happen.
@@ -532,7 +493,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     });
     // 0 cue → no offset applied, still processing, display unchanged.
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
     expect(toastSpy.success).not.toHaveBeenCalled();
   });
@@ -567,7 +528,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     );
     expect(mocks.capturedProps.lazySyncOn).toBe(false);
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
 
     // No further polls after the stop.
@@ -606,7 +567,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     // First poll: 503 → waiting state, no apply, no error, still on.
     expect(mocks.capturedProps.lazySyncOn).toBe(true);
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
     expect(toastSpy.error).not.toHaveBeenCalled();
 
@@ -644,7 +605,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     });
     // 3 < 5 ref cues → waiting state: no apply, no toast, still on.
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
     expect(toastSpy.success).not.toHaveBeenCalled();
     expect(toastSpy.error).not.toHaveBeenCalled();
@@ -657,15 +618,16 @@ describe('Magnet LazySync flow (docs §10)', () => {
     expect(fetchStub.mock.calls.length).toBeGreaterThan(2);
     expect(mocks.capturedProps.lazySyncOn).toBe(true);
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
   });
 
-  it('quality gate: < 3 matched cue pairs → wait, offset not applied', async () => {
+  it('quality gate: peak histogram bin holds < 3 pairs → wait, offset not applied', async () => {
     const fetchStub = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/v1/source/torrents/')) {
-        // 5 downloaded cues but only 2 land inside the ±5 s match window.
+// 5 downloaded cues but the stride-10 small-prefix sampling leaves only ref index 0
+        // sampled — a 1-pair peak, below LAZY_SYNC_MIN_PEAK_COUNT.
         return Promise.resolve(
           new Response(EMBEDDED_SPARSE_VTT, { status: 200 }),
         );
@@ -684,9 +646,10 @@ describe('Magnet LazySync flow (docs §10)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    // 2 matches < LAZY_SYNC_MIN_MATCHES → quality gate: wait, no apply.
+    // Peak of 1 pair < LAZY_SYNC_MIN_PEAK_COUNT → quality gate: wait,
+    // no apply.
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
     expect(toastSpy.success).not.toHaveBeenCalled();
     expect(toastSpy.error).not.toHaveBeenCalled();
@@ -726,7 +689,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     // First poll: offset 50 ms < 100 ms → already synced: no shift applied
     // and no success toast (Magnet runs silently).
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
     expect(toastSpy.success).not.toHaveBeenCalled();
 
@@ -736,8 +699,52 @@ describe('Magnet LazySync flow (docs §10)', () => {
     });
     expect(toastSpy.success).not.toHaveBeenCalled();
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      10, 20, 30, 40, 50, 55,
+      ...USER_STARTS,
     ]);
+  });
+
+  it('text matching recovers a +10 s drift the time-based phase cannot', async () => {
+    // The embedded track shares the user subtitle's texts but starts +10 s
+    // later (beyond half the 5 s user cue spacing — the nearest-neighbor
+    // fallback would refuse it; only text matching can find the offset).
+    const fetchStub = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/source/torrents/')) {
+        return Promise.resolve(
+          new Response(EMBEDDED_TEXT_MATCH_VTT, { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response(USER_TEXT_MATCH_VTT, { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    render(<Player />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      ...USER_STARTS,
+    ]);
+
+    act(() => {
+      (mocks.capturedProps.onToggleLazySync as () => void)();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // First poll: text phase pairs all 101 cues at +10 s → applied.
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual(
+      USER_STARTS.map((s) => s + 10),
+    );
+    expect(toastSpy.success).not.toHaveBeenCalled();
+
+    // Second poll: offset unchanged → stable → display untouched.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LAZY_SYNC_POLL_INTERVAL_MS);
+    });
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual(
+      USER_STARTS.map((s) => s + 10),
+    );
+    expect(toastSpy.success).not.toHaveBeenCalled();
   });
 });
 

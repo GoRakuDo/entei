@@ -118,11 +118,10 @@ import {
   LAZY_SYNC_POLL_INTERVAL_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
   LAZY_SYNC_MIN_REF_CUES,
-  LAZY_SYNC_MIN_MATCHES,
+  LAZY_SYNC_MIN_PEAK_COUNT,
   LAZY_SYNC_MIN_OFFSET_MS,
-  LAZY_SYNC_MAX_OFFSET_MS,
-  matchCueOffsets,
-  estimateOffsetMs,
+  LAZY_SYNC_STABLE_THRESHOLD_MS,
+  estimateOffsetFromHistogram,
   shiftCuesByOffset,
 } from '@/features/player/lazy-sync';
 
@@ -2208,15 +2207,30 @@ export default function PlayerApp() {
 
   /**
    * LazySync polling loop (docs §10.2-10.3): every LAZY_SYNC_POLL_INTERVAL_MS
-   * fetch the embedded subtitle's downloaded-prefix cues, match them to the
-   * base (user-loaded) cues, estimate the constant offset (median), apply it
-   * to the base cues via setCues, and keep refining as the download grows.
-   * The apply trigger follows the ffsubsync design (docs §10):
+   * fetch the embedded subtitle's downloaded-prefix cues and estimate the
+   * constant offset in two phases (user spec B): TEXT MATCHING first —
+   * cues whose normalized text matches are rank-paired per line (k-th
+   * occurrence ↔ k-th occurrence) and the histogram peak of their
+   * start-time differences is the offset, which recovers ANY offset
+   * magnitude when the two tracks share a language — then falling back to
+   * TIME-BASED rank pairing (sampled k-th ref cue ↔ k-th base cue;
+   * language-independent, offsets within half the base cue spacing thanks
+   * to the envelope check). The estimate is applied to the base
+   * (user-loaded) cues via setCues and keeps refining as the download
+   * grows. The apply trigger follows the ffsubsync design (docs §10):
    *   - first sync waits for ≥ LAZY_SYNC_MIN_REF_CUES downloaded cues;
-   *   - quality gate: apply only with ≥ LAZY_SYNC_MIN_MATCHES cue pairs;
+   *   - quality gate: apply only when the histogram peak holds ≥
+   *     LAZY_SYNC_MIN_PEAK_COUNT cue pairs (correlated lines pile into one
+   *     bin at the true offset; scattered noise stays flat), and only when
+   *     the margin gate inside the estimator passes (peak ≥ 2 × the
+   *     second-largest bin — a ± mixed track or a flat noise band is
+   *     refused, fail-closed);
    *   - |offset| < LAZY_SYNC_MIN_OFFSET_MS counts as already in sync
-   *     (no shift, no success toast — Magnet runs silently);
-   *   - |offset| > LAZY_SYNC_MAX_OFFSET_MS is an outlier — never applied.
+   *     (no shift, no success toast — Magnet runs silently).
+   * The text-matching phase lifts the offset bound (a 10 s or 3-min drift
+   * syncs when the text matches); the time-based fallback covers different
+   * languages up to half the base cue spacing, and refuses larger drifts
+   * (envelope check) rather than misapplying.
    * Waiting states share one bounded counter (LAZY_SYNC_MAX_WAIT_POLLS ≈
    * 12 min); on abort (toggle off / unmount), on a Magnet session that no
    * longer qualifies, or on the exhausted wait bound the loop stops.
@@ -2312,30 +2326,19 @@ export default function PlayerApp() {
           continue;
         }
 
-        const matches = matchCueOffsets(state.baseCues, refCues);
-        if (matches.length < LAZY_SYNC_MIN_MATCHES) {
-          // Quality gate (ffsubsync --skip-sync-on-low-quality): fewer
-          // than LAZY_SYNC_MIN_MATCHES time-paired cues means the
-          // alignment is not yet trustworthy — wait for the growing DL to
-          // yield more pairs. Replaces the old "language mismatch" give-up:
-          // time-proximity pairing matches across languages, so a low
-          // match count just means not enough data, not a dead end.
+        const est = estimateOffsetFromHistogram(state.baseCues, refCues);
+        if (!est || est.peakCount < LAZY_SYNC_MIN_PEAK_COUNT) {
+          // Quality gate (ffsubsync --skip-sync-on-low-quality): neither
+          // the text-matching phase nor the time-based fallback produced a
+          // trustworthy peak (null = margin gate refused an ambiguous peak,
+          // or peakCount < LAZY_SYNC_MIN_PEAK_COUNT pairs) — wait for the
+          // growing DL to yield more cues. A weak peak just means not
+          // enough data, not a dead end.
           if (!(await boundedWait())) return;
           continue;
         }
 
-        const offsetMs = estimateOffsetMs(matches);
-        if (offsetMs === null) {
-          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
-          continue;
-        }
-        if (Math.abs(offsetMs) > LAZY_SYNC_MAX_OFFSET_MS) {
-          // Outlier (ffsubsync --max-offset-seconds=60): a > 60 s drift
-          // is an abnormal alignment, not a constant offset — don't
-          // apply, keep polling for a sane estimate.
-          if (!(await boundedWait())) return;
-          continue;
-        }
+        const offsetMs = est.offsetMs;
         if (Math.abs(offsetMs) < LAZY_SYNC_MIN_OFFSET_MS) {
           // Already in sync (ffsubsync --suppress-output-if-offset-less-
           // than): an offset under 100 ms is sub-frame noise — leave the
@@ -2351,7 +2354,8 @@ export default function PlayerApp() {
 
         const prev = state.lastOffsetMs;
         const changed =
-          prev === null || Math.abs(offsetMs - prev) > 0.001;
+          prev === null ||
+          Math.abs(offsetMs - prev) > LAZY_SYNC_STABLE_THRESHOLD_MS;
         state.lastOffsetMs = offsetMs;
         state.waitPollCount = 0;
 

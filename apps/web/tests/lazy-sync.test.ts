@@ -1,21 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-// Pure-logic tests for LazySync (docs SUBTITLE_SYNC.md §10): cue text
-// pairing, constant-offset estimation, and offset application.
+// Pure-logic tests for LazySync (docs SUBTITLE_SYNC.md §10): all-pair
+// start-time-difference histogram peak estimation and offset application.
 
 import { describe, expect, it } from 'vitest';
 import type { SubtitleCue } from '../src/features/player/subtitle-reader';
 import {
-  estimateOffsetMs,
-  matchCueOffsets,
+  estimateOffsetFromHistogram,
+  normalizeCueText,
   shiftCuesByOffset,
-  LAZY_SYNC_MATCH_WINDOW_MS,
+  LAZY_SYNC_HISTOGRAM_BIN_MS,
+  LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY,
+  LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL,
+  LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD,
+  LAZY_SYNC_MIN_PEAK_COUNT,
+  LAZY_SYNC_PEAK_MARGIN,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
   LAZY_SYNC_POLL_INTERVAL_MS,
   LAZY_SYNC_MIN_REF_CUES,
-  LAZY_SYNC_MIN_MATCHES,
   LAZY_SYNC_MIN_OFFSET_MS,
-  LAZY_SYNC_MAX_OFFSET_MS,
 } from '../src/features/player/lazy-sync';
 
 function cue(
@@ -27,30 +30,164 @@ function cue(
   return { id, start, end: end ?? start + 2, text };
 }
 
-describe('matchCueOffsets', () => {
-  const drift = [
-    cue(0, 10, 'First line'),
-    cue(1, 20, 'Second line'),
-    cue(2, 30, 'Repeated line'),
-    cue(3, 40, 'Third line'),
-  ];
-  // Reference is 1.5 s ahead of the drift subtitle.
-  const ref = [
-    cue(0, 11.5, 'First line'),
-    cue(1, 21.5, 'Second line'),
-    cue(2, 31.5, 'Repeated line'),
-    cue(3, 41.5, 'Third line'),
-  ];
+describe('normalizeCueText', () => {
+  it('folds case, whitespace, punctuation and full-width spaces', () => {
+    expect(normalizeCueText('Hello, world!')).toBe('helloworld');
+    expect(normalizeCueText('hello  world')).toBe('helloworld');
+    expect(normalizeCueText('　全角　スペース　')).toBe('全角スペース');
+    expect(normalizeCueText('Second—line…')).toBe('secondline');
+    expect(normalizeCueText('!!!')).toBe('');
+  });
+});
 
-  it('pairs every cue in the same timeband and reports ref − drift', () => {
-    const matches = matchCueOffsets(drift, ref);
-    expect(matches).toHaveLength(4);
-    for (const m of matches) {
-      expect(m.diffMs).toBeCloseTo(1500, 6);
-    }
+describe('text matching phase (user spec B)', () => {
+  it('detects a +10 s drift via text (beyond the time-based envelope)', () => {
+    const drift = [
+      cue(0, 10, 'First line'),
+      cue(1, 20, 'Second line'),
+      cue(2, 30, 'Third line'),
+    ];
+    const ref = [
+      cue(0, 20, 'First line'),
+      cue(1, 30, 'Second line'),
+      cue(2, 40, 'Third line'),
+    ];
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 10000, peakCount: 3, totalPairs: 3 });
   });
 
-  it('pairs cues even when the texts differ (different language)', () => {
+  it('detects a +3 min drift via text (any magnitude)', () => {
+    const drift = [
+      cue(0, 10, 'First line'),
+      cue(1, 20, 'Second line'),
+      cue(2, 30, 'Third line'),
+    ];
+    const ref = [
+      cue(0, 190, 'First line'),
+      cue(1, 200, 'Second line'),
+      cue(2, 210, 'Third line'),
+    ];
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 180000, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('detects a +1.5 s drift via text', () => {
+    const drift = [
+      cue(0, 10, 'First line'),
+      cue(1, 20, 'Second line'),
+      cue(2, 30, 'Third line'),
+    ];
+    const ref = [
+      cue(0, 11.5, 'First line'),
+      cue(1, 21.5, 'Second line'),
+      cue(2, 31.5, 'Third line'),
+    ];
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('tolerates case / whitespace / punctuation variance', () => {
+    const drift = [
+      cue(0, 10, 'Hello, world!'),
+      cue(1, 20, 'Second—line…'),
+      cue(2, 30, 'Third'),
+    ];
+    const ref = [
+      cue(0, 11.5, 'hello  world'),
+      cue(1, 21.5, 'second line'),
+      cue(2, 31.5, 'third'),
+    ];
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('rank-pairs repeated lines (k-th ↔ k-th), recovering a large offset', () => {
+    // "repeat" recurs every 30 s on both sides with a +20 s offset — larger
+    // than half the 30 s interval. A temporally-nearest pairing would latch
+    // every ref occurrence onto the NEXT occurrence and misreport -10 s
+    // (review P1-2); rank pairing keeps each k-th occurrence paired with
+    // its true counterpart → the true +20 s.
+    const drift = [
+      cue(0, 0, 'repeat'),
+      cue(1, 30, 'repeat'),
+      cue(2, 60, 'repeat'),
+      cue(3, 90, 'repeat'),
+      cue(4, 100, 'unique a'),
+      cue(5, 130, 'unique b'),
+    ];
+    const ref = [
+      cue(0, 20, 'repeat'),
+      cue(1, 50, 'repeat'),
+      cue(2, 80, 'repeat'),
+      cue(3, 110, 'repeat'),
+      cue(4, 120, 'unique a'),
+      cue(5, 150, 'unique b'),
+    ];
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).toEqual({ offsetMs: 20000, peakCount: 6, totalPairs: 6 });
+  });
+
+  it('never misapplies on a heavy repeated-line + large-offset track (review P1-2 repro)', () => {
+    // The review's reproduction: "repeat" every 30 s × 11 + 2 unique
+    // lines, offset +20 s. Rank pairing recovers the true +20 s instead of
+    // the -10 s that a temporally-nearest pairing would report.
+    const drift: SubtitleCue[] = [];
+    const ref: SubtitleCue[] = [];
+    for (let k = 0; k < 11; k++) {
+      drift.push(cue(k, k * 30, 'repeat'));
+      ref.push(cue(k, k * 30 + 20, 'repeat'));
+    }
+    drift.push(cue(100, 335, 'unique a'));
+    drift.push(cue(101, 365, 'unique b'));
+    ref.push(cue(100, 355, 'unique a'));
+    ref.push(cue(101, 385, 'unique b'));
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 20000, peakCount: 13, totalPairs: 13 });
+  });
+
+  it('a missing mid-occurrence scatters the ranks → fail-closed, not misapplied', () => {
+    // The drift track lost one middle "repeat" (0, 60 instead of 0, 30,
+    // 60): ranks shift after it, the text diffs scatter (+20 s and -10 s)
+    // and no trustworthy text peak forms. The fallback yields a single
+    // pair (peakCount 1) — below the caller's quality gate. Never a wrong
+    // sharp estimate.
+    const drift = [
+      cue(0, 0, 'repeat'),
+      cue(1, 60, 'repeat'),
+      cue(2, 90, 'unique'),
+    ];
+    const ref = [
+      cue(0, 20, 'repeat'),
+      cue(1, 50, 'repeat'),
+      cue(2, 80, 'repeat'),
+      cue(3, 110, 'unique'),
+    ];
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est!.peakCount).toBeLessThan(LAZY_SYNC_MIN_PEAK_COUNT);
+  });
+
+  it('falls back to time-based pairing when the text peak is weak (< 3)', () => {
+    // Only 2 text matches → text peak 2 < LAZY_SYNC_MIN_PEAK_COUNT → the
+    // fallback runs and samples a single ref (stride 10 for 3 cues).
+    const drift = [
+      cue(0, 10, 'match'),
+      cue(1, 20, 'match'),
+      cue(2, 30, 'unique-a'),
+    ];
+    const ref = [
+      cue(0, 11.5, 'match'),
+      cue(1, 21.5, 'match'),
+      cue(2, 31.5, 'unique-b'),
+    ];
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 1, totalPairs: 1 });
+  });
+
+  it('falls back to time-based pairing when the languages differ', () => {
     const jaDrift = [
       cue(0, 10, 'こんにちは'),
       cue(1, 20, '世界'),
@@ -61,146 +198,250 @@ describe('matchCueOffsets', () => {
       cue(1, 21.5, 'World'),
       cue(2, 31.5, 'Thanks'),
     ];
-    const matches = matchCueOffsets(jaDrift, enRef);
-    expect(matches).toHaveLength(3);
-    for (const m of matches) {
-      expect(m.diffMs).toBeCloseTo(1500, 6);
-    }
-  });
-
-  it('reports a negative offset when the reference is earlier', () => {
-    const earlierRef = [
-      cue(0, 8.5, 'First'),
-      cue(1, 18.5, 'Second'),
-      cue(2, 28.5, 'Third'),
-    ];
-    const matches = matchCueOffsets(drift, earlierRef);
-    expect(matches).toHaveLength(3);
-    for (const m of matches) {
-      expect(m.diffMs).toBeCloseTo(-1500, 6);
-    }
-  });
-
-  it('picks the nearest in-window drift cue over a farther one', () => {
-    const matches = matchCueOffsets(
-      [cue(0, 10, 'farther'), cue(1, 10.5, 'nearer')],
-      [cue(0, 11, 'ref')],
-    );
-    expect(matches).toHaveLength(1);
-    expect(matches[0]).toMatchObject({
-      driftStartMs: 10500,
-      refStartMs: 11000,
-      diffMs: 500,
-    });
-  });
-
-  it('does not pair cues outside the window', () => {
-    expect(matchCueOffsets(drift, [cue(0, 60, 'nowhere near')])).toEqual([]);
-    expect(
-      matchCueOffsets([cue(0, 10, 'A'), cue(1, 100, 'B')], [cue(0, 60, 'C')]),
-    ).toEqual([]);
-  });
-
-  it('pairs every cue of a dense track to its nearest drift cue, and the median converges to the true offset', () => {
-    const driftDense = Array.from({ length: 10 }, (_, i) =>
-      cue(i, 10 + i, `drift-${i}`),
-    );
-    const refDense = Array.from({ length: 10 }, (_, i) =>
-      cue(i, 10.4 + i, `ref-${i}`),
-    );
-    const matches = matchCueOffsets(driftDense, refDense);
-    expect(matches).toHaveLength(10);
-    for (const m of matches) {
-      expect(m.diffMs).toBeCloseTo(400, 6);
-    }
-    expect(estimateOffsetMs(matches)).toBeCloseTo(400, 6);
-  });
-
-  it('honors a custom windowMs', () => {
-    const widePair = [cue(0, 10, 'A')];
-    const farRef = [cue(0, 20, 'B')];
-    // 10 s apart: outside the ±5 s default window.
-    expect(matchCueOffsets(widePair, farRef)).toEqual([]);
-    // Within a widened window the pair matches with diff = +10 s.
-    const wide = matchCueOffsets(widePair, farRef, 12000);
-    expect(wide).toHaveLength(1);
-    expect(wide[0]!.diffMs).toBeCloseTo(10000, 6);
-  });
-
-  it('returns empty when either side has no cues', () => {
-    expect(matchCueOffsets(drift, [])).toEqual([]);
-    expect(matchCueOffsets([], ref)).toEqual([]);
-  });
-
-  it('a 2-cue reference yields fewer matches than the quality gate requires', () => {
-    const matches = matchCueOffsets(
-      [cue(0, 10, 'A'), cue(1, 20, 'B'), cue(2, 30, 'C')],
-      [cue(0, 11.5, 'A'), cue(1, 21.5, 'B')],
-    );
-    expect(matches).toHaveLength(2);
-    expect(matches.length).toBeLessThan(LAZY_SYNC_MIN_MATCHES);
+    const est = estimateOffsetFromHistogram(jaDrift, enRef);
+    // No text pair → the nearest-neighbor fallback detects +1.5 s within
+    // its envelope.
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 1, totalPairs: 1 });
   });
 });
 
-describe('estimateOffsetMs', () => {
-  it('returns null for no matches', () => {
-    expect(estimateOffsetMs([])).toBeNull();
+describe('estimateOffsetFromHistogram', () => {
+  // Build a uniform 1:1 track pair. The time-based fallback uses RANK
+  // pairing (k-th ref cue ↔ k-th drift cue), so any offset is revealed as
+  // its unwrapped value; the ENVELOPE check then accepts only offsets
+  // smaller than half the drift gap. These fixtures keep the offset inside
+  // the envelope so the estimate is adopted.
+  function uniform(
+    count: number,
+    spacingSec: number,
+    offsetSec: number,
+    prefix: string,
+  ): SubtitleCue[] {
+    return Array.from({ length: count }, (_, i) =>
+      cue(i, i * spacingSec + offsetSec, `${prefix}-${i}`),
+    );
+  }
+
+  it('detects a +1.5 s offset on a low-density 1:1 track', () => {
+    const est = estimateOffsetFromHistogram(
+      uniform(1000, 7.2, 0, 'd'),
+      uniform(1000, 7.2, 1.5, 'r'),
+    );
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 20, totalPairs: 20 });
   });
 
-  it('returns the single difference', () => {
-    expect(estimateOffsetMs([{ driftStartMs: 0, refStartMs: 1200, diffMs: 1200 }])).toBe(1200);
+  it('detects the same offset when the texts differ (different language)', () => {
+    const est = estimateOffsetFromHistogram(
+      uniform(1000, 7.2, 0, 'こんにちは'),
+      uniform(1000, 7.2, 1.5, 'Hello'),
+    );
+    expect(est).not.toBeNull();
+    expect(est!.offsetMs).toBe(1500);
+    expect(est!.peakCount).toBe(20);
   });
 
-  it('returns the median of odd-length differences', () => {
-    const matches = [
-      { driftStartMs: 0, refStartMs: 0, diffMs: 1000 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 2000 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 3000 },
-    ];
-    expect(estimateOffsetMs(matches)).toBe(2000);
+  it('reports a negative offset when the reference is earlier', () => {
+    const est = estimateOffsetFromHistogram(
+      uniform(1000, 7.2, 0, 'd'),
+      uniform(1000, 7.2, -1.5, 'r'),
+    );
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: -1500, peakCount: 20, totalPairs: 20 });
   });
 
-  it('averages the middle pair for even-length differences', () => {
-    const matches = [
-      { driftStartMs: 0, refStartMs: 0, diffMs: 1000 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 2000 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 3000 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 4000 },
-    ];
-    expect(estimateOffsetMs(matches)).toBe(2500);
+  it('detects a +10 s offset when the drift spacing allows it', () => {
+    // 200 drift cues over 2 h (36 s apart) → +10 s < gap/2 = 18 s, so the
+    // fallback's envelope check accepts the rank-pairing estimate.
+    const est = estimateOffsetFromHistogram(
+      uniform(200, 36, 0, 'd'),
+      uniform(200, 36, 10, 'r'),
+    );
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 10000, peakCount: 4, totalPairs: 4 });
   });
 
-  it('is robust to outliers (median over mean)', () => {
-    const matches = [
-      { driftStartMs: 0, refStartMs: 0, diffMs: 1500 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 1600 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 1400 },
-      { driftStartMs: 0, refStartMs: 0, diffMs: 720000 }, // stray bad match
-    ];
-    expect(estimateOffsetMs(matches)).toBeCloseTo(1550, 6);
+  it('keeps the aligned-prefix peak; extra far-apart ref cues never pollute it', () => {
+    // Drift: 150 cues (positions 0-149). Ref: positions 0-100 aligned at
+    // +1.5 s; positions 101-149 are unrelated cues minutes away. Rank
+    // pairing samples positions 0/50/100 (stride 50) and simply never
+    // touches the far cues → the true +1.5 s peak holds.
+    const drift = Array.from({ length: 150 }, (_, i) =>
+      cue(i, i * 7.2, `drift-${i}`),
+    );
+    const ref = Array.from({ length: 150 }, (_, i) =>
+      cue(i, i < 101 ? i * 7.2 + 1.5 : 5000 + i, `ref-${i}`),
+    );
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('shrinks the sample stride on a short prefix (review P2-1)', () => {
+    // 50 refs < LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD → stride 10 →
+    // indices 0, 10, 20, 30, 40 = 5 pairs. The old fixed 50-stride would
+    // have sampled only index 0 (1 pair, peak 1 < gate 3).
+    const est = estimateOffsetFromHistogram(
+      uniform(50, 10, 0, 'd'),
+      uniform(50, 10, 1.5, 'r'),
+    );
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 5, totalPairs: 5 });
+  });
+
+  it('snaps the peak to the 500 ms bin grid', () => {
+    const drift3 = uniform(3, 10, 10, 'd');
+    // 1.4 s and 1.6 s both live in the [1250, 1750) bin → peak center 1500.
+    expect(estimateOffsetFromHistogram(drift3, uniform(3, 10, 11.4, 'r'))!.offsetMs).toBe(1500);
+    expect(estimateOffsetFromHistogram(drift3, uniform(3, 10, 11.6, 'r'))!.offsetMs).toBe(1500);
+    // 2.4 s → bin 5 → center 2500.
+    expect(estimateOffsetFromHistogram(drift3, uniform(3, 10, 12.4, 'r'))!.offsetMs).toBe(2500);
+  });
+
+  it('returns null when either side has no cues', () => {
+    const drift3 = uniform(3, 10, 10, 'd');
+    const ref3 = uniform(3, 10, 11.5, 'r');
+    expect(estimateOffsetFromHistogram(drift3, [])).toBeNull();
+    expect(estimateOffsetFromHistogram([], ref3)).toBeNull();
+    expect(estimateOffsetFromHistogram([], [])).toBeNull();
   });
 
   it('near-zero offsets fall under the already-in-sync threshold', () => {
-    const matches = matchCueOffsets(
-      [cue(0, 10, 'A'), cue(1, 20, 'B'), cue(2, 30, 'C')],
-      [cue(0, 10.03, 'A'), cue(1, 20.03, 'B'), cue(2, 30.03, 'C')],
+    const est = estimateOffsetFromHistogram(
+      uniform(3, 10, 10, 'd'),
+      uniform(3, 10, 10.03, 'r'),
     );
-    const offset = estimateOffsetMs(matches);
-    expect(offset).not.toBeNull();
-    expect(Math.abs(offset!)).toBeLessThan(LAZY_SYNC_MIN_OFFSET_MS);
+    expect(est).not.toBeNull();
+    // 30 ms → bin 0 → offset 0.
+    expect(est!.offsetMs).toBe(0);
+    expect(Math.abs(est!.offsetMs)).toBeLessThan(LAZY_SYNC_MIN_OFFSET_MS);
+  });
+});
+
+describe('time-based fallback envelope (review P1-1 / P2-1)', () => {
+  const uniform = (
+    count: number,
+    spacing: number,
+    offset: number,
+    prefix: string,
+  ): SubtitleCue[] =>
+    Array.from({ length: count }, (_, i) =>
+      cue(i, i * spacing + offset, `${prefix}-${i}`),
+    );
+
+  it('refuses a 40 s-spaced +30 s drift instead of misapplying -10 s (P1-1 repro)', () => {
+    // 120 cues @ 40 s, offset +30 s (≥ gap/2 = 20 s), different language.
+    // A nearest-pairing would wrap every diff to -10 s and misapply it;
+    // rank pairing reveals the true +30 s and the envelope check refuses
+    // it (fail-closed → keep waiting).
+    const est = estimateOffsetFromHistogram(
+      uniform(120, 40, 0, 'd'),
+      uniform(120, 40, 30, 'r'),
+    );
+    expect(est).toBeNull();
   });
 
-  it('outlier-scale estimates exceed the 60 s rejection bound', () => {
-    // Direct construction: the ±5 s match window already caps every pair
-    // difference below the bound, so only a widened window or a bad
-    // estimate could produce such values — the gate is defense-in-depth.
-    const offset = estimateOffsetMs([
-      { driftStartMs: 0, refStartMs: 70000, diffMs: 70000 },
-      { driftStartMs: 0, refStartMs: 70500, diffMs: 70500 },
-      { driftStartMs: 0, refStartMs: 71000, diffMs: 71000 },
-    ]);
-    expect(offset).not.toBeNull();
-    expect(Math.abs(offset!)).toBeGreaterThan(LAZY_SYNC_MAX_OFFSET_MS);
+  it('refuses a +10 s drift on 5 s spacing instead of silent "in sync" (P2-1)', () => {
+    // δ = 10 s is a whole multiple of the 5 s gap (δ ≡ 0 mod gap): a
+    // nearest-pairing would wrap every diff to exactly 0 → bin 0 → the
+    // "already in sync" path with the subtitle still 10 s off. Rank
+    // pairing reveals +10 s and the envelope check refuses it.
+    const est = estimateOffsetFromHistogram(
+      uniform(120, 5, 0, 'd'),
+      uniform(120, 5, 10, 'r'),
+    );
+    expect(est).toBeNull();
+  });
+
+  it('still reports a genuine in-sync track as offset 0', () => {
+    const est = estimateOffsetFromHistogram(
+      uniform(120, 5, 0, 'd'),
+      uniform(120, 5, 0.05, 'r'),
+    );
+    expect(est).not.toBeNull();
+    expect(est!.offsetMs).toBe(0);
+    expect(est!.peakCount).toBe(3);
+  });
+
+  it('succeeds with ≥ 3 sampled pairs inside the envelope (fallback)', () => {
+    // 120 cues @ 7.2 s, +1.5 s, different language → 3 sampled rank pairs,
+    // peak 3 ≥ the quality gate, |1.5 s| < gap/2 → adopted.
+    const est = estimateOffsetFromHistogram(
+      uniform(120, 7.2, 0, 'd'),
+      uniform(120, 7.2, 1.5, 'r'),
+    );
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 3, totalPairs: 3 });
+  });
+});
+
+describe('dense-track regression (review P1-1 / P2-4)', () => {
+  // A dense embedded track (16000 cues at 0.45 s over 2 h) against a sparse
+  // 1000-cue user subtitle. With the old all-pairs histogram this built an
+  // accidental-coincidence background that rivaled the true peak and was
+  // misapplied 50/50; the current pairing (text-first, rank-pairing
+  // fallback) must never misapply.
+  const DRIFT_COUNT = 1000;
+  const DRIFT_SPACING = 7.2;
+  const REF_COUNT = 16000;
+  const REF_SPACING = 0.45;
+  const drift = Array.from({ length: DRIFT_COUNT }, (_, i) =>
+    cue(i, i * DRIFT_SPACING, `drift-${i}`),
+  );
+  const denseRef = (offsetSec: number): SubtitleCue[] =>
+    Array.from({ length: REF_COUNT }, (_, i) =>
+      cue(i, i * REF_SPACING + offsetSec, `ref-${i}`),
+    );
+
+  it('does not misapply a +10 s drift on a dense track', () => {
+    const est = estimateOffsetFromHistogram(drift, denseRef(10));
+    // Acceptance per review: correct offset OR not applied — never a wrong
+    // estimate. (Measured behavior: the flat noise band fails the margin
+    // gate → null → the caller keeps waiting.)
+    if (est !== null) {
+      expect(Math.abs(est.offsetMs - 10000)).toBeLessThanOrEqual(
+        LAZY_SYNC_HISTOGRAM_BIN_MS,
+      );
+    }
+  });
+
+  it('does not misapply a +25 min drift on a dense track', () => {
+    const est = estimateOffsetFromHistogram(drift, denseRef(1500));
+    if (est !== null) {
+      expect(Math.abs(est.offsetMs - 1500000)).toBeLessThanOrEqual(
+        LAZY_SYNC_HISTOGRAM_BIN_MS,
+      );
+    }
+  });
+});
+
+describe('margin gate (review P1-2)', () => {
+  const drift = Array.from({ length: 1000 }, (_, i) =>
+    cue(i, i * 7.2, `drift-${i}`),
+  );
+
+  it('refuses a ±1.5 s mix (two equal peaks, fail-closed)', () => {
+    // Half the lines at +1.5 s and half at −1.5 s form two equal peaks;
+    // peakCount < 2 × second → refused, so the caller keeps waiting
+    // instead of applying an ambiguous offset.
+    const ref = Array.from({ length: 1000 }, (_, i) =>
+      cue(i, i * 7.2 + (i < 500 ? 1.5 : -1.5), `ref-${i}`),
+    );
+    expect(estimateOffsetFromHistogram(drift, ref)).toBeNull();
+  });
+
+  it('still reports a weak single-pair peak when nothing correlates', () => {
+    // Unrelated refs minutes away: the fallback's rank pair lands at a
+    // far-apart difference — the envelope check refuses it (|offset| ≥
+    // gap/2 → null, fail-closed). Either way the caller never applies a
+    // wrong estimate: null, or a peak below the quality gate.
+    const ref = Array.from({ length: 3 }, (_, i) =>
+      cue(i, 1000 + i * 1000, `ref-${i}`),
+    );
+    const drift3 = [cue(0, 10, 'A'), cue(1, 20, 'B'), cue(2, 30, 'C')];
+    const est = estimateOffsetFromHistogram(drift3, ref);
+    expect(est === null || est.peakCount < LAZY_SYNC_MIN_PEAK_COUNT).toBe(
+      true,
+    );
   });
 });
 
@@ -258,8 +499,21 @@ describe('LazySync constants', () => {
     expect(LAZY_SYNC_STABLE_THRESHOLD_MS).toBe(50);
   });
 
-  it('match window is ±5 s per the time-proximity pairing default', () => {
-    expect(LAZY_SYNC_MATCH_WINDOW_MS).toBe(5000);
+  it('histogram bin width is 500 ms per docs §10.3', () => {
+    expect(LAZY_SYNC_HISTOGRAM_BIN_MS).toBe(500);
+  });
+
+  it('ref cues are sampled every 50th per docs §10.3', () => {
+    expect(LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY).toBe(50);
+  });
+
+  it('short prefixes use a tighter stride 10 (review P2-1)', () => {
+    expect(LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL).toBe(10);
+    expect(LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD).toBe(100);
+  });
+
+  it('margin gate is 2× (review P1-2)', () => {
+    expect(LAZY_SYNC_PEAK_MARGIN).toBe(2);
   });
 
   it('max wait bound is 240 polls = 12 min at the 3 s interval', () => {
@@ -273,16 +527,11 @@ describe('LazySync constants', () => {
     expect(LAZY_SYNC_MIN_REF_CUES).toBe(5);
   });
 
-  it('quality gate requires ≥ 3 matches (ffsubsync --skip-sync-on-low-quality)', () => {
-    expect(LAZY_SYNC_MIN_MATCHES).toBe(3);
+  it('quality gate requires ≥ 3 pairs in the peak bin (ffsubsync --skip-sync-on-low-quality)', () => {
+    expect(LAZY_SYNC_MIN_PEAK_COUNT).toBe(3);
   });
 
   it('offsets under 100 ms count as already in sync (ffsubsync suppress-output-if-offset-less-than)', () => {
     expect(LAZY_SYNC_MIN_OFFSET_MS).toBe(100);
-  });
-
-  it('offsets over 60 s are rejected as outliers (ffsubsync --max-offset-seconds=60)', () => {
-    expect(LAZY_SYNC_MAX_OFFSET_MS).toBe(60000);
-    expect(LAZY_SYNC_MAX_OFFSET_MS).toBe(60 * 1000);
   });
 });
