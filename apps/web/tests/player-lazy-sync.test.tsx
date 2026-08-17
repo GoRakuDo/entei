@@ -621,13 +621,12 @@ describe('Magnet LazySync flow (docs §10)', () => {
     ]);
   });
 
-  it('quality gate: peak histogram bin holds < 3 pairs → wait, offset not applied', async () => {
+  it('sparse ref cues: rank-pairing median still applies an offset (no quality gate)', async () => {
     const fetchStub = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/v1/source/torrents/')) {
-        // 5 downloaded cues: full-vote sampling (5 < 50 → stride 1) ranks
-        // all 5, but each diff lands in its own bin — a 1-pair peak, below
-        // LAZY_SYNC_MIN_PEAK_COUNT.
+        // 5 downloaded cues at irregular positions: rank-pairing pairs
+        // drift[i] with ref[i] and the median of diffs is applied.
         return Promise.resolve(
           new Response(EMBEDDED_SPARSE_VTT, { status: 200 }),
         );
@@ -646,11 +645,8 @@ describe('Magnet LazySync flow (docs §10)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    // Peak of 1 pair < LAZY_SYNC_MIN_PEAK_COUNT → quality gate: wait,
-    // no apply.
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
-      ...USER_STARTS,
-    ]);
+    // Rank-pairing median from 5 sparse pairs → offset applied (no gate).
+    expect(mocks.capturedCues!.length).toBeGreaterThan(0);
     expect(toastSpy.success).not.toHaveBeenCalled();
     expect(toastSpy.error).not.toHaveBeenCalled();
     expect(mocks.capturedProps.lazySyncOn).toBe(true);

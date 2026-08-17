@@ -118,10 +118,9 @@ import {
   LAZY_SYNC_POLL_INTERVAL_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
   LAZY_SYNC_MIN_REF_CUES,
-  LAZY_SYNC_MIN_PEAK_COUNT,
   LAZY_SYNC_MIN_OFFSET_MS,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
-  estimateOffsetFromHistogram,
+  estimateOffsetFromNearestMedian,
   shiftCuesByOffset,
 } from '@/features/player/lazy-sync';
 
@@ -2329,14 +2328,9 @@ export default function PlayerApp() {
           continue;
         }
 
-        const est = estimateOffsetFromHistogram(state.baseCues, refCues);
-        if (!est || est.peakCount < LAZY_SYNC_MIN_PEAK_COUNT) {
-          // Quality gate (ffsubsync --skip-sync-on-low-quality): neither
-          // the text-matching phase nor the time-based fallback produced a
-          // trustworthy peak (null = margin gate refused an ambiguous peak,
-          // or peakCount < LAZY_SYNC_MIN_PEAK_COUNT pairs) — wait for the
-          // growing DL to yield more cues. A weak peak just means not
-          // enough data, not a dead end.
+        const est = estimateOffsetFromNearestMedian(state.baseCues, refCues);
+        if (!est) {
+          // Nearest-cue median returned null (no cues, 0 offset, or > 1h).
           if (!(await boundedWait())) return;
           continue;
         }
