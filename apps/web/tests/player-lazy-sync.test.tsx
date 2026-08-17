@@ -297,9 +297,9 @@ const EMBEDDED_VTT = vttFromStarts(USER_SHIFTED_STARTS);
 /** Downloaded prefix with only 3 cues — under the first-sync gate. */
 const EMBEDDED_SHORT_VTT = vttFromStarts([11.5, 12.5, 13.5]);
 
-/** 5 downloaded cues: the stride-10 small-prefix sampling picks only ref
- * index 0, so the
- *  histogram peak holds a single pair — below the 3-pair quality gate. */
+/** 5 downloaded cues: the full-vote sampling (5 < 50 → stride 1) ranks all
+ *  5 cues, but each lands in a different time-difference bin — a 1-pair
+ *  peak, below the 3-pair quality gate. */
 const EMBEDDED_SPARSE_VTT = vttFromStarts([11.5, 21.5, 97.7, 163.4, 254.9]);
 
 /** Embedded track runs only +50 ms ahead — already in sync. */
@@ -625,8 +625,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
     const fetchStub = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/v1/source/torrents/')) {
-// 5 downloaded cues but the stride-10 small-prefix sampling leaves only ref index 0
-        // sampled — a 1-pair peak, below LAZY_SYNC_MIN_PEAK_COUNT.
+        // 5 downloaded cues: full-vote sampling (5 < 50 → stride 1) ranks
+        // all 5, but each diff lands in its own bin — a 1-pair peak, below
+        // LAZY_SYNC_MIN_PEAK_COUNT.
         return Promise.resolve(
           new Response(EMBEDDED_SPARSE_VTT, { status: 200 }),
         );

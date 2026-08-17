@@ -77,6 +77,14 @@ export const LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL = 10;
 /** Prefix length below which the small sampling stride applies (P2-1). */
 export const LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD = 100;
 
+/** Prefix length below which NO sampling is applied (spec B, 2026-08-17):
+ *  while the downloaded prefix holds fewer than this many cues, every ref
+ *  cue is rank-paired (stride 1, full vote). With < 50 cues the full vote
+ *  is free (≤ 50 pairs per 3 s poll) and thinning would weaken the peak
+ *  below the quality gate — a real 23-cue case peaked at 7 pairs with the
+ *  full vote, enough to sync, but only 1-2 under the old stride. */
+export const LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD = 50;
+
 /** Margin gate (review P1-2): an estimate is trusted only when the peak bin
  *  holds at least this many times as many pairs as the second-largest bin.
  *  A mixed track with half the lines at +1.5 s and half at −1.5 s produces
@@ -237,11 +245,15 @@ function estimateOffsetFromTextMatching(
 /**
  * Phase 2 (fallback): estimate the offset from TIME-BASED RANK pairing —
  * language-independent, used when text matching yielded no trustworthy
- * peak. Ref cues are sampled with a stride that shrinks on short prefixes
- * (P2-1); each sampled ref cue at position p is paired with the drift cue
- * at the same position p (the two tracks are the same content, so position
- * p is the same line). The pair's start-time difference is bucketed into
- * the histogram; the peak bin (with the margin gate) is the offset.
+ * peak. Ref cues are sampled to bound the pair count on long tracks (the
+ * dense 16000-cue case): every cue below LAZY_SYNC_HISTOGRAM_FULL_REF_
+ * THRESHOLD (< 50 → full vote, stride 1), every 10th cue below
+ * LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD (50-99 → stride 10), every 50th
+ * beyond that (100+ → stride 50). Each sampled ref cue at position p is
+ * paired with the drift cue at the same position p (the two tracks are the
+ * same content, so position p is the same line). The pair's start-time
+ * difference is bucketed into the histogram; the peak bin (with the margin
+ * gate) is the offset.
  *
  * Why rank, not nearest-neighbor (review P1-1): with a regular track and
  * an offset larger than half the cue gap, the temporally-nearest pairing
@@ -276,9 +288,11 @@ function estimateOffsetFromRankPairing(
   refCues: readonly SubtitleCue[],
 ): OffsetEstimate | null {
   const stride =
-    refCues.length < LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD
-      ? LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL
-      : LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY;
+    refCues.length < LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD
+      ? 1 // < 50 ref cues: rank every cue — the full vote keeps the peak strong
+      : refCues.length < LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD
+        ? LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL
+        : LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY;
 
   const bins = new Map<number, number>();
   let totalPairs = 0;

@@ -11,6 +11,7 @@ import {
   LAZY_SYNC_HISTOGRAM_BIN_MS,
   LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY,
   LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL,
+  LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD,
   LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD,
   LAZY_SYNC_MIN_PEAK_COUNT,
   LAZY_SYNC_PEAK_MARGIN,
@@ -172,7 +173,8 @@ describe('text matching phase (user spec B)', () => {
 
   it('falls back to time-based pairing when the text peak is weak (< 3)', () => {
     // Only 2 text matches → text peak 2 < LAZY_SYNC_MIN_PEAK_COUNT → the
-    // fallback runs and samples a single ref (stride 10 for 3 cues).
+    // fallback runs. 3 refs < LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD →
+    // full vote: all 3 rank pairs are evaluated.
     const drift = [
       cue(0, 10, 'match'),
       cue(1, 20, 'match'),
@@ -184,7 +186,7 @@ describe('text matching phase (user spec B)', () => {
       cue(2, 31.5, 'unique-b'),
     ];
     const est = estimateOffsetFromHistogram(drift, ref);
-    expect(est).toEqual({ offsetMs: 1500, peakCount: 1, totalPairs: 1 });
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 3, totalPairs: 3 });
   });
 
   it('falls back to time-based pairing when the languages differ', () => {
@@ -200,8 +202,8 @@ describe('text matching phase (user spec B)', () => {
     ];
     const est = estimateOffsetFromHistogram(jaDrift, enRef);
     // No text pair → the rank-pairing fallback detects +1.5 s (no envelope
-    // bound, spec B).
-    expect(est).toEqual({ offsetMs: 1500, peakCount: 1, totalPairs: 1 });
+    // bound, spec B); 3 refs → full vote.
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 3, totalPairs: 3 });
   });
 });
 
@@ -410,6 +412,44 @@ describe('time-based fallback (spec B — no envelope bound)', () => {
     expect(est).toEqual({ offsetMs: 8500, peakCount: 3, totalPairs: 3 });
   });
 
+  it('syncs the user real case: 23 downloaded embedded cues, -8.5 s, language mismatch (full vote)', () => {
+    // The embedded DL'd prefix holds only 23 cues (< 50 → full vote, stride
+    // 1): 7 rank pairs land at ≈ -8500 ms and the rest scatter. The old
+    // stride (10 for < 100 cues) sampled only positions 0/10/20 → 1-2 peak
+    // pairs → the quality gate rejected the sync. The full vote peaks at 7
+    // and passes both gates. (8.5 s → bin -17 → offsetMs -8500.)
+    const drift = Array.from({ length: 30 }, (_, i) =>
+      cue(
+        i,
+        i < 7
+          ? i * 3 + 8.5
+          : i * 3 + 8.5 + 1.5 * (i - 6),
+        `ja-${i}`,
+      ),
+    );
+    const ref = Array.from({ length: 23 }, (_, i) =>
+      cue(i, i * 3, `en-${i}`),
+    );
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: -8500, peakCount: 7, totalPairs: 23 });
+  });
+
+  it('ranks every ref cue below the full-vote threshold (stride 1, no thinning)', () => {
+    // 49 refs < LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD (50) → every cue is
+    // ranked: totalPairs === refCues.length. Thinning would weaken the
+    // peak below the quality gate on short prefixes.
+    const drift = Array.from({ length: 60 }, (_, i) =>
+      cue(i, i * 7.2, `d-${i}`),
+    );
+    const ref = Array.from({ length: 49 }, (_, i) =>
+      cue(i, i * 7.2 + 1.5, `r-${i}`),
+    );
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 49, totalPairs: 49 });
+  });
+
   it('pins current one-line-shift behavior — fake constant offset passes (future hardening target)', () => {
     // The drift track is missing its first cue (starts at 3 s; the ref
     // starts at 0 s): every rank pair shifts by one whole gap → a fake
@@ -429,17 +469,18 @@ describe('time-based fallback (spec B — no envelope bound)', () => {
 
   it('pins near-regular mid-track insertion behavior — a gap-multiple constant passes (future hardening target)', () => {
     // A synced ~3 s-interval track with ONE extra ref cue inserted
-    // mid-track (at 14 s): every sampled rank pair after the insertion
-    // diffs by -3 s → the diffs split {0: 1, -3000: 3} and BOTH gates pass
-    // (-3000 applied). The "scatter → margin refusal" guarantee only holds
-    // for IRREGULAR tracks; on near-regular ones this residual risk is
-    // real (review P2-1) and pinned here for future hardening.
+    // mid-track (at 14 s): every rank pair after the insertion diffs by
+    // -3 s → the diffs split {0: 5, -3000: 25} (full vote, 31 cues <
+    // LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD) and BOTH gates pass (-3000
+    // applied). The "scatter → margin refusal" guarantee only holds for
+    // IRREGULAR tracks; on near-regular ones this residual risk is real
+    // (review P2-1) and pinned here for future hardening.
     const drift = Array.from({ length: 31 }, (_, i) => cue(i, i * 3, `d-${i}`));
     const ref = Array.from({ length: 31 }, (_, i) =>
       cue(i, i < 5 ? i * 3 : i === 5 ? 14 : i * 3 - 3, `r-${i}`),
     );
     const est = estimateOffsetFromHistogram(drift, ref);
-    expect(est).toEqual({ offsetMs: -3000, peakCount: 3, totalPairs: 4 });
+    expect(est).toEqual({ offsetMs: -3000, peakCount: 25, totalPairs: 31 });
   });
 });
 
@@ -579,6 +620,10 @@ describe('LazySync constants', () => {
   it('short prefixes use a tighter stride 10 (review P2-1)', () => {
     expect(LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL).toBe(10);
     expect(LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD).toBe(100);
+  });
+
+  it('full-vote threshold is 50 (spec B: < 50 ref cues are never thinned)', () => {
+    expect(LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD).toBe(50);
   });
 
   it('margin gate is 2× (review P1-2)', () => {
