@@ -2214,10 +2214,11 @@ export default function PlayerApp() {
    * start-time differences is the offset, which recovers ANY offset
    * magnitude when the two tracks share a language — then falling back to
    * TIME-BASED rank pairing (sampled k-th ref cue ↔ k-th base cue;
-   * language-independent, offsets within half the base cue spacing thanks
-   * to the envelope check). The estimate is applied to the base
-   * (user-loaded) cues via setCues and keeps refining as the download
-   * grows. The apply trigger follows the ffsubsync design (docs §10):
+   * language-independent, offsets of any magnitude — no envelope bound,
+   * spec B; the margin gate guards against rank misalignment). The estimate
+   * is applied to the base (user-loaded) cues via setCues and keeps
+   * refining as the download grows. The apply trigger follows the
+   * ffsubsync design (docs §10):
    *   - first sync waits for ≥ LAZY_SYNC_MIN_REF_CUES downloaded cues;
    *   - quality gate: apply only when the histogram peak holds ≥
    *     LAZY_SYNC_MIN_PEAK_COUNT cue pairs (correlated lines pile into one
@@ -2229,8 +2230,10 @@ export default function PlayerApp() {
    *     (no shift, no success toast — Magnet runs silently).
    * The text-matching phase lifts the offset bound (a 10 s or 3-min drift
    * syncs when the text matches); the time-based fallback covers different
-   * languages up to half the base cue spacing, and refuses larger drifts
-   * (envelope check) rather than misapplying.
+   * languages at any offset magnitude via rank pairing (no envelope bound);
+   * mid-track rank shifts scatter the diffs on irregular tracks and are
+   * refused by the margin gate; on near-regular tracks a gap-multiple
+   * constant can pass both gates (see lazy-sync.ts residual-risk note).
    * Waiting states share one bounded counter (LAZY_SYNC_MAX_WAIT_POLLS ≈
    * 12 min); on abort (toggle off / unmount), on a Magnet session that no
    * longer qualifies, or on the exhausted wait bound the loop stops.

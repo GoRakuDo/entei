@@ -23,12 +23,19 @@
 //   2. TIME-BASED (fallback): RANK pairing by cue position (the k-th ref
 //      cue ↔ the k-th drift cue — the tracks are the same content, so the
 //      k-th cue of each is the same line). The rank diff IS the unwrapped
-//      offset, so an ENVELOPE CHECK can refuse offsets ≥ half the typical
-//      drift-cue gap (fail-closed, review P1-1): a large offset is only
-//      trustworthy via text matching, never via the time-based path. Rank
-//      misalignment (prefix starting at a different content position,
-//      interleaved extra cues) scatters the diffs → the margin gate refuses
-//      (fail-closed, never a misapplication).
+//      offset, so offsets of ANY magnitude are recovered — there is NO
+//      envelope bound (spec B, 2026-08-17): rank pairing is order-based and
+//      never wraps (unlike a temporally-nearest pairing). Residual risks
+//      (documented + regression-tested): a rank that shifts mid-track on an
+//      IRREGULAR track scatters the diffs → the margin gate refuses; on a
+//      NEAR-REGULAR track (dialogue-style, e.g. ~3 s intervals) it can
+//      instead shift every following diff by a whole gap and produce a
+//      fake constant offset that clears both gates — as can a whole-track
+//      one-line shift (first cue missing on one side). Future improvement:
+//      detect misapplication after applying (re-check the shift and
+//      auto-revert when it exceeds a threshold) — a wrong constant is
+//      otherwise never self-corrected, since Magnet re-polls the unchanged
+//      base cues silently.
 //
 // Text is only ever an aid; the fallback keeps the feature working when the
 // tracks are in different languages. Text is never required to match for
@@ -229,30 +236,40 @@ function estimateOffsetFromTextMatching(
 
 /**
  * Phase 2 (fallback): estimate the offset from TIME-BASED RANK pairing —
- * language-independent, used when text matching yielded no
- * trustworthy peak. Ref cues are sampled with a stride that shrinks on
- * short prefixes (P2-1); each sampled ref cue at position p is paired with
- * the drift cue at the same position p (the two tracks are the same
- * content, so position p is the same line). The pair's start-time
- * difference is bucketed into the histogram; the peak bin (with the margin
- * gate) is the offset.
+ * language-independent, used when text matching yielded no trustworthy
+ * peak. Ref cues are sampled with a stride that shrinks on short prefixes
+ * (P2-1); each sampled ref cue at position p is paired with the drift cue
+ * at the same position p (the two tracks are the same content, so position
+ * p is the same line). The pair's start-time difference is bucketed into
+ * the histogram; the peak bin (with the margin gate) is the offset.
  *
  * Why rank, not nearest-neighbor (review P1-1): with a regular track and
  * an offset larger than half the cue gap, the temporally-nearest pairing
  * makes every ref cue latch onto the *next* line and all differences wrap
  * into one sharp "δ mod gap" value that passes the margin gate and gets
- * misapplied. Rank pairing keeps the diff at its TRUE (unwrapped) value,
- * which the envelope check below can then refuse.
+ * misapplied. Rank pairing is ORDER-based (the k-th cue pairs with the
+ * k-th cue), so it never wraps — the diff is the true (unwrapped) offset
+ * at any magnitude.
  *
- * ENVELOPE CHECK (P1-1): rank pairing is only trusted for offsets SMALLER
- * than half the typical (median) drift-cue gap. A larger diff is either a
- * genuine large offset — which only text matching can attest — or a rank
- * misalignment artifact (e.g., the downloaded prefix starts at a different
- * content position, shifting every rank); both are refused (fail-closed,
- * keep waiting) instead of being applied. This also stops the "bin 0
- * silence": an offset that is a whole multiple of the cue gap (δ ≡ 0 mod
- * gap) used to wrap to 0 and be treated as "already in sync"; rank pairing
- * reveals the true δ and the envelope check refuses it (P2-1).
+ * NO ENVELOPE CHECK (spec B, 2026-08-17): an earlier version refused
+ * offsets ≥ half the median drift-cue gap, which blocked a real
+ * language-mismatch case (+8.7 s on ~3 s cue spacing — the pairing was
+ * correct but the envelope said "too large"). The envelope is removed: the
+ * MARGIN GATE is the remaining guard against misalignment, and its
+ * protection is conditional on the track shape. A rank that shifts
+ * MID-track on an IRREGULAR track makes the diffs scatter across bins →
+ * the margin gate refuses (fail-closed). On a NEAR-REGULAR track
+ * (dialogue-style, e.g. ~3 s intervals), a mid-track insertion instead
+ * shifts every following diff by a whole gap — a CONSTANT offset, so the
+ * margin gate can pass it (pinned by a regression test). The same holds
+ * for a whole-track one-line shift (e.g., the first cue missing on one
+ * side). These residual misapplications are documented and regression-
+ * tested, and are a future improvement target: MISAPPLICATION DETECTION —
+ * after applying, re-check the resulting shift and auto-revert when it
+ * exceeds a threshold. A wrong constant is otherwise never self-corrected
+ * (Magnet shows no success toast and keeps polling the unchanged base
+ * cues), so a silent misapplication would persist. This remains strictly
+ * better than the nearest-neighbor wrap, which misapplied silently.
  */
 function estimateOffsetFromRankPairing(
   driftCues: readonly SubtitleCue[],
@@ -277,25 +294,7 @@ function estimateOffsetFromRankPairing(
   }
   const est = pickPeak(bins, totalPairs);
   if (est === null) return null;
-
-  const gapMs = medianDriftGapMs(driftCues);
-  if (gapMs !== null && Math.abs(est.offsetMs) >= gapMs / 2) return null;
   return est;
-}
-
-/** Median adjacent-cue gap (ms) of the (start-sorted) drift track. Returns
- *  null when there are fewer than two cues (no gap to measure). */
-function medianDriftGapMs(driftCues: readonly SubtitleCue[]): number | null {
-  if (driftCues.length < 2) return null;
-  const gaps: number[] = [];
-  for (let i = 1; i < driftCues.length; i++) {
-    gaps.push((driftCues[i]!.start - driftCues[i - 1]!.start) * 1000);
-  }
-  gaps.sort((a, b) => a - b);
-  const mid = Math.floor(gaps.length / 2);
-  return gaps.length % 2 === 1
-    ? gaps[mid]!
-    : (gaps[mid - 1]! + gaps[mid]!) / 2;
 }
 
 /**
@@ -304,9 +303,8 @@ function medianDriftGapMs(driftCues: readonly SubtitleCue[]): number | null {
  * recovers offsets of any magnitude, but needs the two tracks to share a
  * language. When its peak holds fewer than LAZY_SYNC_MIN_PEAK_COUNT pairs
  * (or the margin gate refused it), the TIME-BASED rank-pairing fallback
- * takes over — any language, offsets within half the drift cue spacing
- * (envelope check). Returns null when neither phase yields a trustworthy
- * estimate
+ * takes over — any language, offsets of any magnitude (no envelope bound,
+ * spec B). Returns null when neither phase yields a trustworthy estimate
  * (fail-closed — the caller keeps waiting).
  *
  * The caller additionally requires the returned peakCount ≥
@@ -325,8 +323,9 @@ export function estimateOffsetFromHistogram(
     return textEst;
   }
 
-  // Phase 2 (fallback): time-based rank pairing — any language, offsets
-  // within half the drift cue spacing (envelope check).
+  // Phase 2 (fallback): time-based rank pairing — any language, any offset
+  // magnitude (no envelope bound, spec B; the margin gate guards against
+  // rank misalignment).
   return estimateOffsetFromRankPairing(driftCues, refCues);
 }
 

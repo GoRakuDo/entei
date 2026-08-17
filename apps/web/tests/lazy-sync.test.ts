@@ -41,7 +41,7 @@ describe('normalizeCueText', () => {
 });
 
 describe('text matching phase (user spec B)', () => {
-  it('detects a +10 s drift via text (beyond the time-based envelope)', () => {
+  it('detects a +10 s drift via text (beyond the old time-based envelope, removed in spec B)', () => {
     const drift = [
       cue(0, 10, 'First line'),
       cue(1, 20, 'Second line'),
@@ -199,8 +199,8 @@ describe('text matching phase (user spec B)', () => {
       cue(2, 31.5, 'Thanks'),
     ];
     const est = estimateOffsetFromHistogram(jaDrift, enRef);
-    // No text pair → the nearest-neighbor fallback detects +1.5 s within
-    // its envelope.
+    // No text pair → the rank-pairing fallback detects +1.5 s (no envelope
+    // bound, spec B).
     expect(est).toEqual({ offsetMs: 1500, peakCount: 1, totalPairs: 1 });
   });
 });
@@ -208,9 +208,8 @@ describe('text matching phase (user spec B)', () => {
 describe('estimateOffsetFromHistogram', () => {
   // Build a uniform 1:1 track pair. The time-based fallback uses RANK
   // pairing (k-th ref cue ↔ k-th drift cue), so any offset is revealed as
-  // its unwrapped value; the ENVELOPE check then accepts only offsets
-  // smaller than half the drift gap. These fixtures keep the offset inside
-  // the envelope so the estimate is adopted.
+  // its unwrapped value (no envelope bound, spec B); the margin gate and
+  // the caller's quality gate decide whether the peak is adopted.
   function uniform(
     count: number,
     spacingSec: number,
@@ -251,8 +250,8 @@ describe('estimateOffsetFromHistogram', () => {
   });
 
   it('detects a +10 s offset when the drift spacing allows it', () => {
-    // 200 drift cues over 2 h (36 s apart) → +10 s < gap/2 = 18 s, so the
-    // fallback's envelope check accepts the rank-pairing estimate.
+    // 200 drift cues over 2 h (36 s apart), +10 s offset — rank pairing
+    // reveals +10 s cleanly (no envelope bound).
     const est = estimateOffsetFromHistogram(
       uniform(200, 36, 0, 'd'),
       uniform(200, 36, 10, 'r'),
@@ -318,7 +317,7 @@ describe('estimateOffsetFromHistogram', () => {
   });
 });
 
-describe('time-based fallback envelope (review P1-1 / P2-1)', () => {
+describe('time-based fallback (spec B — no envelope bound)', () => {
   const uniform = (
     count: number,
     spacing: number,
@@ -329,28 +328,28 @@ describe('time-based fallback envelope (review P1-1 / P2-1)', () => {
       cue(i, i * spacing + offset, `${prefix}-${i}`),
     );
 
-  it('refuses a 40 s-spaced +30 s drift instead of misapplying -10 s (P1-1 repro)', () => {
-    // 120 cues @ 40 s, offset +30 s (≥ gap/2 = 20 s), different language.
-    // A nearest-pairing would wrap every diff to -10 s and misapply it;
-    // rank pairing reveals the true +30 s and the envelope check refuses
-    // it (fail-closed → keep waiting).
+  it('detects a 40 s-spaced +30 s drift that a nearest-pairing would wrap', () => {
+    // 120 cues @ 40 s, offset +30 s (> gap/2 = 20 s), different language.
+    // A temporally-nearest pairing would wrap every diff to -10 s and
+    // misapply it; rank pairing reveals the true +30 s. The old envelope
+    // check refused it — removed by spec B (rank pairing never wraps).
     const est = estimateOffsetFromHistogram(
       uniform(120, 40, 0, 'd'),
       uniform(120, 40, 30, 'r'),
     );
-    expect(est).toBeNull();
+    expect(est).toEqual({ offsetMs: 30000, peakCount: 3, totalPairs: 3 });
   });
 
-  it('refuses a +10 s drift on 5 s spacing instead of silent "in sync" (P2-1)', () => {
+  it('detects a +10 s drift on 5 s spacing — no more bin-0 silence (P2-1)', () => {
     // δ = 10 s is a whole multiple of the 5 s gap (δ ≡ 0 mod gap): a
     // nearest-pairing would wrap every diff to exactly 0 → bin 0 → the
-    // "already in sync" path with the subtitle still 10 s off. Rank
-    // pairing reveals +10 s and the envelope check refuses it.
+    // silent "already in sync" path with the subtitle still 10 s off. Rank
+    // pairing reveals +10 s and applies it.
     const est = estimateOffsetFromHistogram(
       uniform(120, 5, 0, 'd'),
       uniform(120, 5, 10, 'r'),
     );
-    expect(est).toBeNull();
+    expect(est).toEqual({ offsetMs: 10000, peakCount: 3, totalPairs: 3 });
   });
 
   it('still reports a genuine in-sync track as offset 0', () => {
@@ -363,14 +362,84 @@ describe('time-based fallback envelope (review P1-1 / P2-1)', () => {
     expect(est!.peakCount).toBe(3);
   });
 
-  it('succeeds with ≥ 3 sampled pairs inside the envelope (fallback)', () => {
+  it('succeeds with ≥ 3 sampled pairs (fallback)', () => {
     // 120 cues @ 7.2 s, +1.5 s, different language → 3 sampled rank pairs,
-    // peak 3 ≥ the quality gate, |1.5 s| < gap/2 → adopted.
+    // peak 3 ≥ the quality gate → adopted.
     const est = estimateOffsetFromHistogram(
       uniform(120, 7.2, 0, 'd'),
       uniform(120, 7.2, 1.5, 'r'),
     );
     expect(est).toEqual({ offsetMs: 1500, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('recovers the user real case: +8.7 s, ~3 s cue spacing, language mismatch (spec B)', () => {
+    // Japanese user subtitle (120 cues @ 3 s) vs English embedded track →
+    // no text match → the rank-pairing fallback runs. +8.7 s would have
+    // been refused by the old envelope check (8.7 s ≥ gap/2 = 1.5 s) even
+    // though the pairing was correct; spec B removes the envelope so it
+    // syncs. 8.7 s lands on the 500 ms grid as 8.5 s (bin 17, within ±250
+    // ms of the true offset).
+    const drift = Array.from({ length: 120 }, (_, i) =>
+      cue(i, i * 3, `ja-${i}`),
+    );
+    const ref = Array.from({ length: 120 }, (_, i) =>
+      cue(i, i * 3 + 8.7, `en-${i}`),
+    );
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 8500, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('recovers the real case with ±0.4 s-jittered cue gaps (irregular intervals)', () => {
+    // The +8.7 s user case again, but the ~3 s gaps jitter by ±0.4 s
+    // (deterministic [2.6, 3.4] cycle) to simulate realistic dialogue
+    // timing — the perfectly regular track sits in the margin gate's
+    // weakest region, so the jittered variant exercises the real shape.
+    // Rank pairing is order-based, so the diffs stay at +8.7 s and both
+    // gates pass → 8500 ms (bin 17).
+    const drift: SubtitleCue[] = [];
+    const ref: SubtitleCue[] = [];
+    const gaps = [2.6, 3.4];
+    let t = 0;
+    for (let i = 0; i < 120; i++) {
+      drift.push(cue(i, t, `ja-${i}`));
+      ref.push(cue(i, t + 8.7, `en-${i}`));
+      t += gaps[i % 2]!;
+    }
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).toEqual({ offsetMs: 8500, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('pins current one-line-shift behavior — fake constant offset passes (future hardening target)', () => {
+    // The drift track is missing its first cue (starts at 3 s; the ref
+    // starts at 0 s): every rank pair shifts by one whole gap → a fake
+    // CONSTANT -3 s offset that clears both gates. This is the documented
+    // residual risk of spec B (no envelope); the test pins today's
+    // behavior so a future misapplication-detection improvement
+    // (auto-revert) is noticed when it lands.
+    const drift = Array.from({ length: 120 }, (_, i) =>
+      cue(i, 3 + i * 3, `d-${i}`),
+    );
+    const ref = Array.from({ length: 120 }, (_, i) =>
+      cue(i, i * 3, `r-${i}`),
+    );
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).toEqual({ offsetMs: -3000, peakCount: 3, totalPairs: 3 });
+  });
+
+  it('pins near-regular mid-track insertion behavior — a gap-multiple constant passes (future hardening target)', () => {
+    // A synced ~3 s-interval track with ONE extra ref cue inserted
+    // mid-track (at 14 s): every sampled rank pair after the insertion
+    // diffs by -3 s → the diffs split {0: 1, -3000: 3} and BOTH gates pass
+    // (-3000 applied). The "scatter → margin refusal" guarantee only holds
+    // for IRREGULAR tracks; on near-regular ones this residual risk is
+    // real (review P2-1) and pinned here for future hardening.
+    const drift = Array.from({ length: 31 }, (_, i) => cue(i, i * 3, `d-${i}`));
+    const ref = Array.from({ length: 31 }, (_, i) =>
+      cue(i, i < 5 ? i * 3 : i === 5 ? 14 : i * 3 - 3, `r-${i}`),
+    );
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).toEqual({ offsetMs: -3000, peakCount: 3, totalPairs: 4 });
   });
 });
 
@@ -431,9 +500,9 @@ describe('margin gate (review P1-2)', () => {
 
   it('still reports a weak single-pair peak when nothing correlates', () => {
     // Unrelated refs minutes away: the fallback's rank pair lands at a
-    // far-apart difference — the envelope check refuses it (|offset| ≥
-    // gap/2 → null, fail-closed). Either way the caller never applies a
-    // wrong estimate: null, or a peak below the quality gate.
+    // far-apart difference, leaving a single-pair peak — below the caller's
+    // quality gate. The caller never applies a wrong estimate: null, or a
+    // peak below LAZY_SYNC_MIN_PEAK_COUNT.
     const ref = Array.from({ length: 3 }, (_, i) =>
       cue(i, 1000 + i * 1000, `ref-${i}`),
     );

@@ -260,12 +260,11 @@ const MEDIA_URL = 'http://127.0.0.1:4322/v1/media/fixture?token=t';
 
 // --- Fixtures -----------------------------------------------------------
 // The user subtitle is the FULL track (101 cues at 10, 15, …, 510 s; 5 s
-// spacing so the +1.5 s offset stays inside the nearest-neighbor detection
-// envelope of half the drift spacing) and the embedded track is the same
-// content at +1.5 s. The estimator samples every 50th ref cue (indices
-// 0, 50, 100 → 11.5, 261.5, 511.5 s), each of which sits exactly 1.5 s
-// after a user cue (10, 260, 510 s) — a 3-pair peak at +1500 ms that
-// clears LAZY_SYNC_MIN_PEAK_COUNT and the margin gate.
+// spacing) and the embedded track is the same content at +1.5 s. The
+// estimator samples every 50th ref cue (indices 0, 50, 100 → 11.5, 261.5,
+// 511.5 s), each of which sits exactly 1.5 s after a user cue (10, 260,
+// 510 s) — a 3-pair peak at +1500 ms that clears LAZY_SYNC_MIN_PEAK_COUNT
+// and the margin gate.
 
 function vttTime(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -703,10 +702,12 @@ describe('Magnet LazySync flow (docs §10)', () => {
     ]);
   });
 
-  it('text matching recovers a +10 s drift the time-based phase cannot', async () => {
+  it('text matching runs first and recovers a +10 s drift (priority, spec B)', async () => {
     // The embedded track shares the user subtitle's texts but starts +10 s
-    // later (beyond half the 5 s user cue spacing — the nearest-neighbor
-    // fallback would refuse it; only text matching can find the offset).
+    // later. Text matching runs FIRST (spec B) and wins with a 101-pair
+    // peak at +10 s — the time-based fallback would also estimate +10 s on
+    // this 5 s-spaced track (no envelope bound), but the text phase takes
+    // priority.
     const fetchStub = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/v1/source/torrents/')) {
