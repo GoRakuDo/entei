@@ -1943,7 +1943,7 @@
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-24);
   background-color: var(--entei-btn-hover-bg);
-  color: var(--entei-surface);
+  color: var(--entei-text);
   border: 1px solid var(--entei-accent);
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
