@@ -99,6 +99,11 @@ export interface CompanionBridgeMedia {
 export interface CompanionBridgeOptions {
   /** Injectable fetch; defaults to the global fetch. */
   fetchFn?: typeof fetch;
+  /** Default playback intent, applied at construction and re-applied on
+   *  every session start (beginSession): true = auto-play once the source
+   *  becomes ready (default); false = start paused until the user presses
+   *  play (Magnet/YouTube paused start). */
+  initialPlay?: boolean;
   /** Base poll interval (also the floor for Retry-After). */
   basePollMs?: number;
   /** Exponential backoff cap. */
@@ -180,6 +185,7 @@ export class CompanionBridge {
   ) {
     this.opts = {
       fetchFn: options.fetchFn ?? ((input, init) => fetch(input, init)),
+      initialPlay: options.initialPlay ?? true,
       basePollMs: options.basePollMs ?? BRIDGE_BASE_POLL_MS,
       maxPollMs: options.maxPollMs ?? BRIDGE_MAX_POLL_MS,
       disconnectedPollMs:
@@ -194,6 +200,11 @@ export class CompanionBridge {
       maxMediaResets: options.maxMediaResets ?? BRIDGE_MAX_MEDIA_RESETS,
     };
     this.callbacks = callbacks;
+    // Per-session default playback intent: the web app passes
+    // initialPlay:false so Magnet/YouTube start paused until the user
+    // presses play; every other caller keeps the auto-play default.
+    // beginSession re-applies this default on each session start.
+    this.intentPlay = options.initialPlay ?? true;
   }
 
   get currentPhase(): CompanionBridgePhase {
@@ -215,7 +226,11 @@ export class CompanionBridge {
     this.backoffStep = 0;
     this.transientFailures = 0;
     this.disconnectedPolls = 0;
-    this.intentPlay = true;
+    // Reset playback intent to the configured per-session default (a
+    // media change starts with initialPlay — auto-play unless the app
+    // opted into a paused start). A pause from a previous session must
+    // never leak into the new source.
+    this.intentPlay = this.opts.initialPlay;
     this.pendingSeek = null;
     this.awaitingSeek = false;
     this.mediaReadyFired = false;

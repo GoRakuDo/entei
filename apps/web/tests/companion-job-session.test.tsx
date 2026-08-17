@@ -117,7 +117,7 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     expect(calls.some((c) => c.url.includes('/v1/media/fixture'))).toBe(false);
   });
 
-  it('complete gate: surfaces the URL, mounts the element, explicit src/load, plays', async () => {
+  it('complete gate: surfaces the URL, mounts the element; paused start until the user presses play', async () => {
     const { calls, fetchFn } = makeFetcher([buffering(100, 1000), complete(1000)]);
     vi.stubGlobal('fetch', fetchFn);
     render(<Harness />);
@@ -138,6 +138,11 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     const playSpy = vi.fn(() => Promise.resolve());
     video.play = playSpy;
     fireEvent(video, new Event('loadedmetadata'));
+    // ED-2I: Magnet/YouTube start paused — the ready transition must NOT
+    // auto-play. The user starts playback by pressing play.
+    expect(playSpy).not.toHaveBeenCalled();
+    void video.play(); // user pressed play (PlayerControls → el.play())
+    fireEvent(video, new Event('play')); // intent flips via the 'play' event
     expect(playSpy).toHaveBeenCalledTimes(1);
     fireEvent(video, new Event('playing'));
     expect(screen.getByTestId('phase').textContent).toBe('playing');
@@ -178,6 +183,11 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     expect(video.currentTime).toBe(2);
     expect(playSpy).not.toHaveBeenCalled();
     fireEvent(video, new Event('seeked'));
+    // ED-2I: paused start — the seek lands but playback stays paused until
+    // the user presses play.
+    expect(playSpy).not.toHaveBeenCalled();
+    void video.play(); // user pressed play
+    fireEvent(video, new Event('play'));
     expect(playSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -252,10 +262,14 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     expect(video.crossOrigin).toBe('anonymous');
     expect(video.src).toBe('http://127.0.0.1:4322/v1/media/fixture?token=tok123');
 
-    // Bridge's startReadyTransition fired: metadata → seek → play.
+    // Bridge's startReadyTransition fired: metadata → seek → play intent.
     const playSpy = vi.fn(() => Promise.resolve());
     video.play = playSpy;
     fireEvent(video, new Event('loadedmetadata'));
+    // ED-2I: paused start — no auto-play until the user presses play.
+    expect(playSpy).not.toHaveBeenCalled();
+    void video.play(); // user pressed play
+    fireEvent(video, new Event('play'));
     expect(playSpy).toHaveBeenCalledTimes(1);
     fireEvent(video, new Event('playing'));
     expect(screen.getByTestId('phase').textContent).toBe('playing');
