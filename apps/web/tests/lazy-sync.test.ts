@@ -435,6 +435,25 @@ describe('time-based fallback (spec B — no envelope bound)', () => {
     expect(est).toEqual({ offsetMs: -8500, peakCount: 7, totalPairs: 23 });
   });
 
+  it('samples by the SHORTER side: 16,315-cue ref vs 83-cue drift prefix still syncs (regression)', () => {
+    // User real case: the embedded track (ref) holds 16,315 cues while the
+    // user's subtitle file (drift) has only 83 cues. The old stride read refCues.length
+    // alone → 16315 ≥ 100 → stride 50 → pairs at p = 0, 50 → a 2-pair peak
+    // below the 3-pair quality gate → the sync never fired. The stride now
+    // comes from effectiveMax = min(ref, drift) = 83 < 100 → stride 10 →
+    // pairs at p = 0, 10, …, 80 → a 9-pair peak that clears both gates.
+    // No shared text (language mismatch) so the rank fallback runs.
+    const drift = Array.from({ length: 83 }, (_, i) =>
+      cue(i, i * 0.45, `ja-${i}`),
+    );
+    const ref = Array.from({ length: 16315 }, (_, i) =>
+      cue(i, i * 0.45 + 1.5, `en-${i}`),
+    );
+    const est = estimateOffsetFromHistogram(drift, ref);
+    expect(est).not.toBeNull();
+    expect(est).toEqual({ offsetMs: 1500, peakCount: 9, totalPairs: 9 });
+  });
+
   it('ranks every ref cue below the full-vote threshold (stride 1, no thinning)', () => {
     // 49 refs < LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD (50) → every cue is
     // ranked: totalPairs === refCues.length. Thinning would weaken the

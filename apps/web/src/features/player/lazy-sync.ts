@@ -78,11 +78,12 @@ export const LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL = 10;
 export const LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD = 100;
 
 /** Prefix length below which NO sampling is applied (spec B, 2026-08-17):
- *  while the downloaded prefix holds fewer than this many cues, every ref
- *  cue is rank-paired (stride 1, full vote). With < 50 cues the full vote
- *  is free (≤ 50 pairs per 3 s poll) and thinning would weaken the peak
- *  below the quality gate — a real 23-cue case peaked at 7 pairs with the
- *  full vote, enough to sync, but only 1-2 under the old stride. */
+ *  while the effective pair count — effectiveMax = min(refCues.length,
+ *  driftCues.length) — holds fewer than this many cues, every ref cue is
+ *  rank-paired (stride 1, full vote). With < 50 cues the full vote is free
+ *  (≤ 50 pairs per 3 s poll) and thinning would weaken the peak below the
+ *  quality gate — a real 23-cue case peaked at 7 pairs with the full vote,
+ *  enough to sync, but only 1-2 under the old stride. */
 export const LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD = 50;
 
 /** Margin gate (review P1-2): an estimate is trusted only when the peak bin
@@ -246,14 +247,17 @@ function estimateOffsetFromTextMatching(
  * Phase 2 (fallback): estimate the offset from TIME-BASED RANK pairing —
  * language-independent, used when text matching yielded no trustworthy
  * peak. Ref cues are sampled to bound the pair count on long tracks (the
- * dense 16000-cue case): every cue below LAZY_SYNC_HISTOGRAM_FULL_REF_
- * THRESHOLD (< 50 → full vote, stride 1), every 10th cue below
- * LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD (50-99 → stride 10), every 50th
- * beyond that (100+ → stride 50). Each sampled ref cue at position p is
- * paired with the drift cue at the same position p (the two tracks are the
- * same content, so position p is the same line). The pair's start-time
- * difference is bucketed into the histogram; the peak bin (with the margin
- * gate) is the offset.
+ * dense 16000-cue case); the stride is chosen from the SHORTER side —
+ * effectiveMax = min(refCues.length, driftCues.length) — so a long ref
+ * track against a short downloaded drift prefix still samples densely (the
+ * drift prefix is what limits the pair count anyway). Below LAZY_SYNC_
+ * HISTOGRAM_FULL_REF_THRESHOLD (< 50 → full vote, stride 1), every 10th
+ * cue below LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD (50-99 → stride 10),
+ * every 50th beyond that (100+ → stride 50). Each sampled ref cue at
+ * position p is paired with the drift cue at the same position p (the two
+ * tracks are the same content, so position p is the same line). The pair's
+ * start-time difference is bucketed into the histogram; the peak bin (with
+ * the margin gate) is the offset.
  *
  * Why rank, not nearest-neighbor (review P1-1): with a regular track and
  * an offset larger than half the cue gap, the temporally-nearest pairing
@@ -287,10 +291,17 @@ function estimateOffsetFromRankPairing(
   driftCues: readonly SubtitleCue[],
   refCues: readonly SubtitleCue[],
 ): OffsetEstimate | null {
+  // The stride comes from the SHORTER side. refCues.length alone is
+  // misleading when the downloaded drift prefix is short: a dense 16 k-cue
+  // ref against 83 drift cues would pick stride 50 → pairs at p = 0, 50 →
+  // a 2-pair peak below the 3-pair quality gate → LazySync never fires.
+  // effectiveMax is also the loop's own bound, so sampling by it keeps the
+  // pair density of the short side.
+  const effectiveMax = Math.min(refCues.length, driftCues.length);
   const stride =
-    refCues.length < LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD
-      ? 1 // < 50 ref cues: rank every cue — the full vote keeps the peak strong
-      : refCues.length < LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD
+    effectiveMax < LAZY_SYNC_HISTOGRAM_FULL_REF_THRESHOLD
+      ? 1 // < 50 effective cues: rank every cue — the full vote keeps the peak strong
+      : effectiveMax < LAZY_SYNC_HISTOGRAM_SMALL_REF_THRESHOLD
         ? LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY_SMALL
         : LAZY_SYNC_HISTOGRAM_SAMPLE_EVERY;
 
