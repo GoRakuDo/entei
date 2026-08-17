@@ -118,7 +118,10 @@ import {
   LAZY_SYNC_POLL_INTERVAL_MS,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
-  LAZY_SYNC_MAX_NO_MATCH_POLLS,
+  LAZY_SYNC_MIN_REF_CUES,
+  LAZY_SYNC_MIN_MATCHES,
+  LAZY_SYNC_MIN_OFFSET_MS,
+  LAZY_SYNC_MAX_OFFSET_MS,
   matchCueOffsets,
   estimateOffsetMs,
   shiftCuesByOffset,
@@ -300,10 +303,9 @@ export default function PlayerApp() {
     lastOffsetMs: number | null;
     /** Whether the success toast already fired for a stable offset. */
     successNotified: boolean;
-    /** Consecutive polls with 0 reference cues (waiting for the DL). */
+    /** Consecutive polls in a waiting state (too few ref cues / too few
+     *  matches / outlier offset). Bounded by LAZY_SYNC_MAX_WAIT_POLLS. */
     waitPollCount: number;
-    /** Consecutive polls with reference cues but zero text matches. */
-    noMatchPollCount: number;
   } | null>(null);
 
   // --- Subtitle state ---
@@ -2203,7 +2205,6 @@ export default function PlayerApp() {
       lastOffsetMs: null,
       successNotified: false,
       waitPollCount: 0,
-      noMatchPollCount: 0,
     };
     setIsLazySyncOn(true);
     notifyLazySyncInfo(ui.subtitleSyncLazyOn);
@@ -2214,10 +2215,17 @@ export default function PlayerApp() {
    * fetch the embedded subtitle's downloaded-prefix cues, match them to the
    * base (user-loaded) cues, estimate the constant offset (median), apply it
    * to the base cues via setCues, and keep refining as the download grows.
-   * Stops on abort (toggle off / unmount), on a Magnet session that no
-   * longer qualifies, and on the bounded give-ups (0-cue wait / no text
-   * match). All mutable data flows through lazySyncStateRef so the loop
-   * never depends on a render's closure.
+   * The apply trigger follows the ffsubsync design (docs §10):
+   *   - first sync waits for ≥ LAZY_SYNC_MIN_REF_CUES downloaded cues;
+   *   - quality gate: apply only with ≥ LAZY_SYNC_MIN_MATCHES cue pairs;
+   *   - |offset| < LAZY_SYNC_MIN_OFFSET_MS counts as already in sync
+   *     (no shift, success toast once);
+   *   - |offset| > LAZY_SYNC_MAX_OFFSET_MS is an outlier — never applied.
+   * Waiting states share one bounded counter (LAZY_SYNC_MAX_WAIT_POLLS ≈
+   * 12 min); on abort (toggle off / unmount), on a Magnet session that no
+   * longer qualifies, or on the exhausted wait bound the loop stops.
+   * All mutable data flows through lazySyncStateRef so the loop never
+   * depends on a render's closure.
    */
   const runLazySyncPolling = useCallback(async (signal: AbortSignal) => {
     const sleep = (ms: number) =>
@@ -2253,6 +2261,22 @@ export default function PlayerApp() {
       const state = lazySyncStateRef.current;
       if (!state) return;
 
+      /** One bounded waiting round: bump the wait counter, sleep a poll
+       *  interval, and give up (no-subtitle toast) once the ~12-min bound
+       *  is exceeded. Returns false when the loop must stop. */
+      const boundedWait = async (): Promise<boolean> => {
+        state.waitPollCount += 1;
+        if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
+          stop();
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoSubtitle,
+          );
+          return false;
+        }
+        await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+        return true;
+      };
+
       try {
         const result = await fetchMagnetSubtitle(
           session.token,
@@ -2272,17 +2296,8 @@ export default function PlayerApp() {
         if (result.kind === 'cues-pending') {
           // The embedded track exists but the DL'd prefix has no cues yet
           // (503, temporary — Growing Media contract). Same waiting state
-          // as a 0-cue body, bounded so it cannot run forever.
-          state.waitPollCount += 1;
-          state.noMatchPollCount = 0;
-          if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
-            stop();
-            notifySubtitleSyncError(
-              dictRef.current.playerUI.subtitleSyncNoSubtitle,
-            );
-            return;
-          }
-          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          // as a short ref-cue prefix, bounded so it cannot run forever.
+          if (!(await boundedWait())) return;
           continue;
         }
         if (result.kind === 'error') {
@@ -2293,42 +2308,52 @@ export default function PlayerApp() {
         }
         const ref = result;
         const refCues = parseSubtitle(ref.text).cues;
-        if (refCues.length === 0) {
-          // Downloaded prefix has no subtitle cues yet — waiting state
-          // (docs §10.2). Bounded so the waiting state cannot run forever.
-          state.waitPollCount += 1;
-          state.noMatchPollCount = 0;
-          if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
-            stop();
-            notifySubtitleSyncError(
-              dictRef.current.playerUI.subtitleSyncNoSubtitle,
-            );
-            return;
-          }
-          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+        if (refCues.length < LAZY_SYNC_MIN_REF_CUES) {
+          // Downloaded prefix has too few cues yet to trust an estimate
+          // (docs §10: first sync waits for a usable cue count). Bounded
+          // so the waiting state cannot run forever.
+          if (!(await boundedWait())) return;
           continue;
         }
 
         const matches = matchCueOffsets(state.baseCues, refCues);
-        if (matches.length === 0) {
-          // The embedded track exists but shares no lines with the user
-          // subtitle (different language / different cut) — no offset can
-          // be estimated. Bounded, then give up.
-          state.noMatchPollCount += 1;
-          state.waitPollCount = 0;
-          if (state.noMatchPollCount > LAZY_SYNC_MAX_NO_MATCH_POLLS) {
-            stop();
-            notifySubtitleSyncError(
-              dictRef.current.playerUI.subtitleSyncNoReference,
-            );
-            return;
-          }
-          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+        if (matches.length < LAZY_SYNC_MIN_MATCHES) {
+          // Quality gate (ffsubsync --skip-sync-on-low-quality): fewer
+          // than LAZY_SYNC_MIN_MATCHES time-paired cues means the
+          // alignment is not yet trustworthy — wait for the growing DL to
+          // yield more pairs. Replaces the old "language mismatch" give-up:
+          // time-proximity pairing matches across languages, so a low
+          // match count just means not enough data, not a dead end.
+          if (!(await boundedWait())) return;
           continue;
         }
 
         const offsetMs = estimateOffsetMs(matches);
         if (offsetMs === null) {
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+        if (Math.abs(offsetMs) > LAZY_SYNC_MAX_OFFSET_MS) {
+          // Outlier (ffsubsync --max-offset-seconds=60): a > 60 s drift
+          // is an abnormal alignment, not a constant offset — don't
+          // apply, keep polling for a sane estimate.
+          if (!(await boundedWait())) return;
+          continue;
+        }
+        if (Math.abs(offsetMs) < LAZY_SYNC_MIN_OFFSET_MS) {
+          // Already in sync (ffsubsync --suppress-output-if-offset-less-
+          // than): an offset under 100 ms is sub-frame noise — leave the
+          // cues untouched and treat the sync as converged: success toast
+          // once, polling continues to re-check as the DL grows.
+          state.lastOffsetMs = offsetMs;
+          state.waitPollCount = 0;
+          if (!state.appliedOnce) state.appliedOnce = true;
+          if (!state.successNotified) {
+            state.successNotified = true;
+            notifySubtitleSyncSuccess(
+              dictRef.current.playerUI.subtitleSyncSuccess,
+            );
+          }
           await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
           continue;
         }
@@ -2341,7 +2366,6 @@ export default function PlayerApp() {
           Math.abs(offsetMs - prev) <= LAZY_SYNC_STABLE_THRESHOLD_MS;
         state.lastOffsetMs = offsetMs;
         state.waitPollCount = 0;
-        state.noMatchPollCount = 0;
 
         if (changed) {
           // Apply to the ORIGINAL base cues every time — never to the

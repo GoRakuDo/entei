@@ -266,6 +266,15 @@ const USER_VTT = [
   '',
   '00:00:30.000 --> 00:00:32.000',
   'Third line',
+  '',
+  '00:00:40.000 --> 00:00:42.000',
+  'Fourth line',
+  '',
+  '00:00:50.000 --> 00:00:52.000',
+  'Fifth line',
+  '',
+  '00:00:55.000 --> 00:00:57.000',
+  'Sixth line',
 ].join('\n');
 
 const EMBEDDED_VTT = [
@@ -279,6 +288,73 @@ const EMBEDDED_VTT = [
   '',
   '00:00:31.500 --> 00:00:33.500',
   'Third line',
+  '',
+  '00:00:41.500 --> 00:00:43.500',
+  'Fourth line',
+  '',
+  '00:00:51.500 --> 00:00:53.500',
+  'Fifth line',
+  '',
+  '00:00:56.500 --> 00:00:58.500',
+  'Sixth line',
+].join('\n');
+
+/** Downloaded prefix with only 3 cues — under the first-sync gate. */
+const EMBEDDED_SHORT_VTT = [
+  'WEBVTT',
+  '',
+  '00:00:11.500 --> 00:00:13.500',
+  'First line',
+  '',
+  '00:00:21.500 --> 00:00:23.500',
+  'Second line',
+  '',
+  '00:00:31.500 --> 00:00:33.500',
+  'Third line',
+].join('\n');
+
+/** 5 downloaded cues, but only 2 land inside the ±5 s match window —
+ *  below the quality gate. */
+const EMBEDDED_SPARSE_VTT = [
+  'WEBVTT',
+  '',
+  '00:00:11.500 --> 00:00:13.500',
+  'First line',
+  '',
+  '00:00:21.500 --> 00:00:23.500',
+  'Second line',
+  '',
+  '00:01:30.000 --> 00:01:32.000',
+  'Late line A',
+  '',
+  '00:01:40.000 --> 00:01:42.000',
+  'Late line B',
+  '',
+  '00:01:50.000 --> 00:01:52.000',
+  'Late line C',
+].join('\n');
+
+/** Embedded track runs only +50 ms ahead — already in sync. */
+const EMBEDDED_IN_SYNC_VTT = [
+  'WEBVTT',
+  '',
+  '00:00:10.050 --> 00:00:12.050',
+  'First line',
+  '',
+  '00:00:20.050 --> 00:00:22.050',
+  'Second line',
+  '',
+  '00:00:30.050 --> 00:00:32.050',
+  'Third line',
+  '',
+  '00:00:40.050 --> 00:00:42.050',
+  'Fourth line',
+  '',
+  '00:00:50.050 --> 00:00:52.050',
+  'Fifth line',
+  '',
+  '00:00:55.050 --> 00:00:57.050',
+  'Sixth line',
 ].join('\n');
 
 function freshSession() {
@@ -356,7 +432,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(fetchStub).toHaveBeenCalledTimes(1);
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([10, 20, 30]);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
 
     // Toggle ON: toast + the polling loop starts.
     act(() => {
@@ -373,7 +451,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
 
     // First poll: fetch embedded cues → match → offset +1500 ms applied.
     expect(fetchStub).toHaveBeenCalledTimes(2);
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([11.5, 21.5, 31.5]);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
+    ]);
 
     // Second poll: offset unchanged → stable → success toast (once).
     await act(async () => {
@@ -392,7 +472,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
     });
     expect(fetchStub).toHaveBeenCalledTimes(4);
     expect(toastSpy.success).toHaveBeenCalledTimes(1);
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([11.5, 21.5, 31.5]);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
+    ]);
   });
 
   it('toggle OFF stops polling and toasts disabled; display keeps the shifted cues', async () => {
@@ -410,7 +492,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     const callsAfterApply = fetchStub.mock.calls.length;
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([11.5, 21.5, 31.5]);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
+    ]);
 
     // OFF: toast, loop aborts, and no further fetches happen.
     act(() => {
@@ -449,7 +533,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     // 0 cue → no offset applied, still processing, display unchanged.
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([10, 20, 30]);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
     expect(toastSpy.success).not.toHaveBeenCalled();
   });
 
@@ -482,7 +568,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
       expect.anything(),
     );
     expect(mocks.capturedProps.lazySyncOn).toBe(false);
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([10, 20, 30]);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
 
     // No further polls after the stop.
     await act(async () => {
@@ -519,7 +607,9 @@ describe('Magnet LazySync flow (docs §10)', () => {
     });
     // First poll: 503 → waiting state, no apply, no error, still on.
     expect(mocks.capturedProps.lazySyncOn).toBe(true);
-    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([10, 20, 30]);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
     expect(toastSpy.error).not.toHaveBeenCalled();
 
     // Subsequent polls keep fetching (the wait is bounded, not stopped).
@@ -529,6 +619,130 @@ describe('Magnet LazySync flow (docs §10)', () => {
     expect(fetchStub.mock.calls.length).toBeGreaterThan(2);
     expect(mocks.capturedProps.lazySyncOn).toBe(true);
     expect(toastSpy.error).not.toHaveBeenCalled();
+  });
+
+  it('first-sync gate: downloaded prefix with < 5 cues → wait, no apply', async () => {
+    const fetchStub = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/source/torrents/')) {
+        // Downloaded prefix holds only 3 cues — under LAZY_SYNC_MIN_REF_CUES.
+        return Promise.resolve(
+          new Response(EMBEDDED_SHORT_VTT, { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response(USER_VTT, { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    render(<Player />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => {
+      (mocks.capturedProps.onToggleLazySync as () => void)();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // 3 < 5 ref cues → waiting state: no apply, no toast, still on.
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
+    expect(toastSpy.success).not.toHaveBeenCalled();
+    expect(toastSpy.error).not.toHaveBeenCalled();
+    expect(mocks.capturedProps.lazySyncOn).toBe(true);
+
+    // The wait is bounded, not a dead end: polls keep fetching.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * LAZY_SYNC_POLL_INTERVAL_MS);
+    });
+    expect(fetchStub.mock.calls.length).toBeGreaterThan(2);
+    expect(mocks.capturedProps.lazySyncOn).toBe(true);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
+  });
+
+  it('quality gate: < 3 matched cue pairs → wait, offset not applied', async () => {
+    const fetchStub = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/source/torrents/')) {
+        // 5 downloaded cues but only 2 land inside the ±5 s match window.
+        return Promise.resolve(
+          new Response(EMBEDDED_SPARSE_VTT, { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response(USER_VTT, { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    render(<Player />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => {
+      (mocks.capturedProps.onToggleLazySync as () => void)();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // 2 matches < LAZY_SYNC_MIN_MATCHES → quality gate: wait, no apply.
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
+    expect(toastSpy.success).not.toHaveBeenCalled();
+    expect(toastSpy.error).not.toHaveBeenCalled();
+    expect(mocks.capturedProps.lazySyncOn).toBe(true);
+
+    // Waiting, not stopped: polling continues for more cues.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * LAZY_SYNC_POLL_INTERVAL_MS);
+    });
+    expect(fetchStub.mock.calls.length).toBeGreaterThan(2);
+    expect(mocks.capturedProps.lazySyncOn).toBe(true);
+  });
+
+  it('already in sync: |offset| < 100 ms → cues untouched, success toast once', async () => {
+    const fetchStub = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/source/torrents/')) {
+        // Embedded track runs only +50 ms ahead of the user subtitle.
+        return Promise.resolve(
+          new Response(EMBEDDED_IN_SYNC_VTT, { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response(USER_VTT, { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    render(<Player />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => {
+      (mocks.capturedProps.onToggleLazySync as () => void)();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // First poll: offset 50 ms < 100 ms → already synced: no shift applied,
+    // but the success toast fires right away.
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
+    expect(toastSpy.success).toHaveBeenCalledWith(
+      'Subtitle sync successful!',
+      expect.anything(),
+    );
+
+    // Later polls re-check and keep the single toast, display untouched.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LAZY_SYNC_POLL_INTERVAL_MS);
+    });
+    expect(toastSpy.success).toHaveBeenCalledTimes(1);
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
+      10, 20, 30, 40, 50, 55,
+    ]);
   });
 });
 

@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pure-logic tests for LazySync (docs SUBTITLE_SYNC.md §10): cue text
-// matching, constant-offset estimation, and offset application.
+// pairing, constant-offset estimation, and offset application.
 
 import { describe, expect, it } from 'vitest';
 import type { SubtitleCue } from '../src/features/player/subtitle-reader';
 import {
   estimateOffsetMs,
   matchCueOffsets,
-  normalizeCueText,
   shiftCuesByOffset,
+  LAZY_SYNC_MATCH_WINDOW_MS,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
   LAZY_SYNC_POLL_INTERVAL_MS,
+  LAZY_SYNC_MIN_REF_CUES,
+  LAZY_SYNC_MIN_MATCHES,
+  LAZY_SYNC_MIN_OFFSET_MS,
+  LAZY_SYNC_MAX_OFFSET_MS,
 } from '../src/features/player/lazy-sync';
 
 function cue(
@@ -22,19 +26,6 @@ function cue(
 ): SubtitleCue {
   return { id, start, end: end ?? start + 2, text };
 }
-
-describe('normalizeCueText', () => {
-  it('folds case, whitespace and punctuation', () => {
-    expect(normalizeCueText('  Hello, World!  ')).toBe('helloworld');
-    expect(normalizeCueText('こんにちは、世界')).toBe('こんにちは世界');
-    expect(normalizeCueText('fullwidth　space')).toBe('fullwidthspace');
-  });
-
-  it('returns empty for empty input', () => {
-    expect(normalizeCueText('')).toBe('');
-    expect(normalizeCueText('   ')).toBe('');
-  });
-});
 
 describe('matchCueOffsets', () => {
   const drift = [
@@ -51,7 +42,7 @@ describe('matchCueOffsets', () => {
     cue(3, 41.5, 'Third line'),
   ];
 
-  it('pairs every text-matching cue and reports ref − drift', () => {
+  it('pairs every cue in the same timeband and reports ref − drift', () => {
     const matches = matchCueOffsets(drift, ref);
     expect(matches).toHaveLength(4);
     for (const m of matches) {
@@ -59,31 +50,95 @@ describe('matchCueOffsets', () => {
     }
   });
 
-  it('does not match cues with different text', () => {
-    const different = [
-      cue(0, 11.5, 'Something else entirely'),
-      cue(1, 21.5, 'Second line'),
+  it('pairs cues even when the texts differ (different language)', () => {
+    const jaDrift = [
+      cue(0, 10, 'こんにちは'),
+      cue(1, 20, '世界'),
+      cue(2, 30, 'ありがとう'),
     ];
-    const matches = matchCueOffsets(drift, different);
-    expect(matches).toHaveLength(1);
-    expect(matches[0]!.diffMs).toBeCloseTo(1500, 6);
+    const enRef = [
+      cue(0, 11.5, 'Hello'),
+      cue(1, 21.5, 'World'),
+      cue(2, 31.5, 'Thanks'),
+    ];
+    const matches = matchCueOffsets(jaDrift, enRef);
+    expect(matches).toHaveLength(3);
+    for (const m of matches) {
+      expect(m.diffMs).toBeCloseTo(1500, 6);
+    }
   });
 
-  it('consumes each reference cue at most once (repeated lines)', () => {
-    const dupDrift = [
-      cue(0, 10, 'Repeated line'),
-      cue(1, 20, 'Repeated line'),
+  it('reports a negative offset when the reference is earlier', () => {
+    const earlierRef = [
+      cue(0, 8.5, 'First'),
+      cue(1, 18.5, 'Second'),
+      cue(2, 28.5, 'Third'),
     ];
-    const singleRef = [cue(0, 11.5, 'Repeated line')];
-    const matches = matchCueOffsets(dupDrift, singleRef);
-    expect(matches).toHaveLength(1);
+    const matches = matchCueOffsets(drift, earlierRef);
+    expect(matches).toHaveLength(3);
+    for (const m of matches) {
+      expect(m.diffMs).toBeCloseTo(-1500, 6);
+    }
   });
 
-  it('returns empty when nothing matches', () => {
-    expect(matchCueOffsets(drift, [])).toEqual([]);
+  it('picks the nearest in-window drift cue over a farther one', () => {
+    const matches = matchCueOffsets(
+      [cue(0, 10, 'farther'), cue(1, 10.5, 'nearer')],
+      [cue(0, 11, 'ref')],
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      driftStartMs: 10500,
+      refStartMs: 11000,
+      diffMs: 500,
+    });
+  });
+
+  it('does not pair cues outside the window', () => {
+    expect(matchCueOffsets(drift, [cue(0, 60, 'nowhere near')])).toEqual([]);
     expect(
-      matchCueOffsets([cue(0, 10, 'A')], [cue(0, 11, 'B')]),
+      matchCueOffsets([cue(0, 10, 'A'), cue(1, 100, 'B')], [cue(0, 60, 'C')]),
     ).toEqual([]);
+  });
+
+  it('pairs every cue of a dense track to its nearest drift cue, and the median converges to the true offset', () => {
+    const driftDense = Array.from({ length: 10 }, (_, i) =>
+      cue(i, 10 + i, `drift-${i}`),
+    );
+    const refDense = Array.from({ length: 10 }, (_, i) =>
+      cue(i, 10.4 + i, `ref-${i}`),
+    );
+    const matches = matchCueOffsets(driftDense, refDense);
+    expect(matches).toHaveLength(10);
+    for (const m of matches) {
+      expect(m.diffMs).toBeCloseTo(400, 6);
+    }
+    expect(estimateOffsetMs(matches)).toBeCloseTo(400, 6);
+  });
+
+  it('honors a custom windowMs', () => {
+    const widePair = [cue(0, 10, 'A')];
+    const farRef = [cue(0, 20, 'B')];
+    // 10 s apart: outside the ±5 s default window.
+    expect(matchCueOffsets(widePair, farRef)).toEqual([]);
+    // Within a widened window the pair matches with diff = +10 s.
+    const wide = matchCueOffsets(widePair, farRef, 12000);
+    expect(wide).toHaveLength(1);
+    expect(wide[0]!.diffMs).toBeCloseTo(10000, 6);
+  });
+
+  it('returns empty when either side has no cues', () => {
+    expect(matchCueOffsets(drift, [])).toEqual([]);
+    expect(matchCueOffsets([], ref)).toEqual([]);
+  });
+
+  it('a 2-cue reference yields fewer matches than the quality gate requires', () => {
+    const matches = matchCueOffsets(
+      [cue(0, 10, 'A'), cue(1, 20, 'B'), cue(2, 30, 'C')],
+      [cue(0, 11.5, 'A'), cue(1, 21.5, 'B')],
+    );
+    expect(matches).toHaveLength(2);
+    expect(matches.length).toBeLessThan(LAZY_SYNC_MIN_MATCHES);
   });
 });
 
@@ -123,6 +178,29 @@ describe('estimateOffsetMs', () => {
       { driftStartMs: 0, refStartMs: 0, diffMs: 720000 }, // stray bad match
     ];
     expect(estimateOffsetMs(matches)).toBeCloseTo(1550, 6);
+  });
+
+  it('near-zero offsets fall under the already-in-sync threshold', () => {
+    const matches = matchCueOffsets(
+      [cue(0, 10, 'A'), cue(1, 20, 'B'), cue(2, 30, 'C')],
+      [cue(0, 10.03, 'A'), cue(1, 20.03, 'B'), cue(2, 30.03, 'C')],
+    );
+    const offset = estimateOffsetMs(matches);
+    expect(offset).not.toBeNull();
+    expect(Math.abs(offset!)).toBeLessThan(LAZY_SYNC_MIN_OFFSET_MS);
+  });
+
+  it('outlier-scale estimates exceed the 60 s rejection bound', () => {
+    // Direct construction: the ±5 s match window already caps every pair
+    // difference below the bound, so only a widened window or a bad
+    // estimate could produce such values — the gate is defense-in-depth.
+    const offset = estimateOffsetMs([
+      { driftStartMs: 0, refStartMs: 70000, diffMs: 70000 },
+      { driftStartMs: 0, refStartMs: 70500, diffMs: 70500 },
+      { driftStartMs: 0, refStartMs: 71000, diffMs: 71000 },
+    ]);
+    expect(offset).not.toBeNull();
+    expect(Math.abs(offset!)).toBeGreaterThan(LAZY_SYNC_MAX_OFFSET_MS);
   });
 });
 
@@ -180,10 +258,31 @@ describe('LazySync constants', () => {
     expect(LAZY_SYNC_STABLE_THRESHOLD_MS).toBe(50);
   });
 
+  it('match window is ±5 s per the time-proximity pairing default', () => {
+    expect(LAZY_SYNC_MATCH_WINDOW_MS).toBe(5000);
+  });
+
   it('max wait bound is 240 polls = 12 min at the 3 s interval', () => {
     expect(LAZY_SYNC_MAX_WAIT_POLLS).toBe(240);
     expect(LAZY_SYNC_MAX_WAIT_POLLS * LAZY_SYNC_POLL_INTERVAL_MS).toBe(
       12 * 60 * 1000,
     );
+  });
+
+  it('first sync waits for ≥ 5 downloaded cues (docs §10 trigger)', () => {
+    expect(LAZY_SYNC_MIN_REF_CUES).toBe(5);
+  });
+
+  it('quality gate requires ≥ 3 matches (ffsubsync --skip-sync-on-low-quality)', () => {
+    expect(LAZY_SYNC_MIN_MATCHES).toBe(3);
+  });
+
+  it('offsets under 100 ms count as already in sync (ffsubsync suppress-output-if-offset-less-than)', () => {
+    expect(LAZY_SYNC_MIN_OFFSET_MS).toBe(100);
+  });
+
+  it('offsets over 60 s are rejected as outliers (ffsubsync --max-offset-seconds=60)', () => {
+    expect(LAZY_SYNC_MAX_OFFSET_MS).toBe(60000);
+    expect(LAZY_SYNC_MAX_OFFSET_MS).toBe(60 * 1000);
   });
 });
