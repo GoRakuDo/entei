@@ -800,5 +800,10 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 
 - **Magnet 動画の内蔵字幕（SRT/VTT/ASS）を参照字幕として自動取得し、ユーザーがロードしたズレ字幕を sub-to-sub 同期できるようにした**（commit fdf4be1）。従来は「ファイル選択で字幕を選ぶ」必要があり、選ばないと「内蔵字幕ない」Toast になっていた。Chromium は MKV コンテナの内蔵字幕を `video.textTracks` に公開しないが、companion の subtitle API 経由で torrent 内の字幕ファイルを直接取得できる。
 - **companion**: `SubtitleContent` が「選択済み字幕」に加え「**未選択なら torrent 内の字幕ファイルを自動検出**（`firstSubtitleIndex`・KindSubtitle）」して内容を返す。`Select` はビデオのみ選択時でも**内蔵字幕を Normal 優先度に昇格**（未選択字幕が DL されず読み取りがブロックする問題）。**潜在バグ修正**: `subtitleIdx` が Go ゼロ値（0 = 先頭ファイル = 動画）のままだった → `-1` 初期化（内蔵字幕なし時に動画を字幕として返すバグを防止）。
-- **web**: `planSync` に `sub-to-sub-auto-ref`（Magnet + 字幕モード + 参照字幕なし → 内蔵字幕を自動取得）を追加。`fetchMagnetSubtitle` の fileId をオプショナル化（空 = companion が自動検出）。`auto` モードも内蔵字幕を先に試し（sub-to-sub は audio より正確）、取得失敗時は `fallbackToAudio` で sub-to-audio にフォールバック（commit 5420278）。
+  - **web**: `planSync` に `sub-to-sub-auto-ref`（Magnet + 字幕モード + 参照字幕なし → 内蔵字幕を自動取得）を追加。`fetchMagnetSubtitle` の fileId をオプショナル化（空 = companion が自動検出）。`auto` モードも内蔵字幕を先に試し（sub-to-sub は audio より正確）、取得失敗時は `fallbackToAudio` で sub-to-audio にフォールバック（commit 5420278）。
+
+## 既知の制約
+
+1. **complete-while-ready の再 load（MED・2026-08-18）**: `companion-bridge.ts` の `applyStatus` で、pause-ready 駐留中に `complete` ポーリングが来ると `startReadyTransition` が再実行され、`video.load()` で 00:00 に巻き戻る可能性。Speed ジョブで playable→complete が 1 ポーリング周期（30s）以上かかる場合に発生。`case 'playable'` は既に ready/playing ガードがあるが `complete` は未適用（item #24 の前提「complete は一度のみ」が playable→complete 遷移で成立していない）。将来修正時は `complete` も `playable` と同様に ready/playing でスキップ。
+2. **onPause のリセット区別（LOW・2026-08-18）**: `onPause` リスナーが「ユーザー pause」と「load() による reset 起因 pause」を区別しない。error→playable 回復で再発火する可能性あり（要実機確認）。ED-2I で paused がデフォルトになったため、影響が目立ちうる。
 
