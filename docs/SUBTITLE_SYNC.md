@@ -230,7 +230,7 @@ Magnet で動画選択 → 再生開始（既存・progressive・serveTorrentMed
        2. web: cue を取得 → ズレ字幕の対応 cue と比較 → オフセット推定
        3. オフセットを字幕全体に適用（setCues でシフト表示）
        4. DL が進む → より多くの cue でオフセットを更新（累積的に精度向上）
-  └─ オフセットが安定したら完了（Toast「字幕同期成功!」）
+  └─ オフセットが安定したら完了（Magnet は成功 Toast を出さない・静かに同期）
 ```
 
 ### 10.3 技術詳細
@@ -263,7 +263,8 @@ Magnet で動画選択 → 再生開始（既存・progressive・serveTorrentMed
   - 品質ゲート: マッチ数が **3 未満**（`LAZY_SYNC_MIN_MATCHES`）なら適用しない
     （DL 進行でマッチ増加の可能性があるため待機継続・旧「言語不一致で即エラー」は廃止）。
   - オフセット閾値: **±100ms 未満**（`LAZY_SYNC_MIN_OFFSET_MS`）は「すでに同期済み」
-    として適用しない（成功 Toast のみ・ffsubsync `--suppress-output-if-offset-less-than` 相当）。
+    として適用しない（Magnet は成功 Toast を出さない・ffsubsync
+    `--suppress-output-if-offset-less-than` 相当）。
   - オフセット上限: **60 秒超**（`LAZY_SYNC_MAX_OFFSET_MS`）は異常値として適用しない
     （ffsubsync `--max-offset-seconds=60` 相当・防御として実装）。
 - オフセット推定: マッチした cue の「開始時間差」の**中央値**（`estimateOffsetMs`・
@@ -274,8 +275,9 @@ Magnet で動画選択 → 再生開始（既存・progressive・serveTorrentMed
 - 更新: ポーリング（3 秒）で DL 済み cue が増えるたびに再計算（ffsubsync の
   multi-segment 相当・増えた行でオフセット更新）。待機の上限は 12 分
   （`LAZY_SYNC_MAX_WAIT_POLLS = 240`・超過時は Toast）。
-- 完了: オフセットが安定（変化 ≤ 50ms）したら Toast「字幕同期成功!」・
-  以後も静かに更新を継続。
+- 完了: オフセットが安定（変化 ≤ 50ms）したら**成功 Toast は出さない**
+  （Magnet は毎回出ると邪魔なため・2026-08-17 確定）・以後も静かに更新を継続。
+  ローカル（従来のボタン同期・applySyncedSubtitle）は成功 Toast「字幕同期成功!」を維持。
 
 ### 10.4 Magnet での音声ベース無効化
 

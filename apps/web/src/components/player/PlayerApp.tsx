@@ -116,7 +116,6 @@ import {
 } from '@/features/player/eizouden-toast.tsx';
 import {
   LAZY_SYNC_POLL_INTERVAL_MS,
-  LAZY_SYNC_STABLE_THRESHOLD_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
   LAZY_SYNC_MIN_REF_CUES,
   LAZY_SYNC_MIN_MATCHES,
@@ -301,8 +300,6 @@ export default function PlayerApp() {
     appliedOnce: boolean;
     /** Last applied offset (ms) — stability is measured against this. */
     lastOffsetMs: number | null;
-    /** Whether the success toast already fired for a stable offset. */
-    successNotified: boolean;
     /** Consecutive polls in a waiting state (too few ref cues / too few
      *  matches / outlier offset). Bounded by LAZY_SYNC_MAX_WAIT_POLLS. */
     waitPollCount: number;
@@ -2203,7 +2200,6 @@ export default function PlayerApp() {
       baseCues,
       appliedOnce: false,
       lastOffsetMs: null,
-      successNotified: false,
       waitPollCount: 0,
     };
     setIsLazySyncOn(true);
@@ -2219,7 +2215,7 @@ export default function PlayerApp() {
    *   - first sync waits for ≥ LAZY_SYNC_MIN_REF_CUES downloaded cues;
    *   - quality gate: apply only with ≥ LAZY_SYNC_MIN_MATCHES cue pairs;
    *   - |offset| < LAZY_SYNC_MIN_OFFSET_MS counts as already in sync
-   *     (no shift, success toast once);
+   *     (no shift, no success toast — Magnet runs silently);
    *   - |offset| > LAZY_SYNC_MAX_OFFSET_MS is an outlier — never applied.
    * Waiting states share one bounded counter (LAZY_SYNC_MAX_WAIT_POLLS ≈
    * 12 min); on abort (toggle off / unmount), on a Magnet session that no
@@ -2343,17 +2339,12 @@ export default function PlayerApp() {
         if (Math.abs(offsetMs) < LAZY_SYNC_MIN_OFFSET_MS) {
           // Already in sync (ffsubsync --suppress-output-if-offset-less-
           // than): an offset under 100 ms is sub-frame noise — leave the
-          // cues untouched and treat the sync as converged: success toast
-          // once, polling continues to re-check as the DL grows.
+          // cues untouched and treat the sync as converged. No success
+          // toast for Magnet; polling continues to re-check as the DL
+          // grows.
           state.lastOffsetMs = offsetMs;
           state.waitPollCount = 0;
           if (!state.appliedOnce) state.appliedOnce = true;
-          if (!state.successNotified) {
-            state.successNotified = true;
-            notifySubtitleSyncSuccess(
-              dictRef.current.playerUI.subtitleSyncSuccess,
-            );
-          }
           await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
           continue;
         }
@@ -2361,9 +2352,6 @@ export default function PlayerApp() {
         const prev = state.lastOffsetMs;
         const changed =
           prev === null || Math.abs(offsetMs - prev) > 0.001;
-        const stable =
-          prev !== null &&
-          Math.abs(offsetMs - prev) <= LAZY_SYNC_STABLE_THRESHOLD_MS;
         state.lastOffsetMs = offsetMs;
         state.waitPollCount = 0;
 
@@ -2376,14 +2364,6 @@ export default function PlayerApp() {
         }
         if (!state.appliedOnce) {
           state.appliedOnce = true;
-        }
-        // Offset converged (change ≤ threshold): one success toast, then
-        // polling continues to refine (docs §10.2-10.3).
-        if (stable && !state.successNotified) {
-          state.successNotified = true;
-          notifySubtitleSyncSuccess(
-            dictRef.current.playerUI.subtitleSyncSuccess,
-          );
         }
       } catch {
         // Transient fetch failure (subtitle still preparing) — keep the

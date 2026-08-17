@@ -422,7 +422,7 @@ afterEach(() => {
 });
 
 describe('Magnet LazySync flow (docs §10)', () => {
-  it('toggle ON → estimates +1.5 s from embedded cues → applies → success toast', async () => {
+  it('toggle ON → estimates +1.5 s from embedded cues → applies silently (no success toast)', async () => {
     const fetchStub = routedFetch();
     vi.stubGlobal('fetch', fetchStub);
     render(<Player />);
@@ -455,23 +455,21 @@ describe('Magnet LazySync flow (docs §10)', () => {
       11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
     ]);
 
-    // Second poll: offset unchanged → stable → success toast (once).
+    // Second poll: offset unchanged → stable → no success toast (Magnet
+    // LazySync runs silently).
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LAZY_SYNC_POLL_INTERVAL_MS);
     });
     expect(fetchStub).toHaveBeenCalledTimes(3);
-    expect(toastSpy.success).toHaveBeenCalledWith(
-      'Subtitle sync successful!',
-      expect.anything(),
-    );
+    expect(toastSpy.success).not.toHaveBeenCalled();
 
-    // Later polls keep refining silently: no duplicate success toast, no
-    // cue churn.
+    // Later polls keep refining silently: still no success toast, no cue
+    // churn.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LAZY_SYNC_POLL_INTERVAL_MS);
     });
     expect(fetchStub).toHaveBeenCalledTimes(4);
-    expect(toastSpy.success).toHaveBeenCalledTimes(1);
+    expect(toastSpy.success).not.toHaveBeenCalled();
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
       11.5, 21.5, 31.5, 41.5, 51.5, 56.5,
     ]);
@@ -702,7 +700,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     expect(mocks.capturedProps.lazySyncOn).toBe(true);
   });
 
-  it('already in sync: |offset| < 100 ms → cues untouched, success toast once', async () => {
+  it('already in sync: |offset| < 100 ms → cues untouched, no success toast', async () => {
     const fetchStub = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/v1/source/torrents/')) {
@@ -725,21 +723,18 @@ describe('Magnet LazySync flow (docs §10)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    // First poll: offset 50 ms < 100 ms → already synced: no shift applied,
-    // but the success toast fires right away.
+    // First poll: offset 50 ms < 100 ms → already synced: no shift applied
+    // and no success toast (Magnet runs silently).
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
       10, 20, 30, 40, 50, 55,
     ]);
-    expect(toastSpy.success).toHaveBeenCalledWith(
-      'Subtitle sync successful!',
-      expect.anything(),
-    );
+    expect(toastSpy.success).not.toHaveBeenCalled();
 
-    // Later polls re-check and keep the single toast, display untouched.
+    // Later polls re-check and stay silent, display untouched.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LAZY_SYNC_POLL_INTERVAL_MS);
     });
-    expect(toastSpy.success).toHaveBeenCalledTimes(1);
+    expect(toastSpy.success).not.toHaveBeenCalled();
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual([
       10, 20, 30, 40, 50, 55,
     ]);
