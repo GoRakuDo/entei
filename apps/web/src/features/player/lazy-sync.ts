@@ -48,6 +48,13 @@ export const LAZY_SYNC_MAX_PAIRS = 100;
  *  diff counts as concentrated when |d − median| ≤ max(this, |median| / 2). */
 export const LAZY_SYNC_CONCENTRATION_BAND_MS = 2000;
 
+/** Upper bound for the concentration band. Without it, the band grows
+ *  proportionally with |median| and at large offsets swallows mid-track gaps
+ *  (e.g. +8.7 s offset + 3 s gap → both clusters land inside the band → wrong
+ *  shift applied). Kept below the smallest gap we want to reject fail-closed
+ *  (3 s): 2500 < 3000. */
+export const LAZY_SYNC_CONCENTRATION_BAND_MAX_MS = 2500;
+
 /** Minimum fraction of diffs that must sit inside the concentration band.
  *  A split that does not clear this (e.g. ±1.5 s mixed cues) is refused
  *  fail-closed instead of trusting a median that represents no single
@@ -72,9 +79,10 @@ export interface OffsetEstimate {
  * Returns null when:
  * - either side has no cues
  * - the diffs are not concentrated around the median (≤ 50% lie within
- *   max(2000 ms, |median| / 2) of it): a bimodal split (e.g. ±1.5 s mixed
- *   cues) or a mid-track rank misalignment means no single offset is
- *   representative — refuse fail-closed instead of applying a wrong shift
+ *   max(2000 ms, |median| / 2), capped at 2500 ms, of it): a bimodal split
+ *   (e.g. ±1.5 s mixed cues) or a mid-track rank misalignment means no single
+ *   offset is representative — refuse fail-closed instead of applying a wrong
+ *   shift
  * - the median exceeds LAZY_SYNC_MAX_OFFSET_MS (1 hour, broken estimate)
  *
  * A median of exactly 0 is NOT null: it means the tracks are already in
@@ -101,6 +109,8 @@ export function estimateMedianOffset(
     diffs.push(diffMs);
   }
 
+  // Defensive guard (currently unreachable: both arrays are non-empty and
+  // stride ≥ 1 guarantee at least one pair). Kept for future refactors.
   if (diffs.length === 0) return null;
 
   // Median: sort and pick the middle value.
@@ -114,9 +124,12 @@ export function estimateMedianOffset(
   // e.g. ±1.5 s mixed cues, or a mid-track insertion shifting the later
   // ranks by a gap) leaves ≤ 50% inside the band — no single offset is
   // representative, so refuse instead of applying a wrong constant shift.
-  const bandMs = Math.max(
-    LAZY_SYNC_CONCENTRATION_BAND_MS,
-    Math.abs(medianMs) / 2,
+  const bandMs = Math.min(
+    Math.max(
+      LAZY_SYNC_CONCENTRATION_BAND_MS,
+      Math.abs(medianMs) / 2,
+    ),
+    LAZY_SYNC_CONCENTRATION_BAND_MAX_MS,
   );
   let inBand = 0;
   for (const diffMs of diffs) {

@@ -266,9 +266,10 @@ Magnet で動画選択 → 再生開始（既存・progressive・serveTorrentMed
     起こした。中央値方式は順番対応でラップせず、外れ値に頑健なため、
     単一パスに置き換えた。
   - **集中度チェック（fail-closed・ゲート撤去の代替・2026-08-18）**:
-    中央値の周囲（`|d − median| ≤ max(2000ms, |median|/2)`・
-    `LAZY_SYNC_CONCENTRATION_BAND_MS`）に収まる diff が**過半数（> 50%・
-    `LAZY_SYNC_MIN_CONCENTRATION`）**を占めなければ null を返す。
+中央値の周囲（`|d − median| ≤ min(max(2000ms, |median|/2), 2500ms)`・
+`LAZY_SYNC_CONCENTRATION_BAND_MS` + `LAZY_SYNC_CONCENTRATION_BAND_MAX_MS`）に
+収まる diff が**過半数（> 50%・`LAZY_SYNC_MIN_CONCENTRATION`）**を
+占めなければ null を返す（大オフセット域での誤適用防止）。
     - 二峰分布（例: ±1.5 s が 5 対 5 混在）: 中央値 +1.5 s の周囲に入るのは
       片側クラスタのみ → 50% で通過しない → **拒否** ✅
     - mid-track 挿入で後半のランクがギャップ分ずれた場合（近正則トラック・

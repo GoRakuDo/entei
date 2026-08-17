@@ -10,6 +10,7 @@ import {
   LAZY_SYNC_MAX_OFFSET_MS,
   LAZY_SYNC_MAX_PAIRS,
   LAZY_SYNC_CONCENTRATION_BAND_MS,
+  LAZY_SYNC_CONCENTRATION_BAND_MAX_MS,
   LAZY_SYNC_MIN_CONCENTRATION,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
@@ -174,6 +175,21 @@ describe('estimateMedianOffset', () => {
     expect(estimateMedianOffset(drift, ref)).toBeNull();
   });
 
+  it('fail-closed: large offset + mid-track gap (band cap) → null', () => {
+    // The band scales with |median| (|median| / 2); without the cap a large
+    // offset would widen it enough to swallow the mid-track gap. Here a
+    // +8.7 s offset with a 3 s gap inserted mid-track splits the diffs into
+    // 3× 8700 + 3× 11700. The capped band (min(max(2000, 11700/2), 2500) =
+    // 2500) keeps the far cluster out → 3/6 = 50% → refused fail-closed.
+    const drift = Array.from({ length: 6 }, (_, i) =>
+      cue(i, i * 3, `ja-${i}`),
+    );
+    const ref = Array.from({ length: 6 }, (_, i) =>
+      cue(i, (i >= 3 ? i * 3 + 3 : i * 3) + 8.7, `en-${i}`),
+    );
+    expect(estimateMedianOffset(drift, ref)).toBeNull();
+  });
+
   it('returns null when offset exceeds 1 hour (broken estimate)', () => {
     const drift = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5, `ja-${i}`),
@@ -281,6 +297,10 @@ describe('LazySync constants', () => {
 
   it('concentration band baseline is 2000 ms (docs §10.3)', () => {
     expect(LAZY_SYNC_CONCENTRATION_BAND_MS).toBe(2000);
+  });
+
+  it('concentration band cap is 2500 ms (3 s mid-track gaps stay fail-closed at large offsets)', () => {
+    expect(LAZY_SYNC_CONCENTRATION_BAND_MAX_MS).toBe(2500);
   });
 
   it('concentration requires > 50% of diffs inside the band (fail-closed)', () => {
