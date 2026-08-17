@@ -28,7 +28,7 @@ DenChouの1枚のcardへ複数sceneを足す時、各sceneを`<span class="group
 | definition / image / audio / word / tags | wrapper対象外（`<br>` append維持） |
 | `sentenceFurigana` | 将来予約。field、生成、UI、storageはまだ作らない |
 
-根拠は`apps/web/src/components/player/PlayerApp.tsx:1428-1438`（New mode）と`1735-1751`（Append mode）。
+根拠は`apps/web/src/components/player/PlayerApp.tsx:3393-3402`（New mode）と`3745-3768`（Append mode）。
 
 ## 3. export契約
 

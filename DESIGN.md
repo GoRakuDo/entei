@@ -2,7 +2,7 @@
 
 > Version: 1.0.0
 > Last updated: 2026-08-11
-> Status: Design specification only. Code migration will happen later.
+> Status: Design specification only.
 > Scope: Entei only. `D:\GoRakuDo\DESIGN.md` is a reference, not a runtime dependency.
 
 ---

@@ -10,7 +10,7 @@ Entei has **no server-side application backend**. Everything runs entirely insid
 
 Entei runs local media files and subtitles in your web browser. Your user data, media captures, and learning settings stay completely local on your machine.
 
-_Note: While your data stays on your machine, Entei is not strictly offline-only. The optional WebTorrent feature connects to external WebRTC peers, which involves standard network communication._
+_Note: While your data stays on your machine, Entei is not strictly offline-only. When you stream a magnet or YouTube source through the optional EizouDendenshi companion, it connects to external BitTorrent swarms or YouTube, which involves standard network communication._
 
 For details on the project phases, see the [PLAYER_PHASES.md](./docs/PLAYER_PHASES.md) design document.
 
@@ -61,12 +61,13 @@ imported weekly from a YouTube Studio member CSV export
 fetch pipeline (`members-supporter/fetch-members.mjs`) ready once YouTube
 grants API access.
 
-### 5. WebTorrent Streaming (Optional)
+### 5. Magnet / YouTube Streaming (Optional, via EizouDendenshi)
 
-- **P2P Playback:** Stream video and audio directly in the browser by pasting a magnet URI.
-- **Connection Gate:** Requires at least one active WebRTC peer to start. Entei uses a 30-second peer search timer before falling back.
+- **Magnet Streaming:** Stream BitTorrent magnet links through the optional EizouDendenshi local companion (loopback-only `127.0.0.1`) using a regular BitTorrent client — no in-browser WebTorrent.
+- **YouTube Streaming:** Stream YouTube videos (up to 1080p) through the same companion.
+- **Pairing Gate:** Sources require pairing with the local companion before streaming starts.
 
-Read more in the [WEBTORRENT_STREAMING.md](./docs/WEBTORRENT_STREAMING.md) specification.
+Read more in the [EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md) specification.
 
 ---
 
@@ -76,7 +77,7 @@ Entei is designed around user privacy:
 
 - **No Server Storage:** We do not host server-side proxies, cache servers, or search indexes. Your media files are never uploaded to any remote server.
 - **Local Anki Connect:** Card creation requests are sent directly to `localhost:8765` on your own machine. Your API keys are kept in session memory and are never saved to local storage, URLs, or external logs.
-- **WebTorrent Network Exposure:** When streaming via WebTorrent, you join a public peer-to-peer network. This means your public IP address will be visible to WebSocket trackers and WebRTC peers.
+- **Companion Network Exposure:** When streaming a magnet or YouTube source via the EizouDendenshi companion, the companion (not the browser) connects to public BitTorrent swarms or YouTube, so your public IP address is visible to swarm peers/trackers or YouTube.
 - **No External Partnerships:** Integration with external tools or platforms like Nadeshiko is not implemented, and no partnerships exist.
 
 ---
@@ -94,7 +95,6 @@ graph TD
             Controls[Custom Controls & Subtitle Appearance]
             Parser[Subtitle Parser - SRT/VTT/ASS]
             Capture[Media Capture - JPEG/Silent WebM/Opus]
-            WT[WebTorrent Client - WebRTC-only]
             Prefs[Local Storage - Preferences & Panel Layouts]
         end
     end
@@ -103,11 +103,11 @@ graph TD
         LocalMedia[Local Media Files - MP4/MP3/etc.] -->|File Picker / Drag & Drop| UI
         LocalSubs[Local Subtitles - SRT/VTT/ASS] -->|File Picker / Drag & Drop| Parser
         Anki[Anki Desktop Application] <-->|AnkiConnect localhost:8765| UI
+        ED[EizouDendenshi Companion - Loopback-only] <-->|Pairing + Streaming - 127.0.0.1| UI
     end
 
     subgraph ExternalNetwork ["External Network"]
-         WebRTCPeers[WebTorrent WebRTC Peers] <-->|Direct P2P Data Sharing - Exposes IP| WT
-         Trackers[WebSocket Trackers] <-->|Peer Discovery| WT
+         Swarm[BitTorrent Swarm / YouTube] <-->|Direct Network Communication - Exposes IP| ED
     end
 
     subgraph FutureConnections ["Future Extensions (Not Connected)"]
@@ -180,7 +180,7 @@ npm run format
 
 ## Project Status & Roadmap
 
-Entei is currently in the **Testing & Refinement** phase. The core features for the local-first player, playback modes, and Anki mining (Phases 0, 1, and 2) are code-complete and awaiting final manual browser QA.
+Entei is currently in the **Testing & Refinement** phase. The local-first player, playback modes, and Anki mining (Phases 0, 1, and 2), plus the immersion Tracker (P6 foundation + `/tracker/` dashboard), are implemented and live on [entei.gorakudo.org](https://entei.gorakudo.org) since 2026-08-12. Subtitle timing auto-sync (subomatic WASM) is merged to main; remaining work is manual browser QA and the final EizouDendenshi companion gates.
 
 ### What is Deferred or Out of Scope
 
@@ -196,7 +196,7 @@ loopback-only Windows / Termux companion (127.0.0.1-only). It hands
 user-entered YouTube and magnet sources to the player without server
 involvement — pairing, YouTube jobs, torrent jobs, and streaming are
 implemented and shipped as signed pre-releases (latest:
-`eizoudendenshi-v0.2.0-rc.69`). One-line installs via the Entei site:
+`eizoudendenshi-v0.2.0-rc.81`). One-line installs via the Entei site:
 
 - **Termux:** `curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash`
 - **Windows:** `irm https://entei.gorakudo.org/eizouden-install.ps1 | iex`
@@ -279,17 +279,15 @@ See [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md) for the full plan.
   disconnected/error, 401/403 → re-pair, `complete`-gated explicit
   `src`/`load()`/`play()` with pending-seek/play-intent preservation,
   media-error re-check with bounded explicit reset; all state page-memory
-  only; web tests green) plus a **fixture-only Player integration**:
-  `useCompanionFixtureSession` wired into PlayerApp (media URL surfaced
-  only on the `complete` gate, attached to the existing video element ref,
-  session ended on media switch/unmount), an internal dev/QA entry that
-  starts a fixture session from the page-memory pairing token (never wired
-  to user-facing Magnet/YouTube/source buttons, which stay non-functional),
-  and a session-status banner shown only while a fixture session is active
-  (buffering progress / error / re-pair, no impact on local files, mining,
-  Anki, tracker). Source-dialog UX, `headReady` byte-level detection,
-  production bridge/job-source, and headed Windows Chrome / Android Chrome
-  browser QA remain unimplemented/unrun. See
+  only; web tests green) plus **Player integration wired to the real source
+  UI**: the buffering/`complete`-gated playback contract now backs the
+  user-facing Magnet and YouTube source flows (Magnet dialog 2026-08-02,
+  YouTube job dialog with real job create/cancel, both pairing-gated), with
+  a session-status banner during buffering (progress / error / re-pair, no
+  impact on local files, mining, Anki, tracker). `headReady` byte-level
+  detection and the production bridge (HTTPS origin → loopback companion)
+  remain unimplemented; headed Windows Chrome / Android Chrome browser QA
+  is pending. See
   [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md).
 - **ED-2F YouTube local source jobs — COMPANION FOUNDATION IMPLEMENTED:**
   localhost-only, Origin + token-gated `POST/GET /v1/source/jobs(/{id})(/cancel)`
@@ -306,26 +304,22 @@ See [docs/EIZOU_DENDENSHI.md](./docs/EIZOU_DENDENSHI.md) for the full plan.
   the   job→bridge wiring (`useCompanionJobSession`) are implemented with
   web tests green. Cookies/saved profiles, subtitles, Android/headed-Windows
   browser QA, and the production bridge remain unimplemented/unrun.
-- **ED-2G aria2 torrent jobs — COMPANION FOUNDATION IMPLEMENTED:**
-  `internal/torrent` magnet validation (btih-only, other params dropped,
-  canonicalized) + a supervised aria2 manager (pinned `--aria2`, fixed argv
-  with `--seed-time=0` and no shell, up to 2 concurrent torrent sessions
-  (oldest-first eviction, 30s TTL, per-job Engine/Client) with YouTube
-  cross-kind conflict → 409, cancel/timeout kill the process tree, private
+- **ED-2G anacrolix/torrent engine torrent jobs — IMPLEMENTED:**
+  `internal/torrent` btih-only magnet validation + a supervised
+  anacrolix/torrent engine manager (replacing the earlier aria2 helper;
+  per-job Engine/Client, up to 2 concurrent torrent sessions with
+  oldest-first eviction + 30s TTL, YouTube cross-kind conflict → 409, head
+  bootstrap + verified-prefix streaming, cancel/timeout cleanup, private
   temp-dir lifecycle) behind `POST/GET /v1/source/torrents(/{id})(/cancel)`
-  plus a backend-only file-listing + one-video/optional-subtitle selection
-  (`/files`, `/select`) aligned to the Player's native allowlists; nothing
-  is served before a valid selection, and `/v1/media/status` +
-  `/v1/media/fixture` surface it (buffering 503 → complete 206). All Go
-  tests green with `go test -race ./...` (fake aria2 helper). Real swarm
-  download QA, the user-facing torrent/selection UI, forward/growing
-  playback during download, and Android/headed-Windows browser QA remain
-  unimplemented/unrun.
-- **Delivery is still not complete:** HTTPS deployed Entei origin, Android
-  Chrome growing-media progressive playback, audio listening/decode, and
-  the Windows installer remain. The production bridge is unimplemented and
-  cannot rely on Chrome auto-retry (it needs buffering + availability-based
-  retry/backoff + an explicit `src`/`load()` reset once playable).
+  plus the user-facing Magnet/selection UI (pairing-gated, tracker/peer IP
+  disclosure, one-video/optional-subtitle selection aligned to the Player's
+  native allowlists; implemented 2026-08-02). Nothing is served before a
+  valid selection, and `/v1/media/status` + `/v1/media/fixture` surface it
+  (buffering 503 → verified-prefix 206 → complete 206). All Go tests green
+  with `go test -race ./...`. Remaining: real-swarm download E2E with the
+  anacrolix engine and Android/headed-Windows browser QA.
+- **Remaining delivery items:** Android Chrome growing-media progressive
+  playback, audio listening/decode, and the Windows installer.
 
 ## Lineage & Inspiration
 

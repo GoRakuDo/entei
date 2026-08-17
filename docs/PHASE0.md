@@ -4,13 +4,13 @@
 
 | 項目             | 内容                                                                                                      |
 | ---------------- | --------------------------------------------------------------------------------------------------------- |
-| 文書状態         | Implementation Approved — Phase 0 code実装済み、runtime colors normalized to OKLCH、Yosia code review待ち |
+| 文書状態         | Implementation Approved — Phase 0 code実装済み、runtime colors normalized to OKLCH、手動 Chromium QA 済み |
 | 対象URL          | `https://entei.gorakudo.org`                                                                              |
 | 対象Phase        | Phase 0 — ホームページと基盤のみ                                                                          |
 | 初期表示言語     | Bahasa Indonesia                                                                                          |
 | 追加言語         | 日本語 / English                                                                                          |
 | 初期保証ブラウザ | Chromium系ブラウザ                                                                                        |
-| 最終更新         | 2026-07-20                                                                                                |
+| 最終更新         | 2026-08-12                                                                                                |
 
 この文書は設計の合意を作るためのもの。Yosiaのレビューと承認が終わるまで、アプリ本体の実装には進まない。
 
@@ -695,12 +695,12 @@ Line番号は2026-07-19時点のsnapshot。参照元が更新された時は、�
 
 ## 25. Implementation gateとlog
 
-**現在のgate：`IMPLEMENTATION COMPLETE`**
+**現在のgate：`PHASE 0 COMPLETE`**
 
 - 許可済み：`Entei/docs/PHASE0.md`の作成・レビュー対応 + Phase 0 application code実装。code-reviewer reviewは完了し、最終判定は`APPROVE`。
-- 実施済み：Yosia承認済みの初回source commit / push（`8f54861`）。
-- 未許可：追加のgit commit / push、PR作成、DNS設定、deploy本番。
-- 次の状態：Yosiaがpublishを明示承認し、本番deploy + smoke testを終えた時に`PHASE 0 COMPLETE`へ変更する。
+- 実施済み：Yosia承認済みの初回source commit / push（`8f54861`）、手動Chromium QA、2026-08-12の本番deploy + smoke test（`entei.gorakudo.org` で公開中・main push自動deploy）。
+- 未許可：Phase 0 scopeの追加変更（Phase 0は完了済み。以降の変更は新規Phaseとして承認が必要）。
+- 次の状態：なし（`PHASE 0 COMPLETE`到達済み）。
 
 Implementation Logには、意図や予定ではなく実際に完了したことだけを書く。Commandは全文dumpではなく、実行command・終了code・重要なsummary・artifact pathを残す。
 
@@ -755,7 +755,7 @@ Testをまだ実行していない時は`未実施`と書き、成功したよ�
 - [ ] Section 9のBahasa Indonesia / 日本語 / English copyは、公開前に改善する。
 - [x] Game hubは、Yosia提供のbrand SVGとCSS背景で開始する。
 
-copy以外のPhase 0実装・手動QAは完了。公開前にcopyとOG WebP/PNGを確定し、Yosiaがpublishを承認した後にdeployへ進む。
+copy以外のPhase 0実装・手動QAは完了し、2026-08-12に本番deployを実施した（`entei.gorakudo.org` で公開中）。
 
 ## 開発記録（2026-08-07）: Astro 7.2 更新 + incrementalBuild 有効化
 

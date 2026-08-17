@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P2.1（Normal / Condensed / Fast-forward + Subtitle Appearance Settings tab）はコード完了、手動browser QA待ち。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。P2.2-P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P2.1（Normal / Condensed / Fast-forward + Subtitle Appearance Settings tab）はコード完了、手動browser QA待ち。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。P6 Tracker（foundation + dashboard）は実装済み。P2.2-P5・P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -264,7 +264,7 @@ asbplayerではCondensedとFast-forwardが競合する（`play-mode-manager.ts:1
 - JPEG screenshot capture — AM-2で完了
 - browser-native WebM/Opus audio clip生成とpreview — AM-3/AM-4で完了。downloadは未実装
 - surrounding subtitles — 未実装
-- IndexedDB mining history — 現在は実装済み。successful Anki exportのfilename / range / sentenceだけをlocal IndexedDBへ記録し、RightPanelのHistoryで読む。P6 IMMERSION_TRACKERの記録は実装切替時から新規開始する。旧Historyの削除方針は2026-07-30にユーザー承認済みだが、実装時も新DB初期化成功後に削除対象を示して直前確認を得てから削除する。以後はTracker内の`mining_archive`をRecent miningの簡易listとして維持し、詳細は将来の`/tracker/` pageへ分離する。再選択は未実装
+- IndexedDB mining history — 現在は実装済み。successful Anki exportのfilename / range / sentenceだけをlocal IndexedDBへ記録し、RightPanelのHistoryで読む。P6 IMMERSION_TRACKERの記録は実装切替時から新規開始する。旧Historyの削除方針は2026-07-30にユーザー承認済みだが、実装時も新DB初期化成功後に削除対象を示して直前確認を得てから削除する。以後はTracker内の`mining_archive`をRecent miningの簡易listとして維持し、詳細は`/tracker/` page（実装済み）へ分離する。再選択は未実装
 - historyから再選択、audio/image download、SRT section export — 未実装
 
 ### 先にJPEG + audioを作る理由
@@ -365,7 +365,7 @@ WebMを「あるはず」と決め打ちしない。利用可能なcodecをrunti
 - media内comprehension / statistics
 - statistics generationとlarge subtitle collectionの性能対策
 
-視聴・再生速度・Condensed / Fast-forwardを混ぜないlocal-firstの集計契約は、[IMMERSION_TRACKER.md](./IMMERSION_TRACKER.md)を正とする。v1はlocal fileだけを対象にし、video sample fingerprint + subtitle digest、media / subtitle版 / 日別集計、1秒cellを30秒へまとめるi+1 Moments、Mining archive、privacy、IndexedDB deletion境界をこのPhaseで実装する。RightPanelのHistoryはdefault ON / persisted OFF SwitchとRecent miningの簡易listだけを維持し、詳細分析は将来の`/tracker/` pageへ分離する。backup / import、WebTorrent tracking、Passive Listeningはdeferred。
+視聴・再生速度・Condensed / Fast-forwardを混ぜないlocal-firstの集計契約は、[IMMERSION_TRACKER.md](./IMMERSION_TRACKER.md)を正とする。v1はlocal fileだけを対象にし、video sample fingerprint + subtitle digest、media / subtitle版 / 日別集計、1秒cellを30秒へまとめるi+1 Moments、Mining archive、privacy、IndexedDB deletion境界をこのPhaseで実装する。RightPanelのHistoryはdefault ON / persisted OFF SwitchとRecent miningの簡易listだけを維持し、詳細分析は`/tracker/` page（実装済み）へ分離する。backup / import、WebTorrent tracking、Passive Listeningはdeferred。
 
 ### 注意
 
