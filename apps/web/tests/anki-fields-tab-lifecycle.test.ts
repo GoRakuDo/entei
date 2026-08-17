@@ -682,7 +682,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     'sentence',
     'definition',
     'picture',
-    'sentenceCard',
+    'sentenceAudio',
     'word',
     'miscInfo',
   ];
@@ -749,7 +749,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
       sentence: 'sentence',
       definition: 'definition',
       image: 'picture',
-      audio: 'sentenceCard',
+      audio: 'sentenceAudio',
       word: 'word',
       source: 'miscInfo',
     });
@@ -764,7 +764,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
       modelNames: ['DenChou'],
       modelFieldNames: {
         // miscInfo missing → all six required names not present
-        DenChou: ['sentence', 'definition', 'picture', 'sentenceCard', 'word'],
+        DenChou: ['sentence', 'definition', 'picture', 'sentenceAudio', 'word'],
       },
     });
     global.fetch = fetchSpy;
@@ -784,7 +784,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     // Preserved mapping entirely (no half application), no additional save.
     expect(readStorage()?.fields).toEqual(before?.fields);
     expect(readStorage()?.fields?.image).not.toBe('picture');
-    expect(readStorage()?.fields?.audio).not.toBe('sentenceCard');
+    expect(readStorage()?.fields?.audio).not.toBe('sentenceAudio');
   });
 
   it('M: unresolved model (pending field fetch) blocks DenChou apply', async () => {
@@ -821,7 +821,7 @@ describe('AnkiFieldsTab lifecycle integration', () => {
     const fetchSpy = mockAnkiFlow({
       modelNames: ['DenChou'],
       modelFieldNames: {
-        DenChou: ['sentence', 'definition', 'picture', 'sentenceCard', 'word'],
+        DenChou: ['sentence', 'definition', 'picture', 'sentenceAudio', 'word'],
       },
     });
     global.fetch = fetchSpy;

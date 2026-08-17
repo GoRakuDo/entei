@@ -89,7 +89,7 @@ const DENCHOU_PRESET_MAPPING: Record<keyof AnkiFieldMapping, string> = {
   sentence: 'sentence',
   definition: 'definition',
   image: 'picture',
-  audio: 'sentenceCard',
+  audio: 'sentenceAudio',
   word: 'word',
   source: 'miscInfo',
 };
