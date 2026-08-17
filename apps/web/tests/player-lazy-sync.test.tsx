@@ -9,9 +9,9 @@
  *     standard auto-fetch effect, which sets subtitleTextRef)
  *   - /v1/source/torrents/ → the embedded subtitle (fetchMagnetSubtitle),
  *     served at +1.5 s so the estimated offset must be +1500 ms.
- * Both tracks are 101 cues so that the histogram's 50-cue sampling (ref
- * indices 0/50/100) yields 3 sampled refs that each sit 1.5 s after a
- * corresponding user cue — a 3-pair peak that clears the quality gate.
+ * Both tracks are 101 cues (5 s spacing); rank-pairing k-th ref ↔ k-th
+ * base cue yields 101 diffs of exactly +1.5 s → median +1500 ms with 100%
+ * concentration → applied.
  * ---------------------------------------------------------------------
  */
 
@@ -260,11 +260,8 @@ const MEDIA_URL = 'http://127.0.0.1:4322/v1/media/fixture?token=t';
 
 // --- Fixtures -----------------------------------------------------------
 // The user subtitle is the FULL track (101 cues at 10, 15, …, 510 s; 5 s
-// spacing) and the embedded track is the same content at +1.5 s. The
-// estimator samples every 50th ref cue (indices 0, 50, 100 → 11.5, 261.5,
-// 511.5 s), each of which sits exactly 1.5 s after a user cue (10, 260,
-// 510 s) — a 3-pair peak at +1500 ms that clears LAZY_SYNC_MIN_PEAK_COUNT
-// and the margin gate.
+// spacing) and the embedded track is the same content at +1.5 s: every
+// rank pair diffs by exactly +1.5 s → median +1500 ms, 100% concentration.
 
 function vttTime(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -297,22 +294,24 @@ const EMBEDDED_VTT = vttFromStarts(USER_SHIFTED_STARTS);
 /** Downloaded prefix with only 3 cues — under the first-sync gate. */
 const EMBEDDED_SHORT_VTT = vttFromStarts([11.5, 12.5, 13.5]);
 
-/** 5 downloaded cues: the full-vote sampling (5 < 50 → stride 1) ranks all
- *  5 cues, but each lands in a different time-difference bin — a 1-pair
- *  peak, below the 3-pair quality gate. */
-const EMBEDDED_SPARSE_VTT = vttFromStarts([11.5, 21.5, 97.7, 163.4, 254.9]);
+/** Downloaded prefix with 5 cues: the first 5 cues of the +1.5 s track (a
+ *  continuous prefix — what an MKV cluster actually serves). Rank-pairing
+ *  with the user's first 5 cues yields five +1.5 s diffs → median +1500 ms
+ *  applied. (The old fixture used irregular positions that pinned a wrong
+ *  +77.7 s offset as spec.) */
+const EMBEDDED_SPARSE_VTT = vttFromStarts([11.5, 16.5, 21.5, 26.5, 31.5]);
 
 /** Embedded track runs only +50 ms ahead — already in sync. */
 const EMBEDDED_IN_SYNC_VTT = vttFromStarts(USER_STARTS.map((s) => s + 0.05));
 
-// Text-matching fixtures: the embedded track shares the user subtitle's
-// texts verbatim but drifts +10 s — beyond half the 5 s user cue spacing,
-// so only the text-matching phase can recover the offset.
-const USER_TEXT_MATCH_VTT = vttFromStarts(
+// Large-drift fixtures: the embedded track is the user's 5 s-spaced track
+// at +10 s — rank-pairing recovers the offset at any magnitude without text
+// matching.
+const USER_10S_VTT = vttFromStarts(
   USER_STARTS,
   (_start, i) => `text ${i}`,
 );
-const EMBEDDED_TEXT_MATCH_VTT = vttFromStarts(
+const EMBEDDED_10S_VTT = vttFromStarts(
   USER_STARTS.map((s) => s + 10),
   (_start, i) => `text ${i}`,
 );
@@ -621,12 +620,11 @@ describe('Magnet LazySync flow (docs §10)', () => {
     ]);
   });
 
-  it('sparse ref cues: rank-pairing median still applies an offset (no quality gate)', async () => {
+  it('sparse ref prefix: 5 continuous cues → +1.5 s offset applied', async () => {
     const fetchStub = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/v1/source/torrents/')) {
-        // 5 downloaded cues at irregular positions: rank-pairing pairs
-        // drift[i] with ref[i] and the median of diffs is applied.
+        // 5 downloaded cues = the first 5 cues of the +1.5 s track.
         return Promise.resolve(
           new Response(EMBEDDED_SPARSE_VTT, { status: 200 }),
         );
@@ -645,8 +643,11 @@ describe('Magnet LazySync flow (docs §10)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    // Rank-pairing median from 5 sparse pairs → offset applied (no gate).
-    expect(mocks.capturedCues!.length).toBeGreaterThan(0);
+    // Rank-pairing median from the 5-cue prefix → exactly +1.5 s applied
+    // to the whole user track.
+    expect(mocks.capturedCues!.map((c) => c.start)).toEqual(
+      USER_STARTS.map((s) => s + 1.5),
+    );
     expect(toastSpy.success).not.toHaveBeenCalled();
     expect(toastSpy.error).not.toHaveBeenCalled();
     expect(mocks.capturedProps.lazySyncOn).toBe(true);
@@ -699,20 +700,17 @@ describe('Magnet LazySync flow (docs §10)', () => {
     ]);
   });
 
-  it('text matching runs first and recovers a +10 s drift (priority, spec B)', async () => {
-    // The embedded track shares the user subtitle's texts but starts +10 s
-    // later. Text matching runs FIRST (spec B) and wins with a 101-pair
-    // peak at +10 s — the time-based fallback would also estimate +10 s on
-    // this 5 s-spaced track (no envelope bound), but the text phase takes
-    // priority.
+  it('rank-pairing median recovers a +10 s drift (any offset magnitude)', async () => {
+    // The embedded track is the user's 5 s-spaced track at +10 s: rank-
+    // pairing yields 101 diffs of exactly +10 s → median +10 s applied.
     const fetchStub = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/v1/source/torrents/')) {
         return Promise.resolve(
-          new Response(EMBEDDED_TEXT_MATCH_VTT, { status: 200 }),
+          new Response(EMBEDDED_10S_VTT, { status: 200 }),
         );
       }
-      return Promise.resolve(new Response(USER_TEXT_MATCH_VTT, { status: 200 }));
+      return Promise.resolve(new Response(USER_10S_VTT, { status: 200 }));
     });
     vi.stubGlobal('fetch', fetchStub);
     render(<Player />);
@@ -729,7 +727,7 @@ describe('Magnet LazySync flow (docs §10)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    // First poll: text phase pairs all 101 cues at +10 s → applied.
+    // First poll: all 101 rank pairs diff by +10 s → applied.
     expect(mocks.capturedCues!.map((c) => c.start)).toEqual(
       USER_STARTS.map((s) => s + 10),
     );

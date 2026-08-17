@@ -8,8 +8,10 @@
 //
 // Algorithm (rank-pairing median): pair the k-th drift cue with the k-th
 // ref cue (order-based, offset-agnostic), collect time differences, and
-// take the median. Works for any offset magnitude, any language, no text
-// matching or quality gates needed.
+// take the median. A concentration check refuses estimates where no single
+// offset dominates (bimodal / mid-track-misaligned splits), and a median of
+// exactly 0 counts as already in sync. Works for any offset magnitude, any
+// language, no text matching or histogram gates needed.
 
 import type { SubtitleCue } from './subtitle-reader';
 
@@ -19,9 +21,9 @@ export const LAZY_SYNC_POLL_INTERVAL_MS = 3000;
 /** Offset is considered stable when consecutive estimates change by ≤ 50 ms. */
 export const LAZY_SYNC_STABLE_THRESHOLD_MS = 50;
 
-/** Upper bound for every waiting state (~12 min = 240 polls × 3 s):
- *  too few downloaded cues, too few matches, or an outlier offset that
- *  never resolves — give up instead of showing the state forever. */
+/** Upper bound for every waiting state (~12 min = 240 polls × 3 s): too few
+ *  downloaded cues, or an estimate that never resolves (concentration check
+ *  keeps refusing) — give up instead of showing the state forever. */
 export const LAZY_SYNC_MAX_WAIT_POLLS = 240;
 
 /** First-sync trigger: wait until the downloaded prefix holds at least this
@@ -37,14 +39,25 @@ export const LAZY_SYNC_MIN_OFFSET_MS = 100;
 /** Maximum offset: values beyond this are treated as broken estimates. */
 export const LAZY_SYNC_MAX_OFFSET_MS = 3600000;
 
-/** Maximum number of pairs to sample. */
-export const LAZY_SYNC_MAX_DRIFT_SAMPLES = 100;
+/** Maximum number of rank pairs to sample: min(drift, ref) above this is
+ *  thinned with a stride, capping both the work and the influence of a
+ *  long download prefix. */
+export const LAZY_SYNC_MAX_PAIRS = 100;
 
-/** Estimated offset with pair count metadata. */
+/** Baseline half-width of the median-concentration band (docs §10.3): a
+ *  diff counts as concentrated when |d − median| ≤ max(this, |median| / 2). */
+export const LAZY_SYNC_CONCENTRATION_BAND_MS = 2000;
+
+/** Minimum fraction of diffs that must sit inside the concentration band.
+ *  A split that does not clear this (e.g. ±1.5 s mixed cues) is refused
+ *  fail-closed instead of trusting a median that represents no single
+ *  cluster. */
+export const LAZY_SYNC_MIN_CONCENTRATION = 0.5;
+
+/** Estimated offset with the number of rank pairs it was derived from. */
 export interface OffsetEstimate {
   offsetMs: number;
-  peakCount: number;
-  totalPairs: number;
+  pairCount: number;
 }
 
 /**
@@ -58,10 +71,18 @@ export interface OffsetEstimate {
  *
  * Returns null when:
  * - either side has no cues
- * - the median is 0 (already in sync)
+ * - the diffs are not concentrated around the median (≤ 50% lie within
+ *   max(2000 ms, |median| / 2) of it): a bimodal split (e.g. ±1.5 s mixed
+ *   cues) or a mid-track rank misalignment means no single offset is
+ *   representative — refuse fail-closed instead of applying a wrong shift
  * - the median exceeds LAZY_SYNC_MAX_OFFSET_MS (1 hour, broken estimate)
+ *
+ * A median of exactly 0 is NOT null: it means the tracks are already in
+ * sync, and the caller's |offset| < LAZY_SYNC_MIN_OFFSET_MS branch converges
+ * silently. (Returning null here made PlayerApp wait out the 12-min bound
+ * and toast "字幕が読み込まれていません" on perfectly synced subtitles.)
  */
-export function estimateOffsetFromNearestMedian(
+export function estimateMedianOffset(
   driftCues: readonly SubtitleCue[],
   refCues: readonly SubtitleCue[],
 ): OffsetEstimate | null {
@@ -70,8 +91,8 @@ export function estimateOffsetFromNearestMedian(
   // Rank-pair: k-th drift ↔ k-th ref. Sample to cap pair count.
   const maxPairs = Math.min(driftCues.length, refCues.length);
   const stride =
-    maxPairs > LAZY_SYNC_MAX_DRIFT_SAMPLES
-      ? Math.ceil(maxPairs / LAZY_SYNC_MAX_DRIFT_SAMPLES)
+    maxPairs > LAZY_SYNC_MAX_PAIRS
+      ? Math.ceil(maxPairs / LAZY_SYNC_MAX_PAIRS)
       : 1;
 
   const diffs: number[] = [];
@@ -86,15 +107,33 @@ export function estimateOffsetFromNearestMedian(
   diffs.sort((a, b) => a - b);
   const medianMs = diffs[Math.floor(diffs.length / 2)]!;
 
-  // Reject 0 (already in sync) and extreme values (broken estimate).
-  if (medianMs === 0 || !Number.isFinite(medianMs)) return null;
+  if (!Number.isFinite(medianMs)) return null;
+
+  // Concentration check (fail-closed): the majority of the diffs must sit
+  // inside a band around the median. A bimodal split (two offset clusters,
+  // e.g. ±1.5 s mixed cues, or a mid-track insertion shifting the later
+  // ranks by a gap) leaves ≤ 50% inside the band — no single offset is
+  // representative, so refuse instead of applying a wrong constant shift.
+  const bandMs = Math.max(
+    LAZY_SYNC_CONCENTRATION_BAND_MS,
+    Math.abs(medianMs) / 2,
+  );
+  let inBand = 0;
+  for (const diffMs of diffs) {
+    if (Math.abs(diffMs - medianMs) <= bandMs) inBand += 1;
+  }
+  if (inBand / diffs.length <= LAZY_SYNC_MIN_CONCENTRATION) return null;
+
+  // Median 0 = already in sync: return an estimate (not null) so PlayerApp
+  // converges silently via its |offset| < LAZY_SYNC_MIN_OFFSET_MS branch.
+  if (medianMs === 0) {
+    return { offsetMs: 0, pairCount: diffs.length };
+  }
+
+  // Extreme values are broken estimates.
   if (Math.abs(medianMs) > LAZY_SYNC_MAX_OFFSET_MS) return null;
 
-  return {
-    offsetMs: medianMs,
-    peakCount: diffs.length,
-    totalPairs: diffs.length,
-  };
+  return { offsetMs: medianMs, pairCount: diffs.length };
 }
 
 /**

@@ -5,10 +5,12 @@
 import { describe, expect, it } from 'vitest';
 import type { SubtitleCue } from '../src/features/player/subtitle-reader';
 import {
-  estimateOffsetFromNearestMedian,
+  estimateMedianOffset,
   shiftCuesByOffset,
   LAZY_SYNC_MAX_OFFSET_MS,
-  LAZY_SYNC_MAX_DRIFT_SAMPLES,
+  LAZY_SYNC_MAX_PAIRS,
+  LAZY_SYNC_CONCENTRATION_BAND_MS,
+  LAZY_SYNC_MIN_CONCENTRATION,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
   LAZY_SYNC_POLL_INTERVAL_MS,
@@ -25,7 +27,7 @@ function cue(
   return { id, start, end: end ?? start + 2, text };
 }
 
-describe('estimateOffsetFromNearestMedian', () => {
+describe('estimateMedianOffset', () => {
   it('detects a +1.5 s offset (basic case)', () => {
     const drift = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5, `ja-${i}`),
@@ -33,10 +35,10 @@ describe('estimateOffsetFromNearestMedian', () => {
     const ref = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5 + 1.5, `en-${i}`),
     );
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(1500);
-    expect(est!.totalPairs).toBe(10);
+    expect(est!.pairCount).toBe(10);
   });
 
   it('detects a +8.5 s offset (language mismatch, any offset via rank pairing)', () => {
@@ -46,7 +48,7 @@ describe('estimateOffsetFromNearestMedian', () => {
     const ref = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 3 + 8.5, `en-${i}`),
     );
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(8500);
   });
@@ -58,7 +60,7 @@ describe('estimateOffsetFromNearestMedian', () => {
     const ref = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5 + 180, `en-${i}`),
     );
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(180000);
   });
@@ -74,7 +76,7 @@ describe('estimateOffsetFromNearestMedian', () => {
     // Scatter 2 drift cues to random positions (outliers)
     drift[0] = cue(0, 999, 'ja-0');
     drift[11] = cue(11, 1000, 'ja-11');
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     // Rank pairing: drift[0]=999 ↔ ref[0]=5 → diff -994000, but median
     // of 12 diffs is still dominated by the 10 correct +5000 diffs.
@@ -83,18 +85,18 @@ describe('estimateOffsetFromNearestMedian', () => {
     expect(est!.offsetMs).toBe(5000);
   });
 
-  it('drift sampling: 200 cues → pairs capped at 100 → correct estimate', () => {
+  it('pair cap: 200 cues → 100 sampled pairs → correct estimate', () => {
     const drift = Array.from({ length: 200 }, (_, i) =>
       cue(i, i * 5, `ja-${i}`),
     );
     const ref = Array.from({ length: 200 }, (_, i) =>
       cue(i, i * 5 + 2.5, `en-${i}`),
     );
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(2500);
     // 200 pairs, stride = ceil(200/100) = 2 → 100 sampled pairs
-    expect(est!.totalPairs).toBe(100);
+    expect(est!.pairCount).toBe(100);
   });
 
   it('ref=16,315 × drift=83: stride=1 (full) → correct estimate', () => {
@@ -104,37 +106,72 @@ describe('estimateOffsetFromNearestMedian', () => {
     const ref = Array.from({ length: 16315 }, (_, i) =>
       cue(i, i * 0.45 + 1.5, `en-${i}`),
     );
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(1500);
     // min(83, 16315) = 83 < 100 → stride 1 → 83 pairs
-    expect(est!.totalPairs).toBe(83);
+    expect(est!.pairCount).toBe(83);
   });
 
   it('returns null when drift=0', () => {
     const ref = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5, `en-${i}`),
     );
-    expect(estimateOffsetFromNearestMedian([], ref)).toBeNull();
+    expect(estimateMedianOffset([], ref)).toBeNull();
   });
 
   it('returns null when ref=0', () => {
     const drift = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5, `ja-${i}`),
     );
-    expect(estimateOffsetFromNearestMedian(drift, [])).toBeNull();
+    expect(estimateMedianOffset(drift, [])).toBeNull();
   });
 
   it('returns null when both empty', () => {
-    expect(estimateOffsetFromNearestMedian([], [])).toBeNull();
+    expect(estimateMedianOffset([], [])).toBeNull();
   });
 
-  it('returns null when offset is 0 (already in sync)', () => {
+  it('already in sync: median 0 returns an estimate with offset 0 (not null)', () => {
     const cues = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5, `line-${i}`),
     );
-    // Same cues → offset 0 → null
-    expect(estimateOffsetFromNearestMedian(cues, cues)).toBeNull();
+    // Same cues → every diff is 0 → median 0 → an estimate, NOT null:
+    // PlayerApp treats |offset| < 100 ms as "already in sync" and converges
+    // silently. Returning null here made it wait out the 12-min bound and
+    // toast "字幕が読み込まれていません" on perfectly synced subtitles.
+    expect(estimateMedianOffset(cues, cues)).toEqual({
+      offsetMs: 0,
+      pairCount: 10,
+    });
+  });
+
+  it('fail-closed: ±1.5 s mixed diffs (bimodal) → null', () => {
+    // 5 pairs at −1.5 s and 5 at +1.5 s: the median (+1.5 s) sits inside
+    // max(2000, 750) = 2000 ms of only the +1.5 s cluster → 5/10 = 50% of
+    // the diffs, which is not > 50% — no single offset dominates, refuse.
+    const drift = Array.from({ length: 10 }, (_, i) =>
+      cue(i, i * 5 + 10, `ja-${i}`),
+    );
+    const ref = Array.from({ length: 10 }, (_, i) =>
+      cue(i, i * 5 + 10 + (i < 5 ? -1.5 : 1.5), `en-${i}`),
+    );
+    expect(estimateMedianOffset(drift, ref)).toBeNull();
+  });
+
+  it('fail-closed: mid-track gap (rank misalignment) → null', () => {
+    // Near-regular 3 s-spaced track with a 3 s gap inserted mid-track (docs
+    // §10.3 residual risk): the shifted later ranks produce a constant diff,
+    // here 3× 0 s + 3× +3 s. The median (+3 s) represents only half of the
+    // pairs → refused instead of applying the wrong +3 s shift.
+    const drift = Array.from({ length: 6 }, (_, i) =>
+      cue(i, i * 3, `ja-${i}`),
+    );
+    // Insert a 3 s gap after the 3rd cue (12 instead of 9) — every later
+    // rank is shifted by the gap, exactly the DL'd-prefix misalignment case.
+    const ref = Array.from({ length: 6 }, (_, i) =>
+      cue(i, (i >= 3 ? i * 3 + 3 : i * 3), `en-${i}`),
+    );
+    expect(estimateMedianOffset(drift, ref)).toBeNull();
   });
 
   it('returns null when offset exceeds 1 hour (broken estimate)', () => {
@@ -144,7 +181,7 @@ describe('estimateOffsetFromNearestMedian', () => {
     const ref = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5 + 3700, `en-${i}`), // 3700 s > 3600 s (1 hour)
     );
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).toBeNull();
   });
 
@@ -155,7 +192,7 @@ describe('estimateOffsetFromNearestMedian', () => {
     const ref = Array.from({ length: 10 }, (_, i) =>
       cue(i, i * 5, `en-${i}`),
     );
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(-3000);
   });
@@ -163,10 +200,10 @@ describe('estimateOffsetFromNearestMedian', () => {
   it('works with only 1 cue on each side', () => {
     const drift = [cue(0, 10, 'ja-0')];
     const ref = [cue(0, 12.5, 'en-0')];
-    const est = estimateOffsetFromNearestMedian(drift, ref);
+    const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(2500);
-    expect(est!.totalPairs).toBe(1);
+    expect(est!.pairCount).toBe(1);
   });
 });
 
@@ -238,7 +275,15 @@ describe('LazySync constants', () => {
     expect(LAZY_SYNC_MAX_OFFSET_MS).toBe(3600000);
   });
 
-  it('max drift samples is 100', () => {
-    expect(LAZY_SYNC_MAX_DRIFT_SAMPLES).toBe(100);
+  it('max pair cap is 100', () => {
+    expect(LAZY_SYNC_MAX_PAIRS).toBe(100);
+  });
+
+  it('concentration band baseline is 2000 ms (docs §10.3)', () => {
+    expect(LAZY_SYNC_CONCENTRATION_BAND_MS).toBe(2000);
+  });
+
+  it('concentration requires > 50% of diffs inside the band (fail-closed)', () => {
+    expect(LAZY_SYNC_MIN_CONCENTRATION).toBe(0.5);
   });
 });

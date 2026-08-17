@@ -120,7 +120,7 @@ import {
   LAZY_SYNC_MIN_REF_CUES,
   LAZY_SYNC_MIN_OFFSET_MS,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
-  estimateOffsetFromNearestMedian,
+  estimateMedianOffset,
   shiftCuesByOffset,
 } from '@/features/player/lazy-sync';
 
@@ -298,8 +298,9 @@ export default function PlayerApp() {
     appliedOnce: boolean;
     /** Last applied offset (ms) — stability is measured against this. */
     lastOffsetMs: number | null;
-    /** Consecutive polls in a waiting state (too few ref cues / too few
-     *  matches / outlier offset). Bounded by LAZY_SYNC_MAX_WAIT_POLLS. */
+    /** Consecutive polls in a waiting state (too few ref cues / an estimate
+     *  refused by the concentration check). Bounded by
+     *  LAZY_SYNC_MAX_WAIT_POLLS. */
     waitPollCount: number;
   } | null>(null);
 
@@ -2205,39 +2206,14 @@ export default function PlayerApp() {
   }, [isLazySyncOn]);
 
   /**
-   * LazySync polling loop (docs §10.2-10.3): every LAZY_SYNC_POLL_INTERVAL_MS
-   * fetch the embedded subtitle's downloaded-prefix cues and estimate the
-   * constant offset in two phases (user spec B): TEXT MATCHING first —
-   * cues whose normalized text matches are rank-paired per line (k-th
-   * occurrence ↔ k-th occurrence) and the histogram peak of their
-   * start-time differences is the offset, which recovers ANY offset
-   * magnitude when the two tracks share a language — then falling back to
-   * TIME-BASED rank pairing (sampled k-th ref cue ↔ k-th base cue;
-   * language-independent, offsets of any magnitude — no envelope bound,
-   * spec B; the margin gate guards against rank misalignment). The estimate
-   * is applied to the base (user-loaded) cues via setCues and keeps
-   * refining as the download grows. The apply trigger follows the
-   * ffsubsync design (docs §10):
-   *   - first sync waits for ≥ LAZY_SYNC_MIN_REF_CUES downloaded cues;
-   *   - quality gate: apply only when the histogram peak holds ≥
-   *     LAZY_SYNC_MIN_PEAK_COUNT cue pairs (correlated lines pile into one
-   *     bin at the true offset; scattered noise stays flat), and only when
-   *     the margin gate inside the estimator passes (peak ≥ 2 × the
-   *     second-largest bin — a ± mixed track or a flat noise band is
-   *     refused, fail-closed);
-   *   - |offset| < LAZY_SYNC_MIN_OFFSET_MS counts as already in sync
-   *     (no shift, no success toast — Magnet runs silently).
-   * The text-matching phase lifts the offset bound (a 10 s or 3-min drift
-   * syncs when the text matches); the time-based fallback covers different
-   * languages at any offset magnitude via rank pairing (no envelope bound);
-   * mid-track rank shifts scatter the diffs on irregular tracks and are
-   * refused by the margin gate; on near-regular tracks a gap-multiple
-   * constant can pass both gates (see lazy-sync.ts residual-risk note).
-   * Waiting states share one bounded counter (LAZY_SYNC_MAX_WAIT_POLLS ≈
-   * 12 min); on abort (toggle off / unmount), on a Magnet session that no
-   * longer qualifies, or on the exhausted wait bound the loop stops.
-   * All mutable data flows through lazySyncStateRef so the loop never
-   * depends on a render's closure.
+   * LazySync polling loop (docs §10.2-10.3): every poll interval, fetch the
+   * embedded subtitle's downloaded-prefix cues and estimate the constant
+   * offset by rank-pairing median. The concentration check refuses bimodal
+   * splits (fail-closed); |offset| < LAZY_SYNC_MIN_OFFSET_MS (including a
+   * 0 median) converges silently. Waiting states share one bounded counter
+   * (LAZY_SYNC_MAX_WAIT_POLLS ≈ 12 min); abort / stale session / exhausted
+   * bound stop the loop. Mutable data flows through lazySyncStateRef so the
+   * loop never depends on a render's closure.
    */
   const runLazySyncPolling = useCallback(async (signal: AbortSignal) => {
     const sleep = (ms: number) =>
@@ -2328,9 +2304,10 @@ export default function PlayerApp() {
           continue;
         }
 
-        const est = estimateOffsetFromNearestMedian(state.baseCues, refCues);
+        const est = estimateMedianOffset(state.baseCues, refCues);
         if (!est) {
-          // Nearest-cue median returned null (no cues, 0 offset, or > 1h).
+          // Median estimator returned null (no cues, a bimodal split refused
+          // by the concentration check, or an offset beyond 1 h).
           if (!(await boundedWait())) return;
           continue;
         }
