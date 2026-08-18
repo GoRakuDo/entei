@@ -274,7 +274,7 @@ export const ja: Dictionary = {
       'このブラウザとコンパニオンアプリから保存済みの接続を削除します。再度接続するには新しいペアリングコードが必要です。ダウンロードやメディアには影響しません。',
     eizouResetConfirm: 'リセットする',
     eizouResetCancel: 'キャンセル',
-    eizouPairingTitle: '映像伝電子をペアリングしましょう',
+    eizouPairingTitle: 'EizouDendenshi OTP',
     eizouPairingOtpLabel: '6桁のペアリングコード',
     eizouPairingOtpInvalid: '6桁のコードを入力してください。',
     eizouPairingSubmit: 'ペアリングする',

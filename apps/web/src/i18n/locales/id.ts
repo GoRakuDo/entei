@@ -273,7 +273,7 @@ export const id: Dictionary = {
       'Ini menghapus koneksi tersimpan dari browser ini dan dari aplikasi pendamping. Anda memerlukan kode pasangan baru untuk terhubung lagi. Unduhan dan media tidak terpengaruh.',
     eizouResetConfirm: 'Reset pasangan',
     eizouResetCancel: 'Batal',
-    eizouPairingTitle: 'Hubungkan EizouDendenshi',
+    eizouPairingTitle: 'EizouDendenshi OTP',
     eizouPairingOtpLabel: 'Kode pasangan 6 digit',
     eizouPairingOtpInvalid: 'Masukkan kode 6 digit.',
     eizouPairingSubmit: 'Pasangkan',

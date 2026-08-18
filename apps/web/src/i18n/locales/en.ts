@@ -269,7 +269,7 @@ export const en: Dictionary = {
       'This removes the saved connection from this browser and from the companion app. You will need a new pairing code to connect again. Downloads and media are not affected.',
     eizouResetConfirm: 'Reset pairing',
     eizouResetCancel: 'Cancel',
-    eizouPairingTitle: 'Pair EizouDendenshi',
+    eizouPairingTitle: 'EizouDendenshi OTP',
     eizouPairingOtpLabel: '6-digit pairing code',
     eizouPairingOtpInvalid: 'Enter the 6-digit code.',
     eizouPairingSubmit: 'Pair',
