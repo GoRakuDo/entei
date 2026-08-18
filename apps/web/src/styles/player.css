@@ -970,7 +970,7 @@
 
 .entei-dialog-title {
   font-family: var(--entei-font-display);
-  font-size: 1.125rem;
+  font-size: var(--entei-dialog-heading-size);
   font-weight: 700;
   color: var(--entei-text);
 }

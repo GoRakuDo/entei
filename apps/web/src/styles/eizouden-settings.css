@@ -121,13 +121,6 @@
   }
 }
 
-.entei-dialog-title {
-  font-family: var(--entei-font-display);
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--entei-text);
-}
-
 /* Settings dialog shell (full-viewport mobile, modal tablet/desktop) */
 .entei-settings-dialog {
   position: fixed;
