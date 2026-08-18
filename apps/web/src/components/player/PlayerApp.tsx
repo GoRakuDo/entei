@@ -113,6 +113,7 @@ import {
   notifySubtitleSyncError,
   notifySubtitleSyncSuccess,
   notifyLazySyncInfo,
+  notifyHEVCUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
 import {
   LAZY_SYNC_POLL_INTERVAL_MS,
@@ -1152,6 +1153,14 @@ export default function PlayerApp() {
         setLoadError(
           `${dictRef.current.playerUI.unsupportedFormat}: .${admission.ext}`,
         );
+        setIsLoading(false);
+        return;
+      }
+
+      // HEVC H.265 playback guard: block unsupported HEVC files with a toast
+      // and keep the file selection screen visible.
+      if (admission.kind === 'video' && isHEVC(file.name) && !isHEVCSupported()) {
+        notifyHEVCUnsupported(dictRef.current.playerUI.hevcUnsupported);
         setIsLoading(false);
         return;
       }
@@ -4370,6 +4379,7 @@ export default function PlayerApp() {
           magnetFileKindOther: dict.magnetFileKindOther,
           magnetTableNavUp: dict.magnetTableNavUp,
           magnetNoVideosInFolder: dict.magnetNoVideosInFolder,
+          hevcUnsupported: dict.hevcUnsupported,
         }}
       />
 
@@ -4504,3 +4514,4 @@ export default function PlayerApp() {
     </div>
   );
 }
+import { isHEVC, isHEVCSupported } from '@/features/player/hevc-detect';

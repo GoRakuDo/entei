@@ -284,6 +284,8 @@ export const en: Dictionary = {
     companionJobFailed:
       'The download failed. Please try a new URL or choose a file.',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
+    hevcUnsupported:
+      'H.265 (HEVC) video playback is not supported. Try using the Thorium browser.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTube streaming',

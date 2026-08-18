@@ -796,3 +796,31 @@ asbplayerはMIT（`A:\asbplayer\LICENSE.md:1-13`）。純粋parser codeを直接
 1. P1.3b / P1.4はdeferred — 現在のプロダクト範囲外。将来のyt-dlp acquisition path確立時に再開。
 2. P1 same-start cue merge maintenance fix完了（713 tests）。次のgate通過後にP2実装を明示承認した時だけ学習再生modeと設定へ進む。
 3. P1の残るformat QA（SRT/VTT/ASS + cue merge確認）をbrowser gateで実施する。
+
+---
+
+## 19. HEVC H.265 再生制限
+
+> **追加日:** 2026-08-18
+> **対象:** pps/web/src/features/player/hevc-detect.ts、PlayerApp.tsx、MagnetInput.tsx
+
+HEVC (H.265) 動画は、Thorium（Chromium fork）とSafariのみブラウザ再生が可能。標準の Chrome / Firefox / Edge は再生できない。
+
+### 実装内容
+
+- **hevc-detect.ts**: ファイル名からHEVCを検出（x265|hevc|h.265 case-insensitive）、MediaSource.isTypeSupported でブラウザのHEVC対応を確認。
+- **PlayerApp（ローカル動画）**: ファイル選択時にHEVC検出 → 非対応ブラウザならToast表示 + 再生せずファイル選択画面を維持。
+- **MagnetInput（トレント）**: ファイル選択時（「選択して再生」ボタン押下）にHEVC検出 → 非対応ブラウザならToast表示 + DLせず選択画面を維持。
+- **i18n**: id / en / ja の3言語でToastメッセージ playerUI.hevcUnsupported を追加。
+
+### 非対応ブラウザでの挙動
+
+1. ユーザーがHEVC動画ファイルを選択
+2. isHEVC(filename) が 	rue を返す
+3. isHEVCSupported() が alse を返す（標準Chrome等）
+4. Toast「H.265 (HEVC) video playback is not supported. Try using the Thorium browser.」を表示
+5. プレイヤーに渡さず、ファイル選択画面のまま維持
+
+### 対応ブラウザでの挙動
+
+Thorium / Safari では isHEVCSupported() が 	rue を返し、通常通り再生。

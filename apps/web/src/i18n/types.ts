@@ -349,6 +349,9 @@ export interface Dictionary {
     /** Player-area fallback shown when a companion job errors. */
     companionJobFailed: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
+    /** Toast shown when an HEVC H.265 video is selected but the browser
+     *  does not support HEVC playback (standard Chrome/Firefox/Edge). */
+    hevcUnsupported: string;
     youtubeInputLabel: string;
     youtubeInputTitle: string;
     youtubeInputPlaceholder: string;

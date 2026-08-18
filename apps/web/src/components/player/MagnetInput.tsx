@@ -70,6 +70,8 @@ import {
 } from 'lucide-react';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { waitForPlayable } from '@/features/player/companion-media';
+import { isHEVC, isHEVCSupported } from '@/features/player/hevc-detect';
+import { notifyHEVCUnsupported } from '@/features/player/eizouden-toast';
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -136,6 +138,7 @@ export interface MagnetInputDict {
   magnetFileKindOther: string;
   magnetTableNavUp: string;
   magnetNoVideosInFolder: string;
+  hevcUnsupported: string;
 }
 
 interface MagnetInputProps {
@@ -602,6 +605,19 @@ export function MagnetInput({
       setError('generic');
       return;
     }
+
+    // HEVC H.265 playback guard: block unsupported HEVC files from a torrent
+    // with a toast and keep the file selection screen visible.
+    const selectedEntry = entries.find((f) => f.id === videoId);
+    if (
+      selectedEntry &&
+      isHEVC(selectedEntry.basename) &&
+      !isHEVCSupported()
+    ) {
+      notifyHEVCUnsupported(dict.hevcUnsupported);
+      return;
+    }
+
     setPhase('submitting');
     setError(null);
     // Guard against stale select responses: a close/reopen (epoch bump) or
