@@ -291,6 +291,8 @@ export const ja: Dictionary = {
     eizouPairingErrorGeneric: '接続に失敗しました。もう一度お試しください。',
     hevcUnsupported:
       'H265動画再生はサポートされません。Thoriumブラウザで試してください。',
+    firefoxUnsupported:
+      'Firefoxはまだサポートされてません。Google ChromeかChromiumブラウザで開いてください。',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTubeストリーミング',

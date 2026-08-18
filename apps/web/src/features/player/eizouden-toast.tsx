@@ -126,3 +126,21 @@ export function notifyHEVCUnsupported(label: string): void {
     icon: <CircleAlert aria-hidden="true" />,
   });
 }
+
+export const FIREFOX_UNSUPPORTED_TOAST_KEY = 'firefox-unsupported';
+
+/**
+ * Emit the Firefox-unsupported warning toast.
+ *
+ * Shown when the user clicks a media-selection button (local file / YouTube /
+ * Magnet) while running Firefox, which does not yet support the player.
+ * Directs the user to Chrome or a Chromium-based browser.
+ *
+ * @param label - localized message (playerUI.firefoxUnsupported).
+ */
+export function notifyFirefoxUnsupported(label: string): void {
+  toast.warning(label, {
+    id: FIREFOX_UNSUPPORTED_TOAST_KEY,
+    icon: <CircleAlert aria-hidden="true" />,
+  });
+}

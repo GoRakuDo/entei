@@ -286,6 +286,8 @@ export const en: Dictionary = {
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
     hevcUnsupported:
       'H.265 (HEVC) video playback is not supported. Try using the Thorium browser.',
+    firefoxUnsupported:
+      'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTube streaming',

@@ -352,6 +352,8 @@ export interface Dictionary {
     /** Toast shown when an HEVC H.265 video is selected but the browser
      *  does not support HEVC playback (standard Chrome/Firefox/Edge). */
     hevcUnsupported: string;
+    /** Firefox-unsupported toast (player blocks Firefox for video playback). */
+    firefoxUnsupported: string;
     youtubeInputLabel: string;
     youtubeInputTitle: string;
     youtubeInputPlaceholder: string;

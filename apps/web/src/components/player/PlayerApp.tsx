@@ -107,6 +107,7 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
 import { clampCompanionSeek } from '@/features/player/seek-limiter';
+import { isFirefox, isHEVC, isHEVCSupported } from '@/features/player/hevc-detect';
 import {
   notifyQuality,
   notifyCompanionError,
@@ -114,6 +115,7 @@ import {
   notifySubtitleSyncSuccess,
   notifyLazySyncInfo,
   notifyHEVCUnsupported,
+  notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
 import {
   LAZY_SYNC_POLL_INTERVAL_MS,
@@ -1154,6 +1156,13 @@ export default function PlayerApp() {
           `${dictRef.current.playerUI.unsupportedFormat}: .${admission.ext}`,
         );
         setIsLoading(false);
+        return;
+      }
+
+      // Firefox playback guard: block all media selection with a toast
+      // directing the user to Chrome or a Chromium-based browser.
+      if (isFirefox()) {
+        notifyFirefoxUnsupported(dictRef.current.playerUI.firefoxUnsupported);
         return;
       }
 
@@ -4380,6 +4389,7 @@ export default function PlayerApp() {
           magnetTableNavUp: dict.magnetTableNavUp,
           magnetNoVideosInFolder: dict.magnetNoVideosInFolder,
           hevcUnsupported: dict.hevcUnsupported,
+          firefoxUnsupported: dict.firefoxUnsupported,
         }}
       />
 
@@ -4404,6 +4414,7 @@ export default function PlayerApp() {
           youtubeInputErrorGeneric: dict.youtubeInputErrorGeneric,
           youtubeInputSubmitting: dict.youtubeInputSubmitting,
           dialogClose: dict.dialogClose,
+          firefoxUnsupported: dict.firefoxUnsupported,
         }}
       />
 
@@ -4514,4 +4525,4 @@ export default function PlayerApp() {
     </div>
   );
 }
-import { isHEVC, isHEVCSupported } from '@/features/player/hevc-detect';
+

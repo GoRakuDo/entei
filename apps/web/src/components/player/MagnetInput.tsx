@@ -70,8 +70,8 @@ import {
 } from 'lucide-react';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { waitForPlayable } from '@/features/player/companion-media';
-import { isHEVC, isHEVCSupported } from '@/features/player/hevc-detect';
-import { notifyHEVCUnsupported } from '@/features/player/eizouden-toast';
+import { isFirefox, isHEVC, isHEVCSupported } from '@/features/player/hevc-detect';
+import { notifyHEVCUnsupported, notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -139,6 +139,7 @@ export interface MagnetInputDict {
   magnetTableNavUp: string;
   magnetNoVideosInFolder: string;
   hevcUnsupported: string;
+  firefoxUnsupported: string;
 }
 
 interface MagnetInputProps {
@@ -603,6 +604,12 @@ export function MagnetInput({
       !entries.some((f) => f.id === subtitleId && f.kind === 'subtitle')
     ) {
       setError('generic');
+      return;
+    }
+
+    // Firefox playback guard: block all media selection with a toast
+    if (isFirefox()) {
+      notifyFirefoxUnsupported(dict.firefoxUnsupported);
       return;
     }
 

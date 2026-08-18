@@ -4830,7 +4830,7 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-eizou-setup-btn {
-  width: 144px;
+  min-width: 144px;
   min-height: var(--entei-touch-min); /* 44px touch, 40px visual grid */
   position: relative; /* paints above the visual on mobile */
   border-radius: var(--entei-radius-md);

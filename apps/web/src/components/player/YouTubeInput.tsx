@@ -28,6 +28,8 @@ import { Input } from '@/components/player/ui/input';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { readYtDownloadMode } from '@/features/player/yt-download-mode';
+import { isFirefox } from '@/features/player/hevc-detect';
+import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
 import { waitForPlayable } from '@/features/player/companion-media';
 
 /** Loopback companion origin; the only accepted job endpoint. */
@@ -53,6 +55,7 @@ export interface YouTubeInputDict {
   youtubeInputErrorGeneric: string;
   youtubeInputSubmitting: string;
   dialogClose: string;
+  firefoxUnsupported: string;
 }
 
 interface YouTubeInputProps {
@@ -147,6 +150,11 @@ export function YouTubeInput({
 
   const handleSubmit = useCallback(async () => {
     if (!isPaired || !token) return;
+    // Firefox playback guard: block all media selection with a toast
+    if (isFirefox()) {
+      notifyFirefoxUnsupported(dict.firefoxUnsupported);
+      return;
+    }
     if (!isYouTubeUrlShape(url)) {
       setError('invalid');
       return;
