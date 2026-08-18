@@ -4206,6 +4206,12 @@ export default function PlayerApp() {
   void subtitleErrors; // keep state read (future re-enable of the block)
   const subtitleErrorsBlock = null;
 
+  const lowerMediaName = mediaName.toLowerCase();
+  const hideSyncSubtitle =
+    jobSession.kind === 'youtube' ||
+    !isMagnet ||
+    !(lowerMediaName.endsWith('.mkv') || lowerMediaName.endsWith('.mp4'));
+
   return (
     <div
       ref={mediaContainerRef}
@@ -4448,7 +4454,7 @@ export default function PlayerApp() {
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
               syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
-              hideSyncSubtitle={jobSession.kind === 'youtube'}
+              hideSyncSubtitle={hideSyncSubtitle}
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
@@ -4479,7 +4485,7 @@ export default function PlayerApp() {
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
               syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
-              hideSyncSubtitle={jobSession.kind === 'youtube'}
+              hideSyncSubtitle={hideSyncSubtitle}
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
