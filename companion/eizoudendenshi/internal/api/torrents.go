@@ -10,6 +10,12 @@ import (
 	"eizoudendenshi/internal/torrent"
 )
 
+// Japanese audio track selection: when an MKV file has multiple audio
+// tracks and one of them is Japanese, ffmpeg is used to select only the
+// Japanese track. This avoids the user having to manually switch audio
+// tracks in the browser player. Single-audio-track files are served
+// as-is (no ffmpeg overhead).
+
 // Torrent endpoints (ED-2G): localhost companion-only torrent job
 // foundation. All routes share the exact Origin + capability gates of the
 // media endpoints and are registered only when a torrent manager is
@@ -362,6 +368,10 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 // On Range requests, the seek position is passed to AnchorSeek (tiramisu
 // pattern: cache.go:426-448) so the piece at the seek location is elevated
 // to PiecePriorityNow, preventing the Chrome seek loop (GPU 100%).
+//
+// MKV Japanese audio selection: when the selected file is an MKV with
+// multiple audio tracks and one is Japanese, the content is served through
+// ffmpeg selecting only the Japanese audio track (see serveMKVJapaneseAudio).
 func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	setTorrentMediaHeaders(w)
 	fileName := s.torrents.SelectedFileName()
@@ -382,6 +392,21 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer torrent.SafeCloseReader(reader)
+
+	// MKV Japanese audio track selection: when the file is an MKV with
+	// multiple audio tracks and one is Japanese, pipe through ffmpeg to
+	// select only the Japanese track. Single-track or non-Japanese MKV
+	// files fall through to the standard ServeContent path.
+	if isMKVExtension(fileName) && s.ffmpegPath != "" {
+		if info := probeMKVAudioTracks(r.Context(), reader, s.ffmpegPath); info.probeOK &&
+			info.trackCount >= 2 && info.hasJapanese {
+			s.serveMKVJapaneseAudio(w, r, reader, fileName, time.Unix(s.torrents.CreationDate(), 0))
+			return
+		}
+		// probeMKVAudioTracks rewinds the reader, so we can fall
+		// through to the standard path.
+	}
+
 	fw := &flushResponseWriter{ResponseWriter: w}
 	modtime := time.Unix(s.torrents.CreationDate(), 0)
 	http.ServeContent(fw, r, fileName, modtime, reader)

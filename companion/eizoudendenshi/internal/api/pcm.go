@@ -115,7 +115,7 @@ func (s *Server) handleMediaPcm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ffmpeg -i <file> -f f32le -ar 16000 -ac 1 -  → PCM on stdout.
-	cmd := exec.Command(
+	cmd := exec.CommandContext(r.Context(),
 		s.ffmpegPath, "-nostdin", "-v", "error", "-i", tmp.Name(),
 		"-f", "f32le", "-ar", "16000", "-ac", "1", "-",
 	)
