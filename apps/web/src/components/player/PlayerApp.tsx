@@ -1369,6 +1369,27 @@ export default function PlayerApp() {
     setLoadError(null);
   }, []);
 
+  // MKV audio track auto-select: prefer Japanese when multiple tracks exist.
+  // Firefox does not expose AudioTrackList — guard with typeof check.
+  // TS lib does not include AudioTrackList — use type assertions.
+  const handleLoadedMetadata = useCallback((video: HTMLVideoElement) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const trackList: any | undefined = (video as any).audioTracks;
+    if (!trackList || typeof trackList.length !== 'number' || trackList.length <= 1) return;
+    let japaneseIdx = -1;
+    for (let i = 0; i < trackList.length; i++) {
+      const lang = trackList[i]?.language;
+      if (lang === 'ja' || lang === 'jpn') {
+        japaneseIdx = i;
+        break;
+      }
+    }
+    if (japaneseIdx < 0) return;
+    for (let i = 0; i < trackList.length; i++) {
+      trackList[i].enabled = i === japaneseIdx;
+    }
+  }, []);
+
   const handleError = useCallback((error: string) => {
     setIsLoading(false);
     setLoadError(error);
@@ -4018,6 +4039,7 @@ export default function PlayerApp() {
           onPlay={handlePlay}
           onPause={handlePause}
           onLoaded={handleLoaded}
+          onLoadedMetadata={handleLoadedMetadata}
           onError={handleError}
         />
       )}

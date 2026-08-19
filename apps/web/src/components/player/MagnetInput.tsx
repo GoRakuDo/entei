@@ -870,7 +870,6 @@ export function MagnetInput({
                           <TableRow className="entei-magnet-table-row--static">
                             <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
                               <div className="entei-magnet-checking" role="status">
-                                <TypewriterLoading aria-hidden="true" />
                                 <span>{dict.magnetCheckMetadata}</span>
                               </div>
                             </TableCell>

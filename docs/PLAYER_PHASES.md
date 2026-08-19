@@ -802,7 +802,7 @@ asbplayerはMIT（`A:\asbplayer\LICENSE.md:1-13`）。純粋parser codeを直接
 ## 19. HEVC H.265 再生制限
 
 > **追加日:** 2026-08-18
-> **対象:** pps/web/src/features/player/hevc-detect.ts、PlayerApp.tsx、MagnetInput.tsx
+> **対象:** apps/web/src/features/player/hevc-detect.ts、PlayerApp.tsx、MagnetInput.tsx
 
 HEVC (H.265) 動画は、Thorium（Chromium fork）とSafariのみブラウザ再生が可能。標準の Chrome / Firefox / Edge は再生できない。
 
@@ -824,3 +824,42 @@ HEVC (H.265) 動画は、Thorium（Chromium fork）とSafariのみブラウザ�
 ### 対応ブラウザでの挙動
 
 Thorium / Safari では isHEVCSupported() が 	rue を返し、通常通り再生。
+
+---
+
+## 20. Magnet モーダル ローディング重複削除
+
+> **追加日:** 2026-08-19
+> **対象:** MagnetInput.tsx
+
+Magnet モーダル（Buka Streaming Torrent）で、メタデータ取得中にローディングアニメーションが2つ表示される問題。
+
+### 問題
+1. ntei-magnet-table-wrap 内の TypewriterLoading（メタデータ確認中）
+2. 下部ボタン内の TypewriterLoading（Mulai unduh / Pilih and putar）
+
+これらが同時に表示され、視覚的に重複する。
+
+### 修正方針
+- ntei-magnet-table-wrap 内の TypewriterLoading を削除
+- ボタン内の TypewriterLoading は維持（操作フィードバックとして有効）
+
+---
+
+## 21. MKV 音声トラック自動選択（日本語優先）
+
+> **追加日:** 2026-08-19
+> **対象:** PlayerApp.tsx、VideoPlayer.tsx
+
+MKV ファイルに複数の音声トラックがある場合（例: Japanese + English）、デフォルトで日本語トラックを選択する。
+
+### 仕様
+- video エレメントの onloadedmetadata で audioTracks を取得
+- language プロパティが ja または jpn のトラックを検出
+- 該当トラックの enabled = true、他を false に設定
+- 日本語トラックがない場合はデフォルト（最初のトラック）を維持
+- ローカル動画/Magnet 動画の両方に適用
+
+### 既知の制約
+- audioTracks は Chromium 系ブラウザのみ対応（Firefox は非対応）
+- Firefox は未検証ブラウザ（19 で Toast ブロック済み）

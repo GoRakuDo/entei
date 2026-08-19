@@ -24,6 +24,7 @@ interface VideoPlayerProps {
   onPause: () => void;
   onLoaded: () => void;
   onError: (error: string) => void;
+  onLoadedMetadata?: (video: HTMLVideoElement) => void;
 }
 
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
@@ -40,6 +41,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       onPause,
       onLoaded,
       onError,
+      onLoadedMetadata,
     },
     ref,
   ) {
@@ -53,6 +55,13 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const handleLoadedData = useCallback(() => {
       onLoaded();
     }, [onLoaded]);
+
+    const handleLoadedMetadata = useCallback(
+      (e: React.SyntheticEvent<HTMLVideoElement>) => {
+        onLoadedMetadata?.(e.currentTarget);
+      },
+      [onLoadedMetadata],
+    );
 
     const handleError = useCallback(
       (e: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -111,6 +120,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         onPlay={onPlay}
         onPause={onPause}
         onLoadedData={handleLoadedData}
+        onLoadedMetadata={handleLoadedMetadata}
         onError={handleError}
         onKeyDown={handleKeyDown}
         preload="metadata"
