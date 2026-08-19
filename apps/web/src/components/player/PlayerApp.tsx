@@ -1374,12 +1374,15 @@ export default function PlayerApp() {
   // TS lib does not include AudioTrackList — use type assertions.
   const handleLoadedMetadata = useCallback((video: HTMLVideoElement) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const trackList: any | undefined = (video as any).audioTracks;
+    const trackList: any | undefined =
+      typeof (video as any).audioTracks !== 'undefined'
+        ? (video as any).audioTracks
+        : undefined;
     if (!trackList || typeof trackList.length !== 'number' || trackList.length <= 1) return;
     let japaneseIdx = -1;
     for (let i = 0; i < trackList.length; i++) {
       const lang = trackList[i]?.language;
-      if (lang === 'ja' || lang === 'jpn') {
+      if (lang === 'ja' || lang === 'jpn' || lang === 'jp') {
         japaneseIdx = i;
         break;
       }
