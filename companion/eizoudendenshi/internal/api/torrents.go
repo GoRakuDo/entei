@@ -10,10 +10,6 @@ import (
 	"eizoudendenshi/internal/torrent"
 )
 
-// Japanese audio selection: when an MKV file has any Japanese audio track,
-// pipe through ffmpeg selecting only the Japanese track. Files without
-// Japanese audio are served as-is.
-
 // Torrent endpoints (ED-2G): localhost companion-only torrent job
 // foundation. All routes share the exact Origin + capability gates of the
 // media endpoints and are registered only when a torrent manager is
@@ -366,11 +362,6 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 // On Range requests, the seek position is passed to AnchorSeek (tiramisu
 // pattern: cache.go:426-448) so the piece at the seek location is elevated
 // to PiecePriorityNow, preventing the Chrome seek loop (GPU 100%).
-//
-// MKV Japanese audio selection: when the file has any Japanese audio track,
-// pipe through ffmpeg selecting only the Japanese track. Files without
-// Japanese audio, or when ffmpeg is unavailable, fall through to the
-// standard ServeContent path.
 func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	setTorrentMediaHeaders(w)
 	fileName := s.torrents.SelectedFileName()
@@ -391,20 +382,6 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer torrent.SafeCloseReader(reader)
-
-	// MKV Japanese audio: when the file is MKV and ffmpeg is available,
-	// read directly from the local disk path instead of the torrent Reader.
-	if isMKVExtension(fileName) && s.ffmpegPath != "" {
-		diskPath, diskErr := s.torrents.SelectedDiskPath()
-		if diskErr == nil {
-			s.log.Infof("torrent", "mkv japanese audio from disk file=%s path=%s", fileName, diskPath)
-			s.serveMKVJapaneseAudioFromPath(w, r, diskPath, fileName)
-			return
-		}
-		// Disk path unavailable: log and fall through to normal ServeContent.
-		s.log.Infof("torrent", "mkv disk path unavailable: %v file=%s", diskErr, fileName)
-	}
-
 	fw := &flushResponseWriter{ResponseWriter: w}
 	modtime := time.Unix(s.torrents.CreationDate(), 0)
 	http.ServeContent(fw, r, fileName, modtime, reader)
