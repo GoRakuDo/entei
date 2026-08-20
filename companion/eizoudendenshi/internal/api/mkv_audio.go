@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log"
 	"strings"
 )
 
@@ -152,6 +153,11 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 			isJapanese:    isJA,
 			defaultOffset: defOff,
 		})
+	}
+
+	log.Printf("mkv audio probe: %d audio tracks found", len(audioTracks))
+	for i, at := range audioTracks {
+		log.Printf("mkv audio probe: track %d japanese=%v hasDefault=%v", i, at.isJapanese, at.defaultOffset >= 0)
 	}
 
 	// Only handle exactly 2 audio tracks.

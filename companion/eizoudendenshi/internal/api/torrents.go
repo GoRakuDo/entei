@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -401,7 +402,9 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	// combined with the remaining stream into one seekable reader that
 	// http.ServeContent can use for Range requests.
 	if isMKVExtension(fileName) {
+		log.Printf("torrent: mkv audio probe file=%s", fileName)
 		if modified, ok, _ := rewriteMKVDefaultAudio(r.Context(), reader); ok {
+			log.Printf("torrent: mkv default flag rewritten (%d bytes header)", len(modified))
 			sr := &combinedReader{
 				header:    bytes.NewReader(modified),
 				headerLen: int64(len(modified)),
@@ -413,6 +416,7 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 			http.ServeContent(fw, r, fileName, modtime, sr)
 			return
 		}
+		log.Printf("torrent: mkv default rewrite skipped (fallback to default playback)")
 		// rewriteMKVDefaultAudio rewinds the reader, so we can fall
 		// through to the standard path.
 	}
