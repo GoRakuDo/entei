@@ -397,7 +397,7 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	if isMKVExtension(fileName) && s.ffmpegPath != "" {
 		if probeMKVJapaneseAudio(r.Context(), reader, s.ffmpegPath) {
 			s.log.Infof("torrent", "mkv japanese audio detected, serving via ffmpeg file=%s", fileName)
-			s.serveMKVJapaneseAudio(w, r, reader, fileName, time.Unix(s.torrents.CreationDate(), 0))
+			s.serveMKVJapaneseAudio(w, r, reader, fileName)
 			return
 		}
 		// probeMKVJapaneseAudio rewinds the reader, fall through.

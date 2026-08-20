@@ -39,9 +39,25 @@ func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath stri
 		64 * 1024 * 1024, // 64 MB (max)
 	}
 
-	for _, size := range probeSizes {
+	for i, size := range probeSizes {
 		buf := make([]byte, size)
 		n, err := io.ReadFull(r, buf)
+
+		// On first probe size, retry if no data (torrent may still be buffering
+		// during initial data arrival).
+		if i == 0 && (n == 0 || (err != nil && err != io.EOF && err != io.ErrUnexpectedEOF)) {
+			for retry := 0; retry < 3; retry++ {
+				if _, seekErr := r.Seek(0, io.SeekStart); seekErr != nil {
+					return false
+				}
+				time.Sleep(1 * time.Second)
+				n, err = io.ReadFull(r, buf)
+				if n > 0 {
+					break
+				}
+			}
+		}
+
 		if n == 0 {
 			return false // empty / tiny file
 		}
@@ -126,7 +142,7 @@ func parseProbeOutput(output string) (audioCount int, hasJapanese bool) {
 // serveMKVJapaneseAudio pipes the MKV through ffmpeg, selecting only
 // the Japanese audio track. Blocks until the response is complete.
 // Does NOT support Range requests.
-func (s *Server) serveMKVJapaneseAudio(w http.ResponseWriter, r *http.Request, reader io.ReadSeekCloser, fileName string, modtime time.Time) {
+func (s *Server) serveMKVJapaneseAudio(w http.ResponseWriter, r *http.Request, reader io.ReadSeekCloser, fileName string) {
 	cmd := exec.CommandContext(r.Context(), s.ffmpegPath,
 		"-nostdin", "-v", "error",
 		"-i", "pipe:0",
