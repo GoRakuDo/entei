@@ -96,7 +96,11 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 		for i := 0; i < 4 && segStart+i < len(buf); i++ {
 			headBytes[i] = buf[segStart+i]
 		}
-		return nil, false, fmt.Sprintf("segment_parse_fail buf=%d segStart=%d head=%x", len(buf), segStart, headBytes)
+		sizeByte := byte(0)
+		if segStart+4 < len(buf) {
+			sizeByte = buf[segStart+4]
+		}
+		return nil, false, fmt.Sprintf("segment_parse_fail buf=%d segStart=%d head=%x sizeByte=0x%02x", len(buf), segStart, headBytes, sizeByte)
 	}
 	if seg.ID != mkvSegment {
 		return nil, false, fmt.Sprintf("wrong_element_id buf=%d segStart=%d got=0x%X want=0x%X", len(buf), segStart, seg.ID, mkvSegment)
