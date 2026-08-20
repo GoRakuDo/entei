@@ -836,6 +836,21 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 - **companion**: `SubtitleContent` が「選択済み字幕」に加え「**未選択なら torrent 内の字幕ファイルを自動検出**（`firstSubtitleIndex`・KindSubtitle）」して内容を返す。`Select` はビデオのみ選択時でも**内蔵字幕を Normal 優先度に昇格**（未選択字幕が DL されず読み取りがブロックする問題）。**潜在バグ修正**: `subtitleIdx` が Go ゼロ値（0 = 先頭ファイル = 動画）のままだった → `-1` 初期化（内蔵字幕なし時に動画を字幕として返すバグを防止）。
   - **web**: `planSync` に `sub-to-sub-auto-ref`（Magnet + 字幕モード + 参照字幕なし → 内蔵字幕を自動取得）を追加。`fetchMagnetSubtitle` の fileId をオプショナル化（空 = companion が自動検出）。`auto` モードも内蔵字幕を先に試し（sub-to-sub は audio より正確）、取得失敗時は `fallbackToAudio` で sub-to-audio にフォールバック（commit 5420278）。
 
+### MKV 日本語音声トラック処理（設計確定・2026-08-21）
+
+MKVに複数音声トラック（例: 日本語AC-3 + 英語AAC）がある場合、Chromeは`Default`フラグが`1`のトラックを選択する。fansub MKVでは英語がDefaultの場合が多い。
+
+**確定設計：音声分離アプローチ。**
+
+1. companionの`SelectedDiskPath()`でMKVローカルファイルを取得
+2. ffmpegで日本語音声をlossless抽出（`-map 0:a:m:language:jpn -c copy`）
+3. 抽出音声をHTTPで配信
+4. Playerで`<audio>`要素としてロード
+5. `<video>`はMKVそのまま再生、音量/ミュートは`<audio>`に接続
+6. Sentence Miningは`<audio>`からキャプチャ（日本語のみ取得）
+
+詳細は `docs/PLAYER_PHASES.md` §21 を参照。
+
 ## 既知の制約
 
 1. **complete-while-ready の再 load（MED・2026-08-18）**: `companion-bridge.ts` の `applyStatus` で、pause-ready 駐留中に `complete` ポーリングが来ると `startReadyTransition` が再実行され、`video.load()` で 00:00 に巻き戻る可能性。Speed ジョブで playable→complete が 1 ポーリング周期（30s）以上かかる場合に発生。`case 'playable'` は既に ready/playing ガードがあるが `complete` は未適用（item #24 の前提「complete は一度のみ」が playable→complete 遷移で成立していない）。将来修正時は `complete` も `playable` と同様に ready/playing でスキップ。
