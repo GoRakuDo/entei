@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log"
 	"strings"
 )
 
@@ -53,7 +54,7 @@ func isMKVExtension(fileName string) bool {
 //   - modified: the header bytes with the Default flags rewritten (or nil if
 //     no rewriting was needed or the header was too small/malformed).
 //   - ok: true when modified is a valid replacement header.
-//   - err: always nil today; reserved for future structured-error needs.
+//   - reason: empty on success; a short identifier describing why the rewrite was skipped.
 //
 // After calling this function the caller must combine modified with the
 // remaining unread stream (io.ReadSeeker at position 0, past the header).
@@ -89,8 +90,22 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 		return nil, false, "no_segment"
 	}
 
+	// Diagnostic: log bytes around Segment start for debugging.
+	if segStart+4 <= len(buf) {
+		hex := make([]byte, 0, 12)
+		for i := segStart; i < segStart+12 && i < len(buf); i++ {
+			hex = append(hex, buf[i])
+		}
+		log.Printf("mkv audio debug: buf=%d ebmlBody=%d ebmlBodyLen=%d segStart=%d bytes=%x", len(buf), ebmlBody, ebmlBodyLen, segStart, hex)
+	}
+
 	seg, segBody, segOK := parseEBMLElement(buf, segStart)
-	if !segOK || seg.ID != mkvSegment {
+	if !segOK {
+		log.Printf("mkv audio debug: parseEBMLElement failed at segStart=%d", segStart)
+		return nil, false, "segment_not_found"
+	}
+	if seg.ID != mkvSegment {
+		log.Printf("mkv audio debug: element at segStart=%d has ID=0x%X, want 0x%X", segStart, seg.ID, mkvSegment)
 		return nil, false, "segment_not_found"
 	}
 	segEnd := seg.BodyEnd
