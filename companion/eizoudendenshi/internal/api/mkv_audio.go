@@ -131,7 +131,7 @@ func (s *Server) serveMKVJapaneseAudio(w http.ResponseWriter, r *http.Request, r
 		"-nostdin", "-v", "error",
 		"-i", "pipe:0",
 		"-map", "0:v",
-		"-map", "0:a:m:language:ja",
+		"-map", "0:m:language:jpn",
 		"-map", "0:s?",
 		"-c", "copy",
 		"-f", "matroska",
