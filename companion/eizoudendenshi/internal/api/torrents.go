@@ -395,13 +395,14 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	// MKV Japanese audio: when the file has Japanese audio among its tracks,
 	// pipe through ffmpeg selecting only the Japanese track.
 	if isMKVExtension(fileName) && s.ffmpegPath != "" {
-		if probeMKVJapaneseAudio(r.Context(), reader, s.ffmpegPath) {
-			s.log.Infof("torrent", "mkv japanese audio detected, serving via ffmpeg file=%s", fileName)
+		ok, diag := probeMKVJapaneseAudio(r.Context(), reader, s.ffmpegPath)
+		if ok {
+			s.log.Infof("torrent", "mkv japanese audio detected diag=%s file=%s", diag, fileName)
 			s.serveMKVJapaneseAudio(w, r, reader, fileName)
 			return
 		}
 		// probeMKVJapaneseAudio rewinds the reader, fall through.
-		s.log.Infof("torrent", "mkv no japanese audio rewrite needed, serving normally file=%s", fileName)
+		s.log.Infof("torrent", "mkv probe result: diag=%s file=%s", diag, fileName)
 	}
 
 	fw := &flushResponseWriter{ResponseWriter: w}

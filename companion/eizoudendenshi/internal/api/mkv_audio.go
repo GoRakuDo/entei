@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -29,7 +30,7 @@ func isMKVExtension(fileName string) bool {
 // through Attachments (fonts etc.) before emitting stream info; small
 // probes can hit "File ended prematurely" when many attachments exist.
 // Returns true when any audio track is Japanese.
-func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath string) bool {
+func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath string) (bool, string) {
 	probeSizes := []int{
 		2 * 1024 * 1024,  // 2 MB
 		4 * 1024 * 1024,  // 4 MB
@@ -48,7 +49,7 @@ func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath stri
 		if i == 0 && (n == 0 || (err != nil && err != io.EOF && err != io.ErrUnexpectedEOF)) {
 			for retry := 0; retry < 3; retry++ {
 				if _, seekErr := r.Seek(0, io.SeekStart); seekErr != nil {
-					return false
+					return false, "seek_failed_retry"
 				}
 				time.Sleep(1 * time.Second)
 				n, err = io.ReadFull(r, buf)
@@ -59,7 +60,7 @@ func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath stri
 		}
 
 		if n == 0 {
-			return false // empty / tiny file
+			return false, "no_data_read" // empty / tiny file
 		}
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			break
@@ -68,7 +69,7 @@ func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath stri
 
 		// Rewind for next attempt or for the actual serve.
 		if _, seekErr := r.Seek(0, io.SeekStart); seekErr != nil {
-			return false
+			return false, "seek_failed"
 		}
 
 		// Probe with ffmpeg.
@@ -84,16 +85,16 @@ func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath stri
 		audioCount, hasJapanese := parseProbeOutput(stderr.String())
 		if audioCount <= 1 {
 			// Single audio track: nothing to select. No Japanese variant exists.
-			return false
+			return false, fmt.Sprintf("single_track_at_%dmb", size/(1024*1024))
 		}
 		if hasJapanese {
-			return true
+			return true, fmt.Sprintf("japanese_found_at_%dmb_audioCount=%d", size/(1024*1024), audioCount)
 		}
 		// audioCount >= 2 but no Japanese detected yet — the metadata may
 		// sit beyond the current probe window. Try the next (larger) size.
 	}
 
-	return false // all sizes exhausted
+	return false, "ffmpeg_failed_all_sizes_exhausted" // all sizes exhausted
 }
 
 // parseProbeOutput parses the stderr output of "ffmpeg -i" and returns the
