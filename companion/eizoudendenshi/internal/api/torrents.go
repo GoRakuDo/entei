@@ -10,10 +10,9 @@ import (
 	"eizoudendenshi/internal/torrent"
 )
 
-// Japanese audio selection: when an MKV file has exactly 2 audio tracks
-// and one is Japanese, pipe through ffmpeg selecting only the Japanese
-// track. Files without Japanese audio or with a non-standard track
-// count are served as-is.
+// Japanese audio selection: when an MKV file has any Japanese audio track,
+// pipe through ffmpeg selecting only the Japanese track. Files without
+// Japanese audio are served as-is.
 
 // Torrent endpoints (ED-2G): localhost companion-only torrent job
 // foundation. All routes share the exact Origin + capability gates of the
@@ -368,11 +367,10 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 // pattern: cache.go:426-448) so the piece at the seek location is elevated
 // to PiecePriorityNow, preventing the Chrome seek loop (GPU 100%).
 //
-// MKV Japanese audio selection: when the selected file is an MKV with
-// exactly 2 audio tracks and one is Japanese, the file is piped through
-// ffmpeg with -c copy selecting only the Japanese audio track. Files
-// without Japanese audio, with a non-standard track count, or when ffmpeg
-// is unavailable fall through to the standard ServeContent path.
+// MKV Japanese audio selection: when the file has any Japanese audio track,
+// pipe through ffmpeg selecting only the Japanese track. Files without
+// Japanese audio, or when ffmpeg is unavailable, fall through to the
+// standard ServeContent path.
 func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	setTorrentMediaHeaders(w)
 	fileName := s.torrents.SelectedFileName()
@@ -394,8 +392,8 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer torrent.SafeCloseReader(reader)
 
-	// MKV Japanese audio: when exactly 2 audio tracks exist and one
-	// is Japanese, pipe through ffmpeg selecting only the Japanese track.
+	// MKV Japanese audio: when the file has Japanese audio among its tracks,
+	// pipe through ffmpeg selecting only the Japanese track.
 	if isMKVExtension(fileName) && s.ffmpegPath != "" {
 		if probeMKVJapaneseAudio(r.Context(), reader, s.ffmpegPath) {
 			s.log.Infof("torrent", "mkv japanese audio detected, serving via ffmpeg file=%s", fileName)

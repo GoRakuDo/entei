@@ -24,42 +24,71 @@ func isMKVExtension(fileName string) bool {
 	return strings.EqualFold(ext, "mkv")
 }
 
-// probeMKVJapaneseAudio reads the first 2 MB of r, pipes it to ffmpeg to
-// detect audio tracks and their languages, then rewinds r to position 0.
-// Returns true when exactly 2 audio tracks exist and at least one is
-// Japanese — the condition under which serveMKVJapaneseAudio should be used.
+// probeMKVJapaneseAudio tries increasing probe sizes (2 MB → 64 MB) to
+// detect audio tracks in MKV files. FFmpeg's matroska demuxer must read
+// through Attachments (fonts etc.) before emitting stream info; small
+// probes can hit "File ended prematurely" when many attachments exist.
+// Returns true when any audio track is Japanese.
 func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath string) bool {
-	const probeSize = 2 * 1024 * 1024
-
-	buf := make([]byte, probeSize)
-	n, err := io.ReadFull(r, buf)
-	if err == io.EOF {
-		return false // empty / tiny file — not a valid MKV
-	}
-	// err == nil (full read) or io.ErrUnexpectedEOF (partial read) — both OK.
-	buf = buf[:n]
-
-	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		return false
+	probeSizes := []int{
+		2 * 1024 * 1024,  // 2 MB
+		4 * 1024 * 1024,  // 4 MB
+		8 * 1024 * 1024,  // 8 MB
+		16 * 1024 * 1024, // 16 MB
+		32 * 1024 * 1024, // 32 MB
+		64 * 1024 * 1024, // 64 MB (max)
 	}
 
-	cmd := exec.CommandContext(ctx, ffmpegPath,
-		"-nostdin", "-i", "pipe:0",
-		"-f", "null", "-",
-	)
-	cmd.Stdin = bytes.NewReader(buf)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	_ = cmd.Run() // error expected; stream info is printed before decode starts
+	for _, size := range probeSizes {
+		buf := make([]byte, size)
+		n, err := io.ReadFull(r, buf)
+		if n == 0 {
+			return false // empty / tiny file
+		}
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			break
+		}
+		buf = buf[:n]
 
-	audioCount, hasJapanese := parseProbeOutput(stderr.String())
-	return audioCount == 2 && hasJapanese
+		// Rewind for next attempt or for the actual serve.
+		if _, seekErr := r.Seek(0, io.SeekStart); seekErr != nil {
+			return false
+		}
+
+		// Probe with ffmpeg.
+		cmd := exec.CommandContext(ctx, ffmpegPath,
+			"-nostdin", "-i", "pipe:0",
+			"-f", "null", "-",
+		)
+		cmd.Stdin = bytes.NewReader(buf)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		_ = cmd.Run() // error expected; stream info is printed before decode starts
+
+		audioCount, hasJapanese := parseProbeOutput(stderr.String())
+		if audioCount > 0 {
+			return hasJapanese
+		}
+		// audioCount == 0 → ffmpeg couldn't parse, try next (larger) size.
+	}
+
+	return false // all sizes exhausted
 }
 
 // parseProbeOutput parses the stderr output of "ffmpeg -i" and returns the
-// number of audio streams detected and whether any of them is Japanese.
+// number of input audio streams detected and whether any of them is Japanese.
+// Only the input section (before "Output #" / "Stream mapping:") is scanned
+// to avoid counting ffmpeg's own output stream lines.
 func parseProbeOutput(output string) (audioCount int, hasJapanese bool) {
-	lines := strings.Split(output, "\n")
+	// Trim to the input section only.
+	inputSection := output
+	for _, marker := range []string{"Output #", "Stream mapping"} {
+		if idx := strings.Index(inputSection, marker); idx >= 0 {
+			inputSection = inputSection[:idx]
+		}
+	}
+
+	lines := strings.Split(inputSection, "\n")
 	for i, line := range lines {
 		if !strings.Contains(strings.TrimSpace(line), "Audio:") {
 			continue

@@ -48,89 +48,112 @@ func TestParseProbeOutput(t *testing.T) {
 		{
 			name: "1 audio track Japanese",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264
-  Stream #0:1: Audio: aac
-    Metadata:
-      language        : jpn`,
+      Stream #0:0: Video: h264
+      Stream #0:1: Audio: aac
+        Metadata:
+          language        : jpn`,
 			wantAudio:    1,
 			wantJapanese: true,
 		},
 		{
 			name: "2 audio tracks one Japanese metadata",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264
-  Stream #0:1: Audio: aac
-    Metadata:
-      language        : jpn
-  Stream #0:2: Audio: aac
-    Metadata:
-      language        : eng`,
+      Stream #0:0: Video: h264
+      Stream #0:1: Audio: aac
+        Metadata:
+          language        : jpn
+      Stream #0:2: Audio: aac
+        Metadata:
+          language        : eng`,
 			wantAudio:    2,
 			wantJapanese: true,
 		},
 		{
 			name: "2 audio tracks one Japanese parentheses",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264
-  Stream #0:1(jpn): Audio: aac
-  Stream #0:2(eng): Audio: aac`,
+      Stream #0:0: Video: h264
+      Stream #0:1(jpn): Audio: aac
+      Stream #0:2(eng): Audio: aac`,
 			wantAudio:    2,
 			wantJapanese: true,
 		},
 		{
 			name: "2 audio tracks neither Japanese",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264
-  Stream #0:1: Audio: aac
-    Metadata:
-      language        : eng
-  Stream #0:2: Audio: aac
-    Metadata:
-      language        : fre`,
+      Stream #0:0: Video: h264
+      Stream #0:1: Audio: aac
+        Metadata:
+          language        : eng
+      Stream #0:2: Audio: aac
+        Metadata:
+          language        : fre`,
 			wantAudio: 2,
 		},
 		{
 			name: "3 audio tracks one Japanese",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264
-  Stream #0:1: Audio: aac
-    Metadata:
-      language        : jpn
-  Stream #0:2: Audio: aac
-    Metadata:
-      language        : eng
-  Stream #0:3: Audio: aac
-    Metadata:
-      language        : fre`,
+      Stream #0:0: Video: h264
+      Stream #0:1: Audio: aac
+        Metadata:
+          language        : jpn
+      Stream #0:2: Audio: aac
+        Metadata:
+          language        : eng
+      Stream #0:3: Audio: aac
+        Metadata:
+          language        : fre`,
 			wantAudio:    3,
 			wantJapanese: true,
 		},
 		{
 			name: "short ja tag",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264
-  Stream #0:1: Audio: aac
-    Metadata:
-      language        : ja
-  Stream #0:2: Audio: aac
-    Metadata:
-      language        : eng`,
+      Stream #0:0: Video: h264
+      Stream #0:1: Audio: aac
+        Metadata:
+          language        : ja
+      Stream #0:2: Audio: aac
+        Metadata:
+          language        : eng`,
 			wantAudio:    2,
 			wantJapanese: true,
 		},
 		{
 			name: "ja in parentheses",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264
-  Stream #0:1(ja): Audio: aac
-  Stream #0:2(eng): Audio: aac`,
+      Stream #0:0: Video: h264
+      Stream #0:1(ja): Audio: aac
+      Stream #0:2(eng): Audio: aac`,
 			wantAudio:    2,
+			wantJapanese: true,
+		},
+		{
+			name: "input+output sections counts only input",
+			output: `Input #0, matroska,webm, from 'pipe:0':
+      Stream #0:0: Video: h264
+      Stream #0:1(jpn): Audio: aac
+      Stream #0:2(eng): Audio: aac
+Output #0, null, to 'pipe:1':
+      Stream #0:0: Video: h264 (copy)
+      Stream #0:1: Audio: aac (copy)`,
+			wantAudio:    2,
+			wantJapanese: true,
+		},
+		{
+			name: "input+stream mapping counts only input",
+			output: `Input #0, matroska,webm, from 'pipe:0':
+      Stream #0:0: Video: h264
+      Stream #0:1(jpn): Audio: aac
+Stream mapping:
+  Stream #0:0 -> #0:0 (copy)
+  Stream #0:1 -> #0:1 (copy)`,
+			wantAudio:    1,
 			wantJapanese: true,
 		},
 		{
 			name: "no audio streams",
 			output: `Input #0, matroska,webm, from 'pipe:0':
-  Stream #0:0: Video: h264`,
+      Stream #0:0: Video: h264`,
 			wantAudio: 0,
 		},
 		{
