@@ -257,6 +257,8 @@ const mockDict = {
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
   magnetNoVideosInFolder: 'No videos in this folder',
+  hevcUnsupported: 'H.265 (HEVC) video playback is not supported.',
+  firefoxUnsupported: 'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
   // ED-3: EizouDendenshi setup + pairing
   eizouSetupLabel: 'OTP Setup',
   eizouSetupTitle: 'EizouDendenshi',

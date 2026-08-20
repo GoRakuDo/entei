@@ -53,6 +53,8 @@ const baseDict = {
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
   magnetNoVideosInFolder: 'No videos in this folder',
+  hevcUnsupported: 'H.265 (HEVC) video playback is not supported.',
+  firefoxUnsupported: 'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
 };
 
 const VALID_URI = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';

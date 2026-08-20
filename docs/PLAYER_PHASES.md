@@ -1,6 +1,6 @@
 # 園庭 Player — 段階プラン
 
-> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P2.1（Normal / Condensed / Fast-forward + Subtitle Appearance Settings tab）はコード完了、手動browser QA待ち。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。P6 Tracker（foundation + dashboard）は実装済み。P2.2-P5・P7はDRAFT。
+> **状態:** P1 local Player基盤、P1.1 custom controls、P1.2 media admission、P1.3a ASS / selectable captions、P1 same-start cue merge maintenance fix、ANKI_MINERのAM-1〜AM-6c（New / Update latest / inline append panel）はコード完了。DenChou Scenes（code-side自動固定wrapper / payload wrapping）はコード完了。Video Clip（Image/Video ToggleGroup / silent WebM capture）はコード完了。AM-3にDialogクリック伝播防止・Preview duration fallback修正を適用済み。P2.1（Normal / Condensed / Fast-forward + Subtitle Appearance Settings tab）はコード完了、手動browser QA済み。P1.3b（XML/platform subtitle）とP1.4（PGS/SUP image subtitle）は現在のプロダクト範囲として意図的にdeferred — PGS image cuesはtext-selectable/Yomitan-scannableではないため。P6 Tracker（foundation + dashboard）は実装済み。P2.2-P5・P7はDRAFT。
 > **作成日:** 2026-07-20
 > **対象:** `Entei/apps/web` の `/player/`。Home Phase 0 は変更しない。
 > **P1実装承認:** 2026-07-20にYosiaが明示承認済み。P2以降は各gate通過後に別途承認すること。
@@ -198,9 +198,9 @@ P1を終えても、「機能を増やす」前に実local mediaで以下が通�
 - Mine / capture中、pause中にCondensedがseekしない
 - Fast-forward解除後に既存の手動playback rateへ戻る
 
-> **実装記録（2026-07-28）:** Shadcn Radio Groupをrate Popoverのrate grid下へ追加。Normal / Condensed / Fast-forwardはsession-only stateで、Condensedは1,000ms超の無音gapをseek、Fast-forwardは字幕中/端600ms以内を1x、その他を3xにする。秒の浮動小数誤差を避けるためgap差はmsへ丸めてstrict `>`比較する。unit test 33件、全test / check / buildは通過。実mediaでの操作・spacing QAは残る。
+> **実装記録（2026-07-28）:** Shadcn Radio Groupをrate Popoverのrate grid下へ追加。Normal / Condensed / Fast-forwardはsession-only stateで、Condensedは1,000ms超の無音gapをseek、Fast-forwardは字幕中/端600ms以内を1x、その他を3xにする。秒の浮動小数誤差を避けるためgap差はmsへ丸めてstrict `>`比較する。unit test 33件、全test / check / buildは通過。実mediaでの操作・spacing QAはYosia確認済み。
 
-**Subtitle Appearance Settings tab implementation record (2026-07-28):** Third horizontal Settings tab "Subtitle" added between "Player" and "Anki Fields" in `PlayerSettingsDialog.tsx`. `SubtitleAppearanceTab` component renders 6 live-previewing controls: font size (Slider 16–48px, step 1, default 18px), text color (`<input type="color">` → oklch), background color (`<input type="color">` → oklch), background opacity (Slider 0–100%, step 1, default 72%), uniform background padding (Slider 0–32px, step 1, default 8px), and vertical bottom position (Slider 0–200px, step 4, default 96px ≈ `var(--entei-space-96)`). All colors are stored/applied as canonical `oklch(...)` strings with alpha inside the parentheses. Native color input only displays hex; its change is converted to OKLCH while preserving the current opacity. The short-lived legacy `oklch(...) / alpha` format is repaired on read. `SubtitleOverlay` applies appearance via inline styles (bottom offset, padding, background-color, font-size, color) without affecting Yomitan text selection, blur mode, controls z-index, or touch handling. Every control change and Reset immediately writes the merged safe preference to existing `entei.player.prefs.v1`; old payloads without appearance fields load safe defaults, invalid/out-of-range values are repaired or clamped, and localStorage failure does not break player. No media, subtitle text, file/path, Blob, or API credential is stored. 3-language i18n labels (en/id/ja) for all controls. `player.css` styled with Entei OKLCH tokens, 44px touch targets, calm form rhythm. Focused component/preference tests cover rendering, live preview, canonical alpha, immediate persistence, rapid sequential updates, reset, and reload restoration. Manual QA pending: live slider adjustment visible on video overlay; color picker/opacity round-trip; vertical position responsiveness at different player heights.
+**Subtitle Appearance Settings tab implementation record (2026-07-28):** Third horizontal Settings tab "Subtitle" added between "Player" and "Anki Fields" in `PlayerSettingsDialog.tsx`. `SubtitleAppearanceTab` component renders 6 live-previewing controls: font size (Slider 16–48px, step 1, default 18px), text color (`<input type="color">` → oklch), background color (`<input type="color">` → oklch), background opacity (Slider 0–100%, step 1, default 72%), uniform background padding (Slider 0–32px, step 1, default 8px), and vertical bottom position (Slider 0–200px, step 4, default 96px ≈ `var(--entei-space-96)`). All colors are stored/applied as canonical `oklch(...)` strings with alpha inside the parentheses. Native color input only displays hex; its change is converted to OKLCH while preserving the current opacity. The short-lived legacy `oklch(...) / alpha` format is repaired on read. `SubtitleOverlay` applies appearance via inline styles (bottom offset, padding, background-color, font-size, color) without affecting Yomitan text selection, blur mode, controls z-index, or touch handling. Every control change and Reset immediately writes the merged safe preference to existing `entei.player.prefs.v1`; old payloads without appearance fields load safe defaults, invalid/out-of-range values are repaired or clamped, and localStorage failure does not break player. No media, subtitle text, file/path, Blob, or API credential is stored. 3-language i18n labels (en/id/ja) for all controls. `player.css` styled with Entei OKLCH tokens, 44px touch targets, calm form rhythm. Focused component/preference tests cover rendering, live preview, canonical alpha, immediate persistence, rapid sequential updates, reset, and reload restoration. Manual QA: Yosia確認済み（live slider adjustment、color picker/opacity round-trip、vertical position responsiveness）。
 
 ### P2.2以降の拡張候補
 
@@ -432,7 +432,7 @@ P1を始める前に、Yosiaが決めるのはこの2点だけでいい。
 ## 15. P1 実装ログ
 
 > **日付:** 2026-07-20
-> **状態:** P1 実装完了 + reviewer findings 修正済み — 手動 browser QA 待ち
+> **状態:** P1 実装完了 + reviewer findings 修正済み + 手動 browser QA 済み
 
 ### 実装サマリー
 
@@ -534,39 +534,39 @@ apps/web/src/
 | build      | ✅   | `npm run build` pass（3 pages、最終再実行 13.54s）                                            |
 | safety     | ✅   | external network uploadなし。AnkiConnectはuser設定のlocalhost endpointへread-only requestのみ |
 | regression | ✅   | Home の 57 test すべて pass                                                                   |
-| browser    | ⬜   | 実 local media での手動確認が必要                                                             |
-| ASS QA     | ⬜   | 実 .ass ファイルでの browser 確認が必要                                                       |
+| browser    | ✅   | 実 local media での手動確認完了                                                               |
+| ASS QA     | ✅   | 実 .ass ファイルでの browser 確認完了                                                         |
 
-### 手動 QA が必要なもの（browser gate）
+### 手動 QA 完了済み（browser gate）
 
-1. `.mp4` + `.srt` / `.vtt` で再生 → 動作確認
-2. `.mp3` + `.srt` で audio プレイヤー → 動作確認
-3. 30分以上の video → 長時間再生安定性
-4. Subtitle file 差し替え → 前の track が残らないか
-5. Player 離脱 → object URL が解放されるか
-6. Page refresh → media 本体を復元しないか
-7. `prefers-reduced-motion` → scroll が即座に実行されるか
-8. 800px 未満 → single column レイアウト確認
-9. locale selector 切り替え → React UI のテキストが切り替わるか
-10. 44px touch target → ボタンのタップサイズ確認
-11. media metadata読込中 → video/audio skeletonとreduced-motion時の静止状態を確認
-12. shortcut Dialog → focus trap、Escapeで閉じる、triggerへfocusが戻るか
-13. **mobile portrait** → videoがTopBarの下でedge-to-edge表示; picker/subtitle panelはgutter付き。共通navigation実装後はfloating bottom Dockもsafe areaを避けて表示され、contentを覆わない
-14. **mobile landscape** (955×400 emulation) → TopBar/footer/picker/subtitle/**floating bottom Dock**非表示; videoが100vw×100dvh表示; portraitに戻すと全要素復帰
-15. **long filename** → 長いmedia/subtitleファイル名でhorizontal scrollが発生しない; labelがellipsis表示; button title属性で全名を確認可能
-16. **Mineボタン** → active cueなしでdisabled; video/audioで表示; クリックでPlayer pause
-17. **Mining Preview** → sentence/source/screenshot/audioが正しく表示; Cancelでsnapshot timeへseek+pause
-18. **Range slider** → 0.1秒stepで動作; Update materialsで明示的re-record; 無効rangeでdisabled
-19. **Mining Preview 音声** → Play/Pauseがvisible Playerに影響しない; duration fallback表示
-20. **Range zoom** → Mine開始時に選択範囲周辺へviewport自動focus; ZoomIn/ZoomOut 44px buttonで半減/倍増; 選択範囲は不変; capture/update中はdisabled
-21. **Update materials** → Range変更後のexplicit button動作; sentence/source/screenshot/audio全て更新; definition/word/tagsは保持; unmapped fieldはskip; visible video seek→capture→restore
+1. ~~`.mp4` + `.srt` / `.vtt` で再生 → 動作確認~~ ✅
+2. ~~`.mp3` + `.srt` で audio プレイヤー → 動作確認~~ ✅
+3. ~~30分以上の video → 長時間再生安定性~~ ✅
+4. ~~Subtitle file 差し替え → 前の track が残らないか~~ ✅
+5. ~~Player 離脱 → object URL が解放されるか~~ ✅
+6. ~~Page refresh → media 本体を復元しないか~~ ✅
+7. ~~`prefers-reduced-motion` → scroll が即座に実行されるか~~ ✅
+8. ~~800px 未満 → single column レイアウト確認~~ ✅
+9. ~~locale selector 切り替え → React UI のテキストが切り替わるか~~ ✅
+10. ~~44px touch target → ボタンのタップサイズ確認~~ ✅
+11. ~~media metadata読込中 → video/audio skeletonとreduced-motion時の静止状態を確認~~ ✅
+12. ~~shortcut Dialog → focus trap、Escapeで閉じる、triggerへfocusが戻るか~~ ✅
+13. ~~**mobile portrait** → videoがTopBarの下でedge-to-edge表示; picker/subtitle panelはgutter付き。共通navigation実装後はfloating bottom Dockもsafe areaを避けて表示され、contentを覆わない~~ ✅
+14. ~~**mobile landscape** (955×400 emulation) → TopBar/footer/picker/subtitle/**floating bottom Dock**非表示; videoが100vw×100dvh表示; portraitに戻すと全要素復帰~~ ✅
+15. ~~**long filename** → 長いmedia/subtitleファイル名でhorizontal scrollが発生しない; labelがellipsis表示; button title属性で全名を確認可能~~ ✅
+16. ~~**Mineボタン** → active cueなしでdisabled; video/audioで表示; クリックでPlayer pause~~ ✅
+17. ~~**Mining Preview** → sentence/source/screenshot/audioが正しく表示; Cancelでsnapshot timeへseek+pause~~ ✅
+18. ~~**Range slider** → 0.1秒stepで動作; Update materialsで明示的re-record; 無効rangeでdisabled~~ ✅
+19. ~~**Mining Preview 音声** → Play/Pauseがvisible Playerに影響しない; duration fallback表示~~ ✅
+20. ~~**Range zoom** → Mine開始時に選択範囲周辺へviewport自動focus; ZoomIn/ZoomOut 44px buttonで半減/倍増; 選択範囲は不変; capture/update中はdisabled~~ ✅
+21. ~~**Update materials** → Range変更後のexplicit button動作; sentence/source/screenshot/audio全て更新; definition/word/tagsは保持; unmapped fieldはskip; visible video seek→capture→restore~~ ✅
 
 ---
 
 ## 16. P1.1 Custom Control Layer
 
 > **決定日:** 2026-07-21
-> **状態:** code implementation complete + reviewer APPROVE — 手動 browser QA待ち
+> **状態:** code implementation complete + reviewer APPROVE + 手動 browser QA 済み
 > **目的:** browser native controlsを、園庭のlocal-first Player UIへ置き換える。P2の学習playback modeは含めない。
 
 ### 16.1 境界
@@ -656,23 +656,23 @@ audioも同じ`PlayerControls`を使う。video専用はfullscreenとpointer上�
 | P2 cue click reveals controls  | ✅   | `PlayerControlsHandle` exposed via `forwardRef`/`useImperativeHandle`; `handleCueClick` calls `controlsHandleRef.current?.show()`                                                      |
 | P3 ArrowLeft/Right documented  | ✅   | Source comment explains intentional direction-aware behavior: invalid cue → first (Left) / last (Right)                                                                                |
 
-### P1.1 手動 QA が必要なもの（browser gate）
+### P1.1 手動 QA 完了済み（browser gate）
 
-1. playback/seek/volume hover→reveal/rate/subtitle toggle → desktop
-2. Settings Modal → shortcut一覧。字幕未読込時はSubtitlePanel empty stateの「字幕を選択」button、読込後はtoolbarのFolderOpenDotから字幕を差し替え
-3. fullscreen enter/exit (Esc/F11) → icon sync (Maximize2↔Minimize2)
-4. keyboard shortcut → Space/Enter on Slider/ボタンでplay/pause二重発火なし
-5. portrait controls → video内に重ね表示、subtitle panelは動画下
-6. landscape immersive (955×400) → controls visible、subtitle panel非表示、Timeline button非表示
-7. subtitle empty state → 「字幕を選択」でSRT / VTT / ASSを選べ、読込後はcue listだけを表示
-8. reduced motion → controls fade即時切替、skeleton静止
+1. ~~playback/seek/volume hover→reveal/rate/subtitle toggle → desktop~~ ✅
+2. ~~Settings Modal → shortcut一覧。字幕未読込時はSubtitlePanel empty stateの「字幕を選択」button、読込後はtoolbarのFolderOpenDotから字幕を差し替え~~ ✅
+3. ~~fullscreen enter/exit (Esc/F11) → icon sync (Maximize2↔Minimize2)~~ ✅
+4. ~~keyboard shortcut → Space/Enter on Slider/ボタンでplay/pause二重発火なし~~ ✅
+5. ~~portrait controls → video内に重ね表示、subtitle panelは動画下~~ ✅
+6. ~~landscape immersive (955×400) → controls visible、subtitle panel非表示、Timeline button非表示~~ ✅
+7. ~~subtitle empty state → 「字幕を選択」でSRT / VTT / ASSを選べ、読込後はcue listだけを表示~~ ✅
+8. ~~reduced motion → controls fade即時切替、skeleton静止~~ ✅
 
 ---
 
 ## 17. asbplayer Local File Format Parity Plan
 
 > **決定日:** 2026-07-21
-> **状態:** P1.2 code implementation complete・manual browser QA pending
+> **状態:** P1.2 code implementation complete + manual browser QA 済み
 > **目的:** `app.asbplayer.dev`と同じlocal fileの受け入れ範囲・subtitle readerを園庭へ移植する。Streaming Video Integrationとbrowser内FFmpeg変換は含めない。
 
 ### 17.1 先に確定した事実
@@ -715,7 +715,7 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 
 **P1.2 Done:** Windows ChromiumでH.264/AAC MKV、MP4、WebM、各audio extensionのselection/playback試験を実施。Firefox / mobileは対応codecに依存することをQA matrixへ記録する。
 
-**P1.2 implementation record (2026-07-21):** code implementation complete. `media-url.ts` now uses typed, case-insensitive video/audio extension sets and derives the picker accept list from them. It preserves existing Entei extensions while adding asbplayer's `.m4v/.avi/.opus/.m4b`; rejected files exit before Blob URL creation. Native video/audio failures map to owner-controlled id/ja/en labels rather than browser `MediaError.message`. 225 automated tests, `astro check` 0 diagnostics, and static build 3 pages passed. Actual MKV/AVI/audio browser QA remains required and is not claimed complete.
+**P1.2 implementation record (2026-07-21):** code implementation complete. `media-url.ts` now uses typed, case-insensitive video/audio extension sets and derives the picker accept list from them. It preserves existing Entei extensions while adding asbplayer's `.m4v/.avi/.opus/.m4b`; rejected files exit before Blob URL creation. Native video/audio failures map to owner-controlled id/ja/en labels rather than browser `MediaError.message`. 225 automated tests, `astro check` 0 diagnostics, and static build 3 pages passed. Actual MKV/AVI/audio browser QA: Yosia確認済み（2026-08-19）。
 
 ### 17.4 P1.3a — Text subtitle parity
 
@@ -726,19 +726,19 @@ asbplayerの実コード`A:\asbplayer\common\app\components\App.tsx:111-130`をs
 - asbplayer依存の`@qgustavor/srt-parser`、`videojs-vtt.js`、`ass-compiler`は、実装開始時にlicense/versionを確認してnpm経由で追加する。package versionを手編集しない。
 - textはDOMへunsafe HTMLとして渡さない。現在のplain text panel契約を維持し、HTML/ruby表示はP6 annotationまで広げない。
 
-**P1.3a implementation record (2026-07-21):** ASS text subtitle parsing implemented. `ass-compiler` v0.1.1 (MIT license, author Zhenye Wei) installed via npm workspace. `subtitle-reader.ts` extended: `detectFormat` recognizes `[Script Info]` header; `parseASS` compiles dialogue timing, extracts plain text from `slices[].fragments[].text`, strips override tags (`{\...}`), normalizes `\\N`/`\\n` linebreaks to spaces, and applies shared whitespace/tag normalization. `SUBTITLE_EXTENSIONS` and `SUBTITLE_ACCEPT` in `media-url.ts` include `.ass` (case-insensitive). Compiler failures and malformed dialogue are caught and returned as `SubtitleParseResult.errors`. 246 automated tests (including 12 ASS-specific tests for timing, linebreaks, tag stripping, sort/id reassign, malformed input, `SUBTITLE_ACCEPT`, and direct `isSubtitleFile`/MIME assertions for ASS), `astro check` 0 diagnostics, and static build 3 pages passed. **Not implemented:** ASS visual typesetting (position/color/outline/shadow/karaoke/border), NFVTT/XML/PGS formats. Actual browser `.ass` file QA remains required and is not claimed complete.
+**P1.3a implementation record (2026-07-21):** ASS text subtitle parsing implemented. `ass-compiler` v0.1.1 (MIT license, author Zhenye Wei) installed via npm workspace. `subtitle-reader.ts` extended: `detectFormat` recognizes `[Script Info]` header; `parseASS` compiles dialogue timing, extracts plain text from `slices[].fragments[].text`, strips override tags (`{\...}`), normalizes `\\N`/`\\n` linebreaks to spaces, and applies shared whitespace/tag normalization. `SUBTITLE_EXTENSIONS` and `SUBTITLE_ACCEPT` in `media-url.ts` include `.ass` (case-insensitive). Compiler failures and malformed dialogue are caught and returned as `SubtitleParseResult.errors`. 246 automated tests (including 12 ASS-specific tests for timing, linebreaks, tag stripping, sort/id reassign, malformed input, `SUBTITLE_ACCEPT`, and direct `isSubtitleFile`/MIME assertions for ASS), `astro check` 0 diagnostics, and static build 3 pages passed. **Not implemented:** ASS visual typesetting (position/color/outline/shadow/karaoke/border), NFVTT/XML/PGS formats. Actual browser `.ass` file QA: Yosia確認済み（2026-08-19）。
 
-**P1.3a.1 implementation record (2026-07-21):** Selectable subtitle overlay over video implemented. `SubtitleOverlay` component renders active subtitle as normal DOM text inside `.entei-player-surface` with `data-entei-subtitle-overlay` attribute, `user-select: text`, and `pointer-events: auto` — compatible with user-installed Yomitan text scanner. PlayerApp surface click handler ignores events inside `[data-entei-subtitle-overlay]`, preserving document-level event propagation for content scripts. `findActiveCue(cues, time)` extracted as single source of truth for active-cue derivation (inclusive start, exclusive end); used by both `handleTimeUpdate` and the overlay. Overlay uses OKLCH token contrast (semi-transparent black background, white text), positioned bottom-center above controls (z-index 15; controls layer is z-index 10 with `pointer-events:none` container so overlay receives hover/tap/selection). 11 unit tests for `findActiveCue` covering boundary conditions, overlap behavior, and edge cases. 270 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Not implemented:** P6 word-status/dictionary integration, dictionary popup rendering, Anki mining. **Manual QA pending:** desktop Yomitan scan/selection, touch text selection behavior, fullscreen/landscape overlay visibility, non-Japanese subtitle scanning.
+**P1.3a.1 implementation record (2026-07-21):** Selectable subtitle overlay over video implemented. `SubtitleOverlay` component renders active subtitle as normal DOM text inside `.entei-player-surface` with `data-entei-subtitle-overlay` attribute, `user-select: text`, and `pointer-events: auto` — compatible with user-installed Yomitan text scanner. PlayerApp surface click handler ignores events inside `[data-entei-subtitle-overlay]`, preserving document-level event propagation for content scripts. `findActiveCue(cues, time)` extracted as single source of truth for active-cue derivation (inclusive start, exclusive end); used by both `handleTimeUpdate` and the overlay. Overlay uses OKLCH token contrast (semi-transparent black background, white text), positioned bottom-center above controls (z-index 15; controls layer is z-index 10 with `pointer-events:none` container so overlay receives hover/tap/selection). 11 unit tests for `findActiveCue` covering boundary conditions, overlap behavior, and edge cases. 270 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Not implemented:** P6 word-status/dictionary integration, dictionary popup rendering, Anki mining. **Manual QA:** Yosia確認済み（desktop Yomitan scan/selection, touch text selection, fullscreen/landscape overlay）。
 
-**P1.3a.2 implementation record (2026-07-21):** Caption display modes implemented. `CaptionDisplayMode` union type (`'visible' | 'blurred' | 'hidden'`) and `nextCaptionDisplayMode` pure transition function added to `control-helpers.ts`. `SubtitleOverlay` extended to accept `displayMode` — `hidden` renders no DOM, `blurred` applies CSS `filter: blur(6px)` and reveals on hover/tap. `SubtitleControls` cycle button added to top-right (left of Timeline): `ClosedCaption` (visible) → `Captions` (blurred) → `CaptionsOff` (hidden). Desktop: pointer hover reveals overlay text, pointer leave starts 1s restore timer; timer cancelled on re-entry. Mobile: tap blurred overlay pauses media + reveals text + shows controls; blur stays removed while paused; playback resume restores blur immediately. `SubtitleOverlay` filters pointer enter/leave by `event.pointerType === 'mouse'` via `shouldTriggerBlurHover()` — touch/pen events never schedule the 1s restore timer, preventing premature re-blur on mobile. Re-blur uses `isPlaybackResume(wasPlaying, isPlaying)` transition detection — only fires on actual false→true isPlaying transition (user-initiated resume), not during the render where isPlaying is still true after a touch-tap pause. `handleSurfaceClick` continues to ignore `[data-entei-subtitle-overlay]` targets. PlayerApp manages `captionDisplayMode` state and `isOverlayRevealed` with timer cleanup on unmount/mode change. Three locale dictionaries (id/ja/en) extended with `captionModeVisible`/`captionModeBlurred`/`captionModeHidden`. CSS: `.entei-subtitle-overlay--blurred .entei-subtitle-overlay-text` uses `filter: blur(6px)`, revealed state clears filter via `[data-overlay-revealed]` attribute. `prefers-reduced-motion`: blur state changes are instant (no animation). 16 new tests (transition cycle, constant value, pointer-type policy, playback resume detection). 278 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Manual QA pending:** desktop Yomitan scan through blurred/revealed text, mobile tap-to-reveal + pause + resume reblur, fullscreen/landscape overlay behavior, cycle button responsiveness.
+**P1.3a.2 implementation record (2026-07-21):** Caption display modes implemented. `CaptionDisplayMode` union type (`'visible' | 'blurred' | 'hidden'`) and `nextCaptionDisplayMode` pure transition function added to `control-helpers.ts`. `SubtitleOverlay` extended to accept `displayMode` — `hidden` renders no DOM, `blurred` applies CSS `filter: blur(6px)` and reveals on hover/tap. `SubtitleControls` cycle button added to top-right (left of Timeline): `ClosedCaption` (visible) → `Captions` (blurred) → `CaptionsOff` (hidden). Desktop: pointer hover reveals overlay text, pointer leave starts 1s restore timer; timer cancelled on re-entry. Mobile: tap blurred overlay pauses media + reveals text + shows controls; blur stays removed while paused; playback resume restores blur immediately. `SubtitleOverlay` filters pointer enter/leave by `event.pointerType === 'mouse'` via `shouldTriggerBlurHover()` — touch/pen events never schedule the 1s restore timer, preventing premature re-blur on mobile. Re-blur uses `isPlaybackResume(wasPlaying, isPlaying)` transition detection — only fires on actual false→true isPlaying transition (user-initiated resume), not during the render where isPlaying is still true after a touch-tap pause. `handleSurfaceClick` continues to ignore `[data-entei-subtitle-overlay]` targets. PlayerApp manages `captionDisplayMode` state and `isOverlayRevealed` with timer cleanup on unmount/mode change. Three locale dictionaries (id/ja/en) extended with `captionModeVisible`/`captionModeBlurred`/`captionModeHidden`. CSS: `.entei-subtitle-overlay--blurred .entei-subtitle-overlay-text` uses `filter: blur(6px)`, revealed state clears filter via `[data-overlay-revealed]` attribute. `prefers-reduced-motion`: blur state changes are instant (no animation). 16 new tests (transition cycle, constant value, pointer-type policy, playback resume detection). 278 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Manual QA:** Yosia確認済み（blurred/revealed text scan, mobile tap-to-reveal, fullscreen overlay, cycle button）。
 
-**P1.3a.3 implementation record (2026-07-21):** Caption display mode persisted to localStorage via existing `entei.player.prefs.v1` schema. `PlayerPreferences` interface extended with `captionDisplayMode: CaptionDisplayMode` field. Schema version retained at v1 — `captionDisplayMode` is optional in persisted JSON for backwards compatibility; old v1 payloads without the field read as `'visible'`; invalid values also fall back to `'visible'`. `PlayerApp` initializes `captionDisplayMode` from `readPlayerPreferences()` at mount. `handleCycleCaptionMode` writes updated mode together with current volume/rate inside the `setCaptionDisplayMode` functional updater, avoiding stale closures. Volume/rate handlers also preserve the current caption mode when writing. Exception-safe: unavailable/throwing localStorage and corrupted JSON return defaults. 10 new tests (defaults, old v1 payload, each valid mode, invalid mode fallback, corrupt/throwing storage, write payload key assertion, no media data). 288 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Manual QA pending:** select mode → reload → restored; old preference file → defaults to visible.
+**P1.3a.3 implementation record (2026-07-21):** Caption display mode persisted to localStorage via existing `entei.player.prefs.v1` schema. `PlayerPreferences` interface extended with `captionDisplayMode: CaptionDisplayMode` field. Schema version retained at v1 — `captionDisplayMode` is optional in persisted JSON for backwards compatibility; old v1 payloads without the field read as `'visible'`; invalid values also fall back to `'visible'`. `PlayerApp` initializes `captionDisplayMode` from `readPlayerPreferences()` at mount. `handleCycleCaptionMode` writes updated mode together with current volume/rate inside the `setCaptionDisplayMode` functional updater, avoiding stale closures. Volume/rate handlers also preserve the current caption mode when writing. Exception-safe: unavailable/throwing localStorage and corrupted JSON return defaults. 10 new tests (defaults, old v1 payload, each valid mode, invalid mode fallback, corrupt/throwing storage, write payload key assertion, no media data). 288 total tests, `astro check` 0 diagnostics, build 3 pages passed. **Manual QA:** Yosia確認済み（mode persistence, reload restoration, old preference fallback）。
 
-**Subtitle selection relocation (2026-07-21):** Moved subtitle file picker from Settings popover into SubtitlePanel. When no subtitles loaded: empty state includes actionable "Choose Subtitles" button. When subtitles loaded: compact "Change" picker in panel header. Removed SubtitlePicker and status dot from Settings popover (Settings retains keyboard shortcut reference only). SubtitlePanel accepts `onSubtitleSelect`, `subtitleAccept`, `chooseSubtitleLabel`, `changeSubtitleLabel` props. i18n: added `changeSubtitle` key (en: "Change", id: "Ganti", ja: "変更"). PlayerControls no longer receives `hasSubtitles` or `onSubtitleSelect` props. **Manual QA pending:** empty state button works, change button in header works, Settings popover has no subtitle section.
+**Subtitle selection relocation (2026-07-21):** Moved subtitle file picker from Settings popover into SubtitlePanel. When no subtitles loaded: empty state includes actionable "Choose Subtitles" button. When subtitles loaded: compact "Change" picker in panel header. Removed SubtitlePicker and status dot from Settings popover (Settings retains keyboard shortcut reference only). SubtitlePanel accepts `onSubtitleSelect`, `subtitleAccept`, `chooseSubtitleLabel`, `changeSubtitleLabel` props. i18n: added `changeSubtitle` key (en: "Change", id: "Ganti", ja: "変更"). PlayerControls no longer receives `hasSubtitles` or `onSubtitleSelect` props. **Manual QA:** Yosia確認済み（empty state button, change button, Settings popover）。
 
-**P1 same-start cue merge maintenance fix (2026-07-25):** Two subtitle bugs fixed. (1) `normalizeCues()` added — adjacent source cues sharing the exact same start time are merged into one cue, preserving source order, joining nonempty text with a single space, ending at max(end). This fixes exporter-created `<br>`/multi-cue splits where two lines at the same displayed time (e.g. `お母さん 来てたんだ。` + `ああ…。` at 02:30) produced separate cues, but `findActiveCue()` only returned the first. Applied to all three parsers (SRT/VTT/ASS) after sort. Sort changed from `start || end` to `start` only, preserving source order for equal-start inputs. (2) Literal `<br>`, `<br/>`, `<br />` in SRT/VTT now normalized to a single space BEFORE generic HTML tag stripping, preventing words from gluing together. `stripTags()` now applies `<br>` normalization first (case-insensitive). ASS `\\N`/`\\n` handling unaffected (separate normalizer runs before `stripTags`). 19 new tests (same-start merge × 9, `<br>` normalization × 8, findActiveCue merged text, three-cue merge). 713 total tests, `astro check` 0 diagnostics, build 3 pages passed. **P1.3b/P1.4 deferred** at this gate: XML/platform subtitles and PGS/SUP image subtitles removed from immediate roadmap (see sections 17.5/17.6 for rationale). **Manual QA pending:** verify merged cue text appears correctly in subtitle panel and overlay for multi-line same-start SRT/VTT files.
+**P1 same-start cue merge maintenance fix (2026-07-25):** Two subtitle bugs fixed. (1) `normalizeCues()` added — adjacent source cues sharing the exact same start time are merged into one cue, preserving source order, joining nonempty text with a single space, ending at max(end). This fixes exporter-created `<br>`/multi-cue splits where two lines at the same displayed time (e.g. `お母さん 来てたんだ。` + `ああ…。` at 02:30) produced separate cues, but `findActiveCue()` only returned the first. Applied to all three parsers (SRT/VTT/ASS) after sort. Sort changed from `start || end` to `start` only, preserving source order for equal-start inputs. (2) Literal `<br>`, `<br/>`, `<br />` in SRT/VTT now normalized to a single space BEFORE generic HTML tag stripping, preventing words from gluing together. `stripTags()` now applies `<br>` normalization first (case-insensitive). ASS `\\N`/`\\n` handling unaffected (separate normalizer runs before `stripTags`). 19 new tests (same-start merge × 9, `<br>` normalization × 8, findActiveCue merged text, three-cue merge). 713 total tests, `astro check` 0 diagnostics, build 3 pages passed. **P1.3b/P1.4 deferred** at this gate: XML/platform subtitles and PGS/SUP image subtitles removed from immediate roadmap (see sections 17.5/17.6 for rationale). **Manual QA:** Yosia確認済み（merged cue text in panel and overlay for same-start SRT/VTT）。
 
-**Desktop immersive layout (2026-07-22):** When media is loaded on desktop (≥1024px), `entei-player-immersive` class is applied to `<html>` via `useEffect` + `matchMedia`. CSS hides TopBar/SiteFooter, removes main padding, fills `100dvh`, and removes gap between video and panel. The active two-column grid explicitly places media at `minmax(0, 1fr)` / column 1 and SubtitlePanel at `380px` / column 2; when the panel is hidden, media spans the only column. The full-height chain is `media-area → surface → video-wrapper → video`, with `object-fit: contain`, so controls reach the viewport bottom without cropping the source. SubtitlePanel fills viewport height with independent scroll. Empty picker state remains normal. Cleans up on unmount/no media. Mobile portrait and short-height landscape unaffected. **Manual QA pending:** desktop video fills viewport, panel scrolls, no blank footer/scroll region, fullscreen/overlay selection works.
+**Desktop immersive layout (2026-07-22):** When media is loaded on desktop (≥1024px), `entei-player-immersive` class is applied to `<html>` via `useEffect` + `matchMedia`. CSS hides TopBar/SiteFooter, removes main padding, fills `100dvh`, and removes gap between video and panel. The active two-column grid explicitly places media at `minmax(0, 1fr)` / column 1 and SubtitlePanel at `380px` / column 2; when the panel is hidden, media spans the only column. The full-height chain is `media-area → surface → video-wrapper → video`, with `object-fit: contain`, so controls reach the viewport bottom without cropping the source. SubtitlePanel fills viewport height with independent scroll. Empty picker state remains normal. Cleans up on unmount/no media. Mobile portrait and short-height landscape unaffected. **Manual QA:** Yosia確認済み（desktop viewport fill, panel scroll, no blank footer, fullscreen/overlay）。
 
 ### 17.5 P1.3b — XML / platform subtitle parity（deferred）
 

@@ -659,6 +659,40 @@ companion（`internal/api/torrents.go` の `serveTorrentMedia`）は、anacrolix
 - **webテスト**: `companion-job-session.test.tsx` の jobMediaUrl gateテスト（buffering=null / ready=露出 / 401→rePairRequired=null）。`companion-loading-overlay.test.tsx`（active+null=表示 / active+URL=非表示 / inactive=非表示）。
 - **コードコメント**: `serveTorrentMedia`（torrents.go）と `jobMediaUrl`（use-companion-job-session.ts）に「本設計はED-2Hの核心。変更時はdocsを参照」コメント。
 
+## MKV Japanese Audio Default Flag Rewriting（2026-08-19実装）
+
+### 背景
+
+Chrome 151は`HTMLMediaElement.audioTracks` APIをflag背後で無効にしており、JavaScriptから音声トラックを切り替える手段がない。MKVに2つの音声トラック（例: 日本語AC-3 + 英語AAC）がある場合、ChromeはMKV Headerの`Default`フラグが`1`のトラックを自動選択する。 fansub MKVでは英語側に`Default=1`が設定されている場合が多く、日本語を再生するためにはこのフラグの書き換えが必要。
+
+### 設計
+
+**ffmpeg re-muxを廃止し、MKV HeaderのDefaultフラグをin-memoryで書き換える軽量方式に移行。** Android/Termuxデバイスでも安定稼働する。
+
+- **対象**: 音声トラックが**ちょうど2つ**のMKVのみ（1つ or 3つ以上はフォールバック＝そのまま再生）
+- **判定**: 2つの音声トラックのうち、`Language`要素が`jpn`または`ja`のトラックを日本語と判定
+- **操作**: 日本語トラックの`Default`フラグを`1`に、もう一方を`0`に書き換え
+- **フォールバック**: 2トラック以外、日本語トラック不在、Default要素欠落、MKVパース失敗 → そのまま`http.ServeContent`に渡す
+
+### 実装
+
+1. `serveTorrentContent`（`torrents.go`）がMKVファイルを検出
+2. `rewriteMKVDefaultAudio`（`mkv_audio.go`）がMKV Headerを最大2MB読み込み
+3. EBML解析でSegment → Tracks → TrackEntryを走査
+4. 各TrackEntryのTrackType（0x83=audio）、Language（0x22B59C）、Default（0x88）を抽出
+5. 音声トラックが2つで日本語が存在する場合、Defaultフラグを書き換え
+6. `combinedReader`が書き換え済みHeader + 元のstreamを1つのseekable readerとして`http.ServeContent`に渡す
+
+### 制約
+
+- **Default要素が存在しないTrackEntry**: 書き換えスキップ（新しいEBML要素の挿入は親サイズの連鎖更新が必要なため不採用）
+- **3つ以上の音声トラック**: Netflix等の多トラックMKVは対象外（フォールバック）
+- **EBML Header書き換えは1バイト変更のみ**: Defaultはuint8（0x00 or 0x01）なので要素サイズ不变、親要素のサイズ更新不要
+
+### テスト
+
+14件の自動テスト: 2トラックJA+EN / 1トラック / 3トラック / 日本語なし / 幂等性 / short lang / Default要素なし / 不正Header / 切り詰めHeader / video+audio / combinedReader Read+Seek+SeekCurrent+SmallChunks。全件pass、race detector通過。
+
 ## Required PoC checkpoints
 
 この5つは実装の前提。どれかが失敗したら、full implementationへ進まず設計を戻す。

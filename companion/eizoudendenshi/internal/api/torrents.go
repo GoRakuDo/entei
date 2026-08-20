@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,11 +11,10 @@ import (
 	"eizoudendenshi/internal/torrent"
 )
 
-// Japanese audio track selection: when an MKV file has multiple audio
-// tracks and one of them is Japanese, ffmpeg is used to select only the
-// Japanese track. This avoids the user having to manually switch audio
-// tracks in the browser player. Single-audio-track files are served
-// as-is (no ffmpeg overhead).
+// Japanese audio Default-flag rewrite: when an MKV file has exactly 2 audio
+// tracks and one is Japanese, the MKV header Default flag is rewritten
+// in-memory so the Japanese track becomes the default playback track.
+// Single-audio-track, 3+ track, or non-Japanese files are served as-is.
 
 // Torrent endpoints (ED-2G): localhost companion-only torrent job
 // foundation. All routes share the exact Origin + capability gates of the
@@ -370,8 +370,10 @@ func (s *Server) serveTorrentMedia(w http.ResponseWriter, r *http.Request) bool 
 // to PiecePriorityNow, preventing the Chrome seek loop (GPU 100%).
 //
 // MKV Japanese audio selection: when the selected file is an MKV with
-// multiple audio tracks and one is Japanese, the content is served through
-// ffmpeg selecting only the Japanese audio track (see serveMKVJapaneseAudio).
+// exactly 2 audio tracks and one is Japanese, the MKV header Default
+// flag is rewritten in-memory so the Japanese track becomes the default
+// playback track. No ffmpeg is needed. Single-track, 3+ track, or
+// non-Japanese MKV files fall through to the standard ServeContent path.
 func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	setTorrentMediaHeaders(w)
 	fileName := s.torrents.SelectedFileName()
@@ -393,17 +395,25 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer torrent.SafeCloseReader(reader)
 
-	// MKV Japanese audio track selection: when the file is an MKV with
-	// multiple audio tracks and one is Japanese, pipe through ffmpeg to
-	// select only the Japanese track. Single-track or non-Japanese MKV
-	// files fall through to the standard ServeContent path.
-	if isMKVExtension(fileName) && s.ffmpegPath != "" {
-		if info := probeMKVAudioTracks(r.Context(), reader, s.ffmpegPath); info.probeOK &&
-			info.trackCount >= 2 && info.hasJapanese {
-			s.serveMKVJapaneseAudio(w, r, reader, fileName, time.Unix(s.torrents.CreationDate(), 0))
+	// MKV Japanese audio Default-flag rewrite: when exactly 2 audio
+	// tracks exist and one is Japanese, rewrite the header in-memory
+	// so the Japanese track is marked Default. The modified header is
+	// combined with the remaining stream into one seekable reader that
+	// http.ServeContent can use for Range requests.
+	if isMKVExtension(fileName) {
+		if modified, ok, _ := rewriteMKVDefaultAudio(r.Context(), reader); ok {
+			sr := &combinedReader{
+				header:    bytes.NewReader(modified),
+				headerLen: int64(len(modified)),
+				stream: reader,
+			}
+			w.Header().Set("Content-Type", "video/x-matroska")
+			fw := &flushResponseWriter{ResponseWriter: w}
+			modtime := time.Unix(s.torrents.CreationDate(), 0)
+			http.ServeContent(fw, r, fileName, modtime, sr)
 			return
 		}
-		// probeMKVAudioTracks rewinds the reader, so we can fall
+		// rewriteMKVDefaultAudio rewinds the reader, so we can fall
 		// through to the standard path.
 	}
 

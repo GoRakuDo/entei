@@ -25,6 +25,7 @@ const baseDict: YouTubeInputDict = {
   youtubeInputErrorGeneric: 'Something went wrong. Try again.',
   youtubeInputSubmitting: 'Starting…',
   dialogClose: 'Close',
+  firefoxUnsupported: 'Firefox is not yet supported.',
 };
 
 const VALID_URL = 'https://www.youtube.com/watch?v=abcdefghijk';
