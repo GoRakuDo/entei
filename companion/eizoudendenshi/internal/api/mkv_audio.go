@@ -6,25 +6,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
-)
 
-// EBML element IDs used for MKV audio track detection and Default flag rewriting.
-// These are defined locally (not imported from torrent/container.go) per the
-// constraint that container.go is not modified.
-// Note: EBML element IDs use a different encoding from VINT sizes — the first
-// byte's high bits indicate byte length without a marker bit. 1-byte IDs have
-// the top bit clear (0x01..0x7F), 2-byte IDs have top 2 bits = 01 (0x4000..0x7FFF), etc.
-const (
-	mkvEBML       = 0x1A45DFA3 // EBML header element (4 bytes: 0x1A, 0x45, 0xDF, 0xA3)
-	mkvSegment    = 0x18538067 // Segment element
-	mkvTracks     = 0x1654AE6B // Tracks element
-	mkvTrackEntry = 0xAE       // TrackEntry element (1 byte)
-	mkvTrackType  = 0x83       // TrackEntry child: TrackType (uint8, 1 byte)
-	mkvLanguage   = 0x22B59C   // TrackEntry child: Language (UTF-8 string)
-	mkvDefault    = 0x88       // TrackEntry child: Default (uint8, 0 or 1)
-	mkvCodecID    = 0x86       // TrackEntry child: CodecID (string)
-
-	audioTrackTypeValue = 0x02 // TrackType element value for audio
+	"github.com/gravity-zero/mkvgo/ebml"
+	"github.com/gravity-zero/mkvgo/mkv"
+	"github.com/gravity-zero/mkvgo/mkv/reader"
 )
 
 // isMKVExtension reports whether the filename has an .mkv extension
@@ -44,21 +29,24 @@ func isMKVExtension(fileName string) bool {
 // and when exactly 2 audio tracks exist with a Japanese one, rewrites the
 // Default flag so the Japanese track becomes the default playback track.
 //
+// It uses mkvgo's reader (which correctly handles all VINT sizes including
+// 8-byte Segment sizes) for parsing, and ebml.ReadElementHeader for
+// byte-level scanning to locate Default flag offsets in the original buffer.
+//
 // The function reads at most maxHeaderRead bytes (2 MB) to cover the MKV
-// header without consuming the entire file. It then parses EBML elements
-// to locate Segment → Tracks → TrackEntry elements, inspects TrackType,
-// Language, and Default children of each TrackEntry, and modifies the
-// Default flags in the already-read header buffer.
+// header without consuming the entire file. The modified header is a copy of
+// the read buffer with only the Default flag bytes changed, preserving the
+// exact byte count so combinedReader can seamlessly serve it.
 //
 // Returns:
-//   - modified: the header bytes with the Default flags rewritten (or nil if
-//     no rewriting was needed or the header was too small/malformed).
+//   - modified: the header bytes with the Default flags rewritten (same length
+//     as bytes read from r), or nil if no rewriting was needed.
 //   - ok: true when modified is a valid replacement header.
 //   - reason: empty on success; a short identifier describing why the rewrite was skipped.
 //
 // After calling this function the caller must combine modified with the
 // remaining unread stream (io.ReadSeeker at position 0, past the header).
-func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte, ok bool, reason string) {
+func rewriteMKVDefaultAudio(ctx context.Context, r io.ReadSeeker) (modified []byte, ok bool, reason string) {
 	const maxHeaderRead = 2 * 1024 * 1024
 
 	buf := make([]byte, maxHeaderRead)
@@ -77,94 +65,30 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 		return nil, false, "header_too_short"
 	}
 
-	if buf[0] != 0x1A || buf[1] != 0x45 || buf[2] != 0xDF || buf[3] != 0xA3 {
-		return nil, false, "not_ebml"
+	// Parse with mkvgo (handles all VINT widths including 8-byte Segment sizes).
+	container, parseErr := reader.Read(ctx, bytes.NewReader(buf), "dummy.mkv")
+	if parseErr != nil {
+		return nil, false, fmt.Sprintf("parse_error: %v", parseErr)
 	}
 
-	ebmlBody, ebmlBodyLen := skipEBMLHeader(buf)
-	if ebmlBody < 0 || ebmlBody+ebmlBodyLen > len(buf) {
-		return nil, false, "ebml_header_parse_fail"
-	}
-	segStart := ebmlBody + ebmlBodyLen
-	if segStart >= len(buf) {
-		return nil, false, "no_segment"
-	}
-
-	seg, segBody, segOK := parseEBMLElement(buf, segStart)
-	if !segOK {
-		headBytes := []byte{0, 0, 0, 0}
-		for i := 0; i < 4 && segStart+i < len(buf); i++ {
-			headBytes[i] = buf[segStart+i]
+	// Collect audio track indices (matching TrackEntry order in the buffer).
+	var audioIndices []int
+	for i := range container.Tracks {
+		if container.Tracks[i].Type == mkv.AudioTrack {
+			audioIndices = append(audioIndices, i)
 		}
-		sizeByte := byte(0)
-		if segStart+4 < len(buf) {
-			sizeByte = buf[segStart+4]
-		}
-		return nil, false, fmt.Sprintf("segment_parse_fail buf=%d segStart=%d head=%x sizeByte=0x%02x", len(buf), segStart, headBytes, sizeByte)
-	}
-	if seg.ID != mkvSegment {
-		return nil, false, fmt.Sprintf("wrong_element_id buf=%d segStart=%d got=0x%X want=0x%X", len(buf), segStart, seg.ID, mkvSegment)
-	}
-	segEnd := seg.BodyEnd
-
-	var tracksElem *ebmlElem
-	off := segBody
-	for off < segEnd && off < len(buf) {
-		e, body, eOK := parseEBMLElement(buf, off)
-		if !eOK {
-			break
-		}
-		if e.ID == mkvTracks {
-			tracksElem = &ebmlElem{ID: e.ID, BodyOff: body, BodyEnd: e.BodyEnd}
-			break
-		}
-		off = e.BodyEnd
-	}
-	if tracksElem == nil {
-		return nil, false, "tracks_not_found"
 	}
 
-	trackEntries, err := parseTrackEntries(buf, tracksElem.BodyOff, tracksElem.BodyEnd)
-	if err != nil || len(trackEntries) == 0 {
-		return nil, false, "no_track_entries"
-	}
-
-	// Collect audio tracks: (trackEntryBodyStart, trackEntryBodyEnd, isJapanese, defaultOffset).
-	type audioTrack struct {
-		bodyStart     int
-		bodyEnd       int
-		isJapanese    bool
-		defaultOffset int // offset of the Default value byte in buf, -1 if not found
-	}
-	var audioTracks []audioTrack
-
-	for _, te := range trackEntries {
-		tt, lang, defOff, teErr := parseTrackEntryChildren(buf, te.bodyStart, te.bodyEnd)
-		if teErr != nil {
-			continue
-		}
-		if tt != audioTrackTypeValue {
-			continue
-		}
-		langLow := bytes.ToLower(lang)
-		isJA := bytes.Equal(langLow, []byte("jpn")) || bytes.Equal(langLow, []byte("ja"))
-		audioTracks = append(audioTracks, audioTrack{
-			bodyStart:     te.bodyStart,
-			bodyEnd:       te.bodyEnd,
-			isJapanese:    isJA,
-			defaultOffset: defOff,
-		})
-	}
-
-	// Only handle exactly 2 audio tracks.
-	if len(audioTracks) != 2 {
+	if len(audioIndices) != 2 {
 		return nil, false, "audio_tracks_not_2"
 	}
 
+	// Find Japanese track among the audio tracks.
 	var jaIdx int = -1
-	for i, at := range audioTracks {
-		if at.isJapanese {
-			jaIdx = i
+	for _, idx := range audioIndices {
+		lang := strings.ToLower(container.Tracks[idx].ResolvedLanguage())
+		if lang == "jpn" || lang == "ja" {
+			jaIdx = idx
 			break
 		}
 	}
@@ -172,225 +96,177 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 		return nil, false, "no_japanese_track"
 	}
 
-	for _, at := range audioTracks {
-		if at.defaultOffset < 0 {
+	// Both audio tracks must have explicit Default elements in the file.
+	for _, idx := range audioIndices {
+		if !container.Tracks[idx].DefaultPresent {
 			return nil, false, "default_element_missing"
 		}
 	}
 
-	// Make a modifiable copy of the header.
+	// Scan the buffer for Default flag byte offsets (one per TrackEntry, in order).
+	defaultOffsets := findDefaultOffsets(buf)
+	if len(defaultOffsets) != len(container.Tracks) {
+		return nil, false, "default_offset_scan_mismatch"
+	}
+
+	for _, idx := range audioIndices {
+		if defaultOffsets[idx] < 0 {
+			return nil, false, "default_element_missing"
+		}
+	}
+
+	// Make a modifiable copy of the header (same length as the original read).
 	modified = make([]byte, len(buf))
 	copy(modified, buf)
 
+	// Determine the non-Japanese audio track index.
+	otherIdx := audioIndices[0]
+	if otherIdx == jaIdx {
+		otherIdx = audioIndices[1]
+	}
+
 	// Set Japanese track Default = 1, other track Default = 0.
-	modified[audioTracks[jaIdx].defaultOffset] = 1
-	otherIdx := 1 - jaIdx
-	modified[audioTracks[otherIdx].defaultOffset] = 0
+	modified[defaultOffsets[jaIdx]] = 1
+	modified[defaultOffsets[otherIdx]] = 0
 
 	return modified, true, ""
 }
 
 // ---------------------------------------------------------------------------
-// EBML parsing helpers (self-contained, does not touch torrent/container.go)
+// EBML byte-offset scanner using mkvgo's ebml.ReadElementHeader
 // ---------------------------------------------------------------------------
 
-// ebmlElem describes a parsed EBML element within a byte slice.
-type ebmlElem struct {
-	ID      uint64
-	BodyOff int // first byte after the element header (start of payload / children)
-	BodyEnd int // one past the last byte of the element payload
-}
-
-// ebmlSize returns the EBML variable-length size at buf[off], excluding the
-// marker bit. Returns (value, headerLen, ok).
-func ebmlSize(buf []byte, off int) (uint64, int, bool) {
-	if off >= len(buf) {
-		return 0, 0, false
-	}
-	b := buf[off]
-	mask := byte(0x80)
-	hdrLen := 1
-	for hdrLen <= 8 && b&mask == 0 {
-		mask >>= 1
-		hdrLen++
-	}
-	if hdrLen > 8 || off+hdrLen > len(buf) {
-		return 0, 0, false
-	}
-	val := uint64(b & (mask - 1))
-	for i := 1; i < hdrLen; i++ {
-		val = val<<8 | uint64(buf[off+i])
-	}
-	return val, hdrLen, true
-}
-
-// ebmlID returns the EBML element ID at buf[off].
-// EBML element IDs use a different encoding from VINT sizes: the first byte's
-// high bits indicate byte length without a marker bit. 1-byte IDs: 0x01..0x7F,
-// 2-byte IDs: 0x4000..0x7FFF, 3-byte IDs: 0x200000..0x3FFFFF, 4-byte IDs:
-// 0x10000000..0x1FFFFFFF.
-func ebmlID(buf []byte, off int) (uint64, int, bool) {
-	if off >= len(buf) {
-		return 0, 0, false
-	}
-	b := buf[off]
-	var hdrLen int
-	switch {
-	case b&0x80 != 0:
-		hdrLen = 1 // 1-byte ID: top bit set (0x01..0x7F)
-	case b&0xC0 == 0x40:
-		hdrLen = 2 // 2-byte ID: top 2 bits = 01 (0x40..0x7F)
-	case b&0xE0 == 0x20:
-		hdrLen = 3 // 3-byte ID: top 3 bits = 001 (0x20..0x3F)
-	case b&0xF0 == 0x10:
-		hdrLen = 4 // 4-byte ID: top 4 bits = 0001 (0x10..0x1F)
-	default:
-		return 0, 0, false
-	}
-	if off+hdrLen > len(buf) {
-		return 0, 0, false
-	}
-	val := uint64(b)
-	for i := 1; i < hdrLen; i++ {
-		val = val<<8 | uint64(buf[off+i])
-	}
-	return val, hdrLen, true
-}
-
-// parseEBMLElement parses a single EBML element header and returns its ID,
-// body start offset, and body end offset. ok is false on malformed input.
-func parseEBMLElement(buf []byte, off int) (ebmlElem, int, bool) {
-	id, idLen, idOK := ebmlID(buf, off)
-	if !idOK {
-		return ebmlElem{}, 0, false
-	}
-	size, sizeLen, sizeOK := ebmlSize(buf, off+idLen)
-	if !sizeOK {
-		return ebmlElem{}, 0, false
-	}
-	bodyOff := off + idLen + sizeLen
-
-	// EBML unknown size: all value bits set (0xFF for 1-byte, 0x7FFF for 2-byte, etc.).
-	// The element extends to the end of the buffer. (EBML spec §5.1)
-	unknownSize := sizeLen > 0 && size == (uint64(1)<<(7*sizeLen))-1
-	var bodyEnd int
-	if unknownSize {
-		bodyEnd = len(buf)
-	} else {
-		bodyEnd = bodyOff + int(size)
-		if bodyEnd > len(buf) {
-			return ebmlElem{}, 0, false
-		}
-	}
-	return ebmlElem{ID: id, BodyOff: bodyOff, BodyEnd: bodyEnd}, bodyOff, true
-}
-
-// skipEBMLHeader returns the offset and length of the EBML header payload
-// (after the header element's own size field), so the caller can find the
-// Segment element that follows. Returns (payloadOffset, payloadLength, ok).
-func skipEBMLHeader(buf []byte) (int, int) {
-	// EBML element header: ID (0x1A45DFA3, 4 bytes) + size.
-	id, idLen, ok := ebmlID(buf, 0)
-	if !ok || id != mkvEBML {
-		return -1, 0
-	}
-	size, sizeLen, sizeOK := ebmlSize(buf, idLen)
-	if !sizeOK {
-		return -1, 0
-	}
-	bodyOff := idLen + sizeLen
-	bodyEnd := bodyOff + int(size)
-	if bodyEnd > len(buf) {
-		return -1, 0
-	}
-	return bodyOff, int(size)
-}
-
-// trackEntryInfo is a parsed TrackEntry within the Tracks element.
-type trackEntryInfo struct {
-	bodyStart int // first payload byte of this TrackEntry
-	bodyEnd   int // one past the last payload byte
-}
-
-// parseTrackEntries walks a Tracks element and returns each TrackEntry's
-// body range. Only complete TrackEntry elements fully within the buffer are
-// returned.
-func parseTrackEntries(buf []byte, tracksBodyOff, tracksBodyEnd int) ([]trackEntryInfo, error) {
-	var entries []trackEntryInfo
-	off := tracksBodyOff
-	for off < tracksBodyEnd && off < len(buf) {
-		id, idLen, idOK := ebmlID(buf, off)
-		if !idOK {
-			break
-		}
-		size, sizeLen, sizeOK := ebmlSize(buf, off+idLen)
-		if !sizeOK {
-			break
-		}
-		bodyOff := off + idLen + sizeLen
-		bodyEnd := bodyOff + int(size)
-		if bodyEnd > tracksBodyEnd || bodyEnd > len(buf) {
-			break // truncated or exceeds Tracks boundary
-		}
-		if id == mkvTrackEntry {
-			entries = append(entries, trackEntryInfo{bodyStart: bodyOff, bodyEnd: bodyEnd})
-		}
-		off = bodyEnd
-	}
-	return entries, nil
-}
-
-// parseTrackEntryChildren scans a TrackEntry's payload for three children:
-//   - TrackType (0x83): 1-byte uint8 value
-//   - Language  (0x22B59C): UTF-8 string value
-//   - Default   (0x88): 1-byte uint8 value; defaultOffset is the byte index
-//     in buf where the Default value byte lives (-1 if not found).
+// findDefaultOffsets scans buf for Default flag (0x88) value byte offsets
+// within each TrackEntry element, in TrackEntry order. Returns a slice where
+// the i-th element is the byte offset of the Default value for TrackEntry i,
+// or -1 if no Default element was found in that TrackEntry.
 //
-// A non-zero error means the TrackEntry is malformed.
-func parseTrackEntryChildren(buf []byte, bodyStart, bodyEnd int) (
-	trackType uint8,
-	language []byte,
-	defaultOffset int,
-	err error,
-) {
-	defaultOffset = -1
-	off := bodyStart
-	for off < bodyEnd && off < len(buf) {
-		id, idLen, idOK := ebmlID(buf, off)
-		if !idOK {
-			break
-		}
-		size, sizeLen, sizeOK := ebmlSize(buf, off+idLen)
-		if !sizeOK {
-			break
-		}
-		payloadOff := off + idLen + sizeLen
-		payloadEnd := payloadOff + int(size)
-		if payloadEnd > bodyEnd || payloadEnd > len(buf) {
-			break
-		}
-		switch id {
-		case mkvTrackType:
-			if size == 1 && payloadOff < len(buf) {
-				trackType = buf[payloadOff]
-			}
-		case mkvLanguage:
-			if payloadOff < payloadEnd && payloadOff <= len(buf) {
-				end := payloadEnd
-				if end > len(buf) {
-					end = len(buf)
-				}
-				language = make([]byte, end-payloadOff)
-				copy(language, buf[payloadOff:end])
-			}
-		case mkvDefault:
-			if size == 1 && payloadOff < len(buf) {
-				defaultOffset = payloadOff
-			}
-		}
-		off = payloadEnd
+// Uses ebml.ReadElementHeader which correctly handles all VINT sizes
+// (including 8-byte sizes for large Segment elements).
+func findDefaultOffsets(buf []byte) []int {
+	br := bytes.NewReader(buf)
+
+	// Skip EBML header
+	ebmlHdr, _, err := ebml.ReadElementHeader(br)
+	if err != nil {
+		return nil
 	}
-	return
+	if ebmlHdr.ID != ebml.IDEBMLHeader {
+		return nil
+	}
+	if _, err := br.Seek(ebmlHdr.Size, io.SeekCurrent); err != nil {
+		return nil
+	}
+
+	// Read Segment header
+	segHdr, _, err := ebml.ReadElementHeader(br)
+	if err != nil {
+		return nil
+	}
+	if segHdr.ID != mkv.IDSegment {
+		return nil
+	}
+
+	segBodyStart, _ := br.Seek(0, io.SeekCurrent)
+	var segEnd int64 = -1
+	if segHdr.Size >= 0 {
+		segEnd = segBodyStart + segHdr.Size
+	}
+
+	// Scan Segment children for Tracks
+	for {
+		pos, _ := br.Seek(0, io.SeekCurrent)
+		if segEnd >= 0 && pos >= segEnd {
+			break
+		}
+		if pos >= int64(len(buf)) {
+			break
+		}
+
+		childHdr, _, err := ebml.ReadElementHeader(br)
+		if err != nil {
+			break
+		}
+		if childHdr.Size < 0 {
+			break // unknown-size child: cannot navigate
+		}
+
+		if childHdr.ID == mkv.IDTracks {
+			return scanTracksForDefaults(buf, br, childHdr.Size)
+		}
+
+		if _, err := br.Seek(childHdr.Size, io.SeekCurrent); err != nil {
+			break
+		}
+	}
+
+	return nil
+}
+
+// scanTracksForDefaults walks a Tracks element's children and returns
+// Default flag value-byte offsets for each TrackEntry, in order.
+func scanTracksForDefaults(buf []byte, br *bytes.Reader, tracksSize int64) []int {
+	tracksBodyStart, _ := br.Seek(0, io.SeekCurrent)
+	tracksEnd := tracksBodyStart + tracksSize
+
+	var offsets []int
+
+	for {
+		tePos, _ := br.Seek(0, io.SeekCurrent)
+		if tePos >= tracksEnd || tePos >= int64(len(buf)) {
+			break
+		}
+
+		teHdr, _, err := ebml.ReadElementHeader(br)
+		if err != nil {
+			break
+		}
+		if teHdr.Size < 0 {
+			break
+		}
+
+		if teHdr.ID == mkv.IDTrackEntry {
+			teBodyStart, _ := br.Seek(0, io.SeekCurrent)
+			teBodyEnd := teBodyStart + teHdr.Size
+			defOff := -1
+
+			for {
+				chPos, _ := br.Seek(0, io.SeekCurrent)
+				if chPos >= teBodyEnd || chPos >= int64(len(buf)) {
+					break
+				}
+
+				chHdr, _, err := ebml.ReadElementHeader(br)
+				if err != nil {
+					break
+				}
+				if chHdr.Size < 0 {
+					break
+				}
+
+				if chHdr.ID == mkv.IDFlagDefault && chHdr.Size == 1 {
+					vPos, _ := br.Seek(0, io.SeekCurrent)
+					if vPos < int64(len(buf)) {
+						defOff = int(vPos)
+					}
+				}
+
+				if _, err := br.Seek(chHdr.Size, io.SeekCurrent); err != nil {
+					break
+				}
+			}
+
+			offsets = append(offsets, defOff)
+			// Position is already at teBodyEnd after children scan; no skip needed.
+		} else {
+			// Non-TrackEntry element: skip its body.
+			if _, err := br.Seek(teHdr.Size, io.SeekCurrent); err != nil {
+				break
+			}
+		}
+	}
+
+	return offsets
 }
 
 // ---------------------------------------------------------------------------
@@ -403,10 +279,10 @@ func parseTrackEntryChildren(buf []byte, bodyStart, bodyEnd int) (
 // in-memory. Virtual position p maps directly to stream position p.
 
 type combinedReader struct {
-	header     *bytes.Reader // modified MKV header bytes
-	headerLen  int64         // original header length (does not change)
-	stream     io.ReadSeeker // original stream at position 0 (full file)
-	pos        int64         // virtual file position
+	header    *bytes.Reader // modified MKV header bytes
+	headerLen int64         // original header length (does not change)
+	stream    io.ReadSeeker // original stream at position 0 (full file)
+	pos       int64         // virtual file position
 }
 
 func (c *combinedReader) Read(p []byte) (int, error) {

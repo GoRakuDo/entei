@@ -5,6 +5,9 @@ import (
 	"context"
 	"io"
 	"testing"
+
+	"github.com/gravity-zero/mkvgo/ebml"
+	"github.com/gravity-zero/mkvgo/mkv"
 )
 
 // ---------------------------------------------------------------------------
@@ -53,13 +56,13 @@ const mkvDocType = 0x4282
 
 func buildMKVHeader(trackEntries ...[]byte) []byte {
 	docType := mkvElem(mkvDocType, mkvString("matroska"))
-	ebmlHeader := mkvElem(mkvEBML, docType)
+	ebmlHeader := mkvElem(uint64(ebml.IDEBMLHeader), docType)
 	var tracksPayload []byte
 	for _, te := range trackEntries {
 		tracksPayload = append(tracksPayload, te...)
 	}
-	tracksElem := mkvElem(mkvTracks, tracksPayload)
-	segment := mkvElem(mkvSegment, tracksElem)
+	tracksElem := mkvElem(uint64(mkv.IDTracks), tracksPayload)
+	segment := mkvElem(uint64(mkv.IDSegment), tracksElem)
 	return append(ebmlHeader, segment...)
 }
 
@@ -68,7 +71,7 @@ func buildTrackEntry(children ...[]byte) []byte {
 	for _, child := range children {
 		payload = append(payload, child...)
 	}
-	return mkvElem(mkvTrackEntry, payload)
+	return mkvElem(uint64(mkv.IDTrackEntry), payload)
 }
 
 type nopCloserReadSeeker struct {
@@ -84,8 +87,8 @@ func newTestReader(data []byte) *nopCloserReadSeeker {
 // ---------------------------------------------------------------------------
 
 func TestRewriteMKVDefaultAudio_2Tracks_JapaneseAndEnglish(t *testing.T) {
-	jaTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")), mkvElem(mkvDefault, mkvUint8(0x00)))
-	enTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x01)))
+	jaTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
+	enTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
 	header := buildMKVHeader(jaTrack, enTrack)
 	reader := newTestReader(header)
 	modified, ok, reason := rewriteMKVDefaultAudio(context.Background(), reader)
@@ -95,7 +98,7 @@ func TestRewriteMKVDefaultAudio_2Tracks_JapaneseAndEnglish(t *testing.T) {
 	if len(modified) != len(header) {
 		t.Fatalf("modified header length %d != original %d", len(modified), len(header))
 	}
-	jaDefault, enDefault := findDefaultFlags(t, modified, mkvTrackEntry)
+	jaDefault, enDefault := findDefaultFlags(t, modified)
 	if jaDefault != 1 {
 		t.Errorf("Japanese track Default: got %d, want 1", jaDefault)
 	}
@@ -105,7 +108,7 @@ func TestRewriteMKVDefaultAudio_2Tracks_JapaneseAndEnglish(t *testing.T) {
 }
 
 func TestRewriteMKVDefaultAudio_1Track(t *testing.T) {
-	track := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")), mkvElem(mkvDefault, mkvUint8(0x01)))
+	track := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
 	header := buildMKVHeader(track)
 	reader := newTestReader(header)
 	_, ok, _ := rewriteMKVDefaultAudio(context.Background(), reader)
@@ -115,9 +118,9 @@ func TestRewriteMKVDefaultAudio_1Track(t *testing.T) {
 }
 
 func TestRewriteMKVDefaultAudio_3Tracks(t *testing.T) {
-	t1 := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")), mkvElem(mkvDefault, mkvUint8(0x00)))
-	t2 := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x01)))
-	t3 := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("fre")), mkvElem(mkvDefault, mkvUint8(0x00)))
+	t1 := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
+	t2 := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
+	t3 := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("fre")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
 	header := buildMKVHeader(t1, t2, t3)
 	reader := newTestReader(header)
 	_, ok, _ := rewriteMKVDefaultAudio(context.Background(), reader)
@@ -127,8 +130,8 @@ func TestRewriteMKVDefaultAudio_3Tracks(t *testing.T) {
 }
 
 func TestRewriteMKVDefaultAudio_2Tracks_NoJapanese(t *testing.T) {
-	t1 := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x01)))
-	t2 := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("fre")), mkvElem(mkvDefault, mkvUint8(0x00)))
+	t1 := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
+	t2 := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("fre")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
 	header := buildMKVHeader(t1, t2)
 	reader := newTestReader(header)
 	_, ok, _ := rewriteMKVDefaultAudio(context.Background(), reader)
@@ -138,8 +141,8 @@ func TestRewriteMKVDefaultAudio_2Tracks_NoJapanese(t *testing.T) {
 }
 
 func TestRewriteMKVDefaultAudio_Idempotent(t *testing.T) {
-	jaTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")), mkvElem(mkvDefault, mkvUint8(0x01)))
-	enTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x00)))
+	jaTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
+	enTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
 	header := buildMKVHeader(jaTrack, enTrack)
 	reader := newTestReader(header)
 	modified, ok, reason := rewriteMKVDefaultAudio(context.Background(), reader)
@@ -152,23 +155,51 @@ func TestRewriteMKVDefaultAudio_Idempotent(t *testing.T) {
 }
 
 func TestRewriteMKVDefaultAudio_ShortJaLang(t *testing.T) {
-	jaTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("ja")), mkvElem(mkvDefault, mkvUint8(0x00)))
-	enTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x01)))
+	jaTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("ja")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
+	enTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
 	header := buildMKVHeader(jaTrack, enTrack)
 	reader := newTestReader(header)
 	modified, ok, reason := rewriteMKVDefaultAudio(context.Background(), reader)
 	if !ok {
 		t.Fatalf("expected rewrite for ja lang, got ok=false reason=%s", reason)
 	}
-	jaDefault, _ := findDefaultFlags(t, modified, mkvTrackEntry)
+	jaDefault, _ := findDefaultFlags(t, modified)
 	if jaDefault != 1 {
 		t.Errorf("Japanese Default: got %d, want 1", jaDefault)
 	}
 }
 
+func TestRewriteMKVDefaultAudio_BCP47Language(t *testing.T) {
+	// Build a track with only the BCP47 language element (0x22B59D) set to "ja",
+	// no legacy ISO 639-2 Language element. ResolvedLanguage() should pick up BCP47.
+	jaTrack := buildTrackEntry(
+		mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)),
+		mkvElem(uint64(mkv.IDLanguageBCP47), mkvString("ja")),
+		mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)),
+	)
+	enTrack := buildTrackEntry(
+		mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)),
+		mkvElem(uint64(mkv.IDLanguage), mkvString("eng")),
+		mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)),
+	)
+	header := buildMKVHeader(jaTrack, enTrack)
+	reader := newTestReader(header)
+	modified, ok, reason := rewriteMKVDefaultAudio(context.Background(), reader)
+	if !ok {
+		t.Fatalf("expected rewrite to succeed for BCP47-only ja, got ok=false reason=%s", reason)
+	}
+	jaDefault, enDefault := findDefaultFlags(t, modified)
+	if jaDefault != 1 {
+		t.Errorf("Japanese track Default: got %d, want 1", jaDefault)
+	}
+	if enDefault != 0 {
+		t.Errorf("English track Default: got %d, want 0", enDefault)
+	}
+}
+
 func TestRewriteMKVDefaultAudio_NoDefaultElement(t *testing.T) {
-	t1 := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")))
-	t2 := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")))
+	t1 := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")))
+	t2 := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")))
 	header := buildMKVHeader(t1, t2)
 	reader := newTestReader(header)
 	_, ok, _ := rewriteMKVDefaultAudio(context.Background(), reader)
@@ -194,16 +225,16 @@ func TestRewriteMKVDefaultAudio_TruncatedHeader(t *testing.T) {
 }
 
 func TestRewriteMKVDefaultAudio_VideoAndAudioTracks(t *testing.T) {
-	vTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x01)), mkvElem(mkvCodecID, mkvString("V_MPEG4/ISO/AVC")))
-	jaTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")), mkvElem(mkvDefault, mkvUint8(0x00)))
-	enTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x01)))
+	vTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x01)), mkvElem(uint64(mkv.IDCodecID), mkvString("V_MPEG4/ISO/AVC")))
+	jaTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
+	enTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
 	header := buildMKVHeader(vTrack, jaTrack, enTrack)
 	reader := newTestReader(header)
 	modified, ok, reason := rewriteMKVDefaultAudio(context.Background(), reader)
 	if !ok {
 		t.Fatalf("expected rewrite (1v+2a), got ok=false reason=%s", reason)
 	}
-	jaDefault, enDefault := findDefaultFlags(t, modified, mkvTrackEntry)
+	jaDefault, enDefault := findDefaultFlags(t, modified)
 	if jaDefault != 1 {
 		t.Errorf("Japanese Default: got %d, want 1", jaDefault)
 	}
@@ -215,16 +246,14 @@ func TestRewriteMKVDefaultAudio_VideoAndAudioTracks(t *testing.T) {
 func TestRewriteMKVDefaultAudio_SegmentUnknownSize(t *testing.T) {
 	// Build an MKV header where the Segment element has VINT size = 0xFF
 	// (unknown size / all value bits set). This is common in real MKV files.
-	jaTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")), mkvElem(mkvDefault, mkvUint8(0x00)))
-	enTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x01)))
-	tracksPayload := append(mkvElem(mkvTracks, nil), jaTrack...)
-	tracksPayload = append(tracksPayload, enTrack...)
+	jaTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
+	enTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
 
 	// Build the tracks element properly first to get correct size
-	tracksElem := mkvElem(mkvTracks, append(jaTrack, enTrack...))
+	tracksElem := mkvElem(uint64(mkv.IDTracks), append(jaTrack, enTrack...))
 
 	// Manually construct Segment: ID (4 bytes) + size byte 0xFF (unknown) + tracks payload
-	segID := mkvElemID(mkvSegment)
+	segID := mkvElemID(uint64(mkv.IDSegment))
 	segHeader := append(segID, 0xFF) // 0xFF = unknown size
 	header := append(buildEBMLHeaderForTest(), segHeader...)
 	header = append(header, tracksElem...)
@@ -237,7 +266,37 @@ func TestRewriteMKVDefaultAudio_SegmentUnknownSize(t *testing.T) {
 	if len(modified) != len(header) {
 		t.Fatalf("modified header length %d != original %d", len(modified), len(header))
 	}
-	jaDefault, enDefault := findDefaultFlags(t, modified, mkvTrackEntry)
+	jaDefault, enDefault := findDefaultFlags(t, modified)
+	if jaDefault != 1 {
+		t.Errorf("Japanese track Default: got %d, want 1", jaDefault)
+	}
+	if enDefault != 0 {
+		t.Errorf("English track Default: got %d, want 0", enDefault)
+	}
+}
+
+func TestRewriteMKVDefaultAudio_8ByteVINTSegmentSize(t *testing.T) {
+	// Build an MKV header where the Segment element has a large declared size
+	// encoded in 8-byte VINT (sizeByte=0x01). This is the case that broke
+	// the old hand-rolled EBML parser (sizeByte=0x01 → 8-byte VINT width).
+	jaTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("jpn")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x00)))
+	enTrack := buildTrackEntry(mkvElem(uint64(mkv.IDTrackType), mkvUint8(0x02)), mkvElem(uint64(mkv.IDLanguage), mkvString("eng")), mkvElem(uint64(mkv.IDFlagDefault), mkvUint8(0x01)))
+	tracksElem := mkvElem(uint64(mkv.IDTracks), append(jaTrack, enTrack...))
+
+	// Manually construct Segment: ID (4 bytes) + 8-byte VINT size (0x01 prefix)
+	// encoding a very large size. 0x01 = 00000001 → first set bit at position 0
+	// → VINT width = 8 - 0 = 8 bytes. The size value is enormous (~72 PB).
+	segID := mkvElemID(uint64(mkv.IDSegment))
+	segHeader := append(segID, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+	header := append(buildEBMLHeaderForTest(), segHeader...)
+	header = append(header, tracksElem...)
+
+	reader := newTestReader(header)
+	modified, ok, reason := rewriteMKVDefaultAudio(context.Background(), reader)
+	if !ok {
+		t.Fatalf("expected rewrite to succeed with 8-byte VINT Segment size, got ok=false reason=%s", reason)
+	}
+	jaDefault, enDefault := findDefaultFlags(t, modified)
 	if jaDefault != 1 {
 		t.Errorf("Japanese track Default: got %d, want 1", jaDefault)
 	}
@@ -248,7 +307,7 @@ func TestRewriteMKVDefaultAudio_SegmentUnknownSize(t *testing.T) {
 
 func buildEBMLHeaderForTest() []byte {
 	docType := mkvElem(mkvDocType, mkvString("matroska"))
-	return mkvElem(mkvEBML, docType)
+	return mkvElem(uint64(ebml.IDEBMLHeader), docType)
 }
 
 // ---------------------------------------------------------------------------
@@ -385,54 +444,115 @@ func TestCombinedReader_ReadSmallChunks(t *testing.T) {
 // Test helper: findDefaultFlags
 // ---------------------------------------------------------------------------
 
-func findDefaultFlags(t *testing.T, data []byte, trackEntryID uint64) (default1, default2 uint8) {
+// findDefaultFlags parses data as an MKV header and returns the Default flag
+// values for the first two audio TrackEntry elements found. Uses mkvgo's
+// ebml.ReadElementHeader for robust VINT handling.
+func findDefaultFlags(t *testing.T, data []byte) (default1, default2 uint8) {
 	t.Helper()
 	if len(data) < 12 || data[0] != 0x1A || data[1] != 0x45 || data[2] != 0xDF || data[3] != 0xA3 {
 		t.Fatal("not MKV")
 	}
-	ebmlBody, ebmlBodyLen := skipEBMLHeader(data)
-	if ebmlBody < 0 {
+
+	br := bytes.NewReader(data)
+
+	// Skip EBML header
+	ebmlHdr, _, err := ebml.ReadElementHeader(br)
+	if err != nil || ebmlHdr.ID != ebml.IDEBMLHeader {
 		t.Fatal("bad EBML header")
 	}
-	segStart := ebmlBody + ebmlBodyLen
-	seg, segBody, segOK := parseEBMLElement(data, segStart)
-	if !segOK || seg.ID != mkvSegment {
+	if _, err := br.Seek(ebmlHdr.Size, io.SeekCurrent); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read Segment header
+	segHdr, _, err := ebml.ReadElementHeader(br)
+	if err != nil || segHdr.ID != mkv.IDSegment {
 		t.Fatal("no segment")
 	}
-	segEnd := seg.BodyEnd
-	off := segBody
-	for off < segEnd && off <= len(data)-8 {
-		e, body, eOK := parseEBMLElement(data, off)
-		if !eOK {
-			t.Fatalf("parseEBML at %d", off)
+
+	segBodyStart, _ := br.Seek(0, io.SeekCurrent)
+	var segEnd int64 = -1
+	if segHdr.Size >= 0 {
+		segEnd = segBodyStart + segHdr.Size
+	}
+
+	// Scan Segment children for Tracks
+	for {
+		pos, _ := br.Seek(0, io.SeekCurrent)
+		if segEnd >= 0 && pos >= segEnd {
+			break
 		}
-		if e.ID == mkvTracks {
+		if pos >= int64(len(data)) {
+			break
+		}
+
+		childHdr, _, err := ebml.ReadElementHeader(br)
+		if err != nil {
+			t.Fatalf("parse segment child at %d", pos)
+		}
+		if childHdr.Size < 0 {
+			break
+		}
+
+		if childHdr.ID == mkv.IDTracks {
+			tracksBodyStart, _ := br.Seek(0, io.SeekCurrent)
+			tracksEnd := tracksBodyStart + childHdr.Size
 			audioCount := 0
-			teOff := body
-			for teOff < e.BodyEnd && teOff <= len(data)-8 {
-				te, teBody, teOK := parseEBMLElement(data, teOff)
-				if !teOK {
+
+			for {
+				tePos, _ := br.Seek(0, io.SeekCurrent)
+				if tePos >= tracksEnd || tePos >= int64(len(data)) {
 					break
 				}
-				if te.ID == mkvTrackEntry {
-					ttOff := teBody
+
+				teHdr, _, err := ebml.ReadElementHeader(br)
+				if err != nil {
+					break
+				}
+				if teHdr.Size < 0 {
+					break
+				}
+
+				if teHdr.ID == mkv.IDTrackEntry {
+					teBodyStart, _ := br.Seek(0, io.SeekCurrent)
+					teBodyEnd := teBodyStart + teHdr.Size
 					var tt uint8
 					var dv uint8
 					var hd bool
-					for ttOff < te.BodyEnd && ttOff <= len(data)-8 {
-						child, _, childOK := parseEBMLElement(data, ttOff)
-						if !childOK {
+
+					for {
+						chPos, _ := br.Seek(0, io.SeekCurrent)
+						if chPos >= teBodyEnd || chPos >= int64(len(data)) {
 							break
 						}
-						if child.ID == mkvTrackType && child.BodyEnd <= len(data) {
-							tt = data[child.BodyOff]
+
+						chHdr, _, err := ebml.ReadElementHeader(br)
+						if err != nil {
+							break
 						}
-						if child.ID == mkvDefault && child.BodyEnd <= len(data) {
-							dv = data[child.BodyOff]
-							hd = true
+						if chHdr.Size < 0 {
+							break
 						}
-						ttOff = child.BodyEnd
+
+						if chHdr.ID == mkv.IDTrackType && chHdr.Size == 1 {
+							vPos, _ := br.Seek(0, io.SeekCurrent)
+							if vPos < int64(len(data)) {
+								tt = data[vPos]
+							}
+						}
+						if chHdr.ID == mkv.IDFlagDefault && chHdr.Size == 1 {
+							vPos, _ := br.Seek(0, io.SeekCurrent)
+							if vPos < int64(len(data)) {
+								dv = data[vPos]
+								hd = true
+							}
+						}
+
+						if _, err := br.Seek(chHdr.Size, io.SeekCurrent); err != nil {
+							break
+						}
 					}
+
 					if tt == 0x02 && hd {
 						audioCount++
 						if audioCount == 1 {
@@ -441,12 +561,20 @@ func findDefaultFlags(t *testing.T, data []byte, trackEntryID uint64) (default1,
 							default2 = dv
 						}
 					}
+					// Position is already at teBodyEnd after children scan; no skip needed.
+				} else {
+					// Non-TrackEntry element: skip its body.
+					if _, err := br.Seek(teHdr.Size, io.SeekCurrent); err != nil {
+						break
+					}
 				}
-				teOff = te.BodyEnd
 			}
 			break
 		}
-		off = e.BodyEnd
+
+		if _, err := br.Seek(childHdr.Size, io.SeekCurrent); err != nil {
+			break
+		}
 	}
 	return
 }
