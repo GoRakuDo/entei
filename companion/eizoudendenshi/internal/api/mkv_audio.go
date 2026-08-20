@@ -3,8 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
-	"log"
 	"strings"
 )
 
@@ -90,23 +90,16 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 		return nil, false, "no_segment"
 	}
 
-	// Diagnostic: log bytes around Segment start for debugging.
-	if segStart+4 <= len(buf) {
-		hex := make([]byte, 0, 12)
-		for i := segStart; i < segStart+12 && i < len(buf); i++ {
-			hex = append(hex, buf[i])
-		}
-		log.Printf("mkv audio debug: buf=%d ebmlBody=%d ebmlBodyLen=%d segStart=%d bytes=%x", len(buf), ebmlBody, ebmlBodyLen, segStart, hex)
-	}
-
 	seg, segBody, segOK := parseEBMLElement(buf, segStart)
 	if !segOK {
-		log.Printf("mkv audio debug: parseEBMLElement failed at segStart=%d", segStart)
-		return nil, false, "segment_not_found"
+		headBytes := []byte{0, 0, 0, 0}
+		for i := 0; i < 4 && segStart+i < len(buf); i++ {
+			headBytes[i] = buf[segStart+i]
+		}
+		return nil, false, fmt.Sprintf("segment_parse_fail buf=%d segStart=%d head=%x", len(buf), segStart, headBytes)
 	}
 	if seg.ID != mkvSegment {
-		log.Printf("mkv audio debug: element at segStart=%d has ID=0x%X, want 0x%X", segStart, seg.ID, mkvSegment)
-		return nil, false, "segment_not_found"
+		return nil, false, fmt.Sprintf("wrong_element_id buf=%d segStart=%d got=0x%X want=0x%X", len(buf), segStart, seg.ID, mkvSegment)
 	}
 	segEnd := seg.BodyEnd
 
