@@ -392,17 +392,17 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer torrent.SafeCloseReader(reader)
 
-	// MKV Japanese audio: when the file has Japanese audio among its tracks,
-	// pipe through ffmpeg selecting only the Japanese track.
+	// MKV Japanese audio: when the file is MKV and ffmpeg is available,
+	// read directly from the local disk path instead of the torrent Reader.
 	if isMKVExtension(fileName) && s.ffmpegPath != "" {
-		ok, diag := probeMKVJapaneseAudio(r.Context(), reader, s.ffmpegPath)
-		if ok {
-			s.log.Infof("torrent", "mkv japanese audio detected diag=%s file=%s", diag, fileName)
-			s.serveMKVJapaneseAudio(w, r, reader, fileName)
+		diskPath, diskErr := s.torrents.SelectedDiskPath()
+		if diskErr == nil {
+			s.log.Infof("torrent", "mkv japanese audio from disk file=%s path=%s", fileName, diskPath)
+			s.serveMKVJapaneseAudioFromPath(w, r, diskPath, fileName)
 			return
 		}
-		// probeMKVJapaneseAudio rewinds the reader, fall through.
-		s.log.Infof("torrent", "mkv probe result: diag=%s file=%s", diag, fileName)
+		// Disk path unavailable: log and fall through to normal ServeContent.
+		s.log.Infof("torrent", "mkv disk path unavailable: %v file=%s", diskErr, fileName)
 	}
 
 	fw := &flushResponseWriter{ResponseWriter: w}
