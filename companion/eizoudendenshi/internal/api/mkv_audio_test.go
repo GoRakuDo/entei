@@ -212,6 +212,45 @@ func TestRewriteMKVDefaultAudio_VideoAndAudioTracks(t *testing.T) {
 	}
 }
 
+func TestRewriteMKVDefaultAudio_SegmentUnknownSize(t *testing.T) {
+	// Build an MKV header where the Segment element has VINT size = 0xFF
+	// (unknown size / all value bits set). This is common in real MKV files.
+	jaTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("jpn")), mkvElem(mkvDefault, mkvUint8(0x00)))
+	enTrack := buildTrackEntry(mkvElem(mkvTrackType, mkvUint8(0x02)), mkvElem(mkvLanguage, mkvString("eng")), mkvElem(mkvDefault, mkvUint8(0x01)))
+	tracksPayload := append(mkvElem(mkvTracks, nil), jaTrack...)
+	tracksPayload = append(tracksPayload, enTrack...)
+
+	// Build the tracks element properly first to get correct size
+	tracksElem := mkvElem(mkvTracks, append(jaTrack, enTrack...))
+
+	// Manually construct Segment: ID (4 bytes) + size byte 0xFF (unknown) + tracks payload
+	segID := mkvElemID(mkvSegment)
+	segHeader := append(segID, 0xFF) // 0xFF = unknown size
+	header := append(buildEBMLHeaderForTest(), segHeader...)
+	header = append(header, tracksElem...)
+
+	reader := newTestReader(header)
+	modified, ok, reason := rewriteMKVDefaultAudio(context.Background(), reader)
+	if !ok {
+		t.Fatalf("expected rewrite to succeed with unknown-size Segment, got ok=false reason=%s", reason)
+	}
+	if len(modified) != len(header) {
+		t.Fatalf("modified header length %d != original %d", len(modified), len(header))
+	}
+	jaDefault, enDefault := findDefaultFlags(t, modified, mkvTrackEntry)
+	if jaDefault != 1 {
+		t.Errorf("Japanese track Default: got %d, want 1", jaDefault)
+	}
+	if enDefault != 0 {
+		t.Errorf("English track Default: got %d, want 0", enDefault)
+	}
+}
+
+func buildEBMLHeaderForTest() []byte {
+	docType := mkvElem(mkvDocType, mkvString("matroska"))
+	return mkvElem(mkvEBML, docType)
+}
+
 // ---------------------------------------------------------------------------
 // Tests for combinedReader
 // ---------------------------------------------------------------------------

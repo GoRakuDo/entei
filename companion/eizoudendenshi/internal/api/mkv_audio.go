@@ -265,9 +265,18 @@ func parseEBMLElement(buf []byte, off int) (ebmlElem, int, bool) {
 		return ebmlElem{}, 0, false
 	}
 	bodyOff := off + idLen + sizeLen
-	bodyEnd := bodyOff + int(size)
-	if bodyEnd > len(buf) {
-		return ebmlElem{}, 0, false
+
+	// EBML unknown size: all value bits set (0xFF for 1-byte, 0x7FFF for 2-byte, etc.).
+	// The element extends to the end of the buffer. (EBML spec §5.1)
+	unknownSize := sizeLen > 0 && size == (uint64(1)<<(7*sizeLen))-1
+	var bodyEnd int
+	if unknownSize {
+		bodyEnd = len(buf)
+	} else {
+		bodyEnd = bodyOff + int(size)
+		if bodyEnd > len(buf) {
+			return ebmlElem{}, 0, false
+		}
 	}
 	return ebmlElem{ID: id, BodyOff: bodyOff, BodyEnd: bodyEnd}, bodyOff, true
 }
