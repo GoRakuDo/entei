@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log"
 	"strings"
 )
 
@@ -22,6 +21,7 @@ const (
 	mkvTrackType  = 0x83       // TrackEntry child: TrackType (uint8, 1 byte)
 	mkvLanguage   = 0x22B59C   // TrackEntry child: Language (UTF-8 string)
 	mkvDefault    = 0x88       // TrackEntry child: Default (uint8, 0 or 1)
+	mkvCodecID    = 0x86       // TrackEntry child: CodecID (string)
 
 	audioTrackTypeValue = 0x02 // TrackType element value for audio
 )
@@ -57,50 +57,44 @@ func isMKVExtension(fileName string) bool {
 //
 // After calling this function the caller must combine modified with the
 // remaining unread stream (io.ReadSeeker at position 0, past the header).
-func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte, ok bool, err error) {
+func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte, ok bool, reason string) {
 	const maxHeaderRead = 2 * 1024 * 1024
 
 	buf := make([]byte, maxHeaderRead)
 	n, readErr := r.Read(buf)
 	if readErr != nil && readErr != io.EOF {
-		r.Seek(0, io.SeekStart) // ensure clean state for fallback
-		return nil, false, nil
+		r.Seek(0, io.SeekStart)
+		return nil, false, "read_error"
 	}
 	buf = buf[:n]
 
-	// Rewind so the caller (or http.ServeContent) can re-read from position 0.
 	if _, seekErr := r.Seek(0, io.SeekStart); seekErr != nil {
-		return nil, false, nil
+		return nil, false, "seek_error"
 	}
 
-	// Need at least the EBML header + Segment element start.
 	if len(buf) < 12 {
-		return nil, false, nil
+		return nil, false, "header_too_short"
 	}
 
-	// Verify EBML magic: 1A 45 DF A3.
 	if buf[0] != 0x1A || buf[1] != 0x45 || buf[2] != 0xDF || buf[3] != 0xA3 {
-		return nil, false, nil
+		return nil, false, "not_ebml"
 	}
 
-	// Skip past the EBML header element to reach the Segment.
 	ebmlBody, ebmlBodyLen := skipEBMLHeader(buf)
 	if ebmlBody < 0 || ebmlBody+ebmlBodyLen > len(buf) {
-		return nil, false, nil
+		return nil, false, "ebml_header_parse_fail"
 	}
 	segStart := ebmlBody + ebmlBodyLen
 	if segStart >= len(buf) {
-		return nil, false, nil
+		return nil, false, "no_segment"
 	}
 
-	// Parse the Segment element.
 	seg, segBody, segOK := parseEBMLElement(buf, segStart)
 	if !segOK || seg.ID != mkvSegment {
-		return nil, false, nil
+		return nil, false, "segment_not_found"
 	}
 	segEnd := seg.BodyEnd
 
-	// Walk Segment children looking for the Tracks element.
 	var tracksElem *ebmlElem
 	off := segBody
 	for off < segEnd && off < len(buf) {
@@ -109,23 +103,18 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 			break
 		}
 		if e.ID == mkvTracks {
-			tracksElem = &ebmlElem{
-				ID:      e.ID,
-				BodyOff: body,
-				BodyEnd: e.BodyEnd,
-			}
+			tracksElem = &ebmlElem{ID: e.ID, BodyOff: body, BodyEnd: e.BodyEnd}
 			break
 		}
 		off = e.BodyEnd
 	}
 	if tracksElem == nil {
-		return nil, false, nil
+		return nil, false, "tracks_not_found"
 	}
 
-	// Parse TrackEntry children of Tracks.
 	trackEntries, err := parseTrackEntries(buf, tracksElem.BodyOff, tracksElem.BodyEnd)
 	if err != nil || len(trackEntries) == 0 {
-		return nil, false, nil
+		return nil, false, "no_track_entries"
 	}
 
 	// Collect audio tracks: (trackEntryBodyStart, trackEntryBodyEnd, isJapanese, defaultOffset).
@@ -155,17 +144,11 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 		})
 	}
 
-	log.Printf("mkv audio probe: %d audio tracks found", len(audioTracks))
-	for i, at := range audioTracks {
-		log.Printf("mkv audio probe: track %d japanese=%v hasDefault=%v", i, at.isJapanese, at.defaultOffset >= 0)
-	}
-
 	// Only handle exactly 2 audio tracks.
 	if len(audioTracks) != 2 {
-		return nil, false, nil
+		return nil, false, "audio_tracks_not_2"
 	}
 
-	// Find the Japanese track (if any).
 	var jaIdx int = -1
 	for i, at := range audioTracks {
 		if at.isJapanese {
@@ -174,15 +157,12 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 		}
 	}
 	if jaIdx < 0 {
-		return nil, false, nil
+		return nil, false, "no_japanese_track"
 	}
 
-	// Both tracks must have the Default element present (1-byte uint8).
-	// If either is missing, we skip rewriting — inserting new EBML elements
-	// would shift offsets and require parent size updates.
 	for _, at := range audioTracks {
 		if at.defaultOffset < 0 {
-			return nil, false, nil
+			return nil, false, "default_element_missing"
 		}
 	}
 
@@ -195,7 +175,7 @@ func rewriteMKVDefaultAudio(_ context.Context, r io.ReadSeeker) (modified []byte
 	otherIdx := 1 - jaIdx
 	modified[audioTracks[otherIdx].defaultOffset] = 0
 
-	return modified, true, nil
+	return modified, true, ""
 }
 
 // ---------------------------------------------------------------------------
