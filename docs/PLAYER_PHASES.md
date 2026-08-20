@@ -861,13 +861,15 @@ MKVファイルに複数の音声トラック（例: 日本語AC-3 + 英語AAC�
 
 | # | アプローチ | 結果 | 却下理由 |
 |---|---|---|---|
-| 1 | `audioTracks` API（Web側JS） | 失敗 | Chrome 151でflag背後（非有効）。API自体が存在しない |
-| 2 | EBML Header Default flag書き換え（Go） | 失敗 | 8-byte VINT Segment sizeに対応できず、手作業パーサーが複雑に |
+| 1 | `audioTracks` API（Web側JS） | 失敗 | Chrome 151ではデフォルト無効（flag裏）。有効にしてもMKV内の音声トラックを列挙しない |
+| 2 | EBML Header Default flag書き換え（Go） | 失敗 | 8-byte VINT Segment sizeに対応できず、手作業EBMLパーサーの実装が複雑すぎる |
 | 3 | mkvgo ライブラリ（Go） | 失敗 | truncated data（torrent reader）での解析が不安定 |
 | 4 | ffmpeg pipe（2MB probe） | 失敗 | ffmpeg matroska demuxerはpipe入力でAttachment読み込み後にストリーム情報を出力。2MBでは不足 |
 | 5 | ffmpeg段階的probe（2→64MB） | 失敗 | torrent readerのtiming問題。probe実行時にデータが未到達 |
-| 6 | ffmpeg pipe（probe廃止） | 失敗 | ffmpeg `-map 0:m:language:ja` 構文が無効（EINVAL）。`-map 0:m:language:jpn`に修正後も配信時に失敗 |
+| 6 | ffmpeg pipe（probe廃止） | 失敗 | ffmpeg `-map 0:m:language:ja` 構文が無効（EINVAL）。`-map 0:m:language:jpn`に修正後も配信時にbyte 0要求が503→error code 4で再生不能 |
 | 7 | ffmpeg直接ファイル（SelectedDiskPath） | 成功確認 | ローカルファイル→ffmpeg→日本語音声抽出は動作確認済み。ただしvideo track除外バグあり → 修正済み（`-map 0:v?`追加） |
+
+> **注記（approach #7）:** Local fileでのみ動作確認済み。Companion経由のMKV配信での動作は未検証であり、 torrent reader経由との組み合わせで既知のTiming問題（approach #4/#5）が再発する可能性がある。
 
 ### 確定設計：音声分離アプローチ
 
@@ -882,7 +884,7 @@ companion (Go)
   → 抽出された音声ファイルを一時保存 or streaming
 
 Player (React)
-  <video> — MKV そのまま再生（音声あり）
+  <video muted> — MKV そのまま再生（音声は無視）
   <audio> — 日本語音声のみ（lossless抽出済み）
 
 UI制御:
@@ -901,10 +903,11 @@ Sentence Mining:
 | 判断 | 理由 |
 |---|---|
 | ffmpeg直接配信ではなく音声分離 | MKV直接配信（`-map 0:v? -map 0:a:m:language:jpn`）は動作確認済みだが、Sentence Miningの音声キャプチャがMKV内の音声トラックを取得してしまい、英語が混じる問題がある |
-| 同期不要 | 同じMKVから抽出した音声トラックは、元の動画とほぼ同じ長さ。millisecond単位の同期は学習用途では不要 |
+| 同期不要 | 同じMKVから抽出した音声トラックは、元の動画とほぼ同じ長さ。millisecond単位の同期は学習用途では不要。ただしffmpeg抽出とMKV再生の開始タイミングには数msのズレが生じるため、実MKVでのdrift計測はStage 3で確認する |
 | lossless | 音質劣化なし。`-c copy`でエンコードなし |
+| `<video>`は必ず`muted` | 音声は`<audio>`から再生。`<video>`の音声を有効にすると英語+日本語が同時再生される |
 | `<audio>`要素でロード | HTML5の`<audio>`要素は独立した音声再生が可能。`<video>`と別個に制御できる |
-| Miningは`<audio>`から取得 | `<audio>`要素は`captureStream()`でMediaStreamを取得可能。`<video>`ではなく`<audio>`からキャプチャすることで日本語音声のみを取得 |
+| Miningは`<audio>`から取得 | `<audio>`要素は`captureStream()`でMediaStreamを取得可能（Chrome 53+対応済み）。`<video>`ではなく`<audio>`からキャプチャすることで日本語音声のみを取得 |
 
 #### 実装上の課題（未解決）
 
@@ -912,9 +915,10 @@ Sentence Mining:
 |---|---|---|
 | 音声ファイルの一時保存 | ffmpeg抽出結果をどうEnteiに渡すか | 一時ファイル → HTTP配信 / pipeで直接配信 |
 | MKV未完成時の抽出 | torrent再生中にMKVが未完成の場合 | 抽出開始を遅らせる / 完了後に抽出 |
-| Sentence Mining連携 | Miningコードが`<audio>`からキャプチャするよう変更が必要 | `useRef`で`<audio>`要素を参照し、`captureStream()`を適用 |
-| ミュート/音量のUX | `<video>`の音声と`<audio>`の音声が混在する可能性 | `<video>`は`muted`で再生。音量スライダーは`<audio>`専用 |
-| 4K/高ビットレート対応 | 大きなMKVのffmpeg抽出に時間がかかる場合 | 背景抽出 + readyシグナル |
+| Sentence Mining連携 | Miningコードが`<audio>`からキャプチャするよう変更が必要 | `useRef`で`<audio>`要素を参照し、`captureStream()`を適用（Chrome 53+対応済み） |
+| ミュート/音量のUX | `<video>`の音声と`<audio>`の音声が混在する可能性 | `<video>`は常に`muted`で再生（HARD INVARIANT）。音量スライダーは`<audio>`専用 |
+| ffmpeg未インストール時のgraceful degradation | ffmpegがPATHにない場合や`-map`オプションがunsupportedな場合 | ffmpeg存在チェック + `audioTracks` API代替探索（ただしapproach #1で失敗）+ ffmpegなしでも動画単体再生は維持 |
+| 日本語音声トラック不在 | MKVに日本語トラックが含まれていない場合 | ffmpegのexit codeで検出し、`<audio>`要素を追加しない。動画の英語音声のみで再生 |
 
 ### 将来の実装ステージ
 
