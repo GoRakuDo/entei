@@ -66,10 +66,15 @@ func probeMKVJapaneseAudio(ctx context.Context, r io.ReadSeeker, ffmpegPath stri
 		_ = cmd.Run() // error expected; stream info is printed before decode starts
 
 		audioCount, hasJapanese := parseProbeOutput(stderr.String())
-		if audioCount > 0 {
-			return hasJapanese
+		if audioCount <= 1 {
+			// Single audio track: nothing to select. No Japanese variant exists.
+			return false
 		}
-		// audioCount == 0 → ffmpeg couldn't parse, try next (larger) size.
+		if hasJapanese {
+			return true
+		}
+		// audioCount >= 2 but no Japanese detected yet — the metadata may
+		// sit beyond the current probe window. Try the next (larger) size.
 	}
 
 	return false // all sizes exhausted
