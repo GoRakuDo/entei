@@ -28,7 +28,7 @@ import { Input } from '@/components/player/ui/input';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { readYtDownloadMode } from '@/features/player/yt-download-mode';
-import { isFirefox } from '@/features/player/hevc-detect';
+import { isFirefox } from '@/features/player/browser-detect';
 import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
 import { waitForPlayable } from '@/features/player/companion-media';
 

@@ -109,24 +109,6 @@ export function notifySubtitleSyncSuccess(label: string): void {
   });
 }
 
-export const HEVC_UNSUPPORTED_TOAST_KEY = 'eizouden-hevc-unsupported';
-
-/**
- * Emit the HEVC-unsupported warning toast.
- *
- * Shown when the user selects an HEVC H.265 video file but the browser
- * does not support HEVC playback (standard Chrome/Firefox/Edge).
- * Thorium and Safari are the only browsers that support HEVC.
- *
- * @param label - localized message (playerUI.hevcUnsupported).
- */
-export function notifyHEVCUnsupported(label: string): void {
-  toast.warning(label, {
-    id: HEVC_UNSUPPORTED_TOAST_KEY,
-    icon: <CircleAlert aria-hidden="true" />,
-  });
-}
-
 export const FIREFOX_UNSUPPORTED_TOAST_KEY = 'firefox-unsupported';
 
 /**

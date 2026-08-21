@@ -288,8 +288,6 @@ export const id: Dictionary = {
     companionJobFailed:
       'Unduhan gagal. Silakan coba URL baru atau pilih file.',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
-    hevcUnsupported:
-      'Pemutaran video H.265 (HEVC) tidak didukung. Coba gunakan browser Thorium.',
     firefoxUnsupported:
       'Firefox belum didukung. Gunakan Google Chrome atau browser berbasis Chromium.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)

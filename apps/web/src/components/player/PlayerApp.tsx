@@ -107,14 +107,13 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
 import { clampCompanionSeek } from '@/features/player/seek-limiter';
-import { isFirefox, isHEVC, isHEVCSupported } from '@/features/player/hevc-detect';
+import { isFirefox } from '@/features/player/browser-detect';
 import {
   notifyQuality,
   notifyCompanionError,
   notifySubtitleSyncError,
   notifySubtitleSyncSuccess,
   notifyLazySyncInfo,
-  notifyHEVCUnsupported,
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
 import {
@@ -1163,14 +1162,6 @@ export default function PlayerApp() {
       // directing the user to Chrome or a Chromium-based browser.
       if (isFirefox()) {
         notifyFirefoxUnsupported(dictRef.current.playerUI.firefoxUnsupported);
-        return;
-      }
-
-      // HEVC H.265 playback guard: block unsupported HEVC files with a toast
-      // and keep the file selection screen visible.
-      if (admission.kind === 'video' && isHEVC(file.name) && !isHEVCSupported()) {
-        notifyHEVCUnsupported(dictRef.current.playerUI.hevcUnsupported);
-        setIsLoading(false);
         return;
       }
 
@@ -4388,7 +4379,6 @@ export default function PlayerApp() {
           magnetFileKindOther: dict.magnetFileKindOther,
           magnetTableNavUp: dict.magnetTableNavUp,
           magnetNoVideosInFolder: dict.magnetNoVideosInFolder,
-          hevcUnsupported: dict.hevcUnsupported,
           firefoxUnsupported: dict.firefoxUnsupported,
         }}
       />
