@@ -1068,3 +1068,201 @@ describe('findActiveCue', () => {
     expect(findActiveCue(cues, 3.7)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// YouTube ASR rolling-caption dedup
+// ---------------------------------------------------------------------------
+
+describe('parseSubtitle — YouTube ASR rolling-caption dedup', () => {
+  /**
+   * Helper: build a YouTube VTT snippet with ASR timing lines.
+   * Each entry is [start, end, text].
+   */
+  const asrVTT = (
+    cues: [string, string, string][],
+  ): string => {
+    const blocks = cues
+      .map(
+        ([start, end, text], i) =>
+          `${i + 1}\n${start} --> ${end} align:start position:0%\n${text}`,
+      )
+      .join('\n\n');
+    return `WEBVTT\n\n${blocks}`;
+  };
+
+  it('collapses rolling triple (empty → same → same+music) to one cue with extended end', () => {
+    // Reproduces live YouTube ASR pattern (2026-08-21 evidence):
+    // cue 1: very short window, same text
+    // cue 2: very short window, same text  
+    // cue 3: longer window, same text + [音楽]
+    const vtt = asrVTT([
+      ['00:00:01.040', '00:00:01.299', 'あいつら君が来るの楽しみにしてたんだぞ。…'],
+      ['00:00:01.299', '00:00:01.309', 'あいつら君が来るの楽しみにしてたんだぞ。…'],
+      [
+        '00:00:01.309',
+        '00:00:07.269',
+        'あいつら君が来るの楽しみにしてたんだぞ。…\n[音楽]',
+      ],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    // All 3 should collapse into 1 cue (same text, extended end)
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toContain('あいつら君が来るの楽しみにしてたんだぞ。…');
+    // End should be max of all three = 7.269
+    expect(result.cues[0]!.end).toBeCloseTo(7.269, 3);
+    // Start should be the earliest = 1.040
+    expect(result.cues[0]!.start).toBeCloseTo(1.04, 3);
+  });
+
+  it('merges prefix-extension pair to fuller text', () => {
+    // ASR mid-word split: cue A has partial text, cue B has the full sentence
+    // that starts with A's text.
+    const vtt = asrVTT([
+      ['00:00:02.000', '00:00:03.500', 'こんにちは世界'],
+      ['00:00:03.200', '00:00:06.000', 'こんにちは世界！元気ですか？'],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(1);
+    // Rule 3: B is fuller, so A.text is replaced by B.text
+    expect(result.cues[0]!.text).toBe('こんにちは世界！元気ですか？');
+    // End extended to max
+    expect(result.cues[0]!.end).toBeCloseTo(6.0, 3);
+  });
+
+  it('keeps different sentences intact (no false dedup)', () => {
+    const vtt = asrVTT([
+      ['00:00:01.000', '00:00:03.000', '最初の文です'],
+      ['00:00:03.500', '00:00:06.000', '次の文です'],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(2);
+    expect(result.cues[0]!.text).toBe('最初の文です');
+    expect(result.cues[1]!.text).toBe('次の文です');
+  });
+
+  it('non-ASR VTT with identical adjacent texts stays unchanged (flag gate)', () => {
+    // No align:start position → NOT detected as ASR → no dedup
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+Same text here
+
+00:00:03.000 --> 00:00:06.000
+Same text here`;
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(2);
+    expect(result.cues[0]!.text).toBe('Same text here');
+    expect(result.cues[1]!.text).toBe('Same text here');
+  });
+
+  it('rule 1: drops whitespace-only ASR cue', () => {
+    const vtt = asrVTT([
+      ['00:00:01.000', '00:00:03.000', 'Hello world'],
+      ['00:00:03.000', '00:00:05.000', '   '],
+      ['00:00:05.000', '00:00:07.000', 'Different text'],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    // Whitespace-only cue dropped, other two remain
+    expect(result.cues).toHaveLength(2);
+    expect(result.cues[0]!.text).toBe('Hello world');
+    expect(result.cues[1]!.text).toBe('Different text');
+  });
+
+  it('rule 2: same text keeps the one with longer duration', () => {
+    const vtt = asrVTT([
+      ['00:00:01.000', '00:00:02.000', 'Short span'],
+      ['00:00:01.500', '00:00:05.000', 'Short span'],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    expect(result.cues).toHaveLength(1);
+    // Extended to the longer end
+    expect(result.cues[0]!.end).toBeCloseTo(5.0, 3);
+  });
+
+  it('rule 3 does NOT fire when gap exceeds 0.5 s tolerance', () => {
+    const vtt = asrVTT([
+      ['00:00:01.000', '00:00:02.000', 'Partial'],
+      ['00:00:03.000', '00:00:05.000', 'Partial text is longer'],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    // Gap is 1.0 s > 0.5 tolerance → no merge, both kept
+    expect(result.cues).toHaveLength(2);
+  });
+
+  it('rule 3\u2032: suffix-restart pair collapses to fuller prev text', () => {
+    // ASR rolling window drops leading words: prev has the full phrase,
+    // cur is a suffix/restart of that phrase — both ASR-flagged.
+    const vtt = asrVTT([
+      [
+        '00:00:01.000',
+        '00:00:04.500',
+        'ちょっと 早く来る方がいいですか？【音楽】',
+      ],
+      [
+        '00:00:04.200',
+        '00:00:07.000',
+        '早く来る方がいいですか？【音楽】',
+      ],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    // Rule 3': prev is fuller, cur is suffix → keep prev text, extend end
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]!.text).toBe(
+      'ちょっと 早く来る方がいいですか？【音楽】',
+    );
+    expect(result.cues[0]!.end).toBeCloseTo(7.0, 3);
+  });
+
+  it('two-line rolling window: old tail + new sentence stays separate', () => {
+    // Realistic ASR fixture: first cue is tail from previous window,
+    // second cue starts a new sentence — different text, no collapse.
+    const vtt = asrVTT([
+      ['00:00:01.000', '00:00:03.000', 'ありがとうございました。'],
+      [
+        '00:00:02.800',
+        '00:00:06.000',
+        '次のスピーカーに切り替わります。',
+      ],
+    ]);
+
+    const result = parseSubtitle(vtt);
+    // Different text → Rule 4 applies: both cues kept as-is
+    expect(result.cues).toHaveLength(2);
+    expect(result.cues[0]!.text).toBe('ありがとうございました。');
+    expect(result.cues[1]!.text).toBe(
+      '次のスピーカーに切り替わります。',
+    );
+  });
+
+  it('mix of ASR and non-ASR cues: non-ASR cues pass through unchanged', () => {
+    const vtt = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+Normal cue without ASR
+
+00:00:03.000 --> 00:00:03.500 align:start position:0%
+ASR duplicate
+
+00:00:03.500 --> 00:00:07.000 align:start position:0%
+ASR duplicate
+
+00:00:08.000 --> 00:00:10.000
+Another normal cue`;
+
+    const result = parseSubtitle(vtt);
+    // Normal cue preserved, ASR duplicates merged, another normal preserved
+    expect(result.cues).toHaveLength(3);
+    expect(result.cues[0]!.text).toBe('Normal cue without ASR');
+    expect(result.cues[1]!.text).toBe('ASR duplicate');
+    expect(result.cues[1]!.end).toBeCloseTo(7.0, 3);
+    expect(result.cues[2]!.text).toBe('Another normal cue');
+  });
+});

@@ -330,3 +330,24 @@ Magnet 再生では**音声ベースの字幕同期（sub-to-audio）を無効�
 3. **テスト**: companion（DL 済み prefix の cue 抽出・piece 優先）+ web
    （オフセット推定・適用・更新・Magnet 音声無効化）。
 4. **レビュー → リリース → 実機確認**。
+
+## 11. YouTube ASR Rolling Caption Dedup（2026-08-21）
+
+YouTube 自動生成字幕（ASR）は**ローリングウィンドウ**で Cue を生成する。 同一文が 2-3 個の連続 Cue に同一テキストで出現し、時間のみずれて拡張される（これが 字幕パネルの表示を埋める。実機確認: 2026-08-21 、YouTube が提供する VTT から。ただし ASR のタイミング行には `align:start position:` が含まれる。
+
+### 11.1 処理
+
+`parseSubtitle()` 内の `parseVTT()` から呼び出される `dedupRollingCues()` が、パース結果を sort + normalize の前に実行する。ルールは前後Cue（A）と現在のCue（B）の連続ペアに適用する:
+
+1. **空白または空文字列** → B を削除する。
+2. **同一テキスト（正規化後）** → 更長い時間スパンの方を保持し、A の end を max(A.end, B.end) に拡張して B を削除する。
+3. **B がA の接頭テキスト（ASR の単語分割）** → 0.5s 以内の重なり合いなら B のテキストと end を保持して B を削除する。
+3'. **A がB の接頭テキスト（ローリングウィンドウ先頭落とし）** → 0.5s 以内の重なり合いなら A を保持し end を拡張して B を削除する。
+4. **それ以外** → 変換しない。
+
+### 11.2 影響
+
+- **YouTube ASR 字幕** (デフォルト): 連続同一テキストの Cue が組み込まれ、字幕パネルの表示が清潔になる。
+- **トーレント/VTT/ASS 字幕**: 全て変換されず、後ついている既存操作と同じ挙動を組む。
+- **判定基準**: タイミング行には `align:start position` が含まれること。
+- **テスト**: `tests/subtitle-reader.test.ts`の "YouTube ASR rolling-caption dedup" describe ブロック内に 10 つのテストあり、実機シナリオを含む。
