@@ -1863,7 +1863,7 @@ export default function PlayerApp() {
 
   // --- AM-3: Audio clip capture ---
   const handleAudioClip = useCallback(async () => {
-    if (!mediaUrl || !activeCueId || !audioClipCaps.supported) return;
+    if (!displayMediaUrl || !activeCueId || !audioClipCaps.supported) return;
     // Guard: refuse if AM-4 mining is in flight to prevent cross-cancellation
     if (isMiningRef.current || isMiningRefreshingRef.current) return;
     if (isRecordingAudioRef.current) return;
@@ -1881,7 +1881,7 @@ export default function PlayerApp() {
     setHasAudioClipError(false);
 
     const result = await recordAudioClip({
-      mediaUrl,
+      mediaUrl: displayMediaUrl,
       start: activeCue.start,
       end: activeCue.end,
       playbackRate,
@@ -1911,7 +1911,7 @@ export default function PlayerApp() {
     replaceAudioClipUrl(url);
     setIsAudioClipDialogOpen(true);
   }, [
-    mediaUrl,
+    displayMediaUrl,
     activeCueId,
     audioClipCaps.supported,
     cues,
@@ -2392,7 +2392,7 @@ export default function PlayerApp() {
 
   const handleMine = useCallback(
     async (overrideCue?: SubtitleCue) => {
-      if (!mediaUrl) return;
+      if (!displayMediaUrl) return;
       // Guard: refuse if any standalone capture (AM-2 screenshot / AM-3 audio) or AM-4 mining is in flight
       if (
         isCapturingRef.current ||
@@ -2474,7 +2474,7 @@ export default function PlayerApp() {
           // Video Clip mode: record silent WebM instead of JPEG screenshot
           try {
             videoClipResult = await recordVideoClip({
-              mediaUrl,
+              mediaUrl: displayMediaUrl,
               start: targetCue.start,
               end: targetCue.end,
               playbackRate,
@@ -2612,7 +2612,7 @@ export default function PlayerApp() {
 
       // Audio
       const audioResult = await recordAudioClip({
-        mediaUrl,
+        mediaUrl: displayMediaUrl,
         start: targetCue.start,
         end: targetCue.end,
         playbackRate,
@@ -2638,7 +2638,7 @@ export default function PlayerApp() {
       }
     },
     [
-      mediaUrl,
+      displayMediaUrl,
       activeCueId,
       cues,
       mediaType,
@@ -2699,7 +2699,7 @@ export default function PlayerApp() {
       const start = committedValue[0];
       const end = committedValue[1];
       if (
-        !mediaUrl ||
+        !displayMediaUrl ||
         start == null ||
         end == null ||
         !Number.isFinite(start) ||
@@ -2813,7 +2813,7 @@ export default function PlayerApp() {
 
           if (mediaMode === 'video') {
             const clipResult = await recordVideoClip({
-              mediaUrl: mediaUrl!,
+              mediaUrl: displayMediaUrl!,
               start: committedStart,
               end: committedEnd,
               signal: abortController.signal,
@@ -2876,7 +2876,7 @@ export default function PlayerApp() {
         if (!hasAudio || !audioClipCaps.supported)
           return { ok: false, errorMsg: 'unsupported' };
         const result = await recordAudioClip({
-          mediaUrl,
+          mediaUrl: displayMediaUrl,
           start: committedStart,
           end: committedEnd,
           playbackRate,
@@ -2966,7 +2966,7 @@ export default function PlayerApp() {
       setIsMiningRefreshing(false);
     },
     [
-      mediaUrl,
+      displayMediaUrl,
       mediaType,
       mediaName,
       cues,
@@ -2982,7 +2982,7 @@ export default function PlayerApp() {
    *  AND no standalone AM-2 screenshot or AM-3 audio capture is in flight. */
   const canMine =
     (mediaType === 'video' || mediaType === 'audio') &&
-    !!mediaUrl &&
+    !!displayMediaUrl &&
     activeCueId != null &&
     !isCapturing &&
     !isRecordingAudio &&
@@ -2995,7 +2995,7 @@ export default function PlayerApp() {
    *  Same capture-in-flight guard as canMine. */
   const canMineRow =
     (mediaType === 'video' || mediaType === 'audio') &&
-    !!mediaUrl &&
+    !!displayMediaUrl &&
     !isCapturing &&
     !isRecordingAudio &&
     !isMiningCapturing &&
@@ -3198,7 +3198,7 @@ export default function PlayerApp() {
 
           if (mode === 'video') {
             const clipResult = await recordVideoClip({
-              mediaUrl: mediaUrl!,
+              mediaUrl: displayMediaUrl!,
               start: currentRange[0],
               end: currentRange[1],
               signal,
@@ -3281,7 +3281,7 @@ export default function PlayerApp() {
       miningRangeStart,
       miningRangeEnd,
       replaceMiningScreenshotUrl,
-      mediaUrl,
+      displayMediaUrl,
     ],
   );
 
