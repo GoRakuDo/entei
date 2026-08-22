@@ -234,6 +234,10 @@ type Server struct {
 	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
 	torrents       *torrent.Manager    // ED-2G: optional torrent-job manager (nil = disabled)
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
+
+	// createMu serializes job/torrent create handlers so cross-kind
+	// fire-and-forget replaces cannot interleave into mixed kinds.
+	createMu sync.Mutex
 }
 
 // New loads the persisted credential when a store is configured (a

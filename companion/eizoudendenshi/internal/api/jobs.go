@@ -73,6 +73,8 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.jobGates(w, r) {
 		return
 	}
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
 	var req struct {
 		URL  string `json:"url"`
 		Mode string `json:"mode"`
@@ -115,10 +117,12 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 			_, _ = s.jobs.Cancel(prev.ID)
 		}
 	}
-	// Torrents active blocks YouTube create (cross-kind mix forbidden).
+	// Fire-and-forget cross-kind replace: cancel all active torrents so a new
+	// YouTube URL never requires a manual cancel first. Mirrors the same-kind
+	// auto-cancel above (2026-08-09); exclusivity is preserved — kinds are
+	// never mixed, the old kind just yields.
 	if s.torrents != nil && s.torrents.ActiveCount() > 0 {
-		writeJSON(w, http.StatusConflict, errorBody("a torrent job is already active"))
-		return
+		s.torrents.CancelAll()
 	}
 	snap, err := s.jobs.Start(req.URL, mode)
 	if err != nil {

@@ -492,11 +492,10 @@ func TestJobCreateAutoCancelsCompleted(t *testing.T) {
 	}
 }
 
-// TestJobForeignModeConflictWithTorrent verifies the cross-kind
-// exclusivity remains: a torrent URL blocks a new YouTube job with
-// 409 before seeing any auto-cancel (only YouTube-vs-YouTube is
-// auto-cancelled).
-func TestJobForeignModeConflictWithTorrent(t *testing.T) {
+// TestJobReplacesTorrent verifies that a YouTube create cancels all active
+// torrent sessions (fire-and-forget cross-kind replace) and succeeds with
+// 201. Kinds never mix — the old kind just yields (2026-08-21).
+func TestJobReplacesTorrent(t *testing.T) {
 	torEngine := newAPIFakeEngine("media.mp4:200")
 	torFactory := func(_ string) (torrent.Engine, error) { return torEngine, nil }
 	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
@@ -520,12 +519,26 @@ func TestJobForeignModeConflictWithTorrent(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("torrent create = %d, want 201", rec.Code)
 	}
-	// YouTube create with a torrent active: still 409 (no auto-cancel
-	// across kinds — the two sessions are mutually exclusive).
+	if mTor.ActiveCount() != 1 {
+		t.Fatalf("active torrents = %d, want 1", mTor.ActiveCount())
+	}
+	// YouTube create with a torrent active: cancels the torrent (201).
 	rec = doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
 		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("youtube create during torrent = %d, want 409", rec.Code)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("youtube create during torrent = %d, want 201", rec.Code)
+	}
+	if mTor.ActiveCount() != 0 {
+		t.Fatalf("torrents after youtube create = %d, want 0 (cancelled)", mTor.ActiveCount())
+	}
+	if s.jobs.Current() == nil {
+		t.Fatal("youtube job should be current after replace")
+	}
+	// Clean up the YouTube job.
+	jobs := mJob.Current()
+	if jobs != nil {
+		rec = doJob(t, s, http.MethodPost, "/v1/source/jobs/"+jobs.ID+"/cancel", allowedOriginLocal, "")
+		_ = rec
 	}
 }
 

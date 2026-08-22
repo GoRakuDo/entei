@@ -557,6 +557,25 @@ func (m *Manager) Cancel(id string) (Snapshot, error) {
 	return Snapshot{ID: id, State: StateCancelled}, nil
 }
 
+// CancelAll cancels every active session (oldest first) and returns the
+// number of sessions cancelled. Used by the API layer for fire-and-forget
+// cross-kind replaces (YouTube create while torrents are active). Cancel
+// is idempotent, so concurrent Cancel calls are safe (creates are
+// serialized by the API layer).
+func (m *Manager) CancelAll() int {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.sessionOrder))
+	ids = append(ids, m.sessionOrder...)
+	m.mu.Unlock()
+	n := 0
+	for _, id := range ids {
+		if _, err := m.Cancel(id); err == nil {
+			n++
+		}
+	}
+	return n
+}
+
 // Close cancels all active jobs and frees the session. Idempotent.
 func (m *Manager) Close() error {
 	m.mu.Lock()

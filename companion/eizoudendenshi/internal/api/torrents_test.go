@@ -624,7 +624,10 @@ func TestTorrentStatusBufferingBeforeSelection(t *testing.T) {
 	}
 }
 
-func TestTorrentConflictAcrossJobKinds(t *testing.T) {
+// TestTorrentReplacedByJobCreate verifies that a YouTube create cancels all
+// active torrent sessions (fire-and-forget cross-kind replace) and succeeds
+// with 201. Kinds never mix — the old kind just yields (2026-08-21).
+func TestTorrentReplacedByJobCreate(t *testing.T) {
 	torEngine := newAPIFakeEngine("media.mp4:200")
 	torFactory := func(_ string) (torrent.Engine, error) { return torEngine, nil }
 	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
@@ -642,58 +645,31 @@ func TestTorrentConflictAcrossJobKinds(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	// Start a torrent job.
+	// Start two torrent jobs.
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("torrent create = %d, want 201", rec.Code)
 	}
-	// Second torrent create succeeds (2 concurrent allowed).
 	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("second torrent create = %d, want 201", rec.Code)
 	}
-	// YouTube create while torrents are active → 409.
-	rec = doTorrent(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
-		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("youtube create during torrent = %d, want 409", rec.Code)
+	if mTor.ActiveCount() != 2 {
+		t.Fatalf("active torrents = %d, want 2", mTor.ActiveCount())
 	}
-	// Third torrent create triggers eviction but still succeeds (201).
-	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
-		`{"magnet":"`+testMagnet+`"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("third torrent create = %d, want 201 (eviction)", rec.Code)
-	}
-	// Cancel all remaining sessions.
-	sessions := mTor.Current()
-	if sessions != nil {
-		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
-		}
-	}
-	sessions = mTor.Current()
-	if sessions != nil {
-		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
-		}
-	}
-	sessions = mTor.Current()
-	if sessions != nil {
-		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
-		}
-	}
-	// YouTube create after all torrents cancelled succeeds.
+
+	// YouTube create while torrents are active: cancels all torrents (201).
 	rec = doTorrent(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
 		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("youtube create after torrent cancel = %d, want 201", rec.Code)
+		t.Fatalf("youtube create during torrent = %d, want 201", rec.Code)
 	}
+	if mTor.ActiveCount() != 0 {
+		t.Fatalf("torrents after youtube create = %d, want 0 (all cancelled)", mTor.ActiveCount())
+	}
+
 	// Clean up the YouTube job.
 	jobs := mJob.Current()
 	if jobs != nil {
@@ -1680,4 +1656,49 @@ func TestTorrentSubtitleCuesPending503(t *testing.T) {
 	}
 
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentCreateReplacesYouTubeJob verifies the reverse cross-kind
+// direction: creating a torrent while a YouTube job is active cancels the
+// YouTube job (fire-and-forget) and succeeds with 201. Kinds never mix —
+// the old kind just yields. Mirror of TestJobReplacesTorrent.
+func TestTorrentCreateReplacesYouTubeJob(t *testing.T) {
+	torEngine := newAPIFakeEngine("media.mp4:200")
+	torFactory := func(_ string) (torrent.Engine, error) { return torEngine, nil }
+	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("torrent.New: %v", err)
+	}
+	t.Cleanup(func() { _ = mTor.Close() })
+	mJob, err := job.New(job.Config{HelperPath: fakeHelper, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	t.Cleanup(func() { _ = mJob.Close() })
+	s, err := New(Config{Jobs: mJob, Torrents: mTor})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Start a YouTube job.
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("youtube create = %d, want 201", rec.Code)
+	}
+	if mJob.Current() == nil {
+		t.Fatal("youtube job should be current after create")
+	}
+	// Torrent create while YouTube job is active: cancels YouTube (201).
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("torrent create during youtube = %d, want 201", rec.Code)
+	}
+	if mJob.Current() != nil {
+		t.Fatal("youtube job should be cancelled after torrent create")
+	}
+	if mTor.ActiveCount() < 1 {
+		t.Fatalf("active torrents = %d, want >= 1", mTor.ActiveCount())
+	}
 }
