@@ -3563,6 +3563,7 @@ export default function PlayerApp() {
 
         // Build update fields from draft (text fields only)
         // Skip empty/whitespace-only fields to preserve existing Anki content.
+        const isDenChou = prefs.noteType === 'DenChou';
         const updateFields: Record<string, string> = {};
         const seen = new Set<string>();
         for (const f of miningDraftFields) {
@@ -3570,7 +3571,9 @@ export default function PlayerApp() {
           if (seen.has(f.physicalName)) continue;
           seen.add(f.physicalName);
           if (f.value.trim() === '') continue;
-          updateFields[f.physicalName] = f.value;
+          updateFields[f.physicalName] = isDenChou
+            ? wrapDenChouField(f.key, f.value)
+            : f.value;
         }
 
         // Upload media if available (never wipe existing) — branch on captured type
