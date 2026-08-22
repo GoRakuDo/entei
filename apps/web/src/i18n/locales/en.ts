@@ -187,6 +187,8 @@ export const en: Dictionary = {
     exportSendDisabledRequestActive: 'A request is already in progress.',
     exportRejectedCanAdd:
       'Anki rejected this note (possibly a duplicate). Check the deck and field mapping in Settings.',
+    miningExportAddedToast: 'Card for {word} added to Anki.',
+    miningExportUpdatedToast: '{word} updated successfully.',
     appendSelectLabel: 'Select card to append',
     appendDialogTitle: 'Search & Append to Anki Cards',
     appendDialogDescription:

@@ -217,6 +217,8 @@ const mockDict = {
   exportSendDisabledNoSentence: 'Sentence is empty.',
   exportSendDisabledRequestActive: 'Request in progress.',
   exportRejectedCanAdd: 'Anki rejected this note.',
+  miningExportAddedToast: 'Card for {word} added to Anki.',
+  miningExportUpdatedToast: '{word} updated successfully.',
   appendSelectLabel: 'Select card to append',
   appendDialogTitle: 'Search & Append',
   appendDialogDescription: 'Search Anki.',

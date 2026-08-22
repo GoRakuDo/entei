@@ -189,6 +189,8 @@ export const ja: Dictionary = {
     exportSendDisabledRequestActive: 'リクエスト処理中です。',
     exportRejectedCanAdd:
       'Ankiがこのノートを拒否しました（重複の可能性があります）。設定でデッキとフィールドマッピングを確認してください。',
+    miningExportAddedToast: '{word}のカードがAnkiへ追加されました。',
+    miningExportUpdatedToast: '{word}が成功に更新されました。',
     appendSelectLabel: '特定cardを選んで追記',
     appendDialogTitle: 'Ankiカード検索・追記',
     appendDialogDescription:

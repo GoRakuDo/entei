@@ -261,6 +261,8 @@ export interface Dictionary {
     exportSendDisabledNoSentence: string;
     exportSendDisabledRequestActive: string;
     exportRejectedCanAdd: string;
+    miningExportAddedToast: string;
+    miningExportUpdatedToast: string;
     appendSelectLabel: string;
     appendDialogTitle: string;
     appendDialogDescription: string;

@@ -189,6 +189,8 @@ export const id: Dictionary = {
     exportSendDisabledRequestActive: 'Permintaan sedang berlangsung.',
     exportRejectedCanAdd:
       'Anki menolak catatan ini (kemungkinan duplikat). Periksa deck dan field mapping di Pengaturan.',
+    miningExportAddedToast: 'Kartu untuk {word} ditambahkan ke Anki.',
+    miningExportUpdatedToast: '{word} berhasil diperbarui.',
     appendSelectLabel: 'Pilih kartu untuk ditambahkan',
     appendDialogTitle: 'Cari & Tambahkan ke Kartu Anki',
     appendDialogDescription:

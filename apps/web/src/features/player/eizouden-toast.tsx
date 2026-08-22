@@ -109,6 +109,16 @@ export function notifySubtitleSyncSuccess(label: string): void {
   });
 }
 
+/** Mining export success toast (new card added or card updated).
+ *  One toast per completion: the id is fixed so repeated success cannot
+ *  stack multiple toasts. */
+export function notifyMiningExportSuccess(label: string): void {
+  toast.success(label, {
+    id: 'eizouden-mining-export-success',
+    icon: <CircleCheck aria-hidden="true" />,
+  });
+}
+
 export const FIREFOX_UNSUPPORTED_TOAST_KEY = 'firefox-unsupported';
 
 /**

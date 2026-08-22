@@ -113,6 +113,7 @@ import {
   notifyCompanionError,
   notifySubtitleSyncError,
   notifySubtitleSyncSuccess,
+  notifyMiningExportSuccess,
   notifyLazySyncInfo,
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
@@ -3394,6 +3395,27 @@ export default function PlayerApp() {
       ankiSession.apiKey || undefined,
     );
 
+    /** Close mining preview after successful export.
+     *  Does NOT bump exportEpochRef — the `finally` block handles
+     *  setIsExporting(false) via its epoch guard. */
+    const closeAfterExportSuccess = (toastLabel: string) => {
+      notifyMiningExportSuccess(toastLabel);
+      setIsMiningPreviewOpen(false);
+      // Clean up mining state (normally done by handleMiningPreviewClose,
+      // but we must not bump exportEpochRef here).
+      miningScreenshotBlobRef.current = null;
+      miningAudioBlobRef.current = null;
+      replaceMiningScreenshotUrl(null);
+      replaceMiningAudioUrl(null);
+      exportAbortControllerRef.current = null;
+      miningAbortControllerRef.current?.abort();
+      miningAbortControllerRef.current = null;
+      mediaRecaptureAbortRef.current?.abort();
+      mediaRecaptureAbortRef.current = null;
+      setExportSuccess(false);
+      setExportError(null);
+    };
+
     try {
       if (exportMode === 'new') {
         // Build note fields from draft
@@ -3495,6 +3517,14 @@ export default function PlayerApp() {
         setExportSuccess(true);
         // Fire-and-forget: IndexedDB write must never block/fail Anki success
         void writeHistory();
+        // Toast + close modal after successful new-card export
+        const enteredWordNew =
+          miningDraftFields.find((f) => f.key === 'word')?.value.trim() ||
+          '';
+        const wordLabelNew = enteredWordNew || mediaName;
+        closeAfterExportSuccess(
+          d.miningExportAddedToast.replace('{word}', () => wordLabelNew),
+        );
       } else if (exportMode === 'update') {
         // One-click update: findNotes → notesInfo → validate → media → updateNoteFields
         const noteIds = await client.findNotes(
@@ -3532,12 +3562,14 @@ export default function PlayerApp() {
         }
 
         // Build update fields from draft (text fields only)
+        // Skip empty/whitespace-only fields to preserve existing Anki content.
         const updateFields: Record<string, string> = {};
         const seen = new Set<string>();
         for (const f of miningDraftFields) {
           if (f.key === 'image' || f.key === 'audio') continue;
           if (seen.has(f.physicalName)) continue;
           seen.add(f.physicalName);
+          if (f.value.trim() === '') continue;
           updateFields[f.physicalName] = f.value;
         }
 
@@ -3589,6 +3621,18 @@ export default function PlayerApp() {
         setExportSuccess(true);
         // Fire-and-forget: IndexedDB write must never block/fail Anki success
         void writeHistory();
+        // Toast + close modal after successful update export
+        const enteredWordUpd =
+          miningDraftFields.find((f) => f.key === 'word')?.value.trim() ||
+          '';
+        const existingWordField = prefs.fields.word
+          ? (candidate.fields[prefs.fields.word]?.value.trim() || '')
+          : '';
+        const wordLabelUpd =
+          enteredWordUpd || existingWordField || mediaName;
+        closeAfterExportSuccess(
+          d.miningExportUpdatedToast.replace('{word}', () => wordLabelUpd),
+        );
       }
     } catch (e) {
       if (!mountedRef.current || exportEpochRef.current !== epoch) return;
