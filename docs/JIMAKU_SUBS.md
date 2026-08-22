@@ -196,8 +196,8 @@ SubMiner（mpv 統合・jimaku 対応プレイヤー）のファイル名パー�
 ## 8. 残課題（要確認）
 
 - [x] 日本語タイトルでのマッチ精度（**実測済み 2026-08-23**）: fuzzy search は日本語タイトルで概ね有効（葬送のフリーレン/推しの子/ぼっち・ざ・ろっくの3/4で1位正解）。失敗パターンはカタカナ表記ゆれ（`サニーボーイ` → jimaku 登録名 `Sonny Boy` で0件）。ロマジも万能ではない（`Oshi no Ko` で77件に膨張しノイズ増）。正式タイトルがロマジの作品はロマジで検索するのが正解。マッチ失敗時は検索モーダル自動オープン（P3 実装済み）が実質の答えで、追加実装なし。
-- [ ] **CSP（Content Security Policy）**: Entei の本番 CSP（PHASE0.md の `default-src 'self'` 基準）はクロスオリジン fetch をブロックするため、`connect-src` に `https://jimaku.cc` を追加する必要がある。※ 本統合は jimaku の fuzzy search のみ使用し AniList ID ルックアップは不要のため、`graphql.anilist.co` は追加しない。P1 で既存 CSP ヘッダーを確認する。
-- [ ] **DL エンドポイントのレート制限**: 字幕 DL（`/entry/{id}/download/*`）が API エンドポイントと同じ IP 単位レート制限プールを共有するか未確認。複数エピソード連続 DL で 429 が起きる可能性があるため、P1 で実測確認し、必要ならバックオフ対象に含める。
+- [x] **CSP（Content Security Policy）**: **調査済み 2026-08-23 — 対応不要**。Entei 本番（GitHub Pages）では response header による CSP 強制は不可（Pages は custom header 非対応）で、layouts にも `<meta http-equiv>` CSP は未設置。つまり強制 CSP 機構が存在せず、`connect-src` 追加も起きない。jimaku.cc 側は CORS 対応済み（§3 実測・DL URL は `access-control-allow-origin: *`）のため browser 直 fetch 可能。PHASE0.md の CSP は design 制約（外部 script/font を持ち込まない方針）であり、将来 Hosting 先を変えて response header CSP を導入する時の宿題として PHASE0.md 側に残る。
+- [x] **DL エンドポイントのレート制限**: **実測済み 2026-08-23** — 検索 API を 30 連打（遅延なし）+ 字幕 DL（public・HEAD）を 12+15 連打しても 429 は 1 件も発生せず、`retry-after` も出ない。実用範囲（自動ロード 1-2 リクエスト/メディア・検索モーダルでの手動検索）ではレート制限は事実上の非問題。既存の 429 バックオフ実装（jimaku-client）は防御として維持。
 - [ ] **字幕形式の対応**: jimaku が返す字幕形式（SRT/VTT/ASS 等）が既存の `subtitle-reader.ts` で処理できることを P1 で検証する（未対応形式があれば方針を決める）。
 - [ ] **検索モーダルの実機調整**: 内部スクロールの高さ等は実装後にユーザーが実機で調整（2026-08-16 確定）。
 
