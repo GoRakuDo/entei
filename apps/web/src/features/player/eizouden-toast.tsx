@@ -17,7 +17,7 @@
 'use client';
 
 import { toast } from 'sonner';
-import { CircleAlert, Info } from 'lucide-react';
+import { CircleAlert, CircleCheck, Info } from 'lucide-react';
 
 export const QUALITY_TOAST_KEY = 'eizouden-quality';
 
@@ -87,5 +87,59 @@ export function notifySubtitleSyncError(label: string): void {
 export function notifyJimakuToast(label: string): void {
   toast.info(label, {
     id: 'eizouden-jimaku-toast',
+  });
+}
+
+/** LazySync toggle notice ("LazySync enabled"/"disabled"). Neutral info
+ *  toast with a fixed id so toggling cannot stack duplicates. */
+export function notifyLazySyncInfo(label: string): void {
+  toast.info(label, {
+    id: 'eizouden-lazy-sync',
+    icon: <Info aria-hidden="true" />,
+  });
+}
+
+/**
+ * Subtitle-sync success toast (sub-to-sub / sub-to-audio completed and the
+ * synced cues were applied). One toast per completion: the id is fixed so a
+ * repeated success cannot stack multiple toasts on top of each other.
+ *
+ * The icon is a Lucide CircleCheck (no default Sonner circle) centered with
+ * the text via the Entei toast CSS (flex + gap).
+ *
+ * @param label - localized message (playerUI.subtitleSyncSuccess).
+ */
+export function notifySubtitleSyncSuccess(label: string): void {
+  toast.success(label, {
+    id: 'eizouden-subtitle-sync-success',
+    icon: <CircleCheck aria-hidden="true" />,
+  });
+}
+
+/** Mining export success toast (new card added or card updated).
+ *  One toast per completion: the id is fixed so repeated success cannot
+ *  stack multiple toasts. */
+export function notifyMiningExportSuccess(label: string): void {
+  toast.success(label, {
+    id: 'eizouden-mining-export-success',
+    icon: <CircleCheck aria-hidden="true" />,
+  });
+}
+
+export const FIREFOX_UNSUPPORTED_TOAST_KEY = 'firefox-unsupported';
+
+/**
+ * Emit the Firefox-unsupported warning toast.
+ *
+ * Shown when the user clicks a media-selection button (local file / YouTube /
+ * Magnet) while running Firefox, which does not yet support the player.
+ * Directs the user to Chrome or a Chromium-based browser.
+ *
+ * @param label - localized message (playerUI.firefoxUnsupported).
+ */
+export function notifyFirefoxUnsupported(label: string): void {
+  toast.warning(label, {
+    id: FIREFOX_UNSUPPORTED_TOAST_KEY,
+    icon: <CircleAlert aria-hidden="true" />,
   });
 }

@@ -6,8 +6,9 @@
  * 2026-08-09 latency fix), exponential backoff for transient failures,
  * complete → explicit src/load/play transition with play + seek intent
  * preservation, 401/403 → re-pair (no retries), bounded
- * transient/disconnect failures, cancellation, and the media-error
- * re-check path.
+ * transient/disconnect failures, cancellation, the media-error re-check
+ * path, and the per-session initialPlay default (paused start for
+ * Magnet/YouTube).
  * --------------------------------------------------------------------------- */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -321,6 +322,54 @@ describe('ED-2E companion bridge', () => {
     bridge.setPlayIntent(false); // user pressed pause during buffering
     await flush();
 
+    expect(bridge.currentPhase).toBe('ready');
+    media.fire('loadedmetadata');
+    expect(media.play).not.toHaveBeenCalled();
+  });
+
+  it('initialPlay: false → no auto-play: ready transition stays paused until the user presses play', async () => {
+    const { fetchFn } = makeFetcher([complete(1000)]);
+    const media = makeMedia();
+    const { bridge } = makeController({ initialPlay: false, fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+
+    expect(bridge.currentPhase).toBe('ready');
+    media.fire('loadedmetadata');
+    // ED-2I: configured paused start — the ready transition must NOT play.
+    expect(media.play).not.toHaveBeenCalled();
+  });
+
+  it('initialPlay: false + setPlayIntent(true) before ready → plays on loadedmetadata', async () => {
+    const { fetchFn } = makeFetcher([complete(1000)]);
+    const media = makeMedia();
+    const { bridge } = makeController({ initialPlay: false, fetchFn });
+    bridge.beginSession(SOURCE, media);
+    bridge.setPlayIntent(true); // user pressed play while buffering/ready
+    await flush();
+
+    expect(bridge.currentPhase).toBe('ready');
+    media.fire('loadedmetadata');
+    expect(media.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('beginSession re-applies the configured initialPlay on session restart (media change)', async () => {
+    const { fetchFn } = makeFetcher([complete(1000), complete(1000)]);
+    const media = makeMedia();
+    const { bridge } = makeController({ initialPlay: false, fetchFn });
+    bridge.beginSession(SOURCE, media);
+    await flush();
+    bridge.setPlayIntent(true); // user played the first source
+    media.fire('loadedmetadata');
+    expect(media.play).toHaveBeenCalledTimes(1);
+
+    // Media change (new source → new session): intent resets to the
+    // configured default (initialPlay: false) — the new source starts
+    // paused until the user presses play again.
+    const playMock = media.play as unknown as { mockClear: () => void };
+    playMock.mockClear();
+    bridge.beginSession(SOURCE, media);
+    await flush();
     expect(bridge.currentPhase).toBe('ready');
     media.fire('loadedmetadata');
     expect(media.play).not.toHaveBeenCalled();

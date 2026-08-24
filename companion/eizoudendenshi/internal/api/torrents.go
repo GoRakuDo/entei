@@ -24,8 +24,9 @@ import (
 // Responses are metadata-only: opaque job ids, sanitized file metadata, and
 // generic errors — never the magnet, absolute paths, trackers, or engine
 // internals. Up to 2 concurrent torrent sessions (oldest-first eviction on
-// 3rd create). YouTube active blocks torrent create and vice versa
-// (cross-kind mix → 409). YouTube remains one-session.
+// 3rd create). Cross-kind creates auto-replace: creating a torrent cancels
+// the active YouTube job; creating a YouTube job cancels all active torrents
+// (fire-and-forget; kinds still never mix). YouTube remains one-session.
 
 // torrentResponseBody is the redacted torrent job view.
 type torrentResponseBody struct {
@@ -66,10 +67,16 @@ func (s *Server) handleTorrentCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.jobGates(w, r) {
 		return
 	}
-	// YouTube active blocks torrent create (cross-kind mix forbidden).
-	if s.jobs != nil && s.jobs.Current() != nil {
-		writeJSON(w, http.StatusConflict, errorBody("a YouTube job is already active"))
-		return
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	// Fire-and-forget cross-kind replace: cancel the current YouTube job so a
+	// new magnet never requires a manual cancel first. Same idempotent pattern
+	// as the same-kind YouTube auto-cancel in handleJobCreate; exclusivity is
+	// preserved — kinds are never mixed, the old kind just yields.
+	if s.jobs != nil {
+		if prev := s.jobs.Current(); prev != nil {
+			_, _ = s.jobs.Cancel(prev.ID)
+		}
 	}
 	var req struct {
 		Magnet string `json:"magnet"`
@@ -200,7 +207,24 @@ func (s *Server) handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 		}
 		content, err := s.torrents.SelectedSubtitleContent(r.Context())
 		if err != nil {
-			writeJSON(w, http.StatusNotFound, errorBody("subtitle not available"))
+			switch {
+			case errors.Is(err, torrent.ErrNoEmbeddedSubtitleTrack):
+				// Permanent: the selected video carries no embedded text
+				// subtitle track — nothing more to wait for, so the web
+				// layer shows a toast instead of polling again.
+				writeJSON(w, http.StatusNotFound, errorBody("no_embedded_subtitle_track"))
+			case errors.Is(err, torrent.ErrSubtitleCuesPending):
+				// Transient: the DL'd prefix holds no subtitle cue yet.
+				// 503 + Retry-After (Growing Media buffering contract) so
+				// the web layer waits for more data.
+				w.Header().Set("Retry-After", bufferingRetryAfter)
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+					"error":      "cues_pending",
+					"retryAfter": 1,
+				})
+			default:
+				writeJSON(w, http.StatusNotFound, errorBody("subtitle not available"))
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -364,7 +388,7 @@ func (s *Server) serveTorrentContent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorBody("media not available"))
 		return
 	}
-	defer reader.Close()
+	defer torrent.SafeCloseReader(reader)
 	fw := &flushResponseWriter{ResponseWriter: w}
 	modtime := time.Unix(s.torrents.CreationDate(), 0)
 	http.ServeContent(fw, r, fileName, modtime, reader)

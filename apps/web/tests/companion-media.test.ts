@@ -8,6 +8,7 @@ import {
   fetchMagnetPcm,
   fetchMagnetSubtitle,
   fetchMediaStatus,
+  waitForPlayable,
 } from '../src/features/player/companion-media';
 
 const ORIGIN = 'http://127.0.0.1:4322';
@@ -38,7 +39,7 @@ describe('dlProgressPercent', () => {
 });
 
 describe('fetchMagnetSubtitle', () => {
-  it('fetches the torrent subtitle with token + file id', async () => {
+  it('fetches the torrent subtitle with the token (no file id in the URL)', async () => {
     const spy = vi.fn().mockResolvedValue(
       new Response('WEBVTT\n\n00:00:01 --> 00:00:03\nhello', {
         status: 200,
@@ -48,22 +49,71 @@ describe('fetchMagnetSubtitle', () => {
     vi.stubGlobal('fetch', spy);
 
     const out = await fetchMagnetSubtitle('tok', 'job-1', 'file-2');
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok') return;
     expect(out.text).toContain('WEBVTT');
     expect(out.format).toBe('vtt');
     const url = spy.mock.calls[0]![0] as string;
     expect(url).toContain(`${ORIGIN}/v1/source/torrents/job-1/subtitle`);
     expect(url).toContain('token=tok');
-    expect(url).toContain('file=file-2');
+    // The selection state lives server-side; the client never sends a
+    // `file=` query parameter (the companion serves the selected subtitle
+    // or auto-detects the embedded one).
+    expect(url).not.toContain('file=');
   });
 
-  it('throws on non-ok response', async () => {
+  it('maps a 404 to no-track (no embedded subtitle track — permanent)', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(new Response('nope', { status: 404 })),
     );
-    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).rejects.toThrow(
-      'companion subtitle fetch failed (404)',
+    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).resolves.toEqual({
+      kind: 'no-track',
+    });
+  });
+
+  it('maps a 503 to cues-pending (track exists, cues not ready — temporary)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'cues_pending' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
     );
+    await expect(fetchMagnetSubtitle('tok', 'job-1', 'f')).resolves.toEqual({
+      kind: 'cues-pending',
+    });
+  });
+
+  it('maps any other non-ok status to a generic error result', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('nope', { status: 500 })),
+    );
+    const out = await fetchMagnetSubtitle('tok', 'job-1', 'f');
+    expect(out.kind).toBe('error');
+    if (out.kind !== 'error') return;
+    expect(out.status).toBe(500);
+  });
+
+  it('maps an AbortSignal.timeout abort to a clear error result', async () => {
+    const timeoutErr = new DOMException('The operation timed out', 'TimeoutError');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(timeoutErr));
+    const out = await fetchMagnetSubtitle('tok', 'job-1', 'f');
+    expect(out.kind).toBe('error');
+    if (out.kind !== 'error') return;
+    expect(out.message).toContain('subtitle fetch timed out');
+  });
+
+  it('maps an external AbortError to the same user-facing error result', async () => {
+    const abortErr = new DOMException('The operation was aborted', 'AbortError');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortErr));
+    const out = await fetchMagnetSubtitle('tok', 'job-1', 'f');
+    expect(out.kind).toBe('error');
+    if (out.kind !== 'error') return;
+    expect(out.message).toContain('subtitle fetch timed out');
   });
 });
 
@@ -102,6 +152,16 @@ describe('fetchMagnetPcm', () => {
       expect(e.total).toBe(100);
     });
   });
+
+  it('maps a 404 to a user-facing unavailable message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('nope', { status: 404 })),
+    );
+    await expect(fetchMagnetPcm('tok')).rejects.toThrow(
+      'voice-based sync is unavailable: no active media',
+    );
+  });
 });
 
 describe('fetchMediaStatus', () => {
@@ -117,5 +177,103 @@ describe('fetchMediaStatus', () => {
     expect(out.available).toBe(40);
     expect(out.total).toBe(100);
     expect(dlProgressPercent(out)).toBe(40);
+  });
+});
+
+describe('waitForPlayable', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns ok immediately on a playable status', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'playable', available: 50, total: 100 }),
+      ),
+    );
+    expect(await waitForPlayable('tok')).toEqual({ ok: true, reason: 'playable' });
+  });
+
+  it('treats the complete state as playable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'complete', available: 100, total: 100 }),
+      ),
+    );
+    expect(await waitForPlayable('tok')).toEqual({ ok: true, reason: 'playable' });
+  });
+
+  it('polls until playable and reports intermediate states via onState', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ state: 'buffering', available: 10, total: 100 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ state: 'buffering', available: 40, total: 100 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ state: 'playable', available: 60, total: 100 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const seen: string[] = [];
+    const pending = waitForPlayable('tok', {
+      intervalMs: 1000,
+      onState: (s) => seen.push(s.state),
+    });
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(await pending).toEqual({ ok: true, reason: 'playable' });
+    // First poll is immediate; each subsequent poll follows one interval.
+    expect(seen).toEqual(['buffering', 'buffering', 'playable']);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns an error result on the error state', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'error', available: 0, total: 0 }),
+      ),
+    );
+    expect(await waitForPlayable('tok')).toEqual({ ok: false, reason: 'error' });
+  });
+
+  it('returns network after 5 consecutive fetch failures', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('down')));
+    const pending = waitForPlayable('tok', { intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await pending).toEqual({ ok: false, reason: 'network' });
+  });
+
+  it('returns timeout when the deadline passes', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'buffering', available: 0, total: 100 }),
+      ),
+    );
+    const pending = waitForPlayable('tok', { intervalMs: 1000, timeoutMs: 2500 });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(await pending).toEqual({ ok: false, reason: 'timeout' });
+  });
+
+  it('returns aborted when the signal aborts during the wait', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ state: 'buffering', available: 0, total: 100 }),
+      ),
+    );
+    const ac = new AbortController();
+    const pending = waitForPlayable('tok', { intervalMs: 1000, signal: ac.signal });
+    ac.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await pending).toEqual({ ok: false, reason: 'aborted' });
   });
 });

@@ -173,6 +173,7 @@ function parseSRT(content: string): SubtitleParseResult {
 function parseVTT(content: string): SubtitleParseResult {
   const errors: SubtitleError[] = [];
   const cues: SubtitleCue[] = [];
+  const asrFlags: boolean[] = [];
 
   const cleaned = stripVTTHeaders(content);
   const lines = cleaned.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -274,6 +275,19 @@ function parseVTT(content: string): SubtitleParseResult {
       end: timingResult.end,
       text: stripTags(text),
     });
+    asrFlags.push(timingResult.isASR === true);
+  }
+
+  // --- YouTube ASR rolling-caption dedup (2026-08-21 live evidence) ---
+  // ASR cues share the same sentence across 2-3 consecutive windows.
+  // Deduplicate BEFORE sort+normalize so that same-start merging doesn't
+  // accidentally re-join what we just collapsed.
+  if (asrFlags.some((f) => f)) {
+    const deduped = dedupRollingCues(
+      cues.map((c, i) => ({ cue: c, isASR: asrFlags[i] === true })),
+    );
+    cues.length = 0;
+    for (const d of deduped) cues.push(d);
   }
 
   cues.sort((a, b) => a.start - b.start);
@@ -400,6 +414,8 @@ interface TimingResult {
   start: number;
   end: number;
   errors: SubtitleError[];
+  /** True when the raw timing line contained `align:start position` (YouTube ASR). */
+  isASR?: boolean;
 }
 
 function parseTimingLine(
@@ -442,7 +458,10 @@ function parseTimingLine(
     return { start: start ?? 0, end: end ?? 0, errors };
   }
 
-  return { start, end, errors };
+  // YouTube ASR subtitles include `align:start position:` in timing lines.
+  const isASR = line.includes('align:start position');
+
+  return { start, end, errors, isASR };
 }
 
 function parseTimestamp(timestamp: string): number | null {
@@ -549,6 +568,105 @@ function normalizeCues(cues: SubtitleCue[]): SubtitleCue[] {
   });
 
   return merged;
+}
+
+// ---------------------------------------------------------------------------
+// YouTube ASR rolling-caption dedup
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove duplicate cues produced by YouTube auto-generated subtitles (ASR).
+ *
+ * YouTube ASR uses rolling windows: the same sentence appears in 2-3
+ * consecutive cues with slightly shifted times and progressively more
+ * complete text.  Evidence (2026-08-21, live VTT served by YouTube):
+ *
+ *   00:00:01.040 --> 00:00:01.299  align:start position:0%
+ *   あいつら君が来るの楽しみにしてたんだぞ。…
+ *
+ *   00:00:01.299 --> 00:00:01.309  align:start position:0%
+ *   あいつら君が来るの楽しみにしてたんだぞ。…
+ *
+ *   00:00:01.309 --> 00:00:07.269  align:start position:0%
+ *   あいつら君が来るの楽しみにしてたんだぞ。…
+ *   [音楽]
+ *
+ * Non-ASR subtitles (torrent SRT/VTT/ASS) are passed through unchanged.
+ *
+ * @param entries - Cue + ASR flag pairs (preserves insertion order).
+ * @returns Deduplicated cues with re-assigned IDs.
+ */
+function dedupRollingCues(
+  entries: { cue: SubtitleCue; isASR: boolean }[],
+): SubtitleCue[] {
+  if (entries.length === 0) return [];
+
+  const result: SubtitleCue[] = [];
+  let prev: SubtitleCue | null = null;
+
+  for (const { cue, isASR } of entries) {
+    // Non-ASR cues pass through completely unchanged.
+    if (!isASR) {
+      if (prev !== null) {
+        result.push({ ...prev, id: result.length });
+        prev = null;
+      }
+      result.push({ ...cue, id: result.length });
+      continue;
+    }
+
+    // ASR cue — compare with previous.
+    if (prev === null) {
+      prev = { ...cue };
+      continue;
+    }
+
+    const prevNorm = prev.text.trim().replace(/\s+/g, ' ');
+    const curNorm = cue.text.trim().replace(/\s+/g, ' ');
+
+    // Rule 1: whitespace-only or empty text → drop current.
+    if (curNorm.length === 0) {
+      continue;
+    }
+
+    // Rule 2: same text after normalization → keep the longer time span.
+    if (prevNorm === curNorm) {
+      prev.end = Math.max(prev.end, cue.end);
+      continue;
+    }
+
+    // Rule 3: current is a prefix-extension of previous (ASR mid-word split)
+    // — only when overlapping/adjacent (0.5 s tolerance).
+    if (
+      curNorm.startsWith(prevNorm) &&
+      cue.start <= prev.end + 0.5
+    ) {
+      prev.text = cue.text;
+      prev.end = Math.max(prev.end, cue.end);
+      continue;
+    }
+
+    // Rule 3': previous is a prefix-extension of current (rolling window
+    // drops leading words) — keep prev, extend end. Same 0.5 s guard.
+    if (
+      prevNorm.endsWith(curNorm) &&
+      cue.start <= prev.end + 0.5
+    ) {
+      prev.end = Math.max(prev.end, cue.end);
+      continue;
+    }
+
+    // Rule 4: different text → flush previous, keep current as new prev.
+    result.push({ ...prev, id: result.length });
+    prev = { ...cue };
+  }
+
+  // Flush last pending cue.
+  if (prev !== null) {
+    result.push({ ...prev, id: result.length });
+  }
+
+  return result;
 }
 
 /** Strip VTT file header. */

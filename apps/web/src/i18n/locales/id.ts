@@ -189,6 +189,8 @@ export const id: Dictionary = {
     exportSendDisabledRequestActive: 'Permintaan sedang berlangsung.',
     exportRejectedCanAdd:
       'Anki menolak catatan ini (kemungkinan duplikat). Periksa deck dan field mapping di Pengaturan.',
+    miningExportAddedToast: 'Kartu untuk {word} ditambahkan ke Anki.',
+    miningExportUpdatedToast: '{word} berhasil diperbarui.',
     appendSelectLabel: 'Pilih kartu untuk ditambahkan',
     appendDialogTitle: 'Cari & Tambahkan ke Kartu Anki',
     appendDialogDescription:
@@ -273,7 +275,7 @@ export const id: Dictionary = {
       'Ini menghapus koneksi tersimpan dari browser ini dan dari aplikasi pendamping. Anda memerlukan kode pasangan baru untuk terhubung lagi. Unduhan dan media tidak terpengaruh.',
     eizouResetConfirm: 'Reset pasangan',
     eizouResetCancel: 'Batal',
-    eizouPairingTitle: 'Hubungkan EizouDendenshi',
+    eizouPairingTitle: 'EizouDendenshi OTP',
     eizouPairingOtpLabel: 'Kode pasangan 6 digit',
     eizouPairingOtpInvalid: 'Masukkan kode 6 digit.',
     eizouPairingSubmit: 'Pasangkan',
@@ -288,6 +290,8 @@ export const id: Dictionary = {
     companionJobFailed:
       'Unduhan gagal. Silakan coba URL baru atau pilih file.',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
+    firefoxUnsupported:
+      'Firefox belum didukung. Gunakan Google Chrome atau browser berbasis Chromium.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'URL YouTube',
     youtubeInputTitle: 'Streaming YouTube',
@@ -354,11 +358,17 @@ export const id: Dictionary = {
     jimakuSearchNoKey: 'Masukkan kunci API JIMAKU.CC di pengaturan',
     jimakuOpenSettings: 'Buka pengaturan',
     jimakuSearchBack: 'Kembali',
-    subtitleSyncButton: 'Singkronisasi Subtitle',
-    subtitleSyncButtonLabel: 'Singkronisasi Subtitle',
+    subtitleSyncButton: 'Sinkronkan waktu subtitle',
+    subtitleSyncButtonLabel: 'Sinkronkan waktu subtitle',
+    subtitleSyncSuccess: 'Sinkronisasi subtitle berhasil!',
     subtitleSyncNoReference: 'Tidak ada subtitle dasar di video ini, tidak dapat disinkronkan',
     subtitleSyncNoSubtitle: 'Tidak ada subtitle yang dimuat',
-    subtitleSyncWaitTitle: 'Sinkronisasi berbasis suara tidak tersedia',
+    subtitleSyncLazyOn: 'LazySync aktif',
+    subtitleSyncLazyOff: 'LazySync nonaktif',
+    subtitleSyncLazyActive: 'LazySync aktif',
+    subtitleSyncAudioUnavailable:
+      'Sinkronisasi berbasis suara tidak tersedia untuk Magnet. Gunakan mode subtitle',
+    subtitleSyncWaitTitle: 'Sinkron suara tak tersedia',
     subtitleSyncWaitDesc:
       'Video streaming memerlukan unduhan penuh untuk sinkronisasi suara. Tunggu sedikit lebih lama?',
     subtitleSyncWaitCancel: 'Batal',

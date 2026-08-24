@@ -75,9 +75,10 @@ type fakeHandle struct {
 
 func newFakeHandle(files []TorrentFile) *fakeHandle {
 	return &fakeHandle{
-		name:     "test-torrent",
-		files:    files,
-		selected: -1,
+		name:        "test-torrent",
+		files:       files,
+		selected:    -1,
+		subtitleIdx: -1,
 	}
 }
 
@@ -146,10 +147,16 @@ func (h *fakeHandle) Select(videoFileID, subtitleFileID string) error {
 }
 
 // SubtitleContent returns the fake subtitle content. In the real engine
-// this reads the torrent file; here it returns the injected string.
+// this reads the torrent file; here it returns the injected string. When
+// no subtitle was selected, the first subtitle file in the torrent is
+// auto-detected (embedded-subtitle reference), mirroring the real engine.
 func (h *fakeHandle) SubtitleContent(ctx context.Context) (string, error) {
-	if h.subtitleIdx < 0 {
-		return "", errSubtitleNotSelected
+	idx := h.subtitleIdx
+	if idx < 0 {
+		idx = firstSubtitleIndex(h.files)
+		if idx < 0 {
+			return "", errors.New("subtitle not selected")
+		}
 	}
 	h.mu.Lock()
 	s := h.subtitleContent
@@ -185,6 +192,10 @@ func (h *fakeHandle) StartBootstrap(ctx context.Context) error {
 	}()
 	return nil
 }
+
+// StartSubtitleCuePump is a no-op in the fake: the pump is a best-effort
+// scheduling optimization with no observable manager-level contract.
+func (h *fakeHandle) StartSubtitleCuePump(_ context.Context) error { return nil }
 
 func (h *fakeHandle) Reader(ctx context.Context) (io.ReadSeekCloser, error) {
 	if h.selected < 0 {
@@ -1621,7 +1632,7 @@ func waitForState(t *testing.T, m *Manager, id string, want State, timeout time.
 
 // TestSelectedSubtitleContentAfterSelection verifies that
 // SelectedSubtitleContent returns the subtitle text after selection.
-func TestSelectedSubtitleContentAfterSelection(t *testing.T) {
+func TestSelectedSubtitleContentAutoDetectThenExplicit(t *testing.T) {
 	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
 	m := newTestManagerWithEngine(t, engine, 10*time.Second)
 	snap, err := m.Start(testMagnet)
@@ -1631,10 +1642,15 @@ func TestSelectedSubtitleContentAfterSelection(t *testing.T) {
 	id := snap.ID
 	waitForState(t, m, id, StateBuffering, 5*time.Second)
 
-	// Before selection, SelectedSubtitleContent returns error.
-	_, err = m.SelectedSubtitleContent(context.Background())
-	if err == nil {
-		t.Fatal("SelectedSubtitleContent before selection must fail")
+	// Before selection, the embedded subtitle is auto-detected (the torrent
+	// carries sub.srt) and its content is served.
+	engine.h.setSubtitleContent("1\n00:00:01,000 --> 00:00:02,000\nHello world\n")
+	content, err := m.SelectedSubtitleContent(context.Background())
+	if err != nil {
+		t.Fatalf("SelectedSubtitleContent before selection (auto-detected): %v", err)
+	}
+	if content != "1\n00:00:01,000 --> 00:00:02,000\nHello world\n" {
+		t.Fatalf("auto-detected content = %q, want SRT content", content)
 	}
 
 	// Select video + subtitle.
@@ -1642,13 +1658,10 @@ func TestSelectedSubtitleContentAfterSelection(t *testing.T) {
 		t.Fatalf("Select: %v", err)
 	}
 
-	// Set the fake handle's subtitle content.
-	engine.h.setSubtitleContent("1\n00:00:01,000 --> 00:00:02,000\nHello world\n")
-
 	waitForState(t, m, id, StateStreaming, 5*time.Second)
 
 	// SelectedSubtitleContent returns the fake content.
-	content, err := m.SelectedSubtitleContent(context.Background())
+	content, err = m.SelectedSubtitleContent(context.Background())
 	if err != nil {
 		t.Fatalf("SelectedSubtitleContent: %v", err)
 	}
@@ -1659,9 +1672,9 @@ func TestSelectedSubtitleContentAfterSelection(t *testing.T) {
 	_, _ = m.Cancel(id)
 }
 
-// TestSelectedSubtitleContentNoSubtitle verifies that
-// SelectedSubtitleContent returns error when no subtitle is selected.
-func TestSelectedSubtitleContentNoSubtitle(t *testing.T) {
+// TestSelectedSubtitleContentAutoDetected verifies that a video-only
+// selection still serves the torrent's subtitle via auto-detection.
+func TestSelectedSubtitleContentAutoDetected(t *testing.T) {
 	engine := newFakeEngine("video.mp4:5000|sub.srt:200")
 	m := newTestManagerWithEngine(t, engine, 10*time.Second)
 	snap, err := m.Start(testMagnet)
@@ -1677,10 +1690,40 @@ func TestSelectedSubtitleContentNoSubtitle(t *testing.T) {
 	}
 	waitForState(t, m, id, StateStreaming, 5*time.Second)
 
-	// SelectedSubtitleContent returns error.
+	// The embedded subtitle (sub.srt) is auto-detected and served.
+	engine.h.setSubtitleContent("1\n00:00:01,000 --> 00:00:02,000\nEmbedded\n")
+	content, err := m.SelectedSubtitleContent(context.Background())
+	if err != nil {
+		t.Fatalf("SelectedSubtitleContent (auto-detected): %v", err)
+	}
+	if content != "1\n00:00:01,000 --> 00:00:02,000\nEmbedded\n" {
+		t.Fatalf("SelectedSubtitleContent = %q, want embedded SRT content", content)
+	}
+
+	_, _ = m.Cancel(id)
+}
+
+// TestSelectedSubtitleContentNoSubtitleFile verifies that
+// SelectedSubtitleContent returns an error when the torrent has no subtitle
+// file at all (nothing to auto-detect).
+func TestSelectedSubtitleContentNoSubtitleFile(t *testing.T) {
+	engine := newFakeEngine("video.mp4:5000|readme.txt:10")
+	m := newTestManagerWithEngine(t, engine, 10*time.Second)
+	snap, err := m.Start(testMagnet)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	id := snap.ID
+	waitForState(t, m, id, StateBuffering, 5*time.Second)
+
+	if _, err := m.Select(id, "f0", ""); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	waitForState(t, m, id, StateStreaming, 5*time.Second)
+
 	_, err = m.SelectedSubtitleContent(context.Background())
 	if err == nil {
-		t.Fatal("SelectedSubtitleContent without subtitle must fail")
+		t.Fatal("SelectedSubtitleContent without any subtitle file must fail")
 	}
 
 	_, _ = m.Cancel(id)

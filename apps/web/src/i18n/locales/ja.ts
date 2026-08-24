@@ -189,6 +189,8 @@ export const ja: Dictionary = {
     exportSendDisabledRequestActive: 'リクエスト処理中です。',
     exportRejectedCanAdd:
       'Ankiがこのノートを拒否しました（重複の可能性があります）。設定でデッキとフィールドマッピングを確認してください。',
+    miningExportAddedToast: '{word}のカードがAnkiへ追加されました。',
+    miningExportUpdatedToast: '{word}が成功に更新されました。',
     appendSelectLabel: '特定cardを選んで追記',
     appendDialogTitle: 'Ankiカード検索・追記',
     appendDialogDescription:
@@ -274,7 +276,7 @@ export const ja: Dictionary = {
       'このブラウザとコンパニオンアプリから保存済みの接続を削除します。再度接続するには新しいペアリングコードが必要です。ダウンロードやメディアには影響しません。',
     eizouResetConfirm: 'リセットする',
     eizouResetCancel: 'キャンセル',
-    eizouPairingTitle: '映像伝電子をペアリングしましょう',
+    eizouPairingTitle: 'EizouDendenshi OTP',
     eizouPairingOtpLabel: '6桁のペアリングコード',
     eizouPairingOtpInvalid: '6桁のコードを入力してください。',
     eizouPairingSubmit: 'ペアリングする',
@@ -289,6 +291,8 @@ export const ja: Dictionary = {
     companionJobError: 'エラーが発生しました。もう一度お試しください。',
     companionJobFailed: 'ダウンロードに失敗しました。新しいURLまたはファイルを選択してください。',
     eizouPairingErrorGeneric: '接続に失敗しました。もう一度お試しください。',
+    firefoxUnsupported:
+      'Firefoxはまだサポートされてません。Google ChromeかChromiumブラウザで開いてください。',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTubeストリーミング',
@@ -353,11 +357,17 @@ export const ja: Dictionary = {
     jimakuSearchNoKey: 'JIMAKU.CCのAPIキーを設定で入力してください',
     jimakuOpenSettings: '設定を開く',
     jimakuSearchBack: '戻る',
-    subtitleSyncButton: '字幕同期する',
-    subtitleSyncButtonLabel: '字幕同期する',
+    subtitleSyncButton: 'タイミングズレを同期する',
+    subtitleSyncButtonLabel: '字幕のタイミングを同期',
+    subtitleSyncSuccess: '字幕同期成功!',
     subtitleSyncNoReference: 'この動画のベース字幕はないため同期されない',
     subtitleSyncNoSubtitle: '字幕が読み込まれていません',
-    subtitleSyncWaitTitle: '音声ベースの同期は利用できません',
+    subtitleSyncLazyOn: 'LazySync 有効',
+    subtitleSyncLazyOff: 'LazySync 無効',
+    subtitleSyncLazyActive: 'LazySync 有効中',
+    subtitleSyncAudioUnavailable:
+      'Magnet では音声ベースの同期は利用できません。字幕モードを使用してください',
+    subtitleSyncWaitTitle: '音声同期が使えません',
     subtitleSyncWaitDesc:
       'ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？',
     subtitleSyncWaitCancel: 'キャンセル',

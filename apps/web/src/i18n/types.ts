@@ -136,6 +136,27 @@ export interface Dictionary {
     subtitleSyncSubtitleDesc: string;
     subtitleSyncAudioDesc: string;
     subtitleSyncAutoDesc: string;
+    subtitleSyncButton: string;
+    subtitleSyncButtonLabel: string;
+    subtitleSyncSuccess: string;
+    subtitleSyncNoReference: string;
+    subtitleSyncNoSubtitle: string;
+    /** LazySync toggle ON state (Magnet only, docs SUBTITLE_SYNC.md §10). */
+    subtitleSyncLazyOn: string;
+    /** LazySync toggle OFF state (Magnet only). */
+    subtitleSyncLazyOff: string;
+    /** LazySync active button label shown while Magnet sync is on (docs
+     *  §10.3): the static "activated" text replaces the PROCESSING
+     *  typewriter. */
+    subtitleSyncLazyActive: string;
+    /** Magnet + audio mode: audio-based sync is unavailable (§10.4). */
+    subtitleSyncAudioUnavailable: string;
+    subtitleSyncWaitTitle: string;
+    subtitleSyncWaitDesc: string;
+    subtitleSyncWaitCancel: string;
+    subtitleSyncWaitConfirm: string;
+    subtitleSyncProgress: string;
+    // P1: jimaku.cc subtitle integration
     jimakuHeading: string;
     jimakuDesc: string;
     jimakuApiKeyLabel: string;
@@ -159,15 +180,6 @@ export interface Dictionary {
     jimakuSearchNoKey: string;
     jimakuOpenSettings: string;
     jimakuSearchBack: string;
-    subtitleSyncButton: string;
-    subtitleSyncButtonLabel: string;
-    subtitleSyncNoReference: string;
-    subtitleSyncNoSubtitle: string;
-    subtitleSyncWaitTitle: string;
-    subtitleSyncWaitDesc: string;
-    subtitleSyncWaitCancel: string;
-    subtitleSyncWaitConfirm: string;
-    subtitleSyncProgress: string;
     // EizouDen (2026-08-07): YouTube download mode settings tab
     settingsTabEizouDen: string;
     settingsEizouDenContentHeading: string;
@@ -273,6 +285,8 @@ export interface Dictionary {
     exportSendDisabledNoSentence: string;
     exportSendDisabledRequestActive: string;
     exportRejectedCanAdd: string;
+    miningExportAddedToast: string;
+    miningExportUpdatedToast: string;
     appendSelectLabel: string;
     appendDialogTitle: string;
     appendDialogDescription: string;
@@ -361,6 +375,8 @@ export interface Dictionary {
     /** Player-area fallback shown when a companion job errors. */
     companionJobFailed: string;
     // ED-2F: real YouTube URL source dialog (paired companion only)
+    /** Firefox-unsupported toast (player blocks Firefox for video playback). */
+    firefoxUnsupported: string;
     youtubeInputLabel: string;
     youtubeInputTitle: string;
     youtubeInputPlaceholder: string;

@@ -61,7 +61,7 @@ func newAPIFakeEngine(filesSpec string) *apiFakeEngine {
 }
 
 func (e *apiFakeEngine) Start(_ context.Context, _ string) (torrent.TorrentHandle, error) {
-	h := &apiFakeHandle{files: e.files}
+	h := &apiFakeHandle{files: e.files, selected: -1, subtitleIdx: -1}
 	e.mu.Lock()
 	e.h = h
 	e.mu.Unlock()
@@ -71,11 +71,12 @@ func (e *apiFakeEngine) Start(_ context.Context, _ string) (torrent.TorrentHandl
 func (e *apiFakeEngine) Close() error { return nil }
 
 type apiFakeHandle struct {
-	files           []torrent.TorrentFile
-	selected        int
-	subtitleIdx     int
-	avail           atomic.Int64
-	anchorSeekOff   atomic.Int64 // last AnchorSeek offset (for testing)
+	files         []torrent.TorrentFile
+	selected      int
+	subtitleIdx   int
+	avail         atomic.Int64
+	anchorSeekOff atomic.Int64 // last AnchorSeek offset (for testing)
+	subtitleErr   error        // injected SubtitleContent error (for testing)
 }
 
 func (h *apiFakeHandle) Name() string                 { return "test-torrent" }
@@ -114,14 +115,31 @@ func (h *apiFakeHandle) Select(videoFileID, subtitleFileID string) error {
 	return errors.New("invalid selection")
 }
 
-// SubtitleContent returns the subtitle file content as text.
+// SubtitleContent returns the subtitle file content as text. When no
+// subtitle was selected, the first subtitle file in the torrent is
+// auto-detected (embedded-subtitle reference), mirroring the real engine.
 func (h *apiFakeHandle) SubtitleContent(_ context.Context) (string, error) {
-	if h.subtitleIdx < 0 || h.subtitleIdx >= len(h.files) {
+	if h.subtitleErr != nil {
+		return "", h.subtitleErr
+	}
+	idx := h.subtitleIdx
+	if idx < 0 {
+		for i, f := range h.files {
+			if f.Kind == torrent.KindSubtitle {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return "", errors.New("subtitle not selected")
+		}
+	}
+	if idx >= len(h.files) {
 		return "", errors.New("subtitle not selected")
 	}
 	// Return deterministic content based on the file's extension.
 	ext := ""
-	base := h.files[h.subtitleIdx].Path
+	base := h.files[idx].Path
 	if idx := strings.LastIndexByte(base, '.'); idx >= 0 {
 		ext = base[idx+1:]
 	}
@@ -157,6 +175,8 @@ func (h *apiFakeHandle) StartBootstrap(_ context.Context) error {
 	}
 	return nil
 }
+
+func (h *apiFakeHandle) StartSubtitleCuePump(_ context.Context) error { return nil }
 
 type apiFakeReader struct {
 	data  []byte
@@ -239,10 +259,14 @@ func (t *trackedEngines) byIndex(i int) *apiFakeEngine {
 }
 
 func newTorrentsServer(t *testing.T) (*Server, *torrent.Manager, *trackedEngines) {
+	return newTorrentsServerSpec(t, "Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10")
+}
+
+func newTorrentsServerSpec(t *testing.T, spec string) (*Server, *torrent.Manager, *trackedEngines) {
 	t.Helper()
 	tracked := &trackedEngines{}
 	m, err := torrent.New(torrent.Config{
-		EngineFactory: tracked.factory("Episode 01.mkv:200|Episode 01.ass:40|readme.txt:10"),
+		EngineFactory: tracked.factory(spec),
 		Timeout:       20 * time.Second,
 	})
 	if err != nil {
@@ -600,7 +624,10 @@ func TestTorrentStatusBufferingBeforeSelection(t *testing.T) {
 	}
 }
 
-func TestTorrentConflictAcrossJobKinds(t *testing.T) {
+// TestTorrentReplacedByJobCreate verifies that a YouTube create cancels all
+// active torrent sessions (fire-and-forget cross-kind replace) and succeeds
+// with 201. Kinds never mix — the old kind just yields (2026-08-21).
+func TestTorrentReplacedByJobCreate(t *testing.T) {
 	torEngine := newAPIFakeEngine("media.mp4:200")
 	torFactory := func(_ string) (torrent.Engine, error) { return torEngine, nil }
 	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
@@ -618,58 +645,31 @@ func TestTorrentConflictAcrossJobKinds(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	// Start a torrent job.
+	// Start two torrent jobs.
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("torrent create = %d, want 201", rec.Code)
 	}
-	// Second torrent create succeeds (2 concurrent allowed).
 	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
 		`{"magnet":"`+testMagnet+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("second torrent create = %d, want 201", rec.Code)
 	}
-	// YouTube create while torrents are active → 409.
-	rec = doTorrent(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
-		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("youtube create during torrent = %d, want 409", rec.Code)
+	if mTor.ActiveCount() != 2 {
+		t.Fatalf("active torrents = %d, want 2", mTor.ActiveCount())
 	}
-	// Third torrent create triggers eviction but still succeeds (201).
-	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
-		`{"magnet":"`+testMagnet+`"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("third torrent create = %d, want 201 (eviction)", rec.Code)
-	}
-	// Cancel all remaining sessions.
-	sessions := mTor.Current()
-	if sessions != nil {
-		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
-		}
-	}
-	sessions = mTor.Current()
-	if sessions != nil {
-		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
-		}
-	}
-	sessions = mTor.Current()
-	if sessions != nil {
-		rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+sessions.ID+"/cancel", allowedOriginLocal, "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("torrent cancel = %d, want 200", rec.Code)
-		}
-	}
-	// YouTube create after all torrents cancelled succeeds.
+
+	// YouTube create while torrents are active: cancels all torrents (201).
 	rec = doTorrent(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
 		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("youtube create after torrent cancel = %d, want 201", rec.Code)
+		t.Fatalf("youtube create during torrent = %d, want 201", rec.Code)
 	}
+	if mTor.ActiveCount() != 0 {
+		t.Fatalf("torrents after youtube create = %d, want 0 (all cancelled)", mTor.ActiveCount())
+	}
+
 	// Clean up the YouTube job.
 	jobs := mJob.Current()
 	if jobs != nil {
@@ -1354,10 +1354,14 @@ func TestTorrentSubtitleContentAfterSelection(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 
-	// Before selection, subtitle endpoint returns 404.
+	// Before selection, the embedded subtitle (Episode 01.ass) is
+	// auto-detected and served.
 	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("subtitle before selection = %d, want 404", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subtitle before selection = %d, want 200 (auto-detected)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Hello world") {
+		t.Errorf("auto-detected subtitle body = %q, want 'Hello world'", rec.Body.String())
 	}
 
 	// Select video + subtitle.
@@ -1435,10 +1439,9 @@ func TestTorrentSubtitleContentAfterSelection(t *testing.T) {
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
 }
 
-// TestTorrentSubtitleContentNotFoundWithoutSubtitle verifies that GET
-// /v1/source/torrents/{id}/subtitle returns 404 when only a video is
-// selected (no subtitle).
-func TestTorrentSubtitleContentNotFoundWithoutSubtitle(t *testing.T) {
+// TestTorrentSubtitleContentAutoDetected verifies that a video-only
+// selection still serves the torrent's embedded subtitle.
+func TestTorrentSubtitleContentAutoDetected(t *testing.T) {
 	s, _, tracked := newTorrentsServer(t)
 
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
@@ -1490,10 +1493,50 @@ func TestTorrentSubtitleContentNotFoundWithoutSubtitle(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 
-	// Subtitle endpoint returns 404 when no subtitle is selected.
+	// The embedded subtitle (Episode 01.ass) is auto-detected and served.
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subtitle without explicit selection = %d, want 200 (auto-detected)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Hello world") {
+		t.Errorf("auto-detected subtitle body = %q, want 'Hello world'", rec.Body.String())
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentSubtitleNotFoundWithoutSubtitleFile verifies that GET
+// /v1/source/torrents/{id}/subtitle returns 404 when the torrent has no
+// subtitle file at all (nothing to auto-detect).
+func TestTorrentSubtitleNotFoundWithoutSubtitleFile(t *testing.T) {
+	s, _, _ := newTorrentsServerSpec(t, "Episode 01.mkv:200|readme.txt:10")
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
 	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("subtitle without selection = %d, want 404", rec.Code)
+		t.Fatalf("subtitle with no subtitle file = %d, want 404; body=%q", rec.Code, rec.Body.String())
 	}
 
 	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
@@ -1516,5 +1559,146 @@ func TestTorrentSubtitleWrongMethod(t *testing.T) {
 	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents/x/subtitle", allowedOriginLocal, "")
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST subtitle = %d, want 405", rec.Code)
+	}
+}
+
+// TestTorrentSubtitleNoEmbeddedTrack404 verifies that a permanent "no
+// embedded text subtitle track" engine outcome maps to 404 with the
+// no_embedded_subtitle_track error code — the web layer shows a toast instead
+// of waiting.
+func TestTorrentSubtitleNoEmbeddedTrack404(t *testing.T) {
+	s, _, tracked := newTorrentsServer(t)
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Wait for the handle to exist (engine Start completed).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	tracked.last().h.subtitleErr = torrent.ErrNoEmbeddedSubtitleTrack
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("subtitle no-track = %d, want 404; body=%q", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no_embedded_subtitle_track") {
+		t.Errorf("subtitle no-track body = %q, want no_embedded_subtitle_track", rec.Body.String())
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") == "" {
+		t.Error("subtitle no-track response missing CORS origin header")
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentSubtitleCuesPending503 verifies that a transient "cues pending"
+// engine outcome maps to 503 with Retry-After and the cues_pending body — the
+// Growing Media buffering contract — so the web layer waits for more data.
+func TestTorrentSubtitleCuesPending503(t *testing.T) {
+	s, _, tracked := newTorrentsServer(t)
+
+	rec := doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID, allowedOriginLocal, "")
+		var js struct {
+			State string `json:"state"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &js)
+		if js.State == "buffering" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never reached buffering")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	tracked.last().h.subtitleErr = torrent.ErrSubtitleCuesPending
+	rec = doTorrent(t, s, http.MethodGet, "/v1/source/torrents/"+created.ID+"/subtitle", allowedOriginLocal, "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("subtitle cues-pending = %d, want 503; body=%q", rec.Code, rec.Body.String())
+	}
+	if ra := rec.Header().Get("Retry-After"); ra != bufferingRetryAfter {
+		t.Errorf("subtitle cues-pending Retry-After = %q, want %q", ra, bufferingRetryAfter)
+	}
+	if !strings.Contains(rec.Body.String(), "cues_pending") {
+		t.Errorf("subtitle cues-pending body = %q, want cues_pending", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"retryAfter":1`) {
+		t.Errorf("subtitle cues-pending body = %q, want retryAfter:1", rec.Body.String())
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") == "" {
+		t.Error("subtitle cues-pending response missing CORS origin header")
+	}
+
+	doTorrent(t, s, http.MethodPost, "/v1/source/torrents/"+created.ID+"/cancel", allowedOriginLocal, "")
+}
+
+// TestTorrentCreateReplacesYouTubeJob verifies the reverse cross-kind
+// direction: creating a torrent while a YouTube job is active cancels the
+// YouTube job (fire-and-forget) and succeeds with 201. Kinds never mix —
+// the old kind just yields. Mirror of TestJobReplacesTorrent.
+func TestTorrentCreateReplacesYouTubeJob(t *testing.T) {
+	torEngine := newAPIFakeEngine("media.mp4:200")
+	torFactory := func(_ string) (torrent.Engine, error) { return torEngine, nil }
+	mTor, err := torrent.New(torrent.Config{EngineFactory: torFactory, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("torrent.New: %v", err)
+	}
+	t.Cleanup(func() { _ = mTor.Close() })
+	mJob, err := job.New(job.Config{HelperPath: fakeHelper, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	t.Cleanup(func() { _ = mJob.Close() })
+	s, err := New(Config{Jobs: mJob, Torrents: mTor})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Start a YouTube job.
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("youtube create = %d, want 201", rec.Code)
+	}
+	if mJob.Current() == nil {
+		t.Fatal("youtube job should be current after create")
+	}
+	// Torrent create while YouTube job is active: cancels YouTube (201).
+	rec = doTorrent(t, s, http.MethodPost, "/v1/source/torrents", allowedOriginLocal,
+		`{"magnet":"`+testMagnet+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("torrent create during youtube = %d, want 201", rec.Code)
+	}
+	if mJob.Current() != nil {
+		t.Fatal("youtube job should be cancelled after torrent create")
+	}
+	if mTor.ActiveCount() < 1 {
+		t.Fatalf("active torrents = %d, want >= 1", mTor.ActiveCount())
 	}
 }

@@ -338,6 +338,74 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Magnet LazySync toggle ON state: colored active fill + accent border
+   (docs SUBTITLE_SYNC.md §10 — オン=色付きのアクティブ表示). */
+.entei-subtitle-sync-button--active,
+.entei-subtitle-sync-button--active:hover:not(:disabled) {
+  background-color: var(--entei-btn-hover-bg);
+  border-color: var(--entei-accent);
+  color: var(--entei-accent-hover);
+}
+
+/* --- SubtitleSyncDialog (sub-to-audio DL wait, SubtitleSyncDialog.tsx) --- */
+.entei-subtitle-sync-dialog {
+  max-width: 28rem;
+}
+
+.entei-subtitle-sync-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-16) var(--entei-space-24);
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+.entei-subtitle-sync-dialog-cancel,
+.entei-subtitle-sync-dialog-confirm {
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-16);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-subtitle-sync-dialog-cancel {
+  background-color: transparent;
+  border: none;
+  color: var(--entei-text);
+}
+
+.entei-subtitle-sync-dialog-cancel:hover:not(:disabled) {
+  background-color: var(--entei-btn-hover-bg);
+}
+
+.entei-subtitle-sync-dialog-confirm {
+  background-color: var(--entei-accent);
+  border: 1px solid transparent;
+  color: var(--entei-text);
+}
+
+.entei-subtitle-sync-dialog-confirm:hover:not(:disabled) {
+  background-color: var(--entei-accent-hover);
+}
+
+.entei-subtitle-sync-dialog-progress {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--entei-touch-min);
+  font-family: var(--entei-font-body);
+  color: var(--entei-text-secondary);
+}
+
+.entei-subtitle-sync-dialog-error {
+  margin-top: var(--entei-space-12);
+  color: var(--color-destructive);
+}
 
 /* --- Subtitle Row --- */
 .entei-player-subtitle-row {
@@ -905,7 +973,7 @@
 
 .entei-dialog-title {
   font-family: var(--entei-font-display);
-  font-size: 1.125rem;
+  font-size: var(--entei-dialog-heading-size);
   font-weight: 700;
   color: var(--entei-text);
 }
@@ -1291,15 +1359,15 @@
   min-height: 44px;
 }
 
-/* Req 4: Thinner seek track — 2px default, 3px on hover/focus. */
+/* Req 4: Thinner seek track — 4px default, 6px on hover/focus. */
 .entei-controls-seek-slider > span:first-child {
-  height: 2px;
+  height: 4px;
   transition: height var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-controls-seek-slider:hover > span:first-child,
 .entei-controls-seek-slider:focus-within > span:first-child {
-  height: 3px;
+  height: 6px;
 }
 
 /* Seek thumb hit target: the visual knob is a small solid purple circle (12px),
@@ -1403,11 +1471,18 @@
   height: 3px;
 }
 
-/* Volume thumb hit target: the visual knob stays 20px, but its pointer
-   interaction area is expanded to 44×44 via a transparent pseudo-element.
-   This gives a touch-friendly target without bloating the visible control. */
+/* Volume thumb hit target: the visual knob matches the seek thumb
+   (12px solid accent circle). Its pointer interaction area is expanded to
+   44×44 via a transparent pseudo-element. This gives a touch-friendly
+   target without bloating the visible control. */
 .entei-controls-volume-slider [role='slider'] {
   position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--entei-accent);
+  border: none;
+  box-shadow: none;
 }
 
 .entei-controls-volume-slider [role='slider']::after {
@@ -1879,7 +1954,7 @@
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-24);
   background-color: var(--entei-btn-hover-bg);
-  color: var(--entei-surface);
+  color: var(--entei-text);
   border: 1px solid var(--entei-accent);
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
@@ -4375,6 +4450,13 @@ html.entei-player-immersive .entei-player-audio-area {
   animation: entei-caret-blink 0.6s ease-in-out infinite alternate;
 }
 
+/* Typewriter inside a submit button (Magnet / YouTube source dialogs):
+   keep the animated text on one line so the button never grows during the
+   playable wait. */
+.entei-typewriter--btn {
+  white-space: nowrap;
+}
+
 @keyframes entei-caret-blink {
   from { opacity: 1; }
   to   { opacity: 0; }
@@ -4646,6 +4728,16 @@ html.entei-player-immersive .entei-player-audio-area {
   min-height: var(--entei-touch-min);
 }
 
+/* Cancel (Batal) during metadata check / submit — same full width as the
+   Select & play button, with the unified button fill instead of the dark
+   outline look. */
+.entei-magnet-cancel {
+  flex: 1;
+  background-color: var(--entei-btn-hover-bg);
+  border-color: transparent;
+  color: var(--entei-text);
+}
+
 /* --- Reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
   .entei-magnet-table-row,
@@ -4777,7 +4869,7 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-eizou-setup-btn {
-  width: 144px;
+  min-width: 144px;
   min-height: var(--entei-touch-min); /* 44px touch, 40px visual grid */
   position: relative; /* paints above the visual on mobile */
   border-radius: var(--entei-radius-md);

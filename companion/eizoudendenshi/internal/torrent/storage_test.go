@@ -3,6 +3,7 @@ package torrent
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,10 +20,11 @@ import (
 
 func TestClientConfigSetsAbsoluteDataDir(t *testing.T) {
 	dir := t.TempDir()
-	cfg, err := clientConfig(dir)
+	cfg, stor, err := clientConfig(dir)
 	if err != nil {
 		t.Fatalf("clientConfig: %v", err)
 	}
+	defer stor.Close()
 	if cfg.DataDir == "" {
 		t.Fatal("DataDir must not be empty")
 	}
@@ -31,6 +33,12 @@ func TestClientConfigSetsAbsoluteDataDir(t *testing.T) {
 	}
 	if cfg.DataDir != filepath.Clean(dir) {
 		t.Errorf("DataDir = %q, want %q", cfg.DataDir, filepath.Clean(dir))
+	}
+	// The explicit DefaultStorage (stremio-server-go pattern) must be set so
+	// NewClient never falls back to the DataDir-only path (Ramdisk bolt DB
+	// failure → download stall).
+	if cfg.DefaultStorage == nil {
+		t.Error("DefaultStorage must not be nil (explicit FileByInfoHash storage)")
 	}
 }
 
@@ -49,7 +57,7 @@ func TestClientConfigRejectsInvalidStorageDirs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := clientConfig(tc.dir); err == nil {
+			if _, _, err := clientConfig(tc.dir); err == nil {
 				t.Errorf("clientConfig(%q) must fail closed, got nil error", tc.dir)
 			}
 		})
@@ -58,10 +66,11 @@ func TestClientConfigRejectsInvalidStorageDirs(t *testing.T) {
 
 func TestClientConfigCreatesMissingDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "session-dir")
-	cfg, err := clientConfig(dir)
+	cfg, stor, err := clientConfig(dir)
 	if err != nil {
 		t.Fatalf("clientConfig: %v", err)
 	}
+	defer stor.Close()
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
 		t.Fatalf("storage dir not created: %v", err)
@@ -84,7 +93,7 @@ func TestAnacrolixClientWritesPieceCompletionDBInDataDir(t *testing.T) {
 	before, _ := filepath.Glob(filepath.Join(cwd, ".torrent*"))
 	dir := t.TempDir()
 
-	cfg, err := clientConfig(dir)
+	cfg, stor, err := clientConfig(dir)
 	if err != nil {
 		t.Fatalf("clientConfig: %v", err)
 	}
@@ -100,6 +109,9 @@ func TestAnacrolixClientWritesPieceCompletionDBInDataDir(t *testing.T) {
 		t.Fatalf("anacrolix client: %v", err)
 	}
 	cl.Close()
+	// The explicitly-provided DefaultStorage is owned by the caller —
+	// release the bolt piece-completion DB before the TempDir cleanup.
+	stor.Close()
 
 	after, _ := filepath.Glob(filepath.Join(cwd, ".torrent*"))
 	if len(after) > len(before) {
@@ -192,7 +204,13 @@ func TestManagerStorageDirRemovedOnEngineFactoryFailure(t *testing.T) {
 	factory := func(dir string) (Engine, error) {
 		return nil, errInvalidMagnet
 	}
-	m, err := New(Config{EngineFactory: factory, Timeout: 10 * time.Second})
+	m, err := New(Config{
+		EngineFactory: factory,
+		Timeout:       10 * time.Second,
+		// Hermetic root: this test asserts the root becomes empty, which
+		// must never race the shared persistent default (real companion).
+		StorageRoot: t.TempDir(),
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -288,6 +306,9 @@ func TestManagerStorageDirRemovedOnEviction(t *testing.T) {
 		EngineFactory: factory,
 		Timeout:       10 * time.Second,
 		EvictedTTL:    5 * time.Second,
+		// Hermetic root: this timing-sensitive eviction test must never race
+		// the shared persistent default (real companion) under load.
+		StorageRoot: t.TempDir(),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -388,26 +409,39 @@ func TestManagerSessionsHaveDistinctStorageDirs(t *testing.T) {
 	_, _ = m.Cancel(s2.ID)
 }
 
-// TestManagerStorageRootOwnership: an auto-created storage root is removed
-// on Close; a caller-provided root survives Close (only session subdirs are
-// removed).
-func TestManagerStorageRootOwnership(t *testing.T) {
-	t.Run("auto root removed on close", func(t *testing.T) {
-		factory, dirs := storageFactory(t)
+// TestManagerStorageRootPersistsOnClose: neither the default persistent
+// root nor a caller-provided root is removed wholesale on Close — only the
+// per-session subdirectories the Manager creates are (plus leftover
+// session-* dirs via CleanupStaleSessions).
+func TestManagerStorageRootPersistsOnClose(t *testing.T) {
+	t.Run("default root is the persistent data dir", func(t *testing.T) {
+		factory, _ := storageFactory(t)
 		m, err := New(Config{EngineFactory: factory, Timeout: 10 * time.Second})
 		if err != nil {
 			t.Fatalf("New: %v", err)
 		}
 		root := m.storageRoot
-		if _, err := m.Start(testMagnet); err != nil {
-			t.Fatalf("Start: %v", err)
+		if root == "" {
+			t.Fatal("default storage root must be set")
 		}
-		dirs.waitFor(t, 1)
+		if !filepath.IsAbs(root) {
+			t.Errorf("default storage root must be absolute: %q", root)
+		}
+		// The default root must NOT resolve under the OS temp dir — a
+		// Ramdisk temp (e.g. A:\Temp) breaks bbolt piece-completion (mmap)
+		// and stalls the download.
+		if strings.HasPrefix(filepath.Clean(root), filepath.Clean(os.TempDir())) {
+			t.Errorf("default storage root must not be under the OS temp dir: %q", root)
+		}
+		if !strings.HasSuffix(root, "torrent-sessions") {
+			t.Errorf("default storage root must end with torrent-sessions: %q", root)
+		}
 		if err := m.Close(); err != nil {
 			t.Fatalf("Close: %v", err)
 		}
-		if _, err := os.Stat(root); !os.IsNotExist(err) {
-			t.Errorf("auto-created storage root must be removed on Close, stat err=%v", err)
+		// The persistent root survives Close (only session subdirs go).
+		if _, err := os.Stat(root); os.IsNotExist(err) {
+			t.Errorf("default storage root must persist on Close: %q", root)
 		}
 	})
 
@@ -432,6 +466,26 @@ func TestManagerStorageRootOwnership(t *testing.T) {
 			t.Errorf("session dir must be removed even under a caller root, stat err=%v", err)
 		}
 	})
+}
+
+// TestDefaultStorageRootResolver pins the platform mapping of the default
+// per-session storage root (mirror of diag.DefaultDir, with a
+// "torrent-sessions" leaf and never the OS temp dir).
+func TestDefaultStorageRootResolver(t *testing.T) {
+	root, err := defaultStorageRoot()
+	if err != nil {
+		t.Fatalf("defaultStorageRoot: %v", err)
+	}
+	if root == "" || !filepath.IsAbs(root) {
+		t.Fatalf("defaultStorageRoot = %q, want non-empty absolute", root)
+	}
+	if !strings.HasSuffix(root, filepath.Join("torrent-sessions")) {
+		t.Errorf("defaultStorageRoot = %q, want .../torrent-sessions", root)
+	}
+	// The OS temp dir (Ramdisk hazard) must never be the chosen base.
+	if strings.HasPrefix(filepath.Clean(root), filepath.Clean(os.TempDir())) {
+		t.Errorf("defaultStorageRoot must not be under the OS temp dir: %q", root)
+	}
 }
 
 func entryNames(entries []os.DirEntry) []string {

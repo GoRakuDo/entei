@@ -1,6 +1,6 @@
 # EizouDendenshi — validated local companion plan
 
-> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 66/66 green。**ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2` pre-releaseで通過済み**（rc.1の302 redirect不追従はrc.2のfetch修正で解決。rc.1自体はgate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング修正（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink time注入、Go + harnessテストでdev default `0.2.0` / banner契約 / manifest-banner一致を固定）の上、`eizoudendenshi-v0.2.0-rc.3`で2026-07-31に実機検証済み** — Termuxでmanifest署名・core署名・signed manifestに対するSHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示（manifest versionと一致、rc.2の表示不整合はclosed）。**ED-2C growing-media Range contractはWindows / Termux loopbackで通過済み（2026-07-31・実companion binary実測、`503`/`Retry-After` buffering）。Windows Chromeでのgrowing progressive再生も計測済み（2026-07-31・headless Chrome 151、503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。** **2026-08-05修正: Chrome 151の最初の`bytes=0-`（全範囲）要求への`503`が再生不能の根本原因だったため、start `< Available` の要求はendを`Available-1`へクランプした`206`部分応答（RFC 9110）を返すよう修正（avail外byteは返さない）。最初のリクエストの503→error code 4経路は解消（実機再計測は未実施）。**2026-08-05 rc.31: start `>= Available` はロングポーリング（250ms polling・最大30秒→揃ったら206、タイムアウトで503）を導入したが、実機で再生開始せずcomplete待ちが続く。** **rc.32（bitplay方式へ移行・conサル相談で確信度90%+・MKV H.264/AACは実機で再生確認済み）: torrent配信を `File.NewReader()` + `http.ServeContent` に置き換える — `bytes=0-` に `206（0-total-1）` + Content-Length: total で応答し、anacrolix Readerから「pieceが揃うまでブロック→揃い次第」データを**応答を閉じずに流す**。video要素は「1つの206レスポンスで全範囲受信中」と理解するため後続リクエスト（bytes=avail-）が発生せず、後続リクエスト地獄を根本回避。Reader.Readのブロックが待ちを吸収、Readerのdemand-based piece優先（読んだ位置を要求）で再生位置に追従。`waitForPrefix`/`serveStreamingPrefix`/torrentReaderSource撤去（YouTube/fixtureのserveGrowingSourceは維持）。**** **Android Chromeのgrowing再生は未計測。yt-dlp source job（ED-2F・実download QAは2026-08-01に全面成功）とtorrent job（ED-2G・anacrolix/torrent engine、aria2は全削除）は実装済み。実swarm E2E・headed / Android browser QAは未実施。** **ED-2E buffering bridgeは実装済み（2026-07-31・companion `GET/HEAD /v1/media/status` + Entei bridge controller/hook + Player fixture統合（internal entry・session status UI）+ Go 11 / web 29の自動テストgreen。source dialog UX・`headReady` byte-level検査・production bridge・headed/Android browser QAは未実装/未実施）。** **Persistent pairing credentialは実装済み（2026-08-03・旧page-memory-only契約を置換）** — companion側はopaque tokenをWindows DPAPI / Termux app-private storageへ永続化（`internal/credential`、fail-closed、`GET /v1/pair/status` + `DELETE /v1/pair`新設、pairは200前にpersist）、browser側はopaque tokenだけをlocalStorage envelopeへ保存しmount時にstatus検証、明示reset UI（確認Dialog付きdestructive control）を3 localeで実装。Go（credential + api pairing persist）・web（store + hook + setup reset）の自動テストgreen。**deliveryは未完了**: HTTPS Entei origin・Android Chromeのgrowing再生・audio listening/decode・Windows x64 installerが残っている。
+> **状態:** ED-1完了、ED-2A/ED-2BのWindows / Android Chrome manual QA完了、ED-2CのTermux runtime smoke完了。ED-2D Stage A（release delivery tooling: release helper / Termux bootstrap template / 自動test harness）実装済み・harness 66/66 green。**ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2.0-rc.2` pre-releaseで通過済み**（rc.1の302 redirect不追従はrc.2のfetch修正で解決。rc.1自体はgate未通過）。**release identity表示不整合（rc.2: manifest 0.2.0-rc.2 vs banner `EizouDendenshi ED-2B (0.2.0)`）はツーリング修正（`scripts/release.ps1`がvalidated `-Version`を両release binaryへlink time注入、Go + harnessテストでdev default `0.2.0` / banner契約 / manifest-banner一致を固定）の上、`eizoudendenshi-v0.2.0-rc.3`で2026-07-31に実機検証済み** — Termuxでmanifest署名・core署名・signed manifestに対するSHA-256・app-private installがPASSし、foreground bannerが`EizouDendenshi ED-2B (0.2.0-rc.3) listening on http://127.0.0.1:36441`を表示（manifest versionと一致、rc.2の表示不整合はclosed）。**ED-2C growing-media Range contractはWindows / Termux loopbackで通過済み（2026-07-31・実companion binary実測、`503`/`Retry-After` buffering）。Windows Chromeでのgrowing progressive再生も計測済み（2026-07-31・headless Chrome 151、503→error code 4・自動再試行なし・追記のみでは回復せず・明示`load()`+`play()`で206→最後まで再生・reload後seek成功）。** **2026-08-05修正: Chrome 151の最初の`bytes=0-`（全範囲）要求への`503`が再生不能の根本原因だったため、start `< Available` の要求はendを`Available-1`へクランプした`206`部分応答（RFC 9110）を返すよう修正（avail外byteは返さない）。最初のリクエストの503→error code 4経路は解消（実機再計測は未実施）。**2026-08-05 rc.31: start `>= Available` はロングポーリング（250ms polling・最大30秒→揃ったら206、タイムアウトで503）を導入したが、実機で再生開始せずcomplete待ちが続く。** **rc.32（bitplay方式へ移行・conサル相談で確信度90%+・MKV H.264/AACは実機で再生確認済み）: torrent配信を `File.NewReader()` + `http.ServeContent` に置き換える — `bytes=0-` に `206（0-total-1）` + Content-Length: total で応答し、anacrolix Readerから「pieceが揃うまでブロック→揃い次第」データを**応答を閉じずに流す**。video要素は「1つの206レスポンスで全範囲受信中」と理解するため後続リクエスト（bytes=avail-）が発生せず、後続リクエスト地獄を根本回避。Reader.Readのブロックが待ちを吸収、Readerのdemand-based piece優先（読んだ位置を要求）で再生位置に追従。`waitForPrefix`/`serveStreamingPrefix`/torrentReaderSource撤去（YouTube/fixtureのserveGrowingSourceは維持）。**** **Android Chromeのgrowing再生は未計測。yt-dlp source job（ED-2F・実download QAは2026-08-01に全面成功）とtorrent job（ED-2G・anacrolix/torrent engine、aria2は全削除）は実装済み。実swarm E2E・headed / Android browser QAは未実施。** **ED-2E buffering bridgeは実装済み（2026-07-31・companion `GET/HEAD /v1/media/status` + Entei bridge controller/hook + Player fixture統合（internal entry・session status UI）+ Go 11 / web 29の自動テストgreen。source dialog UX・`headReady` byte-level検査・production bridge・headed/Android browser QAは未実装/未実施）。** **Persistent pairing credentialは実装済み（2026-08-03・旧page-memory-only契約を置換）** — companion側はopaque tokenをWindows DPAPI / Termux app-private storageへ永続化（`internal/credential`、fail-closed、`GET /v1/pair/status` + `DELETE /v1/pair`新設、pairは200前にpersist）、browser側はopaque tokenだけをlocalStorage envelopeへ保存しmount時にstatus検証、明示reset UI（確認Dialog付きdestructive control）を3 localeで実装。Go（credential + api pairing persist）・web（store + hook + setup reset）の自動テストgreen。**deliveryは未完了**: Android Chromeのgrowing再生・audio listening/decode・Windows x64 installerが残っている。
 > **Readiness:** Ready with checkpoints
 
 ## Outcome
@@ -240,6 +240,8 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 40. 字幕取得の遅延実測と先取り取得（将来案・2026-08-09 記録）: 字幕は yt-dlp が動画 DL の**後**に書き出すため、subtitle API が 200 になるまで数十秒かかる。**rc.66 実測（2026-08-09 17:08:25 ジョブ）**: ジョブ開始 +3s（17:08:28.465）で subtitle 404 → **+30s（17:08:58.465）で subtitle 200**（404 at 3s → 200 at 30s）。この間 web は bounded retry（5s 間隔・最大 3 分）で待ち、Side panel の字幕欄は「字幕を準備中…（preparing subtitles）」ローディング表示になる。**将来案（実装予定・未着手）: 字幕の先取り取得** — メディア DL とは独立に「字幕だけを先に落とす yt-dlp（`--skip-download --write-subs --write-auto-subs`）プロセス」を並行起動し、1〜2 秒で字幕を揃える（= Side panel の「Preparing subtitles…」をほぼ消す）。実装時は検証が必要: 同一 URL の yt-dlp 2 プロセス並行（メディア DL + 字幕取得）が YouTube 側 rate に与える影響、字幕プロセス単体の失敗時のフォールバック（従来の後追い取得へ）。
 
 41. **Speed の「playable 判定」の根治案（将来・未着手・2026-08-10 記録）**: Speed モードの URL 露出は現在「`.part` の先頭 2 MiB（`speedMinPlayableBytes`）到達」で playable にする（rc.66〜）。しかし**2 MiB 以内に映像の最初のサンプルが無い動画**（= YouTube プログレッシブのインターリーブ順で音声が先・映像キーフレームが後ろのケース）では、`playing`（= 音声 track の再生開始）後も映像フレームが描画されず「00:00/00:00 の黒画面が数秒」が起きる（「たまに」= 動画構造依存）。**対策1（2026-08-10 実装・commit b529470）**: `requestVideoFrameCallback`（Chromium 系）で「最初のフレームが実際に描画されるまで」オーバーレイを維持（非対応ブラウザは `playing` フォールバック・15 秒セーフティ・ジョブ切替で cancel）— 見た目の黒ギャップをゼロにした（= 対症）。**対策2（根治案・未着手）**: 固定 2 MiB 判定を廃止し、**MP4 構造の解析**（= torrent 側の `container.go` 相当: 対応 video codec（H.264 等）+ 最初の video sample が prefix 内にあること）を `.part` にも適用してから playable にする（= 映像が本当に再生可能な状態でのみ URL を露出）。実装時は検証が必要: `.part` の追記に追従する再解析のコスト・moov 断片・非 MP4（WebM 等）の扱い・解析失敗時のフォールバック（現行の 2 MiB 判定へ）。rVFC（対策1）は対策2 実装後も（非対応ブラウザや構造不明フォーマットの安全網として）併用可。
+
+42. **anacrolix DL 完全停止の根本原因（RAM ディスクの bbolt 問題・2026-08-15 rc.72 解決）**: Magnet で metadata 取得・`/select`・ピア接続（active=5-11・dht_good=145・announce_ok=8）が全て機能するのに、**`complete=0/857`・`bytes_read` 固定・`head=0:c0p0`（先頭 piece の effectivePriority None）で DL が全く進まない**。原因の連鎖（anacrolix v1.61.0 ソースで特定）: ユーザーの `$TEMP` が **A:\Temp（RAM ディスク）** で、セッション storage が `os.MkdirTemp("", "eizouden-torrent-")` で Ramdisk に作られた → **bbolt はファイルを mmap するため bolt.Open が Ramdisk で失敗** → `pieceCompletionForDir` が `NewMapPieceCompletion()`（メモリ）にフォールバック → `mapPieceCompletion.Get` が未登録 piece に `Ok:false` → `storageCompletionOk=false` → `Piece.ignoreForRequests()=true` → `effectivePriority=None` → 全 piece が要求されず DL 停止（`disallowDataDownloadLocked` は呼ばれないためログにも出ない。さらに `cfg.Slogger` が discard のため anacrolix のエラーは見えない）。**解決（stremio-server-go のパターン・rc.72）**: ①`clientConfig` で `cfg.DefaultStorage = storage.NewFileByInfoHash(storageDir)` を**明示設定**（NewClient の「DefaultStorage nil → storage.NewFile(DataDir)」フォールバックに依存しない）②storageRoot を OS temp（Ramdisk）から**永続ディスク**に変更: `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\torrent-sessions`（Windows）・`$PREFIX/var/lib/eizouden/torrent-sessions`（Termux）③DefaultStorage 明示時は anacrolix が Close しないため `engine.Close()` で自分で `stor.Close()`（bolt ロック解放・生成失敗時も Close）④起動時 CleanupStaleSessions は維持。**検証**: rc.72 実機で DL 進行・再生成功（ユーザー確認済み）。**教訓**: フレームワーク内部の不変条件（storage 状態・デバッグチェック）でコード深追いが長時間化したら、「動いてる同スタックのプロジェクト」の実装パターンを GitHub から探して真似るのが最速（参考: `M0Rf30/stremio-server-go` の `New()` が `cc.DefaultStorage` を明示設定）。
 
 > **最終解決（2026-08-06確認済み）: シークループ（GPU Video Decode 100%）は完全解消。** サーバー: htorrent 方式（ServeContent + anacrolix Reader + modtime=CreationDate、rc.42）+ AnchorSeek（tiramisu 方式、rc.43）。Web: requestSeek 同値スキップ + playing 中 complete リセット防止 + Home キー clampSeek（commit 4a7fa0b）。ユーザー実機確認で「シークスムーズ・GPU100% 解消」。上記 #26-#33 はすべてこの解決に至る履歴。
 
@@ -657,6 +659,40 @@ companion（`internal/api/torrents.go` の `serveTorrentMedia`）は、anacrolix
 - **webテスト**: `companion-job-session.test.tsx` の jobMediaUrl gateテスト（buffering=null / ready=露出 / 401→rePairRequired=null）。`companion-loading-overlay.test.tsx`（active+null=表示 / active+URL=非表示 / inactive=非表示）。
 - **コードコメント**: `serveTorrentMedia`（torrents.go）と `jobMediaUrl`（use-companion-job-session.ts）に「本設計はED-2Hの核心。変更時はdocsを参照」コメント。
 
+## MKV Japanese Audio Default Flag Rewriting（2026-08-19実装）
+
+### 背景
+
+Chrome 151は`HTMLMediaElement.audioTracks` APIをflag背後で無効にしており、JavaScriptから音声トラックを切り替える手段がない。MKVに2つの音声トラック（例: 日本語AC-3 + 英語AAC）がある場合、ChromeはMKV Headerの`Default`フラグが`1`のトラックを自動選択する。 fansub MKVでは英語側に`Default=1`が設定されている場合が多く、日本語を再生するためにはこのフラグの書き換えが必要。
+
+### 設計
+
+**ffmpeg re-muxを廃止し、MKV HeaderのDefaultフラグをin-memoryで書き換える軽量方式に移行。** Android/Termuxデバイスでも安定稼働する。
+
+- **対象**: 音声トラックが**ちょうど2つ**のMKVのみ（1つ or 3つ以上はフォールバック＝そのまま再生）
+- **判定**: 2つの音声トラックのうち、`Language`要素が`jpn`または`ja`のトラックを日本語と判定
+- **操作**: 日本語トラックの`Default`フラグを`1`に、もう一方を`0`に書き換え
+- **フォールバック**: 2トラック以外、日本語トラック不在、Default要素欠落、MKVパース失敗 → そのまま`http.ServeContent`に渡す
+
+### 実装
+
+1. `serveTorrentContent`（`torrents.go`）がMKVファイルを検出
+2. `rewriteMKVDefaultAudio`（`mkv_audio.go`）がMKV Headerを最大2MB読み込み
+3. EBML解析でSegment → Tracks → TrackEntryを走査
+4. 各TrackEntryのTrackType（0x83=audio）、Language（0x22B59C）、Default（0x88）を抽出
+5. 音声トラックが2つで日本語が存在する場合、Defaultフラグを書き換え
+6. `combinedReader`が書き換え済みHeader + 元のstreamを1つのseekable readerとして`http.ServeContent`に渡す
+
+### 制約
+
+- **Default要素が存在しないTrackEntry**: 書き換えスキップ（新しいEBML要素の挿入は親サイズの連鎖更新が必要なため不採用）
+- **3つ以上の音声トラック**: Netflix等の多トラックMKVは対象外（フォールバック）
+- **EBML Header書き換えは1バイト変更のみ**: Defaultはuint8（0x00 or 0x01）なので要素サイズ不变、親要素のサイズ更新不要
+
+### テスト
+
+14件の自動テスト: 2トラックJA+EN / 1トラック / 3トラック / 日本語なし / 幂等性 / short lang / Default要素なし / 不正Header / 切り詰めHeader / video+audio / combinedReader Read+Seek+SeekCurrent+SmallChunks。全件pass、race detector通過。
+
 ## Required PoC checkpoints
 
 この5つは実装の前提。どれかが失敗したら、full implementationへ進まず設計を戻す。
@@ -786,4 +822,37 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 
 - **metadata フェーズ診断**: 実機（Android / Termux）で「Seed 300台なのに metadata timed out（2分）→ job解放 → 404」が発生（コード側の脱落の可能性）。診断ログ（engine diag: peers / active / seeders / halfopen / dht_nodes / dht_good / announce_ok / announce_tried / v2 / v1 / head）を「選択後」だけでなく**metadata 取得待ち（`AddMagnet` 直後〜GotInfo）にも10秒間隔**で出力（`diagLoop` を移動・`t.Info()==nil` でも安全・redaction 契約維持）。timeout は 2 分のまま（変更しない）。
 - **CORS LAN デフォルト許可**: スマホの dev-server origin 問題のため、デフォルト許可に **`http://192.168.100.*:4321`**（192.168.100.0/24:4321）を追加（ユーザー決定・ローカル IP・token 併用）。`isLANDevOrigin` で octet を 0-255 検証し、ポート違い / https / 別サブネット / 不正値を拒否。既存の localhost・`https://entei.gorakudo.org`・`--allow-origin` は不変。Mimo 独立レビュー（新しい部屋）完全 APPROVE、`go test -race` 10/10。
+
+### 開発記録（2026-08-16）: `/v1/media/pcm` の Magnet 対応（sub-to-audio Phase 2）
+※ **2026-08-17 以降、Magnet での sub-to-audio は無効化**（SUBTITLE_SYNC.md §10.4）。本記録は実装当時の履歴であり、現在の仕様は「Magnet = 字幕 LazySync・ローカル = sub-to-audio 従来どおり」。
+
+- **`/v1/media/pcm` が「growSource（fixture）」と「現在の Magnet ジョブの選択メディア」の両方に対応**（commit 8752122）。`internal/torrent/media_source.go` の `torrentMediaSource` アダプタが選択メディアを `media.GrowingSource` に適合（`ReadAt` = 共有 anacrolix `HTTPReader` の Seek+Read・mutex 直列化・`Available` = 検証済み prefix・ジョブ終了後は fail closed）。`pcm.go` はソース解決を growSource → `torrents.SelectedMediaSource()` のフォールバックに変更し、**404 でも CORS ヘッダーを付与**（ブラウザの Failed to fetch を解消）。503 buffering 契約（`available`/`total` → Retry-After）は fixture / Magnet 共通。
+- **web 側**: Magnet の sub-to-audio 字幕同期（`fetchMagnetPcm` → `SubtitleSyncDialog` の DL % ポーリング → complete で同期）がこの拡張で動作。`fetchMagnetPcm` の 404 は技術文言（`companion PCM fetch failed (404)`）ではなくユーザー向け文言（`voice-based sync is unavailable: no active media`）を返すよう調整。
+- **堅牢化（commit 3689ad9）**: `ReadAt` が可用性境界を self-enforce（`off >= avail` → EOF・境界跨ぎは切り詰め・MemSource パターン）・**done 監視 goroutine** がジョブ終了時に `cancel()` して in-flight Read のブロックを解除（`Close()` は `sync.Once` で watcher 停止・二重 Close 安全・mutex を取らずに cancel でデッドロック回避）。
+
+### 開発記録（2026-08-16）: 内蔵字幕の自動参照（sub-to-sub Phase 1）
+
+- **Magnet 動画の内蔵字幕（SRT/VTT/ASS）を参照字幕として自動取得し、ユーザーがロードしたズレ字幕を sub-to-sub 同期できるようにした**（commit fdf4be1）。従来は「ファイル選択で字幕を選ぶ」必要があり、選ばないと「内蔵字幕ない」Toast になっていた。Chromium は MKV コンテナの内蔵字幕を `video.textTracks` に公開しないが、companion の subtitle API 経由で torrent 内の字幕ファイルを直接取得できる。
+- **companion**: `SubtitleContent` が「選択済み字幕」に加え「**未選択なら torrent 内の字幕ファイルを自動検出**（`firstSubtitleIndex`・KindSubtitle）」して内容を返す。`Select` はビデオのみ選択時でも**内蔵字幕を Normal 優先度に昇格**（未選択字幕が DL されず読み取りがブロックする問題）。**潜在バグ修正**: `subtitleIdx` が Go ゼロ値（0 = 先頭ファイル = 動画）のままだった → `-1` 初期化（内蔵字幕なし時に動画を字幕として返すバグを防止）。
+  - **web**: `planSync` に `sub-to-sub-auto-ref`（Magnet + 字幕モード + 参照字幕なし → 内蔵字幕を自動取得）を追加。`fetchMagnetSubtitle` の fileId をオプショナル化（空 = companion が自動検出）。`auto` モードも内蔵字幕を先に試し（sub-to-sub は audio より正確）、取得失敗時は `fallbackToAudio` で sub-to-audio にフォールバック（commit 5420278）。
+
+### MKV 日本語音声トラック処理（設計確定・2026-08-21）
+
+MKVに複数音声トラック（例: 日本語AC-3 + 英語AAC）がある場合、Chromeは`Default`フラグが`1`のトラックを選択する。fansub MKVでは英語がDefaultの場合が多い。
+
+**確定設計：音声分離アプローチ。**
+
+1. companionの`SelectedDiskPath()`でMKVローカルファイルを取得
+2. ffmpegで日本語音声をlossless抽出（`-map 0:a:m:language:jpn -c copy`）
+3. 抽出音声をHTTPで配信
+4. Playerで`<audio>`要素としてロード
+5. `<video>`はMKVそのまま再生、音量/ミュートは`<audio>`に接続
+6. Sentence Miningは`<audio>`からキャプチャ（日本語のみ取得）
+
+詳細は `docs/PLAYER_PHASES.md` §21 を参照。
+
+## 既知の制約
+
+1. **complete-while-ready の再 load（MED・2026-08-18）**: `companion-bridge.ts` の `applyStatus` で、pause-ready 駐留中に `complete` ポーリングが来ると `startReadyTransition` が再実行され、`video.load()` で 00:00 に巻き戻る可能性。Speed ジョブで playable→complete が 1 ポーリング周期（30s）以上かかる場合に発生。`case 'playable'` は既に ready/playing ガードがあるが `complete` は未適用（item #24 の前提「complete は一度のみ」が playable→complete 遷移で成立していない）。将来修正時は `complete` も `playable` と同様に ready/playing でスキップ。
+2. **onPause のリセット区別（LOW・2026-08-18）**: `onPause` リスナーが「ユーザー pause」と「load() による reset 起因 pause」を区別しない。error→playable 回復で再発火する可能性あり（要実機確認）。ED-2I で paused がデフォルトになったため、影響が目立ちうる。
 

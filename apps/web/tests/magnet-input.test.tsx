@@ -53,6 +53,8 @@ const baseDict = {
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
   magnetNoVideosInFolder: 'No videos in this folder',
+  hevcUnsupported: 'H.265 (HEVC) video playback is not supported.',
+  firefoxUnsupported: 'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
 };
 
 const VALID_URI = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
@@ -492,6 +494,8 @@ describe('MagnetInput — selection contracts (checkbox per kind)', () => {
       jsonResponse({ state: 'buffering', media: { available: 5_000_000, total: 5_000_000 } }, 200),
       jsonResponse({ files: TWO_VIDEOS }, 200),
       jsonResponse({ id: 'jobRep', state: 'complete' }, 200),
+      // /v1/media/status poll → playable (accepted job becomes playable).
+      jsonResponse({ state: 'playable', available: 5_000_000, total: 5_000_000 }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
@@ -530,6 +534,8 @@ describe('MagnetInput — selection flow', () => {
       jsonResponse({ state: 'buffering', media: { available: 2_000_000, total: 2_000_000 } }, 200),
       jsonResponse({ files: FILES }, 200),
       jsonResponse({ id: 'jobSel', state: 'complete' }, 200),
+      // /v1/media/status poll → playable (accepted job becomes playable).
+      jsonResponse({ state: 'playable', available: 2_000_000, total: 2_000_000 }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
@@ -568,6 +574,47 @@ describe('MagnetInput — selection flow', () => {
     await flush(0);
     // The job id travels with the sanitized basename of the selected video.
     expect(onJobAccepted).toHaveBeenCalledWith('jobSel', 'movie.mkv', 'f1');
+  });
+
+  it('keeps the file list and shows a loading cancel button while waiting for playable', async () => {
+    let resolveSelect!: (r: Response) => void;
+    const selectGate = new Promise<Response>((res) => {
+      resolveSelect = res;
+    });
+    const { fetchMock, calls } = makeFetcher([
+      jsonResponse({ id: 'jobWait' }, 201),
+      jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ state: 'buffering', media: { available: 0, total: 0 } }, 200),
+      jsonResponse({ files: FILES }, 200),
+      () => selectGate, // select POST — held open (playable-wait window)
+      jsonResponse({ state: 'playable', available: 2_000_000, total: 2_000_000 }, 200),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    render(<MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />);
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    await flush(0);
+    await flush(5000);
+    await flush(5000);
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit }));
+    await flush(0);
+
+    // The file list stays visible (no empty state) while the wait runs…
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+    // …and the bottom button is the loading cancel (TypewriterLoading; the
+    // accessible name still says "Batalkan").
+    const cancelBtn = screen.getByRole('button', { name: baseDict.magnetCancel });
+    expect(cancelBtn.querySelector('.entei-typewriter')).toBeTruthy();
+    expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobWait/select'))).toBe(true);
+
+    // Complete the playable wait → the job reaches the Player.
+    resolveSelect(jsonResponse({ id: 'jobWait', state: 'complete' }, 200));
+    await flush(0);
+    expect(onJobAccepted).toHaveBeenCalledWith('jobWait', 'movie.mkv', '');
   });
 
   it('no selectable video shows the localized no-video error', async () => {
@@ -1187,6 +1234,8 @@ describe('MagnetInput — folder navigation robustness', () => {
       ), // root files: folder only
       jsonResponse({ files: [FILES[0], FILES[1]] }, 200), // inside Subs: video + subtitle
       jsonResponse({ id: 'jobFoldOnly', state: 'complete' }, 200), // select ack
+      // /v1/media/status poll → playable (accepted job becomes playable).
+      jsonResponse({ state: 'playable', available: 2_000_000, total: 2_000_000 }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();

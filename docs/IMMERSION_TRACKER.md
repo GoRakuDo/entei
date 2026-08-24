@@ -1,6 +1,6 @@
 # IMMERSION_TRACKER — local-first 視聴・没入記録の設計
 
-> **状態:** DRAFT — 未実装。P6 Statisticsの土台として仕様だけを固定する。
+> **状態:** 実装済み（v1: foundation + dashboard + `/tracker/` read-only）。P6 Statisticsの土台として仕様を固定する。
 > **対象:** `Entei/apps/web` の `/player/` React islandで選んだlocal fileだけ。WebTorrent、Home、外部serverは対象外。
 > **決定日:** 2026-07-30
 

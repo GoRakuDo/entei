@@ -69,6 +69,9 @@ import {
   ArrowUp,
 } from 'lucide-react';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
+import { waitForPlayable } from '@/features/player/companion-media';
+import { isFirefox } from '@/features/player/browser-detect';
+import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -135,6 +138,7 @@ export interface MagnetInputDict {
   magnetFileKindOther: string;
   magnetTableNavUp: string;
   magnetNoVideosInFolder: string;
+  firefoxUnsupported: string;
 }
 
 interface MagnetInputProps {
@@ -231,6 +235,9 @@ export function MagnetInput({
   // a stale poll must never resurrect the file picker, a stale select must
   // never reach the Player, and a stale cancel must never mutate state.
   const epochRef = useRef(0);
+  // Aborts the playable-wait poll when the dialog closes or unmounts (the
+  // late result is additionally dropped by the epoch/mounted/open guards).
+  const waitAbortRef = useRef<AbortController | null>(null);
   // The in-flight cancel settlement for the job this dialog owns. While it
   // is set, close/reopen wait for it and never fire a second cancel for the
   // same job; the promise is cleared only by its own finally (guarded by
@@ -241,6 +248,7 @@ export function MagnetInput({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      waitAbortRef.current?.abort();
     };
   }, []);
   useEffect(() => {
@@ -288,6 +296,7 @@ export function MagnetInput({
         return Promise.resolve();
       }
       epochRef.current += 1;
+      waitAbortRef.current?.abort();
       const attempt = epochRef.current;
       jobIdRef.current = null;
       setJobId('');
@@ -329,6 +338,7 @@ export function MagnetInput({
     (nextOpen: boolean) => {
       if (!nextOpen) {
         epochRef.current += 1;
+        waitAbortRef.current?.abort();
         void runCancel();
       }
       onOpenChange(nextOpen);
@@ -595,6 +605,13 @@ export function MagnetInput({
       setError('generic');
       return;
     }
+
+    // Firefox playback guard: block all media selection with a toast
+    if (isFirefox()) {
+      notifyFirefoxUnsupported(dict.firefoxUnsupported);
+      return;
+    }
+
     setPhase('submitting');
     setError(null);
     // Guard against stale select responses: a close/reopen (epoch bump) or
@@ -613,6 +630,26 @@ export function MagnetInput({
       );
       if (res.status === 200) {
         if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
+        // /select accepted the job — but it may still be preparing. Wait
+        // until the companion reports playable (or complete) before handing
+        // the job to the Player; otherwise the Player mounts a media element
+        // over a still-buffering job and shows the "Unduhan gagal" error
+        // fallback. The wait stays inside the modal (the select button shows
+        // the loading animation) and can be cancelled via close / Batal.
+        waitAbortRef.current?.abort();
+        const waitAbort = new AbortController();
+        waitAbortRef.current = waitAbort;
+        const playable = await waitForPlayable(token, {
+          signal: waitAbort.signal,
+        });
+        if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
+        if (!playable.ok) {
+          // Do NOT hand the job to the Player — keep the user in the modal
+          // with a localized error (companion down / job error / timeout).
+          setError(playable.reason === 'network' ? 'network' : 'generic');
+          setPhase('selecting');
+          return;
+        }
         const selected = entries.find((f) => f.id === videoId);
         jobIdRef.current = null;
         setPhase('input');
@@ -656,7 +693,10 @@ export function MagnetInput({
   const busy = phase === 'creating' || phase === 'submitting' || phase === 'settling';
   const canCreate = isPaired && !busy && isValidMagnetUri(magnet);
   const hasVideoSelected = videoId !== '';
-  const showTable = phase === 'selecting';
+  // Keep the file list visible during the playable wait (submitting): the
+  // entries are still held and must not collapse into the empty state while
+  // waitForPlayable runs after /select.
+  const showTable = phase === 'selecting' || phase === 'submitting';
   const showChecking = phase === 'checking';
 
   return (
@@ -817,7 +857,6 @@ export function MagnetInput({
                           <TableRow className="entei-magnet-table-row--static">
                             <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
                               <div className="entei-magnet-checking" role="status">
-                                <TypewriterLoading aria-hidden="true" />
                                 <span>{dict.magnetCheckMetadata}</span>
                               </div>
                             </TableCell>
@@ -863,14 +902,21 @@ export function MagnetInput({
 
             {/* ── Bottom: Select & play ── */}
             <div className="entei-magnet-browser-bottom">
-              {(showChecking || phase === 'settling') ? (
+              {(showChecking || phase === 'submitting' || phase === 'settling') ? (
                 <Button
                   type="button"
                   variant="outline"
-                  className="entei-magnet-submit"
+                  className="entei-magnet-submit entei-magnet-cancel"
                   onClick={handleCancel}
+                  aria-label={dict.magnetCancel}
                 >
-                  {dict.magnetCancel}
+                  {/* Loading animation while the dialog is busy (metadata
+                      check / playable wait / cancel settle); the accessible
+                      name above keeps the cancel affordance for SR users. */}
+                  <TypewriterLoading
+                    aria-hidden="true"
+                    className="entei-typewriter--btn"
+                  />
                 </Button>
               ) : (
                 <Button
@@ -878,8 +924,16 @@ export function MagnetInput({
                   className="entei-magnet-submit entei-magnet-select-play"
                   onClick={() => void handleSelect()}
                   disabled={busy || !showTable || !hasVideoSelected}
+                  aria-label={dict.magnetSelectSubmit}
                 >
-                  {busy ? dict.magnetInputSubmitting : dict.magnetSelectSubmit}
+                  {busy ? (
+                    <TypewriterLoading
+                      aria-hidden="true"
+                      className="entei-typewriter--btn"
+                    />
+                  ) : (
+                    dict.magnetSelectSubmit
+                  )}
                 </Button>
               )}
             </div>

@@ -199,6 +199,7 @@ export interface VideoElementFactory {
 export const defaultVideoFactory: VideoElementFactory = {
   createVideo() {
     const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
     video.preload = 'auto';
     video.muted = true;
     video.playsInline = true;

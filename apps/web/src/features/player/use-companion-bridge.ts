@@ -7,7 +7,9 @@
  * cookies / URLs / logs). The hook exposes the phase/progress for a future
  * buffering UI and the narrow control surface a source entry flow will
  * call. It is intentionally NOT wired into PlayerApp's normal local-file
- * flow.
+ * flow. The bridge is created with initialPlay:false (ED-2I) so Magnet/
+ * YouTube playback starts paused until the user presses play; local-file
+ * playback never uses this bridge, so its auto-play is unaffected.
  * ---------------------------------------------------------------------------
  */
 'use client';
@@ -81,8 +83,12 @@ export function useCompanionBridge(): UseCompanionBridgeResult {
 
   const bridgeRef = useRef<CompanionBridge | null>(null);
   if (bridgeRef.current === null) {
+    // ED-2I: Magnet/YouTube start paused. initialPlay:false makes the
+    // ready transition never auto-play; the user starts playback by
+    // pressing play (intent flips via the element's 'play' event, wired in
+    // use-companion-job-session's attachMediaElement).
     bridgeRef.current = new CompanionBridge(
-      {},
+      { initialPlay: false },
       {
         onPhaseChange: (nextPhase, info) => {
           setPhase(nextPhase);

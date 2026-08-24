@@ -62,7 +62,7 @@ route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成
 - desktop Language Comboboxはnavの外、viewport右端に置く。destination pillへ入れない。Home / Trackerだけに表示し、Playerにはrenderしない。
 - mobileはnative Language Selectorを保つ。mobile Dockは **Home / Tracker / Settings** の3 destination（2026-08-07変更: Playerを除外し、Settingsを追加。Comboboxや4枠目は追加しない）。
 
-### 設定ボタンの追加（2026-08-07設計確定・未実装）
+### 設定ボタンの追加（2026-08-07設計確定・実装済み）
 
 - **TopBarナビに「設定」ボタン**（Lucide `Settings`、44px hit area）を追加し、**どのページからでもプレイヤー設定モーダル（EizouDen タブを含む）を開ける**ようにする。
 - desktop: pill（Home / Player / Tracker）の右側 or 適切な位置に Settings ボタン。Player の top-edge hover pill には含めない（Player 内は既存の Settings アイコンで開く）。

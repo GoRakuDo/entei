@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -74,13 +75,10 @@ type Config struct {
 	OnMetadataTimeout func(elapsed time.Duration)
 
 	// StorageRoot is the parent directory for per-session private storage
-	// dirs. Empty selects a fresh OS temp root (os.MkdirTemp), owned by
-	// the Manager and removed on Close. A caller-provided root is never
-	// removed; only the per-session subdirectories created by the Manager
-	// are. Each torrent session gets its own subdirectory, so concurrent
-	// sessions never share anacrolix state and the piece-completion DB is
-	// always opened at an explicit absolute path (never an undefined
-	// default, which fails on Windows).
+	// dirs. Empty selects the persistent data dir (defaultStorageRoot) —
+	// never the OS temp dir (Ramdisk bbolt hazard). The root is never
+	// removed; only per-session subdirectories are (plus stale session-*
+	// dirs via CleanupStaleSessions).
 	StorageRoot string
 
 	// Logger, when set, receives sanitized job lifecycle diagnostics
@@ -127,7 +125,40 @@ type Manager struct {
 	evicted           map[string]*evictedState
 	closed            bool
 	storageRoot       string
-	storageRootOwned  bool
+}
+
+// defaultStorageRoot resolves the persistent per-session storage root,
+// mirroring diag.DefaultDir's platform pattern:
+//
+//   - Windows: %LOCALAPPDATA%\GoRakuDo\EizouDendenshi\torrent-sessions;
+//   - Android/Termux ($PREFIX set): $PREFIX/var/lib/eizouden/torrent-sessions;
+//   - other platforms: os.UserCacheDir()/GoRakuDo/EizouDendenshi/torrent-sessions.
+//
+// The OS temp dir must be avoided for bbolt: it mmaps the piece-completion
+// DB, and a Ramdisk temp (e.g. A:\Temp) fails to open the bolt DB → anacrolix
+// falls back to an in-memory Map pieceCompletion → storageCompletionOk stays
+// false → every piece's effectivePriority is None → the download stalls.
+// There is therefore NO os.TempDir() fallback: when the user cache dir is
+// unavailable, the caller must supply StorageRoot explicitly instead of
+// silently re-introducing the Ramdisk hazard.
+func defaultStorageRoot() (string, error) {
+	var base string
+	switch {
+	case runtime.GOOS == "windows":
+		b := os.Getenv("LOCALAPPDATA")
+		if b == "" {
+			return "", errors.New("torrent: LOCALAPPDATA not set")
+		}
+		base = filepath.Join(b, "GoRakuDo", "EizouDendenshi")
+	case os.Getenv("PREFIX") != "":
+		base = filepath.Join(os.Getenv("PREFIX"), "var", "lib", "eizouden")
+	default:
+		if base, err := os.UserCacheDir(); err == nil && base != "" {
+			return filepath.Join(base, "GoRakuDo", "EizouDendenshi", "torrent-sessions"), nil
+		}
+		return "", errors.New("torrent: user cache dir unavailable; set StorageRoot explicitly")
+	}
+	return filepath.Join(base, "torrent-sessions"), nil
 }
 
 // New validates the configuration and builds a Manager.
@@ -143,14 +174,15 @@ func New(cfg Config) (*Manager, error) {
 		evictedTTL = EvictedTTLDefault
 	}
 	storageRoot := cfg.StorageRoot
-	storageRootOwned := false
 	if storageRoot == "" {
-		dir, err := os.MkdirTemp("", "eizouden-torrent-")
+		dir, err := defaultStorageRoot()
 		if err != nil {
 			return nil, fmt.Errorf("torrent storage root: %w", err)
 		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("torrent storage root: %w", err)
+		}
 		storageRoot = dir
-		storageRootOwned = true
 	} else {
 		// A caller-provided root is validated but never removed.
 		abs, err := filepath.Abs(storageRoot)
@@ -172,7 +204,6 @@ func New(cfg Config) (*Manager, error) {
 		sessions:          make(map[string]*torrentSession),
 		evicted:           make(map[string]*evictedState),
 		storageRoot:       storageRoot,
-		storageRootOwned:  storageRootOwned,
 	}, nil
 }
 
@@ -526,6 +557,25 @@ func (m *Manager) Cancel(id string) (Snapshot, error) {
 	return Snapshot{ID: id, State: StateCancelled}, nil
 }
 
+// CancelAll cancels every active session (oldest first) and returns the
+// number of sessions cancelled. Used by the API layer for fire-and-forget
+// cross-kind replaces (YouTube create while torrents are active). Cancel
+// is idempotent, so concurrent Cancel calls are safe (creates are
+// serialized by the API layer).
+func (m *Manager) CancelAll() int {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.sessionOrder))
+	ids = append(ids, m.sessionOrder...)
+	m.mu.Unlock()
+	n := 0
+	for _, id := range ids {
+		if _, err := m.Cancel(id); err == nil {
+			n++
+		}
+	}
+	return n
+}
+
 // Close cancels all active jobs and frees the session. Idempotent.
 func (m *Manager) Close() error {
 	m.mu.Lock()
@@ -554,11 +604,6 @@ func (m *Manager) Close() error {
 		j.stateMu.Unlock()
 		m.releaseSession(h, eng, sess.storageDir)
 	}
-	// Remove the auto-created storage root the Manager owns; a
-	// caller-provided root is never removed.
-	if m.storageRootOwned {
-		removeStorageDir(m.storageRoot)
-	}
 	return nil
 }
 
@@ -575,10 +620,9 @@ func (m *Manager) clear(j *torrentJob) {
 }
 
 // removeStorageDir removes a session storage directory the Manager created
-// with os.MkdirTemp (always absolute). Only absolute paths are removed, so
-// a misconfigured relative path can never delete something unintended; a
-// caller-provided storage root is never passed here. Removal is best-effort
-// and idempotent.
+// (always absolute). Only absolute paths are removed, so a misconfigured
+// relative path can never delete something unintended; the storage root
+// itself is never passed here. Removal is best-effort and idempotent.
 func removeStorageDir(dir string) {
 	if dir == "" || !filepath.IsAbs(dir) {
 		return
@@ -782,6 +826,13 @@ func (m *Manager) run(j *torrentJob, ctx context.Context, sess *torrentSession) 
 		m.clear(j)
 		m.cleanupSession(j, sess, handle, engine)
 		return
+	}
+	// Best-effort embedded-subtitle cue pump (LazySync): raise the video's
+	// subtitle-cluster pieces ahead of the plain video pieces so the
+	// DL'd-prefix subtitle extraction gains cues sooner. A failure only delays
+	// sync availability — never playback — so it is logged and ignored.
+	if err := handle.StartSubtitleCuePump(bootCtx); err != nil {
+		m.logger.Warnf("torrent", "job=%s subtitle cue pump failed: %v", j.id, err)
 	}
 
 	poll := time.NewTicker(200 * time.Millisecond)
@@ -1006,10 +1057,12 @@ func (m *Manager) SelectedDiskPath() (string, error) {
 	return abs, nil
 }
 
-// SelectedSubtitleContent reads the entire selected subtitle file from the
-// active session and returns its text content. Blocks until data is
-// available or ctx is done. Returns an error when no subtitle is selected,
-// no active session exists, or the read fails.
+// SelectedSubtitleContent reads the subtitle reference text from the active
+// session and returns it. The engine serves the explicitly selected
+// subtitle, or auto-detects the first subtitle file in the torrent when none
+// was selected (embedded-subtitle reference for sub-to-sub sync). Blocks
+// until data is available or ctx is done. Returns an error when no active
+// session exists, the torrent has no subtitle file, or the read fails.
 func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	if len(m.sessionOrder) == 0 {
@@ -1025,16 +1078,45 @@ func (m *Manager) SelectedSubtitleContent(ctx context.Context) (string, error) {
 	j := sess.job
 	j.stateMu.Lock()
 	h := j.handle
-	hasSub := j.subV != nil
 	j.stateMu.Unlock()
 	m.mu.Unlock()
-	if !hasSub {
-		return "", errors.New("subtitle not selected")
-	}
 	if h == nil {
 		return "", errors.New("no handle")
 	}
 	return h.SubtitleContent(ctx)
+}
+
+// SelectedMediaSource adapts the active session's selected media to a
+// GrowingMediaSource for the PCM endpoint (sub-to-audio subtitle sync). The
+// source tracks the session's job end and fails closed after cancel /
+// eviction. Returns an error when no session is active or no video is
+// selected.
+func (m *Manager) SelectedMediaSource() (GrowingMediaSource, error) {
+	m.mu.Lock()
+	if len(m.sessionOrder) == 0 {
+		m.mu.Unlock()
+		return nil, errors.New("no active session")
+	}
+	lastID := m.sessionOrder[len(m.sessionOrder)-1]
+	sess, ok := m.sessions[lastID]
+	if !ok {
+		m.mu.Unlock()
+		return nil, errors.New("no active session")
+	}
+	j := sess.job
+	j.stateMu.Lock()
+	h := j.handle
+	hasVideo := j.videoV != nil
+	done := j.done
+	j.stateMu.Unlock()
+	m.mu.Unlock()
+	if h == nil {
+		return nil, errors.New("no handle")
+	}
+	if !hasVideo {
+		return nil, errors.New("no media selected")
+	}
+	return newTorrentMediaSource(h, done), nil
 }
 
 // CreationDate returns the active session's torrent creation date as a Unix

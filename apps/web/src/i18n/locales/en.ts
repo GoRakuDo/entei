@@ -187,6 +187,8 @@ export const en: Dictionary = {
     exportSendDisabledRequestActive: 'A request is already in progress.',
     exportRejectedCanAdd:
       'Anki rejected this note (possibly a duplicate). Check the deck and field mapping in Settings.',
+    miningExportAddedToast: 'Card for {word} added to Anki.',
+    miningExportUpdatedToast: '{word} updated successfully.',
     appendSelectLabel: 'Select card to append',
     appendDialogTitle: 'Search & Append to Anki Cards',
     appendDialogDescription:
@@ -269,7 +271,7 @@ export const en: Dictionary = {
       'This removes the saved connection from this browser and from the companion app. You will need a new pairing code to connect again. Downloads and media are not affected.',
     eizouResetConfirm: 'Reset pairing',
     eizouResetCancel: 'Cancel',
-    eizouPairingTitle: 'Pair EizouDendenshi',
+    eizouPairingTitle: 'EizouDendenshi OTP',
     eizouPairingOtpLabel: '6-digit pairing code',
     eizouPairingOtpInvalid: 'Enter the 6-digit code.',
     eizouPairingSubmit: 'Pair',
@@ -284,6 +286,8 @@ export const en: Dictionary = {
     companionJobFailed:
       'The download failed. Please try a new URL or choose a file.',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
+    firefoxUnsupported:
+      'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTube streaming',
@@ -350,11 +354,17 @@ export const en: Dictionary = {
     jimakuSearchNoKey: 'Enter your JIMAKU.CC API key in settings',
     jimakuOpenSettings: 'Open settings',
     jimakuSearchBack: 'Back',
-    subtitleSyncButton: 'Sync Subtitle',
-    subtitleSyncButtonLabel: 'Sync Subtitle',
+    subtitleSyncButton: 'Sync subtitle timing',
+    subtitleSyncButtonLabel: 'Sync subtitle timing',
+    subtitleSyncSuccess: 'Subtitle sync successful!',
     subtitleSyncNoReference: 'No base subtitle in this video, cannot sync',
     subtitleSyncNoSubtitle: 'No subtitle loaded',
-    subtitleSyncWaitTitle: 'Voice-based sync unavailable',
+    subtitleSyncLazyOn: 'LazySync enabled',
+    subtitleSyncLazyOff: 'LazySync disabled',
+    subtitleSyncLazyActive: "LazySync-Sub's Activated",
+    subtitleSyncAudioUnavailable:
+      'Audio-based sync is unavailable for Magnet. Use subtitle mode',
+    subtitleSyncWaitTitle: 'Voice sync unavailable',
     subtitleSyncWaitDesc:
       'Streaming video requires full download for voice sync. Wait a bit longer?',
     subtitleSyncWaitCancel: 'Cancel',

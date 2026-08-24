@@ -34,6 +34,7 @@ import {
 } from '@/features/player/subtitle-sync';
 import { decodeToMono16k } from '@/features/player/audio-decoder';
 import { fetchMagnetSubtitle } from '@/features/player/companion-media';
+import { loadMkvGo } from '@/features/player/mkvgo';
 import { SubtitleSyncDialog } from '@/components/player/SubtitleSyncDialog';
 import {
   createMediaUrl,
@@ -107,14 +108,28 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
 import { clampCompanionSeek } from '@/features/player/seek-limiter';
+import { isFirefox } from '@/features/player/browser-detect';
 import {
   notifyQuality,
   notifyCompanionError,
   notifySubtitleSyncError,
   notifyJimakuToast,
+  notifySubtitleSyncSuccess,
+  notifyMiningExportSuccess,
+  notifyLazySyncInfo,
+  notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
 import { parseMediaFileName } from '@/features/player/filename-parser';
 import { useJimakuAutoLoad } from '@/features/player/use-jimaku-auto-load';
+import {
+  LAZY_SYNC_POLL_INTERVAL_MS,
+  LAZY_SYNC_MAX_WAIT_POLLS,
+  LAZY_SYNC_MIN_REF_CUES,
+  LAZY_SYNC_MIN_OFFSET_MS,
+  LAZY_SYNC_STABLE_THRESHOLD_MS,
+  estimateMedianOffset,
+  shiftCuesByOffset,
+} from '@/features/player/lazy-sync';
 
 import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
@@ -276,17 +291,34 @@ export default function PlayerApp() {
   const mediaFileRef = useRef<File | null>(null);
   // Stage 2a: Track subtitle text content for tracker digest computation
   const subtitleTextRef = useRef<string | null>(null);
-const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
-const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
-  useState(false);
-// P4 jimaku search modal: open flag + prefill (title + anime/drama) chosen by
-// the opener — RightPanel button (current media name) or the P3 auto-load
-// fallback (parsed title + last-tried mode).
-const [isJimakuSearchOpen, setIsJimakuSearchOpen] = useState(false);
-const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
-  title: string;
-  anime?: boolean;
-}>({ title: '' });
+  const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
+  const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
+    useState(false);
+  // --- LazySync (Magnet-only, docs SUBTITLE_SYNC.md §10) ---
+  // Session-memory toggle state: ON runs the DL-prefix cue polling that
+  // estimates and applies a constant offset to the loaded subtitle.
+  const [isLazySyncOn, setIsLazySyncOn] = useState(false);
+  /** Mutable LazySync loop state (no re-renders between polls). */
+  const lazySyncStateRef = useRef<{
+    /** Original user-loaded cues — the base every offset is applied to. */
+    baseCues: SubtitleCue[];
+    /** Whether at least one offset has been applied (typewriter off). */
+    appliedOnce: boolean;
+    /** Last applied offset (ms) — stability is measured against this. */
+    lastOffsetMs: number | null;
+    /** Consecutive polls in a waiting state (too few ref cues / an estimate
+     *  refused by the concentration check). Bounded by
+     *  LAZY_SYNC_MAX_WAIT_POLLS. */
+    waitPollCount: number;
+  } | null>(null);
+  // P4 jimaku search modal: open flag + prefill (title + anime/drama) chosen by
+  // the opener — RightPanel button (current media name) or the P3 auto-load
+  // fallback (parsed title + last-tried mode).
+  const [isJimakuSearchOpen, setIsJimakuSearchOpen] = useState(false);
+  const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
+    title: string;
+    anime?: boolean;
+  }>({ title: '' });
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -549,6 +581,13 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
   const jobSession = useCompanionJobSession();
   const displayMediaUrl = jobSession.jobMediaUrl ?? mediaUrl;
   const displayMediaType = jobSession.jobMediaUrl ? 'video' : mediaType;
+  // LazySync polling loop reads the session through this ref so the loop
+  // closure never goes stale across renders (token/jobId may arrive after
+  // the loop starts).
+  const jobSessionRef = useRef(jobSession);
+  jobSessionRef.current = jobSession;
+  /** Magnet (torrent) source — drives the LazySync toggle rendering. */
+  const isMagnet = jobSession.kind === 'torrent';
 
   // ED-2H: Seek clamp — when streaming from a companion, clamp seek targets
   // to the verified byte range (available) to prevent the player from seeking
@@ -1195,6 +1234,13 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
           `${dictRef.current.playerUI.unsupportedFormat}: .${admission.ext}`,
         );
         setIsLoading(false);
+        return;
+      }
+
+      // Firefox playback guard: block all media selection with a toast
+      // directing the user to Chrome or a Chromium-based browser.
+      if (isFirefox()) {
+        notifyFirefoxUnsupported(dictRef.current.playerUI.firefoxUnsupported);
         return;
       }
 
@@ -1907,7 +1953,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
 
   // --- AM-3: Audio clip capture ---
   const handleAudioClip = useCallback(async () => {
-    if (!mediaUrl || !activeCueId || !audioClipCaps.supported) return;
+    if (!displayMediaUrl || !activeCueId || !audioClipCaps.supported) return;
     // Guard: refuse if AM-4 mining is in flight to prevent cross-cancellation
     if (isMiningRef.current || isMiningRefreshingRef.current) return;
     if (isRecordingAudioRef.current) return;
@@ -1925,7 +1971,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
     setHasAudioClipError(false);
 
     const result = await recordAudioClip({
-      mediaUrl,
+      mediaUrl: displayMediaUrl,
       start: activeCue.start,
       end: activeCue.end,
       playbackRate,
@@ -1955,7 +2001,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
     replaceAudioClipUrl(url);
     setIsAudioClipDialogOpen(true);
   }, [
-    mediaUrl,
+    displayMediaUrl,
     activeCueId,
     audioClipCaps.supported,
     cues,
@@ -1986,6 +2032,11 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       setSubtitleErrors(result.errors);
       setActiveCueId(null);
       subtitleTextRef.current = syncedText;
+      // Every sync path (sub-to-sub / sub-to-audio-local / sub-to-audio-magnet)
+      // converges here — a single success toast for all of them.
+      notifySubtitleSyncSuccess(
+        dictRef.current.playerUI.subtitleSyncSuccess,
+      );
     },
     [setCues, setSubtitleErrors, setActiveCueId],
   );
@@ -1993,10 +2044,18 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
   /**
    * Stage 4b: wire the sync button to the planner + subomatic engine.
    *  - skip-youtube          → no-op (button disabled for youtube)
-   *  - no-reference-subtitle → toast (nothing to sync against)
-   *  - sub-to-sub (magnet)   → fetch the torrent subtitle, sync to reference
+   *  - sub-to-sub            → sync to a picked reference subtitle
+   *  - sub-to-sub-auto-ref   → the embedded subtitle is auto-detected and
+   *                            used as the reference: Magnet via the
+   *                            companion (empty file id), local files via
+   *                            mkvgo (first embedded subtitle track). In
+   *                            auto mode (fallbackToAudio) a missing
+   *                            embedded subtitle falls back to sub-to-audio
+   *                            (magnet → dialog, local → direct decode).
    *  - sub-to-audio-local    → decode local media → sync to audio
    *  - sub-to-audio-magnet   → SubtitleSyncDialog (wait for DL → PCM)
+   *  - no-reference-subtitle → retired: no plan produces it anymore; the
+   *                            branch remains for defensive narrowing.
    */
   /** Shared try/catch/finally for sync tasks (subtitle + audio paths). */
   const runSync = useCallback(async (task: () => Promise<void>) => {
@@ -2036,6 +2095,24 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       }
       const detected = parseSubtitle(text);
       const inFormat = detected.format ?? 'vtt';
+      // Local audio sync — shared by the sub-to-audio-local plan and the
+      // auto fallback when the embedded-subtitle reference is missing.
+      // SubtitleSyncDialog is magnet-only, so local media decodes directly.
+      const runSubToAudioLocal = async (t: string, f: string) => {
+        if (!mediaUrl) {
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
+        const res = await fetch(mediaUrl);
+        const buffer = await res.arrayBuffer();
+        const { samples, sampleRate } = await decodeToMono16k(buffer);
+        const synced = await syncSubtitleToAudio(t, f, samples, sampleRate, {
+          onProgress: () => {},
+        });
+        applySyncedSubtitle(synced);
+      };
       if (plan.kind === 'sub-to-sub') {
         // Reference subtitle source: Magnet (torrent subtitle file).
         if (
@@ -2054,6 +2131,15 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
           jobSession.jobId,
           jobSession.subtitleFileId,
         );
+        if (ref.kind !== 'ok') {
+          // Explicit selection yet the companion cannot serve it (no
+          // embedded track / still preparing) — surface the reference
+          // error instead of parsing a non-existent body.
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
         const refDetected = parseSubtitle(ref.text);
         const synced = await syncSubtitleToReference(
           text,
@@ -2065,28 +2151,101 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
         applySyncedSubtitle(synced);
         return;
       }
-      if (plan.kind === 'sub-to-audio-local') {
-        if (!mediaUrl) {
+      if (plan.kind === 'sub-to-sub-auto-ref') {
+        // No manual subtitle selection — the embedded subtitle is
+        // auto-detected and used as the sub-to-sub reference: Magnet via
+        // the companion (empty file id), local files via mkvgo (first
+        // embedded subtitle track).
+        if (jobSession.kind !== 'torrent' && !mediaFileRef.current) {
           notifySubtitleSyncError(
             dictRef.current.playerUI.subtitleSyncNoReference,
           );
           return;
         }
-        const res = await fetch(mediaUrl);
-        const buffer = await res.arrayBuffer();
-        const { samples, sampleRate } = await decodeToMono16k(buffer);
-        const synced = await syncSubtitleToAudio(
-          text,
-          inFormat,
-          samples,
-          sampleRate,
-          { onProgress: () => {} },
-        );
-        applySyncedSubtitle(synced);
+        try {
+          let refText: string;
+          if (jobSession.kind === 'torrent') {
+            if (!jobSession.jobId || !jobSession.token) {
+              notifySubtitleSyncError(
+                dictRef.current.playerUI.subtitleSyncNoReference,
+              );
+              return;
+            }
+            const ref = await fetchMagnetSubtitle(
+              jobSession.token,
+              jobSession.jobId,
+              '',
+            );
+            // Any non-ok result (no embedded track / cues still pending /
+            // timeout) means the reference is unavailable right now — the
+            // shared catch below routes it to the auto fallback or the
+            // reference error, as before.
+            if (ref.kind !== 'ok') throw new Error('no embedded subtitle');
+            refText = ref.text;
+          } else {
+            // Local embedded subtitle via mkvgo.
+            const file = mediaFileRef.current;
+            if (!file) throw new Error('no embedded subtitle');
+            // extractSubtitleVTT accepts a Blob/File and reads it through
+            // ranged slices (memory-bounded, like probe()), so even a
+            // 13.4 GiB MKV extracts without loading the whole file into
+            // memory — no size ceiling needed. probe() is also ranged.
+            const mkvgo = await loadMkvGo({
+              wasmUrl: '/wasm/mkvgo.wasm',
+              wasmExecUrl: '/wasm/wasm_exec.js',
+            });
+            const probe = await mkvgo.probe(file);
+            const subTrack = probe.tracks.find(
+              (t) => t.type === 'subtitle',
+            );
+            if (!subTrack) throw new Error('no embedded subtitle');
+            refText = await mkvgo.extractSubtitleVTT(file, subTrack.id);
+          }
+          const refDetected = parseSubtitle(refText);
+          const synced = await syncSubtitleToReference(
+            text,
+            inFormat,
+            refText,
+            refDetected.format ?? 'vtt',
+            { onProgress: () => {} },
+          );
+          applySyncedSubtitle(synced);
+        } catch (err) {
+          // No embedded subtitle in the source (404 from the companion /
+          // missing track), or the mkvgo extraction failed.
+          console.error('[entei] embedded subtitle extraction failed', err);
+          if (plan.fallbackToAudio) {
+            // auto mode: sub-to-sub failed → fall back to sub-to-audio.
+            // Magnet audio is disabled (docs SUBTITLE_SYNC.md §10.4): the
+            // user is told to use subtitle mode instead. Local files
+            // decode directly.
+            if (jobSession.kind === 'torrent') {
+              notifySubtitleSyncError(
+                dictRef.current.playerUI.subtitleSyncAudioUnavailable,
+              );
+            } else {
+              await runSubToAudioLocal(text, inFormat);
+            }
+          } else {
+            notifySubtitleSyncError(
+              dictRef.current.playerUI.subtitleSyncNoReference,
+            );
+          }
+        }
+        return;
+      }
+      if (plan.kind === 'sub-to-audio-local') {
+        await runSubToAudioLocal(text, inFormat);
         return;
       }
       if (plan.kind === 'sub-to-audio-magnet') {
-        setIsSubtitleSyncDialogOpen(true);
+        // Magnet audio sync is disabled (docs SUBTITLE_SYNC.md §10.4):
+        // full-DL + PCM conversion is not viable while streaming. The
+        // sync button is a LazySync toggle for Magnet anyway — this branch
+        // is defense-in-depth for any residual call path.
+        notifySubtitleSyncError(
+          dictRef.current.playerUI.subtitleSyncAudioUnavailable,
+        );
       }
     });
   }, [
@@ -2098,6 +2257,207 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
     applySyncedSubtitle,
     runSync,
   ]);
+
+  /**
+   * LazySync toggle (Magnet only, docs SUBTITLE_SYNC.md §10).
+   *  - OFF → ON: validate a loaded subtitle, snapshot its cues as the base,
+   *    start the polling loop, toast "LazySync enabled".
+   *  - ON → OFF: stop the loop (the polling effect aborts), keep the
+   *    already-shifted display as-is, toast "LazySync disabled".
+   *  - Audio sync mode on Magnet is unavailable (§10.4): clicking the
+   *    toggle in audio mode only explains why (no state change).
+   */
+  const handleToggleLazySync = useCallback(() => {
+    if (jobSessionRef.current.kind !== 'torrent') return;
+    const ui = dictRef.current.playerUI;
+    if (isLazySyncOn) {
+      setIsLazySyncOn(false);
+      lazySyncStateRef.current = null;
+      notifyLazySyncInfo(ui.subtitleSyncLazyOff);
+      return;
+    }
+    // Audio-based sync is disabled for Magnet (docs §10.4): the toggle
+    // would only ever run the subtitle-based LazySync, so a user in audio
+    // mode gets the guidance toast instead of a dead toggle.
+    const mode = readPlayerPreferences().subtitleSyncMode ?? 'subtitle';
+    if (mode === 'audio') {
+      notifySubtitleSyncError(ui.subtitleSyncAudioUnavailable);
+      return;
+    }
+    const text = subtitleTextRef.current;
+    if (!text) {
+      notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
+      return;
+    }
+    const baseCues = parseSubtitle(text).cues;
+    if (baseCues.length === 0) {
+      notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
+      return;
+    }
+    lazySyncStateRef.current = {
+      baseCues,
+      appliedOnce: false,
+      lastOffsetMs: null,
+      waitPollCount: 0,
+    };
+    setIsLazySyncOn(true);
+    notifyLazySyncInfo(ui.subtitleSyncLazyOn);
+  }, [isLazySyncOn]);
+
+  /**
+   * LazySync polling loop (docs §10.2-10.3): every poll interval, fetch the
+   * embedded subtitle's downloaded-prefix cues and estimate the constant
+   * offset by rank-pairing median. The concentration check refuses bimodal
+   * splits (fail-closed); |offset| < LAZY_SYNC_MIN_OFFSET_MS (including a
+   * 0 median) converges silently. Waiting states share one bounded counter
+   * (LAZY_SYNC_MAX_WAIT_POLLS ≈ 12 min); abort / stale session / exhausted
+   * bound stop the loop. Mutable data flows through lazySyncStateRef so the
+   * loop never depends on a render's closure.
+   */
+  const runLazySyncPolling = useCallback(async (signal: AbortSignal) => {
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, ms);
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+
+    const stop = () => {
+      setIsLazySyncOn(false);
+      lazySyncStateRef.current = null;
+    };
+
+    while (!signal.aborted) {
+      const session = jobSessionRef.current;
+      if (
+        session.kind !== 'torrent' ||
+        !session.token ||
+        !session.jobId
+      ) {
+        // The Magnet session ended or changed while the loop ran — reset
+        // the toggle so it cannot linger on a stale session.
+        stop();
+        return;
+      }
+      const state = lazySyncStateRef.current;
+      if (!state) return;
+
+      /** One bounded waiting round: bump the wait counter, sleep a poll
+       *  interval, and give up (no-subtitle toast) once the ~12-min bound
+       *  is exceeded. Returns false when the loop must stop. */
+      const boundedWait = async (): Promise<boolean> => {
+        state.waitPollCount += 1;
+        if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
+          stop();
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoSubtitle,
+          );
+          return false;
+        }
+        await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+        return true;
+      };
+
+      try {
+        const result = await fetchMagnetSubtitle(
+          session.token,
+          session.jobId,
+          session.subtitleFileId ?? '',
+        );
+        if (result.kind === 'no-track') {
+          // The torrent has NO embedded subtitle track (404, permanent):
+          // a reference can never appear, so stop immediately instead of
+          // waiting out the bounded wait.
+          stop();
+          notifySubtitleSyncError(
+            dictRef.current.playerUI.subtitleSyncNoReference,
+          );
+          return;
+        }
+        if (result.kind === 'cues-pending') {
+          // The embedded track exists but the DL'd prefix has no cues yet
+          // (503, temporary — Growing Media contract). Same waiting state
+          // as a short ref-cue prefix, bounded so it cannot run forever.
+          if (!(await boundedWait())) return;
+          continue;
+        }
+        if (result.kind === 'error') {
+          // Transient failure (timeout / companion hiccup) — keep the
+          // waiting state and try again on the next poll.
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+        const ref = result;
+        const refCues = parseSubtitle(ref.text).cues;
+        if (refCues.length < LAZY_SYNC_MIN_REF_CUES) {
+          // Downloaded prefix has too few cues yet to trust an estimate
+          // (docs §10: first sync waits for a usable cue count). Bounded
+          // so the waiting state cannot run forever.
+          if (!(await boundedWait())) return;
+          continue;
+        }
+
+        const est = estimateMedianOffset(state.baseCues, refCues);
+        if (!est) {
+          // Median estimator returned null (no cues, a bimodal split refused
+          // by the concentration check, or an offset beyond 1 h).
+          if (!(await boundedWait())) return;
+          continue;
+        }
+
+        const offsetMs = est.offsetMs;
+        if (Math.abs(offsetMs) < LAZY_SYNC_MIN_OFFSET_MS) {
+          // Already in sync (ffsubsync --suppress-output-if-offset-less-
+          // than): an offset under 100 ms is sub-frame noise — leave the
+          // cues untouched and treat the sync as converged. No success
+          // toast for Magnet; polling continues to re-check as the DL
+          // grows.
+          state.lastOffsetMs = offsetMs;
+          state.waitPollCount = 0;
+          if (!state.appliedOnce) state.appliedOnce = true;
+          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        const prev = state.lastOffsetMs;
+        const changed =
+          prev === null ||
+          Math.abs(offsetMs - prev) > LAZY_SYNC_STABLE_THRESHOLD_MS;
+        state.lastOffsetMs = offsetMs;
+        state.waitPollCount = 0;
+
+        if (changed) {
+          // Apply to the ORIGINAL base cues every time — never to the
+          // previously shifted display — so refinement cannot drift.
+          setCues(shiftCuesByOffset(state.baseCues, offsetMs));
+          setSubtitleErrors([]);
+          setActiveCueId(null);
+        }
+        if (!state.appliedOnce) {
+          state.appliedOnce = true;
+        }
+      } catch {
+        // Transient fetch failure (subtitle still preparing) — keep the
+        // waiting state and try again on the next poll.
+      }
+      await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
+    }
+  }, []);
+
+  // Start / stop the LazySync loop with the toggle. The cleanup abort also
+  // covers unmount.
+  useEffect(() => {
+    if (!isLazySyncOn) return;
+    const ac = new AbortController();
+    void runLazySyncPolling(ac.signal);
+    return () => ac.abort();
+  }, [isLazySyncOn, runLazySyncPolling]);
 
   /** Magnet audio sync: dialog handed us decoded PCM — run sub-to-audio. */
   const handleAudioSyncComplete = useCallback(
@@ -2122,7 +2482,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
 
   const handleMine = useCallback(
     async (overrideCue?: SubtitleCue) => {
-      if (!mediaUrl) return;
+      if (!displayMediaUrl) return;
       // Guard: refuse if any standalone capture (AM-2 screenshot / AM-3 audio) or AM-4 mining is in flight
       if (
         isCapturingRef.current ||
@@ -2204,7 +2564,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
           // Video Clip mode: record silent WebM instead of JPEG screenshot
           try {
             videoClipResult = await recordVideoClip({
-              mediaUrl,
+              mediaUrl: displayMediaUrl,
               start: targetCue.start,
               end: targetCue.end,
               playbackRate,
@@ -2342,7 +2702,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
 
       // Audio
       const audioResult = await recordAudioClip({
-        mediaUrl,
+        mediaUrl: displayMediaUrl,
         start: targetCue.start,
         end: targetCue.end,
         playbackRate,
@@ -2368,7 +2728,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       }
     },
     [
-      mediaUrl,
+      displayMediaUrl,
       activeCueId,
       cues,
       mediaType,
@@ -2429,7 +2789,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       const start = committedValue[0];
       const end = committedValue[1];
       if (
-        !mediaUrl ||
+        !displayMediaUrl ||
         start == null ||
         end == null ||
         !Number.isFinite(start) ||
@@ -2543,7 +2903,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
 
           if (mediaMode === 'video') {
             const clipResult = await recordVideoClip({
-              mediaUrl: mediaUrl!,
+              mediaUrl: displayMediaUrl!,
               start: committedStart,
               end: committedEnd,
               signal: abortController.signal,
@@ -2606,7 +2966,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
         if (!hasAudio || !audioClipCaps.supported)
           return { ok: false, errorMsg: 'unsupported' };
         const result = await recordAudioClip({
-          mediaUrl,
+          mediaUrl: displayMediaUrl,
           start: committedStart,
           end: committedEnd,
           playbackRate,
@@ -2696,7 +3056,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       setIsMiningRefreshing(false);
     },
     [
-      mediaUrl,
+      displayMediaUrl,
       mediaType,
       mediaName,
       cues,
@@ -2712,7 +3072,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
    *  AND no standalone AM-2 screenshot or AM-3 audio capture is in flight. */
   const canMine =
     (mediaType === 'video' || mediaType === 'audio') &&
-    !!mediaUrl &&
+    !!displayMediaUrl &&
     activeCueId != null &&
     !isCapturing &&
     !isRecordingAudio &&
@@ -2725,7 +3085,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
    *  Same capture-in-flight guard as canMine. */
   const canMineRow =
     (mediaType === 'video' || mediaType === 'audio') &&
-    !!mediaUrl &&
+    !!displayMediaUrl &&
     !isCapturing &&
     !isRecordingAudio &&
     !isMiningCapturing &&
@@ -2928,7 +3288,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
 
           if (mode === 'video') {
             const clipResult = await recordVideoClip({
-              mediaUrl: mediaUrl!,
+              mediaUrl: displayMediaUrl!,
               start: currentRange[0],
               end: currentRange[1],
               signal,
@@ -3011,7 +3371,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       miningRangeStart,
       miningRangeEnd,
       replaceMiningScreenshotUrl,
-      mediaUrl,
+      displayMediaUrl,
     ],
   );
 
@@ -3124,6 +3484,27 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
       ankiSession.apiKey || undefined,
     );
 
+    /** Close mining preview after successful export.
+     *  Does NOT bump exportEpochRef — the `finally` block handles
+     *  setIsExporting(false) via its epoch guard. */
+    const closeAfterExportSuccess = (toastLabel: string) => {
+      notifyMiningExportSuccess(toastLabel);
+      setIsMiningPreviewOpen(false);
+      // Clean up mining state (normally done by handleMiningPreviewClose,
+      // but we must not bump exportEpochRef here).
+      miningScreenshotBlobRef.current = null;
+      miningAudioBlobRef.current = null;
+      replaceMiningScreenshotUrl(null);
+      replaceMiningAudioUrl(null);
+      exportAbortControllerRef.current = null;
+      miningAbortControllerRef.current?.abort();
+      miningAbortControllerRef.current = null;
+      mediaRecaptureAbortRef.current?.abort();
+      mediaRecaptureAbortRef.current = null;
+      setExportSuccess(false);
+      setExportError(null);
+    };
+
     try {
       if (exportMode === 'new') {
         // Build note fields from draft
@@ -3225,6 +3606,14 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
         setExportSuccess(true);
         // Fire-and-forget: IndexedDB write must never block/fail Anki success
         void writeHistory();
+        // Toast + close modal after successful new-card export
+        const enteredWordNew =
+          miningDraftFields.find((f) => f.key === 'word')?.value.trim() ||
+          '';
+        const wordLabelNew = enteredWordNew || mediaName;
+        closeAfterExportSuccess(
+          d.miningExportAddedToast.replace('{word}', () => wordLabelNew),
+        );
       } else if (exportMode === 'update') {
         // One-click update: findNotes → notesInfo → validate → media → updateNoteFields
         const noteIds = await client.findNotes(
@@ -3262,13 +3651,18 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
         }
 
         // Build update fields from draft (text fields only)
+        // Skip empty/whitespace-only fields to preserve existing Anki content.
+        const isDenChou = prefs.noteType === 'DenChou';
         const updateFields: Record<string, string> = {};
         const seen = new Set<string>();
         for (const f of miningDraftFields) {
           if (f.key === 'image' || f.key === 'audio') continue;
           if (seen.has(f.physicalName)) continue;
           seen.add(f.physicalName);
-          updateFields[f.physicalName] = f.value;
+          if (f.value.trim() === '') continue;
+          updateFields[f.physicalName] = isDenChou
+            ? wrapDenChouField(f.key, f.value)
+            : f.value;
         }
 
         // Upload media if available (never wipe existing) — branch on captured type
@@ -3319,6 +3713,18 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
         setExportSuccess(true);
         // Fire-and-forget: IndexedDB write must never block/fail Anki success
         void writeHistory();
+        // Toast + close modal after successful update export
+        const enteredWordUpd =
+          miningDraftFields.find((f) => f.key === 'word')?.value.trim() ||
+          '';
+        const existingWordField = prefs.fields.word
+          ? (candidate.fields[prefs.fields.word]?.value.trim() || '')
+          : '';
+        const wordLabelUpd =
+          enteredWordUpd || existingWordField || mediaName;
+        closeAfterExportSuccess(
+          d.miningExportUpdatedToast.replace('{word}', () => wordLabelUpd),
+        );
       }
     } catch (e) {
       if (!mountedRef.current || exportEpochRef.current !== epoch) return;
@@ -3957,6 +4363,12 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
   void subtitleErrors; // keep state read (future re-enable of the block)
   const subtitleErrorsBlock = null;
 
+  const lowerMediaName = mediaName.toLowerCase();
+  const hideSyncSubtitle =
+    jobSession.kind === 'youtube' ||
+    !isMagnet ||
+    !(lowerMediaName.endsWith('.mkv') || lowerMediaName.endsWith('.mp4'));
+
   return (
     <div
       ref={mediaContainerRef}
@@ -4115,6 +4527,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
           magnetFileKindOther: dict.magnetFileKindOther,
           magnetTableNavUp: dict.magnetTableNavUp,
           magnetNoVideosInFolder: dict.magnetNoVideosInFolder,
+          firefoxUnsupported: dict.firefoxUnsupported,
         }}
       />
 
@@ -4139,6 +4552,7 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
           youtubeInputErrorGeneric: dict.youtubeInputErrorGeneric,
           youtubeInputSubmitting: dict.youtubeInputSubmitting,
           dialogClose: dict.dialogClose,
+          firefoxUnsupported: dict.firefoxUnsupported,
         }}
       />
 
@@ -4198,7 +4612,11 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
-              hideSyncSubtitle={jobSession.kind === 'youtube'}
+              syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
+              hideSyncSubtitle={hideSyncSubtitle}
+              isMagnet={isMagnet}
+              lazySyncOn={isLazySyncOn}
+              onToggleLazySync={handleToggleLazySync}
               onOpenJimakuSearch={handleOpenJimakuSearch}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
@@ -4226,7 +4644,11 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
-              hideSyncSubtitle={jobSession.kind === 'youtube'}
+              syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
+              hideSyncSubtitle={hideSyncSubtitle}
+              isMagnet={isMagnet}
+              lazySyncOn={isLazySyncOn}
+              onToggleLazySync={handleToggleLazySync}
               onOpenJimakuSearch={handleOpenJimakuSearch}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
@@ -4243,3 +4665,4 @@ const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
     </div>
   );
 }
+

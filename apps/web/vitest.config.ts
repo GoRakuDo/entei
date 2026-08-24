@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // oxc (Rolldown's default JSX transformer) fails with "Rolldown parse
+  // error" in some sandboxed environments; fall back to the stable esbuild
+  // path so the suite is environment-independent.
+  oxc: false,
   test: {
     environment: 'jsdom',
     globals: true,
