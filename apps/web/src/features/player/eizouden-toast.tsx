@@ -83,6 +83,13 @@ export function notifySubtitleSyncError(label: string): void {
   });
 }
 
+/** jimaku auto-load toast (rate-limit / auth / key-missing) — info level. */
+export function notifyJimakuToast(label: string): void {
+  toast.info(label, {
+    id: 'eizouden-jimaku-toast',
+  });
+}
+
 /** LazySync toggle notice ("LazySync enabled"/"disabled"). Neutral info
  *  toast with a fixed id so toggling cannot stack duplicates. */
 export function notifyLazySyncInfo(label: string): void {

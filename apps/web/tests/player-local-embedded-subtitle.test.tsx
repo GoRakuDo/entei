@@ -158,6 +158,12 @@ vi.mock('@/features/player/eizouden-toast', () => ({
   notifyCompanionError: vi.fn(),
   notifySubtitleSyncError: mocks.notifySubtitleSyncError,
   notifySubtitleSyncSuccess: mocks.notifySubtitleSyncSuccess,
+  // Merged-suite exports: jimaku auto-load fires on media select
+  // (autoLoadEnabled defaults true) and would throw on a missing export.
+  notifyJimakuToast: vi.fn(),
+  notifyMiningExportSuccess: vi.fn(),
+  notifyLazySyncInfo: vi.fn(),
+  notifyFirefoxUnsupported: vi.fn(),
 }));
 
 // mkvgo is fully mocked: the wasm module never loads in tests.

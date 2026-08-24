@@ -35,6 +35,9 @@ export const SUBTITLE_SETTINGS_CHANGE_EVENT =
 export const ANKI_SESSION_CREDENTIALS_EVENT =
   'entei:player-anki-session-credentials';
 
+/** CustomEvent name for opening the global settings modal. */
+export const OPEN_SETTINGS_EVENT = 'entei:open-settings';
+
 const SUBTITLE_KEYS: readonly (keyof SubtitleSettings)[] = [
   'fontSize',
   'textColor',
@@ -163,6 +166,12 @@ export function dispatchAnkiSessionCredentials(
   );
 }
 
+/** Dispatch a request to open the global settings modal (browser only). */
+export function dispatchOpenSettings(): void {
+  if (!isBrowser()) return;
+  window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT));
+}
+
 /** Listen for validated subtitle patches; returns an idempotent-style cleanup. */
 export function listenForSubtitleSettingsChange(
   listener: (settings: SubtitleSettingsPatch) => void,
@@ -200,4 +209,36 @@ export function listenForAnkiSessionCredentials(
   window.addEventListener(ANKI_SESSION_CREDENTIALS_EVENT, handler);
   return () =>
     window.removeEventListener(ANKI_SESSION_CREDENTIALS_EVENT, handler);
+}
+
+/** Listen for the open-settings request; returns a cleanup function. */
+export function listenForOpenSettings(listener: () => void): () => void {
+  if (!isBrowser()) return () => {};
+  const handler = () => listener();
+  window.addEventListener(OPEN_SETTINGS_EVENT, handler);
+  return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
+}
+
+/** CustomEvent name for live jimaku API-key presence changes. */
+export const JIMAKU_KEY_CHANGED_EVENT = 'entei:player-jimaku-key-changed';
+
+/** Dispatch a jimaku API-key presence change (browser only). */
+export function dispatchJimakuKeyChanged(hasKey: boolean): void {
+  if (!isBrowser()) return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(JIMAKU_KEY_CHANGED_EVENT, { detail: hasKey }),
+  );
+}
+
+/** Listen for jimaku API-key presence changes; returns a cleanup function. */
+export function listenForJimakuKeyChanged(
+  listener: (hasKey: boolean) => void,
+): () => void {
+  if (!isBrowser()) return () => {};
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<boolean>).detail;
+    if (typeof detail === 'boolean') listener(detail);
+  };
+  window.addEventListener(JIMAKU_KEY_CHANGED_EVENT, handler);
+  return () => window.removeEventListener(JIMAKU_KEY_CHANGED_EVENT, handler);
 }

@@ -22,7 +22,7 @@
 
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Settings } from 'lucide-react';
 import {
   Dialog,
@@ -35,6 +35,7 @@ import { buildShortcuts } from '@/features/player/player-shortcuts';
 import {
   dispatchAnkiSessionCredentials,
   dispatchSubtitleSettingsChange,
+  listenForOpenSettings,
 } from '@/features/player/settings-bridge';
 import {
   readStoredPairingToken,
@@ -65,6 +66,18 @@ export function EizouSettingsDialog({
   showShortcuts = false,
 }: EizouSettingsDialogProps) {
   const [open, setOpen] = useState(false);
+
+  // P4: the jimaku search dialog (PlayerApp island) can open this settings
+  // modal via the settings-bridge event. Only the variant visible at the
+  // current viewport reacts (desktop pill / mobile dock), so the two
+  // instances never stack two settings modals on top of each other.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return; // non-browser (tests)
+    const media = window.matchMedia('(min-width: 768px)');
+    const handlesEvent = variant === 'pill' ? media.matches : !media.matches;
+    if (!handlesEvent) return;
+    return listenForOpenSettings(() => setOpen(true));
+  }, [variant]);
 
   /** ED-3 explicit destructive pairing reset, self-contained inside the
    *  island so Home / Tracker show the "Reset pairing" control in the

@@ -128,34 +128,58 @@ export interface Dictionary {
     subtitleBackgroundOpacity: string;
     subtitleBackgroundPadding: string;
     subtitleVerticalPosition: string;
-  subtitleReset: string;
-  subtitleSyncMode: string;
-  subtitleSyncSubtitle: string;
-  subtitleSyncAudio: string;
-  subtitleSyncAuto: string;
-  subtitleSyncSubtitleDesc: string;
-  subtitleSyncAudioDesc: string;
-  subtitleSyncAutoDesc: string;
-  subtitleSyncButton: string;
-  subtitleSyncButtonLabel: string;
-  subtitleSyncSuccess: string;
-  subtitleSyncNoReference: string;
-  subtitleSyncNoSubtitle: string;
-  /** LazySync toggle ON state (Magnet only, docs SUBTITLE_SYNC.md §10). */
-  subtitleSyncLazyOn: string;
-  /** LazySync toggle OFF state (Magnet only). */
-  subtitleSyncLazyOff: string;
-  /** LazySync active button label shown while Magnet sync is on (docs
-   *  §10.3): the static "activated" text replaces the PROCESSING
-   *  typewriter. */
-  subtitleSyncLazyActive: string;
-  /** Magnet + audio mode: audio-based sync is unavailable (§10.4). */
-  subtitleSyncAudioUnavailable: string;
-  subtitleSyncWaitTitle: string;
-  subtitleSyncWaitDesc: string;
-  subtitleSyncWaitCancel: string;
-  subtitleSyncWaitConfirm: string;
-  subtitleSyncProgress: string;
+    subtitleReset: string;
+    subtitleSyncMode: string;
+    subtitleSyncSubtitle: string;
+    subtitleSyncAudio: string;
+    subtitleSyncAuto: string;
+    subtitleSyncSubtitleDesc: string;
+    subtitleSyncAudioDesc: string;
+    subtitleSyncAutoDesc: string;
+    subtitleSyncButton: string;
+    subtitleSyncButtonLabel: string;
+    subtitleSyncSuccess: string;
+    subtitleSyncNoReference: string;
+    subtitleSyncNoSubtitle: string;
+    /** LazySync toggle ON state (Magnet only, docs SUBTITLE_SYNC.md §10). */
+    subtitleSyncLazyOn: string;
+    /** LazySync toggle OFF state (Magnet only). */
+    subtitleSyncLazyOff: string;
+    /** LazySync active button label shown while Magnet sync is on (docs
+     *  §10.3): the static "activated" text replaces the PROCESSING
+     *  typewriter. */
+    subtitleSyncLazyActive: string;
+    /** Magnet + audio mode: audio-based sync is unavailable (§10.4). */
+    subtitleSyncAudioUnavailable: string;
+    subtitleSyncWaitTitle: string;
+    subtitleSyncWaitDesc: string;
+    subtitleSyncWaitCancel: string;
+    subtitleSyncWaitConfirm: string;
+    subtitleSyncProgress: string;
+    // P1: jimaku.cc subtitle integration
+    jimakuHeading: string;
+    jimakuDesc: string;
+    jimakuApiKeyLabel: string;
+    jimakuApiKeyPlaceholder: string;
+    jimakuAutoLoadLabel: string;
+    jimakuAutoLoadDesc: string;
+    jimakuRateLimit: string;
+    jimakuAuthError: string;
+    jimakuKeyMissing: string;
+    // P4: jimaku search modal (design §2.3)
+    jimakuSearchTitle: string;
+    jimakuSearchEpisode: string;
+    jimakuSearchButton: string;
+    jimakuSearchAnimeToggle: string;
+    jimakuSearchDramaToggle: string;
+    jimakuSearchResultsEmpty: string;
+    jimakuSearchFilesEmpty: string;
+    jimakuSearchFilesLabel: string;
+    jimakuSearchSelectEntry: string;
+    jimakuSearchOpenButton: string;
+    jimakuSearchNoKey: string;
+    jimakuOpenSettings: string;
+    jimakuSearchBack: string;
     // EizouDen (2026-08-07): YouTube download mode settings tab
     settingsTabEizouDen: string;
     settingsEizouDenContentHeading: string;

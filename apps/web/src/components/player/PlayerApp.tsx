@@ -77,6 +77,7 @@ import { MediaPicker } from '@/components/player/MediaPicker';
 import { Button } from '@/components/player/ui/button';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
 import { RightPanel } from '@/components/player/RightPanel';
+import { JimakuSearchDialog } from '@/components/player/JimakuSearchDialog';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -112,11 +113,14 @@ import {
   notifyQuality,
   notifyCompanionError,
   notifySubtitleSyncError,
+  notifyJimakuToast,
   notifySubtitleSyncSuccess,
   notifyMiningExportSuccess,
   notifyLazySyncInfo,
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
+import { parseMediaFileName } from '@/features/player/filename-parser';
+import { useJimakuAutoLoad } from '@/features/player/use-jimaku-auto-load';
 import {
   LAZY_SYNC_POLL_INTERVAL_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
@@ -158,6 +162,7 @@ import {
   runAnkiConnectionFlow,
 } from '@/features/player/anki-connect';
 import {
+  dispatchOpenSettings,
   listenForAnkiSessionCredentials,
   listenForSubtitleSettingsChange,
   type SubtitleSettings,
@@ -306,6 +311,14 @@ export default function PlayerApp() {
      *  LAZY_SYNC_MAX_WAIT_POLLS. */
     waitPollCount: number;
   } | null>(null);
+  // P4 jimaku search modal: open flag + prefill (title + anime/drama) chosen by
+  // the opener — RightPanel button (current media name) or the P3 auto-load
+  // fallback (parsed title + last-tried mode).
+  const [isJimakuSearchOpen, setIsJimakuSearchOpen] = useState(false);
+  const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
+    title: string;
+    anime?: boolean;
+  }>({ title: '' });
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -608,6 +621,77 @@ export default function PlayerApp() {
     [jobSession, pairing.tokenRef],
   );
 
+  // Shared subtitle-text pipeline: parse + replace cues (used by the P3
+  // auto-load hook AND the P4 search modal).
+  const handleSubtitleText = useCallback((text: string) => {
+    const result = parseSubtitle(text);
+    setCues(result.cues);
+    setSubtitleErrors(result.errors);
+    setActiveCueId(null);
+    subtitleTextRef.current = text;
+    // BLOCKER 2: if LazySync is ON, the poll loop re-applies the SHIFTED
+    // ORIGINAL base cues every tick. An external cue replacement (jimaku
+    // auto-load success, search-dialog load) must refresh that base, or the
+    // next poll resurrects the stale old cues. lazySyncStateRef is non-null
+    // exactly when LazySync is active.
+    if (lazySyncStateRef.current) {
+      lazySyncStateRef.current.baseCues = result.cues;
+      // A swapped base invalidates the previous offset estimate: without this
+      // reset, a new estimate within STABLE_THRESHOLD of the stale lastOffsetMs
+      // is treated as "unchanged" and the fresh cues never get shifted.
+      lazySyncStateRef.current.lastOffsetMs = null;
+      lazySyncStateRef.current.appliedOnce = false;
+    }
+  }, []);
+
+  // Localized jimaku toast (rate-limit / auth / key-missing) — shared by the
+  // auto-load hook and the search modal.
+  const handleJimakuToast = useCallback(
+    (kind: 'rate-limit' | 'auth' | 'key-missing') => {
+      const ui = dictRef.current.playerUI;
+      notifyJimakuToast(
+        kind === 'rate-limit'
+          ? ui.jimakuRateLimit
+          : kind === 'auth'
+            ? ui.jimakuAuthError
+            : ui.jimakuKeyMissing,
+      );
+    },
+    [],
+  );
+
+  // P3 jimaku auto-load (§2.2): fires on local media select / Magnet handoff
+  // when the switch is ON. Exact match replaces subtitles; otherwise the
+  // search modal opens with the parsed title and the last-tried mode.
+  const jimakuAutoLoad = useJimakuAutoLoad({
+    onSubtitleLoaded: handleSubtitleText,
+    onOpenSearch: (_title, _animeLastTried) => {
+      setJimakuSearchPrefill({ title: _title, anime: _animeLastTried });
+      setIsJimakuSearchOpen(true);
+    },
+    onToast: handleJimakuToast,
+  });
+  // P4-1: spinner while the jimaku auto-load search is in flight.
+  const jimakuLoading = jimakuAutoLoad.isLoading;
+
+  // P4: RightPanel search button — pre-fill with the current media name.
+  const handleOpenJimakuSearch = useCallback(() => {
+    // Parse the media filename so the search box is pre-filled with the
+    // clean title (e.g. "Meitantei no Mama de Ite" from the raw .mkv name)
+    // instead of the raw filename — raw names never match jimaku.
+    const parsed = parseMediaFileName(mediaName);
+    setJimakuSearchPrefill({ title: parsed.title || mediaName });
+    setIsJimakuSearchOpen(true);
+  }, [mediaName]);
+
+  // P4: "Open settings" from the jimaku search modal — the settings modal
+  // lives in the TopBar island, so bridge via CustomEvent; close the search
+  // modal so the two never stack.
+  const handleOpenSettingsFromSearch = useCallback(() => {
+    dispatchOpenSettings();
+    setIsJimakuSearchOpen(false);
+  }, []);
+
   const handleMagnetJobAccepted = useCallback(
     (jobId: string, selectedName: string, subtitleFileId: string) => {
       const token = pairing.tokenRef.current;
@@ -623,9 +707,13 @@ export default function PlayerApp() {
         kind: 'torrent',
         subtitleFileId: subtitleFileId || undefined,
       });
+      // P3 auto-load: only when no subtitle was picked in the Magnet modal.
+      if (!subtitleFileId) {
+        void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${jobId}`);
+      }
       setIsMagnetDialogOpen(false);
     },
-    [jobSession, pairing.tokenRef],
+    [jobSession, pairing.tokenRef, jimakuAutoLoad],
   );
 
   // Attach the actual video element on the complete gate (existing ref).
@@ -722,11 +810,14 @@ export default function PlayerApp() {
   // deadline knowledge: PlayerApp owns the retry window and the
   // fallback.
   const isLoadingSubtitles =
-    jobSession.active &&
-    !!jobSession.subtitleUrl &&
-    cues.length === 0 &&
-    !subtitleFetchFailed &&
-    jobSession.phase !== 'error';
+    (jobSession.active &&
+      !!jobSession.subtitleUrl &&
+      cues.length === 0 &&
+      !subtitleFetchFailed &&
+      jobSession.phase !== 'error') ||
+    // P4-1: jimaku auto-load in flight with no subtitles yet — shows the
+    // same "Preparing subtitles…" spinner until the load settles.
+    (jimakuLoading && cues.length === 0);
 
 // ED-2G: Auto-fetch subtitle content from companion when a torrent job
   // selected a subtitle file, or from a YouTube job that has Japanese
@@ -1171,6 +1262,11 @@ export default function PlayerApp() {
       setActiveCueId(null);
       // Stage 2a: Clear subtitle text on media change (subtitles are media-specific)
       subtitleTextRef.current = null;
+      // Also clear the rendered cues so stale subtitles don't linger — this
+      // also lets the jimaku auto-load spinner show (cues.length === 0).
+      setCues([]);
+      // P3 auto-load: local file selected — auto-load jimaku subtitles.
+      void jimakuAutoLoad.runAutoLoad(file.name, `local:${file.name}`);
       // AM-2: Invalidate any prior screenshot when selecting new media
       clearScreenshot();
       // AM-3: Invalidate any prior audio clip when selecting new media
@@ -1187,7 +1283,13 @@ export default function PlayerApp() {
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
     },
-    [clearScreenshot, clearAudioClip, clearMiningPreview, jobSession],
+    [
+      clearScreenshot,
+      clearAudioClip,
+      clearMiningPreview,
+      jobSession,
+      jimakuAutoLoad,
+    ],
   );
 
   const handleSubtitleSelect = useCallback((file: File) => {
@@ -1204,6 +1306,11 @@ export default function PlayerApp() {
       return;
     }
 
+    // BLOCKER 1: a manual subtitle pick must win over any in-flight jimaku
+    // auto-load. Cancel the run so its pending fetch can't clobber this pick
+    // once it resolves (docs/JIMAKU_SUBS.md §2.2-3).
+    jimakuAutoLoad.cancel();
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result;
@@ -1213,13 +1320,10 @@ export default function PlayerApp() {
         ]);
         return;
       }
-
-      const result = parseSubtitle(content);
-      setCues(result.cues);
-      setSubtitleErrors(result.errors);
-      setActiveCueId(null);
-      // Stage 2a: Store raw subtitle text for tracker digest computation
-      subtitleTextRef.current = content;
+      // Route through the shared pipeline so the LazySync base refresh
+      // (BLOCKER 2 fix) applies to manual picks too — otherwise the next
+      // poll resurrects the stale base over this fresh pick.
+      handleSubtitleText(content);
     };
     reader.onerror = () => {
       setSubtitleErrors([
@@ -1227,7 +1331,7 @@ export default function PlayerApp() {
       ]);
     };
     reader.readAsText(file);
-  }, []);
+  }, [jimakuAutoLoad.cancel, handleSubtitleText]);
 
   // File open handler: routes subtitle files to handleSubtitleSelect, everything else to handleMediaSelect.
   const handleFileOpen = useCallback(
@@ -4204,6 +4308,18 @@ export default function PlayerApp() {
         token={jobSession.token ?? ''}
         onComplete={handleAudioSyncComplete}
       />
+      {/* P4: jimaku search modal (§2.3) — opened from the RightPanel button
+          or the P3 auto-load fallback (title pre-filled either way). */}
+      <JimakuSearchDialog
+        open={isJimakuSearchOpen}
+        onOpenChange={setIsJimakuSearchOpen}
+        initialTitle={jimakuSearchPrefill.title}
+        initialAnime={jimakuSearchPrefill.anime}
+        onSubtitleLoaded={handleSubtitleText}
+        onToast={handleJimakuToast}
+        onOpenSettings={handleOpenSettingsFromSearch}
+        dict={dict}
+      />
       <MiningPreviewDialog
         open={isMiningPreviewOpen}
         onOpenChange={handleMiningPreviewClose}
@@ -4516,6 +4632,7 @@ export default function PlayerApp() {
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
+              onOpenJimakuSearch={handleOpenJimakuSearch}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
@@ -4547,6 +4664,7 @@ export default function PlayerApp() {
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
+              onOpenJimakuSearch={handleOpenJimakuSearch}
               historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}

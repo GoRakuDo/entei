@@ -12,7 +12,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Captions, History, RotateCwFadingClock } from 'lucide-react';
+import { Captions, History, RotateCwFadingClock, Search } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
 import { Switch } from '@/components/player/ui/switch';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
@@ -54,6 +54,8 @@ interface RightPanelProps {
   onToggleLazySync?: () => void;
   /** Hide the sync button entirely (YouTube source — design §2-11). */
   hideSyncSubtitle?: boolean;
+  /** P4 jimaku: opens the search modal (title pre-filled from media name). */
+  onOpenJimakuSearch?: () => void;
   /** History panel refresh trigger — increment after a successful Anki send. */
   historyRefreshKey?: number;
   /** AM-4 Row Mining: callback to mine a specific cue. */
@@ -87,6 +89,7 @@ export function RightPanel({
   lazySyncOn = false,
   onToggleLazySync,
   hideSyncSubtitle = false,
+  onOpenJimakuSearch,
   historyRefreshKey,
   onMineCue,
   canMineRow,
@@ -199,56 +202,70 @@ export function RightPanel({
           aria-label={dict.rightPanelTabCaptions}
           className="entei-right-panel-content"
         >
-          {!hideSyncSubtitle && (
-            isMagnet ? (
-              /* Magnet: LazySync toggle — colored while on, click toggles.
-               * The on-state shows the static "activated" label instead of
-               * a typewriter (docs §10.3). */
+          <div className="entei-right-panel-actions">
+            {!hideSyncSubtitle && (
+              isMagnet ? (
+                /* Magnet: LazySync toggle — colored while on, click toggles.
+                 * The on-state shows the static "activated" label instead of
+                 * a typewriter (docs §10.3). */
+                <button
+                  type="button"
+                  className={
+                    lazySyncOn
+                      ? 'entei-subtitle-sync-button entei-subtitle-sync-button--active'
+                      : 'entei-subtitle-sync-button'
+                  }
+                  onClick={onToggleLazySync}
+                  aria-label={lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
+                  aria-pressed={lazySyncOn}
+                  title={lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
+                  disabled={!canSyncSubtitle}
+                >
+                  <RotateCwFadingClock size={16} aria-hidden="true" />
+                  <span>
+                    {lazySyncOn
+                      ? dict.subtitleSyncLazyActive
+                      : dict.subtitleSyncLazyOff}
+                  </span>
+                </button>
+              ) : (
+                /* Local media: classic click-to-sync button (unchanged). */
+                <button
+                  type="button"
+                  className="entei-subtitle-sync-button"
+                  onClick={onSyncSubtitle}
+                  aria-label={dict.subtitleSyncButtonLabel}
+                  title={dict.subtitleSyncButton}
+                  disabled={!canSyncSubtitle || isSyncingSubtitle}
+                >
+                  {isSyncingSubtitle && syncMode !== 'audio' ? (
+                    <TypewriterLoading
+                      text="PROCESSING"
+                      className="entei-typewriter--btn"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <>
+                      <RotateCwFadingClock size={16} aria-hidden="true" />
+                      <span>{dict.subtitleSyncButton}</span>
+                    </>
+                  )}
+                </button>
+              )
+            )}
+            {onOpenJimakuSearch && (
               <button
                 type="button"
-                className={
-                  lazySyncOn
-                    ? 'entei-subtitle-sync-button entei-subtitle-sync-button--active'
-                    : 'entei-subtitle-sync-button'
-                }
-                onClick={onToggleLazySync}
-                aria-label={lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
-                aria-pressed={lazySyncOn}
-                title={lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
-                disabled={!canSyncSubtitle}
+                className="entei-subtitle-sync-button entei-jimaku-search-button"
+                onClick={onOpenJimakuSearch}
+                aria-label={dict.jimakuSearchOpenButton}
+                title={dict.jimakuSearchOpenButton}
               >
-                <RotateCwFadingClock size={16} aria-hidden="true" />
-                <span>
-                  {lazySyncOn
-                    ? dict.subtitleSyncLazyActive
-                    : dict.subtitleSyncLazyOff}
-                </span>
+                <Search size={16} aria-hidden="true" />
+                <span>{dict.jimakuSearchOpenButton}</span>
               </button>
-            ) : (
-              /* Local media: classic click-to-sync button (unchanged). */
-              <button
-                type="button"
-                className="entei-subtitle-sync-button"
-                onClick={onSyncSubtitle}
-                aria-label={dict.subtitleSyncButtonLabel}
-                title={dict.subtitleSyncButton}
-                disabled={!canSyncSubtitle || isSyncingSubtitle}
-              >
-                {isSyncingSubtitle && syncMode !== 'audio' ? (
-                  <TypewriterLoading
-                    text="PROCESSING"
-                    className="entei-typewriter--btn"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <>
-                    <RotateCwFadingClock size={16} aria-hidden="true" />
-                    <span>{dict.subtitleSyncButton}</span>
-                  </>
-                )}
-              </button>
-            )
-          )}
+            )}
+          </div>
           <SubtitlePanel
             cues={cues}
             activeCueId={activeCueId}
