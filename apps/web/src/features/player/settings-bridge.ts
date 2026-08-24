@@ -218,3 +218,27 @@ export function listenForOpenSettings(listener: () => void): () => void {
   window.addEventListener(OPEN_SETTINGS_EVENT, handler);
   return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
 }
+
+/** CustomEvent name for live jimaku API-key presence changes. */
+export const JIMAKU_KEY_CHANGED_EVENT = 'entei:player-jimaku-key-changed';
+
+/** Dispatch a jimaku API-key presence change (browser only). */
+export function dispatchJimakuKeyChanged(hasKey: boolean): void {
+  if (!isBrowser()) return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(JIMAKU_KEY_CHANGED_EVENT, { detail: hasKey }),
+  );
+}
+
+/** Listen for jimaku API-key presence changes; returns a cleanup function. */
+export function listenForJimakuKeyChanged(
+  listener: (hasKey: boolean) => void,
+): () => void {
+  if (!isBrowser()) return () => {};
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<boolean>).detail;
+    if (typeof detail === 'boolean') listener(detail);
+  };
+  window.addEventListener(JIMAKU_KEY_CHANGED_EVENT, handler);
+  return () => window.removeEventListener(JIMAKU_KEY_CHANGED_EVENT, handler);
+}

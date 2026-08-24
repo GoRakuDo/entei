@@ -90,4 +90,23 @@ describe('jimaku-client', () => {
     const result = await downloadJimakuSubtitle('https://jimaku.cc/entry/1/download/missing.srt');
     expect(result).toEqual({ ok: false, error: 'not-found' });
   });
+
+  it('never puts the API key in any request URL', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([{ id: 1, name: 'x', flags: { anime: true } }]),
+    );
+    await searchJimakuEntries('super-secret-key', 'Anime', true);
+    await getJimakuEntryFiles('super-secret-key', 1, 1);
+    await downloadJimakuSubtitle('https://jimaku.cc/entry/1/download/a.srt');
+    for (const call of fetchMock.mock.calls) {
+      const url = String(call[0]);
+      expect(url).not.toContain('super-secret-key');
+    }
+  });
+
+  it('maps 403 to auth', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 403 }));
+    const result = await searchJimakuEntries('key', 'Anime', true);
+    expect(result).toEqual({ ok: false, error: 'auth' });
+  });
 });

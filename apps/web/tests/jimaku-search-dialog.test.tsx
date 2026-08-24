@@ -1,6 +1,7 @@
 import { render, cleanup, fireEvent, screen, act } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JimakuSearchDialog } from '@/components/player/JimakuSearchDialog';
+import { dispatchJimakuKeyChanged } from '@/features/player/settings-bridge';
 import { en } from '@i18n/locales/en';
 
 // Mock the P1 modules so the dialog logic is tested in isolation.
@@ -240,15 +241,15 @@ describe('JimakuSearchDialog', () => {
   });
 
   it('clears the no-key message when the key is set while the dialog is open', async () => {
-    vi.useFakeTimers();
     prefs.apiKey = '';
     renderDialog();
     expect(screen.getByText(dict.jimakuSearchNoKey)).toBeTruthy();
 
-    // The key is set in the settings modal — the 1s poll notices it.
+    // DESIGN 1: the SubtitleAppearanceTab dispatches a jimaku-key-changed
+    // event when the key is saved; the dialog reflects it live (no polling).
     prefs.apiKey = 'new-key';
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      dispatchJimakuKeyChanged(true);
     });
     expect(screen.queryByText(dict.jimakuSearchNoKey)).toBeNull();
     // The form is back once the key exists.

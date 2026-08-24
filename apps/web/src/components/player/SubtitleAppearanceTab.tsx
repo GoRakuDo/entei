@@ -27,6 +27,7 @@ import {
   setJimakuApiKey,
   setJimakuAutoLoad,
 } from '@/features/player/jimaku-preferences';
+import { dispatchJimakuKeyChanged } from '@/features/player/settings-bridge';
 import {
   Palette,
   RotateCcw,
@@ -219,11 +220,11 @@ export function SubtitleAppearanceTab({
   onReset,
 }: SubtitleAppearanceTabProps) {
   // Local state for color inputs (hex) - synced from oklch props
-const [textColorHex, setTextColorHex] = useState(() => oklchToHex(settings.textColor));
-const [bgColorHex, setBgColorHex] = useState(() => oklchToHex(settings.backgroundColor));
-// jimaku.cc preferences — mounted once from localStorage (P2 settings UI).
-const [jimakuApiKey, setJimakuApiKeyState] = useState(() => readJimakuPreferences().apiKey);
-const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(() => readJimakuPreferences().autoLoadEnabled);
+  const [textColorHex, setTextColorHex] = useState(() => oklchToHex(settings.textColor));
+  const [bgColorHex, setBgColorHex] = useState(() => oklchToHex(settings.backgroundColor));
+  // jimaku.cc preferences — mounted once from localStorage (P2 settings UI).
+  const [jimakuApiKey, setJimakuApiKeyState] = useState(() => readJimakuPreferences().apiKey);
+  const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(() => readJimakuPreferences().autoLoadEnabled);
 
   // Extract current alpha from the background oklch string
   const bgAlpha = useMemo(() => parseOklchAlpha(settings.backgroundColor), [settings.backgroundColor]);
@@ -497,6 +498,9 @@ const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(() => readJimakuPrefer
               const v = e.target.value;
               setJimakuApiKeyState(v);
               setJimakuApiKey(v); // persist immediately
+              // DESIGN 1: notify the (possibly open) jimaku search dialog so it
+              // reflects the key presence live without polling localStorage.
+              dispatchJimakuKeyChanged(v.trim().length > 0);
             }}
             placeholder={dict.jimakuApiKeyPlaceholder}
             autoComplete="off"

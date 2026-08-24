@@ -256,4 +256,61 @@ describe('useJimakuAutoLoad', () => {
     });
     expect(result.current.isLoading).toBe(false);
   });
+
+  it('cancel() aborts an in-flight run so a manual pick is not clobbered', async () => {
+    // The search stays pending until we resolve it manually.
+    let resolveSearch!: (value: unknown) => void;
+    client.search.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveSearch = res;
+        }),
+    );
+
+    const { result } = render();
+    let runPromise!: Promise<void>;
+    act(() => {
+      runPromise = result.current.runAutoLoad('Sousou no Frieren EP01.mkv', 'k1');
+    });
+    // Auto-load is in flight (spinner on)…
+    expect(result.current.isLoading).toBe(true);
+
+    // …the user manually picks a subtitle file → cancel the in-flight run.
+    act(() => {
+      result.current.cancel();
+    });
+    expect(result.current.isLoading).toBe(false);
+
+    // The pending fetch resolves (network finally responds), but the
+    // cancelled run must NOT load subtitles or open the search modal.
+    await act(async () => {
+      resolveSearch({
+        ok: true,
+        data: [{ id: 729, name: 'Sousou no Frieren', flags: { anime: true } }],
+      });
+      await runPromise;
+    });
+
+    expect(onSubtitleLoaded).not.toHaveBeenCalled();
+    expect(onOpenSearch).not.toHaveBeenCalled();
+    expect(client.files).not.toHaveBeenCalled();
+  });
+
+  it('opens the search modal when the episode cannot be extracted (§2.2-4)', async () => {
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [{ id: 729, name: 'Sousou no Frieren', flags: { anime: true } }],
+    });
+
+    const { result } = render();
+    await act(async () => {
+      // "Sousou no Frieren.mkv" parses to episode null (no EP marker).
+      await result.current.runAutoLoad('Sousou no Frieren.mkv', 'k1');
+    });
+
+    // Episode extraction failed → must open the search modal, NOT auto-apply.
+    expect(onOpenSearch).toHaveBeenCalledWith('Sousou no Frieren', true);
+    expect(onSubtitleLoaded).not.toHaveBeenCalled();
+    expect(client.files).not.toHaveBeenCalled();
+  });
 });

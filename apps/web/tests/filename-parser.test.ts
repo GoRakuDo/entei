@@ -70,4 +70,34 @@ describe('parseMediaFileName', () => {
     expect(parseMediaFileName('')).toEqual({ title: '', episode: null });
     expect(parseMediaFileName('   ')).toEqual({ title: '', episode: null });
   });
+
+  it('BUG 1: "Movie 2024 The Beginning.mkv" → episode null (year not an episode)', () => {
+    expect(parseMediaFileName('Movie 2024 The Beginning.mkv')).toEqual({
+      title: 'Movie 2024 The Beginning',
+      episode: null,
+    });
+  });
+
+  it('BUG 1: "Frieren Season 2 - 05.mkv" → episode 5 (last standalone token)', () => {
+    expect(parseMediaFileName('Frieren Season 2 - 05.mkv')).toEqual({
+      title: 'Frieren Season 2',
+      episode: 5,
+    });
+  });
+
+  it('BUG 1: "One Piece - 1099.mp4" → episode 1099 (4-digit bare number)', () => {
+    expect(parseMediaFileName('One Piece - 1099.mp4')).toEqual({
+      title: 'One Piece',
+      episode: 1099,
+    });
+  });
+
+  it('BUG 1: "[SubsPlease] Sousou no Frieren - 01 (1080p) [HEVC].mkv" → episode 1', () => {
+    expect(
+      parseMediaFileName('[SubsPlease] Sousou no Frieren - 01 (1080p) [HEVC].mkv'),
+    ).toEqual({
+      title: 'Sousou no Frieren',
+      episode: 1,
+    });
+  });
 });

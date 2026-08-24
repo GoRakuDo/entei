@@ -40,6 +40,7 @@ import {
   setJimakuSearchAnime,
 } from '@/features/player/jimaku-preferences';
 import { isNonJapanese, isUncompressed } from '@/features/player/use-jimaku-auto-load';
+import { listenForJimakuKeyChanged } from '@/features/player/settings-bridge';
 
 export interface JimakuSearchDialogDict {
   jimakuSearchTitle: string;
@@ -106,15 +107,16 @@ export function JimakuSearchDialog({
   const epochRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Keep the no-key error in sync with the stored API key: the user may set
-  // the key in the settings modal while this dialog stays open, and the
-  // stale "set your key" message must not linger.
+  // Keep the no-key error in sync with the stored API key via the settings
+  // bridge event (DESIGN 1): SubtitleAppearanceTab dispatches a
+  // jimaku-key-changed event when the key is saved/cleared, so this dialog
+  // reflects key presence live while open — no localStorage polling.
   useEffect(() => {
     if (!open) return;
-    const id = setInterval(() => {
-      setNoKey(!readJimakuPreferences().apiKey);
-    }, 1000);
-    return () => clearInterval(id);
+    const cleanup = listenForJimakuKeyChanged((hasKey) => {
+      setNoKey(!hasKey);
+    });
+    return cleanup;
   }, [open]);
 
   // Reset to a fresh form every time the dialog opens, with the caller's
@@ -382,13 +384,13 @@ export function JimakuSearchDialog({
           {status === 'results' && (
             <div className="entei-jimaku-search-section">
               <p className="entei-jimaku-search-hint">{dict.jimakuSearchSelectEntry}</p>
-              <div className="entei-jimaku-search-scroll" role="listbox" aria-label={dict.jimakuSearchSelectEntry}>
+              <div className="entei-jimaku-search-scroll" role="list" aria-label={dict.jimakuSearchSelectEntry}>
                 {entries.length === 0 ? (
                   <p className="entei-jimaku-search-empty">{dict.jimakuSearchResultsEmpty}</p>
                 ) : (
                   entries.map((entry) => (
+                    <div role="listitem" key={entry.id}>
                     <button
-                      key={entry.id}
                       type="button"
                       className="entei-jimaku-search-item"
                       onClick={() => handleEntrySelect(entry)}
@@ -400,6 +402,7 @@ export function JimakuSearchDialog({
                         </span>
                       )}
                     </button>
+                    </div>
                   ))
                 )}
               </div>
@@ -418,13 +421,13 @@ export function JimakuSearchDialog({
                 <ChevronLeft size={16} aria-hidden="true" />
                 <span>{dict.jimakuSearchBack}</span>
               </button>
-              <div className="entei-jimaku-search-scroll" role="listbox" aria-label={dict.jimakuSearchFilesLabel}>
+              <div className="entei-jimaku-search-scroll" role="list" aria-label={dict.jimakuSearchFilesLabel}>
                 {visibleFiles.length === 0 ? (
                   <p className="entei-jimaku-search-empty">{dict.jimakuSearchFilesEmpty}</p>
                 ) : (
                   visibleFiles.map((file) => (
+                    <div role="listitem" key={file.url}>
                     <button
-                      key={file.url}
                       type="button"
                       className="entei-jimaku-search-item"
                       onClick={() => void handleFileSelect(file)}
@@ -435,6 +438,7 @@ export function JimakuSearchDialog({
                         {(file.size / 1024).toFixed(0)} KB
                       </span>
                     </button>
+                    </div>
                   ))
                 )}
               </div>

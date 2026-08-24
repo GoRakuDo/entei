@@ -629,6 +629,19 @@ export default function PlayerApp() {
     setSubtitleErrors(result.errors);
     setActiveCueId(null);
     subtitleTextRef.current = text;
+    // BLOCKER 2: if LazySync is ON, the poll loop re-applies the SHIFTED
+    // ORIGINAL base cues every tick. An external cue replacement (jimaku
+    // auto-load success, search-dialog load) must refresh that base, or the
+    // next poll resurrects the stale old cues. lazySyncStateRef is non-null
+    // exactly when LazySync is active.
+    if (lazySyncStateRef.current) {
+      lazySyncStateRef.current.baseCues = result.cues;
+      // A swapped base invalidates the previous offset estimate: without this
+      // reset, a new estimate within STABLE_THRESHOLD of the stale lastOffsetMs
+      // is treated as "unchanged" and the fresh cues never get shifted.
+      lazySyncStateRef.current.lastOffsetMs = null;
+      lazySyncStateRef.current.appliedOnce = false;
+    }
   }, []);
 
   // Localized jimaku toast (rate-limit / auth / key-missing) — shared by the
@@ -1293,6 +1306,11 @@ export default function PlayerApp() {
       return;
     }
 
+    // BLOCKER 1: a manual subtitle pick must win over any in-flight jimaku
+    // auto-load. Cancel the run so its pending fetch can't clobber this pick
+    // once it resolves (docs/JIMAKU_SUBS.md §2.2-3).
+    jimakuAutoLoad.cancel();
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result;
@@ -1302,13 +1320,10 @@ export default function PlayerApp() {
         ]);
         return;
       }
-
-      const result = parseSubtitle(content);
-      setCues(result.cues);
-      setSubtitleErrors(result.errors);
-      setActiveCueId(null);
-      // Stage 2a: Store raw subtitle text for tracker digest computation
-      subtitleTextRef.current = content;
+      // Route through the shared pipeline so the LazySync base refresh
+      // (BLOCKER 2 fix) applies to manual picks too — otherwise the next
+      // poll resurrects the stale base over this fresh pick.
+      handleSubtitleText(content);
     };
     reader.onerror = () => {
       setSubtitleErrors([
@@ -1316,7 +1331,7 @@ export default function PlayerApp() {
       ]);
     };
     reader.readAsText(file);
-  }, []);
+  }, [jimakuAutoLoad.cancel, handleSubtitleText]);
 
   // File open handler: routes subtitle files to handleSubtitleSelect, everything else to handleMediaSelect.
   const handleFileOpen = useCallback(

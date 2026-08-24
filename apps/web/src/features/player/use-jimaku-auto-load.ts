@@ -1,9 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   readJimakuPreferences,
   shouldShowJimakuToast,
   incrementJimakuToastCount,
-  setJimakuSearchAnime,
 } from '@/features/player/jimaku-preferences';
 import { parseMediaFileName } from '@/features/player/filename-parser';
 import {
@@ -109,9 +108,9 @@ export function useJimakuAutoLoad({
           entries = await searchJimakuEntries(prefs.apiKey, title, false, signal);
           if (signal.aborted) return;
           animeLastTried = false;
-          setJimakuSearchAnime(false);
-        } else {
-          setJimakuSearchAnime(true);
+          // The last-tried mode is surfaced only via the onOpenSearch
+          // prefill (animeLastTried) — we no longer mutate the user's
+          // persisted manual toggle here (RISK 1).
         }
         if (!entries.ok) {
           if (entries.error === 'rate-limit') onToast('rate-limit');
@@ -121,6 +120,13 @@ export function useJimakuAutoLoad({
         }
         const top = entries.data[0];
         if (!top || normalizeTitle(top.name) !== normalizeTitle(title)) {
+          onOpenSearch(title, animeLastTried);
+          return;
+        }
+        // §2.2-4: EP extraction failure (or a movie file with no episode)
+        // must open the search modal, NOT auto-apply all files. A null
+        // episode means we can't target a specific file, so the user picks.
+        if (parsed.episode === null) {
           onOpenSearch(title, animeLastTried);
           return;
         }
@@ -166,7 +172,12 @@ export function useJimakuAutoLoad({
         onSubtitleLoaded(dl.data);
         lastTriggerRef.current = triggerKey;
       } finally {
-        abortRef.current = null;
+        // Only the latest run may clear its own controller: a superseded
+        // (older) run must not null the NEWER run's controller, or >=3 rapid
+        // switches leak parallel requests (BUG 3).
+        if (lastTriggerRef.current === triggerKey) {
+          abortRef.current = null;
+        }
         // Only the latest run clears the spinner: a superseded run's finally
         // must not switch it off while a newer run is still loading.
         if (lastTriggerRef.current === triggerKey) setIsLoading(false);
@@ -175,5 +186,23 @@ export function useJimakuAutoLoad({
     [onSubtitleLoaded, onOpenSearch, onToast],
   );
 
-  return { runAutoLoad, lastTriggerRef, isLoading };
+  const cancel = useCallback(() => {
+    // Abort any in-flight requests and drop ownership so a pending fetch
+    // that resolves later can never clobber a manual subtitle selection
+    // (BLOCKER 1). Mirrors the JimakuSearchDialog unmount pattern.
+    abortRef.current?.abort();
+    lastTriggerRef.current = null;
+    setIsLoading(false);
+  }, []);
+
+  // BUG 4: abort in-flight requests on unmount so a pending fetch can't
+  // resolve into a side effect after the component is gone.
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    [],
+  );
+
+  return { runAutoLoad, cancel, lastTriggerRef, isLoading };
 }
