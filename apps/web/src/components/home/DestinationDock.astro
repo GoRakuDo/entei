@@ -92,6 +92,16 @@ const { dictionary } = Astro.props;
     padding: var(--entei-space-32) 0 var(--entei-space-48);
   }
 
+  /* Desktop: center the dock against the HubIdentity column. Equal top
+     padding (64px, matching HubIdentity) + align-self:center makes the
+     card stack's center coincide with the hub text block's center. */
+  @media (min-width: 48rem) {
+    .entei-destination-dock {
+      padding-top: var(--entei-space-64);
+      align-self: center;
+    }
+  }
+
   /* Full-width vertical stack on ALL viewports — no side-by-side grid.
      grid-auto-rows: 1fr forces both rows to equal height (taller row wins). */
   .entei-destinations {
