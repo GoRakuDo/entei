@@ -29,6 +29,10 @@ interface Props {
   locale?: Locale;
   /** Path for canonical URL and nav aria-current. Defaults to '/'. */
   path?: string;
+  /** Optional title override for SeoHead. */
+  title?: string;
+  /** Optional description override for SeoHead. */
+  description?: string;
   /** Set true for /player/ (noindex). */
   noindex?: boolean;
   /** Whether to render the full Top Bar + Footer. Default true. */
@@ -38,6 +42,8 @@ interface Props {
 const {
   locale = 'id',
   path = '/',
+  title,
+  description,
   noindex = false,
   showChrome = true,
 } = Astro.props;
@@ -50,7 +56,13 @@ const dictionary: Dictionary = getDictionary(locale);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <SeoHead locale={locale} path={path} noindex={noindex} />
+    <SeoHead
+      locale={locale}
+      path={path}
+      title={title}
+      description={description}
+      noindex={noindex}
+    />
 
     {
       /*

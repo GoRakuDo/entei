@@ -1,0 +1,51 @@
+---
+/**
+ * /thanks-to/ — dedicated members-acknowledgement page.
+ * Renders the ThanksTo section centered in the viewport (both axes),
+ * standalone from the Home composition.
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import ThanksTo from '@components/home/ThanksTo.astro';
+import { getDictionary } from '@i18n/index';
+
+const dictionary = getDictionary('id');
+---
+
+<BaseLayout
+  locale="id"
+  path="/thanks-to/"
+  title="Entei — Terima Kasih"
+  description={dictionary.thanksTo.sub}
+>
+  <div class="entei-thanks-page">
+    <h1 class="entei-sr-only sr-only">{dictionary.thanksTo.heading}</h1>
+    <ThanksTo dictionary={dictionary} />
+  </div>
+</BaseLayout>
+
+<style>
+  /* Fill the viewport below the TopBar and center the card stack */
+  .entei-thanks-page {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+  }
+
+  @media (min-width: 768px) {
+    .entei-thanks-page {
+      /* Subtract TopBar (64px), main-inner padding (32px + 64px), and SiteFooter (~141px: 48px top + 48px bottom + 44px link + 1px border) */
+      min-height: calc(
+        100dvh - var(--entei-topbar-height) - var(--entei-space-32) -
+          var(--entei-space-64) - 141px
+      );
+    }
+  }
+
+  /* Neutralize ThanksTo's multi-section top margin for visual centering */
+  .entei-thanks-page :global(.entei-thanks-to) {
+    margin-top: 0;
+    width: 100%;
+  }
+</style>
