@@ -26,8 +26,14 @@ interface Member {
 const list: Member[] = (members?.members ?? []) as Member[];
 const visible =
   members?.fetchedAt !== null && members?.fetchedAt !== undefined && list.length > 0;
+
+// Deterministic mascot fallback per member index (public/avatars/*.webp,
+// MIT-licensed mascots from ipaslogo.com). Used when the YouTube avatar
+// CDN fails to load in some browsers.
+const fallbackAvatar = (i: number) => `/avatars/${(i % 15) + 1}.webp`;
 ---
 
+<!-- Fallback avatars: MIT-licensed mascot logos from https://ipaslogo.com (ip-as-logo-skill project). Free for commercial use. -->
 {visible && (
   <section class="entei-thanks-to" aria-labelledby="entei-thanks-to-heading">
     <h2 id="entei-thanks-to-heading" class="entei-thanks-to-heading">
@@ -35,7 +41,7 @@ const visible =
     </h2>
     <p class="entei-thanks-to-sub">{dictionary.thanksTo.sub}</p>
     <ul class="entei-thanks-to-grid">
-      {list.map((m) => (
+      {list.map((m, i) => (
         <li class="entei-thanks-to-card">
           {m.profileImageUrl && (
             <img
@@ -45,6 +51,7 @@ const visible =
               loading="lazy"
               width={48}
               height={48}
+              data-fallback-src={fallbackAvatar(i)}
             />
           )}
           <div class="entei-thanks-to-body">
@@ -58,6 +65,24 @@ const visible =
     </ul>
   </section>
 )}
+
+<script>
+  document.querySelectorAll<HTMLImageElement>('img.entei-thanks-to-avatar').forEach((el) => {
+    el.addEventListener('error', () => {
+      if (el.dataset.fallbackDone) return;
+      el.dataset.fallbackDone = '1';
+      const src = el.getAttribute('data-fallback-src');
+      if (src) el.src = src;
+    }, { once: true });
+    if (el.complete && el.naturalWidth === 0) {
+      const src = el.getAttribute('data-fallback-src');
+      if (src && !el.dataset.fallbackDone) {
+        el.dataset.fallbackDone = '1';
+        el.src = src;
+      }
+    }
+  });
+</script>
 
 <style>
   /* Thanks To section — visual sibling of the roadmap heading: gold Pixelify
