@@ -851,6 +851,30 @@ MKVに複数音声トラック（例: 日本語AC-3 + 英語AAC）がある場�
 
 詳細は `docs/PLAYER_PHASES.md` §21 を参照。
 
+
+### 配布チャンネル分離（計画確定・2026-08-26）
+
+一般ユーザーとテスターで配布チャンネルを分ける方針を確定した（チュートリアルページ /DOCUMENTATION-PAGE.md の検証インタビューで決定）。
+
+**チャンネル定義:**
+
+| チャンネル | 対象 | 挙動 |
+|---|---|---|
+| **Stable (Release)** | 一般ユーザー | 正式リリース（例: eizoudendenshi-v0.2.0）に固定。自動更新は stable 間のみ追従 |
+| **PreRelease** | テスター | rc.XX を最新追従（現行の selectRelease 動作そのもの） |
+
+**現状の updater との差分:** internal/update/release.go の selectRelease() は non-draft の最新を選ぶため Pre-release を含む（コメント明記）。stable 固定チャンネルには prerelease フィルタの追加が必要。
+
+**実装範囲（次回 EizouDendenshi release サイクルで実施・今回のチュートリアルでは未実施）:**
+1. updater: channel 設定の永続化（credential.bin と同様の platform-private storage）+ selectRelease への channel フィルタ
+2. CLI menu: Option 3 (Update) 内での channel 表示・切替（または Option 追加）
+3. bootstrap: stable 固定インストールと rc 追従インストールの2本立て（配布URLも分離検討）
+4. テスト: channel 切替の harness ケース
+
+**チュートリアル側の暫定対応:** 本チュートリアル公開時点では stable v0.2.0 bootstrap 直URLを案内する（channel 分離実装まで一般ユーザーは stable 固定運用）。rc 追従はテスターが手動で行う。
+
+**トリガー:** チュートリアルページ完成後、次の EizouDendenshi release 作業時に本節を実装する。
+
 ## 既知の制約
 
 1. **complete-while-ready の再 load（MED・2026-08-18）**: `companion-bridge.ts` の `applyStatus` で、pause-ready 駐留中に `complete` ポーリングが来ると `startReadyTransition` が再実行され、`video.load()` で 00:00 に巻き戻る可能性。Speed ジョブで playable→complete が 1 ポーリング周期（30s）以上かかる場合に発生。`case 'playable'` は既に ready/playing ガードがあるが `complete` は未適用（item #24 の前提「complete は一度のみ」が playable→complete 遷移で成立していない）。将来修正時は `complete` も `playable` と同様に ready/playing でスキップ。
