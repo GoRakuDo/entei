@@ -6,7 +6,7 @@
  * - Initial HTML title/description: Indonesian
  * - Selector-switched title/description updated by locale-switcher.ts
  * - canonical always points to https://entei.gorakudo.org/
- * - No hreflang (single URL, no locale routing)
+ * - Hreflang alternates supported via the optional alternates prop (used by multi-locale static routes)
  * - /player/ and /404: noindex,follow
  * - OG image: language-neutral SVG (pre-deploy TODO: raster version)
  * - Structured data: WebSite only (not SoftwareApplication — Player not yet real)
@@ -26,6 +26,8 @@ interface Props {
   noindex?: boolean;
   /** OG image path. Defaults to the language-neutral emblem. */
   ogImage?: string;
+  /** Optional language alternates for hreflang tags (2026-08-26 DOCUMENTATION-PAGE.md). */
+  alternates?: { lang: string; url: string }[];
 }
 
 const {
@@ -35,6 +37,7 @@ const {
   description,
   noindex = false,
   ogImage = '/og/og-image.webp',
+  alternates,
 } = Astro.props;
 
 const SITE = 'https://entei.gorakudo.org';
@@ -49,6 +52,19 @@ const ogImageUrl = `${SITE}${ogImage}`;
   /* Canonical — always https://entei.gorakudo.org/ for Home (PHASE0.md 15.386) */
 }
 <link rel="canonical" href={canonical} />
+
+{
+  /* Hreflang alternates — 2026-08-26 DOCUMENTATION-PAGE.md */
+}
+{
+  alternates &&
+    alternates.map(({ lang, url }) => (
+      <>
+        <link rel="alternate" hreflang={lang} href={url} />
+        {'\n'}
+      </>
+    ))
+}
 
 {/* Robots — Home is indexed; /player/ and /404 are noindex,follow (15.388) */}
 {

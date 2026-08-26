@@ -1,0 +1,353 @@
+---
+/**
+ * /ja-tutorial/eizoudendenshi/ — Japanese EizouDendenshi setup tutorial.
+ * DOCUMENTATION-PAGE.md §2, §3.
+ *
+ * 2026-08-26
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import TutorialSteps from '@components/home/TutorialSteps.astro';
+import { tutorialEizouden } from '@i18n/tutorial-eizouden';
+import { ArrowLeft, TriangleAlert } from '@lucide/astro';
+
+const content = tutorialEizouden.ja;
+const SITE = 'https://entei.gorakudo.org';
+
+const alternates = [
+  { lang: 'id', url: `${SITE}/id-tutorial/eizoudendenshi/` },
+  { lang: 'ja', url: `${SITE}/ja-tutorial/eizoudendenshi/` },
+  { lang: 'en', url: `${SITE}/en-tutorial/eizoudendenshi/` },
+  { lang: 'x-default', url: `${SITE}/id-tutorial/eizoudendenshi/` },
+];
+---
+
+<BaseLayout
+  locale="ja"
+  path="/ja-tutorial/eizoudendenshi/"
+  title={content.metaTitle}
+  description={content.metaDescription}
+  alternates={alternates}
+  staticLocale={true}
+>
+  <article class="entei-tutorial-page">
+    <nav class="entei-tutorial-lang-nav" aria-label="言語の選択">
+      <a
+        href="/id-tutorial/eizoudendenshi/"
+        hreflang="id"
+        class="entei-tutorial-lang-link"
+      >
+        Bahasa Indonesia
+      </a>
+      <span class="entei-tutorial-lang-sep" aria-hidden="true">·</span>
+      <a
+        href="/ja-tutorial/eizoudendenshi/"
+        hreflang="ja"
+        class="entei-tutorial-lang-link is-active"
+        aria-current="page"
+      >
+        日本語
+      </a>
+      <span class="entei-tutorial-lang-sep" aria-hidden="true">·</span>
+      <a
+        href="/en-tutorial/eizoudendenshi/"
+        hreflang="en"
+        class="entei-tutorial-lang-link"
+      >
+        English
+      </a>
+    </nav>
+
+    <header class="entei-tutorial-header">
+      <h1 class="entei-tutorial-title">{content.heading}</h1>
+      <p class="entei-tutorial-lead">{content.lead}</p>
+    </header>
+
+    <nav class="entei-tutorial-platform-nav" aria-label="プラットフォームの選択">
+      <a href="#windows" class="entei-tutorial-platform-link">
+        {content.windowsHeading}
+      </a>
+      <a href="#android" class="entei-tutorial-platform-link">
+        {content.androidHeading}
+      </a>
+    </nav>
+
+    <section class="entei-tutorial-prereq-card" aria-labelledby="prereq-heading">
+      <h2 id="prereq-heading" class="entei-tutorial-section-title">
+        {content.prerequisitesHeading}
+      </h2>
+      <ul class="entei-tutorial-prereq-list">
+        {content.prerequisites.map((item) => <li>{item}</li>)}
+      </ul>
+    </section>
+
+    <aside class="entei-tutorial-caution-box" role="note">
+      <TriangleAlert class="entei-tutorial-caution-icon" aria-hidden="true" />
+      <p class="entei-tutorial-caution-text">{content.caution}</p>
+    </aside>
+
+    <section class="entei-tutorial-section" aria-labelledby="windows">
+      <h2 id="windows" class="entei-tutorial-platform-heading">
+        {content.windowsHeading}
+      </h2>
+      <TutorialSteps
+        steps={content.windowsSteps}
+        copyLabel={content.copyLabel}
+        copiedLabel={content.copiedLabel}
+      />
+    </section>
+
+    <section class="entei-tutorial-section" aria-labelledby="android">
+      <h2 id="android" class="entei-tutorial-platform-heading">
+        {content.androidHeading}
+      </h2>
+      <TutorialSteps
+        steps={content.androidSteps}
+        copyLabel={content.copyLabel}
+        copiedLabel={content.copiedLabel}
+      />
+    </section>
+
+    <section class="entei-tutorial-next-card" aria-labelledby="next-heading">
+      <h2 id="next-heading" class="entei-tutorial-section-title">
+        {content.nextHeading}
+      </h2>
+      <div class="entei-tutorial-next-content">
+        {
+          content.nextBody
+            .split('\n\n')
+            .map((paragraph) => <p>{paragraph}</p>)
+        }
+      </div>
+      <a href="/" class="entei-tutorial-back-home">
+        <ArrowLeft class="entei-tutorial-back-icon" aria-hidden="true" />
+        <span>ホームに戻る</span>
+      </a>
+    </section>
+  </article>
+</BaseLayout>
+
+<style>
+  .entei-tutorial-page {
+    grid-column: 1 / -1;
+    max-width: 48rem;
+    margin-inline: auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-24);
+  }
+
+  .entei-tutorial-lang-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--entei-space-8);
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    margin-bottom: var(--entei-space-4);
+  }
+
+  .entei-tutorial-lang-link {
+    color: var(--entei-text-secondary);
+    text-decoration: none;
+    padding: var(--entei-space-4) var(--entei-space-8);
+    border-radius: var(--entei-radius-sm);
+    transition:
+      color var(--entei-duration-fast),
+      background-color var(--entei-duration-fast);
+  }
+
+  .entei-tutorial-lang-link:hover {
+    color: var(--entei-text);
+    background-color: var(--entei-btn-hover-bg);
+  }
+
+  .entei-tutorial-lang-link.is-active {
+    color: var(--entei-accent);
+    font-weight: 600;
+  }
+
+  .entei-tutorial-lang-sep {
+    color: var(--entei-text-muted);
+  }
+
+  .entei-tutorial-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-12);
+  }
+
+  .entei-tutorial-title {
+    font-family: var(--entei-font-display);
+    font-size: clamp(1.5rem, 4vw, 2.25rem);
+    font-weight: 700;
+    color: var(--entei-text);
+    line-height: 1.25;
+    margin: 0;
+  }
+
+  .entei-tutorial-lead {
+    font-family: var(--entei-font-body);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+    margin: 0;
+  }
+
+  .entei-tutorial-platform-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--entei-space-8);
+  }
+
+  .entei-tutorial-platform-link {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--entei-space-8) var(--entei-space-16);
+    background-color: var(--entei-surface);
+    color: var(--entei-text);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    border-radius: var(--entei-radius-pill);
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition:
+      background-color var(--entei-duration-fast),
+      border-color var(--entei-duration-fast);
+  }
+
+  .entei-tutorial-platform-link:hover {
+    background-color: var(--entei-btn-hover-bg);
+    border-color: var(--entei-accent);
+    color: var(--entei-text);
+  }
+
+  .entei-tutorial-prereq-card {
+    background-color: color-mix(
+      in oklch,
+      var(--entei-surface) 75%,
+      transparent
+    );
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    border-radius: var(--entei-radius-card);
+    padding: var(--entei-space-24);
+  }
+
+  .entei-tutorial-caution-box {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--entei-space-12);
+    padding: var(--entei-space-12) var(--entei-space-16);
+    background-color: color-mix(
+      in oklch,
+      var(--entei-surface) 65%,
+      transparent
+    );
+    /* Warm warning accent — reuses the existing status token (no new color). */
+    border-left: 3px solid var(--entei-status-locked);
+    border-radius: 0 var(--entei-radius-md) var(--entei-radius-md) 0;
+  }
+
+  .entei-tutorial-caution-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--entei-status-locked);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .entei-tutorial-caution-text {
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--entei-text-secondary);
+    margin: 0;
+  }
+
+  .entei-tutorial-section-title {
+    font-family: var(--entei-font-system);
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--entei-gold-base);
+    margin: 0 0 var(--entei-space-12);
+  }
+
+  .entei-tutorial-prereq-list {
+    margin: 0;
+    padding-left: var(--entei-space-24);
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-8);
+    font-family: var(--entei-font-body);
+    font-size: 0.9375rem;
+    color: var(--entei-text-secondary);
+  }
+
+  .entei-tutorial-platform-heading {
+    font-family: var(--entei-font-display);
+    font-size: 1.375rem;
+    font-weight: 700;
+    color: var(--entei-text);
+    margin: var(--entei-space-16) 0 var(--entei-space-8);
+    scroll-margin-top: calc(var(--entei-topbar-height) + var(--entei-space-16));
+  }
+
+  .entei-tutorial-next-card {
+    background-color: color-mix(
+      in oklch,
+      var(--entei-surface-2) 20%,
+      transparent
+    );
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    border-radius: var(--entei-radius-card);
+    padding: var(--entei-space-24);
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-16);
+    margin-top: var(--entei-space-8);
+  }
+
+  .entei-tutorial-next-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-12);
+    font-family: var(--entei-font-body);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+  }
+
+  .entei-tutorial-next-content p {
+    margin: 0;
+  }
+
+  .entei-tutorial-back-home {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-8);
+    align-self: flex-start;
+    padding: var(--entei-space-8) var(--entei-space-16);
+    background-color: var(--entei-surface);
+    color: var(--entei-text);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    border-radius: var(--entei-radius-md);
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition:
+      background-color var(--entei-duration-fast),
+      border-color var(--entei-duration-fast);
+  }
+
+  .entei-tutorial-back-home:hover {
+    background-color: var(--entei-btn-hover-bg);
+    border-color: var(--entei-accent);
+    color: var(--entei-text);
+  }
+
+  .entei-tutorial-back-icon {
+    width: 16px;
+    height: 16px;
+  }
+</style>

@@ -1,0 +1,376 @@
+---
+/**
+ * TutorialSteps.astro — numbered step cards for EizouDendenshi setup.
+ *
+ * Architecture per DOCUMENTATION-PAGE.md §6:
+ * - ol > li list semantics with accessible numbering
+ * - Circular number badge (aria-hidden)
+ * - Title (display font, 600 weight)
+ * - Body paragraphs (split \n\n)
+ * - Code block with pre > code and copy button (navigator.clipboard)
+ * - Optional codeNote below code
+ * - Optional tip box (Lucide Lightbulb icon + left border accent)
+ * - Design tokens only (--entei-*)
+ *
+ * 2026-08-26
+ */
+import type { TutorialStep } from '@i18n/tutorial-eizouden';
+import { Lightbulb, Copy, Check } from '@lucide/astro';
+
+interface Props {
+  steps: TutorialStep[];
+  copyLabel: string;
+  copiedLabel: string;
+}
+
+const { steps, copyLabel, copiedLabel } = Astro.props;
+---
+
+<ol class="entei-tutorial-steps">
+  {
+    steps.map((step, index) => {
+      const bodyParagraphs = step.body.split('\n\n');
+      return (
+        <li class="entei-tutorial-step-card">
+          <div class="entei-tutorial-step-header">
+            <span class="entei-tutorial-step-badge" aria-hidden="true">
+              {index + 1}
+            </span>
+            <h3 class="entei-tutorial-step-title">{step.title}</h3>
+          </div>
+          <div class="entei-tutorial-step-content">
+            {bodyParagraphs.map((paragraph) => (
+              <p class="entei-tutorial-step-p">{paragraph}</p>
+            ))}
+
+            {step.code && (
+              <div class="entei-tutorial-code-block">
+                <pre class="entei-tutorial-pre"><code>{step.code}</code></pre>
+                <button
+                  type="button"
+                  class="entei-tutorial-copy-btn"
+                  data-copy-btn
+                  aria-label={copyLabel}
+                  data-label-copy={copyLabel}
+                  data-label-copied={copiedLabel}
+                >
+                  <Copy class="entei-tutorial-copy-icon icon-copy" aria-hidden="true" />
+                  <Check class="entei-tutorial-copy-icon icon-check" aria-hidden="true" />
+                  <span class="entei-tutorial-copy-text">{copyLabel}</span>
+                </button>
+              </div>
+            )}
+
+            {step.codeNote && (
+              <p class="entei-tutorial-code-note">{step.codeNote}</p>
+            )}
+
+            {step.tip && (
+              <div class="entei-tutorial-tip-box" role="note">
+                <Lightbulb class="entei-tutorial-tip-icon" aria-hidden="true" />
+                <div class="entei-tutorial-tip-text">
+                  <p>{step.tip}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </li>
+      );
+    })
+  }
+</ol>
+
+<script>
+  function setupCopyButtons() {
+    const buttons = document.querySelectorAll<HTMLButtonElement>(
+      'button[data-copy-btn]',
+    );
+    buttons.forEach((btn) => {
+      if (btn.dataset.copyBound) return;
+      btn.dataset.copyBound = 'true';
+
+      btn.addEventListener('click', async () => {
+        const container = btn.closest('.entei-tutorial-code-block');
+        const codeEl = container?.querySelector('code');
+        const textToCopy = codeEl?.textContent?.trim();
+        if (!textToCopy) return;
+
+        try {
+          await navigator.clipboard.writeText(textToCopy);
+        } catch {
+          // Fallback selection if clipboard write fails
+          const range = document.createRange();
+          if (codeEl) {
+            range.selectNodeContents(codeEl);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+          }
+          return;
+        }
+
+        const copyLabel = btn.dataset.labelCopy || 'Copy';
+        const copiedLabel = btn.dataset.labelCopied || 'Copied!';
+        const labelSpan = btn.querySelector('.entei-tutorial-copy-text');
+
+        btn.classList.add('is-copied');
+        btn.setAttribute('aria-label', copiedLabel);
+        if (labelSpan) labelSpan.textContent = copiedLabel;
+
+        const prevTimer = btn.dataset.copyTimer;
+        if (prevTimer) clearTimeout(Number(prevTimer));
+
+        const timer = window.setTimeout(() => {
+          btn.classList.remove('is-copied');
+          btn.setAttribute('aria-label', copyLabel);
+          if (labelSpan) labelSpan.textContent = copyLabel;
+          delete btn.dataset.copyTimer;
+        }, 2000);
+
+        btn.dataset.copyTimer = String(timer);
+      });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupCopyButtons);
+  } else {
+    setupCopyButtons();
+  }
+</script>
+
+<style>
+  .entei-tutorial-steps {
+    list-style: none;
+    padding: 0;
+    margin: var(--entei-space-16) 0 var(--entei-space-32);
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-16);
+  }
+
+  .entei-tutorial-step-card {
+    background-color: color-mix(
+      in oklch,
+      var(--entei-surface-2) 18%,
+      transparent
+    );
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    border-radius: var(--entei-radius-card);
+    padding: var(--entei-space-24);
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-12);
+  }
+
+  .entei-tutorial-step-header {
+    display: flex;
+    align-items: center;
+    gap: var(--entei-space-12);
+  }
+
+  .entei-tutorial-step-badge {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--entei-radius-pill);
+    background-color: var(--entei-accent);
+    color: var(--entei-white-base);
+    font-family: var(--entei-font-system);
+    font-weight: 700;
+    font-size: 0.9375rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .entei-tutorial-step-title {
+    font-family: var(--entei-font-display);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--entei-text);
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  .entei-tutorial-step-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-8);
+    padding-left: calc(32px + var(--entei-space-12));
+  }
+
+  @media (max-width: 639px) {
+    .entei-tutorial-step-content {
+      padding-left: 0;
+    }
+  }
+
+  .entei-tutorial-step-p {
+    font-family: var(--entei-font-body);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--entei-text-secondary);
+    margin: 0;
+  }
+
+  /* Code block */
+  .entei-tutorial-code-block {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--entei-space-12);
+    background-color: var(--entei-surface);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    border-radius: var(--entei-radius-md);
+    padding: var(--entei-space-8) var(--entei-space-12);
+    margin: var(--entei-space-4) 0;
+    min-width: 0;
+  }
+
+  .entei-tutorial-pre {
+    margin: 0;
+    padding: var(--entei-space-4) 0;
+    overflow-x: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .entei-tutorial-pre code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.84375rem;
+    color: var(--entei-text);
+    white-space: pre;
+    tab-size: 2;
+  }
+
+  /* Copy button */
+  .entei-tutorial-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    /* space-8: nearest valid token on the 8px-grid scale for icon/text gap. */
+    gap: var(--entei-space-8);
+    padding: var(--entei-space-8) var(--entei-space-12);
+    min-height: 36px;
+    background-color: var(--entei-surface-2);
+    color: var(--entei-text);
+    border: 1px solid oklch(100% 0 0deg / 0.12);
+    border-radius: var(--entei-radius-md);
+    font-family: var(--entei-font-body);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+      background-color var(--entei-duration-fast) var(--entei-ease-productive),
+      border-color var(--entei-duration-fast) var(--entei-ease-productive),
+      color var(--entei-duration-fast) var(--entei-ease-productive);
+  }
+
+  .entei-tutorial-copy-btn:hover {
+    background-color: var(--entei-btn-hover-bg);
+    border-color: var(--entei-accent);
+    color: var(--entei-white-base);
+  }
+
+  .entei-tutorial-copy-btn:focus-visible {
+    outline: 3px solid var(--entei-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .entei-tutorial-copy-btn .icon-check {
+    display: none;
+  }
+
+  .entei-tutorial-copy-btn.is-copied {
+    background-color: oklch(57.74% 0.209 273.85deg / 0.2);
+    border-color: var(--entei-accent);
+    color: var(--entei-accent-hover);
+  }
+
+  .entei-tutorial-copy-btn.is-copied .icon-copy {
+    display: none;
+  }
+
+  .entei-tutorial-copy-btn.is-copied .icon-check {
+    display: block;
+    color: var(--entei-accent-hover);
+  }
+
+  .entei-tutorial-copy-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .entei-tutorial-code-note {
+    font-family: var(--entei-font-body);
+    font-size: 0.8125rem;
+    color: var(--entei-text-muted);
+    margin: 0;
+  }
+
+  /* Tip Box */
+  .entei-tutorial-tip-box {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--entei-space-12);
+    padding: var(--entei-space-12) var(--entei-space-16);
+    background-color: color-mix(in oklch, var(--entei-surface) 65%, transparent);
+    border-left: 3px solid var(--entei-accent);
+    border-radius: 0 var(--entei-radius-md) var(--entei-radius-md) 0;
+    margin-top: var(--entei-space-4);
+  }
+
+  .entei-tutorial-tip-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--entei-gold-base);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .entei-tutorial-tip-text {
+    font-family: var(--entei-font-body);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--entei-text-secondary);
+  }
+
+  .entei-tutorial-tip-text p {
+    margin: 0;
+  }
+
+  /* Responsive styling for small mobile (<= 480px) */
+  @media (max-width: 480px) {
+    .entei-tutorial-code-block {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--entei-space-8);
+    }
+
+    .entei-tutorial-copy-btn {
+      align-self: flex-end;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .entei-tutorial-step-card,
+    .entei-tutorial-code-block,
+    .entei-tutorial-tip-box {
+      border-color: ButtonText;
+    }
+    .entei-tutorial-step-badge {
+      background-color: Highlight;
+      color: HighlightText;
+    }
+    .entei-tutorial-copy-btn {
+      border: 1px solid ButtonText;
+    }
+    .entei-tutorial-copy-btn:hover,
+    .entei-tutorial-copy-btn:focus-visible {
+      background-color: Highlight;
+      color: HighlightText;
+    }
+  }
+</style>

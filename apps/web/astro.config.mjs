@@ -92,14 +92,30 @@ export default defineConfig({
     react(),
     mdx(),
     sitemap({
-      // Phase 0: only the Home route `/` is indexable. Player preview and 404 are noindex.
+      // Indexable routes: Home `/` and EizouDendenshi tutorials (id, ja, en index + detail).
+      // Player preview, thanks-to, tracker, and 404 are excluded (2026-08-26 DOCUMENTATION-PAGE.md).
       filter: (page) => {
         const url = new URL(page);
         const path = url.pathname.replace(/\/$/, '') || '/';
-        return path === '/';
+        return (
+          path === '/' ||
+          path === '/id-tutorial' ||
+          path === '/ja-tutorial' ||
+          path === '/en-tutorial' ||
+          path === '/id-tutorial/eizoudendenshi' ||
+          path === '/ja-tutorial/eizoudendenshi' ||
+          path === '/en-tutorial/eizoudendenshi'
+        );
       },
       changefreq: 'monthly',
       priority: 1.0,
+      // Note: no sitemap `i18n` option here — the option takes an explicit
+      // {defaultLocale, locales} map and generates prefix-substituted
+      // xhtml:link alternates keyed to Astro i18n routing prefixes, which our
+      // custom /xx-tutorial/ paths don't follow; page-level link tags handle
+      // alternates instead.
+      // Snapshot date convention (see tokens.css header note) — tutorials
+      // inherit site-level lastmod deliberately.
       lastmod: new Date('2026-07-19T00:00:00Z'),
     }),
     // Static gzip + brotli after the whole build (dist fully populated),

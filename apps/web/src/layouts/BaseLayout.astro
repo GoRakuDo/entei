@@ -37,6 +37,10 @@ interface Props {
   noindex?: boolean;
   /** Whether to render the full Top Bar + Footer. Default true. */
   showChrome?: boolean;
+  /** Optional language alternates for hreflang tags (2026-08-26 DOCUMENTATION-PAGE.md). */
+  alternates?: { lang: string; url: string }[];
+  /** Whether this page is a static-locale route whose locale is fixed at build time. Default false. */
+  staticLocale?: boolean;
 }
 
 const {
@@ -46,13 +50,15 @@ const {
   description,
   noindex = false,
   showChrome = true,
+  alternates,
+  staticLocale = false,
 } = Astro.props;
 
 const dictionary: Dictionary = getDictionary(locale);
 ---
 
 <!doctype html>
-<html lang={locale}>
+<html lang={locale} data-static-locale={staticLocale ? locale : undefined}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -62,6 +68,7 @@ const dictionary: Dictionary = getDictionary(locale);
       title={title}
       description={description}
       noindex={noindex}
+      alternates={alternates}
     />
 
     {
@@ -80,6 +87,7 @@ const dictionary: Dictionary = getDictionary(locale);
     <script is:inline>
       (function () {
         try {
+          if (document.documentElement.hasAttribute('data-static-locale')) return;
           var raw = localStorage.getItem('entei.preferences.v1');
           if (!raw) return;
           var pref = JSON.parse(raw);

@@ -41,6 +41,16 @@ function getCurrentLocale(): Locale {
  * for user-initiated changes.
  */
 export function applyLocale(locale: Locale): void {
+  // 2026-08-26: tutorial pages (/xx-tutorial/eizoudendenshi/) ship their own
+  // per-locale static HTML (marked with `data-static-locale` on <html> by
+  // BaseLayout). They ARE their locale — the saved preference must never
+  // rewrite title/lang/copy there. In-page language links handle switching.
+  // This single guard makes every mutation path inert: init, the selector
+  // change handler, island LOCALE_REQUEST events, and bfcache pageshow.
+  if (ROOT.hasAttribute('data-static-locale')) {
+    return;
+  }
+
   const dictionary = getDictionary(locale);
   const metadata = getMetadata(locale);
 
@@ -132,8 +142,13 @@ function revealPage(): void {
 }
 
 function init(): void {
-  const initialLocale = getCurrentLocale();
-  applyLocale(initialLocale);
+  // 2026-08-26: on static-locale tutorial pages, skip applying the saved
+  // preference entirely — applyLocale() also refuses to mutate these pages,
+  // so no DOM text can be rewritten after load. The selector below stays
+  // bound so a choice made here is persisted for Home; persistence only.
+  if (!ROOT.hasAttribute('data-static-locale')) {
+    applyLocale(getCurrentLocale());
+  }
 
   const select = document.querySelector<HTMLSelectElement>(
     '[data-entei-language-select]',
