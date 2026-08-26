@@ -150,11 +150,6 @@ const { steps, copyLabel, copiedLabel } = Astro.props;
   }
 
   .entei-tutorial-step-card {
-    background-color: color-mix(
-      in oklch,
-      var(--entei-surface-2) 18%,
-      transparent
-    );
     border: 1px solid oklch(100% 0 0deg / 0.08);
     border-radius: var(--entei-radius-card);
     padding: var(--entei-space-24);
@@ -173,11 +168,9 @@ const { steps, copyLabel, copiedLabel } = Astro.props;
     width: 32px;
     height: 32px;
     border-radius: var(--entei-radius-pill);
-    background-color: var(--entei-accent);
-    color: var(--entei-white-base);
     font-family: var(--entei-font-system);
     font-weight: 700;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     display: flex;
     align-items: center;
     justify-content: center;
