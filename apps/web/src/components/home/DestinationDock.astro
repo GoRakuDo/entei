@@ -137,15 +137,13 @@ const { dictionary } = Astro.props;
   }
 
   /* Hover lift on Player only — no layout reflow properties (13.348).
-     Title + arrow tint to the locked-status gold on hover (user request
-     2026-08-26): the tile reads as "available but premium". */
+     Arrow tints to the locked-status gold on hover. Title color stays --entei-accent. */
   @media (hover: hover) {
     .entei-destination--player:hover {
       transform: translateY(-3px);
       border-color: oklch(65% 0.22 273.85deg / 0.55);
     }
 
-    .entei-destination--player:hover .entei-destination-title,
     .entei-destination--player:hover .entei-destination-arrow {
       color: var(--entei-status-locked);
     }
@@ -209,6 +207,10 @@ const { dictionary } = Astro.props;
     color: var(--entei-status-locked);
     background-color: oklch(85% 0.15 85deg / 0.12);
     border: 1px solid oklch(85% 0.15 85deg / 0.35);
+  }
+
+  .entei-destination-link .entei-destination-title {
+    color: var(--entei-accent);
   }
 
   .entei-destination-title {

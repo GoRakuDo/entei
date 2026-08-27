@@ -51,6 +51,7 @@ interface EizouDendenshiSetupProps {
    *  persists it; page memory + opaque localStorage envelope only). */
   onPairSuccess: (token: string) => void;
   dict: EizouDendenshiSetupDict;
+  locale?: 'id' | 'ja' | 'en';
 }
 
 export function EizouDendenshiSetup({
@@ -58,6 +59,7 @@ export function EizouDendenshiSetup({
   isValidating = false,
   onPairSuccess,
   dict,
+  locale = 'id',
 }: EizouDendenshiSetupProps) {
   const [isPairingDialogOpen, setIsPairingDialogOpen] = useState(false);
 
@@ -125,6 +127,7 @@ export function EizouDendenshiSetup({
         onOpenChange={setIsPairingDialogOpen}
         onPairSuccess={handlePairSuccess}
         dict={dict}
+        locale={locale}
       />
     </section>
   );

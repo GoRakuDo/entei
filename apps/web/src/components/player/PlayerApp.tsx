@@ -4442,6 +4442,7 @@ export default function PlayerApp() {
             isConnected={pairing.connected}
             isValidating={pairing.validating}
             onPairSuccess={pairing.handlePairSuccess}
+            locale={locale}
             dict={{
               eizouSetupLabel: dict.eizouSetupLabel,
               eizouSetupTitle: dict.eizouSetupTitle,
@@ -4457,6 +4458,9 @@ export default function PlayerApp() {
               eizouPairingErrorNetwork: dict.eizouPairingErrorNetwork,
               eizouPairingErrorInvalidCode: dict.eizouPairingErrorInvalidCode,
               eizouPairingErrorGeneric: dict.eizouPairingErrorGeneric,
+              eizouPairingTutorialPrefix: dict.eizouPairingTutorialPrefix,
+              eizouPairingTutorialLink: dict.eizouPairingTutorialLink,
+              eizouPairingTutorialSuffix: dict.eizouPairingTutorialSuffix,
               dialogClose: dict.dialogClose,
             }}
           />

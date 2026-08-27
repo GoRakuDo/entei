@@ -290,6 +290,9 @@ export const id: Dictionary = {
     companionJobFailed:
       'Unduhan gagal. Silakan coba URL baru atau pilih file.',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
+    eizouPairingTutorialPrefix: '* Petunjuk penyiapan dapat dilihat di ',
+    eizouPairingTutorialLink: 'sini',
+    eizouPairingTutorialSuffix: '.',
     firefoxUnsupported:
       'Firefox belum didukung. Gunakan Google Chrome atau browser berbasis Chromium.',
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)

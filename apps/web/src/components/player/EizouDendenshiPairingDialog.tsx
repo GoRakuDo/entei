@@ -44,6 +44,9 @@ export interface EizouDendenshiPairingDict {
   eizouPairingErrorNetwork: string;
   eizouPairingErrorInvalidCode: string;
   eizouPairingErrorGeneric: string;
+  eizouPairingTutorialPrefix: string;
+  eizouPairingTutorialLink: string;
+  eizouPairingTutorialSuffix: string;
   dialogClose: string;
 }
 
@@ -54,6 +57,7 @@ interface EizouDendenshiPairingDialogProps {
    *  controller persists it opaquely (this dialog never writes storage). */
   onPairSuccess: (token: string) => void;
   dict: EizouDendenshiPairingDict;
+  locale?: 'id' | 'ja' | 'en';
 }
 
 export function EizouDendenshiPairingDialog({
@@ -61,6 +65,7 @@ export function EizouDendenshiPairingDialog({
   onOpenChange,
   onPairSuccess,
   dict,
+  locale = 'id',
 }: EizouDendenshiPairingDialogProps) {
   const [code, setCode] = useState('');
   const [isPairing, setIsPairing] = useState(false);
@@ -211,6 +216,23 @@ export function EizouDendenshiPairingDialog({
           >
             {isPairing ? dict.eizouPairingConnecting : dict.eizouPairingSubmit}
           </Button>
+          {(dict.eizouPairingTutorialPrefix || dict.eizouPairingTutorialLink) && (
+            <>
+              <hr className="entei-eizou-pair-divider" />
+              <p className="entei-eizou-pair-tutorial-note">
+                {dict.eizouPairingTutorialPrefix}
+                <a
+                  href={`/${locale}-tutorial/eizoudendenshi/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="entei-eizou-pair-tutorial-link"
+                >
+                  {dict.eizouPairingTutorialLink}
+                </a>
+                {dict.eizouPairingTutorialSuffix}
+              </p>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>

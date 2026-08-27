@@ -26,6 +26,9 @@ const baseDict = {
   eizouPairingErrorNetwork: 'Could not reach EizouDendenshi.',
   eizouPairingErrorInvalidCode: 'Invalid code.',
   eizouPairingErrorGeneric: 'Pairing failed.',
+  eizouPairingTutorialPrefix: 'See setup guide ',
+  eizouPairingTutorialLink: 'here',
+  eizouPairingTutorialSuffix: '.',
   dialogClose: 'Close',
 };
 
@@ -129,6 +132,16 @@ describe('EizouDendenshiPairingDialog — OTP validation + accessibility', () =>
   it('provides a labelled 6-slot OTP input', () => {
     openDialog();
     expect(screen.getByLabelText(baseDict.eizouPairingOtpLabel)).toBeInTheDocument();
+  });
+
+  it('renders tutorial reference link pointing to the localized tutorial route', () => {
+    setupSection({ locale: 'ja' });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouSetupLabel }));
+    const link = screen.getByRole('link', { name: baseDict.eizouPairingTutorialLink });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute('href', '/ja-tutorial/eizoudendenshi/');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('shows localized error + aria-invalid when pairing with an incomplete code', () => {

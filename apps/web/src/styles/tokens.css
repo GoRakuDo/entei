@@ -34,6 +34,9 @@
   /* Hover state, lighter accent — global.css:17 */
   --entei-purple-400: oklch(76% 0.22 273.85deg);
 
+  /* Light accent for prominent dark-surface headings (Luminance 76%, saturated) */
+  --entei-purple-300: oklch(76% 0.22 273.85deg);
+
   /* System label, locked status accent — global.css:22 */
   --entei-gold-base: oklch(85% 0.15 85deg);
 
@@ -54,6 +57,7 @@
   --entei-text-muted: var(--entei-text-global-muted);
   --entei-accent: var(--entei-purple-500);
   --entei-accent-hover: var(--entei-purple-400);
+  --entei-accent-light: var(--entei-purple-300);
   /* Button hover/active/default background — unified semi-transparent accent
      fill across all pages and modals (hover, active, and primary states). */
   --entei-btn-hover-bg: oklch(0.62 0.19 275deg / 0.34);

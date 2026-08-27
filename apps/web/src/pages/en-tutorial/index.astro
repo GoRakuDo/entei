@@ -7,7 +7,7 @@
  */
 import BaseLayout from '@layouts/BaseLayout.astro';
 import { tutorialIndex } from '@i18n/tutorial-index';
-import { BookOpen, ArrowRight } from '@lucide/astro';
+import { Snail, ArrowRight } from '@lucide/astro';
 
 const content = tutorialIndex.en;
 const SITE = 'https://entei.gorakudo.org';
@@ -67,7 +67,7 @@ const alternates = [
           <li class="entei-tutorial-item">
             <a href={`./${item.slug}/`} class="entei-tutorial-card-link">
               <div class="entei-tutorial-card-icon" aria-hidden="true">
-                <BookOpen size={24} aria-hidden="true" focusable="false" />
+                <Snail size={32} aria-hidden="true" focusable="false" />
               </div>
               <div class="entei-tutorial-card-body">
                 <h2 class="entei-tutorial-card-title">{item.title}</h2>
@@ -200,12 +200,9 @@ const alternates = [
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
-    border-radius: var(--entei-radius-md);
-    background-color: color-mix(in oklch, var(--entei-accent) 15%, transparent);
+    width: 32px;
+    height: 32px;
     color: var(--entei-accent-hover);
-    border: 1px solid oklch(57.74% 0.209 273.85deg / 0.3);
     flex-shrink: 0;
   }
 
@@ -221,9 +218,8 @@ const alternates = [
     font-size: clamp(1.125rem, 2.2vw, 1.375rem);
     font-weight: 700;
     line-height: 1.3;
-    color: var(--entei-text);
+    color: var(--entei-accent);
     margin: 0;
-    transition: color var(--entei-duration-fast) var(--entei-ease-productive);
   }
 
   .entei-tutorial-card-desc {
@@ -251,12 +247,8 @@ const alternates = [
       border-color: oklch(65% 0.22 273.85deg / 0.55);
     }
 
-    .entei-tutorial-card-link:hover .entei-tutorial-card-title,
     .entei-tutorial-card-link:hover .entei-tutorial-card-arrow {
       color: var(--entei-status-locked);
-    }
-
-    .entei-tutorial-card-link:hover .entei-tutorial-card-arrow {
       transform: translateX(4px);
     }
   }

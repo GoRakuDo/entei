@@ -368,6 +368,9 @@ export interface Dictionary {
     eizouPairingErrorNetwork: string;
     eizouPairingErrorInvalidCode: string;
     eizouPairingErrorGeneric: string;
+    eizouPairingTutorialPrefix: string;
+    eizouPairingTutorialLink: string;
+    eizouPairingTutorialSuffix: string;
     companionStreamNotReady: string;
     companionPreparingVideo: string;
     /** Toast shown when a companion job fails (state=error). */

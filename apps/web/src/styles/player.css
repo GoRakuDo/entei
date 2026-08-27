@@ -4971,9 +4971,9 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-/* --- Pairing dialog (mock: 320x200 density) --- */
+/* --- Pairing dialog --- */
 .entei-eizou-pair-dialog {
-  max-width: 320px;
+  max-width: 25rem; /* 400px — wider desktop breathing room for tutorial link */
 }
 
 /* Mobile: raise the pairing dialog toward the top (~30% from the top,
@@ -4983,6 +4983,7 @@ html.entei-player-immersive .entei-player-audio-area {
    keeps the centered placement from .entei-dialog-content. */
 @media (max-width: 767px) {
   .entei-eizou-pair-dialog {
+    max-width: 340px;
     top: 30%;
     bottom: auto;
     transform: translateX(-50%);
@@ -5019,6 +5020,43 @@ html.entei-player-immersive .entei-player-audio-area {
   min-height: var(--entei-touch-min);
   border-radius: var(--entei-radius-md);
   font-size: 0.875rem;
+}
+
+.entei-eizou-pair-divider {
+  width: 100%;
+  height: 1px;
+  border: none;
+  background-color: oklch(100% 0 0deg / 0.08);
+  margin: var(--entei-space-12) 0 0;
+}
+
+.entei-eizou-pair-tutorial-note {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text-secondary);
+  text-align: center;
+  margin: 0;
+  width: 100%;
+  text-wrap: balance;
+}
+
+.entei-eizou-pair-tutorial-link {
+  color: var(--entei-accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-eizou-pair-tutorial-link:hover {
+  color: var(--entei-accent);
+}
+
+.entei-eizou-pair-tutorial-link:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--entei-radius-sm);
 }
 
 /* Icon-only YouTube opener: same 44px hit-target treatment as the magnet
