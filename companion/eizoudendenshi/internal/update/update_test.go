@@ -303,7 +303,7 @@ func TestSelectReleaseChoosesNewestPrereleaseByPublishedAt(t *testing.T) {
 		releaseEntry{tag: "other-v10.0.0", pubTime: "2026-08-05T00:00:00Z",
 			assets: map[string]string{"a": "https://example.invalid/x"}},
 	)}
-	rel, err := selectRelease(rt.client())
+	rel, err := selectRelease(rt.client(), ChannelPrerelease)
 	if err != nil {
 		t.Fatalf("selectRelease: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestSelectReleaseSkipsPoisonedNewest(t *testing.T) {
 			releaseEntry{tag: "eizoudendenshi-v0.2.0-rc.21", pubTime: "2026-08-03T16:12:43Z",
 				assets: map[string]string{"a": releaseAssetURL("0.2.0-rc.21", "a")}},
 		)}
-		rel, err := selectRelease(rt.client())
+		rel, err := selectRelease(rt.client(), ChannelPrerelease)
 		if err != nil {
 			t.Fatalf("selectRelease: %v", err)
 		}
@@ -338,7 +338,7 @@ func TestSelectReleaseSkipsPoisonedNewest(t *testing.T) {
 			`{"name":"a","browser_download_url":"https://example.invalid/b"}]},` +
 			`{"tag_name":"eizoudendenshi-v0.2.0-rc.21","draft":false,"published_at":"2026-08-03T16:12:43Z",` +
 			`"assets":[{"name":"a","browser_download_url":"https://example.invalid/a"}]}]`)}
-		rel, err := selectRelease(rt.client())
+		rel, err := selectRelease(rt.client(), ChannelPrerelease)
 		if err != nil {
 			t.Fatalf("selectRelease: %v", err)
 		}
@@ -353,7 +353,7 @@ func TestSelectReleaseSkipsPoisonedNewest(t *testing.T) {
 			releaseEntry{tag: "eizoudendenshi-v0.2.0-rc.21", pubTime: "2026-08-03T16:12:43Z",
 				assets: map[string]string{"a": releaseAssetURL("0.2.0-rc.21", "a")}},
 		)}
-		rel, err := selectRelease(rt.client())
+		rel, err := selectRelease(rt.client(), ChannelPrerelease)
 		if err != nil {
 			t.Fatalf("selectRelease: %v", err)
 		}
@@ -368,7 +368,7 @@ func TestSelectReleaseAllPoisonedFailsClosed(t *testing.T) {
 		releaseEntry{tag: "eizoudendenshi-v0.2.0-rc.22", pubTime: "2026-08-03T22:46:29Z",
 			assets: map[string]string{"..\\evil": "https://example.invalid/evil"}},
 	)}
-	if _, err := selectRelease(rt.client()); err == nil {
+	if _, err := selectRelease(rt.client(), ChannelPrerelease); err == nil {
 		t.Fatal("selectRelease must fail closed when every candidate is poisoned")
 	}
 }
@@ -380,7 +380,7 @@ func TestSelectReleaseNoMatchFailsClosed(t *testing.T) {
 		releaseEntry{tag: "eizoudendenshi-vnot-semver", pubTime: "2026-08-03T22:46:29Z",
 			assets: map[string]string{"a": "https://example.invalid/a"}},
 	)}
-	if _, err := selectRelease(rt.client()); err == nil {
+	if _, err := selectRelease(rt.client(), ChannelPrerelease); err == nil {
 		t.Fatal("selectRelease must fail closed without a matching release")
 	}
 }
@@ -437,7 +437,7 @@ func TestRunAlreadyUpToDate(t *testing.T) {
 	spawnApply = func(string, *applyPlan) error { spawned = true; return nil }
 	defer func() { spawnApply = origSpawn }()
 	var out bytes.Buffer
-	ok := Run(&out, Config{Version: "0.2.0-rc.22", InstallRoot: root, Client: rt.client()})
+	ok := Run(&out, Config{Version: "0.2.0-rc.22", InstallRoot: root, Channel: ChannelPrerelease, Client: rt.client()})
 	if ok {
 		t.Fatal("Run must stay in the menu when already up to date")
 	}
@@ -488,7 +488,7 @@ func TestRunEndToEndWindowsStagesVerifiedArtifacts(t *testing.T) {
 	defer func() { spawnApply = origSpawn }()
 
 	var out bytes.Buffer
-	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Client: rt.client()})
+	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Channel: ChannelPrerelease, Client: rt.client()})
 	if !ok {
 		t.Fatalf("Run must exit for the restart; output = %q", out.String())
 	}
@@ -582,7 +582,7 @@ func TestRunManifestVersionMismatchFailsClosed(t *testing.T) {
 	spawnApply = func(string, *applyPlan) error { spawned = true; return nil }
 	defer func() { spawnApply = origSpawn }()
 	var out bytes.Buffer
-	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Client: rt.client()})
+	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Channel: ChannelPrerelease, Client: rt.client()})
 	if ok {
 		t.Fatal("manifest/tag version mismatch must fail closed")
 	}
@@ -636,7 +636,7 @@ func TestRunRedirectToHTTPFailsClosed(t *testing.T) {
 		redirects: map[string]string{"eizouden-manifest.json": "http://evil.example/manifest"},
 	}
 	var out bytes.Buffer
-	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Client: rt.client()})
+	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Channel: ChannelPrerelease, Client: rt.client()})
 	if ok {
 		t.Fatal("a non-HTTPS redirect target must fail closed")
 	}
@@ -672,7 +672,7 @@ func TestRunRedirectChainBounded(t *testing.T) {
 		},
 	}
 	var out bytes.Buffer
-	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Client: rt.client()})
+	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Channel: ChannelPrerelease, Client: rt.client()})
 	if ok {
 		t.Fatal("an unbounded redirect chain must fail closed")
 	}
@@ -703,12 +703,123 @@ func TestRunHashMismatchFailsClosed(t *testing.T) {
 		},
 	}
 	var out bytes.Buffer
-	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Client: rt.client()})
+	ok := Run(&out, Config{Version: "0.2.0-rc.20", InstallRoot: root, Channel: ChannelPrerelease, Client: rt.client()})
 	if ok {
 		t.Fatal("a manifest/artifact hash mismatch must fail closed")
 	}
 	if !strings.Contains(out.String(), "update: release verification failed") {
 		t.Fatalf("output = %q, want the generic verification failure", out.String())
+	}
+}
+
+func TestRunLoadsChannelFromStorageRoot(t *testing.T) {
+	pinTestKey(t)
+	t.Setenv("FAKE_MINISIGN_OK", "1")
+	root := t.TempDir()
+	installFakeVerifier(t, root)
+
+	if err := SaveChannel(root, ChannelPrerelease); err != nil {
+		t.Fatalf("SaveChannel: %v", err)
+	}
+
+	core := []byte("fake-core-v22")
+	ytdlp := []byte("fake-ytdlp-v22")
+	ffmpegMember := []byte("fake-ffmpeg-member")
+	ffmpegZip := makeZip(t, "ffmpeg.exe", ffmpegMember)
+	manifest := windowsManifestJSON(t, "0.2.0-rc.22", core, ytdlp, ffmpegZip)
+
+	rt := &feedRT{
+		apiBody: feedBody(
+			releaseEntry{
+				tag:     "eizoudendenshi-v0.2.0-rc.22",
+				pubTime: "2026-08-03T22:46:29Z",
+				assets:  windowsReleaseAssets(),
+			},
+			releaseEntry{
+				tag:     "eizoudendenshi-v0.1.0",
+				pubTime: "2026-07-01T12:00:00Z",
+				assets:  map[string]string{"a": releaseAssetURL("0.1.0", "a")},
+			},
+		),
+		files: map[string][]byte{
+			"eizouden-manifest.json":           manifest,
+			"eizouden-manifest.json.minisig":   []byte("sig"),
+			coreWindowsName:                    core,
+			coreWindowsName + ".minisig":       []byte("sig"),
+			"yt-dlp-windows-amd64.exe":         ytdlp,
+			"yt-dlp-windows-amd64.exe.minisig": []byte("sig"),
+			"ffmpeg-windows-amd64.zip":         ffmpegZip,
+			"ffmpeg-windows-amd64.zip.minisig": []byte("sig"),
+		},
+	}
+
+	var gotPlan *applyPlan
+	origSpawn := spawnApply
+	spawnApply = func(staging string, plan *applyPlan) error {
+		gotPlan = plan
+		return nil
+	}
+	defer func() { spawnApply = origSpawn }()
+
+	var out bytes.Buffer
+	ok := Run(&out, Config{
+		Version:     "0.1.0",
+		InstallRoot: root,
+		StorageRoot: root,
+		Client:      rt.client(),
+	})
+	if !ok {
+		t.Fatalf("Run must succeed when prerelease update is available; output = %q", out.String())
+	}
+	if !strings.Contains(out.String(), "update: verified and restarting...") {
+		t.Fatalf("output = %q, want verified-and-restarting status", out.String())
+	}
+	if gotPlan == nil {
+		t.Fatal("spawnApply was not called with a plan")
+	}
+}
+
+func TestRunDefaultsToStableWithoutChannelFile(t *testing.T) {
+	pinTestKey(t)
+	t.Setenv("FAKE_MINISIGN_OK", "1")
+	root := t.TempDir()
+	installFakeVerifier(t, root)
+
+	rt := &feedRT{
+		apiBody: feedBody(
+			releaseEntry{
+				tag:     "eizoudendenshi-v0.2.0-rc.22",
+				pubTime: "2026-08-03T22:46:29Z",
+				assets:  windowsReleaseAssets(),
+			},
+			releaseEntry{
+				tag:     "eizoudendenshi-v0.1.0",
+				pubTime: "2026-07-01T12:00:00Z",
+				assets:  windowsReleaseAssets(),
+			},
+		),
+	}
+
+	spawned := false
+	origSpawn := spawnApply
+	spawnApply = func(string, *applyPlan) error { spawned = true; return nil }
+	defer func() { spawnApply = origSpawn }()
+
+	var out bytes.Buffer
+	ok := Run(&out, Config{
+		Version:     "0.1.0",
+		InstallRoot: root,
+		StorageRoot: root,
+		Client:      rt.client(),
+	})
+	if ok {
+		t.Fatal("Run must stay in menu when current version matches stable release")
+	}
+	if !strings.Contains(out.String(), "update: already up to date (v0.1.0)") {
+		t.Fatalf("output = %q, want the already-up-to-date status for stable v0.1.0", out.String())
+	}
+	if spawned {
+		t.Fatal("no apply child may be spawned when already up to date")
 	}
 }
 

@@ -6,9 +6,10 @@
 //   - The release feed is queried over HTTPS from
 //     https://api.github.com/repos/GoRakuDo/entei/releases?per_page=20
 //     with a bounded timeout and at most 5 HTTPS-only redirects. The
-//     newest published non-draft release whose tag starts with
-//     "eizoudendenshi-v" is chosen (prereleases included — the latest
-//     release is always a prerelease and /releases/latest excludes them).
+//     newest published non-draft release matching the configured update
+//     channel (stable or prerelease, 2026-08-26 distribution channel split)
+//     whose tag starts with "eizoudendenshi-v" is chosen. Stable pins to
+//     formal releases only, while prerelease tracks latest rc tags.
 //   - Every artifact is verified into a private staging dir BEFORE
 //     anything is applied: the signed manifest first (Minisign with the
 //     pinned public key + strict structure), then each platform artifact
@@ -101,6 +102,12 @@ type Config struct {
 	// (the launcher runs the core from the user-private install root on
 	// Windows and from $PREFIX/var/lib/eizouden on Termux).
 	InstallRoot string
+	// StorageRoot is the directory containing channel.json and other
+	// persistent updater settings. When empty, DefaultStorageDir() is used.
+	StorageRoot string
+	// Channel is the update channel (ChannelStable or ChannelPrerelease).
+	// When empty, it is loaded from StorageRoot (failing closed to ChannelStable).
+	Channel Channel
 	// Client is the HTTP client used for the release feed and
 	// downloads. nil selects the hardened default (bounded timeout,
 	// at most 5 redirects, HTTPS-only redirect targets).
@@ -127,8 +134,21 @@ func Run(w io.Writer, cfg Config) bool {
 		client = newHardenedClient()
 	}
 
+	ch := cfg.Channel
+	if ch == "" {
+		loaded, err := LoadChannel(cfg.StorageRoot)
+		if err != nil {
+			ch = ChannelStable
+		} else {
+			ch = loaded
+		}
+	}
+	if !ValidChannel(ch) {
+		ch = ChannelStable
+	}
+
 	fmt.Fprintln(w, "update: checking for updates...")
-	rel, err := selectRelease(client)
+	rel, err := selectRelease(client, ch)
 	if err != nil {
 		// Include a concise cause for debuggability (hostname-only — the
 		// redaction contract keeps URLs, tokens, and paths out of output;

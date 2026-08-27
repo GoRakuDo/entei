@@ -89,7 +89,7 @@ export const tutorialEizouden: Record<Locale, TutorialContent>;
 
 ## 5. コンテンツ内容（各言語で同構造・下記は論理内容）
 
-> **配布バージョンについて:** このページのコマンドは正式リリース版 **v0.2.0**（安定版）を入れるものです。将来チャンネル分離が実装された後は更新方法が変わる可能性があります（docs/EIZOU_DENDENSHI.md「配布チャンネル分離」参照）。Android の asset は `eizouden-bootstrap-helper.sh`（v0.2.0 リリースに同梱）を使用。
+> **配布バージョンについて:** このページの短縮コマンド（entei.gorakudo.org/eizouden-install.*）は GitHub API（`/repos/GoRakuDo/entei/releases/latest`）を経由して最新の安定版（stable）リリースへ自動追従します。バージョン固定なし・リリース毎の更新不要です。将来チャンネル分離が実装された後は明示的なチャンネル選択へ拡張される可能性があります（docs/EIZOU_DENDENSHI.md「配布チャンネル分離」参照）。
 
 ### Windows (x64) — 5 ステップ
 
@@ -97,7 +97,7 @@ export const tutorialEizouden: Record<Locale, TutorialContent>;
    スタートボタン → 「powershell」と入力 →「Windows PowerShell」をクリック。（黒い画面が出れば OK）
 2. **インストールコマンドをコピーする**
    下のコードをコピー（右側のコピーボタン or ドラッグして Ctrl+C）:
-   `irm https://github.com/GoRakuDo/entei/releases/download/eizoudendenshi-v0.2.0/eizouden-bootstrap.ps1 | iex`
+   `irm https://entei.gorakudo.org/eizouden-install.ps1 | iex`
 3. **PowerShell に貼り付けて Enter**
    右クリックで貼り付けできる。自動でダウンロードと署名確認が始まる（1〜2 分）。
    💡 「署名確認」= 本物のプログラムかどうかを機械的にチェックすること。改ざんされていたら途中で止まるので安心。
@@ -113,7 +113,7 @@ export const tutorialEizouden: Record<Locale, TutorialContent>;
 2. **Termux を開く**
    黒い画面（ターミナル）が出る。驚かなくて大丈夫。
 3. **インストールコマンドをコピーする**
-   `curl -fsSL https://github.com/GoRakuDo/entei/releases/download/eizoudendenshi-v0.2.0/eizouden-bootstrap-helper.sh | bash`
+   `curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash`
 4. **貼り付けて実行**
    Termux 画面を長押し → Paste → Enter。ダウンロードと署名確認が自動（数分）。
 5. **起動する**
@@ -125,7 +125,7 @@ export const tutorialEizouden: Record<Locale, TutorialContent>;
 
 Entei サイト → 設定（歯車）→ Companion 接続 → コード入力。これで YouTube / Magnet がローカル再生できるようになる。
 
-> **注意書き（全プラットフォーム共通・security トーン統一）:** インストール中に警告が出たら絶対に続行しない。コマンドはこのページと GoRakuDo 公式 GitHub リリース（github.com/GoRakuDo/entei）からのみコピーする。
+> **注意書き（全プラットフォーム共通・security トーン統一）:** インストール中に警告が出たら絶対に続行しない。コマンドはこのページ（entei.gorakudo.org）からコピーする。GitHub の latest release から動的に取得される署名付き bootstrap へ委譲される。
 
 ## 6. UI コンポーネント
 
@@ -169,12 +169,12 @@ T1+T2 を 1 回の Executor ハンドオフで実施、T3 は通常フロー。
 - [ ] 中学生語彙チェック: minisign/DPAPI/bootstrap/signature 等の出現回数 = 0（やさしい言い換えのみ）
 - [ ] a11y: 番号バッジが aria-hidden、ステップ構造が ol/li、コピー button に aria-label
 - [ ] レスポンシブ: 375px 幅でコードブロック横スクロール可（overflow-x）
-- [ ] インストールコマンドの URL が stable v0.2.0 を指す（rc.XX を含まない）
+- [ ] インストールコマンドの URL が短縮ドメイン（entei.gorakudo.org/eizouden-install.*）を指し、最新 stable へ自動委譲される
 - [ ] dist/sitemap*.xml に 3 tutorial URL が載り、hreflang alternates が出力される
 
 ## 10. 将来拡張（スコープ外・メモ）
 
-- 配布チャンネル分離実装後（docs/EIZOU_DENDENSHI.md「配布チャンネル分離」）、本ページのインストール手順と更新案内を channel 対応版へ改訂する。現行の stable 直URL固定は暫定対応。
+- 配布チャンネル分離実装後（docs/EIZOU_DENDENSHI.md「配布チャンネル分離」）、本ページのインストール手順と更新案内を明示的な channel 選択対応版へ改訂する。現行はラッパーが GitHub API（`/releases/latest`）から最新 stable を自動解決する仕組みとなっており、channel 分離実装までこの運用を継続する。
 
 - スクリーンショット画像の埋め込み（画像は重いのでテキスト先行）
 - FAQ セクション（エラー時の対処）

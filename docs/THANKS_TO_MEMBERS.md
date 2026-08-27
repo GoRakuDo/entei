@@ -129,7 +129,7 @@ Entei サイト（https://entei.gorakudo.org）経由の短いインストール
 | Termux | `curl -fsSL https://entei.gorakudo.org/eizouden-install.sh \| bash` |
 | Windows | `irm https://entei.gorakudo.org/eizouden-install.ps1 \| iex` |
 
-**運用ルール**: 新しい EizouDendenshi release（rc.XX）が出たら、`apps/web/public/eizouden-install.sh` と `eizouden-install.ps1` の GitHub release URL（`eizoudendenshi-v0.2.0-rc.XX` 部分）を更新すること。ラッパー自体は未署名で良い（= 委譲先の実 bootstrap が Minisign 検証済みのため・ラッパーが改竄されても実 bootstrap の署名検証が守る）。
+**運用ルール**: `apps/web/public/eizouden-install.sh` と `eizouden-install.ps1` は GitHub API（`/releases/latest`）を経由して最新の安定版（stable）リリースへ自動追従する（バージョン固定なし・リリース毎の更新不要）。ラッパー自体は未署名で良い（= 委譲先の実 bootstrap が Minisign 検証済みのため・ラッパーが改竄されても実 bootstrap の署名検証が守る）。
 
 ## 9. 禁止事項
 

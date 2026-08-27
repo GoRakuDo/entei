@@ -30,24 +30,24 @@ type Release struct {
 // bootstrap's Assert-SafeLogicalName).
 var safeAssetName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// selectRelease queries the release feed and returns the NEWEST
-// published (by published_at) non-draft release whose tag starts with
-// the EizouDendenshi prefix. Prereleases are included (the latest
-// release is always a prerelease and /releases/latest excludes them).
-// Releases with malformed tags, missing dates, or no assets are skipped;
-// a candidate carrying a missing/duplicate/unsafe asset name or a
-// non-HTTPS asset URL is rejected in favor of the next-newest valid
-// release (a poisoned old release must never block updates). No valid
-// selectRelease queries the release feed and returns the NEWEST
-// published (by published_at) non-draft release whose tag starts with
-// the EizouDendenshi prefix. Prereleases are included (the latest
-// release is always a prerelease and /releases/latest excludes them).
+// selectRelease queries the release feed and returns the NEWEST published
+// (by published_at) non-draft release matching the requested update channel:
+//
+//   - ChannelStable (default for general users): pinned to formal releases
+//     only; any semver pre-release tag (e.g. 0.2.0-rc.97, containing "-") is
+//     filtered out.
+//   - ChannelPrerelease (opt-in for testers): tracks the latest release
+//     including pre-releases / rc tags (the original selectRelease behavior).
+//
+// (2026-08-26 distribution channel split decision: general users get stable-only,
+// testers opt into prerelease).
+//
 // Releases with malformed tags, missing dates, or no assets are skipped;
 // a candidate carrying a missing/duplicate/unsafe asset name or a
 // non-HTTPS asset URL is rejected in favor of the next-newest valid
 // release (a poisoned old release must never block updates). No valid
 // release at all fails closed.
-func selectRelease(client *http.Client) (*Release, error) {
+func selectRelease(client *http.Client, ch Channel) (*Release, error) {
 	req, err := http.NewRequest(http.MethodGet, releaseAPI, nil)
 	if err != nil {
 		return nil, err
@@ -90,6 +90,11 @@ func selectRelease(client *http.Client) (*Release, error) {
 		version := strings.TrimPrefix(r.TagName, releaseTagPrefix)
 		if !semverShape.MatchString(version) {
 			continue // malformed tag: not an EizouDendenshi release
+		}
+		// 2026-08-26 channel split: stable filters out any semver prerelease / rc suffix.
+		// Fail-closed to stable if ch is anything other than ChannelPrerelease.
+		if ch != ChannelPrerelease && strings.Contains(version, "-") {
+			continue
 		}
 		published, err := time.Parse(time.RFC3339, r.PublishedAt)
 		if err != nil {

@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"eizoudendenshi/internal/update"
 )
 
 // fakeHelperSrc is a tiny helper that answers version queries with a fixed
@@ -65,10 +67,14 @@ func TestMenuStructureAndPlainFallback(t *testing.T) {
 	if !strings.Contains(out, "EizouDendenshi v0.2.0-rc.7") {
 		t.Errorf("missing version header: %q", out)
 	}
+	if !strings.Contains(out, "Update channel: stable") {
+		t.Errorf("missing update channel header line: %q", out)
+	}
 	for _, want := range []string{
 		"1. Get New Pairing Code",
 		"2. Service Status",
 		"3. Update EizouDendenshi",
+		"4. Switch Update Channel",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("menu must show option %q: %q", want, out)
@@ -77,7 +83,7 @@ func TestMenuStructureAndPlainFallback(t *testing.T) {
 	if strings.Contains(out, "\x1b[") {
 		t.Errorf("ANSI escapes must not appear for a non-terminal stdout: %q", out)
 	}
-	if strings.Contains(out, "4.") || strings.Contains(out, "Start") || strings.Contains(out, "Stop") {
+	if strings.Contains(out, "5.") || strings.Contains(out, "Start") || strings.Contains(out, "Stop") {
 		t.Errorf("menu must not contain extra options: %q", out)
 	}
 }
@@ -124,7 +130,7 @@ func TestStatusMissingHelper(t *testing.T) {
 
 func TestInvalidInputReprompts(t *testing.T) {
 	out := runMenu(t, cliOptions{version: "0.2.0-rc.7"}, "9\n2\n", nil)
-	if !strings.Contains(out, "Invalid option; enter 1, 2, or 3.") {
+	if !strings.Contains(out, "Invalid option; enter 1, 2, 3, or 4.") {
 		t.Errorf("invalid input must re-prompt with a friendly message: %q", out)
 	}
 	if !strings.Contains(out, "core: installed") {
@@ -320,5 +326,121 @@ func TestPairingCodeShownOnlyOnOptionOne(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Pairing code: 999999") {
 		t.Errorf("option 1 must show pairing code: %q", out.String())
+	}
+}
+
+func TestOptionFourSwitchChannel(t *testing.T) {
+	storageRoot := t.TempDir()
+	opts := cliOptions{
+		version:     "0.2.0-rc.7",
+		storageRoot: storageRoot,
+	}
+
+	// 1. Initial state: absent channel.json defaults to stable in header.
+	// Selecting 4 and entering 2 switches to prerelease.
+	var out1 bytes.Buffer
+	code1 := runCLI(opts, strings.NewReader("4\n2\n"), &out1, func() error { return nil })
+	if code1 != 0 {
+		t.Fatalf("runCLI option 4 -> 2 exit code = %d, want 0", code1)
+	}
+	outStr1 := out1.String()
+	if !strings.Contains(outStr1, "Update channel: stable") {
+		t.Errorf("initial header must show stable channel: %q", outStr1)
+	}
+	if !strings.Contains(outStr1, "Current update channel: stable") {
+		t.Errorf("option 4 must show current channel: %q", outStr1)
+	}
+	if !strings.Contains(outStr1, "Update channel set to prerelease.") {
+		t.Errorf("confirmation must confirm prerelease: %q", outStr1)
+	}
+	if !strings.Contains(outStr1, "The next Update (Option 3) will use this channel.") {
+		t.Errorf("confirmation must note next Update uses this channel: %q", outStr1)
+	}
+
+	// Verify persistence
+	ch, err := update.LoadChannel(storageRoot)
+	if err != nil || ch != update.ChannelPrerelease {
+		t.Fatalf("persisted channel = %q (err=%v), want prerelease", ch, err)
+	}
+
+	// 2. Next run on same storage root: header shows prerelease.
+	// Selecting 4 and entering 1 switches back to stable.
+	var out2 bytes.Buffer
+	code2 := runCLI(opts, strings.NewReader("4\n1\n"), &out2, func() error { return nil })
+	if code2 != 0 {
+		t.Fatalf("runCLI option 4 -> 1 exit code = %d, want 0", code2)
+	}
+	outStr2 := out2.String()
+	if !strings.Contains(outStr2, "Update channel: prerelease") {
+		t.Errorf("header must reflect persisted prerelease channel: %q", outStr2)
+	}
+	if !strings.Contains(outStr2, "Current update channel: prerelease") {
+		t.Errorf("option 4 must show current prerelease channel: %q", outStr2)
+	}
+	if !strings.Contains(outStr2, "Update channel set to stable.") {
+		t.Errorf("confirmation must confirm stable: %q", outStr2)
+	}
+
+	ch, err = update.LoadChannel(storageRoot)
+	if err != nil || ch != update.ChannelStable {
+		t.Fatalf("persisted channel = %q (err=%v), want stable", ch, err)
+	}
+}
+
+func TestOptionFourInvalidChoiceReprompts(t *testing.T) {
+	storageRoot := t.TempDir()
+	opts := cliOptions{
+		version:     "0.2.0-rc.7",
+		storageRoot: storageRoot,
+	}
+	// Option 4, invalid choice "9", then valid choice "2"
+	var out bytes.Buffer
+	code := runCLI(opts, strings.NewReader("4\n9\n2\n"), &out, func() error { return nil })
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	outStr := out.String()
+	if !strings.Contains(outStr, "Invalid choice; enter 1 for stable or 2 for prerelease.") {
+		t.Errorf("must reprompt on invalid channel choice: %q", outStr)
+	}
+	if !strings.Contains(outStr, "Update channel set to prerelease.") {
+		t.Errorf("must process subsequent valid choice: %q", outStr)
+	}
+}
+
+func TestOptionFourEOFExitsSafely(t *testing.T) {
+	storageRoot := t.TempDir()
+	opts := cliOptions{
+		version:     "0.2.0-rc.7",
+		storageRoot: storageRoot,
+	}
+	// Option 4 then EOF
+	var out bytes.Buffer
+	code := runCLI(opts, strings.NewReader("4\n"), &out, func() error { return nil })
+	if code != 0 {
+		t.Fatalf("EOF in option 4 must exit 0, got %d", code)
+	}
+}
+
+func TestOptionFourAutoStartServerMode(t *testing.T) {
+	storageRoot := t.TempDir()
+	opts := cliOptions{
+		version:     "0.2.0-rc.7",
+		storageRoot: storageRoot,
+		autoStart: func() (string, <-chan error, error) {
+			return "123456", nil, nil
+		},
+	}
+	var out bytes.Buffer
+	code := runCLI(opts, strings.NewReader("4\n2\n1\n"), &out, func() error { return nil })
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	outStr := out.String()
+	if !strings.Contains(outStr, "Update channel set to prerelease.") {
+		t.Errorf("option 4 must work in autoStart mode: %q", outStr)
+	}
+	if !strings.Contains(outStr, "Pairing code: 123456") {
+		t.Errorf("subsequent option 1 must still work: %q", outStr)
 	}
 }

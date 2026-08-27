@@ -27,20 +27,28 @@ func NewWindowsStore(path string) Store {
 	return &windowsStore{path: path}
 }
 
+// DefaultStorageDir resolves the user-private directory used for companion
+// persistent state (%LOCALAPPDATA%\GoRakuDo\EizouDendenshi). The
+// EIZOUDEN_CREDENTIAL_DIR override (harness/tests only) redirects the
+// directory so automated runs never write into the real profile.
+func DefaultStorageDir() string {
+	if dir := os.Getenv("EIZOUDEN_CREDENTIAL_DIR"); dir != "" {
+		return dir
+	}
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		base, _ = os.UserConfigDir()
+	}
+	return filepath.Join(base, "GoRakuDo", "EizouDendenshi")
+}
+
 // DefaultCredentialPath resolves the user-private app path for the
 // pairing credential: %LOCALAPPDATA%\GoRakuDo\EizouDendenshi\credential.bin
 // — the same user-private root the Windows bootstrap installs into. The
 // EIZOUDEN_CREDENTIAL_DIR override (harness/tests only) redirects the
 // directory so automated runs never write into the real profile.
 func DefaultCredentialPath() string {
-	if dir := os.Getenv("EIZOUDEN_CREDENTIAL_DIR"); dir != "" {
-		return filepath.Join(dir, "credential.bin")
-	}
-	base := os.Getenv("LOCALAPPDATA")
-	if base == "" {
-		base, _ = os.UserConfigDir()
-	}
-	return filepath.Join(base, "GoRakuDo", "EizouDendenshi", "credential.bin")
+	return filepath.Join(DefaultStorageDir(), "credential.bin")
 }
 
 // NewDefaultStore returns the user-scoped DPAPI store at the user-private

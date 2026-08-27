@@ -871,7 +871,7 @@ MKVに複数音声トラック（例: 日本語AC-3 + 英語AAC）がある場�
 3. bootstrap: stable 固定インストールと rc 追従インストールの2本立て（配布URLも分離検討）
 4. テスト: channel 切替の harness ケース
 
-**チュートリアル側の暫定対応:** 本チュートリアル公開時点では stable v0.2.0 bootstrap 直URLを案内する（channel 分離実装まで一般ユーザーは stable 固定運用）。rc 追従はテスターが手動で行う。
+**チュートリアル側の暫定対応:** チュートリアルは短縮URL（entei.gorakudo.org/eizouden-install.*）を使用、中身は GitHub API（`/releases/latest`）を通じて最新 stable bootstrap へ自動委譲されるためリリース毎のラッパー更新は不要。channel 分離実装まで一般ユーザーは最新 stable 自動追従、rc 追従はテスターが手動で行う。
 
 **トリガー:** チュートリアルページ完成後、次の EizouDendenshi release 作業時に本節を実装する。
 

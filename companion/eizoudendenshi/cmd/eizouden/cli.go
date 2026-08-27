@@ -1,12 +1,14 @@
-// Common three-option CLI for the EizouDendenshi companion (Windows + Termux).
+// Common four-option CLI for the EizouDendenshi companion (Windows + Termux).
 //
 // The menu is the entry point after bootstrap on both platforms:
 //
 //		EizouDendenshi vX.Y.Z
+//		Update channel: stable
 //
 //		1. Get New Pairing Code
 //		2. Service Status
 //		3. Update EizouDendenshi
+//		4. Switch Update Channel
 //
 //		Option:
 //
@@ -16,20 +18,24 @@
 //	    installed, version, and executable readiness. It never prints paths,
 //	    cookies, tokens, URLs, or job data.
 //	  - Option 3 updates the verified core/helpers from the signed release
-//	    feed. It prints only safe status text and never resets the pairing:
-//	    the persisted credential (credential.bin / DPAPI store) and the
-//	    browser's opaque token are untouched, so the Web does not need to
-//	    re-pair. When an update is verified the process exits so the
-//	    internal --apply-update child can replace the running core; the
-//	    parent prints the update-complete message before exiting, then the
-//	    user runs `grkd-edds` manually (the new core is never auto-launched — an
-//	    auto-started CLI does not own a usable console stdin; see
-//	    internal/update).
+//	    feed for the configured update channel. It prints only safe status
+//	    text and never resets the pairing: the persisted credential
+//	    (credential.bin / DPAPI store) and the browser's opaque token are
+//	    untouched, so the Web does not need to re-pair. When an update is
+//	    verified the process exits so the internal --apply-update child can
+//	    replace the running core; the parent prints the update-complete
+//	    message before exiting, then the user runs `grkd-edds` manually (the
+//	    new core is never auto-launched — an auto-started CLI does not own a
+//	    usable console stdin; see internal/update).
+//	  - Option 4 switches the update distribution channel (stable / prerelease).
+//	    General users default to stable (formal releases only); testers opt
+//	    into prerelease (tracking latest rc tags). Persisted platform-privately
+//	    in channel.json (2026-08-26 decision).
 //
 // The header uses ANSI color ONLY when stdout is a terminal; otherwise the
 // plain text is printed (piped/redirected output stays clean). Invalid
 // input re-prompts; EOF exits safely. The menu deliberately has no
-// Start/Stop entries beyond the three options.
+// Start/Stop entries beyond the four options.
 package main
 
 import (
@@ -43,6 +49,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"eizoudendenshi/internal/update"
 )
 
 // cliOptions carries everything the menu needs. Helper paths are the exact
@@ -52,6 +60,9 @@ type cliOptions struct {
 	version string
 	ytdlp   string
 	ffmpeg  string
+	// storageRoot is the directory used for persistent channel storage
+	// (channel.json). When empty, update.DefaultStorageDir() is used.
+	storageRoot string
 	// logStatus is the safe diagnostic-log status text ("enabled" /
 	// "disabled"); never the log path.
 	logStatus string
@@ -90,6 +101,11 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 		header = "\x1b[1;36m" + header + "\x1b[0m"
 	}
 	fmt.Fprintln(stdout, header)
+	ch, _ := update.LoadChannel(opts.storageRoot)
+	if !update.ValidChannel(ch) {
+		ch = update.ChannelStable
+	}
+	fmt.Fprintf(stdout, "Update channel: %s\n", ch)
 	fmt.Fprintln(stdout)
 
 	// Auto-start the companion server in the background so the browser
@@ -111,6 +127,7 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 	fmt.Fprintln(stdout, "1. Get New Pairing Code")
 	fmt.Fprintln(stdout, "2. Service Status")
 	fmt.Fprintln(stdout, "3. Update EizouDendenshi")
+	fmt.Fprintln(stdout, "4. Switch Update Channel")
 
 	reader := bufio.NewReader(stdin)
 	for {
@@ -153,8 +170,48 @@ func runCLI(opts cliOptions, stdin io.Reader, stdout io.Writer, startServer func
 					// is silent on success (reports only failures to stderr).
 					return 0
 				}
+			case "4":
+				cur, _ := update.LoadChannel(opts.storageRoot)
+				if !update.ValidChannel(cur) {
+					cur = update.ChannelStable
+				}
+				fmt.Fprintf(stdout, "Current update channel: %s\n", cur)
+				for {
+					fmt.Fprintln(stdout, "1. stable (formal releases only)")
+					fmt.Fprintln(stdout, "2. prerelease (latest release candidates)")
+					fmt.Fprint(stdout, "Select channel (1 or 2): ")
+					chLine, chErr := reader.ReadString('\n')
+					if chErr != nil && !errors.Is(chErr, io.EOF) {
+						return 1
+					}
+					trimmed := strings.TrimSpace(chLine)
+					if trimmed == "" && errors.Is(chErr, io.EOF) {
+						fmt.Fprintln(stdout)
+						return 0
+					}
+					var target update.Channel
+					switch trimmed {
+					case "1":
+						target = update.ChannelStable
+					case "2":
+						target = update.ChannelPrerelease
+					default:
+						fmt.Fprintln(stdout, "Invalid choice; enter 1 for stable or 2 for prerelease.")
+						if errors.Is(chErr, io.EOF) {
+							fmt.Fprintln(stdout)
+							return 0
+						}
+						continue
+					}
+					if err := update.SaveChannel(opts.storageRoot, target); err != nil {
+						fmt.Fprintln(stdout, "channel: save failed")
+						break
+					}
+					fmt.Fprintf(stdout, "Update channel set to %s. The next Update (Option 3) will use this channel.\n", target)
+					break
+				}
 			default:
-				fmt.Fprintln(stdout, "Invalid option; enter 1, 2, or 3.")
+				fmt.Fprintln(stdout, "Invalid option; enter 1, 2, 3, or 4.")
 			}
 		}
 		if err != nil {

@@ -101,6 +101,9 @@ func TestDefaultCredentialPathOverride(t *testing.T) {
 	// user profile — the whole point of EIZOUDEN_CREDENTIAL_DIR.
 	dir := t.TempDir()
 	t.Setenv("EIZOUDEN_CREDENTIAL_DIR", dir)
+	if got, want := DefaultStorageDir(), dir; got != want {
+		t.Fatalf("DefaultStorageDir = %q, want %q", got, want)
+	}
 	got := DefaultCredentialPath()
 	want := filepath.Join(dir, "credential.bin")
 	if got != want {
