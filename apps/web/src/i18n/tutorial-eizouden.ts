@@ -6,7 +6,7 @@
  *
  * Install commands use short domain URLs:
  * - Windows: irm https://entei.gorakudo.org/eizouden-install.ps1 | iex
- * - Android: curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash
+ * - Android: pkg update -y && pkg upgrade -y && curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash
  *
  * 2026-08-27
  * ---------------------------------------------------------------------------*/
@@ -52,7 +52,7 @@ const WIN_INSTALL_CMD =
   'irm https://entei.gorakudo.org/eizouden-install.ps1 | iex';
 
 const ANDROID_INSTALL_CMD =
-  'curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash';
+  'pkg update -y && pkg upgrade -y && curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash';
 
 const LAUNCH_CMD = 'grkd-edds';
 

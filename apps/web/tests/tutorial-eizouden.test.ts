@@ -38,7 +38,7 @@ describe('tutorialEizouden dictionary', () => {
     const expectedWinCmd =
       'irm https://entei.gorakudo.org/eizouden-install.ps1 | iex';
     const expectedAndroidCmd =
-      'curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash';
+      'pkg update -y && pkg upgrade -y && curl -fsSL https://entei.gorakudo.org/eizouden-install.sh | bash';
 
     locales.forEach((locale) => {
       const data = tutorialEizouden[locale];
