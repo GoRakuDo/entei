@@ -64,14 +64,15 @@ func helperArgs(jobDir, url string, mode Mode) []string {
 		noPart = "" // keep .part so the growing file can be streamed
 	}
 	args := []string{
-		"--no-playlist",        // deterministic single video
-		"--no-progress",        // keep helper output quiet
-		"--no-write-info-json", // no sidecar files
-		"--no-write-thumbnail", // media bytes only
-		"--write-subs",         // download subtitles (manual preferred)
-		"--write-auto-subs",    // download auto-generated subtitles (fallback)
-		"--sub-langs", "ja.*",  // Japanese subtitles only
-		"--sub-format", "vtt", // deterministic format
+		"--no-playlist",                              // deterministic single video
+		"--no-progress",                              // keep helper output quiet
+		"--no-write-info-json",                       // no sidecar files
+		"--no-write-thumbnail",                       // media bytes only
+		"--write-subs",                               // download subtitles (manual preferred)
+		"--write-auto-subs",                          // download auto-generated subtitles (fallback)
+		"--sub-langs", "ja,ja-orig,ja-JP,ja-Hrkt",    // Japanese subtitles only (avoids ja-en/ja-es auto-translation 429 errors)
+		"--sub-format", "vtt",                        // deterministic format
+		"--extractor-args", "youtube:player_client=mweb,android,web", // robust clients to bypass 403 Forbidden
 	}
 	if noPart != "" {
 		args = append(args, noPart)

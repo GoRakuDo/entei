@@ -160,8 +160,9 @@ func TestFixedArgsNoInjection(t *testing.T) {
 		"--no-write-thumbnail",
 		"--write-subs",
 		"--write-auto-subs",
-		"--sub-langs", "ja.*",
+		"--sub-langs", "ja,ja-orig,ja-JP,ja-Hrkt",
 		"--sub-format", "vtt",
+		"--extractor-args", "youtube:player_client=mweb,android,web",
 		// Default mode is now speed (2026-08-08): progressive single-file
 		// selector, no --no-part (the .part file grows for instant
 		// streaming).

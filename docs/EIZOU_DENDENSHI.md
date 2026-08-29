@@ -836,6 +836,15 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 - **companion**: `SubtitleContent` が「選択済み字幕」に加え「**未選択なら torrent 内の字幕ファイルを自動検出**（`firstSubtitleIndex`・KindSubtitle）」して内容を返す。`Select` はビデオのみ選択時でも**内蔵字幕を Normal 優先度に昇格**（未選択字幕が DL されず読み取りがブロックする問題）。**潜在バグ修正**: `subtitleIdx` が Go ゼロ値（0 = 先頭ファイル = 動画）のままだった → `-1` 初期化（内蔵字幕なし時に動画を字幕として返すバグを防止）。
   - **web**: `planSync` に `sub-to-sub-auto-ref`（Magnet + 字幕モード + 参照字幕なし → 内蔵字幕を自動取得）を追加。`fetchMagnetSubtitle` の fileId をオプショナル化（空 = companion が自動検出）。`auto` モードも内蔵字幕を先に試し（sub-to-sub は audio より正確）、取得失敗時は `fallbackToAudio` で sub-to-audio にフォールバック（commit 5420278）。
 
+### 開発記録（2026-08-29）: YouTube yt-dlp 403 回避 & 字幕 429 回避
+
+- **症状**: 最近の YouTube 動画（`Bd-bFDRjX3A` 等）で `Terjadi kesalahan. Coba lagi.` となり再生開始に失敗する。
+- **原因1 (403 Forbidden)**: YouTube 側の仕様変更に伴い、デフォルトの client API 呼び出しに対して 403 を返すようになった。
+- **原因2 (429 Too Many Requests)**: `--sub-langs "ja.*"` だと `ja-en` や `ja-es` など大量の自動翻訳字幕まで一括取得しようとして字幕サーバーから 429 を食らい、動画ダウンロード全体が巻き添えで死んでいた。
+- **対策**:
+  1. `--extractor-args "youtube:player_client=mweb,android,web"` を追加し、403 を回避。
+  2. `--sub-langs` を `"ja,ja-orig,ja-JP,ja-Hrkt"`（日本語ネイティブ字幕のみ）に限定し、429 を完全防止。
+
 ### MKV 日本語音声トラック処理（設計確定・2026-08-21）
 
 MKVに複数音声トラック（例: 日本語AC-3 + 英語AAC）がある場合、Chromeは`Default`フラグが`1`のトラックを選択する。fansub MKVでは英語がDefaultの場合が多い。
