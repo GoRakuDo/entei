@@ -71,6 +71,18 @@ const alternates = [
       </a>
     </nav>
 
+    <section class="entei-tutorial-video-card" aria-label="Video tutorial">
+      <iframe
+        class="entei-tutorial-video-embed"
+        src="https://www.youtube-nocookie.com/embed/GKi_AzO2MyE"
+        title="EizouDendenshi video tutorial"
+        loading="lazy"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        referrerpolicy="strict-origin-when-cross-origin"
+        allowfullscreen
+      ></iframe>
+    </section>
+
     <section class="entei-tutorial-prereq-card" aria-labelledby="prereq-heading">
       <h2 id="prereq-heading" class="entei-tutorial-section-title">
         {content.prerequisitesHeading}
@@ -221,6 +233,25 @@ const alternates = [
     background-color: var(--entei-btn-hover-bg);
     border-color: var(--entei-accent);
     color: var(--entei-text);
+  }
+
+  .entei-tutorial-video-card {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    border-radius: var(--entei-radius-card);
+    overflow: hidden;
+    background-color: var(--entei-black-950);
+  }
+
+
+  .entei-tutorial-video-embed {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
   }
 
   .entei-tutorial-prereq-card {
