@@ -1,7 +1,7 @@
-# EizouDendenshi ↔ AnkiDroid Proxy — Android Companion 設計仕様
+# EizouDendenshi ↔ AnkiDroid Connect — Android Companion 設計仕様
 
-> **状態:** 設計草案（v1.0・2026-08-29）
-> **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiConnect 互換の AnkiDroid ブリッジ機能を追加する
+> **状態:** 設計草案 v2.0（2026-08-29・Android 8〜15 全対応の方針に改版）
+> **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiDroid 連携ブリッジ機能を追加する
 > **スコープ:** クライアントは Entei Web / Yomitan / asbplayer の 3 つ全て
 
 ---
@@ -11,127 +11,105 @@
 ### 現状の問題
 - **PC (Windows/macOS/Linux)**: 公式 AnkiConnect（port 8765）で Yomitan/asbplayer/Entei が問題無く繋がる
 - **Android (Termux)**: AnkiDroid 公式は **AnkiConnect サーバを公開しない**（セキュリティ上のポリシー）
-- 既存の唯一の選択肢 `AnkiconnectAndroid` (KamWithK) は **専用 APK のインストール** が必要で、**Yomitan/asbplayer はその APK 専用 API 形式しか受け付けない**
+- 既存の選択肢 `AnkiconnectAndroid` (KamWithK) は **専用 APK のインストール** が必要で、**Entei から見るとメディア保存時にファイル名が変わってしまう**（`storeMediaFile` の戻り値が AnkiDroid 正規化名になる）
 
-### 解決策
-EizouDendenshi Android コンパニオンに **AnkiconnectAndroid の機能を移植** し、**AnkiConnect 公式と互換性のある API サーバ** として動作させる。Entei / Yomitan / asbplayer の **既存クライアントコードを一切変更せず**、接続先 URL を `http://127.0.0.1:36441` に向けるだけで AnkiDroid と同期できる世界を実現する。
+### 調査で判明した重要事実（2026-08-29 Exa / Context7 / ankidroid 公式 wiki・issue より）
+1. **AnkiDroid の collection.media には 2 つの場所がある。Termux から書き込み可能なのは「legacy」場所のみ**
+   - **Legacy（従来）**: `/storage/emulated/0/AnkiDroid/collection.media/` — **Android 8〜15 全バージョンで Termux から直接書き込み可能**
+   - **App-private**: `/storage/emulated/0/Android/data/com.ichi2.anki/files/AnkiDroid/` — Android 11+ で他アプリのアクセス禁止
+   - AnkiDroid「full」版（F-Droid / GitHub APK）は `MANAGE_EXTERNAL_STORAGE` 権限で **legacy 場所を正式にサポートし続ける**（[AnkiDroid wiki: Full Storage Access](https://github.com/ankidroid/Anki-Android/wiki/Full-Storage-Access), [Issue #13222](https://github.com/ankidroid/Anki-Android/issues/13222)）
+2. **Termux のストレージ権限は全バージョンで取得可能**（[Termux Issue #3647](https://github.com/termux/termux-app/issues/3647)）
+3. **AnkiDroid のメディア再生は「ファイルの物理存在」だけで動く**
+   - `[sound:filename]` がフィールドにあれば、`collection.media/filename` が存在するだけで即時再生される
+   - メディア DB（`.media.db2`）は**同期用**で、即時再生には不要（Anki Desktop Manual「Manually Adding Media」より）
+
+### 解決策（2 層構成に改版）
+EizouDendenshi Android コンパニオンに **AnkiConnect 互換の AnkiDroid ブリッジ** を追加する。メディアは **Termux が直接 collection.media へ書き込み**、ノート操作（DB への INSERT）は AnkiconnectAndroid（:8080）が担当する。これで Entei / Yomitan / asbplayer の既存クライアントコードを一切変更せず、接続先 URL を `http://127.0.0.1:36441` に向けるだけで Android 8〜15 で AnkiDroid と自動同期できる。
 
 ```
-Yomitan (Firefox)
+Yomitan / asbplayer / Entei Web (browser, Android)
+   │   http://127.0.0.1:36441/v1/anki   ← Entei origin + token gate
+   ▼
+eizouden-android-arm64 (Termux) ── anki サブコマンド
    │
-asbplayer
-   │   既存 AnkiConnect クライアント実装
-   │   URL: http://127.0.0.1:36441
+   ├─ ① 【メディア】Termux が collection.media へ直接書き込み
+   │     /storage/emulated/0/AnkiDroid/collection.media/<deterministic名>
    │
-   ├──► EizouDendenshi Android Companion (Termux)
-   │      │
-   │      ├─ AnkiConnect 公式 API 完全互換 (version 6)
-   │      │    - canAddNotes / addNote / updateNoteFields / addTags / findNotes
-   │      │    - addNote 拡張: audio[] / video[] / picture[] 同時送信
-   │      │    - storeMediaFile
-   │      │
-   │      └─ ContentResolver → AnkiDroid (AddContentApi / FlashCardsContract)
+   └─ ② 【ノート】AnkiconnectAndroid (:8080) に HTTP プロキシ
+         （注: ノート作成の権限は APK が持つ。メディアは関与しない）
    │
-Entei Web
-   │   URL: http://127.0.0.1:36441
-   │   既存実装 (storeMediaFile + addNote)
+   ▼
+AnkiconnectAndroid APK（初回 1 回だけインストール → AnkiDroid への DB 書込権限を持つ）
+   │  Android framework (Context / 権限 / FlashCardsContract)
+   ▼
+AnkiDroid（collection.media + note DB）
 ```
 
-### 得られるもの
-- **PC の公式 AnkiConnect と完全に同じ感覚**で Android でも Anki 連携できる
-- ユーザーは「**AnkiDroid のコンテンツ URI への権限付与**」を初回 1 回だけ行えば、あとは既存クライアントがそのまま動く
-- 3rd party APK (`AnkiconnectAndroid`) を**インストール不要**
+**得られるもの**
+- **PC の公式 AnkiConnect と同じ感覚**で Android でも Anki 連携できる
+- **メディアは Termux 単独で自動書き込み**（改名されない・衝突しない・手動操作不要）
+- ノート作成は既存の AnkiconnectAndroid が権限を持って実行 → Termux には Android アプリ権限が不要
 
 ---
 
 ## 2. 全体アーキテクチャ
 
-### 2.1 デプロイ
-- **追加のバイナリ**: 不要（既存 `eizouden-android-arm64` に `anki` サブコマンドを内蔵）
-- **追加のユーザータスク**: 初回のみ AnkiDroid の「**ファイルアクセスの権限を AnkiconnectAndroid に付与**」が必要（AnkiDroid のセキュリティ仕様）
-- **既存タスク**: 1 回だけ（AnkiDroid のセットアップウィザードに従う）
+### 2.1 配布
+- **`eizouden-android-arm64` に `anki` サブコマンドを内蔵**（追加バイナリ不要）
+- **追加 APK**: AnkiconnectAndroid のみ（初回インストールが必要。ノート書込権限を担うため）
+- **初回ユーザー操作**: ①AnkiconnectAndroid をインストール＆権限許可 → ②Termux にストレージ権限付与 の 2 回だけ
 
-### 2.2 プロセス構成
-```
-[Termux プロセス: eizouden-android-arm64 anki]
-    │
-    ├─ :36441 (loopback only) ── AnkiConnect 互換 HTTP API
-    │
-    └─ ContentResolver (system_service:activity)
-         │
-         └─ com.ichi2.anki/FlashCardsContract.AnkiMedia
-              └─ AnkiDroid が内部 SQLite に media URI を INSERT
-                   → MediaStore / Anki collection.media に反映
-```
-
-### 2.3 必要な Android パーミッション
-- **`com.ichi2.anki.permission.READ_WRITE_PERMISSION`**（AnkiDroid 専用権限）
-  - 初回ペアリング時に AnkiDroid のパーミッション許可ダイアログが表示される
-- **Entei コンパニオンの AndroidManifest** には同パーミッションを宣言（`<uses-permission>` タグで OK）
-- **`<queries>` 要素**（Android 11+ の package visibility）:
-  ```xml
-  <queries>
-    <package android:name="com.ichi2.anki" />
-    <provider android:authority="com.ichi2.anki.flashcards" />
-  </queries>
-  ```
-
-### 2.4 Termux 上での制約と回避策
-- **問題 1**: Termux アプリは **AnkiDroid の FileProvider URI に直接アクセスできない**（com.ichi2.anki 以外）
-  - **回避策**: `Intent.FLAG_GRANT_READ_URI_PERMISSION` 付きで `FileProvider` URI を生成し、AnkiDroid に渡す前に `grantUriPermission` を呼ぶ
-  - これは AnkiconnectAndroid の `MediaAPI.java` (line 49-50) と同じ実装
-- **問題 2**: AnkiDroid の ContentResolver は `com.ichi2.anki.flashcards` Authority を露出
-  - **回避策**: `addNote` 等の API 呼び出しで `AnkiDroid-Api` 内部仕様に依存しない（公式 `FlashCardsContract` のみ使用）
-
----
-
-## 3. 既存コードベースとの統合
-
-### 3.1 既存 eizouden-android-arm64 への追加
-
-| 既存 | 追加 |
-|---|---|
-| `--ytdlp PATH` | そのまま |
-| `--ffmpeg PATH` | そのまま |
-| `cli` サブコマンド | `anki` サブコマンドを追加 |
-
-#### 起動例
+### 2.2 起動
 ```bash
 # YouTube + Anki ブリッジ（フル機能）
 ./eizouden-android-arm64 --ytdlp /path/to/yt-dlp --ffmpeg /path/to/ffmpeg
 
-# Anki ブリッジだけ（軽量、yt-dlp / ffmpeg 不要）
+# Anki ブリッジだけ（軽量）
 ./eizouden-android-arm64 anki \
-  --anki-package com.ichi2.anki \
+  --anki-proxy http://127.0.0.1:8080 \
+  --anki-media-dir /storage/emulated/0/AnkiDroid/collection.media \
   --listen 127.0.0.1:36441
 ```
 
-### 3.2 既存 AnkiConnect コンパチ API
+### 2.3 メディア書き込みフロー（①・Termux ダイレクト）
+1. Entei は `entei_audio/entei_video/entei_screenshot` の Blob を base64 で送る
+2. コンパニオンは **deterministic なファイル名** を自前生成（`generateMediaFilename` を hash ベースに）
+3. コンパニオンが `/storage/emulated/0/AnkiDroid/collection.media/<deterministic名>` に**直接ファイルを書く**
+4. 存在していれば同名で上書き（AnkiDroid は再ビルド不要で再生に反映）
+5. 書いた**ファイル名そのもの**を Entei に返す（改名なし・戻り値そのまま使用可能）
 
-公式 AnkiConnect v6 と完全互換のエンドポイント（Yomitan/asbplayer は無変更で繋がる）:
+### 2.4 ノート操作フロー（②・AnkiconnectAndroid プロキシ）
+- `canAddNotes` / `addNote` / `updateNoteFields` / `addTags` / `findNotes` / `notesInfo` を `http://127.0.0.1:8080` へ**そのままプロキシ**
+- コンパニオンは送信前に以下を正規化:
+  - `audio[]/video[]/picture[]` の JSON を **`params.note` 内部にネスト**（AnkiConnect 公式仕様）
+  - 各メディアの `filename` を **Termux が書いた deterministic 名** に差し替え
+- ノート DB の挿入は AnkiconnectAndroid の権限で実行
 
-| アクション | 互換性 | 用途 |
+---
+
+## 3. AnkiConnect 互換 API
+
+公式 AnkiConnect v6 と完全互換（Yomitan/asbplayer は無変更で繋がる）：
+
+| アクション | 互換性 | 経路 |
 |---|---|---|
-| `version6` | ✅ AnkiConnect 互換 | ヘルスチェック |
-| `canAddNotes` | ✅ AnkiConnect 互換 | 重複チェック |
-| `addNote` | 🔧 **拡張** (互換) | note + audio[]/video[]/picture[] 同時送信 |
-| `updateNoteFields` | ✅ AnkiConnect 互換 | 既存フィールド更新 |
-| `addTags` | ✅ AnkiConnect 互換 | タグ追加 |
-| `findNotes` | ✅ AnkiConnect 互換 | 検索 |
-| `notesInfo` | ✅ AnkiConnect 互換 | ノート情報取得 |
-| `cardsInfo` | ✅ AnkiConnect 互換 | カード情報取得 |
-| `findCards` | ✅ AnkiConnect 互換 | カード検索 |
-| `storeMediaFile` | ✅ AnkiConnect 互換（**hash 命名に変更**） | メディア保存 |
+| `version6` | ✅ 互換 | コンパニオン直接 |
+| `canAddNotes` | ✅ 互換 | AnkiconnectAndroid :8080 へプロキシ |
+| `addNote` | 🔧 拡張（互換） | :8080 へプロキシ（`note` + `audio[]`/`video[]`/`picture[]`） |
+| `updateNoteFields` | ✅ 互換 | :8080 へプロキシ |
+| `addTags` | ✅ 互換 | :8080 へプロキシ |
+| `findNotes` | ✅ 互換 | :8080 へプロキシ |
+| `notesInfo` | ✅ 互換 | :8080 へプロキシ |
+| `cardsInfo` | ✅ 互換 | :8080 へプロキシ |
+| `findCards` | ✅ 互換 | :8080 へプロキシ |
+| `storeMediaFile` | ✅ 互換（**Termux ダイレクトに切替**） | **collection.media へ直接書く** |
 
-### 3.3 `addNote` 拡張仕様（AnkiconnectAndroid 互換 + AnkiConnect 公式互換）
+### `addNote` 拡張仕様（AnkiConnect 公式互換）
 
-公式 AnkiConnect 6.x の `addNote` は `params.audio` / `params.video` / `params.picture` を**実は既にサポートしている**（AnkiConnect docs: https://foosoft.net/projects/anki-connect/#note-actions）。
-
-これに乗っかる形で、Yomitan/asbplayer/Entei 全てが同じリクエスト形式を使える:
+**`audio` / `video` / `picture` は `params.note` 内部にネストする**（AnkiConnect 公式仕様、FooSoft docs）。コンパニオンは `filename` を deterministic 名に差し替える：
 
 ```json
-POST /v1/anki/action
-Content-Type: application/json
+POST /v1/anki
 {
   "action": "addNote",
   "version": 6,
@@ -139,179 +117,151 @@ Content-Type: application/json
     "note": {
       "deckName": "Mining",
       "modelName": "Basic",
-      "fields": {
-        "Front": "猫",
-        "Back": "cat"
-      },
+      "fields": { "Front": "猫", "Back": "cat" },
       "tags": ["mining", "anime"],
-      "options": {
-        "allowDuplicate": false,
-        "duplicateScope": "deck"
-      }
-    },
-    "audio":  [
-      {
-        "filename": "entei_audio_abc123.webm",
-        "data": "<base64>",
-        "fields": ["Front"]
-      }
-    ],
-    "video":  [
-      {
-        "filename": "entei_video_abc456.webm",
-        "data": "<base64>",
-        "fields": ["Back"]
-      }
-    ],
-    "picture":[
-      {
-        "filename": "entei_screenshot_xyz789.jpg",
-        "data": "<base64>",
-        "fields": ["Back"]
-      }
-    ]
+      "options": { "allowDuplicate": false, "duplicateScope": "deck" },
+      "audio":  [ { "filename": "entei_audio_hashh.webm", "data": "<b64>", "fields": ["Front"] } ],
+      "video":  [ { "filename": "entei_video_hashh.webm", "data": "<b64>", "fields": ["Back"] } ],
+      "picture":[ { "filename": "entei_shot_hashh.jpg",  "data": "<b64>", "fields": ["Back"] } ]
+    }
   }
 }
 ```
-
-**コンパニオンの処理フロー**:
-1. `note` パラメータから `deckName` / `modelName` / `fields` / `tags` を抽出
-2. `audio[]`/`video[]`/`picture[]` の各エントリについて:
-   a. `_cacheDir/` に `filename` で一旦保存（FileProvider URI 化）
-   b. `addContent` ContentProvider 経由で AnkiDroid に登録 → **実際に collection.media にコピーされる**
-   c. **公式 AnkiConnect 形式の `[sound:filename]` / `<img src="filename">` / `<video src="filename">` 文字列を `fields` に自動 append**
-3. `fields` を AnkiDroid の `NoteAPI.addNote()` で INSERT
-4. noteId を返却
-
-### 3.4 `storeMediaFile` 拡張（AnkiconnectAndroid 互換）
-
-```json
-POST /v1/anki/action
-{
-  "action": "storeMediaFile",
-  "version": 6,
-  "params": {
-    "filename": "entei_audio_abc123.webm",
-    "data": "<base64>"
-  }
-}
-```
-
-**コンパニオンの処理フロー**:
-1. `_cacheDir/<filename>` にファイルを書く
-2. `FileProvider.getUriForFile()` で URI 化
-3. `grantUriPermission("com.ichi2.anki", uri, FLAG_GRANT_READ_URI_PERMISSION)` で AnkiDroid に読取権限を付与
-4. `FlashCardsContract.AnkiMedia` ContentProvider に INSERT
-5. 戻り値: **AnkiDroid が内部で正規化した最終ファイル名**（`abc123.webm` のような衝突回避形式）
-   - **重要**: 戻り値を必ず Entei Web に返すこと（Entei Web が `[sound:filename]` 文字列に埋め込む）
-   - **同一 Blob を 2 回送っても同じファイル名に収束**（AnkiDroid 内部の衝突回避ロジック任せ）
 
 ---
 
-## 4. Entei Web 側の変更（最小限）
+## 4. deterministic ファイル名（メディア本体）
 
-### 4.1 変更点: 既存 `addNote` 呼び出しを `note` + `audio` + `video` + `picture` 同時送信に変更
-
-**現状（修正前）**:
+### 現行のバグ（今回のリグレッション）
 ```ts
-// step 1: storeMediaFile (各メディア)
-// step 2: addNote (fields に [sound:filename] を手動で埋める)
+async function generateMediaFilename(prefix, ext) {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 8);  // ← 毎回変わる
+  return `${safePrefix}_${timestamp}_${random}.${safeExt}`;
+}
+```
+`Math.random()` が毎回違うため、**同じ動画を再エクスポートするたびに別ファイル名** になり、Anki コレクションが肥大化＋古いファイルが残る（スクショの `entei_audio_mterczve_...` と `entei_audio_mterd0ge_...` の 2 重発生）。
+
+### 修正（content-hash 命名）
+```ts
+export function generateMediaFilename(prefix: string, ext: string, content: Blob | Uint8Array) {
+  // media の content hash (SHA-256) を短縮 — 同一 Blob → 常に同一ファイル名
+  const hash = sha256Short(content);           // 先頭 10 hex
+  return `${prefix}_${hash}.${ext}`;           // e.g. entei_audio_a1b2c3d4e5.webm
+}
+```
+- **同一 Blob → 同一ファイル名** → 再エクスポートで同じファイルに上書き
+- **異なる内容 → 別ファイル名** → 意図しない衝突なし
+- deterministic → Entei 側で `[sound:filename]` を自前で埋めても、AnkiconnectAndroid の戻り値と一致する
+
+---
+
+## 5. メディア書き込み先の検出（Termux ダイレクト）
+
+### パス検出（自動）
+```
+1. /storage/emulated/0/AnkiDroid/collection.media     ← legacy 既定
+2. /sdcard/AnkiDroid/collection.media                  ← symlink
+3. ユーザー設定パス（Entei Settings で上書き可能）
+→ 最初に書き込みテストが成功した場所を自動採用
 ```
 
-**改善後**:
-```ts
-// step 1: addNote 1 ショットで note + 全メディアを同時送信
-const result = await client.addNote({
-  note: { deckName, modelName, fields, tags, options },
-  audio:  [{ filename, data: base64, fields: ['Front'] }],
-  video:  [{ filename, data: base64, fields: ['Back'] }],
-  picture:[{ filename, data: base64, fields: ['Back'] }],
-});
-```
+### 書き込み可否の検査（起動時）
+- ディレクトリが存在・`access(W_OK)` が通るか
+- 実際に一時ファイルを書いて→消す（書き込みテスト）
+- 失敗したら分かりやすいエラー: 「AnkiDroid の collection.media に書けません。AnkiDroid のコレクション場所を legacy（`/storage/emulated/0/AnkiDroid/`）にしてください」
 
-### 4.2 新規設定: 「Anki 接続先の URL」と「AnkiDroid Bridge を使うか」
+### Android バージョン別 権限
+| Android | Termux の権限取得 | collection.media への書き込み |
+|---|---|---|
+| 8〜10 | Settings → Termux → Storage | ✅（legacy storage） |
+| 11〜12 | Settings → Termux → Files and media → Manage all files | ✅（`MANAGE_EXTERNAL_STORAGE`） |
+| 13〜15 | Settings → Special app access → All files access → Termux | ✅（`MANAGE_EXTERNAL_STORAGE`） |
 
+---
+
+## 6. 前提条件と制約
+
+### 前提（ドキュメントに明記）
+1. **AnkiDroid は F-Droid / GitHub「full」版** を使用（Play Store 版は legacy パスを持たず、`Android/data` 配下は Termux から書けない）
+2. **コレクション場所が legacy**（`/storage/emulated/0/AnkiDroid/`）。ユーザーが「migrate」ボタンを押してアプリ内蔵パスに移してないこと
+3. **Termux にストレージ権限を付与**（初回 1 回）
+
+### 制約（明示）
+- 移行済みアプリ内蔵パスで動かしたい場合は Termux から書けない → コンパニオンは明確なエラーで案内（Play Store 版/移行済みは非対応とマーク）
+- `AnkiconnectAndroid` APK が未インストールの場合、ノート作成（canAddNotes/addNote 等）は不可 → エラーで案内
+
+---
+
+## 7. Entei Web 側の変更（最小限）
+
+### 7.1 変更 1: `storeMediaFile` → Termux ダイレクト
+- コンパニオンの `storeMediaFile` は **collection.media へ直接書き込み** するように変更
+- **戻り値（deterministic ファイル名）を使う**よう修正（`PlayerApp.tsx:3597-3616` など）
+
+### 7.2 変更 2: `addNote` の JSON ネスト修正
+- `audio[]/video[]/picture[]` を **`params.note` 内部** に移す
+- コンパニオンは `filename` を deterministic 名に差し替えるため、Entei 側で名前を書き換える必要なし
+
+### 7.3 変更 3: 接続先設定
 `apps/web/src/features/player/anki-miner-preferences.ts` に追加:
 ```ts
 interface AnkiConnectionConfig {
-  /** AnkiConnect API URL. 既存ユーザー = http://127.0.0.1:8765 (公式). 新規ユーザー = http://127.0.0.1:36441 (EizouDendenshi AnkiDroid Bridge) */
-  endpoint: string;
-  /** AnkiDroid ユーザーは true にすると audio/video/picture 配列を addNote に同時送信 (PC AnkiConnect は false = 自動判定で上書き) */
-  useAnkiconnectAndroidBridge: boolean;
+  endpoint: string;                       // 既定: http://127.0.0.1:8765 (PC 公式)
+  useAnkiconnectAndroidBridge: boolean;   // Android なら true
 }
 ```
+- 既定 `endpoint: 'http://127.0.0.1:8765'`、`useAnkiconnectAndroidBridge: false`
+- Android 向けに「接続先を127.0.0.1:36441 / ブリッジを使う」に切り替え
 
-- 既定値: `endpoint: 'http://127.0.0.1:8765'`、`useAnkiconnectAndroidBridge: false`
-- ユーザーが AnkiDroid ブリッジ経由で送信したい場合、Settings → Anki で「**Use EizouDendenshi Companion (Android)**」を選択 → 自動的に `endpoint: 'http://127.0.0.1:36441'` ＆ `useAnkiconnectAndroidBridge: true`
-
-### 4.3 後方互換性
-- 既存の `storeMediaFile` → `addNote` の 2 ステップ呼び出しは**そのまま動く**（既存ユーザーへの破壊的変更なし）
-- AnkiConnect 公式の 4 アクションが既存フィールド仕様（`[sound:filename]`）で動作することも保証
+### 7.4 後方互換性
+- PC の公式 AnkiConnect（:8765）へは**既存の `storeMediaFile` → `addNote` 2ステップ呼び出しを維持**
+- 変更は Android / ブリッジ接続時のみ有効（`useAnkiconnectAndroidBridge` が true のときだけ）
 
 ---
 
-## 5. 互換性マトリクス
+## 8. 互換性マトリクス
 
-| クライアント | 公式 AnkiConnect サーバ (PC) | EizouDendenshi Android Companion |
+| クライアント | 公式 AnkiConnect (PC :8765) | EizouDendenshi Android Bridge (:36441) |
 |---|---|---|
-| **Entei Web (現在の実装)** | ✅ 動作中 | ✅ 動作（4.2 設定切替で新形式に） |
-| **Yomitan (PC)** | ✅ 動作中 | ✅ 動作（Yomitan 設定で URL 変更のみ） |
-| **Yomitan (Android/Firefox)** | ❌ 動かない | ✅ 動作（Firefox Android ＋ port forward） |
-| **asbplayer (PC)** | ✅ 動作中 | ✅ 動作（asbplayer 設定で URL 変更のみ） |
-| **asbplayer (Android)** | ❌ 動かない | ✅ 動作（要検証） |
+| **Entei Web** | ✅ 既存 | ✅ 新設定切替 |
+| **Yomitan (PC)** | ✅ 既存 | ✅ URL 変更のみ |
+| **Yomitan (Android Firefox)** | ❌ | ✅ URL 変更のみ |
+| **asbplayer (PC)** | ✅ 既存 | ✅ URL 変更のみ |
+| **asbplayer (Android)** | ❌ | ✅（要検証） |
 
 ---
 
-## 6. セキュリティ
+## 9. セキュリティ
 
-### 6.1 既存パターン踏襲
-- **Origin gate**: `http://127.0.0.1:36441` のみ listen（外部バインド禁止）
-- **Capability token gate**: 既存 `internal/credential` で永続化された opaque token を `Authorization: Bearer <token>` で検証
-- **API key 検証**: AnkiConnect 公式と同じ `key` パラメータをサポート（Entei 設定のキーと照合）
-
-### 6.2 追加対策
-- **キャッシュディレクトリ**: `_cacheDir/entei-anki/<filename>`（アプリ固有）
-- **キャッシュ自動削除**: AnkiDroid INSERT 成功後 1 分以内に OS のガベージコレクタ任せ（FileProvider 経由の読取完了後）
-- **ContentProvider 権限スコープ**: AnkiDroid に `FLAG_GRANT_READ_URI_PERMISSION` を AnkiDroid パッケージのみに付与
+- **既存パターン踏襲**: `127.0.0.1:36441` only・capability token gate・Origin gate は既存 `internal/credential` を流用
+- **AnkiconnectAndroid プロキシは外部へ暴露しない**: 127.0.0.1 から → 127.0.0.1:8080 への閉域ループのみ
+- **メディアファイル名は sanitize**（`[^a-zA-Z0-9_-]` 除去）でパストラバーサル防止
+- **書き込み先パスは whitelist のみ**（検出またはユーザー明示パスのみ・任意パス書き込みは許可しない）
 
 ---
 
-## 7. 開発・テスト計画
+## 10. 開発・テスト計画
 
-### 7.1 段階
-1. **Phase 1 (MVP)**: AnkiConnect 公式互換の 4 アクション（`addNote` / `canAddNotes` / `storeMediaFile` / `version6`）のみ。Entei Web から Android へエクスポート成功。
-2. **Phase 2**: 全 AnkiConnect v6 互換（`findNotes` / `notesInfo` / `updateNoteFields` / `addTags` / `cardsInfo` / `findCards`）。
-3. **Phase 3**: Yomitan / asbplayer 互換性テスト（E2E）。他ツールからの接続検証。
-4. **Phase 4**: パフォーマンス最適化（並列メディアアップロード、ContentProvider batch INSERT）。
+### Phase 分け
+1. **Phase 1（MVP）**: メディア書き込み（Termux ダイレクト・deterministic 名）＋ `version6`。Entei → AnkiDroid の**メディア保存**のみ成功
+2. **Phase 2**: `canAddNotes` / `addNote` / `updateNoteFields` / `addTags` を AnkiconnectAndroid :8080 へプロキシ
+3. **Phase 3**: `findNotes` / `notesInfo` / `cardsInfo` / `findCards` をプロキシ（全 AnkiConnect v6 互換）
+4. **Phase 4**: Yomitan / asbplayer の Android 実機 E2E テスト
 
-### 7.2 テストマトリクス
-| | AnkiConnect 公式 (PC) | AnkiDroid (Android) |
-|---|---|---|
-| **Entei Web** | 既存テストで動作 | Phase 1 追加テスト |
-| **Yomitan** | E2E 既存 | Phase 3 で新規 |
-| **asbplayer** | E2E 既存 | Phase 3 で新規 |
-
-### 7.3 配布・アップデート
-- **バイナリサイズ影響**: 既存 21.7MB → +5〜8MB 程度（Android SDK 依存の AnkiDroid 連携部分）
-- **リリースサイクル**: 既存 eizouden-android-arm64 リリースに同梱。Versioning は `0.4.0-rc.1` → `0.4.0`（minor bump）
+### 要実機確認
+- AnkiDroid full 版 legacy パスでの書き込み（Android 8 / 11 / 14 の 3 種）
+- AnkiconnectAndroid の `addNote` が `audio[]/video[]/picture[]` を受け取るか
+- deterministic 名のメディアが同期時に正しく検知されるか（Check Media 後）
 
 ---
 
-## 8. 将来の拡張（スコープ外）
-
-- **iOS 対応**: AnkiMobile は ContentProvider を提供しないため、別設計（WebSocket bridge to iOS Share Extension 等）が必要
-- **既存 AnkiConnect (PC) と同じ使用感での自動マイグレーション**: 検出したらエンドポイント自動切替
-- **Conflict 解決**: AnkiDroid + EizouDendenshi 双方が同じノートを編集した場合の競合解決
-
----
-
-## 9. リスクと緩和
+## 11. リスクと緩和
 
 | リスク | 影響 | 緩和策 |
 |---|---|---|
-| AnkiDroid のバージョン間で `FlashCardsContract` 仕様が変わる | API 呼び出しが失敗 | バージョン検出 → フォールバック API へ動的切替 |
-| Termux アプリから `grantUriPermission` が動かない Android バージョン | メディアが AnkiDroid にコピーされない | FileProvider の代替 (EXTRA_STREAM) 経由を実装 |
-| AnkiDroid の `READ_WRITE_PERMISSION` 許可を取り消された | 突然エクスポートが失敗 | 検出時にフロントへ UI 通知 + 設定で再許可手順を提示 |
-| メディアファイルサイズが AnkiDroid の limit を超える | `storeMediaFile` がエラー | クライアント側で事前サイズチェック + 自動スキップ |
-| `com.ichi2.anki` パッケージが端末に入っていない | 全機能停止 | 起動時に detection → 分かりやすいエラーで早期終了 |
-| Entei 既存ユーザー（PC）の破壊的変更 | PC 機能の損壊 | デフォルト `useAnkiconnectAndroidBridge: false`、明示的 opt-in のみ |
+| AnkiDroid が legacy パスを廃止 | 書けない | F-Droid / GitHub full 版が維持する方針が明言済み。将来廃止時は SAF（Storage Access Framework）へ移行 |
+| AnkiconnectAndroid の JSON 解釈が公式と微妙に違う | ノート作成失敗 | プロキシ時に正規化＋実機テスト |
+| AnkiDroid のメディア同期が deterministic 名を検知しない | 同期で消える | Check Media の仕様を確認。必要なら `.media.db2` への登録も検討 |
+| Termux のストレージ権限が Android バージョンで変わる | 書けない | 8〜15 の権限取得手順をガイドに同梱 |
+| Entei 既存 PC ユーザーの破壊的変更 | PC 機能損壊 | 既定 `useAnkiconnectAndroidBridge: false`、明示 opt-in のみ |
