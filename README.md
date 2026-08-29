@@ -78,7 +78,7 @@ Entei is designed around user privacy:
 - **No Server Storage:** We do not host server-side proxies, cache servers, or search indexes. Your media files are never uploaded to any remote server.
 - **Local Anki Connect:** Card creation requests are sent directly to `localhost:8765` on your own machine. Your API keys are kept in session memory and are never saved to local storage, URLs, or external logs.
 - **Companion Network Exposure:** When streaming a magnet or YouTube source via the EizouDendenshi companion, the companion (not the browser) connects to public BitTorrent swarms or YouTube, so your public IP address is visible to swarm peers/trackers or YouTube.
-- **No External Partnerships:** Integration with external tools or platforms like Nadeshiko is not implemented, and no partnerships exist.
+- **Client-Side External Integrations (BYOK):** Any optional third-party integrations (such as the Nadeshiko search API) connect directly from your browser using your own API key. Entei operates no backend proxy and never receives, logs, or stores your API keys or search data on remote servers.
 
 ---
 
