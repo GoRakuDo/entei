@@ -11,13 +11,13 @@ import (
 // fallback best ≤1080p combined, fallback best.
 const qualityFormat = "bv*[height<=1080]+ba/b[height<=1080]/b"
 
-// speedFormat — progressive-only, instant playback. `b` is yt-dlp's "best
-// format that contains BOTH video and audio" selector — a single muxed file
-// (e.g. YouTube 22/18/37) that can be streamed from byte 0 while still
-// downloading, with no ffmpeg mux step. No DASH fallback: if no progressive
-// format exists (rare, e.g. some live streams), yt-dlp fails with a
-// "Requested format is not available" error and the job errors clearly.
-const speedFormat = "b"
+// speedFormat — progressive-first with DASH fallback. `b` is yt-dlp's
+// "best format that contains BOTH video and audio" selector (e.g. YouTube
+// 22/18/37) that can be streamed from byte 0 while still downloading.
+// When YouTube offers no progressive format (modern 1080p/4K-only uploads
+// where only separate video+audio exist), falls back to DASH-1080p+audio
+// so the video downloads and plays rather than failing with "Requested format is not available".
+const speedFormat = "b/bv*[height<=1080]+ba/b[height<=1080]/b"
 
 // heightPrintTemplate writes the selected format's height (e.g. "720") to a
 // sidecar file so the companion can report the actual resolution for the

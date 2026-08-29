@@ -847,19 +847,19 @@ func TestSelectedSubtitleContentBeforeComplete(t *testing.T) {
 }
 
 // TestHelperArgsSpeedUsesProgressive verifies that speed mode selects the
-// progressive single-file format (`b`) and DROPS `--no-part`, so yt-dlp
-// writes a growing .part file for instant streaming.
+// progressive-first format selector with DASH fallback and DROPS `--no-part`,
+// so yt-dlp writes a growing .part file for streaming.
 func TestHelperArgsSpeedUsesProgressive(t *testing.T) {
 	args := helperArgs("/tmp/job", "https://www.youtube.com/watch?v=abcdefghijk", ModeSpeed)
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "-f "+speedFormat) {
-		t.Errorf("speed args missing progressive selector %q: %v", speedFormat, args)
+		t.Errorf("speed args missing format selector %q: %v", speedFormat, args)
 	}
 	if strings.Contains(joined, "--no-part") {
 		t.Errorf("speed args must NOT contain --no-part (need .part growth): %v", args)
 	}
-	if strings.Contains(joined, qualityFormat) {
-		t.Errorf("speed args must not use DASH selector: %v", args)
+	if !strings.HasPrefix(speedFormat, "b/") {
+		t.Errorf("speed format must prioritize progressive `b/`: %v", speedFormat)
 	}
 	// Quality default retains --no-part + DASH selector.
 	qargs := helperArgs("/tmp/job", "https://www.youtube.com/watch?v=abcdefghijk", ModeQuality)
