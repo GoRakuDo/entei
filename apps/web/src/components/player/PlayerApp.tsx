@@ -196,6 +196,30 @@ export const SUBTITLE_RETRY_INTERVAL_MS = 5000;
  *  the subtitle-fetch retry tests. */
 export const SUBTITLE_RETRY_WINDOW_MS = 3 * 60 * 1000;
 
+/**
+ * Whether the "subtitle sync" button in the right panel should be hidden.
+ *
+ * Spec: docs/SUBTITLE_SYNC.md §2.11-12.
+ *   - YouTube: hidden (subs are already accurate).
+ *   - Anything else: shown only for local .mkv/.mp4; hidden for other files.
+ *
+ * Exported so apps/web/tests/player-app-hide-sync-subtitle.test.ts can
+ * pin the predicate independently of the React tree.
+ */
+export function shouldHideSubtitleSync(args: {
+  jobKind: 'youtube' | 'torrent' | null;
+  isMagnet: boolean;
+  mediaName: string;
+}): boolean {
+  const lowerMediaName = args.mediaName.toLowerCase();
+  const isLocalVideo =
+    lowerMediaName.endsWith('.mkv') || lowerMediaName.endsWith('.mp4');
+  // SUBTITLE_SYNC.md §2.11-12: YouTube → hidden; else gate on local .mkv/.mp4.
+  // `null` jobKind is "no active job" — fall through to the file-extension
+  // gate (with an empty mediaName that's `true`, i.e. hidden).
+  return args.jobKind === 'youtube' || !isLocalVideo;
+}
+
 /** Companion start-buffering safety timeout: if the overlay has shown but
  *  canplay never fires (e.g. a stalled .part), hide it after 15 s so the
  *  player does not sit on the overlay forever. Longer than the 5 s seek
@@ -4378,11 +4402,12 @@ export default function PlayerApp() {
   void subtitleErrors; // keep state read (future re-enable of the block)
   const subtitleErrorsBlock = null;
 
-  const lowerMediaName = mediaName.toLowerCase();
-  const hideSyncSubtitle =
-    jobSession.kind === 'youtube' ||
-    !isMagnet ||
-    !(lowerMediaName.endsWith('.mkv') || lowerMediaName.endsWith('.mp4'));
+  // SUBTITLE_SYNC.md §2.11-12: hide for YouTube; show for .mkv/.mp4.
+  const hideSyncSubtitle = shouldHideSubtitleSync({
+    jobKind: jobSession.kind,
+    isMagnet,
+    mediaName,
+  });
 
   return (
     <div
