@@ -385,6 +385,17 @@ modernc.org/sqlite の pure-Go ランタイム（SQLite 全文 + libc 純 Go 実
 - フラグ体系を整理：`--anki-proxy` 削除、`--anki-collection` 追加、`--anki-media-dir` は維持
 - ステータスエンドポイント：`proxyConfigured` → `enabled` + `collectionOpen` + `collectionPath` に拡張
 
+### Test evidence (v4.2, 2026-08-31)
+
+実クライアントフローのシミュレーション（`internal/api/anki_e2e_test.go`）。real TCP socket (httptest) 上で `srv.handleRawAnkiConnect` を実走させ、Yomitan / Entei の実際の呼び出し順序と CORS Origin を 1 リクエストごとに検証する。
+
+- Scenario 1 — Yomitan flow: 10 アクションを exact order で（version → deckNames → modelNames → modelFieldNames → canAddNotes → addNote → findNotes → notesInfo → updateNoteFields → addTags）。全リクエストに `Origin: https://entei.gorakudo.org` を付与し、うち 2 リクエストは `Origin: chrome-extension://abc`（Yomitan の拡張 Origin）。全レスポンスで `Access-Control-Allow-Origin: *` を assert。DB write proof：updateNoteFields / addTags 後に notesInfo を再取得してフィールド・タグの変更を観測。`TestE2EYomitanFlow`
+- Scenario 2 — Entei mining flow: 単一 addNote で audio + video + picture を抱えた AM-6 のデプロイ形。3 つの決定論的ファイル名（`anki.GenerateFilenameFromProvided`）が `notesInfo` の Front/Back フィールド内 markup（`[sound:...]` / `<img src="...">`）に現れ、かつ collection.media に同一ファイルが存在することを assert。storeMediaFile ラウンドトリップ：`pre.webm` を送って hash ベース名（≠ "pre.webm"）が返り、ファイルが存在し、`[sound:<storedName>]` を埋め込んだ addNote の notesInfo が storedName をエコー。`TestE2EEnteiMiningFlow`
+- Scenario 3 — failure surfaces: unknown action → `{result:null, error:non-empty}`、`allowDuplicate:false` 同 first field 2 回目 → `{result:null, error:null}`、GET → 200 + AnkiConnect envelope（panic なし）、`Host: evil.example.com` → 403。`TestE2EFailureSurfaces`
+- Scenario 4 — real listener round-trip: ephemeral port を pre-bind → `s.rawAnkiAcceptedHosts` に addr 登録 → `StartRawAnkiConnectListener(addr)` → real `http.Client` で version + addNote を実線に送信して両方成功 → `coll.NotesInfo` で DB write proof。`TestE2EStartRawAnkiConnectListenerRoundTrip`
+
+実行: `go test ./internal/api/ -run 'TestE2E' -v -count=1` → 4 PASS。`go test ./internal/api/... ./internal/anki/... ./cmd/eizouden/... -count=1` → 全 PASS。
+
 ### v2.0（2026-08-29）
 - Termux ダイレクト collection.media 書き込み + AnkiconnectAndroid :8080 プロキシ 2 層構成
 - `eizouden-android-arm64` 配布物に `anki` サブコマンド内蔵
