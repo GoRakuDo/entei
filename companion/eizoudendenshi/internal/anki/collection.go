@@ -72,13 +72,13 @@ type colRow struct {
 }
 
 // ErrCollectionNotOpen is returned by every Collection method when the
-// receiver is nil (or already Closed). The /v1/anki/action handler maps
-// this to 503 with a "collection not available" message.
+// receiver is nil (or already Closed). The raw AnkiConnect handler
+// maps this to an envelope with "anki collection not available".
 var ErrCollectionNotOpen = errors.New("anki: collection not open")
 
 // ErrUnsupportedSchema is returned when the opened database is missing
-// the expected `notes` / `cards` / `col` tables. The /v1/anki/action
-// handler maps this to 503 with a clear schema-version hint.
+// the expected `notes` / `cards` / `col` tables. The raw AnkiConnect
+// handler maps this to an envelope with a clear schema-version hint.
 var ErrUnsupportedSchema = errors.New("anki: collection schema not supported")
 
 // ErrBadQuery is returned for FindNotes queries outside the documented
@@ -457,8 +457,8 @@ func (c *Collection) Close() error {
 }
 
 // Path returns the collection file path the receiver was opened on.
-// Safe to expose in /v1/anki/status (the path is the same one the
-// operator passed via --anki-collection; not a secret).
+// Safe to expose in the terminal handoff line (the path is the same
+// one the operator passed via --anki-collection; not a secret).
 func (c *Collection) Path() string {
 	if c == nil {
 		return ""

@@ -1,257 +1,416 @@
+// Raw AnkiConnect-compatible listener (spec v4.0, 2026-08-31) — the
+// ONLY Anki surface the companion exposes.
+//
+// Why this exists: the deployed Entei web points its Anki endpoint at
+// the DEFAULT http://127.0.0.1:8765 (the official AnkiConnect port);
+// the prior /v1/anki/action endpoint sat at 4322 (origin+token gated)
+// and Entei saw "Disconnected" with zero config. Yomitan targets 8765
+// too. v4.0 replaces the token-gated /v1/anki/{media,action,status}
+// surface entirely with a raw, byte-compatible AnkiConnect surface on
+// 127.0.0.1:8765. Nothing used /v1/anki/* in production; the second
+// surface was pure cost. Entei / Yomitan / asbplayer now talk to the
+// 8765 surface directly with the wire envelopes they already speak.
+//
+// Threat model (deliberate divergence from the removed /v1/anki/*
+// routes): the raw listener binds LOOPBACK ONLY and serves CORS-
+// wildcard (`Access-Control-Allow-Origin: *`, allow Content-Type,
+// allow POST + OPTIONS). This matches AnkiconnectAndroid and the
+// official AnkiConnect plugin's posture — browser extensions like
+// Yomitan have extension origins that cannot be allowlisted, and the
+// loopback bind means the surface is unreachable from off-host. The
+// /v1/* routes (pairing, media, status) keep their strict origin
+// allowlist; this file owns a single surface, the raw one.
+//
+// Authentication: when AnkiBridge.APIKey is set (the companion flag
+// `--anki-api-key <key>`), the body MUST carry a matching `key` field
+// (AnkiConnect's own convention). When unset, all callers are
+// accepted — matching AnkiconnectAndroid which has no auth surface.
+//
+// Conflict tolerance: if 8765 is already bound (official AnkiConnect
+// running on a desktop, dev harness, etc.), the listener start
+// returns EADDRINUSE. The caller logs a one-line warning and the
+// process continues serving everything else. The companion must
+// never crash because a desktop AnkiConnect is running.
+//
+// This file owns the entire Anki surface:
+//
+//   - dispatchAnkiAction: the in-process dispatcher (version, deckNames,
+//     addNote, storeMediaFile's media-rewrite, findNotes, …). The raw
+//     handler delegates here, so any future action added here is
+//     automatically exposed.
+//   - the AnkiConnect wire envelope (request/response shapes, error
+//     mapping into the {"result": …, "error": …} shape).
+//   - the addNote media-array rewrite (audio/video/picture →
+//     deterministic filename + MediaWriter.Write + [sound:…] tag
+//     append to named fields).
+//   - StartRawAnkiConnectListener: the bind + goroutine lifecycle for
+//     the second HTTP server on 127.0.0.1:8765.
+
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"eizoudendenshi/internal/anki"
 )
 
-// AnkiDroid bridge routes (ED-3 / spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md
-// v3.0, 2026-08-30):
-//
-//	POST /v1/anki/media   — body {"filename": "...", "data_base64": "..."}
-//	                       → MediaWriter.Write → respond {"filename": "<stored>"}
-//	                       64 MB hard cap on the request body.
-//	POST /v1/anki/action  — body is the full AnkiConnect envelope
-//	                       {"action": "...", "version": ..., "params": {...}}
-//	                       → dispatch DIRECTLY on the AnkiDroid
-//	                       collection.anki2 SQLite database via the
-//	                       anki.Collection layer. The prior
-//	                       AnkiconnectAndroid (:8080) HTTP proxy was
-//	                       removed entirely in v3.0. addNote still
-//	                       runs the audio/video/picture media-array
-//	                       rewrite so each entry's "filename" is the
-//	                       deterministic content-hash name of its
-//	                       decoded "data" (bytes are written via
-//	                       MediaWriter; the deterministic filename is
-//	                       what the companion stores as the
-//	                       [sound:...] / <img...> tag in the note
-//	                       field).
-//	GET  /v1/anki/status  — non-sensitive readiness snapshot:
-//	                       {"enabled": bool,
-//	                        "collectionOpen": bool,
-//	                        "mediaDirWritable": bool,
-//	                        "mediaDir": "<path or empty>",
-//	                        "collectionPath": "<path or empty>"}.
-//	                       Paths are not sensitive (spec §9). Capability
-//	                       tokens are NEVER in responses or logs.
-//
-// All three routes share the exact Origin + capability-token gates of
-// the media endpoints; CORS preflights advertise POST / GET / OPTIONS
-// with Content-Type.
-//
-// Routes are registered ONLY when Config.Anki != nil (the companion
-// command wires the bridge when the AnkiDroid collection opens
-// successfully at startup). With no bridge configured the paths stay
-// 404 — zero behavior change for existing callers (spec §2.1 / Phase
-// plan).
+// rawAnkiConnectBind is the fixed loopback address for the raw
+// AnkiConnect-compatible listener. Mirrors the upstream AnkiConnect
+// default so Entei / Yomitan / asbplayer work with ZERO config. The
+// bind is loopback-only — the threat model relies on it. Exported
+// (RawAnkiConnectBind) so the companion command can pass it to
+// StartRawAnkiConnectListener without re-declaring the literal.
+const RawAnkiConnectBind = "127.0.0.1:8765"
 
-// ankiMediaBody is the inbound shape for /v1/anki/media.
-//   - filename: optional. Caller-provided stem + extension; the response
-//     returns the SANITIZED deterministic form.
-//   - data_base64: standard-base64 encoded media bytes. Empty /
-//     whitespace-only is rejected at decode time → 400.
-type ankiMediaBody struct {
-	Filename  string `json:"filename"`
-	DataBase64 string `json:"data_base64"`
+// rawAnkiConnectDefaultAcceptedHosts builds the default DNS-rebinding
+// accepted-host set from RawAnkiConnectBind. The port is derived
+// from the constant so a future bind change automatically updates
+// the accepted set without leaving a stale literal behind. IPv6
+// loopback is also accepted for symmetry with the constant's IPv4
+// loopback. Empty Host (HTTP/1.0-style requests) is allowed via the
+// r.Host == "" branch in handleRawAnkiConnect, not as a map entry.
+// Called once at package init to populate rawAnkiConnectAcceptedHosts
+// (the per-Server default).
+func rawAnkiConnectDefaultAcceptedHosts() map[string]struct{} {
+	return map[string]struct{}{
+		"127.0.0.1": {},
+		"localhost": {},
+		"::1":       {},
+	}
 }
 
-// ankiMediaResponse is the success reply for /v1/anki/media.
-// `filename` is the deterministic stored name — the value AnkiDroid
-// indexes in collection.media. The web-side Player reads it back as
-// the `[sound:filename]` field token.
-type ankiMediaResponse struct {
-	Filename string `json:"filename"`
+// rawAnkiConnectMaxBodyBytes is the hard cap on the raw listener's
+// request bodies (64 MiB). Picture / video entries can be embedded in
+// addNote payloads, and the cap keeps a hostile caller from forcing
+// unbounded memory use. The cap matches what AnkiconnectAndroid
+// applies.
+const rawAnkiConnectMaxBodyBytes = 64 << 20
+
+// ankiConnectEnvelope is the wire shape every AnkiConnect client
+// sends. We parse it once and re-dispatch via dispatchAnkiAction (the
+// only Anki surface), so any future action added to that dispatcher
+// is automatically exposed on the raw surface too.
+//
+// `key` is the optional AnkiConnect-style API key. The dispatcher
+// checks it BEFORE running the action so a key-mismatched caller
+// never even reads from the SQLite collection.
+type ankiConnectEnvelope struct {
+	Action  string          `json:"action"`
+	Version int             `json:"version"`
+	Params  json.RawMessage `json:"params"`
+	Key     string          `json:"key"`
 }
 
-// ankiActionBody is the inbound shape for /v1/anki/action: a full
-// AnkiConnect envelope. The fields are read here (so addNote
-// rewrites can run) and the params subtree is dispatched on the
-// SQLite layer.
+// ankiConnectResponse is the standard AnkiConnect reply envelope:
+// HTTP 200 with {"result": <result>, "error": <error|null>} on
+// EVERY code path, including the "unknown action" case (matching
+// AnkiconnectAndroid's behaviour). Callers parse the `error` field
+// to detect failure; the HTTP status is always 200.
+//
+// We marshal `result` as a json.RawMessage so the inner shape is
+// forwarded verbatim (numbers stay numbers, nulls stay nulls). When
+// the dispatcher returns an error, `result` is JSON `null` and
+// `error` carries a human-readable string. The duplicate-note case
+// is special-cased: `result` is `null` AND `error` is `null` (the
+// documented addNote allowDuplicate=false contract).
+type ankiConnectResponse struct {
+	Result json.RawMessage `json:"result"`
+	Error  json.RawMessage `json:"error"`
+}
+
+// ankiActionBody is the internal shape passed to the dispatcher. It
+// matches the AnkiConnect envelope field-for-field so a parsed
+// ankiConnectEnvelope can be forwarded as-is. Kept as a named type
+// so the dispatcher's signature is self-documenting.
 type ankiActionBody struct {
 	Action  string          `json:"action"`
 	Version int             `json:"version"`
-	Params  json.RawMessage `json:"params,omitempty"`
+	Params  json.RawMessage `json:"params"`
 }
 
-// ankiStatusBody is the metadata-only reply for /v1/anki/status. It
-// is a small fixed shape so the web-side diagnostic UI can render a
-// pass/fail summary without parsing JSON-path probes. The capability
-// token / pairing code / AnkiDroid user data are NEVER in the body.
+// ankiMediaBody is the inbound shape for storeMediaFile:
+// {"filename": "...", "data": "<base64>"}. The data field is
+// standard AnkiConnect naming (the removed /v1/anki/media surface
+// used data_base64; the raw surface follows the wire convention).
+type ankiMediaBody struct {
+	Filename string `json:"filename"`
+	Data     string `json:"data"`
+}
+
+// ErrMediaWriterUnavailable is returned by the addNote media-rewrite
+// path when the bridge is wired in notes-only mode (DB open, Writer
+// nil — the Termux collection.media probe failed or was skipped). The
+// raw handler maps it to an AnkiConnect-shaped error envelope with
+// the message "anki media writer not available on this platform".
+// The guard fires ONLY when the inbound addNote actually carries
+// audio / video / picture arrays with non-empty data — a text-only
+// addNote against a notes-only bridge is perfectly valid and inserts
+// normally (a defensive panic on a notes-only bridge would block
+// note-taking entirely for any caller whose media path failed).
+var ErrMediaWriterUnavailable = errors.New("anki: media writer not available on this platform")
+
+// handleRawAnkiConnect is the http.Handler served on the raw
+// listener. It accepts any path (AnkiConnect clients POST to root;
+// some libraries POST to / or to a fixed endpoint like /anki — we
+// match on the JSON envelope shape, not the URL). The handler
+// applies four gates:
 //
-// v3.0 (2026-08-30): added collectionOpen / collectionPath. The prior
-// proxyConfigured boolean was replaced by `enabled` (the bridge is
-// enabled when the Collection opened at startup; the routes still
-// register even when it didn't, so the operator sees a clear status
-// without a restart).
-type ankiStatusBody struct {
-	Enabled          bool   `json:"enabled"`
-	CollectionOpen   bool   `json:"collectionOpen"`
-	CollectionPath   string `json:"collectionPath"`
-	MediaDirWritable bool   `json:"mediaDirWritable"`
-	MediaDir         string `json:"mediaDir"`
-}
+//  1. Method: POST or OPTIONS only. GET / DELETE → 200 + AnkiConnect
+//     envelope with "unsupported method: X" error (the wire contract
+//     keeps HTTP 200 even on misrouted requests, matching
+//     AnkiconnectAndroid / official AnkiConnect).
+//  2. CORS preflight: OPTIONS → 204 with Access-Control-Allow-Origin: *
+//     and the documented allow-headers / allow-methods. This is the
+//     loopback-only threat-model branch and MUST stay permissive so
+//     Yomitan (extension origin) can reach the bridge.
+//  3. JSON envelope: body must decode to {action, ...}; missing
+//     action → error envelope "missing action".
+//  4. API key (when configured): body.key must match
+//     s.anki.APIKey via constant-time compare.
+//
+// On success the response is the AnkiConnect wire envelope (HTTP
+// 200, `result` populated, `error` null). On failure it's still
+// HTTP 200 with `result` null and a human-readable `error` string;
+// callers (Entei / Yomitan / asbplayer) check the JSON `error`
+// field, never the HTTP status.
+func (s *Server) handleRawAnkiConnect(w http.ResponseWriter, r *http.Request) {
+	// DNS-rebinding guard: with CORS `*` on loopback, the one
+	// remaining gap is a public hostname pointed at 127.0.0.1 by a
+	// rebinding attacker — the Host header then reveals it. Yomitan /
+	// Entei always send 127.0.0.1 (or localhost / [::1]) so we accept
+	// the loopback hostnames for the configured port and reject
+	// everything else with 403. The check runs BEFORE CORS headers
+	// and BEFORE body parsing, so a rebinding probe gets nothing
+	// back (not even CORS reflection). Empty r.Host (HTTP/1.0-style
+	// requests without a Host header) is allowed — those are
+	// unlikely to be rebinding vectors (no hostname to rebind).
+	if r.Host != "" {
+		hostOnly, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			// No port in Host (HTTP/1.0 style or bare IPv6) — use as-is.
+			hostOnly = r.Host
+		}
+		hosts := s.rawAnkiAcceptedHosts
+		if hosts == nil {
+			// Zero-value Server (e.g. tests) — fall back to the package
+			// default loopback set so the guard stays active.
+			hosts = rawAnkiConnectDefaultAcceptedHosts()
+		}
+		if _, ok := hosts[hostOnly]; !ok {
+			http.Error(w, "invalid host", http.StatusForbidden)
+			return
+		}
+	}
+	// CORS headers are unconditional on the raw listener — the
+	// threat model is loopback bind, not origin allowlist.
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-// ankiMaxBodyBytes is the hard cap on /v1/anki/media request bodies.
-// 64 MB matches the spec Phase 1 design — the heaviest single media
-// payload Entei / Yomitan ship is well under this, and the cap keeps
-// a hostile caller from forcing unbounded memory use. /v1/anki/action
-// uses the same cap because picture/video entries can be embedded.
-const ankiMaxBodyBytes = 64 << 20 // 64 MiB
+	switch r.Method {
+	case http.MethodOptions:
+		// Preflight: respond with the same CORS surface as a normal
+		// POST so the browser permits the follow-up. No envelope is
+		// expected and none is read — the body is irrelevant.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case http.MethodPost:
+		// Fall through to the body-dispatch path below.
+	default:
+		// AnkiConnect clients always POST; anything else is an
+		// error path. Stay on the AnkiConnect wire contract:
+		// HTTP 200 + error envelope (NOT 405). This matches what
+		// AnkiconnectAndroid and official AnkiConnect return for
+		// a misrouted request.
+		writeRawAnkiConnectError(w, fmt.Sprintf("unsupported method: %s", r.Method))
+		return
+	}
 
-// handleAnkiMedia serves POST /v1/anki/media: decode the base64 data,
-// hand it to MediaWriter.Write (which produces the deterministic
-// content-hash filename + write), and reply with the stored name. The
-// Origin + token gates run first so a malformed body cannot bypass
-// authentication.
-func (s *Server) handleAnkiMedia(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		s.handleAnkiPreflight(w, r)
-		return
-	}
-	if r.Method != http.MethodPost {
-		writeMethodNotAllowed(w, "POST, OPTIONS")
-		return
-	}
-	if !s.ankiGates(w, r) {
-		return
-	}
-	if s.anki == nil || s.anki.Writer == nil {
-		// The route is registered only when the bridge is wired; this
-		// branch fires when the Writer failed to construct (probe
-		// returned ErrUnsupportedPlatform on a non-Android/non-Linux
-		// host, or the candidate list was exhausted). The collection
-		// may still be open (the two halves of the bridge are
-		// independent); the status endpoint reports collectionOpen /
-		// mediaDirWritable separately so the operator can tell which
-		// half is up.
-		writeJSON(w, http.StatusServiceUnavailable, errorBody("anki bridge not supported on this platform"))
-		return
-	}
-	body := http.MaxBytesReader(w, r.Body, ankiMaxBodyBytes)
+	body := http.MaxBytesReader(w, r.Body, rawAnkiConnectMaxBodyBytes)
 	defer body.Close()
-	var req ankiMediaBody
-	dec := json.NewDecoder(body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		// MaxBytesReader surfaces a 413 via the http.MaxBytesError
-		// unwrap; the handler maps it explicitly so the user sees
-		// the right status (otherwise it falls through as 400 with a
-		// confusing message).
+	raw, err := io.ReadAll(body)
+	if err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
-			writeJSON(w, http.StatusRequestEntityTooLarge, errorBody("payload too large"))
+			writeRawAnkiConnectError(w, "payload too large")
 			return
 		}
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid JSON body"))
+		writeRawAnkiConnectError(w, "failed to read body")
 		return
 	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(req.DataBase64))
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid base64 data"))
-		return
-	}
-	stored, err := s.anki.Writer.Write(req.Filename, raw)
-	if err != nil {
-		switch {
-		case errors.Is(err, anki.ErrUnsupportedPlatform):
-			writeJSON(w, http.StatusServiceUnavailable, errorBody("anki bridge not supported on this platform"))
-			return
-		case errors.Is(err, anki.ErrEmptyMedia):
-			writeJSON(w, http.StatusBadRequest, errorBody("empty media data"))
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, errorBody("anki media write failed"))
-		return
-	}
-	writeJSON(w, http.StatusOK, ankiMediaResponse{Filename: stored})
-}
-
-// handleAnkiAction serves POST /v1/anki/action. It parses the inbound
-// AnkiConnect envelope, runs the addNote media-rewrite (so the
-// audio/video/picture entries reference deterministic filenames that
-// already exist in collection.media), and dispatches the action
-// DIRECTLY on the AnkiDroid collection SQLite database via
-// anki.Collection. The result envelope is wrapped in the standard
-// {"result": ..., "error": null} AnkiConnect response shape — the
-// caller (Entei / Yomitan / asbplayer) sees the same wire format as
-// the desktop AnkiConnect plugin.
-//
-// The handler never logs the request body. Capability tokens must
-// never appear in diagnostic output; addNote params can carry
-// arbitrary user content (magnet URIs, video filenames, deck names).
-func (s *Server) handleAnkiAction(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		s.handleAnkiPreflight(w, r)
-		return
-	}
-	if r.Method != http.MethodPost {
-		writeMethodNotAllowed(w, "POST, OPTIONS")
-		return
-	}
-	if !s.ankiGates(w, r) {
-		return
-	}
-	if s.anki == nil || s.anki.DB == nil {
-		// The bridge is wired but the collection didn't open (probe
-		// failed, schema unsupported, or AnkiDroid play-variant app-
-		// private path). The routes still register so the user can
-		// poll /v1/anki/status; the action dispatch returns 503 with a
-		// clear "collection not available" message so the operator
-		// distinguishes "bridge disabled" (404) from "bridge running on
-		// the wrong host" (503 here).
-		writeJSON(w, http.StatusServiceUnavailable, errorBody("anki collection not available"))
-		return
-	}
-	body := http.MaxBytesReader(w, r.Body, ankiMaxBodyBytes)
-	defer body.Close()
-	var env ankiActionBody
-	dec := json.NewDecoder(body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&env); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeJSON(w, http.StatusRequestEntityTooLarge, errorBody("payload too large"))
-			return
-		}
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid JSON body"))
+	var env ankiConnectEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		writeRawAnkiConnectError(w, "invalid JSON body")
 		return
 	}
 	if env.Action == "" {
-		writeJSON(w, http.StatusBadRequest, errorBody("missing action"))
+		writeRawAnkiConnectError(w, "missing action")
 		return
 	}
-	out, err := s.dispatchAnkiAction(r, env)
-	if err != nil {
-		// ErrDuplicateNote is a NOT-A-FAILURE rejection (the
-		// AnkiConnect addNote contract: allowDuplicate=false +
-		// duplicate hit → null result, HTTP 200). Map it to a
-		// null-result envelope so the caller (Yomitan / Entei /
-		// asbplayer) reads the same shape the desktop AnkiConnect
-		// plugin emits. All other errors flow through the typed
-		// status mapping.
-		if errors.Is(err, anki.ErrDuplicateNote) {
-			writeJSON(w, http.StatusOK, map[string]json.RawMessage{"result": json.RawMessage("null"), "error": json.RawMessage("null")})
+	// API key gate: when the operator configured --anki-api-key, the
+	// body MUST carry a matching `key`. Constant-time compare so a
+	// timing-side-channel attacker can't byte-probe the key. Empty
+	// configured key → no key required (matches AnkiconnectAndroid).
+	if s.anki != nil && s.anki.APIKey != "" {
+		if subtle.ConstantTimeCompare([]byte(env.Key), []byte(s.anki.APIKey)) != 1 {
+			writeRawAnkiConnectError(w, "unauthorized")
 			return
 		}
-		s.writeAnkiActionError(w, err)
+	}
+	// Special-case storeMediaFile: route it through the MediaWriter
+	// directly so the deterministic-filename contract stays shared
+	// with the addNote media-rewrite branch.
+	if env.Action == "storeMediaFile" {
+		stored, err := s.handleRawStoreMediaFile(env.Params)
+		if err != nil {
+			writeRawAnkiConnectError(w, err.Error())
+			return
+		}
+		writeRawAnkiConnectResult(w, mustJSONString(stored))
 		return
 	}
-	// The AnkiConnect envelope is "result / error"; the handler always
-	// returns a fully-formed envelope so the caller (Entei / Yomitan /
-	// asbplayer) sees the same shape regardless of bridge state.
-	writeJSON(w, http.StatusOK, map[string]json.RawMessage{"result": out, "error": json.RawMessage("null")})
+	out, err := s.dispatchAnkiAction(ankiActionBody{
+		Action:  env.Action,
+		Version: env.Version,
+		Params:  env.Params,
+	})
+	if err != nil {
+		if errors.Is(err, anki.ErrDuplicateNote) {
+			// Duplicate-note special-case: HTTP 200, result null,
+			// error null (matches official AnkiConnect addNote
+			// semantics for allowDuplicate=false).
+			writeRawAnkiConnectResult(w, json.RawMessage("null"))
+			return
+		}
+		writeRawAnkiConnectError(w, ankiConnectErrorMessage(err))
+		return
+	}
+	writeRawAnkiConnectResult(w, out)
+}
+
+// handleRawStoreMediaFile decodes the AnkiConnect storeMediaFile
+// envelope (params {filename, data}) and writes the bytes through
+// the same MediaWriter the addNote media-rewrite uses, so both
+// surfaces land on the SAME deterministic filename for the same
+// bytes. Returns the stored filename.
+//
+// AnkiConnect's wire shape:
+//
+//	{"action":"storeMediaFile","params":{"filename":"x.webm",
+//	 "data":"<base64>"}}
+//
+// Returned result is the sanitized stored filename (the value the
+// caller should reference as [sound:...] or <img src=...> in the
+// note field).
+func (s *Server) handleRawStoreMediaFile(params json.RawMessage) (string, error) {
+	if s.anki == nil || s.anki.Writer == nil {
+		return "", errors.New("anki media writer not available on this platform")
+	}
+	if len(params) == 0 {
+		return "", errors.New("storeMediaFile requires params")
+	}
+	var p ankiMediaBody
+	if err := json.Unmarshal(params, &p); err != nil {
+		return "", errors.New("storeMediaFile params must be an object")
+	}
+	if p.Data == "" {
+		return "", errors.New("empty media data")
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(p.Data))
+	if err != nil {
+		return "", errors.New("invalid base64 data")
+	}
+	stored, err := s.anki.Writer.Write(p.Filename, raw)
+	if err != nil {
+		// Re-raise typed errors verbatim so the caller sees the
+		// documented reason. The raw surface does not invent its
+		// own error vocabulary — the typed reason comes from the
+		// anki package.
+		return "", err
+	}
+	return stored, nil
+}
+
+// writeRawAnkiConnectResult writes a successful AnkiConnect reply:
+// HTTP 200 + {"result": <raw>, "error": null}. The inner result is
+// forwarded as raw JSON so callers see numbers, nulls, arrays, and
+// objects exactly as the dispatcher produced them. A nil result is
+// emitted as JSON `null`.
+func writeRawAnkiConnectResult(w http.ResponseWriter, result json.RawMessage) {
+	if result == nil {
+		result = json.RawMessage("null")
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(ankiConnectResponse{
+		Result: result,
+		Error:  json.RawMessage("null"),
+	})
+}
+
+// writeRawAnkiConnectError writes an AnkiConnect-shaped error
+// reply: HTTP 200 + {"result": null, "error": <message>}. The HTTP
+// status stays 200 because that is the AnkiConnect wire contract —
+// callers parse the `error` field, not the status. Every error path
+// in handleRawAnkiConnect flows through here.
+func writeRawAnkiConnectError(w http.ResponseWriter, msg string) {
+	if msg == "" {
+		msg = "anki action failed"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(ankiConnectResponse{
+		Result: json.RawMessage("null"),
+		Error:  json.RawMessage(mustJSONString(msg)),
+	})
+}
+
+// ankiConnectErrorMessage converts the typed errors returned by
+// dispatchAnkiAction into the AnkiConnect-style error string the
+// raw surface returns. Mirrors stripAnkiBadRequestMessage's
+// formatting so the reason is human-friendly (no "anki: "
+// prefix / no "%w:" chain). Special-cases:
+//
+//   - ErrMediaWriterUnavailable → "anki media writer not available on this platform"
+//   - ErrBadRequest → unwrapped reason (e.g. "unsupported action: foo")
+//   - ErrDuplicateNote → NOT routed here (the duplicate case is
+//     handled at the call site so result stays null + error stays null)
+//   - ErrEmptyMedia → "empty media data"
+//   - ErrCollectionNotOpen / ErrUnsupportedSchema → "anki collection not available"
+//   - ErrUnsupportedPlatform → "anki bridge not supported on this platform"
+//   - Everything else → "anki action failed" (generic; the typed
+//     reason could carry caller-controlled data).
+func ankiConnectErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, ErrMediaWriterUnavailable):
+		return "anki media writer not available on this platform"
+	case errors.Is(err, anki.ErrBadRequest):
+		return stripAnkiBadRequestMessage(err)
+	case errors.Is(err, anki.ErrEmptyMedia):
+		return "empty media data"
+	case errors.Is(err, anki.ErrCollectionNotOpen),
+		errors.Is(err, anki.ErrUnsupportedSchema):
+		return "anki collection not available"
+	case errors.Is(err, anki.ErrUnsupportedPlatform):
+		return "anki bridge not supported on this platform"
+	}
+	return "anki action failed"
 }
 
 // dispatchAnkiAction routes the inbound AnkiConnect envelope to the
 // matching anki.Collection method. Returns json.RawMessage (the inner
 // "result" body) so the caller can wrap it in the standard envelope;
-// returns typed errors that handleAnkiAction maps to HTTP statuses.
+// returns typed errors that the raw handler maps to AnkiConnect-style
+// error strings (HTTP 200 + error envelope).
 //
 // Supported actions (matching A:/AnkiconnectAndroid AnkiAPIRouting.java
 // + A:/AnkiconnectAndroid/docs/api.md, version 6 surface):
@@ -265,27 +424,22 @@ func (s *Server) handleAnkiAction(w http.ResponseWriter, r *http.Request) {
 //   - canAddNotes         → csum-based duplicate check
 //   - canAddNotesWithErrorDetail → canAddNotes wrapped with reason string
 //   - addNote             → rewriteAddNoteMedia + InsertNote (one
-//                           transaction; returns noteId as int64)
+//     transaction; returns noteId as int64)
 //   - updateNoteFields    → UpdateNoteFields
 //   - addTags             → AddTags
 //   - findNotes           → FindNotes (added:1 / nid:… only)
 //   - notesInfo           → NotesInfo (joined with model + cards)
 //
-// Unsupported actions return ErrBadRequest wrapped with "unsupported
-// action: <name>"; the handler maps that to a 400 response with the
-// short reason — the AnkiConnect "no route" case is a client-side
-// mistake (typo / unsupported by the bridge), so we surface it as
-// 400 rather than the HTTP 200 + non-null-error envelope the
-// AnkiconnectAndroid HTTP proxy returned. Yomitan / Entei / asbplayer
-// check the response status, not just the JSON "error" field, so
-// the explicit 400 is the right AnkiConnect-faithful shape.
-func (s *Server) dispatchAnkiAction(r *http.Request, env ankiActionBody) (json.RawMessage, error) {
+// Unsupported actions return ErrBadRequest wrapped with
+// "unsupported action: <name>"; the handler maps that to an
+// AnkiConnect-style error envelope with the human-readable reason
+// (AnkiConnect clients parse the `error` field, not the status).
+func (s *Server) dispatchAnkiAction(env ankiActionBody) (json.RawMessage, error) {
 	// params-object guard: every AnkiConnect action takes a JSON
 	// object as params (Yomitan / Entei / asbplayer all send
 	// {}). A non-object root (array, string, number, null) is a
-	// client-side mistake and must surface as 400, not 500 — same
-	// guard the v2.0 review (2026-08-29) called out for addNote
-	// only. Spec v3.0 (2026-08-30) promotes it to every action.
+	// client-side mistake and must surface as a bad-request error
+	// string, not a generic 500.
 	if len(env.Params) > 0 {
 		var probe map[string]json.RawMessage
 		if err := json.Unmarshal(env.Params, &probe); err != nil {
@@ -413,12 +567,12 @@ func (s *Server) dispatchAnkiAction(r *http.Request, env ankiActionBody) (json.R
 		if err := json.Unmarshal(noteRaw, &noteObj); err != nil {
 			return nil, fmt.Errorf("%w: addNote params.note must be an object", anki.ErrBadRequest)
 		}
-		// Re-decode deckName/modelName/tags from the rewritten top-level
+		// Re-decode deckName/modelName from the rewritten top-level
 		// (deckName/modelName aren't touched by rewrite; tags may also be
 		// rewritten by future code so we re-read).
 		var topLevel struct {
-			DeckName  string   `json:"deckName"`
-			ModelName string   `json:"modelName"`
+			DeckName  string `json:"deckName"`
+			ModelName string `json:"modelName"`
 		}
 		_ = json.Unmarshal(rewritten, &topLevel)
 		// AnkiConnect desktop puts deckName / modelName at the params
@@ -426,8 +580,8 @@ func (s *Server) dispatchAnkiAction(r *http.Request, env ankiActionBody) (json.R
 		// INSIDE note. Honour both — note-level wins when present,
 		// otherwise fall back to top-level.
 		var noteMeta struct {
-			DeckName  string   `json:"deckName"`
-			ModelName string   `json:"modelName"`
+			DeckName  string `json:"deckName"`
+			ModelName string `json:"modelName"`
 		}
 		_ = json.Unmarshal(noteRaw, &noteMeta)
 		params.DeckName = noteMeta.DeckName
@@ -634,24 +788,12 @@ type addNoteOptions struct {
 	DeckName       string `json:"deckName"`
 }
 
-// ErrMediaWriterUnavailable is returned by the addNote media-rewrite
-// path when the bridge is wired in notes-only mode (DB open, Writer
-// nil — the Termux collection.media probe failed or was skipped). The
-// /v1/anki/action handler maps it to 503 with a clear
-// "anki media writer not available on this platform" message. The
-// guard fires ONLY when the inbound addNote actually carries audio /
-// video / picture arrays with non-empty data — a text-only addNote
-// against a notes-only bridge is perfectly valid and inserts normally
-// (a defensive panic on a notes-only bridge would block note-taking
-// entirely for any caller whose media path failed).
-var ErrMediaWriterUnavailable = errors.New("anki: media writer not available on this platform")
-
 // parseCanAddNotesParams decodes the canAddNotes /
 // canAddNotesWithErrorDetail params shape. AnkiConnect accepts both
 // the bare `notes` array (Anki's web/desktop contract) and the
 // {notes: [{field, options, ...}]} shape used by AnkiconnectAndroid.
 // We accept BOTH and normalise into []anki.NoteCheck. A non-object
-// params returns ErrBadRequest (handler → 400) — never 500.
+// params returns ErrBadRequest — never a generic 500.
 func parseCanAddNotesParams(raw json.RawMessage) ([]anki.NoteCheck, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("%w: canAddNotes requires params", anki.ErrBadRequest)
@@ -660,10 +802,10 @@ func parseCanAddNotesParams(raw json.RawMessage) ([]anki.NoteCheck, error) {
 		Notes []struct {
 			Field   string `json:"field"`
 			Options struct {
-				AllowDuplicate  bool   `json:"allowDuplicate"`
-				DuplicateScope  string `json:"duplicateScope"`
-				CheckAllModels  bool   `json:"checkAllModels"`
-				DeckName        string `json:"deckName"`
+				AllowDuplicate bool   `json:"allowDuplicate"`
+				DuplicateScope string `json:"duplicateScope"`
+				CheckAllModels bool   `json:"checkAllModels"`
+				DeckName       string `json:"deckName"`
 			} `json:"options"`
 			DeckName string `json:"deckName"`
 		} `json:"notes"`
@@ -701,7 +843,7 @@ func parseCanAddNotesParams(raw json.RawMessage) ([]anki.NoteCheck, error) {
 // named field of the note. The append-to-field behaviour matches
 // A:/AnkiconnectAndroid IntegratedAPI.addMedia — AnkiConnect desktop
 // leaves the append to the user; AnkiconnectAndroid did it for the
-// caller, and the v3.0 spec keeps that semantics because Yomitan /
+// caller, and the v4.0 spec keeps that semantics because Yomitan /
 // Entei build the [sound:...] reference themselves and we want a
 // single source of truth on the field side.
 //
@@ -710,12 +852,12 @@ func parseCanAddNotesParams(raw json.RawMessage) ([]anki.NoteCheck, error) {
 // (deckName, modelName, tags, options) is forwarded unchanged.
 //
 // `note` absent → forward verbatim (no rewrite).
-// `note` present but not an object → anki.ErrBadRequest (handler → 400).
+// `note` present but not an object → anki.ErrBadRequest.
 //
 // Notes-only bridge (DB set, Writer nil — the Termux
 // collection.media probe failed) carries a pre-rewrite guard: when
 // any audio/video/picture array with non-empty data is present, the
-// helper returns ErrMediaWriterUnavailable → 503. Without the guard
+// helper returns ErrMediaWriterUnavailable. Without the guard
 // rewriteMediaEntry would dereference s.anki.Writer.Write and panic.
 // Text-only addNote (no media arrays, or only url-references) flows
 // through verbatim — a notes-only bridge can still accept a
@@ -864,7 +1006,7 @@ func (s *Server) rewriteMediaArray(raw json.RawMessage, noteObj map[string]json.
 //
 // Pass-through branches (preserving the prior v2.0 contract):
 //
-//   - entry is not a JSON object → anki.ErrBadRequest (400)
+//   - entry is not a JSON object → anki.ErrBadRequest
 //   - entry has no "data" (or empty / null "data") → upstream handles
 //     it (typically a reference to a previously-stored file)
 //   - entry has BOTH "url" and "data" → upstream would download the
@@ -980,122 +1122,6 @@ func appendToField(noteObj map[string]json.RawMessage, name, text string) {
 	noteObj[name] = mustJSONString(s + text)
 }
 
-// handleAnkiStatus serves GET /v1/anki/status: a non-sensitive
-// readiness snapshot the web UI can poll without exposing any path,
-// URL with a token, or capability token. Same Origin + token gate as
-// the other routes; HEAD mirrors GET; OPTIONS preflight advertises GET.
-func (s *Server) handleAnkiStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		s.handleAnkiPreflight(w, r)
-		return
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		writeMethodNotAllowed(w, "GET, HEAD, OPTIONS")
-		return
-	}
-	if !s.ankiGates(w, r) {
-		return
-	}
-	body := ankiStatusBody{Enabled: s.anki != nil}
-	if s.anki != nil {
-		body.CollectionOpen = s.anki.DB != nil
-		if s.anki.DB != nil {
-			body.CollectionPath = s.anki.DB.Path()
-		}
-		if s.anki.Writer != nil {
-			dir := s.anki.Writer.Dir()
-			body.MediaDir = dir
-			// "Writable" mirrors the same probe used at construction: a
-			// successful temp write+delete in the directory. The probe
-			// runs on every status hit; it's cheap and tells the user
-			// "you can write today" vs "AnkiDroid was uninstalled since
-			// the companion started".
-			body.MediaDirWritable = dir != "" && probeWritableDir(dir)
-		}
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if r.Method == http.MethodHead {
-		return
-	}
-	_ = json.NewEncoder(w).Encode(body)
-}
-
-// handleAnkiPreflight answers OPTIONS for the three anki routes.
-// They share the same shape (POST + Content-Type header) so a single
-// preflight handler is honest and simpler.
-func (s *Server) handleAnkiPreflight(w http.ResponseWriter, r *http.Request) {
-	origin, ok := s.originAllowed(r)
-	if !ok {
-		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
-		return
-	}
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, HEAD, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	w.Header().Set("Access-Control-Max-Age", "600")
-	w.Header().Add("Vary", "Origin")
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// ankiGates applies the exact-Origin + capability-token gates shared
-// with the media endpoints. It writes the error response itself and
-// returns false when the request must stop. Mirrors the jobGates
-// pattern (internal/api/jobs.go) so reviewers see one consistent
-// authentication shape across all authenticated routes.
-func (s *Server) ankiGates(w http.ResponseWriter, r *http.Request) bool {
-	origin, ok := s.originAllowed(r)
-	if !ok {
-		writeJSON(w, http.StatusForbidden, errorBody("origin not allowed"))
-		return false
-	}
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Add("Vary", "Origin")
-	if !s.tokenValid(r) {
-		writeJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
-		return false
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	return true
-}
-
-// writeAnkiActionError maps the anki package's typed errors to HTTP
-// statuses. Collection-not-open / unsupported-schema → 503 with the
-// short message. Bad-request (unsupported action, malformed params,
-// missing field, etc.) → 400 with the human-friendly reason. Empty
-// media data → 400. Everything else → 500.
-//
-// Per spec v3.0 (2026-08-30), the prior
-// upstream-HTTP / upstream-AnkiConnect error branches were removed
-// alongside the AnkiconnectAndroid proxy: the dispatcher now runs
-// in-process, so the only HTTP-shaped error class is gone.
-func (s *Server) writeAnkiActionError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, anki.ErrCollectionNotOpen),
-		errors.Is(err, anki.ErrUnsupportedSchema):
-		writeJSON(w, http.StatusServiceUnavailable, errorBody("anki collection not available"))
-		return
-	case errors.Is(err, anki.ErrUnsupportedPlatform):
-		writeJSON(w, http.StatusServiceUnavailable, errorBody("anki bridge not supported on this platform"))
-		return
-	case errors.Is(err, ErrMediaWriterUnavailable):
-		// addNote arrived with audio/video/picture data on a
-		// notes-only bridge (DB open, Writer nil). The handler
-		// refuses the request rather than crashing inside
-		// MediaWriter.Write.
-		writeJSON(w, http.StatusServiceUnavailable, errorBody("anki media writer not available on this platform"))
-		return
-	case errors.Is(err, anki.ErrBadRequest):
-		writeJSON(w, http.StatusBadRequest, errorBody(stripAnkiBadRequestMessage(err)))
-		return
-	case errors.Is(err, anki.ErrEmptyMedia):
-		writeJSON(w, http.StatusBadRequest, errorBody("empty media data"))
-		return
-	}
-	writeJSON(w, http.StatusInternalServerError, errorBody("anki action failed"))
-}
-
 // stripAnkiBadRequestMessage trims the anki.ErrBadRequest wrapper and
 // any "%w: ..." prefix from err so the body carries a short
 // operator-friendly reason (e.g. "unsupported action: foo") instead
@@ -1141,11 +1167,84 @@ func jsonMarshal(v any) (json.RawMessage, error) {
 	return b, nil
 }
 
-// probeWritableDir is a thin shim that calls into the anki package's
-// probe — kept here so the status handler does not need to import
-// package-private internals. The anki package owns the probe semantics
-// (and its platform split); the API layer only asks "is this dir
-// writable right now?".
-func probeWritableDir(dir string) bool {
-	return anki.ProbeWritable(dir)
+// tryBindRawAnkiConnect attempts to bind the loopback 8765 listener
+// for the raw AnkiConnect-compatible surface. Returns the bound
+// listener on success, or (nil, error) on a bind failure.
+//
+// The bind failure modes are:
+//
+//   - EADDRINUSE: port 8765 is already taken (official AnkiConnect
+//     running on the user's desktop, another companion, a dev
+//     harness). The caller logs a one-line warning and continues
+//     — the companion must never crash because a desktop AnkiConnect
+//     is running.
+//
+//   - Any other error (parse failure, permission denied, etc.):
+//     the caller decides. We surface the typed error so the caller
+//     can log appropriately.
+//
+// Bind address is parameterised so tests can target an ephemeral
+// port; production passes rawAnkiConnectBind.
+//
+// The bind is loopback-only (enforced by the constant address) so
+// the caller's threat-model promise (loopback-only, never reachable
+// off-host) holds even if the caller forgets to validate the
+// address.
+func tryBindRawAnkiConnect(bind string) (net.Listener, error) {
+	return net.Listen("tcp", bind)
+}
+
+// StartRawAnkiConnectListener starts the raw AnkiConnect-compatible
+// listener on the configured bind address in a background goroutine.
+// Returns nil on success, or a non-nil error if the bind failed.
+//
+// On EADDRINUSE: returns the error so the caller can log a one-line
+// warning and continue (the spec calls this out explicitly — a
+// desktop AnkiConnect must not break the companion). On other bind
+// failures: returns the error so the caller decides.
+//
+// On success: the goroutine serves forever (until process exit).
+// The companion's main server has no graceful-shutdown context —
+// the process dies on Ctrl+C, taking the goroutine with it. There
+// is no shared lifecycle to wire into.
+//
+// When the Anki bridge is disabled (s.anki == nil) the function is
+// a no-op and returns nil. Callers can call this unconditionally.
+//
+// Thread-safety: this is meant to be called once at startup, before
+// the main server starts serving. Calling it twice would attempt to
+// bind 8765 twice and fail with EADDRINUSE on the second call —
+// this is harmless (just a logged warning) but the caller should
+// not do it.
+func (s *Server) StartRawAnkiConnectListener(bind string) error {
+	if s.anki == nil {
+		// Bridge disabled — nothing to serve. No-op so the caller
+		// can wire it unconditionally.
+		return nil
+	}
+	ln, err := tryBindRawAnkiConnect(bind)
+	if err != nil {
+		return err
+	}
+	// Start serving. The handler is the raw AnkiConnect handler —
+	// it serves any path on the listener (clients POST to /). The
+	// handler is single-purpose; no mux is needed. We use an
+	// explicit http.Server (not http.Serve) so we can set
+	// ReadHeaderTimeout — slowloris hardening on the loopback bind.
+	// 5 seconds is generous for a JSON POST from a local extension;
+	// a malicious or stalled client stalls at the header read.
+	go func() {
+		srv := &http.Server{
+			Handler:           http.HandlerFunc(s.handleRawAnkiConnect),
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		// http.Server.Serve returns http.ErrServerClosed on clean
+		// close (we never call Close) and a real error otherwise.
+		// We do not propagate the error — the raw listener is
+		// best-effort (the main /v1/* server keeps serving
+		// regardless) and the companion's diagnostic sink already
+		// logs this kind of failure.
+		_ = srv.Serve(ln)
+	}()
+	return nil
 }

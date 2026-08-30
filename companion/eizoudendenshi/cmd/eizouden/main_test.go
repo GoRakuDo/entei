@@ -276,22 +276,22 @@ func TestAnkiStatusLine(t *testing.T) {
 		{
 			"disabled",
 			nil,
-			"Anki bridge: disabled (--anki-media-dir and --anki-collection not set)",
+			"Anki bridge: disabled (--anki-collection not set)",
 		},
 		{
 			"media-only (writer ok, collection not open)",
 			&api.AnkiBridge{Writer: anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), DB: nil, Enabled: true},
-			"Anki bridge: media-only (collection not open; media dir: /storage/emulated/0/AnkiDroid/collection.media)",
+			"Anki bridge: media-only, 8765 listener (collection not open; media dir: /storage/emulated/0/AnkiDroid/collection.media)",
 		},
 		{
 			"both halves up",
 			&api.AnkiBridge{Writer: anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), DB: coll, Enabled: true},
-			"Anki bridge: enabled (media dir: /storage/emulated/0/AnkiDroid/collection.media; collection: " + coll.Path() + ")",
+			"Anki bridge: enabled, 8765 listener (media dir: /storage/emulated/0/AnkiDroid/collection.media; collection: " + coll.Path() + ")",
 		},
 		{
 			"notes-only (collection open, writer nil — the Fix-1 panic class)",
 			&api.AnkiBridge{Writer: nil, DB: coll, Enabled: true},
-			"Anki bridge: notes-only (media dir not writable; collection: " + coll.Path() + ")",
+			"Anki bridge: notes-only, 8765 listener (media dir not writable; collection: " + coll.Path() + ")",
 		},
 	}
 	for _, tt := range tests {
@@ -397,27 +397,15 @@ CREATE TABLE cards (
 );
 `
 
-// TestResolveAnkiBridge pins the wiring function: both flags empty →
-// nil (bridge disabled); non-empty media-dir → non-nil bridge with a
-// MediaWriter (and Collection when the resolved sibling file opens).
-// Per docs v3.0 (2026-08-30) the prior AnkiconnectAndroid proxy
-// dependency was removed — the bridge is now purely a Termux-direct
-// + collection.anki2-direct path; there is no upstream HTTP client
-// to wire.
+// TestResolveAnkiBridge pins the wiring function (spec v4.0,
+// 2026-08-31): --anki-collection empty → nil (bridge disabled);
+// non-empty collection path → non-nil bridge with a Collection
+// (the MediaWriter probe runs on the host's auto-detect candidates;
+// on non-Android/non-Linux the probe returns ErrUnsupportedPlatform
+// and Writer stays nil — the bridge runs notes-only).
 func TestResolveAnkiBridge(t *testing.T) {
 	if got := resolveAnkiBridge("", "", nil); got != nil {
-		t.Errorf("empty media-dir + empty collection: bridge = %+v, want nil", got)
-	}
-	// Non-empty media-dir on a non-Android/non-Linux host: the probe
-	// fails → Writer is nil but the bridge is still non-nil (Collection
-	// auto-resolves to "<dirname>/../collection.anki2" which doesn't
-	// exist on Windows; DB stays nil). Enabled reflects "at least one
-	// half is wired or attempted". On Android/Linux the Writer would
-	// be non-nil; on this test host we only pin that the function
-	// returns a non-nil bridge.
-	b := resolveAnkiBridge("/storage/emulated/0/AnkiDroid/collection.media", "", nil)
-	if b == nil {
-		t.Fatal("non-empty media-dir: bridge = nil, want non-nil")
+		t.Errorf("empty collection: bridge = %+v, want nil", got)
 	}
 	// Notes-only: an explicit --anki-collection that points at a
 	// valid fixture file pins the notes-only bridge shape (DB set,
@@ -426,7 +414,7 @@ func TestResolveAnkiBridge(t *testing.T) {
 	// can't silently regress into "Writer nil + DB non-nil is a
 	// disabled bridge" (it must stay enabled with media down).
 	notesOnlyPath := newColFixtureForStatusTest(t)
-	bNotes := resolveAnkiBridge("", notesOnlyPath, nil)
+	bNotes := resolveAnkiBridge(notesOnlyPath, "", nil)
 	if bNotes == nil {
 		t.Fatal("notes-only (explicit collection): bridge = nil, want non-nil")
 	}
@@ -443,6 +431,19 @@ func TestResolveAnkiBridge(t *testing.T) {
 	// on Windows ("file in use" when removing the directory).
 	if bNotes.DB != nil {
 		_ = bNotes.DB.Close()
+	}
+	// API key pass-through: the second arg surfaces into the bridge
+	// unchanged. A future refactor must keep that contract so the
+	// raw listener's constant-time compare sees the configured key.
+	bKey := resolveAnkiBridge(notesOnlyPath, "secret-key-xyz", nil)
+	if bKey == nil {
+		t.Fatal("API key wiring: bridge = nil, want non-nil")
+	}
+	if bKey.APIKey != "secret-key-xyz" {
+		t.Errorf("APIKey = %q, want %q", bKey.APIKey, "secret-key-xyz")
+	}
+	if bKey.DB != nil {
+		_ = bKey.DB.Close()
 	}
 }
 
