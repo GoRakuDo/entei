@@ -282,7 +282,7 @@ type Server struct {
 	ffmpegPath           string              // ED-2H /v1/media/pcm converter (16 kHz mono PCM for sub-to-audio)
 	jobs                 *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
 	torrents             *torrent.Manager    // ED-2G: optional torrent-job manager (nil = disabled)
-	anki                 *AnkiBridge         // ED-3 / AnkiDroid bridge: writer + proxy; nil disables all three routes
+	anki                 *AnkiBridge         // ED-3 / AnkiDroid bridge: writer + DB; Enabled gates dispatch
 	allowedOrigins       map[string]struct{} // fixed + per-process extra exact origins
 	rawAnkiAcceptedHosts map[string]struct{} // DNS-rebinding guard accepted Host set (built from RawAnkiConnectBind; tests may override)
 

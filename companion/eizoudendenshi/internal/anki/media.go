@@ -19,10 +19,12 @@
 // AnkiDroid is required to refresh the in-memory model; AnkiWeb sync
 // picks up the change via usn=-1).
 //
-// The bridge is opt-in on the companion command line (--anki-media-dir
-// + --anki-collection). When both are empty no AnkiDroid routes
-// register, and existing companion behavior is unchanged. The bridge
-// is composed of two halves:
+// The bridge auto-derives: probe collection.media, then wire the
+// sibling collection.anki2 (spec v4.1, 2026-08-31). No flags needed
+// on the primary launch path — the raw AnkiConnect listener on 127.0.0.1:8765
+// becomes the only Anki surface when a collection is found.
+// --anki-collection overrides the auto-derive for non-standard
+// locations. The bridge is composed of two halves:
 //
 //   1. MediaWriter — Termux writes media bytes directly into the
 //      AnkiDroid collection.media directory with a deterministic,
@@ -197,9 +199,10 @@ func GenerateFilenameFromProvided(provided string, data []byte) string {
 //   - media_probe_other.go    (//go:build !android && !linux):
 //     ErrUnsupportedPlatform.
 //
-// The companion command receives a caller override via --anki-media-dir
-// and passes it through to NewMediaWriter. An empty override means "use
-// the auto-detect candidates".
+// detectCollectionMediaDir resolves the AnkiDroid collection.media
+// directory (spec v4.x). The override, when non-empty, is the
+// --anki-collection flag's sibling resolution; an empty override
+// means "use the auto-detect candidates".
 func detectCollectionMediaDir(override string) (string, error) {
 	return probeCollectionMediaDir(override)
 }
@@ -236,7 +239,7 @@ func NewMediaWriter(override string) (*MediaWriter, error) {
 }
 
 // Dir returns the resolved collection.media directory. Safe to expose
-// in /v1/anki/status (the path is not sensitive per spec §9).
+// in the companion status line (the path is not sensitive per spec §9).
 func (w *MediaWriter) Dir() string {
 	if w == nil {
 		return ""
@@ -319,15 +322,15 @@ func (w *MediaWriter) Write(filename string, data []byte) (string, error) {
 }
 
 // ProbeWritable is the same write+delete probe used internally by
-// NewMediaWriter, exposed so /v1/anki/status can re-check writability
-// on each poll (AnkiDroid may have been uninstalled, the user may
-// have revoked storage permission, or the directory may have been
-// moved by the device). It is intentionally cheap (one tiny file
-// write + remove) and never logs anything.
+// NewMediaWriter, exposed for the companion status line to
+// re-check writability (AnkiDroid may have been uninstalled, the
+// user may have revoked storage permission, or the directory may
+// have been moved by the device). It is intentionally cheap (one
+// tiny file write + remove) and never logs anything.
 //
 // Returning false on a non-Android/non-Linux build (probe is
 // platform-conditional internally) is the right answer — the bridge
-// can't write there, so /v1/anki/status reports "not writable" and
+// can't write there, so the status line reports "not writable" and
 // the developer sees the same shape as the device.
 func ProbeWritable(dir string) bool {
 	return probeWritable(dir)
