@@ -115,61 +115,87 @@ func resolveGrowSource(path string, total int64) (media.GrowingSource, error) {
 	return media.NewFileSource(path, total)
 }
 
-// resolveAnkiBridge wires the AnkiDroid bridge for v4.0 (2026-08-31):
-// the raw AnkiConnect listener on 127.0.0.1:8765 is the only Anki
-// surface. The bridge wires:
+// resolveAnkiBridge wires the AnkiDroid bridge (spec v4.1,
+// 2026-08-31): the raw AnkiConnect listener on 127.0.0.1:8765 is
+// the only Anki surface. The bridge wires:
 //
 //   - MediaWriter — used by storeMediaFile + the addNote media-array
 //     rewrite. Probed from the AnkiDroid legacy media-dir candidates
 //     via the existing NewMediaWriter probe (Termux auto-detect).
 //   - Collection — opened on collection.anki2, either the explicit
-//     --anki-collection path or auto-derived as the sibling of the
-//     probed media-dir.
+//     --anki-collection path or, when --anki-collection is empty,
+//     auto-derived as <probed media dir>/../collection.anki2 (spec
+//     v3.0 contract, restored in v4.1).
 //   - APIKey — optional AnkiConnect-style body key from
 //     --anki-api-key; empty means no key required.
 //
-// The MediaWriter construction runs the probe immediately (write +
-// delete a temp file in each candidate dir); failure on Android
-// means a missing /storage permission or a non-legacy AnkiDroid
-// collection path, both of which the user can fix. On Windows /
-// macOS dev hosts the probe returns ErrUnsupportedPlatform which we
-// degrade to a nil Writer + nil error — the bridge runs notes-only
-// so the developer can exercise addNote / findNotes against a stub
-// AnkiDroid collection on a Linux dev box or via a fixture
-// --anki-collection.
+// The MediaWriter probe is injectable (probe fn) so tests can
+// substitute a fake that returns a t.TempDir() instead of touching
+// /storage/emulated/0 on the CI box. The production probe (used by
+// main) is defaultAnkiProbe below, which calls anki.NewMediaWriter("")
+// to write + delete a probe file in each legacy candidate; failure on
+// Android means a missing /storage permission or a non-legacy
+// AnkiDroid collection path, both of which the user can fix. On
+// Windows / macOS dev hosts the probe returns ErrUnsupportedPlatform
+// which we degrade to a nil Writer + nil error — the bridge runs
+// notes-only so the developer can exercise addNote / findNotes
+// against a stub AnkiDroid collection on a Linux dev box or via a
+// fixture --anki-collection.
 //
-// The Collection construction is best-effort too: empty
-// collectionPath means "auto" (derive sibling of the probed
-// collection.media dir). Open failure (AnkiDroid play-variant app-
-// private path, schema unsupported, DB locked) is logged at startup
-// and the bridge wires with DB = nil. StartRawAnkiConnectListener
-// still binds 8765 (and dispatchAnkiAction surfaces the failure as
-// an AnkiConnect-shaped error envelope for every action).
+// Empty --anki-collection (the default; the menu/launcher path
+// never passes it) restores the v3.0 auto-derive: the probe runs;
+// on success we stat <media dir>/../collection.anki2; if it exists,
+// the bridge is wired against that path. If the probe fails OR
+// the sibling collection.anki2 is absent (the "AnkiDroid migrated
+// to app-private storage" case), the bridge is disabled and the
+// 8765 listener never binds. This is the user-facing fix for the
+// v4.0 regression where the bridge was dead on the primary launch
+// path: the whole point of v3.0 was "delete AnkiconnectAndroid
+// and cards still work", which requires the bridge ON by default
+// whenever a legacy AnkiDroid collection is detected.
 //
-// Spec v4.0 (2026-08-31): the bridge is opt-in on the single flag
-// --anki-collection now. --anki-media-dir was removed; the media
-// dir is derived from the probed candidates. --anki-api-key is the
+// The Collection construction is best-effort too: Open failure
+// (AnkiDroid play-variant app-private path, schema unsupported,
+// DB locked) is logged at startup and the bridge wires with DB =
+// nil. StartRawAnkiConnectListener still binds 8765 (and
+// dispatchAnkiAction surfaces the failure as an AnkiConnect-shaped
+// error envelope for every action).
+//
+// Spec v4.1 (2026-08-31): the default is AUTO-DERIVE (probe
+// collection.media → sibling collection.anki2); --anki-collection
+// is now an OVERRIDE for non-standard locations (e.g. an
+// app-private path the user wants the bridge to talk to).
+// --anki-media-dir was removed back in v4.0; --anki-api-key is the
 // optional API-key flag. apiKey=="" disables the key gate (matches
 // AnkiconnectAndroid).
-func resolveAnkiBridge(collectionOverride, apiKey string, diagLog *diag.Logger) *api.AnkiBridge {
-	if collectionOverride == "" {
-		// v4.0 spec: an empty --anki-collection means "no bridge
-		// opted in". The legacy auto-derive (sibling of probed
-		// media-dir) was the v3.0 contract; v4.0 drops it because
-		// the explicit-collection surface is the only one
-		// production users need (Entei / Yomitan / asbplayer never
-		// required auto-derive in the field).
+func resolveAnkiBridge(collectionOverride, apiKey string, diagLog *diag.Logger, probe func() (*anki.MediaWriter, error)) *api.AnkiBridge {
+	writer, werr := probe()
+	if werr != nil && collectionOverride == "" && diagLog != nil {
+		// Only logged in the auto-derive branch: an explicit
+		// --anki-collection has its own error path (OpenCollection
+		// below) and surfaces through the per-action dispatch.
+		diagLog.Warnf("anki", "collection.media probe failed: %v (AnkiDroid may be migrated to app-private storage; bridge disabled)", werr)
 		return nil
 	}
-	writer, werr := anki.NewMediaWriter("")
-	if werr != nil && diagLog != nil {
-		diagLog.Warnf("anki", "media writer probe: %v (bridge will run notes-only)", werr)
-	}
 	var collectionPath string
-	if collectionOverride != "" {
+	switch {
+	case collectionOverride != "":
 		collectionPath = collectionOverride
-	} else if writer != nil && writer.Dir() != "" {
-		collectionPath = filepath.Join(filepath.Dir(writer.Dir()), "collection.anki2")
+	case writer != nil && writer.Dir() != "":
+		// v3.0 auto-derive contract: the AnkiDroid collection.anki2
+		// lives next to collection.media. Stat the sibling; absent
+		// means the user migrated AnkiDroid to app-private storage,
+		// which Termux can't reach — disable the bridge with one
+		// diagnostic line instead of guessing.
+		sibling := filepath.Join(filepath.Dir(writer.Dir()), "collection.anki2")
+		if _, statErr := os.Stat(sibling); statErr != nil {
+			if diagLog != nil {
+				diagLog.Warnf("anki", "no collection.anki2 next to media dir %s — AnkiDroid may be migrated to app-private storage; bridge disabled", writer.Dir())
+			}
+			writer = nil
+			break
+		}
+		collectionPath = sibling
 	}
 	var db *anki.Collection
 	if collectionPath != "" {
@@ -179,12 +205,36 @@ func resolveAnkiBridge(collectionOverride, apiKey string, diagLog *diag.Logger) 
 			diagLog.Warnf("anki", "collection open: %v", err)
 		}
 	}
+	if collectionPath == "" && writer == nil {
+		// Nothing wired: probe failed or sibling missing in the
+		// auto-derive branch. Returning a non-nil empty struct
+		// would make ankiStatusLine print "neither half is up"
+		// and cfg.anki != nil — the bridge stays disabled, just
+		// like the v4.0 opt-in contract: no 8765 listener, no
+		// dispatch surface. An explicit --anki-collection that
+		// fails to open still returns the non-nil shape so the
+		// listener binds and dispatch surfaces the per-action
+		// error envelope.
+		return nil
+	}
 	return &api.AnkiBridge{
 		Writer:  writer,
 		DB:      db,
 		APIKey:  apiKey,
 		Enabled: writer != nil || db != nil,
 	}
+}
+
+// defaultAnkiProbe is the production probe injected into
+// resolveAnkiBridge from main. It maps anki.NewMediaWriter's
+// (writer, err) return to a stable shape: nil writer + nil error
+// means "this platform is unsupported" (ErrUnsupportedPlatform,
+// which we silently swallow here — resolveAnkiBridge only logs the
+// error in the auto-derive branch). On Android/Termux a real
+// /storage/emulated/0/AnkiDroid/collection.media is returned (or
+// the failure error if the legacy candidate is unwritable).
+func defaultAnkiProbe() (*anki.MediaWriter, error) {
+	return anki.NewMediaWriter("")
 }
 
 // defaultAddr is the fixed loopback port the Entei Player pairing /
@@ -225,16 +275,27 @@ func main() {
 		"metadata fetch timeout for torrent source jobs (ED-2G; default 2m)")
 	ankiCollection := flag.String("anki-collection", "",
 		"path to the AnkiDroid collection.anki2 SQLite database (spec "+
-			"EIZOU_DENDENSHI_ANKIDROID_CONNECT.md v4.0, 2026-08-31). The "+
+			"EIZOU_DENDENSHI_ANKIDROID_CONNECT.md v4.1, 2026-08-31). The "+
 			"raw AnkiConnect-compatible listener on 127.0.0.1:8765 is the "+
 			"only Anki surface — Entei / Yomitan / asbplayer connect with "+
-			"zero config. Empty disables the bridge entirely (no 8765 "+
-			"listener; existing behavior preserved). The companion opens "+
-			"this file with modernc.org/sqlite (pure-Go, no CGO; "+
-			"busy_timeout=5000; respects AnkiDroid's existing journal_mode). "+
-			"Failure to open logs a warning; the 8765 listener still binds "+
-			"and dispatch surfaces the failure as an AnkiConnect-shaped "+
-			"error envelope per action.")
+			"zero config. DEFAULT: auto-derive from the probed "+
+			"collection.media sibling — the companion probes the legacy "+
+			"AnkiDroid media dir candidates and, when the sibling "+
+			"collection.anki2 exists, wires the bridge against that path. "+
+			"This is the spec v3.0 contract restored in v4.1 (the v4.0 "+
+			"opt-in flag was a regression: the menu/launcher path never "+
+			"passes flags, so the bridge was dead on the primary launch "+
+			"path). Use this flag only as an OVERRIDE for non-standard "+
+			"locations (e.g. an app-private path the user wants the "+
+			"bridge to talk to). When the probe fails OR the sibling "+
+			"collection.anki2 is missing (AnkiDroid migrated to app-"+
+			"private storage; Termux can't reach it) the bridge stays "+
+			"disabled and the 8765 listener never binds. The companion "+
+			"opens the resolved file with modernc.org/sqlite (pure-Go, "+
+			"no CGO; busy_timeout=5000; respects AnkiDroid's existing "+
+			"journal_mode). Failure to open logs a warning; the 8765 "+
+			"listener still binds and dispatch surfaces the failure as "+
+			"an AnkiConnect-shaped error envelope per action.")
 	ankiAPIKey := flag.String("anki-api-key", "",
 		"optional AnkiConnect-style API key required in the body `key` "+
 			"field of every raw-listener request (constant-time compared). "+
@@ -385,7 +446,7 @@ func main() {
 			torrents: torrents,
 			cred:     cred,
 			log:      diagLog,
-			anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, diagLog),
+			anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, diagLog, defaultAnkiProbe),
 		}
 		code := runCLI(cliOptions{
 			version:   api.Version,
@@ -416,7 +477,7 @@ func main() {
 		torrents: torrents,
 		cred:     cred,
 		log:      diagLog,
-		anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, diagLog),
+		anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, diagLog, defaultAnkiProbe),
 	}, *ytdlp); err != nil {
 		terminateDiag(diagLog)
 		log.Fatal(err)
@@ -607,7 +668,7 @@ func jobsStatusLine(helperPath string) string {
 }
 
 // ankiStatusLine is the terminal handoff line for the AnkiDroid
-// bridge (spec v4.0, 2026-08-31). The raw AnkiConnect-compatible
+// bridge (spec v4.1, 2026-08-31). The raw AnkiConnect-compatible
 // listener on 127.0.0.1:8765 is the only Anki surface; the line
 // reports whether 8765 will bind (the bind itself happens after
 // the main server starts; EADDRINUSE there is logged as a
@@ -618,11 +679,13 @@ func jobsStatusLine(helperPath string) string {
 // constructed (the operator asked for Termux direct writes — they
 // deserve to see which directory the companion picked). The
 // collection path is included when the Collection opened. When the
-// bridge is disabled (--anki-collection empty) the line is short
-// and matches the historical "opt-in only" contract.
+// bridge is disabled (auto-derive failed — probe error or no
+// sibling collection.anki2 — or the explicit --anki-collection
+// failed to open with the listener bound anyway) the line is short
+// and matches the historical "opt-in only" wording.
 func ankiStatusLine(bridge *api.AnkiBridge) string {
 	if bridge == nil {
-		return "Anki bridge: disabled (--anki-collection not set)"
+		return "Anki bridge: disabled (no AnkiDroid collection detected)"
 	}
 	mediaOK := bridge.Writer != nil
 	collectionOK := bridge.DB != nil

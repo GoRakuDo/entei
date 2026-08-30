@@ -1,6 +1,6 @@
 # EizouDendenshi ↔ AnkiDroid Connect — Android Companion 設計仕様
 
-> **状態:** 設計 v4.0（2026-08-31・/v1/anki/* を全廃・raw AnkiConnect 互換リスナー 127.0.0.1:8765 を唯一の Anki サーフェスに）
+> **状態:** 設計 v4.1（2026-08-31・auto-derive をデフォルトに戻し v4.0 opt-in regression を修正）
 > **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiDroid 連携ブリッジ機能を追加する
 > **スコープ:** クライアントは Entei Web / Yomitan / asbplayer の 3 つ全て
 
@@ -67,24 +67,32 @@ EizouDendenshi Android コンパニオンが、**AnkiConnect 互換の AnkiDroid
 
 ### 2.2 起動
 ```bash
-# Anki ブリッジだけ（軽量・Android/Termux 想定）
+# 通常起動（grkd-edds メニュー / 自動起動 — フラグを渡さない既定パス）
+./eizouden-android-arm64
+# → MediaWriter probe が /storage/emulated/0/AnkiDroid/collection.media を検出し、
+#   sibling の collection.anki2 が存在すればブリッジを自動 wire。Anki ブリッジ ON。
+
+# 明示的にオーバーライドしたい場合（例：app-private storage に置いたコレクション）
 ./eizouden-android-arm64 \
-  --anki-collection /storage/emulated/0/AnkiDroid/collection.anki2 \
-  --anki-api-key secret-key        # 任意の API key（未指定 = 無認証）
-  # 注意: --anki-api-key を設定すると Yomitan は接続できなくなる（Yomitan の AnkiConnect 統合に key フィールドはない）。Termux 単体運用で鍵保護したい場合のみ使用。
+  --anki-collection /storage/emulated/0/Android/data/com.ichi2.anki/files/AnkiDroid/collection.anki2
+
+# 任意：API key（未指定 = 無認証）
+./eizouden-android-arm64 --anki-api-key secret-key
 
 # Anki ブリッジ + YouTube（フル機能）
 ./eizouden-android-arm64 \
-  --anki-collection /storage/emulated/0/AnkiDroid/collection.anki2 \
   --ytdlp /path/to/yt-dlp --ffmpeg /path/to/ffmpeg
 ```
-- `--anki-collection` を指定するとコンパニオンは：
-  1. **MediaWriter  を**プローブ（AnkiDroid legacy collection.media の auto-detect）→ 7665 storeMediaFile / addNote のメディア書込先
-  2. **Collection を**指定パスで開く（`modernc.org/sqlite`）→ addNote / findNotes / deckNames 等
-  3. **raw AnkiConnect 互換リスナーを 127.0.0.1:8765 にバインド**→ Entei / Yomitan / asbplayer は URL 設定不要
-- `--anki-collection` 空 → ブリッジ無効（8765 bind すらしない・既存ユーザーへの破壊的変更なし）
+- `--anki-collection` **未指定（既定）**：
+  1. **MediaWriter** をプローブ（AnkiDroid legacy collection.media の auto-detect）
+  2. **sibling の collection.anki2 を stat** — 存在すれば Collection をそのパスで開く
+  3. **raw AnkiConnect 互換リスナーを 127.0.0.1:8765 にバインド** → Entei / Yomitan / asbplayer は URL 設定不要
+  - プローブ失敗 OR sibling collection.anki2 不在（AnkiDroid が app-private storage に移行したケース）→ ブリッジ無効（8765 bind すらしない、diag に 1 行 warn ログ）
+- `--anki-collection <path>`（v4.1 での役割は **OVERRIDE 専用**）：指定したパスをそのまま Collection として開く（auto-derive を上書き）。非標準の置き場所向け
 - `--anki-api-key <key>`（任意）：body `key` フィールドが一致しないと全アクションを拒否（constant-time compare）
 - **Collection オープン失敗** → raw リスナーはバインドして走りつつ dispatch が `{"error":"anki collection not available"}` を返す（ログには警告）
+
+> **v4.1 変更点（v4.0 の regression 修正）**: v4.0 では `--anki-collection` が opt-in フラグになり、空ならブリッジ完全無効だった。これにより `grkd-edds` メニュー起動（フラグを一切渡さない経路）で 8765 がバインドされず「Disconnected」になる regression が出た。v3.0 の本来の契約は「AnkiDroid の legacy collection が検出されたらブリッジ ON」だったので、v4.1 で auto-derive をデフォルトに戻し、`--anki-collection` は非標準配置向けのオーバーライド専用に役割を変更した。
 
 ### 2.3 メディア書き込みフロー（①・Termux ダイレクト）
 1. Entei は `entei_audio/entei_video/entei_screenshot` の Blob を base64 で送る
@@ -191,10 +199,13 @@ return sanitizeComponent(prefix) + "_" + hash + "." + sanitizeComponent(ext)
 → 最初に書き込みテストが成功した場所を自動採用
 ```
 
-### collection.anki2 パス（v4.0 で明示指定に変更）
-- **必ず `--anki-collection` で指定する**（例: `/storage/emulated/0/AnkiDroid/collection.anki2`）
-- v3.0 の auto-derive（`collection.media` の sibling）は **v4.0 で廃止**。auto-derive は Collection オープン失敗のブラインドを産むため、明示パス一本に絞った
-- 未指定 → ブリッジ無効（raw listener もバインドしない）
+### collection.anki2 パス（v4.1 で auto-derive 既定に戻す）
+- **既定（`--anki-collection` 未指定）**: プローブした collection.media の **sibling**（=`<media-dir>/../collection.anki2`）を自動採用
+  - sibling が存在 → Collection をそのパスで開く、ブリッジ ON
+  - sibling が不在 → diag に 1 行 warn ログ（"AnkiDroid may be migrated to app-private storage"）を出してブリッジ無効
+- **`--anki-collection <path>`**: 上記 auto-derive を **OVERRIDE** する。非標準の置き場所（app-private storage のテストや、デュアルコレクション等）向け
+- v4.0 で一旦 opt-in 化（空 = 無効）していたが、メニュー/自動起動経路でフラグを渡せないためにブリッジが dead になる regression が判明。v4.1 で v3.0 の auto-derive 契約に戻した
+- v4.0 廃止項目：`--anki-media-dir`（MediaWriter の probe 自動検出に一本化済み）
 
 ### 書き込み可否の検査（起動時）
 - ディレクトリが存在・`access(W_OK)` が通るか
@@ -347,6 +358,16 @@ modernc.org/sqlite の pure-Go ランタイム（SQLite 全文 + libc 純 Go 実
 ---
 
 ## 13. 改訂履歴
+
+### v4.1（2026-08-31）
+- **v4.0 の regression を修正**：auto-derive をデフォルトに戻した。`--anki-collection` 未指定時の動作を v3.0 と同じ「プローブ成功 ＋ sibling collection.anki2 存在 → ブリッジ ON」に復元
+- **動機**: v4.0 で `grkd-edds` メニュー起動（フラグ非経由）経路でブリッジが完全に dead になっていた。cmdline に `eizouden-android-arm64 cli` としか出ず、`resolveAnkiBridge("")` が常に nil を返していた。v3.0 の本来の価値提案（AnkiconnectAndroid を消しても cards が動く）は auto-derive が既定で成立して初めて意味を持つので、v4.1 で既定を戻した
+- **`--anki-collection` の役割変更**: v4.0 では opt-in（指定時のみ ON）だったが、v4.1 では **OVERRIDE 専用**（auto-derive で拾えない非標準パスをユーザーが明示する場合のみ使用）
+- **明示的 disable なし**。ブリッジを完全に切りたい状況は通常ない（auto-derive が失敗する＝コレクションがそもそも存在しない＝ブリッジ OFF と等価）ので、専用フラグは追加しなかった
+- **diag ログを 1 行追加**: probe 失敗時「collection.media probe failed: ...」/ sibling 不在時「no collection.anki2 next to media dir ... — AnkiDroid may be migrated to app-private storage」。それぞれ diag に `[WARN] anki:` プレフィックスで出る
+- **`ankiStatusLine` の文言更新**: `disabled (--anki-collection not set)` → `disabled (no AnkiDroid collection detected)`。v4.1 では空フラグ＝無効ではなくなったため
+- **テスト追加** (`cmd/eizouden/main_test.go`): auto-derive の 4 経路（probe ok + sibling あり / probe ok + sibling なし / probe 失敗 / 明示 override）と明示 override 時の probe エラー無視 / API key passthrough の 6 subtest
+- **コード変更点**: `resolveAnkiBridge` に probe 関数を注入引数として追加（`resolveYtdlp` と同じパターン）。本番プローブは `defaultAnkiProbe`（`anki.NewMediaWriter("")` の薄いラッパ）。テストは t.TempDir() の fake probe を差し込む
 
 ### v4.0（2026-08-31）
 - **/v1/anki/* の 3 ルートを全廃**（最大の簡素化）。Entei はデフォルトで `http://127.0.0.1:8765` を叩いており、/v1/anki/action を誰もう使っていなかったため、token-gated の複製サーフェスを raw 1 本に集約

@@ -15,6 +15,7 @@ import (
 	"eizoudendenshi/internal/anki"
 	"eizoudendenshi/internal/api"
 	"eizoudendenshi/internal/credential"
+	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/media"
 )
 
@@ -276,7 +277,7 @@ func TestAnkiStatusLine(t *testing.T) {
 		{
 			"disabled",
 			nil,
-			"Anki bridge: disabled (--anki-collection not set)",
+			"Anki bridge: disabled (no AnkiDroid collection detected)",
 		},
 		{
 			"media-only (writer ok, collection not open)",
@@ -397,54 +398,221 @@ CREATE TABLE cards (
 );
 `
 
-// TestResolveAnkiBridge pins the wiring function (spec v4.0,
-// 2026-08-31): --anki-collection empty → nil (bridge disabled);
-// non-empty collection path → non-nil bridge with a Collection
-// (the MediaWriter probe runs on the host's auto-detect candidates;
-// on non-Android/non-Linux the probe returns ErrUnsupportedPlatform
-// and Writer stays nil — the bridge runs notes-only).
+// TestResolveAnkiBridge pins the wiring function (spec v4.1,
+// 2026-08-31). The probe function is injectable so tests can
+// substitute a t.TempDir() fixture instead of touching
+// /storage/emulated/0 on the CI box. Each subtest names the v4.1
+// contract branch it's pinning.
+//
+// The MediaWriter probe runs in production via defaultAnkiProbe
+// (calls anki.NewMediaWriter("")); here we substitute a fake that
+// either returns a pre-prepared t.TempDir() or reports failure.
+// OpenCollection is the only production-only call that touches
+// real paths — it's exercised through newColFixtureForStatusTest,
+// which builds a minimal collection.anki2 in t.TempDir().
 func TestResolveAnkiBridge(t *testing.T) {
-	if got := resolveAnkiBridge("", "", nil); got != nil {
-		t.Errorf("empty collection: bridge = %+v, want nil", got)
+	t.Run("auto-derive: probe ok + collection.anki2 sibling enables bridge", func(t *testing.T) {
+		// Fake probe returns <tempdir>/collection.media (a real,
+		// writable dir created by t.TempDir). The sibling
+		// <tempdir>/collection.anki2 is pre-created with a real
+		// Anki schema so the auto-derive stat succeeds AND
+		// OpenCollection succeeds (otherwise DB would be nil and
+		// the test would fail to distinguish "bridge wired" from
+		// "bridge disabled").
+		dir := t.TempDir()
+		mediaDir := filepath.Join(dir, "collection.media")
+		if err := os.MkdirAll(mediaDir, 0o775); err != nil {
+			t.Fatalf("mkdir collection.media: %v", err)
+		}
+		sibling := newColFixtureAt(t, dir, "collection.anki2")
+		probe := func() (*anki.MediaWriter, error) {
+			return anki.NewMediaWriterForTest(mediaDir), nil
+		}
+		b := resolveAnkiBridge("", "", nil, probe)
+		if b == nil {
+			t.Fatal("auto-derive: bridge = nil, want non-nil (probe + sibling ok)")
+		}
+		if b.Writer == nil || b.Writer.Dir() != mediaDir {
+			t.Errorf("Writer = %+v, want dir=%s", b.Writer, mediaDir)
+		}
+		if b.DB == nil {
+			t.Fatal("DB = nil, want non-nil (auto-derived sibling opened)")
+		} else {
+			if got := b.DB.Path(); got != sibling {
+				t.Errorf("DB.Path() = %q, want %q", got, sibling)
+			}
+			_ = b.DB.Close()
+		}
+		if !b.Enabled {
+			t.Error("Enabled = false, want true (both halves wired via auto-derive)")
+		}
+	})
+
+	t.Run("auto-derive: probe ok + NO collection.anki2 sibling disables bridge", func(t *testing.T) {
+		dir := t.TempDir()
+		mediaDir := filepath.Join(dir, "collection.media")
+		if err := os.MkdirAll(mediaDir, 0o775); err != nil {
+			t.Fatalf("mkdir collection.media: %v", err)
+		}
+		// No sibling file → AnkiDroid migrated to app-private storage.
+		probe := func() (*anki.MediaWriter, error) {
+			return anki.NewMediaWriterForTest(mediaDir), nil
+		}
+		log, logRead := newDiagForTest(t)
+		b := resolveAnkiBridge("", "", log, probe)
+		if b != nil {
+			t.Errorf("bridge = %+v, want nil (no sibling collection.anki2)", b)
+		}
+		if !strings.Contains(logRead.String(), "no collection.anki2 next to media dir") {
+			t.Errorf("diagnostic log missing sibling-missing line; got: %s", logRead.String())
+		}
+	})
+
+	t.Run("auto-derive: probe fails disables bridge", func(t *testing.T) {
+		probe := func() (*anki.MediaWriter, error) {
+			return nil, errors.New("anki: no writable AnkiDroid collection.media candidate")
+		}
+		log, logRead := newDiagForTest(t)
+		b := resolveAnkiBridge("", "", log, probe)
+		if b != nil {
+			t.Errorf("bridge = %+v, want nil (probe failed)", b)
+		}
+		if !strings.Contains(logRead.String(), "collection.media probe failed") {
+			t.Errorf("diagnostic log missing probe-failed line; got: %s", logRead.String())
+		}
+	})
+
+	t.Run("explicit override: temp collection.anki2 wins over probe", func(t *testing.T) {
+		notesOnlyPath := newColFixtureForStatusTest(t)
+		// Probe that would succeed, but the explicit override must
+		// take the path verbatim and the bridge must wire DB on the
+		// override, not the sibling of the probe's dir.
+		probe := func() (*anki.MediaWriter, error) {
+			return anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), nil
+		}
+		b := resolveAnkiBridge(notesOnlyPath, "", nil, probe)
+		if b == nil {
+			t.Fatal("explicit override: bridge = nil, want non-nil")
+		}
+		if b.DB == nil {
+			t.Fatal("explicit override: DB = nil, want non-nil")
+		}
+		if got := b.DB.Path(); got != notesOnlyPath {
+			t.Errorf("DB.Path() = %q, want override %q", got, notesOnlyPath)
+		}
+		// On non-Android the probe runs the production
+		// ErrUnsupportedPlatform path through NewMediaWriter; with
+		// our fake probe the Writer is the test-only helper, which
+		// is non-nil here. The contract is just "override wins";
+		// Writer shape is checked separately in TestAnkiStatusLine.
+		_ = b.DB.Close()
+	})
+
+	t.Run("notes-only: explicit --anki-collection + non-Android probe", func(t *testing.T) {
+		// Pins the v4.0 regression-Fix-1 panic class: Writer nil +
+		// DB non-nil must stay "enabled notes-only" (not "disabled
+		// bridge"). The fake probe here mimics what the real
+		// production probe returns on Windows/macOS dev hosts —
+		// a nil writer + ErrUnsupportedPlatform error which
+		// resolveAnkiBridge must NOT log against the explicit
+		// override path.
+		notesOnlyPath := newColFixtureForStatusTest(t)
+		probe := func() (*anki.MediaWriter, error) {
+			return nil, anki.ErrUnsupportedPlatform
+		}
+		log, logRead := newDiagForTest(t)
+		b := resolveAnkiBridge(notesOnlyPath, "", log, probe)
+		if b == nil {
+			t.Fatal("notes-only (explicit collection): bridge = nil, want non-nil")
+		}
+		if b.DB == nil {
+			t.Error("notes-only: DB = nil, want non-nil (explicit --anki-collection)")
+		}
+		if b.Writer != nil {
+			t.Errorf("notes-only on non-Android host: Writer = %+v, want nil", b.Writer)
+		}
+		if !b.Enabled {
+			t.Error("notes-only: Enabled = false, want true (notes half is wired)")
+		}
+		if logRead.String() != "" {
+			t.Errorf("explicit-override path must not log probe errors; got: %s", logRead.String())
+		}
+		_ = b.DB.Close()
+	})
+
+	t.Run("API key passthrough unchanged by v4.1", func(t *testing.T) {
+		notesOnlyPath := newColFixtureForStatusTest(t)
+		probe := func() (*anki.MediaWriter, error) {
+			return nil, anki.ErrUnsupportedPlatform
+		}
+		b := resolveAnkiBridge(notesOnlyPath, "secret-key-xyz", nil, probe)
+		if b == nil {
+			t.Fatal("API key wiring: bridge = nil, want non-nil")
+		}
+		if b.APIKey != "secret-key-xyz" {
+			t.Errorf("APIKey = %q, want %q", b.APIKey, "secret-key-xyz")
+		}
+		_ = b.DB.Close()
+	})
+}
+
+// newColFixtureAt creates a minimal Anki collection.anki2 fixture
+// (schema + a single col row) at <dir>/<name>. OpenCollection's
+// schema detector only requires col/notes/cards to be present, so
+// the empty JSON values in col.conf/models/decks/dconf/tags are
+// fine — the test only reads DB.Path(). Returns the absolute path.
+func newColFixtureAt(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	db, err := openSQLiteForStatusTest(path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
 	}
-	// Notes-only: an explicit --anki-collection that points at a
-	// valid fixture file pins the notes-only bridge shape (DB set,
-	// Writer nil on this host). This is the Fix-1 panic class —
-	// pinning it here means a future refactor of resolveAnkiBridge
-	// can't silently regress into "Writer nil + DB non-nil is a
-	// disabled bridge" (it must stay enabled with media down).
-	notesOnlyPath := newColFixtureForStatusTest(t)
-	bNotes := resolveAnkiBridge(notesOnlyPath, "", nil)
-	if bNotes == nil {
-		t.Fatal("notes-only (explicit collection): bridge = nil, want non-nil")
+	defer db.Close()
+	if _, err := db.Exec(schemaForStatusTest); err != nil {
+		t.Fatalf("apply schema: %v", err)
 	}
-	if bNotes.DB == nil {
-		t.Error("notes-only: DB = nil, want non-nil (explicit --anki-collection)")
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, 0, 0, 0, 11, 0, 0, 0, '{}', '{}', '{}', '{}', '{}')`); err != nil {
+		t.Fatalf("seed col: %v", err)
 	}
-	if bNotes.Writer != nil {
-		t.Errorf("notes-only on non-Android host: Writer = %+v, want nil", bNotes.Writer)
+	return path
+}
+
+// newDiagForTest opens a diag.Logger backed by a t.TempDir log file
+// and returns a wrapper whose String() reads back the written lines
+// so tests can assert on the diagnostic output of resolveAnkiBridge.
+// The returned *diag.Logger is the value to pass into the function
+// under test; the *testDiagLog is the reader side. The Logger is
+// closed via t.Cleanup so the temp file is released before TempDir
+// removal.
+func newDiagForTest(t *testing.T) (*diag.Logger, *testDiagLog) {
+	t.Helper()
+	dir := t.TempDir()
+	l, err := diag.NewLogger(dir)
+	if err != nil {
+		t.Fatalf("diag.NewLogger: %v", err)
 	}
-	if !bNotes.Enabled {
-		t.Error("notes-only: Enabled = false, want true (notes half is wired)")
+	td := &testDiagLog{Logger: l, dir: dir}
+	t.Cleanup(func() { _ = td.Close() })
+	return l, td
+}
+
+// testDiagLog is a thin diag.Logger wrapper that exposes the
+// accumulated log content via String(). The diag package never
+// reads its own file back; we do, so a test can assert
+// "the bridge logged the sibling-missing line" without exposing
+// internals from the package.
+type testDiagLog struct {
+	*diag.Logger
+	dir string
+}
+
+func (t *testDiagLog) String() string {
+	b, err := os.ReadFile(filepath.Join(t.dir, "eizouden.log"))
+	if err != nil {
+		return ""
 	}
-	// Close the SQLite handle so t.TempDir cleanup doesn't fail
-	// on Windows ("file in use" when removing the directory).
-	if bNotes.DB != nil {
-		_ = bNotes.DB.Close()
-	}
-	// API key pass-through: the second arg surfaces into the bridge
-	// unchanged. A future refactor must keep that contract so the
-	// raw listener's constant-time compare sees the configured key.
-	bKey := resolveAnkiBridge(notesOnlyPath, "secret-key-xyz", nil)
-	if bKey == nil {
-		t.Fatal("API key wiring: bridge = nil, want non-nil")
-	}
-	if bKey.APIKey != "secret-key-xyz" {
-		t.Errorf("APIKey = %q, want %q", bKey.APIKey, "secret-key-xyz")
-	}
-	if bKey.DB != nil {
-		_ = bKey.DB.Close()
-	}
+	return string(b)
 }
 
 func TestStartServerCoreSuccess(t *testing.T) {
