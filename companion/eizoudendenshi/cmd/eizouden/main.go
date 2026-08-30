@@ -115,11 +115,12 @@ func resolveGrowSource(path string, total int64) (media.GrowingSource, error) {
 	return media.NewFileSource(path, total)
 }
 
-// resolveAnkiBridge wires the AnkiDroid bridge: the URL of the
-// AnkiconnectAndroid upstream + the media writer against the resolved
-// collection.media dir. The proxy URL is the opt-in: empty disables
-// the bridge (returns nil) so the three /v1/anki routes stay
-// unregistered (404) and the existing companion behavior is unchanged.
+// resolveAnkiBridge wires the AnkiDroid bridge: the MediaWriter
+// against the resolved collection.media dir + a Collection handle
+// opened on collection.anki2. Per docs v3.0 (2026-08-30) the prior
+// AnkiconnectAndroid (:8080) HTTP proxy was removed; the companion
+// itself becomes the AnkiConnect-compatible server by writing
+// directly into AnkiDroid's collection.anki2 SQLite database.
 //
 // The MediaWriter construction runs the probe immediately (write +
 // delete a temp file in each candidate dir); failure on Android means
@@ -127,30 +128,56 @@ func resolveGrowSource(path string, total int64) (media.GrowingSource, error) {
 // path, both of which the user can fix. On Windows / macOS dev hosts
 // the probe returns ErrUnsupportedPlatform which we degrade to a
 // nil Writer + nil error — the routes still register (because the
-// proxy URL is set), the status endpoint reports "not writable", and
-// /v1/anki/media returns 503 "not supported on this platform". The
-// user can develop the action-envelope shape against a stub
-// AnkiconnectAndroid on a Linux dev box (the probe succeeds there).
-func resolveAnkiBridge(proxyURL, mediaDirOverride string, diagLog *diag.Logger) *api.AnkiBridge {
-	if proxyURL == "" {
+// collection path is set), the status endpoint reports "not
+// writable", and /v1/anki/media returns 503 "not supported on this
+// platform". The user can develop the action-envelope shape against a
+// stub AnkiDroid collection on a Linux dev box (the probe succeeds
+// there).
+//
+// The Collection construction is best-effort too: empty
+// collectionPath means "auto" (derive sibling of the probed
+// collection.media dir). Open failure (AnkiDroid play-variant app-
+// private path, schema unsupported, DB locked) is logged at startup
+// and the bridge registers with DB = nil; the routes still register
+// so /v1/anki/status reports the failure and the operator can poll
+// the diagnostic without restarting.
+//
+// Spec v3.0 (2026-08-30): the bridge is opt-in on TWO flags now:
+// --anki-media-dir (controls the media-write half) and
+// --anki-collection (controls the note half). Either one alone
+// enables the bridge; both empty disables it (the three routes stay
+// unregistered, preserving historical behaviour).
+func resolveAnkiBridge(mediaDirOverride, collectionOverride string, diagLog *diag.Logger) *api.AnkiBridge {
+	if mediaDirOverride == "" && collectionOverride == "" {
 		return nil
 	}
-	var writer *anki.MediaWriter
-	if w, err := anki.NewMediaWriter(mediaDirOverride); err != nil {
-		// Log the failure at startup so the operator can see "why does
-		// /v1/anki/status say not writable" — the bridge still
-		// registers, the routes still work for the action-forwarding
-		// path, and the media endpoint gracefully reports 503.
-		if diagLog != nil {
-			diagLog.Warnf("anki", "media writer init: %v", err)
+	writer, err := anki.NewMediaWriter(mediaDirOverride)
+	if err != nil && diagLog != nil {
+		diagLog.Warnf("anki", "media writer init: %v", err)
+	}
+	// Resolve collection path: caller override wins; otherwise derive
+	// sibling of the probed collection.media dir. When the writer
+	// failed to probe, the dir is unknown; the auto-resolved path is
+	// "<empty>/../collection.anki2" which is meaningless — in that
+	// case the Collection.Open fails cleanly and the bridge runs
+	// media-only.
+	var collectionPath string
+	if collectionOverride != "" {
+		collectionPath = collectionOverride
+	} else if writer != nil && writer.Dir() != "" {
+		collectionPath = filepath.Join(filepath.Dir(writer.Dir()), "collection.anki2")
+	}
+	var db *anki.Collection
+	if collectionPath != "" {
+		db, err = anki.OpenCollection(collectionPath)
+		if err != nil && diagLog != nil {
+			diagLog.Warnf("anki", "collection open: %v", err)
 		}
-	} else {
-		writer = w
 	}
 	return &api.AnkiBridge{
-		Writer:          writer,
-		Proxy:           anki.NewNoteProxy(proxyURL, nil),
-		ProxyConfigured: true,
+		Writer:  writer,
+		DB:      db,
+		Enabled: writer != nil || db != nil,
 	}
 }
 
@@ -159,13 +186,6 @@ func resolveAnkiBridge(proxyURL, mediaDirOverride string, diagLog *diag.Logger) 
 // common CLI's option 1 and plain interactive launches must bind this
 // default; tests and harnesses pass an explicit --addr for isolation.
 const defaultAddr = "127.0.0.1:4322"
-
-// defaultAnkiProxy is the AnkiconnectAndroid upstream URL the bridge
-// forwards AnkiConnect envelopes to. Spec §1: AnkiconnectAndroid listens
-// on port 8080 by default and accepts POST JSON at the root, same shape
-// as AnkiConnect. Empty --anki-proxy disables the bridge — the three
-// routes stay unregistered (404) and existing callers see no change.
-const defaultAnkiProxy = "http://127.0.0.1:8080"
 
 func main() {
 	addr := flag.String("addr", defaultAddr,
@@ -197,18 +217,22 @@ func main() {
 			"ffmpeg — yt-dlp does)")
 	torrentTimeout := flag.Duration("torrent-timeout", 2*time.Minute,
 		"metadata fetch timeout for torrent source jobs (ED-2G; default 2m)")
-	ankiProxy := flag.String("anki-proxy", defaultAnkiProxy,
-		"AnkiconnectAndroid URL for the EizouDendenshi AnkiDroid bridge "+
-			"(spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md, 2026-08-29; default "+
-			"http://127.0.0.1:8080; empty string disables the bridge — "+
-			"the three /v1/anki routes stay unregistered for zero behavior "+
-			"change on existing installs)")
 	ankiMediaDir := flag.String("anki-media-dir", "",
 		"override path to the AnkiDroid collection.media directory for "+
 			"direct Termux writes (Android/Termux only). Empty means "+
 			"auto-detect: legacy /storage/emulated/0/AnkiDroid/collection.media, "+
 			"then /sdcard/AnkiDroid/collection.media. On non-Android hosts "+
-			"the bridge returns 503 (not supported on this platform).")
+			"the bridge returns 503 (not supported on this platform). Both "+
+			"this and --anki-collection empty disable the bridge.")
+	ankiCollection := flag.String("anki-collection", "",
+		"path to the AnkiDroid collection.anki2 SQLite database for direct "+
+			"note writes (spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md v3.0, "+
+			"2026-08-30). Empty means auto-derive as the sibling of the "+
+			"resolved collection.media directory. The companion opens this "+
+			"file with modernc.org/sqlite (pure-Go, no CGO; busy_timeout=5000; "+
+			"respects AnkiDroid's existing journal_mode). Failure to open "+
+			"logs a warning and leaves the note routes at 503 with a clear "+
+			"message; the media route still works.")
 	flag.Parse()
 
 	// Android (Termux) DNS bootstrap: pure-Go (CGO_ENABLED=0) resolver
@@ -353,7 +377,7 @@ func main() {
 			torrents: torrents,
 			cred:     cred,
 			log:      diagLog,
-			anki:     resolveAnkiBridge(*ankiProxy, *ankiMediaDir, diagLog),
+			anki:     resolveAnkiBridge(*ankiMediaDir, *ankiCollection, diagLog),
 		}
 		code := runCLI(cliOptions{
 			version:   api.Version,
@@ -384,7 +408,7 @@ func main() {
 		torrents: torrents,
 		cred:     cred,
 		log:      diagLog,
-		anki:     resolveAnkiBridge(*ankiProxy, *ankiMediaDir, diagLog),
+		anki:     resolveAnkiBridge(*ankiMediaDir, *ankiCollection, diagLog),
 	}, *ytdlp); err != nil {
 		terminateDiag(diagLog)
 		log.Fatal(err)
@@ -558,20 +582,33 @@ func jobsStatusLine(helperPath string) string {
 }
 
 // ankiStatusLine is the terminal handoff line for the AnkiDroid bridge.
-// It mirrors the media / jobs lines: enabled / disabled / unsupported.
+// It mirrors the media / jobs lines: enabled / disabled / partial.
 // The media dir path is included when the writer was successfully
 // constructed (the operator asked for Termux direct writes — they
-// deserve to see which directory the companion picked). When the
-// bridge is disabled (--anki-proxy empty) the line is short and
-// matches the historical "opt-in only" contract.
+// deserve to see which directory the companion picked). The
+// collection path is included when the Collection opened. When the
+// bridge is disabled (both --anki-media-dir and --anki-collection
+// empty) the line is short and matches the historical "opt-in only"
+// contract.
 func ankiStatusLine(bridge *api.AnkiBridge) string {
 	if bridge == nil {
-		return "Anki bridge: disabled (--anki-proxy not set)"
+		return "Anki bridge: disabled (--anki-media-dir and --anki-collection not set)"
 	}
-	if bridge.Writer == nil {
-		return "Anki bridge: enabled (proxy-only; media dir not writable on this host)"
+	mediaOK := bridge.Writer != nil
+	collectionOK := bridge.DB != nil
+	switch {
+	case mediaOK && collectionOK:
+		return fmt.Sprintf("Anki bridge: enabled (media dir: %s; collection: %s)",
+			bridge.Writer.Dir(), bridge.DB.Path())
+	case mediaOK && !collectionOK:
+		return fmt.Sprintf("Anki bridge: media-only (collection not open; media dir: %s)",
+			bridge.Writer.Dir())
+	case !mediaOK && collectionOK:
+		return fmt.Sprintf("Anki bridge: notes-only (media dir not writable; collection: %s)",
+			bridge.DB.Path())
+	default:
+		return "Anki bridge: enabled but neither half is up (see /v1/anki/status)"
 	}
-	return fmt.Sprintf("Anki bridge: enabled (proxy + media dir: %s)", bridge.Writer.Dir())
 }
 
 // resolveBindAddress enforces the loopback-only binding policy.

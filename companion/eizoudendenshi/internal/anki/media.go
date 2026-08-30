@@ -1,11 +1,28 @@
-// Package anki implements the EizouDendenshi ↔ AnkiDroid bridge: Termux
-// direct writes to the AnkiDroid collection.media directory, and an
-// AnkiconnectAndroid (:8080) HTTP proxy for note operations (per
-// docs/EIZOU_DENDENSHI_ANKIDROID_CONNECT.md, 2026-08-29).
+// Package anki implements the EizouDendenshi ↔ AnkiDroid bridge.
 //
-// The bridge is opt-in on the companion command line (--anki-proxy URL).
-// When the proxy URL is empty no AnkiDroid routes register, and existing
-// companion behavior is unchanged. The bridge is composed of two halves:
+// The companion writes media bytes directly into AnkiDroid's
+// collection.media directory (probe-based Termux path detection, see
+// media.go) AND, on the note side, opens AnkiDroid's collection.anki2
+// SQLite database and performs the AnkiConnect-compatible note
+// surface (deckNames / modelNames / modelFieldNames / addNote /
+// updateNoteFields / addTags / findNotes / notesInfo / canAddNotes)
+// directly against the schema. The companion itself becomes the
+// AnkiConnect-compatible server; no external APK is required.
+//
+// Per docs/EIZOU_DENDENSHI_ANKIDROID_CONNECT.md v3.0 (2026-08-30):
+// the prior design (2026-08-29 v2.0) forwarded note actions to
+// AnkiconnectAndroid (:8080) over HTTP; the v3.0 design removes that
+// dependency entirely so users no longer need to install a third-party
+// APK to enable the bridge. The collection side runs through the same
+// SQLite file AnkiDroid reads from, so any note the companion writes
+// shows up on the next AnkiDroid collection scan (a restart of
+// AnkiDroid is required to refresh the in-memory model; AnkiWeb sync
+// picks up the change via usn=-1).
+//
+// The bridge is opt-in on the companion command line (--anki-media-dir
+// + --anki-collection). When both are empty no AnkiDroid routes
+// register, and existing companion behavior is unchanged. The bridge
+// is composed of two halves:
 //
 //   1. MediaWriter — Termux writes media bytes directly into the
 //      AnkiDroid collection.media directory with a deterministic,
@@ -17,11 +34,19 @@
 //      builds return a clear "not supported on this platform" error so
 //      the rest of the bridge can still compile and route.
 //
-//   2. NoteProxy — HTTP client that forwards AnkiConnect envelopes to
-//      AnkiconnectAndroid (port 8080 by default). It accepts the same
-//      JSON shape AnkiConnect uses and decodes the {"result":…,
-//      "error":…} envelope; non-2xx responses or non-null "error" fields
-//      become typed errors.
+//   2. Collection — opens <mediaDir>/../collection.anki2 through
+//      modernc.org/sqlite (pure-Go, no CGO; keeps android/arm64
+//      cross-compile working) with busy_timeout=5000 and AnkiDroid's
+//      existing journal_mode respected (never overwritten). The schema
+//      is auto-detected at open time: Anki 2.1.28+ (schema18) stores
+//      decks/models in dedicated tables, older schemas store them as
+//      JSON inside the col.decks / col.models row. The collection
+//      layer implements BOTH readers and dispatches at runtime so the
+//      bridge works on every supported AnkiDroid version. The note-
+//      level operations (addNote / updateNoteFields / addTags /
+//      findNotes / notesInfo / canAddNotes) write through modernc's
+//      transaction boundary with the SHA-1-field-checksum + base91
+//      Anki guid scheme.
 //
 // Re-exports of identical blobs are deterministic via SHA-256 → first 10
 // hex of the content; the caller-supplied "filename" becomes the prefix

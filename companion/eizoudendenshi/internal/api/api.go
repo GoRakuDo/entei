@@ -33,14 +33,17 @@
 //     origin-gated.
 //   - POST /v1/anki/media, POST /v1/anki/action, GET /v1/anki/status —
 //     the AnkiDroid bridge (spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md,
-//     2026-08-29, Phase 1 + Phase 2). Routes are registered ONLY when
-//     Config.Anki != nil (companion wires the bridge when --anki-proxy
-//     is non-empty). Same Origin + capability-token gates as the media
-//     endpoints; /v1/anki/media accepts up to 64 MiB base64 payloads,
+//     v3.0, 2026-08-30, Phase 1 + Phase 2). Routes are registered ONLY
+//     when Config.Anki != nil (companion wires the bridge when
+//     --anki-media-dir OR --anki-collection is non-empty; BOTH empty
+//     disables the bridge and the three routes stay unregistered (404)).
+//     Same Origin + capability-token gates as the media endpoints;
+//     /v1/anki/media accepts up to 64 MiB base64 payloads,
 //     /v1/anki/action runs the addNote media-array rewrite (audio /
 //     video / picture entries inside params.note — spec §3.3), and
-//     /v1/anki/status returns only {proxyConfigured, mediaDirWritable,
-//     mediaDir} — never a token, pairing code, or upstream body.
+//     /v1/anki/status returns only {enabled, collectionOpen,
+//     collectionPath, mediaDirWritable, mediaDir} — never a token,
+//     pairing code, or upstream body.
 //   - Unknown routes → 404; known routes with unknown methods → 405.
 //
 // Security boundaries:
@@ -244,13 +247,17 @@ type Config struct {
 // AnkiBridge bundles the AnkiDroid bridge dependencies injected into
 // the API server at construction. The fields are pointers so a nil
 // Anki disables every bridge route; an Anki with only Writer or only
-// Proxy still registers the routes that work (status / media / action).
-// ProxyConfigured is a non-sensitive boolean surfaced by /v1/anki/status;
-// it is computed at wiring time and never reflects secret material.
+// Collection still registers the routes that work (status / media /
+// action). Enabled is a non-sensitive boolean surfaced by
+// /v1/anki/status; it is computed at wiring time and never reflects
+// secret material. Per docs v3.0 (2026-08-30): the prior
+// AnkiconnectAndroid note-proxy dependency was removed entirely —
+// note operations now go directly into AnkiDroid's collection.anki2
+// via the SQLite Collection layer.
 type AnkiBridge struct {
-	Writer          *anki.MediaWriter
-	Proxy           *anki.NoteProxy
-	ProxyConfigured bool
+	Writer  *anki.MediaWriter
+	DB      *anki.Collection
+	Enabled bool
 }
 
 // Server holds in-memory pairing state for one process lifetime.
@@ -363,12 +370,17 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.anki != nil {
 		// ED-3 / AnkiDroid bridge (spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md,
-		// 2026-08-29, Phase 1 + Phase 2). Registered only when the companion
-		// command wired a non-empty --anki-proxy; with the bridge disabled
-		// the routes stay unregistered (404) and existing callers see no
-		// change. The Writer and Proxy are independently nilable so the
-		// status / media / action endpoints degrade gracefully when only
-		// half the bridge is available.
+		// v3.0, 2026-08-30, Phase 1 + Phase 2). Registered only when
+		// the companion command wired at least one of
+		// --anki-media-dir / --anki-collection; with BOTH empty the
+		// bridge is disabled, the routes stay unregistered (404), and
+		// existing callers see no change. The Writer and Collection
+		// are independently nilable so the status / media / action
+		// endpoints degrade gracefully when only half the bridge is
+		// available (e.g. notes-only bridge: DB open, Writer nil —
+		// /v1/anki/action addNote with audio data returns 503
+		// "media writer not available", text-only addNote still
+		// inserts).
 		mux.HandleFunc("/v1/anki/media", s.handleAnkiMedia)
 		mux.HandleFunc("/v1/anki/action", s.handleAnkiAction)
 		mux.HandleFunc("/v1/anki/status", s.handleAnkiStatus)

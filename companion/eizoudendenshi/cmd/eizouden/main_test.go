@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"net"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 
 	"eizoudendenshi/internal/anki"
 	"eizoudendenshi/internal/api"
@@ -248,11 +251,23 @@ func TestMediaStatusLine(t *testing.T) {
 }
 
 // TestAnkiStatusLine pins the terminal-handoff shape for the AnkiDroid
-// bridge: disabled / proxy-only / enabled-with-media-dir. The line
-// must never echo a capability token or a pairing code (the only
+// bridge: disabled / media-only / notes-only / both / neither. The
+// line must never echo a capability token or a pairing code (the only
 // sensitive strings the command has access to); a non-empty writer
 // path is OK because the spec marks the directory as non-sensitive.
 func TestAnkiStatusLine(t *testing.T) {
+	// A real Collection so DB.Path() returns a non-empty string
+	// (the notes-only + both cases need a path).
+	colPath := filepath.Join(t.TempDir(), "collection.anki2")
+	// Build a minimal collection file via the anki package fixture
+	// helper equivalent — we only need DB.Path() to return a value,
+	// so a fresh open against a fixture is the simplest path.
+	colRealPath := newColFixtureForStatusTest(t)
+	coll, err := anki.OpenCollection(colRealPath)
+	if err != nil {
+		t.Fatalf("OpenCollection: %v", err)
+	}
+	t.Cleanup(func() { _ = coll.Close() })
 	tests := []struct {
 		name   string
 		bridge *api.AnkiBridge
@@ -261,17 +276,22 @@ func TestAnkiStatusLine(t *testing.T) {
 		{
 			"disabled",
 			nil,
-			"Anki bridge: disabled (--anki-proxy not set)",
+			"Anki bridge: disabled (--anki-media-dir and --anki-collection not set)",
 		},
 		{
-			"proxy-only (writer failed)",
-			&api.AnkiBridge{Writer: nil, ProxyConfigured: true},
-			"Anki bridge: enabled (proxy-only; media dir not writable on this host)",
+			"media-only (writer ok, collection not open)",
+			&api.AnkiBridge{Writer: anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), DB: nil, Enabled: true},
+			"Anki bridge: media-only (collection not open; media dir: /storage/emulated/0/AnkiDroid/collection.media)",
 		},
 		{
-			"enabled with media dir",
-			&api.AnkiBridge{Writer: anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), ProxyConfigured: true},
-			"Anki bridge: enabled (proxy + media dir: /storage/emulated/0/AnkiDroid/collection.media)",
+			"both halves up",
+			&api.AnkiBridge{Writer: anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), DB: coll, Enabled: true},
+			"Anki bridge: enabled (media dir: /storage/emulated/0/AnkiDroid/collection.media; collection: " + coll.Path() + ")",
+		},
+		{
+			"notes-only (collection open, writer nil — the Fix-1 panic class)",
+			&api.AnkiBridge{Writer: nil, DB: coll, Enabled: true},
+			"Anki bridge: notes-only (media dir not writable; collection: " + coll.Path() + ")",
 		},
 	}
 	for _, tt := range tests {
@@ -281,31 +301,149 @@ func TestAnkiStatusLine(t *testing.T) {
 			}
 		})
 	}
+	_ = colPath
 }
 
-// TestResolveAnkiBridge pins the wiring function: empty proxy → nil
-// (bridge disabled), non-empty → non-nil bridge with Proxy always
-// configured and Writer possibly nil when the platform probe fails.
-// The non-sensitive URL is preserved verbatim in the returned bridge
-// for the status endpoint to echo (never the URL-with-token —
-// AnkiconnectAndroid takes no token, per spec §9).
+// newColFixtureForStatusTest builds a minimal collection.anki2 for
+// TestAnkiStatusLine — we only need DB.Path() to be non-empty, so
+// the lightweight schema-less file (the OpenCollection auto-
+// detection would reject this) is replaced by an in-process
+// anki.OpenCollection against a fixture built by the anki package's
+// test helper. We import the package-private helper via the same
+// test boundary.
+//
+// The test fixture in internal/anki/collection_test.go is in
+// package anki and therefore not directly callable from cmd/eizouden.
+// We build our own SQLite file with the required tables + a single
+// col row so OpenCollection succeeds.
+func newColFixtureForStatusTest(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collection.anki2")
+	db, err := openSQLiteForStatusTest(path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(schemaForStatusTest); err != nil {
+		t.Fatalf("apply schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, 0, 0, 0, 11, 0, 0, 0, '{}', '{}', '{}', '{}', '{}')`); err != nil {
+		t.Fatalf("seed col: %v", err)
+	}
+	return path
+}
+
+// openSQLiteForStatusTest opens a pure-Go SQLite database for the
+// status-line fixture. We use modernc.org/sqlite (already an indirect
+// dep of the anki package) so this test needs no CGO.
+func openSQLiteForStatusTest(path string) (*sql.DB, error) {
+	return sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+}
+
+// schemaForStatusTest is the minimal Anki schema slice the fixture
+// needs (col / notes / cards). OpenCollection's schema detector only
+// requires the three core tables to be present; the empty values in
+// col.conf / col.models / col.decks / col.dconf / col.tags are fine
+// because the ankiStatusLine under test only reads DB.Path().
+const schemaForStatusTest = `
+CREATE TABLE col (
+	id integer PRIMARY KEY,
+	crt integer NOT NULL,
+	mod integer NOT NULL,
+	scm integer NOT NULL,
+	ver integer NOT NULL,
+	dty integer NOT NULL,
+	usn integer NOT NULL,
+	ls integer NOT NULL,
+	conf text NOT NULL,
+	models text NOT NULL,
+	decks text NOT NULL,
+	dconf text NOT NULL,
+	tags text NOT NULL
+);
+CREATE TABLE notes (
+	id integer PRIMARY KEY,
+	guid text NOT NULL,
+	mid integer NOT NULL,
+	mod integer NOT NULL,
+	usn integer NOT NULL,
+	tags text NOT NULL,
+	flds text NOT NULL,
+	sfld text NOT NULL,
+	csum integer NOT NULL,
+	flags integer NOT NULL,
+	data text NOT NULL
+);
+CREATE TABLE cards (
+	id integer PRIMARY KEY,
+	nid integer NOT NULL,
+	did integer NOT NULL,
+	ord integer NOT NULL,
+	mod integer NOT NULL,
+	usn integer NOT NULL,
+	type integer NOT NULL,
+	queue integer NOT NULL,
+	due integer NOT NULL,
+	ivl integer NOT NULL,
+	factor integer NOT NULL,
+	reps integer NOT NULL,
+	lapses integer NOT NULL,
+	left integer NOT NULL,
+	odue integer NOT NULL,
+	odid integer NOT NULL,
+	flags integer NOT NULL,
+	data text NOT NULL
+);
+`
+
+// TestResolveAnkiBridge pins the wiring function: both flags empty →
+// nil (bridge disabled); non-empty media-dir → non-nil bridge with a
+// MediaWriter (and Collection when the resolved sibling file opens).
+// Per docs v3.0 (2026-08-30) the prior AnkiconnectAndroid proxy
+// dependency was removed — the bridge is now purely a Termux-direct
+// + collection.anki2-direct path; there is no upstream HTTP client
+// to wire.
 func TestResolveAnkiBridge(t *testing.T) {
 	if got := resolveAnkiBridge("", "", nil); got != nil {
-		t.Errorf("empty proxy: bridge = %+v, want nil", got)
+		t.Errorf("empty media-dir + empty collection: bridge = %+v, want nil", got)
 	}
-	b := resolveAnkiBridge("http://127.0.0.1:8080", "", nil)
+	// Non-empty media-dir on a non-Android/non-Linux host: the probe
+	// fails → Writer is nil but the bridge is still non-nil (Collection
+	// auto-resolves to "<dirname>/../collection.anki2" which doesn't
+	// exist on Windows; DB stays nil). Enabled reflects "at least one
+	// half is wired or attempted". On Android/Linux the Writer would
+	// be non-nil; on this test host we only pin that the function
+	// returns a non-nil bridge.
+	b := resolveAnkiBridge("/storage/emulated/0/AnkiDroid/collection.media", "", nil)
 	if b == nil {
-		t.Fatal("non-empty proxy: bridge = nil, want non-nil")
+		t.Fatal("non-empty media-dir: bridge = nil, want non-nil")
 	}
-	if b.Proxy == nil {
-		t.Error("non-empty proxy: Proxy = nil")
+	// Notes-only: an explicit --anki-collection that points at a
+	// valid fixture file pins the notes-only bridge shape (DB set,
+	// Writer nil on this host). This is the Fix-1 panic class —
+	// pinning it here means a future refactor of resolveAnkiBridge
+	// can't silently regress into "Writer nil + DB non-nil is a
+	// disabled bridge" (it must stay enabled with media down).
+	notesOnlyPath := newColFixtureForStatusTest(t)
+	bNotes := resolveAnkiBridge("", notesOnlyPath, nil)
+	if bNotes == nil {
+		t.Fatal("notes-only (explicit collection): bridge = nil, want non-nil")
 	}
-	if !b.ProxyConfigured {
-		t.Error("non-empty proxy: ProxyConfigured = false")
+	if bNotes.DB == nil {
+		t.Error("notes-only: DB = nil, want non-nil (explicit --anki-collection)")
 	}
-	// Writer may be nil on non-Android/non-Linux hosts; on this test
-	// host it depends on the probe. We don't pin it either way — the
-	// test's contract is "non-nil bridge with a configured proxy".
+	if bNotes.Writer != nil {
+		t.Errorf("notes-only on non-Android host: Writer = %+v, want nil", bNotes.Writer)
+	}
+	if !bNotes.Enabled {
+		t.Error("notes-only: Enabled = false, want true (notes half is wired)")
+	}
+	// Close the SQLite handle so t.TempDir cleanup doesn't fail
+	// on Windows ("file in use" when removing the directory).
+	if bNotes.DB != nil {
+		_ = bNotes.DB.Close()
+	}
 }
 
 func TestStartServerCoreSuccess(t *testing.T) {
