@@ -63,6 +63,11 @@ func runMenu(t *testing.T, opts cliOptions, input string, startErr error) string
 }
 
 func TestMenuStructureAndPlainFallback(t *testing.T) {
+	// Hermetic: the menu defaults to the REAL machine's channel.json when
+	// storageRoot is empty, so a persisted "prerelease" on the dev box
+	// would flip this test's expected header. Isolate via temp dir
+	// (2026-08-29 — flaky since the channel-split feature landed).
+	t.Setenv("EIZOUDEN_CREDENTIAL_DIR", t.TempDir())
 	out := runMenu(t, cliOptions{version: "0.2.0-rc.7"}, "2\n", nil)
 	if !strings.Contains(out, "EizouDendenshi v0.2.0-rc.7") {
 		t.Errorf("missing version header: %q", out)

@@ -31,6 +31,16 @@
 //     state/available/total/headReady/retryAfter — never a path, token,
 //     pairing code, or media bytes. HEAD mirrors GET; OPTIONS preflight is
 //     origin-gated.
+//   - POST /v1/anki/media, POST /v1/anki/action, GET /v1/anki/status —
+//     the AnkiDroid bridge (spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md,
+//     2026-08-29, Phase 1 + Phase 2). Routes are registered ONLY when
+//     Config.Anki != nil (companion wires the bridge when --anki-proxy
+//     is non-empty). Same Origin + capability-token gates as the media
+//     endpoints; /v1/anki/media accepts up to 64 MiB base64 payloads,
+//     /v1/anki/action runs the addNote media-array rewrite (audio /
+//     video / picture entries inside params.note — spec §3.3), and
+//     /v1/anki/status returns only {proxyConfigured, mediaDirWritable,
+//     mediaDir} — never a token, pairing code, or upstream body.
 //   - Unknown routes → 404; known routes with unknown methods → 405.
 //
 // Security boundaries:
@@ -66,6 +76,7 @@ import (
 	"strings"
 	"sync"
 
+	"eizoudendenshi/internal/anki"
 	"eizoudendenshi/internal/credential"
 	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/job"
@@ -218,6 +229,28 @@ type Config struct {
 	// carried in the query string can never reach the log; pairing lines
 	// are success/failure only, never a code or token.
 	Logger *diag.Logger
+
+	// Anki, when non-nil, enables the AnkiDroid bridge routes
+	// (POST /v1/anki/media, POST /v1/anki/action, GET /v1/anki/status;
+	// spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md, 2026-08-29, Phase 1 +
+	// Phase 2). The Writer is required for /v1/anki/media and for the
+	// addNote media-array rewrite inside /v1/anki/action; the Proxy is
+	// required for the upstream forwarding step. Nil disables the bridge
+	// entirely — the three routes stay unregistered (404), preserving
+	// historical behavior for callers who never opted in.
+	Anki *AnkiBridge
+}
+
+// AnkiBridge bundles the AnkiDroid bridge dependencies injected into
+// the API server at construction. The fields are pointers so a nil
+// Anki disables every bridge route; an Anki with only Writer or only
+// Proxy still registers the routes that work (status / media / action).
+// ProxyConfigured is a non-sensitive boolean surfaced by /v1/anki/status;
+// it is computed at wiring time and never reflects secret material.
+type AnkiBridge struct {
+	Writer          *anki.MediaWriter
+	Proxy           *anki.NoteProxy
+	ProxyConfigured bool
 }
 
 // Server holds in-memory pairing state for one process lifetime.
@@ -233,6 +266,7 @@ type Server struct {
 	ffmpegPath     string              // ED-2H /v1/media/pcm converter (16 kHz mono PCM for sub-to-audio)
 	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
 	torrents       *torrent.Manager    // ED-2G: optional torrent-job manager (nil = disabled)
+	anki           *AnkiBridge         // ED-3 / AnkiDroid bridge: writer + proxy; nil disables all three routes
 	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 
 	// createMu serializes job/torrent create handlers so cross-kind
@@ -290,6 +324,7 @@ func New(cfg Config) (*Server, error) {
 		ffmpegPath:     cfg.Ffmpeg,
 		jobs:           cfg.Jobs,
 		torrents:       cfg.Torrents,
+		anki:           cfg.Anki,
 		allowedOrigins: allowed,
 	}, nil
 }
@@ -325,6 +360,18 @@ func (s *Server) Handler() http.Handler {
 		// is configured; otherwise these routes are honestly 404.
 		mux.HandleFunc("/v1/source/torrents", s.handleTorrentCreate)
 		mux.HandleFunc("/v1/source/torrents/", s.handleTorrentByID)
+	}
+	if s.anki != nil {
+		// ED-3 / AnkiDroid bridge (spec EIZOU_DENDENSHI_ANKIDROID_CONNECT.md,
+		// 2026-08-29, Phase 1 + Phase 2). Registered only when the companion
+		// command wired a non-empty --anki-proxy; with the bridge disabled
+		// the routes stay unregistered (404) and existing callers see no
+		// change. The Writer and Proxy are independently nilable so the
+		// status / media / action endpoints degrade gracefully when only
+		// half the bridge is available.
+		mux.HandleFunc("/v1/anki/media", s.handleAnkiMedia)
+		mux.HandleFunc("/v1/anki/action", s.handleAnkiAction)
+		mux.HandleFunc("/v1/anki/status", s.handleAnkiStatus)
 	}
 	mux.HandleFunc("/", s.handleNotFound)
 	if s.log == nil {
@@ -372,7 +419,8 @@ func isStatusPolling(method, path string) bool {
 		return false
 	}
 	switch {
-	case path == "/v1/pair/status", path == "/v1/media/status":
+	case path == "/v1/pair/status", path == "/v1/media/status",
+		path == "/v1/anki/status":
 		return true
 	case strings.HasPrefix(path, "/v1/source/jobs/"):
 		// The bare status GET is /v1/source/jobs/{id}; any suffix

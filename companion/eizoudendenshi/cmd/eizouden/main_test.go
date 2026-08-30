@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"eizoudendenshi/internal/anki"
 	"eizoudendenshi/internal/api"
 	"eizoudendenshi/internal/credential"
 	"eizoudendenshi/internal/media"
@@ -244,6 +245,67 @@ func TestMediaStatusLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAnkiStatusLine pins the terminal-handoff shape for the AnkiDroid
+// bridge: disabled / proxy-only / enabled-with-media-dir. The line
+// must never echo a capability token or a pairing code (the only
+// sensitive strings the command has access to); a non-empty writer
+// path is OK because the spec marks the directory as non-sensitive.
+func TestAnkiStatusLine(t *testing.T) {
+	tests := []struct {
+		name   string
+		bridge *api.AnkiBridge
+		want   string
+	}{
+		{
+			"disabled",
+			nil,
+			"Anki bridge: disabled (--anki-proxy not set)",
+		},
+		{
+			"proxy-only (writer failed)",
+			&api.AnkiBridge{Writer: nil, ProxyConfigured: true},
+			"Anki bridge: enabled (proxy-only; media dir not writable on this host)",
+		},
+		{
+			"enabled with media dir",
+			&api.AnkiBridge{Writer: anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), ProxyConfigured: true},
+			"Anki bridge: enabled (proxy + media dir: /storage/emulated/0/AnkiDroid/collection.media)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ankiStatusLine(tt.bridge); got != tt.want {
+				t.Errorf("ankiStatusLine = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestResolveAnkiBridge pins the wiring function: empty proxy → nil
+// (bridge disabled), non-empty → non-nil bridge with Proxy always
+// configured and Writer possibly nil when the platform probe fails.
+// The non-sensitive URL is preserved verbatim in the returned bridge
+// for the status endpoint to echo (never the URL-with-token —
+// AnkiconnectAndroid takes no token, per spec §9).
+func TestResolveAnkiBridge(t *testing.T) {
+	if got := resolveAnkiBridge("", "", nil); got != nil {
+		t.Errorf("empty proxy: bridge = %+v, want nil", got)
+	}
+	b := resolveAnkiBridge("http://127.0.0.1:8080", "", nil)
+	if b == nil {
+		t.Fatal("non-empty proxy: bridge = nil, want non-nil")
+	}
+	if b.Proxy == nil {
+		t.Error("non-empty proxy: Proxy = nil")
+	}
+	if !b.ProxyConfigured {
+		t.Error("non-empty proxy: ProxyConfigured = false")
+	}
+	// Writer may be nil on non-Android/non-Linux hosts; on this test
+	// host it depends on the probe. We don't pin it either way — the
+	// test's contract is "non-nil bridge with a configured proxy".
 }
 
 func TestStartServerCoreSuccess(t *testing.T) {
