@@ -275,7 +275,7 @@ func (s *Server) handleRawAnkiConnect(w http.ResponseWriter, r *http.Request) {
 			writeRawAnkiConnectError(w, err.Error())
 			return
 		}
-		writeRawAnkiConnectResult(w, mustJSONString(stored))
+		writeRawAnkiConnectResult(w, env.Version, mustJSONString(stored))
 		return
 	}
 	out, err := s.dispatchAnkiAction(ankiActionBody{
@@ -288,13 +288,13 @@ func (s *Server) handleRawAnkiConnect(w http.ResponseWriter, r *http.Request) {
 			// Duplicate-note special-case: HTTP 200, result null,
 			// error null (matches official AnkiConnect addNote
 			// semantics for allowDuplicate=false).
-			writeRawAnkiConnectResult(w, json.RawMessage("null"))
+			writeRawAnkiConnectResult(w, env.Version, json.RawMessage("null"))
 			return
 		}
 		writeRawAnkiConnectError(w, ankiConnectErrorMessage(err))
 		return
 	}
-	writeRawAnkiConnectResult(w, out)
+	writeRawAnkiConnectResult(w, env.Version, out)
 }
 
 // handleRawStoreMediaFile decodes the AnkiConnect storeMediaFile
@@ -340,17 +340,25 @@ func (s *Server) handleRawStoreMediaFile(params json.RawMessage) (string, error)
 	return stored, nil
 }
 
-// writeRawAnkiConnectResult writes a successful AnkiConnect reply:
-// HTTP 200 + {"result": <raw>, "error": null}. The inner result is
-// forwarded as raw JSON so callers see numbers, nulls, arrays, and
-// objects exactly as the dispatcher produced them. A nil result is
-// emitted as JSON `null`.
-func writeRawAnkiConnectResult(w http.ResponseWriter, result json.RawMessage) {
+// writeRawAnkiConnectResult writes a successful AnkiConnect reply.
+// Follows official AnkiConnect format_success_reply (plugin/web.py):
+//
+//   - When version <= 4 (or omitted, e.g. Yomitan sending version 2):
+//     returns the raw result directly (e.g. 6, ["Default"], etc.)
+//     so clients like Yomitan do not trip on `typeof result.error !== 'undefined'`.
+//   - When version > 4 (e.g. Entei sending version 6):
+//     returns HTTP 200 + {"result": <raw>, "error": null}.
+func writeRawAnkiConnectResult(w http.ResponseWriter, version int, result json.RawMessage) {
 	if result == nil {
 		result = json.RawMessage("null")
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if version <= 4 {
+		_, _ = w.Write(result)
+		_, _ = w.Write([]byte("\n"))
+		return
+	}
 	_ = json.NewEncoder(w).Encode(ankiConnectResponse{
 		Result: result,
 		Error:  json.RawMessage("null"),
@@ -686,6 +694,10 @@ func (s *Server) dispatchAnkiAction(env ankiActionBody) (json.RawMessage, error)
 		var params struct {
 			ID     int64             `json:"id"`
 			Fields map[string]string `json:"fields"`
+			Note   *struct {
+				ID     int64             `json:"id"`
+				Fields map[string]string `json:"fields"`
+			} `json:"note"`
 		}
 		if len(env.Params) == 0 {
 			return nil, fmt.Errorf("%w: updateNoteFields requires params", anki.ErrBadRequest)
@@ -693,10 +705,20 @@ func (s *Server) dispatchAnkiAction(env ankiActionBody) (json.RawMessage, error)
 		if err := json.Unmarshal(env.Params, &params); err != nil {
 			return nil, fmt.Errorf("%w: updateNoteFields params must be an object", anki.ErrBadRequest)
 		}
-		if params.ID == 0 {
+		targetID := params.ID
+		targetFields := params.Fields
+		if params.Note != nil {
+			if params.Note.ID != 0 {
+				targetID = params.Note.ID
+			}
+			if len(params.Note.Fields) > 0 {
+				targetFields = params.Note.Fields
+			}
+		}
+		if targetID == 0 {
 			return nil, fmt.Errorf("%w: updateNoteFields: id is required", anki.ErrBadRequest)
 		}
-		if err := db.UpdateNoteFields(params.ID, params.Fields); err != nil {
+		if err := db.UpdateNoteFields(targetID, targetFields); err != nil {
 			return nil, err
 		}
 		return json.RawMessage("null"), nil
@@ -800,7 +822,8 @@ func parseCanAddNotesParams(raw json.RawMessage) ([]anki.NoteCheck, error) {
 	}
 	var params struct {
 		Notes []struct {
-			Field   string `json:"field"`
+			Field   string          `json:"field"`
+			Fields  json.RawMessage `json:"fields"`
 			Options struct {
 				AllowDuplicate bool   `json:"allowDuplicate"`
 				DuplicateScope string `json:"duplicateScope"`
@@ -826,8 +849,27 @@ func parseCanAddNotesParams(raw json.RawMessage) ([]anki.NoteCheck, error) {
 		if scope == "" {
 			scope = "collection"
 		}
+		fieldVal := n.Field
+		if fieldVal == "" && len(n.Fields) > 0 {
+			var strVal string
+			if err := json.Unmarshal(n.Fields, &strVal); err == nil {
+				fieldVal = strVal
+			} else {
+				var mapVal map[string]string
+				if err := json.Unmarshal(n.Fields, &mapVal); err == nil {
+					if v, ok := mapVal["Front"]; ok {
+						fieldVal = v
+					} else {
+						for _, v := range mapVal {
+							fieldVal = v
+							break
+						}
+					}
+				}
+			}
+		}
 		out[i] = anki.NoteCheck{
-			Field:          n.Field,
+			Field:          fieldVal,
 			AllowDuplicate: n.Options.AllowDuplicate,
 			DuplicateScope: scope,
 			DeckName:       deck,

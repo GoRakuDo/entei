@@ -101,7 +101,49 @@ func newRawAnkiListener(t *testing.T) (*rawAnkiServer, string) {
 // DNS-rebinding guard accepts the request — the wire contract is
 // "browser POSTs to 127.0.0.1:8765", so the Host header on the wire
 // carries the port.
+//
+// AnkiConnect sends TWO response shapes depending on the client's
+// `version` field (official format_success_reply):
+//   - version <= 4 (Yomitan): the body IS the bare result (6,
+//     ["Default"], null, …) — no envelope.
+//   - version > 4 (Entei) and every error reply: the standard
+//     {"result": …, "error": …} envelope.
+//
+// The helper detects which shape came back and synthesizes an
+// envelope for bare results (Result = raw body, Error = null) so ALL
+// callers can assert uniformly. Tests that need the exact raw bytes
+// (e.g. the "6\n" body) use rawAnkiPostV2 instead.
 func rawAnkiPost(t *testing.T, ts *rawAnkiServer, origin, body string) (*http.Response, rawAnkiEnv) {
+	t.Helper()
+	resp, raw := rawAnkiPostV2(t, ts, origin, body)
+	// Standard envelope? Only {"result":…} objects count — a bare
+	// result that happens to be an object (e.g. deckNamesAndIds
+	// returning {"Default": id}) must NOT be mistaken for one.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err == nil {
+		if _, hasResult := probe["result"]; hasResult {
+			var env rawAnkiEnv
+			if err := json.Unmarshal(raw, &env); err != nil {
+				t.Fatalf("decode envelope: %v; body=%s", err, raw)
+			}
+			return resp, env
+		}
+	}
+	// version<=4 success: the body IS the raw result. Synthesize an
+	// envelope (trimming the trailing newline) so callers assert
+	// uniformly against env.Result / env.Error.
+	return resp, rawAnkiEnv{
+		Result: json.RawMessage(bytes.TrimSpace(raw)),
+		Error:  json.RawMessage("null"),
+	}
+}
+
+// rawAnkiPostV2 POSTs the raw AnkiConnect envelope and returns the
+// RAW response body bytes (plus the response for header assertions).
+// Used by tests that must assert the exact wire bytes — e.g. the
+// Yomitan flow (version: 2) where successes are bare results like
+// "6\n" rather than the {"result":…,"error":…} envelope.
+func rawAnkiPostV2(t *testing.T, ts *rawAnkiServer, origin, body string) (*http.Response, []byte) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(body))
 	if err != nil {
@@ -124,11 +166,7 @@ func rawAnkiPost(t *testing.T, ts *rawAnkiServer, origin, body string) (*http.Re
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", resp.StatusCode, raw)
 	}
-	var env rawAnkiEnv
-	if err := json.Unmarshal(raw, &env); err != nil {
-		t.Fatalf("decode envelope: %v; body=%s", err, raw)
-	}
-	return resp, env
+	return resp, raw
 }
 
 // rawAnkiGet issues a GET on the listener (AnkiConnect wire keeps
@@ -174,22 +212,30 @@ func assertCORSWildcard(t *testing.T, resp *http.Response) {
 // asserts ACAO: *. DB-write proof: the inserted note id surfaces in
 // findNotes, the updated Back field surfaces in notesInfo, the
 // added tag surfaces in notesInfo.
+//
+// Wire protocol: Yomitan's anki-connect.js hardcodes
+// this._localVersion = 2, so every request here carries
+// `"version":2` and every SUCCESS comes back as a BARE result
+// (official AnkiConnect format_success_reply for api_version <= 4):
+// step 1 asserts the exact "6\n" body; updateNoteFields / addTags
+// assert a raw `null` body, NOT the {"result":null,"error":null}
+// envelope.
 func TestE2EYomitanFlow(t *testing.T) {
 	ts, _ := newRawAnkiListener(t)
 	const enteiOrigin = "https://entei.gorakudo.org"
 	const extOrigin = "chrome-extension://abc"
 
-	// 1. version → 6
-	resp, env := rawAnkiPost(t, ts, enteiOrigin,
-		`{"action":"version","version":6}`)
+	// 1. version → raw `6\n` body (no envelope for version<=4)
+	resp, raw := rawAnkiPostV2(t, ts, enteiOrigin,
+		`{"action":"version","version":2}`)
 	assertCORSWildcard(t, resp)
-	if string(env.Result) != "6" || string(env.Error) != "null" {
-		t.Fatalf("version: env=%+v", env)
+	if string(raw) != "6\n" {
+		t.Fatalf("version: body = %q, want \"6\\n\" (bare result for version<=4)", raw)
 	}
 
 	// 2. deckNames → includes "Default"
-	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		`{"action":"deckNames","version":6}`)
+	resp, env := rawAnkiPost(t, ts, enteiOrigin,
+		`{"action":"deckNames","version":2}`)
 	assertCORSWildcard(t, resp)
 	var decks []string
 	if err := json.Unmarshal(env.Result, &decks); err != nil {
@@ -201,7 +247,7 @@ func TestE2EYomitanFlow(t *testing.T) {
 
 	// 3. modelNames → includes "Basic"
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		`{"action":"modelNames","version":6}`)
+		`{"action":"modelNames","version":2}`)
 	assertCORSWildcard(t, resp)
 	var models []string
 	_ = json.Unmarshal(env.Result, &models)
@@ -212,7 +258,7 @@ func TestE2EYomitanFlow(t *testing.T) {
 	// 4. modelFieldNames {modelName:"Basic"} → Front, Back
 	// First chrome-extension:// origin exercise.
 	resp, env = rawAnkiPost(t, ts, extOrigin,
-		`{"action":"modelFieldNames","version":6,"params":{"modelName":"Basic"}}`)
+		`{"action":"modelFieldNames","version":2,"params":{"modelName":"Basic"}}`)
 	assertCORSWildcard(t, resp)
 	var fields []string
 	_ = json.Unmarshal(env.Result, &fields)
@@ -222,7 +268,7 @@ func TestE2EYomitanFlow(t *testing.T) {
 
 	// 5. canAddNotes {notes:[{deckName:"Default", modelName:"Basic", fields:"", options:{allowDuplicate:false}}]} → [true]
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		`{"action":"canAddNotes","version":6,"params":{"notes":[{"deckName":"Default","modelName":"Basic","fields":"","options":{"allowDuplicate":false,"duplicateScope":"collection"}}]}}`)
+		`{"action":"canAddNotes","version":2,"params":{"notes":[{"deckName":"Default","modelName":"Basic","fields":"","options":{"allowDuplicate":false,"duplicateScope":"collection"}}]}}`)
 	assertCORSWildcard(t, resp)
 	var canAdd []bool
 	_ = json.Unmarshal(env.Result, &canAdd)
@@ -232,7 +278,7 @@ func TestE2EYomitanFlow(t *testing.T) {
 
 	// 6. addNote (text-only) tags=["yomitan-test"] → noteId int64
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		`{"action":"addNote","version":6,"params":{"note":{"deckName":"Default","modelName":"Basic","fields":{"Front":"hello","Back":"こんにちは"},"tags":["yomitan-test"]}}}`)
+		`{"action":"addNote","version":2,"params":{"note":{"deckName":"Default","modelName":"Basic","fields":{"Front":"hello","Back":"こんにちは"},"tags":["yomitan-test"]}}}`)
 	assertCORSWildcard(t, resp)
 	var noteID int64
 	if err := json.Unmarshal(env.Result, &noteID); err != nil {
@@ -246,7 +292,7 @@ func TestE2EYomitanFlow(t *testing.T) {
 	// FindNotes implementation supports only the documented subset:
 	// `added:1` and `nid:…`; the just-inserted note has mod > now-24h).
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		`{"action":"findNotes","version":6,"params":{"query":"added:1"}}`)
+		`{"action":"findNotes","version":2,"params":{"query":"added:1"}}`)
 	assertCORSWildcard(t, resp)
 	var foundIDs []int64
 	_ = json.Unmarshal(env.Result, &foundIDs)
@@ -256,7 +302,7 @@ func TestE2EYomitanFlow(t *testing.T) {
 
 	// 8. notesInfo {notes:[noteID]} → fields match, tags include yomitan-test
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		fmt.Sprintf(`{"action":"notesInfo","version":6,"params":{"notes":[%d]}}`, noteID))
+		fmt.Sprintf(`{"action":"notesInfo","version":2,"params":{"notes":[%d]}}`, noteID))
 	assertCORSWildcard(t, resp)
 	var infos []anki.NoteInfo
 	if err := json.Unmarshal(env.Result, &infos); err != nil {
@@ -272,15 +318,15 @@ func TestE2EYomitanFlow(t *testing.T) {
 		t.Errorf("notesInfo tags = %v, want it to include yomitan-test", infos[0].Tags)
 	}
 
-	// 9. updateNoteFields {note:{id, fields:{Back:"updated word"}}} → null; re-read shows updated
+	// 9. updateNoteFields {note:{id, fields:{Back:"updated word"}}} → bare `null`; re-read shows updated
 	resp, env = rawAnkiPost(t, ts, extOrigin,
-		fmt.Sprintf(`{"action":"updateNoteFields","version":6,"params":{"id":%d,"fields":{"Back":"updated word"}}}`, noteID))
+		fmt.Sprintf(`{"action":"updateNoteFields","version":2,"params":{"id":%d,"fields":{"Back":"updated word"}}}`, noteID))
 	assertCORSWildcard(t, resp)
-	if string(env.Error) != "null" {
-		t.Errorf("updateNoteFields error = %s, want null", env.Error)
+	if string(env.Result) != "null" || string(env.Error) != "null" {
+		t.Errorf("updateNoteFields: result=%s error=%s, want bare null (v2 success)", env.Result, env.Error)
 	}
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		fmt.Sprintf(`{"action":"notesInfo","version":6,"params":{"notes":[%d]}}`, noteID))
+		fmt.Sprintf(`{"action":"notesInfo","version":2,"params":{"notes":[%d]}}`, noteID))
 	assertCORSWildcard(t, resp)
 	infos = nil
 	_ = json.Unmarshal(env.Result, &infos)
@@ -289,15 +335,15 @@ func TestE2EYomitanFlow(t *testing.T) {
 			infos[0].Fields["Back"])
 	}
 
-	// 10. addTags {notes:[noteID], tags:"extra"} → null; re-read shows both tags
+	// 10. addTags {notes:[noteID], tags:"extra"} → bare `null`; re-read shows both tags
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		fmt.Sprintf(`{"action":"addTags","version":6,"params":{"notes":[%d],"tags":"extra"}}`, noteID))
+		fmt.Sprintf(`{"action":"addTags","version":2,"params":{"notes":[%d],"tags":"extra"}}`, noteID))
 	assertCORSWildcard(t, resp)
-	if string(env.Error) != "null" {
-		t.Errorf("addTags error = %s, want null", env.Error)
+	if string(env.Result) != "null" || string(env.Error) != "null" {
+		t.Errorf("addTags: result=%s error=%s, want bare null (v2 success)", env.Result, env.Error)
 	}
 	resp, env = rawAnkiPost(t, ts, enteiOrigin,
-		fmt.Sprintf(`{"action":"notesInfo","version":6,"params":{"notes":[%d]}}`, noteID))
+		fmt.Sprintf(`{"action":"notesInfo","version":2,"params":{"notes":[%d]}}`, noteID))
 	assertCORSWildcard(t, resp)
 	infos = nil
 	_ = json.Unmarshal(env.Result, &infos)
@@ -638,4 +684,3 @@ func containsInt64(v []int64, n int64) bool {
 	}
 	return false
 }
-

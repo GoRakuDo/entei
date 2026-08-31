@@ -279,6 +279,75 @@ func TestRawAnkiVersion(t *testing.T) {
 	}
 }
 
+// TestRawAnkiVersionProtocolV2 pins the version<=4 wire protocol —
+// the exact case Yomitan hits in production (Yomitan's anki-connect.js
+// hardcodes this._localVersion = 2). Official AnkiConnect
+// format_success_reply returns the BARE result (not the
+// {"result":…,"error":…} envelope) for api_version <= 4, so the
+// version action must answer with the raw body `6\n` and HTTP 200. A
+// v2 client must never see the envelope: Yomitan treats a JSON object
+// as an error reply (its `result.error` presence check trips on
+// `{"result":6,"error":null}` and throws "Anki error: null").
+func TestRawAnkiVersionProtocolV2(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"version","version":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "6\n" {
+		t.Errorf("body = %q, want \"6\\n\" (bare result for version<=4)", got)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+// TestRawAnkiVersionProtocolV6 pins the version>4 wire protocol —
+// the case Entei web hits in production (it sends version: 6).
+// Official AnkiConnect format_success_reply returns the standard
+// envelope {"result": <result>, "error": null} for api_version > 4,
+// so the response body MUST be exactly that JSON object.
+func TestRawAnkiVersionProtocolV6(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"version","version":6}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "{\"result\":6,\"error\":null}\n" {
+		t.Errorf("body = %q, want \"{\\\"result\\\":6,\\\"error\\\":null}\\n\"", got)
+	}
+}
+
+// TestRawAnkiErrorProtocolV2 pins that ERROR replies are the standard
+// envelope for EVERY version. The version<=4 bare-result rule applies
+// to format_success_reply only; official AnkiConnect
+// format_exception_reply returns {"result": null, "error": <msg>}
+// regardless of api_version. A v2 Yomitan must still see the envelope
+// (and its error check) when the action fails.
+func TestRawAnkiErrorProtocolV2(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"invalidAction","version":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	want := "{\"result\":null,\"error\":\"unsupported action: invalidAction\"}\n"
+	if got := rec.Body.String(); got != want {
+		t.Errorf("body = %q, want %q (envelope even for version<=4 errors)", got, want)
+	}
+}
+
 // TestRawAnkiDeckNamesAndModelNames pins the deck/model enumeration
 // actions: deckNames → ["Default"], modelNames → ["Basic"]. Both
 // return JSON arrays in the result.
