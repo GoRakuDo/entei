@@ -1,6 +1,6 @@
 # EizouDendenshi ↔ AnkiDroid Connect — Android Companion 設計仕様
 
-> **状態:** 設計 v4.1（2026-08-31・auto-derive をデフォルトに戻し v4.0 opt-in regression を修正）
+> **状態:** 設計 v4.2（2026-08-31・Android/media 経路を追加し Android 11+ で `MANAGE_EXTERNAL_STORAGE` 不要に）
 > **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiDroid 連携ブリッジ機能を追加する
 > **スコープ:** クライアントは Entei Web / Yomitan / asbplayer の 3 つ全て
 
@@ -14,10 +14,11 @@
 - v2.0（2026-08-29）で採用していた `AnkiconnectAndroid` (KamWithK) APK は動作するが、**APK をインストールする手間**・**APK がノート DB を直接書き換えることへの不安**・**Entei から見るとメディア保存時にファイル名が変わってしまう**（`storeMediaFile` の戻り値が AnkiDroid 正規化名になる）等の問題が残っていた
 
 ### 調査で判明した重要事実（2026-08-29 Exa / Context7 / ankidroid 公式 wiki・issue より）
-1. **AnkiDroid の collection.media には 2 つの場所がある。Termux から書き込み可能なのは「legacy」場所のみ**
-   - **Legacy（従来）**: `/storage/emulated/0/AnkiDroid/collection.media/` — **Android 8〜15 全バージョンで Termux から直接書き込み可能**
-   - **App-private**: `/storage/emulated/0/Android/data/com.ichi2.anki/files/AnkiDroid/` — Android 11+ で他アプリのアクセス禁止
-   - AnkiDroid「full」版（F-Droid / GitHub APK）は `MANAGE_EXTERNAL_STORAGE` 権限で **legacy 場所を正式にサポートし続ける**（[AnkiDroid wiki: Full Storage Access](https://github.com/ankidroid/Anki-Android/wiki/Full-Storage-Access), [Issue #13222](https://github.com/ankidroid/Anki-Android/issues/13222)）
+1. **AnkiDroid の collection.media には 3 つの場所がある。v4.2 以降は Termux から書き込み可能な「Android/media」場所を既定で使う**
+   - **Android/media（既定・推奨）**: `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.media/` — AnkiDroid（F-Droid / GitHub full 版）インストール直後の既定ディレクトリで、**termux-setup-storage + Termux へのメディア権限付与だけで Android 11+ でも Termux から直接書き込み可能**（`MANAGE_EXTERNAL_STORAGE` 不要、実機検証済み 2026-08-31）
+   - **Legacy（従来）**: `/storage/emulated/0/AnkiDroid/collection.media/` — Android 8〜10 では既定で Termux から直接書き込み可能。Android 11+ では `MANAGE_EXTERNAL_STORAGE` 付与が必要
+   - **App-private**: `/storage/emulated/0/Android/data/com.ichi2.anki/files/AnkiDroid/` — Android 11+ で他アプリのアクセス禁止（書き込み不可）
+   - AnkiDroid「full」版（F-Droid / GitHub APK）は `MANAGE_EXTERNAL_STORAGE` 権限で **legacy 場所も正式にサポートし続ける**（[AnkiDroid wiki: Full Storage Access](https://github.com/ankidroid/Anki-Android/wiki/Full-Storage-Access), [Issue #13222](https://github.com/ankidroid/Anki-Android/issues/13222)）
 2. **Termux のストレージ権限は全バージョンで取得可能**（[Termux Issue #3647](https://github.com/termux/termux-app/issues/3647)）
 3. **AnkiDroid のコレクション DB は SQLite ファイル**で、**AnkiDroid プロセス外から読み書き可能**。`collection.anki2` (legacy / schema 11〜18) のテーブル構造（`notes` / `cards` / `col` / `decks` / `models`）は Anki 本家のスキーマとして公開されており、`modernc.org/sqlite` (pure-Go、CGO 不要) 経由で安全に書き込み可能。AnkiDroid は WAL モードで動作しているので、書込みと読込みの競合は SQLite の `busy_timeout` 5 秒で十分吸収できる。
 4. **AnkiDroid のメディア再生は「ファイルの物理存在」だけで動く**
@@ -38,7 +39,7 @@ EizouDendenshi Android コンパニオンが、**AnkiConnect 互換の AnkiDroid
   eizouden-android-arm64 (Termux) ── anki サブコマンド
      │
      ├─ ① 【メディア】Termux が collection.media へ直接書き込み
-     │     /storage/emulated/0/AnkiDroid/collection.media/<deterministic名>
+     │     /storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.media/<deterministic名>
      │
      └─ ② 【ノート】コンパニオン自身が collection.anki2 を SQLite で開いて直接 INSERT/UPDATE
            modernc.org/sqlite (pure-Go、CGO 不要) で busy_timeout=5000
@@ -63,13 +64,13 @@ EizouDendenshi Android コンパニオンが、**AnkiConnect 互換の AnkiDroid
 ### 2.1 配布
 - **`eizouden-android-arm64` に `anki` サブコマンドを内蔵**（追加バイナリ不要）
 - **追加 APK: なし**（v3.0 で AnkiconnectAndroid 依存を削除）
-- **初回ユーザー操作**: Termux にストレージ権限付与の 1 回だけ（AnkiDroid 側で `legacy` 場所のコレクションを保持）
+- **初回ユーザー操作**: Termux にストレージ権限付与の 1 回だけ（AnkiDroid 側で Android/media 場所のコレクションを保持 — インストール直後の既定）
 
 ### 2.2 起動
 ```bash
 # 通常起動（grkd-edds メニュー / 自動起動 — フラグを渡さない既定パス）
 ./eizouden-android-arm64
-# → MediaWriter probe が /storage/emulated/0/AnkiDroid/collection.media を検出し、
+# → MediaWriter probe が /storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.media を検出し、
 #   sibling の collection.anki2 が存在すればブリッジを自動 wire。Anki ブリッジ ON。
 
 # 明示的にオーバーライドしたい場合（例：app-private storage に置いたコレクション）
@@ -84,7 +85,7 @@ EizouDendenshi Android コンパニオンが、**AnkiConnect 互換の AnkiDroid
   --ytdlp /path/to/yt-dlp --ffmpeg /path/to/ffmpeg
 ```
 - `--anki-collection` **未指定（既定）**：
-  1. **MediaWriter** をプローブ（AnkiDroid legacy collection.media の auto-detect）
+  1. **MediaWriter** をプローブ（AnkiDroid collection.media の auto-detect — Android/media 優先、sibling collection.anki2 が既にあればそちらを採用）
   2. **sibling の collection.anki2 を stat** — 存在すれば Collection をそのパスで開く
   3. **raw AnkiConnect 互換リスナーを 127.0.0.1:8765 にバインド** → Entei / Yomitan / asbplayer は URL 設定不要
   - プローブ失敗 OR sibling collection.anki2 不在（AnkiDroid が app-private storage に移行したケース）→ ブリッジ無効（8765 bind すらしない、diag に 1 行 warn ログ）
@@ -97,7 +98,7 @@ EizouDendenshi Android コンパニオンが、**AnkiConnect 互換の AnkiDroid
 ### 2.3 メディア書き込みフロー（①・Termux ダイレクト）
 1. Entei は `entei_audio/entei_video/entei_screenshot` の Blob を base64 で送る
 2. コンパニオンは **deterministic なファイル名** を自前生成（`generateMediaFilename` を hash ベースに）
-3. コンパニオンが `/storage/emulated/0/AnkiDroid/collection.media/<deterministic名>` に**直接ファイルを書く**
+3. コンパニオンが `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.media/<deterministic名>` に**直接ファイルを書く**
 4. 存在していれば同名で上書き（AnkiDroid は再ビルド不要で再生に反映）
 5. 書いた**ファイル名そのもの**を Entei に返す（改名なし・戻り値そのまま使用可能）
 
@@ -191,42 +192,105 @@ return sanitizeComponent(prefix) + "_" + hash + "." + sanitizeComponent(ext)
 
 ## 5. メディア書き込み先の検出（Termux ダイレクト）
 
-### パス検出（自動）
+### パス検出（自動） — v4.2（2026-08-31、Android/media 優先）
+
 ```
-1. /storage/emulated/0/AnkiDroid/collection.media     ← legacy 既定
-2. /sdcard/AnkiDroid/collection.media                  ← symlink
-3. ユーザー設定パス（Entei Settings で上書き可能）
+1. /storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.media   ← 既定（Android/media）
+2. /storage/emulated/0/AnkiDroid/collection.media                                       ← legacy フォールバック
+3. /sdcard/AnkiDroid/collection.media                                                    ← symlink フォールバック
+4. ユーザー設定パス（Entei Settings で上書き可能）
 → 最初に書き込みテストが成功した場所を自動採用
 ```
 
-### collection.anki2 パス（v4.1 で auto-derive 既定に戻す）
+**v4.2 の選定根拠**：Android 11+ の scoped storage は Termux から
+`/storage/emulated/0/AnkiDroid/` への書き込みを、`MANAGE_EXTERNAL_STORAGE`
+（設定 → 特殊アプリアクセス → すべてのファイルアクセス）が付与されていない
+限りブロックする。`/storage/emulated/0/Android/media/com.ichi2.anki/files/` は
+共有メディアの対となる置き場で、AnkiDroid の Settings → Advanced →
+AnkiDroid directory をここに向けた状態なら **termux-setup-storage + AnkiDroid
+のメディア権限付与だけ** で Termux から直接書き込み可能（実機で
+mkdir + write + ls 検証済み、2026-08-31）。`MANAGE_EXTERNAL_STORAGE` を
+要求しないため、クリーンインストール + 標準権限だけで完結する。
+
+AnkiDroid のデフォルトディレクトリは F-Droid / GitHub full 版で
+`/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/` を
+指す。インストール直後の AnkiDroid コレクションをここに向けたまま運用すれば、
+追加設定ゼロで Termux コンパニオンから直接書き込みできる。
+
+### セットアップ手順（Android/media パスを採用する場合）
+
+1. **AnkiDroid をインストール**（F-Droid / GitHub full 版）
+2. **AnkiDroid を起動** → ウィザード完了後、最初のコレクションが
+   `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/` に
+   作られる（既定）。`Settings → Advanced → AnkiDroid directory` で
+   確認できる
+3. **Termux で `termux-setup-storage`** を実行（初回 1 回）
+4. **AnkiDroid のメディア権限を Termux に付与**：
+   設定 → アプリ → Termux → 権限 → ファイルとメディア → 許可
+5. **eizouden-android-arm64 を起動**：`./eizouden-android-arm64`
+   （フラグなし）。プローブが Android/media パスを最初に試し、成功すれば
+   ブリッジ ON。失敗したら legacy /sdcard にフォールバック
+
+### セットアップ手順（legacy パスを維持する場合）
+
+Android 8〜10、または `MANAGE_EXTERNAL_STORAGE` を手動付与する
+セットアップを採っている場合は従来通り：
+
+1. **AnkiDroid** の `Settings → Advanced → AnkiDroid directory` を
+   `/storage/emulated/0/AnkiDroid/` に設定（必要な場合のみ。Android 8〜10
+   では既定が legacy のことがある）
+2. **Termux** に `MANAGE_EXTERNAL_STORAGE` を付与（Android 11+）：
+   設定 → 特殊アプリアクセス → すべてのファイルアクセス → Termux
+3. **Termux で `termux-setup-storage`** を実行
+
+この場合、②のプローブで legacy がそのまま一致する。
+
+### collection.anki2 パス（v4.1 で auto-derive 既定に戻す、v4.2 で Android/media 対応）
 - **既定（`--anki-collection` 未指定）**: プローブした collection.media の **sibling**（=`<media-dir>/../collection.anki2`）を自動採用
-  - sibling が存在 → Collection をそのパスで開く、ブリッジ ON
+  - Android/media プローブ成功時：sibling は
+    `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.anki2`
+    → 存在すればブリッジ ON
+  - legacy プローブ成功時：sibling は
+    `/storage/emulated/0/AnkiDroid/collection.anki2` → 存在すればブリッジ ON
   - sibling が不在 → diag に 1 行 warn ログ（"AnkiDroid may be migrated to app-private storage"）を出してブリッジ無効
 - **`--anki-collection <path>`**: 上記 auto-derive を **OVERRIDE** する。非標準の置き場所（app-private storage のテストや、デュアルコレクション等）向け
 - v4.0 で一旦 opt-in 化（空 = 無効）していたが、メニュー/自動起動経路でフラグを渡せないためにブリッジが dead になる regression が判明。v4.1 で v3.0 の auto-derive 契約に戻した
+- **v4.2 で Android/media 候補を追加**：Android 11+ のスコープドストレージ下の
+  Termux 直接書き込み経路として、Android/media パスを候補リストの先頭に追加
+  （実機で書込み検証済み）
 - v4.0 廃止項目：`--anki-media-dir`（MediaWriter の probe 自動検出に一本化済み）
 
 ### 書き込み可否の検査（起動時）
 - ディレクトリが存在・`access(W_OK)` が通るか
 - 実際に一時ファイルを書いて→消す（書き込みテスト）
-- 失敗したら分かりやすいエラー: 「AnkiDroid の collection.media に書けません。AnkiDroid のコレクション場所を legacy（`/storage/emulated/0/AnkiDroid/`）にしてください」
+- 失敗したら分かりやすいエラー: 「AnkiDroid の collection.media に書けません。AnkiDroid のコレクション場所を `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/` にして、Termux にメディア権限を付与してください」
 
-### Android バージョン別 権限
-| Android | Termux の権限取得 | collection.media への書き込み |
-|---|---|---|
-| 8〜10 | Settings → Termux → Storage | ✅（legacy storage） |
-| 11〜12 | Settings → Termux → Files and media → Manage all files | ✅（`MANAGE_EXTERNAL_STORAGE`） |
-| 13〜15 | Settings → Special app access → All files access → Termux | ✅（`MANAGE_EXTERNAL_STORAGE`） |
+### Android バージョン別 権限（v4.2 で Android/media 経路を追加）
+| Android | Termux の権限取得 | Android/media への書き込み | legacy への書き込み |
+|---|---|---|---|
+| 8〜10 | Settings → Termux → Storage | ✅（legacy storage） | ✅（legacy storage） |
+| 11〜12 | Settings → Termux → Files and media → Allow media access | ✅（追加権限不要） | ✅ のみ（`MANAGE_EXTERNAL_STORAGE` 必要） |
+| 13〜15 | Settings → Apps → Termux → Permissions → Files and media → Allow | ✅（追加権限不要） | ✅ のみ（`MANAGE_EXTERNAL_STORAGE` 必要） |
+
+Android 11+ では **Android/media 経路を既定で使う**ことで `MANAGE_EXTERNAL_STORAGE` の手動付与を不要にする。
 
 ---
 
 ## 6. 前提条件と制約
 
-### 前提（ドキュメントに明記）
+### 前提（ドキュメントに明記）— v4.2（2026-08-31）
 1. **AnkiDroid は F-Droid / GitHub「full」版** を使用（Play Store 版は legacy パスを持たず、`Android/data` 配下は Termux から書けない）
-2. **コレクション場所が legacy**（`/storage/emulated/0/AnkiDroid/`）。ユーザーが「migrate」ボタンを押してアプリ内蔵パスに移してないこと
-3. **Termux にストレージ権限を付与**（初回 1 回）
+2. **コレクション場所が Android/media**（既定）：
+   `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/`。
+   F-Droid / GitHub full 版をインストール直後の既定でここに作られる。
+   **Android 11+ ではここを使うこと**（`MANAGE_EXTERNAL_STORAGE` の手動付与を回避できる）。
+   legacy（`/storage/emulated/0/AnkiDroid/`）は Android 8〜10、または
+   手動で `MANAGE_EXTERNAL_STORAGE` を付与するセットアップを維持したい場合の
+   フォールバック。
+3. **Termux にストレージ権限を付与**（初回 1 回）：
+   Android 8〜10 → `termux-setup-storage` + Settings → Termux → Storage
+   Android 11+ → `termux-setup-storage` + Settings → Apps → Termux →
+   Permissions → Files and media → Allow
 4. **AnkiDroid が開いている間も collection.anki2 に書き込み可能**（SQLite WAL モード + busy_timeout=5000 で衝突吸収）
 
 ### 制約（明示）
@@ -358,6 +422,15 @@ modernc.org/sqlite の pure-Go ランタイム（SQLite 全文 + libc 純 Go 実
 ---
 
 ## 13. 改訂履歴
+
+### v4.2（2026-08-31）
+- **collection.media 候補に Android/media 経路を追加**：プローブ候補リストの先頭に `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.media` を追加（実機で mkdir + write + ls 検証済み）
+- **動機**: Android 11+ の scoped storage は `MANAGE_EXTERNAL_STORAGE`（設定 → 特殊アプリアクセス → すべてのファイルアクセス）が付与されない限り Termux から `/storage/emulated/0/AnkiDroid/` への書き込みをブロックする。`/storage/emulated/0/Android/media/com.ichi2.anki/files/...` は AnkiDroid が既定で使う共有メディアの置き場で、AnkiDroid のメディア権限を Termux に付与するだけで直接書き込み可能（`MANAGE_EXTERNAL_STORAGE` 不要）。Android 11+ のクリーンインストールでも追加の手動権限付与なしにブリッジが成立するようにした
+- **プローブ順序**: Android/media → legacy (`/storage/emulated/0/AnkiDroid/`) → /sdcard symlink → ユーザー override の順で試行。Android/media が解決した時点で以降の legacy フォールバックは走らない
+- **エラー文言**: プローブ全失敗時のエラーを `Ensure AnkiDroid uses the legacy /storage/emulated/0/AnkiDroid/ path` から `Ensure AnkiDroid uses the /storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid path` に更新（実線上でユーザーに提示する推奨パスを Android/media に揃えた）
+- **`media_probe_android.go` コメント更新**: なぜ Android/media を優先するか（Android 11+ のスコープドストレージ、MANAGE_EXTERNAL_STORAGE 不要、AnkiDroid Settings → Advanced → AnkiDroid directory で設定可能な点）をピン
+- **テスト追加** (`internal/anki/media_probe_android_test.go`、`//go:build android || linux`): Android/media 候補が先頭に来ていることのピン、`probeOneDir` がリテラルパスを返すこと、sibling 算出が正しい場所に着くこと、空候補時のエラーメッセージが collection.media を含むこと
+- **§5 / §6 のドキュメント更新**: パス検出テーブル、Android バージョン別 権限マトリクス、セットアップ手順（Android/media 経路 + legacy 経路）、前提条件のすべてを Android/media 優先に書き換え
 
 ### v4.1（2026-08-31）
 - **v4.0 の regression を修正**：auto-derive をデフォルトに戻した。`--anki-collection` 未指定時の動作を v3.0 と同じ「プローブ成功 ＋ sibling collection.anki2 存在 → ブリッジ ON」に復元

@@ -30,7 +30,9 @@
 //      AnkiDroid collection.media directory with a deterministic,
 //      content-hash filename (re-exports of the same blob overwrite the
 //      same file, no Anki collection bloat). Probe-based path detection
-//      prefers /storage/emulated/0/AnkiDroid/collection.media, then
+//      prefers /storage/emulated/0/Android/media/com.ichi2.anki/files/
+//      AnkiDroid/collection.media (Android/media; Android 11+ preferred
+//      path), then /storage/emulated/0/AnkiDroid/collection.media, then
 //      /sdcard/AnkiDroid/collection.media, then a caller-provided
 //      override. The probe runs only on Android/Termux — Windows / dev
 //      builds return a clear "not supported on this platform" error so
@@ -68,8 +70,7 @@ import (
 // ErrUnsupportedPlatform is returned by MediaWriter.Write on platforms
 // where the AnkiDroid collection.media probe cannot run (everywhere
 // outside Android/Termux and Linux). The error is intentionally generic
-// — it carries no path and no internal detail. The /v1/anki/media
-// handler maps this to 503 with a clear "anki bridge not supported on
+// — it carries no path and no internal detail. The raw AnkiConnect handler maps this to 503 with a clear "anki bridge not supported on
 // this platform" message so the user can tell the difference between
 // "bridge disabled" (--anki-proxy empty → 404) and "bridge running on
 // the wrong host" (this error → 503).
@@ -83,7 +84,7 @@ var ErrEmptyMedia = errors.New("anki: empty media data")
 
 // ErrBadRequest marks a client-side mistake in the bridge input —
 // malformed addNote params, a non-array media entry, non-base64
-// media data, etc. The /v1/anki/action handler maps this to 400
+// media data, etc. The raw AnkiConnect handler maps this to 400
 // (with a short reason). Wrap via fmt.Errorf("%w: <context>", ErrBadRequest)
 // so the unwrapped chain carries the human-friendly message; the
 // handler unwraps with errors.Is and trims the chain.
@@ -191,9 +192,11 @@ func GenerateFilenameFromProvided(provided string, data []byte) string {
 }
 
 // detectCollectionMediaDir probes the candidates in order
-// (1. legacy AnkiDroid path, 2. /sdcard symlink path, 3. caller
-// override) and returns the first directory that accepts a write+delete
-// probe. Implementation lives in the build-tagged probe files:
+// (1. Android/media path, 2. legacy AnkiDroid path, 3. /sdcard symlink
+// path, 4. caller override), preferring the candidate whose sibling
+// collection.anki2 exists, and returns the first directory that
+// accepts a write+delete probe. Implementation lives in the build-tagged
+// probe files:
 //
 //   - media_probe_android.go  (//go:build android || linux): real probe.
 //   - media_probe_other.go    (//go:build !android && !linux):
