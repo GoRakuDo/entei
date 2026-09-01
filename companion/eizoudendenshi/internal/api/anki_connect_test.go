@@ -89,6 +89,15 @@ const (
 	// (not per-model), so a multi-template model is the natural
 	// pin for the "returns a flat array of card ids" contract.
 	ankiTestModelTwoTmplsID int64 = 1700000000011
+	// ankiTestModelExpressionID is a model whose FIRST field is
+	// "Expression" (NOT "Front"). Used by TestRawAnkiFindNotesFieldName
+	// to pin the v4.5 Yomitan regression end-to-end through the
+	// raw listener: Yomitan's _fieldsToQuery emits the model's
+	// first field name, so non-Front first-field models silently
+	// returned 0 hits before this fix. The id lives alongside
+	// ankiTestModelID / ankiTestModelTwoTmplsID so all three can
+	// share the same fixture.
+	ankiTestModelExpressionID int64 = 1700000000012
 )
 
 func ankiTestModelJSON() map[string]any {
@@ -158,6 +167,40 @@ func ankiTestModelTwoTmplsJSON() map[string]any {
 		"tmpls": []map[string]any{
 			{"name": "Card 1", "ord": 0, "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr>{{Back}}", "did": nil},
 			{"name": "Card 2", "ord": 1, "qfmt": "{{Back}}", "afmt": "{{Back}}<hr>{{Front}}", "did": nil},
+		},
+		"css":       ".card{font-family:arial;font-size:20px}",
+		"latexPre":  "\\documentclass[12pt]{article}",
+		"latexPost": "\\end{document}",
+		"tags":      []string{},
+		"vers":      []string{},
+	}
+}
+
+// ankiTestModelExpressionJSON is the third model used by
+// TestRawAnkiFindNotesFieldName. Its FIRST field is "Expression"
+// (NOT "Front") so the test can pin the v4.5 Yomitan regression
+// at the api layer: Yomitan's _fieldsToQuery emits
+// `${fieldNames[0].toLowerCase()}:${value}` — the model's first
+// field name. Only models whose first field was literally "Front"
+// worked before this fix; mining-style note types like DenChou /
+// JP Mining Note whose first field is "Expression" silently
+// returned 0 hits, which made the duplicate-probe multi batch
+// error and hid the + button in Yomitan's add-card dialog.
+func ankiTestModelExpressionJSON() map[string]any {
+	return map[string]any{
+		"id":    ankiTestModelExpressionID,
+		"name":  "JP Mining Note",
+		"type":  0,
+		"mod":   0,
+		"usn":   0,
+		"sortf": 0,
+		"did":   ankiTestDeckID,
+		"flds": []map[string]any{
+			{"name": "Expression", "ord": 0, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+			{"name": "Meaning", "ord": 1, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+		},
+		"tmpls": []map[string]any{
+			{"name": "Card 1", "ord": 0, "qfmt": "{{Expression}}", "afmt": "{{FrontSide}}<hr>{{Meaning}}", "did": nil},
 		},
 		"css":       ".card{font-family:arial;font-size:20px}",
 		"latexPre":  "\\documentclass[12pt]{article}",
@@ -336,6 +379,73 @@ func newTestAnkiServerTwoTmpls(t *testing.T) (*Server, string, *anki.Collection)
 	dir := t.TempDir()
 	writer := anki.NewMediaWriterForTest(dir)
 	colPath := newTestAnkiCollectionFixtureTwoTmpls(t)
+	coll, err := anki.OpenCollection(colPath)
+	if err != nil {
+		t.Fatalf("OpenCollection: %v", err)
+	}
+	t.Cleanup(func() { _ = coll.Close() })
+	s, err := New(Config{Anki: &AnkiBridge{
+		Writer:  writer,
+		DB:      coll,
+		Enabled: true,
+	}})
+	if err != nil {
+		t.Fatalf("New with Anki: %v", err)
+	}
+	return s, dir, coll
+}
+
+// newTestAnkiCollectionFixtureExpression is the third fixture —
+// same schema shape as newTestAnkiCollectionFixtureTwoTmpls but
+// with a "JP Mining Note" model whose FIRST field is "Expression"
+// instead of "Front". Used by TestRawAnkiFindNotesFieldName to
+// pin the v4.5 Yomitan regression end-to-end through the raw
+// listener.
+func newTestAnkiCollectionFixtureExpression(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collection.anki2")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatalf("open fixture: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(ankiTestSchemaSQL); err != nil {
+		t.Fatalf("apply schema: %v", err)
+	}
+	models := map[string]any{
+		strconv.FormatInt(ankiTestModelID, 10):            ankiTestModelJSON(),
+		strconv.FormatInt(ankiTestModelExpressionID, 10): ankiTestModelExpressionJSON(),
+	}
+	decks := map[string]any{
+		strconv.FormatInt(ankiTestDeckID, 10): ankiTestDeckJSON(),
+	}
+	dconf := map[string]any{
+		"1": map[string]any{"id": 1, "name": "Default"},
+	}
+	conf := map[string]any{"nextPos": 1}
+	tags := map[string]any{}
+	modelsJSON, _ := json.Marshal(models)
+	decksJSON, _ := json.Marshal(decks)
+	dconfJSON, _ := json.Marshal(dconf)
+	confJSON, _ := json.Marshal(conf)
+	tagsJSON, _ := json.Marshal(tags)
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+		1700000000, int64(1700000000000), int64(1700000000000), 11,
+		string(confJSON), string(modelsJSON), string(decksJSON), string(dconfJSON), string(tagsJSON)); err != nil {
+		t.Fatalf("seed col: %v", err)
+	}
+	return path
+}
+
+// newTestAnkiServerExpression is the third server fixture — same
+// shape as newTestAnkiServerTwoTmpls but with the Expression-named
+// model. Used by TestRawAnkiFindNotesFieldName.
+func newTestAnkiServerExpression(t *testing.T) (*Server, string, *anki.Collection) {
+	t.Helper()
+	dir := t.TempDir()
+	writer := anki.NewMediaWriterForTest(dir)
+	colPath := newTestAnkiCollectionFixtureExpression(t)
 	coll, err := anki.OpenCollection(colPath)
 	if err != nil {
 		t.Fatalf("OpenCollection: %v", err)
@@ -1284,6 +1394,135 @@ func TestRawAnkiFindNotes(t *testing.T) {
 	}
 }
 
+// TestRawAnkiFindNotesEmptyIsArray pins the exact wire contract
+// Yomitan depends on for its getAnkiNoteInfo flow: a findNotes
+// POST whose query has no hits must respond with a JSON array body
+// — literally the bytes `[]` (or the bare-array form for the
+// version<=4 wire) — NOT the bytes `null`. On the device this
+// regression presented as the + button being hidden because
+// `_normalizeArray(result, -1, 'number')` threw on `null`
+// (2026-09-01). The fix is in Collection.FindNotes (added:1 /
+// field: branches must initialise the slice via `make([]int64, 0)`
+// so json.Marshal emits `[]` on the empty path).
+//
+// Two wire forms are pinned here:
+//   - v6 (envelope form): body is the standard AnkiConnect
+//     envelope {"result": [],"error": null}. env.Result decodes
+//     to the bytes "[]".
+//   - v2 (bare-result form Yomitan actually sends): body is the
+//     bare result followed by a newline, i.e. "[]\n". No
+//     envelope, no `null`.
+func TestRawAnkiFindNotesEmptyIsArray(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	t.Run("v6_envelope", func(t *testing.T) {
+		rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+			`{"action":"findNotes","version":6,"params":{"query":"added:1"}}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		env := decodeRawAnkiEnv(t, rec)
+		if string(env.Error) != "null" {
+			t.Errorf("error = %s, want null", env.Error)
+		}
+		// The exact regression: env.Result must be the bytes `[]`
+		// (raw JSON for an empty array), NOT the bytes `null` (raw
+		// JSON for a null value). json.Unmarshal into a typed
+		// []int64 produces an error on `null` (it accepts `null`
+		// into a typed pointer, but here env.Result is RawMessage,
+		// so `null` as the entire payload is what we want to
+		// reject). Decode and re-marshal to compare byte-for-byte.
+		var ids []int64
+		if err := json.Unmarshal(env.Result, &ids); err != nil {
+			t.Fatalf("decode env.Result: %v; raw=%s (Yomitan _normalizeArray would also fail on this)", err, env.Result)
+		}
+		if ids == nil {
+			t.Fatalf("env.Result decoded to nil slice; want non-nil empty slice (Yomitan _normalizeArray throws on null)")
+		}
+		if len(ids) != 0 {
+			t.Errorf("env.Result len = %d, want 0", len(ids))
+		}
+		if string(env.Result) != "[]" {
+			t.Errorf("env.Result = %s, want \"[]\" (Yomitan requires a JSON array, never null)", env.Result)
+		}
+	})
+
+	t.Run("v2_bare", func(t *testing.T) {
+		// Yomitan sends version=2; writeRawAnkiConnectResult drops
+		// the envelope and writes the bare result. The body MUST
+		// be the literal bytes `[]` followed by a single newline
+		// (not the bytes `null`).
+		rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+			`{"action":"findNotes","version":2,"params":{"query":"added:1"}}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if got := rec.Body.String(); got != "[]\n" {
+			t.Errorf("body = %q, want \"[]\\n\" (Yomitan v2 wire: bare empty array, never null)", got)
+		}
+	})
+}
+
+// TestRawAnkiFindNotesMultiEmptyIsArray pins the same wire
+// contract for the multi sub-action surface: a multi batch that
+// contains a findNotes sub-action with no hits must return a
+// per-slot array of the bytes `[]`, NOT `null`. Yomitan's
+// _invokeMulti reads result[i] directly and runs
+// _normalizeArray on it; `null` on the first slot breaks the
+// whole batch (the + button visibility flow fails). This is the
+// multi-variant of the same regression — fixing the underlying
+// Collection.FindNotes fixes both surfaces, but the multi path
+// deserves its own pin because the wire shape differs (array of
+// sub-results vs flat envelope result).
+func TestRawAnkiFindNotesMultiEmptyIsArray(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	body := `{"action":"multi","version":6,"params":{"actions":[
+		{"action":"findNotes","version":6,"params":{"query":"added:1"}},
+		{"action":"deckNames","version":6}
+	]}}`
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("error = %s, want null; body=%s", env.Error, rec.Body.String())
+	}
+	var results []json.RawMessage
+	if err := json.Unmarshal(env.Result, &results); err != nil {
+		t.Fatalf("decode result array: %v; result=%s", err, env.Result)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	// slot 0 = findNotes raw. Must be `[]`, NOT `null`. The findNotes
+	// fix guarantees a non-nil empty slice, so json.Marshal emits
+	// `[]` and the raw bytes here are `[]` verbatim.
+	if string(results[0]) != "[]" {
+		t.Errorf("slot 0 findNotes raw = %s, want \"[]\" (Yomitan _invokeMulti reads result[i] directly; null breaks the batch)", results[0])
+	}
+	var slot0 []int64
+	if err := json.Unmarshal(results[0], &slot0); err != nil {
+		t.Fatalf("decode slot 0: %v; raw=%s", err, results[0])
+	}
+	if slot0 == nil || len(slot0) != 0 {
+		t.Errorf("slot 0 decoded = %v, want non-nil empty slice", slot0)
+	}
+	// slot 1 = deckNames — sanity check the second slot is unaffected.
+	var slot1 []string
+	if err := json.Unmarshal(results[1], &slot1); err != nil {
+		t.Fatalf("decode slot 1: %v; raw=%s", err, results[1])
+	}
+	if len(slot1) != 1 || slot1[0] != "Default" {
+		t.Errorf("slot 1 deckNames = %v, want [Default]", slot1)
+	}
+}
+
 // TestRawAnkiUpdateNoteFields pins the SQLite-backed
 // updateNoteFields action.
 func TestRawAnkiUpdateNoteFields(t *testing.T) {
@@ -1684,10 +1923,14 @@ func TestRawAnkiMultiRequiresParams(t *testing.T) {
 // addNote to seed a note (model has 1 template → 1 card), then
 // read the card id back via notesInfo.cards[0], then issue cardsInfo
 // and assert the roundtripped CardInfo has the AnkiConnect
-// field set (cardId, noteId, deckId, ord, queue, type, due, ivl,
-// factor, reps, lapses, left, odue, odid, flags). The bridge must
-// preserve noteId / cardId / deckId across the round-trip so
-// Yomitan's _notesCardsInfo zip works.
+// field set (cardId, note, noteId, deckId, ord, queue, type, due,
+// ivl, factor, reps, lapses, left, odue, odid, flags). The bridge
+// must preserve note / noteId / cardId / deckId across the
+// round-trip so Yomitan's _notesCardsInfo zip works. Yomitan's
+// _normalizeCardInfoArray reads `note` (NOT `noteId`) when
+// associating a card with its note — see
+// A:/yomitan/ext/js/comm/anki-connect.js:723-725. Both fields
+// must be present and equal.
 func TestRawAnkiCardsInfo(t *testing.T) {
 	s, _, coll := newTestAnkiServer(t)
 	mux := http.NewServeMux()
@@ -1741,6 +1984,15 @@ func TestRawAnkiCardsInfo(t *testing.T) {
 	if c["noteId"].(float64) != float64(noteID) {
 		t.Errorf("noteId = %v, want %d", c["noteId"], noteID)
 	}
+	// `note` is the field Yomitan's _normalizeCardInfoArray reads
+	// (see A:/yomitan/ext/js/comm/anki-connect.js:723-725).
+	// Must be present and equal to the note id.
+	noteVal, ok := c["note"]
+	if !ok {
+		t.Errorf("cardsInfo response missing \"note\" field (Yomitan's _normalizeCardInfoArray requires it)")
+	} else if noteVal.(float64) != float64(noteID) {
+		t.Errorf("note = %v, want %d (must equal noteId)", noteVal, noteID)
+	}
 	if c["deckId"].(float64) != float64(ankiTestDeckID) {
 		t.Errorf("deckId = %v, want %d", c["deckId"], ankiTestDeckID)
 	}
@@ -1763,6 +2015,13 @@ func TestRawAnkiCardsInfo(t *testing.T) {
 	}
 	if len(cardsFromColl) != 1 || cardsFromColl[0].CardID != cardID || cardsFromColl[0].NoteID != noteID {
 		t.Errorf("coll.CardsInfo = %+v, want one card with CardID=%d NoteID=%d", cardsFromColl, cardID, noteID)
+	}
+	// Cross-check: the Note field on CardInfo must equal NoteID
+	// (the api layer emits both `note` and `noteId` for wire
+	// compatibility; Yomitan reads `note`, other clients may read
+	// `noteId`).
+	if cardsFromColl[0].Note != noteID {
+		t.Errorf("coll CardInfo.Note = %d, want %d (must equal NoteID)", cardsFromColl[0].Note, noteID)
 	}
 }
 
@@ -1901,6 +2160,162 @@ func TestRawAnkiFindNotesFrontQuery(t *testing.T) {
 	_ = json.Unmarshal(env.Result, &ids)
 	if len(ids) != 1 || ids[0] != noteID {
 		t.Errorf("findNotes front: query = %v, want [%d]", ids, noteID)
+	}
+}
+
+// TestRawAnkiFindNotesFieldName pins the v4.5 Yomitan regression
+// end-to-end through the raw listener: Yomitan's _fieldsToQuery
+// emits `${fieldNames[0].toLowerCase()}:${value}` — the MODEL'S
+// FIRST FIELD NAME, not the literal "front". Before this fix the
+// parser only matched the literal "front" prefix, so any model
+// whose first field is named "Expression" (mining-style note types
+// like DenChou / JP Mining Note) silently returned 0 hits from
+// FindNotes, which made the duplicate-probe multi batch error and
+// hid the + button in Yomitan's add-card dialog.
+//
+// Variants covered:
+//   - `"expression:猫"` quoted (Yomitan's collection-scope wire
+//     form) hits
+//   - `"expression:ne"` quoted misses (substring must match the
+//     first field)
+//   - bare `expression:猫` (no outer quotes) hits
+//   - `"EXPRESSION:猫"` quoted (case-insensitive field name) hits
+//   - `"front:hello"` on the Basic-model regression note STILL
+//     hits — regression pin for the original behaviour
+//   - `"deck:Default" "expression:猫"` (multi-term quoted, deck
+//     scope — the exact Yomitan wire form for deck-scoped
+//     duplicate probes) hits
+//   - `"front:zz"` on the Basic model misses — regression pin
+//   - `tag:vocab` (no field term) surfaces an envelope error —
+//   preserved stance for unsupported queries
+func TestRawAnkiFindNotesFieldName(t *testing.T) {
+	s, _, coll := newTestAnkiServerExpression(t)
+
+	// Seed: an Expression-model note (first field 猫, second neko)
+	// AND a Basic-model note (first field hello) so the field-name
+	// lookup actually has to distinguish them.
+	nidExpr, err := coll.InsertNote(ankiTestDeckID, ankiTestModelExpressionID, []string{"\u732b", "neko"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed Expression note: %v", err)
+	}
+	nidBasic, err := coll.InsertNote(ankiTestDeckID, ankiTestModelID, []string{"hello", "world"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed Basic note: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	doRequest := func(t *testing.T, body string) ([]int64, json.RawMessage) {
+		t.Helper()
+		rec := doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+		env := decodeRawAnkiEnv(t, rec)
+		var ids []int64
+		if string(env.Error) != "null" {
+			return nil, env.Error
+		}
+		_ = json.Unmarshal(env.Result, &ids)
+		return ids, nil
+	}
+
+	// Case 1: Yomitan wire form `"expression:猫"` against the
+	// Expression-named model — the v4.5 regression test.
+	ids, errJSON := doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"\"expression:猫\""}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes quoted expression error: %s", errJSON)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("findNotes quoted expression = %v, want [%d] (Expression-model first field must resolve)", ids, nidExpr)
+	}
+
+	// Case 2: bare `expression:猫` (no outer quotes).
+	ids, errJSON = doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"expression:猫"}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes bare expression error: %s", errJSON)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("findNotes bare expression = %v, want [%d]", ids, nidExpr)
+	}
+
+	// Case 3: substring miss — `expression:ne` does not match the
+	// Expression-model first field `猫` (it IS in the `Meaning`
+	// field "neko", but the lookup is first-field only).
+	ids, errJSON = doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"\"expression:ne\""}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes expression miss error: %s", errJSON)
+	}
+	if len(ids) != 0 {
+		t.Errorf("findNotes expression miss = %v, want [] (lookup is first-field only)", ids)
+	}
+
+	// Case 4: case-insensitive field name — `EXPRESSION:猫`
+	// resolves to the same schema as `expression:猫`.
+	ids, errJSON = doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"\"EXPRESSION:猫\""}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes EXPRESSION error: %s", errJSON)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("findNotes EXPRESSION = %v, want [%d] (field name lookup is case-insensitive)", ids, nidExpr)
+	}
+
+	// Case 5: regression pin — `front:hello` against the
+	// Basic-model note still works. (The Basic fixture still has
+	// first field "Front" — `front:` queries against it must
+	// continue to resolve.)
+	ids, errJSON = doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"\"front:hello\""}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes front regression error: %s", errJSON)
+	}
+	if len(ids) != 1 || ids[0] != nidBasic {
+		t.Errorf("findNotes front regression = %v, want [%d] (Basic-model front: query still works)", ids, nidBasic)
+	}
+
+	// Case 6: multi-term quoted form Yomitan sends for deck-scoped
+	// duplicate probes — deck term is a reserved prefix, ignored;
+	// the field term is the only thing that matters. This is the
+	// exact v4.5 symptom: Yomitan sends this form to the bridge,
+	// the old front-only parser returned 0 hits (because it
+	// didn't recognise the `expression:` prefix), and the duplicate
+	// probe failed silently.
+	ids, errJSON = doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"\"deck:Default\" \"expression:猫\""}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes multi-term error: %s", errJSON)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("findNotes multi-term = %v, want [%d] (deck term ignored, field term resolves)", ids, nidExpr)
+	}
+
+	// Case 7: regression pin — `front:zz` against the Basic
+	// model (first field "hello") still misses.
+	ids, errJSON = doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"\"front:zz\""}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes front miss regression error: %s", errJSON)
+	}
+	if len(ids) != 0 {
+		t.Errorf("findNotes front miss regression = %v, want []", ids)
+	}
+
+	// Case 8: `expression:hello` — substring `hello` does NOT
+	// appear in the Expression-model first field (猫), so this
+	// misses even though the Basic model has "hello" as its first
+	// field. Confirms the field-name lookup is strict (only the
+	// matching note type is queried, no cross-model leakage).
+	ids, errJSON = doRequest(t, `{"action":"findNotes","version":6,"params":{"query":"\"expression:hello\""}}`)
+	if errJSON != nil {
+		t.Fatalf("FindNotes expression cross-model error: %s", errJSON)
+	}
+	if len(ids) != 0 {
+		t.Errorf("findNotes expression cross-model = %v, want [] (only Expression-model notes are queried)", ids)
+	}
+
+	// Case 9: malformed term (no field term) still surfaces an
+	// envelope error — preserves the original "refuse to silently
+	// drop the floor on a parse failure" stance.
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"findNotes","version":6,"params":{"query":"tag:vocab"}}`)
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) == "null" {
+		t.Errorf("findNotes tag:vocab error = null, want envelope error (unsupported query)")
 	}
 }
 

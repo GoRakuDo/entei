@@ -824,6 +824,18 @@ func (s *Server) dispatchAnkiAction(env ankiActionBody) (json.RawMessage, error)
 		// error to the caller verbatim — simpler than per-slot
 		// errors (Yomitan doesn't read them anyway) and matches the
 		// documented "fail whole batch" contract.
+		//
+		// Divergence note: AnkiconnectAndroid (and the AnkiConnect
+		// desktop build for version > 4) wraps each sub-result in
+		// its own {result, error} envelope so the multi surface
+		// looks like `[{result: ...}, {result: ...}, ...]`. We
+		// return the raw array (`[..., ..., ...]`) because Yomitan
+		// only speaks version <= 2 of the wire format and reads
+		// result[i] directly — wrapping would break its consumer
+		// (Yomitan's _invokeMulti normalises against version 2).
+		// Any future client that speaks version > 4 multi would
+		// need a separate code path; Yomitan doesn't observe the
+		// difference today so we don't carry the cost.
 		var params struct {
 			Actions []ankiActionBody `json:"actions"`
 		}
@@ -854,9 +866,11 @@ func (s *Server) dispatchAnkiAction(env ankiActionBody) (json.RawMessage, error)
 		// browser). Yomitan's guiBrowseNote(noteId) calls
 		// this.guiBrowse('nid:' + noteId) and consumes the result
 		// via _normalizeArray(result, -1, 'number') as cardIds — the
-		// normalised list is then fed to onViewCardClicked. See
-		// A:/yomitan/ext/js/comm/anki-connect.js guiBrowse() and
-		// guiBrowseNote(). Returning note ids here would cause
+		// normalised list is then fed to
+		// _onViewNotesButtonClick in
+		// A:/yomitan/ext/js/display/display-anki.js:1389-1393.
+		// See A:/yomitan/ext/js/comm/anki-connect.js guiBrowse()
+		// and guiBrowseNote(). Returning note ids here would cause
 		// _normalizeArray to throw and the browser action to fail.
 		//
 		// Fast path: Yomitan's _invokeMulti / guiBrowseNote paths
@@ -885,11 +899,12 @@ func (s *Server) dispatchAnkiAction(env ankiActionBody) (json.RawMessage, error)
 		if query == "" {
 			return nil, fmt.Errorf("%w: guiBrowse: query is required", anki.ErrBadRequest)
 		}
-		// Strip an outer double-quote pair (FindNotes does the same
-		// in frontQueryValue, so we get identical behaviour for the
-		// quoted and bare variants). Yomitan doesn't quote guiBrowse
-		// queries in practice; the unwrap is defence-in-depth for
-		// clients that follow the same convention as findNotes.
+		// Strip an outer double-quote pair (Collection.FindNotes
+		// does the same, so we get identical behaviour for the
+		// quoted and bare variants). Yomitan doesn't quote
+		// guiBrowse queries in practice; the unwrap is defence-
+		// in-depth for clients that follow the same convention
+		// as findNotes.
 		if len(query) >= 2 && query[0] == '"' && query[len(query)-1] == '"' {
 			query = query[1 : len(query)-1]
 		}
@@ -968,12 +983,17 @@ type addNoteOptions struct {
 // a fast-path match (FindNotes returns ErrBadQuery on the same
 // input, which surfaces as an honest envelope error to the caller).
 // Case-insensitive on the prefix so client idiosyncrasies don't
-// strand the fast path.
+// strand the fast path — the predicate is shared with Collection's
+// own nid: handling via anki.HasNIDQuery so both surfaces agree.
 func parseGuiBrowseNIDQuery(query string) (int64, bool) {
-	if !strings.HasPrefix(strings.ToLower(query), "nid:") {
+	if !anki.HasNIDQuery(query) {
 		return 0, false
 	}
 	body := strings.TrimSpace(query[len("nid:"):])
+	if len(body) >= 2 && body[0] == '"' && body[len(body)-1] == '"' {
+		body = body[1 : len(body)-1]
+		body = strings.TrimSpace(body)
+	}
 	if body == "" {
 		return 0, false
 	}

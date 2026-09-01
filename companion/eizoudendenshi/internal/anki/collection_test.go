@@ -89,6 +89,15 @@ const (
 	testDeckID  int64 = 1700000000002
 )
 
+// testModelExpressionID is the model id of a second fixture model
+// whose FIRST field is "Expression" (NOT "Front") — used by
+// TestCollectionFindNotesFieldName to pin the case where the
+// model's first field name is non-Front (the exact v4.5 Yomitan
+// regression — Yomitan's _fieldsToQuery uses the model's first
+// field name, and only models whose first field is literally
+// "Front" worked before this fix).
+const testModelExpressionID int64 = 1700000000003
+
 // testModelJSON returns a minimal "Basic" model JSON: 2 fields
 // (Front, Back), 1 template (Card 1 → Front → Back).
 func testModelJSON(t *testing.T) map[string]any {
@@ -111,6 +120,46 @@ func testModelJSON(t *testing.T) map[string]any {
 				"ord":  0,
 				"qfmt": "{{Front}}",
 				"afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}",
+				"did":  nil,
+			},
+		},
+		"css":       ".card { font-family: arial; font-size: 20px; color: black; background-color: white; }",
+		"latexPre":  "\\documentclass[12pt]{article}",
+		"latexPost": "\\end{document}",
+		"tags":      []string{},
+		"vers":      []string{},
+	}
+}
+
+// testModelExpressionJSON returns a model whose FIRST field is
+// "Expression" (and second field "Meaning") — mirrors the
+// shape of mining-style Anki note types like DenChou / JP Mining
+// Note whose first field is named "Expression" rather than
+// "Front". The model exists so TestCollectionFindNotesFieldName
+// can pin the non-Front first-field case (the v4.5 Yomitan
+// regression: Yomitan's _fieldsToQuery emits `<first-field-name>:
+// <value>`, and the old front-only parser silently returned 0
+// hits for any model whose first field wasn't literally "Front").
+func testModelExpressionJSON(t *testing.T) map[string]any {
+	t.Helper()
+	return map[string]any{
+		"id":    testModelExpressionID,
+		"name":  "JP Mining Note",
+		"type":  0,
+		"mod":   0,
+		"usn":   0,
+		"sortf": 0,
+		"did":   testDeckID,
+		"flds": []map[string]any{
+			{"name": "Expression", "ord": 0, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+			{"name": "Meaning", "ord": 1, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+		},
+		"tmpls": []map[string]any{
+			{
+				"name": "Card 1",
+				"ord":  0,
+				"qfmt": "{{Expression}}",
+				"afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n{{Meaning}}",
 				"did":  nil,
 			},
 		},
@@ -564,6 +613,67 @@ func TestCollectionFindNotesAdded(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0] != id {
 		t.Errorf("FindNotes added:1 = %v, want [%d]", ids, id)
+	}
+}
+
+// TestCollectionFindNotesAddedEmpty pins the empty-result wire
+// contract: a fresh fixture with NO notes modified within the last
+// 24h must still return a NON-NIL empty slice (and json-marshal to
+// `[]`, not `null`). The bug this test defends against was the
+// exact Yomitan getAnkiNoteInfo regression observed on a real
+// device 2026-09-01 — `var ids []int64` followed by zero appends
+// marshals to `null`, and Yomitan's _normalizeArray(result, -1,
+// 'number') throws on `null`, hiding the + button. The fix is to
+// initialise the slice with `make([]int64, 0)` so the JSON wire
+// form is `[]` even on the empty path.
+func TestCollectionFindNotesAddedEmpty(t *testing.T) {
+	path := newTestCollectionFixture(t)
+	c := openTestCollection(t, path)
+	ids, err := c.FindNotes("added:1")
+	if err != nil {
+		t.Fatalf("FindNotes: %v", err)
+	}
+	if ids == nil {
+		t.Fatalf("FindNotes added:1 = nil; want non-nil empty slice (Yomitan _normalizeArray throws on null)")
+	}
+	if len(ids) != 0 {
+		t.Errorf("FindNotes added:1 len = %d, want 0 (no notes modded in fresh fixture)", len(ids))
+	}
+	body, err := json.Marshal(ids)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if string(body) != "[]" {
+		t.Errorf("json.Marshal added:1 = %s, want \"[]\" (Yomitan requires an array, never null)", body)
+	}
+}
+
+// TestCollectionFindNotesNoMatch pins the empty-result wire
+// contract for the `<fieldName>:<value>` branch (findNotesByFirstField):
+// a value that no note's first field contains must return a NON-NIL
+// empty slice that json-marshals to `[]`. Same Yomitan regression
+// as TestCollectionFindNotesAddedEmpty but for the field-match
+// code path (which had its own `var ids []int64` and the same
+// `null`-on-empty failure mode).
+func TestCollectionFindNotesNoMatch(t *testing.T) {
+	path := newTestCollectionFixture(t)
+	c := openTestCollection(t, path)
+	ids, err := c.FindNotes(`front:不存在`)
+	if err != nil {
+		t.Fatalf("FindNotes: %v", err)
+	}
+	if ids == nil {
+		t.Fatalf("FindNotes front:不存在 = nil; want non-nil empty slice (Yomitan _normalizeArray throws on null)")
+	}
+	if len(ids) != 0 {
+		t.Errorf("FindNotes front:不存在 len = %d, want 0", len(ids))
+	}
+	body, err := json.Marshal(ids)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if string(body) != "[]" {
+		t.Errorf("json.Marshal front:不存在 = %s, want \"[]\" (Yomitan requires an array, never null)", body)
 	}
 }
 
@@ -1273,6 +1383,51 @@ func newNotetypesCollectionFixture(t *testing.T) string {
 	return path
 }
 
+// newExpressionFieldCollectionFixture builds a legacy-schema
+// fixture that includes BOTH the "Basic" model (testModelID,
+// first field "Front") and the "JP Mining Note" model
+// (testModelExpressionID, first field "Expression"). It exists
+// so TestCollectionFindNotesFieldName can pin the non-Front
+// first-field case: the model's first field name is whatever
+// the schema says, not a hard-coded "Front".
+//
+// The fixture uses the same schema11 SQL and seed shape as
+// newTestCollectionFixture — only the models map is extended.
+func newExpressionFieldCollectionFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collection.anki2")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatalf("open expression fixture: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(schema11SQL); err != nil {
+		t.Fatalf("apply schema11: %v", err)
+	}
+	models := map[string]any{
+		strconv.FormatInt(testModelID, 10):             testModelJSON(t),
+		strconv.FormatInt(testModelExpressionID, 10): testModelExpressionJSON(t),
+	}
+	decks := map[string]any{
+		strconv.FormatInt(testDeckID, 10): testDeckJSON(t),
+	}
+	dconf := map[string]any{"1": map[string]any{"id": 1, "name": "Default"}}
+	conf := map[string]any{"nextPos": 1}
+	tags := map[string]any{}
+	modelsJSON, _ := json.Marshal(models)
+	decksJSON, _ := json.Marshal(decks)
+	dconfJSON, _ := json.Marshal(dconf)
+	confJSON, _ := json.Marshal(conf)
+	tagsJSON, _ := json.Marshal(tags)
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+		1700000000, int64(1700000000000), int64(1700000000000), 11,
+		string(confJSON), string(modelsJSON), string(decksJSON), string(dconfJSON), string(tagsJSON)); err != nil {
+		t.Fatalf("seed col (expression fixture): %v", err)
+	}
+	return path
+}
+
 // TestDetectSchemaNotetypesModern pins the autodetect on the
 // AnkiDroid 2.16+ shape: `decks` + `notetypes` (no `models` table)
 // selects the modern variant and flips modernNotetypes on.
@@ -1621,13 +1776,16 @@ func newTwoTmplsCollectionFixture(t *testing.T) string {
 //   - unquoted: `front:あ` → 1 hit
 //   - case-insensitive prefix: `Front:あ` → 1 hit
 //   - different first field value → 0 hits
-//   - LIKE metacharacters in value are escaped: a value containing
-//     `%` and `_` must match literally, not as wildcards.
+//   - LIKE metacharacters in value are matched literally: the
+//     first-field substring check uses strings.Contains (no SQL
+//     LIKE), so `%` and `_` in the value are NOT wildcards.
 func TestCollectionFindNotesFrontQuery(t *testing.T) {
 	path := newTestCollectionFixture(t)
 	c := openTestCollection(t, path)
-	// Seed: a Japanese "a" front, an unrelated note, and a note whose
-	// first field contains LIKE meta characters.
+	// Seed: a Japanese "a" front, an unrelated note, and a note
+	// whose first field contains characters that would be LIKE
+	// metacharacters in a SQL LIKE pattern (`%`, `_`). The new
+	// substring-match path treats them as literals.
 	nidA, err := c.InsertNote(testDeckID, testModelID, []string{"\u3042", "ja-A"}, nil, nil)
 	if err != nil {
 		t.Fatalf("seed A: %v", err)
@@ -1676,13 +1834,156 @@ func TestCollectionFindNotesFrontQuery(t *testing.T) {
 	if len(ids) != 0 {
 		t.Errorf("FindNotes miss = %v, want []", ids)
 	}
-	// LIKE metacharacter escape: 100%_off must match literally.
+	// Substring match on the FIRST field — the lookup uses
+	// strings.Contains (not SQL LIKE), so `%` and `_` in the value
+	// are matched LITERALLY (no wildcard semantics). The seeded
+	// note's first field is "100%_off"; the query value is
+	// "100%_off" so the substring match hits.
 	ids, err = c.FindNotes(`"front:100%_off"`)
 	if err != nil {
 		t.Fatalf("FindNotes meta: %v", err)
 	}
 	if len(ids) != 1 || ids[0] != nidMeta {
-		t.Errorf("FindNotes meta = %v, want [%d] (LIKE metas must be escaped)", ids, nidMeta)
+		t.Errorf("FindNotes meta = %v, want [%d] (substring match uses Contains — no wildcard semantics)", ids, nidMeta)
+	}
+}
+
+// TestCollectionFindNotesFieldName pins the v4.5 Yomitan
+// regression: Yomitan's _fieldsToQuery emits
+// `${fieldNames[0].toLowerCase()}:${value}` — the MODEL'S FIRST
+// FIELD NAME, not the literal "front". The old front-only parser
+// only worked for models whose first field was literally named
+// "Front"; models like DenChou / JP Mining Note whose first field
+// is "Expression" silently returned 0 hits, which made the
+// duplicate-probe multi batch error out and hid the + button in
+// Yomitan's add-card dialog.
+//
+// The fixture has BOTH a "Basic" model (first field "Front") and
+// a "JP Mining Note" model (first field "Expression"). The test
+// inserts an Expression-model note and verifies:
+//
+//   - `expression:猫` hits (the exact Yomitan wire form)
+//   - bare `expression:猫` hits (no outer quotes)
+//   - `"expression:ne"` misses (substring must match)
+//   - `"EXPRESSION:猫"` hits (case-insensitive field name)
+//   - `"front:猫"` STILL hits the Basic model — regression pin
+//     for the original behaviour
+//   - `"deck:Default" "expression:猫"` (multi-term quoted, deck
+//     scope) hits — deck terms are reserved prefixes, ignored
+//   - `"front:zz"` on the Basic model still misses — regression
+//     pin
+//   - `tag:vocab` (no field term) returns ErrBadQuery —
+//     preserved behaviour for unsupported queries
+func TestCollectionFindNotesFieldName(t *testing.T) {
+	path := newExpressionFieldCollectionFixture(t)
+	c := openTestCollection(t, path)
+
+	// Seed: an Expression-model note (first field 猫, second neko)
+	// AND a Basic-model note (first field hello, second world) so
+	// the field-name lookup actually has to distinguish them.
+	nidExpr, err := c.InsertNote(testDeckID, testModelExpressionID, []string{"\u732b", "neko"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed Expression note: %v", err)
+	}
+	nidBasic, err := c.InsertNote(testDeckID, testModelID, []string{"hello", "world"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed Basic note: %v", err)
+	}
+
+	// Case 1: Yomitan wire form `"expression:猫"` against the
+	// Expression-named model — the v4.5 regression test.
+	ids, err := c.FindNotes(`"expression:猫"`)
+	if err != nil {
+		t.Fatalf("FindNotes quoted expression: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("FindNotes quoted expression = %v, want [%d] (Expression-model first field must resolve)", ids, nidExpr)
+	}
+
+	// Case 2: bare `expression:猫` — no outer quotes.
+	ids, err = c.FindNotes(`expression:猫`)
+	if err != nil {
+		t.Fatalf("FindNotes bare expression: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("FindNotes bare expression = %v, want [%d]", ids, nidExpr)
+	}
+
+	// Case 3: substring miss — `expression:ne` should not match
+	// the first field `猫` (it IS in `Meaning`=neko, but the
+	// lookup is against the FIRST field only).
+	ids, err = c.FindNotes(`"expression:ne"`)
+	if err != nil {
+		t.Fatalf("FindNotes expression miss: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("FindNotes expression miss = %v, want [] (lookup is first-field only)", ids)
+	}
+
+	// Case 4: case-insensitive field name — `EXPRESSION:猫`
+	// resolves to the same schema as `expression:猫`.
+	ids, err = c.FindNotes(`"EXPRESSION:猫"`)
+	if err != nil {
+		t.Fatalf("FindNotes case-insensitive field name: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("FindNotes EXPRESSION = %v, want [%d] (field name lookup is case-insensitive)", ids, nidExpr)
+	}
+
+	// Case 5: regression pin — the original `front:猫` query
+	// against the Basic-model note still works. (The seeded
+	// Basic note has first field "hello", not "猫", so we also
+	// seed a Basic note with first field "猫" to keep the
+	// existing TestCollectionFindNotesFrontQuery contract
+	// alive — this case is the cross-model regression check.)
+	ids, err = c.FindNotes(`"front:hello"`)
+	if err != nil {
+		t.Fatalf("FindNotes front regression: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidBasic {
+		t.Errorf("FindNotes front regression = %v, want [%d] (Basic-model front: query still works)", ids, nidBasic)
+	}
+
+	// Case 6: multi-term quoted form Yomitan sends for deck-scoped
+	// duplicate probes — deck term is a reserved prefix, ignored;
+	// the field term is the only thing that matters.
+	ids, err = c.FindNotes(`"deck:Default" "expression:猫"`)
+	if err != nil {
+		t.Fatalf("FindNotes multi-term: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidExpr {
+		t.Errorf("FindNotes multi-term = %v, want [%d] (deck term ignored, field term resolves)", ids, nidExpr)
+	}
+
+	// Case 7: regression pin — `front:zz` against the Basic
+	// model (first field "hello") still misses (this was a
+	// regression check in the original test; we keep it).
+	ids, err = c.FindNotes(`"front:zz"`)
+	if err != nil {
+		t.Fatalf("FindNotes front miss regression: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("FindNotes front miss regression = %v, want []", ids)
+	}
+
+	// Case 8: `expression:hello` — substring `hello` does NOT
+	// appear in the Expression-model first field (猫), so this
+	// misses even though the Basic model has "hello" as its first
+	// field. Confirms the field-name lookup is strict (only the
+	// matching note type is queried, no cross-model leakage).
+	ids, err = c.FindNotes(`"expression:hello"`)
+	if err != nil {
+		t.Fatalf("FindNotes expression cross-model: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("FindNotes expression cross-model = %v, want [] (only Expression-model notes are queried)", ids)
+	}
+
+	// Case 9: malformed term (no field term) still surfaces
+	// ErrBadQuery — preserves the original "refuse to silently
+	// drop the floor on a parse failure" stance.
+	if _, err := c.FindNotes("tag:vocab"); !errors.Is(err, ErrBadQuery) {
+		t.Errorf("FindNotes tag:vocab err = %v, want ErrBadQuery", err)
 	}
 }
 

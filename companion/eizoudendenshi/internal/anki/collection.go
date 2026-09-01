@@ -1896,18 +1896,39 @@ func mergeTags(existing string, newOnes []string) string {
 	return " " + strings.Join(parts, " ") + " "
 }
 
-// FindNotes supports the documented subset:
-//   - "added:1"            → notes modified in the last 24h
-//   - "nid:<id>,<id>..."    → explicit note-id list
-//   - '"front:<value>"'     → substring match on the first field
-//                            (Yomitan's _fieldsToQuery produces
-//                            this exact wire shape for the duplicate-
-//                            note popup flow). The outer / inner
-//                            double-quotes are optional; the value
-//                            is matched as a case-sensitive LIKE
-//                            (LIKE %<value>% with %/_ escaped by
-//                            doubling) against notes.flds' first
-//                            segment (text up to the first \x1f).
+// FindNotes supports the documented subset of the AnkiConnect
+// findNotes query grammar that the Yomitan duplicate-detection flow
+// actually depends on:
+//
+//   - "added:1"                  → notes modified in the last 24h
+//   - "nid:<id>,<id>..."         → explicit note-id list (Yomitan
+//                                  may also send `"nid:..."` quoted;
+//                                  both forms are accepted)
+//   - "<fieldName>:<value>"      → substring match on the FIRST
+//                                  field of every note type whose
+//                                  first field name equals
+//                                  `<fieldName>` (case-insensitive).
+//                                  Yomitan's _fieldsToQuery emits
+//                                  `${fieldNames[0].toLowerCase()}:${value}`,
+//                                  i.e. the model's FIRST FIELD NAME
+//                                  (NOT the literal "front"). The
+//                                  first-field lookup means models
+//                                  like DenChou / JP Mining Note
+//                                  whose first field is "Expression"
+//                                  also resolve correctly. The
+//                                  outer double-quotes are optional.
+//
+// Multi-term form (Yomitan sends this when duplicateScope is "deck"
+// or "deck-root"):
+//
+//   - "deck:<value> \"<fieldName>:<value>\""
+//   - "deck:<value> \"<fieldName>:<value>\""
+//
+// We split on top-level whitespace, recognise each piece as either
+// a field term or a deck term, ignore the deck terms for matching
+// (deck-scoped duplicate nuance is deferred — what matters is
+// that the + button visibility / duplicate probe does not fail),
+// and resolve the field term against the schema.
 //
 // Anything else returns ErrBadQuery — mirroring the
 // "we won't pretend to support something we can't" stance taken by
@@ -1915,19 +1936,36 @@ func mergeTags(existing string, newOnes []string) string {
 // arbitrary queries into AnkiDroid's provider, but we run an
 // in-process implementation and refuse to silently drop the floor
 // on a parse failure.
-//
-// Yomitan's _fieldsToQuery emits `${key.toLowerCase()}:${value}`
-// wrapped in double quotes ("front:cat"). For real AnkiConnect the
-// matching is across the FIRST field by convention; we replicate
-// that by reading the flds column up to its first \x1f separator
-// (Anki joins fields with \x1f in the notes.flds storage).
 func (c *Collection) FindNotes(query string) ([]int64, error) {
 	if c == nil || c.db == nil {
 		return nil, ErrCollectionNotOpen
 	}
 	q := strings.TrimSpace(query)
-	switch {
-	case q == "added:1":
+	// Strip the OUTER pair of double-quotes ONLY when the query
+	// is a single quoted term (no whitespace outside quotes).
+	// Yomitan's collection-scope wire form is exactly
+	// `"<fieldName>:<value>"` — the outer quotes are part of the
+	// query string on our side, not string-quoting.
+	//
+	// The multi-term form Yomitan sends for deck-scoped duplicate
+	// probes (`"deck:X" "field:value"`) is NOT outer-wrapped; each
+	// TERM is quoted. Naively stripping the first/last quote pair
+	// there would corrupt the term boundary, so we only strip when
+	// no whitespace appears outside the quote spans.
+	if len(q) >= 2 && q[0] == '"' && q[len(q)-1] == '"' && !hasSpaceOutsideQuotes(q) {
+		q = q[1 : len(q)-1]
+		q = strings.TrimSpace(q)
+	}
+	if q == "" {
+		// Defensive: Yomitan never sends an empty query, but the
+		// wire contract requires findNotes to return an array, never
+		// null. Return a non-nil empty slice so json.Marshal emits
+		// `[]` (which is what Yomitan's _normalizeArray requires)
+		// instead of `null` (which throws).
+		return []int64{}, nil
+	}
+	// `added:1` exact form (no value tail).
+	if strings.EqualFold(q, "added:1") {
 		// 24h window in milliseconds.
 		cutoff := nowMillis() - int64(24*time.Hour/time.Millisecond)
 		rows, err := c.db.Query("SELECT id FROM notes WHERE mod > ? ORDER BY id DESC", cutoff)
@@ -1935,7 +1973,13 @@ func (c *Collection) FindNotes(query string) ([]int64, error) {
 			return nil, fmt.Errorf("anki: added:1 query: %w", err)
 		}
 		defer rows.Close()
-		var ids []int64
+		// Non-nil empty slice: a fresh fixture with no notes modded
+		// within the last 24h must still return `[]` on the wire,
+		// never `null`. Yomitan's _normalizeArray(result, -1, 'number')
+		// throws on `null` and breaks getAnkiNoteInfo (the + button
+		// visibility flow). 2026-09-01 device evidence: see the
+		// "null vs []" findNotes bug fix.
+		ids := make([]int64, 0)
 		for rows.Next() {
 			var id int64
 			if err := rows.Scan(&id); err != nil {
@@ -1947,11 +1991,11 @@ func (c *Collection) FindNotes(query string) ([]int64, error) {
 			return nil, fmt.Errorf("anki: iterate added:1: %w", err)
 		}
 		return ids, nil
-	case strings.HasPrefix(q, "nid:"):
-		body := strings.TrimPrefix(q, "nid:")
-		parts := strings.Split(body, ",")
-		ids := make([]int64, 0, len(parts))
-		for _, p := range parts {
+	}
+	// `nid:<list>` (bare OR quoted; case-insensitive prefix).
+	if _, value, ok := parseNIDQuery(q); ok {
+		ids := make([]int64, 0)
+		for _, p := range strings.Split(value, ",") {
 			p = strings.TrimSpace(p)
 			if p == "" {
 				continue
@@ -1963,87 +2007,297 @@ func (c *Collection) FindNotes(query string) ([]int64, error) {
 			ids = append(ids, id)
 		}
 		return ids, nil
-	case isFrontQuery(q):
-		value := frontQueryValue(q)
-		if value == "" {
-			return nil, fmt.Errorf("%w: empty front: value in %q", ErrBadQuery, query)
+	}
+	// `<fieldName>:<value>` (single-term form) or multi-term form
+	// that contains exactly one field term.
+	if fieldName, value, ok := parseFieldTerm(q); ok {
+		return c.findNotesByFirstField(fieldName, value)
+	}
+	return nil, fmt.Errorf("%w: %q", ErrBadQuery, query)
+}
+
+// parseNIDQuery reports whether q is a `nid:` query and returns
+// the body (the comma-separated id list) and ok=true. The prefix
+// check is case-insensitive so client idiosyncrasies don't strand
+// the nid: lookup path. The outer double-quote wrapping that
+// Yomitan uses for some clients is handled here too — by the time
+// FindNotes calls us the OUTER quote pair has already been
+// stripped, but a residual INNER `"…"` would be part of the body
+// and we surface that as ok=true with the inner content (still
+// trimmed); ParseInt then rejects any non-integer and the caller
+// surfaces ErrBadQuery.
+//
+// Used by FindNotes (the documented `nid:<list>` shape) AND by
+// internal/api/anki_connect.go's parseGuiBrowseNIDQuery — the
+// case-insensitive prefix check was duplicated in both places
+// before this helper landed; both call-sites now use the same
+// predicate via the public wrapper HasNIDQuery (see below) when
+// the caller only needs the boolean.
+func parseNIDQuery(q string) (field, body string, ok bool) {
+	lower := strings.ToLower(q)
+	if !strings.HasPrefix(lower, "nid:") {
+		return "", "", false
+	}
+	body = strings.TrimSpace(q[len("nid:"):])
+	if len(body) >= 2 && body[0] == '"' && body[len(body)-1] == '"' {
+		body = body[1 : len(body)-1]
+		body = strings.TrimSpace(body)
+	}
+	if body == "" {
+		return "", "", false
+	}
+	return "nid", body, true
+}
+
+// HasNIDQuery reports whether q starts with `nid:` (case-
+// insensitive). A small public wrapper over parseNIDQuery used by
+// the api layer (which doesn't need the body — the guiBrowse
+// fast path parses the int itself). Keeping the predicate in one
+// place ensures FindNotes and parseGuiBrowseNIDQuery agree on what
+// counts as a `nid:` query.
+func HasNIDQuery(q string) bool {
+	_, _, ok := parseNIDQuery(q)
+	return ok
+}
+
+// parseFieldTerm extracts the single `<fieldName>:<value>` term
+// from a query, accepting both the single-term form
+// (`<fieldName>:<value>`, optionally quote-wrapped) and the
+// multi-term form Yomitan sends for deck-scoped duplicate probes
+// (`deck:<value> "<fieldName>:<value>"` or
+// `deck:<value> deck:<value> "<fieldName>:<value>"`). Deck terms
+// (and any other reserved Anki search prefixes) are ignored —
+// we don't AND them; the deck-scoped duplicate nuance is deferred
+// (what matters is that the field-term path does not fail on
+// these inputs).
+//
+// Returns field, value, true when exactly one field term is
+// present; false when zero or more-than-one field term is found
+// (zero falls through to ErrBadQuery in FindNotes; multi-field is
+// out of scope and surfaces ErrBadQuery too — Yomitan's flow
+// never sends more than one).
+//
+// The field-name half is matched case-insensitively. The value
+// is returned with any quote wrapping stripped.
+func parseFieldTerm(q string) (field, value string, ok bool) {
+	// Multi-term: split on whitespace but respect double-quoted
+	// pieces (Yomitan wraps each term in quotes for non-collection
+	// scopes).
+	terms := splitQueryTerms(q)
+	if len(terms) == 0 {
+		return "", "", false
+	}
+	for _, t := range terms {
+		name, val, isField := splitFieldColon(t)
+		if !isField {
+			continue
 		}
-		// Escape SQL LIKE metacharacters in the user-supplied value:
-		// % and _ are wildcards in SQLite's LIKE; doubling is the
-		// canonical escape. The pattern is "%" + escaped + "%" so we
-		// substring-match within the flds string (which is "<f1>\x1f
-		// <f2>\x1f..."). fldr is read up to the first \x1f so we
-		// only match the first field, matching AnkiConnect's
-		// documented front: semantics.
-		pattern := "%" + escapeLike(value) + "%"
-		rows, err := c.db.Query(
-			"SELECT id FROM notes WHERE substr(flds, 1, instr(flds, char(31)) - 1) LIKE ? ESCAPE '\\' ORDER BY id",
-			pattern)
-		if err != nil {
-			return nil, fmt.Errorf("anki: front: query: %w", err)
+		if isReservedSearchPrefix(name) {
+			// Structural Anki search prefix (deck:, tag:, ...),
+			// not a user field term. Skip — AnkiConnect would AND
+			// these, but we only honour the field term.
+			continue
 		}
-		defer rows.Close()
-		var ids []int64
-		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err != nil {
-				return nil, fmt.Errorf("anki: scan front: %w", err)
+		if field != "" {
+			// Two field terms → ambiguous, refuse (out of scope).
+			return "", "", false
+		}
+		field = name
+		value = val
+	}
+	if field == "" {
+		return "", "", false
+	}
+	return field, value, true
+}
+
+// isReservedSearchPrefix reports whether name is an Anki search
+// grammar reserved prefix (deck, tag, nid, added, …) that is NOT
+// a user field name. The set is closed under the documented
+// AnkiConnect search grammar; a model that names a field "deck"
+// would not work in the real Anki browser anyway, so refusing
+// here matches upstream behaviour.
+func isReservedSearchPrefix(name string) bool {
+	switch strings.ToLower(name) {
+	case "deck", "tag", "nid", "added", "note", "card", "is", "prop",
+		"mid", "cid", "dueday", "reps", "lapses", "flags", "rated":
+		return true
+	}
+	return false
+}
+
+// splitQueryTerms splits on whitespace while keeping
+// double-quoted pieces together. Quotes themselves are not
+// stripped here — parseFieldTerm / the nid parser do that on the
+// per-term basis.
+func splitQueryTerms(q string) []string {
+	var out []string
+	var cur strings.Builder
+	inQ := false
+	for i := 0; i < len(q); i++ {
+		c := q[i]
+		switch {
+		case c == '"':
+			inQ = !inQ
+			cur.WriteByte(c)
+		case (c == ' ' || c == '\t') && !inQ:
+			if cur.Len() > 0 {
+				out = append(out, cur.String())
+				cur.Reset()
 			}
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+// hasSpaceOutsideQuotes reports whether q contains any whitespace
+// (space or tab) outside of double-quoted spans. Used to decide
+// whether the outer quote pair, if any, is the ONLY pair (single-
+// term form) or one of several (multi-term form). A multi-term
+// query like `"deck:Default" "expression:猫"` has whitespace
+// between the two quote spans and must NOT have its outer pair
+// stripped; a single-term `"expression:猫"` has no internal
+// whitespace and its outer pair is safe to strip.
+func hasSpaceOutsideQuotes(q string) bool {
+	inQ := false
+	for i := 0; i < len(q); i++ {
+		c := q[i]
+		switch c {
+		case '"':
+			inQ = !inQ
+		case ' ', '\t':
+			if !inQ {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// splitFieldColon splits a term into (name, value) on the FIRST
+// colon. The name half must be non-empty (a bare `:value` is not a
+// field term) and must not contain whitespace (whitespace inside
+// the field name is illegal in Anki and would mean the term is not
+// a field query at all). Case-insensitive on the name; value is
+// returned verbatim with any inner double-quote pair stripped.
+func splitFieldColon(term string) (name, value string, ok bool) {
+	// Strip outer quote pair if present.
+	if len(term) >= 2 && term[0] == '"' && term[len(term)-1] == '"' {
+		term = term[1 : len(term)-1]
+	}
+	idx := strings.IndexByte(term, ':')
+	if idx <= 0 || idx >= len(term)-1 {
+		return "", "", false
+	}
+	name = term[:idx]
+	value = term[idx+1:]
+	// Strip a trailing quote pair on the value (Yomitan emits
+	// `"<fieldName>:<value>"` — outer quotes removed above; if the
+	// field name had an internal colon somehow the inner quotes
+	// can still be there as `"name:value"`). Be defensive.
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		value = value[1 : len(value)-1]
+	}
+	if strings.ContainsAny(name, " \t") {
+		return "", "", false
+	}
+	return name, value, true
+}
+
+// findNotesByFirstField resolves the field-name to every note
+// type whose FIRST field name matches (case-insensitive), then
+// selects notes with those mids whose first fld segment CONTAINS
+// the value (case-insensitive, LIKE-style). The schema side is
+// delegated to ModelFieldNames (works on both legacy and modern
+// variants); the note side does a single SELECT id, flds FROM
+// notes WHERE mid IN (...) and post-filters in Go so we don't
+// have to write a segment-boundary LIKE for the k-th segment of
+// notes.flds (LIKE can't easily bound the segment end). For a
+// local tool with a few thousand notes per note type this is
+// microseconds; we deliberately do NOT issue one SELECT per
+// candidate mid — the candidates are typically 1–3 mids.
+func (c *Collection) findNotesByFirstField(fieldName, value string) ([]int64, error) {
+	if value == "" {
+		return nil, fmt.Errorf("%w: empty value for field %q", ErrBadQuery, fieldName)
+	}
+	if c == nil || c.db == nil {
+		return nil, ErrCollectionNotOpen
+	}
+	models, err := c.ModelIDs()
+	if err != nil {
+		return nil, err
+	}
+	want := strings.ToLower(fieldName)
+	var mids []int64
+	for _, mid := range models {
+		names, err := c.ModelFieldNames(mid)
+		if err != nil {
+			return nil, err
+		}
+		if len(names) == 0 {
+			continue
+		}
+		if strings.ToLower(names[0]) == want {
+			mids = append(mids, mid)
+		}
+	}
+	if len(mids) == 0 {
+		// No schema match → zero hits (AnkiConnect surfaces an
+		// empty array, NOT an error — unknown field name just
+		// means nothing to match).
+		return []int64{}, nil
+	}
+	// Build the WHERE mid IN (...) clause.
+	args := make([]any, len(mids))
+	for i, m := range mids {
+		args[i] = m
+	}
+	placeholders := strings.Repeat("?,", len(mids))
+	placeholders = placeholders[:len(placeholders)-1]
+	rows, err := c.db.Query(
+		"SELECT id, flds FROM notes WHERE mid IN ("+placeholders+") ORDER BY id",
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("anki: %s: query notes: %w", fieldName, err)
+	}
+	defer rows.Close()
+	lcVal := strings.ToLower(value)
+	// Non-nil empty slice so a no-match findNotes JSON-encodes to
+	// `[]`, not `null`. Yomitan's _normalizeArray(result, -1,
+	// 'number') throws on `null`; returning `null` makes
+	// getAnkiNoteInfo fail and the + button hidden (real device
+	// 2026-09-01). Verified by TestCollectionFindNotesNoMatch.
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		var flds string
+		if err := rows.Scan(&id, &flds); err != nil {
+			return nil, fmt.Errorf("anki: %s: scan note: %w", fieldName, err)
+		}
+		// flds is "<f1>\x1f<f2>\x1f..." — first segment is the
+		// field we matched against the schema. Trim UTF-8 BOM
+		// defensively (some clients write a BOM on the first
+		// field) before substring-matching. SQLite stores the
+		// bytes verbatim, so a stray BOM in flds would otherwise
+		// hide a real hit.
+		first := flds
+		if i := strings.IndexByte(first, 0x1f); i >= 0 {
+			first = first[:i]
+		}
+		first = strings.TrimPrefix(first, "\ufeff")
+		if strings.Contains(strings.ToLower(first), lcVal) {
 			ids = append(ids, id)
 		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("anki: iterate front: %w", err)
-		}
-		return ids, nil
-	case q == "":
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("%w: %q", ErrBadQuery, query)
 	}
-}
-
-// isFrontQuery reports whether q is a Yomitan/AnkiConnect-style
-// first-field query. Accepts both the bare `front:value` and the
-// quote-wrapped `"front:value"` shape Yomitan's _fieldsToQuery
-// produces (the outer double-quotes are part of the query string,
-// not string-quoting on our side). Case-insensitive on the field
-// name prefix.
-func isFrontQuery(q string) bool {
-	q = strings.TrimSpace(q)
-	if len(q) >= 2 && q[0] == '"' && q[len(q)-1] == '"' {
-		q = q[1 : len(q)-1]
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("anki: %s: iterate notes: %w", fieldName, err)
 	}
-	return len(q) >= len("front:") && strings.EqualFold(q[0:len("front:")], "front:")
-}
-
-// frontQueryValue extracts the value half of a front: query. The
-// value may itself be wrapped in double-quotes (Yomitan does not
-// quote the value, but real AnkiConnect does in some clients).
-// Returns the unquoted value.
-func frontQueryValue(q string) string {
-	q = strings.TrimSpace(q)
-	if len(q) >= 2 && q[0] == '"' && q[len(q)-1] == '"' {
-		q = q[1 : len(q)-1]
-	}
-	v := q
-	if len(v) >= len("front:") && strings.EqualFold(v[0:len("front:")], "front:") {
-		v = v[len("front:"):]
-	}
-	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
-		v = v[1 : len(v)-1]
-	}
-	return v
-}
-
-// escapeLike doubles % and _ so the user-supplied substring is
-// matched literally as a LIKE pattern. SQLite LIKE recognizes
-// these two metacharacters; ESCAPE '\\' in the query makes the
-// backslash the escape char. We also escape the backslash itself
-// (otherwise an embedded `\` in user input would consume the next
-// char, which then wouldn't escape the meta).
-func escapeLike(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return r.Replace(s)
+	return ids, nil
 }
 
 // NoteInfo is one entry of the notesInfo response. Mirrors the
@@ -2072,12 +2326,18 @@ type NoteInfo struct {
 // camelCase). Yomitan's notesInfo consumer reads `cards` as a flat
 // `number[]` (just cardIds) and never touches the per-card fields,
 // so widening this struct to add NoteID doesn't break notesInfo.
-// Yomitan's cardsInfo consumer normalises a narrower shape (it
-// reads `cardId` / `note` / `flags` / `queue`) — we emit the full
-// AnkiConnect field set so other clients (Entei, asbplayer) get
-// the documented shape and the wire remains forward-compatible.
+// Yomitan's cardsInfo consumer normalises a narrower shape — see
+// A:/yomitan/ext/js/comm/anki-connect.js:723-725, where
+// `_normalizeCardInfoArray` requires `cardId`, `note`, `flags`,
+// `queue`. The AnkiConnect contract ALSO has the redundant
+// `noteId` field; Yomitan's getAnkiNoteInfo flow reads `note`
+// (NOT `noteId`) to associate a card with its note, so the
+// `json:"note"` tag is required. We emit BOTH `note` and
+// `noteId` so other clients (Entei, asbplayer) get the documented
+// shape and the wire remains forward-compatible.
 type CardInfo struct {
 	CardID   int64  `json:"cardId"`
+	Note     int64  `json:"note"`
 	NoteID   int64  `json:"noteId"`
 	DeckID   int64  `json:"deckId"`
 	Ord      int    `json:"ord"`
@@ -2181,6 +2441,12 @@ func (c *Collection) CardsForNote(nid int64) ([]CardInfo, error) {
 		if err := rows.Scan(&c.CardID, &c.NoteID, &c.Ord, &c.DeckID, &c.Type, &c.Queue, &c.Due, &c.IVL, &c.Factor, &c.Reps, &c.Lapses, &c.Left, &c.ODue, &c.ODID, &c.Flags); err != nil {
 			return nil, fmt.Errorf("anki: scan card: %w", err)
 		}
+		// Populate the `note` field (AnkiConnect wire contract;
+		// Yomitan's _normalizeCardInfoArray reads `note`, not
+		// `noteId`, to associate a card with its note). Same value
+		// as NoteID — kept as a separate struct field so the JSON
+		// shape matches AnkiConnect verbatim.
+		c.Note = c.NoteID
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -2193,9 +2459,17 @@ func (c *Collection) CardsForNote(nid int64) ([]CardInfo, error) {
 // of the result matches the input order (callers like Yomitan's
 // _notesCardsInfo depend on positional alignment: it zips
 // cardsInfo[i].noteId against notesInfo[i].noteId to associate
-// card info with note info). Unknown card ids are skipped (matches
-// the AnkiConnect behaviour: the upstream omits missing ids rather
-// than returning an error).
+// card info with note info). Unknown card ids are skipped.
+//
+// Divergence note: real AnkiConnect returns an array with `null`
+// placeholders for unknown card ids (and downstream clients
+// filter those before consuming the result). We skip unknown ids
+// instead — Yomitan's _normalizeCardInfoArray matches by `noteId`
+// and never observes the missing slot, so the simpler skip
+// behaviour is wire-compatible for Yomitan. Other clients
+// (Entei / asbplayer) should be tolerant of either shape; we
+// don't pretend to be a faithful AnkiConnect for the unknown-id
+// edge case (matches the Yomitan path which is what we ship for).
 //
 // Yomitan's _notesCardsInfo calls cardsInfo as a top-level AnkiConnect
 // action (not via multi) — see
@@ -2224,6 +2498,10 @@ func (c *Collection) CardsInfo(ids []int64) ([]CardInfo, error) {
 			}
 			return nil, fmt.Errorf("anki: scan card %d: %w", id, err)
 		}
+		// Populate the `note` field (AnkiConnect wire contract;
+		// Yomitan's _normalizeCardInfoArray reads `note`, not
+		// `noteId`).
+		ci.Note = ci.NoteID
 		out = append(out, ci)
 	}
 	return out, nil
