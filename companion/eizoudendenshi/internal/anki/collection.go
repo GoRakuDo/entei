@@ -712,6 +712,54 @@ func (c *Collection) Close() error {
 // file state. SQLite's immutable=1 disables per-connection change
 // detection; reopening is the only safe way to invalidate the
 // pager's view of the file.
+//
+// # Corruption hardening (root cause 2026-09-01)
+//
+// The corruption that prompted this hardening:
+//   - collection.anki2 was 18,176,000 bytes (17,750 pages of 1,024 B).
+//   - The SQLite header at offset 28 declared page_count = 0x4558 =
+//     17,752 pages.
+//   - Change counter was +1 vs a same-size healthy backup, so a
+//     write DID happen — the user's note insert was committed.
+//   - mid-file cells (e.g. page 12140) showed the cell-count bump
+//     from 62 → 63 corresponding to the new note row.
+//
+// Root cause: `PRAGMA wal_checkpoint(TRUNCATE)` did not fully
+// merge the last 2 pages from the -wal sidecar into the main file
+// (the busy / log columns of the pragma return were ignored).
+// WriteSession then copied the partially-merged main file back to
+// the source, leaving a header that declared 17,752 pages against
+// 17,750 pages of real data. AnkiDroid's next open reports
+// "database disk image is malformed" — and so does any subsequent
+// companion open until the file is restored from backup.
+//
+// Three guards now stand between the work DB and the source
+// writeback (any failure fails closed: the source is left
+// untouched and the work copy is preserved for diagnosis):
+//
+//  1. Checkpoint completeness: scan the wal_checkpoint return
+//     row (busy, log, checkpointed). If busy != 0 or log != 0
+//     (== pages still in -wal after TRUNCATE) the checkpoint did
+//     not finish; do not CopyOut. Defense against the 2026-09-01
+//     incident.
+//  2. Sidecar presence: after a successful TRUNCATE checkpoint
+//     the work -wal must be zero bytes (or absent). Any non-zero
+//     -wal is a loud signal that the checkpoint did not run as
+//     expected; fail closed.
+//  3. Header self-consistency: read the SQLite header (page
+//     size, page count) and assert fileSize == pageCount *
+//     pageSize. A torn file from any cause (not just WAL race)
+//     trips this guard. Cheap (O(1) read of the first 100 bytes)
+//     and catches the exact symptom the corruption exhibited.
+//
+// A fourth guard runs AFTER CopyOut to detect any split-brain
+// state the file system may have introduced during the rename:
+// re-open src with immutable=1 and run PRAGMA quick_check. If
+// the result is not "ok" the roundtrip returns an error even
+// though the bytes were durably written — a clear "the note
+// landed but the DB is suspect" signal that lets the operator
+// restore from the most recent backup instead of silently
+// shipping corruption to AnkiDroid.
 func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	if c == nil {
 		return ErrCollectionNotOpen
@@ -742,12 +790,29 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// Best-effort cleanup if anything below fails. CopyOut on
 	// success does its own removal; this path catches CopyIn-
 	// succeeded-but-write-failed scenarios.
+	//
+	// Work-removal policy: only remove the work copy when the
+	// roundtrip was a clean no-op (CopyOut never attempted AND
+	// fn didn't surface an error). Once CopyOut is attempted,
+	// the work copy MAY be the only surviving record of the
+	// just-written note (CopyOut guarantees to leave it in place
+	// on failure; if we then unconditionally remove it on the
+	// post-CopyOut failure return we destroy the recovery copy).
+	// When fn errors out, the work DB may carry un-returned
+	// changes the caller didn't successfully write back (their
+	// tx was rolled back but the on-disk work file may still hold
+	// intermediate state from a partially-committed tx that
+	// crash-recovered); removing it discards the operator's last
+	// diagnostic. Both branches leave the work copy in place.
 	success := false
+	copyOutAttempted := false
+	var fnErr error // captured here so the defer can see it
 	defer func() {
-		if !success {
-			_ = os.Remove(workPath)
-			removeWorkSidecars(workPath)
+		if success || copyOutAttempted || fnErr != nil {
+			return // preserve work copy
 		}
+		_ = os.Remove(workPath)
+		removeWorkSidecars(workPath)
 	}()
 
 	wc, err := openWorkCollection(workPath)
@@ -758,7 +823,6 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// roundtrip's cleanup still runs (otherwise the work copy would
 	// linger until the next CopyIn's stale-work detection kicked
 	// in).
-	var fnErr error
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -768,12 +832,84 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 		fnErr = fn(wc)
 	}()
 
+	// LOW 1: short-circuit on callback error BEFORE running
+	// checkpoint / close / guards. There is no value in
+	// checkpointing a work DB whose contents the caller has
+	// rejected: the checkpoint is a precondition for CopyOut, and
+	// we are not CopyOut-ing. We DO close the work DB so the
+	// handle doesn't leak (a parked work copy with an open RW
+	// handle is a recipe for a later CopyIn's stale-work-
+	// detection to trip on a "shared lock" stat failure). The
+	// work copy itself is preserved by the defer rule above
+	// (fnErr != nil → no removal) so an operator can inspect the
+	// state the callback left behind; src is unchanged because we
+	// never engaged the writeback path.
+	if fnErr != nil {
+		_ = wc.db.Close()
+		return fnErr
+	}
+
 	// Checkpoint + close the work DB unconditionally (the work
 	// connection is the only one with write state, and a clean
 	// close guarantees a coherent file for CopyOut). Errors here
 	// are surfaced verbatim; the work copy is NOT copied back in
 	// that case (a torn file on the source is worse than a no-op).
-	if _, cerr := wc.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); cerr != nil {
+	//
+	// Guard 1 — checkpoint completeness: wal_checkpoint returns
+	// (busy, log, checkpointed) via a single row on modernc (and
+	// on the C sqlite driver).
+	//   busy=1  means another connection was holding the WAL when
+	//           we asked for the TRUNCATE (fail closed).
+	//   log>0   means pages are still in the -wal sidecar after
+	//           the call returned (the corruption signature: a
+	//           partially-merged main file — fail closed).
+	//   log=-1  means there is NO WAL (rollback-journal mode or
+	//           a non-WAL-mode database): the checkpoint is a
+	//           no-op and the result is fine. The third column
+	//           is -1 in the same case, per the SQLite docs:
+	//           "The second and third column are -1 if there is
+	//           no write-ahead log".
+	//
+	// We use QueryRow+Scan rather than Exec because Exec discards
+	// the returned row; with the C driver some pragmas also
+	// return no row at all (per the modernc docs and the mattn
+	// reference issue #1227), in which case Scan returns
+	// sql.ErrNoRows. We treat ErrNoRows as "pragma returned no
+	// data" — same fail-closed posture (we cannot confirm the
+	// checkpoint ran; do not CopyOut).
+	cpRow := wc.db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)")
+	var (
+		cpBusy         int64
+		cpLogFrames    int64
+		cpCheckpointed int64
+	)
+	switch cerr := cpRow.Scan(&cpBusy, &cpLogFrames, &cpCheckpointed); {
+	case cerr == nil:
+		// log == -1 ⇒ no WAL. Any other negative value would be
+		// a driver/protocol surprise; treat as fail-closed.
+		// busy == 0 AND (log == 0 OR log == -1) is the success
+		// shape. busy != 0 OR log > 0 is the torn-write shape.
+		if cpBusy != 0 {
+			_ = wc.db.Close()
+			return fmt.Errorf("anki: write session checkpoint blocked (busy=%d); work copy NOT written back (see WriteSession root-cause comment for the 2026-09-01 incident)", cpBusy)
+		}
+		if cpLogFrames > 0 {
+			_ = wc.db.Close()
+			return fmt.Errorf("anki: write session checkpoint incomplete (log=%d pages still in -wal after TRUNCATE); work copy NOT written back (see WriteSession root-cause comment for the 2026-09-01 incident)", cpLogFrames)
+		}
+		if cpLogFrames < -1 {
+			_ = wc.db.Close()
+			return fmt.Errorf("anki: write session checkpoint returned implausible log=%d; work copy NOT written back", cpLogFrames)
+		}
+	case errors.Is(cerr, sql.ErrNoRows):
+		// modernc: pragma returned no row. We can't verify the
+		// checkpoint actually ran; fail closed. The C driver
+		// would have returned a row here; modernc's behaviour
+		// is a known divergence that this guard makes safe by
+		// refusing to CopyOut on ambiguity.
+		_ = wc.db.Close()
+		return fmt.Errorf("anki: write session checkpoint returned no row (driver=%T); cannot verify merge; work copy NOT written back", wc.db.Driver())
+	default:
 		_ = wc.db.Close()
 		return fmt.Errorf("anki: write session checkpoint: %w", cerr)
 	}
@@ -781,16 +917,102 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 		return fmt.Errorf("anki: write session close work: %w", cerr)
 	}
 
-	if fnErr != nil {
-		return fnErr
+	// Guard 2 — sidecar presence: a successful TRUNCATE
+	// checkpoint on the work DB leaves the -wal file either
+	// absent OR zero bytes (the SQLite convention is to keep
+	// the file and reuse it for the next WAL, but its size is
+	// 0 after TRUNCATE). A non-zero -wal is a second-order
+	// signal that the checkpoint did not run to completion;
+	// CopyOut would otherwise copy the stale -wal content back
+	// over the source's sidecar (or, if the source had no
+	// -wal, leave a fresh -wal that future opens would
+	// replay).
+	if walSt, statErr := os.Stat(workPath + "-wal"); statErr == nil && walSt.Size() > 0 {
+		return fmt.Errorf("anki: write session post-checkpoint -wal has %d bytes (expected 0 or absent); work copy NOT written back", walSt.Size())
+	}
+
+	// Guard 3 — header self-consistency: page count in the
+	// SQLite header times page size must equal the on-disk file
+	// size. A torn file (e.g. a half-merged WAL) trips this
+	// guard with a precise diagnostic. Cost is one stat + one
+	// read of the first 100 bytes; microseconds.
+	if verr := verifySQLiteHeader(workPath); verr != nil {
+		return fmt.Errorf("anki: write session header verify: %w (header summary: %s)", verr, sqliteHeaderSummary(workPath))
+	}
+
+	// fnErr short-circuit already returned above (LOW 1: before
+	// checkpoint). At this point fnErr is necessarily nil; we
+	// proceed to the writeback dance.
+
+	// Close the parent's immutable read handle on src BEFORE the
+	// atomic writeback. On Windows, os.Rename over an existing
+	// file fails with "Access is denied" when any process (this
+	// one included) holds an open handle to the destination,
+	// even a read-only one. Closing c.db here is the only way to
+	// let CopyOut's os.Rename atomically replace the file. The
+	// handle is reopened below via refreshReadHandle; the
+	// intermediate state (no immutable handle open) is fine —
+	// the writeback itself is the moment the on-disk file is
+	// changing, and AnkiDroid's reader is in its own process
+	// space (so our in-process handle being closed is invisible
+	// to it). The post-writeback quick_check opens its own
+	// fresh handle so the read path is fully exercised before
+	// we declare success.
+	if c.db != nil {
+		_ = c.db.Close()
+		c.db = nil
 	}
 
 	// CopyOut writes the work main file (+ any non-empty sidecars)
-	// back to the source. A CopyOut failure leaves the work copy
+	// back to the source. CopyOut uses an atomic tmp+rename
+	// strategy for the MAIN file (see FuseRoundtrip.CopyOut for
+	// the rationale): a mid-copy failure cannot leave a torn
+	// src behind. A CopyOut failure here leaves the work copy
 	// in place (FuseRoundtrip's own guarantee) and surfaces the
 	// error so the operator sees it in the diagnostic log.
+	// copyOutAttempted is set BEFORE the call: the defer's
+	// preservation rule keys off it, so a CopyOut failure must
+	// NOT let the defer delete the work copy (it is the only
+	// copy of the just-written note and the error text names it
+	// as the recovery asset).
+	copyOutAttempted = true
 	if cerr := rt.CopyOut(workPath, c.path); cerr != nil {
+		// HIGH 2: don't brick the Collection handle on a
+		// post-close failure. c.db was closed above (Windows
+		// os.Rename semantics) and a bare return would leave
+		// every subsequent method call answering
+		// ErrCollectionNotOpen — the bridge would be dead
+		// until the operator reopened it. refreshReadHandle
+		// already handles c.db==nil (it closes a nil guard
+		// and re-opens); the call here is best-effort, so a
+		// refresh failure is logged but doesn't mask the
+		// CopyOut error. success is left false so the defer
+		// keeps the work copy for recovery.
+		_ = c.refreshReadHandle()
 		return fmt.Errorf("anki: write session copy-out: %w", cerr)
+	}
+	success = true
+
+	// Guard 4 — post-writeback quick_check. Re-open src
+	// immutable and run PRAGMA quick_check. quick_check is
+	// cheaper than integrity_check (it does not verify
+	// UNICASE index entries — only page-level structure) and
+	// still catches the "header declared pages don't match
+	// file size" class of bug (the failure manifests as a
+	// page-level corruption the moment the pager tries to
+	// walk the free list). If the result is anything other
+	// than "ok", surface a precise error: the note WAS
+	// written to disk, but the source is suspect, and the
+	// operator should restore from the most recent backup
+	// rather than ship corruption to AnkiDroid.
+	if qerr := verifySrcAfterWriteback(c.path); qerr != nil {
+		// HIGH 2: same rationale as above. c.db is nil
+		// (closed above for the Windows-rename contract);
+		// a bare return would brick the handle. Try
+		// best-effort refresh; if it fails, the operator
+		// still sees the original quick_check error.
+		_ = c.refreshReadHandle()
+		return fmt.Errorf("anki: write session post-writeback quick_check failed: %w (note was written but the source file is suspect; consider restoring from backup)", qerr)
 	}
 	success = true
 
@@ -799,7 +1021,18 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// per-connection change detection; close + reopen is the
 	// canonical way to pick up writes).
 	if cerr := c.refreshReadHandle(); cerr != nil {
-		return fmt.Errorf("anki: write session refresh: %w", cerr)
+		// HIGH 2: refresh itself failed. We've already set
+		// success=true (CopyOut + quick_check both passed),
+		// and the on-disk file IS the post-writeback state;
+		// the only thing missing is the in-process immutable
+		// handle. Try a second best-effort refresh; if that
+		// also fails, surface the original refresh error.
+		// The caller can then reopen the Collection on
+		// their own to recover (the path is unchanged).
+		if rerr := c.refreshReadHandle(); rerr != nil {
+			return fmt.Errorf("anki: write session refresh: %w (and follow-up refresh also failed: %v; the on-disk file is the post-writeback state but the in-process handle could not be re-opened; caller should reopen the Collection)", cerr, rerr)
+		}
+		return fmt.Errorf("anki: write session refresh: %w (recovered via follow-up refresh; subsequent reads will work)", cerr)
 	}
 	c.invalidateColCache()
 	return nil
@@ -817,7 +1050,7 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 // the same (the schema doesn't change between writes); the cost
 // is one extra sqlite_master query per write (microseconds).
 func (c *Collection) refreshReadHandle() error {
-	if c == nil || c.path == "" || c.db == nil {
+	if c == nil || c.path == "" {
 		return ErrCollectionNotOpen
 	}
 	if c.db != nil {

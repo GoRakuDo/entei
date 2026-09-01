@@ -37,6 +37,15 @@ tmp/
 companion/eizoudendenshi/.torrent.bolt.db
 companion/eizoudendenshi/eizouden
 
+# Forensic Anki database files staged at repo root during incident
+# investigation (e.g. corrupt_full.anki2 / good_backup.anki2 from
+# the 2026-09-01 collection.anki2 investigation). These files
+# belong in /tmp or in a dedicated incident directory, NEVER in the
+# repo; stage them as part of the investigation artifact set but
+# never commit. *.anki2 also covers any future fixture dropped at
+# the repo root.
+*.anki2
+
 # Local code analysis
 .codesight/
 

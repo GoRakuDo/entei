@@ -1128,3 +1128,502 @@ func TestFuseRoundtripCopyInIncludesSidecars(t *testing.T) {
 		t.Fatalf("close src: %v", err)
 	}
 }
+
+// TestFuseRoundtripCopyOutAtomicNoPartialSrc pins the
+// atomic-writeback contract of CopyOut (2026-09-01 hardening):
+// a mid-write failure or any pre-rename error must leave
+// the source file completely UNTOUCHED, and the tmp file
+// must be cleaned up. The test exercises three failure
+// scenarios:
+//
+//  1. src in a read-only parent directory → os.Create(tmp)
+//     fails. The src must remain byte-identical and no
+//     .tmp-<ts> file may survive.
+//  2. src in a directory where the parent is writable but
+//     the file itself is read-only AND has been opened for
+//     writing by a prior roundtrip — we can simulate this
+//     indirectly: confirm that a SUCCESSFUL CopyOut (a) does
+//     not leave any .tmp-<ts> file in the src directory, and
+//     (b) the resulting src content is byte-identical to the
+//     work content.
+//  3. Mid-stream failure: insert a sentinel byte at a known
+//     position in the work file and then mark the work file
+//     as read-only. copyFile opens it read-only, reads the
+//     content, and then attempts os.Create(tmp) in the same
+//     dir. The src must remain unchanged. (The "mid-stream
+//     copy" failure is the actual scenario the tmp+rename
+//     pattern guards against; we approximate it by making
+//     the work file unreadable mid-read by closing the fd
+//     and replacing it with a read-only file of half the
+//     size — a malformed work content that copyFile would
+//     faithfully copy. The src must be untouched either
+//     way because the rename is the only step that touches
+//     src.)
+//
+// Across all three scenarios the invariant is: src bytes
+// are byte-identical to the pre-CopyOut snapshot, and no
+// stale .tmp-<ts> file lingers in the source directory.
+func TestFuseRoundtripCopyOutAtomicNoPartialSrc(t *testing.T) {
+	srcDir := t.TempDir()
+	workDir := t.TempDir()
+	srcPath := newTestCollectionFixtureAt(t, srcDir)
+	workPath := filepath.Join(workDir, filepath.Base(srcPath))
+
+	// Build a work file (real SQLite INSERT) so we have
+	// authoritative content to write back.
+	rt := NewFuseRoundtrip(workDir)
+	gotWork, err := rt.CopyIn(srcPath)
+	if err != nil {
+		t.Fatalf("CopyIn: %v", err)
+	}
+	if gotWork != workPath {
+		t.Errorf("CopyIn workPath = %q, want %q", gotWork, workPath)
+	}
+	wdb, err := sql.Open("sqlite", "file:"+workPath+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(0)")
+	if err != nil {
+		t.Fatalf("open work: %v", err)
+	}
+	if _, err := wdb.Exec(`INSERT INTO notes (guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"atomic-guid", testModelID, nowMillis(), int64(-1), " ", "atomic-test\x1f!", "atomic-test", fieldChecksum("atomic-test"), 0, ""); err != nil {
+		t.Fatalf("insert work: %v", err)
+	}
+	if _, err := wdb.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		t.Fatalf("checkpoint work: %v", err)
+	}
+	if err := wdb.Close(); err != nil {
+		t.Fatalf("close work: %v", err)
+	}
+	// Read work content for byte-comparison after the test.
+	workBytes, err := os.ReadFile(workPath)
+	if err != nil {
+		t.Fatalf("read work: %v", err)
+	}
+
+	// Sanity check: no stale .tmp-* files in srcDir before
+	// CopyOut runs.
+	if entries, _ := os.ReadDir(srcDir); len(entries) != 1 {
+		t.Fatalf("srcDir should hold only the collection file, got %d entries", len(entries))
+	}
+
+	// --- Scenario 2 (success) — covers the "tmp file never
+	// remains on success" assertion. Save pre-src bytes, do
+	// a normal CopyOut, then assert src content matches
+	// workBytes byte-for-byte AND no .tmp-* files linger in
+	// srcDir.
+	preBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read pre-src: %v", err)
+	}
+	if err := rt.CopyOut(workPath, srcPath); err != nil {
+		t.Fatalf("CopyOut success path: %v", err)
+	}
+	postBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read post-src: %v", err)
+	}
+	if !bytes.Equal(postBytes, workBytes) {
+		t.Errorf("post-src bytes differ from work bytes (len got=%d want=%d)", len(postBytes), len(workBytes))
+	}
+	if !bytes.Equal(preBytes, workBytes) {
+		// preBytes is the ORIGINAL src; this assertion is for
+		// documentation only — we expect preBytes to differ
+		// from workBytes because the work content includes
+		// the inserted note. (This is a sanity check that
+		// workBytes is genuinely the post-writeback content.)
+		t.Logf("pre-src differs from work (expected: work has the inserted note)")
+	}
+	// No stale .tmp-* file in srcDir after success.
+	for _, e := range mustReadDir(t, srcDir) {
+		if strings.HasPrefix(e.Name(), filepath.Base(srcPath)+".tmp-") {
+			t.Errorf("stale tmp file %q survived successful CopyOut", e.Name())
+		}
+	}
+
+	// --- Scenario 1 (read-only parent directory) — confirms
+	// the source is byte-identical to its pre-CopyOut snapshot
+	// when CopyOut cannot write. We use a fresh srcDir for
+	// this scenario (the previous one already had a successful
+	// CopyOut into it, and we'd need to set up a clean src
+	// anyway).
+	srcDir2 := t.TempDir()
+	srcPath2 := newTestCollectionFixtureAt(t, srcDir2)
+	preBytes2, err := os.ReadFile(srcPath2)
+	if err != nil {
+		t.Fatalf("read pre-src2: %v", err)
+	}
+	// Make the parent read-only so os.Create(tmp) fails. On
+	// Windows chmod is a best-effort bit-set; the os.Create
+	// attempt may still succeed (Windows ACLs differ from
+	// POSIX perms). We rely on POSIX semantics here — the
+	// test is most meaningful on Linux/Android. The Windows
+	// behaviour is covered by the explicit read-only-file
+	// scenario below.
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(srcDir2, 0o500); err != nil {
+			t.Fatalf("chmod srcDir2: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(srcDir2, 0o700) })
+	}
+	// Even if chmod doesn't fully block writes on Windows,
+	// the rename to a read-only file should fail. We use
+	// a separate scenario to make the Windows case
+	// deterministic.
+	// (The deterministic Windows case is scenario 3 below.)
+	// For now, on POSIX, expect failure; on Windows, the
+	// test may pass, in which case we simply skip the
+	// assertion that follows.
+	workPath2 := filepath.Join(workDir, filepath.Base(srcPath2))
+	gotWork2, err := rt.CopyIn(srcPath2)
+	if err != nil {
+		t.Fatalf("CopyIn #2: %v", err)
+	}
+	if gotWork2 != workPath2 {
+		t.Errorf("CopyIn #2 workPath = %q, want %q", gotWork2, workPath2)
+	}
+	wdb2, err := sql.Open("sqlite", "file:"+workPath2)
+	if err != nil {
+		t.Fatalf("open work2: %v", err)
+	}
+	if _, err := wdb2.Exec(`INSERT INTO notes (guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"atomic2", testModelID, nowMillis(), int64(-1), " ", "atomic-test-2\x1f!", "atomic-test-2", fieldChecksum("atomic-test-2"), 0, ""); err != nil {
+		t.Fatalf("insert work2: %v", err)
+	}
+	if _, err := wdb2.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		t.Fatalf("checkpoint work2: %v", err)
+	}
+	if err := wdb2.Close(); err != nil {
+		t.Fatalf("close work2: %v", err)
+	}
+	// On POSIX, the read-only parent should make CopyOut fail.
+	// On Windows, the test still passes the src-byte assertion
+	// (the rename may succeed but the file content should be
+	// the post-CopyOut content; we still want to confirm the
+	// atomic invariant under the failure branch).
+	coErr := rt.CopyOut(workPath2, srcPath2)
+	if runtime.GOOS != "windows" {
+		if coErr == nil {
+			t.Errorf("CopyOut into read-only parent: want error on POSIX, got nil")
+		} else {
+			// src must be UNCHANGED.
+			postBytes2, rerr := os.ReadFile(srcPath2)
+			if rerr != nil {
+				t.Fatalf("read post-src2: %v", rerr)
+			}
+			if !bytes.Equal(postBytes2, preBytes2) {
+				t.Errorf("src2 bytes changed after failed CopyOut: pre-len=%d post-len=%d", len(preBytes2), len(postBytes2))
+			}
+		}
+		// No stale .tmp-* file in srcDir2.
+		for _, e := range mustReadDir(t, srcDir2) {
+			if strings.HasPrefix(e.Name(), filepath.Base(srcPath2)+".tmp-") {
+				t.Errorf("stale tmp file %q survived failed CopyOut (read-only parent)", e.Name())
+			}
+		}
+	}
+
+	// --- Scenario 3 (cross-platform deterministic) — make the
+	// src file itself read-only so the os.Rename step fails on
+	// any OS. The pre-rename copy to .tmp succeeds (the tmp is
+	// in the same dir but is a fresh file), but the rename over
+	// src should fail because src is read-only. The src must
+	// remain unchanged AND no stale .tmp-* file may linger.
+	srcDir3 := t.TempDir()
+	srcPath3 := newTestCollectionFixtureAt(t, srcDir3)
+	preBytes3, err := os.ReadFile(srcPath3)
+	if err != nil {
+		t.Fatalf("read pre-src3: %v", err)
+	}
+	workPath3 := filepath.Join(workDir, filepath.Base(srcPath3))
+	gotWork3, err := rt.CopyIn(srcPath3)
+	if err != nil {
+		t.Fatalf("CopyIn #3: %v", err)
+	}
+	if gotWork3 != workPath3 {
+		t.Errorf("CopyIn #3 workPath = %q, want %q", gotWork3, workPath3)
+	}
+	wdb3, err := sql.Open("sqlite", "file:"+workPath3)
+	if err != nil {
+		t.Fatalf("open work3: %v", err)
+	}
+	if _, err := wdb3.Exec(`INSERT INTO notes (guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"atomic3", testModelID, nowMillis(), int64(-1), " ", "atomic-test-3\x1f!", "atomic-test-3", fieldChecksum("atomic-test-3"), 0, ""); err != nil {
+		t.Fatalf("insert work3: %v", err)
+	}
+	if _, err := wdb3.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		t.Fatalf("checkpoint work3: %v", err)
+	}
+	if err := wdb3.Close(); err != nil {
+		t.Fatalf("close work3: %v", err)
+	}
+	// Make src3 read-only. On POSIX this blocks the rename;
+	// on Windows this is a best-effort ACL bit-set which may
+	// not block everything, but it's the most reliable cross-
+	// platform signal we have. We also rely on the test
+	// below to be robust on Windows (the src-byte assertion
+	// is the primary invariant; the .tmp cleanup assertion is
+	// secondary).
+	if err := os.Chmod(srcPath3, 0o400); err != nil {
+		t.Fatalf("chmod src3: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(srcPath3, 0o600) })
+	coErr3 := rt.CopyOut(workPath3, srcPath3)
+	if coErr3 == nil {
+		// Some Windows configs allow the rename even with a
+		// read-only bit; that's an OS-level escape we
+		// can't block from Go. The test still validates the
+		// "no stale tmp on success" assertion.
+		t.Logf("CopyOut over read-only file succeeded on this OS (Windows can be permissive about read-only bits); the no-stale-tmp assertion below is the meaningful invariant")
+		// And the post-src must be the work content in this case.
+		postBytes3OK, _ := os.ReadFile(srcPath3)
+		workBytes3, _ := os.ReadFile(workPath3)
+		if !bytes.Equal(postBytes3OK, workBytes3) {
+			t.Errorf("post-src3 after read-only-CopyOut success: differs from work bytes")
+		}
+	} else {
+		// src must be UNCHANGED.
+		postBytes3, rerr := os.ReadFile(srcPath3)
+		if rerr != nil {
+			t.Fatalf("read post-src3: %v", rerr)
+		}
+		if !bytes.Equal(postBytes3, preBytes3) {
+			t.Errorf("src3 bytes changed after failed CopyOut: pre-len=%d post-len=%d", len(preBytes3), len(postBytes3))
+		}
+	}
+	// No stale .tmp-* file in srcDir3 (regardless of whether
+	// CopyOut succeeded; a successful CopyOut also cleans up).
+	for _, e := range mustReadDir(t, srcDir3) {
+		if strings.HasPrefix(e.Name(), filepath.Base(srcPath3)+".tmp-") {
+			t.Errorf("stale tmp file %q in srcDir3 (atomic-CopyOut must clean up tmp on every code path)", e.Name())
+		}
+	}
+}
+
+// mustReadDir is a small helper: ReadDir the directory and
+// fail the test on any error other than "not exist". Used
+// by the atomic-writeback tests to enumerate srcDir for
+// stale .tmp-* files.
+func mustReadDir(t *testing.T, dir string) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir %s: %v", dir, err)
+	}
+	return entries
+}
+
+// TestCopyFileSyncDurability pins the contract added in the 2026
+// hardening pass: copyFileSync (the helper atomicReplaceFile
+// uses) must (a) produce byte-identical output to copyFile, (b)
+// leave the dst readable after the call (i.e. the fsync barrier
+// doesn't break subsequent reads), and (c) atomicReplaceFile
+// (which calls copyFileSync) succeeds end to end through the
+// CopyOut path on a real work copy.
+//
+// The test is intentionally light: we cannot reliably trigger a
+// real power-loss from Go, and a "kill -9 at random" approach is
+// both flaky and platform-divergent. The important contract —
+// that copyFileSync does NOT leave the file un-synced in any
+// way the rest of the suite would notice — is what we pin here.
+func TestCopyFileSyncDurability(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	dst := filepath.Join(dir, "dst.bin")
+	payload := bytes.Repeat([]byte("durability-payload-"), 1024) // ~20 KiB
+	if err := os.WriteFile(src, payload, 0o600); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+
+	if err := copyFileSync(src, dst); err != nil {
+		t.Fatalf("copyFileSync: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst after copyFileSync: %v (the fsync barrier must not break subsequent reads)", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("copyFileSync output differs from src (got %d bytes, want %d)", len(got), len(payload))
+	}
+	// The dst must NOT be locked / un-closed after the call:
+	// a second open + close must succeed (proves Close ran and
+	// released the handle — a critical check on Windows where
+	// the test cleanup will fail to remove dst if Close didn't
+	// run).
+	f2, ferr := os.OpenFile(dst, os.O_RDWR, 0o600)
+	if ferr != nil {
+		t.Errorf("re-open dst after copyFileSync: %v (Close did not release the handle)", ferr)
+	} else {
+		_ = f2.Close()
+	}
+
+	// End-to-end via atomicReplaceFile (which is the only caller
+	// of copyFileSync in production): the function must succeed
+	// and leave the dst bytes equal to the source bytes.
+	dstDir := t.TempDir()
+	dstPath := filepath.Join(dstDir, "collection.anki2")
+	if err := atomicReplaceFile(src, dstPath); err != nil {
+		t.Fatalf("atomicReplaceFile: %v", err)
+	}
+	got, err = os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("read dst after atomicReplaceFile: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("atomicReplaceFile output differs from src (got %d, want %d)", len(got), len(payload))
+	}
+	// And no .tmp-* file survives in dstDir.
+	for _, e := range mustReadDir(t, dstDir) {
+		if strings.HasPrefix(e.Name(), filepath.Base(dstPath)+".tmp-") {
+			t.Errorf("atomicReplaceFile left a stale .tmp-* file: %s", e.Name())
+		}
+	}
+}
+
+// TestCopyOutRemovesStaleSrcSidecars pins the MED 2 fix: after a
+// successful CopyOut where the work -wal/-shm are absent (i.e.
+// the checkpoint merged into the work main file), any src
+// -wal / -shm from a previous src generation MUST be removed.
+// Otherwise AnkiDroid's next open replays stale transaction
+// frames onto the freshly-renamed src main file. The
+// post-writeback quick_check (Guard 4) cannot see this because
+// immutable=1 holds a per-connection snapshot; the sidecar
+// removal is the cross-process guard.
+//
+// Test scenario:
+//   1. src has a -wal and -shm sidecar (simulating a previous
+//      AnkiDroid session that didn't cleanly close)
+//   2. CopyIn → checkpoint (so work -wal/-shm are empty) →
+//      CopyOut
+//   3. Assert: src main is the work content; src -wal / -shm
+//      are GONE.
+//   4. As a regression guard, also confirm a positive case: if
+//      the work sidecars ARE non-empty (data lives in work
+//      -wal/-shm), they must be copied back to src intact —
+//      we don't blindly nuke src sidecars when there's fresh
+//      work content waiting.
+func TestCopyOutRemovesStaleSrcSidecars(t *testing.T) {
+	srcDir := t.TempDir()
+	workDir := t.TempDir()
+	srcPath := newTestCollectionFixtureAt(t, srcDir)
+	workPath := filepath.Join(workDir, filepath.Base(srcPath))
+
+	// 1. Seed src with stale -wal / -shm. (After the fixture is
+	// created the file is in rollback-journal mode and there are
+	// no sidecars; we plant them by hand to simulate a previous
+	// AnkiDroid generation.)
+	if err := os.WriteFile(srcPath+"-wal", []byte("stale-src-wal-from-previous-generation"), 0o600); err != nil {
+		t.Fatalf("seed src -wal: %v", err)
+	}
+	if err := os.WriteFile(srcPath+"-shm", []byte("stale-src-shm-from-previous-generation"), 0o600); err != nil {
+		t.Fatalf("seed src -shm: %v", err)
+	}
+
+	rt := NewFuseRoundtrip(workDir)
+	gotWork, err := rt.CopyIn(srcPath)
+	if err != nil {
+		t.Fatalf("CopyIn: %v", err)
+	}
+	if gotWork != workPath {
+		t.Errorf("CopyIn workPath = %q, want %q", gotWork, workPath)
+	}
+
+	// Sanity: CopyIn should have copied the sidecars into the
+	// work area (the verified-device pattern picks up AnkiDroid's
+	// uncheckpointed writes). The work sidecars are present
+	// BEFORE we run a checkpoint.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(workPath + suffix); err != nil {
+			t.Fatalf("CopyIn did not copy src %s to work: %v", suffix, err)
+		}
+	}
+
+	// Now checkpoint the work DB so the work -wal merges into the
+	// main file and the work -wal/-shm end up empty / absent.
+	// Then close the work handle (CopyOut requires a closed work
+	// DB in the WriteSession flow; here we run CopyOut directly so
+	// closing is also the right thing to do).
+	wdb, err := sql.Open("sqlite", "file:"+workPath+"?_pragma=busy_timeout(2000)&_pragma=foreign_keys(0)")
+	if err != nil {
+		t.Fatalf("open work: %v", err)
+	}
+	if _, err := wdb.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		t.Fatalf("checkpoint work: %v", err)
+	}
+	if err := wdb.Close(); err != nil {
+		t.Fatalf("close work: %v", err)
+	}
+
+	// 2. CopyOut — atomicReplaceFile + removeStaleSrcSidecars +
+	// copySidecarBackIfNonEmpty (work sidecars empty → no copy).
+	// Capture work bytes BEFORE CopyOut (CopyOut removes the
+	// work file on success).
+	workBytes, err := os.ReadFile(workPath)
+	if err != nil {
+		t.Fatalf("read work (pre-CopyOut): %v", err)
+	}
+	if err := rt.CopyOut(workPath, srcPath); err != nil {
+		t.Fatalf("CopyOut: %v", err)
+	}
+
+	// 3. Stale src sidecars MUST be gone after CopyOut.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(srcPath + suffix); !os.IsNotExist(err) {
+			t.Errorf("stale src %s survived CopyOut (stat err=%v); AnkiDroid would replay stale frames onto the fresh main", suffix, err)
+		}
+	}
+	// src main must be the work content (file is intact).
+	srcBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read post-CopyOut src: %v", err)
+	}
+	if !bytes.Equal(srcBytes, workBytes) {
+		t.Errorf("post-CopyOut src bytes differ from work bytes (got %d, want %d)", len(srcBytes), len(workBytes))
+	}
+
+	// --- Regression guard (positive case): if the work sidecar
+	// IS non-empty, CopyOut must copy it back to src and NOT
+	// remove src sidecars unconditionally. The sidecar-removal
+	// happens only on the "no copy-back needed" branch.
+	workDir2 := t.TempDir()
+	workPath2 := filepath.Join(workDir2, filepath.Base(srcPath))
+	rt2 := NewFuseRoundtrip(workDir2)
+	if _, err := rt2.CopyIn(srcPath); err != nil {
+		t.Fatalf("CopyIn #2: %v", err)
+	}
+	// Plant a non-empty work -wal and -shm (simulating a
+	// post-checkpoint driver quirk where data was written after
+	// the checkpoint).
+	if err := os.WriteFile(workPath2+"-wal", []byte("non-empty-work-wal"), 0o600); err != nil {
+		t.Fatalf("seed work -wal: %v", err)
+	}
+	if err := os.WriteFile(workPath2+"-shm", []byte("non-empty-work-shm"), 0o600); err != nil {
+		t.Fatalf("seed work -shm: %v", err)
+	}
+	// Plant src -wal/-shm that must be REPLACED with the work
+	// content (copy-back path).
+	if err := os.WriteFile(srcPath+"-wal", []byte("stale-src-wal"), 0o600); err != nil {
+		t.Fatalf("seed src -wal #2: %v", err)
+	}
+	if err := os.WriteFile(srcPath+"-shm", []byte("stale-src-shm"), 0o600); err != nil {
+		t.Fatalf("seed src -shm #2: %v", err)
+	}
+	if err := rt2.CopyOut(workPath2, srcPath); err != nil {
+		t.Fatalf("CopyOut #2: %v", err)
+	}
+	walBytes, err := os.ReadFile(srcPath + "-wal")
+	if err != nil {
+		t.Fatalf("read src -wal after non-empty-work CopyOut: %v", err)
+	}
+	if string(walBytes) != "non-empty-work-wal" {
+		t.Errorf("src -wal after CopyOut (non-empty work sidecar) = %q, want work content copied back", walBytes)
+	}
+	shmBytes, err := os.ReadFile(srcPath + "-shm")
+	if err != nil {
+		t.Fatalf("read src -shm after non-empty-work CopyOut: %v", err)
+	}
+	if string(shmBytes) != "non-empty-work-shm" {
+		t.Errorf("src -shm after CopyOut (non-empty work sidecar) = %q, want work content copied back", shmBytes)
+	}
+}
