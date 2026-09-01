@@ -81,6 +81,14 @@ func newTestAnkiCollectionFixture(t *testing.T) string {
 const (
 	ankiTestModelID int64 = 1700000000001
 	ankiTestDeckID  int64 = 1700000000002
+	// ankiTestModelTwoTmplsID is a second model that ships alongside
+	// the single-template "Basic" model in the 2-template test
+	// fixture. It exists so TestRawAnkiGuiBrowse can verify that
+	// guiBrowse("nid:<id>") returns BOTH cards of a 2-template
+	// note — the dispatcher walks cardsForNote, which is per-note
+	// (not per-model), so a multi-template model is the natural
+	// pin for the "returns a flat array of card ids" contract.
+	ankiTestModelTwoTmplsID int64 = 1700000000011
 )
 
 func ankiTestModelJSON() map[string]any {
@@ -122,6 +130,40 @@ func ankiTestDeckJSON() map[string]any {
 		"desc":             "",
 		"dyn":              0,
 		"conf":             1,
+	}
+}
+
+// ankiTestModelTwoTmplsJSON is the second model used only by
+// TestRawAnkiGuiBrowse. It is a clone of ankiTestModelJSON with one
+// extra template (Card 2) so a single note yields two cards. The
+// dispatcher walks cardsForNote (per-note, not per-model), so a
+// multi-template model is the natural pin for the guiBrowse
+// contract: "given a note, give me the cards of that note". The
+// fixture lives in a separate file because it carries this extra
+// model — most tests in this file assume the single-template
+// fixture and would have to be updated if it changed in place.
+func ankiTestModelTwoTmplsJSON() map[string]any {
+	return map[string]any{
+		"id":    ankiTestModelTwoTmplsID,
+		"name":  "Basic (2 tmpls)",
+		"type":  0,
+		"mod":   0,
+		"usn":   0,
+		"sortf": 0,
+		"did":   ankiTestDeckID,
+		"flds": []map[string]any{
+			{"name": "Front", "ord": 0, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+			{"name": "Back", "ord": 1, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+		},
+		"tmpls": []map[string]any{
+			{"name": "Card 1", "ord": 0, "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr>{{Back}}", "did": nil},
+			{"name": "Card 2", "ord": 1, "qfmt": "{{Back}}", "afmt": "{{Back}}<hr>{{Front}}", "did": nil},
+		},
+		"css":       ".card{font-family:arial;font-size:20px}",
+		"latexPre":  "\\documentclass[12pt]{article}",
+		"latexPost": "\\end{document}",
+		"tags":      []string{},
+		"vers":      []string{},
 	}
 }
 
@@ -203,6 +245,97 @@ func newTestAnkiServer(t *testing.T) (*Server, string, *anki.Collection) {
 	dir := t.TempDir()
 	writer := anki.NewMediaWriterForTest(dir)
 	colPath := newTestAnkiCollectionFixture(t)
+	coll, err := anki.OpenCollection(colPath)
+	if err != nil {
+		t.Fatalf("OpenCollection: %v", err)
+	}
+	t.Cleanup(func() { _ = coll.Close() })
+	s, err := New(Config{Anki: &AnkiBridge{
+		Writer:  writer,
+		DB:      coll,
+		Enabled: true,
+	}})
+	if err != nil {
+		t.Fatalf("New with Anki: %v", err)
+	}
+	return s, dir, coll
+}
+
+// newTestAnkiCollectionFixtureTwoTmpls builds a minimal collection
+// fixture that ships the single-template "Basic" model (so addNote
+// with modelName="Basic" still works) AND a second model
+// "Basic (2 tmpls)" so the guiBrowse dispatcher can be exercised
+// against a note that yields two cards. Used by
+// TestRawAnkiGuiBrowse only — keeping the dual-model fixture
+// isolated avoids touching the dozen or so tests that assume
+// "Basic" is the only model.
+
+// int64SliceEqual reports whether a and b are element-wise equal.
+// Tiny test helper; stdlib slices.Equal works on []byte and
+// reflecting over a generic []int64 at every call site would be
+// more code than this hand-rolled loop. Defined per-package because
+// Go test files don't share unexported helpers across packages —
+// the same name lives in internal/anki/collection_test.go for that
+// package's own TestCardIDsForNoteIDs.
+func int64SliceEqual(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func newTestAnkiCollectionFixtureTwoTmpls(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collection.anki2")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatalf("open fixture: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(ankiTestSchemaSQL); err != nil {
+		t.Fatalf("apply schema: %v", err)
+	}
+	models := map[string]any{
+		strconv.FormatInt(ankiTestModelID, 10):          ankiTestModelJSON(),
+		strconv.FormatInt(ankiTestModelTwoTmplsID, 10): ankiTestModelTwoTmplsJSON(),
+	}
+	decks := map[string]any{
+		strconv.FormatInt(ankiTestDeckID, 10): ankiTestDeckJSON(),
+	}
+	dconf := map[string]any{
+		"1": map[string]any{"id": 1, "name": "Default"},
+	}
+	conf := map[string]any{"nextPos": 1}
+	tags := map[string]any{}
+	modelsJSON, _ := json.Marshal(models)
+	decksJSON, _ := json.Marshal(decks)
+	dconfJSON, _ := json.Marshal(dconf)
+	confJSON, _ := json.Marshal(conf)
+	tagsJSON, _ := json.Marshal(tags)
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+		1700000000, int64(1700000000000), int64(1700000000000), 11,
+		string(confJSON), string(modelsJSON), string(decksJSON), string(dconfJSON), string(tagsJSON)); err != nil {
+		t.Fatalf("seed col: %v", err)
+	}
+	return path
+}
+
+// newTestAnkiServerTwoTmpls is the two-template sibling of
+// newTestAnkiServer. Returns a Server wired against a fixture
+// containing BOTH the single-template "Basic" model (so callers can
+// fall back to it) and the 2-template "Basic (2 tmpls)" model that
+// the guiBrowse test targets. Used by TestRawAnkiGuiBrowse.
+func newTestAnkiServerTwoTmpls(t *testing.T) (*Server, string, *anki.Collection) {
+	t.Helper()
+	dir := t.TempDir()
+	writer := anki.NewMediaWriterForTest(dir)
+	colPath := newTestAnkiCollectionFixtureTwoTmpls(t)
 	coll, err := anki.OpenCollection(colPath)
 	if err != nil {
 		t.Fatalf("OpenCollection: %v", err)
@@ -1436,4 +1569,569 @@ func TestRawAnkiConnectHostGuard(t *testing.T) {
 			t.Errorf("absent host: status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
 		}
 	})
+}
+
+// --- Yomitan getAnkiNoteInfo flow: multi + cardsInfo ---
+
+// TestRawAnkiMulti pins the multi action's wire contract: the
+// batch's sub-actions run in order and the result is a JSON array
+// of RAW sub-results (no per-slot envelopes). Yomitan's _invokeMulti
+// reads result[i] as a raw value and runs _normalizeArray on it.
+//
+// The test seeds a note so the findNotes sub-action has a non-empty
+// match, and pairs it with a deckNames sub-action whose result is a
+// string array. The ordering matters: slot 0 = findNotes raw,
+// slot 1 = deckNames raw.
+func TestRawAnkiMulti(t *testing.T) {
+	s, _, coll := newTestAnkiServer(t)
+	noteID, err := coll.InsertNote(ankiTestDeckID, ankiTestModelID,
+		[]string{"alpha", "first"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	body := `{"action":"multi","version":6,"params":{"actions":[
+		{"action":"findNotes","version":6,"params":{"query":"added:1"}},
+		{"action":"deckNames","version":6}
+	]}}`
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("error = %s, want null; body=%s", env.Error, rec.Body.String())
+	}
+	var results []json.RawMessage
+	if err := json.Unmarshal(env.Result, &results); err != nil {
+		t.Fatalf("decode result array: %v; result=%s", err, env.Result)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(results))
+	}
+	// slot 0 = findNotes raw array (one id).
+	var findResult []int64
+	if err := json.Unmarshal(results[0], &findResult); err != nil {
+		t.Fatalf("decode slot 0: %v; raw=%s", err, results[0])
+	}
+	if len(findResult) != 1 || findResult[0] != noteID {
+		t.Errorf("slot 0 findNotes = %v, want [%d]", findResult, noteID)
+	}
+	// slot 1 = deckNames raw array.
+	var deckResult []string
+	if err := json.Unmarshal(results[1], &deckResult); err != nil {
+		t.Fatalf("decode slot 1: %v; raw=%s", err, results[1])
+	}
+	if len(deckResult) != 1 || deckResult[0] != "Default" {
+		t.Errorf("slot 1 deckNames = %v, want [Default]", deckResult)
+	}
+}
+
+// TestRawAnkiMultiSubActionError pins the "fail whole batch"
+// contract: when one sub-action returns an error, the multi
+// response is the standard error envelope for the WHOLE batch
+// (matches AnkiconnectAndroid's findRoute-throws semantics). The
+// client never sees partial results. Yomitan's getAnkiNoteInfo flow
+// falls back to canAddNotes on this signal.
+func TestRawAnkiMultiSubActionError(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	body := `{"action":"multi","version":6,"params":{"actions":[
+		{"action":"deckNames","version":6},
+		{"action":"unsupportedAction","version":6}
+	]}}`
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Result) != "null" {
+		t.Errorf("result = %s, want null (sub-action failure → whole batch fails)", env.Result)
+	}
+	var msg string
+	_ = json.Unmarshal(env.Error, &msg)
+	if !strings.Contains(msg, "unsupported action") {
+		t.Errorf("error = %q, want it to mention \"unsupported action\"", msg)
+	}
+}
+
+// TestRawAnkiMultiRequiresParams pins the params-shape guard on the
+// multi action: an empty params is an AnkiConnect-shaped error
+// envelope, not a generic 500.
+func TestRawAnkiMultiRequiresParams(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	body := `{"action":"multi","version":6}`
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	env := decodeRawAnkiEnv(t, rec)
+	var msg string
+	_ = json.Unmarshal(env.Error, &msg)
+	if !strings.Contains(msg, "multi requires params") {
+		t.Errorf("error = %q, want it to mention \"multi requires params\"", msg)
+	}
+}
+
+// TestRawAnkiCardsInfo pins the cardsInfo action's wire contract:
+// addNote to seed a note (model has 1 template → 1 card), then
+// read the card id back via notesInfo.cards[0], then issue cardsInfo
+// and assert the roundtripped CardInfo has the AnkiConnect
+// field set (cardId, noteId, deckId, ord, queue, type, due, ivl,
+// factor, reps, lapses, left, odue, odid, flags). The bridge must
+// preserve noteId / cardId / deckId across the round-trip so
+// Yomitan's _notesCardsInfo zip works.
+func TestRawAnkiCardsInfo(t *testing.T) {
+	s, _, coll := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	// Seed: insert a note via the raw surface so the card id is real.
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"addNote","version":6,"params":{"note":{"deckName":"Default","modelName":"Basic","fields":{"Front":"x","Back":"y"}}}}`)
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("seed addNote error = %s", env.Error)
+	}
+	var noteID int64
+	_ = json.Unmarshal(env.Result, &noteID)
+	if noteID == 0 {
+		t.Fatal("seed noteID = 0")
+	}
+
+	// Read back via notesInfo to get the card id.
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"notesInfo","version":6,"params":{"notes":[`+strconv.FormatInt(noteID, 10)+`]}}`)
+	env = decodeRawAnkiEnv(t, rec)
+	var infos []struct {
+		NoteID int64   `json:"noteId"`
+		Cards  []int64 `json:"cards"`
+	}
+	_ = json.Unmarshal(env.Result, &infos)
+	if len(infos) != 1 || len(infos[0].Cards) == 0 {
+		t.Fatalf("notesInfo = %+v, want one note with ≥1 card", infos)
+	}
+	cardID := infos[0].Cards[0]
+
+	// Now hit cardsInfo with that card id.
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"cardsInfo","version":6,"params":{"cards":[`+strconv.FormatInt(cardID, 10)+`]}}`)
+	env = decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("cardsInfo error = %s", env.Error)
+	}
+	var cards []map[string]any
+	if err := json.Unmarshal(env.Result, &cards); err != nil {
+		t.Fatalf("decode cards: %v", err)
+	}
+	if len(cards) != 1 {
+		t.Fatalf("cards len = %d, want 1", len(cards))
+	}
+	c := cards[0]
+	if c["cardId"].(float64) != float64(cardID) {
+		t.Errorf("cardId = %v, want %d", c["cardId"], cardID)
+	}
+	if c["noteId"].(float64) != float64(noteID) {
+		t.Errorf("noteId = %v, want %d", c["noteId"], noteID)
+	}
+	if c["deckId"].(float64) != float64(ankiTestDeckID) {
+		t.Errorf("deckId = %v, want %d", c["deckId"], ankiTestDeckID)
+	}
+	if c["ord"].(float64) != 0 {
+		t.Errorf("ord = %v, want 0 (model has 1 template)", c["ord"])
+	}
+	if c["queue"].(float64) != 0 {
+		t.Errorf("queue = %v, want 0 (new-card queue)", c["queue"])
+	}
+	if c["type"].(float64) != 0 {
+		t.Errorf("type = %v, want 0 (new-card type)", c["type"])
+	}
+	if c["flags"].(float64) != 0 {
+		t.Errorf("flags = %v, want 0", c["flags"])
+	}
+	// And verify against the in-process Collection for cross-check.
+	cardsFromColl, err := coll.CardsInfo([]int64{cardID})
+	if err != nil {
+		t.Fatalf("coll.CardsInfo: %v", err)
+	}
+	if len(cardsFromColl) != 1 || cardsFromColl[0].CardID != cardID || cardsFromColl[0].NoteID != noteID {
+		t.Errorf("coll.CardsInfo = %+v, want one card with CardID=%d NoteID=%d", cardsFromColl, cardID, noteID)
+	}
+}
+
+// TestRawAnkiCardsInfoOrderPreserved pins that the cardsInfo
+// response preserves input order. Yomitan's _notesCardsInfo zips
+// cardsInfo[i] with notesInfo[i] by index — a reordered response
+// would mis-associate card info with the wrong note. We send two
+// card ids (out of natural insertion order) and assert the result
+// array matches the input order, not the database order.
+func TestRawAnkiCardsInfoOrderPreserved(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	// Insert three notes so we have three distinct card ids.
+	ids := make([]int64, 0, 3)
+	for _, front := range []string{"one", "two", "three"} {
+		rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+			`{"action":"addNote","version":6,"params":{"note":{"deckName":"Default","modelName":"Basic","fields":{"Front":"`+front+`","Back":"x"}}}}`)
+		env := decodeRawAnkiEnv(t, rec)
+		var nid int64
+		_ = json.Unmarshal(env.Result, &nid)
+		ids = append(ids, nid)
+	}
+	// Read back card ids via notesInfo (cards[0] per note).
+	cardIDs := make([]int64, 0, len(ids))
+	for _, nid := range ids {
+		rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+			`{"action":"notesInfo","version":6,"params":{"notes":[`+strconv.FormatInt(nid, 10)+`]}}`)
+		env := decodeRawAnkiEnv(t, rec)
+		var infos []struct {
+			Cards []int64 `json:"cards"`
+		}
+		_ = json.Unmarshal(env.Result, &infos)
+		cardIDs = append(cardIDs, infos[0].Cards[0])
+	}
+	// Reverse the card id list to force a non-natural order.
+	reversed := []int64{cardIDs[2], cardIDs[0], cardIDs[1]}
+	body := `{"action":"cardsInfo","version":6,"params":{"cards":[` + joinInts(reversed) + `]}}`
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("cardsInfo error = %s", env.Error)
+	}
+	var got []map[string]any
+	_ = json.Unmarshal(env.Result, &got)
+	if len(got) != 3 {
+		t.Fatalf("cards len = %d, want 3", len(got))
+	}
+	for i, want := range reversed {
+		if got[i]["cardId"].(float64) != float64(want) {
+			t.Errorf("slot %d cardId = %v, want %d (input order not preserved)", i, got[i]["cardId"], want)
+		}
+	}
+}
+
+// joinInts joins ints with "," for embedding in a JSON literal.
+func joinInts(xs []int64) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = strconv.FormatInt(x, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+// TestRawAnkiCardsInfoUnknownIDSkipped pins that unknown card ids
+// are skipped (matches AnkiConnect behaviour: the upstream omits
+// missing ids rather than returning an error). The result array
+// length equals the number of matched ids, in input order.
+func TestRawAnkiCardsInfoUnknownIDSkipped(t *testing.T) {
+	s, _, _ := newTestAnkiServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"addNote","version":6,"params":{"note":{"deckName":"Default","modelName":"Basic","fields":{"Front":"a","Back":"b"}}}}`)
+	env := decodeRawAnkiEnv(t, rec)
+	var nid int64
+	_ = json.Unmarshal(env.Result, &nid)
+	// Pull the real card id.
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"notesInfo","version":6,"params":{"notes":[`+strconv.FormatInt(nid, 10)+`]}}`)
+	env = decodeRawAnkiEnv(t, rec)
+	var infos []struct {
+		Cards []int64 `json:"cards"`
+	}
+	_ = json.Unmarshal(env.Result, &infos)
+	realCard := infos[0].Cards[0]
+
+	// Mix one real id + one fake id (much higher than the fixture's
+	// autoincrement range).
+	body := `{"action":"cardsInfo","version":6,"params":{"cards":[` +
+		strconv.FormatInt(realCard, 10) + `,9999999999]}}`
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+	env = decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("error = %s, want null (unknown id is silently skipped)", env.Error)
+	}
+	var cards []map[string]any
+	_ = json.Unmarshal(env.Result, &cards)
+	if len(cards) != 1 || cards[0]["cardId"].(float64) != float64(realCard) {
+		t.Errorf("cards = %+v, want one entry for cardId %d", cards, realCard)
+	}
+}
+
+// TestRawAnkiFindNotesFrontQuery pins Yomitan's _getNoteQuery wire
+// shape end-to-end through the raw listener. The query form is
+// `"front:<value>"` (double-quoted, lowercased field name) and the
+// expected match is a substring of the first field. The query
+// passes through the JSON envelope unchanged.
+func TestRawAnkiFindNotesFrontQuery(t *testing.T) {
+	s, _, coll := newTestAnkiServer(t)
+	noteID, err := coll.InsertNote(ankiTestDeckID, ankiTestModelID,
+		[]string{"\u3042", "x"}, nil, nil) // Japanese "a" in front
+	if err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	// Yomitan's _fieldsToQuery emits the query as a JSON-string-literal
+	// whose inner text is `"front:<value>"` (the outer quotes are
+	// part of the query, not JSON quoting). The wire form below
+	// decodes to the literal bytes
+	//   "front:あ"
+// — that's an outer double-quote, then `front:`, then the UTF-8
+// encoding of あ (E3 81 82), then a closing double-quote. The
+// query field's JSON value contains the entire literal.
+	body := `{"action":"findNotes","version":6,"params":{"query":"\"front:あ\""}}`
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/", body)
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("error = %s, want null; body=%s", env.Error, rec.Body.String())
+	}
+	var ids []int64
+	_ = json.Unmarshal(env.Result, &ids)
+	if len(ids) != 1 || ids[0] != noteID {
+		t.Errorf("findNotes front: query = %v, want [%d]", ids, noteID)
+	}
+}
+
+// TestRawAnkiGuiBrowse pins the guiBrowse wire contract end-to-end:
+// addNote seeds a note against the 2-template "Basic (2 tmpls)"
+// model, which yields 2 cards. guiBrowse("nid:<noteId>") must
+// return BOTH card ids (not the note id, not a single card) in
+// ord ASC — matching AnkiConnect's documented "search results as
+// cards" semantics and the Yomitan _normalizeArray(..., 'number')
+// expectation on the browser side. See A:/yomitan/ext/js/comm/
+// anki-connect.js guiBrowse() and guiBrowseNote().
+//
+// Variants covered:
+//   - bare `nid:<int>` (the exact wire shape Yomitan sends)
+//   - quote-wrapped `"nid:<int>"` (defence-in-depth for clients
+//     that follow the same convention as findNotes)
+//   - the contract is preserved: result is a flat []int64 of card
+//     ids in ord ASC, never the note id, never an object.
+func TestRawAnkiGuiBrowse(t *testing.T) {
+	s, _, _ := newTestAnkiServerTwoTmpls(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	// Seed: addNote against the 2-template model so we get two
+	// cards (ord 0 + ord 1).
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"addNote","version":6,"params":{"note":{"deckName":"Default","modelName":"Basic (2 tmpls)","fields":{"Front":"x","Back":"y"}}}}`)
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("seed addNote error = %s; body=%s", env.Error, rec.Body.String())
+	}
+	var noteID int64
+	if err := json.Unmarshal(env.Result, &noteID); err != nil {
+		t.Fatalf("seed noteID parse: %v; result=%s", err, env.Result)
+	}
+	if noteID == 0 {
+		t.Fatal("seed noteID = 0")
+	}
+
+	// Pull the card ids via notesInfo so the test mirrors what a
+	// real client does. The guiBrowse response MUST equal this set.
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"notesInfo","version":6,"params":{"notes":[`+strconv.FormatInt(noteID, 10)+`]}}`)
+	env = decodeRawAnkiEnv(t, rec)
+	var infos []struct {
+		Cards []int64 `json:"cards"`
+	}
+	if err := json.Unmarshal(env.Result, &infos); err != nil {
+		t.Fatalf("notesInfo decode: %v", err)
+	}
+	if len(infos) != 1 || len(infos[0].Cards) != 2 {
+		t.Fatalf("notesInfo cards = %v, want 2 cards (2-template model)", infos)
+	}
+	want := []int64{infos[0].Cards[0], infos[0].Cards[1]}
+	if want[0] == want[1] {
+		t.Fatalf("seed cards have identical ids: %v (a 2-template model must produce 2 distinct cards)", want)
+	}
+
+	// Case 1: bare `nid:<int>` (the Yomitan wire shape).
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"guiBrowse","version":6,"params":{"query":"nid:`+strconv.FormatInt(noteID, 10)+`"}}`)
+	env = decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("guiBrowse error = %s; body=%s", env.Error, rec.Body.String())
+	}
+	var got []int64
+	if err := json.Unmarshal(env.Result, &got); err != nil {
+		t.Fatalf("guiBrowse decode: %v; result=%s", err, env.Result)
+	}
+	if !int64SliceEqual(got, want) {
+		t.Errorf("guiBrowse(nid:%d) = %v, want %v (ord ASC; both card ids)", noteID, got, want)
+	}
+	// Guard against the bug we are explicitly closing: returning
+	// the note id here would be a one-element array [noteID].
+	if len(got) == 1 && got[0] == noteID {
+		t.Errorf("guiBrowse returned note id (%d); AnkiConnect returns CARD ids", noteID)
+	}
+	// And the returned set must be a strict superset of the
+	// document-empty list (it has at least one element AND none
+	// of its elements equal the note id).
+	if len(got) == 0 {
+		t.Errorf("guiBrowse returned empty array; a 2-template note has 2 cards")
+	}
+
+	// Case 2: quote-wrapped variant (defence-in-depth — matches
+	// the Yomitan findNotes quote-wrap behaviour and keeps the wire
+	// consistent).
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"guiBrowse","version":6,"params":{"query":"\"nid:`+strconv.FormatInt(noteID, 10)+`\""}}`)
+	env = decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("guiBrowse quoted error = %s; body=%s", env.Error, rec.Body.String())
+	}
+	var gotQuoted []int64
+	if err := json.Unmarshal(env.Result, &gotQuoted); err != nil {
+		t.Fatalf("guiBrowse quoted decode: %v; result=%s", err, env.Result)
+	}
+	if !int64SliceEqual(gotQuoted, want) {
+		t.Errorf("guiBrowse quoted = %v, want %v", gotQuoted, want)
+	}
+}
+
+// TestRawAnkiGuiBrowseRequiresParams pins the params-shape guard
+// for guiBrowse: an empty params is an AnkiConnect-shaped error
+// envelope, not a generic 500 (mirrors the multi / findNotes
+// guards).
+func TestRawAnkiGuiBrowseRequiresParams(t *testing.T) {
+	s, _, _ := newTestAnkiServerTwoTmpls(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"guiBrowse","version":6}`)
+	env := decodeRawAnkiEnv(t, rec)
+	var msg string
+	_ = json.Unmarshal(env.Error, &msg)
+	if !strings.Contains(msg, "guiBrowse requires params") {
+		t.Errorf("error = %q, want it to mention \"guiBrowse requires params\"", msg)
+	}
+}
+
+// TestRawAnkiGuiBrowseEmptyQuery pins the documented contract that
+// guiBrowse REQUIRES a non-empty query — AnkiConnect's own
+// implementation surfaces this as a bad-request error. Our
+// dispatcher matches that by returning ErrBadRequest ("guiBrowse:
+// query is required") rather than silently routing through
+// FindNotes' `q == ""` nil-result branch (which would emit a
+// `null` result and look like success on the wire).
+func TestRawAnkiGuiBrowseEmptyQuery(t *testing.T) {
+	s, _, _ := newTestAnkiServerTwoTmpls(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"guiBrowse","version":6,"params":{"query":""}}`)
+	env := decodeRawAnkiEnv(t, rec)
+	var msg string
+	_ = json.Unmarshal(env.Error, &msg)
+	if !strings.Contains(msg, "query is required") {
+		t.Errorf("error = %q, want it to mention \"query is required\"", msg)
+	}
+}
+
+// TestRawAnkiGuiBrowseGeneralQueryFallthrough pins the general-
+// query branch: a non-nid: query (added:1) is routed through
+// FindNotes then expanded to card ids via CardIDsForNoteIDs. The
+// resulting card set must match what the guiBrowse fast path
+// produces for the same note ids. Yomitan doesn't exercise this
+// branch in practice (it sends nid:<id> directly), but the
+// general contract ("guiBrowse(query) returns cards for that
+// search") is documented in the wire spec, so we pin it here.
+func TestRawAnkiGuiBrowseGeneralQueryFallthrough(t *testing.T) {
+	s, _, coll := newTestAnkiServerTwoTmpls(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRawAnkiConnect)
+
+	// Seed two notes under the 2-template model.
+	mkNote := func(front string) int64 {
+		rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+			`{"action":"addNote","version":6,"params":{"note":{"deckName":"Default","modelName":"Basic (2 tmpls)","fields":{"Front":"`+front+`","Back":"b"}}}}`)
+		env := decodeRawAnkiEnv(t, rec)
+		if string(env.Error) != "null" {
+			t.Fatalf("addNote(%q) error = %s", front, env.Error)
+		}
+		var nid int64
+		_ = json.Unmarshal(env.Result, &nid)
+		if nid == 0 {
+			t.Fatalf("addNote(%q) nid = 0", front)
+		}
+		return nid
+	}
+	nidA := mkNote("alpha-front")
+	nidB := mkNote("beta-front")
+
+	// The general query goes through FindNotes("front:alpha-front")
+	// (the front: subset FindNotes already supports) then expands
+	// the resulting note ids via CardIDsForNoteIDs. The set of
+	// cards must equal nidA's two cards (in ord ASC).
+	infosA, err := coll.CardsForNote(nidA)
+	if err != nil {
+		t.Fatalf("CardsForNote A: %v", err)
+	}
+	want := []int64{infosA[0].CardID, infosA[1].CardID}
+
+	rec := doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"guiBrowse","version":6,"params":{"query":"\"front:alpha-front\""}}`)
+	env := decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("guiBrowse general error = %s; body=%s", env.Error, rec.Body.String())
+	}
+	var got []int64
+	if err := json.Unmarshal(env.Result, &got); err != nil {
+		t.Fatalf("guiBrowse general decode: %v; result=%s", err, env.Result)
+	}
+	if !int64SliceEqual(got, want) {
+		t.Errorf("guiBrowse front:alpha-front = %v, want %v (alpha's two cards)", got, want)
+	}
+
+	// Cross-check: an added:1 query covers both notes; the result
+	// must contain ALL 4 cards (2 notes × 2 cards), in the order
+	// FindNotes returned the note ids. We don't pin an exact
+	// order here because FindNotes' added:1 path orders by id
+	// DESC; the test asserts the SET is correct.
+	rec = doRawAnkiRequest(t, mux, http.MethodPost, "/",
+		`{"action":"guiBrowse","version":6,"params":{"query":"added:1"}}`)
+	env = decodeRawAnkiEnv(t, rec)
+	if string(env.Error) != "null" {
+		t.Fatalf("guiBrowse added:1 error = %s; body=%s", env.Error, rec.Body.String())
+	}
+	var gotAdded []int64
+	if err := json.Unmarshal(env.Result, &gotAdded); err != nil {
+		t.Fatalf("guiBrowse added:1 decode: %v; result=%s", err, env.Result)
+	}
+	infosB, err := coll.CardsForNote(nidB)
+	if err != nil {
+		t.Fatalf("CardsForNote B: %v", err)
+	}
+	wantAll := map[int64]bool{
+		infosA[0].CardID: true, infosA[1].CardID: true,
+		infosB[0].CardID: true, infosB[1].CardID: true,
+	}
+	if len(gotAdded) != 4 {
+		t.Errorf("guiBrowse added:1 len = %d, want 4 (2 notes × 2 cards); got=%v", len(gotAdded), gotAdded)
+	}
+	for _, id := range gotAdded {
+		if !wantAll[id] {
+			t.Errorf("guiBrowse added:1 returned unexpected card id %d (not one of A/B's cards)", id)
+		}
+		delete(wantAll, id)
+	}
+	if len(wantAll) > 0 {
+		t.Errorf("guiBrowse added:1 missing cards: %v (want both notes' cards present)", wantAll)
+	}
 }

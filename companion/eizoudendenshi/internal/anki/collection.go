@@ -1896,9 +1896,31 @@ func mergeTags(existing string, newOnes []string) string {
 	return " " + strings.Join(parts, " ") + " "
 }
 
-// FindNotes supports only the documented subset: `added:1` (notes
-// modified in the last 24h, newest first) and `nid:…` (comma list
-// of note ids). Returns ErrBadQuery for anything else.
+// FindNotes supports the documented subset:
+//   - "added:1"            → notes modified in the last 24h
+//   - "nid:<id>,<id>..."    → explicit note-id list
+//   - '"front:<value>"'     → substring match on the first field
+//                            (Yomitan's _fieldsToQuery produces
+//                            this exact wire shape for the duplicate-
+//                            note popup flow). The outer / inner
+//                            double-quotes are optional; the value
+//                            is matched as a case-sensitive LIKE
+//                            (LIKE %<value>% with %/_ escaped by
+//                            doubling) against notes.flds' first
+//                            segment (text up to the first \x1f).
+//
+// Anything else returns ErrBadQuery — mirroring the
+// "we won't pretend to support something we can't" stance taken by
+// the original FindNotes. Upstream AnkiconnectAndroid forwards
+// arbitrary queries into AnkiDroid's provider, but we run an
+// in-process implementation and refuse to silently drop the floor
+// on a parse failure.
+//
+// Yomitan's _fieldsToQuery emits `${key.toLowerCase()}:${value}`
+// wrapped in double quotes ("front:cat"). For real AnkiConnect the
+// matching is across the FIRST field by convention; we replicate
+// that by reading the flds column up to its first \x1f separator
+// (Anki joins fields with \x1f in the notes.flds storage).
 func (c *Collection) FindNotes(query string) ([]int64, error) {
 	if c == nil || c.db == nil {
 		return nil, ErrCollectionNotOpen
@@ -1941,6 +1963,38 @@ func (c *Collection) FindNotes(query string) ([]int64, error) {
 			ids = append(ids, id)
 		}
 		return ids, nil
+	case isFrontQuery(q):
+		value := frontQueryValue(q)
+		if value == "" {
+			return nil, fmt.Errorf("%w: empty front: value in %q", ErrBadQuery, query)
+		}
+		// Escape SQL LIKE metacharacters in the user-supplied value:
+		// % and _ are wildcards in SQLite's LIKE; doubling is the
+		// canonical escape. The pattern is "%" + escaped + "%" so we
+		// substring-match within the flds string (which is "<f1>\x1f
+		// <f2>\x1f..."). fldr is read up to the first \x1f so we
+		// only match the first field, matching AnkiConnect's
+		// documented front: semantics.
+		pattern := "%" + escapeLike(value) + "%"
+		rows, err := c.db.Query(
+			"SELECT id FROM notes WHERE substr(flds, 1, instr(flds, char(31)) - 1) LIKE ? ESCAPE '\\' ORDER BY id",
+			pattern)
+		if err != nil {
+			return nil, fmt.Errorf("anki: front: query: %w", err)
+		}
+		defer rows.Close()
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				return nil, fmt.Errorf("anki: scan front: %w", err)
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("anki: iterate front: %w", err)
+		}
+		return ids, nil
 	case q == "":
 		return nil, nil
 	default:
@@ -1948,35 +2002,96 @@ func (c *Collection) FindNotes(query string) ([]int64, error) {
 	}
 }
 
+// isFrontQuery reports whether q is a Yomitan/AnkiConnect-style
+// first-field query. Accepts both the bare `front:value` and the
+// quote-wrapped `"front:value"` shape Yomitan's _fieldsToQuery
+// produces (the outer double-quotes are part of the query string,
+// not string-quoting on our side). Case-insensitive on the field
+// name prefix.
+func isFrontQuery(q string) bool {
+	q = strings.TrimSpace(q)
+	if len(q) >= 2 && q[0] == '"' && q[len(q)-1] == '"' {
+		q = q[1 : len(q)-1]
+	}
+	return len(q) >= len("front:") && strings.EqualFold(q[0:len("front:")], "front:")
+}
+
+// frontQueryValue extracts the value half of a front: query. The
+// value may itself be wrapped in double-quotes (Yomitan does not
+// quote the value, but real AnkiConnect does in some clients).
+// Returns the unquoted value.
+func frontQueryValue(q string) string {
+	q = strings.TrimSpace(q)
+	if len(q) >= 2 && q[0] == '"' && q[len(q)-1] == '"' {
+		q = q[1 : len(q)-1]
+	}
+	v := q
+	if len(v) >= len("front:") && strings.EqualFold(v[0:len("front:")], "front:") {
+		v = v[len("front:"):]
+	}
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		v = v[1 : len(v)-1]
+	}
+	return v
+}
+
+// escapeLike doubles % and _ so the user-supplied substring is
+// matched literally as a LIKE pattern. SQLite LIKE recognizes
+// these two metacharacters; ESCAPE '\\' in the query makes the
+// backslash the escape char. We also escape the backslash itself
+// (otherwise an embedded `\` in user input would consume the next
+// char, which then wouldn't escape the meta).
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
 // NoteInfo is one entry of the notesInfo response. Mirrors the
-// AnkiConnect shape: noteId, modelName, tags (list of strings), and
-// fields (name → value map). Cards array is intentionally minimal —
-// we don't surface card-level state beyond what addNote already
-// populated.
+// AnkiConnect wire shape: noteId, modelName, tags (list of strings),
+// fields (name → value map), and cards (flat list of cardId
+// integers — NOT an array of objects). Yomitan's _normalizeNoteInfoArray
+// runs _normalizeArray(result.cards, -1, 'number'), which throws
+// if each slot isn't a number; the upstream AnkiConnect contract is
+// `cards: [cardId, ...]`. Per-card state (deckId, ord, queue, …)
+// lives on the dedicated cardsInfo action — callers that need it
+// issue cardsInfo with the flat cardIds from this field and zip the
+// result by index (this is exactly Yomitan's _notesCardsInfo flow).
 type NoteInfo struct {
 	NoteID    int64             `json:"noteId"`
 	ModelName string            `json:"modelName"`
 	Tags      []string          `json:"tags"`
 	Fields    map[string]string `json:"fields"`
-	Cards     []CardInfo        `json:"cards"`
+	Cards     []int64           `json:"cards"`
 }
 
-// CardInfo is the minimal card entry in a notesInfo body.
+// CardInfo is the card-level entry used in two surfaces:
+//   - as the `cards` array element of a notesInfo response
+//   - as the top-level element of a cardsInfo response
+//
+// The JSON tags mirror the AnkiConnect wire contract (lowercase,
+// camelCase). Yomitan's notesInfo consumer reads `cards` as a flat
+// `number[]` (just cardIds) and never touches the per-card fields,
+// so widening this struct to add NoteID doesn't break notesInfo.
+// Yomitan's cardsInfo consumer normalises a narrower shape (it
+// reads `cardId` / `note` / `flags` / `queue`) — we emit the full
+// AnkiConnect field set so other clients (Entei, asbplayer) get
+// the documented shape and the wire remains forward-compatible.
 type CardInfo struct {
-	CardID    int64 `json:"cardId"`
-	Ord       int   `json:"ord"`
-	DeckID    int64 `json:"deckId"`
-	Queue     int   `json:"queue"`
-	Type      int   `json:"type"`
-	Due       int64 `json:"due"`
-	Interval  int   `json:"ivl"`
-	Factor    int   `json:"factor"`
-	Reps      int   `json:"reps"`
-	Lapses    int   `json:"lapses"`
-	Left      int   `json:"left"`
-	ODue      int64 `json:"odue"`
-	ODeckID   int64 `json:"odid"`
-	Flags     int   `json:"flags"`
+	CardID   int64  `json:"cardId"`
+	NoteID   int64  `json:"noteId"`
+	DeckID   int64  `json:"deckId"`
+	Ord      int    `json:"ord"`
+	Queue    int    `json:"queue"`
+	Type     int    `json:"type"`
+	Due      int64  `json:"due"`
+	IVL      int    `json:"ivl"`
+	Factor   int    `json:"factor"`
+	Reps     int    `json:"reps"`
+	Lapses   int    `json:"lapses"`
+	Left     int    `json:"left"`
+	ODue     int64  `json:"odue"`
+	ODID     int64  `json:"odid"`
+	Flags    int    `json:"flags"`
 }
 
 // NotesInfo returns one NoteInfo per id in the requested order.
@@ -2032,23 +2147,30 @@ func (c *Collection) noteInfo(id int64) (NoteInfo, error) {
 			fields[name] = ""
 		}
 	}
-	cards, err := c.cardsForNote(id)
+	cards, err := c.CardsForNote(id)
 	if err != nil {
 		return NoteInfo{}, err
+	}
+	// Reduce CardInfo objects to flat cardIds — the AnkiConnect
+	// notesInfo contract is `cards: [cardId, ...]`, not objects.
+	// Per-card state is fetched separately via cardsInfo.
+	cardIDs := make([]int64, len(cards))
+	for i, ci := range cards {
+		cardIDs[i] = ci.CardID
 	}
 	return NoteInfo{
 		NoteID:    id,
 		ModelName: modelName,
 		Tags:      splitTags(tags),
 		Fields:    fields,
-		Cards:     cards,
+		Cards:     cardIDs,
 	}, nil
 }
 
-// cardsForNote returns the cards array for a note (one entry per
+// CardsForNote returns the cards array for a note (one entry per
 // card). Mirrors AnkiConnect notesInfo's card-level fields.
-func (c *Collection) cardsForNote(nid int64) ([]CardInfo, error) {
-	rows, err := c.db.Query(`SELECT id, ord, did, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags FROM cards WHERE nid = ? ORDER BY ord`, nid)
+func (c *Collection) CardsForNote(nid int64) ([]CardInfo, error) {
+	rows, err := c.db.Query(`SELECT id, nid, ord, did, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags FROM cards WHERE nid = ? ORDER BY ord`, nid)
 	if err != nil {
 		return nil, fmt.Errorf("anki: query cards for note %d: %w", nid, err)
 	}
@@ -2056,13 +2178,105 @@ func (c *Collection) cardsForNote(nid int64) ([]CardInfo, error) {
 	var out []CardInfo
 	for rows.Next() {
 		var c CardInfo
-		if err := rows.Scan(&c.CardID, &c.Ord, &c.DeckID, &c.Type, &c.Queue, &c.Due, &c.Interval, &c.Factor, &c.Reps, &c.Lapses, &c.Left, &c.ODue, &c.ODeckID, &c.Flags); err != nil {
+		if err := rows.Scan(&c.CardID, &c.NoteID, &c.Ord, &c.DeckID, &c.Type, &c.Queue, &c.Due, &c.IVL, &c.Factor, &c.Reps, &c.Lapses, &c.Left, &c.ODue, &c.ODID, &c.Flags); err != nil {
 			return nil, fmt.Errorf("anki: scan card: %w", err)
 		}
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("anki: iterate cards: %w", err)
+	}
+	return out, nil
+}
+
+// CardsInfo returns one CardInfo per requested card id. The order
+// of the result matches the input order (callers like Yomitan's
+// _notesCardsInfo depend on positional alignment: it zips
+// cardsInfo[i].noteId against notesInfo[i].noteId to associate
+// card info with note info). Unknown card ids are skipped (matches
+// the AnkiConnect behaviour: the upstream omits missing ids rather
+// than returning an error).
+//
+// Yomitan's _notesCardsInfo calls cardsInfo as a top-level AnkiConnect
+// action (not via multi) — see
+// A:/yomitan/ext/js/comm/anki-connect.js cardsInfo() (around line 198).
+// The response is a JSON array of CardInfo objects; the client reads
+// `cardId` and `noteId` per element and zips against the notesInfo
+// results.
+func (c *Collection) CardsInfo(ids []int64) ([]CardInfo, error) {
+	if c == nil || c.db == nil {
+		return nil, ErrCollectionNotOpen
+	}
+	if len(ids) == 0 {
+		return []CardInfo{}, nil
+	}
+	// Issue one query per id so the input order is preserved on the
+	// wire (a single SELECT IN(...) would require re-sorting on the
+	// caller side). For a typical Yomitan batch (1–10 cards) this is
+	// microseconds vs. a single ORDER BY FIELD(...) roundtrip.
+	out := make([]CardInfo, 0, len(ids))
+	for _, id := range ids {
+		row := c.db.QueryRow(`SELECT id, nid, ord, did, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags FROM cards WHERE id = ?`, id)
+		var ci CardInfo
+		if err := row.Scan(&ci.CardID, &ci.NoteID, &ci.Ord, &ci.DeckID, &ci.Type, &ci.Queue, &ci.Due, &ci.IVL, &ci.Factor, &ci.Reps, &ci.Lapses, &ci.Left, &ci.ODue, &ci.ODID, &ci.Flags); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, fmt.Errorf("anki: scan card %d: %w", id, err)
+		}
+		out = append(out, ci)
+	}
+	return out, nil
+}
+
+// CardIDsForNoteIDs returns the flat list of card IDs belonging to
+// the given note ids. Order is deterministic: for each input note
+// the cards are returned in ord ASC, and notes are visited in the
+// order they appear in noteIDs. Unknown note ids are skipped
+// silently (matches the AnkiConnect-style "missing ids are omitted"
+// convention used elsewhere in this file).
+//
+// Used by the guiBrowse dispatcher to resolve a FindNotes result
+// (which is note ids) into the card ids that AnkiConnect's
+// documented guiBrowse contract returns. Yomitan's guiBrowseNote
+// path passes a single nid and never reaches this branch (it takes
+// the dedicated nid: query path); this helper is for the
+// general-query branch (added:1, front:…, arbitrary FindNotes
+// queries).
+//
+// Implementation: one SELECT per note id so the result order
+// tracks the input order exactly. A single SELECT ... WHERE nid IN
+// (...) would require re-sorting on the caller side; the per-id
+// loop is microseconds for a typical Yomitan batch (1-10 notes).
+func (c *Collection) CardIDsForNoteIDs(noteIDs []int64) ([]int64, error) {
+	if c == nil || c.db == nil {
+		return nil, ErrCollectionNotOpen
+	}
+	if len(noteIDs) == 0 {
+		return []int64{}, nil
+	}
+	out := make([]int64, 0, len(noteIDs))
+	for _, nid := range noteIDs {
+		if nid == 0 {
+			continue
+		}
+		rows, err := c.db.Query("SELECT id FROM cards WHERE nid = ? ORDER BY ord", nid)
+		if err != nil {
+			return nil, fmt.Errorf("anki: query cards for note %d: %w", nid, err)
+		}
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("anki: scan card for note %d: %w", nid, err)
+			}
+			out = append(out, id)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("anki: iterate cards for note %d: %w", nid, err)
+		}
+		rows.Close()
 	}
 	return out, nil
 }

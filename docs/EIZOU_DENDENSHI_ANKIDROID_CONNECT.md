@@ -1,6 +1,6 @@
 # EizouDendenshi ↔ AnkiDroid Connect — Android Companion 設計仕様
 
-> **状態:** 設計 v4.4（2026-09-01・AnkiDroid 2.16+ notetypes/schema18 上の UNICASE + fields/templates 分散スキーマに対応）
+> **状態:** 設計 v4.5（2026-09-01・Yomitan 完全互換: `multi` / `cardsInfo` / `guiBrowse` / `findNotes front:` を追加・`NoteInfo.Cards` を `[]int64` に統一）
 > **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiDroid 連携ブリッジ機能を追加する
 > **スコープ:** クライアントは Entei Web / Yomitan / asbplayer の 3 つ全て
 
@@ -132,11 +132,14 @@ EizouDendenshi Android コンパニオンが、**AnkiConnect 互換の AnkiDroid
 | `addNote` | 🔧 拡張（互換） | collection.anki2 に INSERT（`note` + `audio[]`/`video[]`/`picture[]`）。`options.allowDuplicate=false`（既定）で重複検出 → 重複時は `{"result":null,"error":null}`（AnkiConnect 公式挙動） |
 | `updateNoteFields` | ✅ 互換 | collection.anki2 の notes 行を UPDATE |
 | `addTags` | ✅ 互換 | collection.anki2 の notes.tags を UPDATE |
-| `findNotes` | ✅ 互換（`added:1` / `nid:…` のみ） | collection.anki2 を SELECT |
-| `notesInfo` | ✅ 互換 | collection.anki2 を JOIN |
+| `findNotes` | ✅ 互換（`added:1` / `nid:…` / `front:<value>`） | collection.anki2 を SELECT（v4.5 で `front:` 追加・Yomitan `_fieldsToQuery` 形状） |
+| `notesInfo` | ✅ 互換 | collection.anki2 を JOIN（v4.5 で `cards` を `[]int64` に統一） |
 | `modelNames` / `modelNamesAndIds` / `deckNames` / `deckNamesAndIds` | ✅ 互換 | col.decks / col.models JSON または decks / models テーブルを SELECT |
 | `modelFieldNames` | ✅ 互換 | model の `flds` 配列を返す |
-| `cardsInfo` / `findCards` / `guiBrowse` / `multi` | ❌ 未対応 | `{"result":null,"error":"unsupported action: <name>"}` を返す（HTTP 200） |
+| `cardsInfo` | ✅ 互換（v4.5） | collection.anki2 を SELECT（入力順保持・未知 ID はスキップ） |
+| `multi` | ✅ 互換（v4.5） | サブアクションを位置順にディスパッチ・エラーは全体エンベロープに昇格（AnkiconnectAndroid と等価） |
+| `guiBrowse` | ✅ 互換（v4.5） | `nid:<int>` 直接カード取得 / その他クエリは FindNotes→CardIDsForNoteIDs 経路 |
+| `findCards` | ❌ 未対応 | `{"result":null,"error":"unsupported action: findCards"}` を返す（HTTP 200） |
 | `storeMediaFile` | ✅ 互換 | collection.media へ直接書く（AnkiDroid 正規化名ではなく Termux 独自 deterministic 名を返す） |
 
 > 注：v2.0 で AnkiconnectAndroid に転送していたアクションは、すべて v3.0 で in-process 実装に置換し、v4.0 で **raw 8765 listener を唯一のサーフェス** に統一。AnkiconnectAndroid の依存は v3.0 で完全に削除された。
@@ -315,7 +318,7 @@ Android 11+ では **Android/media 経路を既定で使う**ことで `MANAGE_E
 ### 制約（明示）
 - 移行済みアプリ内蔵パスで動かしたい場合は Termux から書けない → コンパニオンは明確なエラーで案内（Play Store 版/移行済みは非対応とマーク）
 - AnkiDroid の in-memory model は手動 refresh が必要（**AnkiDroid アプリの再起動**で読み込まれる）。AnkiWeb 同期は `usn=-1` で自動的に拾われる
-- 一部の AnkiConnect アクション（`cardsInfo` / `findCards` / `guiBrowse` / `multi`）は未実装（`{"error":"unsupported action: X"}` を返す）
+- `findCards` は未実装（`{"error":"unsupported action: findCards"}` を返す。AnkiconnectAndroid 自体も findCards は未実装 = 同等のため不影响）
 
 ### 同期の注意（重要）
 - **AnkiDroid アプリの再起動が必要**：コンパニオンが collection.anki2 に書き込んだ内容は AnkiDroid の次回起動時に読み込まれる。実行中の AnkiDroid セッションには反映されない
@@ -414,7 +417,7 @@ Android 11+ では **Android/media 経路を既定で使う**ことで `MANAGE_E
 | modernc.org/sqlite の pure-Go オーバーヘッド | 起動時間 + 数 MB バイナリサイズ | 実機 Termux で 50-100ms 程度。許容範囲（バイナリサイズ +8.7MB は許容） |
 | スキーマ差異 (schema 11 vs 18) | 読めない | `sqlite_master` で autodetect、両 reader 実装 |
 | AnkiDroid の in-memory model に反映されない | ノートが見えない | ユーザーガイドに「AnkiDroid 再起動」と明記。AnkiWeb 同期で永続化 |
-| 削除した AnkiconnectAndroid の機能をユーザーが使っていた | 互換性 | addNote/updateNoteFields/addTags/findNotes/notesInfo/canAddNotes は完全に同等実装。cardsInfo/findCards/guiBrowse/multi は unsupported action エラー（ユーザー向けメッセージで明示） |
+| 削除した AnkiconnectAndroid の機能をユーザーが使っていた | 互換性 | addNote/updateNoteFields/addTags/findNotes/notesInfo/canAddNotes/cardsInfo/multi/guiBrowse は完全に同等実装。`findCards` のみ unsupported action エラー（AnkiconnectAndroid 自体も未実装のため同等） |
 | Entei 既存 PC ユーザーの破壊的変更 | PC 機能損壊 | 既定 `useAnkiconnectAndroidBridge: false`、明示 opt-in のみ |
 
 ---
@@ -441,6 +444,25 @@ modernc.org/sqlite の pure-Go ランタイム（SQLite 全文 + libc 純 Go 実
 ---
 
 ## 13. 改訂履歴
+
+### v4.5（2026-09-01）: Yomitan 完全互換 — `multi` / `cardsInfo` / `guiBrowse` / `findNotes front:` 追加
+- **症状**: Yomitan のカード追加ボタン（+）が表示されない。ステータスは `Connected`・フィールド読込みも成功するも、サーバの `getAnkiNoteInfo` が throw して `ankiError` にセット → display-anki.js `_updateSaveButtons` が `button.hidden = true` にする動作
+- **根本原因**: Yomitan の `getAnkiNoteInfo` はポップアップ表示時に (a) `findNoteIds` を返し、(b) `multi` で各フィールドを `findNotes` して重複検出、(c) ノート+カード詳細を `notesInfo` + `cardsInfo` で取得、というフローを取る。我々の raw listener には `multi` と `cardsInfo` が無く、(b) で必ず throw していた。加えて `notesInfo.cards` を `[]CardInfo`（オブジェクト配列）で返していたが、Yomitan の `_normalizeArray(result.cards, -1, 'number')` は number[] しか受け付けず、これも `_normalizeNoteInfoArray` の中で throw して上記ボタンを隠れさせていた
+- **修正**:
+  - **`multi` アクション追加**：サブアクションを位置順でディスパッチし、各サブの生結果を返す。サブアクションエラーは検出された順に伝搬し、残りのサブアクションは実行されない — クライアントはエラーエンベロープを受け取り `findRoute throws` と同じように batch 全体を失敗と見る。AnkiconnectAndroid の `findRoute` ベース実装と同じ
+  - **`cardsInfo` アクション追加**：1 カード 1 SELECT で入力順を維持（1 個の `IN(...)` だと並べ直しが必要になるため）。未知 ID はスキップ。`CardInfo` は `cardId` / `noteId` / `deckId` / `ord` / `queue` / `type` / `due` / `ivl` / `factor` / `reps` / `lapses` / `left` / `odue` / `odid` / `flags` の AnkiConnect フルセット
+  - **`NoteInfo.Cards` を `[]int64`（フラットなカード ID）に変更**：これが上記 Yomitan `_normalizeArray` が throw していた一次要因。AnkiConnect ワイヤ仕様 `cards: [cardId, ...]` に揃えた。カードレベル状態は別途 `cardsInfo(notesInfo[].cards)` で取得 — これが Yomitan の `_notesCardsInfo` フローと等価
+  - **`FindNotes` に `front:` クエリ対応**：Yomitan の `_fieldsToQuery` が `"front:<value>"`（outer ダブルクォート包み）を送出するため、quoted と bare 両方を受理。大小無視、`%` / `_` / `\` を LIKE メタとしてエスケープ。実機のメモでも入力値でパターン一致
+  - **`guiBrowse` アクション追加**：`nid:<int>` は fast-path で `cardsForNote` に直結（Yomitan の `guiBrowseNote` はこの形状）。その他の FindNotes 対応クエリ（`added:1` / `front:<value>` / `nid:<id-list>`）は `FindNotes` + `CardIDsForNoteIDs` で展開。**カード ID を返す**（Yomitan の `_normalizeArray(..., 'number')` がカード ID を期待する・ノート ID を返すとボタン押下先がバスる）
+- **対応完了アクション一覧**: `version` / `deckNames(AndIds)` / `modelNames(AndIds)` / `modelFieldNames` / `canAddNotes(WithErrorDetail)` / `addNote` / `updateNoteFields` / `addTags` / `findNotes` / `notesInfo` / `cardsInfo` / `multi` / `guiBrowse` / `storeMediaFile`
+- **AnkiconnectAndroid と未実装の差分**: `findCards` のみ未対応（AnkiconnectAndroid 自体も `findCards` は未実装）。`addNotes` / `apiReflect` / `suspend` / `sync` / `guiEditNote` は AnkiconnectAndroid も未実装のため同等
+- **テスト追加**:
+  - `internal/anki/collection_test.go`: `TestCardIDsForNoteIDs`（6 ケース・集合 + 順不同処理）
+  - `internal/api/anki_connect_test.go`: `TestRawAnkiGuiBrowse`（2 カード照合）、 `TestRawAnkiGuiBrowseRequiresParams`、`TestRawAnkiGuiBrowseEmptyQuery`、`TestRawAnkiGuiBrowseGeneralQueryFallthrough`
+- **コード変更点**:
+  - `internal/anki/collection.go`: `CardInfo` 拡張（NoteID 追加・フィールド名統一 IVL/ODID）、 `CardIDsForNoteIDs(noteIDs []int64) ([]int64, error)` 追加、 `cardsForNote` を `CardsForNote` にエクスポート、 `FindNotes` に `front:` 経路追加
+  - `internal/api/anki_connect.go`: `multi` / `cardsInfo` / `guiBrowse` ケース追加、 `parseGuiBrowseNIDQuery` ヘルパー追加
+- **dependencies**: 変更なし（pure-Go ライブラリ追加なし）
 
 ### v4.4（2026-09-01）
 - **AnkiDroid 2.16+ 上の `modelFieldNames` 系 API を全て動作可能に**：v4.3 のスキーマ検出では collection.anki2 を `OpenCollection` で開けなくなり、（a）`notetypes.config` を `{flds, tmpls}` JSON と仮定して SELECT して `no such column: fields` で落とす、（b）`notetypes.name` / `decks.name` / `fields.name` / `templates.name` が全て `COLLATE unicase` なのに modernc.org/sqlite が UNICASE を登録しないため name 列を SELECT しただけで `no such collation sequence: unicase` で落とす、の 2 連鎖で deck/model の name 引き当てが完全に dead だったのを根本修正

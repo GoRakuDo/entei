@@ -57,6 +57,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -435,8 +436,26 @@ func ankiConnectErrorMessage(err error) string {
 //     transaction; returns noteId as int64)
 //   - updateNoteFields    → UpdateNoteFields
 //   - addTags             → AddTags
-//   - findNotes           → FindNotes (added:1 / nid:… only)
+//   - findNotes           → FindNotes (added:1 / nid:… / front:<value>)
 //   - notesInfo           → NotesInfo (joined with model + cards)
+//   - cardsInfo           → CardsInfo (card-level row per id, in
+//     input order; AnkiConnect-documented field set)
+//   - multi               → runs a batch of sub-actions and returns
+//     the array of sub-results. Yomitan's getAnkiNoteInfo popup
+//     flow depends on this: it calls findNoteIds → multi(findNotes)
+//     to batch the per-field duplicate-detection queries. Sub-action
+//     failures propagate through the whole envelope (matching
+//     AnkiconnectAndroid's "findRoute throws" path: the client sees
+//     one error and falls back to a canAddNotes probe).
+//   - guiBrowse           → resolves a search query (typically
+//     `nid:<noteId>` from Yomitan's guiBrowseNote) to the flat
+//     array of card ids AnkiConnect's documented contract returns.
+//     The `nid:<int>` shape takes a fast path (single SELECT
+//     against cards); other supported FindNotes queries (added:1,
+//     front:<value>) are routed through FindNotes then expanded to
+//     cards via CardIDsForNoteIDs. The Yomitan surface expects
+//     CARD ids here, not note ids — see the action for the
+//     cross-reference to AnkiConnect's documented behaviour.
 //
 // Unsupported actions return ErrBadRequest wrapped with
 // "unsupported action: <name>"; the handler maps that to an
@@ -770,6 +789,132 @@ func (s *Server) dispatchAnkiAction(env ankiActionBody) (json.RawMessage, error)
 			return nil, err
 		}
 		return jsonMarshal(notes)
+	case "cardsInfo":
+		// Yomitan's _notesCardsInfo (background/backend.js ~line 759)
+		// calls cardsInfo with the flat cardIds extracted from
+		// notesInfo's `cards` array. The result array must preserve
+		// input order so the client can zip by index. We honour that
+		// contract by issuing one SELECT per id (see Collection.CardsInfo).
+		var params struct {
+			Cards []int64 `json:"cards"`
+		}
+		if len(env.Params) == 0 {
+			return nil, fmt.Errorf("%w: cardsInfo requires params", anki.ErrBadRequest)
+		}
+		if err := json.Unmarshal(env.Params, &params); err != nil {
+			return nil, fmt.Errorf("%w: cardsInfo params must be an object", anki.ErrBadRequest)
+		}
+		infos, err := db.CardsInfo(params.Cards)
+		if err != nil {
+			return nil, err
+		}
+		return jsonMarshal(infos)
+	case "multi":
+		// Yomitan's _invokeMulti sends an array of sub-actions, each
+		// of which is dispatched with its own (version, params). The
+		// sub-action results are returned as a raw JSON array; each
+		// slot is the RAW result value (not an envelope) — Yomitan's
+		// _normalizeArray reads result[i] directly.
+		//
+		// Sub-action failure policy: mirror AnkiconnectAndroid. In
+		// the upstream, findRoute throws → the handler returns the
+		// whole-error envelope and the client sees one error for the
+		// whole batch. Yomitan's getAnkiNoteInfo flow then falls back
+		// to a canAddNotes probe. We propagate the FIRST sub-action
+		// error to the caller verbatim — simpler than per-slot
+		// errors (Yomitan doesn't read them anyway) and matches the
+		// documented "fail whole batch" contract.
+		var params struct {
+			Actions []ankiActionBody `json:"actions"`
+		}
+		if len(env.Params) == 0 {
+			return nil, fmt.Errorf("%w: multi requires params", anki.ErrBadRequest)
+		}
+		if err := json.Unmarshal(env.Params, &params); err != nil {
+			return nil, fmt.Errorf("%w: multi params must be an object", anki.ErrBadRequest)
+		}
+		results := make([]json.RawMessage, 0, len(params.Actions))
+		for _, sub := range params.Actions {
+			out, err := s.dispatchAnkiAction(sub)
+			if err != nil {
+				// Propagate the first error through the normal
+				// envelope-error path (writeRawAnkiConnectError /
+				// ankiConnectErrorMessage handles AnkiConnect-style
+				// mapping). The remaining sub-actions are NOT
+				// dispatched: matches AnkiconnectAndroid's "fail
+				// whole batch" semantics.
+				return nil, err
+			}
+			results = append(results, out)
+		}
+		return jsonMarshal(results)
+	case "guiBrowse":
+		// AnkiConnect's documented guiBrowse contract returns CARD
+		// ids (the search results are cards, opened in the Anki
+		// browser). Yomitan's guiBrowseNote(noteId) calls
+		// this.guiBrowse('nid:' + noteId) and consumes the result
+		// via _normalizeArray(result, -1, 'number') as cardIds — the
+		// normalised list is then fed to onViewCardClicked. See
+		// A:/yomitan/ext/js/comm/anki-connect.js guiBrowse() and
+		// guiBrowseNote(). Returning note ids here would cause
+		// _normalizeArray to throw and the browser action to fail.
+		//
+		// Fast path: Yomitan's _invokeMulti / guiBrowseNote paths
+		// both send the bare `nid:<int>` form (optionally wrapped in
+		// outer double-quotes). When the query parses to that shape
+		// we resolve directly to cards via the dedicated single-
+		// note path (SELECT id FROM cards WHERE nid = ? ORDER BY
+		// ord), avoiding the FindNotes roundtrip.
+		//
+		// Fallback: route through FindNotes for the supported subset
+		// (added:1, front:<value>, nid:<id-list>), then expand the
+		// returned note ids to card ids via CardIDsForNoteIDs. This
+		// matches what AnkiconnectAndroid does for the same wire
+		// contract — both surfaces take a search string, both
+		// return a flat array of card ids in display order.
+		var params struct {
+			Query string `json:"query"`
+		}
+		if len(env.Params) == 0 {
+			return nil, fmt.Errorf("%w: guiBrowse requires params", anki.ErrBadRequest)
+		}
+		if err := json.Unmarshal(env.Params, &params); err != nil {
+			return nil, fmt.Errorf("%w: guiBrowse params must be an object", anki.ErrBadRequest)
+		}
+		query := strings.TrimSpace(params.Query)
+		if query == "" {
+			return nil, fmt.Errorf("%w: guiBrowse: query is required", anki.ErrBadRequest)
+		}
+		// Strip an outer double-quote pair (FindNotes does the same
+		// in frontQueryValue, so we get identical behaviour for the
+		// quoted and bare variants). Yomitan doesn't quote guiBrowse
+		// queries in practice; the unwrap is defence-in-depth for
+		// clients that follow the same convention as findNotes.
+		if len(query) >= 2 && query[0] == '"' && query[len(query)-1] == '"' {
+			query = query[1 : len(query)-1]
+		}
+		if nid, ok := parseGuiBrowseNIDQuery(query); ok {
+			infos, err := db.CardsForNote(nid)
+			if err != nil {
+				return nil, err
+			}
+			ids := make([]int64, len(infos))
+			for i, ci := range infos {
+				ids[i] = ci.CardID
+			}
+			return jsonMarshal(ids)
+		}
+		// General path: route through FindNotes and then expand
+		// note ids → card ids.
+		noteIDs, err := db.FindNotes(query)
+		if err != nil {
+			return nil, err
+		}
+		cardIDs, err := db.CardIDsForNoteIDs(noteIDs)
+		if err != nil {
+			return nil, err
+		}
+		return jsonMarshal(cardIDs)
 	default:
 		return nil, fmt.Errorf("%w: unsupported action: %s", anki.ErrBadRequest, env.Action)
 	}
@@ -808,6 +953,40 @@ type addNoteOptions struct {
 	AllowDuplicate bool   `json:"allowDuplicate"`
 	DuplicateScope string `json:"duplicateScope"`
 	DeckName       string `json:"deckName"`
+}
+
+// parseGuiBrowseNIDQuery reports whether query is a `nid:<int>`
+// query suitable for the guiBrowse fast path. Yomitan's
+// guiBrowseNote calls this.guiBrowse('nid:' + noteId) — the query
+// is always a single nid and the fast path takes a single SELECT
+// against cards, avoiding the FindNotes roundtrip. Anything else
+// (nid:<a>,<b>, added:1, front:<value>, arbitrary FindNotes query)
+// falls through to the general path which goes through FindNotes +
+// CardIDsForNoteIDs.
+//
+// The check is intentionally narrow: bare `nid:` (no integer) is NOT
+// a fast-path match (FindNotes returns ErrBadQuery on the same
+// input, which surfaces as an honest envelope error to the caller).
+// Case-insensitive on the prefix so client idiosyncrasies don't
+// strand the fast path.
+func parseGuiBrowseNIDQuery(query string) (int64, bool) {
+	if !strings.HasPrefix(strings.ToLower(query), "nid:") {
+		return 0, false
+	}
+	body := strings.TrimSpace(query[len("nid:"):])
+	if body == "" {
+		return 0, false
+	}
+	// Reject nid:<a>,<b> — that's the FindNotes shape; the fast
+	// path is single-int only.
+	if strings.Contains(body, ",") {
+		return 0, false
+	}
+	nid, err := strconv.ParseInt(body, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return nid, true
 }
 
 // parseCanAddNotesParams decodes the canAddNotes /

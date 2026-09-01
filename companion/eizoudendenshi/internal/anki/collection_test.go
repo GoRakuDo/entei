@@ -677,8 +677,8 @@ func TestCollectionNotesInfo(t *testing.T) {
 	if len(ni.Cards) != 1 {
 		t.Errorf("Cards count = %d, want 1", len(ni.Cards))
 	}
-	if ni.Cards[0].DeckID != testDeckID {
-		t.Errorf("Cards[0].DeckID = %d, want %d", ni.Cards[0].DeckID, testDeckID)
+	if ni.Cards[0] == 0 {
+		t.Errorf("Cards[0] = 0, want a non-zero cardId")
 	}
 }
 
@@ -1474,4 +1474,341 @@ func TestModelJSONFromNotetypesUnreachable(t *testing.T) {
 	if !strings.Contains(err.Error(), "notetypes table") {
 		t.Errorf("err = %v, want one mentioning notetypes table path", err)
 	}
+}
+
+// TestCollectionCardsInfo pins the cardsInfo read path: a freshly
+// inserted note with two templates yields two cards, and
+// Collection.CardsInfo returns both with the AnkiConnect
+// field set (cardId / noteId / deckId / ord / ...). Input order
+// is preserved.
+func TestCollectionCardsInfo(t *testing.T) {
+	path := newTwoTmplsCollectionFixture(t)
+	c := openTestCollection(t, path)
+	id, err := c.InsertNote(testDeckID, testModelTwoTmplsID,
+		[]string{"front", "back"}, nil, nil)
+	if err != nil {
+		t.Fatalf("InsertNote: %v", err)
+	}
+	// Pull card ids via notesInfo so the test mirrors what a real
+	// client does.
+	notes, err := c.NotesInfo([]int64{id})
+	if err != nil {
+		t.Fatalf("NotesInfo: %v", err)
+	}
+	if len(notes) != 1 || len(notes[0].Cards) != 2 {
+		t.Fatalf("notesInfo cards = %v, want 2 cards", notes[0].Cards)
+	}
+	want := []int64{notes[0].Cards[0], notes[0].Cards[1]}
+	infos, err := c.CardsInfo(want)
+	if err != nil {
+		t.Fatalf("CardsInfo: %v", err)
+	}
+	if len(infos) != 2 {
+		t.Fatalf("CardsInfo len = %d, want 2", len(infos))
+	}
+	for i, ci := range infos {
+		if ci.CardID != want[i] {
+			t.Errorf("slot %d cardId = %d, want %d", i, ci.CardID, want[i])
+		}
+		if ci.NoteID != id {
+			t.Errorf("slot %d noteId = %d, want %d", i, ci.NoteID, id)
+		}
+		if ci.DeckID != testDeckID {
+			t.Errorf("slot %d deckId = %d, want %d", i, ci.DeckID, testDeckID)
+		}
+	}
+	// Reversed input order: the result must follow the input.
+	reversed := []int64{want[1], want[0]}
+	infosRev, err := c.CardsInfo(reversed)
+	if err != nil {
+		t.Fatalf("CardsInfo reversed: %v", err)
+	}
+	if len(infosRev) != 2 || infosRev[0].CardID != reversed[0] || infosRev[1].CardID != reversed[1] {
+		t.Errorf("CardsInfo reversed = %+v, want order [%d, %d]", infosRev, reversed[0], reversed[1])
+	}
+	// Unknown id silently dropped.
+	infosUnknown, err := c.CardsInfo([]int64{want[0], 9999999999, want[1]})
+	if err != nil {
+		t.Fatalf("CardsInfo unknown: %v", err)
+	}
+	if len(infosUnknown) != 2 || infosUnknown[0].CardID != want[0] || infosUnknown[1].CardID != want[1] {
+		t.Errorf("CardsInfo unknown = %+v, want [%d, %d]", infosUnknown, want[0], want[1])
+	}
+}
+
+// testModelTwoTmplsID / testModelTwoTmplsJSON build a model with
+// two templates (Card 1 + Card 2) so TestCollectionCardsInfo can
+// exercise the multi-card roundtrip. The fixture model ID is
+// re-used for the cards-list expectation (each note produces two
+// cards in ord order).
+const testModelTwoTmplsID int64 = 1700000000011
+
+func testModelTwoTmplsJSON(t *testing.T) map[string]any {
+	t.Helper()
+	return map[string]any{
+		"id":   testModelTwoTmplsID,
+		"name": "Basic (2 tmpls)",
+		"type": 0,
+		"mod":  0,
+		"usn":  0,
+		"sortf": 0,
+		"did":  testDeckID,
+		"flds": []map[string]any{
+			{"name": "Front", "ord": 0, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+			{"name": "Back", "ord": 1, "sticky": false, "media": []string{}, "rtl": false, "font": "Arial", "size": 20},
+		},
+		"tmpls": []map[string]any{
+			{"name": "Card 1", "ord": 0, "qfmt": "{{Front}}", "afmt": "{{Front}}<hr>{{Back}}", "did": nil},
+			{"name": "Card 2", "ord": 1, "qfmt": "{{Back}}", "afmt": "{{Back}}<hr>{{Front}}", "did": nil},
+		},
+		"css":       ".card{font-family:arial;font-size:20px}",
+		"latexPre":  "",
+		"latexPost": "",
+		"tags":      []string{},
+		"vers":      []string{},
+	}
+}
+
+// newTwoTmplsCollectionFixture builds a fixture that contains
+// BOTH the single-template "Basic" model (testModelID, for the
+// other FindNotes / NotesInfo tests) and a 2-template
+// "Basic (2 tmpls)" model (testModelTwoTmplsID, for
+// TestCollectionCardsInfo). It exists as a separate fixture so the
+// single-template tests don't accidentally see the two-template
+// model in deckNames / modelNames assertions.
+func newTwoTmplsCollectionFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collection.anki2")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatalf("open fixture: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(schema11SQL); err != nil {
+		t.Fatalf("apply schema: %v", err)
+	}
+	models := map[string]any{
+		strconv.FormatInt(testModelID, 10):        testModelJSON(t),
+		strconv.FormatInt(testModelTwoTmplsID, 10): testModelTwoTmplsJSON(t),
+	}
+	decks := map[string]any{
+		strconv.FormatInt(testDeckID, 10): testDeckJSON(t),
+	}
+	dconf := map[string]any{"1": map[string]any{"id": 1, "name": "Default"}}
+	conf := map[string]any{"nextPos": 1}
+	tags := map[string]any{}
+	modelsJSON, _ := json.Marshal(models)
+	decksJSON, _ := json.Marshal(decks)
+	dconfJSON, _ := json.Marshal(dconf)
+	confJSON, _ := json.Marshal(conf)
+	tagsJSON, _ := json.Marshal(tags)
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+		1700000000, int64(1700000000000), int64(1700000000000), 11,
+		string(confJSON), string(modelsJSON), string(decksJSON), string(dconfJSON), string(tagsJSON)); err != nil {
+		t.Fatalf("seed col: %v", err)
+	}
+	return path
+}
+
+// TestCollectionFindNotesFrontQuery pins Yomitan's _getNoteQuery
+// wire shape at the collection layer. The query `"front:あ"`
+// (double-quoted, lowercased field name) matches notes whose first
+// field CONTAINS the value as a substring.
+//
+// Variants covered:
+//   - quoted (Yomitan): `"front:あ"` → 1 hit
+//   - unquoted: `front:あ` → 1 hit
+//   - case-insensitive prefix: `Front:あ` → 1 hit
+//   - different first field value → 0 hits
+//   - LIKE metacharacters in value are escaped: a value containing
+//     `%` and `_` must match literally, not as wildcards.
+func TestCollectionFindNotesFrontQuery(t *testing.T) {
+	path := newTestCollectionFixture(t)
+	c := openTestCollection(t, path)
+	// Seed: a Japanese "a" front, an unrelated note, and a note whose
+	// first field contains LIKE meta characters.
+	nidA, err := c.InsertNote(testDeckID, testModelID, []string{"\u3042", "ja-A"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed A: %v", err)
+	}
+	if _, err := c.InsertNote(testDeckID, testModelID, []string{"\u3044", "ja-I"}, nil, nil); err != nil {
+		t.Fatalf("seed I: %v", err)
+	}
+	nidMeta, err := c.InsertNote(testDeckID, testModelID, []string{"100%_off", "promo"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed meta: %v", err)
+	}
+
+	// Yomitan-shaped query: backtick raw strings (so the inner \u3042
+	// stays literal — the literal query string is `"front:あ"`, i.e.
+	// a double-quoted ASCII query whose value half is the Unicode
+	// rune あ). This is the exact wire shape Yomitan's _getNoteQuery
+	// emits after toLowerCase().
+	ids, err := c.FindNotes(`"front:あ"`)
+	if err != nil {
+		t.Fatalf("FindNotes quoted: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidA {
+		t.Errorf("FindNotes quoted = %v, want [%d]", ids, nidA)
+	}
+	// Bare query (no outer quotes).
+	ids, err = c.FindNotes(`front:あ`)
+	if err != nil {
+		t.Fatalf("FindNotes bare: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidA {
+		t.Errorf("FindNotes bare = %v, want [%d]", ids, nidA)
+	}
+	// Case-insensitive prefix.
+	ids, err = c.FindNotes(`Front:あ`)
+	if err != nil {
+		t.Fatalf("FindNotes case: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidA {
+		t.Errorf("FindNotes case-insensitive = %v, want [%d]", ids, nidA)
+	}
+	// Different first-field value: 0 hits.
+	ids, err = c.FindNotes(`"front:zz"`)
+	if err != nil {
+		t.Fatalf("FindNotes miss: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("FindNotes miss = %v, want []", ids)
+	}
+	// LIKE metacharacter escape: 100%_off must match literally.
+	ids, err = c.FindNotes(`"front:100%_off"`)
+	if err != nil {
+		t.Fatalf("FindNotes meta: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != nidMeta {
+		t.Errorf("FindNotes meta = %v, want [%d] (LIKE metas must be escaped)", ids, nidMeta)
+	}
+}
+
+// TestCardIDsForNoteIDs pins Collection.CardIDsForNoteIDs:
+// the guiBrowse dispatcher's general-query path routes a
+// FindNotes result (note ids) through this helper to obtain the
+// flat card-id array AnkiConnect's documented guiBrowse contract
+// returns. The contract:
+//   - one note id → its cards in ord ASC
+//   - multiple note ids → cards grouped per note in ord ASC,
+//     notes visited in input order (so the dispatcher can zip
+//     against FindNotes' result without re-sorting)
+//   - unknown note id → silently dropped (matches the AnkiConnect
+//     "missing ids are omitted" convention)
+//   - empty input → empty slice (not nil-or-error), so json.Marshal
+//     emits `[]` not `null` for an empty-browse result
+//
+// Uses the 2-template fixture so the multi-card case is exercised
+// end-to-end (a single-template note would still pass — the test
+// also seeds a single-template note to confirm both surfaces).
+func TestCardIDsForNoteIDs(t *testing.T) {
+	path := newTwoTmplsCollectionFixture(t)
+	c := openTestCollection(t, path)
+
+	// Seed A: 2-template note (two cards in ord ASC).
+	nidA, err := c.InsertNote(testDeckID, testModelTwoTmplsID, []string{"A", "x"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed A: %v", err)
+	}
+	infosA, err := c.CardsForNote(nidA)
+	if err != nil {
+		t.Fatalf("CardsForNote A: %v", err)
+	}
+	if len(infosA) != 2 {
+		t.Fatalf("note A has %d cards, want 2 (2-template model)", len(infosA))
+	}
+	wantA := []int64{infosA[0].CardID, infosA[1].CardID}
+
+	// Seed B: 1-template note (one card).
+	nidB, err := c.InsertNote(testDeckID, testModelID, []string{"B", "y"}, nil, nil)
+	if err != nil {
+		t.Fatalf("seed B: %v", err)
+	}
+	infosB, err := c.CardsForNote(nidB)
+	if err != nil {
+		t.Fatalf("CardsForNote B: %v", err)
+	}
+	if len(infosB) != 1 {
+		t.Fatalf("note B has %d cards, want 1", len(infosB))
+	}
+	wantB := []int64{infosB[0].CardID}
+
+	// Case 1: single note id.
+	got, err := c.CardIDsForNoteIDs([]int64{nidA})
+	if err != nil {
+		t.Fatalf("CardIDsForNoteIDs single: %v", err)
+	}
+	if !int64SliceEqual(got, wantA) {
+		t.Errorf("CardIDsForNoteIDs single = %v, want %v", got, wantA)
+	}
+
+	// Case 2: two note ids in A → B order.
+	got, err = c.CardIDsForNoteIDs([]int64{nidA, nidB})
+	if err != nil {
+		t.Fatalf("CardIDsForNoteIDs dual: %v", err)
+	}
+	want := append(append([]int64{}, wantA...), wantB...)
+	if !int64SliceEqual(got, want) {
+		t.Errorf("CardIDsForNoteIDs dual = %v, want %v", got, want)
+	}
+
+	// Case 3: reversed input order — output follows the input order.
+	got, err = c.CardIDsForNoteIDs([]int64{nidB, nidA})
+	if err != nil {
+		t.Fatalf("CardIDsForNoteIDs reversed: %v", err)
+	}
+	want = append(append([]int64{}, wantB...), wantA...)
+	if !int64SliceEqual(got, want) {
+		t.Errorf("CardIDsForNoteIDs reversed = %v, want %v", got, want)
+	}
+
+	// Case 4: mix real + unknown note id — unknown is dropped.
+	got, err = c.CardIDsForNoteIDs([]int64{nidA, 9999999999, nidB})
+	if err != nil {
+		t.Fatalf("CardIDsForNoteIDs unknown: %v", err)
+	}
+	want = append(append([]int64{}, wantA...), wantB...)
+	if !int64SliceEqual(got, want) {
+		t.Errorf("CardIDsForNoteIDs unknown = %v, want %v (unknown id silently skipped)", got, want)
+	}
+
+	// Case 5: empty input → empty (non-nil) slice.
+	got, err = c.CardIDsForNoteIDs([]int64{})
+	if err != nil {
+		t.Fatalf("CardIDsForNoteIDs empty: %v", err)
+	}
+	if got == nil {
+		t.Errorf("CardIDsForNoteIDs empty = nil, want []int64{} (so json.Marshal emits [])")
+	}
+	if len(got) != 0 {
+		t.Errorf("CardIDsForNoteIDs empty len = %d, want 0", len(got))
+	}
+
+	// Case 6: zero note id is treated like an unknown id (silently
+	// skipped, not an error) — matches the AnkiConnect convention
+	// and the dispatcher's expectation that 0 is never a real id.
+	got, err = c.CardIDsForNoteIDs([]int64{0, nidA})
+	if err != nil {
+		t.Fatalf("CardIDsForNoteIDs zero: %v", err)
+	}
+	if !int64SliceEqual(got, wantA) {
+		t.Errorf("CardIDsForNoteIDs zero = %v, want %v", got, wantA)
+	}
+}
+
+// int64SliceEqual reports whether a and b are element-wise equal.
+// Tiny test helper — stdlib slices.Equal works on []byte, so we
+// avoid pulling reflect into the production binary.
+func int64SliceEqual(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
