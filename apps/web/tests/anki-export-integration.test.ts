@@ -87,7 +87,7 @@ describe('Export lifecycle — New note (AM-6a)', () => {
     const canAdd = await client.canAddNotes([sampleNote]);
     expect(canAdd).toEqual([true]);
 
-    const filename = generateMediaFilename('entei_screenshot', 'jpg');
+    const filename = await generateMediaFilename('entei_screenshot', 'jpg');
     const stored = await client.storeMediaFile(filename, 'base64data');
     expect(stored).toBe(filename);
 
@@ -151,7 +151,7 @@ describe('Export lifecycle — New note (AM-6a)', () => {
     expect(canAddBody.params.notes[0].deckName).toBe('Japanese');
 
     // 2. Flow proceeds to storeMediaFile → addNote
-    const filename = generateMediaFilename('entei_screenshot', 'jpg');
+    const filename = await generateMediaFilename('entei_screenshot', 'jpg');
     const stored = await client.storeMediaFile(filename, 'base64data');
     expect(stored).toBe(filename);
 

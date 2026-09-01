@@ -17,7 +17,10 @@ import {
   AnkiExportClient,
   AnkiExportError,
   blobToBase64,
+  buildMediaMarkup,
+  detectAnkiDroidMode,
   generateMediaFilename,
+  _resetAnkiDroidModeCache,
   type AnkiNoteField,
 } from '@/features/player/anki-export-client';
 
@@ -354,19 +357,296 @@ describe('blobToBase64', () => {
 });
 
 describe('generateMediaFilename', () => {
-  it('generates a filename with prefix and extension', () => {
-    const name = generateMediaFilename('entei_screenshot', 'jpg');
+  it('generates a content-addressed filename when a blob is provided', async () => {
+    const blob = new Blob(['some payload'], { type: 'video/webm' });
+    const name = await generateMediaFilename('entei_screenshot', 'jpg', blob);
+    // Format: <safePrefix>_<10 hex chars>.<safeExt>
+    expect(name).toMatch(/^entei_screenshot_[0-9a-f]{10}\.jpg$/);
+  });
+
+  it('falls back to a non-deterministic name when no blob is provided', async () => {
+    const name = await generateMediaFilename('entei_screenshot', 'jpg');
     expect(name).toMatch(/^entei_screenshot_[a-z0-9]+_[a-z0-9]+\.jpg$/);
   });
 
-  it('sanitizes unsafe characters in prefix', () => {
-    const name = generateMediaFilename('entei/../screenshot', 'jpg');
-    expect(name).not.toContain('..');
-    expect(name).not.toContain('/');
+  it('is deterministic: same blob bytes → same filename (idempotent re-export)', async () => {
+    const blobA = new Blob(['identical-bytes'], { type: 'video/webm' });
+    const blobB = new Blob(['identical-bytes'], { type: 'video/webm' });
+    const nameA = await generateMediaFilename('entei_video', 'webm', blobA);
+    const nameB = await generateMediaFilename('entei_video', 'webm', blobB);
+    expect(nameA).toBe(nameB);
   });
 
-  it('sanitizes unsafe characters in extension', () => {
-    const name = generateMediaFilename('test', 'webm;malicious');
+  it('is collision-resistant: different blob bytes → different filenames', async () => {
+    const blobA = new Blob(['payload-aaaa'], { type: 'video/webm' });
+    const blobB = new Blob(['payload-bbbb'], { type: 'video/webm' });
+    const nameA = await generateMediaFilename('entei_audio', 'webm', blobA);
+    const nameB = await generateMediaFilename('entei_audio', 'webm', blobB);
+    expect(nameA).not.toBe(nameB);
+  });
+
+  it('sanitizes unsafe characters in prefix', async () => {
+    const blob = new Blob(['x'], { type: 'image/png' });
+    const name = await generateMediaFilename(
+      'entei/../screenshot',
+      'jpg',
+      blob,
+    );
+    expect(name).not.toContain('..');
+    expect(name).not.toContain('/');
+    // Safe prefix chars are [a-zA-Z0-9_-]; unsafe chars collapse to '_'.
+    // 'entei/../screenshot' → 'entei____screenshot' (each '/', '.', '.'
+    // becomes '_'), then + '_' separator + 10 hex chars + '.jpg'.
+    expect(name).toMatch(/^entei_+screenshot_[0-9a-f]{10}\.jpg$/);
+    // No raw unsafe chars survive:
+    expect(name).toMatch(/^[a-zA-Z0-9_]+\.[a-zA-Z0-9]+$/);
+  });
+
+  it('sanitizes unsafe characters in extension', async () => {
+    const blob = new Blob(['x'], { type: 'image/png' });
+    const name = await generateMediaFilename('test', 'webm;malicious', blob);
     expect(name).toMatch(/\.webmmalicious$/);
+  });
+});
+
+describe('buildMediaMarkup', () => {
+  it('PC mode (ankiDroidMode=false): markup uses the input deterministic filename (regression)', () => {
+    // PC AnkiConnect stores storeMediaFile's input name as-is. Markup keeps
+    // using the caller-provided filename — NO change vs pre-fix behavior.
+    expect(
+      buildMediaMarkup(
+        'sound',
+        'entei_audio_abc123.webm',
+        'file_999.webm',
+        false,
+      ),
+    ).toBe('[sound:entei_audio_abc123.webm]');
+    expect(
+      buildMediaMarkup(
+        'image',
+        'entei_screenshot_abc123.jpg',
+        'file_999.jpg',
+        false,
+      ),
+    ).toBe('<img src="entei_screenshot_abc123.jpg">');
+    expect(
+      buildMediaMarkup(
+        'video',
+        'entei_video_abc123.webm',
+        'file_999.webm',
+        false,
+      ),
+    ).toBe(
+      '<video autoplay loop muted playsinline src="entei_video_abc123.webm"></video>',
+    );
+  });
+
+  it('AnkiDroid mode (ankiDroidMode=true): markup uses the RETURN value of storeMediaFile (the fix)', () => {
+    // AnkiconnectAndroid normalizes/dedupes: returns file_<n>.ext regardless of
+    // input name. The input filename does NOT exist in collection.media, so
+    // markup MUST use the stored name — this is the original bug fix.
+    expect(
+      buildMediaMarkup(
+        'sound',
+        'entei_audio_abc123.webm',
+        'file_123456789.webm',
+        true,
+      ),
+    ).toBe('[sound:file_123456789.webm]');
+    expect(
+      buildMediaMarkup(
+        'image',
+        'entei_screenshot_abc123.jpg',
+        'file_555555555.jpg',
+        true,
+      ),
+    ).toBe('<img src="file_555555555.jpg">');
+    expect(
+      buildMediaMarkup(
+        'video',
+        'entei_video_abc123.webm',
+        'file_777777777.webm',
+        true,
+      ),
+    ).toBe(
+      '<video autoplay loop muted playsinline src="file_777777777.webm"></video>',
+    );
+  });
+
+  it('PC mode ignores storedName even when it differs from input (regression: PC keeps original wire shape)', () => {
+    // If a caller (or mock) returns a different name from storeMediaFile, PC
+    // mode still uses the input filename. This locks down the wire shape
+    // contract for PC users.
+    expect(
+      buildMediaMarkup('sound', 'clip_input.webm', 'clip_stored.webm', false),
+    ).toBe('[sound:clip_input.webm]');
+  });
+
+  it('AnkiDroid: real stored name (file_<num>.<ext>) is used as-is', () => {
+    // AnkiconnectAndroid normalizes/dedupes to file_<num>.<ext>. That
+    // matches [A-Za-z0-9._-]+, so it passes through unchanged.
+    expect(
+      buildMediaMarkup(
+        'sound',
+        'entei_audio_abc123.webm',
+        'file_123.webm',
+        true,
+      ),
+    ).toBe('[sound:file_123.webm]');
+  });
+
+  it('AnkiDroid: stored name with a space → falls back to the deterministic input filename', () => {
+    expect(
+      buildMediaMarkup(
+        'sound',
+        'entei_audio_abc123.webm',
+        'file 123.webm',
+        true,
+      ),
+    ).toBe('[sound:entei_audio_abc123.webm]');
+  });
+
+  it('AnkiDroid: stored name with a quote → falls back to the deterministic input filename', () => {
+    expect(
+      buildMediaMarkup(
+        'image',
+        'entei_screenshot_abc.jpg',
+        'file";injected.jpg',
+        true,
+      ),
+    ).toBe('<img src="entei_screenshot_abc.jpg">');
+  });
+});
+
+describe('detectAnkiDroidMode', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it('PC: apiReflect returns { actions: [...] } → PC mode (false)', async () => {
+    // Official PC AnkiConnect apiReflect echoes back an object whose
+    // `actions` field is an Array (FooSoft plugin/__init__.py:1965-1985).
+    fetchSpy.mockResolvedValue(
+      mockFetchResponse({ scopes: ['actions'], actions: ['addNote', 'findNotes'] }),
+    );
+    const client = new AnkiExportClient();
+    const result = await detectAnkiDroidMode(client);
+    expect(result).toBe(false);
+
+    // The probe must be exactly apiReflect with { scopes: ['actions'] }
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
+    expect(body.action).toBe('apiReflect');
+    expect(body.params).toEqual({ scopes: ['actions'] });
+
+    _resetAnkiDroidModeCache(client);
+  });
+
+  it('AnkiDroid: apiReflect returns the default_version string → AnkiDroid mode (true)', async () => {
+    // AnkiconnectAndroid does NOT implement apiReflect; its findRoute
+    // falls through to default_version(), so for version 6 the wire
+    // response is { "result":"AnkiConnect v.6", "error":null } — a
+    // HTTP 200 string result, NOT a thrown error.
+    fetchSpy.mockResolvedValue(mockFetchResponse('AnkiConnect v.6'));
+    const client = new AnkiExportClient();
+    const result = await detectAnkiDroidMode(client);
+    expect(result).toBe(true);
+    _resetAnkiDroidModeCache(client);
+  });
+
+  it('AnkiDroid: apiReflect returns {} (object without actions) → AnkiDroid mode (true)', async () => {
+    // Defensive: a future PC implementation that returns an object
+    // without an `actions` array would also be treated as AnkiDroid.
+    fetchSpy.mockResolvedValue(mockFetchResponse({}));
+    const client = new AnkiExportClient();
+    const result = await detectAnkiDroidMode(client);
+    expect(result).toBe(true);
+    _resetAnkiDroidModeCache(client);
+  });
+
+  it('AnkiDroid: apiReflect throws (server error / unsupported action) → AnkiDroid mode (true)', async () => {
+    // Some bridge versions may surface an action error for apiReflect;
+    // we still treat that as AnkiDroid.
+    fetchSpy.mockResolvedValue(
+      mockFetchResponse(null, 'unsupported action: apiReflect'),
+    );
+    const client = new AnkiExportClient();
+    const result = await detectAnkiDroidMode(client);
+    expect(result).toBe(true);
+    _resetAnkiDroidModeCache(client);
+  });
+
+  it('AnkiDroid: apiReflect network error → AnkiDroid mode (true)', async () => {
+    fetchSpy.mockRejectedValue(new TypeError('Failed to fetch'));
+    const client = new AnkiExportClient();
+    const result = await detectAnkiDroidMode(client);
+    expect(result).toBe(true);
+    _resetAnkiDroidModeCache(client);
+  });
+
+  it('caches the result: second call does NOT hit the network again', async () => {
+    fetchSpy.mockResolvedValue(
+      mockFetchResponse({ scopes: ['actions'], actions: [] }),
+    );
+    const client = new AnkiExportClient();
+    const first = await detectAnkiDroidMode(client);
+    const second = await detectAnkiDroidMode(client);
+    expect(first).toBe(false);
+    expect(second).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    _resetAnkiDroidModeCache(client);
+  });
+
+  it('caches across multiple clients independently (per-client cache)', async () => {
+    fetchSpy.mockResolvedValue(
+      mockFetchResponse({ scopes: ['actions'], actions: [] }),
+    );
+    const clientA = new AnkiExportClient('http://a:8765');
+    const clientB = new AnkiExportClient('http://b:8765');
+    await detectAnkiDroidMode(clientA);
+    await detectAnkiDroidMode(clientB);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    _resetAnkiDroidModeCache(clientA);
+    _resetAnkiDroidModeCache(clientB);
+  });
+});
+
+describe('apiReflect', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it('sends correct request shape (action apiReflect, version 6, no key by default)', async () => {
+    fetchSpy.mockResolvedValue(mockFetchResponse({ echoed: true }));
+    const client = new AnkiExportClient();
+    const result = await client.apiReflect<{ echoed: boolean }>({
+      scopes: ['actions'],
+    });
+    expect(result.echoed).toBe(true);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
+    expect(body.action).toBe('apiReflect');
+    expect(body.version).toBe(6);
+    expect(body.key).toBeUndefined();
+    expect(body.params).toEqual({ scopes: ['actions'] });
+  });
+
+  it('forwards API key when provided', async () => {
+    fetchSpy.mockResolvedValue(mockFetchResponse(null));
+    const client = new AnkiExportClient('http://test:8765', 'secret-key');
+    await client.apiReflect({ scopes: ['actions'] });
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
+    expect(body.key).toBe('secret-key');
   });
 });

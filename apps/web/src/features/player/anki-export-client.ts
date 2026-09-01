@@ -9,7 +9,19 @@
  * instance lifetime. The caller (PlayerApp) owns the key in React memory.
  *
  * Actions: canAddNotes, addNote, storeMediaFile, findNotes, notesInfo,
- *          updateNoteFields, addTags
+ *          updateNoteFields, addTags, cardsInfo, findCards, apiReflect
+ *
+ * AnkiDroid handling:
+ *   - detectAnkiDroidMode() probes via apiReflect (PC supports,
+ *     AnkiDroid's AnkiconnectAndroid bridge returns the default_version
+ *     string for unknown actions instead of an error — we classify by
+ *     result SHAPE, not by throw-vs-not).
+ *   - In AnkiDroid mode, storeMediaFile RETURNS a normalized/deduped filename
+ *     (e.g. file_123456789.webm); the caller MUST use the returned name in
+ *     markup ([sound:..], <img>, <video>). On PC the input name is stored
+ *     as-is so the deterministic filename is safe.
+ *   - buildMediaMarkup() encapsulates the PC/AnkiDroid branch so the markup
+ *     is always built from the authoritative stored name.
  * --------------------------------------------------------------------------- */
 
 /** Write actions — distinct from ReadAction in anki-connect.ts. */
@@ -22,7 +34,8 @@ type WriteAction =
   | 'updateNoteFields'
   | 'addTags'
   | 'cardsInfo'
-  | 'findCards';
+  | 'findCards'
+  | 'apiReflect';
 
 interface WriteRequest {
   action: WriteAction;
@@ -311,6 +324,23 @@ export class AnkiExportClient {
   ): Promise<FindCardsResult> {
     return this.request<FindCardsResult>('findCards', { query }, signal);
   }
+
+  /**
+   * Generic AnkiConnect passthrough. Used for AnkiDroid detection: the official
+   * PC AnkiConnect supports `apiReflect` and returns an object with an `actions`
+   * array; AnkiconnectAndroid (the AnkiDroid bridge) does not and falls back to
+   * `default_version()`, which yields the bare string `"AnkiConnect v.6"`.
+   *
+   * Kept on the write client because `apiReflect` is a generic passthrough
+   * that can be used by writers (not just readers). Detection classifies by
+   * the RESULT SHAPE, not by throw-vs-not — see `detectAnkiDroidMode`.
+   */
+  async apiReflect<T = unknown>(
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    return this.request<T>('apiReflect', params, signal);
+  }
 }
 
 /**
@@ -337,18 +367,192 @@ export function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Generate a safe Anki media filename basename.
- * No path separators, no special chars.
+ * Generate a content-addressed, Anki-safe media filename.
+ *
+ * Deterministic: the same blob bytes always produce the same basename
+ * (`prefix_<first10hex(SHA-256)>.ext`), so re-exporting the same clip /
+ * screenshot / audio is idempotent and Anki's own dedup keeps
+ * collection.media clean. Previously this used Math.random + Date.now(),
+ * which leaked a new file on every export.
+ *
+ * When no `blob` is supplied, falls back to a non-deterministic name
+ * (Math.random-based) so non-media callers and existing tests that don't
+ * have a blob still work. Production export paths ALWAYS pass a blob.
+ *
+ * Sanitization rules:
+ *   - prefix: any char outside [a-zA-Z0-9_-] → '_' (allows the underscore
+ *     separator to stay unambiguous)
+ *   - extension: any char outside [a-zA-Z0-9] → '' (stripped)
+ *
+ * No path separators, no spaces, no query chars: safe to embed inside
+ * `<img src="...">`, `<video src="...">`, and `[sound:...]` markup.
  */
-export function generateMediaFilename(
+export async function generateMediaFilename(
   prefix: string,
   extension: string,
-): string {
+  blob?: Blob,
+): Promise<string> {
   const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '_');
   const safeExt = extension.replace(/[^a-zA-Z0-9]/g, '');
+  if (blob) {
+    const digest = await sha256HexPrefix(blob, 10);
+    return `${safePrefix}_${digest}.${safeExt}`;
+  }
+  // Fallback: legacy random-based naming (only reached when caller has no
+  // blob yet, e.g. unit tests that don't exercise the export pipeline).
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 8);
   return `${safePrefix}_${timestamp}_${random}.${safeExt}`;
+}
+
+/**
+ * SHA-256 the first `hexChars` hex characters of a blob's bytes.
+ * Uses browser crypto.subtle when available; falls back to a stable
+ * non-cryptographic hash for environments without WebCrypto.
+ *
+ * IMPORTANT: `crypto.subtle` is only exposed in a SECURE CONTEXT — i.e.
+ * HTTPS origins, or HTTP on localhost. Over plain-HTTP LAN delivery to a
+ * non-localhost host (a typical AnkiDroid-paired "phone is the Anki
+ * server" setup on `http://192.168.x.x`), the browser will refuse to
+ * expose subtle and this fallback IS the production path, not just a
+ * test-environment fallback. The contract is "same input bytes → same
+ * hex prefix"; collisions collapse to same-name overwrite, which at the
+ * scale of an individual deck's media files is negligible.
+ */
+async function sha256HexPrefix(blob: Blob, hexChars: number): Promise<string> {
+  if (typeof crypto !== 'undefined' && 'subtle' in crypto) {
+    const hashBuffer = await crypto.subtle.digest(
+      'SHA-256',
+      await blob.arrayBuffer(),
+    );
+    const hashArray = new Uint8Array(hashBuffer);
+    let hex = '';
+    for (let i = 0; i < hashArray.length && hex.length < hexChars; i++) {
+      hex += hashArray[i]!.toString(16).padStart(2, '0');
+    }
+    return hex.slice(0, hexChars);
+  }
+  // Fallback: stable FNV-1a-ish mix over the first 4 KiB of bytes.
+  // Same input → same output, which is the only contract we need here.
+  const sampleSize = Math.min(blob.size, 4096);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let h1 = 0x811c9dc5;
+  let h2 = 0xcbf29ce4;
+  for (let i = 0; i < sampleSize; i++) {
+    const ch = bytes[i]!;
+    h1 ^= ch;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 = Math.imul(h2 ^ ch, 16777619);
+  }
+  const combined = (h1 >>> 0).toString(16).padStart(8, '0') +
+    (h2 >>> 0).toString(16).padStart(8, '0');
+  return combined.slice(0, hexChars).padEnd(hexChars, '0');
+}
+
+/**
+ * Media markup kinds — what kind of field markup to emit for the stored
+ * media file. Centralized so buildMediaMarkup has a single switch.
+ */
+export type MediaKind = 'sound' | 'image' | 'video';
+
+/**
+ * Build the Anki field markup for a stored media file.
+ *
+ * PC AnkiConnect mode (`ankiDroidMode === false`):
+ *   storeMediaFile stores the input filename as-is, so the markup uses the
+ *   caller-supplied `filename` (which is already the deterministic
+ *   content-hash name). This preserves the existing PC wire shape exactly.
+ *
+ * AnkiDroid mode (`ankiDroidMode === true`):
+ *   AnkiconnectAndroid's storeMediaFile RETURNS a normalized/deduped
+ *   filename (e.g. `file_123456789.webm`); the input filename does NOT
+ *   exist in collection.media. Markup MUST use `storedFilename` here or
+ *   the card silently renders no media. THIS is the original AnkiDroid
+ *   bug fix (mterd0ge_hmsg34 mismatch class).
+ *
+ * Returned markup examples:
+ *   sound → `[sound:clip_abc.webm]`
+ *   image → `<img src="screenshot_xyz.jpg">`
+ *   video → `<video autoplay loop muted playsinline src="clip_xyz.webm"></video>`
+ */
+export function buildMediaMarkup(
+  kind: MediaKind,
+  filename: string,
+  storedFilename: string,
+  ankiDroidMode: boolean,
+): string {
+  let effective = ankiDroidMode ? storedFilename : filename;
+  // AnkiDroid branch safety: if the stored filename returned by
+  // AnkiconnectAndroid contains anything outside [A-Za-z0-9._-], fall
+  // back to the deterministic input filename. Real AnkiDroid stored
+  // names are `file_<digits>.<ext>` so this never fires in practice —
+  // uniform safety across PC and AnkiDroid markup paths.
+  if (ankiDroidMode && !/^[A-Za-z0-9._-]+$/.test(effective)) {
+    effective = filename;
+  }
+  switch (kind) {
+    case 'sound':
+      return `[sound:${effective}]`;
+    case 'image':
+      return `<img src="${effective}">`;
+    case 'video':
+      return `<video autoplay loop muted playsinline src="${effective}"></video>`;
+  }
+}
+
+/**
+ * Session-cached AnkiDroid detection.
+ *
+ * Probe strategy: official PC AnkiConnect implements `apiReflect` and
+ * echoes back an object whose `actions` field is an Array (FooSoft
+ * AnkiConnect __init__.py apiReflect). AnkiconnectAndroid (the AnkiDroid
+ * bridge) does NOT implement apiReflect — its `findRoute` falls through
+ * to `default_version()`, so the wire response for version 6 is just
+ * `{"result":"AnkiConnect v.6","error":null}` (HTTP 200, no throw).
+ *
+ * Classification rule (result shape, NOT throw-vs-not):
+ *   - result is a non-null object AND `result.actions` is an Array → PC
+ *   - everything else (string `"AnkiConnect v.6"`, object without
+ *     `actions`, `{}`, network error) → AnkiDroid
+ *
+ * The result is cached per `AnkiExportClient` instance (WeakMap) so the
+ * detection round-trip is paid once per client. The new and update
+ * paths share the same client, so they both hit the cache; the append
+ * path constructs a fresh client and pays its own probe.
+ */
+const ankiDroidModeCache = new WeakMap<AnkiExportClient, boolean>();
+
+export async function detectAnkiDroidMode(
+  client: AnkiExportClient,
+): Promise<boolean> {
+  const cached = ankiDroidModeCache.get(client);
+  if (cached !== undefined) return cached;
+  let result: unknown;
+  try {
+    // apiReflect is a generic passthrough — call it through unknown and
+    // narrow by shape. PC returns an object with an `actions` array;
+    // AnkiDroid returns the bare default_version() string.
+    result = await client.apiReflect<unknown>({ scopes: ['actions'] });
+  } catch {
+    // Network / HTTP / malformed-response failures → assume AnkiDroid
+    // (safer default: we won't silently overwrite PC markup semantics,
+    // and the caller can retry or surface the error).
+    ankiDroidModeCache.set(client, true);
+    return true;
+  }
+  const isPC =
+    typeof result === 'object' &&
+    result !== null &&
+    Array.isArray((result as { actions?: unknown }).actions);
+  ankiDroidModeCache.set(client, !isPC);
+  return !isPC;
+}
+
+/**
+ * Reset the detection cache for a given client. Test-only utility.
+ */
+export function _resetAnkiDroidModeCache(client: AnkiExportClient): void {
+  ankiDroidModeCache.delete(client);
 }
 
 /**

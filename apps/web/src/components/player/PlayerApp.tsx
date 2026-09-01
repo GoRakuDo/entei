@@ -153,6 +153,8 @@ import { selectCueTextInRange } from '@/features/player/subtitle-interval';
 import {
   AnkiExportClient,
   blobToBase64,
+  buildMediaMarkup,
+  detectAnkiDroidMode,
   generateMediaFilename,
   updateNoteFieldsAndAddTags,
   addTagsOnlyIfAny,
@@ -3592,31 +3594,58 @@ export default function PlayerApp() {
 
         // Upload media (screenshot/video) if mapped — branch on captured blob type
         const fieldMapping = prefs.fields;
+        // AnkiDroid mode is cached per-client (WeakMap) — paid exactly once
+        // per export session. Must be resolved before the first storeMediaFile
+        // so the markup uses the right filename source.
+        const ankiDroidModeNew = await detectAnkiDroidMode(client);
         if (fieldMapping.image && miningScreenshotBlobRef.current) {
           const isVideo = capturedMediaTypeRef.current === 'video';
-          const filename = generateMediaFilename(
+          const blob = miningScreenshotBlobRef.current;
+          const filename = await generateMediaFilename(
             isVideo ? 'entei_video' : 'entei_screenshot',
             isVideo ? 'webm' : 'jpg',
+            blob,
           );
-          const base64 = await blobToBase64(miningScreenshotBlobRef.current);
+          const base64 = await blobToBase64(blob);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
-          await client.storeMediaFile(filename, base64, abortController.signal);
+          const storedFilename = await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (fieldMapping.image && !noteFields[fieldMapping.image]) {
-            noteFields[fieldMapping.image] = isVideo
-              ? `<video autoplay loop muted playsinline src="${filename}"></video>`
-              : `<img src="${filename}">`;
+            noteFields[fieldMapping.image] = buildMediaMarkup(
+              isVideo ? 'video' : 'image',
+              filename,
+              storedFilename,
+              ankiDroidModeNew,
+            );
           }
         }
 
         if (fieldMapping.audio && miningAudioBlobRef.current) {
-          const filename = generateMediaFilename('entei_audio', 'webm');
-          const base64 = await blobToBase64(miningAudioBlobRef.current);
+          const blob = miningAudioBlobRef.current;
+          const filename = await generateMediaFilename(
+            'entei_audio',
+            'webm',
+            blob,
+          );
+          const base64 = await blobToBase64(blob);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
-          await client.storeMediaFile(filename, base64, abortController.signal);
+          const storedFilename = await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (fieldMapping.audio && !noteFields[fieldMapping.audio]) {
-            noteFields[fieldMapping.audio] = `[sound:${filename}]`;
+            noteFields[fieldMapping.audio] = buildMediaMarkup(
+              'sound',
+              filename,
+              storedFilename,
+              ankiDroidModeNew,
+            );
           }
         }
 
@@ -3705,31 +3734,57 @@ export default function PlayerApp() {
         }
 
         // Upload media if available (never wipe existing) — branch on captured type
+        // AnkiDroid detection cached per-client (WeakMap) — same client as new
+        // path, so the second call is a no-op cache hit.
+        const ankiDroidModeUpd = await detectAnkiDroidMode(client);
         if (prefs.fields.image && miningScreenshotBlobRef.current) {
           const isVideo = capturedMediaTypeRef.current === 'video';
-          const filename = generateMediaFilename(
+          const blob = miningScreenshotBlobRef.current;
+          const filename = await generateMediaFilename(
             isVideo ? 'entei_video' : 'entei_screenshot',
             isVideo ? 'webm' : 'jpg',
+            blob,
           );
-          const base64 = await blobToBase64(miningScreenshotBlobRef.current);
+          const base64 = await blobToBase64(blob);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
-          await client.storeMediaFile(filename, base64, abortController.signal);
+          const storedFilename = await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (prefs.fields.image) {
-            updateFields[prefs.fields.image] = isVideo
-              ? `<video autoplay loop muted playsinline src="${filename}"></video>`
-              : `<img src="${filename}">`;
+            updateFields[prefs.fields.image] = buildMediaMarkup(
+              isVideo ? 'video' : 'image',
+              filename,
+              storedFilename,
+              ankiDroidModeUpd,
+            );
           }
         }
 
         if (prefs.fields.audio && miningAudioBlobRef.current) {
-          const filename = generateMediaFilename('entei_audio', 'webm');
-          const base64 = await blobToBase64(miningAudioBlobRef.current);
+          const blob = miningAudioBlobRef.current;
+          const filename = await generateMediaFilename(
+            'entei_audio',
+            'webm',
+            blob,
+          );
+          const base64 = await blobToBase64(blob);
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
-          await client.storeMediaFile(filename, base64, abortController.signal);
+          const storedFilename = await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
           if (!mountedRef.current || exportEpochRef.current !== epoch) return;
           if (prefs.fields.audio) {
-            updateFields[prefs.fields.audio] = `[sound:${filename}]`;
+            updateFields[prefs.fields.audio] = buildMediaMarkup(
+              'sound',
+              filename,
+              storedFilename,
+              ankiDroidModeUpd,
+            );
           }
         }
 
@@ -3888,35 +3943,63 @@ export default function PlayerApp() {
         // Upload media once per operation, then reuse markup
         let imageMarkup: string | null = null;
         let audioMarkup: string | null = null;
+        // AnkiDroid detection costs one apiReflect round-trip per client
+        // instance. The new/update paths above share a client and cache
+        // hits; this append path constructs its own fresh client (~3912),
+        // so its first detectAnkiDroidMode call pays one probe.
+        const ankiDroidModeApp = await detectAnkiDroidMode(client);
 
         if (prefs.fields.image && miningScreenshotBlobRef.current) {
           const isVideo = capturedMediaTypeRef.current === 'video';
-          const filename = generateMediaFilename(
+          const blob = miningScreenshotBlobRef.current;
+          const filename = await generateMediaFilename(
             isVideo ? 'entei_video' : 'entei_screenshot',
             isVideo ? 'webm' : 'jpg',
+            blob,
           );
-          const base64 = await blobToBase64(miningScreenshotBlobRef.current);
+          const base64 = await blobToBase64(blob);
           if (!mountedRef.current || appendEpochRef.current !== epoch)
             return { succeeded, failed };
           if (abortController.signal.aborted) return { succeeded, failed };
-          await client.storeMediaFile(filename, base64, abortController.signal);
+          const storedFilename = await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
           if (!mountedRef.current || appendEpochRef.current !== epoch)
             return { succeeded, failed };
-          imageMarkup = isVideo
-            ? `<video autoplay loop muted playsinline src="${filename}"></video>`
-            : `<img src="${filename}">`;
+          imageMarkup = buildMediaMarkup(
+            isVideo ? 'video' : 'image',
+            filename,
+            storedFilename,
+            ankiDroidModeApp,
+          );
         }
 
         if (prefs.fields.audio && miningAudioBlobRef.current) {
-          const filename = generateMediaFilename('entei_audio', 'webm');
-          const base64 = await blobToBase64(miningAudioBlobRef.current);
+          const blob = miningAudioBlobRef.current;
+          const filename = await generateMediaFilename(
+            'entei_audio',
+            'webm',
+            blob,
+          );
+          const base64 = await blobToBase64(blob);
           if (!mountedRef.current || appendEpochRef.current !== epoch)
             return { succeeded, failed };
           if (abortController.signal.aborted) return { succeeded, failed };
-          await client.storeMediaFile(filename, base64, abortController.signal);
+          const storedFilename = await client.storeMediaFile(
+            filename,
+            base64,
+            abortController.signal,
+          );
           if (!mountedRef.current || appendEpochRef.current !== epoch)
             return { succeeded, failed };
-          audioMarkup = `[sound:${filename}]`;
+          audioMarkup = buildMediaMarkup(
+            'sound',
+            filename,
+            storedFilename,
+            ankiDroidModeApp,
+          );
         }
 
         // For each valid note, append mapped fields
