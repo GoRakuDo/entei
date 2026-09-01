@@ -12,8 +12,10 @@ import (
 	"html"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -42,15 +44,44 @@ import (
 // See `schemaVariant` for the autodetected branch and
 // `c.modernNotetypes` for the per-table pick inside the modern branch.
 //
-// All writes run inside a transaction; reads use a single shared
-// connection from the pool. busy_timeout is 5000ms; journal_mode is
-// read once at open time and never overwritten (respecting the
-// existing AnkiDroid WAL mode when present).
+// Lock coexistence with AnkiDroid (spec v4.4, 2026-09-01): the
+// companion NEVER holds a write lock on the AnkiDroid-visible file.
+// OpenCollection / OpenCollectionWithWorkDir open an IMMUTABLE read-
+// only handle (DSN `immutable=1`) — SQLite skips all locking and
+// change detection, so AnkiDroid can open its own RW handle at any
+// time without the "Database Locked" dialog. The companion reads
+// see a per-connection file snapshot; they are refreshed after every
+// write via a close + reopen of the immutable handle.
+//
+// Writes (InsertNote / UpdateNoteFields / AddTags) go through
+// WriteSession: each write does its own CopyIn → INSERT/UPDATE →
+// checkpoint → CopyOut roundtrip against a work copy in the configured
+// --anki-work-dir (a non-FUSE directory, e.g. the Termux app-private
+// temp dir). The work copy holds the only write lock during the
+// roundtrip; the AnkiDroid-visible file is touched only via plain
+// `os.Create` (no fcntl locks), which on Linux/Android/FUSE never
+// conflicts with AnkiDroid's SQLite handle. The FUSE roundtrip is
+// still REQUIRED — Android/media + no APK + direct-SQLite
+// semantics — but the roundtrip is per-write, not per-open, and
+// the lock window is microseconds.
+//
+// Concurrency: WriteSession calls serialize on c.writeMu. Reads do
+// not block writes (they use the immutable handle which has no
+// locks). On a real device the roundtrip takes ~400ms; if a
+// second action arrives during the roundtrip it queues, then runs
+// sequentially. This avoids the "double-CopyIn" race that would
+// otherwise lose one roundtrip's writes.
+//
+// busy_timeout on the work copy is 2000ms (short enough to surface
+// the rare "AnkiDroid is writing" contention as a clear error,
+// long enough to absorb normal scheduler hiccups). The immutable
+// read handle uses busy_timeout=5000 like the pre-v4.4 default
+// (irrelevant in practice because immutable=1 skips locking).
 type Collection struct {
 	db       *sql.DB
 	path     string
 	variant  schemaVariant
-	colCache *colRow // cached single-row col data (parses lazily)
+	colCache *colRow // cached single-row col data (parses lazily; invalidated on writes)
 
 	// modernNotetypes is set by detectSchema when the modern variant
 	// was selected and the dedicated note-type storage is the
@@ -60,22 +91,25 @@ type Collection struct {
 	// variant is legacy. False on modern when only `models` exists.
 	modernNotetypes bool
 
-	// FUSE roundtrip state: non-nil only when the direct open failed
-	// with a busy/locked error (Android FUSE cross-UID fcntl) and
-	// OpenCollectionWithWorkDir fell back to copy→work→writeback.
-	// workPath is the ext4 copy SQLite runs against; srcPath is the
-	// original FUSE path written back on Close. displayPath is the
-	// operator-facing identity Path() reports: the src path captured
-	// at open time, kept even after Close clears srcPath/workPath.
-	workPath  string
-	srcPath   string
-	roundtrip *FuseRoundtrip
+	// writePath is the --anki-work-dir captured at OpenCollection
+	// time. Empty when the open path didn't include a work dir; in
+	// that case WriteSession falls back to filepath.Dir(c.path) (a
+	// normal-fs directory, on dev hosts; an Android/media
+	// directory on device — which the roundtrip still needs because
+	// direct SQLite writes against the FUSE mount lock up). The
+	// companion's caller is expected to forward an explicit work
+	// dir on Android (cmd/eizouden/main.go does this).
+	writePath string
 
-	// displayPath is the path Path() returns: the original collection
-	// path captured at open time. For a FUSE roundtrip collection this
-	// is the src path (never the work copy), and it survives Close()
-	// (which clears srcPath/workPath) so the operator-facing identity
-	// does not change after closing.
+	// writeMu serializes WriteSession calls so concurrent actions
+	// don't double-roundtrip. One WriteSession at a time per
+	// Collection receiver.
+	writeMu sync.Mutex
+
+	// displayPath is the path Path() returns: the original
+	// collection path captured at open time. Survives Close() and
+	// refreshReadHandle() (which both clear path/db but not the
+	// identity) so the operator-facing identity is stable.
 	displayPath string
 }
 
@@ -409,110 +443,91 @@ func nowMillis() int64 {
 }
 
 // OpenCollection opens the AnkiDroid collection.anki2 file at
-// collectionPath, applies the bridge's pragmas (busy_timeout=5000,
-// respect existing journal_mode), verifies the notes/cards/col tables
-// exist, and detects the schema variant (legacy JSON in col.* or
-// dedicated decks/models tables). Returns ErrUnsupportedSchema when
-// the file is missing any of the required tables.
+// collectionPath with an IMMUTABLE read-only handle (DSN
+// `immutable=1`). The companion never holds a write lock on the
+// AnkiDroid-visible file, so AnkiDroid can open its RW handle at
+// any time without the "Database Locked" dialog (spec v4.4,
+// 2026-09-01). Writes go through WriteSession instead.
 //
-// The directory containing the file must be writable (we create
-// collection.anki2-wal / -shm sidecars for WAL mode if AnkiDroid
-// hasn't already). busy_timeout=5000 means concurrent AnkiDroid
-// reads/writes wait up to 5s for our transaction to finish.
+// Schema detection (notes / cards / col tables present; legacy JSON
+// vs modern dedicated tables), unicase collation registration, and
+// the per-connection busy_timeout all happen here. Returns
+// ErrUnsupportedSchema when the file is missing any required table.
 //
 // Thin wrapper over OpenCollectionWithWorkDir with an empty work
-// dir (no FUSE roundtrip fallback).
+// dir (no per-write roundtrip fallback dir configured; WriteSession
+// falls back to filepath.Dir(c.path) in that case, which on a normal
+// fs is fine — the roundtrip copies src → dir/src → back).
 func OpenCollection(collectionPath string) (*Collection, error) {
 	return OpenCollectionWithWorkDir(collectionPath, "")
 }
 
-// OpenCollectionWithWorkDir opens the collection like OpenCollection
-// and additionally enables the FUSE roundtrip fallback for
-// Android/media paths: when the direct open fails with a
-// busy/locked error (error text contains "database is locked" or
-// "SQLITE_BUSY" — the signature of the Android FUSE cross-UID
-// fcntl(F_SETLK)→EAGAIN failure mode, verified on a real device
-// 2026-08-31) AND workDir is non-empty, the file is copied into
-// workDir (ext4, lockable), SQLite runs against the copy, and
-// Close() writes the copy back to the original path. On any other
-// failure (or an empty workDir) the direct-open error is returned
-// unchanged.
+// OpenCollectionWithWorkDir is OpenCollection plus the
+// --anki-work-dir forwarded for WriteSession's per-write roundtrip.
+// The work dir must be on a non-FUSE filesystem (e.g. Termux
+// app-private temp dir, a Linux dev-host tmp dir) so the SQLite
+// write lock on the work copy doesn't conflict with AnkiDroid's
+// handle on the source. On a normal fs the roundtrip still
+// succeeds (the work copy is just a file copy in the same dir).
 //
-// Thin wrapper over OpenCollectionWithWorkDirHooked with nil
-// recovery and warning hooks. The production wiring is
-// OpenCollectionWithWorkDirHooked (cmd/eizouden/main.go
-// resolveAnkiBridge), which forwards the roundtrip's RecoveryHook
-// + busy-locked notice to the diag logger so the operator sees
-// the fallback instead of a silent one.
+// On Android the typical setup is:
+//
+//	--anki-work-dir <Termux $TMPDIR>/eizouden-anki-work
+//
+// which resolves to a non-FUSE ext4 directory in Termux's app-
+// private storage. cmd/eizouden/main.go picks the default when the
+// flag is empty.
+//
+// As of v4.4 the OPEN path never falls back to a copy-work-writeback
+// at open time (the previous v4.3 roundtrip-on-open fallback
+// caused the Database Locked symptom because the source-side
+// immutable handle never engaged). The v4.3 fallback is dead code:
+// this signature preserves --anki-work-dir so the deployment
+// surface is unchanged, but the work dir is now consumed by
+// WriteSession per write.
 func OpenCollectionWithWorkDir(collectionPath, workDir string) (*Collection, error) {
 	return OpenCollectionWithWorkDirHooked(collectionPath, workDir, nil, nil)
 }
 
 // OpenCollectionWithWorkDirHooked is OpenCollectionWithWorkDir with
-// two additional callbacks:
+// two additional callbacks.
 //
-//   - onRecovered fires when the FUSE roundtrip fallback is engaged
-//     AND a stale work copy is preserved (renamed to
-//     .recovery-<ts>). The callback receives the recovery path. It
-//     is also wired onto the roundtrip's RecoveryHook so the
-//     fallback's own preservation events surface to the caller.
-//     nil = no-op.
-//   - warnf fires when the direct open fails with a busy/locked
-//     error and the roundtrip fallback is engaged, so the caller
-//     can surface the "busy-locked → copy-work-writeback"
-//     transition instead of silently running on the work copy.
-//     nil = no-op.
+//   - onRecovered: reserved for the v4.3 stale-work-preservation
+//     hook. v4.4 no longer preserves stale work copies — every
+//     WriteSession is a fresh CopyIn on a unique work path, so
+//     there is no recovery event to surface. The hook is kept on
+//     the signature for source-compat (existing call sites still
+//     compile) and in case a future hardening pass re-introduces
+//     preservation semantics. nil = no-op.
+//   - warnf: reserved for the v4.3 busy-locked-fallback notice.
+//     v4.4's open path is always read-only immutable (no busy
+//     fallback possible — immutable=1 skips locking). The hook is
+//     kept on the signature for source-compat; nil = no-op.
 //
-// Both hooks are passed IN at the open call (not assigned to the
-// Collection afterwards) so the call site cannot miss the wiring:
-// the fallback notification fires from inside the open path, and
-// any post-hoc assignment would arrive too late.
+// Thin wrapper over openCollectionDSN — the v4.3 fallback
+// machinery (FuseRoundtrip at open time) is removed.
 func OpenCollectionWithWorkDirHooked(collectionPath, workDir string, onRecovered func(string), warnf func(string, ...any)) (*Collection, error) {
 	if collectionPath == "" {
 		return nil, errors.New("anki: empty collection path")
 	}
+	_ = onRecovered
+	_ = warnf
 	c, err := openCollectionDSN(collectionPath)
-	if err == nil {
-		return c, nil
-	}
-	if workDir == "" || !isBusyLockError(err) {
-		// No roundtrip available (or the failure is not the FUSE
-		// lock signature): surface the direct error as-is.
+	if err != nil {
 		return nil, err
 	}
-	// FUSE roundtrip fallback: copy the file off the FUSE mount into
-	// the ext4 work dir and open the copy. The original path stays
-	// the identity of the collection (see Path / Close writeback).
-	rt := NewFuseRoundtrip(workDir)
-	if onRecovered != nil {
-		rt.RecoveryHook = onRecovered
-	}
-	workPath, cerr := rt.CopyIn(collectionPath)
-	if cerr != nil {
-		return nil, errors.Join(err, cerr)
-	}
-	wc, werr := openCollectionDSN(workPath)
-	if werr != nil {
-		_ = os.Remove(workPath) // best-effort: no garbage from a failed attempt
-		return nil, errors.Join(err, werr)
-	}
-	wc.srcPath = collectionPath
-	wc.workPath = workPath
-	wc.roundtrip = rt
-	wc.displayPath = collectionPath
-	if warnf != nil {
-		warnf("collection open busy-locked; using copy-work-writeback roundtrip for %s", redactPath(collectionPath))
-	}
-	return wc, nil
+	c.writePath = workDir
+	return c, nil
 }
 
-// openCollectionDSN is the direct-open half shared by
-// OpenCollectionWithWorkDir and the roundtrip fallback: DSN with
-// the bridge pragmas (busy_timeout=5000, foreign_keys off —
-// modernc's parameter binding for pragmas), pool capped at one
-// connection (SQLite is single-writer; one connection is enough for
-// our usage and avoids spurious SQLITE_BUSY under concurrent
-// reads), Ping, and schema detection.
+// openCollectionDSN is the direct-open shared by OpenCollection /
+// OpenCollectionWithWorkDir / OpenCollectionWithWorkDirHooked and
+// by WriteSession's post-write refreshReadHandle. DSN is
+// `immutable=1` (no locking, no change detection; spec v4.4) plus
+// the bridge's foreign_keys pragma. Pool is capped at one
+// connection (SQLite is single-writer; one is enough for our read
+// usage and avoids spurious SQLITE_BUSY under concurrent
+// reads). Schema detection runs after the immutable open succeeds.
 func openCollectionDSN(collectionPath string) (*Collection, error) {
 	// Register UNICASE BEFORE opening the connection. modernc binds
 	// newly-registered collations to all subsequent sqlite-driver
@@ -524,7 +539,7 @@ func openCollectionDSN(collectionPath string) (*Collection, error) {
 	// sync.Once inside ensureUnicaseCollation keeps the cost at
 	// one register call for the process lifetime.
 	ensureUnicaseCollation()
-	dsn := "file:" + collectionPath + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(0)"
+	dsn := "file:" + collectionPath + "?immutable=1&_pragma=foreign_keys(0)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("anki: open collection: %w", err)
@@ -542,10 +557,40 @@ func openCollectionDSN(collectionPath string) (*Collection, error) {
 	return c, nil
 }
 
+// openWorkCollection opens a work copy as a regular RW handle (no
+// immutable=1 — we want full write semantics for the duration of a
+// WriteSession). Busy timeout is 2000ms (shorter than the pre-v4.4
+// default): a long busy wait during a write means AnkiDroid is
+// writing its own WAL/footer and we should fail fast (the user
+// gets a clear "AnkiDroid is open" envelope) instead of holding
+// the roundtrip open for ~5s. The work copy lives on the configured
+// --anki-work-dir (or filepath.Dir(src) when unset) so SQLite's
+// locks don't conflict with AnkiDroid's RW handle on the source.
+func openWorkCollection(workPath string) (*Collection, error) {
+	ensureUnicaseCollation()
+	dsn := "file:" + workPath + "?_pragma=busy_timeout(2000)&_pragma=foreign_keys(0)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("anki: open work copy: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("anki: ping work copy: %w", err)
+	}
+	c := &Collection{db: db, path: workPath, displayPath: workPath}
+	if err := c.detectSchema(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
 // isBusyLockError reports whether err is an SQLite busy/locked
-// failure — the signature of the Android FUSE cross-UID fcntl
-// (F_SETLK → EAGAIN) failure mode (and of any concurrent writer).
-// Matched on the driver's message text per the bridge spec.
+// failure — kept for the v4.3 roundtrip-fallback classifier and
+// for any future caller that wants to detect the AnkiDroid-locked
+// scenario. v4.4's open path no longer uses it (immutable=1 skips
+// locking so the open never busy-locks).
 func isBusyLockError(err error) bool {
 	if err == nil {
 		return false
@@ -608,57 +653,201 @@ func (c *Collection) detectSchema() error {
 	return nil
 }
 
-// Close releases the underlying database handle. When the collection
-// was opened through the FUSE roundtrip fallback, Close first
-// checkpoints the work copy back into its main file (PRAGMA
-// wal_checkpoint(TRUNCATE), best-effort), closes the work DB, then
-// copies the work file back to the original FUSE path (writeback)
-// and removes the work copy. If the writeback fails the work file
-// is left in place for recovery and the error names it. Safe to
+// Close releases the immutable read handle on the source file.
+// v4.4 (2026-09-01) has no Close-time writeback: every write goes
+// through WriteSession which copies src → work → src inline. The
+// only thing Close has to do is release the SQLite handle. Safe to
 // call multiple times; subsequent method calls on the receiver will
 // return ErrCollectionNotOpen.
+//
+// Display path semantics are unchanged: Path() returns the src path
+// captured at open time even after Close().
 func (c *Collection) Close() error {
 	if c == nil || c.db == nil {
 		return nil
 	}
-	var errs []error
-	if c.roundtrip != nil {
-		// 1. Merge the WAL (if any) into the main work file. The
-		// roundtrip writeback copies a single file, so any pending
-		// WAL content must land in collection.anki2 first.
-		if _, err := c.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-			errs = append(errs, fmt.Errorf("anki: roundtrip checkpoint: %w (work copy at %s)", err, redactPath(c.workPath)))
+	err := c.db.Close()
+	c.db = nil
+	c.colCache = nil
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// WriteSession executes fn inside a per-write CopyIn → INSERT/UPDATE
+// → checkpoint → CopyOut roundtrip against a work copy in the
+// configured --anki-work-dir. The companion's read handle on the
+// source is NOT touched during the roundtrip — AnkiDroid can keep
+// its own RW handle open at all times.
+//
+// The fn callback receives a *Collection whose .db is the work
+// copy (RW, single-connection). fn is expected to begin/commit its
+// own SQL transaction via wc.db.Begin() / tx.Commit() exactly like
+// the v4.3 internal API; the callback's contract is "return nil
+// iff the writes are durably committed to the work copy; return
+// non-nil to roll back". WriteSession then checkpoints + closes
+// the work DB and copies the work main file (plus any non-empty
+// sidecars) back to the source. The parent's col cache is
+// invalidated on success so subsequent reads see the bumped
+// mod/usn.
+//
+// Concurrency: WriteSession calls are serialized on c.writeMu.
+// Concurrent addNote/updateNoteFields/addTags queue rather than
+// double-roundtrip (which would lose one roundtrip's writes). On a
+// normal fs a roundtrip is microseconds; on Android with an 18 MiB
+// collection over FUSE it is ~400ms. The lock window on the
+// AnkiDroid-visible file is the CopyIn (read) and CopyOut (write)
+// steps only — these use plain os.Create / os.Open which on
+// Linux/Android do not conflict with AnkiDroid's SQLite locks.
+//
+// Returns the callback's error if fn returned one, or any
+// roundtrip-stage error from the CopyIn / checkpoint / close /
+// CopyOut / refreshReadHandle path. fn's transaction is rolled
+// back in this case; the work copy is removed; the source file is
+// unchanged.
+//
+// Refresh: after a successful roundtrip the parent's immutable
+// handle is closed + reopened so subsequent reads see the new
+// file state. SQLite's immutable=1 disables per-connection change
+// detection; reopening is the only safe way to invalidate the
+// pager's view of the file.
+func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
+	if c == nil {
+		return ErrCollectionNotOpen
+	}
+	if c.path == "" {
+		return ErrCollectionNotOpen
+	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	workDir := c.writePath
+	if workDir == "" {
+		// Default: a sibling directory of src (so test fixtures in
+		// t.TempDir() stay isolated) named <base>.work-<unix-ts>
+		// so the work path never equals the source path (which
+		// the roundtrip guard rejects). On production (Android or
+		// a long-running dev host) this only fires for callers that
+		// never set --anki-work-dir; the cmdline wiring always
+		// forwards an explicit work dir.
+		base := filepath.Base(c.path)
+		workDir = filepath.Join(filepath.Dir(c.path), base+".work-"+strconv.FormatInt(time.Now().UnixNano(), 10))
+	}
+	rt := NewFuseRoundtrip(workDir)
+	workPath, err := rt.CopyIn(c.path)
+	if err != nil {
+		return fmt.Errorf("anki: write session copy-in: %w", err)
+	}
+	// Best-effort cleanup if anything below fails. CopyOut on
+	// success does its own removal; this path catches CopyIn-
+	// succeeded-but-write-failed scenarios.
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(workPath)
+			removeWorkSidecars(workPath)
 		}
-		// 2. Close the work DB. Only a released SQLite handle
-		// guarantees a coherent file snapshot for the writeback.
-		if err := c.db.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("anki: roundtrip close work db: %w (work copy at %s)", err, redactPath(c.workPath)))
-		}
-		c.db = nil
-		// 3. Write back to the FUSE path. Skipped when the close
-		// above failed: copying over an open handle risks a torn
-		// collection, and the work copy is the recovery copy.
-		if len(errs) == 0 {
-			if err := c.roundtrip.CopyOut(c.workPath, c.srcPath); err != nil {
-				errs = append(errs, fmt.Errorf("anki: roundtrip writeback: %w", err))
+	}()
+
+	wc, err := openWorkCollection(workPath)
+	if err != nil {
+		return fmt.Errorf("anki: write session open work: %w", err)
+	}
+	// Run the callback. Panics in fn are converted to errors so the
+	// roundtrip's cleanup still runs (otherwise the work copy would
+	// linger until the next CopyIn's stale-work detection kicked
+	// in).
+	var fnErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fnErr = fmt.Errorf("anki: write session callback panic: %v", r)
 			}
-		}
-		c.roundtrip = nil
-		c.workPath = ""
-		c.srcPath = ""
-	} else {
-		if err := c.db.Close(); err != nil {
-			errs = append(errs, err)
-		}
+		}()
+		fnErr = fn(wc)
+	}()
+
+	// Checkpoint + close the work DB unconditionally (the work
+	// connection is the only one with write state, and a clean
+	// close guarantees a coherent file for CopyOut). Errors here
+	// are surfaced verbatim; the work copy is NOT copied back in
+	// that case (a torn file on the source is worse than a no-op).
+	if _, cerr := wc.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); cerr != nil {
+		_ = wc.db.Close()
+		return fmt.Errorf("anki: write session checkpoint: %w", cerr)
+	}
+	if cerr := wc.db.Close(); cerr != nil {
+		return fmt.Errorf("anki: write session close work: %w", cerr)
+	}
+
+	if fnErr != nil {
+		return fnErr
+	}
+
+	// CopyOut writes the work main file (+ any non-empty sidecars)
+	// back to the source. A CopyOut failure leaves the work copy
+	// in place (FuseRoundtrip's own guarantee) and surfaces the
+	// error so the operator sees it in the diagnostic log.
+	if cerr := rt.CopyOut(workPath, c.path); cerr != nil {
+		return fmt.Errorf("anki: write session copy-out: %w", cerr)
+	}
+	success = true
+
+	// Refresh the parent's immutable read handle so subsequent
+	// reads see the new file state (SQLite's immutable=1 disables
+	// per-connection change detection; close + reopen is the
+	// canonical way to pick up writes).
+	if cerr := c.refreshReadHandle(); cerr != nil {
+		return fmt.Errorf("anki: write session refresh: %w", cerr)
+	}
+	c.invalidateColCache()
+	return nil
+}
+
+// refreshReadHandle closes + reopens the immutable read handle on
+// the source file. Called after every successful WriteSession so
+// subsequent reads see the post-CopyOut file state. SQLite's
+// immutable=1 path disables change detection, so an already-open
+// connection would return the pre-write snapshot indefinitely; a
+// close + reopen is the only safe refresh.
+//
+// Schema detection runs again because openCollectionDSN returns a
+// fresh Collection with its own detectSchema call. The result is
+// the same (the schema doesn't change between writes); the cost
+// is one extra sqlite_master query per write (microseconds).
+func (c *Collection) refreshReadHandle() error {
+	if c == nil || c.path == "" || c.db == nil {
+		return ErrCollectionNotOpen
+	}
+	if c.db != nil {
+		_ = c.db.Close()
 		c.db = nil
 	}
-	c.colCache = nil
-	return errors.Join(errs...)
+	fresh, err := openCollectionDSN(c.path)
+	if err != nil {
+		return err
+	}
+	c.db = fresh.db
+	c.variant = fresh.variant
+	c.modernNotetypes = fresh.modernNotetypes
+	c.colCache = nil // always invalidate on reopen
+	return nil
+}
+
+// WritePath returns the configured --anki-work-dir (empty when
+// none was set at open time). Exposed for tests that want to
+// verify the open-time capture and for diagnostics.
+func (c *Collection) WritePath() string {
+	if c == nil {
+		return ""
+	}
+	return c.writePath
 }
 
 // Path returns the collection file path the receiver was opened on.
-// For a FUSE roundtrip collection this is the ORIGINAL src path
-// (captured at open time), never the work copy, and it remains
+// This is the ORIGINAL src path captured at open time (never a work
+// copy path, even right after a WriteSession), and it remains
 // available after Close(). Safe to expose in the terminal handoff
 // line (the path is the same one the operator passed via
 // --anki-collection; not a secret).
@@ -726,17 +915,36 @@ func (c *Collection) invalidateColCache() {
 // CollectionModBump updates col.mod to the current millis. Called
 // after every write that mutates notes/cards (AnkiDroid would do this
 // automatically on close; we mimic it eagerly so a stale screen in
-// AnkiDroid sees a fresh "modified" timestamp).
+// AnkiDroid sees a fresh "modified" timestamp). v4.4 routes the
+// bump through WriteSession so the work-copy / writeback / read-
+// refresh dance happens exactly the same way as a normal Insert /
+// Update / AddTags — a single tiny transaction that bumps col.mod
+// and lands durably in the source file.
 func (c *Collection) CollectionModBump() error {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return ErrCollectionNotOpen
 	}
-	_, err := c.db.Exec("UPDATE col SET mod = ? WHERE id = 1", nowMillis())
-	if err != nil {
-		return fmt.Errorf("anki: bump col.mod: %w", err)
-	}
-	c.invalidateColCache()
-	return nil
+	mod := nowMillis()
+	return c.WriteSession(func(wc *Collection) error {
+		tx, err := wc.db.Begin()
+		if err != nil {
+			return fmt.Errorf("anki: begin bump tx: %w", err)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+		if _, err := tx.Exec("UPDATE col SET mod = ? WHERE id = 1", mod); err != nil {
+			return fmt.Errorf("anki: bump col.mod: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("anki: commit bump tx: %w", err)
+		}
+		committed = true
+		return nil
+	})
 }
 
 // DeckIDs returns a name→id map of every deck in the collection.
@@ -1331,7 +1539,7 @@ type InsertOptions struct {
 // outside the transaction so a rolled-back read doesn't take a
 // write lock on the connection pool (the pool is single-conn).
 func (c *Collection) InsertNote(deckID, modelID int64, fields []string, tags []string, opts *InsertOptions) (int64, error) {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return 0, ErrCollectionNotOpen
 	}
 	if len(fields) == 0 {
@@ -1392,10 +1600,11 @@ func (c *Collection) InsertNote(deckID, modelID int64, fields []string, tags []s
 	// behaviour to the csum path.
 	sfld := fieldChecksumInput(fields[0])
 	mod := nowMillis()
-	// Resolve template count BEFORE opening the transaction: the
-	// pool is single-connection (SetMaxOpenConns(1)) so a
-	// Query inside the tx would deadlock. Resolving upfront keeps
-	// the tx body to its own writes.
+	// Resolve template count BEFORE opening the WriteSession: the
+	// read goes through the immutable handle and avoids wasting a
+	// roundtrip on a model id that doesn't exist. The template count
+	// is identical between the source and the work copy at CopyIn
+	// time (the work copy is a fresh src snapshot).
 	tCount, err := c.ModelTemplateCount(modelID)
 	if err != nil {
 		return 0, err
@@ -1406,48 +1615,57 @@ func (c *Collection) InsertNote(deckID, modelID int64, fields []string, tags []s
 		// generation; without a card the note is invisible).
 		tCount = 1
 	}
-	tx, err := c.db.Begin()
-	if err != nil {
-		return 0, fmt.Errorf("anki: begin insert tx: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
+	// Captured by the closure below so the post-session return can
+	// surface the new note id.
+	var noteID int64
+	err = c.WriteSession(func(wc *Collection) error {
+		tx, err := wc.db.Begin()
+		if err != nil {
+			return fmt.Errorf("anki: begin insert tx: %w", err)
 		}
-	}()
-	res, err := tx.Exec(`INSERT INTO notes (guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		guid, modelID, mod, int64(-1), formatTags(tags), flds, sfld, cs, 0, "")
-	if err != nil {
-		return 0, fmt.Errorf("anki: insert note: %w", err)
-	}
-	noteID, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("anki: note lastInsertId: %w", err)
-	}
-	// Compute next due for the deck using the same tx (single
-	// connection, no deadlock).
-	nextDue, err := c.nextNewCardDue(tx, deckID)
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+		res, err := tx.Exec(`INSERT INTO notes (guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			guid, modelID, mod, int64(-1), formatTags(tags), flds, sfld, cs, 0, "")
+		if err != nil {
+			return fmt.Errorf("anki: insert note: %w", err)
+		}
+		nid, err := res.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("anki: note lastInsertId: %w", err)
+		}
+		noteID = nid
+		// Compute next due for the deck using the same tx (single
+		// connection on the work copy, no deadlock).
+		nextDue, err := wc.nextNewCardDue(tx, deckID)
+		if err != nil {
+			return err
+		}
+		for ord := 0; ord < tCount; ord++ {
+			_, err := tx.Exec(`INSERT INTO cards (nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				nid, deckID, ord, mod, int64(-1), 0, 0, nextDue+int64(ord), 0, 0, 0, 0, 0, 0, 0, 0, "")
+			if err != nil {
+				return fmt.Errorf("anki: insert card ord=%d: %w", ord, err)
+			}
+		}
+		if _, err := tx.Exec("UPDATE col SET mod = ?, usn = -1 WHERE id = 1", mod); err != nil {
+			return fmt.Errorf("anki: bump col.mod on insert: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("anki: commit insert tx: %w", err)
+		}
+		committed = true
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
-	for ord := 0; ord < tCount; ord++ {
-		_, err := tx.Exec(`INSERT INTO cards (nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			noteID, deckID, ord, mod, int64(-1), 0, 0, nextDue+int64(ord), 0, 0, 0, 0, 0, 0, 0, 0, "")
-		if err != nil {
-			return 0, fmt.Errorf("anki: insert card ord=%d: %w", ord, err)
-		}
-	}
-	if _, err := tx.Exec("UPDATE col SET mod = ?, usn = -1 WHERE id = 1", mod); err != nil {
-		return 0, fmt.Errorf("anki: bump col.mod on insert: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("anki: commit insert tx: %w", err)
-	}
-	committed = true
-	c.invalidateColCache()
 	return noteID, nil
 }
 
@@ -1494,7 +1712,7 @@ func formatTags(tags []string) string {
 // rebuilt in ord order, csum is recomputed (if the first field
 // changed), and mod/usn are bumped.
 func (c *Collection) UpdateNoteFields(noteID int64, fields map[string]string) error {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return ErrCollectionNotOpen
 	}
 	if noteID == 0 {
@@ -1503,7 +1721,13 @@ func (c *Collection) UpdateNoteFields(noteID int64, fields map[string]string) er
 	if len(fields) == 0 {
 		return nil // no-op
 	}
-	// Load current note + model to map field names to ords.
+	// Load current note + model to map field names to ords. Reads
+	// go through the immutable handle — the source file is the
+	// source of truth, and AnkiDroid may have edited the note
+	// between our read and the write roundtrip. The next WriteSession
+	// will refreshReadHandle, so a TOCTOU window is bounded to
+	// ~400ms; AnkiDroid's own writer waits on SQLite's locking
+	// the same way ours does.
 	row := c.db.QueryRow("SELECT mid, flds, csum FROM notes WHERE id = ?", noteID)
 	var (
 		mid     int64
@@ -1546,30 +1770,31 @@ func (c *Collection) UpdateNoteFields(noteID int64, fields map[string]string) er
 	// pipeline was computed over.
 	newSfld := stripHTMLMedia(oldParts[0])
 	mod := nowMillis()
-	tx, err := c.db.Begin()
-	if err != nil {
-		return fmt.Errorf("anki: begin update tx: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-	if _, err := tx.Exec(`UPDATE notes SET flds = ?, sfld = ?, csum = ?, mod = ?, usn = -1 WHERE id = ?`,
-		newFlds, newSfld, newCsum, mod, noteID); err != nil {
-		return fmt.Errorf("anki: update note flds: %w", err)
-	}
-	if _, err := tx.Exec("UPDATE col SET mod = ?, usn = -1 WHERE id = 1", mod); err != nil {
-		return fmt.Errorf("anki: bump col.mod on update: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("anki: commit update tx: %w", err)
-	}
-	committed = true
-	c.invalidateColCache()
 	_ = oldCsum
-	return nil
+	return c.WriteSession(func(wc *Collection) error {
+		tx, err := wc.db.Begin()
+		if err != nil {
+			return fmt.Errorf("anki: begin update tx: %w", err)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+		if _, err := tx.Exec(`UPDATE notes SET flds = ?, sfld = ?, csum = ?, mod = ?, usn = -1 WHERE id = ?`,
+			newFlds, newSfld, newCsum, mod, noteID); err != nil {
+			return fmt.Errorf("anki: update note flds: %w", err)
+		}
+		if _, err := tx.Exec("UPDATE col SET mod = ?, usn = -1 WHERE id = 1", mod); err != nil {
+			return fmt.Errorf("anki: bump col.mod on update: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("anki: commit update tx: %w", err)
+		}
+		committed = true
+		return nil
+	})
 }
 
 // indexOfString returns the index of v in s, or -1 if absent.
@@ -1586,7 +1811,7 @@ func indexOfString(s []string, v string) int {
 // noteIDs. Duplicates within a note's tag list are deduped; tags
 // already present are not re-added.
 func (c *Collection) AddTags(noteIDs []int64, tags string) error {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return ErrCollectionNotOpen
 	}
 	if len(noteIDs) == 0 || tags == "" {
@@ -1596,42 +1821,48 @@ func (c *Collection) AddTags(noteIDs []int64, tags string) error {
 	if len(newOnes) == 0 {
 		return nil
 	}
-	tx, err := c.db.Begin()
-	if err != nil {
-		return fmt.Errorf("anki: begin addTags tx: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-	for _, nid := range noteIDs {
-		if nid == 0 {
-			continue
-		}
-		var existing string
-		err := tx.QueryRow("SELECT tags FROM notes WHERE id = ?", nid).Scan(&existing)
+	return c.WriteSession(func(wc *Collection) error {
+		tx, err := wc.db.Begin()
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("anki: begin addTags tx: %w", err)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+		for _, nid := range noteIDs {
+			if nid == 0 {
 				continue
 			}
-			return fmt.Errorf("anki: read note %d tags: %w", nid, err)
+			// Read the existing tags from the WORK copy (not the
+			// parent's immutable handle) so we merge against the
+			// freshest state available inside the roundtrip. A
+			// concurrent AnkiDroid edit would be reflected on the
+			// work copy because CopyIn mirrors src -wal / -shm.
+			var existing string
+			err := tx.QueryRow("SELECT tags FROM notes WHERE id = ?", nid).Scan(&existing)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				return fmt.Errorf("anki: read note %d tags: %w", nid, err)
+			}
+			merged := mergeTags(existing, newOnes)
+			if _, err := tx.Exec("UPDATE notes SET tags = ?, mod = ?, usn = -1 WHERE id = ?", merged, nowMillis(), nid); err != nil {
+				return fmt.Errorf("anki: update note %d tags: %w", nid, err)
+			}
 		}
-		merged := mergeTags(existing, newOnes)
-		if _, err := tx.Exec("UPDATE notes SET tags = ?, mod = ?, usn = -1 WHERE id = ?", merged, nowMillis(), nid); err != nil {
-			return fmt.Errorf("anki: update note %d tags: %w", nid, err)
+		if _, err := tx.Exec("UPDATE col SET mod = ?, usn = -1 WHERE id = 1", nowMillis()); err != nil {
+			return fmt.Errorf("anki: bump col.mod on addTags: %w", err)
 		}
-	}
-	if _, err := tx.Exec("UPDATE col SET mod = ?, usn = -1 WHERE id = 1", nowMillis()); err != nil {
-		return fmt.Errorf("anki: bump col.mod on addTags: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("anki: commit addTags tx: %w", err)
-	}
-	committed = true
-	c.invalidateColCache()
-	return nil
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("anki: commit addTags tx: %w", err)
+		}
+		committed = true
+		return nil
+	})
 }
 
 // splitTags is AnkiDroid's Utility.splitTags: trim and split on

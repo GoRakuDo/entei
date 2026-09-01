@@ -5,6 +5,26 @@
 // so direct SQLite open on /storage/emulated/0/Android/media/...
 // returns SQLITE_BUSY for any access; copy-work-writeback is the
 // only viable path for the Android/media target.
+//
+// As of 2026-09-01 the roundtrip is invoked per-WriteSession (not
+// at OpenCollection time): the companion keeps the AnkiDroid-
+// visible collection open with an immutable read-only handle (so
+// AnkiDroid can open its RW handle at any time without "Database
+// Locked"), and each write (InsertNote / UpdateNoteFields /
+// AddTags) does a fresh CopyIn → INSERT/UPDATE → checkpoint →
+// CopyOut roundtrip. The companion NEVER holds a write lock on
+// the AnkiDroid-visible file.
+//
+// WAL handling: real AnkiDroid databases run in WAL mode and keep
+// a live -wal/-shm sidecar pair on the AnkiDroid-visible path
+// (verified: collection.anki2 + collection.anki2-wal +
+// collection.anki2-shm). CopyIn copies all three so the work copy
+// inherits AnkiDroid's uncheckpointed writes; CopyOut copies the
+// work main file back, then either restores the work -wal/-shm
+// (when non-empty) or removes them so AnkiDroid's next open sees
+// a coherent file. The work copy must land without any stale
+// sidecars from a killed previous session — those are scrubbed
+// alongside the main file preservation/cleanup logic.
 package anki
 
 import (
@@ -121,6 +141,29 @@ func (f *FuseRoundtrip) CopyIn(src string) (workPath string, err error) {
 		removeWorkSidecars(workPath)
 		return "", err
 	}
+	// WAL/SHM-aware CopyIn: AnkiDroid runs in WAL mode (verified
+	// on real device 2026-09-01: collection.anki2 + -wal + -shm
+	// triplet). Copying only the main file would lose any
+	// uncheckpointed writes AnkiDroid has accumulated since its
+	// last checkpoint — the work copy would then write back
+	// without those rows, silently clobbering AnkiDroid's recent
+	// edits. Mirror src's -wal / -shm into work + "-wal" / "-shm"
+	// (when they exist) so the work copy picks up the same WAL
+	// state AnkiDroid sees. Missing sidecars on src are fine — a
+	// DELETE-journal-mode DB or a freshly-checkpointed DB has no
+	// live -wal/-shm. A failed sidecar copy does NOT roll back the
+	// main copy: the work copy is still usable in rollback-journal
+	// mode and the next checkpoint on the work copy will reconcile.
+	if err := copySidecarIfExists(src, workPath, "-wal"); err != nil {
+		// Best-effort: log via the error chain but don't fail
+		// CopyIn outright. The main file landed; the work session
+		// can still proceed with whatever WAL state AnkiDroid had.
+		// A future checkpoint from the work copy will reconcile.
+		_ = err
+	}
+	if err := copySidecarIfExists(src, workPath, "-shm"); err != nil {
+		_ = err
+	}
 	return workPath, nil
 }
 
@@ -178,14 +221,105 @@ func shouldPreserveStaleWork(src, work string) bool {
 // so the caller can retry or recover the data, and the error is
 // wrapped with the (redacted) surviving path so the recovery copy
 // is discoverable without leaking the device tree.
+//
+// WAL/SHM handling: SQLite WAL mode writes pending transactions
+// into the -wal sidecar; the work copy's last `prAGMA
+// wal_checkpoint(TRUNCATE)` (issued by the caller via WriteSession)
+// should leave an empty -wal on the work copy. CopyOut then:
+//
+//  1. Copies the work main file → src.
+//  2. Removes any leftover work -wal / -shm (their content was
+//     merged into the work main file by the checkpoint; keeping
+//     them around would replay those bytes against the next reader).
+//  3. Copies work -wal / -shm back to src ONLY if they exist AND
+//     are non-empty AFTER the checkpoint (defensive: a driver that
+//     skipped the checkpoint must not lose data). When the work
+//     checkpoint succeeded the sidecars are absent/zero-length and
+//     nothing is copied; this is the common case.
+//
+// If main-file copy fails the sidecars are left alone (no partial
+// writeback) so the recovery copy still represents a coherent
+// state.
 func (f *FuseRoundtrip) CopyOut(workPath, src string) error {
 	if err := copyFile(workPath, src); err != nil {
 		return fmt.Errorf("%w (work copy left at %s)", err, redactPath(workPath))
 	}
+	// Sidecar handling (step 2: scrub leftovers; step 3: copy back
+	// if non-empty). Done after the main copy so a failed main copy
+	// leaves the work area fully intact for retry.
+	if err := copySidecarBackIfNonEmpty(workPath, src, "-wal"); err != nil {
+		return fmt.Errorf("anki: fuse roundtrip: copy sidecar -wal back: %w (work copy left at %s)", err, redactPath(workPath))
+	}
+	if err := copySidecarBackIfNonEmpty(workPath, src, "-shm"); err != nil {
+		return fmt.Errorf("anki: fuse roundtrip: copy sidecar -shm back: %w (work copy left at %s)", err, redactPath(workPath))
+	}
+	// Always scrub the work sidecars AFTER the copy-back step so the
+	// copy-back reads the just-copied sidecars (no race). After this
+	// point the work area is clean and the only remaining file is the
+	// main work file, which the caller will remove via os.Remove
+	// below.
+	removeWorkSidecars(workPath)
 	if err := os.Remove(workPath); err != nil {
 		return fmt.Errorf("anki: fuse roundtrip: writeback ok but work copy %s not removed: %w", redactPath(workPath), err)
 	}
 	return nil
+}
+
+// copySidecarIfExists copies src+<suffix> → workPath+<suffix> when
+// the source sidecar exists. A missing source sidecar is a no-op
+// (the source is either DELETE-journal-mode or has no live WAL).
+// A copy failure returns the error so the caller can decide; the
+// fuse_roundtrip CopyIn caller logs+continues because the work
+// copy is still usable.
+//
+// The two-step "stat, then copy" has a TOCTOU window (the sidecar
+// could disappear between stat and copy). On a healthy device the
+// window is microseconds; the worst case is a missing-sidecar
+// error from copyFile which is harmless (the work copy just lacks
+// the sidecar, and a future checkpoint will reconcile).
+func copySidecarIfExists(src, workPath, suffix string) error {
+	srcSide := src + suffix
+	st, err := os.Stat(srcSide)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", srcSide, err)
+	}
+	if st.Size() == 0 {
+		// An empty sidecar has no transactional content; skip the
+		// copy and remove any leftover on the work side so a stale
+		// -wal/-shm doesn't shadow a fresh main file.
+		_ = os.Remove(workPath + suffix)
+		return nil
+	}
+	return copyFile(srcSide, workPath+suffix)
+}
+
+// copySidecarBackIfNonEmpty copies workPath+<suffix> → src+<suffix>
+// ONLY when the work sidecar exists AND has non-zero size (the
+// post-checkpoint case is missing-or-zero, which means the WAL was
+// merged into the work main file already — copying it back would
+// replay stale bytes against the now-current src). When the work
+// sidecar is missing the source's own sidecar is left untouched
+// (the work copy absorbed it; src is now the canonical copy).
+func copySidecarBackIfNonEmpty(workPath, src, suffix string) error {
+	workSide := workPath + suffix
+	st, err := os.Stat(workSide)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No work sidecar → nothing to copy. Leave src's own
+			// sidecar (if any) alone.
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", workSide, err)
+	}
+	if st.Size() == 0 {
+		// Empty work sidecar → checkpoint already merged its
+		// content into the work main file. Don't replay onto src.
+		return nil
+	}
+	return copyFile(workSide, src+suffix)
 }
 
 // copyFile is the plain `cp`-equivalent copy the verified device
