@@ -35,21 +35,17 @@
 //     mono f32 PCM for sub-to-audio subtitle sync. Requires BOTH an
 //     allowed Origin AND a valid capability token. Empty ffmpeg
 //     disables the endpoint (404).
-//   - The AnkiDroid bridge is exposed via the raw AnkiConnect-
-//     compatible listener on 127.0.0.1:8765 (spec v4.0,
-//     EIZOU_DENDENSHI_ANKIDROID_CONNECT.md, 2026-08-31). When
-//     Config.Anki != nil AND the bind succeeds, a second HTTP server
-//     runs alongside this one — byte-compatible with AnkiconnectAndroid
-//     and the official AnkiConnect plugin so Entei / Yomitan /
-//     asbplayer connect with zero config. The raw listener accepts
-//     POST / (any path) with the AnkiConnect envelope, serves CORS-
-//     wildcard (`*`), and dispatches through the in-process
-//     collection.anki2 SQLite layer. No /v1/anki/* routes exist in
-//     v4.0 (they were removed alongside the proxy dependency in v3.0
-//     and the raw listener is the only Anki surface). EADDRINUSE on
-//     8765 is logged as a one-line warning and the rest of the
-//     companion keeps serving.
 //   - Unknown routes → 404; known routes with unknown methods → 405.
+//
+//   Companion provides NO Anki surface as of 2026-09-01: the
+//   AnkiDroid bridge was removed because the direct-SQLite path
+//   caused "Database Locked" on AnkiDroid and prevented Yomitan's
+//   card-add (Yomitan expects AnkiConnect on 127.0.0.1:8765, which
+//   the companion was occupying). Users on Android now install
+//   AnkiconnectAndroid (KamWithK APK) which serves 127.0.0.1:8765
+//   via AnkiDroid's ContentProvider — no DB lock, no port
+//   contention, and Entei / Yomitan connect to the same loopback
+//   address as desktop AnkiConnect.
 //
 // Security boundaries:
 //   - Binding is loopback-only (enforced by the command, not here).
@@ -84,7 +80,6 @@ import (
 	"strings"
 	"sync"
 
-	"eizoudendenshi/internal/anki"
 	"eizoudendenshi/internal/credential"
 	"eizoudendenshi/internal/diag"
 	"eizoudendenshi/internal/job"
@@ -237,54 +232,22 @@ type Config struct {
 	// carried in the query string can never reach the log; pairing lines
 	// are success/failure only, never a code or token.
 	Logger *diag.Logger
-
-	// Anki, when non-nil, enables the raw AnkiConnect-compatible
-	// listener (POST / on 127.0.0.1:8765, spec v4.0,
-	// EIZOU_DENDENSHI_ANKIDROID_CONNECT.md, 2026-08-31). The Writer
-	// is required for storeMediaFile and the addNote media-array
-	// rewrite; the DB is required for every action. APIKey is the
-	// optional AnkiConnect-style body `key` gate — empty means
-	// no-key-required (matches AnkiconnectAndroid). Enabled is a
-	// non-sensitive boolean surfaced by the terminal handoff line
-	// only; it is never returned over the wire. Nil disables the
-	// bridge entirely — StartRawAnkiConnectListener becomes a no-op
-	// and there is no Anki surface.
-	Anki *AnkiBridge
-}
-
-// AnkiBridge bundles the AnkiDroid bridge dependencies injected into
-// the API server at construction. The fields are pointers so a nil
-// Anki disables the raw listener; an Anki with only Writer or only
-// Collection still exposes the surface (notes-only bridge: DB set,
-// Writer nil — storeMediaFile returns "anki media writer not
-// available" but every action that doesn't touch MediaWriter.Write
-// works). Enabled is a non-sensitive boolean surfaced only by the
-// terminal handoff line; it is never returned over the wire. Per
-// docs v4.0 (2026-08-31): the prior /v1/anki/* surface was removed
-// entirely; the raw AnkiConnect listener is the only Anki surface.
-type AnkiBridge struct {
-	Writer  *anki.MediaWriter
-	DB      *anki.Collection
-	APIKey  string // optional AnkiConnect-style body key; empty = no key required
-	Enabled bool
 }
 
 // Server holds in-memory pairing state for one process lifetime.
 type Server struct {
-	mu                   sync.Mutex
-	code                 string              // 6-digit pairing code; consumed after a successful pair
-	token                string              // opaque capability token; never logged, persisted only via cred
-	cred                 credential.Store    // optional persistent credential store (nil = memory-only)
-	onReset              func(code string)   // optional fresh-code notifier after DELETE /v1/pair
-	log                  *diag.Logger        // optional diagnostic sink (nil-safe)
-	fixturePath          string              // ED-2B: static media fixture served at /v1/media/fixture
-	growSource           media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
-	ffmpegPath           string              // ED-2H /v1/media/pcm converter (16 kHz mono PCM for sub-to-audio)
-	jobs                 *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
-	torrents             *torrent.Manager    // ED-2G: optional torrent-job manager (nil = disabled)
-	anki                 *AnkiBridge         // ED-3 / AnkiDroid bridge: writer + DB; Enabled gates dispatch
-	allowedOrigins       map[string]struct{} // fixed + per-process extra exact origins
-	rawAnkiAcceptedHosts map[string]struct{} // DNS-rebinding guard accepted Host set (built from RawAnkiConnectBind; tests may override)
+	mu             sync.Mutex
+	code           string              // 6-digit pairing code; consumed after a successful pair
+	token          string              // opaque capability token; never logged, persisted only via cred
+	cred           credential.Store    // optional persistent credential store (nil = memory-only)
+	onReset        func(code string)   // optional fresh-code notifier after DELETE /v1/pair
+	log            *diag.Logger        // optional diagnostic sink (nil-safe)
+	fixturePath    string              // ED-2B: static media fixture served at /v1/media/fixture
+	growSource     media.GrowingSource // ED-2C: availability-aware growing source (mutually exclusive with fixturePath)
+	ffmpegPath     string              // ED-2H /v1/media/pcm converter (16 kHz mono PCM for sub-to-audio)
+	jobs           *job.Manager        // ED-2F: optional YouTube source-job manager (nil = disabled)
+	torrents       *torrent.Manager    // ED-2G: optional torrent-job manager (nil = disabled)
+	allowedOrigins map[string]struct{} // fixed + per-process extra exact origins
 
 	// createMu serializes job/torrent create handlers so cross-kind
 	// fire-and-forget replaces cannot interleave into mixed kinds.
@@ -331,19 +294,17 @@ func New(cfg Config) (*Server, error) {
 		allowed[norm] = struct{}{}
 	}
 	return &Server{
-		code:                 code,
-		token:                token,
-		cred:                 cfg.Credential,
-		onReset:              cfg.OnPairingReset,
-		log:                  cfg.Logger,
-		fixturePath:          cfg.FixturePath,
-		growSource:           cfg.GrowSource,
-		ffmpegPath:           cfg.Ffmpeg,
-		jobs:                 cfg.Jobs,
-		torrents:             cfg.Torrents,
-		anki:                 cfg.Anki,
-		allowedOrigins:       allowed,
-		rawAnkiAcceptedHosts: rawAnkiConnectDefaultAcceptedHosts(),
+		code:           code,
+		token:          token,
+		cred:           cfg.Credential,
+		onReset:        cfg.OnPairingReset,
+		log:            cfg.Logger,
+		fixturePath:    cfg.FixturePath,
+		growSource:     cfg.GrowSource,
+		ffmpegPath:     cfg.Ffmpeg,
+		jobs:           cfg.Jobs,
+		torrents:       cfg.Torrents,
+		allowedOrigins: allowed,
 	}, nil
 }
 
@@ -378,13 +339,6 @@ func (s *Server) Handler() http.Handler {
 		// is configured; otherwise these routes are honestly 404.
 		mux.HandleFunc("/v1/source/torrents", s.handleTorrentCreate)
 		mux.HandleFunc("/v1/source/torrents/", s.handleTorrentByID)
-	}
-	if s.anki != nil {
-		// The raw AnkiConnect listener is started separately by
-		// StartRawAnkiConnectListener (cmd/eizouden calls it after
-		// the main server is up). We do not register any /v1/anki/*
-		// routes here — v4.0 removed them; the raw listener is the
-		// only Anki surface.
 	}
 	mux.HandleFunc("/", s.handleNotFound)
 	if s.log == nil {

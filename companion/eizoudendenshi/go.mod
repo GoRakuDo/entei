@@ -8,7 +8,6 @@ require (
 	github.com/anacrolix/torrent v1.61.0
 	github.com/gravity-zero/mkvgo v0.0.0-00010101000000-000000000000
 	golang.org/x/sys v0.47.0
-	modernc.org/sqlite v1.57.0
 )
 
 replace github.com/gravity-zero/mkvgo => ../../vendor/mkvgo
@@ -93,5 +92,6 @@ require (
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	modernc.org/sqlite v1.57.0 // indirect
 	zombiezen.com/go/sqlite v0.13.1 // indirect
 )
