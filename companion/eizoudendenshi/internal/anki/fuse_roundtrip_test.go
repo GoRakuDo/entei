@@ -618,7 +618,7 @@ func TestOpenCollectionWithWorkDirCoexistsWithExclusiveLock(t *testing.T) {
 	// acceptable is the companion failing to recognize that
 	// src is in use.
 	t.Log("WriteSession under exclusive lock: copy-out may fail (AnkiDroid holding src); in either case the companion must surface a clean error, not crash")
-	werr := c.WriteSession(func(wc *Collection) error {
+	werr := c.WriteSession(func(wc *workCollection) error {
 		_, ierr := wc.db.Exec("UPDATE col SET mod = ? WHERE id = 1", nowMillis())
 		return ierr
 	})

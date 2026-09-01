@@ -44,52 +44,61 @@ import (
 // See `schemaVariant` for the autodetected branch and
 // `c.modernNotetypes` for the per-table pick inside the modern branch.
 //
-// Lock coexistence with AnkiDroid (spec v4.4, 2026-09-01): the
-// companion NEVER holds a write lock on the AnkiDroid-visible file.
-// OpenCollection / OpenCollectionWithWorkDir open an IMMUTABLE read-
-// only handle (DSN `immutable=1`) — SQLite skips all locking and
-// change detection, so AnkiDroid can open its own RW handle at any
-// time without the "Database Locked" dialog. The companion reads
-// see a per-connection file snapshot; they are refreshed after every
-// write via a close + reopen of the immutable handle.
+// Lock coexistence with AnkiDroid (spec v5.1, 2026-09-02): the
+// companion NEVER holds ANY handle on the AnkiDroid-visible file.
+// Reads (DeckIDs, FindNotes, NotesInfo, CanAddNotes, …) open an
+// immutable read-only handle per call, do the work, and CLOSE
+// IMMEDIATELY. Writes go through WriteSession: each write does
+// its own CopyIn → INSERT/UPDATE → checkpoint → CopyOut roundtrip
+// against a work copy in the configured --anki-work-dir (a non-FUSE
+// directory, e.g. the Termux app-private temp dir). The work copy
+// holds the only write lock during the roundtrip; the
+// AnkiDroid-visible file is touched only via plain `os.Create` (no
+// fcntl locks), which on Linux/Android/FUSE never conflicts with
+// AnkiDroid's SQLite handle.
 //
-// Writes (InsertNote / UpdateNoteFields / AddTags) go through
-// WriteSession: each write does its own CopyIn → INSERT/UPDATE →
-// checkpoint → CopyOut roundtrip against a work copy in the configured
-// --anki-work-dir (a non-FUSE directory, e.g. the Termux app-private
-// temp dir). The work copy holds the only write lock during the
-// roundtrip; the AnkiDroid-visible file is touched only via plain
-// `os.Create` (no fcntl locks), which on Linux/Android/FUSE never
-// conflicts with AnkiDroid's SQLite handle. The FUSE roundtrip is
-// still REQUIRED — Android/media + no APK + direct-SQLite
-// semantics — but the roundtrip is per-write, not per-open, and
-// the lock window is microseconds.
+// Why open-on-demand: AnkiDroid may open its own RW handle at any
+// moment. If the companion held a long-lived read handle, even an
+// immutable one, two failure modes were possible on the prior v4.4
+// design: (1) on Windows, `os.Rename` over the file fails with
+// "Access is denied" while ANY handle was open (the v4.4 fix was
+// to close the handle just-in-time before every CopyOut — fragile,
+// race-prone on a busy operator's machine); (2) on any platform,
+// a leaked handle holds the file in a state where AnkiDroid cannot
+// cleanly reclaim its lock. The v5.1 stateless facade closes every
+// handle it opens, so the lock window is exactly the SQL
+// statement's duration — measured in microseconds — and AnkiDroid
+// can open its collection at any time with zero contention.
 //
-// Concurrency: WriteSession calls serialize on c.writeMu. Reads do
-// not block writes (they use the immutable handle which has no
-// locks). On a real device the roundtrip takes ~400ms; if a
-// second action arrives during the roundtrip it queues, then runs
-// sequentially. This avoids the "double-CopyIn" race that would
-// otherwise lose one roundtrip's writes.
+// Schema detection runs on every read (one sqlite_master query,
+// microseconds). The schema is invariant between calls — the
+// read handle is opened, schema detected, query issued, handle
+// closed. There is no persistent variant / notetypes state to
+// invalidate on writes: subsequent reads re-detect. This is the
+// minimum cost that satisfies「即時解放」.
 //
 // busy_timeout on the work copy is 2000ms (short enough to surface
 // the rare "AnkiDroid is writing" contention as a clear error,
 // long enough to absorb normal scheduler hiccups). The immutable
 // read handle uses busy_timeout=5000 like the pre-v4.4 default
 // (irrelevant in practice because immutable=1 skips locking).
+//
+// ErrCollectionNotOpen is preserved as a sentinel: it is now
+// returned ONLY for nil receivers or empty paths. Reads on a
+// non-nil Collection whose path was validated at OpenCollection
+// time NEVER return it — the underlying sql.Open will surface the
+// real error if the file disappears (ErrNotExist → "no such file";
+// ErrUnsupportedSchema from detectSchema if the schema is wrong).
 type Collection struct {
-	db       *sql.DB
-	path     string
-	variant  schemaVariant
-	colCache *colRow // cached single-row col data (parses lazily; invalidated on writes)
+	// path is the validated collection.anki2 path (set by
+	// OpenCollection, never a work copy path). Empty when the
+	// facade was never initialized.
+	path string
 
-	// modernNotetypes is set by detectSchema when the modern variant
-	// was selected and the dedicated note-type storage is the
-	// `notetypes` table (AnkiDroid 2.16+) rather than the `models`
-	// table (Anki desktop / older AnkiDroid). It drives the modern
-	// reader dispatch in modelIDsFromTable / modelJSON. False when
-	// variant is legacy. False on modern when only `models` exists.
-	modernNotetypes bool
+	// displayPath mirrors path (kept as a separate field so the
+	// identity semantics in the v4.4 comment for Path() survive
+	// unchanged — Path() returns the original src path).
+	displayPath string
 
 	// writePath is the --anki-work-dir captured at OpenCollection
 	// time. Empty when the open path didn't include a work dir; in
@@ -101,16 +110,18 @@ type Collection struct {
 	// dir on Android (cmd/eizouden/main.go does this).
 	writePath string
 
+	// readOnlyDSN is the immutable DSN computed once at
+	// OpenCollection time: "file:<path>?immutable=1&_pragma=…". It
+	// is the SAME string every read handle opens — recomputed per
+	// call inside withReadHandle — so a caller cannot accidentally
+	// pass a mutable DSN after the OpenCollection validation step.
+	readOnlyDSN string
+
 	// writeMu serializes WriteSession calls so concurrent actions
 	// don't double-roundtrip. One WriteSession at a time per
-	// Collection receiver.
+	// Collection receiver. (Reads are stateless and don't need
+	// serialization — they don't touch shared state.)
 	writeMu sync.Mutex
-
-	// displayPath is the path Path() returns: the original
-	// collection path captured at open time. Survives Close() and
-	// refreshReadHandle() (which both clear path/db but not the
-	// identity) so the operator-facing identity is stable.
-	displayPath string
 }
 
 // schemaVariant distinguishes the two Anki storage layouts the
@@ -442,17 +453,22 @@ func nowMillis() int64 {
 	return time.Now().UnixMilli()
 }
 
-// OpenCollection opens the AnkiDroid collection.anki2 file at
-// collectionPath with an IMMUTABLE read-only handle (DSN
-// `immutable=1`). The companion never holds a write lock on the
-// AnkiDroid-visible file, so AnkiDroid can open its RW handle at
-// any time without the "Database Locked" dialog (spec v4.4,
-// 2026-09-01). Writes go through WriteSession instead.
+// OpenCollection constructs a stateless facade for the AnkiDroid
+// collection.anki2 file at collectionPath. Spec v5.1 (2026-09-02):
+// the facade holds NO handles — every read method opens an
+// immutable read-only handle per call and closes it before
+// returning, so AnkiDroid can open its own RW handle at any time
+// with zero contention. Writes go through WriteSession (per-call
+// CopyIn → INSERT/UPDATE → checkpoint → CopyOut roundtrip against
+// a work copy in --anki-work-dir), which already satisfies the
+// 「用事終わったら即時解放」 mandate per write.
 //
-// Schema detection (notes / cards / col tables present; legacy JSON
-// vs modern dedicated tables), unicase collation registration, and
-// the per-connection busy_timeout all happen here. Returns
-// ErrUnsupportedSchema when the file is missing any required table.
+// v5.1 OpenCollection does not open the SQLite file. It validates
+// that the path exists (os.Stat) and returns ErrUnsupportedSchema
+// when the schema is wrong. Real schema detection runs on every
+// read (one sqlite_master query, microseconds) because there is no
+// persistent variant state to invalidate. The path is captured for
+// Path() / ankiStatusLine; no handle is held.
 //
 // Thin wrapper over OpenCollectionWithWorkDir with an empty work
 // dir (no per-write roundtrip fallback dir configured; WriteSession
@@ -478,13 +494,8 @@ func OpenCollection(collectionPath string) (*Collection, error) {
 // private storage. cmd/eizouden/main.go picks the default when the
 // flag is empty.
 //
-// As of v4.4 the OPEN path never falls back to a copy-work-writeback
-// at open time (the previous v4.3 roundtrip-on-open fallback
-// caused the Database Locked symptom because the source-side
-// immutable handle never engaged). The v4.3 fallback is dead code:
-// this signature preserves --anki-work-dir so the deployment
-// surface is unchanged, but the work dir is now consumed by
-// WriteSession per write.
+// v5.1: OpenCollectionWithWorkDir validates the path and stores
+// the work dir. No SQLite file is opened at this point.
 func OpenCollectionWithWorkDir(collectionPath, workDir string) (*Collection, error) {
 	return OpenCollectionWithWorkDirHooked(collectionPath, workDir, nil, nil)
 }
@@ -493,68 +504,83 @@ func OpenCollectionWithWorkDir(collectionPath, workDir string) (*Collection, err
 // two additional callbacks.
 //
 //   - onRecovered: reserved for the v4.3 stale-work-preservation
-//     hook. v4.4 no longer preserves stale work copies — every
-//     WriteSession is a fresh CopyIn on a unique work path, so
-//     there is no recovery event to surface. The hook is kept on
+//     hook. v4.4 / v5.1 no longer preserves stale work copies —
+//     every WriteSession is a fresh CopyIn on a unique work path,
+//     so there is no recovery event to surface. The hook is kept on
 //     the signature for source-compat (existing call sites still
 //     compile) and in case a future hardening pass re-introduces
 //     preservation semantics. nil = no-op.
 //   - warnf: reserved for the v4.3 busy-locked-fallback notice.
-//     v4.4's open path is always read-only immutable (no busy
-//     fallback possible — immutable=1 skips locking). The hook is
-//     kept on the signature for source-compat; nil = no-op.
+//     v4.4's open path was always read-only immutable (no busy
+//     fallback possible — immutable=1 skips locking); v5.1 doesn't
+//     open anything at all. The hook is kept on the signature for
+//     source-compat; nil = no-op.
 //
-// Thin wrapper over openCollectionDSN — the v4.3 fallback
-// machinery (FuseRoundtrip at open time) is removed.
+// v5.1: validates the path (os.Stat); no SQLite handle opened.
 func OpenCollectionWithWorkDirHooked(collectionPath, workDir string, onRecovered func(string), warnf func(string, ...any)) (*Collection, error) {
 	if collectionPath == "" {
 		return nil, errors.New("anki: empty collection path")
 	}
 	_ = onRecovered
 	_ = warnf
-	c, err := openCollectionDSN(collectionPath)
-	if err != nil {
-		return nil, err
+	if _, statErr := os.Stat(collectionPath); statErr != nil {
+		return nil, fmt.Errorf("anki: open collection: %w", statErr)
 	}
-	c.writePath = workDir
-	return c, nil
+	return &Collection{
+		path:        collectionPath,
+		displayPath: collectionPath,
+		writePath:   workDir,
+		readOnlyDSN: "file:" + collectionPath + "?immutable=1&_pragma=foreign_keys(0)",
+	}, nil
 }
 
-// openCollectionDSN is the direct-open shared by OpenCollection /
-// OpenCollectionWithWorkDir / OpenCollectionWithWorkDirHooked and
-// by WriteSession's post-write refreshReadHandle. DSN is
-// `immutable=1` (no locking, no change detection; spec v4.4) plus
-// the bridge's foreign_keys pragma. Pool is capped at one
-// connection (SQLite is single-writer; one is enough for our read
-// usage and avoids spurious SQLITE_BUSY under concurrent
-// reads). Schema detection runs after the immutable open succeeds.
-func openCollectionDSN(collectionPath string) (*Collection, error) {
-	// Register UNICASE BEFORE opening the connection. modernc binds
-	// newly-registered collations to all subsequent sqlite-driver
-	// connections; a connection opened before this call would
-	// permanently lack UNICASE and every name-filtered query
-	// against the real AnkiDroid 2.16+ schema would fail with
-	// "no such collation sequence: unicase" — the on-device
-	// bridge failure mode this layer exists to work around.
-	// sync.Once inside ensureUnicaseCollation keeps the cost at
-	// one register call for the process lifetime.
-	ensureUnicaseCollation()
-	dsn := "file:" + collectionPath + "?immutable=1&_pragma=foreign_keys(0)"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("anki: open collection: %w", err)
+// withReadHandle opens the immutable read-only handle, runs fn
+// against it, and closes the handle before returning. Every read
+// method on Collection funnels through here — the 「即時解放」
+// mandate is satisfied by construction: there is no code path
+// that leaves a handle open across a public-method return.
+//
+// The DSN is `immutable=1` (no locking, no change detection; spec
+// v5.1). UNICASE collation is registered before sql.Open
+// (modernc binds newly-registered collations to all subsequent
+// connections; sync.Once inside ensureUnicaseCollation keeps the
+// cost at one register call for the process lifetime). Pool is
+// capped at one connection per call (the db is closed before fn
+// returns, so the cap is a no-op in practice; it remains a
+// defensive measure for any future caller that wraps the helper).
+//
+// fn receives the fresh *sql.DB and is expected to issue all
+// queries (including schema detection via detectSchema) before
+// returning. Errors from fn are returned verbatim.
+//
+// detectSchema runs FIRST inside withReadHandle so the schema
+// decision is visible to fn (variant / modernNotetypes are local
+// variables, not fields on Collection). The Collection facade no
+// longer carries variant / modernNotetypes / colCache — every
+// read re-detects the schema (one sqlite_master query,
+// microseconds) and re-reads the col row (one row, microseconds).
+func (c *Collection) withReadHandle(fn func(db *sql.DB, variant schemaVariant, modernNotetypes bool) error) error {
+	if c == nil {
+		return ErrCollectionNotOpen
 	}
+	if c.path == "" {
+		return ErrCollectionNotOpen
+	}
+	ensureUnicaseCollation()
+	db, err := sql.Open("sqlite", c.readOnlyDSN)
+	if err != nil {
+		return fmt.Errorf("anki: open collection: %w", err)
+	}
+	defer db.Close()
 	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("anki: ping collection: %w", err)
+		return fmt.Errorf("anki: ping collection: %w", err)
 	}
-	c := &Collection{db: db, path: collectionPath, displayPath: collectionPath}
-	if err := c.detectSchema(); err != nil {
-		_ = db.Close()
-		return nil, err
+	variant, modern, err := detectSchema(db)
+	if err != nil {
+		return err
 	}
-	return c, nil
+	return fn(db, variant, modern)
 }
 
 // openWorkCollection opens a work copy as a regular RW handle (no
@@ -566,7 +592,14 @@ func openCollectionDSN(collectionPath string) (*Collection, error) {
 // the roundtrip open for ~5s. The work copy lives on the configured
 // --anki-work-dir (or filepath.Dir(src) when unset) so SQLite's
 // locks don't conflict with AnkiDroid's RW handle on the source.
-func openWorkCollection(workPath string) (*Collection, error) {
+//
+// v5.1: openWorkCollection returns a *sql.DB, NOT a *Collection —
+// the work copy has no need for the stateless facade. The fn
+// callback receives the raw *sql.DB and runs its transaction
+// directly. detectSchema is called once on the work DB and the
+// result is unused (the work DB only writes via SQL; readers
+// inside the callback go through the facade).
+func openWorkCollection(workPath string) (*sql.DB, error) {
 	ensureUnicaseCollation()
 	dsn := "file:" + workPath + "?_pragma=busy_timeout(2000)&_pragma=foreign_keys(0)"
 	db, err := sql.Open("sqlite", dsn)
@@ -578,19 +611,15 @@ func openWorkCollection(workPath string) (*Collection, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("anki: ping work copy: %w", err)
 	}
-	c := &Collection{db: db, path: workPath, displayPath: workPath}
-	if err := c.detectSchema(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return c, nil
+	return db, nil
 }
 
 // isBusyLockError reports whether err is an SQLite busy/locked
 // failure — kept for the v4.3 roundtrip-fallback classifier and
 // for any future caller that wants to detect the AnkiDroid-locked
 // scenario. v4.4's open path no longer uses it (immutable=1 skips
-// locking so the open never busy-locks).
+// locking so the open never busy-locks); v5.1 doesn't open
+// anything at construction time.
 func isBusyLockError(err error) bool {
 	if err == nil {
 		return false
@@ -614,83 +643,91 @@ func isBusyLockError(err error) bool {
 //   - legacy: no dedicated decks table; col.decks / col.models JSON
 //     are the only source (schema 11).
 //
-// modernNotetypes is set as a side effect so the modern reader
-// dispatches to the right table on every subsequent call without
-// re-probing sqlite_master.
-func (c *Collection) detectSchema() error {
-	rows, err := c.db.Query("SELECT name FROM sqlite_master WHERE type='table'")
+// v5.1: detectSchema is a package-level function taking a *sql.DB.
+// The Collection facade no longer caches variant / modernNotetypes;
+// every withReadHandle call re-detects (one sqlite_master query).
+func detectSchema(db *sql.DB) (schemaVariant, bool, error) {
+	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
 	if err != nil {
-		return fmt.Errorf("anki: read sqlite_master: %w", err)
+		return schemaVariantUnknown, false, fmt.Errorf("anki: read sqlite_master: %w", err)
 	}
 	defer rows.Close()
 	tables := map[string]bool{}
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			return fmt.Errorf("anki: scan sqlite_master: %w", err)
+			return schemaVariantUnknown, false, fmt.Errorf("anki: scan sqlite_master: %w", err)
 		}
 		tables[name] = true
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("anki: iterate sqlite_master: %w", err)
+		return schemaVariantUnknown, false, fmt.Errorf("anki: iterate sqlite_master: %w", err)
 	}
 	for _, required := range []string{"notes", "cards", "col"} {
 		if !tables[required] {
-			return fmt.Errorf("%w: missing table %q", ErrUnsupportedSchema, required)
+			return schemaVariantUnknown, false, fmt.Errorf("%w: missing table %q", ErrUnsupportedSchema, required)
 		}
 	}
 	switch {
 	case tables["decks"] && tables["notetypes"]:
-		c.variant = schemaVariantModernTables
-		c.modernNotetypes = true
+		return schemaVariantModernTables, true, nil
 	case tables["decks"] && tables["models"]:
-		c.variant = schemaVariantModernTables
-		c.modernNotetypes = false
+		return schemaVariantModernTables, false, nil
 	default:
-		c.variant = schemaVariantLegacyJSON
-		c.modernNotetypes = false
+		return schemaVariantLegacyJSON, false, nil
 	}
-	return nil
 }
 
-// Close releases the immutable read handle on the source file.
-// v4.4 (2026-09-01) has no Close-time writeback: every write goes
-// through WriteSession which copies src → work → src inline. The
-// only thing Close has to do is release the SQLite handle. Safe to
-// call multiple times; subsequent method calls on the receiver will
-// return ErrCollectionNotOpen.
+// Close is a no-op in v5.1. The facade holds no handle; there is
+// nothing to release. Kept on the API surface for source-compat
+// (existing call sites call c.Close() to satisfy the test contract
+// and to make the defer / cleanup intent explicit). Safe to call
+// multiple times; returns nil always.
 //
-// Display path semantics are unchanged: Path() returns the src path
-// captured at open time even after Close().
+// Note: in v4.4 Close() invalidated reads by returning
+// ErrCollectionNotOpen on the now-nil handle. v5.1 no longer has a
+// "collection is open" state to invalidate — Path() returns the
+// src path captured at OpenCollection time even after Close().
+// Reads on a post-Close receiver open a fresh handle on the same
+// path; reads on a nil receiver return ErrCollectionNotOpen (the
+// only way ErrCollectionNotOpen is reachable on a v5.1 Collection).
 func (c *Collection) Close() error {
-	if c == nil || c.db == nil {
+	if c == nil {
 		return nil
-	}
-	err := c.db.Close()
-	c.db = nil
-	c.colCache = nil
-	if err != nil {
-		return err
 	}
 	return nil
 }
 
 // WriteSession executes fn inside a per-write CopyIn → INSERT/UPDATE
 // → checkpoint → CopyOut roundtrip against a work copy in the
-// configured --anki-work-dir. The companion's read handle on the
-// source is NOT touched during the roundtrip — AnkiDroid can keep
-// its own RW handle open at all times.
+// configured --anki-work-dir. The AnkiDroid-visible file is touched
+// ONLY via plain os.Create / os.Open (no fcntl locks), which on
+// Linux/Android/FUSE never conflicts with AnkiDroid's SQLite
+// handle — and since v5.1 the companion holds NO read handle on
+// the source during the roundtrip, so AnkiDroid can keep its own
+// RW handle open at any moment.
 //
-// The fn callback receives a *Collection whose .db is the work
+// The fn callback receives a *workCollection whose .db is the work
 // copy (RW, single-connection). fn is expected to begin/commit its
 // own SQL transaction via wc.db.Begin() / tx.Commit() exactly like
 // the v4.3 internal API; the callback's contract is "return nil
 // iff the writes are durably committed to the work copy; return
 // non-nil to roll back". WriteSession then checkpoints + closes
 // the work DB and copies the work main file (plus any non-empty
-// sidecars) back to the source. The parent's col cache is
-// invalidated on success so subsequent reads see the bumped
-// mod/usn.
+// sidecars) back to the source.
+//
+// v5.1 changes vs v4.4:
+//   - No `c.db` to close before CopyOut. There is no persistent
+//     read handle — the v4.4 Windows-rename workaround is gone
+//     because there is nothing holding the source open.
+//   - No `c.refreshReadHandle` after CopyOut. The post-writeback
+//     state is picked up by the next read naturally (each read
+//     opens a fresh handle).
+//   - The work Collection the callback receives is a separate
+//     type alias for source-compat (it carries .db + .path so
+//     legacy `wc.db.Begin()` callsites compile). Its .db is
+//     closed before WriteSession returns; it has no role outside
+//     the callback.
 //
 // Concurrency: WriteSession calls are serialized on c.writeMu.
 // Concurrent addNote/updateNoteFields/addTags queue rather than
@@ -698,20 +735,13 @@ func (c *Collection) Close() error {
 // normal fs a roundtrip is microseconds; on Android with an 18 MiB
 // collection over FUSE it is ~400ms. The lock window on the
 // AnkiDroid-visible file is the CopyIn (read) and CopyOut (write)
-// steps only — these use plain os.Create / os.Open which on
-// Linux/Android do not conflict with AnkiDroid's SQLite locks.
+// steps only.
 //
 // Returns the callback's error if fn returned one, or any
 // roundtrip-stage error from the CopyIn / checkpoint / close /
-// CopyOut / refreshReadHandle path. fn's transaction is rolled
-// back in this case; the work copy is removed; the source file is
-// unchanged.
-//
-// Refresh: after a successful roundtrip the parent's immutable
-// handle is closed + reopened so subsequent reads see the new
-// file state. SQLite's immutable=1 disables per-connection change
-// detection; reopening is the only safe way to invalidate the
-// pager's view of the file.
+// CopyOut path. fn's transaction is rolled back in this case; the
+// work copy is removed (only on the clean-no-op path); the source
+// file is unchanged.
 //
 // # Corruption hardening (root cause 2026-09-01)
 //
@@ -760,7 +790,7 @@ func (c *Collection) Close() error {
 // landed but the DB is suspect" signal that lets the operator
 // restore from the most recent backup instead of silently
 // shipping corruption to AnkiDroid.
-func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
+func (c *Collection) WriteSession(fn func(wc *workCollection) error) error {
 	if c == nil {
 		return ErrCollectionNotOpen
 	}
@@ -815,10 +845,11 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 		removeWorkSidecars(workPath)
 	}()
 
-	wc, err := openWorkCollection(workPath)
+	wcdb, err := openWorkCollection(workPath)
 	if err != nil {
 		return fmt.Errorf("anki: write session open work: %w", err)
 	}
+	wc := &workCollection{db: wcdb, path: workPath}
 	// Run the callback. Panics in fn are converted to errors so the
 	// roundtrip's cleanup still runs (otherwise the work copy would
 	// linger until the next CopyIn's stale-work detection kicked
@@ -845,7 +876,7 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// state the callback left behind; src is unchanged because we
 	// never engaged the writeback path.
 	if fnErr != nil {
-		_ = wc.db.Close()
+		_ = wcdb.Close()
 		return fnErr
 	}
 
@@ -877,7 +908,7 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// sql.ErrNoRows. We treat ErrNoRows as "pragma returned no
 	// data" — same fail-closed posture (we cannot confirm the
 	// checkpoint ran; do not CopyOut).
-	cpRow := wc.db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)")
+	cpRow := wcdb.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)")
 	var (
 		cpBusy         int64
 		cpLogFrames    int64
@@ -890,15 +921,15 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 		// busy == 0 AND (log == 0 OR log == -1) is the success
 		// shape. busy != 0 OR log > 0 is the torn-write shape.
 		if cpBusy != 0 {
-			_ = wc.db.Close()
+			_ = wcdb.Close()
 			return fmt.Errorf("anki: write session checkpoint blocked (busy=%d); work copy NOT written back (see WriteSession root-cause comment for the 2026-09-01 incident)", cpBusy)
 		}
 		if cpLogFrames > 0 {
-			_ = wc.db.Close()
+			_ = wcdb.Close()
 			return fmt.Errorf("anki: write session checkpoint incomplete (log=%d pages still in -wal after TRUNCATE); work copy NOT written back (see WriteSession root-cause comment for the 2026-09-01 incident)", cpLogFrames)
 		}
 		if cpLogFrames < -1 {
-			_ = wc.db.Close()
+			_ = wcdb.Close()
 			return fmt.Errorf("anki: write session checkpoint returned implausible log=%d; work copy NOT written back", cpLogFrames)
 		}
 	case errors.Is(cerr, sql.ErrNoRows):
@@ -907,13 +938,13 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 		// would have returned a row here; modernc's behaviour
 		// is a known divergence that this guard makes safe by
 		// refusing to CopyOut on ambiguity.
-		_ = wc.db.Close()
-		return fmt.Errorf("anki: write session checkpoint returned no row (driver=%T); cannot verify merge; work copy NOT written back", wc.db.Driver())
+		_ = wcdb.Close()
+		return fmt.Errorf("anki: write session checkpoint returned no row (driver=%T); cannot verify merge; work copy NOT written back", wcdb.Driver())
 	default:
-		_ = wc.db.Close()
+		_ = wcdb.Close()
 		return fmt.Errorf("anki: write session checkpoint: %w", cerr)
 	}
-	if cerr := wc.db.Close(); cerr != nil {
+	if cerr := wcdb.Close(); cerr != nil {
 		return fmt.Errorf("anki: write session close work: %w", cerr)
 	}
 
@@ -944,24 +975,13 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// checkpoint). At this point fnErr is necessarily nil; we
 	// proceed to the writeback dance.
 
-	// Close the parent's immutable read handle on src BEFORE the
-	// atomic writeback. On Windows, os.Rename over an existing
-	// file fails with "Access is denied" when any process (this
-	// one included) holds an open handle to the destination,
-	// even a read-only one. Closing c.db here is the only way to
-	// let CopyOut's os.Rename atomically replace the file. The
-	// handle is reopened below via refreshReadHandle; the
-	// intermediate state (no immutable handle open) is fine —
-	// the writeback itself is the moment the on-disk file is
-	// changing, and AnkiDroid's reader is in its own process
-	// space (so our in-process handle being closed is invisible
-	// to it). The post-writeback quick_check opens its own
-	// fresh handle so the read path is fully exercised before
-	// we declare success.
-	if c.db != nil {
-		_ = c.db.Close()
-		c.db = nil
-	}
+	// v5.1: no close-c.db-before-CopyOut dance. The facade holds
+	// no handle on the source, so Windows os.Rename is free to
+	// atomically replace the file (verified on Win11 +
+	// modernc.org/sqlite, 2026-09-02). AnkiDroid can keep its RW
+	// handle open across the entire roundtrip — we never touch
+	// the source except for the CopyOut rename, which uses plain
+	// os.Create + os.Rename and does not engage fcntl locks.
 
 	// CopyOut writes the work main file (+ any non-empty sidecars)
 	// back to the source. CopyOut uses an atomic tmp+rename
@@ -977,18 +997,6 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// as the recovery asset).
 	copyOutAttempted = true
 	if cerr := rt.CopyOut(workPath, c.path); cerr != nil {
-		// HIGH 2: don't brick the Collection handle on a
-		// post-close failure. c.db was closed above (Windows
-		// os.Rename semantics) and a bare return would leave
-		// every subsequent method call answering
-		// ErrCollectionNotOpen — the bridge would be dead
-		// until the operator reopened it. refreshReadHandle
-		// already handles c.db==nil (it closes a nil guard
-		// and re-opens); the call here is best-effort, so a
-		// refresh failure is logged but doesn't mask the
-		// CopyOut error. success is left false so the defer
-		// keeps the work copy for recovery.
-		_ = c.refreshReadHandle()
 		return fmt.Errorf("anki: write session copy-out: %w", cerr)
 	}
 	success = true
@@ -1006,66 +1014,30 @@ func (c *Collection) WriteSession(fn func(wc *Collection) error) error {
 	// operator should restore from the most recent backup
 	// rather than ship corruption to AnkiDroid.
 	if qerr := verifySrcAfterWriteback(c.path); qerr != nil {
-		// HIGH 2: same rationale as above. c.db is nil
-		// (closed above for the Windows-rename contract);
-		// a bare return would brick the handle. Try
-		// best-effort refresh; if it fails, the operator
-		// still sees the original quick_check error.
-		_ = c.refreshReadHandle()
 		return fmt.Errorf("anki: write session post-writeback quick_check failed: %w (note was written but the source file is suspect; consider restoring from backup)", qerr)
 	}
 	success = true
-
-	// Refresh the parent's immutable read handle so subsequent
-	// reads see the new file state (SQLite's immutable=1 disables
-	// per-connection change detection; close + reopen is the
-	// canonical way to pick up writes).
-	if cerr := c.refreshReadHandle(); cerr != nil {
-		// HIGH 2: refresh itself failed. We've already set
-		// success=true (CopyOut + quick_check both passed),
-		// and the on-disk file IS the post-writeback state;
-		// the only thing missing is the in-process immutable
-		// handle. Try a second best-effort refresh; if that
-		// also fails, surface the original refresh error.
-		// The caller can then reopen the Collection on
-		// their own to recover (the path is unchanged).
-		if rerr := c.refreshReadHandle(); rerr != nil {
-			return fmt.Errorf("anki: write session refresh: %w (and follow-up refresh also failed: %v; the on-disk file is the post-writeback state but the in-process handle could not be re-opened; caller should reopen the Collection)", cerr, rerr)
-		}
-		return fmt.Errorf("anki: write session refresh: %w (recovered via follow-up refresh; subsequent reads will work)", cerr)
-	}
-	c.invalidateColCache()
+	// v5.1: no c.invalidateColCache() and no c.refreshReadHandle().
+	// There is no colCache to invalidate (colCache was tied to
+	// the v4.4 persistent handle); there is no handle to refresh
+	// (each subsequent read opens a fresh one and re-detects the
+	// schema). The post-writeback file state is picked up
+	// naturally by the next read.
 	return nil
 }
 
-// refreshReadHandle closes + reopens the immutable read handle on
-// the source file. Called after every successful WriteSession so
-// subsequent reads see the post-CopyOut file state. SQLite's
-// immutable=1 path disables change detection, so an already-open
-// connection would return the pre-write snapshot indefinitely; a
-// close + reopen is the only safe refresh.
-//
-// Schema detection runs again because openCollectionDSN returns a
-// fresh Collection with its own detectSchema call. The result is
-// the same (the schema doesn't change between writes); the cost
-// is one extra sqlite_master query per write (microseconds).
-func (c *Collection) refreshReadHandle() error {
-	if c == nil || c.path == "" {
-		return ErrCollectionNotOpen
-	}
-	if c.db != nil {
-		_ = c.db.Close()
-		c.db = nil
-	}
-	fresh, err := openCollectionDSN(c.path)
-	if err != nil {
-		return err
-	}
-	c.db = fresh.db
-	c.variant = fresh.variant
-	c.modernNotetypes = fresh.modernNotetypes
-	c.colCache = nil // always invalidate on reopen
-	return nil
+// workCollection is the write-callback receiver. v5.1 introduces
+// it as a separate type from Collection because it has a real
+// *sql.DB (the work copy's RW handle) and no facade machinery —
+// it lives only for the duration of the WriteSession callback
+// and is discarded when WriteSession returns. Existing callbacks
+// that issue `wc.db.Begin()` / `tx.Commit()` keep working
+// unchanged; the only thing they cannot do is reach into the
+// stateless facade (which is exactly what we want — the work
+// copy is a private scratch space).
+type workCollection struct {
+	db   *sql.DB
+	path string
 }
 
 // WritePath returns the configured --anki-work-dir (empty when
@@ -1094,71 +1066,92 @@ func (c *Collection) Path() string {
 	return c.path
 }
 
-// Variant returns the autodetected schema variant. Exposed for tests.
-func (c *Collection) Variant() schemaVariant {
-	if c == nil {
-		return schemaVariantUnknown
+// ReadRaw is a test-friendly façade over withReadHandle. It opens
+// the immutable handle, runs fn, and closes the handle before
+// returning. Production read methods (DeckIDs, NotesInfo, …) all
+// funnel through withReadHandle; tests that want to inspect raw
+// rows can use this method as a one-line wrapper.
+//
+// fn receives the fresh *sql.DB and returns when its query is done.
+// Errors from fn are returned verbatim.
+//
+// v5.1: the only way to issue a raw read against a Collection. The
+// v4.4 pattern `c.db.QueryRow(...)` no longer works because the
+// facade holds no handle.
+func (c *Collection) ReadRaw(fn func(db *sql.DB) error) error {
+	return c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		return fn(db)
+	})
+}
+
+// Variant re-detects and returns the schema variant on each call.
+// v5.1 removed the cached c.variant field; the schema is determined
+// fresh from a sqlite_master query on every read. Exposed for
+// tests that want to verify the autodetect path. A small open-
+// per-call cost (one sqlite_master query) in exchange for the
+// guarantee that the variant always reflects the current file.
+func (c *Collection) Variant() (schemaVariant, error) {
+	if c == nil || c.path == "" {
+		return schemaVariantUnknown, ErrCollectionNotOpen
 	}
-	return c.variant
+	var v schemaVariant
+	err := c.withReadHandle(func(db *sql.DB, variant schemaVariant, _ bool) error {
+		v = variant
+		return nil
+	})
+	return v, err
 }
 
 // loadCol reads the single row in the `col` table and parses its JSON
-// fields. The result is cached because the row is read on every
-// write (mod/usn bump). AnkiDroid only ever has one row in `col`,
-// always with id=1.
+// fields. v5.1 removed the c.colCache field: every read reloads the
+// row from SQLite (microseconds; the row is a single TEXT blob).
+// The col table has exactly one row in every Anki collection (id=1).
 func (c *Collection) loadCol() (*colRow, error) {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return nil, ErrCollectionNotOpen
 	}
-	if c.colCache != nil {
-		return c.colCache, nil
-	}
-	row := c.db.QueryRow("SELECT id, mod, usn, models, decks FROM col WHERE id=1")
-	var (
-		id        int64
-		mod       int64
-		usn       int64
-		modelsRaw string
-		decksRaw  string
-	)
-	if err := row.Scan(&id, &mod, &usn, &modelsRaw, &decksRaw); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: col row missing", ErrUnsupportedSchema)
+	var out *colRow
+	err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		row := db.QueryRow("SELECT id, mod, usn, models, decks FROM col WHERE id=1")
+		var (
+			id        int64
+			mod       int64
+			usn       int64
+			modelsRaw string
+			decksRaw  string
+		)
+		if err := row.Scan(&id, &mod, &usn, &modelsRaw, &decksRaw); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: col row missing", ErrUnsupportedSchema)
+			}
+			return fmt.Errorf("anki: read col: %w", err)
 		}
-		return nil, fmt.Errorf("anki: read col: %w", err)
-	}
-	out := &colRow{
-		ID:     id,
-		Mod:    mod,
-		Usn:    usn,
-		Models: json.RawMessage(modelsRaw),
-		Decks:  json.RawMessage(decksRaw),
-	}
-	c.colCache = out
-	return out, nil
-}
-
-// invalidateColCache drops the cached colRow so the next loadCol
-// re-reads from SQLite. Call after every write that mutates col.mod
-// / col.usn (InsertNote / UpdateNoteFields / AddTags).
-func (c *Collection) invalidateColCache() {
-	c.colCache = nil
+		out = &colRow{
+			ID:     id,
+			Mod:    mod,
+			Usn:    usn,
+			Models: json.RawMessage(modelsRaw),
+			Decks:  json.RawMessage(decksRaw),
+		}
+		return nil
+	})
+	return out, err
 }
 
 // CollectionModBump updates col.mod to the current millis. Called
 // after every write that mutates notes/cards (AnkiDroid would do this
 // automatically on close; we mimic it eagerly so a stale screen in
-// AnkiDroid sees a fresh "modified" timestamp). v4.4 routes the
-// bump through WriteSession so the work-copy / writeback / read-
-// refresh dance happens exactly the same way as a normal Insert /
-// Update / AddTags — a single tiny transaction that bumps col.mod
-// and lands durably in the source file.
+// AnkiDroid sees a fresh "modified" timestamp). v5.1 routes the
+// bump through WriteSession so the work-copy / writeback dance
+// happens exactly the same way as a normal Insert / Update /
+// AddTags — a single tiny transaction that bumps col.mod and lands
+// durably in the source file.
 func (c *Collection) CollectionModBump() error {
 	if c == nil || c.path == "" {
 		return ErrCollectionNotOpen
 	}
 	mod := nowMillis()
-	return c.WriteSession(func(wc *Collection) error {
+	return c.WriteSession(func(wc *workCollection) error {
 		tx, err := wc.db.Begin()
 		if err != nil {
 			return fmt.Errorf("anki: begin bump tx: %w", err)
@@ -1184,24 +1177,29 @@ func (c *Collection) CollectionModBump() error {
 // Dispatches between the legacy-JSON reader (col.decks JSON object)
 // and the modern-tables reader (SELECT id, name FROM decks).
 func (c *Collection) DeckIDs() (map[string]int64, error) {
-	if c == nil || c.db == nil {
-		return nil, ErrCollectionNotOpen
-	}
-	switch c.variant {
-	case schemaVariantModernTables:
-		return c.deckIDsFromTable()
-	case schemaVariantLegacyJSON:
-		return c.deckIDsFromCol()
-	default:
-		return nil, ErrUnsupportedSchema
-	}
+	var out map[string]int64
+	err := c.withReadHandle(func(db *sql.DB, variant schemaVariant, _ bool) error {
+		switch variant {
+		case schemaVariantModernTables:
+			res, err := deckIDsFromTable(db)
+			out = res
+			return err
+		case schemaVariantLegacyJSON:
+			res, err := c.deckIDsFromCol()
+			out = res
+			return err
+		default:
+			return ErrUnsupportedSchema
+		}
+	})
+	return out, err
 }
 
 // deckIDsFromTable reads the modern (schema 18) `decks` table. The
 // deck name column may be named `name` or `json` depending on
 // AnkiDroid build; we read both and prefer whichever is non-empty.
-func (c *Collection) deckIDsFromTable() (map[string]int64, error) {
-	rows, err := c.db.Query("SELECT id, name FROM decks")
+func deckIDsFromTable(db *sql.DB) (map[string]int64, error) {
+	rows, err := db.Query("SELECT id, name FROM decks")
 	if err != nil {
 		return nil, fmt.Errorf("anki: query decks: %w", err)
 	}
@@ -1259,30 +1257,36 @@ func (c *Collection) deckIDsFromCol() (map[string]int64, error) {
 // collection. Dispatches between legacy JSON (col.models) and modern
 // tables (models).
 func (c *Collection) ModelIDs() (map[string]int64, error) {
-	if c == nil || c.db == nil {
-		return nil, ErrCollectionNotOpen
-	}
-	switch c.variant {
-	case schemaVariantModernTables:
-		return c.modelIDsFromTable()
-	case schemaVariantLegacyJSON:
-		return c.modelIDsFromCol()
-	default:
-		return nil, ErrUnsupportedSchema
-	}
+	var out map[string]int64
+	err := c.withReadHandle(func(db *sql.DB, variant schemaVariant, modernNotetypes bool) error {
+		switch variant {
+		case schemaVariantModernTables:
+			res, err := modelIDsFromTable(db, modernNotetypes)
+			out = res
+			return err
+		case schemaVariantLegacyJSON:
+			res, err := c.modelIDsFromCol()
+			out = res
+			return err
+		default:
+			return ErrUnsupportedSchema
+		}
+	})
+	return out, err
 }
 
 // modelIDsFromTable reads the modern note-type table. On Anki
 // desktop / older AnkiDroid that's `models`; on AnkiDroid 2.16+
 // it's `notetypes` (no `models` table — verified on real device
-// 2026-09-01). c.modernNotetypes picks the table at detect time so
-// this method issues exactly one query.
-func (c *Collection) modelIDsFromTable() (map[string]int64, error) {
+// 2026-09-01). The modernNotetypes flag picks the table; callers
+// inside withReadHandle receive it from the closure and pass it
+// through, so the dispatch costs zero sqlite_master queries here.
+func modelIDsFromTable(db *sql.DB, modernNotetypes bool) (map[string]int64, error) {
 	table := "models"
-	if c.modernNotetypes {
+	if modernNotetypes {
 		table = "notetypes"
 	}
-	rows, err := c.db.Query("SELECT id, name FROM " + table)
+	rows, err := db.Query("SELECT id, name FROM " + table)
 	if err != nil {
 		return nil, fmt.Errorf("anki: query %s: %w", table, err)
 	}
@@ -1348,16 +1352,17 @@ func (c *Collection) modelIDsFromCol() (map[string]int64, error) {
 // attempt to reconstruct the full Anki model object (css, latexPre,
 // sortf, …) because nothing in the bridge reads those fields — see
 // ModelFieldNames / ModelTemplateCount for the supported surface.
-func (c *Collection) modelJSON(mid int64) (json.RawMessage, error) {
-	if c == nil || c.db == nil {
-		return nil, ErrCollectionNotOpen
-	}
-	switch c.variant {
+//
+// v5.1: takes db + variant + modernNotetypes from the caller
+// (always via withReadHandle). The Collection facade no longer
+// carries variant state.
+func (c *Collection) modelJSON(db *sql.DB, mid int64, variant schemaVariant, modernNotetypes bool) (json.RawMessage, error) {
+	switch variant {
 	case schemaVariantModernTables:
-		if c.modernNotetypes {
+		if modernNotetypes {
 			return c.modelJSONFromNotetypes(mid)
 		}
-		row := c.db.QueryRow("SELECT json FROM models WHERE id = ?", mid)
+		row := db.QueryRow("SELECT json FROM models WHERE id = ?", mid)
 		var raw sql.NullString
 		if err := row.Scan(&raw); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -1425,51 +1430,49 @@ func (c *Collection) modelJSONFromNotetypes(mid int64) (json.RawMessage, error) 
 // (ntid, ord)) — verified against the authoritative
 // ankitects/anki rslib/src/storage/upgrades/schema15_upgrade.sql.
 // `fields.name` is declared `COLLATE unicase`, so the SELECT must
-// run on a connection with UNICASE registered (the production
-// openCollectionDSN registers it before sql.Open). The bridge
-// does NOT decode the Protobuf blob in `notetypes.config` — it
-// only reads the textual `name` column from `fields`.
+// run on a connection with UNICASE registered (withReadHandle
+// calls ensureUnicaseCollation before sql.Open). The bridge does
+// NOT decode the Protobuf blob in `notetypes.config` — it only
+// reads the textual `name` column from `fields`.
 func (c *Collection) ModelFieldNames(mid int64) ([]string, error) {
-	if c == nil || c.db == nil {
-		return nil, ErrCollectionNotOpen
-	}
-	if c.modernNotetypes {
-		return c.fieldNamesFromNotetypes(mid)
-	}
-	raw, err := c.modelJSON(mid)
-	if err != nil {
-		return nil, err
-	}
-	var model struct {
-		Flds []struct {
-			Name string `json:"name"`
-			Ord  int    `json:"ord"`
-		} `json:"flds"`
-	}
-	if err := json.Unmarshal(raw, &model); err != nil {
-		return nil, fmt.Errorf("anki: parse model %d: %w", mid, err)
-	}
-	// Sort by ord ascending (Anki stores them that way, but the JSON
-	// array order is the canonical order — we trust it instead).
-	names := make([]string, 0, len(model.Flds))
-	for _, f := range model.Flds {
-		if f.Name != "" {
-			names = append(names, f.Name)
+	var names []string
+	err := c.withReadHandle(func(db *sql.DB, variant schemaVariant, modernNotetypes bool) error {
+		if modernNotetypes {
+			res, err := fieldNamesFromNotetypes(db, mid)
+			names = res
+			return err
 		}
-	}
-	return names, nil
+		raw, err := c.modelJSON(db, mid, variant, modernNotetypes)
+		if err != nil {
+			return err
+		}
+		var model struct {
+			Flds []struct {
+				Name string `json:"name"`
+				Ord  int    `json:"ord"`
+			} `json:"flds"`
+		}
+		if err := json.Unmarshal(raw, &model); err != nil {
+			return fmt.Errorf("anki: parse model %d: %w", mid, err)
+		}
+		// Trust the JSON array order (Anki stores them by ord).
+		names = make([]string, 0, len(model.Flds))
+		for _, f := range model.Flds {
+			if f.Name != "" {
+				names = append(names, f.Name)
+			}
+		}
+		return nil
+	})
+	return names, err
 }
 
 // fieldNamesFromNotetypes reads the field-name list directly from
 // the AnkiDroid 2.16+ `fields` table. The PK (ntid, ord) is the
 // sort key, so an ORDER BY ord makes the result stable without a
-// secondary index. Returns nil + ErrCollectionNotOpen-style
-// errors if the receiver is closed.
-func (c *Collection) fieldNamesFromNotetypes(mid int64) ([]string, error) {
-	if c == nil || c.db == nil {
-		return nil, ErrCollectionNotOpen
-	}
-	rows, err := c.db.Query("SELECT name FROM fields WHERE ntid = ? ORDER BY ord", mid)
+// secondary index.
+func fieldNamesFromNotetypes(db *sql.DB, mid int64) ([]string, error) {
+	rows, err := db.Query("SELECT name FROM fields WHERE ntid = ? ORDER BY ord", mid)
 	if err != nil {
 		return nil, fmt.Errorf("anki: query fields: %w", err)
 	}
@@ -1503,37 +1506,37 @@ func (c *Collection) fieldNamesFromNotetypes(mid int64) ([]string, error) {
 // the table exists. The legacy / modern-with-models-table paths
 // keep reading the JSON `tmpls` array length.
 func (c *Collection) ModelTemplateCount(mid int64) (int, error) {
-	if c == nil || c.db == nil {
-		return 0, ErrCollectionNotOpen
-	}
-	if c.modernNotetypes {
-		return c.templateCountFromNotetypes(mid)
-	}
-	raw, err := c.modelJSON(mid)
-	if err != nil {
-		return 0, err
-	}
-	var model struct {
-		Tmpls []json.RawMessage `json:"tmpls"`
-	}
-	if err := json.Unmarshal(raw, &model); err != nil {
-		return 0, fmt.Errorf("anki: parse model %d tmpls: %w", mid, err)
-	}
-	return len(model.Tmpls), nil
+	var n int
+	err := c.withReadHandle(func(db *sql.DB, variant schemaVariant, modernNotetypes bool) error {
+		if modernNotetypes {
+			res, err := templateCountFromNotetypes(db, mid)
+			n = res
+			return err
+		}
+		raw, err := c.modelJSON(db, mid, variant, modernNotetypes)
+		if err != nil {
+			return err
+		}
+		var model struct {
+			Tmpls []json.RawMessage `json:"tmpls"`
+		}
+		if err := json.Unmarshal(raw, &model); err != nil {
+			return fmt.Errorf("anki: parse model %d tmpls: %w", mid, err)
+		}
+		n = len(model.Tmpls)
+		return nil
+	})
+	return n, err
 }
 
 // templateCountFromNotetypes reads the template count directly
 // from the AnkiDroid 2.16+ `templates` table. COUNT(*) avoids the
 // `name` column entirely, so this path is collation-agnostic at
 // query time (the table-creation path's UNICASE requirement is
-// satisfied upstream by openCollectionDSN's
-// ensureUnicaseCollation call).
-func (c *Collection) templateCountFromNotetypes(mid int64) (int, error) {
-	if c == nil || c.db == nil {
-		return 0, ErrCollectionNotOpen
-	}
+// satisfied upstream by withReadHandle's ensureUnicaseCollation).
+func templateCountFromNotetypes(db *sql.DB, mid int64) (int, error) {
 	var n int
-	if err := c.db.QueryRow("SELECT COUNT(*) FROM templates WHERE ntid = ?", mid).Scan(&n); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM templates WHERE ntid = ?", mid).Scan(&n); err != nil {
 		return 0, fmt.Errorf("anki: count templates: %w", err)
 	}
 	return n, nil
@@ -1567,7 +1570,7 @@ type indexCsum struct {
 // with optional deck-scope filter (the scope check follows the same
 // SQL path Anki uses on its own duplicate-detection filter).
 func (c *Collection) CanAddNotes(checks []NoteCheck) ([]bool, error) {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return nil, ErrCollectionNotOpen
 	}
 	if len(checks) == 0 {
@@ -1599,12 +1602,19 @@ func (c *Collection) CanAddNotes(checks []NoteCheck) ([]bool, error) {
 	for _, ic := range strict {
 		byScope[ic.scope] = append(byScope[ic.scope], ic)
 	}
-	for scope, list := range byScope {
-		if err := c.canAddNotesForScope(scope, list, out); err != nil {
-			return nil, err
+	// One read handle for all scopes; cheaper than one per scope.
+	// The DeckIDs() call inside canAddNotesForScope for deck
+	// scope opens its own handle (open-per-call) and closes it
+	// before returning — no handles accumulate.
+	err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		for scope, list := range byScope {
+			if err := c.canAddNotesForScope(db, scope, list, out); err != nil {
+				return err
+			}
 		}
-	}
-	return out, nil
+		return nil
+	})
+	return out, err
 }
 
 // canAddNotesForScope marks duplicates for a single scope. For
@@ -1613,7 +1623,11 @@ func (c *Collection) CanAddNotes(checks []NoteCheck) ([]bool, error) {
 // collection-scope branch, and the wire-level allowDuplicate tests
 // pin the addNote path (deck-scope reject branch is exercised by
 // real-device QA, 2026-08-30).
-func (c *Collection) canAddNotesForScope(scope string, list []indexCsum, out []bool) error {
+//
+// v5.1: takes the read db directly (called from inside a
+// withReadHandle closure). DeckIDs() inside this function opens its
+// own handle — that is the open-on-demand contract, not a leak.
+func (c *Collection) canAddNotesForScope(db *sql.DB, scope string, list []indexCsum, out []bool) error {
 	// Build the csum IN clause.
 	placeholders := make([]string, len(list))
 	args := make([]any, len(list))
@@ -1622,7 +1636,7 @@ func (c *Collection) canAddNotesForScope(scope string, list []indexCsum, out []b
 		args[i] = ic.csum
 	}
 	q := "SELECT id, csum FROM notes WHERE csum IN (" + strings.Join(placeholders, ",") + ")"
-	rows, err := c.db.Query(q, args...)
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return fmt.Errorf("anki: query duplicates: %w", err)
 	}
@@ -1706,7 +1720,7 @@ func (c *Collection) canAddNotesForScope(scope string, list []indexCsum, out []b
 				out[ic.idx] = false
 				continue
 			}
-			exists, err := c.noteHasCardInDeck(h.nid, want)
+			exists, err := noteHasCardInDeck(db, h.nid, want)
 			if err != nil {
 				return err
 			}
@@ -1720,8 +1734,10 @@ func (c *Collection) canAddNotesForScope(scope string, list []indexCsum, out []b
 
 // noteHasCardInDeck reports whether note nid has at least one card
 // with did = deckID. Used by the deck-scope duplicate filter.
-func (c *Collection) noteHasCardInDeck(nid, deckID int64) (bool, error) {
-	row := c.db.QueryRow("SELECT 1 FROM cards WHERE nid = ? AND did = ? LIMIT 1", nid, deckID)
+// v5.1: takes db directly (called from canAddNotesForScope inside
+// a withReadHandle closure).
+func noteHasCardInDeck(db *sql.DB, nid, deckID int64) (bool, error) {
+	row := db.QueryRow("SELECT 1 FROM cards WHERE nid = ? AND did = ? LIMIT 1", nid, deckID)
 	var x int
 	err := row.Scan(&x)
 	if err == nil {
@@ -1851,7 +1867,7 @@ func (c *Collection) InsertNote(deckID, modelID int64, fields []string, tags []s
 	// Captured by the closure below so the post-session return can
 	// surface the new note id.
 	var noteID int64
-	err = c.WriteSession(func(wc *Collection) error {
+	err = c.WriteSession(func(wc *workCollection) error {
 		tx, err := wc.db.Begin()
 		if err != nil {
 			return fmt.Errorf("anki: begin insert tx: %w", err)
@@ -1875,7 +1891,7 @@ func (c *Collection) InsertNote(deckID, modelID int64, fields []string, tags []s
 		noteID = nid
 		// Compute next due for the deck using the same tx (single
 		// connection on the work copy, no deadlock).
-		nextDue, err := wc.nextNewCardDue(tx, deckID)
+		nextDue, err := nextNewCardDue(tx, deckID)
 		if err != nil {
 			return err
 		}
@@ -1905,7 +1921,10 @@ func (c *Collection) InsertNote(deckID, modelID int64, fields []string, tags []s
 // nextNewCardDue returns the smallest unused new-card due position
 // for the given deck: max(due) + 1 across all type=0 cards in the
 // deck. When the deck has no cards, due starts at 1 (Anki's default).
-func (c *Collection) nextNewCardDue(tx *sql.Tx, deckID int64) (int64, error) {
+//
+// v5.1: package-level; called from the work tx inside the
+// WriteSession callback.
+func nextNewCardDue(tx *sql.Tx, deckID int64) (int64, error) {
 	row := tx.QueryRow("SELECT COALESCE(MAX(due), 0) FROM cards WHERE did = ? AND type = 0", deckID)
 	var maxDue sql.NullInt64
 	if err := row.Scan(&maxDue); err != nil {
@@ -1955,23 +1974,28 @@ func (c *Collection) UpdateNoteFields(noteID int64, fields map[string]string) er
 		return nil // no-op
 	}
 	// Load current note + model to map field names to ords. Reads
-	// go through the immutable handle — the source file is the
-	// source of truth, and AnkiDroid may have edited the note
-	// between our read and the write roundtrip. The next WriteSession
-	// will refreshReadHandle, so a TOCTOU window is bounded to
-	// ~400ms; AnkiDroid's own writer waits on SQLite's locking
-	// the same way ours does.
-	row := c.db.QueryRow("SELECT mid, flds, csum FROM notes WHERE id = ?", noteID)
+	// go through withReadHandle — the source file is the source of
+	// truth, and AnkiDroid may have edited the note between our
+	// read and the write roundtrip. The TOCTOU window is bounded
+	// to ~400ms (the roundtrip duration); AnkiDroid's own writer
+	// waits on SQLite's locking the same way ours does.
 	var (
 		mid     int64
 		fldsOld string
 		oldCsum int64
 	)
-	if err := row.Scan(&mid, &fldsOld, &oldCsum); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("anki: note %d not found", noteID)
+	err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		row := db.QueryRow("SELECT mid, flds, csum FROM notes WHERE id = ?", noteID)
+		if err := row.Scan(&mid, &fldsOld, &oldCsum); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("anki: note %d not found", noteID)
+			}
+			return fmt.Errorf("anki: read note %d: %w", noteID, err)
 		}
-		return fmt.Errorf("anki: read note %d: %w", noteID, err)
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	names, err := c.ModelFieldNames(mid)
 	if err != nil {
@@ -2004,7 +2028,7 @@ func (c *Collection) UpdateNoteFields(noteID int64, fields map[string]string) er
 	newSfld := stripHTMLMedia(oldParts[0])
 	mod := nowMillis()
 	_ = oldCsum
-	return c.WriteSession(func(wc *Collection) error {
+	return c.WriteSession(func(wc *workCollection) error {
 		tx, err := wc.db.Begin()
 		if err != nil {
 			return fmt.Errorf("anki: begin update tx: %w", err)
@@ -2054,7 +2078,7 @@ func (c *Collection) AddTags(noteIDs []int64, tags string) error {
 	if len(newOnes) == 0 {
 		return nil
 	}
-	return c.WriteSession(func(wc *Collection) error {
+	return c.WriteSession(func(wc *workCollection) error {
 		tx, err := wc.db.Begin()
 		if err != nil {
 			return fmt.Errorf("anki: begin addTags tx: %w", err)
@@ -2170,7 +2194,7 @@ func mergeTags(existing string, newOnes []string) string {
 // in-process implementation and refuse to silently drop the floor
 // on a parse failure.
 func (c *Collection) FindNotes(query string) ([]int64, error) {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return nil, ErrCollectionNotOpen
 	}
 	q := strings.TrimSpace(query)
@@ -2200,30 +2224,34 @@ func (c *Collection) FindNotes(query string) ([]int64, error) {
 	// `added:1` exact form (no value tail).
 	if strings.EqualFold(q, "added:1") {
 		// 24h window in milliseconds.
-		cutoff := nowMillis() - int64(24*time.Hour/time.Millisecond)
-		rows, err := c.db.Query("SELECT id FROM notes WHERE mod > ? ORDER BY id DESC", cutoff)
-		if err != nil {
-			return nil, fmt.Errorf("anki: added:1 query: %w", err)
-		}
-		defer rows.Close()
-		// Non-nil empty slice: a fresh fixture with no notes modded
-		// within the last 24h must still return `[]` on the wire,
-		// never `null`. Yomitan's _normalizeArray(result, -1, 'number')
-		// throws on `null` and breaks getAnkiNoteInfo (the + button
-		// visibility flow). 2026-09-01 device evidence: see the
-		// "null vs []" findNotes bug fix.
-		ids := make([]int64, 0)
-		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err != nil {
-				return nil, fmt.Errorf("anki: scan added:1: %w", err)
+		var ids []int64
+		err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+			cutoff := nowMillis() - int64(24*time.Hour/time.Millisecond)
+			rows, err := db.Query("SELECT id FROM notes WHERE mod > ? ORDER BY id DESC", cutoff)
+			if err != nil {
+				return fmt.Errorf("anki: added:1 query: %w", err)
 			}
-			ids = append(ids, id)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("anki: iterate added:1: %w", err)
-		}
-		return ids, nil
+			defer rows.Close()
+			// Non-nil empty slice: a fresh fixture with no notes modded
+			// within the last 24h must still return `[]` on the wire,
+			// never `null`. Yomitan's _normalizeArray(result, -1, 'number')
+			// throws on `null` and breaks getAnkiNoteInfo (the + button
+			// visibility flow). 2026-09-01 device evidence: see the
+			// "null vs []" findNotes bug fix.
+			ids = make([]int64, 0)
+			for rows.Next() {
+				var id int64
+				if err := rows.Scan(&id); err != nil {
+					return fmt.Errorf("anki: scan added:1: %w", err)
+				}
+				ids = append(ids, id)
+			}
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("anki: iterate added:1: %w", err)
+			}
+			return nil
+		})
+		return ids, err
 	}
 	// `nid:<list>` (bare OR quoted; case-insensitive prefix).
 	if _, value, ok := parseNIDQuery(q); ok {
@@ -2458,7 +2486,7 @@ func (c *Collection) findNotesByFirstField(fieldName, value string) ([]int64, er
 	if value == "" {
 		return nil, fmt.Errorf("%w: empty value for field %q", ErrBadQuery, fieldName)
 	}
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return nil, ErrCollectionNotOpen
 	}
 	models, err := c.ModelIDs()
@@ -2492,45 +2520,49 @@ func (c *Collection) findNotesByFirstField(fieldName, value string) ([]int64, er
 	}
 	placeholders := strings.Repeat("?,", len(mids))
 	placeholders = placeholders[:len(placeholders)-1]
-	rows, err := c.db.Query(
-		"SELECT id, flds FROM notes WHERE mid IN ("+placeholders+") ORDER BY id",
-		args...)
-	if err != nil {
-		return nil, fmt.Errorf("anki: %s: query notes: %w", fieldName, err)
-	}
-	defer rows.Close()
-	lcVal := strings.ToLower(value)
-	// Non-nil empty slice so a no-match findNotes JSON-encodes to
-	// `[]`, not `null`. Yomitan's _normalizeArray(result, -1,
-	// 'number') throws on `null`; returning `null` makes
-	// getAnkiNoteInfo fail and the + button hidden (real device
-	// 2026-09-01). Verified by TestCollectionFindNotesNoMatch.
-	ids := make([]int64, 0)
-	for rows.Next() {
-		var id int64
-		var flds string
-		if err := rows.Scan(&id, &flds); err != nil {
-			return nil, fmt.Errorf("anki: %s: scan note: %w", fieldName, err)
+	var ids []int64
+	err = c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		rows, err := db.Query(
+			"SELECT id, flds FROM notes WHERE mid IN ("+placeholders+") ORDER BY id",
+			args...)
+		if err != nil {
+			return fmt.Errorf("anki: %s: query notes: %w", fieldName, err)
 		}
-		// flds is "<f1>\x1f<f2>\x1f..." — first segment is the
-		// field we matched against the schema. Trim UTF-8 BOM
-		// defensively (some clients write a BOM on the first
-		// field) before substring-matching. SQLite stores the
-		// bytes verbatim, so a stray BOM in flds would otherwise
-		// hide a real hit.
-		first := flds
-		if i := strings.IndexByte(first, 0x1f); i >= 0 {
-			first = first[:i]
+		defer rows.Close()
+		lcVal := strings.ToLower(value)
+		// Non-nil empty slice so a no-match findNotes JSON-encodes to
+		// `[]`, not `null`. Yomitan's _normalizeArray(result, -1,
+		// 'number') throws on `null`; returning `null` makes
+		// getAnkiNoteInfo fail and the + button hidden (real device
+		// 2026-09-01). Verified by TestCollectionFindNotesNoMatch.
+		ids = make([]int64, 0)
+		for rows.Next() {
+			var id int64
+			var flds string
+			if err := rows.Scan(&id, &flds); err != nil {
+				return fmt.Errorf("anki: %s: scan note: %w", fieldName, err)
+			}
+			// flds is "<f1>\x1f<f2>\x1f..." — first segment is the
+			// field we matched against the schema. Trim UTF-8 BOM
+			// defensively (some clients write a BOM on the first
+			// field) before substring-matching. SQLite stores the
+			// bytes verbatim, so a stray BOM in flds would otherwise
+			// hide a real hit.
+			first := flds
+			if i := strings.IndexByte(first, 0x1f); i >= 0 {
+				first = first[:i]
+			}
+			first = strings.TrimPrefix(first, "\ufeff")
+			if strings.Contains(strings.ToLower(first), lcVal) {
+				ids = append(ids, id)
+			}
 		}
-		first = strings.TrimPrefix(first, "\ufeff")
-		if strings.Contains(strings.ToLower(first), lcVal) {
-			ids = append(ids, id)
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("anki: %s: iterate notes: %w", fieldName, err)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("anki: %s: iterate notes: %w", fieldName, err)
-	}
-	return ids, nil
+		return nil
+	})
+	return ids, err
 }
 
 // NoteInfo is one entry of the notesInfo response. Mirrors the
@@ -2591,7 +2623,7 @@ type CardInfo struct {
 // Unknown ids are skipped (matches the AnkiConnect behaviour: the
 // upstream just omits them rather than returning an error).
 func (c *Collection) NotesInfo(ids []int64) ([]NoteInfo, error) {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return nil, ErrCollectionNotOpen
 	}
 	if len(ids) == 0 {
@@ -2614,13 +2646,16 @@ func (c *Collection) NotesInfo(ids []int64) ([]NoteInfo, error) {
 // noteInfo assembles a single NoteInfo by joining notes, models,
 // cards. Returns sql.ErrNoRows when the note id does not exist.
 func (c *Collection) noteInfo(id int64) (NoteInfo, error) {
-	row := c.db.QueryRow("SELECT mid, flds, tags FROM notes WHERE id = ?", id)
 	var (
 		mid  int64
 		flds string
 		tags string
 	)
-	if err := row.Scan(&mid, &flds, &tags); err != nil {
+	err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		row := db.QueryRow("SELECT mid, flds, tags FROM notes WHERE id = ?", id)
+		return row.Scan(&mid, &flds, &tags)
+	})
+	if err != nil {
 		return NoteInfo{}, err
 	}
 	names, err := c.ModelFieldNames(mid)
@@ -2663,29 +2698,30 @@ func (c *Collection) noteInfo(id int64) (NoteInfo, error) {
 // CardsForNote returns the cards array for a note (one entry per
 // card). Mirrors AnkiConnect notesInfo's card-level fields.
 func (c *Collection) CardsForNote(nid int64) ([]CardInfo, error) {
-	rows, err := c.db.Query(`SELECT id, nid, ord, did, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags FROM cards WHERE nid = ? ORDER BY ord`, nid)
-	if err != nil {
-		return nil, fmt.Errorf("anki: query cards for note %d: %w", nid, err)
-	}
-	defer rows.Close()
 	var out []CardInfo
-	for rows.Next() {
-		var c CardInfo
-		if err := rows.Scan(&c.CardID, &c.NoteID, &c.Ord, &c.DeckID, &c.Type, &c.Queue, &c.Due, &c.IVL, &c.Factor, &c.Reps, &c.Lapses, &c.Left, &c.ODue, &c.ODID, &c.Flags); err != nil {
-			return nil, fmt.Errorf("anki: scan card: %w", err)
+	err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		rows, err := db.Query(`SELECT id, nid, ord, did, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags FROM cards WHERE nid = ? ORDER BY ord`, nid)
+		if err != nil {
+			return fmt.Errorf("anki: query cards for note %d: %w", nid, err)
 		}
-		// Populate the `note` field (AnkiConnect wire contract;
-		// Yomitan's _normalizeCardInfoArray reads `note`, not
-		// `noteId`, to associate a card with its note). Same value
-		// as NoteID — kept as a separate struct field so the JSON
-		// shape matches AnkiConnect verbatim.
-		c.Note = c.NoteID
-		out = append(out, c)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("anki: iterate cards: %w", err)
-	}
-	return out, nil
+		defer rows.Close()
+		for rows.Next() {
+			var ci CardInfo
+			if err := rows.Scan(&ci.CardID, &ci.NoteID, &ci.Ord, &ci.DeckID, &ci.Type, &ci.Queue, &ci.Due, &ci.IVL, &ci.Factor, &ci.Reps, &ci.Lapses, &ci.Left, &ci.ODue, &ci.ODID, &ci.Flags); err != nil {
+				return fmt.Errorf("anki: scan card: %w", err)
+			}
+			// Populate the `note` field (AnkiConnect wire contract;
+			// Yomitan's _normalizeCardInfoArray reads `note`, not
+			// `noteId`, to associate a card with its note).
+			ci.Note = ci.NoteID
+			out = append(out, ci)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("anki: iterate cards: %w", err)
+		}
+		return nil
+	})
+	return out, err
 }
 
 // CardsInfo returns one CardInfo per requested card id. The order
@@ -2693,51 +2729,34 @@ func (c *Collection) CardsForNote(nid int64) ([]CardInfo, error) {
 // _notesCardsInfo depend on positional alignment: it zips
 // cardsInfo[i].noteId against notesInfo[i].noteId to associate
 // card info with note info). Unknown card ids are skipped.
-//
-// Divergence note: real AnkiConnect returns an array with `null`
-// placeholders for unknown card ids (and downstream clients
-// filter those before consuming the result). We skip unknown ids
-// instead — Yomitan's _normalizeCardInfoArray matches by `noteId`
-// and never observes the missing slot, so the simpler skip
-// behaviour is wire-compatible for Yomitan. Other clients
-// (Entei / asbplayer) should be tolerant of either shape; we
-// don't pretend to be a faithful AnkiConnect for the unknown-id
-// edge case (matches the Yomitan path which is what we ship for).
-//
-// Yomitan's _notesCardsInfo calls cardsInfo as a top-level AnkiConnect
-// action (not via multi) — see
-// A:/yomitan/ext/js/comm/anki-connect.js cardsInfo() (around line 198).
-// The response is a JSON array of CardInfo objects; the client reads
-// `cardId` and `noteId` per element and zips against the notesInfo
-// results.
 func (c *Collection) CardsInfo(ids []int64) ([]CardInfo, error) {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return nil, ErrCollectionNotOpen
 	}
 	if len(ids) == 0 {
 		return []CardInfo{}, nil
 	}
-	// Issue one query per id so the input order is preserved on the
-	// wire (a single SELECT IN(...) would require re-sorting on the
-	// caller side). For a typical Yomitan batch (1–10 cards) this is
-	// microseconds vs. a single ORDER BY FIELD(...) roundtrip.
-	out := make([]CardInfo, 0, len(ids))
-	for _, id := range ids {
-		row := c.db.QueryRow(`SELECT id, nid, ord, did, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags FROM cards WHERE id = ?`, id)
-		var ci CardInfo
-		if err := row.Scan(&ci.CardID, &ci.NoteID, &ci.Ord, &ci.DeckID, &ci.Type, &ci.Queue, &ci.Due, &ci.IVL, &ci.Factor, &ci.Reps, &ci.Lapses, &ci.Left, &ci.ODue, &ci.ODID, &ci.Flags); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
+	var out []CardInfo
+	err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		// Issue one query per id so the input order is preserved.
+		// For a typical Yomitan batch (1–10 cards) this is
+		// microseconds vs. a single ORDER BY FIELD(...) roundtrip.
+		out = make([]CardInfo, 0, len(ids))
+		for _, id := range ids {
+			row := db.QueryRow(`SELECT id, nid, ord, did, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags FROM cards WHERE id = ?`, id)
+			var ci CardInfo
+			if err := row.Scan(&ci.CardID, &ci.NoteID, &ci.Ord, &ci.DeckID, &ci.Type, &ci.Queue, &ci.Due, &ci.IVL, &ci.Factor, &ci.Reps, &ci.Lapses, &ci.Left, &ci.ODue, &ci.ODID, &ci.Flags); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				return fmt.Errorf("anki: scan card %d: %w", id, err)
 			}
-			return nil, fmt.Errorf("anki: scan card %d: %w", id, err)
+			ci.Note = ci.NoteID
+			out = append(out, ci)
 		}
-		// Populate the `note` field (AnkiConnect wire contract;
-		// Yomitan's _normalizeCardInfoArray reads `note`, not
-		// `noteId`).
-		ci.Note = ci.NoteID
-		out = append(out, ci)
-	}
-	return out, nil
+		return nil
+	})
+	return out, err
 }
 
 // CardIDsForNoteIDs returns the flat list of card IDs belonging to
@@ -2747,49 +2766,45 @@ func (c *Collection) CardsInfo(ids []int64) ([]CardInfo, error) {
 // silently (matches the AnkiConnect-style "missing ids are omitted"
 // convention used elsewhere in this file).
 //
-// Used by the guiBrowse dispatcher to resolve a FindNotes result
-// (which is note ids) into the card ids that AnkiConnect's
-// documented guiBrowse contract returns. Yomitan's guiBrowseNote
-// path passes a single nid and never reaches this branch (it takes
-// the dedicated nid: query path); this helper is for the
-// general-query branch (added:1, front:…, arbitrary FindNotes
-// queries).
-//
 // Implementation: one SELECT per note id so the result order
 // tracks the input order exactly. A single SELECT ... WHERE nid IN
 // (...) would require re-sorting on the caller side; the per-id
 // loop is microseconds for a typical Yomitan batch (1-10 notes).
 func (c *Collection) CardIDsForNoteIDs(noteIDs []int64) ([]int64, error) {
-	if c == nil || c.db == nil {
+	if c == nil || c.path == "" {
 		return nil, ErrCollectionNotOpen
 	}
 	if len(noteIDs) == 0 {
 		return []int64{}, nil
 	}
-	out := make([]int64, 0, len(noteIDs))
-	for _, nid := range noteIDs {
-		if nid == 0 {
-			continue
-		}
-		rows, err := c.db.Query("SELECT id FROM cards WHERE nid = ? ORDER BY ord", nid)
-		if err != nil {
-			return nil, fmt.Errorf("anki: query cards for note %d: %w", nid, err)
-		}
-		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("anki: scan card for note %d: %w", nid, err)
+	var out []int64
+	err := c.withReadHandle(func(db *sql.DB, _ schemaVariant, _ bool) error {
+		out = make([]int64, 0, len(noteIDs))
+		for _, nid := range noteIDs {
+			if nid == 0 {
+				continue
 			}
-			out = append(out, id)
-		}
-		if err := rows.Err(); err != nil {
+			rows, err := db.Query("SELECT id FROM cards WHERE nid = ? ORDER BY ord", nid)
+			if err != nil {
+				return fmt.Errorf("anki: query cards for note %d: %w", nid, err)
+			}
+			for rows.Next() {
+				var id int64
+				if err := rows.Scan(&id); err != nil {
+					rows.Close()
+					return fmt.Errorf("anki: scan card for note %d: %w", nid, err)
+				}
+				out = append(out, id)
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return fmt.Errorf("anki: iterate cards for note %d: %w", nid, err)
+			}
 			rows.Close()
-			return nil, fmt.Errorf("anki: iterate cards for note %d: %w", nid, err)
 		}
-		rows.Close()
-	}
-	return out, nil
+		return nil
+	})
+	return out, err
 }
 
 // ModelName returns the human-readable name for a model id. Used by

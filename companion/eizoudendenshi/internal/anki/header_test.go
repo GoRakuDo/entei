@@ -312,7 +312,7 @@ func TestWriteSessionHeaderVerificationFailsClosed(t *testing.T) {
 	// WriteSession with an fn that injects corruption into the
 	// work file AFTER committing its real transaction. The
 	// header guard must catch this and refuse to CopyOut.
-	err = c.WriteSession(func(wc *Collection) error {
+	err = c.WriteSession(func(wc *workCollection) error {
 		// Real work.
 		tx, terr := wc.db.Begin()
 		if terr != nil {
@@ -394,7 +394,7 @@ func TestWriteSessionCheckpointIncompleteFailsClosed(t *testing.T) {
 		t.Fatalf("OpenCollectionWithWorkDir: %v", err)
 	}
 	defer c.Close()
-	err = c.WriteSession(func(wc *Collection) error {
+	err = c.WriteSession(func(wc *workCollection) error {
 		tx, terr := wc.db.Begin()
 		if terr != nil {
 			return terr

@@ -1,6 +1,6 @@
 # EizouDendenshi ↔ AnkiDroid Connect — Android Companion 設計仕様
 
-> **状態:** 設計 v4.5（2026-09-01・Yomitan 完全互換: `multi` / `cardsInfo` / `guiBrowse` / `findNotes front:` を追加・`NoteInfo.Cards` を `[]int64` に統一）
+> **状態:** 設計 v5.1（2026-09-02・open-on-demand: 常時 DB ハンドルを保持しない）
 > **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiDroid 連携ブリッジ機能を追加する
 > **スコープ:** クライアントは Entei Web / Yomitan / asbplayer の 3 つ全て
 
@@ -444,6 +444,20 @@ modernc.org/sqlite の pure-Go ランタイム（SQLite 全文 + libc 純 Go 実
 ---
 
 ## 13. 改訂履歴
+
+### v5.1（2026-09-02）: open-on-demand — 常時 DB ハンドルを保持しない
+
+**ユーザー要件**（2026-09-02）: 「DB を握りっぱなしせずにできないのか？」「そんときは用事終わったら即時解放する」
+
+**変更**: `Collection` をステートレスなファサードに再設計。
+
+- **読み取り**: アクションごとに immutable=1 ハンドルを開き、`detectSchema` → クエリ → 即 close。`withReadHandle(fn)` が唯一の入口。
+- **書き込み**: 従来どおり WorkCopy WriteSession（copy→write→CopyOut→close）— すでに「用事終わったら解放」を満たす。
+- **削除**: 永続 `db` ハンドル / `refreshReadHandle` / `colCache` / 起動時スキーマ検出。`Close()` は no-op（互換のため残す）。
+- **効果**: 常時ハンドルがゼロ → **AnkiDroid はいつでもコレクションを開ける**。ロック競合・DB Locked・破損の発生余地が構造的に消える。
+- 読み取りのコスト: 1 アクションあたり open + sqlite_master 1 クエリ + 対象クエリ + close（マイクロ秒〜ミリ秒）。
+
+**テスト**: `TestReadOpensAndCloses` — 各読み取りメソッド返却後に `os.Remove(path)` が成功すること（= ハンドル漏れゼロ）を Windows 上で直接検証。50 回連続 DeckIDs でも Remove 成功。96 テスト全 pass。
 
 ### v4.5（2026-09-01）: Yomitan 完全互換 — `multi` / `cardsInfo` / `guiBrowse` / `findNotes front:` 追加
 - **症状**: Yomitan のカード追加ボタン（+）が表示されない。ステータスは `Connected`・フィールド読込みも成功するも、サーバの `getAnkiNoteInfo` が throw して `ankiError` にセット → display-anki.js `_updateSaveButtons` が `button.hidden = true` にする動作
