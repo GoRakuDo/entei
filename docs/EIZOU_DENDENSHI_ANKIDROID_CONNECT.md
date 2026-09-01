@@ -1,7 +1,5 @@
 # EizouDendenshi ↔ AnkiDroid Connect — Android Companion 設計仕様
 
-> ⚠️ **SUPERSEDED 2026-09-01**: companion provides no Anki surface as of 2026-09-01 — AnkiconnectAndroid (KamWithK APK, port 8765, ContentProvider-based, no DB lock) is the accepted Android AnkiConnect; Entei/Yomitan connect to `127.0.0.1:8765` as with desktop AnkiConnect. The flags, SQLite layer, and raw AnkiConnect listener described below were removed from the companion; this document is kept for history. See commit log for the v4.4 → "no Anki surface" transition.
-
 > **状態:** 設計 v4.4（2026-09-01・AnkiDroid 2.16+ notetypes/schema18 上の UNICASE + fields/templates 分散スキーマに対応）
 > **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiDroid 連携ブリッジ機能を追加する
 > **スコープ:** クライアントは Entei Web / Yomitan / asbplayer の 3 つ全て
