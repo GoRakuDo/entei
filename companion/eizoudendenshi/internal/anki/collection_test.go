@@ -25,7 +25,14 @@ import (
 // against this scaffold.
 func newTestCollectionFixture(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	return newTestCollectionFixtureAt(t, t.TempDir())
+}
+
+// newTestCollectionFixtureAt is newTestCollectionFixture with an
+// explicit target directory (used by the FUSE roundtrip tests to
+// place the "source" collection in a chosen dir).
+func newTestCollectionFixtureAt(t *testing.T, dir string) string {
+	t.Helper()
 	path := filepath.Join(dir, "collection.anki2")
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -1076,5 +1083,395 @@ func TestFixtureFileIsRemovedOnCleanup(t *testing.T) {
 	// we expect it for the duration of this test.
 	if parent == "" {
 		t.Fatal("TempDir parent is empty")
+	}
+}
+
+// --- notetypes (AnkiDroid 2.16+) fixture + tests ---
+//
+// The real AnkiDroid 2.16+ collection.anki2 (verified 2026-09-01)
+// uses a dedicated `notetypes` table for note types instead of
+// `models`, and leaves col.decks / col.models as empty strings. The
+// fixture here reproduces that shape so the modern-reader dispatch
+// can be exercised without a real device.
+
+// notetypesSchemaSQL extends schema11SQL with the AnkiDroid 2.16+
+// notetypes-related tables. The columns follow the real on-device
+// layout (verified against ankitects/anki
+// rslib/src/storage/upgrades/schema15_upgrade.sql, which is the
+// authoritative source for AnkiDroid 2.16+ / Anki desktop v18
+// schema shape — notetypes/fields/templates/decks all use
+// `name TEXT COLLATE unicase` at the column level and
+// `config/common/kind` columns are BLOBs, not TEXT):
+//
+//	CREATE TABLE notetypes (
+//	  id integer PRIMARY KEY,
+//	  name text NOT NULL COLLATE unicase,
+//	  mtime_secs integer NOT NULL,
+//	  usn integer NOT NULL,
+//	  config blob NOT NULL                -- Protobuf (Notetype.Config)
+//	);
+//	CREATE TABLE fields (
+//	  ntid integer NOT NULL,
+//	  ord integer NOT NULL,
+//	  name text NOT NULL COLLATE unicase,
+//	  config blob NOT NULL,               -- Protobuf (Notetype.Field.Config)
+//	  PRIMARY KEY (ntid, ord)
+//	) WITHOUT ROWID;
+//	CREATE TABLE templates (
+//	  ntid integer NOT NULL,
+//	  ord integer NOT NULL,
+//	  name text NOT NULL COLLATE unicase,
+//	  mtime_secs integer NOT NULL,
+//	  usn integer NOT NULL,
+//	  config blob NOT NULL,               -- Protobuf (Notetype.Template.Config)
+//	  PRIMARY KEY (ntid, ord)
+//	) WITHOUT ROWID;
+//	CREATE TABLE decks (
+//	  id integer PRIMARY KEY,
+//	  name text NOT NULL COLLATE unicase,
+//	  mtime_secs integer NOT NULL,
+//	  usn integer NOT NULL,
+//	  common blob NOT NULL,               -- Protobuf (DeckCommon)
+//	  kind blob NOT NULL                  -- Protobuf (DeckKind)
+//	);
+//
+// Important: flds (field name list) and tmpls (template name list)
+// live in SEPARATE tables (`fields` and `templates`), NOT inside
+// the notetypes.config blob. The user's earlier verification
+// ("notetypes cols: ['id', 'name', 'mtime_secs', 'usn', 'config']")
+// correctly identified the five columns of `notetypes` but did not
+// mention the sibling `fields` and `templates` tables. The bridge
+// reads field names from `fields` and template count from
+// `templates` directly; it does NOT decode the Protobuf in
+// `notetypes.config` (the bridge doesn't need its css / latexPre /
+// latexPost / sortf fields).
+//
+// The fixture-as-written matches this real shape, including
+// `name TEXT COLLATE unicase` on every name column and the
+// WITHOUT ROWID primary key on fields/templates. Tests that need
+// to read from these tables will fail without UNICASE registered
+// (modernc's default driver lacks it) — ensureUnicaseCollation is
+// invoked automatically by openCollectionDSN via the production
+// path; tests that drive sql.Open directly must call it
+// themselves.
+const notetypesSchemaSQL = schema11SQL + `
+CREATE TABLE decks (
+	id integer PRIMARY KEY,
+	name text NOT NULL COLLATE unicase,
+	mtime_secs integer NOT NULL,
+	usn integer NOT NULL,
+	common blob NOT NULL,
+	kind blob NOT NULL
+);
+CREATE TABLE notetypes (
+	id integer PRIMARY KEY,
+	name text NOT NULL COLLATE unicase,
+	mtime_secs integer NOT NULL,
+	usn integer NOT NULL,
+	config blob NOT NULL
+);
+CREATE TABLE fields (
+	ntid integer NOT NULL,
+	ord integer NOT NULL,
+	name text NOT NULL COLLATE unicase,
+	config blob NOT NULL,
+	PRIMARY KEY (ntid, ord)
+) WITHOUT ROWID;
+CREATE TABLE templates (
+	ntid integer NOT NULL,
+	ord integer NOT NULL,
+	name text NOT NULL COLLATE unicase,
+	mtime_secs integer NOT NULL,
+	usn integer NOT NULL,
+	config blob NOT NULL,
+	PRIMARY KEY (ntid, ord)
+) WITHOUT ROWID;
+`
+
+// newNotetypesCollectionFixture builds the AnkiDroid 2.16+ schema
+// shape: a `col` row with EMPTY decks/models JSON (mirrors the
+// real device; the legacy reader therefore must NOT be the one
+// serving queries), a `decks` table with one Default row, a
+// `notetypes` table with one Basic row, a `fields` table with two
+// rows (Front, Back), and a `templates` table with two rows
+// (Card 1, Card 2). The config blobs are seeded as minimal
+// Protobuf-shaped placeholders (real-device fixtures need SOMETHING
+// in the column to satisfy NOT NULL; the bridge never reads
+// notetypes.config so any non-empty bytes work). Two fields / two
+// templates so ModelFieldNames returns ["Front", "Back"] and
+// ModelTemplateCount returns 2, matching the assertions in
+// TestModelFieldNamesNotetypes / TestModelTemplateCountNotetypes.
+//
+// The fixture opens a raw sql.DB (not OpenCollection, which
+// requires the schema to already exist) and calls
+// ensureUnicaseCollation explicitly so the CREATE TABLE …
+// COLLATE unicase statements succeed. Subsequent callers that
+// go through OpenCollection / openCollectionDSN will hit the
+// same ensureUnicaseCollation path (sync.Once keeps it
+// idempotent), so the fixture's UNICASE registration is free.
+func newNotetypesCollectionFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collection.anki2")
+	ensureUnicaseCollation()
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatalf("open notetypes fixture: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(notetypesSchemaSQL); err != nil {
+		t.Fatalf("apply notetypes schema: %v", err)
+	}
+	// Seed col row with EMPTY decks/models JSON — exactly what the
+	// real AnkiDroid 2.16+ collection.anki2 carries. Any non-empty
+	// value here would mask the bug we are pinning: legacy readers
+	// would succeed, the bridge would silently route to them, and
+	// every read would return the wrong deck/model set.
+	emptyJSON := "{}"
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+		1700000000, int64(1700000000000), int64(1700000000000), 18,
+		emptyJSON, emptyJSON, emptyJSON, emptyJSON, emptyJSON); err != nil {
+		t.Fatalf("seed col (empty decks/models): %v", err)
+	}
+	// `decks` table: one Default deck (real device has many more;
+	// one is enough for the dispatch assertions). common/kind are
+	// BLOBs — a tiny Protobuf-shaped byte slice satisfies NOT NULL;
+	// the bridge never reads these columns.
+	if _, err := db.Exec(`INSERT INTO decks (id, name, mtime_secs, usn, common, kind) VALUES (?, 'Default', 0, 0, ?, ?)`,
+		testDeckID, []byte{0x0a, 0x00}, []byte{0x0a, 0x00}); err != nil {
+		t.Fatalf("seed decks: %v", err)
+	}
+	// `notetypes` row: id + name + a placeholder BLOB config. The
+	// bridge does NOT decode this blob (it doesn't need css / latex
+	// / sortf); a minimal Protobuf-shaped placeholder is enough to
+	// satisfy NOT NULL.
+	notetypeConfig := []byte{0x0a, 0x00} // Protobuf field 1 (kind), varint 0 = KIND_NORMAL
+	if _, err := db.Exec(`INSERT INTO notetypes (id, name, mtime_secs, usn, config) VALUES (?, 'Basic', 0, 0, ?)`,
+		testModelID, notetypeConfig); err != nil {
+		t.Fatalf("seed notetypes: %v", err)
+	}
+	// `fields` rows: two fields in ord order (Front, Back).
+	// config BLOB is a tiny Protobuf placeholder; the bridge never
+	// reads it.
+	fieldConfig := []byte{0x08, 0x00} // Protobuf field 1 (sticky), varint 0 = false
+	for ord, name := range []string{"Front", "Back"} {
+		if _, err := db.Exec(`INSERT INTO fields (ntid, ord, name, config) VALUES (?, ?, ?, ?)`,
+			testModelID, ord, name, fieldConfig); err != nil {
+			t.Fatalf("seed fields[%d]: %v", ord, err)
+		}
+	}
+	// `templates` rows: two templates in ord order (Card 1, Card 2).
+	// config BLOB is a tiny Protobuf placeholder; the bridge never
+	// reads it.
+	tmplConfig := []byte{0x08, 0x00}
+	for ord, name := range []string{"Card 1", "Card 2"} {
+		if _, err := db.Exec(`INSERT INTO templates (ntid, ord, name, mtime_secs, usn, config) VALUES (?, ?, ?, 0, 0, ?)`,
+			testModelID, ord, name, tmplConfig); err != nil {
+			t.Fatalf("seed templates[%d]: %v", ord, err)
+		}
+	}
+	return path
+}
+
+// TestDetectSchemaNotetypesModern pins the autodetect on the
+// AnkiDroid 2.16+ shape: `decks` + `notetypes` (no `models` table)
+// selects the modern variant and flips modernNotetypes on.
+func TestDetectSchemaNotetypesModern(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	if c.Variant() != schemaVariantModernTables {
+		t.Errorf("variant = %v, want schemaVariantModernTables", c.Variant())
+	}
+	if !c.modernNotetypes {
+		t.Errorf("modernNotetypes = false, want true (only `notetypes` table present)")
+	}
+}
+
+// TestDetectSchemaLegacyWhenNoDecksTable pins that an Anki schema
+// with neither `decks` nor `models` / `notetypes` tables falls back
+// to legacy — even if the rest of the schema looks modern. This is
+// the safety net for partial schemas (corrupted / partially-upgraded
+// collections) where the legacy col.* reader is the only honest
+// option.
+func TestDetectSchemaLegacyWhenNoDecksTable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collection.anki2")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(schema11SQL); err != nil {
+		t.Fatalf("apply base schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, 0, 0, 0, 11, 0, 0, 0, '{}', '{}', '{}', '{}', '{}')`); err != nil {
+		t.Fatalf("seed col: %v", err)
+	}
+	c, err := OpenCollection(path)
+	if err != nil {
+		t.Fatalf("OpenCollection: %v", err)
+	}
+	defer c.Close()
+	if c.Variant() != schemaVariantLegacyJSON {
+		t.Errorf("variant = %v, want schemaVariantLegacyJSON", c.Variant())
+	}
+	if c.modernNotetypes {
+		t.Errorf("modernNotetypes = true, want false (legacy variant)")
+	}
+}
+
+// TestDeckIDsNotetypes pins that DeckIDs on the AnkiDroid 2.16+
+// fixture serves the deck names from the `decks` table — the legacy
+// col.decks JSON is empty and would otherwise parse-fail with
+// "unexpected end of JSON input" (the on-device failure).
+func TestDeckIDsNotetypes(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	decks, err := c.DeckIDs()
+	if err != nil {
+		t.Fatalf("DeckIDs on notetypes fixture: %v", err)
+	}
+	if got := decks["Default"]; got != testDeckID {
+		t.Errorf("decks[Default] = %d, want %d", got, testDeckID)
+	}
+}
+
+// TestModelIDsNotetypes pins that ModelIDs on the AnkiDroid 2.16+
+// fixture serves the model name from the `notetypes` table (NOT
+// from col.models JSON — that's empty on the real device).
+func TestModelIDsNotetypes(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	models, err := c.ModelIDs()
+	if err != nil {
+		t.Fatalf("ModelIDs on notetypes fixture: %v", err)
+	}
+	if got := models["Basic"]; got != testModelID {
+		t.Errorf("models[Basic] = %d, want %d", got, testModelID)
+	}
+}
+
+// TestModelFieldNamesNotetypes pins that ModelFieldNames on the
+// AnkiDroid 2.16+ fixture reads the field names out of the
+// notetypes.fields JSON column in array order — the same order the
+// legacy col.models JSON uses (ord-ascending). This is the minimum
+// AnkiConnect modelFieldNames contract: callers pass field names
+// back into addNote, so the order must match InsertNote's
+// strings.Join(fields, "\x1f") expectations.
+func TestModelFieldNamesNotetypes(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	names, err := c.ModelFieldNames(testModelID)
+	if err != nil {
+		t.Fatalf("ModelFieldNames on notetypes fixture: %v", err)
+	}
+	want := []string{"Front", "Back"}
+	if len(names) != len(want) {
+		t.Fatalf("len(names) = %d, want %d (names=%v)", len(names), len(want), names)
+	}
+	for i, n := range names {
+		if n != want[i] {
+			t.Errorf("names[%d] = %q, want %q", i, n, want[i])
+		}
+	}
+}
+
+// TestModelTemplateCountNotetypes pins that ModelTemplateCount on
+// the AnkiDroid 2.16+ fixture reads the templates JSON array length
+// from the notetypes.templates column. The fixture seeds 2
+// templates so InsertNote against this collection would create 2
+// cards per note (vs the 1 card on the legacy fixture).
+func TestModelTemplateCountNotetypes(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	n, err := c.ModelTemplateCount(testModelID)
+	if err != nil {
+		t.Fatalf("ModelTemplateCount on notetypes fixture: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("template count = %d, want 2 (notetypes fixture seeds two templates)", n)
+	}
+}
+
+// TestInsertNoteNotetypesFixtureRoundtrip pins the central happy
+// path on the AnkiDroid 2.16+ shape: InsertNote creates a note +
+// len(tmpls) cards. This is the test that would have caught the
+// real-device dispatch failure: before the fix, ModelTemplateCount
+// would error on "no such table: models", InsertNote would surface
+// that as a top-level error, and addNote would dispatch with
+// "anki action failed". With the fix in place, the insert succeeds
+// and the card count matches the template count (2 in this
+// fixture).
+func TestInsertNoteNotetypesFixtureRoundtrip(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	noteID, err := c.InsertNote(testDeckID, testModelID, []string{"猫", "cat"}, nil, nil)
+	if err != nil {
+		t.Fatalf("InsertNote on notetypes fixture: %v", err)
+	}
+	if noteID == 0 {
+		t.Fatal("InsertNote: noteID = 0")
+	}
+	// Two templates → two cards per the fixture.
+	var count int64
+	if err := c.db.QueryRow("SELECT COUNT(*) FROM cards WHERE nid = ?", noteID).Scan(&count); err != nil {
+		t.Fatalf("count cards: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("card count = %d, want 2 (notetypes fixture has 2 templates)", count)
+	}
+	// Notes row shape (csum, guid, flds) matches the legacy fixture
+	// contract.
+	var flds, guid string
+	if err := c.db.QueryRow("SELECT flds, guid FROM notes WHERE id = ?", noteID).Scan(&flds, &guid); err != nil {
+		t.Fatalf("read notes row: %v", err)
+	}
+	if flds != "猫\x1fcat" {
+		t.Errorf("flds = %q, want %q", flds, "猫\x1fcat")
+	}
+	if len(guid) != 10 {
+		t.Errorf("guid len = %d, want 10", len(guid))
+	}
+}
+
+// TestModelIDsViaUnicaseNameLookup pins the end-to-end UNICASE
+// path: on the AnkiDroid 2.16+ fixture the `notetypes.name`
+// column is declared `COLLATE unicase`. Without registration,
+// even the seemingly-trivial `SELECT id, name FROM notetypes`
+// would fail because SQLite has to materialize the column's
+// declared collation. This test calls ModelIDs (which issues
+// exactly that query) on the fixture and asserts the result —
+// passing only when UNICASE is registered (sync.Once in
+// ensureUnicaseCollation handles it for the whole test
+// binary).
+func TestModelIDsViaUnicaseNameLookup(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	models, err := c.ModelIDs()
+	if err != nil {
+		t.Fatalf("ModelIDs on notetypes fixture (UNICASE column): %v", err)
+	}
+	if got := models["Basic"]; got != testModelID {
+		t.Errorf("models[Basic] = %d, want %d", got, testModelID)
+	}
+}
+
+// TestModelJSONFromNotetypesUnreachable pins the error path that
+// catches any caller that tries to round-trip a notetypes.model
+// through the legacy JSON funnel. On the AnkiDroid 2.16+
+// branch the bridge reads field names and template counts from
+// the separate `fields` / `templates` tables; trying to read the
+// model via modelJSON → modelJSONFromNotetypes produces a
+// clear, precise error message (instead of the historical
+// "no such column: fields" or a confusing JSON parse failure).
+func TestModelJSONFromNotetypesUnreachable(t *testing.T) {
+	path := newNotetypesCollectionFixture(t)
+	c := openTestCollection(t, path)
+	_, err := c.modelJSONFromNotetypes(testModelID)
+	if err == nil {
+		t.Fatal("modelJSONFromNotetypes: want err, got nil")
+	}
+	if !strings.Contains(err.Error(), "notetypes table") {
+		t.Errorf("err = %v, want one mentioning notetypes table path", err)
 	}
 }

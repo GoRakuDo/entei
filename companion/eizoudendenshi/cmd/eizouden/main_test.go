@@ -428,7 +428,7 @@ func TestResolveAnkiBridge(t *testing.T) {
 		probe := func() (*anki.MediaWriter, error) {
 			return anki.NewMediaWriterForTest(mediaDir), nil
 		}
-		b := resolveAnkiBridge("", "", nil, probe)
+		b := resolveAnkiBridge("", "", "", nil, probe)
 		if b == nil {
 			t.Fatal("auto-derive: bridge = nil, want non-nil (probe + sibling ok)")
 		}
@@ -459,7 +459,7 @@ func TestResolveAnkiBridge(t *testing.T) {
 			return anki.NewMediaWriterForTest(mediaDir), nil
 		}
 		log, logRead := newDiagForTest(t)
-		b := resolveAnkiBridge("", "", log, probe)
+		b := resolveAnkiBridge("", "", "", log, probe)
 		if b != nil {
 			t.Errorf("bridge = %+v, want nil (no sibling collection.anki2)", b)
 		}
@@ -473,7 +473,7 @@ func TestResolveAnkiBridge(t *testing.T) {
 			return nil, errors.New("anki: no writable AnkiDroid collection.media candidate")
 		}
 		log, logRead := newDiagForTest(t)
-		b := resolveAnkiBridge("", "", log, probe)
+		b := resolveAnkiBridge("", "", "", log, probe)
 		if b != nil {
 			t.Errorf("bridge = %+v, want nil (probe failed)", b)
 		}
@@ -490,7 +490,7 @@ func TestResolveAnkiBridge(t *testing.T) {
 		probe := func() (*anki.MediaWriter, error) {
 			return anki.NewMediaWriterForTest("/storage/emulated/0/AnkiDroid/collection.media"), nil
 		}
-		b := resolveAnkiBridge(notesOnlyPath, "", nil, probe)
+		b := resolveAnkiBridge(notesOnlyPath, "", "", nil, probe)
 		if b == nil {
 			t.Fatal("explicit override: bridge = nil, want non-nil")
 		}
@@ -521,7 +521,7 @@ func TestResolveAnkiBridge(t *testing.T) {
 			return nil, anki.ErrUnsupportedPlatform
 		}
 		log, logRead := newDiagForTest(t)
-		b := resolveAnkiBridge(notesOnlyPath, "", log, probe)
+		b := resolveAnkiBridge(notesOnlyPath, "", "", log, probe)
 		if b == nil {
 			t.Fatal("notes-only (explicit collection): bridge = nil, want non-nil")
 		}
@@ -545,12 +545,34 @@ func TestResolveAnkiBridge(t *testing.T) {
 		probe := func() (*anki.MediaWriter, error) {
 			return nil, anki.ErrUnsupportedPlatform
 		}
-		b := resolveAnkiBridge(notesOnlyPath, "secret-key-xyz", nil, probe)
+		b := resolveAnkiBridge(notesOnlyPath, "secret-key-xyz", "", nil, probe)
 		if b == nil {
 			t.Fatal("API key wiring: bridge = nil, want non-nil")
 		}
 		if b.APIKey != "secret-key-xyz" {
 			t.Errorf("APIKey = %q, want %q", b.APIKey, "secret-key-xyz")
+		}
+		_ = b.DB.Close()
+	})
+
+	t.Run("work dir passthrough: --anki-work-dir reaches the collection open", func(t *testing.T) {
+		// Pins the v4.3 signature: the FUSE roundtrip work dir is
+		// forwarded to OpenCollectionWithWorkDir. On a normal fs the
+		// direct open wins (roundtrip nil); the assertion here is the
+		// plumbing — a non-empty workDir must not disable the bridge.
+		notesOnlyPath := newColFixtureForStatusTest(t)
+		probe := func() (*anki.MediaWriter, error) {
+			return nil, anki.ErrUnsupportedPlatform
+		}
+		b := resolveAnkiBridge(notesOnlyPath, "", t.TempDir(), nil, probe)
+		if b == nil {
+			t.Fatal("work dir passthrough: bridge = nil, want non-nil")
+		}
+		if b.DB == nil {
+			t.Fatal("work dir passthrough: DB = nil, want non-nil")
+		}
+		if got := b.DB.Path(); got != notesOnlyPath {
+			t.Errorf("DB.Path() = %q, want %q", got, notesOnlyPath)
 		}
 		_ = b.DB.Close()
 	})

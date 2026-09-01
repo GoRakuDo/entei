@@ -1,6 +1,6 @@
 # EizouDendenshi ↔ AnkiDroid Connect — Android Companion 設計仕様
 
-> **状態:** 設計 v4.2（2026-08-31・Android/media 経路を追加し Android 11+ で `MANAGE_EXTERNAL_STORAGE` 不要に）
+> **状態:** 設計 v4.4（2026-09-01・AnkiDroid 2.16+ notetypes/schema18 上の UNICASE + fields/templates 分散スキーマに対応）
 > **対象:** EizouDendenshi Android コンパニオン（`eizouden-android-arm64`）に AnkiDroid 連携ブリッジ機能を追加する
 > **スコープ:** クライアントは Entei Web / Yomitan / asbplayer の 3 つ全て
 
@@ -260,6 +260,25 @@ Android 8〜10、または `MANAGE_EXTERNAL_STORAGE` を手動付与する
   （実機で書込み検証済み）
 - v4.0 廃止項目：`--anki-media-dir`（MediaWriter の probe 自動検出に一本化済み）
 
+### FUSE roundtrip（Android/media ロック回避）— v4.3（2026-08-31）
+
+**根因（実機検証済み）**: コレクションが `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.anki2`（FUSE マウント）にある場合、Android FUSE の `fcntl(F_SETLK)` はクロスUID のロック要求に **EAGAIN** を返す。SQLite はこれをロック衝突と解釈するため、**あらゆるアクセス**が `database is locked (SQLITE_BUSY)` になる（`busy_timeout` では解消できない）。
+
+**実機エビデンス（2026-08-31）**:
+- FUSE 上の collection.anki2 を直接 SQLite で開く → `SQLITE_BUSY`（全アクセス失敗）
+- `cp src work`（ext4 の作業ディレクトリへコピー）→ work コピーへの SQLite INSERT/UPDATE/DELETE → **全て成功**
+- `cp work src`（FUSE へ writeback）→ **成功**
+- → **コピー → work で操作 → writeback が唯一の viable 経路**
+
+**実装（`internal/anki/fuse_roundtrip.go` + `OpenCollectionWithWorkDir`）**:
+1. 従来通り**直接オープン**を試行（busy_timeout=5000 のプラグマ付き）
+2. オープンが busy/locked エラー（エラー文字列に `"database is locked"` または `"SQLITE_BUSY"` を含む）で失敗し、かつ work ディレクトリが指定されている場合のみ、**FUSE roundtrip にフォールバック**: ファイルを work ディレクトリ（ext4・ロック可能）へコピーして、そのコピーを同じプラグマで開く。`Path()` は元の FUSE パスを返し続ける（コレクションの識別は変わらない）
+3. **Close() で writeback**: `PRAGMA wal_checkpoint(TRUNCATE)`（best-effort、WAL を本体にマージ）→ work DB をクローズ → work ファイルを FUSE の元パスへコピー → work ファイル削除。writeback 失敗時は work コピーを**残して**エラーを返す。この復旧用コピーは**次回起動時に上書き破棄されない**：`CopyIn` は既存の work ファイルを src と比較し、サイズまたは mtime が異なる場合は**切り詰めず** `<base>.recovery-<unix-ts>` へリネームして退避し、退避先パスをエラーで通知してから新規コピーを作る。退避ファイルは手動で元パスへ復元できるが、work 側の基本ファイル名（`collection.anki2`）は次回の `CopyIn` で再利用されるため、復元はその前に実施すること
+
+- **work ディレクトリ既定**: `--anki-work-dir` 未指定時、Android では `<os.TempDir()>/eizouden-anki-work`（Termux の app-private = `/data/data/...` = ext4 で非 FUSE）を自動採用。Android 以外では空 = roundtrip 無効（従来の直接オープンのみ）
+- **`--anki-work-dir <path>`**: 任意の ext4 パスを明示指定（既定の自動解決を上書き）
+- **制約**: roundtrip 中は AnkiDroid を閉じておくこと（`-wal`/`-shm` サイドカーはコピー対象外のため、AnkiDroid 実行中の書き込みは roundtrip に反映されない。§6 の「アプリ再起動が必要」と同様の前提）
+
 ### 書き込み可否の検査（起動時）
 - ディレクトリが存在・`access(W_OK)` が通るか
 - 実際に一時ファイルを書いて→消す（書き込みテスト）
@@ -422,6 +441,26 @@ modernc.org/sqlite の pure-Go ランタイム（SQLite 全文 + libc 純 Go 実
 ---
 
 ## 13. 改訂履歴
+
+### v4.4（2026-09-01）
+- **AnkiDroid 2.16+ 上の `modelFieldNames` 系 API を全て動作可能に**：v4.3 のスキーマ検出では collection.anki2 を `OpenCollection` で開けなくなり、（a）`notetypes.config` を `{flds, tmpls}` JSON と仮定して SELECT して `no such column: fields` で落とす、（b）`notetypes.name` / `decks.name` / `fields.name` / `templates.name` が全て `COLLATE unicase` なのに modernc.org/sqlite が UNICASE を登録しないため name 列を SELECT しただけで `no such collation sequence: unicase` で落とす、の 2 連鎖で deck/model の name 引き当てが完全に dead だったのを根本修正
+- **`internal/anki/unicase.go` 新設**：Anki/ICU 流の case-insensitive コンパレーターを `modernc.org/sqlite` に `UNICASE` 名で登録。`strings.ToLower` で case-fold したものを単純比較する ICU-ASCII 互換実装（diacritic folding は未対応——ブリッジのサーフェスでは deck 名 "Default" / model 名 "Basic" 等 ASCII 文字列のみなので不要）。`sync.Once` で多重登録ガード
+- **`openCollectionDSN` で `ensureUnicaseCollation()` を `sql.Open` の直前で呼び出し**：modernc の `RegisterCollationUtf8` は「登録以降に新規オープンされたコネクションにだけ有効」という仕様なので、sql.Open より前で呼ぶのが必須。本修正により real-device collection.anki2 の `SELECT id, name FROM notetypes` / `SELECT id, name FROM decks` / `SELECT name FROM fields WHERE ntid = ?` 等の name 列スキャン全てが成功
+- **`notetypes` 系のスキーマ誤認を修正**：v4.3 は実機のスキーマを 5 列だけ（`id, name, mtime_secs, usn, config`）と判定していたが、ankitects/anki `rslib/src/storage/upgrades/schema15_upgrade.sql` を参照した結果、`fields` と `templates` が独立した `NOT ROWID` テーブルとして存在し、flds/tmpls データは `notetypes.config`（Protobuf blob）ではなくそちらに格納されていることが判明。`config` は `Notetype.Config` Protobuf（`css`/`latexPre`/`latexPost`/`kind`/`sort_field_idx`/`reqs` 等）で、ブリッジが読まないフィールドだけが格納されている。よって `notetypes.config` をデコードするロジック自体を廃止し、field names は `SELECT name FROM fields WHERE ntid = ? ORDER BY ord`、template count は `SELECT COUNT(*) FROM templates WHERE ntid = ?` で直接読むように変更。Protobuf デコーダー依存を追加せずにブリッジ成立
+- **`ModelFieldNames` / `ModelTemplateCount` を `modernNotetypes` でディスパッチ**：`notetypes` テーブルが検出された時のみ `fieldNamesFromNotetypes` / `templateCountFromNotetypes` を使い、それ以外の legacy / `models` テーブル系は従来通り JSON パスを使う。`modelJSONFromNotetypes` は呼び出しポイントがなくなったので将来の誤用向けにエラー文言だけを残して存続
+- **`newNotetypesCollectionFixture` を REAL スキーマで再構築**：`notetypes(id, name COLLATE unicase, mtime_secs, usn, config BLOB)` + `fields(ntid, ord, name COLLATE unicase, config BLOB, PK(ntid, ord)) WITHOUT ROWID` + `templates(ntid, ord, name COLLATE unicase, mtime_secs, usn, config BLOB, PK(ntid, ord)) WITHOUT ROWID` + `decks(id, name COLLATE unicase, mtime_secs, usn, common BLOB, kind BLOB)`。config/common/kind BLOB は Protobuf 風の最小プレースホルダ（`0x0a 0x00` 等）で NOT NULL 制約を満たすのみ
+- **テスト追加** (`internal/anki/unicase_test.go`)：`TestUnicaseCollationRegistered`（CREATE TABLE … COLLATE unicase + WHERE name = ? が case-insensitive にマッチ）+ `TestUnicaseOrdering`（ORDER BY name COLLATE unicase が大文字小文字をまたいで安定）+ `TestEnsureUnicaseCollationIdempotent`（sync.Once の多重呼び出し安全性）。`internal/anki/collection_test.go` に `TestModelIDsViaUnicaseNameLookup`（notetypes.name を SELECT するエンドツーエンド）と `TestModelJSONFromNotetypesUnreachable`（誤用防止エラー文言）を追加
+- **新規依存なし**：klauspost/compress/zstd は追加せず（config を decode しないため不要）。`golang.org/x/text/collate` も追加せず（単純な case-folded comparator で全 surface が動く）
+
+### v4.3（2026-08-31）
+- **Android/media 上の collection.anki2 ロック問題を FUSE roundtrip で解消**: Android FUSE のクロスUID `fcntl(F_SETLK)` が EAGAIN を返すため、`/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.anki2` を直接 SQLite で開くと**どんなアクセスでも** `SQLITE_BUSY` になる（実機検証済み 2026-08-31）。`cp src work` → work で SQLite 全操作 → `cp work src` のパターンが実機で成功したため、これを公式経路として実装
+- **`internal/anki/fuse_roundtrip.go` 新設**: `FuseRoundtrip`（workDir）× `CopyIn`（FUSE→ext4 作業コピー）/ `CopyOut`（writeback + work 削除。失敗時は work を残してエラー）
+- **`OpenCollectionWithWorkDir(path, workDir)` 追加**: 直接オープン → busy/locked エラー時のみ roundtrip フォールバック。`OpenCollection(path)` は `WithWorkDir(path, "")` の薄いラッパに変更（従来挙動不変）。`isBusyLockError` ヘルパーでエラー文字列（"database is locked" / "SQLITE_BUSY"）を判定
+- **`Collection.Close()` に writeback を追加**: roundtrip 時は `PRAGMA wal_checkpoint(TRUNCATE)`（best-effort）→ work DB クローズ → `CopyOut` で FUSE 元パスへ書き戻し。DB クローズ失敗時は writeback をスキップし work コピーを復旧用に残す
+- **`--anki-work-dir` フラグ追加**: 既定空 = Android では `os.TempDir()/eizouden-anki-work` を自動採用、他プラットフォームでは roundtrip 無効
+- **テスト追加** (`internal/anki/fuse_roundtrip_test.go`): CopyIn→work で SQLite 書込→CopyOut→src 検証 + work 削除確認（実 DB ラウンドトリップ）、直接オープン優先、`workDir=""` パススルー（エラー不変・work ディレクトリ無作成）、Windows 限定で EXCLUSIVE ロックによる実フォールバック（SQLITE_BUSY → roundtrip → writeback → src にノート反映）、`isBusyLockError` 文字列マトリクス
+- **`cmd/eizouden/main_test.go`**: `resolveAnkiBridge` に workDir 引数を追加（6 呼び出し更新）+ work dir passthrough サブテスト
+- **§5 に「FUSE roundtrip（Android/media ロック回避）」節を追加**
 
 ### v4.2（2026-08-31）
 - **collection.media 候補に Android/media 経路を追加**：プローブ候補リストの先頭に `/storage/emulated/0/Android/media/com.ichi2.anki/files/AnkiDroid/collection.media` を追加（実機で mkdir + write + ls 検証済み）

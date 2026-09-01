@@ -125,7 +125,11 @@ func resolveGrowSource(path string, total int64) (media.GrowingSource, error) {
 //   - Collection — opened on collection.anki2, either the explicit
 //     --anki-collection path or, when --anki-collection is empty,
 //     auto-derived as <probed media dir>/../collection.anki2 (spec
-//     v3.0 contract, restored in v4.1).
+//     v3.0 contract, restored in v4.1). Opened via
+//     OpenCollectionWithWorkDir with the --anki-work-dir value so
+//     the Android/media FUSE lock failure (cross-UID fcntl →
+//     SQLITE_BUSY) transparently falls back to copy → work →
+//     writeback (spec v4.3, 2026-08-31).
 //   - APIKey — optional AnkiConnect-style body key from
 //     --anki-api-key; empty means no key required.
 //
@@ -168,7 +172,7 @@ func resolveGrowSource(path string, total int64) (media.GrowingSource, error) {
 // --anki-media-dir was removed back in v4.0; --anki-api-key is the
 // optional API-key flag. apiKey=="" disables the key gate (matches
 // AnkiconnectAndroid).
-func resolveAnkiBridge(collectionOverride, apiKey string, diagLog *diag.Logger, probe func() (*anki.MediaWriter, error)) *api.AnkiBridge {
+func resolveAnkiBridge(collectionOverride, apiKey, workDir string, diagLog *diag.Logger, probe func() (*anki.MediaWriter, error)) *api.AnkiBridge {
 	writer, werr := probe()
 	if werr != nil && collectionOverride == "" && diagLog != nil {
 		// Only logged in the auto-derive branch: an explicit
@@ -200,7 +204,30 @@ func resolveAnkiBridge(collectionOverride, apiKey string, diagLog *diag.Logger, 
 	var db *anki.Collection
 	if collectionPath != "" {
 		var err error
-		db, err = anki.OpenCollection(collectionPath)
+		db, err = anki.OpenCollectionWithWorkDirHooked(collectionPath, workDir,
+			func(recoveryPath string) {
+				// RecoveryHook fires when the busy-locked direct open fell
+				// back to the roundtrip AND a leftover work file was
+				// preserved (crash from a previous session). Surface it to
+				// the operator — they need to know their previous writes
+				// are parked on disk for manual restore, even though the
+				// fresh session is up.
+				if diagLog != nil {
+					diagLog.Warnf("anki", "stale work copy preserved for manual recovery: %s", recoveryPath)
+				}
+			},
+			func(format string, args ...any) {
+				// warnf fires when the direct open fails with a busy/locked
+				// error and the roundtrip fallback is engaged, so the
+				// operator sees the fallback instead of silently running
+				// on the work copy. Both hooks are passed IN here: the
+				// fallback notice is emitted from inside OpenCollection,
+				// so any post-hoc wiring would arrive too late.
+				if diagLog != nil {
+					diagLog.Warnf("anki", format, args...)
+				}
+			},
+		)
 		if err != nil && diagLog != nil {
 			diagLog.Warnf("anki", "collection open: %v", err)
 		}
@@ -302,6 +329,18 @@ func main() {
 			"Empty disables the key gate — any caller may use the bridge "+
 			"(matches AnkiconnectAndroid). The flag never reaches the log "+
 			"or any wire response.")
+	ankiWorkDirFlag := flag.String("anki-work-dir", "",
+		"directory for the Android/media FUSE roundtrip work copy (spec "+
+			"EIZOU_DENDENSHI_ANKIDROID_CONNECT.md v4.3, 2026-08-31). "+
+			"collection.anki2 on Android/media sits on a FUSE mount whose "+
+			"cross-UID fcntl(F_SETLK) returns EAGAIN, so SQLite reports "+
+			"'database is locked' (SQLITE_BUSY) for ANY access. When the "+
+			"direct open fails that way the companion copies the file into "+
+			"this dir (ext4, lockable), operates on the copy and writes it "+
+			"back on Close. DEFAULT: empty = auto — on Android the work dir "+
+			"resolves to <os.TempDir()>/eizouden-anki-work (Termux "+
+			"app-private storage, non-FUSE); empty elsewhere disables the "+
+			"fallback entirely.")
 	flag.Parse()
 
 	// Android (Termux) DNS bootstrap: pure-Go (CGO_ENABLED=0) resolver
@@ -310,6 +349,15 @@ func main() {
 	// DHT bootstrap, tracker metadata, and the updater all depend on it.
 	// No-op on other platforms.
 	installAndroidDNSResolver()
+
+	// FUSE roundtrip work dir resolution (spec v4.3): empty flag on
+	// Android auto-resolves to the Termux app-private temp dir
+	// (non-FUSE ext4); empty elsewhere means no fallback (direct open
+	// only), which is the pre-v4.3 behavior.
+	ankiWorkDir := *ankiWorkDirFlag
+	if ankiWorkDir == "" && runtime.GOOS == "android" {
+		ankiWorkDir = filepath.Join(os.TempDir(), "eizouden-anki-work")
+	}
 
 	// YouTube helper auto-detection: Termux's grkd-edds (auto-start) never
 	// passes --ytdlp, but the bootstrap installs yt-dlp onto PATH
@@ -446,7 +494,7 @@ func main() {
 			torrents: torrents,
 			cred:     cred,
 			log:      diagLog,
-			anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, diagLog, defaultAnkiProbe),
+			anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, ankiWorkDir, diagLog, defaultAnkiProbe),
 		}
 		code := runCLI(cliOptions{
 			version:   api.Version,
@@ -477,7 +525,7 @@ func main() {
 		torrents: torrents,
 		cred:     cred,
 		log:      diagLog,
-		anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, diagLog, defaultAnkiProbe),
+		anki:     resolveAnkiBridge(*ankiCollection, *ankiAPIKey, ankiWorkDir, diagLog, defaultAnkiProbe),
 	}, *ytdlp); err != nil {
 		terminateDiag(diagLog)
 		log.Fatal(err)

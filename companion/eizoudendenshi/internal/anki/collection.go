@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"html"
 	"math/big"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -26,11 +27,20 @@ import (
 // AnkiconnectAndroid APK (docs v3.0, 2026-08-30).
 //
 // Schema detection runs at open time: Anki 2.1.28+ (schema 18) stores
-// decks/models in dedicated tables (`decks`, `models`); older schemas
-// store them as JSON blobs inside the `col` table (`col.decks`,
-// `col.models`). The collection layer implements BOTH readers and
-// dispatches at runtime, so the bridge works on every supported
-// AnkiDroid version. See `schemaVariant` for the autodetected branch.
+// decks in the dedicated `decks` table. Models live in either the
+// `models` table (Anki desktop / older AnkiDroid) or the `notetypes`
+// table (AnkiDroid 2.16+, verified on real device 2026-09-01 — the
+// real collection.anki2 also has empty col.decks / col.models JSON,
+// so the legacy reader is useless there). Older schemas (schema 11)
+// store decks AND models as JSON blobs inside the `col` table.
+//
+// The modern variant triggers when `decks` exists AND either
+// `models` or `notetypes` exists. c.modernNotetypes records which
+// of the two was found; the modern reader dispatches on it. The
+// collection layer implements both readers and dispatches at
+// runtime, so the bridge works on every supported AnkiDroid version.
+// See `schemaVariant` for the autodetected branch and
+// `c.modernNotetypes` for the per-table pick inside the modern branch.
 //
 // All writes run inside a transaction; reads use a single shared
 // connection from the pool. busy_timeout is 5000ms; journal_mode is
@@ -41,6 +51,32 @@ type Collection struct {
 	path     string
 	variant  schemaVariant
 	colCache *colRow // cached single-row col data (parses lazily)
+
+	// modernNotetypes is set by detectSchema when the modern variant
+	// was selected and the dedicated note-type storage is the
+	// `notetypes` table (AnkiDroid 2.16+) rather than the `models`
+	// table (Anki desktop / older AnkiDroid). It drives the modern
+	// reader dispatch in modelIDsFromTable / modelJSON. False when
+	// variant is legacy. False on modern when only `models` exists.
+	modernNotetypes bool
+
+	// FUSE roundtrip state: non-nil only when the direct open failed
+	// with a busy/locked error (Android FUSE cross-UID fcntl) and
+	// OpenCollectionWithWorkDir fell back to copy→work→writeback.
+	// workPath is the ext4 copy SQLite runs against; srcPath is the
+	// original FUSE path written back on Close. displayPath is the
+	// operator-facing identity Path() reports: the src path captured
+	// at open time, kept even after Close clears srcPath/workPath.
+	workPath  string
+	srcPath   string
+	roundtrip *FuseRoundtrip
+
+	// displayPath is the path Path() returns: the original collection
+	// path captured at open time. For a FUSE roundtrip collection this
+	// is the src path (never the work copy), and it survives Close()
+	// (which clears srcPath/workPath) so the operator-facing identity
+	// does not change after closing.
+	displayPath string
 }
 
 // schemaVariant distinguishes the two Anki storage layouts the
@@ -56,7 +92,9 @@ const (
 	// (Anki 2.1 < 2.1.28 / schema 11).
 	schemaVariantLegacyJSON
 	// schemaVariantModernTables: decks/models stored in dedicated tables
-	// `decks` / `models` (Anki 2.1.28+ / schema 18).
+	// (Anki 2.1.28+ / schema 18). Models live in either `models` (Anki
+	// desktop, older AnkiDroid) or `notetypes` (AnkiDroid 2.16+) —
+	// the modern reader dispatch is driven by Collection.modernNotetypes.
 	schemaVariantModernTables
 )
 
@@ -381,27 +419,122 @@ func nowMillis() int64 {
 // collection.anki2-wal / -shm sidecars for WAL mode if AnkiDroid
 // hasn't already). busy_timeout=5000 means concurrent AnkiDroid
 // reads/writes wait up to 5s for our transaction to finish.
+//
+// Thin wrapper over OpenCollectionWithWorkDir with an empty work
+// dir (no FUSE roundtrip fallback).
 func OpenCollection(collectionPath string) (*Collection, error) {
+	return OpenCollectionWithWorkDir(collectionPath, "")
+}
+
+// OpenCollectionWithWorkDir opens the collection like OpenCollection
+// and additionally enables the FUSE roundtrip fallback for
+// Android/media paths: when the direct open fails with a
+// busy/locked error (error text contains "database is locked" or
+// "SQLITE_BUSY" — the signature of the Android FUSE cross-UID
+// fcntl(F_SETLK)→EAGAIN failure mode, verified on a real device
+// 2026-08-31) AND workDir is non-empty, the file is copied into
+// workDir (ext4, lockable), SQLite runs against the copy, and
+// Close() writes the copy back to the original path. On any other
+// failure (or an empty workDir) the direct-open error is returned
+// unchanged.
+//
+// Thin wrapper over OpenCollectionWithWorkDirHooked with nil
+// recovery and warning hooks. The production wiring is
+// OpenCollectionWithWorkDirHooked (cmd/eizouden/main.go
+// resolveAnkiBridge), which forwards the roundtrip's RecoveryHook
+// + busy-locked notice to the diag logger so the operator sees
+// the fallback instead of a silent one.
+func OpenCollectionWithWorkDir(collectionPath, workDir string) (*Collection, error) {
+	return OpenCollectionWithWorkDirHooked(collectionPath, workDir, nil, nil)
+}
+
+// OpenCollectionWithWorkDirHooked is OpenCollectionWithWorkDir with
+// two additional callbacks:
+//
+//   - onRecovered fires when the FUSE roundtrip fallback is engaged
+//     AND a stale work copy is preserved (renamed to
+//     .recovery-<ts>). The callback receives the recovery path. It
+//     is also wired onto the roundtrip's RecoveryHook so the
+//     fallback's own preservation events surface to the caller.
+//     nil = no-op.
+//   - warnf fires when the direct open fails with a busy/locked
+//     error and the roundtrip fallback is engaged, so the caller
+//     can surface the "busy-locked → copy-work-writeback"
+//     transition instead of silently running on the work copy.
+//     nil = no-op.
+//
+// Both hooks are passed IN at the open call (not assigned to the
+// Collection afterwards) so the call site cannot miss the wiring:
+// the fallback notification fires from inside the open path, and
+// any post-hoc assignment would arrive too late.
+func OpenCollectionWithWorkDirHooked(collectionPath, workDir string, onRecovered func(string), warnf func(string, ...any)) (*Collection, error) {
 	if collectionPath == "" {
 		return nil, errors.New("anki: empty collection path")
 	}
-	// DSN: file:<path>?_pragma=busy_timeout(5000) — modernc's
-	// parameter binding for pragmas. _time_format=sqlite is the
-	// default; we don't override it.
+	c, err := openCollectionDSN(collectionPath)
+	if err == nil {
+		return c, nil
+	}
+	if workDir == "" || !isBusyLockError(err) {
+		// No roundtrip available (or the failure is not the FUSE
+		// lock signature): surface the direct error as-is.
+		return nil, err
+	}
+	// FUSE roundtrip fallback: copy the file off the FUSE mount into
+	// the ext4 work dir and open the copy. The original path stays
+	// the identity of the collection (see Path / Close writeback).
+	rt := NewFuseRoundtrip(workDir)
+	if onRecovered != nil {
+		rt.RecoveryHook = onRecovered
+	}
+	workPath, cerr := rt.CopyIn(collectionPath)
+	if cerr != nil {
+		return nil, errors.Join(err, cerr)
+	}
+	wc, werr := openCollectionDSN(workPath)
+	if werr != nil {
+		_ = os.Remove(workPath) // best-effort: no garbage from a failed attempt
+		return nil, errors.Join(err, werr)
+	}
+	wc.srcPath = collectionPath
+	wc.workPath = workPath
+	wc.roundtrip = rt
+	wc.displayPath = collectionPath
+	if warnf != nil {
+		warnf("collection open busy-locked; using copy-work-writeback roundtrip for %s", redactPath(collectionPath))
+	}
+	return wc, nil
+}
+
+// openCollectionDSN is the direct-open half shared by
+// OpenCollectionWithWorkDir and the roundtrip fallback: DSN with
+// the bridge pragmas (busy_timeout=5000, foreign_keys off —
+// modernc's parameter binding for pragmas), pool capped at one
+// connection (SQLite is single-writer; one connection is enough for
+// our usage and avoids spurious SQLITE_BUSY under concurrent
+// reads), Ping, and schema detection.
+func openCollectionDSN(collectionPath string) (*Collection, error) {
+	// Register UNICASE BEFORE opening the connection. modernc binds
+	// newly-registered collations to all subsequent sqlite-driver
+	// connections; a connection opened before this call would
+	// permanently lack UNICASE and every name-filtered query
+	// against the real AnkiDroid 2.16+ schema would fail with
+	// "no such collation sequence: unicase" — the on-device
+	// bridge failure mode this layer exists to work around.
+	// sync.Once inside ensureUnicaseCollation keeps the cost at
+	// one register call for the process lifetime.
+	ensureUnicaseCollation()
 	dsn := "file:" + collectionPath + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(0)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("anki: open collection: %w", err)
 	}
-	// Limit pool size: SQLite is single-writer; one connection is
-	// enough for our usage and avoids spurious SQLITE_BUSY under
-	// concurrent reads.
 	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("anki: ping collection: %w", err)
 	}
-	c := &Collection{db: db, path: collectionPath}
+	c := &Collection{db: db, path: collectionPath, displayPath: collectionPath}
 	if err := c.detectSchema(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -409,10 +542,36 @@ func OpenCollection(collectionPath string) (*Collection, error) {
 	return c, nil
 }
 
+// isBusyLockError reports whether err is an SQLite busy/locked
+// failure — the signature of the Android FUSE cross-UID fcntl
+// (F_SETLK → EAGAIN) failure mode (and of any concurrent writer).
+// Matched on the driver's message text per the bridge spec.
+func isBusyLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "SQLITE_BUSY")
+}
+
 // detectSchema verifies the required tables exist (notes, cards, col)
-// and chooses the variant by checking whether `decks` / `models` are
-// also tables (modern, schema 18) or live as JSON columns in `col`
-// (legacy, schema 11).
+// and chooses the variant by checking which deck/model storage is
+// present:
+//
+//   - modern: `decks` exists AND (`models` or `notetypes`) exists.
+//     AnkiDroid 2.16+ uses `notetypes` (no `models` table) and
+//     leaves col.decks / col.models as empty strings — verified on
+//     real device 2026-09-01. Without the notetypes branch the
+//     modern check fails, the collection falls into the legacy
+//     reader, deckIDsFromCol parses "" as JSON and dies with
+//     "unexpected end of JSON input", and every deck/model query
+//     surfaces as "anki action failed".
+//   - legacy: no dedicated decks table; col.decks / col.models JSON
+//     are the only source (schema 11).
+//
+// modernNotetypes is set as a side effect so the modern reader
+// dispatches to the right table on every subsequent call without
+// re-probing sqlite_master.
 func (c *Collection) detectSchema() error {
 	rows, err := c.db.Query("SELECT name FROM sqlite_master WHERE type='table'")
 	if err != nil {
@@ -435,33 +594,80 @@ func (c *Collection) detectSchema() error {
 			return fmt.Errorf("%w: missing table %q", ErrUnsupportedSchema, required)
 		}
 	}
-	if tables["decks"] && tables["models"] {
+	switch {
+	case tables["decks"] && tables["notetypes"]:
 		c.variant = schemaVariantModernTables
-	} else {
+		c.modernNotetypes = true
+	case tables["decks"] && tables["models"]:
+		c.variant = schemaVariantModernTables
+		c.modernNotetypes = false
+	default:
 		c.variant = schemaVariantLegacyJSON
+		c.modernNotetypes = false
 	}
 	return nil
 }
 
-// Close releases the underlying database handle. Safe to call multiple
-// times; subsequent method calls on the receiver will return
-// ErrCollectionNotOpen.
+// Close releases the underlying database handle. When the collection
+// was opened through the FUSE roundtrip fallback, Close first
+// checkpoints the work copy back into its main file (PRAGMA
+// wal_checkpoint(TRUNCATE), best-effort), closes the work DB, then
+// copies the work file back to the original FUSE path (writeback)
+// and removes the work copy. If the writeback fails the work file
+// is left in place for recovery and the error names it. Safe to
+// call multiple times; subsequent method calls on the receiver will
+// return ErrCollectionNotOpen.
 func (c *Collection) Close() error {
 	if c == nil || c.db == nil {
 		return nil
 	}
-	err := c.db.Close()
-	c.db = nil
+	var errs []error
+	if c.roundtrip != nil {
+		// 1. Merge the WAL (if any) into the main work file. The
+		// roundtrip writeback copies a single file, so any pending
+		// WAL content must land in collection.anki2 first.
+		if _, err := c.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+			errs = append(errs, fmt.Errorf("anki: roundtrip checkpoint: %w (work copy at %s)", err, redactPath(c.workPath)))
+		}
+		// 2. Close the work DB. Only a released SQLite handle
+		// guarantees a coherent file snapshot for the writeback.
+		if err := c.db.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("anki: roundtrip close work db: %w (work copy at %s)", err, redactPath(c.workPath)))
+		}
+		c.db = nil
+		// 3. Write back to the FUSE path. Skipped when the close
+		// above failed: copying over an open handle risks a torn
+		// collection, and the work copy is the recovery copy.
+		if len(errs) == 0 {
+			if err := c.roundtrip.CopyOut(c.workPath, c.srcPath); err != nil {
+				errs = append(errs, fmt.Errorf("anki: roundtrip writeback: %w", err))
+			}
+		}
+		c.roundtrip = nil
+		c.workPath = ""
+		c.srcPath = ""
+	} else {
+		if err := c.db.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		c.db = nil
+	}
 	c.colCache = nil
-	return err
+	return errors.Join(errs...)
 }
 
 // Path returns the collection file path the receiver was opened on.
-// Safe to expose in the terminal handoff line (the path is the same
-// one the operator passed via --anki-collection; not a secret).
+// For a FUSE roundtrip collection this is the ORIGINAL src path
+// (captured at open time), never the work copy, and it remains
+// available after Close(). Safe to expose in the terminal handoff
+// line (the path is the same one the operator passed via
+// --anki-collection; not a secret).
 func (c *Collection) Path() string {
 	if c == nil {
 		return ""
+	}
+	if c.displayPath != "" {
+		return c.displayPath
 	}
 	return c.path
 }
@@ -625,10 +831,19 @@ func (c *Collection) ModelIDs() (map[string]int64, error) {
 	}
 }
 
+// modelIDsFromTable reads the modern note-type table. On Anki
+// desktop / older AnkiDroid that's `models`; on AnkiDroid 2.16+
+// it's `notetypes` (no `models` table — verified on real device
+// 2026-09-01). c.modernNotetypes picks the table at detect time so
+// this method issues exactly one query.
 func (c *Collection) modelIDsFromTable() (map[string]int64, error) {
-	rows, err := c.db.Query("SELECT id, name FROM models")
+	table := "models"
+	if c.modernNotetypes {
+		table = "notetypes"
+	}
+	rows, err := c.db.Query("SELECT id, name FROM " + table)
 	if err != nil {
-		return nil, fmt.Errorf("anki: query models: %w", err)
+		return nil, fmt.Errorf("anki: query %s: %w", table, err)
 	}
 	defer rows.Close()
 	out := map[string]int64{}
@@ -636,7 +851,7 @@ func (c *Collection) modelIDsFromTable() (map[string]int64, error) {
 		var id int64
 		var name sql.NullString
 		if err := rows.Scan(&id, &name); err != nil {
-			return nil, fmt.Errorf("anki: scan models: %w", err)
+			return nil, fmt.Errorf("anki: scan %s: %w", table, err)
 		}
 		if !name.Valid || name.String == "" {
 			continue
@@ -644,7 +859,7 @@ func (c *Collection) modelIDsFromTable() (map[string]int64, error) {
 		out[name.String] = id
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("anki: iterate models: %w", err)
+		return nil, fmt.Errorf("anki: iterate %s: %w", table, err)
 	}
 	return out, nil
 }
@@ -680,12 +895,27 @@ func (c *Collection) modelIDsFromCol() (map[string]int64, error) {
 // modelJSON returns the raw JSON object for a single model
 // (id-as-string keys → model-detail-object). Reads from the dedicated
 // models table or col.models depending on the variant.
+//
+// On the modern branch with AnkiDroid 2.16+ the dedicated table is
+// `notetypes` (no `models` table). Its layout is split: the `fields`
+// column holds the flds JSON array and the `templates` column holds
+// the tmpls JSON array — there is no single JSON column mirroring
+// col.models. We rebuild a synthetic {"flds": [...], "tmpls": [...]}
+// object from those two columns so the existing
+// ModelFieldNames / ModelTemplateCount parsers (which only read flds
+// and tmpls) work unchanged. This is intentionally narrow: we do not
+// attempt to reconstruct the full Anki model object (css, latexPre,
+// sortf, …) because nothing in the bridge reads those fields — see
+// ModelFieldNames / ModelTemplateCount for the supported surface.
 func (c *Collection) modelJSON(mid int64) (json.RawMessage, error) {
 	if c == nil || c.db == nil {
 		return nil, ErrCollectionNotOpen
 	}
 	switch c.variant {
 	case schemaVariantModernTables:
+		if c.modernNotetypes {
+			return c.modelJSONFromNotetypes(mid)
+		}
 		row := c.db.QueryRow("SELECT json FROM models WHERE id = ?", mid)
 		var raw sql.NullString
 		if err := row.Scan(&raw); err != nil {
@@ -717,12 +947,53 @@ func (c *Collection) modelJSON(mid int64) (json.RawMessage, error) {
 	}
 }
 
+// modelJSONFromNotetypes is the no-op fallback used by
+// ModelFieldNames / ModelTemplateCount on the AnkiDroid 2.16+
+// branch: the real device schema v18 stores flds/tmpls data in
+// SEPARATE tables (`fields` and `templates`), NOT inside
+// `notetypes.config`. The `notetypes.config` blob is a Protobuf-
+// encoded Notetype.Config (containing css, latexPre, latexPost,
+// latex_svg, sort_field_idx, kind, reqs, original_stock_kind,
+// original_id, other) which the bridge does NOT need to decode.
+//
+// Field names come from the `fields` table (read by
+// ModelFieldNames via fieldNamesFromNotetypes). Template count
+// comes from the `templates` table (read by ModelTemplateCount
+// via templateCountFromNotetypes). The two-table model is a clean
+// fit for what the bridge needs; trying to decode the Protobuf
+// config blob would just introduce a protobuf dependency to
+// extract data that is sitting in adjacent columns.
+//
+// This function exists as a vestige of the earlier "decode the
+// config JSON" attempt and is left in place so callers that go
+// through modelJSON (none, after the dispatch is in
+// ModelFieldNames / ModelTemplateCount) keep a clear error path.
+// It returns an error describing the proper access path so any
+// future caller that mistakenly falls into the modelJSON funnel
+// gets a precise message rather than a confusing parse failure.
+func (c *Collection) modelJSONFromNotetypes(mid int64) (json.RawMessage, error) {
+	return nil, fmt.Errorf("anki: modelJSON not implemented for notetypes table on AnkiDroid 2.16+; use ModelFieldNames (→ fields table) / ModelTemplateCount (→ templates table) directly")
+}
+
 // ModelFieldNames returns the field-name list for the model in
-// ord order — exactly what AnkiConnect's modelFieldNames returns. The
-// flds array is the source of truth; we read names by ordinal.
+// ord order — exactly what AnkiConnect's modelFieldNames returns.
+// The flds array is the source of truth; we read names by ordinal.
+//
+// On the AnkiDroid 2.16+ (notetypes) schema the field names live
+// in a separate `fields` table (one row per ord, primary key
+// (ntid, ord)) — verified against the authoritative
+// ankitects/anki rslib/src/storage/upgrades/schema15_upgrade.sql.
+// `fields.name` is declared `COLLATE unicase`, so the SELECT must
+// run on a connection with UNICASE registered (the production
+// openCollectionDSN registers it before sql.Open). The bridge
+// does NOT decode the Protobuf blob in `notetypes.config` — it
+// only reads the textual `name` column from `fields`.
 func (c *Collection) ModelFieldNames(mid int64) ([]string, error) {
 	if c == nil || c.db == nil {
 		return nil, ErrCollectionNotOpen
+	}
+	if c.modernNotetypes {
+		return c.fieldNamesFromNotetypes(mid)
 	}
 	raw, err := c.modelJSON(mid)
 	if err != nil {
@@ -748,11 +1019,54 @@ func (c *Collection) ModelFieldNames(mid int64) ([]string, error) {
 	return names, nil
 }
 
-// ModelTemplateCount returns the count of tmpls entries for the model.
-// One template = one card; InsertNote creates len(tmpls) cards.
+// fieldNamesFromNotetypes reads the field-name list directly from
+// the AnkiDroid 2.16+ `fields` table. The PK (ntid, ord) is the
+// sort key, so an ORDER BY ord makes the result stable without a
+// secondary index. Returns nil + ErrCollectionNotOpen-style
+// errors if the receiver is closed.
+func (c *Collection) fieldNamesFromNotetypes(mid int64) ([]string, error) {
+	if c == nil || c.db == nil {
+		return nil, ErrCollectionNotOpen
+	}
+	rows, err := c.db.Query("SELECT name FROM fields WHERE ntid = ? ORDER BY ord", mid)
+	if err != nil {
+		return nil, fmt.Errorf("anki: query fields: %w", err)
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name sql.NullString
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("anki: scan fields: %w", err)
+		}
+		if name.Valid && name.String != "" {
+			names = append(names, name.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("anki: iterate fields: %w", err)
+	}
+	return names, nil
+}
+
+// ModelTemplateCount returns the count of tmpls entries for the
+// model. One template = one card; InsertNote creates len(tmpls)
+// cards.
+//
+// On the AnkiDroid 2.16+ (notetypes) schema the templates live
+// in a separate `templates` table keyed by (ntid, ord). COUNT(*)
+// doesn't touch the `name` column, so the COUNT path itself does
+// not depend on UNICASE registration — but the table creation
+// (which uses `name TEXT COLLATE unicase` on the real device)
+// does, so the connection still needs UNICASE registered before
+// the table exists. The legacy / modern-with-models-table paths
+// keep reading the JSON `tmpls` array length.
 func (c *Collection) ModelTemplateCount(mid int64) (int, error) {
 	if c == nil || c.db == nil {
 		return 0, ErrCollectionNotOpen
+	}
+	if c.modernNotetypes {
+		return c.templateCountFromNotetypes(mid)
 	}
 	raw, err := c.modelJSON(mid)
 	if err != nil {
@@ -765,6 +1079,23 @@ func (c *Collection) ModelTemplateCount(mid int64) (int, error) {
 		return 0, fmt.Errorf("anki: parse model %d tmpls: %w", mid, err)
 	}
 	return len(model.Tmpls), nil
+}
+
+// templateCountFromNotetypes reads the template count directly
+// from the AnkiDroid 2.16+ `templates` table. COUNT(*) avoids the
+// `name` column entirely, so this path is collation-agnostic at
+// query time (the table-creation path's UNICASE requirement is
+// satisfied upstream by openCollectionDSN's
+// ensureUnicaseCollation call).
+func (c *Collection) templateCountFromNotetypes(mid int64) (int, error) {
+	if c == nil || c.db == nil {
+		return 0, ErrCollectionNotOpen
+	}
+	var n int
+	if err := c.db.QueryRow("SELECT COUNT(*) FROM templates WHERE ntid = ?", mid).Scan(&n); err != nil {
+		return 0, fmt.Errorf("anki: count templates: %w", err)
+	}
+	return n, nil
 }
 
 // NoteCheck is the inbound shape for CanAddNotes. Mirrors the
