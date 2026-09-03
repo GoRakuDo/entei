@@ -4458,8 +4458,12 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 @keyframes entei-caret-blink {
-  from { opacity: 1; }
-  to   { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4610,7 +4614,8 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-table-row {
   height: 2.25rem;
   border-bottom: 1px solid oklch(100% 0 0deg / 0.04);
-  transition: background-color var(--entei-duration-fast) var(--entei-ease-productive);
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
 }
 
 .entei-magnet-table-row:hover {
@@ -4794,7 +4799,9 @@ html.entei-player-immersive .entei-player-audio-area {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-16);
-  font-family: var(--entei-font-system); /* Pixel/brand — consistent with .entei-magnet-input */
+  font-family: var(
+    --entei-font-system
+  ); /* Pixel/brand — consistent with .entei-magnet-input */
   /* Same inset rhythm as .entei-magnet-shell (16/24/16). The dialog
      header border (a thin divider) was removed, so the form now adds
      top padding to visually separate from the header. OKLCH tokens. */
@@ -5702,7 +5709,7 @@ html.entei-player-immersive .entei-player-audio-area {
    modal titles (design: tokens.css --entei-font-system). */
 .entei-jimaku-search-dialog .entei-jimaku-search-title {
   font-family: var(--entei-font-system);
-  }
+}
 
 .entei-jimaku-search-body {
   display: flex;
@@ -5796,7 +5803,7 @@ html.entei-player-immersive .entei-player-audio-area {
   min-height: var(--entei-touch-min);
   background-color: var(--entei-btn-hover-bg);
   border-color: transparent;
-  }
+}
 
 .entei-jimaku-search-section {
   display: flex;
@@ -5895,55 +5902,76 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 /* --- Nadeshiko context tab --- */
+/* Mirrors the subtitle-panel structure: the root owns the full
+   right-panel-content width (no padding — the tab strip's margin
+   defines the content column), matching the captions tab's
+   alignment. */
 .entei-nadeshiko-root {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-8);
+  min-height: 0;
 }
 
 .entei-nadeshiko-form {
   display: flex;
-  gap: var(--entei-space-4);
-  align-items: center;
+  padding: var(--entei-space-8) var(--entei-space-12) 0;
 }
 
-.entei-nadeshiko-form input {
-  flex: 1;
-  min-width: 0;
+/* ButtonGroup spans the full content row: input flexes, search button
+   stays icon-sized. Merge with tab strip margins (space-12). */
+.entei-nadeshiko-form-group {
+  width: 100%;
+}
+
+/* Icon-only search button — same treatment as entei-picker-btn
+   (outline variant + surface hover fill), so the form controls read
+   like the subtitle picker's file button. */
+.entei-nadeshiko-search-btn {
+  flex-shrink: 0;
+  background-color: var(--entei-btn-hover-bg);
+  border-color: transparent;
 }
 
 .entei-nadeshiko-error {
   display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-48) var(--entei-space-16);
+  text-align: center;
+}
+
+.entei-nadeshiko-error p {
+  margin: 0;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+}
+
+.entei-nadeshiko-results {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--entei-space-12) var(--entei-space-8);
+  display: flex;
   flex-direction: column;
   gap: var(--entei-space-4);
-  padding: var(--entei-space-8) var(--entei-space-12);
-  border-radius: var(--entei-radius-sm);
-  background-color: var(--entei-surface-2);
-  border: 1px solid oklch(0% 0 0deg / 0.06);
-  color: var(--entei-text);
-  font-size: 0.8125rem;
 }
 
 .entei-nadeshiko-empty {
   margin: 0;
+  padding: 0 var(--entei-space-12);
   font-size: 0.8125rem;
   color: var(--entei-text-secondary);
 }
 
 .entei-nadeshiko-count {
   margin: 0;
+  padding: 0 var(--entei-space-12);
   font-size: 0.75rem;
   color: var(--entei-text-secondary);
-}
-
-.entei-nadeshiko-results {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-4);
 }
 
 .entei-nadeshiko-card {
@@ -6050,7 +6078,8 @@ html.entei-player-immersive .entei-player-audio-area {
   position: relative;
   cursor: pointer;
   padding: 0;
-  transition: background-color var(--entei-duration-fast) var(--entei-ease-productive);
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
 }
 
 .entei-tracker-switch--on {

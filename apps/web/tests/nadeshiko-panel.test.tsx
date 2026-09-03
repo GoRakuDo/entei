@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import { render, fireEvent, waitFor, screen } from '@testing-library/react';
 import { RightPanel } from '@/components/player/RightPanel';
 import * as nadeshikoClient from '@/features/nadeshiko/nadeshiko-client';
 import * as apiKey from '@/features/nadeshiko/api-key';
@@ -115,7 +115,7 @@ describe('RightPanel — Nadeshiko context tab', () => {
       'input[placeholder="Search"]',
     ) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'また' } });
-    fireEvent.click(getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     expect(await findByText('Sousou no Frieren')).toBeTruthy();
     expect(await findByText('また会えたね')).toBeTruthy();
@@ -135,7 +135,7 @@ describe('RightPanel — Nadeshiko context tab', () => {
       'input[placeholder="Search"]',
     ) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'x' } });
-    fireEvent.click(getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     expect(await findByText('No results')).toBeTruthy();
   });
@@ -155,7 +155,7 @@ describe('RightPanel — Nadeshiko context tab', () => {
       'input[placeholder="Search"]',
     ) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'q' } });
-    fireEvent.click(getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     expect(await findByText('Invalid key')).toBeTruthy();
   });
@@ -176,7 +176,7 @@ describe('RightPanel — Nadeshiko context tab', () => {
       'input[placeholder="Search"]',
     ) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'q' } });
-    fireEvent.click(getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     expect(await findByText('Wait 7s')).toBeTruthy();
   });
@@ -201,7 +201,7 @@ describe('RightPanel — Nadeshiko context tab', () => {
       'input[placeholder="Search"]',
     ) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'q' } });
-    fireEvent.click(getByText('Search'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await findByText('No results')).toBeTruthy();
   });
 

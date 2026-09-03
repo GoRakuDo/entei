@@ -16,6 +16,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/player/ui/input';
 import { Button } from '@/components/player/ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import {
   searchNadeshikoSegments,
@@ -56,7 +57,10 @@ function resolveError(err: NadeshikoError): ResolvedError {
   }
 }
 
-function formatTimestamp(seg: NadeshikoSegment, dict: Dictionary['playerUI']): string {
+function formatTimestamp(
+  seg: NadeshikoSegment,
+  dict: Dictionary['playerUI'],
+): string {
   if (seg.timestampLabel) return seg.timestampLabel;
   if (typeof seg.timestampSeconds === 'number') {
     const total = Math.max(0, Math.floor(seg.timestampSeconds));
@@ -108,9 +112,9 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   const [, setApiKey] = useState<string | null>(() => readNadeshikoApiKey());
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NadeshikoSegment[]>([]);
-  const [expanded, setExpanded] = useState<Map<string, NadeshikoSegmentContext>>(
-    new Map(),
-  );
+  const [expanded, setExpanded] = useState<
+    Map<string, NadeshikoSegmentContext>
+  >(new Map());
   const [loading, setLoading] = useState(false);
   // Track per-segment in-flight context fetches explicitly. The old inference
   // (`surrounding.length === 0`) broke when the API returned a legitimate
@@ -124,8 +128,8 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   const [hasSearched, setHasSearched] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   // Per-card AbortControllers for in-flight context fetches. Keyed by
-    // segment id so we can cancel an individual card's fetch (e.g. when the
-    // user collapses it) without affecting other cards.
+  // segment id so we can cancel an individual card's fetch (e.g. when the
+  // user collapses it) without affecting other cards.
   const ctxAbortRef = useRef<Map<string, AbortController>>(new Map());
 
   // Live-update the API key from settings. Re-evaluate the key-missing
@@ -184,12 +188,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       setCtxLoadingIds(new Set());
 
       try {
-        const data = await searchNadeshikoSegments(
-          key,
-          q,
-          {},
-          ac.signal,
-        );
+        const data = await searchNadeshikoSegments(key, q, {}, ac.signal);
         if (ac.signal.aborted) return;
         setResults(data);
         setHasSearched(true);
@@ -297,15 +296,16 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       case 'key-missing':
         return (
           <div className="entei-nadeshiko-error" role="status">
-            <p>{dict.contextKeyMissing}</p>
             <Button
               type="button"
-              size="sm"
-              variant="default"
+              size="lg"
+              variant="outline"
+              className="entei-picker-btn"
               onClick={() => dispatchOpenSettings()}
             >
               {dict.contextKeyMissingAction}
             </Button>
+            <p>{dict.contextKeyMissing}</p>
           </div>
         );
       case 'invalid-key':
@@ -342,33 +342,35 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
         onSubmit={handleSearch}
         aria-label={dict.contextSearchAriaLabel}
       >
-        <Input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={dict.contextSearchPlaceholder}
-          aria-label={dict.contextSearchPlaceholder}
-          disabled={loading}
-        />
-        <Button
-          type="submit"
-          size="sm"
-          disabled={loading || query.trim().length === 0}
-          aria-label={dict.contextSearchButton}
-        >
-          {loading ? (
-            <TypewriterLoading
-              text="…"
-              className="entei-typewriter--btn"
-              aria-hidden="true"
-            />
-          ) : (
-            <>
+        <ButtonGroup className="entei-nadeshiko-form-group">
+          <Input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={dict.contextSearchPlaceholder}
+            aria-label={dict.contextSearchPlaceholder}
+            disabled={loading}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            variant="outline"
+            className="entei-nadeshiko-search-btn"
+            disabled={loading || query.trim().length === 0}
+            aria-label={dict.contextSearchButton}
+            title={dict.contextSearchButton}
+          >
+            {loading ? (
+              <TypewriterLoading
+                text="…"
+                className="entei-typewriter--btn"
+                aria-hidden="true"
+              />
+            ) : (
               <Search size={16} aria-hidden="true" />
-              <span>{dict.contextSearchButton}</span>
-            </>
-          )}
-        </Button>
+            )}
+          </Button>
+        </ButtonGroup>
       </form>
 
       {errorBanner}
