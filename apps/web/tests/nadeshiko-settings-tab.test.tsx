@@ -27,7 +27,6 @@ function baseDict(): Record<string, unknown> {
     description: 'desc',
     apiKeyLabel: 'API key',
     apiKeyPlaceholder: 'enter',
-    apiKeySave: 'Save',
     apiKeyClear: 'Clear',
     apiKeyShow: 'Show',
     apiKeyHide: 'Hide',
@@ -55,7 +54,7 @@ describe('NadeshikoSettingsTab', () => {
     window.localStorage.clear();
   });
 
-  it('saves a non-empty key and dispatches the change event', () => {
+  it('auto-saves a non-empty key on change and dispatches the change event', () => {
     const listener = vi.fn();
     window.addEventListener('entei:nadeshiko-key-changed', listener);
 
@@ -63,8 +62,8 @@ describe('NadeshikoSettingsTab', () => {
       <NadeshikoSettingsTab dict={makeDict()} />,
     );
     const input = getByLabelText('API key') as HTMLInputElement;
+    // jimaku-style: typing persists immediately, no Save click needed.
     fireEvent.change(input, { target: { value: 'sk-abc' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(window.localStorage.getItem('entei.nadeshiko.api-key.v1')).toBe(
       'sk-abc',
@@ -73,12 +72,16 @@ describe('NadeshikoSettingsTab', () => {
     window.removeEventListener('entei:nadeshiko-key-changed', listener);
   });
 
-  it('does not save an empty key', () => {
-    render(<NadeshikoSettingsTab dict={makeDict()} />);
-    const save = screen.getByRole('button', {
-      name: 'Save',
-    }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+  it('auto-clears storage when the field is emptied', () => {
+    window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'sk-x');
+    const { getByLabelText } = render(
+      <NadeshikoSettingsTab dict={makeDict()} />,
+    );
+    const input = getByLabelText('API key') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(
+      window.localStorage.getItem('entei.nadeshiko.api-key.v1'),
+    ).toBeNull();
   });
 
   it('clears the stored key and announces the change', () => {

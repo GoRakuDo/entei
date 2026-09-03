@@ -518,7 +518,6 @@ export const id: Dictionary = {
       'Nadeshiko mencari kalimat dan timestamp dari anime serta drama. Kunci API Anda hanya tersimpan di perangkat ini — Entei tidak pernah melihatnya.',
     apiKeyLabel: 'Kunci API',
     apiKeyPlaceholder: 'Masukkan kunci API Nadeshiko',
-    apiKeySave: 'Simpan',
     apiKeyClear: 'Hapus',
     apiKeyShow: 'Tampilkan',
     apiKeyHide: 'Sembunyikan',

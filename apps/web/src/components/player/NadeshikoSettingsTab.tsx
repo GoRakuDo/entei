@@ -11,7 +11,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Eye, EyeOff, KeyRound, Eraser } from 'lucide-react';
+import { Eye, EyeOff, Eraser } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from '@/components/player/ui/input';
@@ -72,13 +72,21 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
     return () => ac.abort();
   }, [savedKey]);
 
-  const handleSave = useCallback(() => {
-    if (writeNadeshikoApiKey(draft)) {
+  // Auto-save on every keystroke (jimaku-style): the draft IS the live
+  // value. Clearing the field wipes storage too. The Eraser button is
+  // a shortcut for the same wipe.
+  const handleDraftChange = useCallback((value: string) => {
+    setDraft(value);
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      clearNadeshikoApiKey();
+      setSavedKey(null);
+      setQuota({ status: 'idle' });
+    } else if (writeNadeshikoApiKey(trimmed)) {
       setSavedKey(readNadeshikoApiKey());
-      setDraft('');
-      announceKeyChanged();
     }
-  }, [draft]);
+    announceKeyChanged();
+  }, []);
 
   const handleClear = useCallback(() => {
     clearNadeshikoApiKey();
@@ -106,75 +114,51 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
       <h3 className="entei-settings-label">{dict.heading}</h3>
       <p className="entei-settings-hint">{dict.description}</p>
 
-      <form
-        className="entei-nadeshiko-key-form"
-        data-testid="nadeshiko-key-present"
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleSave();
-        }}
-      >
-        <div className="entei-settings-key-row">
-          <div
-            className="entei-settings-row-label"
-            id="nadeshiko-api-key-label"
-          >
-            {dict.apiKeyLabel}
-          </div>
+      <div className="entei-settings-key-row">
+        <div className="entei-settings-row-label" id="nadeshiko-api-key-label">
+          {dict.apiKeyLabel}
         </div>
-        <ButtonGroup className="entei-nadeshiko-form-group">
-          <Input
-            id="nadeshiko-api-key"
-            aria-labelledby="nadeshiko-api-key-label"
-            type={showKey ? 'text' : 'password'}
-            value={savedKey && draft.length === 0 ? savedKey : draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={dict.apiKeyPlaceholder}
-            autoComplete="off"
-            spellCheck={false}
-          />
+      </div>
+      <ButtonGroup className="entei-nadeshiko-form-group">
+        <Input
+          id="nadeshiko-api-key"
+          aria-labelledby="nadeshiko-api-key-label"
+          type={showKey ? 'text' : 'password'}
+          value={draft}
+          onChange={(e) => handleDraftChange(e.target.value)}
+          placeholder={dict.apiKeyPlaceholder}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="entei-nadeshiko-search-btn"
+          onClick={() => setShowKey((v) => !v)}
+          aria-label={showKey ? dict.apiKeyHide : dict.apiKeyShow}
+          title={showKey ? dict.apiKeyHide : dict.apiKeyShow}
+        >
+          {showKey ? (
+            <EyeOff size={16} aria-hidden="true" />
+          ) : (
+            <Eye size={16} aria-hidden="true" />
+          )}
+        </Button>
+        {savedKey && (
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="entei-nadeshiko-search-btn"
-            onClick={() => setShowKey((v) => !v)}
-            aria-label={showKey ? dict.apiKeyHide : dict.apiKeyShow}
-            title={showKey ? dict.apiKeyHide : dict.apiKeyShow}
+            onClick={handleClear}
+            aria-label={dict.apiKeyClear}
+            title={dict.apiKeyClear}
           >
-            {showKey ? (
-              <EyeOff size={16} aria-hidden="true" />
-            ) : (
-              <Eye size={16} aria-hidden="true" />
-            )}
+            <Eraser size={16} aria-hidden="true" />
           </Button>
-          {savedKey && draft.trim().length === 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="entei-nadeshiko-search-btn"
-              onClick={handleClear}
-              aria-label={dict.apiKeyClear}
-              title={dict.apiKeyClear}
-            >
-              <Eraser size={16} aria-hidden="true" />
-            </Button>
-          ) : (
-            <Button
-              type="submit"
-              variant="outline"
-              size="sm"
-              className="entei-nadeshiko-search-btn"
-              disabled={draft.trim().length === 0}
-              aria-label={dict.apiKeySave}
-              title={dict.apiKeySave}
-            >
-              <KeyRound size={16} aria-hidden="true" />
-            </Button>
-          )}
-        </ButtonGroup>
-      </form>
+        )}
+      </ButtonGroup>
 
       <div className="entei-settings-section">
         <h4 className="entei-settings-label">{dict.quotaHeading}</h4>

@@ -518,7 +518,6 @@ export const ja: Dictionary = {
       'Nadeshiko はアニメ・ドラマのセリフとタイムスタンプを検索します。API キーはあなたの端末だけに保存され、Entei を経由しません。',
     apiKeyLabel: 'API キー',
     apiKeyPlaceholder: 'Nadeshiko の API キーを入力',
-    apiKeySave: '保存',
     apiKeyClear: 'クリア',
     apiKeyShow: '表示',
     apiKeyHide: '非表示',

@@ -533,7 +533,6 @@ export interface Dictionary {
     description: string;
     apiKeyLabel: string;
     apiKeyPlaceholder: string;
-    apiKeySave: string;
     apiKeyClear: string;
     apiKeyShow: string;
     apiKeyHide: string;

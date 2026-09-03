@@ -513,7 +513,6 @@ export const en: Dictionary = {
       'Nadeshiko searches anime and drama lines with timestamps. Your API key stays on this device only — Entei never sees it.',
     apiKeyLabel: 'API key',
     apiKeyPlaceholder: 'Enter your Nadeshiko API key',
-    apiKeySave: 'Save',
     apiKeyClear: 'Clear',
     apiKeyShow: 'Show',
     apiKeyHide: 'Hide',
