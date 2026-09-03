@@ -6147,6 +6147,17 @@ html.entei-player-immersive .entei-player-audio-area {
    (Checked 2026-09-03: no TSX references them; plain .entei-input
    orphan rules were removed, the focus-visible companion removed too.) */
 
+/* Saved-key row: masked dots + inline clear action on one line. */
+.entei-settings-key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  margin: 0 0 var(--entei-space-8);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  color: var(--entei-text-muted);
+}
+
 .entei-settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

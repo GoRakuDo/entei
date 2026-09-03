@@ -517,7 +517,6 @@ export const ja: Dictionary = {
     apiKeyPlaceholder: 'Nadeshiko の API キーを入力',
     apiKeySave: '保存',
     apiKeyClear: 'クリア',
-    apiKeySaved: '保存しました',
     apiKeyShow: '表示',
     apiKeyHide: '非表示',
     quotaHeading: '今月のクォータ',

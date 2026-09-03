@@ -49,7 +49,6 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
   );
   const [draft, setDraft] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
   const [quota, setQuota] = useState<QuotaState>({ status: 'idle' });
 
   // Refresh quota whenever the saved key changes.
@@ -77,9 +76,7 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
     if (writeNadeshikoApiKey(draft)) {
       setSavedKey(readNadeshikoApiKey());
       setDraft('');
-      setSavedFlash(true);
       announceKeyChanged();
-      window.setTimeout(() => setSavedFlash(false), 1500);
     }
   }, [draft]);
 
@@ -110,8 +107,14 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
       <p className="entei-settings-hint">{dict.description}</p>
 
       {savedKey && (
-        <p className="entei-settings-hint" data-testid="nadeshiko-key-present">
-          {savedFlash ? dict.apiKeySaved : '••••••••'}
+        <p
+          className="entei-settings-key-row"
+          data-testid="nadeshiko-key-present"
+        >
+          <span aria-hidden="true">••••••••</span>
+          <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
+            {dict.apiKeyClear}
+          </Button>
         </p>
       )}
 
@@ -164,12 +167,6 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
           </Button>
         </ButtonGroup>
       </form>
-
-      {savedKey && (
-        <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
-          {dict.apiKeyClear}
-        </Button>
-      )}
 
       <div className="entei-settings-section">
         <h4 className="entei-settings-label">{dict.quotaHeading}</h4>

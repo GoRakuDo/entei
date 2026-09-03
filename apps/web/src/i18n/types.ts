@@ -532,7 +532,6 @@ export interface Dictionary {
     apiKeyPlaceholder: string;
     apiKeySave: string;
     apiKeyClear: string;
-    apiKeySaved: string;
     apiKeyShow: string;
     apiKeyHide: string;
     quotaHeading: string;

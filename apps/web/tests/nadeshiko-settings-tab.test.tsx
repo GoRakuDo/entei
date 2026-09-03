@@ -29,7 +29,6 @@ function baseDict(): Record<string, unknown> {
     apiKeyPlaceholder: 'enter',
     apiKeySave: 'Save',
     apiKeyClear: 'Clear',
-    apiKeySaved: 'Saved',
     apiKeyShow: 'Show',
     apiKeyHide: 'Hide',
     quotaHeading: 'Quota',
@@ -60,7 +59,7 @@ describe('NadeshikoSettingsTab', () => {
     const listener = vi.fn();
     window.addEventListener('entei:nadeshiko-key-changed', listener);
 
-    const { getByLabelText, getByText } = render(
+    const { getByLabelText } = render(
       <NadeshikoSettingsTab dict={makeDict()} />,
     );
     const input = getByLabelText('API key') as HTMLInputElement;
@@ -75,7 +74,7 @@ describe('NadeshikoSettingsTab', () => {
   });
 
   it('does not save an empty key', () => {
-    const { getByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
+    render(<NadeshikoSettingsTab dict={makeDict()} />);
     const save = screen.getByRole('button', {
       name: 'Save',
     }) as HTMLButtonElement;
@@ -87,7 +86,7 @@ describe('NadeshikoSettingsTab', () => {
     const listener = vi.fn();
     window.addEventListener('entei:nadeshiko-key-changed', listener);
 
-    const { getByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
+    render(<NadeshikoSettingsTab dict={makeDict()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
 
     expect(

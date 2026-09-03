@@ -512,7 +512,6 @@ export const en: Dictionary = {
     apiKeyPlaceholder: 'Enter your Nadeshiko API key',
     apiKeySave: 'Save',
     apiKeyClear: 'Clear',
-    apiKeySaved: 'Saved',
     apiKeyShow: 'Show',
     apiKeyHide: 'Hide',
     quotaHeading: 'Monthly quota',

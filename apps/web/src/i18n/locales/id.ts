@@ -517,7 +517,6 @@ export const id: Dictionary = {
     apiKeyPlaceholder: 'Masukkan kunci API Nadeshiko',
     apiKeySave: 'Simpan',
     apiKeyClear: 'Hapus',
-    apiKeySaved: 'Tersimpan',
     apiKeyShow: 'Tampilkan',
     apiKeyHide: 'Sembunyikan',
     quotaHeading: 'Kuota bulan ini',
