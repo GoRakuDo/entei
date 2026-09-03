@@ -226,7 +226,6 @@ export const baseMockDict = {
   mediaModeUnsupported: 'Video Clip is not supported.',
   rightPanelTabsLabel: 'Panel',
   rightPanelTabCaptions: 'Captions',
-  rightPanelTabHistory: 'History',
   subtitleSyncSuccess: 'Subtitle sync successful!',
   subtitleSyncLazyOn: 'LazySync enabled',
   subtitleSyncLazyOff: 'LazySync disabled',

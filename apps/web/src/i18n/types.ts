@@ -166,6 +166,26 @@ export interface Dictionary {
     jimakuRateLimit: string;
     jimakuAuthError: string;
     jimakuKeyMissing: string;
+    // Nadeshiko: nuance / sentence search (docs/NADESHIKO_INTEGRATION.md §3)
+    contextTabLabel: string;
+    contextSearchPlaceholder: string;
+    contextSearchButton: string;
+    contextSearchAriaLabel: string;
+    contextEmpty: string;
+    contextKeyMissing: string;
+    contextKeyMissingAction: string;
+    contextInvalidKey: string;
+    contextRateLimited: (seconds: number) => string;
+    contextNetworkError: string;
+    contextGenericError: string;
+    contextResultWorkLabel: string;
+    contextResultLineLabel: string;
+    contextResultEnglishLabel: string;
+    contextContextLoading: string;
+    contextContextFailed: string;
+    contextNoEnglishTranslation: string;
+    contextNoTimestamp: string;
+    contextResultsHeading: (count: number) => string;
     // P4: jimaku search modal (design §2.3)
     jimakuSearchTitle: string;
     jimakuSearchEpisode: string;
@@ -307,11 +327,6 @@ export interface Dictionary {
     mediaModeUnsupported: string;
     rightPanelTabsLabel: string;
     rightPanelTabCaptions: string;
-    rightPanelTabHistory: string;
-    historyEmpty: string;
-    historyUnavailable: string;
-    historySentence: string;
-    historyRange: string;
     // P2.1: Play mode
     playModeNormal: string;
     playModeCondensed: string;
@@ -498,5 +513,35 @@ export interface Dictionary {
     mediaSectionLabel: string;
     momentsSectionLabel: string;
     archiveSectionLabel: string;
+    // Tracker switch + mining history (migrated from RightPanel history tab)
+    controlsHeading: string;
+    historyHeading: string;
+    historyEmpty: string;
+    historyUnavailable: string;
+    historySentence: string;
+    historyRange: string;
+  };
+  nadeshiko: {
+    /** Tab label in SettingsTabs. */
+    settingsTabLabel: string;
+    heading: string;
+    description: string;
+    apiKeyLabel: string;
+    apiKeyPlaceholder: string;
+    apiKeySave: string;
+    apiKeyClear: string;
+    apiKeySaved: string;
+    apiKeyShow: string;
+    apiKeyHide: string;
+    quotaHeading: string;
+    quotaRemaining: string;
+    quotaLimit: string;
+    quotaReset: string;
+    quotaUnknown: string;
+    quotaErrorInvalidKey: string;
+    quotaErrorRateLimited: string;
+    quotaErrorNetwork: string;
+    quotaErrorGeneric: string;
+    quotaLoading: string;
   };
 }

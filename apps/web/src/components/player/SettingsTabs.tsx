@@ -27,8 +27,10 @@ import {
   type SubtitleAppearanceSettings,
 } from '@/components/player/SubtitleAppearanceTab';
 import { EizouDenSettingsTab } from '@/components/player/EizouDenSettingsTab';
+import { NadeshikoSettingsTab } from '@/components/player/NadeshikoSettingsTab';
 import { readPlayerPreferences, writePlayerPreferences } from '@/features/player/preferences';
 import type { ShortcutEntry } from '@/features/player/player-shortcuts';
+import type { Dictionary } from '@i18n/types';
 
 const DEFAULT_SUBTITLE_SETTINGS: SubtitleAppearanceSettings = {
   fontSize: 18,
@@ -56,6 +58,10 @@ export interface SettingsTabsProps {
    *  the global nav settings modal (ED-3). Both supply onResetPairing; the
    *  EizouDen tab renders its reset control only when present. */
   onResetPairing?: () => void | Promise<void>;
+  /** Nadeshiko dictionary block (for the new Nadeshiko settings tab).
+   *  Player + nav settings modal both pass it; defaults to no tab when
+   *  omitted. */
+  nadeshikoDict?: Dictionary['nadeshiko'];
 }
 
 export function SettingsTabs({
@@ -66,6 +72,7 @@ export function SettingsTabs({
   subtitleSettings,
   onSubtitleSettingsChange,
   onResetPairing,
+  nadeshikoDict,
 }: SettingsTabsProps) {
   // Subtitle appearance is self-contained here (reads/writes the same
   // `entei.player.prefs.v1` store the player reads); when the player passes
@@ -147,6 +154,11 @@ export function SettingsTabs({
           )}
           <TabsTrigger value="subtitle">{dict.settingsTabSubtitle}</TabsTrigger>
           <TabsTrigger value="eizouden">{dict.settingsTabEizouDen}</TabsTrigger>
+          {nadeshikoDict && (
+            <TabsTrigger value="nadeshiko">
+              {nadeshikoDict.settingsTabLabel}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="anki">{dict.settingsTabAnki}</TabsTrigger>
         </TabsList>
         <div className="entei-settings-panel">
@@ -176,6 +188,11 @@ export function SettingsTabs({
           <TabsContent value="eizouden" className="entei-settings-tab-content">
             <EizouDenSettingsTab dict={dict} onResetPairing={onResetPairing} />
           </TabsContent>
+          {nadeshikoDict && (
+            <TabsContent value="nadeshiko" className="entei-settings-tab-content">
+              <NadeshikoSettingsTab dict={nadeshikoDict} />
+            </TabsContent>
+          )}
           <TabsContent value="anki" className="entei-settings-tab-content">
             <AnkiFieldsTab
               dict={dict}

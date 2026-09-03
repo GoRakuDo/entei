@@ -219,7 +219,6 @@ const mockDict = {
   mediaModeUnsupported: 'Video Clip is not supported.',
   rightPanelTabsLabel: 'Panel',
   rightPanelTabCaptions: 'Captions',
-  rightPanelTabHistory: 'History',
   historyEmpty: 'No history yet',
   historyUnavailable: 'History unavailable',
   historySentence: 'Sentence',
@@ -376,6 +375,27 @@ const mockDict = {
   jimakuSearchNoKey: 'Enter your JIMAKU.CC API key in settings',
   jimakuOpenSettings: 'Open settings',
   jimakuSearchBack: 'Back',
+  // Nadeshiko context tab
+  contextTabLabel: 'Context',
+  contextSearchPlaceholder: 'Enter a word or sentence',
+  contextSearchButton: 'Search',
+  contextSearchAriaLabel: 'Search Nadeshiko for context',
+  contextEmpty: 'No examples found',
+  contextKeyMissing: 'Nadeshiko API key is not set',
+  contextKeyMissingAction: 'Open settings',
+  contextInvalidKey: 'API key is invalid. Update it in settings',
+  contextRateLimited: (seconds: number) =>
+    `Rate limit reached. Try again in ${seconds} seconds`,
+  contextNetworkError: 'Could not reach Nadeshiko',
+  contextGenericError: 'Something went wrong while searching',
+  contextResultWorkLabel: 'Work',
+  contextResultLineLabel: 'Line',
+  contextResultEnglishLabel: 'English',
+  contextContextLoading: 'Loading surrounding context…',
+  contextContextFailed: 'Could not load surrounding context',
+  contextNoEnglishTranslation: 'No translation',
+  contextNoTimestamp: '–',
+  contextResultsHeading: (count: number) => `Results (${count})`,
 };
 
 const baseControlsProps = {

@@ -32,6 +32,7 @@ export function MiningHistoryPanel({
   refreshKey,
 }: MiningHistoryPanelProps) {
   const [result, setResult] = useState<TrackerHistoryReadResult | null>(null);
+  const [autoRefreshKey, setAutoRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +46,17 @@ export function MiningHistoryPanel({
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, autoRefreshKey]);
+
+  // Listen for cross-component archive writes (player Anki export).
+  // Refetches the list without requiring the caller to wire a refreshKey.
+  useEffect(() => {
+    const handler = () => setAutoRefreshKey((n) => n + 1);
+    window.addEventListener('entei:tracker-archive-changed', handler);
+    return () => {
+      window.removeEventListener('entei:tracker-archive-changed', handler);
+    };
+  }, []);
 
   // Loading state
   if (result === null) {

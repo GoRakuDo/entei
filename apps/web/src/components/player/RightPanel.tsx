@@ -1,29 +1,26 @@
 /**
- * RightPanel — Tab selector switching between Captions and Mining History.
+ * RightPanel — Tab selector switching between Captions and Nadeshiko Search.
  * ---------------------------------------------------------------------------
  * Desktop layout: placed inside a ResizablePanel (handled by PlayerApp).
  * Mobile layout: placed vertically below the player.
  * Tab state is NOT persisted; defaults to captions on each mount.
  * ---------------------------------------------------------------------------
- * Tracker ON/OFF switch at top of History tab uses shadcn Switch and
- * persists via localStorage (entei.tracker.enabled). Default ON.
+ * The Tracker ON/OFF switch + MiningHistoryPanel moved to the Tracker
+ * dashboard (/tracker/) per docs/NADESHIKO_INTEGRATION.md §3.2.
  * ---------------------------------------------------------------------------
  */
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Captions, History, RotateCwFadingClock, Search } from 'lucide-react';
+import { Captions, BrainCircuit, RotateCwFadingClock, Search } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
-import { Switch } from '@/components/player/ui/switch';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
-import { MiningHistoryPanel } from '@/components/player/MiningHistoryPanel';
+import { NadeshikoPanel } from '@/components/player/NadeshikoPanel';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 import type { Dictionary } from '@i18n/types';
-import { isTrackerEnabled, setTrackerEnabled, flushCurrentSegment } from '@/features/player/tracker/tracker-enabled';
-import type { SegmentAccumulatorState } from '@/features/player/tracker/types';
 
-type RightPanelTab = 'captions' | 'history';
+type RightPanelTab = 'captions' | 'context';
 
 interface RightPanelProps {
   /** Whether the panel is visible at all (controlled by existing toggle). */
@@ -56,20 +53,12 @@ interface RightPanelProps {
   hideSyncSubtitle?: boolean;
   /** P4 jimaku: opens the search modal (title pre-filled from media name). */
   onOpenJimakuSearch?: () => void;
-  /** History panel refresh trigger — increment after a successful Anki send. */
-  historyRefreshKey?: number;
   /** AM-4 Row Mining: callback to mine a specific cue. */
   onMineCue?: (cue: SubtitleCue) => void;
   /** AM-4 Row Mining: whether row mining is available (media loaded, not capturing). */
   canMineRow?: boolean;
   /** AM-4 Row Mining: whether mining capture is currently in flight. */
   isMining?: boolean;
-  /** Tracker accumulator state for flushing when toggling OFF. */
-  trackerAccumulator?: SegmentAccumulatorState;
-  /** Callback to flush tracker accumulator when switching OFF. */
-  onTrackerFlush?: (cells: Map<string, import('@/features/player/tracker/types').ExposureCell>, totals: import('@/features/player/tracker/types').TimeTotals, learningSetId: string) => Promise<void>;
-  /** Current learning set ID for flush context. */
-  trackerLearningSetId?: string;
 }
 
 export function RightPanel({
@@ -90,32 +79,15 @@ export function RightPanel({
   onToggleLazySync,
   hideSyncSubtitle = false,
   onOpenJimakuSearch,
-  historyRefreshKey,
   onMineCue,
   canMineRow,
   isMining,
-  trackerAccumulator,
-  onTrackerFlush,
-  trackerLearningSetId,
 }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>('captions');
-  const [trackerEnabled, setTrackerEnabledState] = useState<boolean>(() => isTrackerEnabled());
 
   const handleTabChange = useCallback((tab: RightPanelTab) => {
     setActiveTab(tab);
   }, []);
-
-  const handleTrackerToggle = useCallback(async (enabled: boolean) => {
-    setTrackerEnabledState(enabled);
-    setTrackerEnabled(enabled);
-
-    // When toggling OFF, flush the current segment before stopping tracking
-    if (!enabled && trackerAccumulator && onTrackerFlush && trackerLearningSetId) {
-      await flushCurrentSegment(trackerAccumulator, (cells, totals) =>
-        onTrackerFlush(cells, totals, trackerLearningSetId)
-      );
-    }
-  }, [trackerAccumulator, onTrackerFlush, trackerLearningSetId]);
 
   if (!visible) return null;
 
@@ -143,52 +115,22 @@ export function RightPanel({
         </span>
       </Button>
       <Button
-        variant={activeTab === 'history' ? 'default' : 'ghost'}
+        variant={activeTab === 'context' ? 'default' : 'ghost'}
         size="sm"
         className="entei-right-panel-tab"
         role="tab"
-        aria-pressed={activeTab === 'history'}
-        aria-selected={activeTab === 'history'}
-        aria-controls="right-panel-history"
-        aria-label={dict.rightPanelTabHistory}
-        title={dict.rightPanelTabHistory}
-        onClick={() => handleTabChange('history')}
+        aria-pressed={activeTab === 'context'}
+        aria-selected={activeTab === 'context'}
+        aria-controls="right-panel-context"
+        aria-label={dict.contextTabLabel}
+        title={dict.contextTabLabel}
+        onClick={() => handleTabChange('context')}
       >
-        <History size={16} aria-hidden="true" />
+        <BrainCircuit size={16} aria-hidden="true" />
         <span className="entei-right-panel-tab-label">
-          {dict.rightPanelTabHistory}
+          {dict.contextTabLabel}
         </span>
       </Button>
-    </div>
-  );
-
-  const trackerSwitch = (
-    <div className="entei-tracker-switch-row" role="group" aria-labelledby="tracker-switch-label">
-      <span id="tracker-switch-label" className="entei-tracker-switch-label">
-        {dict.trackerLabel}
-      </span>
-      <div className="entei-tracker-switch-control">
-        <span className="entei-tracker-switch-state" aria-hidden="true">
-          {trackerEnabled ? dict.trackerOn : dict.trackerOff}
-        </span>
-        <Switch
-          role="switch"
-          aria-label={dict.trackerAriaLabel}
-          aria-describedby={trackerEnabled ? 'tracker-enabled-desc' : 'tracker-disabled-desc'}
-          checked={trackerEnabled}
-          onCheckedChange={handleTrackerToggle}
-        />
-        {trackerEnabled && (
-          <span id="tracker-enabled-desc" className="sr-only">
-            {dict.trackerEnabledAriaDescription}
-          </span>
-        )}
-        {!trackerEnabled && (
-          <span id="tracker-disabled-desc" className="sr-only">
-            {dict.trackerDisabledAriaDescription}
-          </span>
-        )}
-      </div>
     </div>
   );
 
@@ -286,21 +228,14 @@ export function RightPanel({
           />
         </div>
       )}
-      {activeTab === 'history' && (
+      {activeTab === 'context' && (
         <div
-          id="right-panel-history"
+          id="right-panel-context"
           role="tabpanel"
-          aria-label={dict.rightPanelTabHistory}
+          aria-label={dict.contextTabLabel}
           className="entei-right-panel-content"
         >
-          {trackerSwitch}
-          <MiningHistoryPanel
-            emptyLabel={dict.historyEmpty}
-            unavailableLabel={dict.historyUnavailable}
-            sentenceLabel={dict.historySentence}
-            rangeLabel={dict.historyRange}
-            refreshKey={historyRefreshKey}
-          />
+          <NadeshikoPanel dict={dict} />
         </div>
       )}
     </div>

@@ -21,7 +21,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Clock,
   Film,
@@ -44,6 +44,11 @@ import {
 } from '@i18n/locale-events';
 import { getDictionary } from '@i18n/index';
 import type { Dictionary, Locale } from '@i18n/types';
+import { MiningHistoryPanel } from '@/components/player/MiningHistoryPanel';
+import {
+  isTrackerEnabled,
+  setTrackerEnabled,
+} from '@/features/player/tracker/tracker-enabled';
 
 /* ------------------------------------------------------------------------ */
 /* Formatting helpers                                                        */
@@ -543,15 +548,83 @@ function MiningArchive({
 }
 
 /* ------------------------------------------------------------------------ */
+/* Tracker control switch + mining history (migrated from RightPanel)       */
+/* ------------------------------------------------------------------------ */
+
+function TrackerControls({
+  dict,
+  t,
+}: {
+  dict: Dictionary['playerUI'];
+  t: Dictionary['trackerDashboard'];
+}) {
+  const [enabled, setEnabled] = useState<boolean>(() => isTrackerEnabled());
+
+  const handleToggle = useCallback((next: boolean) => {
+    setEnabled(next);
+    setTrackerEnabled(next);
+    // The dashboard toggle gates only the *next* segment boundary check
+    // (tracker-runtime.startSegment reads isTrackerEnabled() and bails out
+    // when the flag is off). An in-flight segment always finishes and
+    // flushes normally — its endSegment / pagehide flush is unconditional —
+    // so toggling off mid-playback causes no data loss for the current
+    // segment; only *new* segments are skipped.
+  }, []);
+
+  return (
+    <section
+      data-testid="tracker-controls"
+      className="entei-tracker-section"
+      aria-label={t.controlsHeading}
+    >
+      <div className="entei-tracker-section-header">
+        <h2 className="entei-tracker-section-title">{t.controlsHeading}</h2>
+      </div>
+      <div className="entei-tracker-switch-row">
+        <span className="entei-tracker-switch-label">{dict.trackerLabel}</span>
+        <span className="entei-tracker-switch-state" aria-hidden="true">
+          {enabled ? dict.trackerOn : dict.trackerOff}
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={dict.trackerAriaLabel}
+          className={
+            enabled
+              ? 'entei-tracker-switch entei-tracker-switch--on'
+              : 'entei-tracker-switch'
+          }
+          onClick={() => handleToggle(!enabled)}
+        >
+          <span className="entei-tracker-switch-thumb" />
+        </button>
+      </div>
+      <div className="entei-tracker-history-wrap">
+        <h3 className="entei-tracker-section-title">{t.historyHeading}</h3>
+        <MiningHistoryPanel
+          emptyLabel={t.historyEmpty}
+          unavailableLabel={t.historyUnavailable}
+          sentenceLabel={t.historySentence}
+          rangeLabel={t.historyRange}
+        />
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
 /* Ready dashboard                                                           */
 /* ------------------------------------------------------------------------ */
 
 function TrackerReady({
   model,
   t,
+  ui,
 }: {
   model: TrackerDashboardReadModel;
   t: Dictionary['trackerDashboard'];
+  ui: Dictionary['playerUI'];
 }) {
   const isEmpty =
     model.mediaList.length === 0 &&
@@ -559,7 +632,22 @@ function TrackerReady({
     model.archive.length === 0;
 
   if (isEmpty) {
-    return <TrackerReadyEmpty t={t} />;
+    return (
+      <div className="entei-tracker-dashboard">
+        <header className="entei-tracker-header">
+          <div className="entei-tracker-header-top">
+            <h1 className="entei-tracker-title">{t.title}</h1>
+            <span className="entei-tracker-local-badge">
+              <HardDrive size={12} aria-hidden="true" />
+              {t.localOnlyBadge}
+            </span>
+          </div>
+          <p className="entei-tracker-subtitle">{t.subtitle}</p>
+        </header>
+        <TrackerControls dict={ui} t={t} />
+        <TrackerReadyEmpty t={t} />
+      </div>
+    );
   }
 
   return (
@@ -577,6 +665,7 @@ function TrackerReady({
       </header>
 
       <TodaySummary model={model} t={t} />
+      <TrackerControls dict={ui} t={t} />
       <MediaList model={model} t={t} />
       <Moments model={model} t={t} />
       <MiningArchive model={model} t={t} />
@@ -605,6 +694,7 @@ export default function TrackerDashboard() {
 
   const dict = getDictionary(locale);
   const t = dict.trackerDashboard;
+  const ui = dict.playerUI;
 
   if (state.status === 'pending') {
     return (
@@ -624,7 +714,7 @@ export default function TrackerDashboard() {
 
   return (
     <div className="entei-tracker-root">
-      <TrackerReady model={state.model} t={t} />
+      <TrackerReady model={state.model} t={t} ui={ui} />
     </div>
   );
 }
