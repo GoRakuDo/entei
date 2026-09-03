@@ -161,6 +161,9 @@ export interface Dictionary {
     jimakuDesc: string;
     jimakuApiKeyLabel: string;
     jimakuApiKeyPlaceholder: string;
+    jimakuShow: string;
+    jimakuHide: string;
+    jimakuClear: string;
     jimakuAutoLoadLabel: string;
     jimakuAutoLoadDesc: string;
     jimakuRateLimit: string;

@@ -18,6 +18,7 @@ import { useMemo, useCallback, useState, useEffect } from 'react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from './ui/slider';
 import { Button } from './ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import {
@@ -40,6 +41,9 @@ import {
   Captions,
   AudioLines,
   Wand2,
+  Eye,
+  EyeOff,
+  Eraser,
 } from 'lucide-react';
 
 interface SubtitleAppearanceSettings {
@@ -252,6 +256,7 @@ export function SubtitleAppearanceTab({
   const [jimakuApiKey, setJimakuApiKeyState] = useState(
     () => readJimakuPreferences().apiKey,
   );
+  const [jimakuShowKey, setJimakuShowKey] = useState(false);
   const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(
     () => readJimakuPreferences().autoLoadEnabled,
   );
@@ -555,21 +560,55 @@ export function SubtitleAppearanceTab({
         <p className="entei-settings-hint">{dict.jimakuDesc}</p>
         <div className="entei-jimaku-key-row">
           <label htmlFor="entei-jimaku-api-key">{dict.jimakuApiKeyLabel}</label>
-          <Input
-            id="entei-jimaku-api-key"
-            type="password"
-            value={jimakuApiKey}
-            onChange={(e) => {
-              const v = e.target.value;
-              setJimakuApiKeyState(v);
-              setJimakuApiKey(v); // persist immediately
-              // DESIGN 1: notify the (possibly open) jimaku search dialog so it
-              // reflects the key presence live without polling localStorage.
-              dispatchJimakuKeyChanged(v.trim().length > 0);
-            }}
-            placeholder={dict.jimakuApiKeyPlaceholder}
-            autoComplete="off"
-          />
+          <ButtonGroup className="entei-nadeshiko-form-group">
+            <Input
+              id="entei-jimaku-api-key"
+              type={jimakuShowKey ? 'text' : 'password'}
+              value={jimakuApiKey}
+              onChange={(e) => {
+                const v = e.target.value;
+                setJimakuApiKeyState(v);
+                setJimakuApiKey(v); // persist immediately
+                // DESIGN 1: notify the (possibly open) jimaku search dialog so it
+                // reflects the key presence live without polling localStorage.
+                dispatchJimakuKeyChanged(v.trim().length > 0);
+              }}
+              placeholder={dict.jimakuApiKeyPlaceholder}
+              autoComplete="off"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="entei-nadeshiko-search-btn"
+              onClick={() => setJimakuShowKey((v) => !v)}
+              aria-label={jimakuShowKey ? dict.jimakuHide : dict.jimakuShow}
+              title={jimakuShowKey ? dict.jimakuHide : dict.jimakuShow}
+            >
+              {jimakuShowKey ? (
+                <EyeOff size={16} aria-hidden="true" />
+              ) : (
+                <Eye size={16} aria-hidden="true" />
+              )}
+            </Button>
+            {jimakuApiKey.trim().length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="entei-nadeshiko-search-btn"
+                onClick={() => {
+                  setJimakuApiKeyState('');
+                  setJimakuApiKey('');
+                  dispatchJimakuKeyChanged(false);
+                }}
+                aria-label={dict.jimakuClear}
+                title={dict.jimakuClear}
+              >
+                <Eraser size={16} aria-hidden="true" />
+              </Button>
+            )}
+          </ButtonGroup>
         </div>
         <div className="entei-jimaku-auto-row">
           <div>
