@@ -11,8 +11,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
+import { Input } from '@/components/player/ui/input';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import {
   readNadeshikoApiKey,
@@ -42,7 +44,9 @@ function announceKeyChanged(): void {
 }
 
 export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
-  const [savedKey, setSavedKey] = useState<string | null>(() => readNadeshikoApiKey());
+  const [savedKey, setSavedKey] = useState<string | null>(() =>
+    readNadeshikoApiKey(),
+  );
   const [draft, setDraft] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -111,26 +115,32 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
         </p>
       )}
 
-      <div className="entei-settings-row">
-        <label className="entei-settings-row-label" htmlFor="nadeshiko-api-key">
+      <form
+        className="entei-nadeshiko-key-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSave();
+        }}
+      >
+        <div className="entei-settings-row-label" id="nadeshiko-api-key-label">
           {dict.apiKeyLabel}
-        </label>
-        <div className="entei-settings-row-control">
-          <input
+        </div>
+        <ButtonGroup className="entei-nadeshiko-form-group">
+          <Input
             id="nadeshiko-api-key"
+            aria-labelledby="nadeshiko-api-key-label"
             type={showKey ? 'text' : 'password'}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={dict.apiKeyPlaceholder}
-            className="entei-input"
             autoComplete="off"
             spellCheck={false}
-            style={{ flex: 1 }}
           />
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
+            className="entei-nadeshiko-search-btn"
             onClick={() => setShowKey((v) => !v)}
             aria-label={showKey ? dict.apiKeyHide : dict.apiKeyShow}
             title={showKey ? dict.apiKeyHide : dict.apiKeyShow}
@@ -141,28 +151,25 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
               <Eye size={16} aria-hidden="true" />
             )}
           </Button>
-        </div>
-      </div>
+          <Button
+            type="submit"
+            variant="outline"
+            size="sm"
+            className="entei-nadeshiko-search-btn"
+            disabled={draft.trim().length === 0}
+            aria-label={dict.apiKeySave}
+            title={dict.apiKeySave}
+          >
+            <KeyRound size={16} aria-hidden="true" />
+          </Button>
+        </ButtonGroup>
+      </form>
 
-      <div className="entei-settings-row">
-        <Button
-          type="button"
-          size="sm"
-          onClick={handleSave}
-          disabled={draft.trim().length === 0}
-        >
-          {dict.apiKeySave}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={handleClear}
-          disabled={!savedKey}
-        >
+      {savedKey && (
+        <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
           {dict.apiKeyClear}
         </Button>
-      </div>
+      )}
 
       <div className="entei-settings-section">
         <h4 className="entei-settings-label">{dict.quotaHeading}</h4>

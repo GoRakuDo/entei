@@ -10,7 +10,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import {
+  render,
+  cleanup,
+  fireEvent,
+  waitFor,
+  screen,
+} from '@testing-library/react';
 import { NadeshikoSettingsTab } from '@/components/player/NadeshikoSettingsTab';
 import * as nadeshikoClient from '@/features/nadeshiko/nadeshiko-client';
 
@@ -59,7 +65,7 @@ describe('NadeshikoSettingsTab', () => {
     );
     const input = getByLabelText('API key') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'sk-abc' } });
-    fireEvent.click(getByText('Save'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(window.localStorage.getItem('entei.nadeshiko.api-key.v1')).toBe(
       'sk-abc',
@@ -69,10 +75,10 @@ describe('NadeshikoSettingsTab', () => {
   });
 
   it('does not save an empty key', () => {
-    const { getByText } = render(
-      <NadeshikoSettingsTab dict={makeDict()} />,
-    );
-    const save = getByText('Save') as HTMLButtonElement;
+    const { getByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
+    const save = screen.getByRole('button', {
+      name: 'Save',
+    }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
   });
 
@@ -81,12 +87,12 @@ describe('NadeshikoSettingsTab', () => {
     const listener = vi.fn();
     window.addEventListener('entei:nadeshiko-key-changed', listener);
 
-    const { getByText } = render(
-      <NadeshikoSettingsTab dict={makeDict()} />,
-    );
-    fireEvent.click(getByText('Clear'));
+    const { getByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
 
-    expect(window.localStorage.getItem('entei.nadeshiko.api-key.v1')).toBeNull();
+    expect(
+      window.localStorage.getItem('entei.nadeshiko.api-key.v1'),
+    ).toBeNull();
     expect(listener).toHaveBeenCalled();
     window.removeEventListener('entei:nadeshiko-key-changed', listener);
   });
@@ -99,9 +105,7 @@ describe('NadeshikoSettingsTab', () => {
       resetAt: '2026-09-01T00:00:00Z',
     });
 
-    const { findByText } = render(
-      <NadeshikoSettingsTab dict={makeDict()} />,
-    );
+    const { findByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
     expect(await findByText('1000')).toBeTruthy();
     expect(await findByText('5000')).toBeTruthy();
     expect(await findByText('2026-09-01T00:00:00Z')).toBeTruthy();
@@ -114,9 +118,7 @@ describe('NadeshikoSettingsTab', () => {
     }) as nadeshikoClient.NadeshikoError;
     vi.spyOn(nadeshikoClient, 'getNadeshikoUserMe').mockRejectedValue(err);
 
-    const { findByText } = render(
-      <NadeshikoSettingsTab dict={makeDict()} />,
-    );
+    const { findByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
     expect(await findByText('bad key')).toBeTruthy();
   });
 
@@ -128,9 +130,7 @@ describe('NadeshikoSettingsTab', () => {
     }) as nadeshikoClient.NadeshikoError;
     vi.spyOn(nadeshikoClient, 'getNadeshikoUserMe').mockRejectedValue(err);
 
-    const { findByText } = render(
-      <NadeshikoSettingsTab dict={makeDict()} />,
-    );
+    const { findByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
     expect(await findByText('slow down')).toBeTruthy();
   });
 
@@ -141,9 +141,7 @@ describe('NadeshikoSettingsTab', () => {
     }) as nadeshikoClient.NadeshikoError;
     vi.spyOn(nadeshikoClient, 'getNadeshikoUserMe').mockRejectedValue(err);
 
-    const { findByText } = render(
-      <NadeshikoSettingsTab dict={makeDict()} />,
-    );
+    const { findByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
     expect(await findByText('no net')).toBeTruthy();
   });
 });

@@ -1906,7 +1906,7 @@
   line-height: 1.3;
 }
 
-.entei-anki-desc {
+.entei-settings-hint {
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   line-height: 1.5;
@@ -6141,39 +6141,11 @@ html.entei-player-immersive .entei-player-audio-area {
   background-color: oklch(98% 0 0deg);
 }
 
-.entei-settings-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-4);
-  margin-bottom: var(--entei-space-12);
-}
-
-.entei-settings-row-label {
-  font-size: 0.8125rem;
-  color: var(--entei-text-secondary);
-}
-
-.entei-settings-row-control {
-  display: flex;
-  align-items: center;
-  gap: var(--entei-space-4);
-}
-
-.entei-input {
-  appearance: none;
-  border: 1px solid oklch(0% 0 0deg / 0.16);
-  background-color: var(--entei-surface-2);
-  color: var(--entei-text);
-  border-radius: var(--entei-radius-sm);
-  padding: var(--entei-space-4) var(--entei-space-8);
-  font-size: 0.8125rem;
-  font-family: inherit;
-}
-
-.entei-input:focus-visible {
-  outline: 2px solid var(--entei-accent);
-  outline-offset: 1px;
-}
+/* NOTE: .entei-settings-row*, .entei-input are retired — the Nadeshiko
+   settings key form now uses the same ButtonGroup pattern as the
+   key-missing inline form (.entei-nadeshiko-key-form).
+   (Checked 2026-09-03: no TSX references them; plain .entei-input
+   orphan rules were removed, the focus-visible companion removed too.) */
 
 .entei-settings-grid {
   display: grid;
