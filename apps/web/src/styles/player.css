@@ -5962,9 +5962,18 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-muted);
 }
 
-/* Key-missing icon: larger, centered, muted gold accent. */
+/* Key-missing icon: responsive — 2x on mobile, 3x on desktop — gold accent. */
 .entei-nadeshiko-error-icon {
+  width: 32px;
+  height: 32px;
   color: var(--entei-gold-base);
+}
+
+@media (min-width: 48rem) {
+  .entei-nadeshiko-error-icon {
+    width: 48px;
+    height: 48px;
+  }
 }
 
 /* Key-missing inline form: same 12px side inset as the search form. */

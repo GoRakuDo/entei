@@ -330,7 +330,6 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
         return (
           <div className="entei-nadeshiko-error" role="status">
             <DoorClosedLocked
-              size={32}
               aria-hidden="true"
               className="entei-nadeshiko-error-icon"
             />
