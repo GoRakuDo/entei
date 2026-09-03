@@ -7,13 +7,20 @@
  * - States: empty / no-results / loading / error×3 (key-missing / invalid-key /
  *   rate-limited with Retry-After countdown)
  * - Loads the API key from localStorage; listens for key-change events.
- * - Opens the settings dialog via dispatchOpenSettings().
+ * - Key-missing shows an inline API-key form (ButtonGroup: password input
+ *   + KeyRound icon button) that saves straight to localStorage.
  * ---------------------------------------------------------------------------
  */
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Search, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Search,
+  ChevronDown,
+  ChevronUp,
+  DoorClosedLocked,
+  KeyRound,
+} from 'lucide-react';
 import { Input } from '@/components/player/ui/input';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
@@ -25,8 +32,10 @@ import {
   type NadeshikoSegmentContext,
   type NadeshikoError,
 } from '@/features/nadeshiko/nadeshiko-client';
-import { readNadeshikoApiKey } from '@/features/nadeshiko/api-key';
-import { dispatchOpenSettings } from '@/features/player/settings-bridge';
+import {
+  readNadeshikoApiKey,
+  writeNadeshikoApiKey,
+} from '@/features/nadeshiko/api-key';
 import type { Dictionary } from '@i18n/types';
 
 interface NadeshikoPanelProps {
@@ -287,6 +296,30 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
     [expanded],
   );
 
+  // Inline API-key form (key-missing state): draft + saving state. On save,
+  // the key lands in localStorage and the panel re-reads via the same
+  // entei:nadeshiko-key-changed broadcast the Settings tab uses.
+  const [keyDraft, setKeyDraft] = useState('');
+  const [keySaving, setKeySaving] = useState(false);
+  const [keySaveFailed, setKeySaveFailed] = useState(false);
+
+  const handleKeySave = useCallback(() => {
+    const trimmed = keyDraft.trim();
+    if (trimmed.length === 0) return;
+    setKeySaving(true);
+    const ok = writeNadeshikoApiKey(trimmed);
+    setKeySaving(false);
+    if (!ok) {
+      setKeySaveFailed(true);
+      return;
+    }
+    setKeySaveFailed(false);
+    setKeyDraft('');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('entei:nadeshiko-key-changed'));
+    }
+  }, [keyDraft]);
+
   const countdown = useRateLimitCountdown(error);
 
   // Renders the error banner (or empty).
@@ -296,16 +329,50 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       case 'key-missing':
         return (
           <div className="entei-nadeshiko-error" role="status">
-            <Button
-              type="button"
-              size="lg"
-              variant="outline"
-              className="entei-picker-btn"
-              onClick={() => dispatchOpenSettings()}
-            >
-              {dict.contextKeyMissingAction}
-            </Button>
+            <DoorClosedLocked
+              size={32}
+              aria-hidden="true"
+              className="entei-nadeshiko-error-icon"
+            />
             <p>{dict.contextKeyMissing}</p>
+            <form
+              className="entei-nadeshiko-key-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleKeySave();
+              }}
+            >
+              <ButtonGroup className="entei-nadeshiko-form-group">
+                <Input
+                  type="password"
+                  value={keyDraft}
+                  onChange={(e) => {
+                    setKeyDraft(e.target.value);
+                    setKeySaveFailed(false);
+                  }}
+                  placeholder={dict.contextKeyInputPlaceholder}
+                  aria-label={dict.contextKeyInputPlaceholder}
+                  disabled={keySaving}
+                  autoComplete="off"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="outline"
+                  className="entei-nadeshiko-search-btn"
+                  disabled={keySaving || keyDraft.trim().length === 0}
+                  aria-label={dict.contextKeySave}
+                  title={dict.contextKeySave}
+                >
+                  <KeyRound size={16} aria-hidden="true" />
+                </Button>
+              </ButtonGroup>
+            </form>
+            {keySaveFailed && (
+              <p className="entei-nadeshiko-key-error">
+                {dict.contextKeySaveFailed}
+              </p>
+            )}
           </div>
         );
       case 'invalid-key':

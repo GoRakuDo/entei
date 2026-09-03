@@ -173,7 +173,9 @@ export interface Dictionary {
     contextSearchAriaLabel: string;
     contextEmpty: string;
     contextKeyMissing: string;
-    contextKeyMissingAction: string;
+    contextKeyInputPlaceholder: string;
+    contextKeySave: string;
+    contextKeySaveFailed: string;
     contextInvalidKey: string;
     contextRateLimited: (seconds: number) => string;
     contextNetworkError: string;

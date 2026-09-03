@@ -308,8 +308,7 @@ export const en: Dictionary = {
     settingsEizouDenContentHeading: 'YouTube Playback Mode',
     ytModeQuality: 'Quality (quality first)',
     ytModeSpeed: 'Speed (instant playback)',
-    ytModeQualityDesc:
-      'Download DASH 1080p (max), plays after mux completes.',
+    ytModeQualityDesc: 'Download DASH 1080p (max), plays after mux completes.',
     ytModeSpeedDesc:
       'Prefer progressive formats (360p-1080p) — plays while downloading.',
     ytModeToastFormat: '{mode} Mode - {quality} will start playing',
@@ -344,10 +343,13 @@ export const en: Dictionary = {
     contextSearchButton: 'Search',
     contextSearchAriaLabel: 'Search Nadeshiko for context',
     contextEmpty: 'No examples found',
-    contextKeyMissing: 'Nadeshiko API key is not set',
-    contextKeyMissingAction: 'Open settings',
+    contextKeyMissing: 'Enter your Nadeshiko API key',
+    contextKeyInputPlaceholder: 'Enter API key',
+    contextKeySave: 'Save',
+    contextKeySaveFailed: 'Could not save. Please try again.',
     contextInvalidKey: 'API key is invalid. Update it in settings',
-    contextRateLimited: (seconds: number) => `Rate limit reached. Try again in ${seconds} seconds`,
+    contextRateLimited: (seconds: number) =>
+      `Rate limit reached. Try again in ${seconds} seconds`,
     contextNetworkError: 'Could not reach Nadeshiko',
     contextGenericError: 'Something went wrong while searching',
     contextResultWorkLabel: 'Work',

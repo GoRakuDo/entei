@@ -15,7 +15,6 @@ import { render, fireEvent, waitFor, screen } from '@testing-library/react';
 import { RightPanel } from '@/components/player/RightPanel';
 import * as nadeshikoClient from '@/features/nadeshiko/nadeshiko-client';
 import * as apiKey from '@/features/nadeshiko/api-key';
-import { OPEN_SETTINGS_EVENT } from '@/features/player/settings-bridge';
 
 function baseDict(): Record<string, unknown> {
   return {
@@ -27,7 +26,9 @@ function baseDict(): Record<string, unknown> {
     contextSearchAriaLabel: 'Search',
     contextEmpty: 'No results',
     contextKeyMissing: 'Set API key',
-    contextKeyMissingAction: 'Open settings',
+    contextKeyInputPlaceholder: 'Enter API key',
+    contextKeySave: 'Save',
+    contextKeySaveFailed: 'Could not save',
     contextInvalidKey: 'Invalid key',
     contextRateLimited: (s: number) => `Wait ${s}s`,
     contextNetworkError: 'Network error',
@@ -74,24 +75,28 @@ describe('RightPanel — Nadeshiko context tab', () => {
   });
 
   it('shows the key-missing state when no key is stored', () => {
-    const { getByText } = render(
+    const { getByText, getByPlaceholderText } = render(
       <RightPanel visible={true} {...baseProps()} />,
     );
     fireEvent.click(getByText('Context'));
     expect(getByText('Set API key')).toBeTruthy();
-    expect(getByText('Open settings')).toBeTruthy();
+    expect(getByPlaceholderText('Enter API key')).toBeTruthy();
   });
 
-  it('dispatches open-settings event when the action button is clicked', () => {
-    const listener = vi.fn();
-    window.addEventListener(OPEN_SETTINGS_EVENT, listener);
-    const { getByText } = render(
+  it('saves the key to localStorage and clears the key-missing state', () => {
+    const { getByText, getByPlaceholderText, queryByText } = render(
       <RightPanel visible={true} {...baseProps()} />,
     );
     fireEvent.click(getByText('Context'));
-    fireEvent.click(getByText('Open settings'));
-    expect(listener).toHaveBeenCalled();
-    window.removeEventListener(OPEN_SETTINGS_EVENT, listener);
+    fireEvent.change(getByPlaceholderText('Enter API key'), {
+      target: { value: 'KEY-123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(window.localStorage.getItem('entei.nadeshiko.api-key.v1')).toBe(
+      'KEY-123',
+    );
+    // Key saved → key-missing state disappears.
+    expect(queryByText('Set API key')).toBeNull();
   });
 
   it('runs a search and renders results', async () => {
