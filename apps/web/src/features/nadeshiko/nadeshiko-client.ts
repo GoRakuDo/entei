@@ -125,7 +125,6 @@ function normalizeSegment(raw: unknown): NadeshikoSegment | null {
     r,
     'englishTranslation',
     'english',
-    'englishTranslation',
     'translation',
     'en',
   );
@@ -133,7 +132,6 @@ function normalizeSegment(raw: unknown): NadeshikoSegment | null {
   const ts = pickNumber(r, 'timestamp', 'start', 'startTime', 'time');
   const timestampLabel = pickString(
     r,
-    'timestampLabel',
     'timestampLabel',
     'timeLabel',
     'displayTime',

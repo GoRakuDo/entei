@@ -498,7 +498,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
                 )}
               </button>
               {isOpen && (
-                <div className="entei-nadeshiko-context" role="region">
+                <div className="entei-nadeshiko-context">
                   {isCtxLoading ? (
                     <p>{dict.contextContextLoading}</p>
                   ) : ctx && ctx.surrounding.length > 0 ? (

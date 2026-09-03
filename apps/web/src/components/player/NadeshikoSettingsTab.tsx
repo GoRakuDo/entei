@@ -10,7 +10,7 @@
  */
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Eye, EyeOff, Eraser } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
@@ -47,19 +47,50 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
   const [savedKey, setSavedKey] = useState<string | null>(() =>
     readNadeshikoApiKey(),
   );
+  // Debounced view of savedKey used as the dependency for the quota fetch.
+  // localStorage persistence (jimaku-style) still happens per keystroke; only
+  // the network call is gated so that a 40-char paste doesn't fire ~40 GETs
+  // against the 300 req / 60s quota. A null cleared key skips the timer and
+  // returns to idle immediately.
+  const [debouncedSavedKey, setDebouncedSavedKey] = useState<string | null>(
+    savedKey,
+  );
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (savedKey === null) {
+      setDebouncedSavedKey(null);
+      return;
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedSavedKey(savedKey);
+      debounceTimerRef.current = null;
+    }, 500);
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [savedKey]);
   const [draft, setDraft] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [quota, setQuota] = useState<QuotaState>({ status: 'idle' });
 
-  // Refresh quota whenever the saved key changes.
+  // Refresh quota whenever the debounced (stable) saved key changes.
+  // The debounce above collapses per-keystroke churn into a single fetch
+  // once the user has paused typing for ~500ms.
   useEffect(() => {
-    if (!savedKey) {
+    if (!debouncedSavedKey) {
       setQuota({ status: 'idle' });
       return;
     }
     const ac = new AbortController();
     setQuota({ status: 'loading' });
-    getNadeshikoUserMe(savedKey, ac.signal)
+    getNadeshikoUserMe(debouncedSavedKey, ac.signal)
       .then((data) => setQuota({ status: 'ready', data }))
       .catch((raw: unknown) => {
         if (ac.signal.aborted) return;
@@ -70,7 +101,7 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
         });
       });
     return () => ac.abort();
-  }, [savedKey]);
+  }, [debouncedSavedKey]);
 
   // Auto-save on every keystroke (jimaku-style): the draft IS the live
   // value. Clearing the field wipes storage too. The Eraser button is

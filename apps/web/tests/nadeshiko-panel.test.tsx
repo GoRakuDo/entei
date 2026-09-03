@@ -5,7 +5,7 @@
  * - Submits to the API client
  * - Shows key-missing, invalid-key, rate-limited, and generic errors
  * - Renders empty / no-results state
- * - Opens the settings dialog on key-missing
+ * - Renders inline key form on key-missing
  * - Switches to the context tab when invoked
  * ---------------------------------------------------------------------------
  */
