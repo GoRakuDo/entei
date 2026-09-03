@@ -1616,6 +1616,11 @@
   gap: 0;
   /* W2: full modal width — kills shadcn w-fit pill */
   width: 100%;
+  /* Narrow screens (5 tabs incl. Field Anki overflow ~360px): allow
+     horizontal swipe instead of clipping the trailing tabs. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   /* W8: override shadcn justify-center — anchor tabs at left edge */
   justify-content: flex-start;
   /* W7: override shadcn h-9 (36px) — child needs 44px */
@@ -1629,6 +1634,10 @@
   /* W2: square — kills shadcn rounded-lg pill rounding */
   border-radius: 0;
   border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-settings-tabs-list::-webkit-scrollbar {
+  display: none;
 }
 
 /* W2: desktop inline padding aligns with content panel (32px) */
