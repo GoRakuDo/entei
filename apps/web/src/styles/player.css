@@ -5913,22 +5913,33 @@ html.entei-player-immersive .entei-player-audio-area {
   min-height: 0;
 }
 
+/* Search form mirrors .entei-right-panel-actions: no top padding, the
+   8px gap lives below as margin, side inset matches the tab strip
+   (space-12). Row height is the 44px touch minimum. */
 .entei-nadeshiko-form {
   display: flex;
-  padding: var(--entei-space-8) var(--entei-space-12) 0;
+  padding: 0 var(--entei-space-12);
+  margin-bottom: var(--entei-space-8);
 }
 
 /* ButtonGroup spans the full content row: input flexes, search button
    stays icon-sized. Merge with tab strip margins (space-12). */
 .entei-nadeshiko-form-group {
   width: 100%;
+  min-height: var(--entei-touch-min);
+}
+
+.entei-nadeshiko-form-group > input {
+  height: auto;
+  min-height: var(--entei-touch-min);
 }
 
 /* Icon-only search button — same treatment as entei-picker-btn
-   (outline variant + surface hover fill), so the form controls read
-   like the subtitle picker's file button. */
+   (outline variant + surface hover fill + 44px touch minimum), so
+   the form controls read like the subtitle picker's file button. */
 .entei-nadeshiko-search-btn {
   flex-shrink: 0;
+  min-height: var(--entei-touch-min);
   background-color: var(--entei-btn-hover-bg);
   border-color: transparent;
 }
