@@ -184,12 +184,10 @@ export interface Dictionary {
     contextQuotaExceeded: string;
     contextNetworkError: string;
     contextGenericError: string;
-    contextResultWorkLabel: string;
-    contextResultLineLabel: string;
-    contextResultEnglishLabel: string;
     contextContextLoading: string;
     contextContextFailed: string;
-    contextNoEnglishTranslation: string;
+    contextAudioPlay: string;
+    contextAudioStop: string;
     contextNoTimestamp: string;
     contextResultsHeading: (count: number) => string;
     // P4: jimaku search modal (design §2.3)

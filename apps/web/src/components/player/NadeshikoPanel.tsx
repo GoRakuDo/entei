@@ -2,13 +2,28 @@
  * NadeshikoPanel — Nuance / context search tab in RightPanel.
  * ---------------------------------------------------------------------------
  * Design: docs/NADESHIKO_INTEGRATION.md §3.3.
- * - Search input + button → POST /v1/search
- * - Click result → expand inline (GET /v1/media/segments/{id}/context)
+ * - Search input + button → POST /v1/search (with include: ['media'])
+ * - Result cards (NadeshikoCard below) render:
+ *     1. 16:9 thumbnail + audio play/stop toggle + serif line + timestamp
+ *     2. Surrounding context paragraph (auto-fetched once per card)
+ *     3. Centered work name
  * - States: empty / no-results / loading / error×3 (key-missing / invalid-key /
  *   rate-limited with Retry-After countdown)
  * - Loads the API key from localStorage; listens for key-change events.
  * - Key-missing shows an inline API-key form (ButtonGroup: password input
  *   + KeyRound icon button) that saves straight to localStorage.
+ *
+ * Rate-limit math: each search is 1 request; per-card context fetch is
+ * `take` requests (one per visible card). Spec allows 150 req / 60s and
+ * defaults to take=10, so worst case per search = 1 + 10 = 11 requests,
+ * well inside the budget. We fire context fetches in parallel (no stagger)
+ * to keep perceived latency low.
+ *
+ * StrictMode burst guard: a panel-level `fetchedIds` set tracks which
+ * segment ids have already kicked off a context fetch. Cleared on each
+ * new search. This prevents React 18 StrictMode's double-mount from
+ * firing duplicate fetches for the same cards (per-card refs reset on
+ * remount, so they aren't enough on their own).
  * ---------------------------------------------------------------------------
  */
 'use client';
@@ -16,10 +31,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Search,
-  ChevronDown,
-  ChevronUp,
   DoorClosedLocked,
   KeyRound,
+  Volume2,
+  Square,
 } from 'lucide-react';
 import { Input } from '@/components/player/ui/input';
 import { Button } from '@/components/player/ui/button';
@@ -115,6 +130,323 @@ function useRateLimitCountdown(
   return displayed;
 }
 
+/* ------------------------------------------------------------------------ */
+/* Audio manager                                                            */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Per-card <audio> elements are registered here so a single playing card
+ * can be paused when another card's play button is pressed. The contract:
+ * - `play(id, audio, onEnded)` starts playback and registers `audio` for
+ *   the given card id. If another card was playing, it's paused first.
+ * - `stop(id)` pauses + rewinds the card's audio and clears its registration.
+ * - `stopAll()` pauses every registered audio (used on unmount / new search).
+ */
+type AudioEndedHandler = () => void;
+
+interface AudioRegistry {
+  register(
+    id: string,
+    audio: HTMLAudioElement,
+    onEnded: AudioEndedHandler,
+  ): void;
+  unregister(id: string): void;
+  play(id: string): void;
+  stop(id: string): void;
+  stopAll(): void;
+  /** Which id is currently considered "playing" (for aria-pressed sync). */
+  playingId(): string | null;
+}
+
+function createAudioRegistry(): AudioRegistry {
+  const audios = new Map<string, HTMLAudioElement>();
+  const handlers = new Map<string, AudioEndedHandler>();
+  let playingId: string | null = null;
+
+  const setPlaying = (id: string | null) => {
+    playingId = id;
+    // Notify all registered cards so they can refresh `aria-pressed`.
+    handlers.forEach((handler) => handler());
+  };
+
+  return {
+    register(id, audio, onEnded) {
+      audios.set(id, audio);
+      handlers.set(id, onEnded);
+    },
+    unregister(id) {
+      audios.delete(id);
+      handlers.delete(id);
+      if (playingId === id) playingId = null;
+    },
+    play(id) {
+      const target = audios.get(id);
+      if (!target) return;
+      // Pause any other playing card first.
+      if (playingId && playingId !== id) {
+        const prev = audios.get(playingId);
+        if (prev) {
+          prev.pause();
+          prev.currentTime = 0;
+        }
+      }
+      // Rewind this card too so consecutive plays start fresh.
+      target.currentTime = 0;
+      void target.play().catch(() => {
+        // Autoplay / decode errors: silently mark as not playing. The user
+        // sees the icon snap back to play on the next render.
+        if (playingId === id) setPlaying(null);
+      });
+      setPlaying(id);
+    },
+    stop(id) {
+      const target = audios.get(id);
+      if (!target) return;
+      target.pause();
+      target.currentTime = 0;
+      if (playingId === id) setPlaying(null);
+    },
+    stopAll() {
+      audios.forEach((a) => {
+        a.pause();
+        a.currentTime = 0;
+      });
+      setPlaying(null);
+    },
+    playingId() {
+      return playingId;
+    },
+  };
+}
+
+/* ------------------------------------------------------------------------ */
+/* Per-result card                                                          */
+/* ------------------------------------------------------------------------ */
+
+interface NadeshikoCardProps {
+  seg: NadeshikoSegment;
+  dict: Dictionary['playerUI'];
+  registry: AudioRegistry;
+  /**
+   * Panel-level set of segment ids that already have a context fetch
+   * in-flight or completed. Survives card remounts (React StrictMode
+   * double-invokes effects, so a per-card ref isn't enough on its own).
+   * Cleared by the panel on every new search so a fresh result set gets
+   * a fresh burst of fetches.
+   */
+  fetchedIds: Set<string>;
+}
+
+function NadeshikoCard({
+  seg,
+  dict,
+  registry,
+  fetchedIds,
+}: NadeshikoCardProps) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Force re-render when another card starts playing so our button icon /
+  // aria-pressed reflect the registry's authoritative state.
+  const [, force] = useState(0);
+  // Context auto-fetch state. Firing once on mount is intentional — see
+  // the rate-limit math in the panel header.
+  const [context, setContext] =
+    useState<NadeshikoSegmentContextResponse | null>(null);
+  const [contextState, setContextState] = useState<
+    'idle' | 'loading' | 'ready' | 'failed'
+  >('idle');
+  const ctxAbortRef = useRef<AbortController | null>(null);
+  // Track the segment id we last fetched for, so that if the parent re-renders
+  // this card with a different segment (shouldn't happen — keys are stable —
+  // but defensive) we re-fetch.
+  const fetchedForIdRef = useRef<string | null>(null);
+
+  // Register audio element + listen for `ended` so the registry releases
+  // playing status when playback finishes naturally.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onEnded = () => {
+      // Reset currentTime so the next play restarts cleanly.
+      if (audioRef.current) audioRef.current.currentTime = 0;
+      force((n) => n + 1);
+    };
+    const onPause = () => force((n) => n + 1);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('pause', onPause);
+    registry.register(seg.id, audio, () => force((n) => n + 1));
+    return () => {
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('pause', onPause);
+      registry.unregister(seg.id);
+    };
+  }, [seg.id, registry]);
+
+  // Auto-fetch context once per card. The panel-level `fetchedIds` set is
+  // the authoritative "already done" guard — it survives StrictMode
+  // remounts, which a per-card ref does not. We check it FIRST so a
+  // fresh search (which replaces the set with an empty one) re-fires
+  // even when the card instance reuses the same seg.id. The per-card
+  // ref covers re-renders within the same instance (cheap, no DOM work).
+  useEffect(() => {
+    if (fetchedForIdRef.current === seg.id && fetchedIds.has(seg.id)) {
+      // Same instance, same search — already done.
+      return;
+    }
+    if (fetchedIds.has(seg.id)) {
+      // Another card instance (or a StrictMode double-mount) already
+      // fired this fetch — nothing more to do.
+      fetchedForIdRef.current = seg.id;
+      return;
+    }
+    fetchedForIdRef.current = seg.id;
+    const key = readNadeshikoApiKey();
+    if (!key) {
+      setContextState('failed');
+      return;
+    }
+    const ac = new AbortController();
+    ctxAbortRef.current?.abort();
+    ctxAbortRef.current = ac;
+    fetchedIds.add(seg.id);
+    setContextState('loading');
+    getNadeshikoSegmentContext(key, seg.id, ac.signal)
+      .then((ctx) => {
+        if (ac.signal.aborted) return;
+        setContext(ctx);
+        setContextState('ready');
+      })
+      .catch((raw: unknown) => {
+        if (ac.signal.aborted) return;
+        const err = raw as NadeshikoError;
+        if (
+          err &&
+          (err.kind === 'invalid-key' ||
+            err.kind === 'rate-limited' ||
+            err.kind === 'quota-exceeded')
+        ) {
+          // We surface these via the panel-level banner (it re-reads from
+          // the search call); the card itself just shows the failed state.
+          // network / invalid-response silently fall through to failed too.
+        }
+        setContextState('failed');
+      });
+    return () => {
+      ac.abort();
+    };
+  }, [seg.id, fetchedIds]);
+
+  const isPlaying = registry.playingId() === seg.id;
+  const timestamp = formatTimestamp(seg, dict);
+
+  // Build the context paragraph: render in temporal order as
+  // [before-lines] + [centre] + [after-lines]. The API returns a flat
+  // segments[] in temporal order; the client exposes `centerIdx` so we
+  // know how many leading entries are "before". (Fallback centres also
+  // carry centerIdx 0, so before+center+after stays temporal.)
+  const contextParagraph = (() => {
+    if (contextState === 'loading') return null;
+    if (contextState === 'failed') return null;
+    if (!context) return null;
+    const lines: string[] = [];
+    const beforeCount =
+      context.centerIdx >= 0 ? context.centerIdx : context.surrounding.length;
+    for (let i = 0; i < beforeCount && i < context.surrounding.length; i++) {
+      lines.push(context.surrounding[i]!.line);
+    }
+    lines.push(context.center.line);
+    for (let i = beforeCount; i < context.surrounding.length; i++) {
+      lines.push(context.surrounding[i]!.line);
+    }
+    return lines.filter((l) => l.length > 0).join(' ');
+  })();
+
+  const onAudioToggle = () => {
+    if (!seg.audioUrl) return;
+    if (isPlaying) {
+      registry.stop(seg.id);
+    } else {
+      registry.play(seg.id);
+    }
+  };
+
+  return (
+    <li className="entei-nadeshiko-card" role="listitem">
+      {/* 16:9 thumbnail frame. The image is the background layer; the
+          serif line + timestamp overlay it; the audio toggle is a
+          positioned icon-button anchored top-left of the frame. */}
+      <div className="entei-nadeshiko-card-media">
+        {seg.imageUrl ? (
+          <img
+            className="entei-nadeshiko-card-image"
+            src={seg.imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <div
+            className="entei-nadeshiko-card-image-fallback"
+            aria-hidden="true"
+          />
+        )}
+        <div className="entei-nadeshiko-card-overlay">
+          {seg.audioUrl && (
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="entei-nadeshiko-card-audio"
+              onClick={onAudioToggle}
+              aria-pressed={isPlaying}
+              aria-label={
+                isPlaying ? dict.contextAudioStop : dict.contextAudioPlay
+              }
+              title={isPlaying ? dict.contextAudioStop : dict.contextAudioPlay}
+            >
+              {isPlaying ? (
+                <Square aria-hidden="true" />
+              ) : (
+                <Volume2 aria-hidden="true" />
+              )}
+            </Button>
+          )}
+          {seg.audioUrl && (
+            <audio
+              ref={audioRef}
+              src={seg.audioUrl}
+              preload="none"
+              // No controls — the icon-button is the only control surface.
+            />
+          )}
+          <p className="entei-nadeshiko-card-line">{seg.line}</p>
+          <span className="entei-nadeshiko-card-ts">{timestamp}</span>
+        </div>
+      </div>
+
+      {/* Context paragraph: italic / muted, always visible once loaded. */}
+      {contextState === 'loading' && (
+        <p className="entei-nadeshiko-card-context entei-nadeshiko-card-context--muted">
+          {dict.contextContextLoading}
+        </p>
+      )}
+      {contextState === 'failed' && (
+        <p className="entei-nadeshiko-card-context entei-nadeshiko-card-context--muted">
+          {dict.contextContextFailed}
+        </p>
+      )}
+      {contextParagraph && (
+        <p className="entei-nadeshiko-card-context">{contextParagraph}</p>
+      )}
+
+      <p className="entei-nadeshiko-card-work">{seg.workName || '—'}</p>
+    </li>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* Panel                                                                    */
+/* ------------------------------------------------------------------------ */
+
 export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   // `setApiKey` is a re-render-only trigger. We never read the value — the
   // handler below re-reads via readNadeshikoApiKey() and acts on the result.
@@ -124,14 +456,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   const [, setApiKey] = useState<string | null>(() => readNadeshikoApiKey());
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NadeshikoSegment[]>([]);
-  const [expanded, setExpanded] = useState<
-    Map<string, NadeshikoSegmentContextResponse>
-  >(new Map());
   const [loading, setLoading] = useState(false);
-  // Track per-segment in-flight context fetches explicitly. The old inference
-  // (`surrounding.length === 0`) broke when the API returned a legitimate
-  // empty surrounding list, leaving the card stuck on "Loading…".
-  const [ctxLoadingIds, setCtxLoadingIds] = useState<Set<string>>(new Set());
   // Initial error reflects "no key set" so the empty state already nudges the
   // user toward Settings (docs/NADESHIKO_INTEGRATION.md §3.3 states table).
   const [error, setError] = useState<ResolvedError | null>(() =>
@@ -139,10 +464,16 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   );
   const [hasSearched, setHasSearched] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  // Per-card AbortControllers for in-flight context fetches. Keyed by
-  // segment id so we can cancel an individual card's fetch (e.g. when the
-  // user collapses it) without affecting other cards.
-  const ctxAbortRef = useRef<Map<string, AbortController>>(new Map());
+  // Audio registry lives for the lifetime of the panel — one audio element
+  // per card, only one playing at a time. We tear it down on unmount.
+  const registryRef = useRef<AudioRegistry | null>(null);
+  if (registryRef.current === null) {
+    registryRef.current = createAudioRegistry();
+  }
+  // Panel-level set of segment ids whose context fetch has been kicked off
+  // (or completed). Survives StrictMode double-mounts where the per-card
+  // ref gets reset. Cleared on each new search via the assignments below.
+  const fetchedIdsRef = useRef<Set<string>>(new Set());
 
   // Live-update the API key from settings. Re-evaluate the key-missing
   // banner so it disappears as soon as a key is saved (and re-appears if
@@ -166,12 +497,11 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
     };
   }, []);
 
-  // Clear any in-flight request on unmount.
+  // Clear any in-flight search + audio on unmount.
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
-      ctxAbortRef.current.forEach((ac) => ac.abort());
-      ctxAbortRef.current.clear();
+      registryRef.current?.stopAll();
     };
   }, []);
 
@@ -191,16 +521,28 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       const ac = new AbortController();
       abortRef.current = ac;
 
+      // Fresh result set → fresh burst of context fetches. Clearing the
+      // panel-level fetched-id set lets each new card fire its context
+      // request (StrictMode remounts reuse the same seg.id, so without
+      // this clear those would be silently skipped).
+      fetchedIdsRef.current = new Set<string>();
+
       setLoading(true);
       setError(null);
-      setExpanded(new Map());
-      // Cancel any in-flight per-card context fetches and clear their ids.
-      ctxAbortRef.current.forEach((inner) => inner.abort());
-      ctxAbortRef.current.clear();
-      setCtxLoadingIds(new Set());
+      // Stop any currently-playing audio before swapping in new results so
+      // a re-search doesn't leave the previous card's audio dangling.
+      registryRef.current?.stopAll();
 
       try {
-        const data = await searchNadeshikoSegments(key, q, {}, ac.signal);
+        // include: ['media'] so includes.media resolves workName (this is
+        // the user-reported "作品名が見えない" fix — without this, the
+        // segment's workName comes back as "" and the card shows "—").
+        const data = await searchNadeshikoSegments(
+          key,
+          q,
+          { include: ['media'] },
+          ac.signal,
+        );
         if (ac.signal.aborted) return;
         setResults(data);
         setHasSearched(true);
@@ -218,90 +560,6 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       }
     },
     [query],
-  );
-
-  const handleExpand = useCallback(
-    async (seg: NadeshikoSegment) => {
-      if (expanded.has(seg.id)) {
-        // Collapsing — cancel any in-flight context fetch for this card.
-        ctxAbortRef.current.get(seg.id)?.abort();
-        ctxAbortRef.current.delete(seg.id);
-        setExpanded((prev) => {
-          const next = new Map(prev);
-          next.delete(seg.id);
-          return next;
-        });
-        setCtxLoadingIds((prev) => {
-          if (!prev.has(seg.id)) return prev;
-          const next = new Set(prev);
-          next.delete(seg.id);
-          return next;
-        });
-        return;
-      }
-
-      const key = readNadeshikoApiKey();
-      if (!key) return;
-
-      const ac = new AbortController();
-      ctxAbortRef.current.set(seg.id, ac);
-
-      // Mark this card as in-flight before placing the placeholder.
-      setCtxLoadingIds((prev) => {
-        const next = new Set(prev);
-        next.add(seg.id);
-        return next;
-      });
-
-      // Placeholder for loading state. The spec returns a flat segments[]
-      // whose centre is identified by publicId; the client surfaces it as
-      // { center, surrounding } so the UI doesn't have to redo the lookup.
-      setExpanded((prev) => {
-        const next = new Map(prev);
-        next.set(seg.id, {
-          center: seg,
-          surrounding: [],
-        });
-        return next;
-      });
-
-      try {
-        const ctx = await getNadeshikoSegmentContext(key, seg.id, ac.signal);
-        if (ac.signal.aborted) return;
-        setExpanded((prev) => {
-          const next = new Map(prev);
-          next.set(seg.id, ctx);
-          return next;
-        });
-      } catch (raw) {
-        if (ac.signal.aborted) return;
-        const err = raw as NadeshikoError;
-        setExpanded((prev) => {
-          const next = new Map(prev);
-          next.set(seg.id, {
-            center: seg,
-            surrounding: [],
-          });
-          return next;
-        });
-        if (err && err.kind) {
-          setError(resolveError(err));
-        } else {
-          setError({ kind: 'generic' });
-        }
-      } finally {
-        ctxAbortRef.current.delete(seg.id);
-        if (!ac.signal.aborted) {
-          setCtxLoadingIds((prev) => {
-            if (!prev.has(seg.id)) return prev;
-            const next = new Set(prev);
-            next.delete(seg.id);
-            return next;
-          });
-        }
-      }
-    },
-    [expanded],
   );
 
   // Inline API-key form (key-missing state): draft + saving state. On save,
@@ -468,75 +726,15 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       )}
 
       <ul className="entei-nadeshiko-results" role="list">
-        {results.map((seg) => {
-          const ctx = expanded.get(seg.id);
-          const isOpen = expanded.has(seg.id);
-          const isCtxLoading = isOpen && ctxLoadingIds.has(seg.id);
-          return (
-            <li key={seg.id} className="entei-nadeshiko-card" role="listitem">
-              <button
-                type="button"
-                className="entei-nadeshiko-card-toggle"
-                onClick={() => handleExpand(seg)}
-                aria-expanded={isOpen}
-              >
-                <div className="entei-nadeshiko-card-row">
-                  <span className="entei-nadeshiko-card-label">
-                    {dict.contextResultWorkLabel}:
-                  </span>{' '}
-                  <span className="entei-nadeshiko-card-value">
-                    {seg.workName || '—'}
-                  </span>
-                  <span className="entei-nadeshiko-card-ts">
-                    {formatTimestamp(seg, dict)}
-                  </span>
-                </div>
-                <div className="entei-nadeshiko-card-row">
-                  <span className="entei-nadeshiko-card-label">
-                    {dict.contextResultLineLabel}:
-                  </span>{' '}
-                  <span className="entei-nadeshiko-card-line">{seg.line}</span>
-                </div>
-                <div className="entei-nadeshiko-card-row">
-                  <span className="entei-nadeshiko-card-label">
-                    {dict.contextResultEnglishLabel}:
-                  </span>{' '}
-                  <span className="entei-nadeshiko-card-value">
-                    {seg.englishTranslation ?? dict.contextNoEnglishTranslation}
-                  </span>
-                </div>
-                {isOpen ? (
-                  <ChevronUp size={14} aria-hidden="true" />
-                ) : (
-                  <ChevronDown size={14} aria-hidden="true" />
-                )}
-              </button>
-              {isOpen && (
-                <div className="entei-nadeshiko-context">
-                  {isCtxLoading ? (
-                    <p>{dict.contextContextLoading}</p>
-                  ) : ctx && ctx.surrounding.length > 0 ? (
-                    <ul>
-                      {ctx.surrounding.map((line) => (
-                        <li
-                          key={`${line.id}-${line.timestampSeconds ?? line.timestampLabel ?? ''}`}
-                          className="entei-nadeshiko-context-line"
-                        >
-                          <span className="entei-nadeshiko-card-ts">
-                            {formatTimestamp(line, dict)}
-                          </span>
-                          <span>{line.line}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p>{dict.contextContextFailed}</p>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
+        {results.map((seg) => (
+          <NadeshikoCard
+            key={seg.id}
+            seg={seg}
+            dict={dict}
+            registry={registryRef.current!}
+            fetchedIds={fetchedIdsRef.current}
+          />
+        ))}
       </ul>
     </div>
   );

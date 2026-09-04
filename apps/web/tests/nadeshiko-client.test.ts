@@ -99,6 +99,10 @@ describe('nadeshiko-client', () => {
     expect(result[0]!.mediaPublicId).toBe('izs1jikMfEFq');
     expect(result[0]!.highlightJa).toBe('<mark>猫</mark>!');
     expect(result[0]!.urls?.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
+    expect(result[0]!.urls?.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
+    // The card reads imageUrl / audioUrl as flat fields too.
+    expect(result[0]!.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
+    expect(result[0]!.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
 
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe('https://api.nadeshiko.co/v1/search');
@@ -183,6 +187,45 @@ describe('nadeshiko-client', () => {
     const r = await searchNadeshikoSegments('KEY', 'q');
     expect(r).toHaveLength(1);
     expect(r[0]!.workName).toBe('');
+  });
+
+  it('search: tolerates missing urls block (imageUrl / audioUrl stay undefined)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          {
+            publicId: 'a',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+          },
+        ],
+      }),
+    );
+    const r = await searchNadeshikoSegments('KEY', 'q');
+    expect(r).toHaveLength(1);
+    expect(r[0]!.imageUrl).toBeUndefined();
+    expect(r[0]!.audioUrl).toBeUndefined();
+    expect(r[0]!.urls).toBeUndefined();
+  });
+
+  it('search: parses urls.videoUrl into urls but does not surface a flat field', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          {
+            publicId: 'a',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+            urls: { videoUrl: 'https://cdn.nadeshiko.co/v.mp4' },
+          },
+        ],
+      }),
+    );
+    const r = await searchNadeshikoSegments('KEY', 'q');
+    expect(r[0]!.urls?.videoUrl).toBe('https://cdn.nadeshiko.co/v.mp4');
+    // The card only surfaces image / audio flat fields.
+    expect(r[0]!.imageUrl).toBeUndefined();
+    expect(r[0]!.audioUrl).toBeUndefined();
   });
 
   it('maps 401 to invalid-key', async () => {
@@ -344,6 +387,11 @@ describe('nadeshiko-client', () => {
     expect(ctx.center.line).toBe('今');
     expect(ctx.surrounding).toHaveLength(2);
     expect(ctx.surrounding.map((s) => s.id)).toEqual(['before', 'after']);
+    // centerIdx tells the UI how many leading entries in `surrounding`
+    // are "before" the centre (the rest are "after"). The spec returns
+    // a temporal-order flat list, so this matches the index of `center`
+    // in that flat list — not the length of the surrounding array.
+    expect(ctx.centerIdx).toBe(1);
   });
 
   it('getSegmentContext: places the center in surrounding list correctly when not first', async () => {
@@ -360,6 +408,9 @@ describe('nadeshiko-client', () => {
     const ctx = await getNadeshikoSegmentContext('K', 'center');
     expect(ctx.center.line).toBe('C');
     expect(ctx.surrounding.map((s) => s.id)).toEqual(['a', 'b', 'd']);
+    // centre is at index 2 in the spec-flat list, so 2 entries are
+    // "before" it in the surrounding list (a, b) and 1 is "after" (d).
+    expect(ctx.centerIdx).toBe(2);
   });
 
   it('getSegmentContext: tolerates empty segments list', async () => {
@@ -367,6 +418,10 @@ describe('nadeshiko-client', () => {
     const ctx = await getNadeshikoSegmentContext('K', 'missing');
     expect(ctx.center.id).toBe('missing');
     expect(ctx.surrounding).toEqual([]);
+    // No matching entry — we synthesise a fallback centre from the first
+    // entry; centerIdx 0 keeps the card's before+center+after split
+    // temporal (centre first, rest in server order).
+    expect(ctx.centerIdx).toBe(0);
   });
 
   it('getSegmentContext: appends take to the URL when provided', async () => {

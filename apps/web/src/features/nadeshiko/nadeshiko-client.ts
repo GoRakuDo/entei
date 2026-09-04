@@ -93,7 +93,11 @@ export interface NadeshikoSegment {
   highlightJa?: string;
   /** Highlighted English line with `<mark>` tags, when matched in this language. */
   highlightEn?: string;
-  /** Media URLs from spec: image / audio / video. */
+  /** Convenience: image URL from spec's `urls.imageUrl`. */
+  imageUrl?: string;
+  /** Convenience: audio URL from spec's `urls.audioUrl`. */
+  audioUrl?: string;
+  /** Media URLs from spec: image / audio / video (kept verbatim). */
   urls?: {
     imageUrl?: string;
     audioUrl?: string;
@@ -108,6 +112,14 @@ export interface NadeshikoSegmentContextResponse {
   center: NadeshikoSegment;
   /** Lines surrounding the target (does not include the target itself). */
   surrounding: NadeshikoSegment[];
+  /** Index of `center` in the original spec-flat `segments[]`. The list is
+   *  in temporal order, so this tells callers exactly which side each
+   *  surrounding line is on: indices < centerIdx are "before", indices
+   *  > centerIdx are "after". `0` when the centre was synthesised as a
+   *  fallback (the fallback IS the first entry, so before+center+after
+   *  stays temporal); `-1` only when the response had no segments at
+   *  all (empty surrounding, ordering moot). */
+  centerIdx: number;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -219,10 +231,18 @@ function normalizeSegment(
   if (highlightJa) seg.highlightJa = highlightJa;
   const highlightEn = pickString(textEn, 'highlight');
   if (highlightEn) seg.highlightEn = highlightEn;
+  // Defensive: spec nests urls under `urls.{imageUrl,audioUrl,videoUrl}`,
+  // but the object may be missing for older entries. We surface the two
+  // fields the UI cares about (image / audio) as flat fields too so the
+  // card can read them directly without optional-chaining every time.
   if (urls && typeof urls === 'object') {
+    const imageUrl = pickString(urls, 'imageUrl');
+    const audioUrl = pickString(urls, 'audioUrl');
+    if (imageUrl) seg.imageUrl = imageUrl;
+    if (audioUrl) seg.audioUrl = audioUrl;
     seg.urls = {
-      imageUrl: pickString(urls, 'imageUrl'),
-      audioUrl: pickString(urls, 'audioUrl'),
+      imageUrl,
+      audioUrl,
       videoUrl: pickString(urls, 'videoUrl'),
     };
   }
@@ -434,6 +454,7 @@ export async function getNadeshikoSegmentContext(
     return {
       center: { id: segmentId, workName: '', line: '' },
       surrounding: [],
+      centerIdx: -1,
     };
   }
   const obj = data as Record<string, unknown>;
@@ -442,8 +463,9 @@ export async function getNadeshikoSegmentContext(
 
   // Spec returns a flat list. The centre is the entry with publicId ===
   // segmentId; surrounding is the rest, ordered as the server returned
-  // them. We don't try to re-order to before/after — the UI shows them
-  // in the API's order, which already separates them by time.
+  // them. We don't try to re-order to before/after — the UI splits them
+  // via `centerIdx` so the surrounding reads as before + center + after
+  // in temporal order.
   const all = Array.isArray(segments)
     ? segments
         .map((s) => normalizeSegment(s, workNameByMediaId))
@@ -457,10 +479,12 @@ export async function getNadeshikoSegmentContext(
     // go into surrounding — slice(1) drops the first entry which we
     // already used as the centre fallback, preserving the
     // "surrounding does not include the target itself" contract.
+    // centerIdx 0 keeps the card's before+center+after split temporal:
+    // the fallback centre renders first, then the rest in server order.
     const fallback = all[0] ?? { id: segmentId, workName: '', line: '' };
-    return { center: fallback, surrounding: all.slice(1) };
+    return { center: fallback, surrounding: all.slice(1), centerIdx: 0 };
   }
   const center = all[centerIdx]!;
   const surrounding = [...all.slice(0, centerIdx), ...all.slice(centerIdx + 1)];
-  return { center, surrounding };
+  return { center, surrounding, centerIdx };
 }

@@ -5973,69 +5973,137 @@ html.entei-player-immersive .entei-player-audio-area {
   background-color: var(--entei-surface-2);
   border: 1px solid oklch(0% 0 0deg / 0.06);
   overflow: hidden;
-}
-
-.entei-nadeshiko-card-toggle {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-4);
+}
+
+/* 16:9 media frame. The image fills the frame; the overlay layer carries
+   the centered serif line, the bottom-right timestamp, and the top-left
+   audio toggle. Positioning is relative + absolute so the overlay tracks
+   the image's rendered size, not a fixed pixel height. */
+.entei-nadeshiko-card-media {
+  position: relative;
   width: 100%;
-  padding: var(--entei-space-8) var(--entei-space-12);
-  background: none;
-  border: none;
-  color: var(--entei-text);
-  text-align: left;
-  cursor: pointer;
+  aspect-ratio: 16 / 9;
+  background-color: oklch(20% 0.035 285deg); /* fallback: dark navy */
+  overflow: hidden;
 }
 
-.entei-nadeshiko-card-row {
+.entei-nadeshiko-card-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.entei-nadeshiko-card-image-fallback {
+  position: absolute;
+  inset: 0;
+}
+
+/* Subtle scrim so the timestamp + line stay readable on bright images.
+   Linear gradient top-bottom: dim top-left where the audio button sits,
+   dim bottom-right where the timestamp sits, keep the centre clear. */
+.entei-nadeshiko-card-overlay {
+  position: absolute;
+  inset: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--entei-space-4);
-  font-size: 0.8125rem;
-  line-height: 1.5;
+  align-items: center;
+  justify-content: center;
+  padding: var(--entei-space-8);
+  background: linear-gradient(
+      180deg,
+      oklch(0% 0 0deg / 0.35) 0%,
+      oklch(0% 0 0deg / 0) 30%,
+      oklch(0% 0 0deg / 0) 70%,
+      oklch(0% 0 0deg / 0.35) 100%
+    ),
+    linear-gradient(
+      90deg,
+      oklch(0% 0 0deg / 0.3) 0%,
+      oklch(0% 0 0deg / 0) 25%,
+      oklch(0% 0 0deg / 0) 75%,
+      oklch(0% 0 0deg / 0.25) 100%
+    );
 }
 
-.entei-nadeshiko-card-label {
-  color: var(--entei-text-secondary);
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+/* Audio toggle (40x40 shadcn icon-button) anchored to the frame's
+   top-left corner. The shadcn outline variant already provides the
+   surface + border, but we tighten the backdrop so it reads against
+   busy thumbnails. */
+.entei-nadeshiko-card-audio {
+  position: absolute;
+  top: var(--entei-space-8);
+  left: var(--entei-space-8);
+  background-color: oklch(98% 0 0deg / 0.85);
+  backdrop-filter: blur(6px);
+  border-color: oklch(0% 0 0deg / 0.16);
 }
 
-.entei-nadeshiko-card-value,
+.entei-nadeshiko-card-audio[aria-pressed='true'] {
+  background-color: var(--entei-accent);
+  color: oklch(98% 0 0deg);
+  border-color: var(--entei-accent);
+}
+
+/* Centered serif line — large, bold, with a subtle drop shadow so it
+   stays legible over any thumbnail. text-shadow + semi-transparent
+   backdrop are intentionally subtle so we don't hide the image. */
 .entei-nadeshiko-card-line {
-  color: var(--entei-text);
+  margin: 0;
+  font-family: var(--entei-font-serif);
+  font-weight: 700;
+  font-size: 1.5rem; /* 24px per mock */
+  line-height: 1.3;
+  text-align: center;
+  color: oklch(98% 0 0deg);
+  text-shadow: 0 1px 2px oklch(0% 0 0deg / 0.6);
+  padding: 0 var(--entei-space-12);
+  max-width: 90%;
 }
 
 .entei-nadeshiko-card-ts {
-  margin-left: auto;
+  position: absolute;
+  bottom: var(--entei-space-8);
+  right: var(--entei-space-12);
   font-variant-numeric: tabular-nums;
-  color: var(--entei-text-secondary);
-  font-size: 0.75rem;
+  color: oklch(98% 0 0deg);
+  font-size: 0.875rem;
+  text-shadow: 0 1px 2px oklch(0% 0 0deg / 0.7);
 }
 
-.entei-nadeshiko-context {
-  border-top: 1px solid oklch(0% 0 0deg / 0.06);
-  padding: var(--entei-space-8) var(--entei-space-12);
-  font-size: 0.8125rem;
-  color: var(--entei-text);
-}
-
-.entei-nadeshiko-context ul {
-  list-style: none;
+/* Context paragraph: italic, muted, always visible once loaded. The
+   mock uses muted ink at ~12px; we keep that scale and let text-wrap
+   flow naturally across multiple lines (no truncation). */
+.entei-nadeshiko-card-context {
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-4);
+  padding: var(--entei-space-12) var(--entei-space-12) 0;
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  font-style: italic;
+  color: var(--entei-text-secondary);
+  text-wrap: pretty;
 }
 
-.entei-nadeshiko-context-line {
-  display: flex;
-  gap: var(--entei-space-4);
-  align-items: baseline;
+.entei-nadeshiko-card-context--muted {
+  color: var(--entei-text-muted);
+}
+
+/* Work name — centered, larger than the context paragraph, bold, sits
+   below the context with breathing room. Falls back to "—" when the API
+   didn't include media (shouldn't happen now that include:['media'] is
+   passed, but kept as a graceful fallback). */
+.entei-nadeshiko-card-work {
+  margin: 0;
+  padding: var(--entei-space-8) var(--entei-space-12) var(--entei-space-12);
+  text-align: center;
+  font-family: var(--entei-font-body);
+  font-weight: 600;
+  font-size: 1.125rem; /* 18px per mock */
+  color: var(--entei-text);
 }
 
 .entei-tracker-history-wrap {
