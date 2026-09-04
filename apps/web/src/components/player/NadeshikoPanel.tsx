@@ -433,22 +433,27 @@ function NadeshikoCard({
         </div>
       </div>
 
-      {/* Context paragraph: italic / muted, always visible once loaded. */}
-      {contextState === 'loading' && (
-        <p className="entei-nadeshiko-card-context entei-nadeshiko-card-context--muted">
-          {dict.contextContextLoading}
-        </p>
-      )}
-      {contextState === 'failed' && (
-        <p className="entei-nadeshiko-card-context entei-nadeshiko-card-context--muted">
-          {dict.contextContextFailed}
-        </p>
-      )}
-      {contextParagraph && (
-        <p className="entei-nadeshiko-card-context">{contextParagraph}</p>
-      )}
+      {/* Context + work block: dashed rounded frame per mock — the
+          context paragraph sits inside, an HR divider separates it
+          from the centered work name below. */}
+      <div className="entei-nadeshiko-card-detail">
+        {contextState === 'loading' && (
+          <p className="entei-nadeshiko-card-context entei-nadeshiko-card-context--muted">
+            {dict.contextContextLoading}
+          </p>
+        )}
+        {contextState === 'failed' && (
+          <p className="entei-nadeshiko-card-context entei-nadeshiko-card-context--muted">
+            {dict.contextContextFailed}
+          </p>
+        )}
+        {contextParagraph && (
+          <p className="entei-nadeshiko-card-context">{contextParagraph}</p>
+        )}
 
-      <p className="entei-nadeshiko-card-work">{seg.workName || '—'}</p>
+        <hr className="entei-nadeshiko-card-divider" aria-hidden="true" />
+        <p className="entei-nadeshiko-card-work">{seg.workName || '—'}</p>
+      </div>
     </li>
   );
 }

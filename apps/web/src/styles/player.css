@@ -6090,9 +6090,20 @@ html.entei-player-immersive .entei-player-audio-area {
 /* Context paragraph: italic, muted, always visible once loaded. The
    mock uses muted ink at ~12px; we keep that scale and let text-wrap
    flow naturally across multiple lines (no truncation). */
+/* Detail block: dashed rounded frame holding the context paragraph,
+   an HR divider, and the centered work name (per mock). */
+.entei-nadeshiko-card-detail {
+  margin: var(--entei-space-8) 0 0;
+  padding: var(--entei-space-12);
+  border: 1.5px dashed var(--entei-text-secondary);
+  border-radius: var(--entei-radius-lg);
+  display: flex;
+  flex-direction: column;
+}
+
 .entei-nadeshiko-card-context {
   margin: 0;
-  padding: var(--entei-space-12) var(--entei-space-12) 0;
+  padding: 0;
   font-family: var(--entei-font-body);
   font-size: 1rem;
   line-height: 1.75;
@@ -6107,13 +6118,22 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-muted);
 }
 
+/* Divider between the context paragraph and the work name: short
+   centered rule per mock (narrower than the frame). */
+.entei-nadeshiko-card-divider {
+  border: none;
+  border-top: 1.5px solid var(--entei-text-secondary);
+  margin: var(--entei-space-12) auto;
+  width: 70%;
+}
+
 /* Work name — centered, larger than the context paragraph, bold, sits
-   below the context with breathing room. Falls back to "—" when the API
+   below the divider with breathing room. Falls back to "—" when the API
    didn't include media (shouldn't happen now that include:['media'] is
    passed, but kept as a graceful fallback). */
 .entei-nadeshiko-card-work {
   margin: 0;
-  padding: var(--entei-space-8) var(--entei-space-12) var(--entei-space-12);
+  padding: 0;
   text-align: center;
   font-family: var(--entei-font-body);
   font-weight: 600;
