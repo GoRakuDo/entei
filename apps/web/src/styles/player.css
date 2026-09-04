@@ -5951,7 +5951,7 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: 0 var(--entei-space-12) var(--entei-space-8);
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-16);
+  gap: var(--entei-space-24);
 }
 
 .entei-nadeshiko-empty {
@@ -6093,7 +6093,7 @@ html.entei-player-immersive .entei-player-audio-area {
 /* Detail block: dashed rounded frame holding the context paragraph,
    an HR divider, and the centered work name (per mock). */
 .entei-nadeshiko-card-detail {
-  margin: var(--entei-space-8) 0 0;
+  margin: var(--entei-space-16) 0 0;
   padding: var(--entei-space-12);
   border: 1.5px dashed var(--entei-text-secondary);
   border-radius: var(--entei-radius-lg);
