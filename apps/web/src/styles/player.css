@@ -6098,6 +6098,8 @@ html.entei-player-immersive .entei-player-audio-area {
   font-style: normal;
   color: var(--entei-text-secondary);
   text-wrap: pretty;
+  /* Natural Japanese phrase breaks (Chrome 120+; others ignore). */
+  word-break: auto-phrase;
 }
 
 .entei-nadeshiko-card-context--muted {
