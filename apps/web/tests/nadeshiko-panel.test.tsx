@@ -371,6 +371,23 @@ describe('RightPanel — Nadeshiko context tab', () => {
       await waitFor(() => {
         expect(screen.getAllByLabelText('Play audio')).toHaveLength(2);
       });
+
+      // Natural end: dispatch `ended` on B's audio while it plays again —
+      // the button must snap back to play (regression: ended left the
+      // Stop icon stuck because playingId was never cleared).
+      await act(async () => {
+        fireEvent.click(screen.getAllByLabelText('Play audio')[1]!);
+      });
+      await waitFor(() => {
+        expect(screen.getAllByLabelText('Stop audio')).toHaveLength(1);
+      });
+      await act(async () => {
+        audios[1]!.dispatchEvent(new Event('ended'));
+      });
+      await waitFor(() => {
+        expect(screen.getAllByLabelText('Play audio')).toHaveLength(2);
+      });
+      expect(screen.queryByLabelText('Stop audio')).toBeNull();
     } finally {
       restoreAudio();
     }

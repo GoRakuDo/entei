@@ -154,6 +154,12 @@ interface AudioRegistry {
   play(id: string): void;
   stop(id: string): void;
   stopAll(): void;
+  /**
+   * Called when an audio element finishes naturally (`ended` event).
+   * Clears playingId so the button snaps back to play — unlike stop(),
+   * no pause/rewind needed (already ended).
+   */
+  notifyEnded(id: string): void;
   /** Which id is currently considered "playing" (for aria-pressed sync). */
   playingId(): string | null;
 }
@@ -213,6 +219,9 @@ function createAudioRegistry(): AudioRegistry {
       });
       setPlaying(null);
     },
+    notifyEnded(id) {
+      if (playingId === id) setPlaying(null);
+    },
     playingId() {
       return playingId;
     },
@@ -260,15 +269,16 @@ function NadeshikoCard({
   // but defensive) we re-fetch.
   const fetchedForIdRef = useRef<string | null>(null);
 
-  // Register audio element + listen for `ended` so the registry releases
-  // playing status when playback finishes naturally.
+  // Register audio element + listen for `ended` so the button snaps back
+  // to play when playback finishes naturally.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     const onEnded = () => {
-      // Reset currentTime so the next play restarts cleanly.
+      // Reset currentTime so the next play restarts cleanly, and tell
+      // the registry so playingId clears (button back to play icon).
       if (audioRef.current) audioRef.current.currentTime = 0;
-      force((n) => n + 1);
+      registry.notifyEnded(seg.id);
     };
     const onPause = () => force((n) => n + 1);
     audio.addEventListener('ended', onEnded);
