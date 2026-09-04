@@ -44,6 +44,8 @@ interface PlayerSettingsDialogProps {
   /** Explicit destructive pairing reset (ED-3), forwarded to the
    *  EizouDen tab from PlayerApp's use-companion-pairing. */
   onResetPairing?: SettingsTabsProps['onResetPairing'];
+  /** Nadeshiko settings dictionary block. */
+  nadeshikoDict?: Dictionary['nadeshiko'];
 }
 
 export function PlayerSettingsDialog({
@@ -55,6 +57,7 @@ export function PlayerSettingsDialog({
   subtitleSettings,
   onSubtitleSettingsChange,
   onResetPairing,
+  nadeshikoDict,
 }: PlayerSettingsDialogProps) {
   /* W6: Toggle root class to hide TopBar on mobile while Settings is open.
    * Cleanup removes class on close and unmount. */
@@ -100,6 +103,7 @@ export function PlayerSettingsDialog({
           subtitleSettings={subtitleSettings}
           onSubtitleSettingsChange={onSubtitleSettingsChange}
           onResetPairing={onResetPairing}
+          nadeshikoDict={nadeshikoDict}
         />
       </DialogContent>
     </Dialog>

@@ -74,7 +74,13 @@ export async function recordTrackerMiningArchive(
       createdAt: Date.now(),
     };
 
-    return await putMiningArchiveEntry(entry);
+    const ok = await putMiningArchiveEntry(entry);
+    if (ok && typeof window !== 'undefined') {
+      // Cross-component refresh signal — picked up by MiningHistoryPanel and
+      // the /tracker/ dashboard. No payload needed; listeners just refetch.
+      window.dispatchEvent(new CustomEvent('entei:tracker-archive-changed'));
+    }
+    return ok;
   } catch {
     // Fire-and-forget: never throw
     return false;

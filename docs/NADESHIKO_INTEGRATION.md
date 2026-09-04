@@ -94,6 +94,10 @@ Player の RightPanel（`apps/web/src/components/player/RightPanel.tsx`）のタ
   - `history` タブ（`RightPanelTab` 型・`right-panel-history` DOM ID・`dict.rightPanelTabHistory` ラベル）を削除。
   - Tracker ON / OFF スイッチと `MiningHistoryPanel` は RightPanel から外れ、Tracker Dashboard へ引っ越し。
   - `handleTabChange` / `activeTab` / `RightPanelTab` 型は `'captions' | 'context'` の 2 値に縮小。
+- **Tracker スイッチの責務 (player-side)**:
+  - このフラグは **次のセグメント開始時のみ** 効く（`tracker-runtime.startSegment` が `isTrackerEnabled()` で早期 return する）。
+  - 進行中のセグメントは **常に正常に終了し flush される**（`endSegment` / `pagehide` flush は無条件実行）。
+  - つまり player タブで再生中にダッシュボード側で OFF にしても、現在のセグメントのデータは失われない。新しいセグメントから記録が止まるだけ。
 
 ### 3.3 Nadeshiko 検索タブの中身（新規実装）
 

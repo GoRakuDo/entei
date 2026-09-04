@@ -18,9 +18,13 @@ import { useMemo, useCallback, useState, useEffect } from 'react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from './ui/slider';
 import { Button } from './ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from './ui/input';
 import { Switch } from './ui/switch';
-import { ToggleGroup, ToggleGroupItem } from '@/components/player/ui/toggle-group';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/player/ui/toggle-group';
 import type { SubtitleSyncMode } from '@/features/player/preferences';
 import {
   readJimakuPreferences,
@@ -37,6 +41,9 @@ import {
   Captions,
   AudioLines,
   Wand2,
+  Eye,
+  EyeOff,
+  Eraser,
 } from 'lucide-react';
 
 interface SubtitleAppearanceSettings {
@@ -78,9 +85,13 @@ function hexToOklch(hex: string, alpha?: number): string {
   const cleanHex = hex.startsWith('#') ? hex.slice(1) : hex;
 
   // Handle 3-digit hex
-  const fullHex = cleanHex.length === 3
-    ? cleanHex.split('').map(c => c + c).join('')
-    : cleanHex;
+  const fullHex =
+    cleanHex.length === 3
+      ? cleanHex
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : cleanHex;
 
   // Guard: must be exactly 6 hex chars after normalization
   if (fullHex.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(fullHex)) {
@@ -91,7 +102,11 @@ function hexToOklch(hex: string, alpha?: number): string {
   const rRaw = parseInt(fullHex.slice(0, 2), 16);
   const gRaw = parseInt(fullHex.slice(2, 4), 16);
   const bRaw = parseInt(fullHex.slice(4, 6), 16);
-  if (!Number.isFinite(rRaw) || !Number.isFinite(gRaw) || !Number.isFinite(bRaw)) {
+  if (
+    !Number.isFinite(rRaw) ||
+    !Number.isFinite(gRaw) ||
+    !Number.isFinite(bRaw)
+  ) {
     return SAFE_HEX_DEFAULT;
   }
 
@@ -117,9 +132,9 @@ function hexToOklch(hex: string, alpha?: number): string {
   const m_ = Math.cbrt(m);
   const s_ = Math.cbrt(s);
 
-  const L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
-  const a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_;
-  const b_ = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_;
+  const L = 0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_;
+  const a = 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_;
+  const b_ = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_;
 
   // Convert OKLab to OKLCH
   const C = Math.sqrt(a * a + b_ * b_);
@@ -155,7 +170,9 @@ function parseOklchAlpha(oklchStr: string): number {
 /** Convert oklch string to hex for color input display (approximate). */
 function oklchToHex(oklchStr: string): string {
   // Parse oklch(L% C h) or oklch(L C h)
-  const match = oklchStr.match(/oklch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.]+)(deg|rad|turn)?\s*(?:\/\s*([\d.]+)%?)?\s*\)/i);
+  const match = oklchStr.match(
+    /oklch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.]+)(deg|rad|turn)?\s*(?:\/\s*([\d.]+)%?)?\s*\)/i,
+  );
   if (!match) return '#fcfcfc';
 
   const L = parseFloat(match[1]!) / 100;
@@ -164,14 +181,19 @@ function oklchToHex(oklchStr: string): string {
   // Alpha is ignored for hex conversion
 
   // OKLCH to OKLab
-  const hRad = (match[4] === 'rad') ? h : (match[4] === 'turn') ? h * 2 * Math.PI : h * Math.PI / 180;
+  const hRad =
+    match[4] === 'rad'
+      ? h
+      : match[4] === 'turn'
+        ? h * 2 * Math.PI
+        : (h * Math.PI) / 180;
   const a = C * Math.cos(hRad);
   const b_ = C * Math.sin(hRad);
 
   // OKLab to linear RGB (inverse matrix)
   const l_ = L + 0.3963377774 * a + 0.2158037573 * b_;
   const m_ = L - 0.1055613458 * a - 0.0638541728 * b_;
-  const s_ = L - 0.0894841775 * a - 1.2914855480 * b_;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b_;
 
   const l = l_ * l_ * l_;
   const m = m_ * m_ * m_;
@@ -180,11 +202,13 @@ function oklchToHex(oklchStr: string): string {
   // Linear RGB to sRGB
   const rl = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
   const gl = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-  const bl = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
 
   const toSrgb = (c: number) => {
     const clamped = Math.max(0, Math.min(1, c));
-    return clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+    return clamped <= 0.0031308
+      ? 12.92 * clamped
+      : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
   };
 
   const r = Math.round(toSrgb(rl) * 255);
@@ -195,7 +219,9 @@ function oklchToHex(oklchStr: string): string {
 }
 
 /** Generate a live preview subtitle element style object. */
-function getPreviewStyle(settings: SubtitleAppearanceSettings): React.CSSProperties {
+function getPreviewStyle(
+  settings: SubtitleAppearanceSettings,
+): React.CSSProperties {
   return {
     fontSize: `${settings.fontSize}px`,
     color: settings.textColor,
@@ -220,14 +246,26 @@ export function SubtitleAppearanceTab({
   onReset,
 }: SubtitleAppearanceTabProps) {
   // Local state for color inputs (hex) - synced from oklch props
-  const [textColorHex, setTextColorHex] = useState(() => oklchToHex(settings.textColor));
-  const [bgColorHex, setBgColorHex] = useState(() => oklchToHex(settings.backgroundColor));
+  const [textColorHex, setTextColorHex] = useState(() =>
+    oklchToHex(settings.textColor),
+  );
+  const [bgColorHex, setBgColorHex] = useState(() =>
+    oklchToHex(settings.backgroundColor),
+  );
   // jimaku.cc preferences — mounted once from localStorage (P2 settings UI).
-  const [jimakuApiKey, setJimakuApiKeyState] = useState(() => readJimakuPreferences().apiKey);
-  const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(() => readJimakuPreferences().autoLoadEnabled);
+  const [jimakuApiKey, setJimakuApiKeyState] = useState(
+    () => readJimakuPreferences().apiKey,
+  );
+  const [jimakuShowKey, setJimakuShowKey] = useState(false);
+  const [jimakuAutoLoad, setJimakuAutoLoadState] = useState(
+    () => readJimakuPreferences().autoLoadEnabled,
+  );
 
   // Extract current alpha from the background oklch string
-  const bgAlpha = useMemo(() => parseOklchAlpha(settings.backgroundColor), [settings.backgroundColor]);
+  const bgAlpha = useMemo(
+    () => parseOklchAlpha(settings.backgroundColor),
+    [settings.backgroundColor],
+  );
   const bgOpacityPercent = Math.round(bgAlpha * 100);
 
   // Sync hex state when oklch props change (e.g., after reset or external update).
@@ -241,51 +279,69 @@ export function SubtitleAppearanceTab({
   }, [settings.textColor]);
 
   // Convert hex to oklch (preserving current alpha) and notify parent
-  const handleTextColorChange = useCallback((hex: string) => {
-    const oklch = hexToOklch(hex);
-    setTextColorHex(hex);
-    onChange({ textColor: oklch });
-  }, [onChange]);
+  const handleTextColorChange = useCallback(
+    (hex: string) => {
+      const oklch = hexToOklch(hex);
+      setTextColorHex(hex);
+      onChange({ textColor: oklch });
+    },
+    [onChange],
+  );
 
-  const handleBgColorChange = useCallback((hex: string) => {
-    const currentAlpha = parseOklchAlpha(settings.backgroundColor);
-    const oklch = hexToOklch(hex, currentAlpha);
-    setBgColorHex(hex);
-    onChange({ backgroundColor: oklch });
-  }, [onChange, settings.backgroundColor]);
+  const handleBgColorChange = useCallback(
+    (hex: string) => {
+      const currentAlpha = parseOklchAlpha(settings.backgroundColor);
+      const oklch = hexToOklch(hex, currentAlpha);
+      setBgColorHex(hex);
+      onChange({ backgroundColor: oklch });
+    },
+    [onChange, settings.backgroundColor],
+  );
 
-  const handleBgOpacityChange = useCallback((value: number[]) => {
-    const opacity = (value[0] ?? 100) / 100;
-    // Parse current oklch directly from settings — avoids stale bgColorHex closure
-    // during rapid sequential changes (e.g., bg color picker then opacity slider).
-    const match = settings.backgroundColor.match(
-      /oklch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.]+)(deg|rad|turn)?/i,
-    );
-    if (match && match[1] && match[2] && match[3]) {
-      const L = Math.round(parseFloat(match[1]) );
-      const C = parseFloat(match[2]).toFixed(4);
-      const h = Math.round(parseFloat(match[3]));
-      onChange({
-        backgroundColor: `oklch(${L}% ${C} ${h}deg / ${opacity.toFixed(2)})`,
-      });
-    } else {
-      // Fallback: use hex roundtrip if oklch parsing fails
-      const hex = oklchToHex(settings.backgroundColor);
-      onChange({ backgroundColor: hexToOklch(hex, opacity) });
-    }
-  }, [onChange, settings.backgroundColor]);
+  const handleBgOpacityChange = useCallback(
+    (value: number[]) => {
+      const opacity = (value[0] ?? 100) / 100;
+      // Parse current oklch directly from settings — avoids stale bgColorHex closure
+      // during rapid sequential changes (e.g., bg color picker then opacity slider).
+      const match = settings.backgroundColor.match(
+        /oklch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.]+)(deg|rad|turn)?/i,
+      );
+      if (match && match[1] && match[2] && match[3]) {
+        const L = Math.round(parseFloat(match[1]));
+        const C = parseFloat(match[2]).toFixed(4);
+        const h = Math.round(parseFloat(match[3]));
+        onChange({
+          backgroundColor: `oklch(${L}% ${C} ${h}deg / ${opacity.toFixed(2)})`,
+        });
+      } else {
+        // Fallback: use hex roundtrip if oklch parsing fails
+        const hex = oklchToHex(settings.backgroundColor);
+        onChange({ backgroundColor: hexToOklch(hex, opacity) });
+      }
+    },
+    [onChange, settings.backgroundColor],
+  );
 
-  const handleFontSizeChange = useCallback((value: number[]) => {
-    onChange({ fontSize: value[0] });
-  }, [onChange]);
+  const handleFontSizeChange = useCallback(
+    (value: number[]) => {
+      onChange({ fontSize: value[0] });
+    },
+    [onChange],
+  );
 
-  const handlePaddingChange = useCallback((value: number[]) => {
-    onChange({ backgroundPadding: value[0] });
-  }, [onChange]);
+  const handlePaddingChange = useCallback(
+    (value: number[]) => {
+      onChange({ backgroundPadding: value[0] });
+    },
+    [onChange],
+  );
 
-  const handleVerticalPositionChange = useCallback((value: number[]) => {
-    onChange({ verticalPosition: value[0] });
-  }, [onChange]);
+  const handleVerticalPositionChange = useCallback(
+    (value: number[]) => {
+      onChange({ verticalPosition: value[0] });
+    },
+    [onChange],
+  );
 
   const previewStyle = useMemo(() => getPreviewStyle(settings), [settings]);
 
@@ -321,7 +377,9 @@ export function SubtitleAppearanceTab({
               onValueChange={handleFontSizeChange}
               aria-label={dict.subtitleFontSize}
             />
-            <span className="entei-subtitle-value-display">{settings.fontSize}px</span>
+            <span className="entei-subtitle-value-display">
+              {settings.fontSize}px
+            </span>
           </div>
         </div>
 
@@ -339,7 +397,10 @@ export function SubtitleAppearanceTab({
               className="entei-subtitle-color-input"
               aria-label={dict.subtitleTextColor}
             />
-            <span className="entei-subtitle-value-display oklch-display" title={settings.textColor}>
+            <span
+              className="entei-subtitle-value-display oklch-display"
+              title={settings.textColor}
+            >
               {settings.textColor}
             </span>
           </div>
@@ -359,7 +420,10 @@ export function SubtitleAppearanceTab({
               className="entei-subtitle-color-input"
               aria-label={dict.subtitleBackgroundColor}
             />
-            <span className="entei-subtitle-value-display oklch-display" title={settings.backgroundColor}>
+            <span
+              className="entei-subtitle-value-display oklch-display"
+              title={settings.backgroundColor}
+            >
               {settings.backgroundColor}
             </span>
           </div>
@@ -381,7 +445,9 @@ export function SubtitleAppearanceTab({
               onValueChange={handleBgOpacityChange}
               aria-label={dict.subtitleBackgroundOpacity}
             />
-            <span className="entei-subtitle-value-display">{bgOpacityPercent}%</span>
+            <span className="entei-subtitle-value-display">
+              {bgOpacityPercent}%
+            </span>
           </div>
         </div>
 
@@ -401,7 +467,9 @@ export function SubtitleAppearanceTab({
               onValueChange={handlePaddingChange}
               aria-label={dict.subtitleBackgroundPadding}
             />
-            <span className="entei-subtitle-value-display">{settings.backgroundPadding}px</span>
+            <span className="entei-subtitle-value-display">
+              {settings.backgroundPadding}px
+            </span>
           </div>
         </div>
 
@@ -421,7 +489,9 @@ export function SubtitleAppearanceTab({
               onValueChange={handleVerticalPositionChange}
               aria-label={dict.subtitleVerticalPosition}
             />
-            <span className="entei-subtitle-value-display">{settings.verticalPosition}px</span>
+            <span className="entei-subtitle-value-display">
+              {settings.verticalPosition}px
+            </span>
           </div>
         </div>
       </div>
@@ -430,7 +500,7 @@ export function SubtitleAppearanceTab({
       <div className="entei-subtitle-sync-section">
         <h3 className="entei-settings-label">{dict.subtitleSyncMode}</h3>
         {/* Description above the toggle row, styled like the Anki desc. */}
-        <p className="entei-anki-desc entei-subtitle-sync-desc">
+        <p className="entei-settings-hint entei-subtitle-sync-desc">
           {settings.syncMode === 'audio'
             ? dict.subtitleSyncAudioDesc
             : settings.syncMode === 'auto'
@@ -487,29 +557,63 @@ export function SubtitleAppearanceTab({
       {/* JIMAKU.CC — auto-load Japanese subtitles (P2) */}
       <div className="entei-jimaku-section">
         <h3 className="entei-settings-label">{dict.jimakuHeading}</h3>
-        <p className="entei-anki-desc">{dict.jimakuDesc}</p>
+        <p className="entei-settings-hint">{dict.jimakuDesc}</p>
         <div className="entei-jimaku-key-row">
           <label htmlFor="entei-jimaku-api-key">{dict.jimakuApiKeyLabel}</label>
-          <Input
-            id="entei-jimaku-api-key"
-            type="password"
-            value={jimakuApiKey}
-            onChange={(e) => {
-              const v = e.target.value;
-              setJimakuApiKeyState(v);
-              setJimakuApiKey(v); // persist immediately
-              // DESIGN 1: notify the (possibly open) jimaku search dialog so it
-              // reflects the key presence live without polling localStorage.
-              dispatchJimakuKeyChanged(v.trim().length > 0);
-            }}
-            placeholder={dict.jimakuApiKeyPlaceholder}
-            autoComplete="off"
-          />
+          <ButtonGroup className="entei-nadeshiko-form-group">
+            <Input
+              id="entei-jimaku-api-key"
+              type={jimakuShowKey ? 'text' : 'password'}
+              value={jimakuApiKey}
+              onChange={(e) => {
+                const v = e.target.value;
+                setJimakuApiKeyState(v);
+                setJimakuApiKey(v); // persist immediately
+                // DESIGN 1: notify the (possibly open) jimaku search dialog so it
+                // reflects the key presence live without polling localStorage.
+                dispatchJimakuKeyChanged(v.trim().length > 0);
+              }}
+              placeholder={dict.jimakuApiKeyPlaceholder}
+              autoComplete="off"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="entei-nadeshiko-search-btn"
+              onClick={() => setJimakuShowKey((v) => !v)}
+              aria-label={jimakuShowKey ? dict.jimakuHide : dict.jimakuShow}
+              title={jimakuShowKey ? dict.jimakuHide : dict.jimakuShow}
+            >
+              {jimakuShowKey ? (
+                <EyeOff size={16} aria-hidden="true" />
+              ) : (
+                <Eye size={16} aria-hidden="true" />
+              )}
+            </Button>
+            {jimakuApiKey.trim().length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="entei-nadeshiko-search-btn"
+                onClick={() => {
+                  setJimakuApiKeyState('');
+                  setJimakuApiKey('');
+                  dispatchJimakuKeyChanged(false);
+                }}
+                aria-label={dict.jimakuClear}
+                title={dict.jimakuClear}
+              >
+                <Eraser size={16} aria-hidden="true" />
+              </Button>
+            )}
+          </ButtonGroup>
         </div>
         <div className="entei-jimaku-auto-row">
           <div>
             <span>{dict.jimakuAutoLoadLabel}</span>
-            <p className="entei-anki-desc">{dict.jimakuAutoLoadDesc}</p>
+            <p className="entei-settings-hint">{dict.jimakuAutoLoadDesc}</p>
           </div>
           <Switch
             checked={jimakuAutoLoad}

@@ -1616,6 +1616,11 @@
   gap: 0;
   /* W2: full modal width — kills shadcn w-fit pill */
   width: 100%;
+  /* Narrow screens (5 tabs incl. Field Anki overflow ~360px): allow
+     horizontal swipe instead of clipping the trailing tabs. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   /* W8: override shadcn justify-center — anchor tabs at left edge */
   justify-content: flex-start;
   /* W7: override shadcn h-9 (36px) — child needs 44px */
@@ -1629,6 +1634,10 @@
   /* W2: square — kills shadcn rounded-lg pill rounding */
   border-radius: 0;
   border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-settings-tabs-list::-webkit-scrollbar {
+  display: none;
 }
 
 /* W2: desktop inline padding aligns with content panel (32px) */
@@ -1906,7 +1915,7 @@
   line-height: 1.3;
 }
 
-.entei-anki-desc {
+.entei-settings-hint {
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   line-height: 1.5;
@@ -4196,58 +4205,6 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: var(--entei-space-24);
 }
 
-/* --- Tracker ON/OFF Switch (IMMERSION_TRACKER Stage 2b) ---
-   Placed at top of History tab. Uses shadcn Switch + explicit ON/OFF labels.
-   Follows Entei's dark segmented/right-panel aesthetic. */
-.entei-tracker-switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--entei-space-16);
-  padding: var(--entei-space-12) var(--entei-space-16);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.06);
-  background-color: oklch(100% 0 0deg / 0.02);
-  border-radius: var(--entei-radius-sm) var(--entei-radius-sm) 0 0;
-  flex-shrink: 0;
-}
-
-.entei-tracker-switch-label {
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--entei-text-secondary);
-}
-
-.entei-tracker-switch-control {
-  display: flex;
-  align-items: center;
-  gap: var(--entei-space-12);
-}
-
-.entei-tracker-switch-state {
-  font-family: var(--entei-font-system);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  min-width: 2.25rem;
-  text-align: right;
-}
-
-.entei-tracker-switch-row [data-slot='switch'] {
-  flex-shrink: 0;
-}
-
-/* Reduced motion: instant switch transition */
-@media (prefers-reduced-motion: reduce) {
-  .entei-tracker-switch-row [data-slot='switch'] {
-    transition: none;
-  }
-  .entei-tracker-switch-row [data-slot='switch-thumb'] {
-    transition: none;
-  }
-}
-
 /* --- Mobile (<768px) --- */
 @media (max-width: 767px) {
   .entei-player-layout--with-panel {
@@ -4458,8 +4415,12 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 @keyframes entei-caret-blink {
-  from { opacity: 1; }
-  to   { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4610,7 +4571,8 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-table-row {
   height: 2.25rem;
   border-bottom: 1px solid oklch(100% 0 0deg / 0.04);
-  transition: background-color var(--entei-duration-fast) var(--entei-ease-productive);
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
 }
 
 .entei-magnet-table-row:hover {
@@ -4794,7 +4756,9 @@ html.entei-player-immersive .entei-player-audio-area {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-16);
-  font-family: var(--entei-font-system); /* Pixel/brand — consistent with .entei-magnet-input */
+  font-family: var(
+    --entei-font-system
+  ); /* Pixel/brand — consistent with .entei-magnet-input */
   /* Same inset rhythm as .entei-magnet-shell (16/24/16). The dialog
      header border (a thin divider) was removed, so the form now adds
      top padding to visually separate from the header. OKLCH tokens. */
@@ -5702,7 +5666,7 @@ html.entei-player-immersive .entei-player-audio-area {
    modal titles (design: tokens.css --entei-font-system). */
 .entei-jimaku-search-dialog .entei-jimaku-search-title {
   font-family: var(--entei-font-system);
-  }
+}
 
 .entei-jimaku-search-body {
   display: flex;
@@ -5796,7 +5760,7 @@ html.entei-player-immersive .entei-player-audio-area {
   min-height: var(--entei-touch-min);
   background-color: var(--entei-btn-hover-bg);
   border-color: transparent;
-  }
+}
 
 .entei-jimaku-search-section {
   display: flex;
@@ -5892,4 +5856,285 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-jimaku-search-back:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* --- Nadeshiko context tab --- */
+/* Mirrors the subtitle-panel structure: the root owns the full
+   right-panel-content width (no padding — the tab strip's margin
+   defines the content column), matching the captions tab's
+   alignment. */
+.entei-nadeshiko-root {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Search form mirrors .entei-right-panel-actions: no top padding, the
+   8px gap lives below as margin, side inset matches the tab strip
+   (space-12). Row height is the 44px touch minimum. */
+.entei-nadeshiko-form {
+  display: flex;
+  padding: 0 var(--entei-space-12);
+  margin-bottom: var(--entei-space-8);
+}
+
+/* ButtonGroup spans the full content row: input flexes, search button
+   stays icon-sized. Merge with tab strip margins (space-12). */
+.entei-nadeshiko-form-group {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+}
+
+.entei-nadeshiko-form-group > input {
+  height: auto;
+  min-height: var(--entei-touch-min);
+}
+
+/* Icon-only search button — same treatment as entei-picker-btn
+   (outline variant + surface hover fill + 44px touch minimum), so
+   the form controls read like the subtitle picker's file button. */
+.entei-nadeshiko-search-btn {
+  flex-shrink: 0;
+  min-height: var(--entei-touch-min);
+  background-color: var(--entei-btn-hover-bg);
+  border-color: transparent;
+}
+
+.entei-nadeshiko-error {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-48) var(--entei-space-16);
+  text-align: center;
+}
+
+.entei-nadeshiko-error p {
+  margin: 0;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+}
+
+/* Key-missing icon: responsive — 2x on mobile, 3x on desktop — gold accent. */
+.entei-nadeshiko-error-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--entei-gold-base);
+}
+
+@media (min-width: 48rem) {
+  .entei-nadeshiko-error-icon {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/* Key-missing inline form: same 12px side inset as the search form. */
+.entei-nadeshiko-key-form {
+  width: 100%;
+  padding: 0 var(--entei-space-12);
+}
+
+.entei-nadeshiko-key-error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--destructive);
+}
+
+.entei-nadeshiko-results {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--entei-space-12) var(--entei-space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+}
+
+.entei-nadeshiko-empty {
+  margin: 0;
+  padding: 0 var(--entei-space-12);
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+}
+
+.entei-nadeshiko-count {
+  margin: 0;
+  padding: 0 var(--entei-space-12);
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary);
+}
+
+.entei-nadeshiko-card {
+  border-radius: var(--entei-radius-sm);
+  background-color: var(--entei-surface-2);
+  border: 1px solid oklch(0% 0 0deg / 0.06);
+  overflow: hidden;
+}
+
+.entei-nadeshiko-card-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  width: 100%;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  background: none;
+  border: none;
+  color: var(--entei-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.entei-nadeshiko-card-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--entei-space-4);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.entei-nadeshiko-card-label {
+  color: var(--entei-text-secondary);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.entei-nadeshiko-card-value,
+.entei-nadeshiko-card-line {
+  color: var(--entei-text);
+}
+
+.entei-nadeshiko-card-ts {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--entei-text-secondary);
+  font-size: 0.75rem;
+}
+
+.entei-nadeshiko-context {
+  border-top: 1px solid oklch(0% 0 0deg / 0.06);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  font-size: 0.8125rem;
+  color: var(--entei-text);
+}
+
+.entei-nadeshiko-context ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+}
+
+.entei-nadeshiko-context-line {
+  display: flex;
+  gap: var(--entei-space-4);
+  align-items: baseline;
+}
+
+.entei-tracker-history-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-tracker-switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-8) 0;
+}
+
+.entei-tracker-switch-label {
+  font-weight: 500;
+  color: var(--entei-text);
+}
+
+.entei-tracker-switch-state {
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary);
+  margin-left: auto;
+}
+
+.entei-tracker-switch {
+  appearance: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background-color: var(--entei-surface-2);
+  border: 1px solid oklch(0% 0 0deg / 0.16);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-tracker-switch--on {
+  background-color: var(--entei-accent);
+  border-color: var(--entei-accent);
+}
+
+.entei-tracker-switch-thumb {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background-color: var(--entei-text);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-tracker-switch--on .entei-tracker-switch-thumb {
+  transform: translateX(16px);
+  background-color: oklch(98% 0 0deg);
+}
+
+/* NOTE: .entei-settings-row*, .entei-input are retired — the Nadeshiko
+   settings key form now uses the same ButtonGroup pattern as the
+   key-missing inline form (.entei-nadeshiko-key-form).
+   (Checked 2026-09-03: no TSX references them; plain .entei-input
+   orphan rules were removed, the focus-visible companion removed too.) */
+
+/* Saved-key header row: label + inline clear action on one line. */
+.entei-settings-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+  margin-bottom: var(--entei-space-4);
+}
+
+.entei-settings-key-row .entei-settings-row-label {
+  font-size: 0.8125rem;
+  color: var(--entei-text-secondary);
+}
+
+.entei-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--entei-space-8);
+  margin: 0;
+}
+
+.entei-settings-grid dt {
+  font-size: 0.6875rem;
+  color: var(--entei-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.entei-settings-grid dd {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--entei-text);
+  font-variant-numeric: tabular-nums;
 }

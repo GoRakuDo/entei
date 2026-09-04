@@ -182,8 +182,12 @@ export function AnkiFieldsTab({
   const selectedModelRef = useRef('');
   const endpointRef = useRef('http://127.0.0.1:8765');
   const fieldsRef = useRef<AnkiFieldMapping>({
-    sentence: '', definition: null, image: null,
-    audio: null, word: null, source: null,
+    sentence: '',
+    definition: null,
+    image: null,
+    audio: null,
+    word: null,
+    source: null,
   });
   const tagsRef = useRef('');
   /** Non-empty once the field list has been fetched + sanitized for the
@@ -493,9 +497,7 @@ export function AnkiFieldsTab({
     const required = Object.values(DENCHOU_PRESET_MAPPING);
     if (!required.every((name) => modelFields.includes(name))) return;
     const next: AnkiFieldMapping = { ...fieldsRef.current };
-    for (const [semantic, physical] of Object.entries(
-      DENCHOU_PRESET_MAPPING,
-    )) {
+    for (const [semantic, physical] of Object.entries(DENCHOU_PRESET_MAPPING)) {
       next[semantic as keyof AnkiFieldMapping] = physical;
     }
     fieldsRef.current = next;
@@ -541,7 +543,7 @@ export function AnkiFieldsTab({
       {/* Connection section: heading + endpoint + status badge */}
       <div className="entei-anki-section">
         <h3 className="entei-anki-heading">{dict.ankiConnect}</h3>
-        <p className="entei-anki-desc">{dict.ankiConnectDesc}</p>
+        <p className="entei-settings-hint">{dict.ankiConnectDesc}</p>
 
         <div className="entei-anki-connect-row">
           <div className="entei-anki-section">
@@ -748,7 +750,10 @@ export function AnkiFieldsTab({
                         last grid row (Source | Tags); mobile: full-width
                         below Source (same 1-column stack). */}
                     <div className="entei-anki-field-row">
-                      <label htmlFor="anki-tags" className="entei-anki-field-label">
+                      <label
+                        htmlFor="anki-tags"
+                        className="entei-anki-field-label"
+                      >
                         {dict.ankiFieldTags}
                         <span className="entei-anki-field-badge">
                           {dict.ankiFieldOptional}
@@ -779,7 +784,7 @@ export function AnkiFieldsTab({
             <h4 className="entei-anki-heading">
               {dict.ankiDenChouPresetTitle}
             </h4>
-            <p className="entei-anki-desc">{dict.ankiDenChouPresetDesc}</p>
+            <p className="entei-settings-hint">{dict.ankiDenChouPresetDesc}</p>
             <button
               type="button"
               className="entei-anki-connect-btn"

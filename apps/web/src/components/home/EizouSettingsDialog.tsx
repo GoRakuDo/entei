@@ -56,6 +56,8 @@ export interface EizouSettingsDialogProps {
   /** Show the Shortcut tab (player-only keyboard reference). The TopBar
    *  passes true only when the current route is /player. */
   showShortcuts?: boolean;
+  /** Nadeshiko dictionary block (for the new Nadeshiko settings tab). */
+  nadeshikoDict?: Dictionary['nadeshiko'];
 }
 
 export function EizouSettingsDialog({
@@ -64,6 +66,7 @@ export function EizouSettingsDialog({
   variant,
   playerUI,
   showShortcuts = false,
+  nadeshikoDict,
 }: EizouSettingsDialogProps) {
   const [open, setOpen] = useState(false);
 
@@ -137,6 +140,7 @@ export function EizouSettingsDialog({
           onSubtitleSettingsChange={dispatchSubtitleSettingsChange}
           onSessionCredentials={dispatchAnkiSessionCredentials}
           onResetPairing={handleResetPairing}
+          nadeshikoDict={nadeshikoDict}
         />
       </DialogContent>
     </Dialog>

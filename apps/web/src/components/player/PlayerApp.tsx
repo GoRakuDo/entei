@@ -409,7 +409,6 @@ export default function PlayerApp() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isLandscapeImmersive, setIsLandscapeImmersive] = useState(false);
-  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   // --- Panel layout persistence (desktop only) ---
   const [panelLayout, setPanelLayout] = useState(DEFAULT_LAYOUT);
@@ -3465,8 +3464,10 @@ export default function PlayerApp() {
       });
 
       // Authoritative: write to tracker mining_archive.
-      // The visible History panel reads from here, so refresh depends on this.
-      const archiveWritten = await recordTrackerMiningArchive({
+      // The visible History panel reads from here. The write helper itself
+      // dispatches 'entei:tracker-archive-changed' so MiningHistoryPanel
+      // (in the player and on /tracker/) refreshes without any extra wiring.
+      await recordTrackerMiningArchive({
         mediaId: trackerRuntime.mediaId,
         subtitleId: trackerRuntime.subtitleId,
         learningSetId: trackerRuntime.learningSetId,
@@ -3475,7 +3476,6 @@ export default function PlayerApp() {
         rangeEnd: miningRangeEnd,
         sentence: sentence ?? '',
       });
-      if (archiveWritten) setHistoryRefreshKey((key) => key + 1);
 
       // Stage 2b: Increment mineCount on the cell covering the mined timestamp.
       // Uses the start of the mined range as the representative media time.
@@ -4745,13 +4745,9 @@ export default function PlayerApp() {
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
               onOpenJimakuSearch={handleOpenJimakuSearch}
-              historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
               isMining={isMining}
-              trackerAccumulator={trackerRuntime.accumulator}
-              onTrackerFlush={trackerRuntime.onFlush}
-              trackerLearningSetId={trackerRuntime.learningSetId ?? undefined}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -4777,13 +4773,9 @@ export default function PlayerApp() {
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
               onOpenJimakuSearch={handleOpenJimakuSearch}
-              historyRefreshKey={historyRefreshKey}
               onMineCue={handleMine}
               canMineRow={canMineRow}
               isMining={isMining}
-              trackerAccumulator={trackerRuntime.accumulator}
-              onTrackerFlush={trackerRuntime.onFlush}
-              trackerLearningSetId={trackerRuntime.learningSetId ?? undefined}
             />
           )}
           {subtitleErrorsBlock}
