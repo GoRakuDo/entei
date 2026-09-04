@@ -29,7 +29,7 @@ import {
   searchNadeshikoSegments,
   getNadeshikoSegmentContext,
   type NadeshikoSegment,
-  type NadeshikoSegmentContext,
+  type NadeshikoSegmentContextResponse,
   type NadeshikoError,
 } from '@/features/nadeshiko/nadeshiko-client';
 import {
@@ -47,6 +47,7 @@ type ResolvedError =
   | { kind: 'key-missing' }
   | { kind: 'invalid-key' }
   | { kind: 'rate-limited'; retryAfterSeconds: number }
+  | { kind: 'quota-exceeded' }
   | { kind: 'network' }
   | { kind: 'generic' };
 
@@ -59,6 +60,8 @@ function resolveError(err: NadeshikoError): ResolvedError {
         kind: 'rate-limited',
         retryAfterSeconds: err.retryAfterSeconds ?? 0,
       };
+    case 'quota-exceeded':
+      return { kind: 'quota-exceeded' };
     case 'network':
       return { kind: 'network' };
     case 'invalid-response':
@@ -122,7 +125,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NadeshikoSegment[]>([]);
   const [expanded, setExpanded] = useState<
-    Map<string, NadeshikoSegmentContext>
+    Map<string, NadeshikoSegmentContextResponse>
   >(new Map());
   const [loading, setLoading] = useState(false);
   // Track per-segment in-flight context fetches explicitly. The old inference
@@ -250,11 +253,13 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
         return next;
       });
 
-      // Placeholder for loading state.
+      // Placeholder for loading state. The spec returns a flat segments[]
+      // whose centre is identified by publicId; the client surfaces it as
+      // { center, surrounding } so the UI doesn't have to redo the lookup.
       setExpanded((prev) => {
         const next = new Map(prev);
         next.set(seg.id, {
-          ...seg,
+          center: seg,
           surrounding: [],
         });
         return next;
@@ -273,7 +278,10 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
         const err = raw as NadeshikoError;
         setExpanded((prev) => {
           const next = new Map(prev);
-          next.set(seg.id, { ...seg, surrounding: [] });
+          next.set(seg.id, {
+            center: seg,
+            surrounding: [],
+          });
           return next;
         });
         if (err && err.kind) {
@@ -384,6 +392,12 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
         return (
           <div className="entei-nadeshiko-error" role="alert">
             <p>{dict.contextRateLimited(countdown.retryAfterSeconds)}</p>
+          </div>
+        );
+      case 'quota-exceeded':
+        return (
+          <div className="entei-nadeshiko-error" role="alert">
+            <p>{dict.contextQuotaExceeded}</p>
           </div>
         );
       case 'network':

@@ -400,6 +400,7 @@ const mockDict = {
   contextInvalidKey: 'API key is invalid. Update it in settings',
   contextRateLimited: (seconds: number) =>
     `Rate limit reached. Try again in ${seconds} seconds`,
+  contextQuotaExceeded: 'Monthly quota exceeded',
   contextNetworkError: 'Could not reach Nadeshiko',
   contextGenericError: 'Something went wrong while searching',
   contextResultWorkLabel: 'Work',

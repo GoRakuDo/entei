@@ -359,6 +359,7 @@ export const ja: Dictionary = {
     contextInvalidKey: 'API キーが無効です。設定で更新してください',
     contextRateLimited: (seconds: number) =>
       `レートリミットに達します。${seconds}秒後に再試行してください`,
+    contextQuotaExceeded: '今月のクォータを超えました。リセット日まで待つか設定を確認してください',
     contextNetworkError: 'Nadeshiko に接続できません',
     contextGenericError: '検索中にエラーが発生しました',
     contextResultWorkLabel: '作品',
@@ -528,6 +529,7 @@ export const ja: Dictionary = {
     quotaUnknown: '取得できませんでした',
     quotaErrorInvalidKey: 'API キーが無効です',
     quotaErrorRateLimited: 'レートリミットです。少し待ってからお試しください',
+    quotaErrorQuotaExceeded: '今月のクォータを超えました',
     quotaErrorNetwork: 'Nadeshiko に接続できません',
     quotaErrorGeneric: 'クォータ情報の取得に失敗',
     quotaLoading: '読み込み中…',

@@ -357,6 +357,7 @@ export const id: Dictionary = {
     contextInvalidKey: 'Kunci API tidak valid. Perbarui di pengaturan',
     contextRateLimited: (seconds: number) =>
       `Batas tercapai. Coba lagi dalam ${seconds} detik`,
+    contextQuotaExceeded: 'Kuota bulanan terlampaui. Coba lagi pada siklus berikutnya',
     contextNetworkError: 'Tidak dapat menghubungi Nadeshiko',
     contextGenericError: 'Terjadi kesalahan saat mencari',
     contextResultWorkLabel: 'Karya',
@@ -528,6 +529,7 @@ export const id: Dictionary = {
     quotaUnknown: 'Tidak tersedia',
     quotaErrorInvalidKey: 'Kunci API tidak valid',
     quotaErrorRateLimited: 'Batas tercapai. Coba lagi sebentar',
+    quotaErrorQuotaExceeded: 'Kuota bulanan terlampaui',
     quotaErrorNetwork: 'Tidak dapat menghubungi Nadeshiko',
     quotaErrorGeneric: 'Gagal memuat kuota',
     quotaLoading: 'Memuat…',

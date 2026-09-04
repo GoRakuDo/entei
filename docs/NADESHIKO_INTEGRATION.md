@@ -23,45 +23,131 @@ Entei での学習・Sentence Mining 中に、辞書定義だけでなく「実�
 
 ## 2. API 仕様概要
 
+ソース: <https://nadeshiko.co/docs/api/openapi.yaml>（v2.4.12, 2026-08-28 取得・ライブ検証済み）。
+以下のテーブルとスキーマは仕様書 v2.4.12 と `https://api.nadeshiko.co` への実機 curl 検証（2026-09-04, 実キー使用）に基づく。
+
+### 2.1 概要テーブル
+
 | 項目 | 内容 |
 |---|---|
 | **ベース URL** | `https://api.nadeshiko.co/v1` |
 | **認証方式** | `Authorization: Bearer <API_KEY>` |
-| **CORS 対応** | `Access-Control-Allow-Origin: *`（OPTIONS / GET / POST） |
-| **レートリミット** | 300 リクエスト / 60 秒（スライディングウィンドウ、`RateLimit` / `RateLimit-Policy` ヘッダー） |
-| **月間クォータ** | アカウント依存（標準 5,000 件/月、`X-Monthly-Quota-*` ヘッダーおよび `/v1/user/me` で動的取得） |
+| **CORS 対応** | POST `/v1/search` と GET `/v1/media/segments/{id}/context` はプリフライト＋本レスポンス両方に `Access-Control-Allow-Origin: *` を返す（ブラウザから直接 fetch 可）。GET `/v1/user/me` は本レスポンスに ACAO ヘッダーを返さないため、ブラウザから直接 fetch すると CORS でブロックされる（本仕様 §2.4）。 |
+| **レートリミット** | **150 req / 60s**（`UserMe.quota.burst = { max: 150, windowMs: 60000 }`）。429 応答では `Retry-After` ヘッダーで待機秒数を返す。 |
+| **月間クォータ** | **5,000 req / month**（`UserMe.quota.limit`、`X-Monthly-Quota-Limit` ヘッダー）。超過時も同じ 429 ステータスで `code: QUOTA_EXCEEDED`。 |
 | **レスポンス形式** | JSON (`application/json`) |
+| **エラーフォーマット** | `{ code, title, detail, status, type, instance, errors? }`（HTTP Problem Details 風） |
 
-### 主要エンドポイント
+### 2.2 エンドポイント契約
 
-#### 1. セグメント（セリフ）検索: `POST /v1/search`
+#### 1. セグメント検索: `POST /v1/search`
 
-セリフ・単語からアニメやドラマの該当シーンを検索。
-
-- **リクエストボディ:**
+- **リクエストボディ（v2.4.12 仕様）:**
   ```json
   {
-    "query": "猫",
-    "exactMatch": false,
+    "query": { "search": "猫", "exactMatch": false },
     "take": 10,
-    "mode": "RELEVANCE",
-    "cursor": null
+    "cursor": null,
+    "sort": { "mode": "RELEVANCE" },
+    "filters": { "media": { "include": [], "exclude": [] } },
+    "include": ["media"]
   }
   ```
-- **検索オプション:**
-  - `query`: 検索キーワード（漢字・かな・ローマ字・英語対応、ブール演算子 `AND`/`OR`/`NOT` 対応、ワイルドカード対応）
-  - `exactMatch`: 完全一致フレーズ検索（デフォルト `false`）
-  - `take`: 取得件数（1〜50、デフォルト `10`）
-  - `mode`: ソート順序（`RELEVANCE` / `TIME_ASC` / `TIME_DESC` / `RANDOM` 等）
-  - `media`: 対象作品の include / exclude フィルター
+  - `query.search`: 検索式（最大500文字）。ブール演算子 `AND`/`OR`/`NOT`、ワイルドカード、フレーズ引用符対応。
+  - `query.exactMatch`: 完全一致フラグ（デフォルト `false`）。
+  - `take`: 1〜50（デフォルト `10`）。
+  - `sort.mode`: `RELEVANCE` / `ASC` / `DESC` / `TIME_ASC` / `TIME_DESC` / `RANDOM`（デフォルト `RELEVANCE`）。`RANDOM` のみ `sort.seed` で再現可能。
+  - `cursor`: ページネーション用不透明トークン。
+  - `include`: 現在は `["media"]` のみサポート。
+
+- **200 レスポンス:**
+  ```json
+  {
+    "segments": [
+      {
+        "publicId": "wy1hTtMJg6Jf",
+        "position": 642,
+        "status": "ACTIVE",
+        "startTimeMs": 719343,
+        "endTimeMs": 723055,
+        "contentRating": "SAFE",
+        "episode": 5,
+        "externalVideoId": null,
+        "mediaPublicId": "izs1jikMfEFq",
+        "textJa": { "content": "猫! 猫 猫 猫...", "highlight": "<em>猫</em>!...", "tokens": [] },
+        "textEn": { "content": "Please get it off!", "isMachineTranslated": false, "highlight": null },
+        "textEs": { "content": "¡Gato!", "isMachineTranslated": false, "highlight": null },
+        "urls": { "imageUrl": "...", "audioUrl": "...", "videoUrl": "..." }
+      }
+    ],
+    "includes": {
+      "media": {
+        "izs1jikMfEFq": { "publicId": "...", "nameJa": "...", "nameRomaji": "...", "nameEn": "..." }
+      }
+    },
+    "pagination": { "hasMore": true, "estimatedTotalHits": 1233, "estimatedTotalHitsRelation": "EXACT", "cursor": "eyJ..." }
+  }
+  ```
+  - `segments[].publicId` がそのセグメントの安定 ID。
+  - `segments[].textJa.content` が原文、`textEn.content` / `textEs.content` が英訳・西訳。
+  - `segments[].text*.highlight` は検索マッチした語に `<em>` タグが付いた HTML。
+  - `includes.media[mediaPublicId].nameJa` / `nameEn` / `nameRomaji` を作品名表示のソースとする（なければ `textJa` のみ表示）。
+  - `startTimeMs` を 1000 で割って秒換算、UI のタイムスタンプ表示は `m:ss` / `h:mm:ss` フォーマット。
 
 #### 2. 前後文脈の取得: `GET /v1/media/segments/{segmentPublicId}/context`
 
-検索ヒットしたセリフの前後の会話・文脈セグメントを取得。
+- **クエリパラメータ:**
+  - `take`: 前後のセグメント数（1〜30、デフォルト `3`）。
+  - `include[]`: `media` を推奨（作品名表示用）。
+  - `contentRating[]`: 含むコンテンツレーティング（省略時は全）。
+- **200 レスポンス:**
+  ```json
+  {
+    "segments": [ /* Segment[] — 中心 + 前後を時間順で連結したフラットリスト */ ],
+    "includes": { "media": { "...": "..." } }
+  }
+  ```
+  旧版は `{ segment, context: [] }` の入れ子を返していたが、v2.4.12 ではフラットな `segments[]` のみ。クライアントは `publicId === requestedId` の要素を中心、それ以外を前後文脈として扱う。
 
-#### 3. クォータ・ユーザー情報取得: `GET /v1/user/me`
+#### 3. クォータ・ユーザー情報: `GET /v1/user/me`
 
-ユーザーの今月の使用状況（残リクエスト数・リセット日時など）を取得。
+- **200 レスポンス:**
+  ```json
+  {
+    "user": { "username": "tanaka_san", "createdAt": "2024-03-15T10:00:00.000Z", "role": "USER" },
+    "quota": {
+      "used": 342,
+      "limit": 5000,
+      "remaining": 4658,
+      "periodYyyymm": 202602,
+      "periodStart": "2026-02-01T00:00:00.000Z",
+      "periodEnd": "2026-02-28T23:59:59.999Z",
+      "tier": { "id": "plus", "displayName": "Plus" },
+      "burst": { "max": 150, "windowMs": 60000 }
+    }
+  }
+  ```
+  - `quota.limit` / `quota.remaining` / `quota.periodEnd` を UI に表示。
+  - `quota.tier` はアカウントがティア無し / オーバーライド時は `null`。
+
+### 2.3 旧契約（v2.4.12 以前）— 失効
+
+> **注意:** 以下の旧仕様は失効。現行クライアント（`apps/web/src/features/nadeshiko/nadeshiko-client.ts`）は v2.4.12 契約のみサポートする。
+
+- **旧 POST /v1/search リクエスト**: フラット形式 `{ query: "猫", exactMatch, take, mode, cursor }`（`query` が生文字列）。v2.4.12 では `query` はオブジェクト必須。
+- **旧 GET /v1/search レスポンス**: `{ results: [{ id, workName, line, englishTranslation, timestamp, timestampLabel }] }`。現行は `{ segments, includes, pagination }`。
+- **旧 GET /v1/media/segments/{id}/context レスポンス**: `{ segment, context }`。現行は `{ segments[] }`。
+- **旧 GET /v1/user/me レスポンス**: フラットな `{ remainingRequests, monthlyLimit, resetAt }`。現行は `{ user, quota: { ... } }` の入れ子。
+- **旧レートリミット表記**: 旧文書では「300 req / 60s」と記載していたが、v2.4.12 仕様書では **150 req / 60s** に修正されている。実機の `RateLimit` レスポンスヘッダーは一部キーで 300 を返すが、仕様と `quota.burst.max` の両方が 150 を示しているため、本仕様書では 150 を採用する。
+
+### 2.4 CORS — ブラウザーからの直接呼び出しの制限
+
+Entei はブラウザから `api.nadeshiko.co` へ直接 fetch する（サーバー不要・BYOK）。
+
+- `POST /v1/search` と `GET /v1/media/segments/{id}/context`: OPTIONS プリフライトと実レスポンスの両方に `Access-Control-Allow-Origin: *` が付与される。ブラウザから問題なく呼び出せる。
+- `GET /v1/user/me`: OPTIONS プリフライトは 200 を返すが `Access-Control-Allow-Origin` を含まない。実レスポンス（200 / 401 いずれも）にも ACAO が付かない。**結果として、ブラウザから `/user/me` を fetch すると CORS ブロックされ、本体もステータスも読み取れない。** したがって、Entei の設定タブでクォータを表示する経路は現状では常時「ネットワークエラー」表示となる（仕様上、これは設計通りの挙動）。プロキシは設置しない。
+
+> この問題は将来 Nadeshiko 側で CORS が修正されれば自然に解消する。それまでは「設定タブのクォータ表示はベストエフォート」と位置付ける。
 
 ---
 

@@ -353,6 +353,7 @@ export const en: Dictionary = {
     contextInvalidKey: 'API key is invalid. Update it in settings',
     contextRateLimited: (seconds: number) =>
       `Rate limit reached. Try again in ${seconds} seconds`,
+    contextQuotaExceeded: 'Monthly quota exceeded. Try again next billing cycle',
     contextNetworkError: 'Could not reach Nadeshiko',
     contextGenericError: 'Something went wrong while searching',
     contextResultWorkLabel: 'Work',
@@ -523,6 +524,7 @@ export const en: Dictionary = {
     quotaUnknown: 'Unavailable',
     quotaErrorInvalidKey: 'API key is invalid',
     quotaErrorRateLimited: 'Rate-limited. Try again shortly',
+    quotaErrorQuotaExceeded: 'Monthly quota exceeded',
     quotaErrorNetwork: 'Could not reach Nadeshiko',
     quotaErrorGeneric: 'Failed to load quota',
     quotaLoading: 'Loading…',

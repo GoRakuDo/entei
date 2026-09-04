@@ -2,13 +2,29 @@
  * nadeshiko-client — api.nadeshiko.co BYOK fetch wrapper.
  * ---------------------------------------------------------------------------
  * Design: docs/NADESHIKO_INTEGRATION.md §2.
+ * Conforms to: https://nadeshiko.co/docs/api/openapi.yaml (v2.4.12)
  *
- * - Browser-direct calls (CORS `Access-Control-Allow-Origin: *` verified).
+ * - Browser-direct calls (CORS verified live: POST /v1/search and
+ *   GET /v1/media/segments/{id}/context return `Access-Control-Allow-Origin: *`
+ *   on both preflight and actual responses, so the browser can read them).
+ * - `GET /v1/user/me` is the one endpoint whose actual response does NOT
+ *   carry the ACAO header (preflight returns 200 with `allow: GET, HEAD` but
+ *   no ACAO). Browser fetches of /user/me are CORS-blocked even on success
+ *   and on 401. We surface that as a `network` error in the UI; we do NOT
+ *   build a proxy.
  * - API key passed per-call; the module never stores it.
- * - 300 req / 60s rate limit; 429 carries Retry-After.
+ * - 150 req / 60s rate limit per the spec (`quota.burst.max: 150, windowMs:
+ *   60000` in the live /user/me response). The 429 body distinguishes
+ *   RATE_LIMIT_EXCEEDED (per-minute) from QUOTA_EXCEEDED (monthly) via the
+ *   `code` field.
+ * - 5,000 req / month per the spec (`quota.limit: 5000` and the
+ *   `X-Monthly-Quota-*` response headers).
  * - Errors: typed `NadeshikoErrorKind`. AbortSignal threaded everywhere.
- * - Defensive field parsing — doc doesn't specify the response shape in
- *   full, so each field uses optional chaining + fallback.
+ * - Defensive field parsing: spec is the source of truth for primary keys
+ *   (`publicId`, `textJa.content`, `textEn.content`, `startTimeMs`,
+ *   `includes.media[id].nameJa` / `nameEn` / `nameRomaji`). We try the
+ *   spec names first; fallbacks for plausible alternates are kept as
+ *   insurance against future renames.
  * ---------------------------------------------------------------------------
  */
 
@@ -21,12 +37,13 @@ const API_BASE = 'https://api.nadeshiko.co/v1';
 export type NadeshikoErrorKind =
   | 'invalid-key'
   | 'rate-limited'
+  | 'quota-exceeded'
   | 'network'
   | 'invalid-response';
 
 export interface NadeshikoError extends Error {
   kind: NadeshikoErrorKind;
-  /** Retry-After seconds (rate-limited only). */
+  /** Retry-After seconds (rate-limited only; spec doesn't set this on quota). */
   retryAfterSeconds?: number;
   /** HTTP status (for debugging; never includes the API key). */
   status?: number;
@@ -48,33 +65,80 @@ function makeError(
 }
 
 /* ------------------------------------------------------------------------ */
-/* Response shapes (defensive — see NADESHIKO_INTEGRATION.md §2)            */
+/* Response shapes (per OpenAPI v2.4.12)                                    */
 /* ------------------------------------------------------------------------ */
 
 export interface NadeshikoSegment {
-  /** Stable identifier for `getSegmentContext`. */
+  /** Stable identifier for `getSegmentContext` (= spec `Segment.publicId`). */
   id: string;
   /** 作品名 / anime-drama work name. */
   workName: string;
-  /** セリフ / source line / quote. */
+  /** セリフ / Japanese line. */
   line: string;
-  /** English translation (may be absent for some entries). */
+  /** English translation (may be empty for some entries). */
   englishTranslation?: string;
-  /** Subtitle timestamp in seconds (or `M:SS` string). */
+  /** Spanish translation (may be empty for some entries). */
+  spanishTranslation?: string;
+  /** Segment start time, seconds (derived from spec's `startTimeMs` / 1000). */
   timestampSeconds?: number;
-  /** Raw timestamp display string (e.g. "01:23"). */
+  /** Raw timestamp display string (e.g. "01:23"). Derived if not provided. */
   timestampLabel?: string;
+  /** Episode number this segment belongs to (0 for movies/specials). */
+  episode?: number;
+  /** Episode-relative position of the segment. */
+  position?: number;
+  /** Spec's `mediaPublicId` — the canonical id of the work. */
+  mediaPublicId?: string;
+  /** Highlighted Japanese line with `<mark>` tags, when returned from search. */
+  highlightJa?: string;
+  /** Highlighted English line with `<mark>` tags, when matched in this language. */
+  highlightEn?: string;
+  /** Media URLs from spec: image / audio / video. */
+  urls?: {
+    imageUrl?: string;
+    audioUrl?: string;
+    videoUrl?: string;
+  };
 }
 
-export interface NadeshikoSegmentContext extends NadeshikoSegment {
-  /** Lines preceding and following the match. */
+export interface NadeshikoSegmentContextResponse {
+  /** The list of segments around the target (the spec returns a flat
+   *  segments[]; the first entry with `publicId === requestedId` is the
+   *  centre, the rest are surrounding context). */
+  center: NadeshikoSegment;
+  /** Lines surrounding the target (does not include the target itself). */
   surrounding: NadeshikoSegment[];
 }
 
+/* ------------------------------------------------------------------------ */
+/* Quota / user shape (per spec UserMe)                                     */
+/* ------------------------------------------------------------------------ */
+
 export interface NadeshikoUserMe {
-  remainingRequests?: number;
+  /** Display name. */
+  username?: string;
+  /** Account tier / role (e.g. "USER"). */
+  role?: string;
+  /** Account creation timestamp. */
+  createdAt?: string;
+  /** Requests used this month. */
+  used?: number;
+  /** Monthly request limit. Spec default 5,000. */
   monthlyLimit?: number;
-  resetAt?: string;
+  /** Requests remaining this month. */
+  remaining?: number;
+  /** Current month in YYYYMM format (e.g. 202609). */
+  periodYyyymm?: number;
+  /** Start of the current quota period (UTC). */
+  periodStart?: string;
+  /** End of the current quota period (UTC). */
+  periodEnd?: string;
+  /** Tier display name (e.g. "Free"). */
+  tierDisplayName?: string;
+  /** Per-minute burst limit. Spec default 150. */
+  burstMax?: number;
+  /** Per-minute burst window in ms. Spec default 60,000. */
+  burstWindowMs?: number;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -82,8 +146,9 @@ export interface NadeshikoUserMe {
 /* ------------------------------------------------------------------------ */
 
 /**
- * Defensive field pickers — the doc does not pin exact field names, so we
- * try the most plausible variants first and fall back gracefully.
+ * Defensive field pickers — the spec is the source of truth, so we try the
+ * spec names first and only fall back to plausible alternates for resilience
+ * against future field renames.
  */
 function pickString(value: unknown, ...keys: string[]): string | undefined {
   if (!value || typeof value !== 'object') return undefined;
@@ -109,42 +174,103 @@ function pickNumber(value: unknown, ...keys: string[]): number | undefined {
   return undefined;
 }
 
-function normalizeSegment(raw: unknown): NadeshikoSegment | null {
+/** Format startTimeMs (or seconds) into a `M:SS` / `H:MM:SS` display string. */
+function formatTimestampLabel(startTimeMs?: number, seconds?: number): string | undefined {
+  const total = typeof startTimeMs === 'number'
+    ? Math.max(0, Math.floor(startTimeMs / 1000))
+    : typeof seconds === 'number'
+      ? Math.max(0, Math.floor(seconds))
+      : undefined;
+  if (total === undefined) return undefined;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Parse a Segment from the spec's flat structure. */
+function normalizeSegment(
+  raw: unknown,
+  workNameByMediaId: Map<string, string> = new Map(),
+): NadeshikoSegment | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
 
-  const id =
-    pickString(r, 'id', 'segmentPublicId', 'segmentId', 'publicId') ?? '';
-  const workName =
-    pickString(r, 'workName', 'work', 'title', 'workTitle', 'mediaTitle') ?? '';
-  const line =
-    pickString(r, 'line', 'text', 'content', 'quote', 'segment') ?? '';
-  if (!id && !line) return null;
+  // Spec: publicId is required. Fall back to a couple of plausible names
+  // for resilience, but the spec key is the primary path.
+  const id = pickString(r, 'publicId', 'id', 'segmentId');
+  if (!id) return null;
 
-  const englishTranslation = pickString(
-    r,
-    'englishTranslation',
-    'english',
-    'translation',
-    'en',
+  // Spec nests text under textJa.content, textEn.content, textEs.content.
+  const textJa = (r.textJa ?? {}) as Record<string, unknown>;
+  const textEn = (r.textEn ?? {}) as Record<string, unknown>;
+  const textEs = (r.textEs ?? {}) as Record<string, unknown>;
+  const line = pickString(textJa, 'content', 'text') ?? '';
+  const englishTranslation = pickString(textEn, 'content');
+  const spanishTranslation = pickString(textEs, 'content');
+
+  // startTimeMs is the spec's start-of-segment in ms (e.g. 2007255).
+  const startTimeMs = pickNumber(r, 'startTimeMs', 'startTime');
+  const timestampSeconds = typeof startTimeMs === 'number'
+    ? startTimeMs / 1000
+    : pickNumber(r, 'timestampSeconds', 'startSeconds');
+  const timestampLabel = formatTimestampLabel(
+    typeof startTimeMs === 'number' ? startTimeMs : undefined,
+    timestampSeconds,
   );
 
-  const ts = pickNumber(r, 'timestamp', 'start', 'startTime', 'time');
-  const timestampLabel = pickString(
-    r,
-    'timestampLabel',
-    'timeLabel',
-    'displayTime',
-  );
+  // workName comes from includes.media[mediaPublicId].nameJa || nameEn.
+  const mediaPublicId = pickString(r, 'mediaPublicId');
+  const workName = mediaPublicId
+    ? (workNameByMediaId.get(mediaPublicId) ?? '')
+    : '';
 
-  return {
+  const urls = r.urls as Record<string, unknown> | undefined;
+  const seg: NadeshikoSegment = {
     id,
     workName,
     line,
     englishTranslation,
-    timestampSeconds: ts,
+    spanishTranslation,
+    timestampSeconds,
     timestampLabel,
   };
+  if (typeof r.episode === 'number') seg.episode = r.episode;
+  if (typeof r.position === 'number') seg.position = r.position;
+  if (mediaPublicId) seg.mediaPublicId = mediaPublicId;
+  const highlightJa = pickString(textJa, 'highlight');
+  if (highlightJa) seg.highlightJa = highlightJa;
+  const highlightEn = pickString(textEn, 'highlight');
+  if (highlightEn) seg.highlightEn = highlightEn;
+  if (urls && typeof urls === 'object') {
+    seg.urls = {
+      imageUrl: pickString(urls, 'imageUrl'),
+      audioUrl: pickString(urls, 'audioUrl'),
+      videoUrl: pickString(urls, 'videoUrl'),
+    };
+  }
+  return seg;
+}
+
+/** Build a mediaPublicId → workName lookup from `includes.media`. */
+function buildWorkNameMap(includes: unknown): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!includes || typeof includes !== 'object') return map;
+  const obj = includes as Record<string, unknown>;
+  const media = obj.media;
+  if (!media || typeof media !== 'object') return map;
+  for (const [publicId, raw] of Object.entries(media as Record<string, unknown>)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const m = raw as Record<string, unknown>;
+    // Prefer the Japanese name (matches what the spec describes as
+    // "Original Japanese name of the media"), then English, then Romaji.
+    const name = pickString(m, 'nameJa', 'nameEn', 'nameRomaji');
+    if (name) map.set(publicId, name);
+  }
+  return map;
 }
 
 function parseRetryAfter(value: string | null): number | undefined {
@@ -191,10 +317,24 @@ async function apiRequest(
   }
 
   if (res.status === 429) {
+    // The spec's 429 body has `code: RATE_LIMIT_EXCEEDED` or `QUOTA_EXCEEDED`.
+    // search + context endpoints carry ACAO so the body is readable; we
+    // clone-then-parse to distinguish the two kinds. Anything we can't parse
+    // (no body, non-JSON, unexpected shape) defaults to `rate-limited` since
+    // that's the more common 60-second burst case.
     const retryAfter = parseRetryAfter(res.headers.get('Retry-After'));
+    let kind: 'rate-limited' | 'quota-exceeded' = 'rate-limited';
+    try {
+      const body = (await res.clone().json()) as { code?: unknown } | null;
+      if (body && typeof body === 'object' && body.code === 'QUOTA_EXCEEDED') {
+        kind = 'quota-exceeded';
+      }
+    } catch {
+      // No body or non-JSON — keep the default.
+    }
     throw makeError(
-      'rate-limited',
-      'Rate limit exceeded',
+      kind,
+      kind === 'quota-exceeded' ? 'Monthly quota exceeded' : 'Rate limit exceeded',
       { status: 429, ...(retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {}) },
     );
   }
@@ -218,13 +358,27 @@ async function apiRequest(
 /* Public API                                                               */
 /* ------------------------------------------------------------------------ */
 
+export type SearchSortMode =
+  | 'RELEVANCE'
+  | 'ASC'
+  | 'DESC'
+  | 'TIME_ASC'
+  | 'TIME_DESC'
+  | 'RANDOM';
+
 export interface NadeshikoSearchOptions {
-  /** Max results (1-50; default 10). */
+  /** Max results (1-50; default 10 per spec). */
   take?: number;
-  /** Sort mode (default RELEVANCE). */
-  mode?: 'RELEVANCE' | 'TIME_ASC' | 'TIME_DESC' | 'RANDOM';
-  /** Exact-match phrase (default false). */
+  /** Sort mode (default RELEVANCE per spec). */
+  mode?: SearchSortMode;
+  /** Seed for deterministic RANDOM mode. Ignored unless mode === 'RANDOM'. */
+  seed?: number;
+  /** Exact-match phrase (default false per spec). */
   exactMatch?: boolean;
+  /** Opaque cursor for pagination. Default undefined (first page). */
+  cursor?: string;
+  /** Include expansions (currently only `media`). */
+  include?: 'media'[];
 }
 
 export async function searchNadeshikoSegments(
@@ -236,13 +390,26 @@ export async function searchNadeshikoSegments(
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
 
-  const body = {
-    query: trimmed,
-    exactMatch: options.exactMatch ?? false,
+  // Spec: `query` is an object — omit to do a queryless browse, set
+  // `search` for the query string, optionally set `exactMatch: true`.
+  // Note: the OLD client sent `{query: trimmed, exactMatch, take, mode,
+  // cursor: null}` as a flat object, which the server accepted loosely
+  // but the v2.4.12 spec requires the nested shape below.
+  const body: Record<string, unknown> = {
+    query: {
+      search: trimmed,
+      ...(options.exactMatch !== undefined ? { exactMatch: options.exactMatch } : {}),
+    },
     take: options.take ?? 10,
-    mode: options.mode ?? 'RELEVANCE',
-    cursor: null,
+    sort: {
+      mode: options.mode ?? 'RELEVANCE',
+      ...(options.seed !== undefined ? { seed: options.seed } : {}),
+    },
   };
+  if (options.cursor !== undefined) body.cursor = options.cursor;
+  if (options.include && options.include.length > 0) {
+    body.include = options.include;
+  }
 
   const data = await apiRequest(
     apiKey,
@@ -255,24 +422,15 @@ export async function searchNadeshikoSegments(
     signal,
   );
 
-  // Response: doc says results with workName/line/translation/timestamp/id.
-  // Try a few common shapes: {results: []} / {items: []} / {segments: []} / array.
-  let rawList: unknown[] = [];
-  if (Array.isArray(data)) {
-    rawList = data;
-  } else if (data && typeof data === 'object') {
-    const obj = data as Record<string, unknown>;
-    for (const key of ['results', 'items', 'segments', 'data']) {
-      const candidate = obj[key];
-      if (Array.isArray(candidate)) {
-        rawList = candidate;
-        break;
-      }
-    }
-  }
+  if (!data || typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  const segments = obj.segments;
+  if (!Array.isArray(segments)) return [];
 
-  return rawList
-    .map((r) => normalizeSegment(r))
+  const workNameByMediaId = buildWorkNameMap(obj.includes);
+
+  return segments
+    .map((s) => normalizeSegment(s, workNameByMediaId))
     .filter((s): s is NadeshikoSegment => s !== null);
 }
 
@@ -280,37 +438,55 @@ export async function getNadeshikoSegmentContext(
   apiKey: string,
   segmentId: string,
   signal?: AbortSignal,
-): Promise<NadeshikoSegmentContext> {
+  options: { take?: number } = {},
+): Promise<NadeshikoSegmentContextResponse> {
+  // The spec accepts `include[]` (array form) and `take` (1-30, default 3).
+  // We default to including media so the centre + surrounding can be
+  // labelled with the work name without a second round-trip. The endpoint
+  // takes the segment's own publicId; the centre of the returned window
+  // is the segment whose publicId matches.
+  const qs = new URLSearchParams({ include: 'media' });
+  if (options.take !== undefined) qs.set('take', String(options.take));
   const data = await apiRequest(
     apiKey,
-    `/media/segments/${encodeURIComponent(segmentId)}/context`,
+    `/media/segments/${encodeURIComponent(segmentId)}/context?${qs.toString()}`,
     { method: 'GET' },
     signal,
   );
 
-  // Same shape flexibility for the centre + surrounding list.
-  const obj = (data ?? {}) as Record<string, unknown>;
-  const center = normalizeSegment(obj.segment ?? obj.target ?? obj);
-  const surroundingRaw = Array.isArray(obj.context)
-    ? obj.context
-    : Array.isArray(obj.surrounding)
-      ? obj.surrounding
-      : [];
-  const surrounding = surroundingRaw
-    .map((s) => normalizeSegment(s))
-    .filter((s): s is NadeshikoSegment => s !== null);
-
-  if (center) {
-    return { ...center, surrounding };
+  if (!data || typeof data !== 'object') {
+    return {
+      center: { id: segmentId, workName: '', line: '' },
+      surrounding: [],
+    };
   }
+  const obj = data as Record<string, unknown>;
+  const segments = obj.segments;
+  const workNameByMediaId = buildWorkNameMap(obj.includes);
 
-  // No center → synthesise a placeholder from whatever the API returned.
-  return {
-    id: segmentId,
-    workName: '',
-    line: '',
-    surrounding,
-  };
+  // Spec returns a flat list. The centre is the entry with publicId ===
+  // segmentId; surrounding is the rest, ordered as the server returned
+  // them. We don't try to re-order to before/after — the UI shows them
+  // in the API's order, which already separates them by time.
+  const all = Array.isArray(segments)
+    ? (segments
+        .map((s) => normalizeSegment(s, workNameByMediaId))
+        .filter((s): s is NadeshikoSegment => s !== null))
+    : [];
+
+  const centerIdx = all.findIndex((s) => s.id === segmentId);
+  if (centerIdx === -1) {
+    // Spec returned segments but none matched. Synthesise a placeholder
+    // from the first entry so the UI has something to display. The rest
+    // go into surrounding — slice(1) drops the first entry which we
+    // already used as the centre fallback, preserving the
+    // "surrounding does not include the target itself" contract.
+    const fallback = all[0] ?? { id: segmentId, workName: '', line: '' };
+    return { center: fallback, surrounding: all.slice(1) };
+  }
+  const center = all[centerIdx]!;
+  const surrounding = [...all.slice(0, centerIdx), ...all.slice(centerIdx + 1)];
+  return { center, surrounding };
 }
 
 export async function getNadeshikoUserMe(
@@ -324,20 +500,25 @@ export async function getNadeshikoUserMe(
     signal,
   )) as Record<string, unknown>;
 
+  // Spec nests user + quota. The old client expected a flat object — we
+  // now walk the spec'd shape and pull the quota + user fields out.
+  const user = (data.user ?? {}) as Record<string, unknown>;
+  const quota = (data.quota ?? {}) as Record<string, unknown>;
+  const burst = (quota.burst ?? {}) as Record<string, unknown>;
+  const tier = (quota.tier ?? null) as Record<string, unknown> | null;
+
   return {
-    remainingRequests: pickNumber(
-      data,
-      'remainingRequests',
-      'remaining',
-      'remainingCount',
-      'quotaRemaining',
-    ),
-    monthlyLimit: pickNumber(
-      data,
-      'monthlyLimit',
-      'limit',
-      'monthlyQuota',
-    ),
-    resetAt: pickString(data, 'resetAt', 'reset', 'resetsAt'),
+    username: pickString(user, 'username'),
+    role: pickString(user, 'role'),
+    createdAt: pickString(user, 'createdAt'),
+    used: pickNumber(quota, 'used'),
+    monthlyLimit: pickNumber(quota, 'limit', 'monthlyLimit'),
+    remaining: pickNumber(quota, 'remaining', 'remainingCount'),
+    periodYyyymm: pickNumber(quota, 'periodYyyymm'),
+    periodStart: pickString(quota, 'periodStart'),
+    periodEnd: pickString(quota, 'periodEnd', 'resetAt'),
+    tierDisplayName: tier ? pickString(tier, 'displayName') : undefined,
+    burstMax: pickNumber(burst, 'max'),
+    burstWindowMs: pickNumber(burst, 'windowMs'),
   };
 }

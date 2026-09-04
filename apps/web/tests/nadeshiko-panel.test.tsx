@@ -31,6 +31,7 @@ function baseDict(): Record<string, unknown> {
     contextKeySaveFailed: 'Could not save',
     contextInvalidKey: 'Invalid key',
     contextRateLimited: (s: number) => `Wait ${s}s`,
+    contextQuotaExceeded: 'Quota exceeded',
     contextNetworkError: 'Network error',
     contextGenericError: 'Generic error',
     contextResultWorkLabel: 'Work',

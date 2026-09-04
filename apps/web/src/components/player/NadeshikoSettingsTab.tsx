@@ -47,6 +47,20 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
   const [savedKey, setSavedKey] = useState<string | null>(() =>
     readNadeshikoApiKey(),
   );
+  // `draft` is the input's value. It is initialised from localStorage so the
+  // field is populated when the dialog re-mounts (e.g. the user closes and
+  // re-opens Settings, or visits the page later with a saved key), and a
+  // listener below re-syncs it from the same source when key-changed /
+  // storage events fire elsewhere. We only re-sync when the input is not
+  // focused so we don't clobber the user mid-typing.
+  const [draft, setDraft] = useState<string>(() => readNadeshikoApiKey() ?? '');
+  const [showKey, setShowKey] = useState(false);
+  const [quota, setQuota] = useState<QuotaState>({ status: 'idle' });
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  // Track which key value the input already shows so the listener below
+  // doesn't trigger a redundant setState when nothing changed.
+  const lastSyncedDraftRef = useRef<string | null>(readNadeshikoApiKey());
+
   // Debounced view of savedKey used as the dependency for the quota fetch.
   // localStorage persistence (jimaku-style) still happens per keystroke; only
   // the network call is gated so that a 40-char paste doesn't fire ~40 GETs
@@ -76,9 +90,41 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
       }
     };
   }, [savedKey]);
-  const [draft, setDraft] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [quota, setQuota] = useState<QuotaState>({ status: 'idle' });
+
+  // Re-sync `draft` when the saved key changes from elsewhere (the panel's
+  // inline form, a different tab via `storage`, or programmatic writes).
+  // Skip the sync when the input has focus so we don't blow away the user's
+  // in-progress typing — that case is re-synced on blur via
+  // `syncFromStorageRef`. Keeping the function reachable via a ref means we
+  // don't have to re-bind the listeners every render.
+  const syncFromStorageRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const syncFromStorage = () => {
+      const current = readNadeshikoApiKey();
+      if (current === lastSyncedDraftRef.current) return;
+      if (
+        inputRef.current &&
+        typeof document !== 'undefined' &&
+        document.activeElement === inputRef.current
+      ) {
+        // User is editing — leave the draft alone; the local `savedKey`
+        // will still pick up the new value for the quota refresh path.
+        // The onBlur handler re-runs this sync once focus leaves so the
+        // input catches up with whatever external change fired the event.
+        lastSyncedDraftRef.current = current;
+        return;
+      }
+      setDraft(current ?? '');
+      lastSyncedDraftRef.current = current;
+    };
+    syncFromStorageRef.current = syncFromStorage;
+    window.addEventListener('entei:nadeshiko-key-changed', syncFromStorage);
+    window.addEventListener('storage', syncFromStorage);
+    return () => {
+      window.removeEventListener('entei:nadeshiko-key-changed', syncFromStorage);
+      window.removeEventListener('storage', syncFromStorage);
+    };
+  }, []);
 
   // Refresh quota whenever the debounced (stable) saved key changes.
   // The debounce above collapses per-keystroke churn into a single fetch
@@ -116,6 +162,7 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
     } else if (writeNadeshikoApiKey(trimmed)) {
       setSavedKey(readNadeshikoApiKey());
     }
+    lastSyncedDraftRef.current = readNadeshikoApiKey();
     announceKeyChanged();
   }, []);
 
@@ -124,6 +171,7 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
     setSavedKey(null);
     setDraft('');
     setQuota({ status: 'idle' });
+    lastSyncedDraftRef.current = null;
     announceKeyChanged();
   }, []);
 
@@ -133,6 +181,8 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
         return dict.quotaErrorInvalidKey;
       case 'rate-limited':
         return dict.quotaErrorRateLimited;
+      case 'quota-exceeded':
+        return dict.quotaErrorQuotaExceeded;
       case 'network':
         return dict.quotaErrorNetwork;
       default:
@@ -153,10 +203,12 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
       <ButtonGroup className="entei-nadeshiko-form-group">
         <Input
           id="nadeshiko-api-key"
+          ref={inputRef}
           aria-labelledby="nadeshiko-api-key-label"
           type={showKey ? 'text' : 'password'}
           value={draft}
           onChange={(e) => handleDraftChange(e.target.value)}
+          onBlur={() => syncFromStorageRef.current()}
           placeholder={dict.apiKeyPlaceholder}
           autoComplete="off"
           spellCheck={false}
@@ -205,10 +257,10 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
         )}
         {quota.status === 'ready' && (
           <dl className="entei-settings-grid">
-            {typeof quota.data.remainingRequests === 'number' && (
+            {typeof quota.data.remaining === 'number' && (
               <div>
                 <dt>{dict.quotaRemaining}</dt>
-                <dd>{quota.data.remainingRequests}</dd>
+                <dd>{quota.data.remaining}</dd>
               </div>
             )}
             {typeof quota.data.monthlyLimit === 'number' && (
@@ -217,15 +269,15 @@ export function NadeshikoSettingsTab({ dict }: NadeshikoSettingsTabProps) {
                 <dd>{quota.data.monthlyLimit}</dd>
               </div>
             )}
-            {quota.data.resetAt && (
+            {quota.data.periodEnd && (
               <div>
                 <dt>{dict.quotaReset}</dt>
-                <dd>{quota.data.resetAt}</dd>
+                <dd>{quota.data.periodEnd}</dd>
               </div>
             )}
-            {typeof quota.data.remainingRequests !== 'number' &&
+            {typeof quota.data.remaining !== 'number' &&
               typeof quota.data.monthlyLimit !== 'number' &&
-              !quota.data.resetAt && <p>{dict.quotaUnknown}</p>}
+              !quota.data.periodEnd && <p>{dict.quotaUnknown}</p>}
           </dl>
         )}
         {quota.status === 'error' && (

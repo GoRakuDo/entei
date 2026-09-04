@@ -181,6 +181,7 @@ export interface Dictionary {
     contextKeySaveFailed: string;
     contextInvalidKey: string;
     contextRateLimited: (seconds: number) => string;
+    contextQuotaExceeded: string;
     contextNetworkError: string;
     contextGenericError: string;
     contextResultWorkLabel: string;
@@ -543,6 +544,7 @@ export interface Dictionary {
     quotaUnknown: string;
     quotaErrorInvalidKey: string;
     quotaErrorRateLimited: string;
+    quotaErrorQuotaExceeded: string;
     quotaErrorNetwork: string;
     quotaErrorGeneric: string;
     quotaLoading: string;

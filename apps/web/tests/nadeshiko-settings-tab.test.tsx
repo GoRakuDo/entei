@@ -39,6 +39,7 @@ function baseDict(): Record<string, unknown> {
     quotaUnknown: 'unknown',
     quotaErrorInvalidKey: 'bad key',
     quotaErrorRateLimited: 'slow down',
+    quotaErrorQuotaExceeded: 'quota out',
     quotaErrorNetwork: 'no net',
     quotaErrorGeneric: 'oops',
     quotaLoading: 'loading…',
@@ -104,15 +105,38 @@ describe('NadeshikoSettingsTab', () => {
   it('fetches and displays quota numbers', async () => {
     window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'sk-x');
     vi.spyOn(nadeshikoClient, 'getNadeshikoUserMe').mockResolvedValue({
-      remainingRequests: 1000,
+      used: 342,
       monthlyLimit: 5000,
-      resetAt: '2026-09-01T00:00:00Z',
+      remaining: 4658,
+      periodYyyymm: 202609,
+      periodStart: '2026-09-01T00:00:00.000Z',
+      periodEnd: '2026-09-30T23:59:59.999Z',
+      tierDisplayName: 'Plus',
+      burstMax: 150,
+      burstWindowMs: 60000,
     });
 
     const { findByText } = render(<NadeshikoSettingsTab dict={makeDict()} />);
-    expect(await findByText('1000')).toBeTruthy();
+    expect(await findByText('4658')).toBeTruthy();
     expect(await findByText('5000')).toBeTruthy();
-    expect(await findByText('2026-09-01T00:00:00Z')).toBeTruthy();
+    expect(await findByText('2026-09-30T23:59:59.999Z')).toBeTruthy();
+  });
+
+  it('initialises the input draft from the saved key on mount', () => {
+    window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'saved-key');
+    const { getByLabelText } = render(
+      <NadeshikoSettingsTab dict={makeDict()} />,
+    );
+    const input = getByLabelText('API key') as HTMLInputElement;
+    expect(input.value).toBe('saved-key');
+  });
+
+  it('clears the input draft on mount when no key is saved', () => {
+    const { getByLabelText } = render(
+      <NadeshikoSettingsTab dict={makeDict()} />,
+    );
+    const input = getByLabelText('API key') as HTMLInputElement;
+    expect(input.value).toBe('');
   });
 
   it('shows the invalid-key quota error message', async () => {
@@ -161,7 +185,7 @@ describe('NadeshikoSettingsTab', () => {
       const spy = vi
         .spyOn(nadeshikoClient, 'getNadeshikoUserMe')
         .mockResolvedValue({
-          remainingRequests: 1,
+          remaining: 1,
           monthlyLimit: 1,
         });
 
@@ -185,7 +209,7 @@ describe('NadeshikoSettingsTab', () => {
       const spy = vi
         .spyOn(nadeshikoClient, 'getNadeshikoUserMe')
         .mockResolvedValue({
-          remainingRequests: 1,
+          remaining: 1,
           monthlyLimit: 1,
         });
 
@@ -216,7 +240,7 @@ describe('NadeshikoSettingsTab', () => {
       const spy = vi
         .spyOn(nadeshikoClient, 'getNadeshikoUserMe')
         .mockResolvedValue({
-          remainingRequests: 1,
+          remaining: 1,
           monthlyLimit: 1,
         });
 
@@ -253,7 +277,7 @@ describe('NadeshikoSettingsTab', () => {
       const spy = vi
         .spyOn(nadeshikoClient, 'getNadeshikoUserMe')
         .mockResolvedValue({
-          remainingRequests: 1,
+          remaining: 1,
           monthlyLimit: 1,
         });
 
