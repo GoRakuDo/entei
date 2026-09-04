@@ -111,37 +111,6 @@ export interface NadeshikoSegmentContextResponse {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Quota / user shape (per spec UserMe)                                     */
-/* ------------------------------------------------------------------------ */
-
-export interface NadeshikoUserMe {
-  /** Display name. */
-  username?: string;
-  /** Account tier / role (e.g. "USER"). */
-  role?: string;
-  /** Account creation timestamp. */
-  createdAt?: string;
-  /** Requests used this month. */
-  used?: number;
-  /** Monthly request limit. Spec default 5,000. */
-  monthlyLimit?: number;
-  /** Requests remaining this month. */
-  remaining?: number;
-  /** Current month in YYYYMM format (e.g. 202609). */
-  periodYyyymm?: number;
-  /** Start of the current quota period (UTC). */
-  periodStart?: string;
-  /** End of the current quota period (UTC). */
-  periodEnd?: string;
-  /** Tier display name (e.g. "Free"). */
-  tierDisplayName?: string;
-  /** Per-minute burst limit. Spec default 150. */
-  burstMax?: number;
-  /** Per-minute burst window in ms. Spec default 60,000. */
-  burstWindowMs?: number;
-}
-
-/* ------------------------------------------------------------------------ */
 /* Internal helpers                                                         */
 /* ------------------------------------------------------------------------ */
 
@@ -175,12 +144,16 @@ function pickNumber(value: unknown, ...keys: string[]): number | undefined {
 }
 
 /** Format startTimeMs (or seconds) into a `M:SS` / `H:MM:SS` display string. */
-function formatTimestampLabel(startTimeMs?: number, seconds?: number): string | undefined {
-  const total = typeof startTimeMs === 'number'
-    ? Math.max(0, Math.floor(startTimeMs / 1000))
-    : typeof seconds === 'number'
-      ? Math.max(0, Math.floor(seconds))
-      : undefined;
+function formatTimestampLabel(
+  startTimeMs?: number,
+  seconds?: number,
+): string | undefined {
+  const total =
+    typeof startTimeMs === 'number'
+      ? Math.max(0, Math.floor(startTimeMs / 1000))
+      : typeof seconds === 'number'
+        ? Math.max(0, Math.floor(seconds))
+        : undefined;
   if (total === undefined) return undefined;
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
@@ -214,9 +187,10 @@ function normalizeSegment(
 
   // startTimeMs is the spec's start-of-segment in ms (e.g. 2007255).
   const startTimeMs = pickNumber(r, 'startTimeMs', 'startTime');
-  const timestampSeconds = typeof startTimeMs === 'number'
-    ? startTimeMs / 1000
-    : pickNumber(r, 'timestampSeconds', 'startSeconds');
+  const timestampSeconds =
+    typeof startTimeMs === 'number'
+      ? startTimeMs / 1000
+      : pickNumber(r, 'timestampSeconds', 'startSeconds');
   const timestampLabel = formatTimestampLabel(
     typeof startTimeMs === 'number' ? startTimeMs : undefined,
     timestampSeconds,
@@ -262,7 +236,9 @@ function buildWorkNameMap(includes: unknown): Map<string, string> {
   const obj = includes as Record<string, unknown>;
   const media = obj.media;
   if (!media || typeof media !== 'object') return map;
-  for (const [publicId, raw] of Object.entries(media as Record<string, unknown>)) {
+  for (const [publicId, raw] of Object.entries(
+    media as Record<string, unknown>,
+  )) {
     if (!raw || typeof raw !== 'object') continue;
     const m = raw as Record<string, unknown>;
     // Prefer the Japanese name (matches what the spec describes as
@@ -334,17 +310,20 @@ async function apiRequest(
     }
     throw makeError(
       kind,
-      kind === 'quota-exceeded' ? 'Monthly quota exceeded' : 'Rate limit exceeded',
-      { status: 429, ...(retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {}) },
+      kind === 'quota-exceeded'
+        ? 'Monthly quota exceeded'
+        : 'Rate limit exceeded',
+      {
+        status: 429,
+        ...(retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {}),
+      },
     );
   }
 
   if (!res.ok) {
-    throw makeError(
-      'network',
-      `Nadeshiko API error ${res.status}`,
-      { status: res.status },
-    );
+    throw makeError('network', `Nadeshiko API error ${res.status}`, {
+      status: res.status,
+    });
   }
 
   try {
@@ -359,12 +338,7 @@ async function apiRequest(
 /* ------------------------------------------------------------------------ */
 
 export type SearchSortMode =
-  | 'RELEVANCE'
-  | 'ASC'
-  | 'DESC'
-  | 'TIME_ASC'
-  | 'TIME_DESC'
-  | 'RANDOM';
+  'RELEVANCE' | 'ASC' | 'DESC' | 'TIME_ASC' | 'TIME_DESC' | 'RANDOM';
 
 export interface NadeshikoSearchOptions {
   /** Max results (1-50; default 10 per spec). */
@@ -398,7 +372,9 @@ export async function searchNadeshikoSegments(
   const body: Record<string, unknown> = {
     query: {
       search: trimmed,
-      ...(options.exactMatch !== undefined ? { exactMatch: options.exactMatch } : {}),
+      ...(options.exactMatch !== undefined
+        ? { exactMatch: options.exactMatch }
+        : {}),
     },
     take: options.take ?? 10,
     sort: {
@@ -469,9 +445,9 @@ export async function getNadeshikoSegmentContext(
   // them. We don't try to re-order to before/after — the UI shows them
   // in the API's order, which already separates them by time.
   const all = Array.isArray(segments)
-    ? (segments
+    ? segments
         .map((s) => normalizeSegment(s, workNameByMediaId))
-        .filter((s): s is NadeshikoSegment => s !== null))
+        .filter((s): s is NadeshikoSegment => s !== null)
     : [];
 
   const centerIdx = all.findIndex((s) => s.id === segmentId);
@@ -487,38 +463,4 @@ export async function getNadeshikoSegmentContext(
   const center = all[centerIdx]!;
   const surrounding = [...all.slice(0, centerIdx), ...all.slice(centerIdx + 1)];
   return { center, surrounding };
-}
-
-export async function getNadeshikoUserMe(
-  apiKey: string,
-  signal?: AbortSignal,
-): Promise<NadeshikoUserMe> {
-  const data = (await apiRequest(
-    apiKey,
-    '/user/me',
-    { method: 'GET' },
-    signal,
-  )) as Record<string, unknown>;
-
-  // Spec nests user + quota. The old client expected a flat object — we
-  // now walk the spec'd shape and pull the quota + user fields out.
-  const user = (data.user ?? {}) as Record<string, unknown>;
-  const quota = (data.quota ?? {}) as Record<string, unknown>;
-  const burst = (quota.burst ?? {}) as Record<string, unknown>;
-  const tier = (quota.tier ?? null) as Record<string, unknown> | null;
-
-  return {
-    username: pickString(user, 'username'),
-    role: pickString(user, 'role'),
-    createdAt: pickString(user, 'createdAt'),
-    used: pickNumber(quota, 'used'),
-    monthlyLimit: pickNumber(quota, 'limit', 'monthlyLimit'),
-    remaining: pickNumber(quota, 'remaining', 'remainingCount'),
-    periodYyyymm: pickNumber(quota, 'periodYyyymm'),
-    periodStart: pickString(quota, 'periodStart'),
-    periodEnd: pickString(quota, 'periodEnd', 'resetAt'),
-    tierDisplayName: tier ? pickString(tier, 'displayName') : undefined,
-    burstMax: pickNumber(burst, 'max'),
-    burstWindowMs: pickNumber(burst, 'windowMs'),
-  };
 }

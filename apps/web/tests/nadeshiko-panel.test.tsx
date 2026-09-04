@@ -31,7 +31,7 @@ function baseDict(): Record<string, unknown> {
     contextKeySaveFailed: 'Could not save',
     contextInvalidKey: 'Invalid key',
     contextRateLimited: (s: number) => `Wait ${s}s`,
-    contextQuotaExceeded: 'Quota exceeded',
+    contextQuotaExceeded: 'Please check your Nadeshiko usage',
     contextNetworkError: 'Network error',
     contextGenericError: 'Generic error',
     contextResultWorkLabel: 'Work',
@@ -185,6 +185,31 @@ describe('RightPanel — Nadeshiko context tab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     expect(await findByText('Wait 7s')).toBeTruthy();
+  });
+
+  it('shows the quota-exceeded banner when the API returns 429 + QUOTA_EXCEEDED', async () => {
+    window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'K');
+    const err = Object.assign(new Error('x'), {
+      kind: 'quota-exceeded',
+    }) as nadeshikoClient.NadeshikoError;
+    vi.spyOn(nadeshikoClient, 'searchNadeshikoSegments').mockRejectedValue(err);
+
+    const { getByText, findByText } = render(
+      <RightPanel visible={true} {...baseProps()} />,
+    );
+    fireEvent.click(getByText('Context'));
+    const input = document.querySelector(
+      'input[placeholder="Search"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'q' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    // Quota display was removed from the settings tab (GET /user/me is
+    // CORS-blocked browser-side), so overage is surfaced here instead,
+    // telling the user to check their Nadeshiko usage.
+    expect(
+      await findByText('Please check your Nadeshiko usage'),
+    ).toBeTruthy();
   });
 
   it('re-reads the API key when the key-changed event fires', async () => {

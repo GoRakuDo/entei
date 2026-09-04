@@ -15,7 +15,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   searchNadeshikoSegments,
   getNadeshikoSegmentContext,
-  getNadeshikoUserMe,
 } from '../src/features/nadeshiko/nadeshiko-client';
 
 function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
@@ -52,8 +51,16 @@ describe('nadeshiko-client', () => {
               highlight: '<mark>猫</mark>!',
               tokens: [],
             },
-            textEn: { content: 'Please get it off!', isMachineTranslated: false, highlight: null },
-            textEs: { content: '¡Gato!', isMachineTranslated: false, highlight: null },
+            textEn: {
+              content: 'Please get it off!',
+              isMachineTranslated: false,
+              highlight: null,
+            },
+            textEs: {
+              content: '¡Gato!',
+              isMachineTranslated: false,
+              highlight: null,
+            },
             urls: {
               imageUrl: 'https://cdn.nadeshiko.co/x.webp',
               audioUrl: 'https://cdn.nadeshiko.co/x.mp3',
@@ -112,17 +119,13 @@ describe('nadeshiko-client', () => {
 
   it('search: passes through spec options (take, mode, exactMatch, cursor, include, seed)', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ segments: [] }));
-    await searchNadeshikoSegments(
-      'KEY',
-      '猫',
-      {
-        take: 25,
-        mode: 'TIME_DESC',
-        exactMatch: true,
-        cursor: 'opaque-token',
-        include: ['media'],
-      },
-    );
+    await searchNadeshikoSegments('KEY', '猫', {
+      take: 25,
+      mode: 'TIME_DESC',
+      exactMatch: true,
+      cursor: 'opaque-token',
+      include: ['media'],
+    });
     expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
       query: { search: '猫', exactMatch: true },
       take: 25,
@@ -150,7 +153,9 @@ describe('nadeshiko-client', () => {
   });
 
   it('search: returns empty array on missing segments field', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ pagination: { hasMore: false } }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ pagination: { hasMore: false } }),
+    );
     const result = await searchNadeshikoSegments('KEY', 'q');
     expect(result).toEqual([]);
   });
@@ -209,7 +214,10 @@ describe('nadeshiko-client', () => {
   it('maps 429 with QUOTA_EXCEEDED body to quota-exceeded', async () => {
     fetchMock.mockResolvedValue(
       new Response(
-        JSON.stringify({ code: 'QUOTA_EXCEEDED', title: 'Monthly quota exceeded' }),
+        JSON.stringify({
+          code: 'QUOTA_EXCEEDED',
+          title: 'Monthly quota exceeded',
+        }),
         { status: 429, headers: { 'Content-Type': 'application/json' } },
       ),
     );
@@ -221,10 +229,10 @@ describe('nadeshiko-client', () => {
 
   it('maps 429 with RATE_LIMIT_EXCEEDED body to rate-limited (not quota)', async () => {
     fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({ code: 'RATE_LIMIT_EXCEEDED' }),
-        { status: 429, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ code: 'RATE_LIMIT_EXCEEDED' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
       kind: 'rate-limited',
@@ -234,7 +242,10 @@ describe('nadeshiko-client', () => {
 
   it('maps 429 with empty-object body to rate-limited (default)', async () => {
     fetchMock.mockResolvedValue(
-      new Response('{}', { status: 429, headers: { 'Content-Type': 'application/json' } }),
+      new Response('{}', {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
       kind: 'rate-limited',
@@ -244,7 +255,10 @@ describe('nadeshiko-client', () => {
 
   it('maps 429 with non-JSON body to rate-limited (parse failure defaults)', async () => {
     fetchMock.mockResolvedValue(
-      new Response('not-json', { status: 429, headers: { 'Content-Type': 'text/plain' } }),
+      new Response('not-json', {
+        status: 429,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
     );
     await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
       kind: 'rate-limited',
@@ -268,7 +282,10 @@ describe('nadeshiko-client', () => {
 
   it('maps malformed JSON to invalid-response', async () => {
     fetchMock.mockResolvedValue(
-      new Response('not-json', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+      new Response('not-json', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
     );
     await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
       kind: 'invalid-response',
@@ -301,9 +318,24 @@ describe('nadeshiko-client', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         segments: [
-          { publicId: 'before', textJa: { content: '前' }, startTimeMs: 1000, mediaPublicId: 'm' },
-          { publicId: 'center', textJa: { content: '今' }, startTimeMs: 2000, mediaPublicId: 'm' },
-          { publicId: 'after', textJa: { content: '後' }, startTimeMs: 3000, mediaPublicId: 'm' },
+          {
+            publicId: 'before',
+            textJa: { content: '前' },
+            startTimeMs: 1000,
+            mediaPublicId: 'm',
+          },
+          {
+            publicId: 'center',
+            textJa: { content: '今' },
+            startTimeMs: 2000,
+            mediaPublicId: 'm',
+          },
+          {
+            publicId: 'after',
+            textJa: { content: '後' },
+            startTimeMs: 3000,
+            mediaPublicId: 'm',
+          },
         ],
       }),
     );
@@ -353,7 +385,12 @@ describe('nadeshiko-client', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         segments: [
-          { publicId: 'x', textJa: { content: 'x' }, startTimeMs: 1000, mediaPublicId: 'mid' },
+          {
+            publicId: 'x',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+            mediaPublicId: 'mid',
+          },
         ],
         includes: {
           media: {
@@ -364,81 +401,6 @@ describe('nadeshiko-client', () => {
     );
     const ctx = await getNadeshikoSegmentContext('K', 'x');
     expect(ctx.center.workName).toBe('タイトル');
-  });
-
-  it('getUserMe: parses spec UserMe shape (quota.used/limit/remaining/periodEnd)', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        user: {
-          username: 'tanaka_san',
-          createdAt: '2024-03-15T10:00:00.000Z',
-          role: 'USER',
-        },
-        quota: {
-          used: 342,
-          limit: 5000,
-          remaining: 4658,
-          periodYyyymm: 202602,
-          periodStart: '2026-02-01T00:00:00.000Z',
-          periodEnd: '2026-02-28T23:59:59.999Z',
-          tier: { id: 'plus', displayName: 'Plus' },
-          burst: { max: 150, windowMs: 60000 },
-        },
-      }),
-    );
-    const me = await getNadeshikoUserMe('K');
-    expect(me).toEqual({
-      username: 'tanaka_san',
-      role: 'USER',
-      createdAt: '2024-03-15T10:00:00.000Z',
-      used: 342,
-      monthlyLimit: 5000,
-      remaining: 4658,
-      periodYyyymm: 202602,
-      periodStart: '2026-02-01T00:00:00.000Z',
-      periodEnd: '2026-02-28T23:59:59.999Z',
-      tierDisplayName: 'Plus',
-      burstMax: 150,
-      burstWindowMs: 60000,
-    });
-  });
-
-  it('getUserMe: tolerates tier:null (un-tiered account)', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
-        user: { username: 'a', createdAt: '2024-01-01T00:00:00.000Z', role: 'USER' },
-        quota: {
-          used: 0,
-          limit: 5000,
-          remaining: 5000,
-          periodYyyymm: 202609,
-          periodStart: '2026-09-01T00:00:00.000Z',
-          periodEnd: '2026-09-30T23:59:59.999Z',
-          tier: null,
-          burst: { max: 150, windowMs: 60000 },
-        },
-      }),
-    );
-    const me = await getNadeshikoUserMe('K');
-    expect(me.tierDisplayName).toBeUndefined();
-    expect(me.burstMax).toBe(150);
-  });
-
-  it('getUserMe: tolerates a quota wrapper that is missing (network error shape)', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({}));
-    const me = await getNadeshikoUserMe('K');
-    expect(me.monthlyLimit).toBeUndefined();
-    expect(me.remaining).toBeUndefined();
-  });
-
-  it('getUserMe: maps 429 to rate-limited', async () => {
-    fetchMock.mockResolvedValue(
-      new Response(null, { status: 429, headers: { 'Retry-After': '30' } }),
-    );
-    await expect(getNadeshikoUserMe('K')).rejects.toMatchObject({
-      kind: 'rate-limited',
-      retryAfterSeconds: 30,
-    });
   });
 
   it('Retry-After http-date form is parsed as seconds-from-now', async () => {

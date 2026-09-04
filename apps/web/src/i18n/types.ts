@@ -537,16 +537,5 @@ export interface Dictionary {
     apiKeyClear: string;
     apiKeyShow: string;
     apiKeyHide: string;
-    quotaHeading: string;
-    quotaRemaining: string;
-    quotaLimit: string;
-    quotaReset: string;
-    quotaUnknown: string;
-    quotaErrorInvalidKey: string;
-    quotaErrorRateLimited: string;
-    quotaErrorQuotaExceeded: string;
-    quotaErrorNetwork: string;
-    quotaErrorGeneric: string;
-    quotaLoading: string;
   };
 }

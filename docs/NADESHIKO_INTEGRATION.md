@@ -109,9 +109,9 @@ Entei での学習・Sentence Mining 中に、辞書定義だけでなく「実�
   ```
   旧版は `{ segment, context: [] }` の入れ子を返していたが、v2.4.12 ではフラットな `segments[]` のみ。クライアントは `publicId === requestedId` の要素を中心、それ以外を前後文脈として扱う。
 
-#### 3. クォータ・ユーザー情報: `GET /v1/user/me`
+#### 3. クォータ・ユーザー情報: `GET /v1/user/me`（未使用）
 
-- **200 レスポンス:**
+- Entei はこのエンドポイントを**呼ばない**（§2.4 参照: 実レスポンスに ACAO が付かずブラウザから CORS ブロックされるため）。参考のためレスポンス形状のみ記録する:
   ```json
   {
     "user": { "username": "tanaka_san", "createdAt": "2024-03-15T10:00:00.000Z", "role": "USER" },
@@ -127,7 +127,7 @@ Entei での学習・Sentence Mining 中に、辞書定義だけでなく「実�
     }
   }
   ```
-  - `quota.limit` / `quota.remaining` / `quota.periodEnd` を UI に表示。
+  - クォータ超過は検索 API の 429 + `code: QUOTA_EXCEEDED` で検知し、Nadeshiko タブにバナーを出す（設定タブのクォータ表示は削除済み）。
   - `quota.tier` はアカウントがティア無し / オーバーライド時は `null`。
 
 ### 2.3 旧契約（v2.4.12 以前）— 失効
@@ -145,9 +145,9 @@ Entei での学習・Sentence Mining 中に、辞書定義だけでなく「実�
 Entei はブラウザから `api.nadeshiko.co` へ直接 fetch する（サーバー不要・BYOK）。
 
 - `POST /v1/search` と `GET /v1/media/segments/{id}/context`: OPTIONS プリフライトと実レスポンスの両方に `Access-Control-Allow-Origin: *` が付与される。ブラウザから問題なく呼び出せる。
-- `GET /v1/user/me`: OPTIONS プリフライトは 200 を返すが `Access-Control-Allow-Origin` を含まない。実レスポンス（200 / 401 いずれも）にも ACAO が付かない。**結果として、ブラウザから `/user/me` を fetch すると CORS ブロックされ、本体もステータスも読み取れない。** したがって、Entei の設定タブでクォータを表示する経路は現状では常時「ネットワークエラー」表示となる（仕様上、これは設計通りの挙動）。プロキシは設置しない。
+- `GET /v1/user/me`: OPTIONS プリフライトは 200 を返すが `Access-Control-Allow-Origin` を含まない。実レスポンス（200 / 401 いずれも）にも ACAO が付かない。**結果として、ブラウザから `/user/me` を fetch すると CORS ブロックされ、本体もステータスも読み取れない。** したがって、Entei は **設定タブでのクォータ表示を削除** した。プロキシは設置しない。代わりに、クォータ超過は検索 API のレスポンス（429 + `code: QUOTA_EXCEEDED`）として届くため、Nadeshiko タブにバナーを出し、ユーザーが Nadeshiko 側で残量を確認するように促す。
 
-> この問題は将来 Nadeshiko 側で CORS が修正されれば自然に解消する。それまでは「設定タブのクォータ表示はベストエフォート」と位置付ける。
+> この問題は将来 Nadeshiko 側で CORS が修正されれば、再び設定タブでクォータを表示する余地がある（§3.4 に戻る）。それまではバナー通知のみで運用する。
 
 ---
 
@@ -205,7 +205,8 @@ Player の RightPanel（`apps/web/src/components/player/RightPanel.tsx`）のタ
 
 - 設定モーダル（`apps/web/src/components/player/SettingsTabs.tsx`）内に **「Nadeshiko」** 設定項目を追加。
 - ユーザーが自身の Nadeshiko API キーを入力・保存（`localStorage` キー例: `entei.nadeshiko.api-key.v1`）。
-- クォータ状態（`GET /v1/user/me`）の確認表示（残リクエスト数 / リセット日時）。
+- **クォータ表示は削除**（§2.4 参照: `GET /v1/user/me` は ACAO を返さずブラウザーから CORS ブロックされるため）。
+- **クォータ超過は NadeshikoPanel のバナーに集約**：検索 API が 429 + `code: QUOTA_EXCEEDED` を返したとき、Context タブに「使用量をご確認ください」バナーを表示し、ユーザー自身が Nadeshiko 側で状況を確認するように促す。
 
 ---
 
