@@ -5968,6 +5968,88 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
 }
 
+/* --- Pagination block (sentinel + loading / error / end-of-list) --- */
+/* Aligned with the results list (12px side inset, 8px bottom). The
+   sentinel itself is 1px tall and aria-hidden; we don't paint it. */
+.entei-nadeshiko-pagination {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding: 0 var(--entei-space-12) var(--entei-space-16);
+}
+
+.entei-nadeshiko-pagination-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--entei-text-secondary);
+}
+
+.entei-nadeshiko-pagination-spinner {
+  animation: entei-nadeshiko-spin 1s linear infinite;
+}
+
+@keyframes entei-nadeshiko-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-nadeshiko-pagination-spinner {
+    animation: none;
+  }
+}
+
+/* Pagination error: same red treatment as the existing
+   `.entei-nadeshiko-key-error` (it's a destructive, recoverable state).
+   The retry button mirrors the search button's outline variant for
+   consistency. */
+.entei-nadeshiko-pagination-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--entei-space-8);
+}
+
+.entei-nadeshiko-pagination-error-text {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--destructive);
+}
+
+.entei-nadeshiko-retry-btn {
+  min-height: var(--entei-touch-min);
+}
+
+/* End-of-list sentinel: subtle muted text so users know the list has
+   exhausted the available results rather than just looking empty. */
+.entei-nadeshiko-pagination-end {
+  margin: 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+}
+
+/* The actual IntersectionObserver target. Kept 1px tall so it doesn't
+   take up layout space but the browser still measures it for the
+   observer's intersection check. */
+.entei-nadeshiko-sentinel {
+  height: 1px;
+  width: 100%;
+}
+
+/* Clear-results button: ghost variant to differentiate from the
+   search submit (outline). Same 44px touch minimum. */
+.entei-nadeshiko-clear-btn {
+  flex-shrink: 0;
+  min-height: var(--entei-touch-min);
+}
+
 .entei-nadeshiko-card {
   border-radius: var(--entei-radius-md);
   background-color: transparent;

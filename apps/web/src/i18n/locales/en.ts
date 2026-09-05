@@ -362,6 +362,10 @@ export const en: Dictionary = {
     contextAudioStop: 'Stop audio',
     contextNoTimestamp: '–',
     contextResultsHeading: (count: number) => `Results (${count})`,
+    contextLoadingMore: 'Loading more results…',
+    contextRetry: 'Retry',
+    contextEndOfResults: 'No more results',
+    contextClear: 'Clear',
     // P4: jimaku search modal (design §2.3)
     jimakuSearchTitle: 'Title',
     jimakuSearchEpisode: 'Episode',

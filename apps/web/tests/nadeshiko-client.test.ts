@@ -88,21 +88,26 @@ describe('nadeshiko-client', () => {
     );
 
     const result = await searchNadeshikoSegments('KEY', '猫');
-    expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe('wy1hTtMJg6Jf');
-    expect(result[0]!.workName).toBe('らんま1/2 (2024) 第2期');
-    expect(result[0]!.line).toBe('猫! 猫 猫 猫... 猫がぁ...');
-    expect(result[0]!.englishTranslation).toBe('Please get it off!');
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0]!.id).toBe('wy1hTtMJg6Jf');
+    expect(result.segments[0]!.workName).toBe('らんま1/2 (2024) 第2期');
+    expect(result.segments[0]!.line).toBe('猫! 猫 猫 猫... 猫がぁ...');
+    expect(result.segments[0]!.englishTranslation).toBe('Please get it off!');
     // 719343 ms → 719 seconds → 11:59
-    expect(result[0]!.timestampSeconds).toBe(719.343);
-    expect(result[0]!.timestampLabel).toBe('11:59');
-    expect(result[0]!.mediaPublicId).toBe('izs1jikMfEFq');
-    expect(result[0]!.highlightJa).toBe('<mark>猫</mark>!');
-    expect(result[0]!.urls?.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
-    expect(result[0]!.urls?.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
+    expect(result.segments[0]!.timestampSeconds).toBe(719.343);
+    expect(result.segments[0]!.timestampLabel).toBe('11:59');
+    expect(result.segments[0]!.mediaPublicId).toBe('izs1jikMfEFq');
+    expect(result.segments[0]!.highlightJa).toBe('<mark>猫</mark>!');
+    expect(result.segments[0]!.urls?.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
+    expect(result.segments[0]!.urls?.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
     // The card reads imageUrl / audioUrl as flat fields too.
-    expect(result[0]!.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
-    expect(result[0]!.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
+    expect(result.segments[0]!.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
+    expect(result.segments[0]!.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
+    // Pagination metadata is surfaced so the panel can drive the next page.
+    expect(result.hasMore).toBe(true);
+    expect(result.nextCursor).toBe('eyJraW5kIjoia2V5c2V0In0');
+    expect(result.estimatedTotalHits).toBe(1233);
+    expect(result.estimatedTotalHitsRelation).toBe('EXACT');
 
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe('https://api.nadeshiko.co/v1/search');
@@ -161,12 +166,16 @@ describe('nadeshiko-client', () => {
       jsonResponse({ pagination: { hasMore: false } }),
     );
     const result = await searchNadeshikoSegments('KEY', 'q');
-    expect(result).toEqual([]);
+    expect(result.segments).toEqual([]);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextCursor).toBeNull();
   });
 
-  it('search: empty query returns empty array without calling fetch', async () => {
+  it('search: empty query returns empty page without calling fetch', async () => {
     const result = await searchNadeshikoSegments('KEY', '   ');
-    expect(result).toEqual([]);
+    expect(result.segments).toEqual([]);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextCursor).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -185,8 +194,8 @@ describe('nadeshiko-client', () => {
       }),
     );
     const r = await searchNadeshikoSegments('KEY', 'q');
-    expect(r).toHaveLength(1);
-    expect(r[0]!.workName).toBe('');
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0]!.workName).toBe('');
   });
 
   it('search: tolerates missing urls block (imageUrl / audioUrl stay undefined)', async () => {
@@ -202,10 +211,10 @@ describe('nadeshiko-client', () => {
       }),
     );
     const r = await searchNadeshikoSegments('KEY', 'q');
-    expect(r).toHaveLength(1);
-    expect(r[0]!.imageUrl).toBeUndefined();
-    expect(r[0]!.audioUrl).toBeUndefined();
-    expect(r[0]!.urls).toBeUndefined();
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0]!.imageUrl).toBeUndefined();
+    expect(r.segments[0]!.audioUrl).toBeUndefined();
+    expect(r.segments[0]!.urls).toBeUndefined();
   });
 
   it('search: parses urls.videoUrl into urls but does not surface a flat field', async () => {
@@ -222,10 +231,95 @@ describe('nadeshiko-client', () => {
       }),
     );
     const r = await searchNadeshikoSegments('KEY', 'q');
-    expect(r[0]!.urls?.videoUrl).toBe('https://cdn.nadeshiko.co/v.mp4');
+    expect(r.segments[0]!.urls?.videoUrl).toBe('https://cdn.nadeshiko.co/v.mp4');
     // The card only surfaces image / audio flat fields.
-    expect(r[0]!.imageUrl).toBeUndefined();
-    expect(r[0]!.audioUrl).toBeUndefined();
+    expect(r.segments[0]!.imageUrl).toBeUndefined();
+    expect(r.segments[0]!.audioUrl).toBeUndefined();
+  });
+
+  it('search: surfaces terminal-page pagination (hasMore=false, cursor=null)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          {
+            publicId: 'a',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+          },
+        ],
+        pagination: {
+          hasMore: false,
+          estimatedTotalHits: 1,
+          estimatedTotalHitsRelation: 'EXACT',
+          cursor: null,
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.segments).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+    expect(page.estimatedTotalHits).toBe(1);
+    expect(page.estimatedTotalHitsRelation).toBe('EXACT');
+  });
+
+  it('search: coerces missing pagination block to terminal page', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          { publicId: 'a', textJa: { content: 'x' }, startTimeMs: 1000 },
+        ],
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.segments).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('search: invalid cursor (empty / non-string) is treated as terminal', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [],
+        pagination: {
+          hasMore: true, // server lied — cursor is unusable
+          cursor: '',
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('search: ignores hasMore=true without a usable cursor to avoid stuck pagination', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [],
+        pagination: {
+          hasMore: true,
+          // cursor missing entirely
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('search: omits estimatedTotalHits when not a finite number', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [],
+        pagination: {
+          hasMore: false,
+          cursor: null,
+          estimatedTotalHits: 'NaN-ish',
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.estimatedTotalHits).toBeUndefined();
   });
 
   it('maps 401 to invalid-key', async () => {

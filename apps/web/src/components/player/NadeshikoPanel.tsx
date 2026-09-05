@@ -8,10 +8,27 @@
  *     2. Surrounding context paragraph (auto-fetched once per card)
  *     3. Centered work name
  * - States: empty / no-results / loading / error×3 (key-missing / invalid-key /
- *   rate-limited with Retry-After countdown)
+ *   rate-limited with Retry-After countdown) + pagination states (loading
+ *   more / pagination error / end of results)
  * - Loads the API key from localStorage; listens for key-change events.
  * - Key-missing shows an inline API-key form (ButtonGroup: password input
  *   + KeyRound icon button) that saves straight to localStorage.
+ *
+ * Pagination:
+ * - First page is fetched on submit. Subsequent pages are appended when an
+ *   IntersectionObserver sentinel near the bottom of the results list
+ *   becomes visible (root: the actual scroll container — by default the
+ *   right-panel-content panel; falls back to the viewport when the panel
+ *   doesn't own scrolling, e.g. an unusually short page).
+ * - The sentinel triggers a `loadMore` callback guarded by an in-flight ref
+ *   so duplicate observer firings can't start parallel requests.
+ * - Pagination stops on `hasMore=false`, missing cursor, repeated cursor
+ *   (no progress), 429 rate-limit / quota-exceeded, or any error. Errors
+ *   never auto-retry — the user clicks an inline Retry affordance.
+ * - A generation counter is bumped on every fresh submit / retry; responses
+ *   from older generations are ignored (the user may have already typed
+ *   a new query). In-flight AbortControllers are aborted when state
+ *   resets, so the network itself is also cancelled.
  *
  * Rate-limit math: each search is 1 request; per-card context fetch is
  * `take` requests (one per visible card). Spec allows 150 req / 60s and
@@ -20,8 +37,10 @@
  * to keep perceived latency low.
  *
  * StrictMode burst guard: a panel-level `fetchedIds` set tracks which
- * segment ids have already kicked off a context fetch. Cleared on each
- * new search. This prevents React 18 StrictMode's double-mount from
+ * segment ids have already kicked off a context fetch. The set is append-
+ * only across paginated appends so a card from page 2 never re-fires the
+ * context fetch for a card that already loaded from page 1. Cleared on
+ * each new submit. This prevents React 18 StrictMode's double-mount from
  * firing duplicate fetches for the same cards (per-card refs reset on
  * remount, so they aren't enough on their own).
  * ---------------------------------------------------------------------------
@@ -35,6 +54,7 @@ import {
   KeyRound,
   Volume2,
   Square,
+  Loader2,
 } from 'lucide-react';
 import { Input } from '@/components/player/ui/input';
 import { Button } from '@/components/player/ui/button';
@@ -46,6 +66,7 @@ import {
   type NadeshikoSegment,
   type NadeshikoSegmentContextResponse,
   type NadeshikoError,
+  type NadeshikoSearchPage,
 } from '@/features/nadeshiko/nadeshiko-client';
 import {
   readNadeshikoApiKey,
@@ -462,6 +483,34 @@ function NadeshikoCard({
 /* Panel                                                                    */
 /* ------------------------------------------------------------------------ */
 
+/** Status of an in-flight pagination request. */
+type PaginationState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'error'; retry: ResolvedError };
+
+/**
+ * Internal scroll-container discovery. We try the closest
+ * `.entei-right-panel-content` first (the actual scroll container in this
+ * product — desktop and mobile, see RightPanel.tsx). If absent (e.g. the
+ * panel was rendered standalone in a test, or a future layout shift), we
+ * fall back to the document scrollingElement so the observer still fires.
+ *
+ * Returning `null` from IntersectionObserver means "viewport" — fine for
+ * both cases.
+ */
+function findScrollRoot(el: HTMLElement | null): Element | null {
+  let node: HTMLElement | null = el;
+  while (node) {
+    if (node.classList?.contains('entei-right-panel-content')) return node;
+    node = node.parentElement;
+  }
+  if (typeof document !== 'undefined') {
+    return document.scrollingElement ?? document.documentElement;
+  }
+  return null;
+}
+
 export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   // `setApiKey` is a re-render-only trigger. We never read the value — the
   // handler below re-reads via readNadeshikoApiKey() and acts on the result.
@@ -470,7 +519,18 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   // so all derived UI (banner, etc.) stays in sync.
   const [, setApiKey] = useState<string | null>(() => readNadeshikoApiKey());
   const [query, setQuery] = useState('');
+  // The submitted (immutable) search term. Editing the input after submit
+  // must not affect the in-flight or paginating query — see loadMore.
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
+  // Append-only results across all pages, deduped by segment id.
   const [results, setResults] = useState<NadeshikoSegment[]>([]);
+  // Cursor for the *next* page. `null` ⇒ terminal (no more pages, or
+  // never paginated). The new-query effect resets this alongside results.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  // True only for the very first fetch (the initial submit). Subsequent
+  // appends use `paginationState` instead so the form input stays usable
+  // and the search button isn't replaced with the spinner.
   const [loading, setLoading] = useState(false);
   // Initial error reflects "no key set" so the empty state already nudges the
   // user toward Settings (docs/NADESHIKO_INTEGRATION.md §3.3 states table).
@@ -478,7 +538,43 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
     readNadeshikoApiKey() === null ? { kind: 'key-missing' } : null,
   );
   const [hasSearched, setHasSearched] = useState(false);
+  const [paginationState, setPaginationStateRaw] = useState<PaginationState>({
+    kind: 'idle',
+  });
+  // Helper that updates both the visible state and the synchronous ref
+  // `loadMore` reads. The two must stay in lockstep so a stale closure
+  // inside the IO callback can't accidentally issue a request after an
+  // error or while one is already in flight.
+  const setPaginationState = useCallback((next: PaginationState) => {
+    paginationStateRef.current = next;
+    setPaginationStateRaw(next);
+  }, []);
+  // Monotonic counter; bumped on submit / retry. The visible `generation`
+  // state drives the IO effect's re-attach (so the observer re-creates
+  // after Clear) and is matched by `generationRef.current` for in-flight
+  // race checks. See `handleSearch` for the canonical pattern.
+  const [generation, setGeneration] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  // Synchronous in-flight guard for pagination. Without this, the
+  // IntersectionObserver can fire multiple times in the same tick (e.g.
+  // layout shifts between two adjacent elements, scroll restoration on
+  // history navigation) and we'd kick off duplicate fetches. We flip it
+  // to true the moment we start, and back to false in the same async
+  // finally{} so the next observer tick can fire again normally.
+  const paginationInFlightRef = useRef(false);
+  // Tracks the last cursor we issued a request for, so we can detect a
+  // "no progress" loop (server returns the same cursor we already used).
+  const lastIssuedCursorRef = useRef<string | null>(null);
+  // Mirror of `paginationState` so `loadMore` can short-circuit on
+  // 'error' / 'loading' without reading stale state from a closure.
+  // Updated alongside `setPaginationState` so the two never diverge.
+  const paginationStateRef = useRef<PaginationState>({ kind: 'idle' });
+  // Generation counter kept on a ref so async callbacks can read the
+  // current value without being captured by stale closures. The matching
+  // `generation` state is what the IO effect depends on to re-attach after
+  // submit / Clear. Each fetch snapshots `generationRef.current` at start
+  // and the post-await check compares against the live value.
+  const generationRef = useRef(0);
   // Audio registry lives for the lifetime of the panel — one audio element
   // per card, only one playing at a time. We tear it down on unmount.
   const registryRef = useRef<AudioRegistry | null>(null);
@@ -487,8 +583,19 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   }
   // Panel-level set of segment ids whose context fetch has been kicked off
   // (or completed). Survives StrictMode double-mounts where the per-card
-  // ref gets reset. Cleared on each new search via the assignments below.
+  // ref gets reset. The set is **append-only across paginated appends**
+  // (cleared only by a fresh submit / new query), so page-2 cards never
+  // re-fetch context that page-1 already loaded.
   const fetchedIdsRef = useRef<Set<string>>(new Set());
+  // The sentinel <div> that the IntersectionObserver watches. Ref'd so
+  // we can attach the observer after mount and detach on unmount.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // IntersectionObserver instance kept on a ref so the cleanup path can
+  // disconnect it. We don't render it directly.
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  // Last scroll-root we used to set up the observer. If the panel is
+  // re-mounted into a different DOM (rare; mostly tests) we re-attach.
+  const observerRootRef = useRef<Element | null>(null);
 
   // Live-update the API key from settings. Re-evaluate the key-missing
   // banner so it disappears as soon as a key is saved (and re-appears if
@@ -512,14 +619,77 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
     };
   }, []);
 
-  // Clear any in-flight search + audio on unmount.
+  // Clear any in-flight search + audio + observer on unmount.
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
       registryRef.current?.stopAll();
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+      observerRootRef.current = null;
     };
   }, []);
 
+  /**
+   * Core fetch primitive: takes a snapshot of (query, cursor, generation)
+   * so the in-flight handler can't accidentally read the latest state and
+   * route the response to a newer submit. Returns the raw page (or null
+   * on abort) without touching component state — callers decide how to
+   * merge it.
+   */
+  const runSearch = useCallback(
+    async (params: {
+      key: string;
+      q: string;
+      cursor: string | null;
+      gen: number;
+      signal: AbortSignal;
+    }): Promise<NadeshikoSearchPage | null> => {
+      // Errors propagate verbatim — `searchNadeshikoSegments` already
+      // throws typed `NadeshikoError`s, and the submit / loadMore
+      // wrappers rely on `err.kind` to choose the right banner.
+      const page = await searchNadeshikoSegments(
+        params.key,
+        params.q,
+        {
+          include: ['media'],
+          ...(params.cursor ? { cursor: params.cursor } : {}),
+        },
+        params.signal,
+      );
+      if (params.signal.aborted) return null;
+      return page;
+    },
+    [],
+  );
+
+  /**
+   * Append a page to the existing result list, preserving order, dedupe by
+   * segment id. Returns the updated list (immutable update). Cards already
+   * present from earlier pages stay where they are so the UI doesn't jump.
+   */
+  const appendPage = useCallback(
+    (existing: NadeshikoSegment[], incoming: NadeshikoSegment[]) => {
+      if (incoming.length === 0) return existing;
+      const seen = new Set(existing.map((s) => s.id));
+      const additions: NadeshikoSegment[] = [];
+      for (const seg of incoming) {
+        if (seen.has(seg.id)) continue;
+        seen.add(seg.id);
+        additions.push(seg);
+      }
+      if (additions.length === 0) return existing;
+      return [...existing, ...additions];
+    },
+    [],
+  );
+
+  /**
+   * Submit handler. Resets every pagination field, captures the immutable
+   * query term, and fires the first-page fetch. Old fetches are aborted.
+   * The "Clear" button below calls this same flow but with an empty query
+   * to wipe results without performing a search.
+   */
   const handleSearch = useCallback(
     async (e?: React.SyntheticEvent<HTMLFormElement>) => {
       e?.preventDefault();
@@ -536,34 +706,65 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       const ac = new AbortController();
       abortRef.current = ac;
 
+      // Bump generation FIRST so any in-flight response from the previous
+      // submit is recognised as stale by the post-await check below.
+      // We update both the ref (read inside the async body) and the state
+      // (so the IO effect re-attaches with a fresh loadMore closure).
+      generationRef.current += 1;
+      setGeneration(generationRef.current);
+      const myGen = generationRef.current;
+
       // Fresh result set → fresh burst of context fetches. Clearing the
       // panel-level fetched-id set lets each new card fire its context
       // request (StrictMode remounts reuse the same seg.id, so without
       // this clear those would be silently skipped).
       fetchedIdsRef.current = new Set<string>();
+      lastIssuedCursorRef.current = null;
+      paginationInFlightRef.current = false;
 
       setLoading(true);
       setError(null);
+      setResults([]);
+      setNextCursor(null);
+      setHasMore(false);
+      setPaginationState({ kind: 'idle' });
+      // Reset the "no-progress" tracker so the first pagination request
+      // for the new query isn't mistakenly treated as a stuck loop. We
+      // deliberately don't touch it inside the success branch below —
+      // that's the responsibility of `loadMore`, which records the
+      // cursor it actually issued a request for.
+      lastIssuedCursorRef.current = null;
+      setSubmittedQuery(q);
       // Stop any currently-playing audio before swapping in new results so
       // a re-search doesn't leave the previous card's audio dangling.
       registryRef.current?.stopAll();
 
       try {
-        // include: ['media'] so includes.media resolves workName (this is
-        // the user-reported "作品名が見えない" fix — without this, the
-        // segment's workName comes back as "" and the card shows "—").
-        const data = await searchNadeshikoSegments(
-          key,
-          q,
-          { include: ['media'] },
-          ac.signal,
-        );
-        if (ac.signal.aborted) return;
-        setResults(data);
+        const page = await runSearch({ key, q, cursor: null, gen: myGen, signal: ac.signal });
+        if (!page) return; // aborted
+        if (myGen !== generationRef.current) {
+          // Generation moved on while we were fetching (user already
+          // submitted again, or hit Clear). Drop this response on the
+          // floor so old results don't bleed into the new state.
+          return;
+        }
+        setResults(page.segments);
+        // Defensive: the spec pairs hasMore with a non-null cursor; the
+        // client already coerces the canonical pair, but a typed spy or
+        // an upstream proxy could hand us `hasMore: true, nextCursor: null`
+        // anyway. Treat that as terminal here so the sentinel can settle.
+        if (page.hasMore && !page.nextCursor) {
+          setHasMore(false);
+          setNextCursor(null);
+        } else {
+          setHasMore(page.hasMore);
+          setNextCursor(page.nextCursor);
+        }
         setHasSearched(true);
       } catch (raw) {
         if (ac.signal.aborted) return;
         const err = raw as NadeshikoError;
+        if (myGen !== generationRef.current) return;
         if (err && err.kind) {
           setError(resolveError(err));
         } else {
@@ -574,8 +775,192 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
         if (!ac.signal.aborted) setLoading(false);
       }
     },
-    [query],
+    [query, runSearch],
   );
+
+  /**
+   * Append the next page. Synchronous in-flight guard prevents duplicate
+   * observer triggers from issuing parallel fetches. The function is a
+   * no-op when:
+   *  - there's no submitted query (initial state, after Clear)
+   *  - pagination is already in flight
+   *  - `hasMore` is false or there's no cursor
+   *  - the cursor would repeat (server-side no-progress)
+   *  - the API key isn't set
+   *  - the generation has already moved on (race against a new submit)
+   */
+  const loadMore = useCallback(async () => {
+    if (paginationInFlightRef.current) return;
+    // Read the synchronous ref so an old closure / stale render doesn't
+    // see 'idle' when we're already in 'error' or 'loading'.
+    if (paginationStateRef.current.kind !== 'idle') return;
+    if (!submittedQuery) return;
+    if (!hasMore) return;
+    if (!nextCursor) return;
+    if (lastIssuedCursorRef.current === nextCursor) {
+      // We already requested this cursor and the server is echoing it
+      // back (e.g. an upstream bug). Stop here so we don't loop forever.
+      setHasMore(false);
+      return;
+    }
+    const key = readNadeshikoApiKey();
+    if (!key) return;
+
+    const ac = new AbortController();
+    // If a first-page fetch is still in flight we abort it here — the
+    // user clicked something (Retry) or the observer triggered a second
+    // time, which means they want pagination, not the initial fetch.
+    abortRef.current?.abort();
+    abortRef.current = ac;
+    const myGen = generationRef.current;
+    paginationInFlightRef.current = true;
+    lastIssuedCursorRef.current = nextCursor;
+    setPaginationState({ kind: 'loading' });
+
+    try {
+      const page = await runSearch({
+        key,
+        q: submittedQuery,
+        cursor: nextCursor,
+        gen: myGen,
+        signal: ac.signal,
+      });
+      if (!page) return;
+      if (myGen !== generationRef.current) return;
+      setResults((prev) => appendPage(prev, page.segments));
+      if (page.hasMore && !page.nextCursor) {
+        // Same defensive coerce as in handleSearch — see note there.
+        setHasMore(false);
+        setNextCursor(null);
+      } else {
+        setHasMore(page.hasMore);
+        setNextCursor(page.nextCursor);
+      }
+      setPaginationState({ kind: 'idle' });
+    } catch (raw) {
+      if (ac.signal.aborted) return;
+      if (myGen !== generationRef.current) return;
+      const err = raw as NadeshikoError;
+      // Clear the no-progress cursor tracker so the user's manual retry
+      // with the same cursor isn't mistaken for a stuck loop. On the
+      // success path the tracker is left as-is (or implicitly cleared
+      // when the response advances).
+      lastIssuedCursorRef.current = null;
+      if (err && err.kind) {
+        // For pagination errors we surface the same banner shape the
+        // initial search uses, but inline next to the sentinel so users
+        // see the existing results still rendered above. `loading` stays
+        // false so the form input stays usable.
+        setPaginationState({
+          kind: 'error',
+          retry: resolveError(err),
+        });
+      } else {
+        setPaginationState({ kind: 'error', retry: { kind: 'generic' } });
+      }
+    } finally {
+      paginationInFlightRef.current = false;
+    }
+  }, [
+    submittedQuery,
+    hasMore,
+    nextCursor,
+    runSearch,
+    appendPage,
+  ]);
+
+  /**
+   * Retry handler for pagination errors. Same effect as the observer
+   * firing again, but user-initiated (so it doesn't have to wait for the
+   * sentinel to come back into view). Re-uses `loadMore`'s guards.
+   */
+  const handleRetryPagination = useCallback(() => {
+    setPaginationState({ kind: 'idle' });
+    void loadMore();
+  }, [loadMore]);
+
+  /**
+   * Clear button: wipes results, cursor, generation, and resets audio /
+   * in-flight requests. The submitted query is forgotten so the panel
+   * returns to the same state as on first mount.
+   */
+  const handleClear = useCallback(() => {
+    abortRef.current?.abort();
+    registryRef.current?.stopAll();
+    fetchedIdsRef.current = new Set<string>();
+    lastIssuedCursorRef.current = null;
+    paginationInFlightRef.current = false;
+    setResults([]);
+    setNextCursor(null);
+    setHasMore(false);
+    setHasSearched(false);
+    setSubmittedQuery(null);
+    setError(null);
+    setPaginationState({ kind: 'idle' });
+    // Bump generation so any in-flight response is recognised as stale.
+    generationRef.current += 1;
+    setGeneration(generationRef.current);
+  }, []);
+
+  /**
+   * IntersectionObserver effect: watches the sentinel at the bottom of the
+   * results. The root is the closest `.entei-right-panel-content` ancestor
+   * (the panel's actual scroll container per RightPanel.tsx / player.css);
+   * falls back to viewport scrolling when the panel doesn't own the
+   * scroll. We re-attach when the sentinel element, root, or `loadMore`
+   * callback changes — the callback change is the most frequent trigger
+   * (every render with a new `loadMore` identity), so we keep the effect
+   * cheap by using a stable `loadMoreRef`.
+   */
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return;
+    const root = findScrollRoot(sentinel);
+    // If the root changed (e.g. the panel re-mounted into a different DOM
+    // container), disconnect the previous observer so we don't leak it.
+    if (observerRef.current && observerRootRef.current !== root) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (observerRef.current) return; // already attached
+
+    // `rootMargin` pulls the trigger line above the literal viewport edge
+    // so pages that have ample content right at the bottom (e.g. a
+    // precisely-fitting card) still get the sentinel to fire. We pick a
+    // modest 200px so we don't load two pages ahead of the user.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            void loadMoreRef.current();
+            break;
+          }
+        }
+      },
+      {
+        // `root: null` means the viewport, which is what we want when
+        // there's no scrolling ancestor. When the sentinel has a scrolling
+        // ancestor we pass that as the root so observers fire relative to
+        // its scroll position, not the page's.
+        ...(root ? { root } : {}),
+        rootMargin: '200px 0px',
+        threshold: 0,
+      },
+    );
+    observer.observe(sentinel);
+    observerRef.current = observer;
+    observerRootRef.current = root;
+    return () => {
+      observer.disconnect();
+      if (observerRef.current === observer) {
+        observerRef.current = null;
+        observerRootRef.current = null;
+      }
+    };
+  }, [submittedQuery, results.length, hasMore, generation]);
 
   // Inline API-key form (key-missing state): draft + saving state. On save,
   // the key lands in localStorage and the panel re-reads via the same
@@ -723,6 +1108,20 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
               <Search size={16} aria-hidden="true" />
             )}
           </Button>
+          {submittedQuery && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="entei-nadeshiko-clear-btn"
+              onClick={handleClear}
+              disabled={loading}
+              aria-label={dict.contextClear}
+              title={dict.contextClear}
+            >
+              {dict.contextClear}
+            </Button>
+          )}
         </ButtonGroup>
       </form>
 
@@ -751,6 +1150,88 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
           />
         ))}
       </ul>
+
+      {/*
+        Pagination sentinel + status row.
+
+        The sentinel is always rendered when there are results, even when
+        `hasMore` is false — we want the empty stub to be measured so the
+        IntersectionObserver can confirm "no more pages needed" without us
+        writing extra effect code. When hasMore is false the sentinel is
+        only a visual placeholder (no observer trigger), and we show the
+        end-of-list message in its place.
+
+        Loading / error affordances render inline. Per the user-spec, the
+        existing cards above stay visible during a pagination error — the
+        user can read what they already have while deciding whether to
+        retry, dismiss, or change the query.
+      */}
+      {results.length > 0 && (
+        <div className="entei-nadeshiko-pagination" aria-live="polite">
+          {paginationState.kind === 'loading' && (
+            <p
+              className="entei-nadeshiko-pagination-status entei-nadeshiko-pagination-status--loading"
+              role="status"
+            >
+              <Loader2
+                size={14}
+                className="entei-nadeshiko-pagination-spinner"
+                aria-hidden="true"
+              />
+              <span>{dict.contextLoadingMore}</span>
+            </p>
+          )}
+          {paginationState.kind === 'error' && (
+            <div
+              className="entei-nadeshiko-pagination-error"
+              role="alert"
+            >
+              <p className="entei-nadeshiko-pagination-error-text">
+                {paginationState.retry.kind === 'rate-limited'
+                  ? dict.contextRateLimited(
+                      paginationState.retry.retryAfterSeconds,
+                    )
+                  : paginationState.retry.kind === 'invalid-key'
+                    ? dict.contextInvalidKey
+                    : paginationState.retry.kind === 'quota-exceeded'
+                      ? dict.contextQuotaExceeded
+                      : paginationState.retry.kind === 'network'
+                        ? dict.contextNetworkError
+                        : dict.contextGenericError}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="entei-nadeshiko-retry-btn"
+                onClick={handleRetryPagination}
+                aria-label={dict.contextRetry}
+              >
+                {dict.contextRetry}
+              </Button>
+            </div>
+          )}
+          {!hasMore && paginationState.kind === 'idle' && (
+            <p
+              className="entei-nadeshiko-pagination-end"
+              role="status"
+            >
+              {dict.contextEndOfResults}
+            </p>
+          )}
+          {/*
+            The actual IntersectionObserver sentinel. `aria-hidden` because
+            it's purely a layout trigger, not user-facing content. We
+            always mount it when results exist (even after hasMore flips
+            to false) so the observer doesn't re-create on every render.
+          */}
+          <div
+            ref={sentinelRef}
+            className="entei-nadeshiko-sentinel"
+            aria-hidden="true"
+          />
+        </div>
+      )}
     </div>
   );
 }

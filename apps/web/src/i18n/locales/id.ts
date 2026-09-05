@@ -366,6 +366,10 @@ export const id: Dictionary = {
     contextAudioStop: 'Hentikan audio',
     contextNoTimestamp: '–',
     contextResultsHeading: (count: number) => `Hasil (${count})`,
+    contextLoadingMore: 'Memuat hasil berikutnya…',
+    contextRetry: 'Coba lagi',
+    contextEndOfResults: 'Tidak ada hasil lain',
+    contextClear: 'Hapus',
     // P4: modal pencarian jimaku (desain 2.3)
     jimakuSearchTitle: 'Judul',
     jimakuSearchEpisode: 'Episode',

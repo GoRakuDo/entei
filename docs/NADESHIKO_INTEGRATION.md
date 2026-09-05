@@ -201,6 +201,25 @@ Player の RightPanel（`apps/web/src/components/player/RightPanel.tsx`）のタ
   - API キー未設定: 「設定で Nadeshiko API キーを入力してください」（`contextKeyMissing` 等）
   - 429: 「レートリミットに達しました。`{秒}`秒後に再試行してください」（`contextRateLimited` 等）
 
+#### 3.3.1 ページネーション（SNS 型無限スクロール）
+
+`POST /v1/search` のレスポンス `pagination: { hasMore, cursor, ... }` を使って、結果リストの末尾に到達したら次のページを自動取得する。
+
+- **1 ページ = `take` 件**（デフォルト 10）。パネルは追加ページも同じ `take` で要求する。
+- **センチネル + IntersectionObserver**: 結果リスト直下の不可視 1px の `<div>`（`.entei-nadeshiko-sentinel`）を観察する。`root` にはスクロール上位要素である `.entei-right-panel-content`（デスクトップ・モバイル共通）を指定し、ビューポートスクロールのルートもフォールバックとして認める。`rootMargin: '200px 0px'` で底から 200px 手前で発火。
+- **同期 in-flight ガード**: ページ取得中は `paginationInFlightRef.current = true` を立て、同一ティック内の二重トリガーを抑止する。
+- **重複排除**: 追加ページの `segments[].id` は既存リストの id と比較して重複を除外する。同一 id は順序を保ったまま残り、新カードのみ末尾に足される。
+- **停止条件**（以下すべて該当時に追加フェッチを発行しない）:
+  - `pagination.hasMore === false`
+  - `cursor` が null / 空 / 非文字列
+  - `lastIssuedCursorRef.current === nextCursor`（サーバーが同一 cursor を返した「進めない」状態）
+  - 直前が 429 / クォータ超過 / ネットワーク / 一般錯誤（`loadMore` は `paginationState.kind === 'error'` を見て no-op）
+- **エラー / 429 時のリトライ**: 自動リトライは行わない。パネルはインライン狀態行にエラー文言と手動「Retry」ボタンを表示し、既存のカードはそのまま残す。
+- **世代カウンター**: submit / Retry / Clear のたびに `generationRef.current` をインクリメントし、ポスト await チェックで `myGen !== generationRef.current` ならそのレスポンスを破棄する。これにより「新しいクエリを入力中に古いレスポンスがゆっくり戻ってきた」レースを安全に吸収する。
+- **クエリ不変性**: submit 時に `submittedQuery` という不変コピーを保存し、入力欄を後から編集してもページネーションの追加リクエストはもとのクエリを使う。
+- **付随効果**: Clear ボタンは進行中のリクエストを abort し、`fetchedIds` とカーソル状態をリセットする。`AbortController` は unmount を含むセッション全体で破棄される。
+- **状態表示**: ページ付けの狀態は `<div class="entei-nadeshiko-pagination" aria-live="polite">` 内に集約され、ローディング中はスピナー + 「次のページを読み込み中…」、エラー時はボタン付メッセージ、終端時は「すべての結果を表示しました」を表示する。
+
 ### 3.4 API キー管理（Settings）
 
 - 設定モーダル（`apps/web/src/components/player/SettingsTabs.tsx`）内に **「Nadeshiko」** 設定項目を追加。

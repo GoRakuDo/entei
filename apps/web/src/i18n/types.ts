@@ -190,6 +190,14 @@ export interface Dictionary {
     contextAudioStop: string;
     contextNoTimestamp: string;
     contextResultsHeading: (count: number) => string;
+    /** Pagination status: more results are being fetched. */
+    contextLoadingMore: string;
+    /** Pagination error: manual retry button label. */
+    contextRetry: string;
+    /** Sentinel rendered when the server reports no more pages. */
+    contextEndOfResults: string;
+    /** "Clear results" button label (wipes results / pagination state). */
+    contextClear: string;
     // P4: jimaku search modal (design §2.3)
     jimakuSearchTitle: string;
     jimakuSearchEpisode: string;

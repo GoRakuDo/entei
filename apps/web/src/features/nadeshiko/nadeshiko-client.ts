@@ -122,6 +122,35 @@ export interface NadeshikoSegmentContextResponse {
   centerIdx: number;
 }
 
+/**
+ * Single page of search results plus pagination metadata from the spec's
+ * `pagination` block (https://nadeshiko.co/docs/api/openapi.yaml v2.4.12
+ * SearchPagination):
+ *   { hasMore: boolean, estimatedTotalHits: integer,
+ *     estimatedTotalHitsRelation: "EXACT"|"AT_LEAST", cursor: string|null }
+ *
+ * `nextCursor` is the validated, non-empty cursor the caller should pass on
+ * the next request. `null` when the server reports `hasMore: false`, when
+ * the cursor is missing / empty / non-string, or when the response was
+ * unparseable — the UI treats all three identically (stop paginating).
+ *
+ * `estimatedTotalHits` / `estimatedTotalHitsRelation` are surfaced as
+ * informational only; the panel doesn't render them today. The contract is
+ * captured so future "show ~1233 results" UI can read them without
+ * re-parsing the raw response.
+ */
+export interface NadeshikoSearchPage {
+  segments: NadeshikoSegment[];
+  /** Spec's `pagination.hasMore`. Defaults to false when missing. */
+  hasMore: boolean;
+  /** Validated next-page cursor. `null` ⇒ stop paginating. */
+  nextCursor: string | null;
+  /** Spec's `pagination.estimatedTotalHits` (integer ≥ 0). Optional. */
+  estimatedTotalHits?: number;
+  /** Spec's `pagination.estimatedTotalHitsRelation` ("EXACT"|"AT_LEAST"). */
+  estimatedTotalHitsRelation?: 'EXACT' | 'AT_LEAST';
+}
+
 /* ------------------------------------------------------------------------ */
 /* Internal helpers                                                         */
 /* ------------------------------------------------------------------------ */
@@ -380,9 +409,11 @@ export async function searchNadeshikoSegments(
   query: string,
   options: NadeshikoSearchOptions = {},
   signal?: AbortSignal,
-): Promise<NadeshikoSegment[]> {
+): Promise<NadeshikoSearchPage> {
   const trimmed = query.trim();
-  if (trimmed.length === 0) return [];
+  if (trimmed.length === 0) {
+    return { segments: [], hasMore: false, nextCursor: null };
+  }
 
   // Spec: `query` is an object — omit to do a queryless browse, set
   // `search` for the query string, optionally set `exactMatch: true`.
@@ -418,16 +449,64 @@ export async function searchNadeshikoSegments(
     signal,
   );
 
-  if (!data || typeof data !== 'object') return [];
+  const empty: NadeshikoSearchPage = {
+    segments: [],
+    hasMore: false,
+    nextCursor: null,
+  };
+  if (!data || typeof data !== 'object') return empty;
   const obj = data as Record<string, unknown>;
   const segments = obj.segments;
-  if (!Array.isArray(segments)) return [];
+  if (!Array.isArray(segments)) return empty;
 
   const workNameByMediaId = buildWorkNameMap(obj.includes);
 
-  return segments
+  const parsedSegments = segments
     .map((s) => normalizeSegment(s, workNameByMediaId))
     .filter((s): s is NadeshikoSegment => s !== null);
+
+  // Validate the spec's `pagination` block defensively. The cursor is the
+  // opaque token we hand back to the next request; the server may also
+  // signal `hasMore: false` with a stale cursor. Per spec both are present
+  // but we tolerate missing/malformed data without crashing.
+  const pagination = obj.pagination;
+  let hasMore = false;
+  let nextCursor: string | null = null;
+  let estimatedTotalHits: number | undefined;
+  let estimatedTotalHitsRelation: 'EXACT' | 'AT_LEAST' | undefined;
+  if (pagination && typeof pagination === 'object') {
+    const p = pagination as Record<string, unknown>;
+    hasMore = p.hasMore === true;
+    const c = p.cursor;
+    if (typeof c === 'string' && c.length > 0) nextCursor = c;
+    const total = p.estimatedTotalHits;
+    if (typeof total === 'number' && Number.isFinite(total)) {
+      estimatedTotalHits = total;
+    }
+    const rel = p.estimatedTotalHitsRelation;
+    if (rel === 'EXACT' || rel === 'AT_LEAST') {
+      estimatedTotalHitsRelation = rel;
+    }
+    // If hasMore is true but the cursor is unusable, treat as terminal so
+    // we don't loop sending an invalid token. The spec always pairs the
+    // two, but a buggy proxy could lie — better to stop than retry.
+    if (hasMore && nextCursor === null) {
+      hasMore = false;
+    }
+  }
+
+  const page: NadeshikoSearchPage = {
+    segments: parsedSegments,
+    hasMore,
+    nextCursor: hasMore ? nextCursor : null,
+  };
+  if (estimatedTotalHits !== undefined) {
+    page.estimatedTotalHits = estimatedTotalHits;
+  }
+  if (estimatedTotalHitsRelation !== undefined) {
+    page.estimatedTotalHitsRelation = estimatedTotalHitsRelation;
+  }
+  return page;
 }
 
 export async function getNadeshikoSegmentContext(

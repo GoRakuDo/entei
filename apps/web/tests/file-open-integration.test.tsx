@@ -398,6 +398,10 @@ const mockDict = {
   contextAudioStop: 'Stop audio',
   contextNoTimestamp: '–',
   contextResultsHeading: (count: number) => `Results (${count})`,
+  contextLoadingMore: 'Loading more…',
+  contextRetry: 'Retry',
+  contextEndOfResults: 'No more results',
+  contextClear: 'Clear',
 };
 
 const baseControlsProps = {
