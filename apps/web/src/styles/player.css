@@ -1880,6 +1880,12 @@
 .entei-anki-section {
   display: flex;
   flex-direction: column;
+  gap: var(--entei-space-24);
+}
+
+/* Inner label + input pair (e.g. URL AnkiConnect row): tighter 12px
+   rhythm inside the section. */
+.entei-anki-connect-row > .entei-anki-section {
   gap: var(--entei-space-12);
 }
 
