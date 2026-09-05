@@ -2237,6 +2237,33 @@
   min-width: 120px;
 }
 
+/* Settings slider thumb: same solid 12px accent circle as the player
+   seek/volume thumbs (not the shadcn hollow ring). 44px hit area via
+   the same transparent pseudo-element pattern. */
+.entei-subtitle-slider [role='slider'] {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--entei-accent);
+  border: none;
+  box-shadow: none;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-subtitle-slider [role='slider']:focus-visible {
+  outline-color: var(--entei-accent-hover);
+}
+
+.entei-subtitle-slider [role='slider']::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+}
+
 .entei-subtitle-value-display {
   font-family: var(--entei-font-system);
   font-size: 0.8125rem;
