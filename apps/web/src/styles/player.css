@@ -5961,13 +5961,6 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
 }
 
-.entei-nadeshiko-count {
-  margin: 0;
-  padding: 0 var(--entei-space-12);
-  font-size: 0.75rem;
-  color: var(--entei-text-secondary);
-}
-
 /* --- Pagination block (sentinel + loading / error / end-of-list) --- */
 /* Aligned with the results list (12px side inset, 8px bottom). The
    sentinel itself is 1px tall and aria-hidden; we don't paint it. */

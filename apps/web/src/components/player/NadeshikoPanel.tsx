@@ -59,7 +59,6 @@ import {
 import { Input } from '@/components/player/ui/input';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
-import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import {
   searchNadeshikoSegments,
   getNadeshikoSegmentContext,
@@ -1075,15 +1074,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
             aria-label={dict.contextSearchButton}
             title={dict.contextSearchButton}
           >
-            {loading ? (
-              <TypewriterLoading
-                text="…"
-                className="entei-typewriter--btn"
-                aria-hidden="true"
-              />
-            ) : (
-              <Search size={16} aria-hidden="true" />
-            )}
+            <Search size={16} aria-hidden="true" />
           </Button>
         </ButtonGroup>
       </form>
@@ -1093,12 +1084,6 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       {hasSearched && !loading && results.length === 0 && !error && (
         <p className="entei-nadeshiko-empty" role="status">
           {dict.contextEmpty}
-        </p>
-      )}
-
-      {results.length > 0 && (
-        <p className="entei-nadeshiko-count" aria-live="polite">
-          {dict.contextResultsHeading(results.length)}
         </p>
       )}
 

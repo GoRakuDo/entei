@@ -361,7 +361,6 @@ export const en: Dictionary = {
     contextAudioPlay: 'Play audio',
     contextAudioStop: 'Stop audio',
     contextNoTimestamp: '–',
-    contextResultsHeading: (count: number) => `Results (${count})`,
     contextLoadingMore: 'Loading more results…',
     contextRetry: 'Retry',
     contextEndOfResults: 'No more results',

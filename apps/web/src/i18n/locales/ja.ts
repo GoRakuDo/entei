@@ -367,7 +367,6 @@ export const ja: Dictionary = {
     contextAudioPlay: '音声を再生',
     contextAudioStop: '音声を停止',
     contextNoTimestamp: '–',
-    contextResultsHeading: (count: number) => `検索結果（${count}件）`,
     contextLoadingMore: '次のページを読み込み中…',
     contextRetry: '再試行',
     contextEndOfResults: 'すべての結果を表示しました',

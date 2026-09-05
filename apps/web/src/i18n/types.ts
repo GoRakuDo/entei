@@ -189,7 +189,6 @@ export interface Dictionary {
     contextAudioPlay: string;
     contextAudioStop: string;
     contextNoTimestamp: string;
-    contextResultsHeading: (count: number) => string;
     /** Pagination status: more results are being fetched. */
     contextLoadingMore: string;
     /** Pagination error: manual retry button label. */

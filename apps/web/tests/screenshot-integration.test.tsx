@@ -408,7 +408,6 @@ const mockDict = {
   contextAudioPlay: 'Play audio',
   contextAudioStop: 'Stop audio',
   contextNoTimestamp: '–',
-  contextResultsHeading: (count: number) => `Results (${count})`,
   contextLoadingMore: 'Loading more…',
   contextRetry: 'Retry',
   contextEndOfResults: 'No more results',

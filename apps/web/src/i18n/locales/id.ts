@@ -365,7 +365,6 @@ export const id: Dictionary = {
     contextAudioPlay: 'Putar audio',
     contextAudioStop: 'Hentikan audio',
     contextNoTimestamp: '–',
-    contextResultsHeading: (count: number) => `Hasil (${count})`,
     contextLoadingMore: 'Memuat hasil berikutnya…',
     contextRetry: 'Coba lagi',
     contextEndOfResults: 'Tidak ada hasil lain',

@@ -53,7 +53,6 @@ function baseDict(): Record<string, unknown> {
     contextAudioPlay: 'Play audio',
     contextAudioStop: 'Stop audio',
     contextNoTimestamp: '–',
-    contextResultsHeading: (n: number) => `Results (${n})`,
     contextLoadingMore: 'Loading more…',
     contextRetry: 'Retry',
     contextEndOfResults: 'End of results',
