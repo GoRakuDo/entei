@@ -667,7 +667,7 @@
 .entei-anki-section {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-24);
 }
 
 /* Deck + Note Type pair: stacked on mobile, two equal columns on
