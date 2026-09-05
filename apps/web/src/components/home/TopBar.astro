@@ -604,6 +604,30 @@ const settingsUIProps = dictionary.playerUI;
         0 8px 24px -4px oklch(0% 0 0deg / 0.4),
         0 2px 6px -1px oklch(0% 0 0deg / 0.2);
       z-index: calc(var(--entei-z-topbar) + 10);
+      opacity: 1;
+      visibility: visible;
+      transition:
+        opacity var(--entei-duration-normal) var(--entei-ease-productive),
+        transform var(--entei-duration-normal) var(--entei-ease-productive),
+        visibility var(--entei-duration-normal) var(--entei-ease-productive);
+    }
+
+    /* Auto-hide state: slide down and fade out when scrolling down or idle 6s.
+       Uses :global() so Astro's scoped CSS compiler does not tree-shake the
+       dynamically added data-hidden attribute. */
+    :global(.entei-mobile-dock[data-hidden='true']) {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      transform: translate(-50%, calc(100% + var(--entei-space-24))) !important;
+      pointer-events: none !important;
+    }
+
+    /* Force visible while any control inside the dock holds focus */
+    .entei-mobile-dock:focus-within {
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: translateX(-50%) !important;
+      pointer-events: auto !important;
     }
 
     .entei-mobile-dock-link {
@@ -669,6 +693,12 @@ const settingsUIProps = dictionary.playerUI;
 
     /* Reduced motion */
     @media (prefers-reduced-motion: reduce) {
+      .entei-mobile-dock {
+        transition: opacity var(--entei-duration-fast) linear;
+      }
+      :global(.entei-mobile-dock[data-hidden='true']) {
+        transform: translateX(-50%) !important;
+      }
       .entei-mobile-dock-link {
         transition: none;
       }
@@ -705,3 +735,100 @@ const settingsUIProps = dictionary.playerUI;
     }
   }
 </style>
+
+<script>
+  /**
+   * Mobile floating dock auto-hide behavior:
+   * - On load: shown, automatically fades out after 6 seconds of inactivity.
+   * - Scrolling down: hides immediately.
+   * - Scrolling up: reveals immediately and starts the 6-second idle timer.
+   * - At/near top of page (<=10px): stays revealed with the 6-second timer.
+   * - Direct dock interaction (touch, focus): keeps it revealed.
+   */
+  function initMobileDockAutoHide() {
+    const dock = document.querySelector<HTMLElement>('.entei-mobile-dock');
+    if (!dock || dock.dataset.autoHideBound) return;
+    dock.dataset.autoHideBound = 'true';
+
+    const AUTO_HIDE_DELAY_MS = 6000;
+    const SCROLL_DELTA_THRESHOLD_PX = 6;
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastScrollY = window.scrollY;
+
+    function isFocusInsideDock(): boolean {
+      return dock?.contains(document.activeElement) ?? false;
+    }
+
+    function showDock() {
+      dock?.removeAttribute('data-hidden');
+    }
+
+    function hideDock() {
+      if (isFocusInsideDock()) return;
+      dock?.setAttribute('data-hidden', 'true');
+    }
+
+    function resetHideTimer() {
+      if (hideTimer !== null) {
+        clearTimeout(hideTimer);
+      }
+      hideTimer = setTimeout(hideDock, AUTO_HIDE_DELAY_MS);
+    }
+
+    // Initial state: visible on page load, auto-hides after 6s idle
+    showDock();
+    resetHideTimer();
+
+    function handleScroll() {
+      const currentScrollY = window.scrollY;
+      const delta = currentScrollY - lastScrollY;
+
+      // Near top of page: always show and start idle timer
+      if (currentScrollY <= 10) {
+        showDock();
+        resetHideTimer();
+        lastScrollY = currentScrollY;
+        return;
+      }
+
+      // Ignore minor scroll jitter (under threshold)
+      if (Math.abs(delta) < SCROLL_DELTA_THRESHOLD_PX) {
+        return;
+      }
+
+      if (delta > 0) {
+        // Scrolling down: hide immediately, cancel idle timer
+        if (hideTimer !== null) {
+          clearTimeout(hideTimer);
+          hideTimer = null;
+        }
+        hideDock();
+      } else {
+        // Scrolling up: reveal immediately, start 6s idle timer
+        showDock();
+        resetHideTimer();
+      }
+
+      lastScrollY = currentScrollY;
+    }
+
+    // Keep active when touching the dock
+    dock.addEventListener(
+      'touchstart',
+      () => {
+        if (hideTimer !== null) clearTimeout(hideTimer);
+        showDock();
+      },
+      { passive: true },
+    );
+    dock.addEventListener('touchend', resetHideTimer, { passive: true });
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMobileDockAutoHide);
+  } else {
+    initMobileDockAutoHide();
+  }
+</script>
