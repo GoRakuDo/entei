@@ -550,7 +550,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   }, []);
   // Monotonic counter; bumped on submit / retry. The visible `generation`
   // state drives the IO effect's re-attach (so the observer re-creates
-  // after Clear) and is matched by `generationRef.current` for in-flight
+  // after each new search) and is matched by `generationRef.current` for in-flight
   // race checks. See `handleSearch` for the canonical pattern.
   const [generation, setGeneration] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -571,7 +571,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   // Generation counter kept on a ref so async callbacks can read the
   // current value without being captured by stale closures. The matching
   // `generation` state is what the IO effect depends on to re-attach after
-  // submit / Clear. Each fetch snapshots `generationRef.current` at start
+  // each new search. Each fetch snapshots `generationRef.current` at start
   // and the post-await check compares against the live value.
   const generationRef = useRef(0);
   // Audio registry lives for the lifetime of the panel — one audio element
@@ -686,8 +686,6 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
   /**
    * Submit handler. Resets every pagination field, captures the immutable
    * query term, and fires the first-page fetch. Old fetches are aborted.
-   * The "Clear" button below calls this same flow but with an empty query
-   * to wipe results without performing a search.
    */
   const handleSearch = useCallback(
     async (e?: React.SyntheticEvent<HTMLFormElement>) => {
@@ -749,7 +747,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
         if (!page) return; // aborted
         if (myGen !== generationRef.current) {
           // Generation moved on while we were fetching (user already
-          // submitted again, or hit Clear). Drop this response on the
+          // submitted again). Drop this response on the
           // floor so old results don't bleed into the new state.
           return;
         }
@@ -787,7 +785,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
    * Append the next page. Synchronous in-flight guard prevents duplicate
    * observer triggers from issuing parallel fetches. The function is a
    * no-op when:
-   *  - there's no submitted query (initial state, after Clear)
+   *  - there's no submitted query (initial state)
    *  - pagination is already in flight
    *  - `hasMore` is false or there's no cursor
    *  - the cursor would repeat (server-side no-progress)

@@ -215,9 +215,9 @@ Player の RightPanel（`apps/web/src/components/player/RightPanel.tsx`）のタ
   - `lastIssuedCursorRef.current === nextCursor`（サーバーが同一 cursor を返した「進めない」状態）
   - 直前が 429 / クォータ超過 / ネットワーク / 一般錯誤（`loadMore` は `paginationState.kind === 'error'` を見て no-op）
 - **エラー / 429 時のリトライ**: 自動リトライは行わない。パネルはインライン狀態行にエラー文言と手動「Retry」ボタンを表示し、既存のカードはそのまま残す。
-- **世代カウンター**: submit / Retry / Clear のたびに `generationRef.current` をインクリメントし、ポスト await チェックで `myGen !== generationRef.current` ならそのレスポンスを破棄する。これにより「新しいクエリを入力中に古いレスポンスがゆっくり戻ってきた」レースを安全に吸収する。
+- **世代カウンター**: submit / Retry のたびに `generationRef.current` をインクリメントし、ポスト await チェックで `myGen !== generationRef.current` ならそのレスポンスを破棄する。これにより「新しいクエリを入力中に古いレスポンスがゆっくり戻ってきた」レースを安全に吸収する。
 - **クエリ不変性**: submit 時に `submittedQuery` という不変コピーを保存し、入力欄を後から編集してもページネーションの追加リクエストはもとのクエリを使う。
-- **付随効果**: Clear ボタンは進行中のリクエストを abort し、`fetchedIds` とカーソル状態をリセットする。`AbortController` は unmount を含むセッション全体で破棄される。
+- **付随効果**: 新しい検索の submit 時に進行中のリクエストを abort し、`fetchedIds` とカーソル状態をリセットする。`AbortController` は unmount を含むセッション全体で破棄される。
 - **状態表示**: ページ付けの狀態は `<div class="entei-nadeshiko-pagination" aria-live="polite">` 内に集約され、ローディング中はスピナー + 「次のページを読み込み中…」、エラー時はボタン付メッセージ、終端時は「すべての結果を表示しました」を表示する。
 
 ### 3.4 API キー管理（Settings）
