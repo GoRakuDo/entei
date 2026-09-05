@@ -555,6 +555,8 @@ export function SubtitleAppearanceTab({
         </div>
       </div>
 
+      <hr className="entei-subtitle-section-divider" aria-hidden="true" />
+
       {/* JIMAKU.CC — auto-load Japanese subtitles (P2) */}
       <div className="entei-jimaku-section">
         <h3 className="entei-settings-label">{dict.jimakuHeading}</h3>
