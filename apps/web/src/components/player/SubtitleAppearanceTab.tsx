@@ -496,6 +496,21 @@ export function SubtitleAppearanceTab({
         </div>
       </div>
 
+      {/* Reset Button — scoped to subtitle appearance only (font, colors,
+          padding, position). Lives inside the appearance section so it
+          never reads as part of sync mode below the divider. */}
+      <div className="entei-subtitle-reset-section">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onReset}
+          className="entei-subtitle-reset-btn"
+        >
+          <RotateCcw size={14} />
+          <span>{dict.subtitleReset}</span>
+        </Button>
+      </div>
+
       <hr className="entei-subtitle-section-divider" aria-hidden="true" />
 
       {/* Subtitle Sync Mode (stage ③ — value persisted, engine wired later) */}
@@ -538,22 +553,6 @@ export function SubtitleAppearanceTab({
             })}
           </ToggleGroup>
         </div>
-      </div>
-
-      {/* Reset Button — placed above the JIMAKU.CC section so the reset
-          stays visually separate from the jimaku settings. This reset only
-          affects subtitle appearance settings (entei.player.prefs.v1); jimaku
-          (JIMAKU.CC, entei.jimaku.v1) preferences are untouched. */}
-      <div className="entei-subtitle-reset-section">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onReset}
-          className="entei-subtitle-reset-btn"
-        >
-          <RotateCcw size={14} />
-          <span>{dict.subtitleReset}</span>
-        </Button>
       </div>
 
       {/* JIMAKU.CC — auto-load Japanese subtitles (P2) */}
