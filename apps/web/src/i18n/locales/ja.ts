@@ -371,7 +371,6 @@ export const ja: Dictionary = {
     contextLoadingMore: '次のページを読み込み中…',
     contextRetry: '再試行',
     contextEndOfResults: 'すべての結果を表示しました',
-    contextClear: 'クリア',
     // P4: jimaku 検索モーダル（設計 2.3）
     jimakuSearchTitle: '作品名',
     jimakuSearchEpisode: 'エピソード',

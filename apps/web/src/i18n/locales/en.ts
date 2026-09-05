@@ -365,7 +365,6 @@ export const en: Dictionary = {
     contextLoadingMore: 'Loading more results…',
     contextRetry: 'Retry',
     contextEndOfResults: 'No more results',
-    contextClear: 'Clear',
     // P4: jimaku search modal (design §2.3)
     jimakuSearchTitle: 'Title',
     jimakuSearchEpisode: 'Episode',

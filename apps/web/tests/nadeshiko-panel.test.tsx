@@ -57,7 +57,6 @@ function baseDict(): Record<string, unknown> {
     contextLoadingMore: 'Loading more…',
     contextRetry: 'Retry',
     contextEndOfResults: 'End of results',
-    contextClear: 'Clear',
   };
 }
 
@@ -159,9 +158,11 @@ function installIntersectionObserverStub() {
   const observers: Observer[] = [];
   const orig =
     typeof window !== 'undefined'
-      ? (window as unknown as {
-          IntersectionObserver?: typeof IntersectionObserver;
-        }).IntersectionObserver
+      ? (
+          window as unknown as {
+            IntersectionObserver?: typeof IntersectionObserver;
+          }
+        ).IntersectionObserver
       : undefined;
   class StubIntersectionObserver {
     private readonly inner: Observer;
@@ -199,8 +200,9 @@ function installIntersectionObserverStub() {
       return this.inner.takeTargets();
     }
   }
-  (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
-    StubIntersectionObserver as unknown;
+  (
+    window as unknown as { IntersectionObserver: unknown }
+  ).IntersectionObserver = StubIntersectionObserver as unknown;
   return {
     observers,
     /**
@@ -254,13 +256,17 @@ function installIntersectionObserverStub() {
     restore() {
       if (typeof window !== 'undefined') {
         if (orig) {
-          (window as unknown as {
-            IntersectionObserver: typeof IntersectionObserver;
-          }).IntersectionObserver = orig;
+          (
+            window as unknown as {
+              IntersectionObserver: typeof IntersectionObserver;
+            }
+          ).IntersectionObserver = orig;
         } else {
-          delete (window as unknown as {
-            IntersectionObserver?: typeof IntersectionObserver;
-          }).IntersectionObserver;
+          delete (
+            window as unknown as {
+              IntersectionObserver?: typeof IntersectionObserver;
+            }
+          ).IntersectionObserver;
         }
       }
       observers.length = 0;
@@ -888,24 +894,30 @@ describe('RightPanel — Nadeshiko context tab', () => {
       window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'KEY');
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
-        .mockResolvedValueOnce(makePage(secondPageSegments(), {
-          hasMore: false,
-          nextCursor: null,
-        }));
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: {
-          id: 'noop',
-          workName: '',
-          line: '',
-          timestampSeconds: 0,
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
+        .mockResolvedValueOnce(
+          makePage(secondPageSegments(), {
+            hasMore: false,
+            nextCursor: null,
+          }),
+        );
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: {
+            id: 'noop',
+            workName: '',
+            line: '',
+            timestampSeconds: 0,
+          },
+          surrounding: [],
+          centerIdx: 0,
         },
-        surrounding: [],
-        centerIdx: 0,
-      });
+      );
 
       const { getByText, findAllByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -919,7 +931,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
 
       // First page renders — 3 cards.
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       expect(spy).toHaveBeenCalledTimes(1);
       const [, q1, opts1] = spy.mock.calls[0]!;
@@ -934,7 +948,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
         obs.triggerAllIntersecting();
       });
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(6);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          6,
+        );
       });
       expect(spy).toHaveBeenCalledTimes(2);
       const [, q2, opts2] = spy.mock.calls[1]!;
@@ -962,15 +978,19 @@ describe('RightPanel — Nadeshiko context tab', () => {
       window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'KEY');
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: false,
-          nextCursor: null,
-        }));
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: false,
+            nextCursor: null,
+          }),
+        );
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -983,7 +1003,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       // Triggering the sentinel after a terminal page must not fire a
       // second request — `hasMore` is false so `loadMore` is a no-op.
@@ -1004,17 +1026,21 @@ describe('RightPanel — Nadeshiko context tab', () => {
       window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'KEY');
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          // Missing cursor entirely — the client coerces this to terminal,
-          // so the panel must treat the response as end-of-list.
-          nextCursor: null,
-        }));
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            // Missing cursor entirely — the client coerces this to terminal,
+            // so the panel must treat the response as end-of-list.
+            nextCursor: null,
+          }),
+        );
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1027,7 +1053,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       expect(spy).toHaveBeenCalledTimes(1);
       await act(async () => {
@@ -1035,9 +1063,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       });
       await new Promise((r) => setTimeout(r, 30));
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(document.querySelector('.entei-nadeshiko-pagination-end')?.textContent).toBe(
-        'End of results',
-      );
+      expect(
+        document.querySelector('.entei-nadeshiko-pagination-end')?.textContent,
+      ).toBe('End of results');
     } finally {
       obs.restore();
     }
@@ -1049,20 +1077,26 @@ describe('RightPanel — Nadeshiko context tab', () => {
       window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'KEY');
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
         // Server lies and returns the same cursor it just gave us.
-        .mockResolvedValueOnce(makePage([], {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }));
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+        .mockResolvedValueOnce(
+          makePage([], {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        );
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1075,7 +1109,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       await act(async () => {
         await obs.triggerAllIntersecting();
@@ -1105,21 +1141,25 @@ describe('RightPanel — Nadeshiko context tab', () => {
       let resolveSecond!: (page: NadeshikoSearchPage) => void;
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
         .mockImplementationOnce(
           () =>
             new Promise<NadeshikoSearchPage>((resolve) => {
               resolveSecond = resolve;
             }),
         );
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1132,7 +1172,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       // Fire the observer synchronously twice — the second trigger must
       // hit the in-flight guard and skip.
@@ -1143,9 +1185,13 @@ describe('RightPanel — Nadeshiko context tab', () => {
       // Only the first trigger should have produced a second request.
       expect(spy).toHaveBeenCalledTimes(2);
       // Resolve the slow second page so the test cleans up.
-      resolveSecond(makePage(secondPageSegments(), { hasMore: false, nextCursor: null }));
+      resolveSecond(
+        makePage(secondPageSegments(), { hasMore: false, nextCursor: null }),
+      );
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(6);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          6,
+        );
       });
     } finally {
       obs.restore();
@@ -1173,13 +1219,19 @@ describe('RightPanel — Nadeshiko context tab', () => {
       ];
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(p1, { hasMore: true, nextCursor: 'c1' }))
-        .mockResolvedValueOnce(makePage(p2, { hasMore: false, nextCursor: null }));
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+        .mockResolvedValueOnce(
+          makePage(p1, { hasMore: true, nextCursor: 'c1' }),
+        )
+        .mockResolvedValueOnce(
+          makePage(p2, { hasMore: false, nextCursor: null }),
+        );
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1192,14 +1244,18 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       await act(async () => {
         await obs.triggerAllIntersecting();
       });
       await waitFor(() => {
         // 3 from page 1 + 1 new from page 2 = 4 (echo of p1[0] deduped).
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(4);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          4,
+        );
       });
       // Search called twice; only one call per generation.
       expect(spy).toHaveBeenCalledTimes(2);
@@ -1218,16 +1274,20 @@ describe('RightPanel — Nadeshiko context tab', () => {
       }) as nadeshikoClient.NadeshikoError;
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
         .mockRejectedValueOnce(rateLimitErr);
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1240,7 +1300,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       await act(async () => {
         await obs.triggerAllIntersecting();
@@ -1252,18 +1314,24 @@ describe('RightPanel — Nadeshiko context tab', () => {
         expect(screen.getByText(/^Wait \ds$/)).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
       });
-      expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+      expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+        3,
+      );
       // No automatic retry loop: just one error attempt so far.
       expect(spy).toHaveBeenCalledTimes(2);
 
       // User clicks Retry — the next request succeeds.
-      spy.mockResolvedValueOnce(makePage(secondPageSegments(), {
-        hasMore: false,
-        nextCursor: null,
-      }));
+      spy.mockResolvedValueOnce(
+        makePage(secondPageSegments(), {
+          hasMore: false,
+          nextCursor: null,
+        }),
+      );
       fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(6);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          6,
+        );
       });
       expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
       expect(screen.getByText('End of results')).toBeTruthy();
@@ -1281,16 +1349,20 @@ describe('RightPanel — Nadeshiko context tab', () => {
       }) as nadeshikoClient.NadeshikoError;
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
         .mockRejectedValueOnce(quotaErr);
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1303,15 +1375,21 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       await act(async () => {
         await obs.triggerAllIntersecting();
       });
       await waitFor(() => {
-        expect(screen.getByText('Please check your Nadeshiko usage')).toBeTruthy();
+        expect(
+          screen.getByText('Please check your Nadeshiko usage'),
+        ).toBeTruthy();
       });
-      expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+      expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+        3,
+      );
       expect(spy).toHaveBeenCalledTimes(2);
       // Trigger the observer repeatedly — no automatic loop.
       await act(async () => {
@@ -1332,10 +1410,12 @@ describe('RightPanel — Nadeshiko context tab', () => {
       let resolveSecond!: (page: NadeshikoSearchPage) => void;
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
         .mockImplementationOnce(
           () =>
             new Promise<NadeshikoSearchPage>((resolve) => {
@@ -1356,11 +1436,13 @@ describe('RightPanel — Nadeshiko context tab', () => {
             { hasMore: false, nextCursor: null },
           ),
         );
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1373,7 +1455,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       // Start pagination; it's hanging on `resolveSecond`.
       await act(async () => {
@@ -1386,19 +1470,25 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.change(input, { target: { value: 'second' } });
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(1);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          1,
+        );
       });
       // Old page-1 cards must be gone.
-      expect(document.querySelector('.entei-nadeshiko-card-line')?.textContent).toBe(
-        'new line',
-      );
+      expect(
+        document.querySelector('.entei-nadeshiko-card-line')?.textContent,
+      ).toBe('new line');
 
       // Now resolve the old pagination — its late response must NOT bleed
       // into the new result set (generation guard).
-      resolveSecond(makePage(secondPageSegments(), { hasMore: false, nextCursor: null }));
+      resolveSecond(
+        makePage(secondPageSegments(), { hasMore: false, nextCursor: null }),
+      );
       await new Promise((r) => setTimeout(r, 50));
       // Still only one card — the stale page was dropped.
-      expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(1);
+      expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+        1,
+      );
       expect(spy).toHaveBeenCalledTimes(3);
     } finally {
       obs.restore();
@@ -1417,14 +1507,18 @@ describe('RightPanel — Nadeshiko context tab', () => {
           centerIdx: 0,
         });
       vi.spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
-        .mockResolvedValueOnce(makePage(secondPageSegments(), {
-          hasMore: false,
-          nextCursor: null,
-        }));
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
+        .mockResolvedValueOnce(
+          makePage(secondPageSegments(), {
+            hasMore: false,
+            nextCursor: null,
+          }),
+        );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1447,7 +1541,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
         await obs.triggerAllIntersecting();
       });
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(6);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          6,
+        );
       });
       // The 3 new cards on page 2 each fire one context fetch — the 3
       // existing cards on page 1 do NOT re-fire (fetchedIds is
@@ -1466,19 +1562,25 @@ describe('RightPanel — Nadeshiko context tab', () => {
       window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'KEY');
       const spy = vi
         .spyOn(nadeshikoClient, 'searchNadeshikoSegments')
-        .mockResolvedValueOnce(makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }))
-        .mockResolvedValueOnce(makePage(secondPageSegments(), {
-          hasMore: false,
-          nextCursor: null,
-        }));
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+        .mockResolvedValueOnce(
+          makePage(firstPageSegments(), {
+            hasMore: true,
+            nextCursor: 'cursor-1',
+          }),
+        )
+        .mockResolvedValueOnce(
+          makePage(secondPageSegments(), {
+            hasMore: false,
+            nextCursor: null,
+          }),
+        );
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       const { getByText } = render(
         <RightPanel visible={true} {...baseProps()} />,
@@ -1491,11 +1593,15 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
       // Edit the input after submit (don't click Search). The next-page
       // request must still use the *submitted* term.
-      fireEvent.change(input, { target: { value: 'edited-but-not-submitted' } });
+      fireEvent.change(input, {
+        target: { value: 'edited-but-not-submitted' },
+      });
       await act(async () => {
         await obs.triggerAllIntersecting();
       });
@@ -1519,11 +1625,13 @@ describe('RightPanel — Nadeshiko context tab', () => {
           nextCursor: null,
         }),
       );
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
+      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue(
+        {
+          center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
+          surrounding: [],
+          centerIdx: 0,
+        },
+      );
 
       render(<RightPanel visible={true} {...baseProps()} />);
       fireEvent.click(screen.getByText('Context'));
@@ -1534,7 +1642,9 @@ describe('RightPanel — Nadeshiko context tab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
       await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
+        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(
+          3,
+        );
       });
 
       // The observer was created with `root` pointing at the
@@ -1545,63 +1655,14 @@ describe('RightPanel — Nadeshiko context tab', () => {
       // pair resets the global stub but a stray earlier observer could
       // theoretically still be in the list if a previous test forgot to
       // restore.
-      const lastObs = [...obs.observers].reverse().find(
-        (o) => o.options !== undefined,
-      );
+      const lastObs = [...obs.observers]
+        .reverse()
+        .find((o) => o.options !== undefined);
       expect(lastObs).toBeDefined();
       expect(lastObs!.options!.root).toBe(
         document.querySelector('.entei-right-panel-content'),
       );
       expect(lastObs!.options!.rootMargin).toBe('200px 0px');
-    } finally {
-      obs.restore();
-    }
-  });
-
-  it('pagination: Clear button wipes results + cursor + in-flight, leaving no sentinel state', async () => {
-    const obs = installIntersectionObserverStub();
-    try {
-      window.localStorage.setItem('entei.nadeshiko.api-key.v1', 'KEY');
-      vi.spyOn(nadeshikoClient, 'searchNadeshikoSegments').mockResolvedValue(
-        makePage(firstPageSegments(), {
-          hasMore: true,
-          nextCursor: 'cursor-1',
-        }),
-      );
-      vi.spyOn(nadeshikoClient, 'getNadeshikoSegmentContext').mockResolvedValue({
-        center: { id: 'noop', workName: '', line: '', timestampSeconds: 0 },
-        surrounding: [],
-        centerIdx: 0,
-      });
-
-      const { getByText } = render(
-        <RightPanel visible={true} {...baseProps()} />,
-      );
-      fireEvent.click(getByText('Context'));
-      const input = document.querySelector(
-        'input[placeholder="Search"]',
-      ) as HTMLInputElement;
-      fireEvent.change(input, { target: { value: 'q' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-
-      await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(3);
-      });
-      // Clear button appears once a search has been submitted.
-      const clearBtn = screen.getByRole('button', { name: 'Clear' });
-      expect(clearBtn).toBeTruthy();
-      fireEvent.click(clearBtn);
-
-      await waitFor(() => {
-        expect(document.querySelectorAll('.entei-nadeshiko-card')).toHaveLength(0);
-      });
-      // End-of-results / loading / pagination error messages are gone too.
-      expect(screen.queryByText('End of results')).toBeNull();
-      expect(screen.queryByText('Loading more…')).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
-      // Sentinel still present (so the next search can re-attach) but no
-      // cards rendered, and Clear button hidden until next submit.
-      expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
     } finally {
       obs.restore();
     }

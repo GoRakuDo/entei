@@ -436,7 +436,6 @@ const mockDict = {
   contextLoadingMore: 'Loading more…',
   contextRetry: 'Retry',
   contextEndOfResults: 'No more results',
-  contextClear: 'Clear',
 };
 
 const baseControlsProps = {

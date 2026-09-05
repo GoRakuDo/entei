@@ -6043,13 +6043,6 @@ html.entei-player-immersive .entei-player-audio-area {
   width: 100%;
 }
 
-/* Clear-results button: ghost variant to differentiate from the
-   search submit (outline). Same 44px touch minimum. */
-.entei-nadeshiko-clear-btn {
-  flex-shrink: 0;
-  min-height: var(--entei-touch-min);
-}
-
 .entei-nadeshiko-card {
   border-radius: var(--entei-radius-md);
   background-color: transparent;

@@ -197,7 +197,6 @@ export interface Dictionary {
     /** Sentinel rendered when the server reports no more pages. */
     contextEndOfResults: string;
     /** "Clear results" button label (wipes results / pagination state). */
-    contextClear: string;
     // P4: jimaku search modal (design §2.3)
     jimakuSearchTitle: string;
     jimakuSearchEpisode: string;

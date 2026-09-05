@@ -740,7 +740,13 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
       registryRef.current?.stopAll();
 
       try {
-        const page = await runSearch({ key, q, cursor: null, gen: myGen, signal: ac.signal });
+        const page = await runSearch({
+          key,
+          q,
+          cursor: null,
+          gen: myGen,
+          signal: ac.signal,
+        });
         if (!page) return; // aborted
         if (myGen !== generationRef.current) {
           // Generation moved on while we were fetching (user already
@@ -861,13 +867,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
     } finally {
       paginationInFlightRef.current = false;
     }
-  }, [
-    submittedQuery,
-    hasMore,
-    nextCursor,
-    runSearch,
-    appendPage,
-  ]);
+  }, [submittedQuery, hasMore, nextCursor, runSearch, appendPage]);
 
   /**
    * Retry handler for pagination errors. Same effect as the observer
@@ -878,29 +878,6 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
     setPaginationState({ kind: 'idle' });
     void loadMore();
   }, [loadMore]);
-
-  /**
-   * Clear button: wipes results, cursor, generation, and resets audio /
-   * in-flight requests. The submitted query is forgotten so the panel
-   * returns to the same state as on first mount.
-   */
-  const handleClear = useCallback(() => {
-    abortRef.current?.abort();
-    registryRef.current?.stopAll();
-    fetchedIdsRef.current = new Set<string>();
-    lastIssuedCursorRef.current = null;
-    paginationInFlightRef.current = false;
-    setResults([]);
-    setNextCursor(null);
-    setHasMore(false);
-    setHasSearched(false);
-    setSubmittedQuery(null);
-    setError(null);
-    setPaginationState({ kind: 'idle' });
-    // Bump generation so any in-flight response is recognised as stale.
-    generationRef.current += 1;
-    setGeneration(generationRef.current);
-  }, []);
 
   /**
    * IntersectionObserver effect: watches the sentinel at the bottom of the
@@ -1108,20 +1085,6 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
               <Search size={16} aria-hidden="true" />
             )}
           </Button>
-          {submittedQuery && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="entei-nadeshiko-clear-btn"
-              onClick={handleClear}
-              disabled={loading}
-              aria-label={dict.contextClear}
-              title={dict.contextClear}
-            >
-              {dict.contextClear}
-            </Button>
-          )}
         </ButtonGroup>
       </form>
 
@@ -1182,10 +1145,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
             </p>
           )}
           {paginationState.kind === 'error' && (
-            <div
-              className="entei-nadeshiko-pagination-error"
-              role="alert"
-            >
+            <div className="entei-nadeshiko-pagination-error" role="alert">
               <p className="entei-nadeshiko-pagination-error-text">
                 {paginationState.retry.kind === 'rate-limited'
                   ? dict.contextRateLimited(
@@ -1212,10 +1172,7 @@ export function NadeshikoPanel({ dict }: NadeshikoPanelProps) {
             </div>
           )}
           {!hasMore && paginationState.kind === 'idle' && (
-            <p
-              className="entei-nadeshiko-pagination-end"
-              role="status"
-            >
+            <p className="entei-nadeshiko-pagination-end" role="status">
               {dict.contextEndOfResults}
             </p>
           )}
