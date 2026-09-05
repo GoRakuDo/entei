@@ -6238,6 +6238,15 @@ html.entei-player-immersive .entei-player-audio-area {
   width: 70%;
 }
 
+/* Divider between the appearance controls and the sync-mode section:
+   full-bleed rule in the same secondary tone as the card divider. */
+.entei-subtitle-section-divider {
+  border: none;
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+  margin: 0;
+  width: 100%;
+}
+
 /* Work name — centered, larger than the context paragraph, bold, sits
    below the divider with breathing room. Falls back to "—" when the API
    didn't include media (shouldn't happen now that include:['media'] is

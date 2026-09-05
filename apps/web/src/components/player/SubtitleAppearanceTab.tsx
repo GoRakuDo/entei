@@ -496,6 +496,8 @@ export function SubtitleAppearanceTab({
         </div>
       </div>
 
+      <hr className="entei-subtitle-section-divider" aria-hidden="true" />
+
       {/* Subtitle Sync Mode (stage ③ — value persisted, engine wired later) */}
       <div className="entei-subtitle-sync-section">
         <h3 className="entei-settings-label">{dict.subtitleSyncMode}</h3>
