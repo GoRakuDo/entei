@@ -1020,6 +1020,33 @@
   min-width: 120px;
 }
 
+/* Settings slider thumb: same solid 18px accent circle as the player
+   seek/volume thumbs (not the shadcn hollow ring). 44px hit area via
+   the same transparent pseudo-element pattern. */
+.entei-subtitle-slider [role='slider'] {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--entei-accent);
+  border: none;
+  box-shadow: none;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-subtitle-slider [role='slider']:focus-visible {
+  outline-color: var(--entei-accent-hover);
+}
+
+.entei-subtitle-slider [role='slider']::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+}
+
 .entei-subtitle-value-display {
   font-family: var(--entei-font-system);
   font-size: 0.8125rem;
@@ -1138,6 +1165,24 @@
   flex-direction: column;
   gap: var(--entei-space-24);
   padding: var(--entei-space-16) 0;
+}
+
+/* Subtitle sync section layout — mirror of player.css.
+   Vertical stack of sync-mode controls with the same gap as the
+   appearance controls (24px). Without this, children stacked with zero gap. */
+.entei-subtitle-sync-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+}
+
+/* Divider between the appearance controls and the sync-mode section:
+   full-bleed rule in the same secondary tone as the card divider. */
+.entei-subtitle-section-divider {
+  border: none;
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+  margin: 0;
+  width: 100%;
 }
 
 .entei-jimaku-key-row {

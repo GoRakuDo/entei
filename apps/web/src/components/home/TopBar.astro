@@ -219,6 +219,7 @@ const settingsUIProps = dictionary.playerUI;
           href={route}
           aria-current={isActive ? 'page' : undefined}
           aria-label={dictionary.nav[labelKey]}
+          data-i18n-aria-label={`nav.${labelKey}`}
           data-entei-nav-destination={route}
         >
           <Icon class="entei-mobile-dock-icon" aria-hidden="true" />
@@ -708,7 +709,7 @@ const settingsUIProps = dictionary.playerUI;
     @media (forced-colors: active) {
       .entei-mobile-dock {
         background-color: Canvas;
-        border-top-color: ButtonText;
+        border-color: ButtonText;
       }
       .entei-mobile-dock-link {
         color: LinkText;
@@ -744,6 +745,10 @@ const settingsUIProps = dictionary.playerUI;
    * - Scrolling up: reveals immediately and starts the 6-second idle timer.
    * - At/near top of page (<=10px): stays revealed with the 6-second timer.
    * - Direct dock interaction (touch, focus): keeps it revealed.
+   * - Keyboard focus inside dock: stays revealed; idle timer restarts
+   *   once focus leaves the dock.
+   * - Scroll events are coalesced via requestAnimationFrame to avoid
+   *   layout thrashing on high-frequency scroll bursts.
    */
   function initMobileDockAutoHide() {
     const dock = document.querySelector<HTMLElement>('.entei-mobile-dock');
@@ -812,6 +817,19 @@ const settingsUIProps = dictionary.playerUI;
       lastScrollY = currentScrollY;
     }
 
+    // rAF-coalesce scroll events: high-frequency scroll otherwise triggers
+    // layout-thrashing work on every frame; coalesce to one read per paint.
+    let scrollFrameQueued = false;
+    function onScrollRaf() {
+      scrollFrameQueued = false;
+      handleScroll();
+    }
+    function queuedHandleScroll() {
+      if (scrollFrameQueued) return;
+      scrollFrameQueued = true;
+      window.requestAnimationFrame(onScrollRaf);
+    }
+
     // Keep active when touching the dock
     dock.addEventListener(
       'touchstart',
@@ -823,7 +841,24 @@ const settingsUIProps = dictionary.playerUI;
     );
     dock.addEventListener('touchend', resetHideTimer, { passive: true });
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
+    // Keep dock revealed while keyboard focus is inside it (e.g. user tabs
+    // through dock links); restart the idle timer when focus leaves.
+    dock.addEventListener('focusin', () => {
+      if (hideTimer !== null) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+      showDock();
+    });
+    dock.addEventListener('focusout', () => {
+      // focusout runs before the new focus target is set, so defer one
+      // microtask to let activeElement settle before deciding.
+      setTimeout(() => {
+        if (!isFocusInsideDock()) resetHideTimer();
+      }, 0);
+    });
+
+    window.addEventListener('scroll', queuedHandleScroll, { passive: true });
   }
 
   if (document.readyState === 'loading') {

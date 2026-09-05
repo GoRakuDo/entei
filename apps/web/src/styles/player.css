@@ -2259,7 +2259,7 @@
   min-width: 120px;
 }
 
-/* Settings slider thumb: same solid 12px accent circle as the player
+/* Settings slider thumb: same solid 18px accent circle as the player
    seek/volume thumbs (not the shadcn hollow ring). 44px hit area via
    the same transparent pseudo-element pattern. */
 .entei-subtitle-slider [role='slider'] {
