@@ -1370,9 +1370,11 @@
   height: 6px;
 }
 
-/* Seek thumb hit target: the visual knob is a small solid purple circle (12px),
-   but its pointer interaction area is expanded to 44×44 via a transparent
-   pseudo-element. The hit area and visual size are intentionally separate. */
+/* Seek thumb: hidden until hover / touch-drag / keyboard focus. The visual
+   knob is a small solid purple circle (12px), but its pointer interaction
+   area stays expanded to 44×44 via a transparent pseudo-element even when
+   invisible — so touch-drag still grabs it. The hit area and visual size
+   are intentionally separate. */
 .entei-controls-seek-slider [role='slider'] {
   position: relative;
   width: 12px;
@@ -1384,12 +1386,27 @@
   /* Ensure focus ring remains visible even without a border */
   outline: 2px solid transparent;
   outline-offset: 4px;
-  transition: outline-color var(--entei-duration-fast)
-    var(--entei-ease-productive);
+  transition:
+    outline-color var(--entei-duration-fast) var(--entei-ease-productive),
+    opacity var(--entei-duration-fast) var(--entei-ease-productive);
+  /* Hidden at rest — revealed by hover / active drag / focus below. */
+  opacity: 0;
+}
+
+/* Reveal on desktop hover anywhere over the seek slider. */
+.entei-controls-seek-slider:hover [role='slider'] {
+  opacity: 1;
+}
+
+/* Reveal while dragging (pointer down on the thumb) — covers touch
+   drag on mobile where hover never fires. */
+.entei-controls-seek-slider [role='slider']:active {
+  opacity: 1;
 }
 
 .entei-controls-seek-slider [role='slider']:focus-visible {
   outline-color: var(--entei-accent-hover);
+  opacity: 1;
 }
 
 .entei-controls-seek-slider [role='slider']::after {
