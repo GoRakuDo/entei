@@ -10,15 +10,15 @@
 
 IMMERSION_TRACKERは、学習者が「どれだけ再生したか」だけでなく、**何を、どんな再生方法で、どの地点を見直しているか**を自分で振り返るためのlocal-first記録である。
 
-これは監視、ランキング、連続視聴の強要、第三者への分析送信のための機能ではない。自分の学習時間と**i+1 Moments**を理解するための個人用ノートである。RightPanelのHistoryは、このTrackerに属する軽い「最近の採掘」listとして残す。
+これは監視、ランキング、連続視聴の強要、第三者への分析送信のための機能ではない。自分の学習時間と**i+1 Moments**を理解するための個人用ノートである。TrackerのON/OFF切替と採掘履歴は`/tracker/` Dashboard（PR #3 の Nadeshiko 統合作業で RightPanel History tab が削除され移設済）の`TrackerDashboard`に集約され、Player 側は per-cue mining のみを担う。
 
 ```text
 mediaを再生
   → 実際に再生していた時間とmedia timelineの進行をbrowser内で測る
   → speed / play mode / cue区間 / seekを別々に分類する
   → media別・字幕版別・日別・1秒cellの集計だけをIndexedDBへ保存する
-  → RightPanelには最近の採掘だけを短く表示する
-  → 詳細は将来の`/tracker/` Dashboardで読み、必要なら明示操作でexport / deleteする
+  → 採掘履歴は `/tracker/` Dashboard（TrackerDashboard）の MiningHistoryPanel に集約して表示する
+  → 詳細は `/tracker/` Dashboardで読み、必要なら明示操作でexport / deleteする
 ```
 
 ## 2. なぜ単一の「視聴時間」にしないか
@@ -255,7 +255,7 @@ pause原因は区別しない。手動Pause、Mining開始、mobile字幕blur解
 ### Tracker ON / OFF
 
 - Trackerはdefault ON
-- RightPanelのHistory tab上部にshadcn `Switch`と明示した`ON / OFF` labelを置く
+- `/tracker/` Dashboard（`apps/web/src/components/player/TrackerDashboard.tsx`）に shadcn `Switch` と明示した `ON / OFF` label を置く（PR #3 の Nadeshiko 統合作業で RightPanel History tab が削除され移設済み — `RightPanelTab` 型は `'captions' | 'context'` の 2 値に縮小、`apps/web/src/components/player/RightPanel.tsx:23`）
 - OFF状態はlocalStorageへ保存し、reload後もユーザーの選択を維持する
 - OFFへ切り替えた瞬間に現在segmentをflushして計測停止、ONへ戻した瞬間から新segmentを開始する
 - OFFは新規記録だけを止め、既存dataを削除しない。削除は別操作
@@ -264,18 +264,18 @@ pause原因は区別しない。手動Pause、Mining開始、mobile字幕blur解
 
 初期UIはランキングやstreakを出さない。
 
-### 8.1 Player RightPanel — Recent mining
+### 8.1 `/tracker/` Dashboard — Recent mining
 
-`Captions | History`の`History`はIMMERSION_TRACKERの一部とする。上部にTracker `ON / OFF` Switchを置き、その下には最新のMining archiveを短く並べるだけとする。filename・range・sentence以外の統計や編集UIは置かない。
+TrackerのON/OFF切替と採掘履歴は**`/tracker/` Dashboard**（`apps/web/src/components/player/TrackerDashboard.tsx`）に集約する。上部にTracker `ON / OFF` Switchを置き、その下には最新のMining archiveを短く並べる。filename・range・sentence以外の統計や編集UIは置かない。RightPanel側の表示は字幕（`captions` タブ）とニュアンス検索（`context` タブ、Nadeshiko 統合 PR #3 で追加）の 2 タブ構成で、採掘履歴タブは持たない。
 
-### 8.2 将来の`/tracker/` page
+### 8.2 `/tracker/` page
 
-Playerの横へ分析を詰め込まない。学習者が自分の状況を読む次の詳細画面は、将来の専用`/tracker/` pageに分ける。
+Playerの横へ分析を詰め込まない。学習者が自分の状況を読む次の詳細画面は、専用`/tracker/` page（`apps/web/src/pages/tracker/index.astro` + `TrackerDashboard.tsx`、実装済み）に分ける。
 
 1. **Today / period summary** — 実視聴・教材進行・字幕接触・Condensed skip・Fast-forward利用
 2. **Media detail** — filename別の累計、日別推移、rate / mode内訳
 3. **i+1 Moments** — 1秒cellを30秒へまとめ、反復 / pause / backward seek / Anki送信成功をsignal別に表示。クリックseekは後続Phaseで決める
-4. **Mining archive** — 明示export済みsentenceをmedia / dayと結び、詳細を読む。RightPanelはこの一覧の簡易viewだけ
+4. **Mining archive** — 明示export済みsentenceをmedia / dayと結び、詳細を読む。RightPanel（`captions` / `context` の 2 タブ構成）はこの一覧を持たず、`MiningHistoryPanel` の読み取り先としての役割は Dashboard 側に集約されている
 
 「理解度%」「生産性score」「連続日数による煽り」はv1に入れない。数値の意味が不明瞭なまま、行動だけを最適化させない。
 
