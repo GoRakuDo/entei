@@ -2190,7 +2190,7 @@
 .entei-subtitle-appearance-section {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-16);
+  gap: var(--entei-space-24);
 }
 
 .entei-subtitle-control-row {
