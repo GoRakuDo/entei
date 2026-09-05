@@ -77,7 +77,7 @@ desktopの黒いTopBar帯は撤去する。Home / Trackerでは、`[SVG emblem +
 
 - Home / Trackerのdestination pillは上中央に置く。brandはpillの最初のHome linkとしてまとめ、`Home / Player / Tracker`を続ける。3 linkはicon + 短い文字を表示し、active pageには`aria-current="page"`を付ける。
 - desktop Language Comboboxはpillへ入れず、viewport右端へ置く。Combobox triggerのwidthはlocale名でlayout shiftしない固定幅とし、popover contentはtriggerへanchorする。
-- Playerは通常時、desktop pillを表示しない。pointerがPlayer viewportの上端central trigger zoneへ入った時、またはkeyboard focusがnav pathへ入った時だけ、中央pillをrevealする。Language ComboboxはPlayerでrenderしない。RightPanelのSubtitle / History tabやtop-right controlsを塞がないためである。
+- Playerは通常時、desktop pillを表示しない。pointerがPlayer viewportの上端central trigger zoneへ入った時、またはkeyboard focusがnav pathへ入った時だけ、中央pillをrevealする。Language ComboboxはPlayerでrenderしない。RightPanelのCaptions / Context tab（`captions` = 字幕/Subtitle/Captions、`context` = ニュアンス検索/Konteks/Context、`apps/web/src/components/player/RightPanel.tsx:23` の `RightPanelTab = 'captions' | 'context'`）やtop-right controlsを塞がないためである。
 - Playerのreveal対象は`@media (hover: hover) and (pointer: fine)`だけにする。top-edge trigger zoneへpointerが**750ms連続で留まった時だけ**pillを表示し、通り過ぎただけでは表示しない。pillとtrigger zoneを同じcontainmentに置き、top-edgeからpillへpointerを移す途中で消さない。leave時は150〜250ms後に隠す。keyboard focus時は待機なしで即表示する。
 - keyboardはhoverに依存しない。Playerのpill、Combobox trigger、destination linkはDOM・accessibility tree・Tab順に残し、`focus-within`中は表示する。closed visual stateは`opacity`、小さな`transform`、`pointer-events`だけで表し、`display: none`、`visibility: hidden`、`inert`、`aria-hidden`でfocus pathを断たない。
 - Playerのnavはmediaを覆う一時surfaceであり、media selection・custom controls・immersive / fullscreen behaviorを変えない。

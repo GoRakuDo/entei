@@ -1,6 +1,6 @@
 # Nadeshiko Integration — 文脈・例文検索仕様（Nadeshiko API 連携）
 
-> **状態:** 設計確定（2026-08-29 UI 配置決定）・CORS 実機検証完了（2026-08-27）・未実装
+> **状態:** 設計確定（2026-08-29 UI 配置決定）・CORS 実機検証完了（2026-08-27）・実装済（PR #3 f5aabf8 マージ 2026-09-04 + PR #4 53ef212 マージ 2026-09-05、`apps/web/src/components/player/NadeshikoPanel.tsx` / `NadeshikoSettingsTab.tsx` / `TrackerDashboard.tsx` が動作中）
 > **対象:** `Entei/apps/web` の `/player/`
 > **決定日:** 2026-08-27（初版）/ 2026-08-29（UI 配置更新）
 > **スコープ:** Nadeshiko Public API（`api.nadeshiko.co`）を利用した、単語・例文の文脈検索（アニメ・ドラマのセリフとタイムスタンプ）機能のクライアントサイド（BYOK）連携仕様。
@@ -192,7 +192,7 @@ Player の RightPanel（`apps/web/src/components/player/RightPanel.tsx`）のタ
 - **検索フォーム**:
   - 入力欄（単語・フレーズ）
   - 検索ボタン（Lucide `Search` アイコン）
-  - 検索中は TypewriterLoading（既存の同期ボタンと同じパターン）
+  - 検索中もボタンは静的な `Search` アイコンのまま、`disabled={loading}` で操作不能にする（typewriter / spinner にはしない、061a089 で削除済み）
 - **検索結果リスト**:
   - 各結果カードに「アニメ / ドラマ作品名」「セリフ本文」「英語翻訳」「タイムスタンプ」を表示
   - 結果クリックで前後文脈（`context` エンドポイント）を展開表示

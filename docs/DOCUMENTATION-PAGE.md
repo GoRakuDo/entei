@@ -1,6 +1,6 @@
 # DOCUMENTATION-PAGE — EizouDendenshi Setup Tutorial Pages
 
-> **状態:** PLAN（実装前）。この文書は `/tutorial/eizoudendenshi` ルート群の設計確定 + 実装計画。
+> **状態:** IMPLEMENTED（2026-08-26 初版実装、commit `16d4a56 feat(web): tutorial index pages + auto-latest-stable install URLs`、以降 tutorial detail page に intro video 埋込みや Android インストールコマンドの pkg update プレフィックス等の追加修正あり）。`/tutorial/eizoudendenshi` ルート群は 3 言語で SSG 配信中、`apps/web/src/pages/{id,en,ja}-tutorial/eizoudendenshi.astro` および `apps/web/src/i18n/tutorial-eizouden.ts` が実装本体。
 > **作成:** 2026-08-26
 > **スコープ:** 中学生でも分かる平易な語彙で、Windows と Android(Termux) への EizouDendenshi 導入手順を説明する静的チュートリアルページ 3 言語分。
 
