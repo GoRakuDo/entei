@@ -917,7 +917,7 @@
 .entei-anki-field-row {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-12);
 }
 
 .entei-anki-field-label {
