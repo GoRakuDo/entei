@@ -1065,29 +1065,62 @@
   max-width: 100%;
 }
 
-/* --- Portrait: video edge-to-edge --- */
-@media (orientation: portrait) and (max-width: 768px) {
-  /* Focus-safe no-scroll: clip prevents horizontal overflow without
-     creating a scroll container or clipping focus-visible outlines. */
+/* ===========================================================================
+ * P1.1 Custom Control Layer
+ * ---------------------------------------------------------------------------
+ * Replaces native browser video controls. Uses Entei OKLCH tokens.
+ * Visibility auto-hides on idle (desktop + playing); always visible when
+ * paused, error, ended, or pointer/touch/keyboard active.
+ * =========================================================================== */
+
+/* --- Media Surface (wraps video/audio + controls overlay) --- */
+.entei-player-surface {
+  position: relative;
+  width: 100%;
+  border-radius: var(--entei-radius-md);
+  overflow: hidden;
+}
+
+/* For audio, surface is the whole audio area (not relative on wrapper). */
+.entei-player-audio-area {
+  position: relative;
+}
+
+/* --- Portrait: video edge-to-edge ---
+   Positioned AFTER the base .entei-player-surface rules so the no-radius
+   override correctly wins in the cascade. Mobile main has padding:0 in
+   PlayerLayout.astro so no negative-margin breakout is needed: the
+   surface naturally fills the full viewport width. */
+@media (orientation: portrait) and (max-width: 767px) {
+  /* TopBar is not rendered on the /player route (`!isPlayer` in TopBar.astro),
+     so .entei-player-main collapses to padding:0 on mobile. The media
+     surface below is made sticky to the viewport top so the player stays
+     visible while the user scrolls through long subtitle / Nadeshiko
+     content. overflow-x: clip is intentionally NOT applied: mixing
+     overflow-x: clip with overflow-y: visible (default) forces the
+     browser to compute overflow-y as auto, which creates a scroll
+     container and breaks position: sticky on descendants. */
   .entei-player-main {
-    overflow-x: clip;
+    overflow: visible;
   }
 
-  /* Video wrapper breaks out of parent gutter for full-bleed. */
-  .entei-player-video-wrapper {
-    width: calc(100% + 2 * var(--entei-gutter));
-    margin-left: calc(-1 * var(--entei-gutter));
+  /* Media surface fills the full viewport width cleanly — no breakout. */
+  .entei-player-surface {
+    width: 100%;
+    margin: 0;
     border-radius: 0;
   }
 
-  /* Audio area also goes edge-to-edge in portrait. */
+  /* Children fill the now-100vw surface cleanly. */
+  .entei-player-video-wrapper,
   .entei-player-audio-area {
-    width: calc(100% + 2 * var(--entei-gutter));
-    margin-left: calc(-1 * var(--entei-gutter));
+    width: 100%;
+    margin: 0;
     border-radius: 0;
   }
 
-  /* Subtitle panel and subtitle row keep normal horizontal gutters. */
+  /* Subtitle panel and subtitle row keep full width inside the now
+     padding-less main. */
   .entei-subtitle-panel,
   .entei-player-subtitle-row,
   .entei-player-empty {
@@ -1150,27 +1183,6 @@
     justify-content: center;
     border-radius: 0;
   }
-}
-
-/* ===========================================================================
- * P1.1 Custom Control Layer
- * ---------------------------------------------------------------------------
- * Replaces native browser video controls. Uses Entei OKLCH tokens.
- * Visibility auto-hides on idle (desktop + playing); always visible when
- * paused, error, ended, or pointer/touch/keyboard active.
- * =========================================================================== */
-
-/* --- Media Surface (wraps video/audio + controls overlay) --- */
-.entei-player-surface {
-  position: relative;
-  width: 100%;
-  border-radius: var(--entei-radius-md);
-  overflow: hidden;
-}
-
-/* For audio, surface is the whole audio area (not relative on wrapper). */
-.entei-player-audio-area {
-  position: relative;
 }
 
 /* --- Controls Layer (overlay on media surface) ---
@@ -4263,23 +4275,66 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: var(--entei-space-24);
 }
 
-/* --- Mobile (<768px) --- */
+/* --- Mobile (<768px) ---
+   On mobile the Player page must scroll vertically so the user can move
+   through long subtitle / Nadeshiko lists beneath the video. The media
+   area is made sticky so the player stays pinned to the viewport top
+   while the right panel (subtitles) scrolls underneath it. The previous
+   rule used a fixed-height grid + overflow:hidden, which made the page
+   itself non-scrollable and broke sticky; this rewrite switches to a
+   flex column that flows naturally. */
 @media (max-width: 767px) {
   .entei-player-layout--with-panel {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
-    height: calc(100dvh - var(--entei-topbar-height) - var(--entei-space-48));
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
     max-height: none;
-    overflow: hidden;
+    overflow: visible;
+    gap: 0;
+  }
+
+  /* Pin the media area to the top of the viewport while the rest of the
+     page scrolls. z-index above the right panel + subtitle cues (which
+     sit in normal flow below), background matches the player black so
+     subtitle text scrolling underneath does not show through. */
+  .entei-player-media-area {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    width: 100%;
+    background-color: var(--entei-black-950);
   }
 
   .entei-right-panel-inner {
     max-width: 100%;
     border-left: none;
     border-top: 1px solid oklch(0% 0 0deg / 0.08);
-    border-radius: var(--entei-radius-md);
+    border-radius: 0;
+    height: auto;
     min-height: 0;
     max-height: none;
+    overflow: visible;
+  }
+
+  .entei-right-panel-content {
+    height: auto;
+    overflow: visible;
+  }
+
+  .entei-subtitle-panel {
+    max-height: none;
+    border-radius: 0;
+  }
+
+  /* Radix ScrollArea is no longer needed on mobile: the whole page
+     scrolls, so kill its internal scroll containers. Using !important
+     to defeat Radix's inline styles. */
+  .entei-subtitle-scroll-area,
+  .entei-subtitle-scroll-area [data-radix-scroll-area-viewport] {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
   }
 
   .entei-right-panel-tabs {

@@ -104,12 +104,15 @@ const dictionary: Dictionary = getDictionary(locale);
     padding: var(--entei-space-16) var(--entei-gutter) var(--entei-space-32);
   }
 
-  /* Mobile: reserve bottom space so the floating Dock cannot cover
-     player content (NAVIGATION_BAR.md 4.2). Landscape immersive and
-     desktop immersive override this to padding:0 via player.css. */
+  /* Mobile: zero padding — the sticky media area should sit flush against
+     the viewport edges (top, left, right) so there is no gap between the
+     sticky player and the screen edges when the user scrolls subtitles
+     beneath it. The bottom dock is layered (position:fixed) so no reserved
+     space is needed. Landscape immersive and desktop immersive override
+     this via player.css. */
   @media (max-width: 767px) {
     .entei-player-main {
-      padding-bottom: calc(var(--entei-space-32) + var(--entei-dock-height));
+      padding: 0;
     }
   }
 </style>
