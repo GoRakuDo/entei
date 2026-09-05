@@ -181,16 +181,20 @@ export interface Dictionary {
     contextKeySaveFailed: string;
     contextInvalidKey: string;
     contextRateLimited: (seconds: number) => string;
+    contextQuotaExceeded: string;
     contextNetworkError: string;
     contextGenericError: string;
-    contextResultWorkLabel: string;
-    contextResultLineLabel: string;
-    contextResultEnglishLabel: string;
     contextContextLoading: string;
     contextContextFailed: string;
-    contextNoEnglishTranslation: string;
+    contextAudioPlay: string;
+    contextAudioStop: string;
     contextNoTimestamp: string;
-    contextResultsHeading: (count: number) => string;
+    /** Pagination status: more results are being fetched. */
+    contextLoadingMore: string;
+    /** Pagination error: manual retry button label. */
+    contextRetry: string;
+    /** Sentinel rendered when the server reports no more pages. */
+    contextEndOfResults: string;
     // P4: jimaku search modal (design §2.3)
     jimakuSearchTitle: string;
     jimakuSearchEpisode: string;
@@ -536,15 +540,5 @@ export interface Dictionary {
     apiKeyClear: string;
     apiKeyShow: string;
     apiKeyHide: string;
-    quotaHeading: string;
-    quotaRemaining: string;
-    quotaLimit: string;
-    quotaReset: string;
-    quotaUnknown: string;
-    quotaErrorInvalidKey: string;
-    quotaErrorRateLimited: string;
-    quotaErrorNetwork: string;
-    quotaErrorGeneric: string;
-    quotaLoading: string;
   };
 }

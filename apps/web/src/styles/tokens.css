@@ -82,6 +82,9 @@
   /* Serif accent — fixed Japanese 「園庭」 heading only. */
   --entei-font-serif: 'Noto Serif JP', 'Gen Interface JP', serif;
 
+  /* Maru-rounded accent — Nadeshiko card line (Zen Maru Gothic 700). */
+  --entei-font-maru: 'Zen Maru Gothic', 'Gen Interface JP', sans-serif;
+
   /* Dialog heading (h2) — responsive clamp for all modal titles. */
   --entei-dialog-heading-size: clamp(1rem, 2.5vw, 1.25rem);
 

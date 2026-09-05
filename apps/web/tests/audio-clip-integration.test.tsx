@@ -404,16 +404,17 @@ const mockDict = {
   contextInvalidKey: 'API key is invalid. Update it in settings',
   contextRateLimited: (seconds: number) =>
     `Rate limit reached. Try again in ${seconds} seconds`,
+  contextQuotaExceeded: 'Monthly quota exceeded',
   contextNetworkError: 'Could not reach Nadeshiko',
   contextGenericError: 'Something went wrong while searching',
-  contextResultWorkLabel: 'Work',
-  contextResultLineLabel: 'Line',
-  contextResultEnglishLabel: 'English',
   contextContextLoading: 'Loading surrounding context…',
   contextContextFailed: 'Could not load surrounding context',
-  contextNoEnglishTranslation: 'No translation',
+  contextAudioPlay: 'Play audio',
+  contextAudioStop: 'Stop audio',
   contextNoTimestamp: '–',
-  contextResultsHeading: (count: number) => `Results (${count})`,
+  contextLoadingMore: 'Loading more…',
+  contextRetry: 'Retry',
+  contextEndOfResults: 'No more results',
 };
 
 const baseControlsProps = {

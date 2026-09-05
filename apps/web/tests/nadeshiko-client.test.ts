@@ -1,10 +1,13 @@
 /**
  * Tests for the Nadeshiko API client.
  * ---------------------------------------------------------------------------
- * - search/getContext/getUserMe request shapes
- * - Error mapping for 401/403/429/network/malformed JSON
- * - Retry-After parsing (numeric + http-date fallback)
- * - Defensive field parsing for unknown response shapes
+ * Conforms to https://nadeshiko.co/docs/api/openapi.yaml v2.4.12. All mock
+ * request/response shapes mirror the spec — including the nested `query`
+ * object on POST /v1/search, the `Segment.publicId` identifier, the
+ * `textJa.content` / `textEn.content` translation fields, and the deeply
+ * nested `quota.{used, limit, remaining, periodEnd}` shape on
+ * GET /v1/user/me. Defensive fallback parsing for older field names is
+ * covered separately so we keep that insurance path tested.
  * ---------------------------------------------------------------------------
  */
 
@@ -12,7 +15,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   searchNadeshikoSegments,
   getNadeshikoSegmentContext,
-  getNadeshikoUserMe,
 } from '../src/features/nadeshiko/nadeshiko-client';
 
 function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
@@ -31,43 +33,90 @@ describe('nadeshiko-client', () => {
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
-  it('search: POSTs query and parses results array', async () => {
+  it('search: POSTs spec-conformant body and parses segments + includes.media', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        results: [
+        segments: [
           {
-            id: 'seg-1',
-            workName: 'Sousou no Frieren',
-            line: 'また会えたね',
-            englishTranslation: 'We met again.',
-            timestamp: 91.5,
-            timestampLabel: '01:31',
+            publicId: 'wy1hTtMJg6Jf',
+            position: 642,
+            status: 'ACTIVE',
+            startTimeMs: 719343,
+            endTimeMs: 723055,
+            contentRating: 'SAFE',
+            episode: 5,
+            mediaPublicId: 'izs1jikMfEFq',
+            textJa: {
+              content: '猫! 猫 猫 猫... 猫がぁ...',
+              highlight: '<mark>猫</mark>!',
+              tokens: [],
+            },
+            textEn: {
+              content: 'Please get it off!',
+              isMachineTranslated: false,
+              highlight: null,
+            },
+            textEs: {
+              content: '¡Gato!',
+              isMachineTranslated: false,
+              highlight: null,
+            },
+            urls: {
+              imageUrl: 'https://cdn.nadeshiko.co/x.webp',
+              audioUrl: 'https://cdn.nadeshiko.co/x.mp3',
+              videoUrl: 'https://cdn.nadeshiko.co/x.mp4',
+            },
           },
         ],
+        includes: {
+          media: {
+            izs1jikMfEFq: {
+              publicId: 'izs1jikMfEFq',
+              nameJa: 'らんま1/2 (2024) 第2期',
+              nameRomaji: 'Ranma 1/2 (2024) 2nd Season',
+              nameEn: 'Ranma1/2 (2024) Season 2',
+            },
+          },
+        },
+        pagination: {
+          hasMore: true,
+          estimatedTotalHits: 1233,
+          estimatedTotalHitsRelation: 'EXACT',
+          cursor: 'eyJraW5kIjoia2V5c2V0In0',
+        },
       }),
     );
 
-    const result = await searchNadeshikoSegments('KEY', '会えた');
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      id: 'seg-1',
-      workName: 'Sousou no Frieren',
-      line: 'また会えたね',
-      englishTranslation: 'We met again.',
-      timestampSeconds: 91.5,
-      timestampLabel: '01:31',
-    });
+    const result = await searchNadeshikoSegments('KEY', '猫');
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0]!.id).toBe('wy1hTtMJg6Jf');
+    expect(result.segments[0]!.workName).toBe('らんま1/2 (2024) 第2期');
+    expect(result.segments[0]!.line).toBe('猫! 猫 猫 猫... 猫がぁ...');
+    expect(result.segments[0]!.englishTranslation).toBe('Please get it off!');
+    // 719343 ms → 719 seconds → 11:59
+    expect(result.segments[0]!.timestampSeconds).toBe(719.343);
+    expect(result.segments[0]!.timestampLabel).toBe('11:59');
+    expect(result.segments[0]!.mediaPublicId).toBe('izs1jikMfEFq');
+    expect(result.segments[0]!.highlightJa).toBe('<mark>猫</mark>!');
+    expect(result.segments[0]!.urls?.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
+    expect(result.segments[0]!.urls?.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
+    // The card reads imageUrl / audioUrl as flat fields too.
+    expect(result.segments[0]!.imageUrl).toBe('https://cdn.nadeshiko.co/x.webp');
+    expect(result.segments[0]!.audioUrl).toBe('https://cdn.nadeshiko.co/x.mp3');
+    // Pagination metadata is surfaced so the panel can drive the next page.
+    expect(result.hasMore).toBe(true);
+    expect(result.nextCursor).toBe('eyJraW5kIjoia2V5c2V0In0');
+    expect(result.estimatedTotalHits).toBe(1233);
+    expect(result.estimatedTotalHitsRelation).toBe('EXACT');
 
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe('https://api.nadeshiko.co/v1/search');
     const reqInit = init as RequestInit;
     expect(reqInit.method).toBe('POST');
     expect(JSON.parse(reqInit.body as string)).toEqual({
-      query: '会えた',
-      exactMatch: false,
+      query: { search: '猫' },
       take: 10,
-      mode: 'RELEVANCE',
-      cursor: null,
+      sort: { mode: 'RELEVANCE' },
     });
     expect(reqInit.headers).toEqual(
       expect.objectContaining({
@@ -77,28 +126,200 @@ describe('nadeshiko-client', () => {
     );
   });
 
-  it('search: also accepts {items}/{segments}/bare-array response shapes', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ items: [{ id: 'a', line: 'x' }] }),
-    );
-    const a = await searchNadeshikoSegments('K', 'q');
-    expect(a).toHaveLength(1);
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ segments: [{ id: 'b', line: 'y' }] }),
-    );
-    const b = await searchNadeshikoSegments('K', 'q');
-    expect(b).toHaveLength(1);
-
-    fetchMock.mockResolvedValueOnce(jsonResponse([{ id: 'c', line: 'z' }]));
-    const c = await searchNadeshikoSegments('K', 'q');
-    expect(c).toHaveLength(1);
+  it('search: passes through spec options (take, mode, exactMatch, cursor, include, seed)', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ segments: [] }));
+    await searchNadeshikoSegments('KEY', '猫', {
+      take: 25,
+      mode: 'TIME_DESC',
+      exactMatch: true,
+      cursor: 'opaque-token',
+      include: ['media'],
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      query: { search: '猫', exactMatch: true },
+      take: 25,
+      sort: { mode: 'TIME_DESC' },
+      cursor: 'opaque-token',
+      include: ['media'],
+    });
   });
 
-  it('search: empty query returns empty array without calling fetch', async () => {
+  it('search: omits exactMatch when not specified (spec default is false)', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ segments: [] }));
+    await searchNadeshikoSegments('KEY', '猫');
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    // Spec marks exactMatch default as false. We omit the field rather than
+    // send an explicit false — semantically equivalent, less wire noise.
+    expect(body.query).toEqual({ search: '猫' });
+    expect('exactMatch' in body.query).toBe(false);
+  });
+
+  it('search: passes RANDOM seed through to the request body', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ segments: [] }));
+    await searchNadeshikoSegments('KEY', 'q', { mode: 'RANDOM', seed: 42 });
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body.sort).toEqual({ mode: 'RANDOM', seed: 42 });
+  });
+
+  it('search: returns empty array on missing segments field', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ pagination: { hasMore: false } }),
+    );
+    const result = await searchNadeshikoSegments('KEY', 'q');
+    expect(result.segments).toEqual([]);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextCursor).toBeNull();
+  });
+
+  it('search: empty query returns empty page without calling fetch', async () => {
     const result = await searchNadeshikoSegments('KEY', '   ');
-    expect(result).toEqual([]);
+    expect(result.segments).toEqual([]);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextCursor).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('search: tolerates missing includes.media (workName stays empty)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          {
+            publicId: 'a',
+            textJa: { content: 'x' },
+            textEn: { content: 'x' },
+            startTimeMs: 1000,
+            mediaPublicId: 'missing-id',
+          },
+        ],
+      }),
+    );
+    const r = await searchNadeshikoSegments('KEY', 'q');
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0]!.workName).toBe('');
+  });
+
+  it('search: tolerates missing urls block (imageUrl / audioUrl stay undefined)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          {
+            publicId: 'a',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+          },
+        ],
+      }),
+    );
+    const r = await searchNadeshikoSegments('KEY', 'q');
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0]!.imageUrl).toBeUndefined();
+    expect(r.segments[0]!.audioUrl).toBeUndefined();
+    expect(r.segments[0]!.urls).toBeUndefined();
+  });
+
+  it('search: parses urls.videoUrl into urls but does not surface a flat field', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          {
+            publicId: 'a',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+            urls: { videoUrl: 'https://cdn.nadeshiko.co/v.mp4' },
+          },
+        ],
+      }),
+    );
+    const r = await searchNadeshikoSegments('KEY', 'q');
+    expect(r.segments[0]!.urls?.videoUrl).toBe('https://cdn.nadeshiko.co/v.mp4');
+    // The card only surfaces image / audio flat fields.
+    expect(r.segments[0]!.imageUrl).toBeUndefined();
+    expect(r.segments[0]!.audioUrl).toBeUndefined();
+  });
+
+  it('search: surfaces terminal-page pagination (hasMore=false, cursor=null)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          {
+            publicId: 'a',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+          },
+        ],
+        pagination: {
+          hasMore: false,
+          estimatedTotalHits: 1,
+          estimatedTotalHitsRelation: 'EXACT',
+          cursor: null,
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.segments).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+    expect(page.estimatedTotalHits).toBe(1);
+    expect(page.estimatedTotalHitsRelation).toBe('EXACT');
+  });
+
+  it('search: coerces missing pagination block to terminal page', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [
+          { publicId: 'a', textJa: { content: 'x' }, startTimeMs: 1000 },
+        ],
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.segments).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('search: invalid cursor (empty / non-string) is treated as terminal', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [],
+        pagination: {
+          hasMore: true, // server lied — cursor is unusable
+          cursor: '',
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('search: ignores hasMore=true without a usable cursor to avoid stuck pagination', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [],
+        pagination: {
+          hasMore: true,
+          // cursor missing entirely
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('search: omits estimatedTotalHits when not a finite number', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        segments: [],
+        pagination: {
+          hasMore: false,
+          cursor: null,
+          estimatedTotalHits: 'NaN-ish',
+        },
+      }),
+    );
+    const page = await searchNadeshikoSegments('KEY', 'q');
+    expect(page.estimatedTotalHits).toBeUndefined();
   });
 
   it('maps 401 to invalid-key', async () => {
@@ -127,6 +348,61 @@ describe('nadeshiko-client', () => {
     });
   });
 
+  it('maps 429 with QUOTA_EXCEEDED body to quota-exceeded', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'QUOTA_EXCEEDED',
+          title: 'Monthly quota exceeded',
+        }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
+      kind: 'quota-exceeded',
+      status: 429,
+    });
+  });
+
+  it('maps 429 with RATE_LIMIT_EXCEEDED body to rate-limited (not quota)', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ code: 'RATE_LIMIT_EXCEEDED' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
+      kind: 'rate-limited',
+      status: 429,
+    });
+  });
+
+  it('maps 429 with empty-object body to rate-limited (default)', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('{}', {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
+      kind: 'rate-limited',
+      status: 429,
+    });
+  });
+
+  it('maps 429 with non-JSON body to rate-limited (parse failure defaults)', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('not-json', {
+        status: 429,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
+    );
+    await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
+      kind: 'rate-limited',
+      status: 429,
+    });
+  });
+
   it('maps 500 to network', async () => {
     fetchMock.mockResolvedValue(new Response('oops', { status: 500 }));
     await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
@@ -143,7 +419,10 @@ describe('nadeshiko-client', () => {
 
   it('maps malformed JSON to invalid-response', async () => {
     fetchMock.mockResolvedValue(
-      new Response('not-json', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+      new Response('not-json', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
     );
     await expect(searchNadeshikoSegments('K', 'q')).rejects.toMatchObject({
       kind: 'invalid-response',
@@ -151,7 +430,7 @@ describe('nadeshiko-client', () => {
   });
 
   it('never leaks the API key into the request URL', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ results: [] }));
+    fetchMock.mockResolvedValue(jsonResponse({ segments: [] }));
     await searchNadeshikoSegments('super-secret', 'q');
     const url = String(fetchMock.mock.calls[0]![0]);
     expect(url).not.toContain('super-secret');
@@ -169,67 +448,108 @@ describe('nadeshiko-client', () => {
     const ac = new AbortController();
     const p = searchNadeshikoSegments('K', 'q', {}, ac.signal);
     ac.abort();
-    // Network error path catches everything except when aborted; either is
-    // fine — the contract is "we don't throw a non-mapped error".
     await expect(p).rejects.toBeDefined();
   });
 
-  it('getSegmentContext: parses surrounding lines', async () => {
+  it('getSegmentContext: returns center + surrounding from flat segments[]', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        segment: {
-          id: 'seg-1',
-          workName: 'W',
-          line: 'target',
-        },
-        context: [
-          { id: 'a', line: 'before', timestamp: 10 },
-          { id: 'b', line: 'after', timestamp: 20 },
+        segments: [
+          {
+            publicId: 'before',
+            textJa: { content: '前' },
+            startTimeMs: 1000,
+            mediaPublicId: 'm',
+          },
+          {
+            publicId: 'center',
+            textJa: { content: '今' },
+            startTimeMs: 2000,
+            mediaPublicId: 'm',
+          },
+          {
+            publicId: 'after',
+            textJa: { content: '後' },
+            startTimeMs: 3000,
+            mediaPublicId: 'm',
+          },
         ],
       }),
     );
-    const ctx = await getNadeshikoSegmentContext('K', 'seg-1');
-    expect(ctx.id).toBe('seg-1');
-    expect(ctx.line).toBe('target');
+    const ctx = await getNadeshikoSegmentContext('K', 'center');
+    expect(ctx.center.id).toBe('center');
+    expect(ctx.center.line).toBe('今');
     expect(ctx.surrounding).toHaveLength(2);
-    expect(ctx.surrounding[0]!.line).toBe('before');
+    expect(ctx.surrounding.map((s) => s.id)).toEqual(['before', 'after']);
+    // centerIdx tells the UI how many leading entries in `surrounding`
+    // are "before" the centre (the rest are "after"). The spec returns
+    // a temporal-order flat list, so this matches the index of `center`
+    // in that flat list — not the length of the surrounding array.
+    expect(ctx.centerIdx).toBe(1);
   });
 
-  it('getSegmentContext: tolerates empty context array', async () => {
+  it('getSegmentContext: places the center in surrounding list correctly when not first', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        segment: { id: 'seg-x', line: 'only' },
-        context: [],
+        segments: [
+          { publicId: 'a', textJa: { content: 'A' }, startTimeMs: 1000 },
+          { publicId: 'b', textJa: { content: 'B' }, startTimeMs: 2000 },
+          { publicId: 'center', textJa: { content: 'C' }, startTimeMs: 3000 },
+          { publicId: 'd', textJa: { content: 'D' }, startTimeMs: 4000 },
+        ],
       }),
     );
-    const ctx = await getNadeshikoSegmentContext('K', 'seg-x');
+    const ctx = await getNadeshikoSegmentContext('K', 'center');
+    expect(ctx.center.line).toBe('C');
+    expect(ctx.surrounding.map((s) => s.id)).toEqual(['a', 'b', 'd']);
+    // centre is at index 2 in the spec-flat list, so 2 entries are
+    // "before" it in the surrounding list (a, b) and 1 is "after" (d).
+    expect(ctx.centerIdx).toBe(2);
+  });
+
+  it('getSegmentContext: tolerates empty segments list', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ segments: [] }));
+    const ctx = await getNadeshikoSegmentContext('K', 'missing');
+    expect(ctx.center.id).toBe('missing');
     expect(ctx.surrounding).toEqual([]);
+    // No matching entry — we synthesise a fallback centre from the first
+    // entry; centerIdx 0 keeps the card's before+center+after split
+    // temporal (centre first, rest in server order).
+    expect(ctx.centerIdx).toBe(0);
   });
 
-  it('getUserMe: parses remaining/limit/reset', async () => {
+  it('getSegmentContext: appends take to the URL when provided', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ segments: [] }));
+    await getNadeshikoSegmentContext('K', 'x', undefined, { take: 10 });
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('take=10');
+  });
+
+  it('getSegmentContext: omits take when not provided (spec default applies)', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ segments: [] }));
+    await getNadeshikoSegmentContext('K', 'x');
+    expect(String(fetchMock.mock.calls[0]![0])).not.toContain('take=');
+  });
+
+  it('getSegmentContext: uses workName from includes.media', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        remainingRequests: 4500,
-        monthlyLimit: 5000,
-        resetAt: '2026-09-01T00:00:00Z',
+        segments: [
+          {
+            publicId: 'x',
+            textJa: { content: 'x' },
+            startTimeMs: 1000,
+            mediaPublicId: 'mid',
+          },
+        ],
+        includes: {
+          media: {
+            mid: { publicId: 'mid', nameJa: 'タイトル', nameEn: 'Title' },
+          },
+        },
       }),
     );
-    const me = await getNadeshikoUserMe('K');
-    expect(me).toEqual({
-      remainingRequests: 4500,
-      monthlyLimit: 5000,
-      resetAt: '2026-09-01T00:00:00Z',
-    });
-  });
-
-  it('getUserMe: maps 429 to rate-limited', async () => {
-    fetchMock.mockResolvedValue(
-      new Response(null, { status: 429, headers: { 'Retry-After': '30' } }),
-    );
-    await expect(getNadeshikoUserMe('K')).rejects.toMatchObject({
-      kind: 'rate-limited',
-      retryAfterSeconds: 30,
-    });
+    const ctx = await getNadeshikoSegmentContext('K', 'x');
+    expect(ctx.center.workName).toBe('タイトル');
   });
 
   it('Retry-After http-date form is parsed as seconds-from-now', async () => {

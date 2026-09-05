@@ -27,3 +27,6 @@
 
 /* Noto Serif JP — fixed Japanese Hub heading */
 @import '@fontsource/noto-serif-jp/400.css';
+
+/* Zen Maru Gothic — Nadeshiko card serif line (maru-rounded, eye-friendly) */
+@import '@fontsource/zen-maru-gothic/700.css';
