@@ -4315,16 +4315,32 @@ html.entei-player-immersive .entei-player-audio-area {
     min-height: 0;
     max-height: none;
     overflow: visible;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
   }
 
   .entei-right-panel-content {
     height: auto;
     overflow: visible;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
   }
 
   .entei-subtitle-panel {
     max-height: none;
     border-radius: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .entei-subtitle-empty {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 
   /* Radix ScrollArea is no longer needed on mobile: the whole page
