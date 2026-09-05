@@ -2242,8 +2242,8 @@
    the same transparent pseudo-element pattern. */
 .entei-subtitle-slider [role='slider'] {
   position: relative;
-  width: 12px;
-  height: 12px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background-color: var(--entei-accent);
   border: none;
