@@ -414,15 +414,19 @@ const settingsUIProps = dictionary.playerUI;
       color: var(--entei-text);
     }
 
-.entei-desktop-pill-link[aria-current='page'] {
-  color: var(--entei-accent);
-  font-weight: 600;
-  background-color: var(--entei-btn-hover-bg);
+    .entei-desktop-pill-link[aria-current='page'] {
+      color: var(--entei-status-locked);
+      font-weight: 600;
+      background-color: var(--entei-btn-hover-bg);
       border-radius: var(--entei-radius-card);
     }
 
+    .entei-desktop-pill-link[aria-current='page'] .entei-desktop-pill-icon {
+      color: var(--entei-status-locked);
+    }
+
     .entei-desktop-pill-link[aria-current='page']:hover {
-      color: var(--entei-accent-hover);
+      color: var(--entei-status-locked);
     }
 
     /* Icon sizing */
@@ -637,12 +641,16 @@ const settingsUIProps = dictionary.playerUI;
 
     /* Active page state */
     .entei-mobile-dock-link[aria-current='page'] {
-      color: var(--entei-accent);
+      color: var(--entei-status-locked);
       background-color: oklch(57.74% 0.209 273.85deg / 0.12);
     }
 
+    .entei-mobile-dock-link[aria-current='page'] .entei-mobile-dock-icon {
+      color: var(--entei-status-locked);
+    }
+
     .entei-mobile-dock-link[aria-current='page']:hover {
-      color: var(--entei-accent-hover);
+      color: var(--entei-status-locked);
       background-color: oklch(57.74% 0.209 273.85deg / 0.18);
     }
 
