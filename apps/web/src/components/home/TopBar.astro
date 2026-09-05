@@ -218,10 +218,13 @@ const settingsUIProps = dictionary.playerUI;
           class="entei-mobile-dock-link"
           href={route}
           aria-current={isActive ? 'page' : undefined}
+          aria-label={dictionary.nav[labelKey]}
           data-entei-nav-destination={route}
         >
           <Icon class="entei-mobile-dock-icon" aria-hidden="true" />
-          <span data-i18n={`nav.${labelKey}`}>{dictionary.nav[labelKey]}</span>
+          <span class="entei-mobile-dock-label" data-i18n={`nav.${labelKey}`}>
+            {dictionary.nav[labelKey]}
+          </span>
         </a>
       );
     })
@@ -583,15 +586,15 @@ const settingsUIProps = dictionary.playerUI;
   @media (max-width: 767px) {
     .entei-mobile-dock {
       position: fixed;
-      bottom: calc(var(--entei-safe-bottom) + var(--entei-space-12));
+      bottom: calc(var(--entei-safe-bottom) + var(--entei-space-16));
       left: 50%;
       transform: translateX(-50%);
-      width: calc(100% - 2 * var(--entei-space-16));
-      max-width: 22rem;
+      width: fit-content;
       display: flex;
-      align-items: stretch;
-      gap: var(--entei-space-4);
-      padding: var(--entei-space-4) var(--entei-space-8);
+      align-items: center;
+      justify-content: center;
+      gap: var(--entei-space-12);
+      padding: var(--entei-space-6) var(--entei-space-8);
       background-color: oklch(14% 0.02 270deg / 0.85);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
@@ -604,25 +607,25 @@ const settingsUIProps = dictionary.playerUI;
     }
 
     .entei-mobile-dock-link {
-      flex: 1 1 0;
-      display: flex;
-      flex-direction: column;
+      width: 64px;
+      height: 44px;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: var(--entei-space-4);
-      min-height: var(--entei-touch-min);
-      min-width: 0;
-      padding: var(--entei-space-6) var(--entei-space-4);
+      padding: 0;
       color: var(--entei-text-secondary);
-      font-family: var(--entei-font-body);
-      font-size: 0.75rem;
-      font-weight: 500;
-      line-height: 1.2;
       text-decoration: none;
+      border: 1px solid transparent;
       border-radius: var(--entei-radius-pill);
       transition:
         color var(--entei-duration-fast) var(--entei-ease-productive),
-        background-color var(--entei-duration-fast) var(--entei-ease-productive);
+        background-color var(--entei-duration-fast) var(--entei-ease-productive),
+        border-color var(--entei-duration-fast) var(--entei-ease-productive);
+    }
+
+    /* Hide text label on mobile — icons only per design */
+    .entei-mobile-dock-label {
+      display: none;
     }
 
     .entei-mobile-dock-link:hover {
@@ -641,10 +644,11 @@ const settingsUIProps = dictionary.playerUI;
       background-color: oklch(100% 0 0deg / 0.06);
     }
 
-    /* Active page state */
+    /* Active page state — highlighted pill per design mock */
     .entei-mobile-dock-link[aria-current='page'] {
       color: var(--entei-status-locked);
-      background-color: oklch(57.74% 0.209 273.85deg / 0.12);
+      background-color: oklch(57.74% 0.209 273.85deg / 0.16);
+      border-color: oklch(100% 0 0deg / 0.12);
     }
 
     .entei-mobile-dock-link[aria-current='page'] .entei-mobile-dock-icon {
@@ -658,8 +662,8 @@ const settingsUIProps = dictionary.playerUI;
 
     /* Icon sizing */
     .entei-mobile-dock-icon {
-      width: 24px;
-      height: 24px;
+      width: 20px;
+      height: 20px;
       flex-shrink: 0;
     }
 

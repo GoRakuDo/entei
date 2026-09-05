@@ -344,26 +344,30 @@
 }
 
 .entei-mobile-dock .entei-nav-settings-trigger {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
+  width: 64px;
+  height: 44px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--entei-space-4);
-  min-height: var(--entei-touch-min);
-  min-width: 0;
-  padding: var(--entei-space-6) var(--entei-space-4);
+  padding: 0;
   background: none;
-  border: none;
+  border: 1px solid transparent;
   color: var(--entei-text-secondary);
-  font-family: var(--entei-font-body);
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.2;
   border-radius: var(--entei-radius-pill);
   transition:
     color var(--entei-duration-fast) var(--entei-ease-productive),
-    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-mobile-dock .entei-nav-settings-trigger span {
+  display: none;
+}
+
+.entei-mobile-dock .entei-nav-settings-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .entei-mobile-dock .entei-nav-settings-trigger:hover {
