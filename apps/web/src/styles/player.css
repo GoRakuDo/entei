@@ -2353,8 +2353,17 @@
 .entei-jimaku-section {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-16);
+  gap: var(--entei-space-24);
   padding: var(--entei-space-16) 0;
+}
+
+/* Subtitle sync mode section — same 24px rhythm as the other settings
+   sections (appearance / jimaku). No CSS existed; the TSX used the
+   class bare, so children stacked with zero gap. */
+.entei-subtitle-sync-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
 }
 
 .entei-jimaku-key-row {
