@@ -4852,6 +4852,7 @@ html.entei-player-immersive .entei-player-audio-area {
   font-weight: 700;
   line-height: 1.2;
   color: var(--entei-text);
+  text-align: center;
 }
 
 .entei-eizou-controls {
@@ -4932,6 +4933,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
   .entei-eizou-title {
     font-size: 3rem; /* 48px — desktop mock */
+    width: 100%; /* body is align flex-start; full width lets text-align center work */
   }
 }
 
