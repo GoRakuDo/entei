@@ -12,7 +12,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Captions, BrainCircuit, RotateCwFadingClock, Search } from 'lucide-react';
+import {
+  Captions,
+  BrainCircuit,
+  RotateCwFadingClock,
+  Search,
+} from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
 import { NadeshikoPanel } from '@/components/player/NadeshikoPanel';
@@ -92,45 +97,47 @@ export function RightPanel({
   if (!visible) return null;
 
   const tabBar = (
-    <div
-      className="entei-right-panel-tabs"
-      role="tablist"
-      aria-label={dict.rightPanelTabsLabel}
-    >
-      <Button
-        variant={activeTab === 'captions' ? 'default' : 'ghost'}
-        size="sm"
-        className="entei-right-panel-tab"
-        role="tab"
-        aria-pressed={activeTab === 'captions'}
-        aria-selected={activeTab === 'captions'}
-        aria-controls="right-panel-captions"
-        aria-label={dict.rightPanelTabCaptions}
-        title={dict.rightPanelTabCaptions}
-        onClick={() => handleTabChange('captions')}
+    <div className="entei-right-panel-tabs-bar">
+      <div
+        className="entei-right-panel-tabs"
+        role="tablist"
+        aria-label={dict.rightPanelTabsLabel}
       >
-        <Captions size={16} aria-hidden="true" />
-        <span className="entei-right-panel-tab-label">
-          {dict.rightPanelTabCaptions}
-        </span>
-      </Button>
-      <Button
-        variant={activeTab === 'context' ? 'default' : 'ghost'}
-        size="sm"
-        className="entei-right-panel-tab"
-        role="tab"
-        aria-pressed={activeTab === 'context'}
-        aria-selected={activeTab === 'context'}
-        aria-controls="right-panel-context"
-        aria-label={dict.contextTabLabel}
-        title={dict.contextTabLabel}
-        onClick={() => handleTabChange('context')}
-      >
-        <BrainCircuit size={16} aria-hidden="true" />
-        <span className="entei-right-panel-tab-label">
-          {dict.contextTabLabel}
-        </span>
-      </Button>
+        <Button
+          variant={activeTab === 'captions' ? 'default' : 'ghost'}
+          size="sm"
+          className="entei-right-panel-tab"
+          role="tab"
+          aria-pressed={activeTab === 'captions'}
+          aria-selected={activeTab === 'captions'}
+          aria-controls="right-panel-captions"
+          aria-label={dict.rightPanelTabCaptions}
+          title={dict.rightPanelTabCaptions}
+          onClick={() => handleTabChange('captions')}
+        >
+          <Captions size={16} aria-hidden="true" />
+          <span className="entei-right-panel-tab-label">
+            {dict.rightPanelTabCaptions}
+          </span>
+        </Button>
+        <Button
+          variant={activeTab === 'context' ? 'default' : 'ghost'}
+          size="sm"
+          className="entei-right-panel-tab"
+          role="tab"
+          aria-pressed={activeTab === 'context'}
+          aria-selected={activeTab === 'context'}
+          aria-controls="right-panel-context"
+          aria-label={dict.contextTabLabel}
+          title={dict.contextTabLabel}
+          onClick={() => handleTabChange('context')}
+        >
+          <BrainCircuit size={16} aria-hidden="true" />
+          <span className="entei-right-panel-tab-label">
+            {dict.contextTabLabel}
+          </span>
+        </Button>
+      </div>
     </div>
   );
 
@@ -145,8 +152,8 @@ export function RightPanel({
           className="entei-right-panel-content"
         >
           <div className="entei-right-panel-actions">
-            {!hideSyncSubtitle && (
-              isMagnet ? (
+            {!hideSyncSubtitle &&
+              (isMagnet ? (
                 /* Magnet: LazySync toggle — colored while on, click toggles.
                  * The on-state shows the static "activated" label instead of
                  * a typewriter (docs §10.3). */
@@ -158,9 +165,17 @@ export function RightPanel({
                       : 'entei-subtitle-sync-button'
                   }
                   onClick={onToggleLazySync}
-                  aria-label={lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
+                  aria-label={
+                    lazySyncOn
+                      ? dict.subtitleSyncLazyOn
+                      : dict.subtitleSyncLazyOff
+                  }
                   aria-pressed={lazySyncOn}
-                  title={lazySyncOn ? dict.subtitleSyncLazyOn : dict.subtitleSyncLazyOff}
+                  title={
+                    lazySyncOn
+                      ? dict.subtitleSyncLazyOn
+                      : dict.subtitleSyncLazyOff
+                  }
                   disabled={!canSyncSubtitle}
                 >
                   <RotateCwFadingClock size={16} aria-hidden="true" />
@@ -193,8 +208,7 @@ export function RightPanel({
                     </>
                   )}
                 </button>
-              )
-            )}
+              ))}
             {onOpenJimakuSearch && (
               <button
                 type="button"

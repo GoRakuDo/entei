@@ -4106,7 +4106,12 @@ html.entei-player-immersive .entei-player-audio-area {
   container-name: right-panel;
 }
 
-/* --- Tab selector bar --- */
+/* --- Tab selector bar ---
+   Desktop wrapper is display:contents so it behaves as if absent in layout. */
+.entei-right-panel-tabs-bar {
+  display: contents;
+}
+
 .entei-right-panel-tabs {
   display: flex;
   align-self: stretch;
@@ -4353,8 +4358,25 @@ html.entei-player-immersive .entei-player-audio-area {
     max-height: none !important;
   }
 
+  /* Mobile tab bar wrapper: sticky below the sticky player media area,
+     providing a full-width solid background so scrolled content passes
+     underneath without bleeding through margins. The inner tabs retain
+     their rounded border and styling. Must override desktop display:contents
+     with display:block so the element generates a box for sticky & padding. */
+  .entei-right-panel-tabs-bar {
+    display: block;
+    position: sticky;
+    top: var(--entei-sticky-player-height, 0px);
+    z-index: 24;
+    width: 100%;
+    background-color: var(--entei-surface);
+    padding: var(--entei-space-8) var(--entei-space-12);
+    border-bottom: 1px solid oklch(0% 0 0deg / 0.08);
+  }
+
   .entei-right-panel-tabs {
     min-width: 0;
+    margin: 0;
   }
 }
 

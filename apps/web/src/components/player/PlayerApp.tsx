@@ -621,8 +621,7 @@ export default function PlayerApp() {
     (seconds: number): number => {
       const p = jobSession.progress;
       if (!p || p.total <= 0) return seconds;
-      const media =
-        mediaType === 'video' ? videoRef.current : audioRef.current;
+      const media = mediaType === 'video' ? videoRef.current : audioRef.current;
       const duration = media?.duration ?? 0;
       return clampCompanionSeek(seconds, p.available, p.total, duration);
     },
@@ -778,9 +777,7 @@ export default function PlayerApp() {
     if (phase === 'error' && prevJobPhaseRef.current !== 'error') {
       setIsStartBuffering(false);
       setIsLoading(false);
-      notifyCompanionError(
-        dictRef.current.playerUI.companionJobError,
-      );
+      notifyCompanionError(dictRef.current.playerUI.companionJobError);
     }
     if (phase === 'error' || phase === 'idle') {
       // A failed/ended job also releases the buffering overlays.
@@ -816,7 +813,12 @@ export default function PlayerApp() {
         ? ui.ytModeLabelQuality
         : ui.ytModeLabelSpeed;
     notifyQuality(ui.ytModeToastFormat, `${quality}p`, modeLabel);
-  }, [jobSession.jobMediaUrl, jobSession.jobQuality, jobSession.jobId, jobSession.jobMode]);
+  }, [
+    jobSession.jobMediaUrl,
+    jobSession.jobQuality,
+    jobSession.jobId,
+    jobSession.jobMode,
+  ]);
 
   // Whether the companion-subtitle bounded retry has actually given up
   // (SUBTITLE_RETRY_WINDOW_MS elapsed with no 200). While false, the
@@ -844,7 +846,7 @@ export default function PlayerApp() {
     // same "Preparing subtitles…" spinner until the load settles.
     (jimakuLoading && cues.length === 0);
 
-// ED-2G: Auto-fetch subtitle content from companion when a torrent job
+  // ED-2G: Auto-fetch subtitle content from companion when a torrent job
   // selected a subtitle file, or from a YouTube job that has Japanese
   // subtitles. Fetches the text, parses it with the same subtitle-reader
   // used for local files, and populates the subtitle panel.
@@ -882,7 +884,12 @@ export default function PlayerApp() {
     // unfetched until a re-render re-runs this effect. This is a known
     // limit, not a regression — the gate exists to avoid fetching before
     // any media is servable.
-    if (jobSession.kind === 'youtube' && jobSession.phase !== 'ready' && jobSession.phase !== 'playing') return;
+    if (
+      jobSession.kind === 'youtube' &&
+      jobSession.phase !== 'ready' &&
+      jobSession.phase !== 'playing'
+    )
+      return;
     let cancelled = false;
     const ac = new AbortController();
     const retryDeadline = Date.now() + SUBTITLE_RETRY_WINDOW_MS;
@@ -941,7 +948,12 @@ export default function PlayerApp() {
         retryTimer = null;
       }
     };
-  }, [jobSession.subtitleUrl, jobSession.active, jobSession.kind, jobSession.phase]);
+  }, [
+    jobSession.subtitleUrl,
+    jobSession.active,
+    jobSession.kind,
+    jobSession.phase,
+  ]);
 
   useEffect(() => {
     jobSession.attachMediaElement(videoRef.current);
@@ -964,7 +976,10 @@ export default function PlayerApp() {
 
   const trackerFlush = useCallback(
     async (
-      cells: Map<string, import('@/features/player/tracker/types').ExposureCell>,
+      cells: Map<
+        string,
+        import('@/features/player/tracker/types').ExposureCell
+      >,
       totals: import('@/features/player/tracker/types').TimeTotals,
       learningSetId: string,
     ) => {
@@ -992,9 +1007,10 @@ export default function PlayerApp() {
     mediaName,
     hasSubtitles: cues.length > 0,
     subtitleText: subtitleTextRef.current,
-    playMode: playMode === 'condensed' || playMode === 'fast-forward'
-      ? playMode
-      : 'normal',
+    playMode:
+      playMode === 'condensed' || playMode === 'fast-forward'
+        ? playMode
+        : 'normal',
     playbackRate,
     isPlaying,
     isPaused: !isPlaying && !!mediaUrl,
@@ -1317,46 +1333,49 @@ export default function PlayerApp() {
     ],
   );
 
-  const handleSubtitleSelect = useCallback((file: File) => {
-    setSubtitleErrors([]);
+  const handleSubtitleSelect = useCallback(
+    (file: File) => {
+      setSubtitleErrors([]);
 
-    if (!isSubtitleFile(file)) {
-      const p = dictRef.current.playerUI;
-      setSubtitleErrors([
-        {
-          line: 0,
-          message: `${p.unsupportedFormat}: .${getFileExtension(file)}`,
-        },
-      ]);
-      return;
-    }
-
-    // BLOCKER 1: a manual subtitle pick must win over any in-flight jimaku
-    // auto-load. Cancel the run so its pending fetch can't clobber this pick
-    // once it resolves (docs/JIMAKU_SUBS.md §2.2-3).
-    jimakuAutoLoad.cancel();
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result;
-      if (typeof content !== 'string') {
+      if (!isSubtitleFile(file)) {
+        const p = dictRef.current.playerUI;
         setSubtitleErrors([
-          { line: 0, message: dictRef.current.playerUI.failedToRead },
+          {
+            line: 0,
+            message: `${p.unsupportedFormat}: .${getFileExtension(file)}`,
+          },
         ]);
         return;
       }
-      // Route through the shared pipeline so the LazySync base refresh
-      // (BLOCKER 2 fix) applies to manual picks too — otherwise the next
-      // poll resurrects the stale base over this fresh pick.
-      handleSubtitleText(content);
-    };
-    reader.onerror = () => {
-      setSubtitleErrors([
-        { line: 0, message: dictRef.current.playerUI.failedToRead },
-      ]);
-    };
-    reader.readAsText(file);
-  }, [jimakuAutoLoad.cancel, handleSubtitleText]);
+
+      // BLOCKER 1: a manual subtitle pick must win over any in-flight jimaku
+      // auto-load. Cancel the run so its pending fetch can't clobber this pick
+      // once it resolves (docs/JIMAKU_SUBS.md §2.2-3).
+      jimakuAutoLoad.cancel();
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result;
+        if (typeof content !== 'string') {
+          setSubtitleErrors([
+            { line: 0, message: dictRef.current.playerUI.failedToRead },
+          ]);
+          return;
+        }
+        // Route through the shared pipeline so the LazySync base refresh
+        // (BLOCKER 2 fix) applies to manual picks too — otherwise the next
+        // poll resurrects the stale base over this fresh pick.
+        handleSubtitleText(content);
+      };
+      reader.onerror = () => {
+        setSubtitleErrors([
+          { line: 0, message: dictRef.current.playerUI.failedToRead },
+        ]);
+      };
+      reader.readAsText(file);
+    },
+    [jimakuAutoLoad.cancel, handleSubtitleText],
+  );
 
   // File open handler: routes subtitle files to handleSubtitleSelect, everything else to handleMediaSelect.
   const handleFileOpen = useCallback(
@@ -1370,20 +1389,23 @@ export default function PlayerApp() {
     [handleSubtitleSelect, handleMediaSelect],
   );
 
-  const handleCueClick = useCallback((cue: SubtitleCue) => {
-    const media = sharedMediaRef.current;
-    if (!media) return;
-    // ED-2H: Clamp seek to companion's verified byte range when streaming.
-    // Without this, clicking a cue beyond the available prefix stalls the
-    // player (seeking=true, readyState=1, GPU 100%).
-    const targetTime = jobSession.active
-      ? clampSeekTime(cue.start)
-      : cue.start;
-    media.currentTime = targetTime;
-    media.play().catch(() => {});
-    // P2: Reveal controls when clicking a cue while they are hidden
-    controlsHandleRef.current?.show();
-  }, [jobSession.active, clampSeekTime]);
+  const handleCueClick = useCallback(
+    (cue: SubtitleCue) => {
+      const media = sharedMediaRef.current;
+      if (!media) return;
+      // ED-2H: Clamp seek to companion's verified byte range when streaming.
+      // Without this, clicking a cue beyond the available prefix stalls the
+      // player (seeking=true, readyState=1, GPU 100%).
+      const targetTime = jobSession.active
+        ? clampSeekTime(cue.start)
+        : cue.start;
+      media.currentTime = targetTime;
+      media.play().catch(() => {});
+      // P2: Reveal controls when clicking a cue while they are hidden
+      controlsHandleRef.current?.show();
+    },
+    [jobSession.active, clampSeekTime],
+  );
 
   // --- P1.3a.2: Caption display mode handlers ---
 
@@ -1701,7 +1723,9 @@ export default function PlayerApp() {
       if (rvfcHandle !== null) {
         media.cancelVideoFrameCallback(rvfcHandle);
       }
-      rvfcHandle = media.requestVideoFrameCallback(onFirstFrame as VideoFrameRequestCallback);
+      rvfcHandle = media.requestVideoFrameCallback(
+        onFirstFrame as VideoFrameRequestCallback,
+      );
     };
     const onPlayingRVFC = () => {
       // Already cleared (picture on screen) — skip the pointless
@@ -1741,7 +1765,10 @@ export default function PlayerApp() {
     return () => {
       media.removeEventListener('waiting', armStartBuffering);
       media.removeEventListener('playing', onPlayingRVFC);
-      if (rvfcHandle !== null && typeof media.cancelVideoFrameCallback === 'function') {
+      if (
+        rvfcHandle !== null &&
+        typeof media.cancelVideoFrameCallback === 'function'
+      ) {
         media.cancelVideoFrameCallback(rvfcHandle);
       }
       clearStartBufferingTimers();
@@ -2074,9 +2101,7 @@ export default function PlayerApp() {
       subtitleTextRef.current = syncedText;
       // Every sync path (sub-to-sub / sub-to-audio-local / sub-to-audio-magnet)
       // converges here — a single success toast for all of them.
-      notifySubtitleSyncSuccess(
-        dictRef.current.playerUI.subtitleSyncSuccess,
-      );
+      notifySubtitleSyncSuccess(dictRef.current.playerUI.subtitleSyncSuccess);
     },
     [setCues, setSubtitleErrors, setActiveCueId],
   );
@@ -2122,8 +2147,7 @@ export default function PlayerApp() {
     const source = detectSourceKind(jobSession.kind, !!mediaUrl);
     // Reference subtitle only for Magnet with a selected subtitle file
     // (local reference picker UI lands in a later stage → false here).
-    const hasRef =
-      source === 'magnet' ? !!jobSession.subtitleFileId : false;
+    const hasRef = source === 'magnet' ? !!jobSession.subtitleFileId : false;
     const plan = planSync(mode, source, hasRef);
     void runSync(async () => {
       if (plan.kind === 'skip-youtube') return;
@@ -2235,9 +2259,7 @@ export default function PlayerApp() {
               wasmExecUrl: '/wasm/wasm_exec.js',
             });
             const probe = await mkvgo.probe(file);
-            const subTrack = probe.tracks.find(
-              (t) => t.type === 'subtitle',
-            );
+            const subTrack = probe.tracks.find((t) => t.type === 'subtitle');
             if (!subTrack) throw new Error('no embedded subtitle');
             refText = await mkvgo.extractSubtitleVTT(file, subTrack.id);
           }
@@ -2375,11 +2397,7 @@ export default function PlayerApp() {
 
     while (!signal.aborted) {
       const session = jobSessionRef.current;
-      if (
-        session.kind !== 'torrent' ||
-        !session.token ||
-        !session.jobId
-      ) {
+      if (session.kind !== 'torrent' || !session.token || !session.jobId) {
         // The Magnet session ended or changed while the loop ran — reset
         // the toggle so it cannot linger on a stale session.
         stop();
@@ -3676,8 +3694,7 @@ export default function PlayerApp() {
         void writeHistory();
         // Toast + close modal after successful new-card export
         const enteredWordNew =
-          miningDraftFields.find((f) => f.key === 'word')?.value.trim() ||
-          '';
+          miningDraftFields.find((f) => f.key === 'word')?.value.trim() || '';
         const wordLabelNew = enteredWordNew || mediaName;
         closeAfterExportSuccess(
           d.miningExportAddedToast.replace('{word}', () => wordLabelNew),
@@ -3809,13 +3826,11 @@ export default function PlayerApp() {
         void writeHistory();
         // Toast + close modal after successful update export
         const enteredWordUpd =
-          miningDraftFields.find((f) => f.key === 'word')?.value.trim() ||
-          '';
+          miningDraftFields.find((f) => f.key === 'word')?.value.trim() || '';
         const existingWordField = prefs.fields.word
-          ? (candidate.fields[prefs.fields.word]?.value.trim() || '')
+          ? candidate.fields[prefs.fields.word]?.value.trim() || ''
           : '';
-        const wordLabelUpd =
-          enteredWordUpd || existingWordField || mediaName;
+        const wordLabelUpd = enteredWordUpd || existingWordField || mediaName;
         closeAfterExportSuccess(
           d.miningExportUpdatedToast.replace('{word}', () => wordLabelUpd),
         );
@@ -4236,6 +4251,40 @@ export default function PlayerApp() {
   // --- Layout class ---
   const layoutClass = `entei-player-layout${isSubtitlePanelVisible ? ' entei-player-layout--with-panel' : ' entei-player-layout--no-panel'}`;
 
+  // --- Mobile sticky player height observer ---
+  // Sets --entei-sticky-player-height on the player container so the mobile
+  // tab bar (.entei-right-panel-tabs-bar) sticks exactly beneath the sticky video.
+  useEffect(() => {
+    if (!hasMedia) return;
+    const surface = surfaceRef.current;
+    if (!surface || typeof ResizeObserver === 'undefined') return;
+
+    const updateHeight = (h: number) => {
+      mediaContainerRef.current?.style.setProperty(
+        '--entei-sticky-player-height',
+        `${Math.round(h)}px`,
+      );
+    };
+
+    updateHeight(surface.getBoundingClientRect().height);
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height =
+          entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+        updateHeight(height);
+      }
+    });
+
+    ro.observe(surface);
+    return () => {
+      ro.disconnect();
+      mediaContainerRef.current?.style.removeProperty(
+        '--entei-sticky-player-height',
+      );
+    };
+  }, [hasMedia, displayMediaType, isDesktop, isLandscapeImmersive]);
+
   // --- Shared media area content (extracted to avoid duplication) ---
   const mediaArea = (
     <div
@@ -4261,7 +4310,11 @@ export default function PlayerApp() {
           // back to false automatically once playback resumes. Outside an
           // active session the element unmounts on error exactly as before.
           keepElementOnError={jobSession.active && loadError !== null}
-          errorLabel={jobSession.active && jobSession.phase !== 'error' ? dict.companionStreamNotReady : dict.failedToLoadVideo}
+          errorLabel={
+            jobSession.active && jobSession.phase !== 'error'
+              ? dict.companionStreamNotReady
+              : dict.failedToLoadVideo
+          }
           decodeErrorLabel={dict.videoDecodeError}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
@@ -4316,7 +4369,11 @@ export default function PlayerApp() {
           when canplay fires (data arrived) or on error/timeout.
           Separate from the companion loading overlay above. */}
       {isSeekBuffering && !isLoading && !loadError && (
-        <div className="entei-companion-loading" role="status" aria-label="Loading">
+        <div
+          className="entei-companion-loading"
+          role="status"
+          aria-label="Loading"
+        >
           <TypewriterLoading aria-hidden="true" />
         </div>
       )}
@@ -4337,8 +4394,15 @@ export default function PlayerApp() {
         // Pairing 復旧中はオーバーレイを出さない（前フレームを維持し、
         // 再ペアリング UI が最前面で操作できるようにする意図）。
         jobSession.phase !== 'rePairRequired' && (
-          <div className="entei-companion-loading entei-start-buffering" role="status" aria-label="Loading">
-            <TypewriterLoading aria-hidden="true" className="entei-typewriter--start" />
+          <div
+            className="entei-companion-loading entei-start-buffering"
+            role="status"
+            aria-label="Loading"
+          >
+            <TypewriterLoading
+              aria-hidden="true"
+              className="entei-typewriter--start"
+            />
             <p className="entei-companion-loading-text entei-companion-loading-text--start">
               {dict.companionPreparingVideo}
             </p>
@@ -4504,40 +4568,40 @@ export default function PlayerApp() {
       {!hasMedia && !jobSession.active && (
         <div className="entei-player-empty">
           <div className="entei-player-empty-cta">
-              <div className="entei-player-empty-inner">
-                <h2 className="entei-player-empty-title">
-                  {dict.selectMediaTitle}
-                </h2>
-                <p className="entei-player-empty-desc">{dict.selectMediaDesc}</p>
-                <div className="entei-player-pickers">
-                  <MediaPicker
-                    onSelect={handleMediaSelect}
-                    accept={MEDIA_ACCEPT}
-                    label={dict.chooseMedia}
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    type="button"
-                    className="entei-player-magnet-icon-btn"
-                    onClick={() => setIsMagnetDialogOpen(true)}
-                    aria-label={dict.magnetInputLabel}
-                    title={dict.magnetInputLabel}
-                  >
-                    <Magnet />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    type="button"
-                    className="entei-player-youtube-icon-btn"
-                    onClick={() => setIsYouTubeDialogOpen(true)}
-                    aria-label={dict.youtubeInputLabel}
-                    title={dict.youtubeInputLabel}
-                  >
-                    <YouTubeMark />
-                  </Button>
-                </div>
+            <div className="entei-player-empty-inner">
+              <h2 className="entei-player-empty-title">
+                {dict.selectMediaTitle}
+              </h2>
+              <p className="entei-player-empty-desc">{dict.selectMediaDesc}</p>
+              <div className="entei-player-pickers">
+                <MediaPicker
+                  onSelect={handleMediaSelect}
+                  accept={MEDIA_ACCEPT}
+                  label={dict.chooseMedia}
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  type="button"
+                  className="entei-player-magnet-icon-btn"
+                  onClick={() => setIsMagnetDialogOpen(true)}
+                  aria-label={dict.magnetInputLabel}
+                  title={dict.magnetInputLabel}
+                >
+                  <Magnet />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  type="button"
+                  className="entei-player-youtube-icon-btn"
+                  onClick={() => setIsYouTubeDialogOpen(true)}
+                  aria-label={dict.youtubeInputLabel}
+                  title={dict.youtubeInputLabel}
+                >
+                  <YouTubeMark />
+                </Button>
+              </div>
             </div>
           </div>
           {/* ED-3: EizouDendenshi setup section — pairing state only; the
@@ -4593,7 +4657,9 @@ export default function PlayerApp() {
             aria-hidden="true"
             className="entei-player-job-error-icon"
           />
-          <p className="entei-player-job-error-text">{dict.companionJobFailed}</p>
+          <p className="entei-player-job-error-text">
+            {dict.companionJobFailed}
+          </p>
         </div>
       )}
 
@@ -4784,4 +4850,3 @@ export default function PlayerApp() {
     </div>
   );
 }
-
