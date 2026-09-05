@@ -352,7 +352,7 @@
   gap: var(--entei-space-4);
   min-height: var(--entei-touch-min);
   min-width: 0;
-  padding: var(--entei-space-8) var(--entei-space-4);
+  padding: var(--entei-space-6) var(--entei-space-4);
   background: none;
   border: none;
   color: var(--entei-text-secondary);
@@ -360,7 +360,7 @@
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.2;
-  border-radius: var(--entei-radius-md);
+  border-radius: var(--entei-radius-pill);
   transition:
     color var(--entei-duration-fast) var(--entei-ease-productive),
     background-color var(--entei-duration-fast) var(--entei-ease-productive);
