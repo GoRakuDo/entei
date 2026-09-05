@@ -507,11 +507,16 @@
 }
 
 .entei-settings-tabs-list [data-slot='tabs-trigger'][data-state='active'] {
-  color: var(--entei-text);
+  color: var(--entei-status-locked);
   /* W12: ensure no border restored by shadcn dark active state */
   border: none;
   /* W5: indicator shown via ::after pseudo-element — no border-bottom */
   background-color: transparent;
+}
+
+.entei-settings-tabs-list
+  [data-slot='tabs-trigger'][data-state='active']:hover {
+  color: var(--entei-status-locked);
 }
 
 /* --- Content Panel --- */
