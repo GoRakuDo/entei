@@ -28,6 +28,7 @@ describe('readPlayerPreferences', () => {
     expect(prefs.subtitleBackgroundColor).toBe('oklch(0% 0 0 / 0.72)');
     expect(prefs.subtitleBackgroundPadding).toBe(8);
     expect(prefs.subtitleVerticalPosition).toBe(96);
+    expect(prefs.subtitleSyncMode).toBe('auto');
   });
 
   it('reads valid stored preferences', () => {

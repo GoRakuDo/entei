@@ -528,7 +528,7 @@ export function SubtitleAppearanceTab({
         <div className="entei-mining-controls-row">
           <ToggleGroup
             type="single"
-            value={settings.syncMode ?? 'subtitle'}
+            value={settings.syncMode ?? 'auto'}
             onValueChange={(v) => {
               if (v === 'subtitle' || v === 'audio' || v === 'auto') {
                 onChange({ syncMode: v });

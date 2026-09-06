@@ -35,7 +35,7 @@ const defaultSettings: SubtitleAppearanceSettings = {
   backgroundColor: 'oklch(0% 0 0 / 0.72)',
   backgroundPadding: 8,
   verticalPosition: 96,
-  syncMode: 'subtitle',
+  syncMode: 'auto',
 };
 
 beforeEach(() => {
@@ -69,7 +69,10 @@ describe('SubtitleAppearanceTab', () => {
     );
 
     // Semantic heading: h3 with settings-label class
-    const heading = screen.getByRole('heading', { level: 3, name: en.playerUI.subtitleAppearance });
+    const heading = screen.getByRole('heading', {
+      level: 3,
+      name: en.playerUI.subtitleAppearance,
+    });
     expect(heading.tagName).toBe('H3');
     expect(heading.getAttribute('class')).toContain('entei-settings-label');
 
@@ -506,7 +509,9 @@ describe('SubtitleOverlay — appearance inline styles', () => {
     // Bottom offset
     expect(overlay!.getAttribute('style')).toContain('bottom: 60px');
     // Background color — jsdom normalizes oklch (%/deg removed)
-    expect(overlay!.getAttribute('style')).toContain('background-color: oklch(');
+    expect(overlay!.getAttribute('style')).toContain(
+      'background-color: oklch(',
+    );
     expect(overlay!.getAttribute('style')).toContain('0.1');
     expect(overlay!.getAttribute('style')).toContain('/ 0.8');
 
@@ -605,20 +610,23 @@ describe('SubtitleAppearanceTab — localStorage persistence', () => {
    * with a real onChange handler that mimics PlayerSettingsDialog + PlayerApp
    * persistence flow: read fresh prefs, merge partial, write back.
    */
-  function renderWithPersistence(initialPrefs?: Partial<{
-    fontSize: number;
-    textColor: string;
-    backgroundColor: string;
-    backgroundPadding: number;
-    verticalPosition: number;
-  }>) {
+  function renderWithPersistence(
+    initialPrefs?: Partial<{
+      fontSize: number;
+      textColor: string;
+      backgroundColor: string;
+      backgroundPadding: number;
+      verticalPosition: number;
+    }>,
+  ) {
     const basePrefs = {
       volume: 1,
       playbackRate: 1,
       captionDisplayMode: 'visible' as const,
       subtitleFontSize: initialPrefs?.fontSize ?? 18,
       subtitleTextColor: initialPrefs?.textColor ?? 'oklch(98% 0 0deg)',
-      subtitleBackgroundColor: initialPrefs?.backgroundColor ?? 'oklch(0% 0 0 / 0.72)',
+      subtitleBackgroundColor:
+        initialPrefs?.backgroundColor ?? 'oklch(0% 0 0 / 0.72)',
       subtitleBackgroundPadding: initialPrefs?.backgroundPadding ?? 8,
       subtitleVerticalPosition: initialPrefs?.verticalPosition ?? 96,
       subtitleSyncMode: 'subtitle' as const,
@@ -641,10 +649,18 @@ describe('SubtitleAppearanceTab — localStorage persistence', () => {
         ...fresh,
         ...(p.fontSize !== undefined && { subtitleFontSize: p.fontSize }),
         ...(p.textColor !== undefined && { subtitleTextColor: p.textColor }),
-        ...(p.backgroundColor !== undefined && { subtitleBackgroundColor: p.backgroundColor }),
-        ...(p.backgroundPadding !== undefined && { subtitleBackgroundPadding: p.backgroundPadding }),
-        ...(p.verticalPosition !== undefined && { subtitleVerticalPosition: p.verticalPosition }),
-        ...(p.syncMode !== undefined && { subtitleSyncMode: p.syncMode as 'subtitle' | 'audio' | 'auto' }),
+        ...(p.backgroundColor !== undefined && {
+          subtitleBackgroundColor: p.backgroundColor,
+        }),
+        ...(p.backgroundPadding !== undefined && {
+          subtitleBackgroundPadding: p.backgroundPadding,
+        }),
+        ...(p.verticalPosition !== undefined && {
+          subtitleVerticalPosition: p.verticalPosition,
+        }),
+        ...(p.syncMode !== undefined && {
+          subtitleSyncMode: p.syncMode as 'subtitle' | 'audio' | 'auto',
+        }),
       });
     };
 
@@ -795,7 +811,9 @@ describe('SubtitleAppearanceTab — localStorage persistence', () => {
     const reloaded = readPlayerPreferences();
     expect(reloaded.subtitleFontSize).toBe(32);
     expect(reloaded.subtitleTextColor).toBe('oklch(50% 0.15 300deg)');
-    expect(reloaded.subtitleBackgroundColor).toBe('oklch(10% 0.02 270deg / 0.44)');
+    expect(reloaded.subtitleBackgroundColor).toBe(
+      'oklch(10% 0.02 270deg / 0.44)',
+    );
     expect(reloaded.subtitleBackgroundPadding).toBe(16);
     expect(reloaded.subtitleVerticalPosition).toBe(140);
     expect(reloaded.volume).toBe(0.75);
@@ -819,11 +837,17 @@ describe('SubtitleAppearanceTab — localStorage persistence', () => {
 
     // Simulate: change opacity to 44%
     const p1 = readPlayerPreferences();
-    writePlayerPreferences({ ...p1, subtitleBackgroundColor: 'oklch(0% 0 0 / 0.44)' });
+    writePlayerPreferences({
+      ...p1,
+      subtitleBackgroundColor: 'oklch(0% 0 0 / 0.44)',
+    });
 
     // Then immediately to 35%
     const p2 = readPlayerPreferences();
-    writePlayerPreferences({ ...p2, subtitleBackgroundColor: 'oklch(0% 0 0 / 0.35)' });
+    writePlayerPreferences({
+      ...p2,
+      subtitleBackgroundColor: 'oklch(0% 0 0 / 0.35)',
+    });
 
     const final = readPlayerPreferences();
     expect(final.subtitleBackgroundColor).toBe('oklch(0% 0 0 / 0.35)');
@@ -913,17 +937,19 @@ describe('SubtitleAppearanceTab — localStorage persistence', () => {
         onReset={vi.fn()}
       />,
     );
-    const heading = screen.getByRole('heading', { name: dict.subtitleSyncMode });
+    const heading = screen.getByRole('heading', {
+      name: dict.subtitleSyncMode,
+    });
     expect(heading.tagName).toBe('H3');
     expect(heading.getAttribute('class')).toContain('entei-settings-label');
-    // ToggleGroup with 3 exclusive options (default subtitle selected)
+    // ToggleGroup with 3 exclusive options (default auto selected)
     const radios = screen.getAllByRole('radio');
     expect(radios).toHaveLength(3);
-    const subtitle = screen.getByRole('radio', { name: dict.subtitleSyncSubtitle });
-    expect(subtitle.getAttribute('data-state')).toBe('on');
+    const auto = screen.getByRole('radio', { name: dict.subtitleSyncAuto });
+    expect(auto.getAttribute('data-state')).toBe('on');
     // Only the currently-selected mode's description is shown
-    expect(screen.getByText(dict.subtitleSyncSubtitleDesc)).toBeTruthy();
-    // Audio and Auto descriptions are hidden when Subtitle is selected.
+    expect(screen.getByText(dict.subtitleSyncAutoDesc)).toBeTruthy();
+    // Subtitle and Audio descriptions are hidden when Auto is selected.
   });
 
   it('switching the sync mode fires onChange with the new mode', () => {
@@ -931,12 +957,14 @@ describe('SubtitleAppearanceTab — localStorage persistence', () => {
     render(
       <SubtitleAppearanceTab
         dict={dict}
-        settings={defaultSettings}
+        settings={{ ...defaultSettings, syncMode: 'subtitle' }}
         onChange={onChange}
         onReset={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole('radio', { name: dict.subtitleSyncAudio }));
+    fireEvent.click(
+      screen.getByRole('radio', { name: dict.subtitleSyncAudio }),
+    );
     expect(onChange).toHaveBeenCalledWith({ syncMode: 'audio' });
     fireEvent.click(screen.getByRole('radio', { name: dict.subtitleSyncAuto }));
     expect(onChange).toHaveBeenCalledWith({ syncMode: 'auto' });
@@ -957,8 +985,21 @@ describe('SubtitleAppearanceTab — localStorage persistence', () => {
     });
     const stored = readPlayerPreferences();
     expect(stored.subtitleSyncMode).toBe('audio');
-    // Default falls back to subtitle when absent
-    localStorage.clear();
+    // Explicit 'subtitle' is also preserved
+    writePlayerPreferences({
+      volume: 1,
+      playbackRate: 1,
+      captionDisplayMode: 'visible',
+      subtitleFontSize: 18,
+      subtitleTextColor: 'oklch(98% 0 0deg)',
+      subtitleBackgroundColor: 'oklch(0% 0 0 / 0.72)',
+      subtitleBackgroundPadding: 8,
+      subtitleVerticalPosition: 96,
+      subtitleSyncMode: 'subtitle',
+    });
     expect(readPlayerPreferences().subtitleSyncMode).toBe('subtitle');
+    // Default falls back to auto when absent
+    localStorage.clear();
+    expect(readPlayerPreferences().subtitleSyncMode).toBe('auto');
   });
 });

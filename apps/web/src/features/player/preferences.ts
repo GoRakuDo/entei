@@ -54,7 +54,7 @@ const DEFAULT_SUBTITLE_TEXT_COLOR = 'oklch(98% 0 0deg)';
 const DEFAULT_SUBTITLE_BACKGROUND_COLOR = 'oklch(0% 0 0 / 0.72)';
 const DEFAULT_SUBTITLE_BACKGROUND_PADDING = 8;
 const DEFAULT_SUBTITLE_VERTICAL_POSITION = 96;
-const DEFAULT_SUBTITLE_SYNC_MODE: SubtitleSyncMode = 'subtitle';
+const DEFAULT_SUBTITLE_SYNC_MODE: SubtitleSyncMode = 'auto';
 
 /** Persisted player preference shape (v1, extended with optional subtitle appearance fields). */
 interface PlayerPreferenceData {
@@ -282,9 +282,11 @@ function parseSubtitleVerticalPosition(value: unknown): number {
   return DEFAULT_SUBTITLE_VERTICAL_POSITION;
 }
 
-/** Sync mode (subtitle | audio | auto); anything else falls back to subtitle. */
+/** Sync mode (subtitle | audio | auto); anything else falls back to auto. */
 function parseSubtitleSyncMode(value: unknown): SubtitleSyncMode {
-  return value === 'audio' || value === 'auto' ? value : DEFAULT_SUBTITLE_SYNC_MODE;
+  return value === 'subtitle' || value === 'audio' || value === 'auto'
+    ? value
+    : DEFAULT_SUBTITLE_SYNC_MODE;
 }
 
 /**

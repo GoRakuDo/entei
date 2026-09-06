@@ -38,7 +38,7 @@ const DEFAULT_SUBTITLE_SETTINGS: SubtitleAppearanceSettings = {
   backgroundColor: 'oklch(0% 0 0 / 0.72)',
   backgroundPadding: 8,
   verticalPosition: 96,
-  syncMode: 'subtitle',
+  syncMode: 'auto',
 };
 
 export interface SettingsTabsProps {
@@ -134,7 +134,7 @@ export function SettingsTabs({
       subtitleBackgroundColor: DEFAULT_SUBTITLE_SETTINGS.backgroundColor,
       subtitleBackgroundPadding: DEFAULT_SUBTITLE_SETTINGS.backgroundPadding,
       subtitleVerticalPosition: DEFAULT_SUBTITLE_SETTINGS.verticalPosition,
-      subtitleSyncMode: DEFAULT_SUBTITLE_SETTINGS.syncMode ?? 'subtitle',
+      subtitleSyncMode: DEFAULT_SUBTITLE_SETTINGS.syncMode ?? 'auto',
     });
     onSubtitleSettingsChange?.(DEFAULT_SUBTITLE_SETTINGS);
   }, [onSubtitleSettingsChange]);

@@ -78,7 +78,7 @@ export function RightPanel({
   onSyncSubtitle,
   canSyncSubtitle = false,
   isSyncingSubtitle = false,
-  syncMode = 'subtitle',
+  syncMode = 'auto',
   isMagnet = false,
   lazySyncOn = false,
   onToggleLazySync,

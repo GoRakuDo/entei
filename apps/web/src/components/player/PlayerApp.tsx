@@ -2145,7 +2145,7 @@ export default function PlayerApp() {
       return;
     }
     const prefs = readPlayerPreferences();
-    const mode = prefs.subtitleSyncMode ?? 'subtitle';
+    const mode = prefs.subtitleSyncMode ?? 'auto';
     const source = detectSourceKind(jobSession.kind, !!mediaUrl);
     // Reference subtitle only for Magnet with a selected subtitle file
     // (local reference picker UI lands in a later stage → false here).
@@ -2343,7 +2343,7 @@ export default function PlayerApp() {
     // Audio-based sync is disabled for Magnet (docs §10.4): the toggle
     // would only ever run the subtitle-based LazySync, so a user in audio
     // mode gets the guidance toast instead of a dead toggle.
-    const mode = readPlayerPreferences().subtitleSyncMode ?? 'subtitle';
+    const mode = readPlayerPreferences().subtitleSyncMode ?? 'auto';
     if (mode === 'audio') {
       notifySubtitleSyncError(ui.subtitleSyncAudioUnavailable);
       return;
@@ -4807,7 +4807,7 @@ export default function PlayerApp() {
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
-              syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
+              syncMode={prefsRef.current.subtitleSyncMode ?? 'auto'}
               hideSyncSubtitle={hideSyncSubtitle}
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
@@ -4835,7 +4835,7 @@ export default function PlayerApp() {
               onSyncSubtitle={handleSyncSubtitle}
               canSyncSubtitle={!!subtitleTextRef.current}
               isSyncingSubtitle={isSyncingSubtitle}
-              syncMode={prefsRef.current.subtitleSyncMode ?? 'subtitle'}
+              syncMode={prefsRef.current.subtitleSyncMode ?? 'auto'}
               hideSyncSubtitle={hideSyncSubtitle}
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
