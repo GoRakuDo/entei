@@ -4930,7 +4930,6 @@ html.entei-player-immersive .entei-player-audio-area {
   .entei-magnet-dialog .entei-dialog-header {
     flex-shrink: 0;
     padding: var(--entei-space-16) var(--entei-space-24);
-    border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
   }
 
   .entei-magnet-dialog .entei-magnet-shell {
