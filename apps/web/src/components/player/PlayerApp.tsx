@@ -1400,7 +1400,9 @@ export default function PlayerApp() {
         ? clampSeekTime(cue.start)
         : cue.start;
       media.currentTime = targetTime;
-      media.play().catch(() => {});
+      // Note: do NOT call media.play() here. Setting currentTime preserves
+      // the media's current playback state (stays paused if paused, continues
+      // playing if playing) without forcing unwanted playback on click/tap.
       // P2: Reveal controls when clicking a cue while they are hidden
       controlsHandleRef.current?.show();
     },
