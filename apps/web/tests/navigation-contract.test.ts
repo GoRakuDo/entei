@@ -87,6 +87,17 @@ const DESTINATIONS = [
 ] as const;
 
 /**
+ * Mobile dock destinations — mirrors MOBILE_DESTINATIONS in TopBar.astro:
+ * Home + Player only. Tracker is reached via the desktop pill or /tracker/
+ * direct URL. Settings is rendered separately as the EizouSettingsDialog
+ * React island and is not an `<a data-entei-nav-destination>` link.
+ */
+const MOBILE_DESTINATIONS = [
+  { route: '/', labelKey: 'destinationHome' },
+  { route: '/player/', labelKey: 'destinationPlayer' },
+] as const;
+
+/**
  * Simulate the TopBar HTML output per the new NAVIGATION_BAR.md structure.
  *
  * Desktop pill zone: always rendered. On Player, zone gets `--player` modifier.
@@ -144,12 +155,14 @@ function renderTopBarHtml(opts: {
   }
   html += `</div>`;
 
-  // Mobile dock
+  // Mobile dock: MOBILE_DESTINATIONS (Home + Player) + Settings dialog entry.
   html += `<nav class="entei-mobile-dock" aria-label="Page navigation" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel">`;
-  for (const { route, labelKey } of DESTINATIONS) {
+  for (const { route, labelKey } of MOBILE_DESTINATIONS) {
     const isActive = normalisePath(route) === activePath;
     html += `<a class="entei-mobile-dock-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a>`;
   }
+  // Settings dialog entry — React island, not a navigation link.
+  html += `<div data-entei-mobile-dock-settings></div>`;
   html += `</nav>`;
   return html;
 }
@@ -171,11 +184,11 @@ describe('aria-current="page" — one per nav surface per route', () => {
   const routes = ['/', '/player/', '/tracker/'] as const;
 
   for (const route of routes) {
-    it(`${route}: exactly one aria-current in desktop pill + one in mobile dock`, () => {
+    it(`${route}: desktop pill has one aria-current; mobile dock marks active route only when present`, () => {
       const html = renderTopBarHtml({ currentPath: route });
       const root = parseHtml(html);
 
-      // Desktop nav — always present
+      // Desktop nav — always present, exactly one aria-current
       const desktopNav = root.querySelector('[data-entei-desktop-nav]');
       expect(desktopNav).not.toBeNull();
       const desktopCurrent = desktopNav!.querySelectorAll(
@@ -184,14 +197,18 @@ describe('aria-current="page" — one per nav surface per route', () => {
       expect(desktopCurrent.length).toBe(1);
       expect(desktopCurrent[0]!.getAttribute('href')).toBe(route);
 
-      // Mobile dock — always present
+      // Mobile dock — Home and Player only. Tracker route has no mobile link.
       const mobileDock = root.querySelector('[data-entei-mobile-dock]');
       expect(mobileDock).not.toBeNull();
       const mobileCurrent = mobileDock!.querySelectorAll(
         '[aria-current="page"]',
       );
-      expect(mobileCurrent.length).toBe(1);
-      expect(mobileCurrent[0]!.getAttribute('href')).toBe(route);
+      const expectedMobileCount =
+        route === '/' || route === '/player/' ? 1 : 0;
+      expect(mobileCurrent.length).toBe(expectedMobileCount);
+      if (expectedMobileCount === 1) {
+        expect(mobileCurrent[0]!.getAttribute('href')).toBe(route);
+      }
     });
   }
 });
@@ -269,24 +286,27 @@ describe('Mobile sticky header presence per route', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  7. Mobile dock always has all 3 links                                    */
+/*  7. Mobile dock always has 2 destination links (Home + Player) + Settings  */
 /* -------------------------------------------------------------------------- */
-describe('Mobile dock always present with 3 links', () => {
+describe('Mobile dock always present with 2 destination links', () => {
   const routes = ['/', '/player/', '/tracker/'] as const;
 
   for (const route of routes) {
-    it(`${route}: mobile dock has 3 links`, () => {
+    it(`${route}: mobile dock has Home and Player links (Tracker is desktop-only)`, () => {
       const html = renderTopBarHtml({ currentPath: route });
       const root = parseHtml(html);
       const dock = root.querySelector('[data-entei-mobile-dock]');
       expect(dock).not.toBeNull();
       const links = dock!.querySelectorAll('a[data-entei-nav-destination]');
-      expect(links.length).toBe(3);
+      expect(links.length).toBe(2);
 
       const hrefs = Array.from(links).map((l) => l.getAttribute('href'));
       expect(hrefs).toContain('/');
       expect(hrefs).toContain('/player/');
-      expect(hrefs).toContain('/tracker/');
+      expect(hrefs).not.toContain('/tracker/');
+
+      // Settings dialog entry (non-link island) is always present.
+      expect(dock!.querySelector('[data-entei-mobile-dock-settings]')).not.toBeNull();
     });
   }
 });
@@ -299,8 +319,8 @@ describe('Nav link href validation', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
     const root = parseHtml(html);
     const allLinks = root.querySelectorAll('a[data-entei-nav-destination]');
-    // 3 desktop (brand + Player + Tracker) + 3 mobile
-    expect(allLinks.length).toBe(6);
+    // 3 desktop (brand + Player + Tracker) + 2 mobile (Home + Player)
+    expect(allLinks.length).toBe(5);
 
     for (const link of Array.from(allLinks)) {
       const href = link.getAttribute('href') || '';
@@ -327,6 +347,13 @@ describe('TopBar prop contract', () => {
     expect(html).toContain('data-entei-desktop-nav');
     expect(html).toContain('data-entei-mobile-dock');
     expect(countAriaCurrentPage(html)).toBe(2);
+  });
+
+  it('Tracker: aria-current count = 1 (desktop only — Tracker is not in mobile dock)', () => {
+    const html = renderTopBarHtml({ currentPath: '/tracker/' });
+    expect(html).toContain('data-entei-desktop-nav');
+    expect(html).toContain('data-entei-mobile-dock');
+    expect(countAriaCurrentPage(html)).toBe(1);
   });
 });
 
@@ -398,11 +425,12 @@ describe('Nav link data-i18n attributes', () => {
     expect(dock).not.toBeNull();
 
     const spans = dock!.querySelectorAll('span[data-i18n]');
-    expect(spans.length).toBe(3);
+    // Mobile dock has Home + Player (Tracker is desktop-only).
+    expect(spans.length).toBe(2);
     const i18nKeys = Array.from(spans).map((s) => s.getAttribute('data-i18n'));
     expect(i18nKeys).toContain('nav.destinationHome');
     expect(i18nKeys).toContain('nav.destinationPlayer');
-    expect(i18nKeys).toContain('nav.destinationTracker');
+    expect(i18nKeys).not.toContain('nav.destinationTracker');
   });
 });
 
@@ -463,7 +491,7 @@ function setupNavDom(): void {
     <nav class="entei-mobile-dock" aria-label="Navigasi halaman" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel">
       <a href="/" data-entei-nav-destination="/"><span data-i18n="nav.destinationHome">Home</span></a>
       <a href="/player/" data-entei-nav-destination="/player/" aria-current="page"><span data-i18n="nav.destinationPlayer">Player</span></a>
-      <a href="/tracker/" data-entei-nav-destination="/tracker/"><span data-i18n="nav.destinationTracker">Tracker</span></a>
+      <div data-entei-mobile-dock-settings></div>
     </nav>
     <select data-entei-language-select autocomplete="off">
       <option value="id">Bahasa Indonesia</option>
@@ -503,7 +531,7 @@ describe('Locale switch updates nav label text', () => {
     const texts = Array.from(spans).map((s) => s.textContent);
     expect(texts).toContain('Home');
     expect(texts).toContain('Player');
-    expect(texts).toContain('Tracker');
+    expect(texts).not.toContain('Tracker');
   });
 
   it('switching locale updates nav link labels to translated values', () => {

@@ -15,8 +15,8 @@
  *
  * Mobile (<768px):
  * - Sticky header with brand + optional native LanguageSelector.
- * - Floating bottom Dock: Home / Player / Tracker.
- *   Unchanged from previous implementation.
+ * - Floating bottom Dock: Home / Player / Settings.
+ *   DOM-ordered from MOBILE_DESTINATIONS + the Settings dialog entry.
  *
  * Wordmark uses Pixelify Sans (font-system) for a consistent game-accent
  * feel across all pages.
@@ -27,7 +27,7 @@ import { LanguageCombobox } from '@components/home/LanguageCombobox';
 import { EizouSettingsDialog } from '@components/home/EizouSettingsDialog';
 import { House, Clapperboard, ChartNoAxesCombined } from '@lucide/astro';
 
-/** Single destination definition — desktop pill and mobile dock read from this. */
+/** Destination definitions — desktop pill and mobile dock each read from their own array. */
 const DESKTOP_DESTINATIONS = [
   {
     route: '/player/',
@@ -42,15 +42,14 @@ const DESKTOP_DESTINATIONS = [
 ] as const;
 
 /**
- * Mobile dock destinations (NAVIGATION_BAR.md 2026-08-07): Player removed,
- * Settings added. DOM order Home → Tracker → Settings.
+ * Mobile dock destinations: DOM order Home → Player → Settings.
  */
 const MOBILE_DESTINATIONS = [
   { route: '/', labelKey: 'destinationHome' as const, Icon: House },
   {
-    route: '/tracker/',
-    labelKey: 'destinationTracker' as const,
-    Icon: ChartNoAxesCombined,
+    route: '/player/',
+    labelKey: 'destinationPlayer' as const,
+    Icon: Clapperboard,
   },
 ] as const;
 

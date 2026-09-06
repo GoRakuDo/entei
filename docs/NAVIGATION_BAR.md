@@ -50,7 +50,7 @@ TopBar.astro
 ├── desktopすべて: 設定ボタン（Settingsモーダルをどこからでも開ける）※詳細は後述「設定ボタンの追加（2026-08-07）」
 ├── desktop Home / Tracker: right edgeにLanguage Combobox React island
 └── mobile chrome: brand + optional Language Selector
-    └── floating bottom Dock: Home / Tracker / Settings（2026-08-07変更: Playerを除外し、Settingsを追加）
+    └── floating bottom Dock: Home / Player / Settings（2026-08-07変更: Trackerを除外し、Settingsを追加）
 ```
 
 route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成立させる。Language Comboboxだけはshadcnの`Popover + Command`構成を使う小さなReact islandにする。navigation全体をReactへ移さない。
@@ -60,13 +60,13 @@ route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成
 - iconは`@lucide/astro`のnamed importだけを使う。手書きSVG、emoji、icon fontは入れない。
 - `TopBar.astro`のpropsへ現在pathを明示して渡す。component内でURLやbrowser APIを推測しない。
 - desktop Language Comboboxはnavの外、viewport右端に置く。destination pillへ入れない。Home / Trackerだけに表示し、Playerにはrenderしない。
-- mobileはnative Language Selectorを保つ。mobile Dockは **Home / Tracker / Settings** の3 destination（2026-08-07変更: Playerを除外し、Settingsを追加。Comboboxや4枠目は追加しない）。
+- mobileはnative Language Selectorを保つ。mobile Dockは **Home / Player / Settings** の3 destination（2026-08-07変更: Trackerを除外し、Settingsを追加。Comboboxや4枠目は追加しない）。Trackerへはどこからでも戻れる記録室という役割は変わらないため、desktopのHome / Trackerの上中央pillと `/tracker/` のdirect URLから引き続きアクセスできる。Dock内のDOM順は `Home → Player → Settings` を保つ。
 
 ### 設定ボタンの追加（2026-08-07設計確定・実装済み）
 
 - **TopBarナビに「設定」ボタン**（Lucide `Settings`、44px hit area）を追加し、**どのページからでもプレイヤー設定モーダル（EizouDen タブを含む）を開ける**ようにする。
 - desktop: pill（Home / Player / Tracker）の右側 or 適切な位置に Settings ボタン。Player の top-edge hover pill には含めない（Player 内は既存の Settings アイコンで開く）。
-- mobile: floating bottom Dock を **Home / Tracker / Settings** に変更（Player ボタンを除外。Player への導線は /player/ の直接URL・ホームのカード等で維持）。Dock のDOM順も Home → Tracker → Settings に統一（視覚順とTab順を入れ替えない）。
+- mobile: floating bottom Dock を **Home / Player / Settings** に変更（Tracker ボタンを除外。Tracker への導線は /tracker/ の直接URL・デスクトップの pill 等で維持）。Dock のDOM順も Home → Player → Settings に統一（視覚順とTab順を入れ替えない）。
 - 設定モーダルは共通コンポーネント化し、TopBarのボタンと Player 内の設定アイコンの両方から開ける。
 
 ## 4. レスポンシブ契約
@@ -90,7 +90,7 @@ Home / TrackerのTopBarはbrandと必要なLanguage Selectorだけを保ち、de
 - `env(safe-area-inset-bottom)`と既存Entei spacing tokenを足し、iPhoneのhome indicatorやbrowser chromeに重ねない。
 - 3 destinationは等しい幅で、iconの下に短いlabelを置く。tap targetは各44×44 CSS px以上。
 - ページ本文にはDock高さ + safe-area分のbottom paddingを確保し、最後の操作・footer・Player controlsをDockで隠さない。
-- Dockはすべてのpageで同じDOM順 `Home → Tracker → Settings` を保つ。視覚順とTab順を入れ替えない（2026-08-07変更: Playerを除外し、Settingsを追加）。
+- Dockはすべてのpageで同じDOM順 `Home → Player → Settings` を保つ。視覚順とTab順を入れ替えない（2026-08-07変更: Trackerを除外し、Settingsを追加）。
 - Player mobileでTopBarを隠してもDockは残す。Home / TrackerのTopBarはmobile language selectionの入口として維持する。
 
 ### 4.3 Player short-height landscape / fullscreen
