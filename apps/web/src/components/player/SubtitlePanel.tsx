@@ -157,7 +157,9 @@ export function SubtitlePanel({
             const mineDisabled = !canMineRow || isMining;
             return (
               <li key={cue.id} className="entei-subtitle-cue-item">
-                <div className="entei-subtitle-cue-row">
+                <div
+                  className={`entei-subtitle-cue-row${isActive ? ' entei-subtitle-cue-row--active' : ''}`}
+                >
                   <button
                     type="button"
                     className={`entei-subtitle-cue${isActive ? ' entei-subtitle-cue--active' : ''}`}
@@ -181,10 +183,18 @@ export function SubtitlePanel({
                       }}
                       disabled={mineDisabled}
                       aria-label={
-                        isMining ? mineCapturingLabel : mineDisabled ? mineRowDisabledLabel : mineRowLabel
+                        isMining
+                          ? mineCapturingLabel
+                          : mineDisabled
+                            ? mineRowDisabledLabel
+                            : mineRowLabel
                       }
                       title={
-                        isMining ? mineCapturingLabel : mineDisabled ? mineRowDisabledLabel : mineRowLabel
+                        isMining
+                          ? mineCapturingLabel
+                          : mineDisabled
+                            ? mineRowDisabledLabel
+                            : mineRowLabel
                       }
                     >
                       <Pickaxe size={16} aria-hidden="true" />
