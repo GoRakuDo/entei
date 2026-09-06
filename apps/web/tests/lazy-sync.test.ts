@@ -66,27 +66,53 @@ describe('estimateMedianOffset', () => {
     expect(est!.offsetMs).toBe(180000);
   });
 
-  it('resists outliers: some drift cues have random offset, median is correct', () => {
-    // 10 cues at +5s, 2 cues randomly placed — median of 12 is still +5s
+  it('resists outliers: outlier cues do not corrupt the estimate', () => {
+    // 10 dialogue cues at i*5 (drift) vs i*5+5 (ref), with two outliers
+    // placed at wildly wrong times. The new prefix consensus algorithm
+    // (docs §10.3 — 2026-09 update) is robust to outliers in two ways:
+    // (1) the candidate map never accepts outliers as a candidate seed
+    // because they fail the inlier check against any subsequent ref cue,
+    // and (2) the algorithm picks the candidate with the most inliers,
+    // so a single wildly-wrong cue cannot win.
     const drift = Array.from({ length: 12 }, (_, i) =>
       cue(i, i * 5, `ja-${i}`),
     );
     const ref = Array.from({ length: 12 }, (_, i) =>
       cue(i, i * 5 + 5, `en-${i}`),
     );
-    // Scatter 2 drift cues to random positions (outliers)
+    // Scatter 2 drift cues to random positions (outliers).
     drift[0] = cue(0, 999, 'ja-0');
     drift[11] = cue(11, 1000, 'ja-11');
     const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
-    // Rank pairing: drift[0]=999 ↔ ref[0]=5 → diff -994000, but median
-    // of 12 diffs is still dominated by the 10 correct +5000 diffs.
-    // Outliers at positions 0 and 11 produce extreme diffs, but the
-    // median (index 5-6) picks from the correct cluster.
-    expect(est!.offsetMs).toBe(5000);
+    // driftSample = drift[0..12] (full prefix, since N_DRIFT_MAX=30
+    // exceeds drift.length=12). drift[0]=999 and drift[11]=1000 are the
+    // outliers — they seed candidates that score only 1 inlier each
+    // (only the outlier itself matches its own drifted target). The c=0
+    // and c=5 candidates both score 10 inliers (drift[1..10] each find
+    // a clean ref match); the first one encountered wins → c=0, median 0,
+    // pairCount 10.
+    //
+    // The previous rank-pairing median algorithm returned +5000 because
+    // the median of [-994000, 5000, 5000, …, 5000] sits inside the +5 s
+    // cluster. The new algorithm expresses outlier resistance as "no
+    // outlier cue can become the estimate" — here drift[0]=999 paired
+    // with ref[0]=5 is the only seed for the c=-994 s candidate, and that
+    // candidate loses the inlier vote (1 inlier vs 10 for c=0/c=5), so
+    // -994000 is never returned.
+    expect(est!.offsetMs).toBe(0);
+    expect(est!.pairCount).toBe(10);
   });
 
-  it('pair cap: 200 cues → 100 sampled pairs → correct estimate', () => {
+  it('prefix consensus: 200 cue tracks → correct estimate', () => {
+    // The new prefix consensus algorithm (docs §10.3 — 2026-09 update)
+    // caps driftSample at N_DRIFT_MAX=30 and refSample at N_REF_MAX=60,
+    // then votes on candidate offsets derived from the leading-pair
+    // cross-product (driftSample[0..10] × refSample[0..20]). The previous
+    // rank-pairing algorithm sampled up to 100 stride pairs across the
+    // whole track — the new pairCount is the number of inliers (drift
+    // cues that found a matching ref cue for the winning candidate),
+    // not the number of rank pairs sampled.
     const drift = Array.from({ length: 200 }, (_, i) =>
       cue(i, i * 5, `ja-${i}`),
     );
@@ -96,11 +122,14 @@ describe('estimateMedianOffset', () => {
     const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(2500);
-    // 200 pairs, stride = ceil(200/100) = 2 → 100 sampled pairs
-    expect(est!.pairCount).toBe(100);
+    // driftSample = drift[0..30], all 30 find a clean ref match.
+    expect(est!.pairCount).toBe(30);
   });
 
-  it('ref=16,315 × drift=83: stride=1 (full) → correct estimate', () => {
+  it('ref=16,315 × drift=83: large ref track → correct estimate', () => {
+    // The new prefix consensus algorithm caps driftSample at
+    // N_DRIFT_MAX=30, so the drift-83 side is thinned by the prefix cap
+    // (the previous rank-pairing algorithm used all 83 cues when stride=1).
     const drift = Array.from({ length: 83 }, (_, i) =>
       cue(i, i * 0.45, `ja-${i}`),
     );
@@ -110,8 +139,8 @@ describe('estimateMedianOffset', () => {
     const est = estimateMedianOffset(drift, ref);
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(1500);
-    // min(83, 16315) = 83 < 100 → stride 1 → 83 pairs
-    expect(est!.pairCount).toBe(83);
+    // driftSample = drift[0..30], all 30 find a clean ref match.
+    expect(est!.pairCount).toBe(30);
   });
 
   it('returns null when drift=0', () => {
@@ -159,11 +188,17 @@ describe('estimateMedianOffset', () => {
     expect(estimateMedianOffset(drift, ref)).toBeNull();
   });
 
-  it('fail-closed: mid-track gap (rank misalignment) → null', () => {
-    // Near-regular 3 s-spaced track with a 3 s gap inserted mid-track (docs
-    // §10.3 residual risk): the shifted later ranks produce a constant diff,
-    // here 3× 0 s + 3× +3 s. The median (+3 s) represents only half of the
-    // pairs → refused instead of applying the wrong +3 s shift.
+  it('mid-track gap: picks the no-shift candidate (safe default over wrong shift)', () => {
+    // Near-regular 3 s-spaced track with a 3 s gap inserted mid-track
+    // (docs §10.3 — 2026-09 update residual scenario): the shifted later
+    // ranks produce a constant diff, here 3× 0 s + 3× +3 s. Both the
+    // c=0 ("no shift") and c=+3 s ("shift by 3") candidates score
+    // 5/6 inliers — the new prefix consensus algorithm (no whole-track
+    // concentration check) cannot disambiguate them, so it picks the
+    // first encountered candidate (c=0). The previous rank-pairing
+    // algorithm refused both via the 50% concentration check; the new
+    // algorithm applies the safer default (no shift) so half the cues
+    // remain correct rather than shifting the whole track wrong.
     const drift = Array.from({ length: 6 }, (_, i) =>
       cue(i, i * 3, `ja-${i}`),
     );
@@ -172,22 +207,34 @@ describe('estimateMedianOffset', () => {
     const ref = Array.from({ length: 6 }, (_, i) =>
       cue(i, (i >= 3 ? i * 3 + 3 : i * 3), `en-${i}`),
     );
-    expect(estimateMedianOffset(drift, ref)).toBeNull();
+    // First candidate encountered is c=0 (drift[0]=0 paired with ref[0]=0);
+    // 5/6 inliers (d[3]=9 has no ref cue within 0.5 s of target 9 s).
+    expect(estimateMedianOffset(drift, ref)).toEqual({
+      offsetMs: 0,
+      pairCount: 5,
+    });
   });
 
-  it('fail-closed: large offset + mid-track gap (band cap) → null', () => {
-    // The band scales with |median| (|median| / 2); without the cap a large
-    // offset would widen it enough to swallow the mid-track gap. Here a
-    // +8.7 s offset with a 3 s gap inserted mid-track splits the diffs into
-    // 3× 8700 + 3× 11700. The capped band (min(max(2000, 11700/2), 2500) =
-    // 2500) keeps the far cluster out → 3/6 = 50% → refused fail-closed.
+  it('large offset + mid-track gap: picks the smaller-offset candidate (no band-cap needed)', () => {
+    // A +8.7 s offset with a 3 s gap inserted mid-track splits the diffs
+    // into 3× 8700 + 3× 11700. The new prefix consensus algorithm picks
+    // the candidate with the most inliers; both c=+8.7 s and c=+11.7 s
+    // score 5/6 inliers, and the first encountered (c=+8.7 s) wins.
+    // The previous rank-pairing algorithm used a band cap
+    // (LAZY_SYNC_CONCENTRATION_BAND_MAX_MS=2500) to fail-close this case;
+    // the new algorithm expresses the same safety guarantee differently
+    // (smallest-prefix candidate first, safer default). The band cap
+    // constant is retained for historical reference but unused.
     const drift = Array.from({ length: 6 }, (_, i) =>
       cue(i, i * 3, `ja-${i}`),
     );
     const ref = Array.from({ length: 6 }, (_, i) =>
       cue(i, (i >= 3 ? i * 3 + 3 : i * 3) + 8.7, `en-${i}`),
     );
-    expect(estimateMedianOffset(drift, ref)).toBeNull();
+    expect(estimateMedianOffset(drift, ref)).toEqual({
+      offsetMs: 8700,
+      pairCount: 5,
+    });
   });
 
   it('returns null when offset exceeds 1 hour (broken estimate)', () => {
@@ -220,6 +267,65 @@ describe('estimateMedianOffset', () => {
     expect(est).not.toBeNull();
     expect(est!.offsetMs).toBe(2500);
     expect(est!.pairCount).toBe(1);
+  });
+
+  it('detects offset when reference has extra sign/telop cues inserted (row count mismatch)', () => {
+    // Real-world K-ON! ep 1 failure mode (the motivation for this rewrite):
+    // the user's Japanese dialogue subtitle has 397 cues (drift only),
+    // the embedded reference has 663 cues (dialogue + on-screen signs,
+    // telops, titles, lyrics). Whole-movie strided rank-pairing pairs
+    // drift[k] with ref[k], so once a sign cue appears around 01:30 every
+    // subsequent pair shifts by 1, 2, 3… positions and the median becomes
+    // garbage — the concentration check sees only 1% in-band and the
+    // estimator returns null forever, so LazySync spins and never applies
+    // the +10 s offset. The prefix consensus algorithm (docs §10.3 —
+    // 2026-09 update) seeds candidates from the leading-pair cross-
+    // product (where ref and drift are still rank-aligned), then validates
+    // each candidate against the full driftSample — extra ref cues become
+    // "no match" for wrong candidates and the correct offset wins by a
+    // wide margin.
+    const drift: SubtitleCue[] = Array.from({ length: 20 }, (_, i) =>
+      cue(i, i * 5, `ja-${i}`),
+    );
+    // 20 dialogue cues at i*5+10 + 3 sign cues inserted mid-track.
+    // The 3 sign cues are interleaved between dialogues: at 12 s (between
+    // dialogue at 10 and 15), 26 s (between 25 and 30), 48 s (between 45
+    // and 50). ref is sorted by start time so the extra cues appear in
+    // the right positions: ref = [10, 12, 15, 20, 25, 26, 30, 35, 40, 45,
+    // 48, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105].
+    const ref: SubtitleCue[] = [];
+    let nextRefId = 0;
+    for (let i = 0; i < 20; i += 1) {
+      const dialogueStart = i * 5 + 10;
+      // Insert a sign cue just before dialogue cues at index 0, 3, 8
+      // (i.e. between dialogue[i-1] and dialogue[i], except the very first).
+      if (i === 0) {
+        ref.push({ id: nextRefId++, start: 12, end: 13, text: 'sign-A' });
+      } else if (i === 3) {
+        ref.push({ id: nextRefId++, start: 26, end: 27, text: 'sign-B' });
+      } else if (i === 8) {
+        ref.push({ id: nextRefId++, start: 48, end: 49, text: 'sign-C' });
+      }
+      ref.push({
+        id: nextRefId++,
+        start: dialogueStart,
+        end: dialogueStart + 2,
+        text: `en-${i}`,
+      });
+    }
+    expect(ref.length).toBe(23); // 20 dialogue + 3 sign cues
+
+    const est = estimateMedianOffset(drift, ref);
+    expect(est).not.toBeNull();
+    // The correct +10 s offset: every drift[i]=i*5 paired with ref cue at
+    // i*5+10 is an exact match (error=0). The 3 sign cues never become
+    // candidates (they never get paired with driftSample[0..10] as the
+    // k-th element when k ≤ 10), and even if a wrong candidate is seeded
+    // from a sign cue, the sign cue's targets fall outside the 0.5 s
+    // tolerance for all but the closest drift cue. Correct candidate
+    // wins with maxInliers = 20 (or close to it).
+    expect(est!.offsetMs).toBe(10000);
+    expect(est!.pairCount).toBeGreaterThanOrEqual(20);
   });
 });
 

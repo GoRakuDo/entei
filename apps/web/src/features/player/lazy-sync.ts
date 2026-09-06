@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // LazySync — Magnet-only instant subtitle sync from the already-downloaded
-// cue prefix (docs/SUBTITLE_SYNC.md §10). Pure logic only: rank-pairing
-// median offset estimation and offset application. The polling loop that
+// cue prefix (docs/SUBTITLE_SYNC.md §10). Pure logic only: prefix consensus
+// inlier offset estimation and offset application. The polling loop that
 // drives these helpers lives in PlayerApp (component state owns the timer,
 // the toggle, and the toasts).
 //
-// Algorithm (rank-pairing median): pair the k-th drift cue with the k-th
-// ref cue (order-based, offset-agnostic), collect time differences, and
-// take the median. A concentration check refuses estimates where no single
-// offset dominates (bimodal / mid-track-misaligned splits), and a median of
-// exactly 0 counts as already in sync. Works for any offset magnitude, any
-// language, no text matching or histogram gates needed.
+// Algorithm (prefix consensus inlier matching — RANSAC-style hypothesis
+// voting + fine median): rank-pairing of the WHOLE track breaks as soon as
+// the reference has extra cues (signs/telops/titles/lyrics) inserted
+// mid-track, because every subsequent k-th pair shifts by 1, 2, 3… and the
+// median becomes garbage. Instead we (1) sample the DL'd prefix, (2) vote on
+// candidate offsets from early pairs, (3) score each candidate by how many
+// drift cues find a matching ref cue within tolerance, and (4) take the
+// median of the winning inlier set. Robust against extra cues, any
+// magnitude, language-agnostic, no text matching or histogram gates.
 
 import type { SubtitleCue } from './subtitle-reader';
 
@@ -39,29 +42,65 @@ export const LAZY_SYNC_MIN_OFFSET_MS = 100;
 /** Maximum offset: values beyond this are treated as broken estimates. */
 export const LAZY_SYNC_MAX_OFFSET_MS = 3600000;
 
-/** Maximum number of rank pairs to sample: min(drift, ref) above this is
- *  thinned with a stride, capping both the work and the influence of a
- *  long download prefix. */
+/** Maximum number of rank pairs to sample (rank-pairing era): min(drift,
+ *  ref) above this was thinned with a stride, capping both the work and the
+ *  influence of a long download prefix. The current algorithm uses fixed
+ *  prefix sizes (N_DRIFT_MAX / N_REF_MAX) and does not stride-sample, but
+ *  the constant is retained for historical reference (docs §10.3). */
 export const LAZY_SYNC_MAX_PAIRS = 100;
 
-/** Baseline half-width of the median-concentration band (docs §10.3): a
- *  diff counts as concentrated when |d − median| ≤ max(this, |median| / 2). */
+/** Baseline half-width of the median-concentration band (docs §10.3, rank-
+ *  pairing era): a diff counted as concentrated when |d − median| ≤
+ *  max(this, |median| / 2). Retained for historical reference — the
+ *  current prefix consensus algorithm uses an inlier-vote gate
+ *  (maxInliers / N_DRIFT) instead. */
 export const LAZY_SYNC_CONCENTRATION_BAND_MS = 2000;
 
-/** Upper bound for the concentration band. Without it, the band grows
- *  proportionally with |median| and at large offsets swallows mid-track gaps
- *  (e.g. +8.7 s offset + 3 s gap → both clusters land inside the band → wrong
- *  shift applied). Kept below the smallest gap we want to reject fail-closed
- *  (3 s): 2500 < 3000. */
+/** Upper bound for the concentration band. Retained for historical reference
+ *  (docs §10.3, rank-pairing era). The current algorithm does not use this
+ *  constant. */
 export const LAZY_SYNC_CONCENTRATION_BAND_MAX_MS = 2500;
 
-/** Minimum fraction of diffs that must sit inside the concentration band.
- *  A split that does not clear this (e.g. ±1.5 s mixed cues) is refused
- *  fail-closed instead of trusting a median that represents no single
- *  cluster. */
+/** Minimum fraction of cues (denominator: min(N_DRIFT, N_REF)) that must
+ *  be inliers for the winning candidate (prefix consensus, docs §10.3 —
+ *  2026-09 update): below this fraction no single offset is representative
+ *  (e.g. ±1.5 s mixed cues where every cue is > tolerance from any
+ *  candidate's target) and we refuse fail-closed. */
 export const LAZY_SYNC_MIN_CONCENTRATION = 0.5;
 
-/** Estimated offset with the number of rank pairs it was derived from. */
+/** Maximum number of drift cues considered by the consensus algorithm:
+ *  the DL'd prefix (first N_DRIFT_MAX cues) is the voting population, so
+ *  extra cues beyond this do not change the estimate. */
+export const N_DRIFT_MAX = 30;
+
+/** Maximum number of ref cues scanned as nearest-neighbor targets. Larger
+ *  than N_DRIFT_MAX because the reference can legitimately hold many more
+ *  cues per minute (signs, telops, lyrics) than the user dialogue track. */
+export const N_REF_MAX = 60;
+
+/** Maximum number of leading drift cues used to seed candidate offsets
+ *  (cross-product with CANDIDATE_REF_MAX). The first 10 dialogue cues
+ *  typically span a few minutes — enough surface area for a unique +
+ *  large-offset estimate, small enough to keep the candidate map bounded. */
+export const CANDIDATE_DRIFT_MAX = 10;
+
+/** Maximum number of leading ref cues used to seed candidate offsets. */
+export const CANDIDATE_REF_MAX = 20;
+
+/** Tolerance for "closest ref cue" inlier matching: a drift cue d at
+ *  driftSample with candidate offset c counts as an inlier when there
+ *  exists a ref cue within this many seconds of (d.start + c). 0.5 s is
+ *  tight enough to reject random bimodal hits (e.g. ±1.5 s mixed cues
+ *  never reach a match — every cue is ≥ 1.5 s from any candidate target)
+ *  and loose enough to absorb SRT/VTT timing jitter on real-world cues. */
+export const MATCH_TOLERANCE_SEC = 0.5;
+
+/** Round candidate offsets to this grid so near-identical hypotheses from
+ *  multiple prefix pairs collapse to a single vote (25 ms = 1 frame at
+ *  40 fps, well below human timing perception). */
+const CANDIDATE_BIN_MS = 25;
+
+/** Estimated offset with the number of inliers it was derived from. */
 export interface OffsetEstimate {
   offsetMs: number;
   pairCount: number;
@@ -69,26 +108,45 @@ export interface OffsetEstimate {
 
 /**
  * Estimate the constant offset (ref − drift, ms) between the user subtitle
- * (drift) and the embedded track (ref) using rank-pairing median.
+ * (drift) and the embedded track (ref) using prefix consensus inlier
+ * matching.
  *
- * Pair the k-th drift cue with the k-th ref cue (order-based). The median
- * of all time differences is the offset — robust to outliers, language-
- * agnostic, works for any offset magnitude (no wrapping unlike nearest-
- * neighbor pairing).
+ * Algorithm (docs §10.3 — 2026-09 update, replaces rank-pairing median):
+ *  1. Sample the DL'd prefix: driftSample = drift[0..N_DRIFT],
+ *     refSample = ref[0..N_REF] (N_DRIFT ≤ N_DRIFT_MAX, N_REF ≤ N_REF_MAX).
+ *  2. Seed candidate offsets from leading-pair cross-product
+ *     (driftSample[0..10] × refSample[0..20]), binned to a 25 ms grid and
+ *     capped at LAZY_SYNC_MAX_OFFSET_MS.
+ *  3. For each candidate, scan every drift cue in driftSample, find the
+ *     closest ref cue in refSample, and count it as an inlier when the
+ *     error is ≤ MATCH_TOLERANCE_SEC. Record the exact (matchedRef.start
+ *     − d.start) * 1000 for every inlier.
+ *  4. Pick the candidate with the most inliers. Fail-closed if its support
+ *     is ≤ LAZY_SYNC_MIN_CONCENTRATION of min(N_DRIFT, N_REF) — the inlier
+ *     count is bounded by the smaller side, so the threshold denominator is
+ *     too (e.g. ±1.5 s mixed cues → 0 inliers → 0/min(...) ≤ 0.5 → null;
+ *     sparse ref prefix where N_REF=5 → 5/5 = 100% → pass even though
+ *     N_DRIFT=30 would always refuse).
+ *  5. Fine median of the winning inlier set is the returned offset. Median
+ *     0 means "already in sync" (not null) so PlayerApp converges silently
+ *     via its |offset| < LAZY_SYNC_MIN_OFFSET_MS branch; median beyond
+ *     LAZY_SYNC_MAX_OFFSET_MS means a broken result and returns null.
  *
  * Returns null when:
  * - either side has no cues
- * - the diffs are not concentrated around the median (≤ 50% lie within
- *   max(2000 ms, |median| / 2), capped at 2500 ms, of it): a bimodal split
- *   (e.g. ±1.5 s mixed cues) or a mid-track rank misalignment means no single
- *   offset is representative — refuse fail-closed instead of applying a wrong
- *   shift
- * - the median exceeds LAZY_SYNC_MAX_OFFSET_MS (1 hour, broken estimate)
+ * - the winning candidate's support is ≤ 50% of min(N_DRIFT, N_REF)
+ *   (bimodal split, broken reference, mid-track rank misalignment that
+ *   puts every candidate below the threshold, etc.)
+ * - the median offset exceeds 1 hour
  *
- * A median of exactly 0 is NOT null: it means the tracks are already in
- * sync, and the caller's |offset| < LAZY_SYNC_MIN_OFFSET_MS branch converges
- * silently. (Returning null here made PlayerApp wait out the 12-min bound
- * and toast "字幕が読み込まれていません" on perfectly synced subtitles.)
+ * Robust against extra cues in the reference (the K-ON! failure mode that
+ * motivated this rewrite): when the ref track has more cues than the user
+ * track (signs, telops, titles, lyrics inserted mid-track), whole-track
+ * rank pairing shifts every subsequent pair by 1, 2, 3… positions and the
+ * median becomes garbage. Prefix consensus only looks at leading pairs to
+ * seed candidates, then validates each candidate against the full prefix
+ * — extra cues in ref become "no match" for the wrong candidates rather
+ * than silently corrupting the diffs.
  */
 export function estimateMedianOffset(
   driftCues: readonly SubtitleCue[],
@@ -96,57 +154,109 @@ export function estimateMedianOffset(
 ): OffsetEstimate | null {
   if (driftCues.length === 0 || refCues.length === 0) return null;
 
-  // Rank-pair: k-th drift ↔ k-th ref. Sample to cap pair count.
-  const maxPairs = Math.min(driftCues.length, refCues.length);
-  const stride =
-    maxPairs > LAZY_SYNC_MAX_PAIRS
-      ? Math.ceil(maxPairs / LAZY_SYNC_MAX_PAIRS)
-      : 1;
+  // Sample the DL'd prefix.
+  const N_DRIFT = Math.min(driftCues.length, N_DRIFT_MAX);
+  const N_REF = Math.min(refCues.length, N_REF_MAX);
+  const driftSample = driftCues.slice(0, N_DRIFT);
+  const refSample = refCues.slice(0, N_REF);
 
-  const diffs: number[] = [];
-  for (let i = 0; i < maxPairs; i += stride) {
-    const diffMs = (refCues[i]!.start - driftCues[i]!.start) * 1000;
-    diffs.push(diffMs);
+  // Seed candidate offsets from leading-pair cross-product, binned to a
+  // 25 ms grid (near-identical hypotheses collapse to a single vote).
+  const candDriftLen = Math.min(CANDIDATE_DRIFT_MAX, N_DRIFT);
+  const candRefLen = Math.min(CANDIDATE_REF_MAX, N_REF);
+  // Map: bin index (round(diffMs / 25)) → representative offsetMs. Using
+  // the binned ms value as both key and stored value keeps the candidate
+  // aligned to the 25 ms grid used for voting — every vote for the same
+  // bin is a vote for the same offset.
+  const candidateMap = new Map<number, number>();
+  for (let i = 0; i < candDriftLen; i += 1) {
+    const driftStart = driftSample[i]!.start;
+    for (let j = 0; j < candRefLen; j += 1) {
+      const diffMs = (refSample[j]!.start - driftStart) * 1000;
+      if (Math.abs(diffMs) > LAZY_SYNC_MAX_OFFSET_MS) continue;
+      const bin = Math.round(diffMs / CANDIDATE_BIN_MS);
+      if (!candidateMap.has(bin)) {
+        candidateMap.set(bin, bin * CANDIDATE_BIN_MS);
+      }
+    }
+  }
+  // Defensive: candidateMap can only be empty when every leading pair has
+  // an offset beyond LAZY_SYNC_MAX_OFFSET_MS, which requires an unrealistic
+  // 1 h+ offset — driftSample cannot have N_DRIFT ≤ 0 because the guard at
+  // the top rejects empty inputs. Kept for future refactors.
+  if (candidateMap.size === 0) return null;
+
+  // Score each candidate: for every drift cue, find the closest ref cue and
+  // count it as an inlier when the error is ≤ MATCH_TOLERANCE_SEC. Record
+  // the EXACT diff (matchedRef.start − d.start) * 1000 — the fine median of
+  // these is the returned offset, so a single match that misses by 50 ms
+  // pulls the median by 50 ms.
+  let bestOffsetMs: number | null = null;
+  let maxInliers = 0;
+  let bestInlierDiffs: number[] = [];
+  for (const offsetMs of candidateMap.values()) {
+    const offsetSec = offsetMs / 1000;
+    const inlierDiffs: number[] = [];
+    for (const driftCue of driftSample) {
+      const target = driftCue.start + offsetSec;
+      let minError = Infinity;
+      let matchedRefIdx = -1;
+      for (let k = 0; k < refSample.length; k += 1) {
+        const error = Math.abs(refSample[k]!.start - target);
+        if (error < minError) {
+          minError = error;
+          matchedRefIdx = k;
+        }
+      }
+      if (
+        minError <= MATCH_TOLERANCE_SEC &&
+        matchedRefIdx >= 0
+      ) {
+        const matchedRef = refSample[matchedRefIdx]!;
+        inlierDiffs.push((matchedRef.start - driftCue.start) * 1000);
+      }
+    }
+    if (inlierDiffs.length > maxInliers) {
+      maxInliers = inlierDiffs.length;
+      bestOffsetMs = offsetMs;
+      bestInlierDiffs = inlierDiffs;
+    }
   }
 
-  // Defensive guard (currently unreachable: both arrays are non-empty and
-  // stride ≥ 1 guarantee at least one pair). Kept for future refactors.
-  if (diffs.length === 0) return null;
+  // Fail-closed: no offset dominates → refuse.
+  //
+  // The denominator is min(N_DRIFT, N_REF) — the inlier count is bounded
+  // by the smaller of the two sides, so the threshold is meaningful only
+  // when also bounded by it. With N_DRIFT=30 and N_REF=5 (sparse ref DL'd
+  // prefix), maxInliers can be at most 5 and 5/30 would always refuse
+  // even when every ref cue has a clean match; min(30, 5) = 5 gives the
+  // algorithm a chance to detect the offset from the cues it actually has.
+  if (bestOffsetMs === null) return null;
+  const concentrationDenom = Math.min(N_DRIFT, N_REF);
+  if (maxInliers / concentrationDenom <= LAZY_SYNC_MIN_CONCENTRATION) {
+    return null;
+  }
 
-  // Median: sort and pick the middle value.
-  diffs.sort((a, b) => a - b);
-  const medianMs = diffs[Math.floor(diffs.length / 2)]!;
+  // Fine median from the best inlier set. The inlier diffs are integer ms,
+  // Math.round keeps the median itself integer ms (matches PlayerApp's
+  // |offset| < LAZY_SYNC_MIN_OFFSET_MS comparison).
+  bestInlierDiffs.sort((a, b) => a - b);
+  const medianMs = Math.round(
+    bestInlierDiffs[Math.floor(bestInlierDiffs.length / 2)]!,
+  );
 
   if (!Number.isFinite(medianMs)) return null;
-
-  // Concentration check (fail-closed): the majority of the diffs must sit
-  // inside a band around the median. A bimodal split (two offset clusters,
-  // e.g. ±1.5 s mixed cues, or a mid-track insertion shifting the later
-  // ranks by a gap) leaves ≤ 50% inside the band — no single offset is
-  // representative, so refuse instead of applying a wrong constant shift.
-  const bandMs = Math.min(
-    Math.max(
-      LAZY_SYNC_CONCENTRATION_BAND_MS,
-      Math.abs(medianMs) / 2,
-    ),
-    LAZY_SYNC_CONCENTRATION_BAND_MAX_MS,
-  );
-  let inBand = 0;
-  for (const diffMs of diffs) {
-    if (Math.abs(diffMs - medianMs) <= bandMs) inBand += 1;
-  }
-  if (inBand / diffs.length <= LAZY_SYNC_MIN_CONCENTRATION) return null;
 
   // Median 0 = already in sync: return an estimate (not null) so PlayerApp
   // converges silently via its |offset| < LAZY_SYNC_MIN_OFFSET_MS branch.
   if (medianMs === 0) {
-    return { offsetMs: 0, pairCount: diffs.length };
+    return { offsetMs: 0, pairCount: maxInliers };
   }
 
   // Extreme values are broken estimates.
   if (Math.abs(medianMs) > LAZY_SYNC_MAX_OFFSET_MS) return null;
 
-  return { offsetMs: medianMs, pairCount: diffs.length };
+  return { offsetMs: medianMs, pairCount: maxInliers };
 }
 
 /**
