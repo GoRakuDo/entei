@@ -381,7 +381,7 @@ export const ja: Dictionary = {
     jimakuSearchFilesLabel: '字幕ファイル',
     jimakuSearchSelectEntry: 'エントリを選択してファイルを表示',
     jimakuSearchOpenButton: '字幕検索',
-    jimakuSearchNoKey: 'JIMAKU.CCのAPIキーを設定で入力してください',
+    jimakuSearchNoKey: 'JIMAKU.CC の API キーを入力してください',
     jimakuOpenSettings: '設定を開く',
     jimakuSearchBack: '戻る',
     subtitleSyncButton: '字幕同期',

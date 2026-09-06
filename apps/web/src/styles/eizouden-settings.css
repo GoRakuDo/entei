@@ -65,7 +65,9 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 201;
-  width: 100%;
+  /* Mobile-friendly horizontal margin (16px on phones, 24px on tablets).
+     Desktop is clamped by max-width below. */
+  width: calc(100% - 2 * var(--entei-gutter));
   /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
   max-width: 42.5rem;
   max-height: 85vh;

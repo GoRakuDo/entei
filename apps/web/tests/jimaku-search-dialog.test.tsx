@@ -12,9 +12,11 @@ const prefs = vi.hoisted(() => ({
   searchAnime: true,
 }));
 const setSearchAnime = vi.hoisted(() => vi.fn());
+const setApiKey = vi.hoisted(() => vi.fn());
 
 vi.mock('@/features/player/jimaku-preferences', () => ({
   readJimakuPreferences: () => ({ ...prefs }),
+  setJimakuApiKey: (...a: unknown[]) => setApiKey(...a),
   setJimakuSearchAnime: setSearchAnime,
   shouldShowJimakuToast: () => true,
   incrementJimakuToastCount: () => 1,
@@ -226,18 +228,55 @@ describe('JimakuSearchDialog', () => {
     expect(onToast).toHaveBeenCalledWith('auth');
   });
 
-  it('replaces the search form with an empty state when the key is missing', () => {
+  it('replaces the search form with an inline API-key form when the key is missing', () => {
     prefs.apiKey = '';
     renderDialog();
 
-    // Empty state: message + settings button.
+    // Empty state: no-key message + inline key entry form.
     expect(screen.getByText(dict.jimakuSearchNoKey)).toBeTruthy();
-    expect(screen.getByText(dict.jimakuOpenSettings)).toBeTruthy();
-    // The whole form is hidden — no search button, no inputs, no toggle.
+    const placeholder = dict.jimakuApiKeyPlaceholder ?? 'jimaku.cc の API キーを入力';
+    const keyInput = screen.getByLabelText(placeholder);
+    expect(keyInput).toBeTruthy();
+    expect((keyInput as HTMLInputElement).type).toBe('password');
+    // The save button is the icon-only submit inside the key form.
+    const saveLabel = dict.contextKeySave ?? '保存';
+    const saveButton = screen.getByLabelText(saveLabel);
+    expect(saveButton).toBeTruthy();
+    expect((saveButton as HTMLButtonElement).type).toBe('submit');
+    // Save starts disabled because the draft is empty.
+    expect((saveButton as HTMLButtonElement).disabled).toBe(true);
+    // The whole search form is hidden — no search button, no inputs, no toggle.
     expect(screen.queryByText(dict.jimakuSearchButton)).toBeNull();
     expect(screen.queryByLabelText(dict.jimakuSearchTitle)).toBeNull();
     expect(screen.queryByLabelText(dict.jimakuSearchEpisode)).toBeNull();
     expect(screen.queryByText(dict.jimakuSearchAnimeToggle)).toBeNull();
+    // The old "open settings" button is gone too.
+    expect(screen.queryByText(dict.jimakuOpenSettings)).toBeNull();
+  });
+
+  it('saves the typed key from the inline form and switches back to search fields', async () => {
+    prefs.apiKey = '';
+    renderDialog();
+    expect(screen.getByText(dict.jimakuSearchNoKey)).toBeTruthy();
+
+    const placeholder = dict.jimakuApiKeyPlaceholder ?? 'jimaku.cc の API キーを入力';
+    const keyInput = screen.getByLabelText(placeholder) as HTMLInputElement;
+    fireEvent.change(keyInput, { target: { value: 'inline-key' } });
+
+    const saveLabel = dict.contextKeySave ?? '保存';
+    const saveButton = screen.getByLabelText(saveLabel);
+    expect((saveButton as HTMLButtonElement).disabled).toBe(false);
+
+    // Submit via the form so onSubmit fires handleKeySave.
+    fireEvent.submit(keyInput.closest('form') as HTMLFormElement);
+
+    // setJimakuApiKey was called with the trimmed key, and the bridge event
+    // was broadcast so other surfaces (SubtitleAppearanceTab) re-read it.
+    expect(setApiKey).toHaveBeenCalledWith('inline-key');
+    // Empty state + inline form are gone, the search form is back.
+    expect(screen.queryByText(dict.jimakuSearchNoKey)).toBeNull();
+    expect(screen.queryByLabelText(placeholder)).toBeNull();
+    expect(screen.getByLabelText(dict.jimakuSearchTitle)).toBeTruthy();
   });
 
   it('clears the no-key message when the key is set while the dialog is open', async () => {
@@ -256,11 +295,21 @@ describe('JimakuSearchDialog', () => {
     expect(screen.getByLabelText(dict.jimakuSearchTitle)).toBeTruthy();
   });
 
-  it('opens the settings modal from the no-key message', () => {
+  it('ignores whitespace-only keys when submitting the inline form', () => {
     prefs.apiKey = '';
     renderDialog();
-    fireEvent.click(screen.getByText(dict.jimakuOpenSettings));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+
+    const placeholder = dict.jimakuApiKeyPlaceholder ?? 'jimaku.cc の API キーを入力';
+    const keyInput = screen.getByLabelText(placeholder) as HTMLInputElement;
+    fireEvent.change(keyInput, { target: { value: '   ' } });
+    // Whitespace-only: save stays disabled (trimmed length is zero).
+    const saveLabel = dict.contextKeySave ?? '保存';
+    expect((screen.getByLabelText(saveLabel) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.submit(keyInput.closest('form') as HTMLFormElement);
+    expect(setApiKey).not.toHaveBeenCalled();
+    // Still in the no-key state.
+    expect(screen.getByText(dict.jimakuSearchNoKey)).toBeTruthy();
   });
 
   it('persists the anime/drama toggle and re-searches with the new flag', async () => {

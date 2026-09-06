@@ -930,7 +930,9 @@
   transform: translate(-50%, -50%);
   /* W5: z-[201] — above overlay z-[200], below select z-[202] */
   z-index: 201;
-  width: 100%;
+  /* W5: Mobile-friendly horizontal margin (16px on phones, 24px on tablets).
+     Desktop is clamped by max-width below. */
+  width: calc(100% - 2 * var(--entei-gutter));
   /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
   max-width: 42.5rem;
   max-height: 85vh;
@@ -5828,7 +5830,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-jimaku-search-dialog {
   /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. Narrow
-     screens still shrink the dialog via the 100% width rule. */
+     screens use the gutter-margin width rule from .entei-dialog-content. */
   max-width: 42.5rem;
 }
 
@@ -5907,8 +5909,8 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-jimaku-search-empty-icon {
-  color: var(--entei-text-secondary);
-  opacity: 0.7;
+  color: var(--entei-gold-base);
+  opacity: 0.85;
 }
 
 .entei-jimaku-search-empty-title {
@@ -5926,7 +5928,29 @@ html.entei-player-immersive .entei-player-audio-area {
   margin-top: var(--entei-space-8);
 }
 
-.entei-jimaku-search-settings-btn {
+/* Inline API-key form (Nadeshiko pattern) — replaces the old
+   "open settings" button so users can paste their jimaku.cc key without
+   leaving this dialog. */
+.entei-jimaku-key-form {
+  width: 100%;
+  max-width: 24rem;
+}
+
+.entei-jimaku-form-group {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+}
+
+.entei-jimaku-form-group > input {
+  height: auto;
+  min-height: var(--entei-touch-min);
+}
+
+/* Icon-only save button — same treatment as the Nadeshiko save button
+   (outline variant + surface hover fill + 44px touch minimum), so the
+   form controls read consistently across the player. */
+.entei-jimaku-key-save-btn {
+  flex-shrink: 0;
   min-height: var(--entei-touch-min);
   background-color: var(--entei-btn-hover-bg);
   border-color: transparent;

@@ -375,7 +375,7 @@ export const en: Dictionary = {
     jimakuSearchFilesLabel: 'Subtitle files',
     jimakuSearchSelectEntry: 'Select an entry to see files',
     jimakuSearchOpenButton: 'Search Subtitle',
-    jimakuSearchNoKey: 'Enter your JIMAKU.CC API key in settings',
+    jimakuSearchNoKey: 'Enter your JIMAKU.CC API key',
     jimakuOpenSettings: 'Open settings',
     jimakuSearchBack: 'Back',
     subtitleSyncButton: 'Subtitle Sync',

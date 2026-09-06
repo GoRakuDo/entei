@@ -15,7 +15,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, KeyRound, Search, Settings } from 'lucide-react';
+import { ChevronLeft, KeyRound, Search } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from '@/components/player/ui/input';
 import {
   ToggleGroup,
@@ -37,10 +38,17 @@ import {
 } from '@/features/player/jimaku-client';
 import {
   readJimakuPreferences,
+  setJimakuApiKey,
   setJimakuSearchAnime,
 } from '@/features/player/jimaku-preferences';
-import { isNonJapanese, isUncompressed } from '@/features/player/use-jimaku-auto-load';
-import { listenForJimakuKeyChanged } from '@/features/player/settings-bridge';
+import {
+  isNonJapanese,
+  isUncompressed,
+} from '@/features/player/use-jimaku-auto-load';
+import {
+  dispatchJimakuKeyChanged,
+  listenForJimakuKeyChanged,
+} from '@/features/player/settings-bridge';
 
 export interface JimakuSearchDialogDict {
   jimakuSearchTitle: string;
@@ -54,7 +62,10 @@ export interface JimakuSearchDialogDict {
   jimakuSearchSelectEntry: string;
   jimakuSearchOpenButton: string;
   jimakuSearchNoKey: string;
-  jimakuOpenSettings: string;
+  /** Placeholder for the inline API-key input (Nadeshiko pattern). */
+  jimakuApiKeyPlaceholder: string;
+  /** Save-button aria-label/title for the inline API-key form. */
+  contextKeySave: string;
   jimakuSearchBack: string;
   jimakuRateLimit: string;
   jimakuAuthError: string;
@@ -91,7 +102,7 @@ export function JimakuSearchDialog({
   initialAnime,
   onSubtitleLoaded,
   onToast,
-  onOpenSettings,
+  onOpenSettings: _onOpenSettings,
   dict,
 }: JimakuSearchDialogProps) {
   const [status, setStatus] = useState<JimakuSearchStatus>('idle');
@@ -102,6 +113,9 @@ export function JimakuSearchDialog({
   const [selectedEntry, setSelectedEntry] = useState<JimakuEntry | null>(null);
   const [entryFiles, setEntryFiles] = useState<JimakuFile[]>([]);
   const [noKey, setNoKey] = useState(false);
+  // Inline API-key form state (Nadeshiko pattern). Reset via the open-effect.
+  const [keyDraft, setKeyDraft] = useState('');
+  const [keySaving, setKeySaving] = useState(false);
   // Guards stale responses after close / a newer request; in-flight requests
   // are aborted so an older search or file fetch can never win.
   const epochRef = useRef(0);
@@ -134,6 +148,8 @@ export function JimakuSearchDialog({
     setSelectedEntry(null);
     setEntryFiles([]);
     setNoKey(!readJimakuPreferences().apiKey);
+    setKeyDraft('');
+    setKeySaving(false);
   }, [open, initialTitle, initialAnime]);
 
   // Unmount cleanup: abort any in-flight request.
@@ -155,6 +171,20 @@ export function JimakuSearchDialog({
     },
     [onOpenChange],
   );
+
+  // Save the typed jimaku.cc API key, broadcast the change (DESIGN 1: the
+  // SubtitleAppearanceTab listener re-renders), and switch back to the
+  // search fields. Mirrors the NadeshikoPanel inline save flow.
+  const handleKeySave = useCallback(() => {
+    const trimmed = keyDraft.trim();
+    if (trimmed.length === 0) return;
+    setKeySaving(true);
+    setJimakuApiKey(trimmed);
+    dispatchJimakuKeyChanged(true);
+    setKeySaving(false);
+    setKeyDraft('');
+    setNoKey(false);
+  }, [keyDraft]);
 
   const handleAnimeToggle = useCallback((next: boolean) => {
     setAnime(next);
@@ -208,7 +238,8 @@ export function JimakuSearchDialog({
       setSelectedEntry(entry);
       setEntryFiles([]);
       setStatus('files');
-      const parsedEpisode = episodeText.trim() === '' ? undefined : Number(episodeText);
+      const parsedEpisode =
+        episodeText.trim() === '' ? undefined : Number(episodeText);
       const result = await getJimakuEntryFiles(
         prefs.apiKey,
         entry.id,
@@ -291,7 +322,9 @@ export function JimakuSearchDialog({
         <div className="entei-jimaku-search-body">
           {noKey ? (
             /* No API key — the whole form is replaced by a centered empty
-               state; the user sets the key in the settings modal first. */
+               state with an inline key-entry form (Nadeshiko pattern):
+               the user can paste their jimaku.cc key right here without
+               bouncing into the settings modal. */
             <div className="entei-jimaku-search-empty-state">
               <KeyRound
                 size={48}
@@ -301,149 +334,200 @@ export function JimakuSearchDialog({
               <p className="entei-jimaku-search-empty-title">
                 {dict.jimakuSearchNoKey}
               </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onOpenSettings}
-                className="entei-jimaku-search-settings-btn"
+              <form
+                className="entei-jimaku-key-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleKeySave();
+                }}
               >
-                <Settings size={14} aria-hidden="true" />
-                <span>{dict.jimakuOpenSettings}</span>
-              </Button>
+                <ButtonGroup className="entei-jimaku-form-group">
+                  <Input
+                    type="password"
+                    value={keyDraft}
+                    onChange={(e) => setKeyDraft(e.target.value)}
+                    placeholder={dict.jimakuApiKeyPlaceholder}
+                    aria-label={dict.jimakuApiKeyPlaceholder}
+                    disabled={keySaving}
+                    autoComplete="off"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    className="entei-jimaku-key-save-btn"
+                    disabled={keySaving || keyDraft.trim().length === 0}
+                    aria-label={dict.contextKeySave}
+                    title={dict.contextKeySave}
+                  >
+                    <KeyRound size={16} aria-hidden="true" />
+                  </Button>
+                </ButtonGroup>
+              </form>
             </div>
           ) : (
             <>
-            {/* Title + episode side by side (§2.3-1) — title flexes, EP is a
+              {/* Title + episode side by side (§2.3-1) — title flexes, EP is a
                 narrow fixed-width field. Stacks on narrow screens. */}
-            <div className="entei-jimaku-search-fields-row">
-              <div className="entei-jimaku-search-field">
-                <label htmlFor="jimaku-search-title" className="entei-jimaku-search-label">
-                  {dict.jimakuSearchTitle}
-                </label>
-                <Input
-                  id="jimaku-search-title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={dict.jimakuSearchTitle}
-                  disabled={isBusy}
-                />
+              <div className="entei-jimaku-search-fields-row">
+                <div className="entei-jimaku-search-field">
+                  <label
+                    htmlFor="jimaku-search-title"
+                    className="entei-jimaku-search-label"
+                  >
+                    {dict.jimakuSearchTitle}
+                  </label>
+                  <Input
+                    id="jimaku-search-title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder={dict.jimakuSearchTitle}
+                    disabled={isBusy}
+                  />
+                </div>
+                <div className="entei-jimaku-search-field entei-jimaku-search-episode-field">
+                  <label
+                    htmlFor="jimaku-search-episode"
+                    className="entei-jimaku-search-label"
+                  >
+                    {dict.jimakuSearchEpisode}
+                  </label>
+                  <Input
+                    id="jimaku-search-episode"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={episode}
+                    onChange={(e) => handleEpisodeChange(e.target.value)}
+                    placeholder={dict.jimakuSearchEpisode}
+                    disabled={isBusy}
+                  />
+                </div>
               </div>
-              <div className="entei-jimaku-search-field entei-jimaku-search-episode-field">
-                <label htmlFor="jimaku-search-episode" className="entei-jimaku-search-label">
-                  {dict.jimakuSearchEpisode}
-                </label>
-                <Input
-                  id="jimaku-search-episode"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={episode}
-                  onChange={(e) => handleEpisodeChange(e.target.value)}
-                  placeholder={dict.jimakuSearchEpisode}
-                  disabled={isBusy}
-                />
-              </div>
-            </div>
 
-            {/* Anime/drama toggle (§2.3-2) — centered ToggleGroup, persisted
+              {/* Anime/drama toggle (§2.3-2) — centered ToggleGroup, persisted
                 via jimaku-preferences (same pattern as the mining controls). */}
-            <div className="entei-mining-controls-row">
-              <ToggleGroup
-                type="single"
-                value={anime ? 'anime' : 'drama'}
-                onValueChange={(v) => {
-                  if (v === 'anime' || v === 'drama') handleAnimeToggle(v === 'anime');
-                }}
-                variant="outline"
-                aria-label={`${dict.jimakuSearchAnimeToggle} / ${dict.jimakuSearchDramaToggle}`}
-                disabled={isBusy}
-              >
-                <ToggleGroupItem value="anime" aria-label={dict.jimakuSearchAnimeToggle}>
-                  <span>{dict.jimakuSearchAnimeToggle}</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem value="drama" aria-label={dict.jimakuSearchDramaToggle}>
-                  <span>{dict.jimakuSearchDramaToggle}</span>
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-
-          {/* Search button */}
-          <Button
-            type="button"
-            variant="default"
-            className="entei-jimaku-search-submit"
-            onClick={() => void handleSearch()}
-            disabled={isBusy || title.trim() === ''}
-          >
-            <Search size={16} aria-hidden="true" />
-            <span>{dict.jimakuSearchButton}</span>
-          </Button>
-
-          {/* Entry list (results stage) */}
-          {status === 'results' && (
-            <div className="entei-jimaku-search-section">
-              <p className="entei-jimaku-search-hint">{dict.jimakuSearchSelectEntry}</p>
-              <div className="entei-jimaku-search-scroll" role="list" aria-label={dict.jimakuSearchSelectEntry}>
-                {entries.length === 0 ? (
-                  <p className="entei-jimaku-search-empty">{dict.jimakuSearchResultsEmpty}</p>
-                ) : (
-                  entries.map((entry) => (
-                    <div role="listitem" key={entry.id}>
-                    <button
-                      type="button"
-                      className="entei-jimaku-search-item"
-                      onClick={() => handleEntrySelect(entry)}
-                    >
-                      <span className="entei-jimaku-search-item-name">{entry.name}</span>
-                      {entry.japanese_name && (
-                        <span className="entei-jimaku-search-item-sub">
-                          {entry.japanese_name}
-                        </span>
-                      )}
-                    </button>
-                    </div>
-                  ))
-                )}
+              <div className="entei-mining-controls-row">
+                <ToggleGroup
+                  type="single"
+                  value={anime ? 'anime' : 'drama'}
+                  onValueChange={(v) => {
+                    if (v === 'anime' || v === 'drama')
+                      handleAnimeToggle(v === 'anime');
+                  }}
+                  variant="outline"
+                  aria-label={`${dict.jimakuSearchAnimeToggle} / ${dict.jimakuSearchDramaToggle}`}
+                  disabled={isBusy}
+                >
+                  <ToggleGroupItem
+                    value="anime"
+                    aria-label={dict.jimakuSearchAnimeToggle}
+                  >
+                    <span>{dict.jimakuSearchAnimeToggle}</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="drama"
+                    aria-label={dict.jimakuSearchDramaToggle}
+                  >
+                    <span>{dict.jimakuSearchDramaToggle}</span>
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
-            </div>
-          )}
 
-          {/* File list (files stage) */}
-          {status === 'files' && (
-            <div className="entei-jimaku-search-section">
-              <button
+              {/* Search button */}
+              <Button
                 type="button"
-                className="entei-jimaku-search-back"
-                onClick={() => setStatus('results')}
-                disabled={isBusy}
+                variant="default"
+                className="entei-jimaku-search-submit"
+                onClick={() => void handleSearch()}
+                disabled={isBusy || title.trim() === ''}
               >
-                <ChevronLeft size={16} aria-hidden="true" />
-                <span>{dict.jimakuSearchBack}</span>
-              </button>
-              <div className="entei-jimaku-search-scroll" role="list" aria-label={dict.jimakuSearchFilesLabel}>
-                {visibleFiles.length === 0 ? (
-                  <p className="entei-jimaku-search-empty">{dict.jimakuSearchFilesEmpty}</p>
-                ) : (
-                  visibleFiles.map((file) => (
-                    <div role="listitem" key={file.url}>
-                    <button
-                      type="button"
-                      className="entei-jimaku-search-item"
-                      onClick={() => void handleFileSelect(file)}
-                      disabled={isBusy}
-                    >
-                      <span className="entei-jimaku-search-item-name">{file.name}</span>
-                      <span className="entei-jimaku-search-item-size">
-                        {(file.size / 1024).toFixed(0)} KB
-                      </span>
-                    </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+                <Search size={16} aria-hidden="true" />
+                <span>{dict.jimakuSearchButton}</span>
+              </Button>
+
+              {/* Entry list (results stage) */}
+              {status === 'results' && (
+                <div className="entei-jimaku-search-section">
+                  <p className="entei-jimaku-search-hint">
+                    {dict.jimakuSearchSelectEntry}
+                  </p>
+                  <div
+                    className="entei-jimaku-search-scroll"
+                    role="list"
+                    aria-label={dict.jimakuSearchSelectEntry}
+                  >
+                    {entries.length === 0 ? (
+                      <p className="entei-jimaku-search-empty">
+                        {dict.jimakuSearchResultsEmpty}
+                      </p>
+                    ) : (
+                      entries.map((entry) => (
+                        <div role="listitem" key={entry.id}>
+                          <button
+                            type="button"
+                            className="entei-jimaku-search-item"
+                            onClick={() => handleEntrySelect(entry)}
+                          >
+                            <span className="entei-jimaku-search-item-name">
+                              {entry.name}
+                            </span>
+                            {entry.japanese_name && (
+                              <span className="entei-jimaku-search-item-sub">
+                                {entry.japanese_name}
+                              </span>
+                            )}
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* File list (files stage) */}
+              {status === 'files' && (
+                <div className="entei-jimaku-search-section">
+                  <button
+                    type="button"
+                    className="entei-jimaku-search-back"
+                    onClick={() => setStatus('results')}
+                    disabled={isBusy}
+                  >
+                    <ChevronLeft size={16} aria-hidden="true" />
+                    <span>{dict.jimakuSearchBack}</span>
+                  </button>
+                  <div
+                    className="entei-jimaku-search-scroll"
+                    role="list"
+                    aria-label={dict.jimakuSearchFilesLabel}
+                  >
+                    {visibleFiles.length === 0 ? (
+                      <p className="entei-jimaku-search-empty">
+                        {dict.jimakuSearchFilesEmpty}
+                      </p>
+                    ) : (
+                      visibleFiles.map((file) => (
+                        <div role="listitem" key={file.url}>
+                          <button
+                            type="button"
+                            className="entei-jimaku-search-item"
+                            onClick={() => void handleFileSelect(file)}
+                            disabled={isBusy}
+                          >
+                            <span className="entei-jimaku-search-item-name">
+                              {file.name}
+                            </span>
+                            <span className="entei-jimaku-search-item-size">
+                              {(file.size / 1024).toFixed(0)} KB
+                            </span>
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
