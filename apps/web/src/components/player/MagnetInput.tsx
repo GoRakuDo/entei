@@ -50,6 +50,7 @@ import {
   DialogDescription,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Checkbox } from '@/components/player/ui/checkbox';
 import { Input } from '@/components/player/ui/input';
 import {
@@ -715,7 +716,7 @@ export function MagnetInput({
           <div className="entei-magnet-shell">
             {/* ── Top: Input + create button ── */}
             <div className="entei-magnet-shell-top">
-              <div className="entei-magnet-input-row">
+              <ButtonGroup className="entei-magnet-input-row">
                 <Input
                   className="entei-magnet-input"
                   placeholder={dict.magnetInputPlaceholder}
@@ -740,7 +741,7 @@ export function MagnetInput({
                 >
                   <Magnet size={16} aria-hidden="true" />
                 </Button>
-              </div>
+              </ButtonGroup>
             </div>
 
             {/* ── Center: Table with state-dependent content ── */}

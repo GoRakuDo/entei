@@ -4498,17 +4498,17 @@ html.entei-player-immersive .entei-player-audio-area {
 
 /* Input + icon-button row. The gap to the table below comes solely from
    the shell's 16px gap — no extra margin, or the two stack into a
-   lopsided 40px gap. */
+   lopsided 40px gap. ButtonGroup handles display:flex + items-stretch
+   and stitches the rounded corners between siblings (input + button). */
 .entei-magnet-input-row {
-  display: flex;
-  align-items: center;
-  gap: var(--entei-space-8);
+  width: 100%;
   min-height: var(--entei-touch-min);
 }
 
 .entei-magnet-input-row .entei-magnet-input {
   flex: 1;
   min-width: 0;
+  height: auto;
   min-height: var(--entei-touch-min);
 }
 
@@ -4516,10 +4516,12 @@ html.entei-player-immersive .entei-player-audio-area {
   flex-shrink: 0;
   min-width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
-  /* Default surface: visible at rest */
-  background-color: var(--entei-surface-2);
+  /* ButtonGroup removes the left border + rounded-left corner on the
+     button, so we drop the explicit border line and use the shared
+     surface token. */
+  background-color: var(--entei-btn-hover-bg);
   color: var(--entei-text);
-  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-color: transparent;
 }
 
 .entei-magnet-add-btn:hover {
