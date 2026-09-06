@@ -627,12 +627,13 @@
 
 .entei-subtitle-cue--active {
   background-color: oklch(57.74% 0.209 273.85deg / 0.15);
-  color: var(--entei-text);
+  color: var(--entei-status-locked);
   border-left: 3px solid var(--entei-accent);
 }
 
 .entei-subtitle-cue--active:hover {
   background-color: var(--entei-btn-hover-bg);
+  color: var(--entei-status-locked);
 }
 
 .entei-subtitle-cue-time {
