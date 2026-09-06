@@ -43,7 +43,9 @@ function ruleBlock(selector: string): string {
   return css.slice(open + 1, close);
 }
 
-/** Returns the declaration text of every `@media (max-width: 767px)` block. */
+/** Returns the declaration text of every `@media (max-width: 767px)` block.
+ *  Brace-balanced so nested selector blocks inside the media query are
+ *  captured in full (e.g. .entei-magnet-dialog + its descendants). */
 function mobileBlocks(): string[] {
   const out: string[] = [];
   const needle = '@media (max-width: 767px) {';
@@ -52,7 +54,18 @@ function mobileBlocks(): string[] {
     const start = css.indexOf(needle, from);
     if (start < 0) break;
     const open = css.indexOf('{', start);
-    const close = css.indexOf('}', open);
+    // Walk braces to find the matching close — nested selector blocks
+    // (e.g. .entei-magnet-dialog { ... } inside the media block) would
+    // otherwise truncate the captured text.
+    let depth = 1;
+    let i = open + 1;
+    while (i < css.length && depth > 0) {
+      const ch = css[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      i++;
+    }
+    const close = i - 1;
     out.push(css.slice(open + 1, close));
     from = close + 1;
   }
@@ -74,12 +87,29 @@ describe('Magnet table bounded-scroll CSS contract', () => {
     expect(css).not.toContain(".entei-magnet-table [data-slot='table-container']");
   });
 
-  it('applies the 18rem mobile cap to the same inner container', () => {
-    const magnetBlock = mobileBlocks().find((b) =>
-      b.includes('.entei-magnet-table-wrap > [data-slot=\'table-container\']'),
+  it('lets the table-wrap flex on mobile (no 18rem cap)', () => {
+    // Mobile (<768px) rule used to cap both .entei-magnet-table-wrap and
+    // its inner [data-slot='table-container'] at 18rem. That pushed the
+    // nav row past the viewport on 375px-wide phones. The new contract
+    // (full-screen sheet mirroring .entei-settings-dialog) lets the
+    // table-wrap flex inside the 100dvh dialog so only the table region
+    // scrolls; the inner container is also uncapped (relies on the wrap's
+    // overflow). The desktop 20rem cap is preserved via the base rules
+    // outside any media query (see other tests in this suite).
+    const magnetBlocks = mobileBlocks().filter((b) =>
+      b.includes('.entei-magnet-table-wrap'),
     );
-    expect(magnetBlock, 'magnet rule inside a max-width:767px block').toBeTruthy();
-    expect(magnetBlock).toContain('max-height: 18rem');
+    expect(magnetBlocks.length).toBeGreaterThan(0);
+    const combined = magnetBlocks.join('\n');
+    // The wrap rule in the mobile block must remove the 18rem cap.
+    expect(combined).toContain('max-height: none');
+    // The inner-container rule in the mobile block must also drop the cap.
+    expect(combined).toContain(
+      ".entei-magnet-table-wrap > [data-slot='table-container']",
+    );
+    expect(combined).not.toContain('max-height: 18rem');
+    // The wrap must flex-grow so it takes the remaining 100dvh space.
+    expect(combined).toContain('flex: 1');
   });
 
   it('keeps the wrap as the clipped outer frame', () => {

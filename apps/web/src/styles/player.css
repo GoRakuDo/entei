@@ -4885,19 +4885,65 @@ html.entei-player-immersive .entei-player-audio-area {
 /* --- Desktop: larger magnet dialog --- */
 @media (min-width: 768px) {
   .entei-magnet-dialog {
-    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. */
+    /* Unified desktop modal width — 42.5rem (680px), 2026-08-15.
+       Centering comes from the inherited .entei-dialog-content rule
+       (top:50%/left:50%/translate) — unchanged from previous behavior. */
     max-width: 42.5rem;
   }
 }
 
-/* --- Mobile: keep the whole dialog inside 85vh so only the table
-   scrolls — a 20rem list pushes the nav row past the viewport on
-   375px-wide phones. 18rem (288px) is the largest 8px-grid step that
-   fits the fixed chrome above/below it. */
+/* --- Mobile: full-screen sheet for the magnet dialog ---
+   Mirrors the .entei-settings-dialog pattern (line ~1558): the dialog
+   becomes a true full-bleed sheet on <768px, with a fixed header and
+   a flex-growing shell. The previous rule only capped the table wrap
+   at 18rem, which pushed the nav row past the viewport on 375px-wide
+   phones; now the table flexes inside the 100dvh dialog so only the
+   table region scrolls. */
 @media (max-width: 767px) {
-  .entei-magnet-table-wrap,
-  .entei-magnet-table-wrap > [data-slot='table-container'] {
-    max-height: 18rem;
+  .entei-magnet-dialog {
+    position: fixed;
+    inset: 0;
+    top: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: var(--entei-surface);
+    border: none;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .entei-magnet-dialog .entei-dialog-header {
+    flex-shrink: 0;
+    padding: var(--entei-space-16) var(--entei-space-24);
+    border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
+  }
+
+  .entei-magnet-dialog .entei-magnet-shell {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .entei-magnet-dialog .entei-magnet-table-wrap {
+    flex: 1;
+    min-height: 12rem;
+    max-height: none;
+  }
+
+  .entei-magnet-dialog .entei-magnet-table-wrap > [data-slot='table-container'] {
+    max-height: none;
   }
 }
 
