@@ -104,7 +104,7 @@ describe('Magnet table bounded-scroll CSS contract', () => {
     // The wrap rule in the mobile block must remove the 18rem cap.
     expect(combined).toContain('max-height: none');
     // The inner-container rule in the mobile block must also drop the cap.
-    expect(combined).toContain(
+    expect(combined.replace(/\s+/g, ' ')).toContain(
       ".entei-magnet-table-wrap > [data-slot='table-container']",
     );
     expect(combined).not.toContain('max-height: 18rem');
