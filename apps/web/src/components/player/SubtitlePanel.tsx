@@ -79,6 +79,13 @@ export function SubtitlePanel({
 
   // Programmatic scroll to active cue.
   // Queries the Radix ScrollArea viewport for visibility and scrollIntoView.
+  // Desktop: the Radix viewport is the scroll container — the active cue is
+  // allowed to drift inside a comfortable middle band and is smoothly
+  // recentered once it leaves that band, so the dialogue stays in the middle
+  // of the panel instead of slowly walking out of view.
+  // Mobile: the page itself scrolls (sticky media area + tabs bar above the
+  // visible subtitle area), so the window is scrolled to keep the active cue
+  // centered in the visible subtitle area below those headers.
   useEffect(() => {
     if (activeCueId === null) return;
     const root = scrollRootRef.current;
@@ -89,21 +96,76 @@ export function SubtitlePanel({
       root.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]') ??
       root;
 
-    const activeEl = viewport.querySelector(`[data-cue-id="${activeCueId}"]`);
+    const activeEl = viewport.querySelector<HTMLElement>(
+      `[data-cue-id="${activeCueId}"]`,
+    );
     if (!activeEl) return;
-
-    const containerRect = viewport.getBoundingClientRect();
-    const elRect = activeEl.getBoundingClientRect();
-    const isVisible =
-      elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom;
-
-    if (isVisible) return;
 
     const prefersReduced =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const behavior = prefersReduced ? 'instant' : 'smooth';
-    activeEl.scrollIntoView({ block: 'nearest', behavior });
+
+    // Desktop: Radix viewport is the scroll container.
+    const isViewportScrollable =
+      typeof window !== 'undefined' &&
+      viewport.scrollHeight > viewport.clientHeight &&
+      window.getComputedStyle(viewport).overflowY !== 'visible';
+
+    const elRect = activeEl.getBoundingClientRect();
+    const cueCenterY = elRect.top + elRect.height / 2;
+
+    if (isViewportScrollable) {
+      // Container is Radix viewport.
+      const vRect = viewport.getBoundingClientRect();
+      const targetCenterY = vRect.top + vRect.height / 2;
+
+      // If the cue drifts beyond a comfortable middle band (e.g. 1.5 cue
+      // heights or 18% of viewport height), smoothly center it in the panel.
+      const tolerance = Math.max(elRect.height * 1.5, vRect.height * 0.18);
+      if (Math.abs(cueCenterY - targetCenterY) > tolerance) {
+        const deltaY = cueCenterY - targetCenterY;
+        if (typeof viewport.scrollBy === 'function') {
+          viewport.scrollBy({ top: deltaY, behavior });
+        } else if (typeof activeEl.scrollIntoView === 'function') {
+          activeEl.scrollIntoView({ block: 'center', behavior });
+        }
+      }
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      // Mobile: container is the page window. The visible subtitle area is
+      // between the bottom of sticky headers (media area + tabs bar) and the
+      // window bottom.
+      const tabsBar = document.querySelector<HTMLElement>(
+        '.entei-right-panel-tabs-bar',
+      );
+      const mediaArea = document.querySelector<HTMLElement>(
+        '.entei-player-media-area',
+      );
+      const headerBottom = tabsBar
+        ? tabsBar.getBoundingClientRect().bottom
+        : mediaArea
+          ? mediaArea.getBoundingClientRect().bottom
+          : 0;
+
+      const windowHeight =
+        window.innerHeight || document.documentElement.clientHeight;
+      const visibleHeight = Math.max(0, windowHeight - headerBottom);
+      const targetCenterY = headerBottom + visibleHeight / 2;
+
+      // When cue drifts beyond the middle zone, scroll window to center it
+      const tolerance = Math.max(elRect.height * 1.5, visibleHeight * 0.18);
+      if (Math.abs(cueCenterY - targetCenterY) > tolerance) {
+        const deltaY = cueCenterY - targetCenterY;
+        if (typeof window.scrollBy === 'function') {
+          window.scrollBy({ top: deltaY, behavior });
+        } else if (typeof activeEl.scrollIntoView === 'function') {
+          activeEl.scrollIntoView({ block: 'center', behavior });
+        }
+      }
+    }
   }, [activeCueId]);
 
   if (cues.length === 0 && isLoadingSubtitles) {
