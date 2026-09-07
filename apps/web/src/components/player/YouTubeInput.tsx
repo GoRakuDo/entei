@@ -36,12 +36,7 @@ import { waitForPlayable } from '@/features/player/companion-media';
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
 
 type ErrorKind =
-  | 'invalid'
-  | 'repair'
-  | 'conflict'
-  | 'network'
-  | 'generic'
-  | null;
+  'invalid' | 'repair' | 'conflict' | 'network' | 'generic' | null;
 
 export interface YouTubeInputDict {
   youtubeInputLabel: string;
@@ -93,9 +88,10 @@ export function sanitizeYouTubeUrl(raw: string): string {
   const host = u.hostname.toLowerCase();
   switch (host) {
     case 'youtu.be': {
-      // youtu.be/<id> — strip all query params (e.g. ?si=..., ?t=...)
-      // The companion strictly expects https://youtu.be/<id> with no query.
-      const id = u.pathname.replace(/^\/+/, '');
+      // youtu.be/<id> — strip all query params (e.g. ?si=..., ?t=..., bare ?)
+      // and trailing slashes. Companion strictly expects https://youtu.be/<id>
+      // with no query and exactly one 11-char path segment.
+      const id = u.pathname.replace(/^\/+|\/+$/g, '').split('/')[0];
       return id ? `https://youtu.be/${id}` : raw.trim();
     }
     case 'youtube.com':
@@ -146,7 +142,10 @@ function isYouTubeUrlShape(raw: string): boolean {
   }
 }
 
-const errorMessages: Record<Exclude<ErrorKind, null>, (d: YouTubeInputDict) => string> = {
+const errorMessages: Record<
+  Exclude<ErrorKind, null>,
+  (d: YouTubeInputDict) => string
+> = {
   invalid: (d) => d.youtubeInputErrorInvalid,
   repair: (d) => d.youtubeInputErrorRepair,
   conflict: (d) => d.youtubeInputErrorConflict,

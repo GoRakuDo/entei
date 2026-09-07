@@ -8,9 +8,19 @@
  * --------------------------------------------------------------------------- */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  waitFor,
+} from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { YouTubeInput, sanitizeYouTubeUrl, type YouTubeInputDict } from '@/components/player/YouTubeInput';
+import {
+  YouTubeInput,
+  sanitizeYouTubeUrl,
+  type YouTubeInputDict,
+} from '@/components/player/YouTubeInput';
 import { YT_MODE_KEY } from '@/features/player/yt-download-mode';
 
 const baseDict: YouTubeInputDict = {
@@ -19,9 +29,12 @@ const baseDict: YouTubeInputDict = {
   youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
   youtubeInputSubmit: 'Start download',
   youtubeInputErrorInvalid: 'Invalid YouTube URL.',
-  youtubeInputErrorRepair: 'The connection needs re-pairing. Open Setup and connect again.',
-  youtubeInputErrorConflict: 'A download is already active. Cancel the previous download first.',
-  youtubeInputErrorNetwork: 'Could not reach EizouDendenshi. Make sure the companion app is running.',
+  youtubeInputErrorRepair:
+    'The connection needs re-pairing. Open Setup and connect again.',
+  youtubeInputErrorConflict:
+    'A download is already active. Cancel the previous download first.',
+  youtubeInputErrorNetwork:
+    'Could not reach EizouDendenshi. Make sure the companion app is running.',
   youtubeInputErrorGeneric: 'Something went wrong. Try again.',
   youtubeInputSubmitting: 'Starting…',
   dialogClose: 'Close',
@@ -46,13 +59,26 @@ afterEach(() => {
 
 describe('sanitizeYouTubeUrl', () => {
   it('strips ?si= and other query params from youtu.be share links', () => {
-    expect(sanitizeYouTubeUrl('https://youtu.be/IuIqhWCQK68?si=W_ShJgt8kSAvK_Ur'))
-      .toBe('https://youtu.be/IuIqhWCQK68');
+    expect(
+      sanitizeYouTubeUrl('https://youtu.be/IuIqhWCQK68?si=W_ShJgt8kSAvK_Ur'),
+    ).toBe('https://youtu.be/IuIqhWCQK68');
+    expect(sanitizeYouTubeUrl('https://youtu.be/W6gWGDdhVjk?')).toBe(
+      'https://youtu.be/W6gWGDdhVjk',
+    );
+    expect(sanitizeYouTubeUrl('https://youtu.be/W6gWGDdhVjk/')).toBe(
+      'https://youtu.be/W6gWGDdhVjk',
+    );
+    expect(sanitizeYouTubeUrl('https://youtu.be/W6gWGDdhVjk/?si=xyz')).toBe(
+      'https://youtu.be/W6gWGDdhVjk',
+    );
   });
 
   it('keeps only the v param on /watch links', () => {
-    expect(sanitizeYouTubeUrl('https://www.youtube.com/watch?v=abcdefghijk&si=123&t=10'))
-      .toBe('https://www.youtube.com/watch?v=abcdefghijk');
+    expect(
+      sanitizeYouTubeUrl(
+        'https://www.youtube.com/watch?v=abcdefghijk&si=123&t=10',
+      ),
+    ).toBe('https://www.youtube.com/watch?v=abcdefghijk');
   });
 
   it.each([
@@ -93,8 +119,12 @@ describe('YouTubeInput — paired flow', () => {
 
   it('renders the URL input and submit when paired', () => {
     render(<YouTubeInput {...defaultProps} />);
-    expect(screen.getByRole('textbox', { name: baseDict.youtubeInputLabel })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: baseDict.youtubeInputSubmit })).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: baseDict.youtubeInputLabel }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    ).toBeInTheDocument();
   });
 
   it('submits the exact payload to the job endpoint with the token in the query', async () => {
@@ -112,19 +142,32 @@ describe('YouTubeInput — paired flow', () => {
     const onJobAccepted = vi.fn();
     const onOpenChange = vi.fn();
     render(
-      <YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} onOpenChange={onOpenChange} />,
+      <YouTubeInput
+        {...defaultProps}
+        onJobAccepted={onJobAccepted}
+        onOpenChange={onOpenChange}
+      />,
     );
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
 
     await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('job123'));
     const firstCall = fetchMock.mock.calls[0];
     if (!firstCall) throw new Error('no fetch call');
     const [url, init] = firstCall;
-    expect(String(url)).toBe(`http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`);
+    expect(String(url)).toBe(
+      `http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`,
+    );
     expect(init?.method).toBe('POST');
     // The DL mode is included from the EizouDen settings; default speed.
-    expect(JSON.parse(String(init?.body))).toEqual({ url: VALID_URL, mode: 'speed' });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      url: VALID_URL,
+      mode: 'speed',
+    });
     // The token must never appear in the body.
     expect(String(init?.body)).not.toContain(TOKEN);
     // The parent closes the dialog on acceptance (PlayerApp wiring).
@@ -144,17 +187,19 @@ describe('YouTubeInput — paired flow', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
-    render(
-      <YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />,
-    );
+    render(<YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />);
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'https://youtu.be/IuIqhWCQK68?si=W_ShJgt8kSAvK_Ur' },
     });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
 
     await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('jobSi'));
     const [endpointUrl, init] = fetchMock.mock.calls[0]!;
-    expect(String(endpointUrl)).toBe(`http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`);
+    expect(String(endpointUrl)).toBe(
+      `http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`,
+    );
     expect(JSON.parse(String(init?.body))).toEqual({
       url: 'https://youtu.be/IuIqhWCQK68',
       mode: 'speed',
@@ -176,26 +221,41 @@ describe('YouTubeInput — paired flow', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
-    render(
-      <YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />,
+    render(<YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />);
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
     );
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
 
     await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('jobX'));
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe(`http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`);
-    expect(JSON.parse(String(init?.body))).toEqual({ url: VALID_URL, mode: 'quality' });
+    expect(String(url)).toBe(
+      `http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`,
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({
+      url: VALID_URL,
+      mode: 'quality',
+    });
   });
 
   it('rejects clearly-invalid URLs locally without a network call', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
     render(<YouTubeInput {...defaultProps} />);
-    for (const bad of ['not a url', 'http://www.youtube.com/watch?v=abcdefghijk', 'https://google.com/x']) {
+    for (const bad of [
+      'not a url',
+      'http://www.youtube.com/watch?v=abcdefghijk',
+      'https://google.com/x',
+    ]) {
       fireEvent.change(screen.getByRole('textbox'), { target: { value: bad } });
-      fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
-      expect(await screen.findByRole('alert')).toHaveTextContent(baseDict.youtubeInputErrorInvalid);
+      fireEvent.click(
+        screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+      );
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        baseDict.youtubeInputErrorInvalid,
+      );
     }
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -206,28 +266,43 @@ describe('YouTubeInput — paired flow', () => {
     [403, 'youtubeInputErrorRepair'],
     [409, 'youtubeInputErrorConflict'],
     [500, 'youtubeInputErrorGeneric'],
-  ])('maps HTTP %s to the localized %s error, with no raw details', async (status, key) => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ error: 'raw server detail' }, status),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    render(<YouTubeInput {...defaultProps} />);
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(baseDict[key]);
-    // Raw server detail and the URL must never surface in the UI.
-    expect(alert.textContent).not.toContain('raw server detail');
-    expect(alert.textContent).not.toContain(VALID_URL);
-    expect(screen.queryByText(VALID_URL)).not.toBeInTheDocument();
-  });
+  ])(
+    'maps HTTP %s to the localized %s error, with no raw details',
+    async (status, key) => {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          jsonResponse({ error: 'raw server detail' }, status),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      render(<YouTubeInput {...defaultProps} />);
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: VALID_URL },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+      );
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(baseDict[key]);
+      // Raw server detail and the URL must never surface in the UI.
+      expect(alert.textContent).not.toContain('raw server detail');
+      expect(alert.textContent).not.toContain(VALID_URL);
+      expect(screen.queryByText(VALID_URL)).not.toBeInTheDocument();
+    },
+  );
 
   it('maps a network failure to the generic companion-unavailable error', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Failed to fetch'));
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError('Failed to fetch'));
     vi.stubGlobal('fetch', fetchMock);
     render(<YouTubeInput {...defaultProps} />);
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(baseDict.youtubeInputErrorNetwork);
     expect(alert.textContent).not.toContain('Failed to fetch');
@@ -247,8 +322,12 @@ describe('YouTubeInput — paired flow', () => {
     vi.stubGlobal('fetch', fetchMock);
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
     render(<YouTubeInput {...defaultProps} />);
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(setItemSpy).not.toHaveBeenCalled();
     setItemSpy.mockRestore();
@@ -256,8 +335,12 @@ describe('YouTubeInput — paired flow', () => {
 
   it('clears the URL when the dialog closes and reopens', () => {
     const { rerender } = render(<YouTubeInput {...defaultProps} />);
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe(VALID_URL);
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe(
+      VALID_URL,
+    );
     // Close (unmounts the content) then reopen.
     rerender(<YouTubeInput {...defaultProps} open={false} />);
     rerender(<YouTubeInput {...defaultProps} open={true} />);
@@ -267,15 +350,22 @@ describe('YouTubeInput — paired flow', () => {
   it('aborts a stale submit when the dialog closes mid-flight', async () => {
     let resolveFetch: (r: Response) => void = () => {};
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(
-      () => new Promise<Response>((res) => { resolveFetch = res; }),
+      () =>
+        new Promise<Response>((res) => {
+          resolveFetch = res;
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
     const { unmount } = render(
       <YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />,
     );
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
     unmount(); // component gone before the response lands
     resolveFetch(jsonResponse({ id: 'job456' }, 201));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -298,11 +388,17 @@ describe('YouTubeInput — paired flow', () => {
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
     render(<YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />);
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
     // While the request is in flight the button stays disabled and shows
     // the TypewriterLoading animation (no text change needed).
-    const submit = screen.getByRole('button', { name: baseDict.youtubeInputSubmit });
+    const submit = screen.getByRole('button', {
+      name: baseDict.youtubeInputSubmit,
+    });
     expect(submit).toBeDisabled();
     resolveFetch(jsonResponse({ id: 'job123' }, 201));
     await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('job123'));
@@ -323,8 +419,12 @@ describe('YouTubeInput — paired flow', () => {
     render(
       <YouTubeInput {...defaultProps} cancelActiveJob={cancelActiveJob} />,
     );
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
 
     await waitFor(() => expect(cancelActiveJob).toHaveBeenCalledTimes(1));
     // The new job creation request is sent, then the playable status poll.
@@ -345,10 +445,18 @@ describe('YouTubeInput — paired flow', () => {
     vi.stubGlobal('fetch', fetchMock);
     const onJobAccepted = vi.fn();
     render(
-      <YouTubeInput {...defaultProps} cancelActiveJob={undefined} onJobAccepted={onJobAccepted} />,
+      <YouTubeInput
+        {...defaultProps}
+        cancelActiveJob={undefined}
+        onJobAccepted={onJobAccepted}
+      />,
     );
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URL } });
-    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
 
     await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('job789'));
     // Job POST + the immediate playable status poll.
@@ -370,9 +478,13 @@ describe('YouTubeInput — unpaired gate', () => {
     );
     // The sr-only pairing notice was removed (2026-08-10 cleanup): the
     // dialog keeps the title and the pairing happens in the settings UI.
-    expect(screen.queryByText('Pair EizouDendenshi first to download from YouTube.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Pair EizouDendenshi first to download from YouTube.'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: baseDict.youtubeInputSubmit })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: baseDict.youtubeInputSubmit }),
+    ).not.toBeInTheDocument();
     // Only the X close remains.
     expect(screen.getAllByRole('button')).toHaveLength(1);
   });
