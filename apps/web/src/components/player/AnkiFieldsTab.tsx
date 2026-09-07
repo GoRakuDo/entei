@@ -534,7 +534,7 @@ export function AnkiFieldsTab({
     { key: 'definition', label: dict.ankiFieldDefinition, required: false },
     { key: 'image', label: dict.ankiFieldImage, required: false },
     { key: 'audio', label: dict.ankiFieldAudio, required: false },
-    { key: 'word', label: dict.ankiFieldWord, required: false },
+    { key: 'word', label: dict.ankiFieldWord, required: true },
     { key: 'source', label: dict.ankiFieldSource, required: false },
   ];
 

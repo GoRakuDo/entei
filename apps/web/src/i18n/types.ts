@@ -312,6 +312,7 @@ export interface Dictionary {
     exportSendDisabledNoConnection: string;
     exportSendDisabledInvalidPreset: string;
     exportSendDisabledNoSentence: string;
+    exportSendDisabledNoWord: string;
     exportSendDisabledRequestActive: string;
     exportRejectedCanAdd: string;
     miningExportAddedToast: string;

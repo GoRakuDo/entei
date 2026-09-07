@@ -59,6 +59,7 @@ const mockDict = {
   exportSendDisabledNoConnection: 'AnkiConnect is not connected.',
   exportSendDisabledInvalidPreset: 'Invalid preset.',
   exportSendDisabledNoSentence: 'Sentence is empty.',
+  exportSendDisabledNoWord: 'Please fill in the Word field to create a new card.',
   exportSendDisabledRequestActive: 'Request in progress.',
   exportRejectedCanAdd: 'Anki rejected this note.',
   appendSelectLabel: 'Select card to append',
@@ -184,6 +185,102 @@ describe('MiningPreviewDialog', () => {
     const inputs = document.body.querySelectorAll('input[type="text"]');
     expect(textareas.length).toBe(1);
     expect(inputs.length).toBe(2);
+  });
+
+  it('marks Word input invalid with inline error in new card mode when word is empty', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        exportMode="new"
+        draftFields={[
+          { key: 'sentence', physicalName: 'fld_Sentence', value: 'hello' },
+          { key: 'word', physicalName: 'fld_Word', value: '  ' },
+        ]}
+      />,
+    );
+    const wordInput = document.body.querySelector(
+      'input[aria-label="fld_Word"]',
+    ) as HTMLInputElement;
+    expect(wordInput).not.toBeNull();
+    expect(wordInput.getAttribute('aria-invalid')).toBe('true');
+    const errorMsg = document.body.querySelector('.entei-mining-field-error');
+    expect(errorMsg).not.toBeNull();
+    expect(errorMsg!.getAttribute('role')).toBe('alert');
+    expect(errorMsg!.textContent).toContain(
+      mockDict.exportSendDisabledNoWord,
+    );
+    // Non-word fields are not flagged
+    expect(document.body.textContent).toContain('hello');
+  });
+
+  it('does NOT mark Word input invalid in update mode when word is empty', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        exportMode="update"
+        draftFields={[
+          { key: 'sentence', physicalName: 'fld_Sentence', value: 'hello' },
+          { key: 'word', physicalName: 'fld_Word', value: '' },
+        ]}
+      />,
+    );
+    const wordInput = document.body.querySelector(
+      'input[aria-label="fld_Word"]',
+    ) as HTMLInputElement;
+    expect(wordInput).not.toBeNull();
+    expect(wordInput.getAttribute('aria-invalid')).toBeNull();
+    expect(document.body.querySelector('.entei-mining-field-error')).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      mockDict.exportSendDisabledNoWord,
+    );
+  });
+
+  it('does NOT mark Word input invalid in new card mode when word has text', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        exportMode="new"
+        draftFields={[
+          { key: 'sentence', physicalName: 'fld_Sentence', value: 'hello' },
+          { key: 'word', physicalName: 'fld_Word', value: '猫' },
+        ]}
+      />,
+    );
+    const wordInput = document.body.querySelector(
+      'input[aria-label="fld_Word"]',
+    ) as HTMLInputElement;
+    expect(wordInput).not.toBeNull();
+    expect(wordInput.getAttribute('aria-invalid')).toBeNull();
+    expect(document.body.querySelector('.entei-mining-field-error')).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      mockDict.exportSendDisabledNoWord,
+    );
+  });
+
+  it('clears the Word inline error when switching from New to Update mode', () => {
+    render(
+      <MiningPreviewDialog
+        {...baseProps}
+        exportMode="new"
+        draftFields={[
+          { key: 'sentence', physicalName: 'fld_Sentence', value: 'hello' },
+          { key: 'word', physicalName: 'fld_Word', value: '' },
+        ]}
+      />,
+    );
+    const wordInput = document.body.querySelector(
+      'input[aria-label="fld_Word"]',
+    ) as HTMLInputElement;
+    expect(wordInput.getAttribute('aria-invalid')).toBe('true');
+    expect(document.body.querySelector('.entei-mining-field-error')).not.toBeNull();
+
+    const updateBtn = document.body.querySelector(
+      `[aria-label="${mockDict.exportModeUpdate}"]`,
+    ) as HTMLElement;
+    fireEvent.click(updateBtn);
+
+    expect(wordInput.getAttribute('aria-invalid')).toBeNull();
+    expect(document.body.querySelector('.entei-mining-field-error')).toBeNull();
   });
 
   it('calls onDraftFieldChange when input value changes', () => {

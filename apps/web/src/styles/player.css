@@ -3305,6 +3305,25 @@ html.entei-player-immersive .entei-player-audio-area {
     color-mix(in oklch, var(--entei-focus-ring) 25%, transparent);
 }
 
+.entei-mining-input[aria-invalid='true'] {
+  border-color: var(--color-destructive);
+}
+
+.entei-mining-input[aria-invalid='true']:focus-visible {
+  border-color: var(--color-destructive);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklch, var(--color-destructive) 25%, transparent);
+}
+
+.entei-mining-field-error {
+  margin: 0;
+  margin-top: var(--entei-space-4);
+  color: var(--color-destructive);
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .entei-mining-textarea {
   min-height: auto;
   resize: vertical;

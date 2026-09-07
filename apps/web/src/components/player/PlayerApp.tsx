@@ -3459,8 +3459,14 @@ export default function PlayerApp() {
     if (!sentenceField || sentenceField.value.trim().length === 0) {
       return d.exportSendDisabledNoSentence;
     }
+    if (exportMode === 'new') {
+      const wordField = miningDraftFields.find((f) => f.key === 'word');
+      if (prefs.fields.word && (!wordField || wordField.value.trim().length === 0)) {
+        return d.exportSendDisabledNoWord;
+      }
+    }
     return null;
-  }, [isExporting, ankiSession, miningDraftFields]);
+  }, [isExporting, ankiSession, miningDraftFields, exportMode]);
 
   const canExport =
     exportDisabledReason === null && !isMiningCapturing && !isMiningRefreshing;

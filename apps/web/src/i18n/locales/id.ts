@@ -186,6 +186,7 @@ export const id: Dictionary = {
     exportSendDisabledInvalidPreset:
       'Dek, tipe catatan, dan mapping kalimat diperlukan.',
     exportSendDisabledNoSentence: 'Field kalimat kosong.',
+    exportSendDisabledNoWord: 'Harap isi field Word untuk membuat kartu baru.',
     exportSendDisabledRequestActive: 'Permintaan sedang berlangsung.',
     exportRejectedCanAdd:
       'Anki menolak catatan ini (kemungkinan duplikat). Periksa deck dan field mapping di Pengaturan.',

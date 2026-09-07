@@ -184,6 +184,7 @@ export const en: Dictionary = {
     exportSendDisabledInvalidPreset:
       'Deck, note type, and sentence mapping are required.',
     exportSendDisabledNoSentence: 'Sentence field is empty.',
+    exportSendDisabledNoWord: 'Please fill in the Word field to create a new card.',
     exportSendDisabledRequestActive: 'A request is already in progress.',
     exportRejectedCanAdd:
       'Anki rejected this note (possibly a duplicate). Check the deck and field mapping in Settings.',

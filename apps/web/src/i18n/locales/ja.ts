@@ -186,6 +186,7 @@ export const ja: Dictionary = {
     exportSendDisabledInvalidPreset:
       'デッキ・ノートタイプ・文章マッピングが必要です。',
     exportSendDisabledNoSentence: '文章フィールドが空です。',
+    exportSendDisabledNoWord: '新カード作成のためにWordフィールドを記入してください。',
     exportSendDisabledRequestActive: 'リクエスト処理中です。',
     exportRejectedCanAdd:
       'Ankiがこのノートを拒否しました（重複の可能性があります）。設定でデッキとフィールドマッピングを確認してください。',

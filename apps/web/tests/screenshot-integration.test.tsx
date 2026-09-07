@@ -192,6 +192,7 @@ const mockDict = {
   exportSendDisabledNoConnection: 'AnkiConnect is not connected.',
   exportSendDisabledInvalidPreset: 'Invalid preset.',
   exportSendDisabledNoSentence: 'Sentence is empty.',
+  exportSendDisabledNoWord: 'Please fill in the Word field to create a new card.',
   exportSendDisabledRequestActive: 'Request in progress.',
   exportRejectedCanAdd: 'Anki rejected this note.',
   miningExportAddedToast: 'Card for {word} added to Anki.',

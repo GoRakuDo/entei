@@ -160,6 +160,7 @@ interface MiningPreviewDialogProps {
     exportSendDisabledNoConnection: string;
     exportSendDisabledInvalidPreset: string;
     exportSendDisabledNoSentence: string;
+    exportSendDisabledNoWord: string;
     exportSendDisabledRequestActive: string;
     appendSelectLabel: string;
     // Append panel dict keys (forwarded to AnkiAppendPanel)
@@ -535,6 +536,12 @@ export function MiningPreviewDialog({
               field.key === 'image' || field.key === 'audio';
             const isTextarea =
               field.key === 'sentence' || field.key === 'definition';
+            // New Card mode requires the Word field (Anki rejects empty first
+            // field); update/append modes allow an empty word.
+            const isWordEmptyInNewMode =
+              toggleValue === 'new' &&
+              field.key === 'word' &&
+              field.value.trim().length === 0;
             // Single resolved media source: prefer mediaPreviewUrl, fall back to screenshotUrl
             const mediaSrc =
               field.key === 'image' ? (mediaPreviewUrl ?? screenshotUrl) : null;
@@ -567,8 +574,15 @@ export function MiningPreviewDialog({
                     value={field.value}
                     onChange={(e) => onDraftFieldChange(index, e.target.value)}
                     aria-label={field.physicalName}
+                    aria-invalid={isWordEmptyInNewMode ? 'true' : undefined}
                   />
                 ) : null}
+
+                {isWordEmptyInNewMode && (
+                  <p className="entei-mining-field-error" role="alert">
+                    {dict.exportSendDisabledNoWord}
+                  </p>
+                )}
 
                 {hasImage &&
                   mediaPreviewType === 'video' &&
