@@ -115,7 +115,6 @@ const baseProps = {
   isExporting: false,
   canExport: true,
   exportDisabledReason: null,
-  exportError: null,
   exportSuccess: false,
   onExportSend: vi.fn(),
   onAppendSearch: vi.fn().mockResolvedValue([]),
@@ -922,17 +921,6 @@ describe('MiningPreviewDialog', () => {
       '.entei-mining-export-send-btn',
     ) as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
-  });
-
-  it('shows localized error with role=alert when exportError is set', () => {
-    render(
-      <MiningPreviewDialog {...baseProps} exportError={mockDict.exportError} />,
-    );
-    const alert = document.body.querySelector(
-      '.entei-mining-export-error[role="alert"]',
-    );
-    expect(alert).not.toBeNull();
-    expect(alert!.textContent).toContain(mockDict.exportError);
   });
 
   it('shows localized success with role=status when exportSuccess is true', () => {

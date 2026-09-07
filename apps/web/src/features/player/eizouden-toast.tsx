@@ -126,6 +126,15 @@ export function notifyMiningExportSuccess(label: string): void {
   });
 }
 
+/** Mining export error toast (displays raw Anki / AnkiConnect error message).
+ *  Uses toast.error with an alert icon and fixed id to prevent stacking duplicates. */
+export function notifyMiningExportError(label: string): void {
+  toast.error(label, {
+    id: 'eizouden-mining-export-error',
+    icon: <CircleAlert aria-hidden="true" />,
+  });
+}
+
 export const FIREFOX_UNSUPPORTED_TOAST_KEY = 'firefox-unsupported';
 
 /**

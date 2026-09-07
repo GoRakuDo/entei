@@ -162,6 +162,7 @@ vi.mock('@/features/player/eizouden-toast', () => ({
   // (autoLoadEnabled defaults true) and would throw on a missing export.
   notifyJimakuToast: vi.fn(),
   notifyMiningExportSuccess: vi.fn(),
+  notifyMiningExportError: vi.fn(),
   notifyLazySyncInfo: vi.fn(),
   notifyFirefoxUnsupported: vi.fn(),
 }));

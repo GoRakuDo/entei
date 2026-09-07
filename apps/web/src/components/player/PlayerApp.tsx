@@ -116,6 +116,7 @@ import {
   notifyJimakuToast,
   notifySubtitleSyncSuccess,
   notifyMiningExportSuccess,
+  notifyMiningExportError,
   notifyLazySyncInfo,
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
@@ -573,7 +574,6 @@ export default function PlayerApp() {
    * Image/Video after capture but before Send does not corrupt markup. */
   const capturedMediaTypeRef = useRef<'image' | 'video' | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
   const exportEpochRef = useRef(0);
   const exportAbortControllerRef = useRef<AbortController | null>(null);
@@ -1211,7 +1211,6 @@ export default function PlayerApp() {
     miningScreenshotBlobRef.current = null;
     miningAudioBlobRef.current = null;
     // Stage 2: Clear export state
-    setExportError(null);
     setExportSuccess(false);
     replaceMiningScreenshotUrl(null);
     replaceMiningAudioUrl(null);
@@ -2826,7 +2825,6 @@ export default function PlayerApp() {
     // Stage 2: Clear export state + abort pending export
     exportEpochRef.current += 1;
     setIsExporting(false);
-    setExportError(null);
     setExportSuccess(false);
     exportAbortControllerRef.current?.abort();
     exportAbortControllerRef.current = null;
@@ -3551,7 +3549,6 @@ export default function PlayerApp() {
     const epoch = exportEpochRef.current + 1;
     exportEpochRef.current = epoch;
     setIsExporting(true);
-    setExportError(null);
     setExportSuccess(false);
 
     const abortController = new AbortController();
@@ -3580,7 +3577,6 @@ export default function PlayerApp() {
       mediaRecaptureAbortRef.current?.abort();
       mediaRecaptureAbortRef.current = null;
       setExportSuccess(false);
-      setExportError(null);
     };
 
     try {
@@ -3625,7 +3621,7 @@ export default function PlayerApp() {
         if (abortController.signal.aborted) return;
 
         if (!canAddResult[0]) {
-          setExportError(d.exportRejectedCanAdd);
+          notifyMiningExportError(d.exportRejectedCanAdd);
           return;
         }
 
@@ -3704,7 +3700,7 @@ export default function PlayerApp() {
         if (!mountedRef.current || exportEpochRef.current !== epoch) return;
 
         if (typeof noteId !== 'number' || noteId <= 0) {
-          setExportError(d.exportError);
+          notifyMiningExportError(d.exportError);
           return;
         }
 
@@ -3728,7 +3724,7 @@ export default function PlayerApp() {
         if (abortController.signal.aborted) return;
 
         if (!noteIds || noteIds.length === 0) {
-          setExportError(d.exportNoCandidate);
+          notifyMiningExportError(d.exportNoCandidate);
           return;
         }
 
@@ -3738,19 +3734,21 @@ export default function PlayerApp() {
         if (abortController.signal.aborted) return;
 
         if (!info || info.length === 0) {
-          setExportError(d.exportNoCandidate);
+          notifyMiningExportError(d.exportNoCandidate);
           return;
         }
 
         const candidate = info[0];
         if (!candidate) {
-          setExportError(d.exportNoCandidate);
+          notifyMiningExportError(d.exportNoCandidate);
           return;
         }
 
         // Validate target model matches saved note type
         if (candidate.modelName !== prefs.noteType) {
-          setExportError(d.exportError);
+          notifyMiningExportError(
+            `${d.exportError} (Model mismatch: expected "${prefs.noteType}", got "${candidate.modelName}")`,
+          );
           return;
         }
 
@@ -3860,7 +3858,9 @@ export default function PlayerApp() {
         // Aborted — don't set error
         return;
       }
-      setExportError(d.exportError);
+      console.error('[AnkiExport] Export failed:', e);
+      const rawMessage = e instanceof Error ? e.message : String(e);
+      notifyMiningExportError(rawMessage || d.exportError);
     } finally {
       if (mountedRef.current && exportEpochRef.current === epoch) {
         setIsExporting(false);
@@ -4537,7 +4537,6 @@ export default function PlayerApp() {
         isExporting={isExporting}
         canExport={canExport}
         exportDisabledReason={exportDisabledReason}
-        exportError={exportError}
         exportSuccess={exportSuccess}
         onExportSend={handleExportSend}
         onAppendSearch={handleAppendSearch}

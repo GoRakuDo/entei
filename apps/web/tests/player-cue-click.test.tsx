@@ -190,6 +190,7 @@ vi.mock('@/features/player/eizouden-toast', () => ({
   notifySubtitleSyncSuccess: mocks.notifySubtitleSyncSuccess,
   notifyJimakuToast: vi.fn(),
   notifyMiningExportSuccess: vi.fn(),
+  notifyMiningExportError: vi.fn(),
   notifyLazySyncInfo: vi.fn(),
   notifyFirefoxUnsupported: vi.fn(),
 }));

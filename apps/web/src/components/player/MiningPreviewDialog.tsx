@@ -100,7 +100,6 @@ interface MiningPreviewDialogProps {
   isExporting: boolean;
   canExport: boolean;
   exportDisabledReason: string | null;
-  exportError: string | null;
   exportSuccess: boolean;
   onExportSend: () => void;
   // AM-6c: Append panel (inline, not sibling Dialog)
@@ -156,7 +155,6 @@ interface MiningPreviewDialogProps {
     exportSendNew: string;
     exportNoCandidate: string;
     exportSuccess: string;
-    exportError: string;
     exportSendDisabledNoConnection: string;
     exportSendDisabledInvalidPreset: string;
     exportSendDisabledNoSentence: string;
@@ -214,7 +212,6 @@ export function MiningPreviewDialog({
   isExporting,
   canExport,
   exportDisabledReason,
-  exportError,
   exportSuccess,
   onExportSend,
   onAppendSearch,
@@ -876,14 +873,8 @@ export function MiningPreviewDialog({
                 </button>
               </div>
 
-              {/* Stage 2: Export status (error/success) */}
+              {/* Stage 2: Export status (success) */}
               <div className="entei-mining-export-status">
-                {/* Error/success status */}
-                {exportError && (
-                  <p className="entei-mining-export-error" role="alert">
-                    {exportError}
-                  </p>
-                )}
                 {exportSuccess && (
                   <p
                     className="entei-mining-export-success"
