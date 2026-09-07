@@ -74,6 +74,55 @@ interface YouTubeInputProps {
   dict: YouTubeInputDict;
 }
 
+/**
+ * Sanitizes a YouTube share link into a shape the companion accepts.
+ * Mobile-app and browser share links often carry tracking params
+ * (?si=…, ?pp=…, ?list=…, ?t=…) that the companion's strict URL
+ * validator rejects with 400. Returns the trimmed input unchanged for
+ * anything that is not an https YouTube URL we know how to clean.
+ */
+export function sanitizeYouTubeUrl(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    return raw.trim();
+  }
+  if (u.protocol !== 'https:') return raw.trim();
+
+  const host = u.hostname.toLowerCase();
+  switch (host) {
+    case 'youtu.be': {
+      // youtu.be/<id> — strip all query params (e.g. ?si=..., ?t=...)
+      // The companion strictly expects https://youtu.be/<id> with no query.
+      const id = u.pathname.replace(/^\/+/, '');
+      return id ? `https://youtu.be/${id}` : raw.trim();
+    }
+    case 'youtube.com':
+    case 'www.youtube.com':
+    case 'm.youtube.com':
+    case 'music.youtube.com': {
+      const path = u.pathname;
+      if (path === '/watch') {
+        // Keep only 'v' parameter; strip ?si=, ?pp=, ?list=, etc.
+        const v = u.searchParams.get('v');
+        return v ? `https://${host}/watch?v=${v}` : `https://${host}/watch`;
+      }
+      if (
+        path.startsWith('/shorts/') ||
+        path.startsWith('/embed/') ||
+        path.startsWith('/live/')
+      ) {
+        // Strip all query params for shorts, embed, and live
+        return `https://${host}${path}`;
+      }
+      return raw.trim();
+    }
+    default:
+      return raw.trim();
+  }
+}
+
 // Light client-side shape check only; the companion is the source of truth.
 // Rejects clearly-invalid input (non-https / wrong host / empty) before any
 // network call. The strict video-id rules live server-side.
@@ -155,7 +204,8 @@ export function YouTubeInput({
       notifyFirefoxUnsupported(dict.firefoxUnsupported);
       return;
     }
-    if (!isYouTubeUrlShape(url)) {
+    const sanitizedUrl = sanitizeYouTubeUrl(url);
+    if (!isYouTubeUrlShape(sanitizedUrl)) {
       setError('invalid');
       return;
     }
@@ -174,7 +224,7 @@ export function YouTubeInput({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            url: url.trim(),
+            url: sanitizedUrl,
             // YouTube DL mode (Quality/Speed) from the EizouDen settings tab;
             // the companion defaults to speed when the field is absent.
             mode: readYtDownloadMode(),

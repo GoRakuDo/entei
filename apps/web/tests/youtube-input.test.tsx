@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { YouTubeInput, type YouTubeInputDict } from '@/components/player/YouTubeInput';
+import { YouTubeInput, sanitizeYouTubeUrl, type YouTubeInputDict } from '@/components/player/YouTubeInput';
 import { YT_MODE_KEY } from '@/features/player/yt-download-mode';
 
 const baseDict: YouTubeInputDict = {
@@ -42,6 +42,38 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe('sanitizeYouTubeUrl', () => {
+  it('strips ?si= and other query params from youtu.be share links', () => {
+    expect(sanitizeYouTubeUrl('https://youtu.be/IuIqhWCQK68?si=W_ShJgt8kSAvK_Ur'))
+      .toBe('https://youtu.be/IuIqhWCQK68');
+  });
+
+  it('keeps only the v param on /watch links', () => {
+    expect(sanitizeYouTubeUrl('https://www.youtube.com/watch?v=abcdefghijk&si=123&t=10'))
+      .toBe('https://www.youtube.com/watch?v=abcdefghijk');
+  });
+
+  it.each([
+    'https://www.youtube.com/shorts/abcdefghijk?si=xyz',
+    'https://www.youtube.com/embed/abcdefghijk?si=xyz',
+    'https://www.youtube.com/live/abcdefghijk?si=xyz',
+  ])('strips all query params from %s', (raw) => {
+    expect(sanitizeYouTubeUrl(raw)).toBe(raw.split('?')[0]);
+  });
+
+  it('passes non-YouTube and invalid URLs through unchanged', () => {
+    const passthrough = [
+      'not a url',
+      'http://youtu.be/IuIqhWCQK68?si=x',
+      'https://google.com/search?si=x',
+      'https://example.com/watch?v=abcdefghijk',
+    ];
+    for (const raw of passthrough) {
+      expect(sanitizeYouTubeUrl(raw)).toBe(raw.trim());
+    }
+  });
 });
 
 describe('YouTubeInput — paired flow', () => {
@@ -97,6 +129,38 @@ describe('YouTubeInput — paired flow', () => {
     expect(String(init?.body)).not.toContain(TOKEN);
     // The parent closes the dialog on acceptance (PlayerApp wiring).
     expect(onJobAccepted).toHaveBeenCalledTimes(1);
+  });
+
+  it('strips ?si= from a youtu.be share link before POSTing to the companion', async () => {
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      const url = String(input);
+      // The playable wait polls /v1/media/status after the job is created.
+      if (url.includes('/v1/media/status')) {
+        return Promise.resolve(
+          jsonResponse({ state: 'playable', available: 0, total: 0 }, 200),
+        );
+      }
+      return Promise.resolve(jsonResponse({ id: 'jobSi' }, 201));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onJobAccepted = vi.fn();
+    render(
+      <YouTubeInput {...defaultProps} onJobAccepted={onJobAccepted} />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'https://youtu.be/IuIqhWCQK68?si=W_ShJgt8kSAvK_Ur' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: baseDict.youtubeInputSubmit }));
+
+    await waitFor(() => expect(onJobAccepted).toHaveBeenCalledWith('jobSi'));
+    const [endpointUrl, init] = fetchMock.mock.calls[0]!;
+    expect(String(endpointUrl)).toBe(`http://127.0.0.1:4322/v1/source/jobs?token=${TOKEN}`);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      url: 'https://youtu.be/IuIqhWCQK68',
+      mode: 'speed',
+    });
+    // The raw share link (with ?si=) must never reach the companion.
+    expect(String(init?.body)).not.toContain('si=');
   });
 
   it('sends the persisted quality mode when set in the EizouDen settings', async () => {
