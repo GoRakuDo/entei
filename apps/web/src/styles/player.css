@@ -5930,16 +5930,6 @@ html.entei-player-immersive .entei-player-audio-area {
   flex: 0 0 8rem; /* episode field is a narrow fixed-width column */
 }
 
-@media (max-width: 480px) {
-  .entei-jimaku-search-fields-row {
-    flex-direction: column;
-  }
-
-  .entei-jimaku-search-fields-row .entei-jimaku-search-episode-field {
-    flex: 1;
-  }
-}
-
 .entei-jimaku-search-submit {
   min-height: var(--entei-touch-min);
 }
@@ -6103,6 +6093,72 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-jimaku-search-back:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* --- Mobile (<768px): full-screen sheet ---
+   Mirrors the .entei-settings-dialog / .entei-magnet-dialog patterns: the
+   dialog becomes a full-bleed sheet with a fixed header and a flex-growing
+   scroll body (only the body scrolls). The fields row stacks full-width on
+   every mobile viewport — align-items: stretch kills the desktop
+   flex-end right-alignment dead space. */
+@media (max-width: 767px) {
+  .entei-jimaku-search-dialog {
+    position: fixed;
+    inset: 0;
+    top: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: var(--entei-surface);
+    border: none;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .entei-jimaku-search-dialog .entei-dialog-header {
+    flex-shrink: 0;
+    padding: var(--entei-space-16) var(--entei-space-24);
+  }
+
+  .entei-jimaku-search-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-16);
+    padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
+  }
+
+  .entei-jimaku-search-fields-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .entei-jimaku-search-fields-row .entei-jimaku-search-episode-field {
+    flex: 1;
+  }
+
+  .entei-jimaku-search-section {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .entei-jimaku-search-scroll {
+    flex: 1;
+    min-height: 14rem;
+    max-height: none;
+  }
 }
 
 /* --- Nadeshiko context tab --- */
