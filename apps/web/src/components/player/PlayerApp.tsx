@@ -222,6 +222,17 @@ export function shouldHideSubtitleSync(args: {
   return args.jobKind === 'youtube' || !isLocalVideo;
 }
 
+/**
+ * Predicate for right-panel "Jimaku subtitle search" button visibility.
+ * Hidden for YouTube sources (YouTube delivers native captions; Jimaku anime/drama
+ * matching is irrelevant for YouTube videos).
+ */
+export function shouldHideJimakuSearch(
+  jobKind: 'youtube' | 'torrent' | null,
+): boolean {
+  return jobKind === 'youtube';
+}
+
 /** Companion start-buffering safety timeout: if the overlay has shown but
  *  canplay never fires (e.g. a stalled .part), hide it after 15 s so the
  *  player does not sit on the overlay forever. Longer than the 5 s seek
@@ -4558,6 +4569,13 @@ export default function PlayerApp() {
     mediaName,
   });
 
+  // docs/JIMAKU_SUBS.md §2.2.1: Jimaku search button hidden for YouTube.
+  // Defense-in-depth: a stale `kind` on an inactive session must not hide
+  // the button (endJobSession clears kind, but never trust stale state).
+  const hideJimakuSearch = shouldHideJimakuSearch(
+    jobSession.active ? jobSession.kind : null,
+  );
+
   return (
     <div
       ref={mediaContainerRef}
@@ -4812,7 +4830,9 @@ export default function PlayerApp() {
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
-              onOpenJimakuSearch={handleOpenJimakuSearch}
+              onOpenJimakuSearch={
+                hideJimakuSearch ? undefined : handleOpenJimakuSearch
+              }
               onMineCue={handleMine}
               canMineRow={canMineRow}
               isMining={isMining}
@@ -4840,7 +4860,9 @@ export default function PlayerApp() {
               isMagnet={isMagnet}
               lazySyncOn={isLazySyncOn}
               onToggleLazySync={handleToggleLazySync}
-              onOpenJimakuSearch={handleOpenJimakuSearch}
+              onOpenJimakuSearch={
+                hideJimakuSearch ? undefined : handleOpenJimakuSearch
+              }
               onMineCue={handleMine}
               canMineRow={canMineRow}
               isMining={isMining}

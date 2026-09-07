@@ -296,6 +296,7 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     titleAttemptsRef.current = 0;
     titleErrorRef.current = 0;
     setActive(false);
+    setKind(null);
     setSubtitleUrl(null);
     setJobTitle(null);
     setJobId(null);

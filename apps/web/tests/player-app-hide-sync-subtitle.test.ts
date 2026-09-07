@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { shouldHideSubtitleSync } from '../src/components/player/PlayerApp';
+import {
+  shouldHideJimakuSearch,
+  shouldHideSubtitleSync,
+} from '../src/components/player/PlayerApp';
 
 // ---------------------------------------------------------------------------
 // W16: Right-panel "subtitle sync" button visibility predicate.
@@ -102,5 +105,28 @@ describe('shouldHideSubtitleSync (SUBTITLE_SYNC.md §2.11-12)', () => {
         mediaName: 'report.mkv-notes.txt',
       }),
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P4: Right-panel "Jimaku subtitle search" button visibility predicate.
+//
+// Spec: docs/JIMAKU_SUBS.md §2.2.1.
+//   - YouTube: hidden (YouTube delivers native captions; Jimaku anime/drama
+//     matching is irrelevant for YouTube videos).
+//   - Magnet / local (null jobKind): shown.
+// ---------------------------------------------------------------------------
+
+describe('shouldHideJimakuSearch', () => {
+  it('hides for YouTube', () => {
+    expect(shouldHideJimakuSearch('youtube')).toBe(true);
+  });
+
+  it('shows for torrent (Magnet)', () => {
+    expect(shouldHideJimakuSearch('torrent')).toBe(false);
+  });
+
+  it('shows for local media (null jobKind)', () => {
+    expect(shouldHideJimakuSearch(null)).toBe(false);
   });
 });

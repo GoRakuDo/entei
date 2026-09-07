@@ -19,6 +19,9 @@ function Harness() {
       <button type="button" onClick={() => void session.cancelActiveJob()}>
         cancel
       </button>
+      <button type="button" onClick={() => session.endJobSession()}>
+        end
+      </button>
       <button type="button" onClick={() => session.setPlayIntent(false)}>
         pauseIntent
       </button>
@@ -27,6 +30,7 @@ function Harness() {
       </button>
       <span data-testid="phase">{session.phase}</span>
       <span data-testid="active">{String(session.active)}</span>
+      <span data-testid="kind">{session.kind ?? 'none'}</span>
       <span data-testid="url">{session.jobMediaUrl ?? 'none'}</span>
       <span data-testid="title">{session.jobTitle ?? 'none'}</span>
       {session.jobMediaUrl && (
@@ -366,5 +370,29 @@ describe('useCompanionJobSession — real YouTube job → bridge integration', (
     fireEvent.click(screen.getByText('cancel'));
     await flush();
     expect(screen.getByTestId('title').textContent).toBe('none');
+  });
+
+  it('endJobSession resets kind to null (no stale YouTube kind on idle)', async () => {
+    // Regression: endJobSession must clear `kind` — a stale 'youtube' kind
+    // on an inactive session would (without defense-in-depth) make
+    // shouldHideJimakuSearch return true and hide the Jimaku button for
+    // the next local video file (YouTube playback finished/cancelled then
+    // switching to a local file).
+    const { fetchFn } = makeFetcher([buffering(100, 1000)]);
+    vi.stubGlobal('fetch', fetchFn);
+    render(<Harness />);
+
+    fireEvent.click(screen.getByText('begin'));
+    await flush();
+    expect(screen.getByTestId('active').textContent).toBe('true');
+    expect(screen.getByTestId('kind').textContent).toBe('youtube');
+
+    fireEvent.click(screen.getByText('end'));
+    await flush();
+
+    expect(screen.getByTestId('active').textContent).toBe('false');
+    expect(screen.getByTestId('phase').textContent).toBe('idle');
+    // The bug: kind stayed 'youtube' after endJobSession, hiding Jimaku.
+    expect(screen.getByTestId('kind').textContent).toBe('none');
   });
 });
