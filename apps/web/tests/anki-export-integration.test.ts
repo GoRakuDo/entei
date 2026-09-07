@@ -389,6 +389,7 @@ describe('Export — duplicate policy (new card allows duplicates)', () => {
         duplicateScopeOptions: {
           deckName: 'Japanese',
           checkChildren: false,
+          checkAllModels: false,
         },
       },
     };
@@ -399,6 +400,9 @@ describe('Export — duplicate policy (new card allows duplicates)', () => {
     // Verify canAddNotes payload has options
     const canAddBody = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
     expect(canAddBody.params.notes[0].options.allowDuplicate).toBe(true);
+    expect(
+      canAddBody.params.notes[0].options.duplicateScopeOptions.checkAllModels,
+    ).toBe(false);
 
     // Flow proceeds to addNote
     const noteId = await client.addNote(noteWithDup);
@@ -407,6 +411,9 @@ describe('Export — duplicate policy (new card allows duplicates)', () => {
     // Verify addNote payload also has options inside the wrapped note
     const addNoteBody = JSON.parse(fetchSpy.mock.calls[1]![1].body as string);
     expect(addNoteBody.params.note.options.allowDuplicate).toBe(true);
+    expect(
+      addNoteBody.params.note.options.duplicateScopeOptions.checkAllModels,
+    ).toBe(false);
 
     expect(callLog).toEqual(['canAddNotes', 'addNote']);
   });

@@ -3595,13 +3595,17 @@ export default function PlayerApp() {
             : f.value;
         }
 
-        // canAddNotes check — new card allows duplicates within the target deck
+        // canAddNotes check — new card allows duplicates within the target deck.
+        // checkAllModels must be sent explicitly: AnkiconnectAndroid's
+        // NoteRequest.readNoteOptions() reads it unconditionally when
+        // deckName is present and NPEs (NullPointerException) if absent.
         const noteOptions = {
           allowDuplicate: true,
           duplicateScope: 'deck' as const,
           duplicateScopeOptions: {
             deckName: prefs.deck,
             checkChildren: false,
+            checkAllModels: false,
           },
         };
         const canAddResult = await client.canAddNotes(

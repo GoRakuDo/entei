@@ -70,6 +70,12 @@ export interface AnkiNoteOptions {
   duplicateScopeOptions: {
     deckName: string;
     checkChildren: boolean;
+    /**
+     * Required by AnkiconnectAndroid (AnkiDroid bridge): its NoteRequest
+     * reads checkAllModels unconditionally when deckName is present, and
+     * crashes with a NullPointerException if the key is absent.
+     */
+    checkAllModels?: boolean;
   };
 }
 
