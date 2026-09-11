@@ -426,6 +426,55 @@ export default function PlayerApp() {
   const [panelLayout, setPanelLayout] = useState(DEFAULT_LAYOUT);
   const [panelLayoutKey, setPanelLayoutKey] = useState(0);
 
+  // A layout branch swap remounts the media element. Keep the snapshot tied to
+  // the current media identity so a normal media switch can never restore an
+  // old position into the new file.
+  const layoutMediaElementRef = useRef<HTMLMediaElement | null>(null);
+  const layoutMediaSnapshotRef = useRef<{
+    mediaUrl: string;
+    mediaType: 'video' | 'audio';
+    currentTime: number;
+    paused: boolean;
+    epoch: number;
+  } | null>(null);
+  const layoutMediaEpochRef = useRef(0);
+  const snapshotLayoutMedia = useCallback(() => {
+    const media = layoutMediaElementRef.current;
+    if (!media) return;
+
+    layoutMediaSnapshotRef.current = {
+      mediaUrl: media.currentSrc || media.src,
+      mediaType: media instanceof HTMLVideoElement ? 'video' : 'audio',
+      currentTime: media.currentTime,
+      paused: media.paused,
+      epoch: layoutMediaEpochRef.current,
+    };
+  }, []);
+
+  const restoreLayoutMedia = useCallback(() => {
+    const snapshot = layoutMediaSnapshotRef.current;
+    const media = layoutMediaElementRef.current;
+    if (!snapshot || !media) return;
+
+    const mediaMatchesSnapshot =
+      snapshot.epoch === layoutMediaEpochRef.current &&
+      snapshot.mediaUrl === (media.currentSrc || media.src) &&
+      snapshot.mediaType ===
+        (media instanceof HTMLVideoElement ? 'video' : 'audio');
+    if (!mediaMatchesSnapshot) {
+      layoutMediaSnapshotRef.current = null;
+      return;
+    }
+
+    media.currentTime = snapshot.currentTime;
+    if (snapshot.paused) {
+      media.pause();
+    } else {
+      media.play().catch(() => {});
+    }
+    layoutMediaSnapshotRef.current = null;
+  }, []);
+
   useEffect(() => {
     const desktopMql = window.matchMedia('(min-width: 768px)');
     const landscapeImmersiveMql = window.matchMedia(
@@ -441,9 +490,21 @@ export default function PlayerApp() {
     setIsDesktop(desktopMql.matches);
     setIsLandscapeImmersive(landscapeImmersiveMql.matches);
     setMobileViewport();
-    const desktopHandler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    const landscapeHandler = (e: MediaQueryListEvent) =>
+    const desktopHandler = (e: MediaQueryListEvent) => {
+      const previousBranch =
+        isDesktop && !isLandscapeImmersive && isSubtitlePanelVisible;
+      const nextBranch =
+        e.matches && !isLandscapeImmersive && isSubtitlePanelVisible;
+      if (previousBranch !== nextBranch) snapshotLayoutMedia();
+      setIsDesktop(e.matches);
+    };
+    const landscapeHandler = (e: MediaQueryListEvent) => {
+      const previousBranch =
+        isDesktop && !isLandscapeImmersive && isSubtitlePanelVisible;
+      const nextBranch = isDesktop && !e.matches && isSubtitlePanelVisible;
+      if (previousBranch !== nextBranch) snapshotLayoutMedia();
       setIsLandscapeImmersive(e.matches);
+    };
     const mobileHandler = () => setMobileViewport();
     desktopMql.addEventListener('change', desktopHandler);
     landscapeImmersiveMql.addEventListener('change', landscapeHandler);
@@ -457,7 +518,12 @@ export default function PlayerApp() {
       mobileWidthMql.removeEventListener('change', mobileHandler);
       coarsePointerMql.removeEventListener('change', mobileHandler);
     };
-  }, []);
+  }, [
+    isDesktop,
+    isLandscapeImmersive,
+    isSubtitlePanelVisible,
+    snapshotLayoutMedia,
+  ]);
 
   // Restore saved panel layout on mount
   useEffect(() => {
@@ -617,6 +683,12 @@ export default function PlayerApp() {
   const jobSession = useCompanionJobSession();
   const displayMediaUrl = jobSession.jobMediaUrl ?? mediaUrl;
   const displayMediaType = jobSession.jobMediaUrl ? 'video' : mediaType;
+
+  // Clear a stale snapshot when the media identity changes.
+  useEffect(() => {
+    layoutMediaEpochRef.current += 1;
+    layoutMediaSnapshotRef.current = null;
+  }, [displayMediaUrl, displayMediaType]);
   // LazySync polling loop reads the session through this ref so the loop
   // closure never goes stale across renders (token/jobId may arrive after
   // the loop starts).
@@ -1105,6 +1177,9 @@ export default function PlayerApp() {
     (el: HTMLVideoElement | null) => {
       videoRef.current = el;
       sharedMediaRef.current = displayMediaType === 'video' ? el : null;
+      if (displayMediaType === 'video') {
+        layoutMediaElementRef.current = el;
+      }
     },
     [displayMediaType],
   );
@@ -1113,9 +1188,46 @@ export default function PlayerApp() {
     (el: HTMLAudioElement | null) => {
       audioRef.current = el;
       sharedMediaRef.current = displayMediaType === 'audio' ? el : null;
+      if (displayMediaType === 'audio') {
+        layoutMediaElementRef.current = el;
+      }
     },
     [displayMediaType],
   );
+
+  // Layout branch swaps remount the media element; restore position/pause
+  // state once the replacement has loaded its metadata.
+  useEffect(() => {
+    const media = layoutMediaElementRef.current;
+    const snapshot = layoutMediaSnapshotRef.current;
+    if (!media || !snapshot) return;
+
+    const prefersReducedMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+    if (prefersReducedMotion) {
+      // "Until found" metadata load skips the seek, so restore via the
+      // loadeddata path instead (fires after the first frame is read).
+      media.preload = 'auto';
+      media.load();
+    }
+
+    const onLoaded = () => {
+      media.removeEventListener('loadedmetadata', onLoaded);
+      media.removeEventListener('loadeddata', onLoaded);
+      restoreLayoutMedia();
+    };
+    if (media.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      onLoaded();
+    } else {
+      media.addEventListener('loadedmetadata', onLoaded);
+      media.addEventListener('loadeddata', onLoaded);
+    }
+    return () => {
+      media.removeEventListener('loadedmetadata', onLoaded);
+      media.removeEventListener('loadeddata', onLoaded);
+    };
+  }, [isDesktop, isLandscapeImmersive, isSubtitlePanelVisible]);
 
   // Fix #4: Apply volume using direct element refs (avoids sharedRef timing race)
   useEffect(() => {
@@ -4445,15 +4557,21 @@ export default function PlayerApp() {
         dict={dict}
         isSubtitlePanelVisible={isSubtitlePanelVisible}
         onToggleSubtitlePanel={() => {
-          setIsSubtitlePanelVisible((v) => {
-            const next = !v;
-            if (next) {
-              // Re-read layout from storage when showing panel
-              setPanelLayout(readPanelLayout());
-              setPanelLayoutKey((k) => k + 1);
-            }
-            return next;
-          });
+          const next = !isSubtitlePanelVisible;
+          // Desktop (non-immersive) toggles swap the layout branch, which
+          // remounts the media element — snapshot position/pause before the
+          // re-render so restoreLayoutMedia can bring them back after the
+          // replacement loads. Mobile/immersive toggles keep the same branch
+          // and never remount, so they must not snapshot.
+          if (isDesktop && !isLandscapeImmersive) {
+            snapshotLayoutMedia();
+          }
+          if (next) {
+            // Re-read layout from storage when showing panel
+            setPanelLayout(readPanelLayout());
+            setPanelLayoutKey((k) => k + 1);
+          }
+          setIsSubtitlePanelVisible(next);
         }}
         captionDisplayMode={captionDisplayMode}
         onCycleCaptionMode={handleCycleCaptionMode}
