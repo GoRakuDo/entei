@@ -321,11 +321,11 @@
   width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-12);
+  background: var(--entei-btn-color);
   color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   font-weight: 500;
-  background: none;
   border: none;
   border-radius: var(--entei-radius-pill);
   text-decoration: none;
@@ -335,12 +335,12 @@
 }
 
 .entei-desktop-pill .entei-nav-settings-trigger:hover {
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
 }
 
 .entei-desktop-pill .entei-nav-settings-trigger:focus-visible {
   color: var(--entei-text);
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
 }
@@ -352,7 +352,7 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  background: none;
+  background: var(--entei-btn-color);
   border: 1px solid transparent;
   color: var(--entei-text-secondary);
   border-radius: var(--entei-radius-pill);
@@ -373,12 +373,12 @@
 }
 
 .entei-mobile-dock .entei-nav-settings-trigger:hover {
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
 }
 
 .entei-mobile-dock .entei-nav-settings-trigger:focus-visible {
   color: var(--entei-text);
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
 }
@@ -506,10 +506,14 @@
   opacity: 1;
 }
 
+.entei-settings-tabs-list [data-slot='tabs-trigger'] {
+  background-color: var(--entei-btn-color);
+}
+
 .entei-settings-tabs-list [data-slot='tabs-trigger']:hover {
   color: var(--entei-text-secondary);
-  /* W2: very subtle surface tint only — no pill bg */
-  background-color: var(--entei-btn-hover-bg);
+  /* W2: keep the shared button color stable on hover */
+  background-color: var(--entei-btn-color);
 }
 
 .entei-settings-tabs-list [data-slot='tabs-trigger'][data-state='active'] {
@@ -517,7 +521,7 @@
   /* W12: ensure no border restored by shadcn dark active state */
   border: none;
   /* W5: indicator shown via ::after pseudo-element — no border-bottom */
-  background-color: transparent;
+  background-color: var(--entei-btn-color);
 }
 
 .entei-settings-tabs-list
@@ -760,7 +764,7 @@
   align-self: flex-start;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-24);
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
   color: var(--entei-text);
   border: 1px solid var(--entei-accent);
   border-radius: var(--entei-radius-md);
@@ -1143,7 +1147,7 @@
   width: 100%;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-16);
-  background: none;
+  background: var(--entei-btn-color);
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
@@ -1157,7 +1161,7 @@
 }
 
 .entei-subtitle-reset-btn:hover {
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
   color: var(--entei-text);
 }
 

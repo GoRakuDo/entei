@@ -232,7 +232,7 @@ svg {
   min-height: var(--entei-touch-min);
   min-width: 120px;
   padding: var(--entei-space-8) var(--entei-space-12);
-  background-color: var(--entei-surface);
+  background-color: var(--entei-btn-color);
   color: var(--entei-text);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-card);
@@ -248,7 +248,7 @@ svg {
 
 .entei-combobox-trigger:hover {
   border-color: var(--entei-accent);
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
 }
 
 .entei-combobox-trigger:focus-visible {
@@ -310,6 +310,7 @@ svg {
   gap: var(--entei-space-8);
   padding: var(--entei-space-8) var(--entei-space-12);
   min-height: var(--entei-touch-min);
+  background-color: var(--entei-btn-color);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   font-weight: 500;
@@ -323,7 +324,7 @@ svg {
 
 .entei-command-item:hover,
 .entei-command-item[data-selected="true"] {
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
   color: var(--entei-text);
 }
 
@@ -349,11 +350,11 @@ svg {
 /* Forced colors */
 @media (forced-colors: active) {
   .entei-combobox-trigger {
-    background-color: Canvas;
+    background-color: var(--entei-btn-color);
     border-color: ButtonText;
   }
   .entei-combobox-trigger:hover {
-    background-color: var(--entei-btn-hover-bg);
+    background-color: var(--entei-btn-color);
     color: HighlightText;
   }
   .entei-combobox-content {
@@ -363,7 +364,7 @@ svg {
   .entei-command-item:hover,
   .entei-command-item[data-selected="true"],
   .entei-command-item[aria-selected="true"] {
-    background-color: var(--entei-btn-hover-bg);
+    background-color: var(--entei-btn-color);
     color: HighlightText;
   }
 }

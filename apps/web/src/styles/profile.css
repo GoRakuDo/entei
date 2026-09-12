@@ -139,6 +139,11 @@
   flex-shrink: 0;
 }
 
+.entei-profile-root button.bg-surface-2,
+.entei-profile-root button.bg-surface-2:hover {
+  background-color: var(--entei-btn-color);
+}
+
 .entei-profile-field {
   display: flex;
   flex-direction: column;

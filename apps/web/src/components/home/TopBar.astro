@@ -395,6 +395,7 @@ const settingsUIProps = dictionary.playerUI;
       gap: var(--entei-space-8);
       min-height: var(--entei-touch-min);
       padding: var(--entei-space-4) var(--entei-space-12);
+      background-color: var(--entei-btn-color);
       color: var(--entei-text-secondary);
       font-family: var(--entei-font-body);
       font-weight: 500;
@@ -407,7 +408,7 @@ const settingsUIProps = dictionary.playerUI;
 
     .entei-desktop-pill-link:hover {
       color: inherit; /* keep text + SVG color on hover (no global a:hover tint) */
-      background-color: var(--entei-btn-hover-bg);
+      background-color: var(--entei-btn-color);
       border-radius: var(--entei-radius-pill);
     }
 
@@ -420,7 +421,7 @@ const settingsUIProps = dictionary.playerUI;
     .entei-desktop-pill-link[aria-current='page'] {
       color: var(--entei-status-locked);
       font-weight: 600;
-      background-color: var(--entei-btn-hover-bg);
+      background-color: var(--entei-btn-color);
       border-radius: var(--entei-radius-card);
     }
 
