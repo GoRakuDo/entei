@@ -1,0 +1,17 @@
+---
+/**
+ * Local device profile page — `/profile/`.
+ *
+ * The profile is local-only and the React island owns browser storage and the
+ * IndexedDB-backed Tracker dashboard. Keep this route direct-URL-only; it is
+ * intentionally absent from the shared navigation destinations.
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import '@styles/player.css';
+import '@styles/profile.css';
+import ProfileDashboard from '@/components/player/ProfileDashboard';
+---
+
+<BaseLayout locale="id" path="/profile/" noindex={true} showChrome={true}>
+  <ProfileDashboard client:only="react" />
+</BaseLayout>

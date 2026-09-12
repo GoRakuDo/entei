@@ -27,7 +27,9 @@ Tracker     → local-firstの記録を振り返る部屋
 | `/`         | Home       | `House`               | Enteiの拠点へ戻る                    | index   |
 | `/player/`  | Player     | `Clapperboard`        | local mediaの再生・学習を開く        | noindex |
 | `/tracker/` | Tracker    | `ChartNoAxesCombined` | local-onlyの没入記録と採掘履歴を見る | noindex |
+| `/profile/` | —          | —                     | 直接URLのみのローカルデバイスプロフィール | noindex |
 
+- `/profile/` は直接URLのみとし、pill / mobile Dock には追加しない（`docs/PROFILE.md` §4）。
 - 3件以外はこのnavへ入れない。EPUB Readerは未提供なのでリンクを作らない。
 - ルートを増やす時も、目的地が「常時使う部屋」になった時だけ追加する。Settings、Anki Fields、Mining PreviewのようなPlayer内の操作はnav destinationではない。
 - HomeではTrackerを別cardに複製しない。navが唯一のTracker入口である。

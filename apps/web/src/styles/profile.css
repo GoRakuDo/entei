@@ -1,0 +1,268 @@
+/* ===========================================================================
+ * Local device profile — /profile/
+ * ---------------------------------------------------------------------------
+ * The page owns only presentation. Profile data stays in profile-store.ts and
+ * the immersion statistics tab reuses TrackerDashboard's existing read model.
+ * =========================================================================== */
+
+.entei-profile-root {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-48);
+  min-width: 0;
+}
+
+.entei-profile-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-32);
+}
+
+.entei-profile-identity {
+  display: grid;
+  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
+  gap: clamp(var(--entei-space-24), 5vw, var(--entei-space-64));
+  align-items: start;
+}
+
+.entei-profile-avatar-frame {
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-lg);
+  background: var(--entei-surface);
+  box-shadow: 0 1rem 2rem oklch(0% 0 0deg / 0.2);
+}
+
+.entei-profile-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entei-profile-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+  min-width: 0;
+}
+
+.entei-profile-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--entei-space-16);
+}
+
+.entei-profile-eyebrow {
+  margin-bottom: var(--entei-space-8);
+  color: var(--entei-gold-base);
+  font-family: var(--entei-font-system);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.entei-profile-title {
+  color: var(--entei-text);
+  font-family: var(--entei-font-display);
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.entei-profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  min-width: 0;
+}
+
+.entei-profile-label {
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.entei-profile-name-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+}
+
+.entei-profile-name-controls input {
+  min-height: var(--entei-touch-min);
+  flex: 1;
+}
+
+.entei-profile-name-controls button {
+  min-height: var(--entei-touch-min);
+  flex-shrink: 0;
+}
+
+.entei-profile-help,
+.entei-profile-counter {
+  color: var(--entei-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.entei-profile-textarea {
+  width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+  border: 1px solid oklch(100% 0 0deg / 0.14);
+  border-radius: var(--entei-radius-md);
+  background: color-mix(in oklch, var(--entei-surface) 72%, transparent);
+  color: var(--entei-text);
+  padding: var(--entei-space-12);
+  font: inherit;
+  line-height: 1.6;
+  outline: none;
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-profile-textarea:focus-visible {
+  border-color: var(--entei-focus-ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--entei-focus-ring) 30%, transparent);
+}
+
+.entei-profile-avatar-picker {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+}
+
+.entei-profile-avatar-picker legend {
+  margin-bottom: var(--entei-space-12);
+}
+
+.entei-profile-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(3.25rem, 1fr));
+  gap: var(--entei-space-12);
+  max-width: 44rem;
+}
+
+.entei-profile-avatar-option {
+  aspect-ratio: 1;
+  width: 100%;
+  height: auto;
+  padding: var(--entei-space-4);
+  overflow: hidden;
+}
+
+.entei-profile-avatar-option img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--entei-radius-sm);
+  object-fit: cover;
+}
+
+.entei-profile-tabs {
+  width: 100%;
+  min-width: 0;
+}
+
+.entei-profile-tabs-list {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.1);
+}
+
+.entei-profile-tabs-list [data-slot='tabs-trigger'] {
+  min-height: var(--entei-touch-min);
+  justify-content: flex-start;
+  padding-inline: var(--entei-space-16);
+  color: var(--entei-text-muted);
+}
+
+.entei-profile-tabs-list [data-slot='tabs-trigger'][data-state='active'] {
+  color: var(--entei-text);
+}
+
+.entei-profile-tab-content {
+  min-width: 0;
+  padding-top: var(--entei-space-32);
+}
+
+/* TrackerDashboard normally breaks out of BaseLayout's desktop grid. Inside
+   this tab its existing width must instead follow the profile content column. */
+.entei-profile-tab-content .entei-tracker-root,
+.entei-profile-tab-content .entei-tracker-dashboard {
+  grid-column: auto;
+}
+
+.entei-profile-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-16);
+  min-height: 18rem;
+  padding: var(--entei-space-48) var(--entei-space-16);
+  border: 1px dashed oklch(100% 0 0deg / 0.16);
+  border-radius: var(--entei-radius-lg);
+  color: var(--entei-text-muted);
+  text-align: center;
+}
+
+.entei-profile-empty-state svg {
+  color: var(--entei-gold-base);
+}
+
+.entei-profile-empty-state h2 {
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-display);
+  font-size: 1.125rem;
+}
+
+.entei-profile-empty-state p {
+  max-width: 42ch;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 767px) {
+  .entei-profile-root {
+    gap: var(--entei-space-32);
+  }
+
+  .entei-profile-identity {
+    grid-template-columns: 6rem minmax(0, 1fr);
+    gap: var(--entei-space-16);
+  }
+
+  .entei-profile-name-controls {
+    flex-wrap: wrap;
+  }
+
+  .entei-profile-name-controls input {
+    flex-basis: 100%;
+  }
+
+  .entei-profile-avatar-grid {
+    grid-template-columns: repeat(5, minmax(2.75rem, 1fr));
+    gap: var(--entei-space-8);
+  }
+
+  .entei-profile-tabs-list [data-slot='tabs-trigger'] {
+    padding-inline: var(--entei-space-8);
+    font-size: 0.8125rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .entei-profile-identity {
+    grid-template-columns: 1fr;
+  }
+
+  .entei-profile-avatar-frame {
+    width: min(100%, 10rem);
+  }
+}

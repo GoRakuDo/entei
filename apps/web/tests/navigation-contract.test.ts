@@ -12,6 +12,7 @@
  * 8. Locale switch updates nav label text and aria-label to translated values
  * 9. Desktop Combobox data-entei-desktop-combobox present on Home/Tracker, absent on Player
  * 10. Player zone gets --player modifier class; Home/Tracker do not
+ * 11. /profile/ is a direct URL only and absent from both navigation surfaces
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyLocale } from '../src/scripts/locale-switcher';
@@ -21,11 +22,22 @@ import type { Locale } from '../src/i18n/types';
 /* -------------------------------------------------------------------------- */
 /*  1. Dictionary nav keys parity across locales                              */
 /* -------------------------------------------------------------------------- */
+describe('Direct URL-only route contract', () => {
+  it('/profile/ is not a desktop or mobile destination', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
+    expect(html).not.toContain('data-entei-nav-destination="/profile/"');
+    for (const route of DIRECT_URL_ONLY_ROUTES) {
+      expect(route).toBe('/profile/');
+    }
+  });
+});
+
 describe('Nav dictionary keys (Stage N1)', () => {
   const navKeys = [
     'destinationHome',
     'destinationPlayer',
     'destinationTracker',
+    'destinationProfile',
     'desktopNavLabel',
     'mobileDockLabel',
   ] as const;
@@ -85,6 +97,8 @@ const DESTINATIONS = [
   { route: '/player/', labelKey: 'destinationPlayer' },
   { route: '/tracker/', labelKey: 'destinationTracker' },
 ] as const;
+
+const DIRECT_URL_ONLY_ROUTES = ['/profile/'] as const;
 
 /**
  * Mobile dock destinations — mirrors MOBILE_DESTINATIONS in TopBar.astro:

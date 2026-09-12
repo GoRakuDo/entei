@@ -445,6 +445,8 @@ export interface Dictionary {
     destinationPlayer: string;
     /** Visible label for Tracker destination in nav */
     destinationTracker: string;
+    /** Name used when referring to the direct-URL-only profile page. */
+    destinationProfile: string;
     /** Visible label for Settings destination in nav (opens settings modal) */
     destinationSettings: string;
     /** Accessible name for desktop reveal-pill nav landmark */
@@ -466,6 +468,23 @@ export interface Dictionary {
     title: string;
     lead: string;
     backToHome: string;
+  };
+  profile: {
+    title: string;
+    localOnlyBadge: string;
+    tabsLabel: string;
+    immersionStats: string;
+    contentHistory: string;
+    nameLabel: string;
+    nameHelp: string;
+    rerollName: string;
+    saveName: string;
+    bioLabel: string;
+    bioCount: (count: number) => string;
+    avatarLabel: string;
+    avatarOption: (avatar: number) => string;
+    contentHistoryEmptyTitle: string;
+    contentHistoryEmptyDesc: string;
   };
   trackerDashboard: {
     title: string;
