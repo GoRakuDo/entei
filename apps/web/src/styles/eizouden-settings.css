@@ -321,7 +321,7 @@
   width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-12);
-  background: var(--entei-btn-color);
+  background: none;
   color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
@@ -352,7 +352,7 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  background: var(--entei-btn-color);
+  background: none;
   border: 1px solid transparent;
   color: var(--entei-text-secondary);
   border-radius: var(--entei-radius-pill);
@@ -504,10 +504,6 @@
   [data-slot='tabs-trigger'][data-state='active']::after {
   display: block;
   opacity: 1;
-}
-
-.entei-settings-tabs-list [data-slot='tabs-trigger'] {
-  background-color: var(--entei-btn-color);
 }
 
 .entei-settings-tabs-list [data-slot='tabs-trigger']:hover {
@@ -1147,7 +1143,7 @@
   width: 100%;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-16);
-  background: var(--entei-btn-color);
+  background: none;
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);

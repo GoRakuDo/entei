@@ -232,7 +232,7 @@ svg {
   min-height: var(--entei-touch-min);
   min-width: 120px;
   padding: var(--entei-space-8) var(--entei-space-12);
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-surface);
   color: var(--entei-text);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-card);
@@ -310,7 +310,6 @@ svg {
   gap: var(--entei-space-8);
   padding: var(--entei-space-8) var(--entei-space-12);
   min-height: var(--entei-touch-min);
-  background-color: var(--entei-btn-color);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   font-weight: 500;
@@ -350,7 +349,7 @@ svg {
 /* Forced colors */
 @media (forced-colors: active) {
   .entei-combobox-trigger {
-    background-color: var(--entei-btn-color);
+    background-color: Canvas;
     border-color: ButtonText;
   }
   .entei-combobox-trigger:hover {

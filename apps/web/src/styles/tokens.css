@@ -58,7 +58,9 @@
   --entei-accent: var(--entei-purple-500);
   --entei-accent-hover: var(--entei-purple-400);
   --entei-accent-light: var(--entei-purple-300);
-  /* Unified solid button color across all pages and modals. */
+  /* Subtle surface used by outline/default controls at rest. */
+  --entei-btn-hover-bg: oklch(0.62 0.19 275deg / 0.34);
+  /* Solid fill reserved for hover, active, and primary actions. */
   --entei-btn-color: oklch(31.5% 0.08 275);
   --entei-status-locked: var(--entei-gold-base);
 

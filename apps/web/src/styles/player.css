@@ -170,7 +170,7 @@
   max-width: 100%;
   overflow: hidden;
   cursor: pointer;
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-hover-bg);
   border-color: transparent;
 }
 
@@ -288,7 +288,7 @@
   min-width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-16);
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-surface-2);
   color: var(--entei-text);
   border: 1px solid transparent;
   border-radius: var(--entei-radius-md);
@@ -322,7 +322,7 @@
   padding: 0 var(--entei-space-12);
   border-radius: var(--entei-radius-md);
   border: 1px solid oklch(100% 0 0deg / 0.12);
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-surface);
   color: var(--entei-text-secondary);
   font-size: 0.875rem;
   cursor: pointer;
@@ -375,7 +375,7 @@
 }
 
 .entei-subtitle-sync-dialog-cancel {
-  background-color: var(--entei-btn-color);
+  background-color: transparent;
   border: none;
   color: var(--entei-text);
 }
@@ -1304,7 +1304,7 @@
   min-width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding: 0;
-  background: var(--entei-btn-color);
+  background: none;
   border: none;
   border-radius: var(--entei-radius-sm);
   color: oklch(100% 0 0deg / 0.9);
@@ -1742,10 +1742,6 @@
   [data-slot='tabs-trigger'][data-state='active']::after {
   display: block;
   opacity: 1;
-}
-
-.entei-settings-tabs-list [data-slot='tabs-trigger'] {
-  background-color: var(--entei-btn-color);
 }
 
 .entei-settings-tabs-list [data-slot='tabs-trigger']:hover {
@@ -2415,7 +2411,7 @@
   width: 100%;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-16);
-  background: var(--entei-btn-color);
+  background: none;
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
@@ -2537,7 +2533,7 @@
   justify-content: center;
   height: 36px;
   padding: 0 var(--entei-space-4);
-  background: var(--entei-btn-color);
+  background: none;
   border: 1px solid transparent;
   border-radius: var(--entei-radius-sm);
   font-family: var(--entei-font-system);
@@ -2600,7 +2596,7 @@
   /* Mobile default: 44px touch target, 12px horizontal padding */
   min-height: var(--entei-touch-min);
   padding: 0 var(--entei-space-12);
-  background-color: var(--entei-btn-color);
+  background-color: transparent;
   border-radius: var(--entei-radius-sm);
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
@@ -2840,7 +2836,7 @@
 .entei-dialog-footer-btn {
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-24);
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-surface-2);
   color: var(--entei-text);
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
@@ -3013,7 +3009,7 @@
   width: var(--entei-touch-min);
   height: var(--entei-touch-min);
   padding: 0;
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-hover-bg);
   color: oklch(100% 0 0deg / 1);
   border: none;
   border-radius: 50%;
@@ -3470,7 +3466,7 @@ html.entei-player-immersive .entei-player-audio-area {
   width: var(--entei-touch-min);
   height: var(--entei-touch-min);
   padding: 0;
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-hover-bg);
   color: oklch(100% 0 0deg / 1);
   border: none;
   border-radius: 50%;
@@ -3528,7 +3524,7 @@ html.entei-player-immersive .entei-player-audio-area {
   min-width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8);
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-surface-2);
   color: var(--entei-text);
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
@@ -3712,10 +3708,6 @@ html.entei-player-immersive .entei-player-audio-area {
 /* --- Scoped ToggleGroup hover/contrast overrides --- */
 /* Fix low-contrast shadcn default hover by using accent-tinted surface
    and high-contrast text for inactive items. */
-[data-slot='toggle-group'] button[data-state='off'] {
-  background-color: var(--entei-btn-color);
-}
-
 [data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
   color: var(--entei-text);
@@ -3803,7 +3795,7 @@ html.entei-player-immersive .entei-player-audio-area {
   flex: 0 0 36px;
   height: 36px;
   padding: 0;
-  background-color: var(--entei-btn-color);
+  background: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4177,7 +4169,7 @@ html.entei-player-immersive .entei-player-audio-area {
   border: 0;
   border-right: 1px solid oklch(1 0 0deg / 0.1);
   border-radius: 0;
-  background: var(--entei-btn-color);
+  background: transparent;
   color: oklch(0.7 0.02 265deg);
   font-size: 0.8125rem;
   font-weight: 500;
@@ -4540,8 +4532,8 @@ html.entei-player-immersive .entei-player-audio-area {
   min-height: var(--entei-touch-min);
   /* ButtonGroup removes the left border + rounded-left corner on the
      button, so we drop the explicit border line and use the shared
-     button color. */
-  background-color: var(--entei-btn-color);
+     surface token. */
+  background-color: var(--entei-btn-hover-bg);
   color: var(--entei-text);
   border-color: transparent;
 }
@@ -4893,7 +4885,7 @@ html.entei-player-immersive .entei-player-audio-area {
    outline look. */
 .entei-magnet-cancel {
   flex: 1;
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-hover-bg);
   border-color: transparent;
   color: var(--entei-text);
 }
@@ -6017,7 +6009,7 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-jimaku-key-save-btn {
   flex-shrink: 0;
   min-height: var(--entei-touch-min);
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-hover-bg);
   border-color: transparent;
 }
 
@@ -6051,7 +6043,7 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: var(--entei-space-8) var(--entei-space-12);
   border: none;
   border-bottom: 1px solid oklch(100% 0 0deg / 0.05);
-  background: var(--entei-btn-color);
+  background: none;
   color: var(--entei-text);
   text-align: left;
   cursor: pointer;
@@ -6222,7 +6214,7 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-nadeshiko-search-btn {
   flex-shrink: 0;
   min-height: var(--entei-touch-min);
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-hover-bg);
   border-color: transparent;
 }
 
