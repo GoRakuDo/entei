@@ -476,12 +476,9 @@ export interface Dictionary {
     immersionStats: string;
     contentHistory: string;
     nameLabel: string;
-    nameHelp: string;
-    rerollName: string;
-    saveName: string;
     saveProfile: string;
     closeEdit: string;
-    editProfile: string;
+    editProfileShort: string;
     bioLabel: string;
     bioCount: (count: number) => string;
     changeAvatar: string;

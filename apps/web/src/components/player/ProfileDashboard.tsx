@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Dices, History, ImageUp, Save, X } from 'lucide-react';
+import { History, ImageUp, Save, SquarePen, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/player/ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from '@/components/player/ui/input';
 import {
   Tabs,
@@ -15,7 +16,6 @@ import TrackerDashboard from '@/components/player/TrackerDashboard';
 import {
   PROFILE_AVATAR_MAX_BYTES,
   PROFILE_BIO_MAX_LENGTH,
-  createRandomProfileName,
   getProfileAvatarDataUrlBytes,
   readLocalProfile,
   setLocalProfileAvatar,
@@ -183,10 +183,6 @@ function ProfileHeader({
     setIsEditing(false);
   };
 
-  const rerollName = () => {
-    setNameDraft(createRandomProfileName());
-  };
-
   const updateBio = (value: string) => {
     setBioDraft(truncateProfileBio(value));
   };
@@ -224,54 +220,41 @@ function ProfileHeader({
         <div className="entei-profile-fields">
           {isEditing ? (
             <>
-              <div className="entei-profile-edit-actions">
-                <Button type="button" variant="secondary" onClick={saveProfile}>
-                  <Save aria-hidden="true" />
-                  {t.saveProfile}
-                </Button>
-                <Button type="button" variant="ghost" onClick={closeEditing}>
-                  <X aria-hidden="true" />
-                  {t.closeEdit}
-                </Button>
-              </div>
-
               <div className="entei-profile-field">
-                <label className="entei-profile-label" htmlFor="profile-name">
-                  {t.nameLabel}
-                </label>
                 <div className="entei-profile-name-controls">
                   <Input
                     id="profile-name"
                     value={nameDraft}
                     onChange={(event) => setNameDraft(event.target.value)}
-                    aria-describedby="profile-name-help"
+                    aria-label={t.nameLabel}
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={rerollName}
-                    aria-label={t.rerollName}
-                    title={t.rerollName}
-                  >
-                    <Dices aria-hidden="true" />
-                  </Button>
+                  <ButtonGroup className="entei-profile-edit-actions">
+                    <Button type="button" variant="secondary" onClick={saveProfile}>
+                      <Save aria-hidden="true" />
+                      {t.saveProfile}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={closeEditing}
+                      aria-label={t.closeEdit}
+                      title={t.closeEdit}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  </ButtonGroup>
                 </div>
-                <span id="profile-name-help" className="entei-profile-help">
-                  {t.nameHelp}
-                </span>
               </div>
 
               <div className="entei-profile-field">
-                <label className="entei-profile-label" htmlFor="profile-bio">
-                  {t.bioLabel}
-                </label>
                 <textarea
                   id="profile-bio"
                   className="entei-profile-textarea"
                   value={bioDraft}
                   maxLength={PROFILE_BIO_MAX_LENGTH}
                   onChange={(event) => updateBio(event.target.value)}
+                  aria-label={t.bioLabel}
                   aria-describedby="profile-bio-count"
                   rows={4}
                 />
@@ -292,7 +275,8 @@ function ProfileHeader({
                   {profile.name}
                 </h1>
                 <Button type="button" variant="secondary" onClick={startEditing}>
-                  {t.editProfile}
+                  <SquarePen aria-hidden="true" />
+                  {t.editProfileShort}
                 </Button>
               </div>
               {profile.bio !== '' && (

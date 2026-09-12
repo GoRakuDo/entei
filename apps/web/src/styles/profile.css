@@ -136,9 +136,7 @@
 }
 
 .entei-profile-edit-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--entei-space-8);
+  flex-shrink: 0;
 }
 
 .entei-profile-field {
@@ -148,14 +146,6 @@
   min-width: 0;
 }
 
-.entei-profile-label {
-  color: var(--entei-text-secondary);
-  font-family: var(--entei-font-system);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-}
-
 .entei-profile-name-controls {
   display: flex;
   align-items: center;
@@ -163,6 +153,7 @@
 }
 
 .entei-profile-name-controls input {
+  min-width: 0;
   min-height: var(--entei-touch-min);
   flex: 1;
 }
@@ -172,7 +163,6 @@
   flex-shrink: 0;
 }
 
-.entei-profile-help,
 .entei-profile-counter {
   color: var(--entei-text-muted);
   font-size: 0.75rem;
