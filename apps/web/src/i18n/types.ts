@@ -479,10 +479,15 @@ export interface Dictionary {
     nameHelp: string;
     rerollName: string;
     saveName: string;
+    saveProfile: string;
+    closeEdit: string;
+    editProfile: string;
     bioLabel: string;
     bioCount: (count: number) => string;
-    avatarLabel: string;
-    avatarOption: (avatar: number) => string;
+    changeAvatar: string;
+    avatarAlt: string;
+    avatarUploadTooLarge: string;
+    avatarUploadError: string;
     contentHistoryEmptyTitle: string;
     contentHistoryEmptyDesc: string;
   };

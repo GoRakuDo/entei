@@ -23,11 +23,11 @@ interface LocalProfile {
   schemaVersion: 1;
   name: string;
   bio: string; // 最大360文字（JS .length 基準、超過分は貼り付け時に切り詰め）
-  avatar: number; // 1〜15（表示時に `/avatars/${n}.webp` へ解決）
+  avatar: string; // `/avatars/N.webp` または image data URL
 }
 ```
 
-`avatar` は `/avatars/1.webp` から `/avatars/15.webp` までのいずれかのパスを保持する。
+`avatar` は通常 `/avatars/1.webp` から `/avatars/15.webp` までのいずれかのパスを保持する。画像をアップロードした場合は、クライアント側で256px正方形にcover-crop・縮小した `data:image/...` を保持し、デコード後のサイズは約200KB以下に制限する。`schemaVersion` と key は維持し、旧形式の `avatar: number` は読み取り時に対応する `/avatars/N.webp` へ移行して保存し直す。
 
 ### 2.2 初回作成
 
@@ -36,16 +36,16 @@ interface LocalProfile {
 - `schemaVersion`: `1`。
 - `name`: `Kitsune-XXXX` のような形式のランダム名。末尾4文字はランダムな英数字（再ロール用のサイコロボタン付き）。
 - `bio`: 空文字列。
-- `avatar`: `1`〜`15` からランダムに1つ。
+- `avatar`: `/avatars/1.webp`〜`/avatars/15.webp` からランダムに1つ。
 
-初回生成後は、ページを再読み込みしても同じプロフィールを表示する。保存値が壊れている場合（JSON parse 失敗・avatar が 1〜15 の範囲外・bio が文字列でない等）は例外安全に読み、初期値で再生成する（`jimaku-preferences.ts` の読み取り方針に準拠）。
+初回生成後は、ページを再読み込みしても同じプロフィールを表示する。保存値が壊れている場合（JSON parse 失敗・avatar の形式不正・bio が文字列でない等）は例外安全に読み、初期値で再生成する（`jimaku-preferences.ts` の読み取り方針に準拠）。旧数値アバターは、schemaVersion 1 のまま対応する bundled path へ移行する。
 
 ### 2.3 編集と永続化
 
-- 名前はインライン入力で編集し、保存操作で localStorage を更新する。
-- 自己紹介は textarea で編集する。
-- 自己紹介は最大360文字に制限し、入力中も文字数を表示する。
-- アバターは15個の候補をグリッドで表示し、選択時に保存する。
+- 初期表示は view mode とし、名前（大きく表示）・bio（空文字列なら何も描画しない）を表示する。
+- 「プロファイル編集」から edit mode に入り、既存の名前 Input・サイコロ・保存、bio textarea・文字数カウンター、アバターUIを表示する。保存または閉じると view mode に戻る。
+- edit mode ではアバター全体の暗いオーバーレイ（中央の `ImageUp` アイコン）をクリックして `accept="image/*"` の file picker を開く。view mode のアバターは静的に表示する。
+- 選択画像はブラウザ内の canvas で最大256px正方形のcover-cropに変換し、約200KBを超える場合は保存せずエラーを表示する。
 - 名前、自己紹介、アバターの変更は、ローカルデバイス内でのみ永続化する。
 
 ## 3. 画面構成
@@ -65,10 +65,9 @@ interface LocalProfile {
 
 ### 3.1 上段: プロフィールヘッダー
 
-- 左側: 正方形のアバター
-- 右側上部: ユーザー名
-- 右側下部: 自己紹介文（最大360文字）
-- 名前、自己紹介、アバターは同じプロフィールヘッダー内から編集できる
+- 初期表示は view mode。左側に正方形のアバター、右側に大きなユーザー名と右上の「プロファイル編集」ボタン、空でなければ最大6行の自己紹介文を表示する。
+- 「プロファイル編集」ボタンで edit mode に切り替え、名前・自己紹介・アバターを同じプロフィールヘッダー内から編集できる。
+- アバター候補15個のグリッドは表示しない。edit mode ではアバター全体のオーバーレイから画像を選択し、view mode ではアバターを静的に表示する。
 
 ### 3.2 下段: 2つのタブ
 

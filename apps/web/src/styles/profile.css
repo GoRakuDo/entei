@@ -21,12 +21,14 @@
 
 .entei-profile-identity {
   display: grid;
+  min-width: 0;
   grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
   gap: clamp(var(--entei-space-24), 5vw, var(--entei-space-64));
   align-items: start;
 }
 
 .entei-profile-avatar-frame {
+  position: relative;
   aspect-ratio: 1;
   overflow: hidden;
   border: 1px solid oklch(100% 0 0deg / 0.12);
@@ -36,9 +38,49 @@
 }
 
 .entei-profile-avatar {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.entei-profile-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: oklch(0% 0 0deg / 0.58);
+  color: var(--entei-text);
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-profile-avatar-overlay:hover,
+.entei-profile-avatar-overlay:focus-visible {
+  opacity: 1;
+}
+
+.entei-profile-avatar-overlay:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: -3px;
+}
+
+.entei-profile-avatar-overlay svg {
+  width: 3.5rem;
+  height: 3.5rem;
+  stroke-width: 1.75;
+}
+
+.entei-profile-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .entei-profile-fields {
@@ -46,31 +88,57 @@
   flex-direction: column;
   gap: var(--entei-space-24);
   min-width: 0;
-}
-
-.entei-profile-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--entei-space-16);
-}
-
-.entei-profile-eyebrow {
-  margin-bottom: var(--entei-space-8);
-  color: var(--entei-gold-base);
-  font-family: var(--entei-font-system);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  overflow: hidden;
 }
 
 .entei-profile-title {
+  overflow-wrap: anywhere;
   color: var(--entei-text);
   font-family: var(--entei-font-display);
   font-size: clamp(1.5rem, 3vw, 2.25rem);
   font-weight: 700;
   line-height: 1.2;
+}
+
+.entei-profile-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  gap: var(--entei-space-16);
+}
+
+.entei-profile-view-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--entei-space-16);
+  min-width: 0;
+}
+
+.entei-profile-view-header .entei-profile-title {
+  min-width: 0;
+}
+
+.entei-profile-view-header > button {
+  flex-shrink: 0;
+}
+
+.entei-profile-bio {
+  display: -webkit-box;
+  max-width: 100%;
+  color: var(--entei-text-secondary);
+  white-space: pre-wrap;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.entei-profile-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--entei-space-8);
 }
 
 .entei-profile-field {
@@ -133,36 +201,10 @@
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--entei-focus-ring) 30%, transparent);
 }
 
-.entei-profile-avatar-picker {
-  min-width: 0;
-  border: 0;
-  padding: 0;
-}
-
-.entei-profile-avatar-picker legend {
-  margin-bottom: var(--entei-space-12);
-}
-
-.entei-profile-avatar-grid {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(3.25rem, 1fr));
-  gap: var(--entei-space-12);
-  max-width: 44rem;
-}
-
-.entei-profile-avatar-option {
-  aspect-ratio: 1;
-  width: 100%;
-  height: auto;
-  padding: var(--entei-space-4);
-  overflow: hidden;
-}
-
-.entei-profile-avatar-option img {
-  width: 100%;
-  height: 100%;
-  border-radius: var(--entei-radius-sm);
-  object-fit: cover;
+.entei-profile-avatar-error {
+  color: var(--entei-gold-base);
+  font-size: 0.8125rem;
+  line-height: 1.4;
 }
 
 .entei-profile-tabs {
@@ -244,11 +286,6 @@
 
   .entei-profile-name-controls input {
     flex-basis: 100%;
-  }
-
-  .entei-profile-avatar-grid {
-    grid-template-columns: repeat(5, minmax(2.75rem, 1fr));
-    gap: var(--entei-space-8);
   }
 
   .entei-profile-tabs-list [data-slot='tabs-trigger'] {
