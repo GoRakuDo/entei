@@ -1,0 +1,70 @@
+name: TMDB poster cache night batch
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  night-batch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check TMDB relay health
+        env:
+          RELAY_URL: https://entei-tmdb-relay.yosiakefas-id.workers.dev
+        run: |
+          set -euo pipefail
+          health="$(curl --fail --silent --show-error --location --max-time 30 "$RELAY_URL/")"
+          if [[ "$health" != "entei-tmdb-relay ok" ]]; then
+            echo "TMDB relay health check failed: $health" >&2
+            exit 1
+          fi
+          echo "TMDB relay health check passed."
+
+      - name: Attempt relay dump
+        env:
+          RELAY_URL: https://entei-tmdb-relay.yosiakefas-id.workers.dev
+        run: |
+          set -euo pipefail
+          set +e
+          dump_status="$(curl --silent --show-error --location --max-time 30 --output /dev/null --write-out '%{http_code}' "$RELAY_URL/dump")"
+          curl_status=$?
+          set -e
+
+          if (( curl_status != 0 )); then
+            echo "TMDB relay /dump request failed (curl exit $curl_status)." >&2
+            exit "$curl_status"
+          fi
+
+          if [[ "$dump_status" == "404" ]]; then
+            echo "TMDB relay /dump is not available yet (404); continuing."
+          elif [[ "$dump_status" =~ ^2[0-9][0-9]$ ]]; then
+            echo "TMDB relay /dump responded with HTTP $dump_status."
+          else
+            echo "TMDB relay /dump returned unexpected HTTP $dump_status." >&2
+            exit 1
+          fi
+
+      - name: Ensure poster cache exists
+        run: |
+          set -euo pipefail
+          cache_file="apps/web/public/data/tmdb-poster-cache.json"
+
+          if [[ ! -f "$cache_file" ]]; then
+            mkdir -p "$(dirname "$cache_file")"
+            printf '{\n  "version": 1,\n  "updatedAt": "%s",\n  "posters": {}\n}\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$cache_file"
+            echo "Created $cache_file."
+          else
+            echo "$cache_file already exists; preserving existing posters."
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$cache_file"
+          git diff --cached --quiet -- "$cache_file" || git commit -m 'ci: night-batch tmdb poster cache skeleton'
