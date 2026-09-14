@@ -465,7 +465,11 @@ export const id: Dictionary = {
     avatarUploadError: 'Gambar tidak dapat diproses. Pilih gambar lain.',
     contentHistoryEmptyTitle: 'Belum ada riwayat konten',
     contentHistoryEmptyDesc:
-      'Riwayat judul dan episode akan muncul di sini pada tahap berikutnya.',
+      'Judul dan episode akan muncul setelah pemutaran berlangsung cukup lama untuk dicatat.',
+    contentHistoryLoading: 'Memuat riwayat konten…',
+    contentHistoryEpisode: (episode) =>
+      episode === null ? 'Episode tidak tersedia' : `Episode terakhir: ${episode}`,
+    contentHistoryWatchedAt: (date) => `Terakhir ditonton: ${date}`,
   },
   trackerDashboard: {
     title: 'Tracker Dashboard',

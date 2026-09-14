@@ -465,7 +465,11 @@ export const ja: Dictionary = {
     avatarUploadError: '画像を処理できませんでした。別の画像を選んでください。',
     contentHistoryEmptyTitle: 'コンテンツ履歴はまだありません',
     contentHistoryEmptyDesc:
-      '解析済みタイトルやエピソードの履歴は、次の段階でここに表示します。',
+      '再生が一定時間進むと、作品とエピソードの履歴がここに表示されます。',
+    contentHistoryLoading: 'コンテンツ履歴を読み込み中…',
+    contentHistoryEpisode: (episode) =>
+      episode === null ? 'エピソード情報なし' : `最終視聴話数: 第${episode}話`,
+    contentHistoryWatchedAt: (date) => `最終視聴: ${date}`,
   },
   trackerDashboard: {
     title: 'トラッカーダッシュボード',

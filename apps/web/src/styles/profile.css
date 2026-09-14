@@ -281,6 +281,68 @@
   grid-column: auto;
 }
 
+.entei-profile-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--entei-space-24) var(--entei-space-16);
+}
+
+.entei-profile-history-card {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--entei-radius-lg);
+  background: color-mix(in oklch, var(--entei-surface) 88%, transparent);
+  box-shadow: 0 0.75rem 1.5rem oklch(0% 0 0deg / 0.14);
+}
+
+.entei-profile-history-poster {
+  display: grid;
+  aspect-ratio: 2 / 3;
+  place-items: center;
+  overflow: hidden;
+  background: color-mix(in oklch, var(--entei-surface-2) 62%, var(--entei-purple-500));
+}
+
+.entei-profile-history-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  outline: 1px solid oklch(0 0 0 / 0.1);
+  outline-offset: -1px;
+}
+
+.entei-profile-history-letter {
+  color: var(--entei-text);
+  font-family: var(--entei-font-display);
+  font-size: clamp(2rem, 8vw, 4rem);
+  font-weight: 700;
+}
+
+.entei-profile-history-card-body {
+  display: grid;
+  gap: var(--entei-space-4);
+  min-width: 0;
+  padding: var(--entei-space-12);
+}
+
+.entei-profile-history-card-body h3 {
+  overflow: hidden;
+  color: var(--entei-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entei-profile-history-card-body p {
+  overflow-wrap: anywhere;
+  color: var(--entei-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .entei-profile-empty-state {
   display: flex;
   flex-direction: column;

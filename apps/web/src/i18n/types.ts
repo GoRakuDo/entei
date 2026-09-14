@@ -485,6 +485,9 @@ export interface Dictionary {
     avatarUploadError: string;
     contentHistoryEmptyTitle: string;
     contentHistoryEmptyDesc: string;
+    contentHistoryLoading: string;
+    contentHistoryEpisode: (episode: number | null) => string;
+    contentHistoryWatchedAt: (date: string) => string;
   };
   trackerDashboard: {
     title: string;

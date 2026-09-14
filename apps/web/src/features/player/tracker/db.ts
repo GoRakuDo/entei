@@ -33,7 +33,7 @@ import type {
 /* ------------------------------------------------------------------------ */
 
 const DB_NAME = 'immersion-tracker';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /* Store names — match IMMERSION_TRACKER.md §6 */
 const STORE_MEDIA = 'media';
@@ -43,6 +43,7 @@ const STORE_DAILY = 'daily';
 const STORE_EXPOSURE_CELLS = 'exposure_cells';
 const STORE_MINING_ARCHIVE = 'mining_archive';
 const STORE_META = 'meta';
+const STORE_WATCH_HISTORY = 'watch_history';
 
 /* ------------------------------------------------------------------------ */
 /* IndexedDB availability check                                             */
@@ -63,7 +64,7 @@ function isIndexedDBAvailable(): boolean {
 /**
  * Open the immersion-tracker database.
  * Creates stores on first run (onupgradeneeded).
- * Bumps from v1→v2 to fix meta store keyPath.
+ * Bumps from v1→v2 to fix meta store keyPath and v2→v3 to add watch history.
  * Returns null if IndexedDB is unavailable or open fails.
  */
 export function openTrackerDB(): Promise<IDBDatabase | null> {
@@ -141,6 +142,14 @@ export function openTrackerDB(): Promise<IDBDatabase | null> {
             db.deleteObjectStore(STORE_META);
           }
           db.createObjectStore(STORE_META, { keyPath: 'key' });
+        }
+
+        // ---- v2→v3 migration: add content watch history ----
+        if (prevVersion < 3 && !db.objectStoreNames.contains(STORE_WATCH_HISTORY)) {
+          const store = db.createObjectStore(STORE_WATCH_HISTORY, {
+            keyPath: 'mediaId',
+          });
+          store.createIndex('byWatchedAt', 'watchedAt', { unique: false });
         }
       };
 
@@ -528,6 +537,7 @@ export async function clearAllTrackerData(): Promise<boolean> {
     STORE_DAILY,
     STORE_EXPOSURE_CELLS,
     STORE_MINING_ARCHIVE,
+    STORE_WATCH_HISTORY,
   ];
   for (const store of stores) {
     await clearStore(store);

@@ -14,6 +14,10 @@ import {
 } from '@/components/player/ui/tabs';
 import TrackerDashboard from '@/components/player/TrackerDashboard';
 import {
+  getAllWatchHistory,
+  type WatchHistoryRecord,
+} from '@/features/player/watch-history';
+import {
   PROFILE_AVATAR_MAX_BYTES,
   PROFILE_BIO_MAX_LENGTH,
   getProfileAvatarDataUrlBytes,
@@ -305,12 +309,94 @@ function ProfileHeader({
   );
 }
 
-function ContentHistoryPlaceholder({ t }: { t: Dictionary['profile'] }) {
+function formatWatchedAt(timestamp: number, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+  }).format(new Date(timestamp));
+}
+
+function HistoryCard({
+  record,
+  locale,
+  t,
+}: {
+  record: WatchHistoryRecord;
+  locale: Locale;
+  t: Dictionary['profile'];
+}) {
+  const [posterFailed, setPosterFailed] = useState(false);
+  const posterSrc =
+    record.posterStatus === 'ready' ? (record.posterUrl ?? undefined) : undefined;
+  const showPoster = posterSrc !== undefined && !posterFailed;
+  const letter = record.title.trim().slice(0, 1).toUpperCase() || '？';
+
   return (
-    <div className="entei-profile-empty-state" data-testid="profile-content-history-empty">
-      <History size={40} aria-hidden="true" />
-      <h2>{t.contentHistoryEmptyTitle}</h2>
-      <p>{t.contentHistoryEmptyDesc}</p>
+    <article className="entei-profile-history-card">
+      <div className="entei-profile-history-poster" aria-hidden={showPoster}>
+        {showPoster && posterSrc !== undefined ? (
+          <img
+            src={posterSrc}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setPosterFailed(true)}
+          />
+        ) : (
+          <span className="entei-profile-history-letter">{letter}</span>
+        )}
+      </div>
+      <div className="entei-profile-history-card-body">
+        <h3 title={record.title}>{record.title}</h3>
+        <p>{t.contentHistoryEpisode(record.episode)}</p>
+        <p>{t.contentHistoryWatchedAt(formatWatchedAt(record.watchedAt, locale))}</p>
+      </div>
+    </article>
+  );
+}
+
+function ContentHistoryGrid({
+  locale,
+  t,
+}: {
+  locale: Locale;
+  t: Dictionary['profile'];
+}) {
+  const [records, setRecords] = useState<WatchHistoryRecord[] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getAllWatchHistory().then((next) => {
+      if (active) setRecords(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (records === null) {
+    return (
+      <div className="entei-profile-empty-state" role="status" aria-busy="true">
+        <History size={40} aria-hidden="true" />
+        <p>{t.contentHistoryLoading}</p>
+      </div>
+    );
+  }
+
+  if (records.length === 0) {
+    return (
+      <div className="entei-profile-empty-state" data-testid="profile-content-history-empty">
+        <History size={40} aria-hidden="true" />
+        <h2>{t.contentHistoryEmptyTitle}</h2>
+        <p>{t.contentHistoryEmptyDesc}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="entei-profile-history-grid" data-testid="profile-content-history-grid">
+      {records.map((record) => (
+        <HistoryCard key={record.mediaId} record={record} locale={locale} t={t} />
+      ))}
     </div>
   );
 }
@@ -343,7 +429,7 @@ export default function ProfileDashboard() {
           <TrackerDashboard />
         </TabsContent>
         <TabsContent value="history" className="entei-profile-tab-content">
-          <ContentHistoryPlaceholder t={t} />
+          <ContentHistoryGrid locale={locale} t={t} />
         </TabsContent>
       </Tabs>
     </div>

@@ -460,7 +460,11 @@ export const en: Dictionary = {
     avatarUploadError: 'That image could not be processed. Choose another image.',
     contentHistoryEmptyTitle: 'No content history yet',
     contentHistoryEmptyDesc:
-      'Parsed titles and episode history will appear here in a later phase.',
+      'Titles and episodes appear here after playback progresses far enough to count.',
+    contentHistoryLoading: 'Loading content history…',
+    contentHistoryEpisode: (episode) =>
+      episode === null ? 'Episode unavailable' : `Last episode: ${episode}`,
+    contentHistoryWatchedAt: (date) => `Last watched: ${date}`,
   },
   trackerDashboard: {
     title: 'Tracker Dashboard',

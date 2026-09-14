@@ -121,6 +121,7 @@ import {
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
 import { parseMediaFileName } from '@/features/player/filename-parser';
+import { recordWatchHistory } from '@/features/player/watch-history';
 import { useJimakuAutoLoad } from '@/features/player/use-jimaku-auto-load';
 import {
   LAZY_SYNC_POLL_INTERVAL_MS,
@@ -323,6 +324,7 @@ export default function PlayerApp() {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<'video' | 'audio' | null>(null);
   const [mediaName, setMediaName] = useState('');
+  const watchHistoryRecordedRef = useRef(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Stage 2a: Track local file for tracker fingerprint computation
@@ -717,6 +719,7 @@ export default function PlayerApp() {
     (jobId: string) => {
       const token = pairing.tokenRef.current;
       if (!token) return;
+      mediaFileRef.current = null;
       jobSession.beginJobSession({
         baseUrl: 'http://127.0.0.1:4322',
         token,
@@ -807,6 +810,7 @@ export default function PlayerApp() {
       // provides the selected video's basename; mirror it into mediaName
       // for the top-left controls / history, sanitized for safe display.
       setMediaName(sanitizeDisplayName(selectedName));
+      mediaFileRef.current = null;
       jobSession.beginJobSession({
         baseUrl: 'http://127.0.0.1:4322',
         token,
@@ -1443,6 +1447,7 @@ export default function PlayerApp() {
       setMediaUrl(newUrl);
       setMediaType(admission.kind);
       setMediaName(file.name);
+      watchHistoryRecordedRef.current = false;
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
     },
@@ -1620,12 +1625,46 @@ export default function PlayerApp() {
     return clearBlurRestoreTimer;
   }, [isPlaying, captionDisplayMode, isOverlayRevealed, clearBlurRestoreTimer]);
 
+  const recordWatchHistoryAtProgress = useCallback(
+    async (time: number) => {
+      if (
+        watchHistoryRecordedRef.current ||
+        !trackerRuntime.mediaId ||
+        !mediaFileRef.current
+      ) return;
+      const media = sharedMediaRef.current;
+      const duration = media?.duration ?? 0;
+      const threshold =
+        Number.isFinite(duration) && duration > 0
+          ? Math.min(60, duration * 0.05)
+          : 60;
+      if (!Number.isFinite(time) || time < threshold) return;
+
+      watchHistoryRecordedRef.current = true;
+      const parsed = parseMediaFileName(mediaName);
+      const title = parsed.title || sanitizeDisplayName(mediaName);
+      if (!title) return;
+      await recordWatchHistory({
+        mediaId: trackerRuntime.mediaId,
+        title,
+        episode: parsed.episode,
+        source: 'local',
+        // useJimakuAutoLoad currently exposes subtitle text only; preserve
+        // the record-time nulls until that plumbing intentionally expands.
+        anilistId: null,
+        tmdbId: null,
+      });
+    },
+    [mediaName, trackerRuntime.mediaId],
+  );
+
   const handleTimeUpdate = useCallback(
     (time: number) => {
       const active = findActiveCue(cues, time);
       setActiveCueId(active?.id ?? null);
+      void recordWatchHistoryAtProgress(time);
     },
-    [cues],
+    [cues, recordWatchHistoryAtProgress],
   );
 
   const handlePlay = useCallback(() => setIsPlaying(true), []);
