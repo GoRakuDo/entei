@@ -325,6 +325,10 @@ export default function PlayerApp() {
   const [mediaType, setMediaType] = useState<'video' | 'audio' | null>(null);
   const [mediaName, setMediaName] = useState('');
   const watchHistoryRecordedRef = useRef(false);
+  const jimakuMatchRef = useRef<{
+    anilistId: number | null;
+    tmdbId: string | null;
+  }>({ anilistId: null, tmdbId: null });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Stage 2a: Track local file for tracker fingerprint computation
@@ -775,6 +779,9 @@ export default function PlayerApp() {
   // search modal opens with the parsed title and the last-tried mode.
   const jimakuAutoLoad = useJimakuAutoLoad({
     onSubtitleLoaded: handleSubtitleText,
+    onMatchResolved: (match) => {
+      jimakuMatchRef.current = match;
+    },
     onOpenSearch: (_title, _animeLastTried) => {
       setJimakuSearchPrefill({ title: _title, anime: _animeLastTried });
       setIsJimakuSearchOpen(true);
@@ -1433,6 +1440,7 @@ export default function PlayerApp() {
       // also lets the jimaku auto-load spinner show (cues.length === 0).
       setCues([]);
       // P3 auto-load: local file selected — auto-load jimaku subtitles.
+      jimakuMatchRef.current = { anilistId: null, tmdbId: null };
       void jimakuAutoLoad.runAutoLoad(file.name, `local:${file.name}`);
       // AM-2: Invalidate any prior screenshot when selecting new media
       clearScreenshot();
@@ -1649,10 +1657,8 @@ export default function PlayerApp() {
         title,
         episode: parsed.episode,
         source: 'local',
-        // useJimakuAutoLoad currently exposes subtitle text only; preserve
-        // the record-time nulls until that plumbing intentionally expands.
-        anilistId: null,
-        tmdbId: null,
+        anilistId: jimakuMatchRef.current.anilistId,
+        tmdbId: jimakuMatchRef.current.tmdbId,
       });
     },
     [mediaName, trackerRuntime.mediaId],
@@ -4667,6 +4673,9 @@ export default function PlayerApp() {
         initialTitle={jimakuSearchPrefill.title}
         initialAnime={jimakuSearchPrefill.anime}
         onSubtitleLoaded={handleSubtitleText}
+        onMatchResolved={(match) => {
+          jimakuMatchRef.current = match;
+        }}
         onToast={handleJimakuToast}
         onOpenSettings={handleOpenSettingsFromSearch}
         dict={dict}

@@ -14,6 +14,9 @@
 export interface JimakuEntry {
   id: number;
   name: string;
+  /** External catalog IDs returned by jimaku's entry search. */
+  anilist_id?: number | null;
+  tmdb_id?: string | null;
   english_name?: string;
   japanese_name?: string;
   flags: {

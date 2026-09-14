@@ -36,6 +36,7 @@ import {
   type JimakuEntry,
   type JimakuFile,
 } from '@/features/player/jimaku-client';
+import type { JimakuAutoLoadMatch } from '@/features/player/use-jimaku-auto-load';
 import {
   readJimakuPreferences,
   setJimakuApiKey,
@@ -88,6 +89,8 @@ interface JimakuSearchDialogProps {
   initialAnime?: boolean;
   /** Receives the downloaded subtitle text; the parent applies + closes. */
   onSubtitleLoaded: (text: string) => void;
+  /** Pass the selected jimaku catalog IDs to the record-time owner. */
+  onMatchResolved?: (match: JimakuAutoLoadMatch) => void;
   /** Localized toast (rate-limit / auth / key-missing), design §2.2-7. */
   onToast: (kind: 'rate-limit' | 'auth' | 'key-missing') => void;
   /** Opens the settings modal (where the API key is managed). */
@@ -101,6 +104,7 @@ export function JimakuSearchDialog({
   initialTitle,
   initialAnime,
   onSubtitleLoaded,
+  onMatchResolved,
   onToast,
   onOpenSettings: _onOpenSettings,
   dict,
@@ -290,10 +294,20 @@ export function JimakuSearchDialog({
         setStatus('files');
         return;
       }
+      onMatchResolved?.({
+        anilistId:
+          typeof selectedEntry?.anilist_id === 'number'
+            ? selectedEntry.anilist_id
+            : null,
+        tmdbId:
+          typeof selectedEntry?.tmdb_id === 'string'
+            ? selectedEntry.tmdb_id
+            : null,
+      });
       onSubtitleLoaded(result.data);
       handleOpenChange(false);
     },
-    [onSubtitleLoaded, onToast, handleOpenChange],
+    [onSubtitleLoaded, onMatchResolved, onToast, handleOpenChange],
   );
 
   const visibleFiles = useMemo(() => {

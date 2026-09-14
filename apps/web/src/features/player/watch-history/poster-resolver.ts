@@ -60,11 +60,13 @@ async function resolveDrama(
     const response = await fetch(`${TMDB_RELAY_ENDPOINT}${path}`);
     if (!response.ok) return none();
     const payload = (await response.json()) as unknown;
-    const first = Array.isArray((payload as { results?: unknown })?.results)
-      ? (payload as { results: unknown[] }).results[0]
-      : payload;
-    const url = posterFromTmdb(first);
-    return url === null
+    const candidates = Array.isArray((payload as { results?: unknown })?.results)
+      ? (payload as { results: unknown[] }).results
+      : [payload];
+    const url = candidates
+      .map(posterFromTmdb)
+      .find((candidate): candidate is string => candidate !== null);
+    return url === undefined
       ? none()
       : { posterUrl: url, posterStatus: 'ready' };
   } catch {

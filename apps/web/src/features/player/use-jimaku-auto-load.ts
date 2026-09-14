@@ -126,9 +126,16 @@ export function isUncompressed(name: string): boolean {
   return /\.(?:srt|ass|ssa|vtt)$/i.test(name);
 }
 
+export interface JimakuAutoLoadMatch {
+  anilistId: number | null;
+  tmdbId: string | null;
+}
+
 export interface JimakuAutoLoadCallbacks {
   /** Replace the current subtitles (from auto-load). */
   onSubtitleLoaded: (text: string) => void;
+  /** Pass the selected jimaku catalog IDs to the record-time owner. */
+  onMatchResolved?: (match: JimakuAutoLoadMatch) => void;
   /** Fallback: open the search modal (P4 implements it; P3 only opens state). */
   onOpenSearch: (title: string, animeLastTried: boolean) => void;
   /** Toast for rate-limit / auth / key-missing. */
@@ -143,6 +150,7 @@ export interface JimakuAutoLoadCallbacks {
  */
 export function useJimakuAutoLoad({
   onSubtitleLoaded,
+  onMatchResolved,
   onOpenSearch,
   onToast,
 }: JimakuAutoLoadCallbacks) {
@@ -267,6 +275,16 @@ export function useJimakuAutoLoad({
           return;
         }
         if (lastTriggerRef.current !== triggerKey) return; // newer load took over
+        onMatchResolved?.({
+          anilistId:
+            typeof selectedEntry.anilist_id === 'number'
+              ? selectedEntry.anilist_id
+              : null,
+          tmdbId:
+            typeof selectedEntry.tmdb_id === 'string'
+              ? selectedEntry.tmdb_id
+              : null,
+        });
         onSubtitleLoaded(dl.data);
         lastTriggerRef.current = triggerKey;
       } finally {
@@ -281,7 +299,7 @@ export function useJimakuAutoLoad({
         if (lastTriggerRef.current === triggerKey) setIsLoading(false);
       }
     },
-    [onSubtitleLoaded, onOpenSearch, onToast],
+    [onSubtitleLoaded, onMatchResolved, onOpenSearch, onToast],
   );
 
   const cancel = useCallback(() => {
