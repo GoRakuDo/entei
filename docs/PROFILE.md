@@ -122,3 +122,10 @@ TrackerDashboard は独立した `/tracker/` ページから退役し、プロ�
 - **ドラマ（実写）**: 中継 `https://entei-tmdb-relay.yosiakefas-id.workers.dev`（TMDB APIキー秘匿済み・疎通済み）で解決する。jimaku 結果の `tmdb_id`（`tv:xxxxx` / `movie:xxxxx` 形式）があれば `/tv/:id`・`/movie/:id`、なければ `/search?q=&type=tv|movie` を呼ぶ。画像は公式 CDN（`https://image.tmdb.org/t/p/w185/...`、直リンク実測 200・CORS `*`）を直表示する。
 - 取得したポスター URL は `watch_history` レコードに保存し、`<img loading="lazy">` で遅延表示する。失敗時はリトライせず文字カードに倒す（jimaku の 429 方針と同様）。
 - レート配慮: ポスター解決は履歴表示時ではなく **記録時（§7）に1回だけ** 行い、結果を保存する。一覧表示では保存済み URL のみ使う。
+
+## 9. 夜の便（取り置き更新・6時間ごと）
+
+- 目的: Cloudflare 無料枠を節約するため、既知作品のポスター解決を同梱 JSON で済ませ、新規分だけ中継に聞く。
+- 仕組み: 中継（`entei-tmdb-relay`）に KV（Cloudflare の小さな伝言メモ）を付け、昼の問い合わせ（タイトル・種別・ID）を記録する。6時間ごとの Cron が KV を読み、新規分だけ TMDB に聞いて取り置き JSON（`apps/web/public/data/tmdb-poster-cache.json`、Entei 倉庫に同梱）に書き足す。
+- 表示順: 同梱 JSON → なければ中継 → どちらもなければ文字カード。JSON に載った分は中継を使わない。
+- KV に入れるのは作品の問い合わせ情報のみ（APIキー等の秘密は入れない）。無料枠（読み取り1日10万）で足りる見込み。
