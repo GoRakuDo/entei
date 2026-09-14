@@ -1,7 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { act } from 'react';
-import { useJimakuAutoLoad } from '../src/features/player/use-jimaku-auto-load';
+import {
+  normalizeTitle,
+  pickJimakuEntry,
+  useJimakuAutoLoad,
+} from '../src/features/player/use-jimaku-auto-load';
+import type { JimakuEntry } from '../src/features/player/jimaku-client';
 
 // Mock the P1 modules so the hook logic is tested in isolation.
 const prefs = vi.hoisted(() => ({
@@ -27,6 +32,53 @@ vi.mock('../src/features/player/jimaku-client', () => ({
   getJimakuEntryFiles: (...a: unknown[]) => client.files(...a),
   downloadJimakuSubtitle: (...a: unknown[]) => client.download(...a),
 }));
+
+const entry = (id: number, name: string, anime = true): JimakuEntry => ({
+  id,
+  name,
+  english_name: name,
+  japanese_name: name,
+  flags: { anime, movie: /movie/i.test(name), adult: false, external: false },
+});
+
+describe('pickJimakuEntry', () => {
+  it('keeps the Season-1/base K-ON! entry for the base query', () => {
+    const result = pickJimakuEntry(
+      [entry(2, 'K-ON!!'), entry(1, 'K-ON!'), entry(3, 'K-ON! the Movie')],
+      'K-ON!',
+      'K-ON! 01.mkv',
+    );
+    expect(result?.id).toBe(1);
+    expect(normalizeTitle(result?.name ?? '')).toBe('k on');
+  });
+
+  it('uses the Season 2 path to choose K-ON!!', () => {
+    const result = pickJimakuEntry(
+      [entry(1, 'K-ON!'), entry(2, 'K-ON!!'), entry(3, 'K-ON! the Movie')],
+      'K-ON!!',
+      'D:/Anime/K-ON!!/Season 2/K-ON!! - 01.mkv',
+    );
+    expect(result?.id).toBe(2);
+  });
+
+  it('uses a movie path to choose the movie entry', () => {
+    const result = pickJimakuEntry(
+      [entry(1, 'K-ON!'), entry(2, 'K-ON!!'), entry(3, 'K-ON! the Movie')],
+      'K-ON!',
+      'The Movie/K-ON! 01.mkv',
+    );
+    expect(result?.id).toBe(3);
+  });
+
+  it('keeps the exact Meitantei entry as the first preference', () => {
+    const result = pickJimakuEntry(
+      [entry(12426, 'Meitantei no Mama de Ite', false), entry(8, 'Chef wa Meitantei', false)],
+      'Meitantei no Mama de Ite',
+      'Meitantei no Mama de Ite EP01.mkv',
+    );
+    expect(result?.id).toBe(12426);
+  });
+});
 
 describe('useJimakuAutoLoad', () => {
   const onSubtitleLoaded = vi.fn();
@@ -143,19 +195,59 @@ describe('useJimakuAutoLoad', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
-  it('opens the search modal when the top entry does not match', async () => {
-    client.search.mockResolvedValueOnce({
-      ok: true,
-      data: [{ id: 1, name: 'Frieren 2nd Season', flags: { anime: true } }],
-    });
+  it('opens the search modal when no candidate scores above threshold', async () => {
+    client.search
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [entry(1, 'Frieren 2nd Season')],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [entry(2, 'An Unrelated Show')],
+      });
     const { result } = render();
     await act(async () => {
       await result.current.runAutoLoad('Frieren EP02.mkv', 'k1');
     });
-    expect(onOpenSearch).toHaveBeenCalledWith('Frieren', true);
+    expect(onOpenSearch).toHaveBeenCalledWith('Frieren', false);
     expect(client.files).not.toHaveBeenCalled();
     // P4-1: fallback to the search modal stops the spinner (no lingering glow).
     expect(result.current.isLoading).toBe(false);
+  });
+
+  it('opens the search modal when the weak anime candidate is followed by empty drama results', async () => {
+    client.search
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [entry(1, 'Frieren 2nd Season')],
+      })
+      .mockResolvedValueOnce({ ok: false, error: 'empty' });
+    const { result } = render();
+    await act(async () => {
+      await result.current.runAutoLoad('Frieren EP02.mkv', 'k1');
+    });
+    expect(onOpenSearch).toHaveBeenCalledWith('Frieren', false);
+    expect(onToast).not.toHaveBeenCalled();
+    expect(client.files).not.toHaveBeenCalled();
+  });
+
+  it('fetches all movie files without an episode', async () => {
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [entry(3, 'K-ON! the Movie')],
+    });
+    client.files.mockResolvedValueOnce({ ok: true, data: [] });
+    const { result } = render();
+    await act(async () => {
+      await result.current.runAutoLoad('The Movie/K-ON! 01.mkv', 'k1');
+    });
+    expect(client.files).toHaveBeenCalledWith(
+      'test-key',
+      3,
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(onOpenSearch).toHaveBeenCalledWith('K-ON!', true);
   });
 
   it('shows a rate-limit toast and does not retry', async () => {

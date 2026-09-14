@@ -9,12 +9,104 @@ import {
   searchJimakuEntries,
   getJimakuEntryFiles,
   downloadJimakuSubtitle,
+  type JimakuEntry,
   type JimakuFile,
 } from '@/features/player/jimaku-client';
 
 /** Lowercased romaji normalization for the exact-match check (§2.2-4). */
-function normalizeTitle(t: string): string {
+export function normalizeTitle(t: string): string {
   return t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+const SEASON_2_ENTRY_RE = /2|second|!!/i;
+const MOVIE_ENTRY_RE = /movie/i;
+const VARIANT_ENTRY_RE =
+  /(?:\b(?:season|series)[\s._-]*\d+\b|\bs\d+\b|\b(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth)\s+season\b|\bmovie\b|!!)/i;
+const MIN_ENTRY_SCORE = 50;
+
+interface MediaPathHints {
+  season2: boolean;
+  movie: boolean;
+}
+
+function getMediaPathHints(mediaPath: string, query: string): MediaPathHints {
+  const context = `${mediaPath} ${query}`;
+  return {
+    season2: /(?:\bseason[\s._-]*2\b|\bs2\b|\bsecond\b|!!)/i.test(context),
+    movie: /\bmovie\b/i.test(context),
+  };
+}
+
+/**
+ * Pick the best entry without relying on the API's fuzzy-result ordering.
+ * Exact/containment matching is scored first; explicit path hints then
+ * distinguish K-ON! variants. A strict `>` comparison keeps server order as
+ * the tie-break. Scores below MIN_ENTRY_SCORE are intentionally ambiguous.
+ */
+export function pickJimakuEntry(
+  entries: readonly JimakuEntry[],
+  query: string,
+  mediaPath: string,
+): JimakuEntry | null {
+  const normalizedQuery = normalizeTitle(query);
+  if (!normalizedQuery) return null;
+
+  const hints = getMediaPathHints(mediaPath, query);
+  const exactEntries = entries.filter(
+    (entry) => normalizeTitle(entry.name) === normalizedQuery,
+  );
+  // Exact match remains the first preference. When punctuation normalization
+  // makes several variants exact (K-ON! / K-ON!!), use explicit context to
+  // choose the matching variant; otherwise server order breaks the tie.
+  if (exactEntries.length > 0 && !hints.season2 && !hints.movie) {
+    return exactEntries.find((entry) => !VARIANT_ENTRY_RE.test(entry.name)) ?? exactEntries[0] ?? null;
+  }
+  if (hints.season2) {
+    const exactSeason2 = exactEntries.find((entry) => SEASON_2_ENTRY_RE.test(entry.name));
+    if (exactSeason2) return exactSeason2;
+  }
+  if (hints.movie) {
+    const exactMovie = exactEntries.find((entry) => MOVIE_ENTRY_RE.test(entry.name));
+    if (exactMovie) return exactMovie;
+  }
+  // If a variant hint exists but has no exact variant, continue into the
+  // containment scorer so a non-exact Movie/Season-2 entry can beat the exact
+  // base entry. This is how a folder such as `The Movie/` remains useful.
+
+  let best: JimakuEntry | null = null;
+  let bestScore = 0;
+
+  for (const entry of entries) {
+    const normalizedName = normalizeTitle(entry.name);
+    if (!normalizedName) continue;
+    const contains =
+      normalizedName.includes(normalizedQuery) || normalizedQuery.includes(normalizedName);
+    if (!contains) continue;
+
+    let score = 60;
+    const isSeason2Entry = SEASON_2_ENTRY_RE.test(entry.name);
+    const isMovieEntry = MOVIE_ENTRY_RE.test(entry.name);
+    const isVariantEntry = VARIANT_ENTRY_RE.test(entry.name);
+
+    if (hints.season2) {
+      score += isSeason2Entry ? 50 : -30;
+    } else if (hints.movie) {
+      score += isMovieEntry ? 50 : -30;
+    } else {
+      // With no variant hint, only the ordinary Season-1/base entry is
+      // acceptable — a lone season/movie variant is too ambiguous, so skip
+      // it entirely (keeps e.g. bare "Frieren" from grabbing "2nd Season").
+      if (isVariantEntry) continue;
+      score += 40;
+    }
+
+    if (score > bestScore) {
+      best = entry;
+      bestScore = score;
+    }
+  }
+
+  return bestScore > MIN_ENTRY_SCORE ? best : null;
 }
 
 /**
@@ -93,47 +185,53 @@ export function useJimakuAutoLoad({
         // An actual search is starting — surface the subtitle-panel spinner.
         setIsLoading(true);
 
-        // Two-stage search: anime first, then drama (§2.2-4).
+        // Two-stage search: anime first, then drama (§2.2-4). Each stage
+        // considers every returned entry, not only the API's first result.
         let entries = await searchJimakuEntries(prefs.apiKey, title, true, signal);
         if (signal.aborted) return; // newer run took over — stay quiet
         let animeLastTried = true;
-        // Non-empty anime results settle here; 'empty' falls to the drama
-        // stage; other errors (rate-limit / auth / network / not-found) stop.
+        let selectedEntry: JimakuEntry | null = entries.ok
+          ? pickJimakuEntry(entries.data, title, mediaName)
+          : null;
+        // Empty anime results, or anime results with no sufficiently strong
+        // candidate, fall through to the drama stage. Other errors stop.
         if (!entries.ok && entries.error !== 'empty') {
           if (entries.error === 'rate-limit') onToast('rate-limit');
           else if (entries.error === 'auth') onToast('auth');
           return;
         }
-        if (!(entries.ok && entries.data.length > 0)) {
+        if (!selectedEntry) {
           entries = await searchJimakuEntries(prefs.apiKey, title, false, signal);
           if (signal.aborted) return;
           animeLastTried = false;
+          selectedEntry = entries.ok
+            ? pickJimakuEntry(entries.data, title, mediaName)
+            : null;
           // The last-tried mode is surfaced only via the onOpenSearch
           // prefill (animeLastTried) — we no longer mutate the user's
           // persisted manual toggle here (RISK 1).
         }
-        if (!entries.ok) {
+        if (!entries.ok && entries.error !== 'empty') {
           if (entries.error === 'rate-limit') onToast('rate-limit');
           else if (entries.error === 'auth') onToast('auth');
           // network: stay silent
           return;
         }
-        const top = entries.data[0];
-        if (!top || normalizeTitle(top.name) !== normalizeTitle(title)) {
+        if (!selectedEntry) {
           onOpenSearch(title, animeLastTried);
           return;
         }
-        // §2.2-4: EP extraction failure (or a movie file with no episode)
-        // must open the search modal, NOT auto-apply all files. A null
-        // episode means we can't target a specific file, so the user picks.
-        if (parsed.episode === null) {
+        const movieHint = getMediaPathHints(mediaName, title).movie;
+        // A selected movie has no episode marker, so fetch its full file list.
+        // Other episode-less titles retain the existing modal fallback.
+        if (parsed.episode === null && !movieHint) {
           onOpenSearch(title, animeLastTried);
           return;
         }
         const files = await getJimakuEntryFiles(
           prefs.apiKey,
-          top.id,
-          parsed.episode ?? undefined,
+          selectedEntry.id,
+          movieHint ? undefined : parsed.episode ?? undefined,
           signal,
         );
         if (signal.aborted) return;

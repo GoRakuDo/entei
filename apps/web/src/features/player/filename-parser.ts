@@ -48,6 +48,19 @@ function stripExtension(name: string): string {
   return name.replace(EXTENSION_RE, '');
 }
 
+function normalizeMediaName(rawName: string): string {
+  let name = stripExtension(rawName);
+  name = name.replace(BRACKET_RE, ' '); // [SubGroup] [1080p] …
+  name = name.replace(PAREN_YEAR_RE, ' '); // (2024)
+  name = name.replace(QUALITY_RE, ' '); // bare 1080p / 720p / WEB-DL …
+  name = name.replace(SEPARATOR_RE, ' '); // . _ → space
+  return name.replace(WHITESPACE_RE, ' ').trim();
+}
+
+function isContextFolder(name: string): boolean {
+  return /^(?:s(?:eason|eries)?[\s._-]*\d+|the[\s._-]+movie|movie)$/i.test(name.trim());
+}
+
 interface EpisodeMatch {
   episode: number;
   index: number;
@@ -104,14 +117,30 @@ export function parseMediaFileName(filename: string): ParsedMediaName {
   if (typeof filename !== 'string' || filename.trim() === '') {
     return { title: '', episode: null };
   }
-  let name = stripExtension(filename);
-  name = name.replace(BRACKET_RE, ' '); // [SubGroup] [1080p] …
-  name = name.replace(PAREN_YEAR_RE, ' '); // (2024)
-  name = name.replace(QUALITY_RE, ' '); // bare 1080p / 720p / WEB-DL …
-  name = name.replace(SEPARATOR_RE, ' '); // . _ → space
-  name = name.replace(WHITESPACE_RE, ' ').trim();
+
+  // Browser File.name is normally a basename, but Magnet handoffs and tests
+  // may provide a full path. Parse the basename for the query while leaving
+  // the original path available to the auto-loader as variant context.
+  const pathParts = filename.split(/[\\/]+/).filter(Boolean);
+  const rawName = pathParts[pathParts.length - 1] ?? filename;
+  const name = normalizeMediaName(rawName);
   if (name === '') return { title: '', episode: null };
   const episode = findEpisode(name);
-  const title = extractTitle(name, episode);
+  let title = extractTitle(name, episode);
+
+  // For paths such as K-ON!/Season 2/01.mkv, the episode-only basename has
+  // no title. Use the nearest meaningful parent folder, but do not turn
+  // Season 2 / The Movie into the search query; the caller uses the full
+  // path to disambiguate that variant.
+  if (!title && pathParts.length > 1) {
+    for (let i = pathParts.length - 2; i >= 0; i -= 1) {
+      const parent = normalizeMediaName(pathParts[i]!);
+      if (parent && !isContextFolder(parent)) {
+        title = parent;
+        break;
+      }
+    }
+  }
+
   return { title, episode };
 }

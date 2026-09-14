@@ -100,4 +100,16 @@ describe('parseMediaFileName', () => {
       episode: 1,
     });
   });
+
+  it('keeps a title from a full path while leaving Season 2 as context', () => {
+    expect(
+      parseMediaFileName('D:/Anime/K-ON!!/Season 2/K-ON!! - 01.mkv'),
+    ).toEqual({ title: 'K-ON!!', episode: 1 });
+  });
+
+  it('parses a movie title from a full path', () => {
+    expect(
+      parseMediaFileName('D:/Anime/K-ON!/The Movie/K-ON! the Movie.mkv'),
+    ).toEqual({ title: 'K-ON! the Movie', episode: null });
+  });
 });
