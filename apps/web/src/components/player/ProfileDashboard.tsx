@@ -335,7 +335,7 @@ export default function ProfileDashboard() {
       <ProfileHeader profile={profile} t={t} onProfileChange={setProfile} />
 
       <Tabs defaultValue="stats" className="entei-profile-tabs">
-        <TabsList variant="line" className="entei-profile-tabs-list" aria-label={t.tabsLabel}>
+        <TabsList className="entei-profile-tabs-list" aria-label={t.tabsLabel}>
           <TabsTrigger value="stats">{t.immersionStats}</TabsTrigger>
           <TabsTrigger value="history">{t.contentHistory}</TabsTrigger>
         </TabsList>

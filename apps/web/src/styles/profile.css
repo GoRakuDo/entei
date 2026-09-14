@@ -212,21 +212,61 @@
   min-width: 0;
 }
 
+/* Segmented ButtonGroup look — mirrors .entei-right-panel-tabs (player.css):
+   one bordered outer frame, joined segments, first/last rounded. */
 .entei-profile-tabs-list {
+  display: flex;
+  align-self: stretch;
+  gap: 0;
   width: 100%;
   min-height: var(--entei-touch-min);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.1);
+  margin: 0;
+  padding: 0;
+  border: 1px solid oklch(1 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  background-color: oklch(1 0 0deg / 0.02);
 }
 
 .entei-profile-tabs-list [data-slot='tabs-trigger'] {
+  flex: 1;
+  min-width: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
-  justify-content: flex-start;
-  padding-inline: var(--entei-space-16);
-  color: var(--entei-text-muted);
+  justify-content: center;
+  padding: 0 var(--entei-space-12);
+  border: 0;
+  border-right: 1px solid oklch(1 0 0deg / 0.1);
+  border-radius: 0;
+  background: transparent;
+  color: oklch(0.7 0.02 265deg);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.entei-profile-tabs-list [data-slot='tabs-trigger']:first-child {
+  border-radius: calc(var(--entei-radius-md) - 1px) 0 0
+    calc(var(--entei-radius-md) - 1px);
+}
+
+.entei-profile-tabs-list [data-slot='tabs-trigger']:last-child {
+  border-right: 0;
+  border-radius: 0 calc(var(--entei-radius-md) - 1px)
+    calc(var(--entei-radius-md) - 1px) 0;
+}
+
+.entei-profile-tabs-list [data-slot='tabs-trigger']:hover {
+  background-color: var(--entei-btn-color);
+  color: oklch(0.94 0.015 265deg);
 }
 
 .entei-profile-tabs-list [data-slot='tabs-trigger'][data-state='active'] {
-  color: var(--entei-text);
+  background-color: var(--entei-btn-color);
+  color: oklch(0.97 0.01 265deg);
+  font-weight: 600;
+}
+
+.entei-profile-tabs-list [data-slot='tabs-trigger'][data-state='active']:hover {
+  background-color: var(--entei-btn-color);
 }
 
 .entei-profile-tab-content {
