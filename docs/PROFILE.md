@@ -119,6 +119,6 @@ TrackerDashboard は独立した `/tracker/` ページから退役し、プロ�
 ## 8. ポスター画像の外部取得
 
 - **アニメ**: AniList 公開 GraphQL（`https://graphql.anilist.co`、ブラウザ直叩き・CORS `*` 実測・APIキー不要）。jimaku 結果の `anilist_id` で `Media { title { romaji } coverImage { large } }` を取得する。
-- **ドラマ（実写）**: jimaku 結果の `tmdb_id`（`tv:xxxxx` / `movie:xxxxx` 形式）から種別と数値 ID を抜き出し、TMDB の画像 CDN（`https://image.tmdb.org/t/p/w185/...`、直リンク実測 200）を使う。ただし TMDB API 検索自体は APIキー必須（実測 401）のため、Entei は **TMDB API を叩かない**。画像パスは jimaku エントリが将来返す場合のみ利用し、来ない場合はポスターなし（`posterStatus: 'none'`）の文字カード表示に留める。TMDB APIキー導入は別タスク。
+- **ドラマ（実写）**: TMDB 公式 API（APIキー採用決定）で解決する。jimaku 結果の `tmdb_id`（`tv:xxxxx` / `movie:xxxxx` 形式）があれば種別と数値 ID を抜き出して詳細・画像パスを取得し、なければタイトルで `/search/tv`・`/search/movie` を検索する。画像は公式 CDN（`https://image.tmdb.org/t/p/w185/...`、直リンク実測 200・CORS `*`）を直表示する。APIキーの保持場所・呼び出し元（Web 直叩きか companion 代行か）は別タスクで決める。
 - 取得したポスター URL は `watch_history` レコードに保存し、`<img loading="lazy">` で遅延表示する。失敗時はリトライせず文字カードに倒す（jimaku の 429 方針と同様）。
 - レート配慮: ポスター解決は履歴表示時ではなく **記録時（§7）に1回だけ** 行い、結果を保存する。一覧表示では保存済み URL のみ使う。
