@@ -423,7 +423,6 @@ export const en: Dictionary = {
     skipToMain: 'Skip to main content',
     destinationHome: 'Home',
     destinationPlayer: 'Player',
-    destinationTracker: 'Tracker',
     destinationProfile: 'Profile',
     destinationSettings: 'Settings',
     desktopNavLabel: 'Page navigation',

@@ -428,7 +428,6 @@ export const id: Dictionary = {
     skipToMain: 'Lewati ke konten utama',
     destinationHome: 'Home',
     destinationPlayer: 'Player',
-    destinationTracker: 'Tracker',
     destinationProfile: 'Profil',
     destinationSettings: 'Pengaturan',
     desktopNavLabel: 'Navigasi halaman',

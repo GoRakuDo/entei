@@ -428,7 +428,6 @@ export const ja: Dictionary = {
     skipToMain: 'メインコンテンツへスキップ',
     destinationHome: 'Home',
     destinationPlayer: 'Player',
-    destinationTracker: 'Tracker',
     destinationProfile: 'プロフィール',
     destinationSettings: '設定',
     desktopNavLabel: 'ページナビゲーション',

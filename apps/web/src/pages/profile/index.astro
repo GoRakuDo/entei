@@ -3,8 +3,9 @@
  * Local device profile page — `/profile/`.
  *
  * The profile is local-only and the React island owns browser storage and the
- * IndexedDB-backed Tracker dashboard. Keep this route direct-URL-only; it is
- * intentionally absent from the shared navigation destinations.
+ * IndexedDB-backed Tracker dashboard. Profile is a desktop-pill destination
+ * (excluded from the mobile dock); TrackerDashboard lives in the
+ * immersion-stats tab.
  */
 import BaseLayout from '@layouts/BaseLayout.astro';
 import '@styles/player.css';

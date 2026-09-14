@@ -6,8 +6,8 @@
  *
  * Desktop (≥768px):
  * - NO sticky black TopBar strip (removed per spec).
- * - Home / Tracker: always-visible pill in normal document flow (scrolls out).
- *   Pill = [HubEmblem + "Entei" (Home link) | Player | Tracker].
+ * - Home / Profile: always-visible pill in normal document flow (scrolls out).
+ *   Pill = [HubEmblem + "Entei" (Home link) | Profile | Player].
  *   LanguageCombobox at right edge. Both scroll out naturally.
  * - Player: pill + Combobox hidden by default. Top-edge hover zone and
  *   keyboard focus reveal both, shared containment, 200ms dismiss delay.
@@ -25,19 +25,19 @@ import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
 import { LanguageCombobox } from '@components/home/LanguageCombobox';
 import { EizouSettingsDialog } from '@components/home/EizouSettingsDialog';
-import { House, Clapperboard, ChartNoAxesCombined } from '@lucide/astro';
+import { House, Clapperboard, User } from '@lucide/astro';
 
 /** Destination definitions — desktop pill and mobile dock each read from their own array. */
 const DESKTOP_DESTINATIONS = [
   {
+    route: '/profile/',
+    labelKey: 'destinationProfile' as const,
+    Icon: User,
+  },
+  {
     route: '/player/',
     labelKey: 'destinationPlayer' as const,
     Icon: Clapperboard,
-  },
-  {
-    route: '/tracker/',
-    labelKey: 'destinationTracker' as const,
-    Icon: ChartNoAxesCombined,
   },
 ] as const;
 
@@ -112,7 +112,7 @@ const settingsUIProps = dictionary.playerUI;
   DESKTOP: pill zone — pill + LanguageCombobox
   Hidden on mobile via CSS (display:none <768px).
 
-  Home / Tracker (.entei-desktop-pill-zone):
+  Home / Profile (.entei-desktop-pill-zone):
     Normal document flow, centered pill, Combobox at right edge.
     Both always visible; scroll out naturally.
 
@@ -332,7 +332,7 @@ const settingsUIProps = dictionary.playerUI;
     }
   }
 
-  /* --- Home / Tracker: normal flow, always visible --- */
+  /* --- Home / Profile: normal flow, always visible --- */
   @media (min-width: 768px) {
     .entei-desktop-pill-zone {
       display: flex;
@@ -388,7 +388,7 @@ const settingsUIProps = dictionary.playerUI;
 
     /* Brand text stays white (matches SVG emblem) — no accent purple override */
 
-    /* Destination links (Player, Tracker) */
+    /* Destination links (Profile, Player) */
     .entei-desktop-pill-link {
       display: inline-flex;
       align-items: center;

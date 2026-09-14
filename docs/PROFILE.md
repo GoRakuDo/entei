@@ -79,21 +79,21 @@ interface LocalProfile {
 
 ## 4. ルートとナビ
 
-- `/tracker/` は既存の独立した統計ページとして残す。
-- `/profile/` は直接 URL で開くページとし、TopBar の pill・モバイル Dock には追加しない（NAVIGATION_BAR.md の「常時使う部屋だけ追加」方針に従う）。
-- `/profile/` も `/tracker/` と同様に `noindex`・既定ロケール `id` の BaseLayout で作る。
+- `/profile/` は noindex のプロフィールページで、desktop TopBar の pill では **Profile → Player → Settings** の順に Profile destination として表示する。
+- モバイル Dockには Profile を追加しない。Dockの順序は Home → Player → Settings を維持する。
+- 旧 `/tracker/` は独立ページとして廃止し、静的 noindex redirect で `/profile/` へ誘導する。既存ブックマークや古いリンクを404にしない。
 
 ## 5. `/tracker/` との関係（統計データの要約）
 
-`/tracker/` は既存の独立した統計ページとして残す。プロフィールページの追加によって、既存の route や Tracker Dashboard の動作を変更・廃止しない。
+TrackerDashboard は独立した `/tracker/` ページから退役し、プロフィールページの「イマージョン統計」タブに常駐する。`/tracker/` は `/profile/` への redirect のみを提供する。
 
-`/profile/` の「イマージョン統計」タブでは、統計ロジックを複製せず、既存の `TrackerDashboard` またはその `useTrackerDashboard` hook を再利用する。これにより、`/tracker/` とプロフィール内タブが同じローカル記録を同じ read model から表示できるようにする。
+`/profile/` の「イマージョン統計」タブでは、統計ロジックを複製せず、既存の `TrackerDashboard` またはその `useTrackerDashboard` hook を再利用する。これにより、プロフィール内タブが既存のローカル記録を同じ read model から表示できる。
 
 ```text
 /player/ の再生記録（実視聴・教材進行・字幕接触を分離計測、詳細は IMMERSION_TRACKER.md §2）
   → ブラウザ内 IndexedDB のみ保存（サーバー送信なし、詳細は §4）
-  → /tracker/ の TrackerDashboard（Today 概要・メディア別・i+1 Moments・採掘履歴、詳細は §8）
-  → /profile/ の「イマージョン統計」タブでも同じ Dashboard を再利用（タブ幅に収まる表示のみ調整）
+  → /profile/ の「イマージョン統計」タブにある TrackerDashboard（Today 概要・メディア別・i+1 Moments・採掘履歴、詳細は §8）
+  → 旧 /tracker/ は /profile/ へ redirect
 ```
 
 ## 6. 将来の別タスク

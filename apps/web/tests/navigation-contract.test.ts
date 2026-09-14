@@ -10,9 +10,9 @@
  * 6. data-i18n on nav link labels for locale-switcher text update
  * 7. data-i18n-aria-label on nav landmarks for locale-switcher aria-label update
  * 8. Locale switch updates nav label text and aria-label to translated values
- * 9. Desktop Combobox data-entei-desktop-combobox present on Home/Tracker, absent on Player
- * 10. Player zone gets --player modifier class; Home/Tracker do not
- * 11. /profile/ is a direct URL only and absent from both navigation surfaces
+ * 9. Desktop Combobox data-entei-desktop-combobox present on Home/Profile, absent on Player
+ * 10. Player zone gets --player modifier class; Home/Profile do not
+ * 11. Profile is present in the desktop pill before Player; Tracker is absent
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyLocale } from '../src/scripts/locale-switcher';
@@ -22,13 +22,18 @@ import type { Locale } from '../src/i18n/types';
 /* -------------------------------------------------------------------------- */
 /*  1. Dictionary nav keys parity across locales                              */
 /* -------------------------------------------------------------------------- */
-describe('Direct URL-only route contract', () => {
-  it('/profile/ is not a desktop or mobile destination', () => {
-    const html = renderTopBarHtml({ currentPath: '/profile/' });
-    expect(html).not.toContain('data-entei-nav-destination="/profile/"');
-    for (const route of DIRECT_URL_ONLY_ROUTES) {
-      expect(route).toBe('/profile/');
-    }
+describe('Retired Tracker route contract', () => {
+  it('/tracker/ is a noindex redirect to /profile/', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../src/pages/tracker/index.astro'),
+      'utf-8',
+    );
+    expect(source).toContain('name="robots" content="noindex, nofollow"');
+    expect(source).toContain('http-equiv="refresh" content="0;url=/profile/"');
+    expect(source).toContain('<link rel="canonical" href="/profile/" />');
+    expect(source).toContain("window.location.replace('/profile/')");
   });
 });
 
@@ -36,7 +41,6 @@ describe('Nav dictionary keys (Stage N1)', () => {
   const navKeys = [
     'destinationHome',
     'destinationPlayer',
-    'destinationTracker',
     'destinationProfile',
     'desktopNavLabel',
     'mobileDockLabel',
@@ -94,16 +98,14 @@ function normalisePath(p: string): string {
 
 const DESTINATIONS = [
   { route: '/', labelKey: 'destinationHome' },
+  { route: '/profile/', labelKey: 'destinationProfile' },
   { route: '/player/', labelKey: 'destinationPlayer' },
-  { route: '/tracker/', labelKey: 'destinationTracker' },
 ] as const;
-
-const DIRECT_URL_ONLY_ROUTES = ['/profile/'] as const;
 
 /**
  * Mobile dock destinations — mirrors MOBILE_DESTINATIONS in TopBar.astro:
- * Home + Player only. Tracker is reached via the desktop pill or /tracker/
- * direct URL. Settings is rendered separately as the EizouSettingsDialog
+ * Home + Player only. Profile is a desktop pill destination. Settings is
+ * rendered separately as the EizouSettingsDialog
  * React island and is not an `<a data-entei-nav-destination>` link.
  */
 const MOBILE_DESTINATIONS = [
@@ -115,7 +117,7 @@ const MOBILE_DESTINATIONS = [
  * Simulate the TopBar HTML output per the new NAVIGATION_BAR.md structure.
  *
  * Desktop pill zone: always rendered. On Player, zone gets `--player` modifier.
- * Desktop Combobox: rendered inside pill zone on Home/Tracker only (not Player).
+ * Desktop Combobox: rendered inside pill zone on Home/Profile only (not Player).
  * Mobile dock: always rendered.
  */
 function renderTopBarHtml(opts: {
@@ -155,7 +157,7 @@ function renderTopBarHtml(opts: {
   const homeActive = activePath === '/';
   html += `<a class="entei-desktop-pill-brand" href="/"${homeActive ? ' aria-current="page"' : ''} data-entei-nav-destination="/"><span>Entei</span></a>`;
 
-  // Player and Tracker links (Home is brand)
+  // Profile and Player links (Home is brand)
   for (const { route, labelKey } of DESTINATIONS) {
     if (route === '/') continue; // brand is Home
     const isActive = normalisePath(route) === activePath;
@@ -195,7 +197,7 @@ function parseHtml(html: string): Element {
 /*  4. Route active state — exactly one aria-current per nav surface          */
 /* -------------------------------------------------------------------------- */
 describe('aria-current="page" — one per nav surface per route', () => {
-  const routes = ['/', '/player/', '/tracker/'] as const;
+  const routes = ['/', '/profile/', '/player/'] as const;
 
   for (const route of routes) {
     it(`${route}: desktop pill has one aria-current; mobile dock marks active route only when present`, () => {
@@ -211,7 +213,7 @@ describe('aria-current="page" — one per nav surface per route', () => {
       expect(desktopCurrent.length).toBe(1);
       expect(desktopCurrent[0]!.getAttribute('href')).toBe(route);
 
-      // Mobile dock — Home and Player only. Tracker route has no mobile link.
+      // Mobile dock — Home and Player only. Profile has no mobile link.
       const mobileDock = root.querySelector('[data-entei-mobile-dock]');
       expect(mobileDock).not.toBeNull();
       const mobileCurrent = mobileDock!.querySelectorAll(
@@ -240,8 +242,8 @@ describe('Desktop pill zone visibility by route', () => {
     expect(zone!.classList.contains('entei-desktop-pill-zone--player')).toBe(false);
   });
 
-  it('Tracker (/tracker/): desktop pill <nav> is present, no --player modifier', () => {
-    const html = renderTopBarHtml({ currentPath: '/tracker/' });
+  it('Profile (/profile/): desktop pill <nav> is present, no --player modifier', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
     expect(root.querySelector('[data-entei-desktop-nav]')).not.toBeNull();
     const zone = root.querySelector('[data-entei-desktop-nav-zone]');
@@ -260,7 +262,7 @@ describe('Desktop pill zone visibility by route', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  6. Desktop Combobox: present Home/Tracker, absent Player                  */
+/*  6. Desktop Combobox: present Home/Profile, absent Player                  */
 /* -------------------------------------------------------------------------- */
 describe('Desktop Combobox presence', () => {
   it('Home: Combobox container present', () => {
@@ -273,14 +275,14 @@ describe('Desktop Combobox presence', () => {
     expect(html).not.toContain('data-entei-desktop-combobox');
   });
 
-  it('Tracker: Combobox container present', () => {
-    const html = renderTopBarHtml({ currentPath: '/tracker/' });
+  it('Profile: Combobox container present', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
     expect(html).toContain('data-entei-desktop-combobox');
   });
 });
 
 /* -------------------------------------------------------------------------- */
-/*  6b. Mobile header: present Home/Tracker, absent Player                    */
+/*  6b. Mobile header: present Home/Profile, absent Player                    */
 /* -------------------------------------------------------------------------- */
 describe('Mobile sticky header presence per route', () => {
   it('Home: mobile header present', () => {
@@ -293,8 +295,8 @@ describe('Mobile sticky header presence per route', () => {
     expect(html).not.toContain('entei-topbar-mobile');
   });
 
-  it('Tracker: mobile header present', () => {
-    const html = renderTopBarHtml({ currentPath: '/tracker/' });
+  it('Profile: mobile header present', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
     expect(html).toContain('entei-topbar-mobile');
   });
 });
@@ -303,10 +305,10 @@ describe('Mobile sticky header presence per route', () => {
 /*  7. Mobile dock always has 2 destination links (Home + Player) + Settings  */
 /* -------------------------------------------------------------------------- */
 describe('Mobile dock always present with 2 destination links', () => {
-  const routes = ['/', '/player/', '/tracker/'] as const;
+  const routes = ['/', '/profile/', '/player/'] as const;
 
   for (const route of routes) {
-    it(`${route}: mobile dock has Home and Player links (Tracker is desktop-only)`, () => {
+    it(`${route}: mobile dock has Home and Player links (Profile is desktop-only)`, () => {
       const html = renderTopBarHtml({ currentPath: route });
       const root = parseHtml(html);
       const dock = root.querySelector('[data-entei-mobile-dock]');
@@ -317,7 +319,7 @@ describe('Mobile dock always present with 2 destination links', () => {
       const hrefs = Array.from(links).map((l) => l.getAttribute('href'));
       expect(hrefs).toContain('/');
       expect(hrefs).toContain('/player/');
-      expect(hrefs).not.toContain('/tracker/');
+      expect(hrefs).not.toContain('/profile/');
 
       // Settings dialog entry (non-link island) is always present.
       expect(dock!.querySelector('[data-entei-mobile-dock-settings]')).not.toBeNull();
@@ -333,7 +335,7 @@ describe('Nav link href validation', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
     const root = parseHtml(html);
     const allLinks = root.querySelectorAll('a[data-entei-nav-destination]');
-    // 3 desktop (brand + Player + Tracker) + 2 mobile (Home + Player)
+    // 3 desktop (brand + Profile + Player) + 2 mobile (Home + Player)
     expect(allLinks.length).toBe(5);
 
     for (const link of Array.from(allLinks)) {
@@ -363,8 +365,8 @@ describe('TopBar prop contract', () => {
     expect(countAriaCurrentPage(html)).toBe(2);
   });
 
-  it('Tracker: aria-current count = 1 (desktop only — Tracker is not in mobile dock)', () => {
-    const html = renderTopBarHtml({ currentPath: '/tracker/' });
+  it('Profile: aria-current count = 1 (desktop only — Profile is not in mobile dock)', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
     expect(html).toContain('data-entei-desktop-nav');
     expect(html).toContain('data-entei-mobile-dock');
     expect(countAriaCurrentPage(html)).toBe(1);
@@ -425,11 +427,22 @@ describe('Nav link data-i18n attributes', () => {
     expect(desktopNav).not.toBeNull();
 
     const spans = desktopNav!.querySelectorAll('span[data-i18n]');
-    // Player + Tracker (Home is brand, no data-i18n on brand text)
+    // Profile + Player (Home is brand, no data-i18n on brand text)
     expect(spans.length).toBe(2);
     const i18nKeys = Array.from(spans).map((s) => s.getAttribute('data-i18n'));
+    expect(i18nKeys).toContain('nav.destinationProfile');
     expect(i18nKeys).toContain('nav.destinationPlayer');
-    expect(i18nKeys).toContain('nav.destinationTracker');
+  });
+
+  it('desktop pill order is Profile then Player and excludes Tracker', () => {
+    const html = renderTopBarHtml({ currentPath: '/' });
+    const root = parseHtml(html);
+    const desktopNav = root.querySelector('[data-entei-desktop-nav]');
+    const hrefs = Array.from(
+      desktopNav!.querySelectorAll('a[data-entei-nav-destination]'),
+    ).map((link) => link.getAttribute('href'));
+    expect(hrefs).toEqual(['/', '/profile/', '/player/']);
+    expect(html).not.toContain('/tracker/');
   });
 
   it('mobile dock spans have data-i18n with nav.destination* keys', () => {
@@ -439,12 +452,12 @@ describe('Nav link data-i18n attributes', () => {
     expect(dock).not.toBeNull();
 
     const spans = dock!.querySelectorAll('span[data-i18n]');
-    // Mobile dock has Home + Player (Tracker is desktop-only).
+    // Mobile dock has Home + Player (Profile is desktop-only).
     expect(spans.length).toBe(2);
     const i18nKeys = Array.from(spans).map((s) => s.getAttribute('data-i18n'));
     expect(i18nKeys).toContain('nav.destinationHome');
     expect(i18nKeys).toContain('nav.destinationPlayer');
-    expect(i18nKeys).not.toContain('nav.destinationTracker');
+    expect(i18nKeys).not.toContain('nav.destinationProfile');
   });
 });
 
@@ -499,8 +512,8 @@ function setupNavDom(): void {
   document.body.innerHTML = `
     <nav class="entei-desktop-pill" aria-label="Navigasi halaman" data-entei-desktop-nav data-i18n-aria-label="nav.desktopNavLabel">
       <a href="/" class="entei-desktop-pill-brand" data-entei-nav-destination="/"><span>Entei</span></a>
+      <a href="/profile/" data-entei-nav-destination="/profile/"><span data-i18n="nav.destinationProfile">Profil</span></a>
       <a href="/player/" data-entei-nav-destination="/player/"><span data-i18n="nav.destinationPlayer">Player</span></a>
-      <a href="/tracker/" data-entei-nav-destination="/tracker/"><span data-i18n="nav.destinationTracker">Tracker</span></a>
     </nav>
     <nav class="entei-mobile-dock" aria-label="Navigasi halaman" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel">
       <a href="/" data-entei-nav-destination="/"><span data-i18n="nav.destinationHome">Home</span></a>
@@ -533,7 +546,7 @@ describe('Locale switch updates nav label text', () => {
     const spans = desktopNav!.querySelectorAll('span[data-i18n]');
     const texts = Array.from(spans).map((s) => s.textContent);
     expect(texts).toContain('Player');
-    expect(texts).toContain('Tracker');
+    expect(texts).toContain('プロフィール');
   });
 
   it('switching to ja updates mobile dock link labels', () => {
@@ -645,8 +658,8 @@ describe('Player trigger zone for hover reveal', () => {
     expect(root.querySelector('[data-entei-trigger-zone]')).toBeNull();
   });
 
-  it('Tracker: trigger zone NOT present', () => {
-    const html = renderTopBarHtml({ currentPath: '/tracker/' });
+  it('Profile: trigger zone NOT present', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
     expect(root.querySelector('[data-entei-trigger-zone]')).toBeNull();
   });

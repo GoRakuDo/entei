@@ -443,9 +443,7 @@ export interface Dictionary {
     destinationHome: string;
     /** Visible label for Player destination in nav */
     destinationPlayer: string;
-    /** Visible label for Tracker destination in nav */
-    destinationTracker: string;
-    /** Name used when referring to the direct-URL-only profile page. */
+    /** Visible label for the Profile destination in the desktop pill. */
     destinationProfile: string;
     /** Visible label for Settings destination in nav (opens settings modal) */
     destinationSettings: string;
