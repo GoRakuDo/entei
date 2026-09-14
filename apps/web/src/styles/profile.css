@@ -124,6 +124,16 @@
   flex-shrink: 0;
 }
 
+/* Profile solid buttons — always the new button color, hover-invariant. */
+.entei-profile-solid-btn {
+  background-color: var(--entei-btn-color);
+}
+
+.entei-profile-solid-btn:hover,
+.entei-profile-solid-btn:focus-visible {
+  background-color: var(--entei-btn-color);
+}
+
 .entei-profile-bio {
   display: -webkit-box;
   max-width: 100%;

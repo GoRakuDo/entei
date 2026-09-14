@@ -229,7 +229,12 @@ function ProfileHeader({
                     aria-label={t.nameLabel}
                   />
                   <ButtonGroup className="entei-profile-edit-actions">
-                    <Button type="button" variant="secondary" onClick={saveProfile}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="entei-profile-solid-btn"
+                      onClick={saveProfile}
+                    >
                       <Save aria-hidden="true" />
                       {t.saveProfile}
                     </Button>
@@ -274,7 +279,12 @@ function ProfileHeader({
                 <h1 id="profile-title" className="entei-profile-title">
                   {profile.name}
                 </h1>
-                <Button type="button" variant="secondary" onClick={startEditing}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="entei-profile-solid-btn"
+                  onClick={startEditing}
+                >
                   <SquarePen aria-hidden="true" />
                   {t.editProfileShort}
                 </Button>
