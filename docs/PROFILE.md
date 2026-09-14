@@ -74,8 +74,9 @@ interface LocalProfile {
 1. **イマージョン統計**
    - 既存の Tracker Dashboard を表示する。
 2. **コンテンツ履歴**
-   - 現段階では空状態のプレースホルダーを表示する。
-   - parsed title や episode list の表示は後続タスクで追加する。
+   - 視聴済み作品のポスターを並べた MyAnimeList 風グリッドを表示する。
+   - 各カード: ポスター画像・作品名・最終視聴話数・最終視聴日。クリックで詳細は開かない（v1）。
+   - データ源は §7 の視聴履歴ストア。ポスターURLは §8 の外部取得で解決し、IndexedDB にキャッシュする。
 
 ## 4. ルートとナビ
 
@@ -103,7 +104,21 @@ TrackerDashboard は独立した `/tracker/` ページから退役し、プロ�
 - Freenet へのプロフィール接続・同期
 - 複数デバイス間のプロフィール共有
 - AniList / AniChart とのコンテンツ情報同期
-- parsed title や episode list を使った「コンテンツ履歴」の実装
 - プロフィールの公開範囲、アカウント、サーバー側保存
 
 これらはローカル保存の境界、同期方式、外部サービス連携の仕様を個別に確認したうえで、別タスクとして設計・実装する。
+
+## 7. 視聴履歴ストア（コンテンツ履歴のデータ源）
+
+- IndexedDB（Tracker と同じ DB、別 object store `watch_history`）に保存する。localStorage には置かない（件数が増えるため）。
+- 1レコード: `{ mediaId, title, episode, watchedAt, source: 'local' | 'magnet' | 'youtube', anilistId | null, tmdbId | null, posterStatus: 'pending' | 'ready' | 'none' }`。
+- 書き込み時機: `/player/` でメディアを開いた時ではなく、**ある程度再生が進んだ時**（例: 視聴開始から60秒経過または全体の5%到達の早い方）に1回だけ記録し、同一 `mediaId` は `episode`・`watchedAt` を上書き更新する。Tracker の fingerprint（§5要約の mediaId）をそのまま主キーに使い、新しい ID 体系は作らない。
+- jimaku 照合で得た `anilist_id` / `tmdb_id` があれば同時に保存する（照合なしでも title + episode だけで履歴には残る）。
+- 削除は Tracker の clear 操作に連動させ、単独の全消去ボタンは置かない（v1）。
+
+## 8. ポスター画像の外部取得
+
+- **アニメ**: AniList 公開 GraphQL（`https://graphql.anilist.co`、ブラウザ直叩き・CORS `*` 実測・APIキー不要）。jimaku 結果の `anilist_id` で `Media { title { romaji } coverImage { large } }` を取得する。
+- **ドラマ（実写）**: jimaku 結果の `tmdb_id`（`tv:xxxxx` / `movie:xxxxx` 形式）から種別と数値 ID を抜き出し、TMDB の画像 CDN（`https://image.tmdb.org/t/p/w185/...`、直リンク実測 200）を使う。ただし TMDB API 検索自体は APIキー必須（実測 401）のため、Entei は **TMDB API を叩かない**。画像パスは jimaku エントリが将来返す場合のみ利用し、来ない場合はポスターなし（`posterStatus: 'none'`）の文字カード表示に留める。TMDB APIキー導入は別タスク。
+- 取得したポスター URL は `watch_history` レコードに保存し、`<img loading="lazy">` で遅延表示する。失敗時はリトライせず文字カードに倒す（jimaku の 429 方針と同様）。
+- レート配慮: ポスター解決は履歴表示時ではなく **記録時（§7）に1回だけ** 行い、結果を保存する。一覧表示では保存済み URL のみ使う。
