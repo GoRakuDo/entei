@@ -99,8 +99,9 @@ Entei is a dark, immersive learning base.
 
 ### 3.1.1 Background Texture
 
-- `public/brand/entei-background.webp` is the shared page background, applied
-  to `body` in `global.css` (Home, Player, Tracker, and every other page).
+- `public/brand/entei-gradient-background.webp` is the shared page background,
+  applied to `body` in `global.css` (Home, Player, Tracker, and every other
+  page). (`entei-background.webp` is the retired weave tile.)
 - `--entei-bg` remains the fallback color while the image is not yet loaded
   or fails to load.
 - Foreground surfaces (dialogs, cards, media, controls) keep their existing
