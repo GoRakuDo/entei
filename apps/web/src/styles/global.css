@@ -78,14 +78,15 @@ body {
   flex-direction: column;
   min-height: 100dvh;
   /* Page background (DESIGN.md "Background Texture"): --entei-bg stays as
-     the fallback while the image loads; the 1920x1080 gradient covers the
-     viewport and scrolls with content (no fixed attachment — cheap on
-     mobile). */
+     the fallback while the image loads; the 1920x1080 gradient is pinned
+     to the viewport (100dvw x 100dvh, no stretch on long pages) and stays
+     fixed while content scrolls above it. */
   background-color: var(--entei-bg);
   background-image: url('/brand/entei-gradient-background.webp');
   background-repeat: no-repeat;
-  background-size: cover;
+  background-size: 100dvw 100dvh;
   background-position: center top;
+  background-attachment: fixed;
   color: var(--entei-text);
   font-family: var(--entei-font-body);
   font-size: 1rem;
