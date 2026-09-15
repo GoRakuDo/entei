@@ -135,15 +135,16 @@
   background-color: var(--entei-btn-color);
 }
 
+/* Bio lives OUTSIDE .entei-profile-view so long text never squeezes the
+   avatar/name row. Single-line ellipsis with no wrapping. */
 .entei-profile-bio {
-  display: -webkit-box;
+  display: block;
   max-width: 100%;
-  color: var(--entei-text-secondary);
-  white-space: pre-wrap;
   overflow: hidden;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 6;
+  color: var(--entei-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .entei-profile-edit-actions {

@@ -278,30 +278,35 @@ function ProfileHeader({
               )}
             </>
           ) : (
-            <div className="entei-profile-view">
-              <div className="entei-profile-view-header">
-                <h1 id="profile-title" className="entei-profile-title">
-                  {profile.name}
-                </h1>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="entei-profile-solid-btn"
-                  onClick={startEditing}
-                >
-                  <SquarePen aria-hidden="true" />
-                  {t.editProfileShort}
-                </Button>
+            <>
+              <div className="entei-profile-view">
+                <div className="entei-profile-view-header">
+                  <h1 id="profile-title" className="entei-profile-title">
+                    {profile.name}
+                  </h1>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="entei-profile-solid-btn"
+                    onClick={startEditing}
+                  >
+                    <SquarePen aria-hidden="true" />
+                    {t.editProfileShort}
+                  </Button>
+                </div>
               </div>
               {profile.bio !== '' && (
-                <p className="entei-profile-bio">{profile.bio}</p>
+                <p className="entei-profile-bio">
+                  {profile.bio.split(/\s+/).slice(0, 30).join(' ')}
+                  {profile.bio.split(/\s+/).length > 30 ? '…' : ''}
+                </p>
               )}
               {avatarError !== null && (
                 <p className="entei-profile-avatar-error" role="alert">
                   {avatarError}
                 </p>
               )}
-            </div>
+            </>
           )}
         </div>
       </div>
