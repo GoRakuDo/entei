@@ -122,16 +122,19 @@
 }
 
 .entei-profile-view {
-  display: contents;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--entei-space-16);
 }
 
 .entei-profile-view-header {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-start;
+  justify-content: space-between;
   gap: var(--entei-space-16);
   min-width: 0;
-  flex: 1;
 }
 
 .entei-profile-view-header .entei-profile-title {
