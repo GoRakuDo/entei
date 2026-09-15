@@ -136,6 +136,7 @@
   max-width: 100%;
 }
 
+
 .entei-profile-view-header {
   display: flex;
   flex-direction: row;
@@ -422,9 +423,13 @@
   }
 
   .entei-profile-identity > .entei-profile-bio,
-  .entei-profile-identity > .entei-profile-bio-field {
+  .entei-profile-identity > .entei-profile-bio-field--mobile {
     grid-column: 1 / -1;
     min-width: 0;
+  }
+
+  .entei-profile-bio-field--desktop {
+    display: none;
   }
 
   .entei-profile-name-controls {
