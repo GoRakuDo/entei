@@ -424,10 +424,10 @@ export const ja: Dictionary = {
   },
   nav: {
     backToGorakudo: 'GoRakuDoへ戻る',
-    backToHome: 'Homeへ戻る',
+    backToHome: 'ホームへ戻る',
     skipToMain: 'メインコンテンツへスキップ',
-    destinationHome: 'Home',
-    destinationPlayer: 'Player',
+    destinationHome: 'ホーム',
+    destinationPlayer: 'プレイヤー',
     destinationProfile: 'プロフィール',
     destinationSettings: '設定',
     desktopNavLabel: 'ページナビゲーション',

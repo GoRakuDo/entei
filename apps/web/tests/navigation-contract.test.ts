@@ -545,7 +545,7 @@ describe('Locale switch updates nav label text', () => {
 
     const spans = desktopNav!.querySelectorAll('span[data-i18n]');
     const texts = Array.from(spans).map((s) => s.textContent);
-    expect(texts).toContain('Player');
+    expect(texts).toContain('プレイヤー');
     expect(texts).toContain('プロフィール');
   });
 
@@ -556,8 +556,8 @@ describe('Locale switch updates nav label text', () => {
 
     const spans = dock!.querySelectorAll('span[data-i18n]');
     const texts = Array.from(spans).map((s) => s.textContent);
-    expect(texts).toContain('Home');
-    expect(texts).toContain('Player');
+    expect(texts).toContain('ホーム');
+    expect(texts).toContain('プレイヤー');
     expect(texts).not.toContain('Tracker');
   });
 
@@ -567,7 +567,7 @@ describe('Locale switch updates nav label text', () => {
     expect(playerSpan!.textContent).toBe('Player');
 
     applyLocale('ja');
-    expect(playerSpan!.textContent).toBe('Player');
+    expect(playerSpan!.textContent).toBe('プレイヤー');
 
     applyLocale('en');
     expect(playerSpan!.textContent).toBe('Player');
