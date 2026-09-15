@@ -258,22 +258,6 @@ function ProfileHeader({
                   </Button>
                 </ButtonGroup>
               </div>
-
-              <div className="entei-profile-field">
-                <textarea
-                  id="profile-bio"
-                  className="entei-profile-textarea"
-                  value={bioDraft}
-                  maxLength={PROFILE_BIO_MAX_LENGTH}
-                  onChange={(event) => updateBio(event.target.value)}
-                  aria-label={t.bioLabel}
-                  aria-describedby="profile-bio-count"
-                  rows={4}
-                />
-                <span id="profile-bio-count" className="entei-profile-counter" aria-live="polite">
-                  {t.bioCount(bioDraft.length)}
-                </span>
-              </div>
               {avatarError !== null && (
                 <p className="entei-profile-avatar-error" role="alert">
                   {avatarError}
@@ -306,6 +290,23 @@ function ProfileHeader({
         </div>
         {!isEditing && profile.bio !== '' && (
           <p className="entei-profile-bio">{profile.bio}</p>
+        )}
+        {isEditing && (
+          <div className="entei-profile-field entei-profile-bio-field">
+            <textarea
+              id="profile-bio"
+              className="entei-profile-textarea"
+              value={bioDraft}
+              maxLength={PROFILE_BIO_MAX_LENGTH}
+              onChange={(event) => updateBio(event.target.value)}
+              aria-label={t.bioLabel}
+              aria-describedby="profile-bio-count"
+              rows={4}
+            />
+            <span id="profile-bio-count" className="entei-profile-counter" aria-live="polite">
+              {t.bioCount(bioDraft.length)}
+            </span>
+          </div>
         )}
       </div>
     </section>
