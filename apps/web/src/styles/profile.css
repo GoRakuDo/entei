@@ -151,6 +151,17 @@
   flex-shrink: 0;
 }
 
+/* Edit-mode save/cancel: stacked vertical group, full-bleed on mobile
+   so the row never overflows the narrow name column. */
+.entei-profile-edit-actions--stacked {
+  width: 100%;
+}
+
+.entei-profile-edit-actions--stacked > button {
+  width: 100%;
+  justify-content: center;
+}
+
 .entei-profile-field {
   display: flex;
   flex-direction: column;
