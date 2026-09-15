@@ -22,7 +22,7 @@
 .entei-profile-identity {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: clamp(var(--entei-space-24), 5vw, var(--entei-space-64));
   align-items: start;
 }
@@ -378,7 +378,7 @@
   }
 
   .entei-profile-identity {
-    grid-template-columns: 6rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: var(--entei-space-16);
   }
 
@@ -403,7 +403,7 @@
 
 @media (max-width: 420px) {
   .entei-profile-identity {
-    grid-template-columns: 6rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .entei-profile-avatar-frame {
