@@ -285,12 +285,12 @@ function ProfileHeader({
                   {avatarError}
                 </p>
               )}
+              {profile.bio !== '' && (
+                <p className="entei-profile-bio">{profile.bio}</p>
+              )}
             </div>
           )}
         </div>
-        {!isEditing && profile.bio !== '' && (
-          <p className="entei-profile-bio">{profile.bio}</p>
-        )}
         {isEditing && (
           <div className="entei-profile-field entei-profile-bio-field">
             <textarea

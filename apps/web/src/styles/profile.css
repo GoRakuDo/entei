@@ -125,7 +125,15 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  max-width: 100%;
   gap: var(--entei-space-16);
+}
+
+/* Desktop view-mode: bio belongs INSIDE the right column (never the
+   narrow mobile full-width row). The mobile full-width rule below
+   (<=767px) is the only place .entei-profile-bio spans both columns. */
+.entei-profile-view > .entei-profile-bio {
+  max-width: 100%;
 }
 
 .entei-profile-view-header {
