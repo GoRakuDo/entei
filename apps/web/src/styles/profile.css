@@ -19,20 +19,13 @@
   gap: var(--entei-space-32);
 }
 
-/* Mobile (<=767px): two-row identity — top row is avatar + name/edit 50/50,
-   bottom row is the full-width bio. Desktop keeps the single-row 50/50. */
+/* Desktop: avatar column fixed small, name/edit takes the rest. */
 .entei-profile-identity {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
   gap: clamp(var(--entei-space-24), 5vw, var(--entei-space-64));
   align-items: start;
-}
-
-.entei-profile-identity > .entei-profile-bio,
-.entei-profile-identity > .entei-profile-bio-field {
-  grid-column: 1 / -1;
-  min-width: 0;
 }
 
 .entei-profile-avatar-frame {
@@ -395,6 +388,12 @@
   .entei-profile-identity {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: var(--entei-space-16);
+  }
+
+  .entei-profile-identity > .entei-profile-bio,
+  .entei-profile-identity > .entei-profile-bio-field {
+    grid-column: 1 / -1;
+    min-width: 0;
   }
 
   .entei-profile-name-controls {
