@@ -390,6 +390,11 @@
     flex-basis: 100%;
   }
 
+  .entei-profile-view-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .entei-profile-tabs-list [data-slot='tabs-trigger'] {
     padding-inline: var(--entei-space-8);
     font-size: 0.8125rem;
