@@ -232,31 +232,28 @@ function ProfileHeader({
                     onChange={(event) => setNameDraft(event.target.value)}
                     aria-label={t.nameLabel}
                   />
+                  <ButtonGroup className="entei-profile-edit-actions">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="entei-profile-solid-btn"
+                      onClick={saveProfile}
+                    >
+                      <Save aria-hidden="true" />
+                      {t.saveProfile}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={closeEditing}
+                      aria-label={t.closeEdit}
+                      title={t.closeEdit}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  </ButtonGroup>
                 </div>
-                <ButtonGroup
-                  className="entei-profile-edit-actions entei-profile-edit-actions--stacked"
-                  orientation="vertical"
-                >
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="entei-profile-solid-btn"
-                    onClick={saveProfile}
-                  >
-                    <Save aria-hidden="true" />
-                    {t.saveProfile}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={closeEditing}
-                    aria-label={t.closeEdit}
-                    title={t.closeEdit}
-                  >
-                    <X aria-hidden="true" />
-                    {t.closeEdit}
-                  </Button>
-                </ButtonGroup>
               </div>
               <div className="entei-profile-field">
                 <textarea
