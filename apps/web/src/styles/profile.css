@@ -19,13 +19,33 @@
   gap: var(--entei-space-32);
 }
 
-/* Desktop: avatar column fixed small, name/edit takes the rest. */
+/* Desktop: view-mode row — avatar left, name+bio+edit right.
+   The view header keeps name+edit side by side; the bio flows inside
+   the right column next to the avatar (never a full-width bottom row). */
 .entei-profile-identity {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
   gap: clamp(var(--entei-space-24), 5vw, var(--entei-space-64));
   align-items: start;
+}
+
+.entei-profile-identity > .entei-profile-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  min-width: 0;
+}
+
+.entei-profile-identity > .entei-profile-view .entei-profile-view-header {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.entei-profile-identity > .entei-profile-view .entei-profile-view-header > button {
+  align-self: auto;
+  width: auto;
 }
 
 .entei-profile-avatar-frame {
