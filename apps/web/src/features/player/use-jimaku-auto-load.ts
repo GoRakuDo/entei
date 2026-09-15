@@ -129,6 +129,7 @@ export function isUncompressed(name: string): boolean {
 export interface JimakuAutoLoadMatch {
   anilistId: number | null;
   tmdbId: string | null;
+  titleNative: string | null;
 }
 
 export interface JimakuAutoLoadCallbacks {
@@ -283,6 +284,11 @@ export function useJimakuAutoLoad({
           tmdbId:
             typeof selectedEntry.tmdb_id === 'string'
               ? selectedEntry.tmdb_id
+              : null,
+          titleNative:
+            typeof selectedEntry.japanese_name === 'string' &&
+            selectedEntry.japanese_name.trim().length > 0
+              ? selectedEntry.japanese_name.trim()
               : null,
         });
         onSubtitleLoaded(dl.data);

@@ -328,7 +328,8 @@ export default function PlayerApp() {
   const jimakuMatchRef = useRef<{
     anilistId: number | null;
     tmdbId: string | null;
-  }>({ anilistId: null, tmdbId: null });
+    titleNative: string | null;
+  }>({ anilistId: null, tmdbId: null, titleNative: null });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Stage 2a: Track local file for tracker fingerprint computation
@@ -1440,7 +1441,11 @@ export default function PlayerApp() {
       // also lets the jimaku auto-load spinner show (cues.length === 0).
       setCues([]);
       // P3 auto-load: local file selected — auto-load jimaku subtitles.
-      jimakuMatchRef.current = { anilistId: null, tmdbId: null };
+      jimakuMatchRef.current = {
+        anilistId: null,
+        tmdbId: null,
+        titleNative: null,
+      };
       void jimakuAutoLoad.runAutoLoad(file.name, `local:${file.name}`);
       // AM-2: Invalidate any prior screenshot when selecting new media
       clearScreenshot();
@@ -1659,6 +1664,7 @@ export default function PlayerApp() {
         source: 'local',
         anilistId: jimakuMatchRef.current.anilistId,
         tmdbId: jimakuMatchRef.current.tmdbId,
+        titleNative: jimakuMatchRef.current.titleNative,
       });
     },
     [mediaName, trackerRuntime.mediaId],

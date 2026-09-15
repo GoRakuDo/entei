@@ -7,6 +7,7 @@ const TMDB_IMAGE_ENDPOINT = 'https://image.tmdb.org/t/p/w185';
 const ANILIST_QUERY = `
   query ($id: Int) {
     Media(id: $id, type: ANIME) {
+      title { native }
       coverImage { large }
     }
   }
@@ -24,6 +25,22 @@ function posterFromTmdb(payload: unknown): string | null {
     : null;
 }
 
+function nativeTitleFromTmdb(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const value = (payload as { name?: unknown; title?: unknown }).name ??
+    (payload as { title?: unknown }).title;
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function withTitleNative(
+  resolution: PosterResolution,
+  titleNative: unknown,
+): PosterResolution {
+  return typeof titleNative === 'string' && titleNative.trim().length > 0
+    ? { ...resolution, titleNative: titleNative.trim() }
+    : resolution;
+}
+
 async function resolveAnime(anilistId: number): Promise<PosterResolution> {
   try {
     const response = await fetch(ANILIST_ENDPOINT, {
@@ -33,12 +50,19 @@ async function resolveAnime(anilistId: number): Promise<PosterResolution> {
     });
     if (!response.ok) return none();
     const payload = (await response.json()) as {
-      data?: { Media?: { coverImage?: { large?: unknown } | null } | null };
+      data?: {
+        Media?: {
+          title?: { native?: unknown } | null;
+          coverImage?: { large?: unknown } | null;
+        } | null;
+      };
     };
     const url = payload.data?.Media?.coverImage?.large;
-    return typeof url === 'string' && url.length > 0
-      ? { posterUrl: url, posterStatus: 'ready' }
-      : none();
+    const resolution =
+      typeof url === 'string' && url.length > 0
+        ? { posterUrl: url, posterStatus: 'ready' as const }
+        : none();
+    return withTitleNative(resolution, payload.data?.Media?.title?.native);
   } catch {
     return none();
   }
@@ -53,22 +77,27 @@ async function resolveDrama(
     if (tmdbId !== null) {
       const [type, id] = tmdbId.split(':', 2);
       if ((type !== 'tv' && type !== 'movie') || !id) return none();
-      path = `/${type}/${encodeURIComponent(id)}`;
+      path = `/${type}/${encodeURIComponent(id)}?language=ja-JP`;
     } else {
-      path = `/search?q=${encodeURIComponent(title)}&type=tv`;
+      path = `/search?q=${encodeURIComponent(title)}&type=tv&language=ja-JP`;
     }
     const response = await fetch(`${TMDB_RELAY_ENDPOINT}${path}`);
     if (!response.ok) return none();
     const payload = (await response.json()) as unknown;
-    const candidates = Array.isArray((payload as { results?: unknown })?.results)
+    const candidates: unknown[] = Array.isArray(
+      (payload as { results?: unknown })?.results,
+    )
       ? (payload as { results: unknown[] }).results
       : [payload];
-    const url = candidates
-      .map(posterFromTmdb)
-      .find((candidate): candidate is string => candidate !== null);
-    return url === undefined
-      ? none()
-      : { posterUrl: url, posterStatus: 'ready' };
+    const candidate = candidates.find((item) => posterFromTmdb(item) !== null);
+    const url = candidate === undefined ? null : posterFromTmdb(candidate);
+    const nativeTitle =
+      candidate === undefined
+        ? candidates.map(nativeTitleFromTmdb).find((value) => value !== null)
+        : nativeTitleFromTmdb(candidate);
+    const resolution =
+      url === null ? none() : { posterUrl: url, posterStatus: 'ready' as const };
+    return withTitleNative(resolution, nativeTitle);
   } catch {
     return none();
   }

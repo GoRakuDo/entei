@@ -5,6 +5,8 @@ export interface WatchHistoryRecord {
   /** The Tracker media fingerprint. This is the only identity key. */
   mediaId: string;
   title: string;
+  /** Native/Japanese title when available; older records omit it. */
+  titleNative?: string | null;
   episode: number | null;
   watchedAt: number;
   source: WatchHistorySource;
@@ -22,4 +24,5 @@ export type WatchHistoryInput = Omit<
 export interface PosterResolution {
   posterUrl: string | null;
   posterStatus: Exclude<WatchHistoryPosterStatus, 'pending'>;
+  titleNative?: string | null;
 }

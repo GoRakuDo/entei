@@ -51,6 +51,15 @@ export function LanguageCombobox({
   const [locale, setLocale] = useState<Locale>(currentLocale);
   const listboxId = useId();
 
+  // The locale-switcher applies the saved preference before this island hydrates,
+  // so the prop may describe the static page default rather than live document truth.
+  useEffect(() => {
+    const liveLocale = document.documentElement.lang;
+    if (liveLocale === 'id' || liveLocale === 'ja' || liveLocale === 'en') {
+      setLocale(liveLocale);
+    }
+  }, []);
+
   // Sync with external locale changes (locale-switcher apply, native select, etc.)
   useEffect(() => {
     const handler = (event: Event) => {

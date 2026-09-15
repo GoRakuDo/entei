@@ -283,7 +283,7 @@
 
 .entei-profile-history-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--entei-space-24) var(--entei-space-16);
 }
 
@@ -393,6 +393,10 @@
   .entei-profile-tabs-list [data-slot='tabs-trigger'] {
     padding-inline: var(--entei-space-8);
     font-size: 0.8125rem;
+  }
+
+  .entei-profile-history-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

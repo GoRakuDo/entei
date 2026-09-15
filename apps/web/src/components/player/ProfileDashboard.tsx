@@ -328,7 +328,9 @@ function HistoryCard({
   const posterSrc =
     record.posterStatus === 'ready' ? (record.posterUrl ?? undefined) : undefined;
   const showPoster = posterSrc !== undefined && !posterFailed;
-  const letter = record.title.trim().slice(0, 1).toUpperCase() || '？';
+  const displayTitle =
+    locale === 'ja' && record.titleNative ? record.titleNative : record.title;
+  const letter = displayTitle.trim().slice(0, 1).toUpperCase() || '？';
 
   return (
     <article className="entei-profile-history-card">
@@ -346,7 +348,7 @@ function HistoryCard({
         )}
       </div>
       <div className="entei-profile-history-card-body">
-        <h3 title={record.title}>{record.title}</h3>
+        <h3 title={displayTitle}>{displayTitle}</h3>
         <p>{t.contentHistoryEpisode(record.episode)}</p>
         <p>{t.contentHistoryWatchedAt(formatWatchedAt(record.watchedAt, locale))}</p>
       </div>

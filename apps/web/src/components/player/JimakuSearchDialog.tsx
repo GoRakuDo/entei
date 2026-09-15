@@ -303,11 +303,22 @@ export function JimakuSearchDialog({
           typeof selectedEntry?.tmdb_id === 'string'
             ? selectedEntry.tmdb_id
             : null,
+        titleNative:
+          typeof selectedEntry?.japanese_name === 'string' &&
+          selectedEntry.japanese_name.trim().length > 0
+            ? selectedEntry.japanese_name.trim()
+            : null,
       });
       onSubtitleLoaded(result.data);
       handleOpenChange(false);
     },
-    [onSubtitleLoaded, onMatchResolved, onToast, handleOpenChange],
+    [
+      onSubtitleLoaded,
+      onMatchResolved,
+      onToast,
+      handleOpenChange,
+      selectedEntry,
+    ],
   );
 
   const visibleFiles = useMemo(() => {

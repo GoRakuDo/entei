@@ -37,8 +37,22 @@ describe('watch-history poster resolver', () => {
       posterStatus: 'ready',
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://entei-tmdb-relay.yosiakefas-id.workers.dev/search?q=Meitantei&type=tv',
+      'https://entei-tmdb-relay.yosiakefas-id.workers.dev/search?q=Meitantei&type=tv&language=ja-JP',
     );
+  });
+
+  it('captures a Japanese TV title from the TMDB response', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ name: '名探偵', poster_path: '/poster.jpg' }),
+    );
+
+    await expect(
+      resolvePoster({ title: 'Meitantei', anilistId: null, tmdbId: 'tv:325021' }),
+    ).resolves.toEqual({
+      posterUrl: 'https://image.tmdb.org/t/p/w185/poster.jpg',
+      posterStatus: 'ready',
+      titleNative: '名探偵',
+    });
   });
 
   it.each([
@@ -54,7 +68,7 @@ describe('watch-history poster resolver', () => {
       posterStatus: 'ready',
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      `https://entei-tmdb-relay.yosiakefas-id.workers.dev${route}`,
+      `https://entei-tmdb-relay.yosiakefas-id.workers.dev${route}?language=ja-JP`,
     );
   });
 });

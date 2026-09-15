@@ -93,6 +93,7 @@ export async function updateWatchHistoryPoster(
     ...current,
     posterUrl: resolution.posterUrl,
     posterStatus: resolution.posterStatus,
+    titleNative: current.titleNative ?? resolution.titleNative ?? null,
   } satisfies WatchHistoryRecord;
   return (await putRecord(updated)) ? updated : null;
 }
@@ -109,6 +110,7 @@ export async function recordWatchHistory(
 
   const pending: WatchHistoryRecord = {
     ...input,
+    titleNative: input.titleNative ?? null,
     watchedAt: Date.now(),
     posterUrl: null,
     posterStatus: 'pending',
