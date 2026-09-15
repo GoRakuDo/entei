@@ -248,8 +248,7 @@ function ProfileHeader({
                   </Button>
                   <Button
                     type="button"
-                    variant="secondary"
-                    className="entei-profile-solid-btn"
+                    variant="destructive"
                     onClick={closeEditing}
                     aria-label={t.closeEdit}
                     title={t.closeEdit}
