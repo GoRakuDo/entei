@@ -136,15 +136,13 @@
 }
 
 /* Bio lives OUTSIDE .entei-profile-view so long text never squeezes the
-   avatar/name row. Single-line ellipsis with no wrapping. */
+   avatar/name row. Full width below the identity grid, wraps freely. */
 .entei-profile-bio {
   display: block;
   max-width: 100%;
-  overflow: hidden;
   color: var(--entei-text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow-wrap: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .entei-profile-edit-actions {

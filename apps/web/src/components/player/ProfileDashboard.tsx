@@ -296,10 +296,7 @@ function ProfileHeader({
                 </div>
               </div>
               {profile.bio !== '' && (
-                <p className="entei-profile-bio">
-                  {profile.bio.split(/\s+/).slice(0, 30).join(' ')}
-                  {profile.bio.split(/\s+/).length > 30 ? '…' : ''}
-                </p>
+                <p className="entei-profile-bio">{profile.bio}</p>
               )}
               {avatarError !== null && (
                 <p className="entei-profile-avatar-error" role="alert">
