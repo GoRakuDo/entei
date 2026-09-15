@@ -12,7 +12,7 @@
  * - Listens for entei:locale-change to sync own label after locale-switcher
  *   applies, or after native select / pageshow changes.
  * --------------------------------------------------------------------------- */
-import { useState, useEffect, useCallback, useId } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useId } from 'react';
 import { ChevronsUpDown } from 'lucide-react';
 import {
   Popover,
@@ -53,7 +53,10 @@ export function LanguageCombobox({
 
   // The locale-switcher applies the saved preference before this island hydrates,
   // so the prop may describe the static page default rather than live document truth.
-  useEffect(() => {
+  // Sync inside useLayoutEffect (before paint): post-paint setState re-renders
+  // the trigger label (e.g. "Pilih bahasa" -> "言語を選択"), which is exactly
+  // the server/client text mismatch React hydration forbids.
+  useLayoutEffect(() => {
     const liveLocale = document.documentElement.lang;
     if (liveLocale === 'id' || liveLocale === 'ja' || liveLocale === 'en') {
       setLocale(liveLocale);
