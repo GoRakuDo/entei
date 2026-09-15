@@ -19,12 +19,18 @@
   gap: var(--entei-space-32);
 }
 
+/* Mobile (<=767px): two-row identity — top row is avatar + name/edit 50/50,
+   bottom row is the full-width bio. Desktop keeps the single-row 50/50. */
 .entei-profile-identity {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: clamp(var(--entei-space-24), 5vw, var(--entei-space-64));
   align-items: start;
+}
+
+.entei-profile-identity > .entei-profile-bio {
+  grid-column: 1 / -1;
 }
 
 .entei-profile-avatar-frame {
@@ -101,11 +107,7 @@
 }
 
 .entei-profile-view {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  max-height: 100%;
-  gap: var(--entei-space-16);
+  display: contents;
 }
 
 .entei-profile-view-header {
@@ -398,6 +400,11 @@
 
   .entei-profile-history-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .entei-profile-view-header > button {
+    align-self: stretch;
+    width: 100%;
   }
 }
 
