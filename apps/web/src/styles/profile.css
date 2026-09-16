@@ -178,6 +178,26 @@
   flex-shrink: 0;
 }
 
+.entei-profile-edit-actions--mobile {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .entei-profile-edit-actions--desktop {
+    display: none;
+  }
+
+  .entei-profile-edit-actions--mobile {
+    display: flex;
+    width: 100%;
+  }
+
+  .entei-profile-edit-actions--mobile > button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 
 .entei-profile-field {
   display: flex;

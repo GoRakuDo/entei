@@ -232,7 +232,7 @@ function ProfileHeader({
                     onChange={(event) => setNameDraft(event.target.value)}
                     aria-label={t.nameLabel}
                   />
-                  <ButtonGroup className="entei-profile-edit-actions">
+                  <ButtonGroup className="entei-profile-edit-actions entei-profile-edit-actions--desktop">
                     <Button
                       type="button"
                       variant="secondary"
@@ -251,6 +251,30 @@ function ProfileHeader({
                       title={t.closeEdit}
                     >
                       <X aria-hidden="true" />
+                    </Button>
+                  </ButtonGroup>
+                  <ButtonGroup
+                    className="entei-profile-edit-actions entei-profile-edit-actions--mobile"
+                    orientation="vertical"
+                  >
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="entei-profile-solid-btn"
+                      onClick={saveProfile}
+                    >
+                      <Save aria-hidden="true" />
+                      {t.saveProfile}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={closeEditing}
+                      aria-label={t.closeEdit}
+                      title={t.closeEdit}
+                    >
+                      <X aria-hidden="true" />
+                      {t.closeEdit}
                     </Button>
                   </ButtonGroup>
                 </div>
