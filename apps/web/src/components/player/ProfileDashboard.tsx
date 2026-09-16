@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { History, ImageUp, Save, SquarePen, X } from 'lucide-react';
+import { ArrowDownFromLine, History, ImageUp, Save, SquarePen, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
@@ -428,6 +428,7 @@ function HistorySection({
               className="entei-profile-history-load-more entei-profile-solid-btn"
               onClick={() => setPage((current) => current + 1)}
             >
+              <ArrowDownFromLine aria-hidden="true" />
               {t.contentHistoryLoadMore}
             </Button>
           )}
