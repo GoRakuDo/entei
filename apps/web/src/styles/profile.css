@@ -360,8 +360,8 @@
 }
 
 .entei-profile-history-load-more {
-  align-self: center;
-  min-width: 8rem;
+  align-self: stretch;
+  width: 100%;
 }
 
 .entei-profile-history-card {
