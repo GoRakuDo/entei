@@ -1669,7 +1669,7 @@ export default function PlayerApp() {
           anilistId: null,
           tmdbId: null,
           titleNative: null,
-          posterUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+          posterUrl: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
           posterStatus: 'ready',
         });
         return;
