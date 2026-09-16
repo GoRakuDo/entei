@@ -425,7 +425,7 @@ function HistorySection({
             <Button
               type="button"
               variant="secondary"
-              className="entei-profile-history-load-more"
+              className="entei-profile-history-load-more entei-profile-solid-btn"
               onClick={() => setPage((current) => current + 1)}
             >
               {t.contentHistoryLoadMore}
