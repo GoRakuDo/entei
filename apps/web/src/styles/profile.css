@@ -382,6 +382,7 @@
 
 .entei-profile-history-poster--youtube {
   aspect-ratio: 16 / 9;
+  background: var(--entei-surface);
 }
 
 .entei-profile-history-poster img {
@@ -391,6 +392,10 @@
   object-fit: cover;
   outline: 1px solid oklch(0 0 0 / 0.1);
   outline-offset: -1px;
+}
+
+.entei-profile-history-poster--youtube img {
+  object-fit: contain;
 }
 
 .entei-profile-history-letter {
