@@ -471,6 +471,11 @@
     align-items: start;
   }
 
+  .entei-profile-identity > .entei-profile-bio-field {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
   .entei-profile-fields {
     overflow: visible;
   }
