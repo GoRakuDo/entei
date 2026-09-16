@@ -108,14 +108,23 @@ export async function recordWatchHistory(
 ): Promise<WatchHistoryRecord | null> {
   if (!input.mediaId || !input.title || !isIndexedDBAvailable()) return null;
 
+  const hasRecordTimePoster =
+    input.posterStatus !== undefined && input.posterUrl !== undefined;
   const pending: WatchHistoryRecord = {
     ...input,
     titleNative: input.titleNative ?? null,
     watchedAt: Date.now(),
-    posterUrl: null,
-    posterStatus: 'pending',
+    posterUrl: input.posterUrl ?? null,
+    posterStatus: hasRecordTimePoster
+      ? (input.posterStatus ?? 'none')
+      : 'pending',
   };
   if (!(await putRecord(pending))) return null;
+
+  // YouTube posters are deterministic and supplied by the player at the
+  // qualifying progress point. Do not invoke the anime/drama resolver for
+  // them, and keep the poster URL fixed at record time.
+  if (hasRecordTimePoster) return pending;
 
   let resolution: PosterResolution;
   try {

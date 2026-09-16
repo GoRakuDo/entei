@@ -330,10 +330,14 @@ function HistoryCard({
   const displayTitle =
     locale === 'ja' && record.titleNative ? record.titleNative : record.title;
   const letter = displayTitle.trim().slice(0, 1).toUpperCase() || '？';
+  const posterClassName =
+    record.source === 'youtube'
+      ? 'entei-profile-history-poster entei-profile-history-poster--youtube'
+      : 'entei-profile-history-poster';
 
   return (
     <article className="entei-profile-history-card">
-      <div className="entei-profile-history-poster" aria-hidden={showPoster}>
+      <div className={posterClassName} aria-hidden={showPoster}>
         {showPoster && posterSrc !== undefined ? (
           <img
             src={posterSrc}
@@ -352,6 +356,84 @@ function HistoryCard({
         <p>{t.contentHistoryWatchedAt(formatWatchedAt(record.watchedAt, locale))}</p>
       </div>
     </article>
+  );
+}
+
+function isMobileHistoryLayout(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(max-width: 767px)').matches
+  );
+}
+
+function HistorySection({
+  records,
+  locale,
+  t,
+  source,
+  heading,
+  desktopInitialCount,
+  mobileInitialCount,
+}: {
+  records: WatchHistoryRecord[];
+  locale: Locale;
+  t: Dictionary['profile'];
+  source: WatchHistoryRecord['source'];
+  heading: string;
+  desktopInitialCount: number;
+  mobileInitialCount: number;
+}) {
+  const [isMobile, setIsMobile] = useState(isMobileHistoryLayout);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const handleChange = (event: MediaQueryListEvent) =>
+      setIsMobile(event.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  const initialCount = isMobile ? mobileInitialCount : desktopInitialCount;
+  const visibleCount = initialCount + (page - 1) * initialCount;
+  const visibleRecords = records.slice(0, visibleCount);
+  const hasMore = visibleRecords.length < records.length;
+  const headingId = `profile-history-${source}-heading`;
+
+  return (
+    <section className="entei-profile-history-section" aria-labelledby={headingId}>
+      <div className="entei-profile-history-section-header">
+        <h2 id={headingId}>{heading}</h2>
+        <span>{records.length}</span>
+      </div>
+      {records.length === 0 ? (
+        <p className="entei-profile-history-section-empty">
+          {t.contentHistorySectionEmpty}
+        </p>
+      ) : (
+        <>
+          <div
+            className={`entei-profile-history-grid${source === 'youtube' ? ' entei-profile-history-grid--youtube' : ''}`}
+          >
+            {visibleRecords.map((record) => (
+              <HistoryCard key={record.mediaId} record={record} locale={locale} t={t} />
+            ))}
+          </div>
+          {hasMore && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="entei-profile-history-load-more"
+              onClick={() => setPage((current) => current + 1)}
+            >
+              {t.contentHistoryLoadMore}
+            </Button>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -393,11 +475,28 @@ function ContentHistoryGrid({
     );
   }
 
+  const localRecords = records.filter((record) => record.source === 'local');
+  const youtubeRecords = records.filter((record) => record.source === 'youtube');
   return (
-    <div className="entei-profile-history-grid" data-testid="profile-content-history-grid">
-      {records.map((record) => (
-        <HistoryCard key={record.mediaId} record={record} locale={locale} t={t} />
-      ))}
+    <div data-testid="profile-content-history-grid">
+      <HistorySection
+        records={localRecords}
+        locale={locale}
+        t={t}
+        source="local"
+        heading={t.contentHistoryLocalSection}
+        desktopInitialCount={15}
+        mobileInitialCount={6}
+      />
+      <HistorySection
+        records={youtubeRecords}
+        locale={locale}
+        t={t}
+        source="youtube"
+        heading={t.contentHistoryYouTubeSection}
+        desktopInitialCount={6}
+        mobileInitialCount={6}
+      />
     </div>
   );
 }

@@ -467,6 +467,10 @@ export const ja: Dictionary = {
     contentHistoryEmptyDesc:
       '再生が一定時間進むと、作品とエピソードの履歴がここに表示されます。',
     contentHistoryLoading: 'コンテンツ履歴を読み込み中…',
+    contentHistoryLocalSection: 'アニメ・ドラマ',
+    contentHistoryYouTubeSection: 'YouTube',
+    contentHistoryLoadMore: 'もっと見る',
+    contentHistorySectionEmpty: 'まだありません。',
     contentHistoryEpisode: (episode) =>
       episode === null ? 'エピソード情報なし' : `最終視聴話数: 第${episode}話`,
     contentHistoryWatchedAt: (date) => `最終視聴: ${date}`,

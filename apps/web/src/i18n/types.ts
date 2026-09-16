@@ -486,6 +486,10 @@ export interface Dictionary {
     contentHistoryEmptyTitle: string;
     contentHistoryEmptyDesc: string;
     contentHistoryLoading: string;
+    contentHistoryLocalSection: string;
+    contentHistoryYouTubeSection: string;
+    contentHistoryLoadMore: string;
+    contentHistorySectionEmpty: string;
     contentHistoryEpisode: (episode: number | null) => string;
     contentHistoryWatchedAt: (date: string) => string;
   };

@@ -462,6 +462,10 @@ export const en: Dictionary = {
     contentHistoryEmptyDesc:
       'Titles and episodes appear here after playback progresses far enough to count.',
     contentHistoryLoading: 'Loading content history…',
+    contentHistoryLocalSection: 'Anime / drama',
+    contentHistoryYouTubeSection: 'YouTube',
+    contentHistoryLoadMore: 'Load more',
+    contentHistorySectionEmpty: 'Nothing here yet.',
     contentHistoryEpisode: (episode) =>
       episode === null ? 'Episode unavailable' : `Last episode: ${episode}`,
     contentHistoryWatchedAt: (date) => `Last watched: ${date}`,

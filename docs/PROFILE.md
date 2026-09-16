@@ -111,8 +111,8 @@ TrackerDashboard は独立した `/tracker/` ページから退役し、プロ�
 ## 7. 視聴履歴ストア（コンテンツ履歴のデータ源）
 
 - IndexedDB（Tracker と同じ DB、別 object store `watch_history`）に保存する。localStorage には置かない（件数が増えるため）。
-- 1レコード: `{ mediaId, title, episode, watchedAt, source: 'local', anilistId | null, tmdbId | null, posterStatus: 'pending' | 'ready' | 'none' }`。v1 はローカルファイルのみを対象とし、job session（Magnet / YouTube）は将来対応に延期する。
-- 書き込み時機: `/player/` でメディアを開いた時ではなく、**ある程度再生が進んだ時**（例: 視聴開始から60秒経過または全体の5%到達の早い方）に1回だけ記録し、同一 `mediaId` は `episode`・`watchedAt` を上書き更新する。Tracker の fingerprint（§5要約の mediaId）をそのまま主キーに使い、新しい ID 体系は作らない。
+- 1レコード: `{ mediaId, title, episode, watchedAt, source: 'local' | 'youtube', anilistId | null, tmdbId | null, posterUrl, posterStatus: 'pending' | 'ready' | 'none' }`。v1 はローカルファイルと YouTube を対象とし、job session のうち Magnet は将来対応に延期する。YouTube は `youtube:{videoId}` をIDに使い、公式サムネイルを記録時に保存する。
+- 書き込み時機: `/player/` でメディアを開いた時ではなく、**ある程度再生が進んだ時**（例: 視聴開始から60秒経過または全体の5%到達の早い方）に1回だけ記録し、同一 `mediaId` は `episode`・`watchedAt` を上書き更新する。ローカルファイルは Tracker の fingerprint（§5要約の mediaId）を主キーに使い、YouTube は §10 の `youtube:{videoId}` を主キーに使う。Magnet 用の仮IDは作らない。
 - jimaku 照合で得た `anilist_id` / `tmdb_id` があれば同時に保存する（照合なしでも title + episode だけで履歴には残る）。
 - 削除は Tracker の clear 操作に連動させ、単独の全消去ボタンは置かない（v1）。
 

@@ -467,6 +467,10 @@ export const id: Dictionary = {
     contentHistoryEmptyDesc:
       'Judul dan episode akan muncul setelah pemutaran berlangsung cukup lama untuk dicatat.',
     contentHistoryLoading: 'Memuat riwayat konten…',
+    contentHistoryLocalSection: 'Anime / drama',
+    contentHistoryYouTubeSection: 'YouTube',
+    contentHistoryLoadMore: 'Muat lebih banyak',
+    contentHistorySectionEmpty: 'Belum ada.',
     contentHistoryEpisode: (episode) =>
       episode === null ? 'Episode tidak tersedia' : `Episode terakhir: ${episode}`,
     contentHistoryWatchedAt: (date) => `Terakhir ditonton: ${date}`,

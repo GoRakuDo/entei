@@ -1,8 +1,8 @@
-export type WatchHistorySource = 'local';
+export type WatchHistorySource = 'local' | 'youtube';
 export type WatchHistoryPosterStatus = 'pending' | 'ready' | 'none';
 
 export interface WatchHistoryRecord {
-  /** The Tracker media fingerprint. This is the only identity key. */
+  /** The local Tracker fingerprint or the youtube:{videoId} identity. */
   mediaId: string;
   title: string;
   /** Native/Japanese title when available; older records omit it. */
@@ -19,7 +19,11 @@ export interface WatchHistoryRecord {
 export type WatchHistoryInput = Omit<
   WatchHistoryRecord,
   'watchedAt' | 'posterUrl' | 'posterStatus'
->;
+> & {
+  /** YouTube supplies its poster synchronously at record time. */
+  posterUrl?: string | null;
+  posterStatus?: Exclude<WatchHistoryPosterStatus, 'pending'>;
+};
 
 export interface PosterResolution {
   posterUrl: string | null;

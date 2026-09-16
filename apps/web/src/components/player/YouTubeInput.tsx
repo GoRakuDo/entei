@@ -62,6 +62,8 @@ interface YouTubeInputProps {
   token: string | null;
   /** Called with the opaque job id once the companion accepted the job. */
   onJobAccepted: (jobId: string) => void;
+  /** Supplies the accepted video's id without retaining the raw watch URL. */
+  onVideoIdParsed?: (videoId: string) => void;
   /** Fire-and-forget cancel of the currently active YouTube job.
    *  When a new URL is submitted, the old job is cancelled first so the
    *  companion's one-active policy is satisfied without a 409 conflict. */
@@ -153,12 +155,44 @@ const errorMessages: Record<
   generic: (d) => d.youtubeInputErrorGeneric,
 };
 
+/** Extract a validated YouTube video id from a URL accepted by the companion. */
+export function parseYouTubeVideoId(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:') return null;
+
+  const host = url.hostname.toLowerCase();
+  let videoId: string | undefined;
+  if (host === 'youtu.be') {
+    videoId = url.pathname.split('/').filter(Boolean)[0];
+  } else if (
+    host === 'youtube.com' ||
+    host === 'www.youtube.com' ||
+    host === 'm.youtube.com' ||
+    host === 'music.youtube.com'
+  ) {
+    if (url.pathname === '/watch') {
+      videoId = url.searchParams.get('v') ?? undefined;
+    } else {
+      const match = url.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/);
+      videoId = match?.[1];
+    }
+  }
+
+  return videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId) ? videoId : null;
+}
+
 export function YouTubeInput({
   open,
   onOpenChange,
   isPaired,
   token,
   onJobAccepted,
+  onVideoIdParsed,
   cancelActiveJob,
   dict,
 }: YouTubeInputProps) {
@@ -264,8 +298,14 @@ export function YouTubeInput({
           setError(playable.reason === 'network' ? 'network' : 'generic');
           return;
         }
+        const videoId = parseYouTubeVideoId(sanitizedUrl);
+        if (videoId === null) {
+          setError('generic');
+          return;
+        }
         setUrl('');
         setSubmitting(false);
+        onVideoIdParsed?.(videoId);
         onJobAccepted(jobId);
         return;
       }
@@ -288,7 +328,14 @@ export function YouTubeInput({
     } finally {
       setSubmitting(false);
     }
-  }, [isPaired, token, url, onJobAccepted, cancelActiveJob]);
+  }, [
+    isPaired,
+    token,
+    url,
+    onJobAccepted,
+    onVideoIdParsed,
+    cancelActiveJob,
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

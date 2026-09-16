@@ -325,6 +325,7 @@ export default function PlayerApp() {
   const [mediaType, setMediaType] = useState<'video' | 'audio' | null>(null);
   const [mediaName, setMediaName] = useState('');
   const watchHistoryRecordedRef = useRef(false);
+  const youtubeVideoIdRef = useRef<string | null>(null);
   const jimakuMatchRef = useRef<{
     anilistId: number | null;
     tmdbId: string | null;
@@ -720,10 +721,15 @@ export default function PlayerApp() {
 
   // ED-2F: a real YouTube job accepted by the companion starts the bridge
   // session (polling the job's status; media loads only on complete).
+  const handleYouTubeVideoIdParsed = useCallback((videoId: string) => {
+    youtubeVideoIdRef.current = videoId;
+  }, []);
+
   const handleYouTubeJobAccepted = useCallback(
     (jobId: string) => {
       const token = pairing.tokenRef.current;
       if (!token) return;
+      watchHistoryRecordedRef.current = false;
       mediaFileRef.current = null;
       jobSession.beginJobSession({
         baseUrl: 'http://127.0.0.1:4322',
@@ -1461,6 +1467,7 @@ export default function PlayerApp() {
       setMediaType(admission.kind);
       setMediaName(file.name);
       watchHistoryRecordedRef.current = false;
+      youtubeVideoIdRef.current = null;
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
     },
@@ -1640,11 +1647,7 @@ export default function PlayerApp() {
 
   const recordWatchHistoryAtProgress = useCallback(
     async (time: number) => {
-      if (
-        watchHistoryRecordedRef.current ||
-        !trackerRuntime.mediaId ||
-        !mediaFileRef.current
-      ) return;
+      if (watchHistoryRecordedRef.current) return;
       const media = sharedMediaRef.current;
       const duration = media?.duration ?? 0;
       const threshold =
@@ -1653,10 +1656,30 @@ export default function PlayerApp() {
           : 60;
       if (!Number.isFinite(time) || time < threshold) return;
 
-      watchHistoryRecordedRef.current = true;
+      if (jobSession.active && jobSession.kind === 'youtube') {
+        const videoId = youtubeVideoIdRef.current;
+        const title = sanitizeDisplayName(jobSession.jobTitle ?? '');
+        if (!videoId || !title) return;
+        watchHistoryRecordedRef.current = true;
+        await recordWatchHistory({
+          mediaId: `youtube:${videoId}`,
+          title,
+          episode: null,
+          source: 'youtube',
+          anilistId: null,
+          tmdbId: null,
+          titleNative: null,
+          posterUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+          posterStatus: 'ready',
+        });
+        return;
+      }
+
+      if (!trackerRuntime.mediaId || !mediaFileRef.current) return;
       const parsed = parseMediaFileName(mediaName);
       const title = parsed.title || sanitizeDisplayName(mediaName);
       if (!title) return;
+      watchHistoryRecordedRef.current = true;
       await recordWatchHistory({
         mediaId: trackerRuntime.mediaId,
         title,
@@ -1667,7 +1690,7 @@ export default function PlayerApp() {
         titleNative: jimakuMatchRef.current.titleNative,
       });
     },
-    [mediaName, trackerRuntime.mediaId],
+    [jobSession.active, jobSession.kind, jobSession.jobTitle, mediaName, trackerRuntime.mediaId],
   );
 
   const handleTimeUpdate = useCallback(
@@ -4933,6 +4956,7 @@ export default function PlayerApp() {
         isPaired={pairing.connected}
         token={pairing.tokenRef.current}
         onJobAccepted={handleYouTubeJobAccepted}
+        onVideoIdParsed={handleYouTubeVideoIdParsed}
         cancelActiveJob={jobSession.cancelActiveJob}
         dict={{
           youtubeInputLabel: dict.youtubeInputLabel,

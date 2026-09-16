@@ -18,6 +18,7 @@ import {
 import '@testing-library/jest-dom/vitest';
 import {
   YouTubeInput,
+  parseYouTubeVideoId,
   sanitizeYouTubeUrl,
   type YouTubeInputDict,
 } from '@/components/player/YouTubeInput';
@@ -55,6 +56,27 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe('parseYouTubeVideoId', () => {
+  it.each([
+    ['https://www.youtube.com/watch?v=abcdefghijk', 'abcdefghijk'],
+    ['https://youtu.be/abcdefghijk', 'abcdefghijk'],
+    ['https://www.youtube.com/shorts/abcdefghijk', 'abcdefghijk'],
+    ['https://www.youtube.com/embed/abcdefghijk', 'abcdefghijk'],
+    ['https://www.youtube.com/live/abcdefghijk', 'abcdefghijk'],
+  ])('extracts the id from %s', (url, expected) => {
+    expect(parseYouTubeVideoId(url)).toBe(expected);
+  });
+
+  it.each([
+    'not a url',
+    'http://www.youtube.com/watch?v=abcdefghijk',
+    'https://www.youtube.com/watch?v=too-short',
+    'https://example.com/watch?v=abcdefghijk',
+  ])('rejects %s', (url) => {
+    expect(parseYouTubeVideoId(url)).toBeNull();
+  });
 });
 
 describe('sanitizeYouTubeUrl', () => {
