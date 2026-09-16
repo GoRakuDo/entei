@@ -129,3 +129,10 @@ TrackerDashboard は独立した `/tracker/` ページから退役し、プロ�
 - 仕組み: 中継（`entei-tmdb-relay`）に KV（Cloudflare の小さな伝言メモ）を付け、昼の問い合わせ（タイトル・種別・ID）を記録する。6時間ごとの Cron が KV を読み、新規分だけ TMDB に聞いて取り置き JSON（`apps/web/public/data/tmdb-poster-cache.json`、Entei 倉庫に同梱）に書き足す。
 - 表示順: 同梱 JSON → なければ中継 → どちらもなければ文字カード。JSON に載った分は中継を使わない。
 - KV に入れるのは作品の問い合わせ情報のみ（APIキー等の秘密は入れない）。無料枠（読み取り1日10万）で足りる見込み。
+
+## 10. 作品別セッション棚（履歴カード → Drawer 詳細）
+
+- 1回の区切り: プレイヤーから離れる・タブを閉じる・リフレッシュ・ファイル替えの4つ。一時停止や巻き戻しは同じ回の中。
+- 記録: `{ sessionId, mediaId, startedAt, endedAt, watchMs, episode, minedSentences: string[] }` を Tracker と同じ DB の別 store `watch_sessions` に貯める。文は時刻で近い回に寄せる。
+- 表示: 履歴カードを押すと Drawer（スマホは下から・パソコンは横から）。上段に総回数・総時間、下段に1回ごとの行、行を押すと送った文が出る。クリックは no-op のままだった v1 から詳細化する。
+- 将来よその人の棚も同じ Drawer 部品で開く。公開範囲の設計は別タスク。
