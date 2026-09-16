@@ -350,10 +350,6 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.entei-profile-history-poster--youtube {
-  aspect-ratio: 16 / 9;
-}
-
 .entei-profile-history-section-empty {
   padding: var(--entei-space-16);
   border: 1px dashed oklch(100% 0 0deg / 0.16);
@@ -382,6 +378,10 @@
   place-items: center;
   overflow: hidden;
   background: color-mix(in oklch, var(--entei-surface-2) 62%, var(--entei-purple-500));
+}
+
+.entei-profile-history-poster--youtube {
+  aspect-ratio: 16 / 9;
 }
 
 .entei-profile-history-poster img {
