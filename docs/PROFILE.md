@@ -130,7 +130,13 @@ TrackerDashboard は独立した `/tracker/` ページから退役し、プロ�
 - 表示順: 同梱 JSON → なければ中継 → どちらもなければ文字カード。JSON に載った分は中継を使わない。
 - KV に入れるのは作品の問い合わせ情報のみ（APIキー等の秘密は入れない）。無料枠（読み取り1日10万）で足りる見込み。
 
-## 10. 作品別セッション棚（履歴カード → Drawer 詳細）
+## 10. 履歴グリッドの2段構成（アニメ・ドラマ＋YouTube）
+
+- 上段「アニメ・ドラマ」: `source: 'local'` を1つの展示欄にまとめる。初回表示はデスクトップ15件（5列×3行）・モバイル6件（2列×3行）、超過分は Load More ボタンで追加表示する。
+- 下段「YouTube」: `source: 'youtube'` の展示欄。初回表示はデスクトップ6件（3列×2行）・モバイル6件（1列×6行）、超過分は Load More で追加表示する。サムネは公式 `https://i.ytimg.com/vi/{videoId}/hqdefault.jpg`（鍵不要・直表示）、videoId は視聴 URL から抜く。タイトルは `jobTitle` を使う。
+- YouTube の記録はローカルと同じく再生が進んだ時に1回だけ（60秒または5%）。`mediaId` は `youtube:{videoId}` とし、Tracker fingerprint とは別体系にする。
+
+## 11. 作品別セッション棚（履歴カード → Drawer 詳細）
 
 - 1回の区切り: プレイヤーから離れる・タブを閉じる・リフレッシュ・ファイル替えの4つ。一時停止や巻き戻しは同じ回の中。
 - 記録: `{ sessionId, mediaId, startedAt, endedAt, watchMs, episode, minedSentences: string[] }` を Tracker と同じ DB の別 store `watch_sessions` に貯める。文は時刻で近い回に寄せる。
