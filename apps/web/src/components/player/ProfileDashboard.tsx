@@ -279,6 +279,21 @@ function ProfileHeader({
                   </ButtonGroup>
                 </div>
               </div>
+              <div className="entei-profile-field entei-profile-bio-field--desktop">
+                <textarea
+                  id="profile-bio-desktop"
+                  className="entei-profile-textarea"
+                  value={bioDraft}
+                  maxLength={PROFILE_BIO_MAX_LENGTH}
+                  onChange={(event) => updateBio(event.target.value)}
+                  aria-label={t.bioLabel}
+                  aria-describedby="profile-bio-count-desktop"
+                  rows={4}
+                />
+                <span id="profile-bio-count-desktop" className="entei-profile-counter" aria-live="polite">
+                  {t.bioCount(bioDraft.length)}
+                </span>
+              </div>
               {avatarError !== null && (
                 <p className="entei-profile-avatar-error" role="alert">
                   {avatarError}
@@ -286,36 +301,34 @@ function ProfileHeader({
               )}
             </>
           ) : (
-            <>
-              <div className="entei-profile-view">
-                <div className="entei-profile-view-header">
-                  <h1 id="profile-title" className="entei-profile-title">
-                    {profile.name}
-                  </h1>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="entei-profile-solid-btn"
-                    onClick={startEditing}
-                  >
-                    <SquarePen aria-hidden="true" />
-                    {t.editProfileShort}
-                  </Button>
-                </div>
-                {avatarError !== null && (
-                  <p className="entei-profile-avatar-error" role="alert">
-                    {avatarError}
-                  </p>
-                )}
+            <div className="entei-profile-view">
+              <div className="entei-profile-view-header">
+                <h1 id="profile-title" className="entei-profile-title">
+                  {profile.name}
+                </h1>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="entei-profile-solid-btn"
+                  onClick={startEditing}
+                >
+                  <SquarePen aria-hidden="true" />
+                  {t.editProfileShort}
+                </Button>
               </div>
-              {profile.bio !== '' && (
-                <p className="entei-profile-bio entei-profile-bio--mobile">{profile.bio}</p>
+              {avatarError !== null && (
+                <p className="entei-profile-avatar-error" role="alert">
+                  {avatarError}
+                </p>
               )}
-            </>
+              {profile.bio !== '' && (
+                <p className="entei-profile-bio entei-profile-bio--desktop-view">{profile.bio}</p>
+              )}
+            </div>
           )}
         </div>
         {isEditing && (
-          <div className="entei-profile-field entei-profile-bio-field">
+          <div className="entei-profile-field entei-profile-bio-field--mobile">
             <textarea
               id="profile-bio"
               className="entei-profile-textarea"
@@ -330,6 +343,9 @@ function ProfileHeader({
               {t.bioCount(bioDraft.length)}
             </span>
           </div>
+        )}
+        {!isEditing && profile.bio !== '' && (
+          <p className="entei-profile-bio entei-profile-bio--mobile-view">{profile.bio}</p>
         )}
       </div>
     </section>

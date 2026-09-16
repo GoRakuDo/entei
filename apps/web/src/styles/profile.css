@@ -491,10 +491,15 @@
     align-items: start;
   }
 
-  .entei-profile-identity > .entei-profile-bio-field,
-  .entei-profile-identity > .entei-profile-bio--mobile {
+  .entei-profile-identity > .entei-profile-bio-field--mobile,
+  .entei-profile-identity > .entei-profile-bio--mobile-view {
     grid-column: 1 / -1;
     min-width: 0;
+  }
+
+  .entei-profile-bio-field--desktop,
+  .entei-profile-bio--desktop-view {
+    display: none;
   }
 
   .entei-profile-fields {
@@ -551,5 +556,17 @@
 
   .entei-profile-avatar-frame {
     width: 100%;
+  }
+}
+
+.entei-profile-bio-field--mobile,
+.entei-profile-bio--mobile-view {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .entei-profile-bio-field--mobile,
+  .entei-profile-bio--mobile-view {
+    display: block;
   }
 }
