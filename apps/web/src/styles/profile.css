@@ -386,10 +386,10 @@
 
 .entei-profile-history-card {
   min-width: 0;
-  overflow: hidden;
-  border-radius: var(--entei-radius-lg);
-  background: color-mix(in oklch, var(--entei-surface) 88%, transparent);
-  box-shadow: 0 0.75rem 1.5rem oklch(0% 0 0deg / 0.14);
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .entei-profile-history-poster {
@@ -397,6 +397,7 @@
   aspect-ratio: 2 / 3;
   place-items: center;
   overflow: hidden;
+  border-radius: var(--entei-radius-lg);
   background: color-mix(in oklch, var(--entei-surface-2) 62%, var(--entei-purple-500));
 }
 
