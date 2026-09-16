@@ -528,7 +528,6 @@ function HistoryCard({
       type="button"
       className="entei-profile-history-card"
       onClick={onClick}
-      aria-label={displayTitle}
     >
       <div className={posterClassName} aria-hidden={showPoster}>
         {showPoster && posterSrc !== undefined ? (

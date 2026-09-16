@@ -45,7 +45,7 @@ export async function putWatchSession(record: WatchSessionRecord): Promise<boole
   return putRecord(record);
 }
 
-/** Read every session newest-first for the profile read model. */
+/** Read every qualifying session newest-first for the profile read model. */
 export async function getAllWatchSessions(): Promise<WatchSessionRecord[]> {
   if (!isIndexedDBAvailable()) return [];
   const db = await openTrackerDB();
@@ -58,8 +58,10 @@ export async function getAllWatchSessions(): Promise<WatchSessionRecord[]> {
         .objectStore(STORE_NAME)
         .getAll();
       request.onsuccess = () => {
-        const records = (request.result as WatchSessionRecord[]) ?? [];
-        resolve(records.sort((a, b) => b.startedAt - a.startedAt));
+        const records = ((request.result as WatchSessionRecord[]) ?? [])
+          .filter((record) => record.watchMs > 0 || record.minedSentences.length > 0)
+          .sort((a, b) => b.startedAt - a.startedAt);
+        resolve(records);
       };
       request.onerror = () => {
         resolve([]);
