@@ -32,15 +32,12 @@ async function putRecord(record: WatchHistoryRecord): Promise<boolean> {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       tx.objectStore(STORE_NAME).put(record);
       tx.oncomplete = () => {
-        db.close();
         resolve(true);
       };
       tx.onerror = tx.onabort = () => {
-        db.close();
         resolve(false);
       };
     } catch {
-      db.close();
       resolve(false);
     }
   });
@@ -60,8 +57,6 @@ async function getWatchHistoryRecord(
     );
   } catch {
     return null;
-  } finally {
-    db.close();
   }
 }
 
@@ -77,8 +72,6 @@ export async function getAllWatchHistory(): Promise<WatchHistoryRecord[]> {
     return records.sort((a, b) => b.watchedAt - a.watchedAt);
   } catch {
     return [];
-  } finally {
-    db.close();
   }
 }
 

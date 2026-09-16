@@ -474,6 +474,19 @@ export const ja: Dictionary = {
     contentHistoryEpisode: (episode) =>
       episode === null ? 'エピソード情報なし' : `最終視聴話数: 第${episode}話`,
     contentHistoryWatchedAt: (date) => `最終視聴: ${date}`,
+    watchSessionsTitle: '視聴セッション',
+    watchSessionsSummary: (count, duration) => `${count}回・合計${duration}`,
+    watchSessionsLoading: 'セッションを読み込み中…',
+    watchSessionsEmpty: 'セッションはまだありません。',
+    watchSessionDate: (date) => date,
+    watchSessionDuration: (duration) => `視聴時間: ${duration}`,
+    watchSessionEpisode: (episode) =>
+      episode === null ? 'エピソード情報なし' : `第${episode}話`,
+    watchSessionSentences: '採掘した文章',
+    watchSessionSentencesEmpty: 'このセッションで採掘した文章はありません。',
+    watchSessionClose: '閉じる',
+    watchDuration: (hours, minutes, seconds) =>
+      hours > 0 ? `${hours}時間${minutes}分` : `${minutes}分${seconds}秒`,
   },
   trackerDashboard: {
     title: 'トラッカーダッシュボード',

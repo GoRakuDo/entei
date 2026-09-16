@@ -474,6 +474,19 @@ export const id: Dictionary = {
     contentHistoryEpisode: (episode) =>
       episode === null ? 'Episode tidak tersedia' : `Episode terakhir: ${episode}`,
     contentHistoryWatchedAt: (date) => `Terakhir ditonton: ${date}`,
+    watchSessionsTitle: 'Sesi tontonan',
+    watchSessionsSummary: (count, duration) => `${count} sesi · total ${duration}`,
+    watchSessionsLoading: 'Memuat sesi…',
+    watchSessionsEmpty: 'Belum ada sesi tontonan.',
+    watchSessionDate: (date) => date,
+    watchSessionDuration: (duration) => `Waktu tonton: ${duration}`,
+    watchSessionEpisode: (episode) =>
+      episode === null ? 'Episode tidak tersedia' : `Episode ${episode}`,
+    watchSessionSentences: 'Kalimat yang ditambang',
+    watchSessionSentencesEmpty: 'Tidak ada kalimat yang ditambang pada sesi ini.',
+    watchSessionClose: 'Tutup',
+    watchDuration: (hours, minutes, seconds) =>
+      hours > 0 ? `${hours}j ${minutes}mnt` : `${minutes}mnt ${seconds}dtk`,
   },
   trackerDashboard: {
     title: 'Tracker Dashboard',

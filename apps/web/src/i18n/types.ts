@@ -492,6 +492,17 @@ export interface Dictionary {
     contentHistorySectionEmpty: string;
     contentHistoryEpisode: (episode: number | null) => string;
     contentHistoryWatchedAt: (date: string) => string;
+    watchSessionsTitle: string;
+    watchSessionsSummary: (count: number, duration: string) => string;
+    watchSessionsLoading: string;
+    watchSessionsEmpty: string;
+    watchSessionDate: (date: string) => string;
+    watchSessionDuration: (duration: string) => string;
+    watchSessionEpisode: (episode: number | null) => string;
+    watchSessionSentences: string;
+    watchSessionSentencesEmpty: string;
+    watchSessionClose: string;
+    watchDuration: (hours: number, minutes: number, seconds: number) => string;
   };
   trackerDashboard: {
     title: string;

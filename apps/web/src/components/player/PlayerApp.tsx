@@ -85,6 +85,7 @@ import {
 } from '@/components/player/ui/resizable';
 import { recordMiningHistory } from '@/features/player/mining-history';
 import {
+  computeVideoFingerprint,
   useTrackerRuntime,
   recordTrackerMiningArchive,
   flushTrackerData,
@@ -122,6 +123,13 @@ import {
 } from '@/features/player/eizouden-toast.tsx';
 import { parseMediaFileName } from '@/features/player/filename-parser';
 import { recordWatchHistory } from '@/features/player/watch-history';
+import {
+  appendMinedSentence,
+  createWatchSessionId,
+  getPlaybackWatchDeltaMs,
+  putWatchSession,
+  type WatchSessionRecord,
+} from '@/features/player/watch-sessions';
 import { useJimakuAutoLoad } from '@/features/player/use-jimaku-auto-load';
 import {
   LAZY_SYNC_POLL_INTERVAL_MS,
@@ -326,6 +334,17 @@ export default function PlayerApp() {
   const [mediaName, setMediaName] = useState('');
   const watchHistoryRecordedRef = useRef(false);
   const youtubeVideoIdRef = useRef<string | null>(null);
+  const watchSessionRef = useRef<{
+    sessionId: string;
+    mediaId: string | null;
+    startedAt: number;
+    watchMs: number;
+    episode: number | null;
+    minedSentences: string[];
+  } | null>(null);
+  const watchSessionLastTimeRef = useRef<number | null>(null);
+  const watchSessionIsPlayingRef = useRef(false);
+  const watchSessionPendingMutationRef = useRef<Promise<void> | null>(null);
   const jimakuMatchRef = useRef<{
     anilistId: number | null;
     tmdbId: string | null;
@@ -721,6 +740,96 @@ export default function PlayerApp() {
 
   // ED-2F: a real YouTube job accepted by the companion starts the bridge
   // session (polling the job's status; media loads only on complete).
+  const persistWatchSession = useCallback(
+    (session: NonNullable<typeof watchSessionRef.current>, endedAt: number) => {
+      if (!session.mediaId) return;
+      const record: WatchSessionRecord = {
+        sessionId: session.sessionId,
+        mediaId: session.mediaId,
+        startedAt: session.startedAt,
+        endedAt,
+        watchMs: Math.max(0, Math.round(session.watchMs)),
+        episode: session.episode,
+        minedSentences: [...session.minedSentences],
+      };
+      void putWatchSession(record);
+    },
+    [],
+  );
+
+  const persistWatchSessionAfterPending = useCallback(
+    (session: NonNullable<typeof watchSessionRef.current>) => {
+      const pendingMutation = watchSessionPendingMutationRef.current;
+      if (pendingMutation) {
+        void pendingMutation.then(() => persistWatchSession(session, Date.now()));
+      } else {
+        persistWatchSession(session, Date.now());
+      }
+    },
+    [persistWatchSession],
+  );
+
+  const flushWatchSession = useCallback(() => {
+    const session = watchSessionRef.current;
+    if (!session) return;
+    persistWatchSessionAfterPending(session);
+  }, [persistWatchSessionAfterPending]);
+
+  const endWatchSession = useCallback(() => {
+    const session = watchSessionRef.current;
+    if (!session) return;
+    persistWatchSessionAfterPending(session);
+    watchSessionRef.current = null;
+    watchSessionLastTimeRef.current = null;
+    watchSessionIsPlayingRef.current = false;
+    watchSessionPendingMutationRef.current = null;
+  }, [persistWatchSessionAfterPending]);
+
+  const startWatchSession = useCallback(
+    (mediaId: string | null, episode: number | null) => {
+      endWatchSession();
+      const session = {
+        sessionId: createWatchSessionId(),
+        mediaId,
+        startedAt: Date.now(),
+        watchMs: 0,
+        episode,
+        minedSentences: [] as string[],
+      };
+      watchSessionRef.current = session;
+      watchSessionLastTimeRef.current = null;
+      if (mediaId) persistWatchSession(session, session.startedAt);
+    },
+    [endWatchSession, persistWatchSession],
+  );
+
+  const attachWatchSessionMediaId = useCallback(
+    (mediaId: string, episode: number | null) => {
+      const session = watchSessionRef.current;
+      if (!session || session.mediaId) return;
+      session.mediaId = mediaId;
+      session.episode = episode;
+      persistWatchSession(session, session.startedAt);
+    },
+    [persistWatchSession],
+  );
+
+  const appendWatchSessionSentence = useCallback(
+    (sentence: string) => {
+      const session = watchSessionRef.current;
+      const normalized = sentence.trim();
+      if (!session || !normalized) return Promise.resolve();
+      session.minedSentences.push(normalized);
+      const previous = watchSessionPendingMutationRef.current ?? Promise.resolve();
+      const mutation = previous.then(async () => {
+        await appendMinedSentence(session.sessionId, normalized);
+      });
+      watchSessionPendingMutationRef.current = mutation.catch(() => {});
+      return mutation;
+    },
+    [],
+  );
+
   const handleYouTubeVideoIdParsed = useCallback((videoId: string) => {
     youtubeVideoIdRef.current = videoId;
   }, []);
@@ -731,6 +840,8 @@ export default function PlayerApp() {
       if (!token) return;
       watchHistoryRecordedRef.current = false;
       mediaFileRef.current = null;
+      const videoId = youtubeVideoIdRef.current;
+      startWatchSession(videoId ? `youtube:${videoId}` : null, null);
       jobSession.beginJobSession({
         baseUrl: 'http://127.0.0.1:4322',
         token,
@@ -739,7 +850,7 @@ export default function PlayerApp() {
       });
       setIsYouTubeDialogOpen(false);
     },
-    [jobSession, pairing.tokenRef],
+    [jobSession, pairing.tokenRef, startWatchSession],
   );
 
   // Shared subtitle-text pipeline: parse + replace cues (used by the P3
@@ -823,6 +934,7 @@ export default function PlayerApp() {
       // Torrent basename handoff (C): the companion's sanitized file list
       // provides the selected video's basename; mirror it into mediaName
       // for the top-left controls / history, sanitized for safe display.
+      endWatchSession();
       setMediaName(sanitizeDisplayName(selectedName));
       mediaFileRef.current = null;
       jobSession.beginJobSession({
@@ -838,7 +950,7 @@ export default function PlayerApp() {
       }
       setIsMagnetDialogOpen(false);
     },
-    [jobSession, pairing.tokenRef, jimakuAutoLoad],
+    [endWatchSession, jobSession, pairing.tokenRef, jimakuAutoLoad],
   );
 
   // Attach the actual video element on the complete gate (existing ref).
@@ -1124,6 +1236,24 @@ export default function PlayerApp() {
   flushMediaIdRef.current = trackerRuntime.mediaId;
   flushMediaNameRef.current = mediaName;
 
+  // Flush on hidden as a safety checkpoint before pagehide/unload. The session
+  // remains active so playback can continue when the tab becomes visible.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushWatchSession();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [flushWatchSession]);
+
+  // Session boundaries are pagehide and player unmount. The media switch and
+  // accepted-source handlers call start/end explicitly below.
+  useEffect(() => {
+    const onPageHide = () => endWatchSession();
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [endWatchSession]);
+
   // Cleanup on unmount
   useEffect(() => {
     // AM-2: Reset for React StrictMode double-invoke (setup→cleanup→setup).
@@ -1131,6 +1261,7 @@ export default function PlayerApp() {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      endWatchSession();
       revokeUrl(activeUrlRef.current);
       activeUrlRef.current = null;
       // AM-2: Revoke any lingering screenshot object URL
@@ -1470,6 +1601,12 @@ export default function PlayerApp() {
       youtubeVideoIdRef.current = null;
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
+      startWatchSession(null, parseMediaFileName(file.name).episode);
+      const sessionId = watchSessionRef.current?.sessionId;
+      void computeVideoFingerprint(file).then((mediaId) => {
+        if (!mediaId || watchSessionRef.current?.sessionId !== sessionId) return;
+        attachWatchSessionMediaId(mediaId, parseMediaFileName(file.name).episode);
+      });
     },
     [
       clearScreenshot,
@@ -1477,6 +1614,7 @@ export default function PlayerApp() {
       clearMiningPreview,
       jobSession,
       jimakuAutoLoad,
+      startWatchSession,
     ],
   );
 
@@ -1697,13 +1835,33 @@ export default function PlayerApp() {
     (time: number) => {
       const active = findActiveCue(cues, time);
       setActiveCueId(active?.id ?? null);
+      if (watchSessionIsPlayingRef.current) {
+        const session = watchSessionRef.current;
+        if (session) {
+          session.watchMs += getPlaybackWatchDeltaMs(
+            watchSessionLastTimeRef.current,
+            time,
+          );
+        }
+      }
+      watchSessionLastTimeRef.current = watchSessionIsPlayingRef.current
+        ? time
+        : null;
       void recordWatchHistoryAtProgress(time);
     },
     [cues, recordWatchHistoryAtProgress],
   );
 
-  const handlePlay = useCallback(() => setIsPlaying(true), []);
-  const handlePause = useCallback(() => setIsPlaying(false), []);
+  const handlePlay = useCallback(() => {
+    watchSessionIsPlayingRef.current = true;
+    watchSessionLastTimeRef.current = null;
+    setIsPlaying(true);
+  }, []);
+  const handlePause = useCallback(() => {
+    watchSessionIsPlayingRef.current = false;
+    watchSessionLastTimeRef.current = null;
+    setIsPlaying(false);
+  }, []);
 
   const handleLoaded = useCallback(() => {
     setIsLoading(false);
@@ -3674,6 +3832,14 @@ export default function PlayerApp() {
         (f) => f.key === 'sentence',
       )?.value;
 
+      // Append the sentence to the current watch session. IndexedDB may not
+      // have the initial record yet; the in-memory session remains authoritative
+      // until the next persistence flush.
+      const currentWatchSession = watchSessionRef.current;
+      if (currentWatchSession && sentence?.trim()) {
+        await appendWatchSessionSentence(sentence);
+      }
+
       // Transitional: keep old mining-history write as side-effect.
       // Fire-and-forget: its success no longer controls the visible History panel
       // because the panel now reads from the tracker mining_archive.
@@ -3717,6 +3883,7 @@ export default function PlayerApp() {
     trackerRuntime.subtitleId,
     trackerRuntime.learningSetId,
     trackerRuntime.recordMine,
+    appendWatchSessionSentence,
   ]);
 
   /** Stage 2 AM-6a: Send new note to Anki. */

@@ -60,7 +60,6 @@ export async function getOrCreateSalt(): Promise<string | null> {
           | { key: string; value: string }
           | undefined;
         if (record && typeof record.value === 'string') {
-          db.close();
           resolve(record.value);
           return;
         }
@@ -68,22 +67,18 @@ export async function getOrCreateSalt(): Promise<string | null> {
         const salt = generateRandomSalt();
         store.put({ key: SALT_KEY, value: salt });
         tx.oncomplete = () => {
-          db.close();
           resolve(salt);
         };
         tx.onerror = () => {
-          db.close();
           resolve(null);
         };
       };
 
       getReq.onerror = () => {
-        db.close();
         resolve(null);
       };
     });
   } catch {
-    db.close();
     return null;
   }
 }

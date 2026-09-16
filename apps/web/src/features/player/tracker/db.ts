@@ -33,7 +33,7 @@ import type {
 /* ------------------------------------------------------------------------ */
 
 const DB_NAME = 'immersion-tracker';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 /* Store names — match IMMERSION_TRACKER.md §6 */
 const STORE_MEDIA = 'media';
@@ -44,6 +44,7 @@ const STORE_EXPOSURE_CELLS = 'exposure_cells';
 const STORE_MINING_ARCHIVE = 'mining_archive';
 const STORE_META = 'meta';
 const STORE_WATCH_HISTORY = 'watch_history';
+const STORE_WATCH_SESSIONS = 'watch_sessions';
 
 /* ------------------------------------------------------------------------ */
 /* IndexedDB availability check                                             */
@@ -64,13 +65,17 @@ function isIndexedDBAvailable(): boolean {
 /**
  * Open the immersion-tracker database.
  * Creates stores on first run (onupgradeneeded).
- * Bumps from v1→v2 to fix meta store keyPath and v2→v3 to add watch history.
+ * Bumps from v1→v2 to fix meta store keyPath, v2→v3 to add watch history,
+ * and v3→v4 to add watch sessions.
  * Returns null if IndexedDB is unavailable or open fails.
  */
+let trackerDBPromise: Promise<IDBDatabase | null> | null = null;
+
 export function openTrackerDB(): Promise<IDBDatabase | null> {
   if (!isIndexedDBAvailable()) return Promise.resolve(null);
+  if (trackerDBPromise) return trackerDBPromise;
 
-  return new Promise((resolve) => {
+  trackerDBPromise = new Promise((resolve) => {
     try {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -151,14 +156,36 @@ export function openTrackerDB(): Promise<IDBDatabase | null> {
           });
           store.createIndex('byWatchedAt', 'watchedAt', { unique: false });
         }
+
+        // ---- v3→v4 migration: add per-media watch sessions ----
+        if (prevVersion < 4 && !db.objectStoreNames.contains(STORE_WATCH_SESSIONS)) {
+          const store = db.createObjectStore(STORE_WATCH_SESSIONS, {
+            keyPath: 'sessionId',
+          });
+          store.createIndex('byMediaId', 'mediaId', { unique: false });
+          store.createIndex('byStartedAt', 'startedAt', { unique: false });
+        }
       };
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          trackerDBPromise = null;
+        };
+        resolve(db);
+      };
+      request.onerror = () => {
+        trackerDBPromise = null;
+        resolve(null);
+      };
     } catch {
+      trackerDBPromise = null;
       resolve(null);
     }
   });
+
+  return trackerDBPromise;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -178,16 +205,9 @@ async function getByKey<T>(
       const tx = db.transaction(storeName, 'readonly');
       const store = tx.objectStore(storeName);
       const req = store.get(key);
-      req.onsuccess = () => {
-        db.close();
-        resolve(req.result as T | undefined ?? null);
-      };
-      req.onerror = () => {
-        db.close();
-        resolve(null);
-      };
+      req.onsuccess = () => resolve(req.result as T | undefined ?? null);
+      req.onerror = () => resolve(null);
     } catch {
-      db.close();
       resolve(null);
     }
   });
@@ -203,16 +223,9 @@ async function getAll<T>(storeName: string): Promise<T[]> {
       const tx = db.transaction(storeName, 'readonly');
       const store = tx.objectStore(storeName);
       const req = store.getAll();
-      req.onsuccess = () => {
-        db.close();
-        resolve((req.result as T[]) ?? []);
-      };
-      req.onerror = () => {
-        db.close();
-        resolve([]);
-      };
+      req.onsuccess = () => resolve((req.result as T[]) ?? []);
+      req.onerror = () => resolve([]);
     } catch {
-      db.close();
       resolve([]);
     }
   });
@@ -228,20 +241,10 @@ async function put<T>(storeName: string, record: T): Promise<boolean> {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
       store.put(record);
-      tx.oncomplete = () => {
-        db.close();
-        resolve(true);
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve(false);
-      };
-      tx.onabort = () => {
-        db.close();
-        resolve(false);
-      };
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
     } catch {
-      db.close();
       resolve(false);
     }
   });
@@ -257,20 +260,10 @@ async function deleteByKey(storeName: string, key: string): Promise<boolean> {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
       store.delete(key);
-      tx.oncomplete = () => {
-        db.close();
-        resolve(true);
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve(false);
-      };
-      tx.onabort = () => {
-        db.close();
-        resolve(false);
-      };
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
     } catch {
-      db.close();
       resolve(false);
     }
   });
@@ -286,20 +279,10 @@ async function clearStore(storeName: string): Promise<boolean> {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
       store.clear();
-      tx.oncomplete = () => {
-        db.close();
-        resolve(true);
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve(false);
-      };
-      tx.onabort = () => {
-        db.close();
-        resolve(false);
-      };
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
     } catch {
-      db.close();
       resolve(false);
     }
   });
@@ -509,20 +492,10 @@ export async function clearExposureCellsForLearningSet(
         // Resolution happens in oncomplete
       };
 
-      tx.oncomplete = () => {
-        db.close();
-        resolve(true);
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve(false);
-      };
-      tx.onabort = () => {
-        db.close();
-        resolve(false);
-      };
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
     } catch {
-      db.close();
       resolve(false);
     }
   });
@@ -538,6 +511,7 @@ export async function clearAllTrackerData(): Promise<boolean> {
     STORE_EXPOSURE_CELLS,
     STORE_MINING_ARCHIVE,
     STORE_WATCH_HISTORY,
+    STORE_WATCH_SESSIONS,
   ];
   for (const store of stores) {
     await clearStore(store);
@@ -554,8 +528,5 @@ export async function clearAllTrackerData(): Promise<boolean> {
  * Useful before attempting old DB deletion.
  */
 export async function isTrackerDBReady(): Promise<boolean> {
-  const db = await openTrackerDB();
-  if (!db) return false;
-  db.close();
-  return true;
+  return (await openTrackerDB()) !== null;
 }

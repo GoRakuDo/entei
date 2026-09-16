@@ -469,6 +469,19 @@ export const en: Dictionary = {
     contentHistoryEpisode: (episode) =>
       episode === null ? 'Episode unavailable' : `Last episode: ${episode}`,
     contentHistoryWatchedAt: (date) => `Last watched: ${date}`,
+    watchSessionsTitle: 'Watch sessions',
+    watchSessionsSummary: (count, duration) => `${count} sessions · ${duration} total`,
+    watchSessionsLoading: 'Loading sessions…',
+    watchSessionsEmpty: 'No watch sessions yet.',
+    watchSessionDate: (date) => date,
+    watchSessionDuration: (duration) => `Watch time: ${duration}`,
+    watchSessionEpisode: (episode) =>
+      episode === null ? 'Episode unavailable' : `Episode ${episode}`,
+    watchSessionSentences: 'Mined sentences',
+    watchSessionSentencesEmpty: 'No sentences were mined in this session.',
+    watchSessionClose: 'Close',
+    watchDuration: (hours, minutes, seconds) =>
+      hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m ${seconds}s`,
   },
   trackerDashboard: {
     title: 'Tracker Dashboard',

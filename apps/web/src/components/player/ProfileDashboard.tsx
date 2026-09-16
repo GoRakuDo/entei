@@ -1,7 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDownFromLine, History, ImageUp, Save, SquarePen, X } from 'lucide-react';
+import {
+  ArrowDownFromLine,
+  ChevronDown,
+  History,
+  ImageUp,
+  Save,
+  SquarePen,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
@@ -17,6 +25,17 @@ import {
   getAllWatchHistory,
   type WatchHistoryRecord,
 } from '@/features/player/watch-history';
+import {
+  getWatchSessionsForMedia,
+  type WatchSessionRecord,
+} from '@/features/player/watch-sessions';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/player/ui/dialog';
 import {
   PROFILE_AVATAR_MAX_BYTES,
   PROFILE_BIO_MAX_LENGTH,
@@ -358,14 +377,139 @@ function formatWatchedAt(timestamp: number, locale: Locale): string {
   }).format(new Date(timestamp));
 }
 
+function formatWatchDuration(milliseconds: number, t: Dictionary['profile']): string {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return t.watchDuration(hours, minutes, seconds);
+}
+
+function WatchSessionDrawer({
+  record,
+  locale,
+  t,
+  open,
+  onOpenChange,
+}: {
+  record: WatchHistoryRecord | null;
+  locale: Locale;
+  t: Dictionary['profile'];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [sessions, setSessions] = useState<WatchSessionRecord[] | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !record) return;
+    let active = true;
+    setSessions(null);
+    setExpandedSessionId(null);
+    void getWatchSessionsForMedia(record.mediaId).then((next) => {
+      if (active) setSessions(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, [open, record]);
+
+  const displayTitle =
+    record && locale === 'ja' && record.titleNative
+      ? record.titleNative
+      : record?.title ?? '';
+  const totalWatchMs = sessions?.reduce((total, session) => total + session.watchMs, 0) ?? 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="entei-profile-watch-sessions-drawer"
+        closeLabel={t.watchSessionClose}
+      >
+        <DialogHeader>
+          <DialogTitle>{t.watchSessionsTitle}</DialogTitle>
+          <DialogDescription>
+            {displayTitle}
+            {sessions !== null && (
+              <span className="entei-profile-watch-sessions-summary">
+                {t.watchSessionsSummary(
+                  sessions.length,
+                  formatWatchDuration(totalWatchMs, t),
+                )}
+              </span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {sessions === null ? (
+          <p className="entei-profile-watch-sessions-status" role="status" aria-busy="true">
+            {t.watchSessionsLoading}
+          </p>
+        ) : sessions.length === 0 ? (
+          <p className="entei-profile-watch-sessions-status">{t.watchSessionsEmpty}</p>
+        ) : (
+          <ol className="entei-profile-watch-session-list">
+            {sessions.map((session) => {
+              const expanded = expandedSessionId === session.sessionId;
+              return (
+                <li key={session.sessionId} className="entei-profile-watch-session">
+                  <button
+                    type="button"
+                    className="entei-profile-watch-session-trigger"
+                    aria-expanded={expanded}
+                    onClick={() =>
+                      setExpandedSessionId(expanded ? null : session.sessionId)
+                    }
+                  >
+                    <span>
+                      <span className="entei-profile-watch-session-date">
+                        {t.watchSessionDate(formatWatchedAt(session.startedAt, locale))}
+                      </span>
+                      <span className="entei-profile-watch-session-meta">
+                        {t.watchSessionDuration(formatWatchDuration(session.watchMs, t))}
+                        {' · '}
+                        {t.watchSessionEpisode(session.episode)}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      size={18}
+                      aria-hidden="true"
+                      className={expanded ? 'entei-profile-watch-session-chevron--open' : ''}
+                    />
+                  </button>
+                  {expanded && (
+                    <div className="entei-profile-watch-session-details">
+                      <h3>{t.watchSessionSentences}</h3>
+                      {session.minedSentences.length === 0 ? (
+                        <p>{t.watchSessionSentencesEmpty}</p>
+                      ) : (
+                        <ul>
+                          {session.minedSentences.map((sentence, index) => (
+                            <li key={`${session.sessionId}-${index}`}>{sentence}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function HistoryCard({
   record,
   locale,
   t,
+  onClick,
 }: {
   record: WatchHistoryRecord;
   locale: Locale;
   t: Dictionary['profile'];
+  onClick: () => void;
 }) {
   const [posterFailed, setPosterFailed] = useState(false);
   const posterSrc =
@@ -380,7 +524,12 @@ function HistoryCard({
       : 'entei-profile-history-poster';
 
   return (
-    <article className="entei-profile-history-card">
+    <button
+      type="button"
+      className="entei-profile-history-card"
+      onClick={onClick}
+      aria-label={displayTitle}
+    >
       <div className={posterClassName} aria-hidden={showPoster}>
         {showPoster && posterSrc !== undefined ? (
           <img
@@ -399,7 +548,7 @@ function HistoryCard({
         <p>{t.contentHistoryEpisode(record.episode)}</p>
         <p>{t.contentHistoryWatchedAt(formatWatchedAt(record.watchedAt, locale))}</p>
       </div>
-    </article>
+    </button>
   );
 }
 
@@ -417,6 +566,7 @@ function HistorySection({
   t,
   source,
   heading,
+  onHistoryCardClick,
   desktopInitialCount,
   mobileInitialCount,
 }: {
@@ -425,6 +575,7 @@ function HistorySection({
   t: Dictionary['profile'];
   source: WatchHistoryRecord['source'];
   heading: string;
+  onHistoryCardClick: (record: WatchHistoryRecord) => void;
   desktopInitialCount: number;
   mobileInitialCount: number;
 }) {
@@ -462,7 +613,13 @@ function HistorySection({
             className={`entei-profile-history-grid${source === 'youtube' ? ' entei-profile-history-grid--youtube' : ''}`}
           >
             {visibleRecords.map((record) => (
-              <HistoryCard key={record.mediaId} record={record} locale={locale} t={t} />
+              <HistoryCard
+                key={record.mediaId}
+                record={record}
+                locale={locale}
+                t={t}
+                onClick={() => onHistoryCardClick(record)}
+              />
             ))}
           </div>
           {hasMore && (
@@ -485,9 +642,11 @@ function HistorySection({
 function ContentHistoryGrid({
   locale,
   t,
+  onHistoryCardClick,
 }: {
   locale: Locale;
   t: Dictionary['profile'];
+  onHistoryCardClick: (record: WatchHistoryRecord) => void;
 }) {
   const [records, setRecords] = useState<WatchHistoryRecord[] | null>(null);
 
@@ -530,6 +689,7 @@ function ContentHistoryGrid({
         t={t}
         source="local"
         heading={t.contentHistoryLocalSection}
+        onHistoryCardClick={onHistoryCardClick}
         desktopInitialCount={15}
         mobileInitialCount={6}
       />
@@ -539,6 +699,7 @@ function ContentHistoryGrid({
         t={t}
         source="youtube"
         heading={t.contentHistoryYouTubeSection}
+        onHistoryCardClick={onHistoryCardClick}
         desktopInitialCount={6}
         mobileInitialCount={6}
       />
@@ -549,6 +710,8 @@ function ContentHistoryGrid({
 export default function ProfileDashboard() {
   const [locale, setLocale] = useState<Locale>(getInitialLocale);
   const [profile, setProfile] = useState<LocalProfile>(() => readLocalProfile());
+  const [selectedHistoryRecord, setSelectedHistoryRecord] =
+    useState<WatchHistoryRecord | null>(null);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -574,9 +737,22 @@ export default function ProfileDashboard() {
           <TrackerDashboard />
         </TabsContent>
         <TabsContent value="history" className="entei-profile-tab-content">
-          <ContentHistoryGrid locale={locale} t={t} />
+          <ContentHistoryGrid
+            locale={locale}
+            t={t}
+            onHistoryCardClick={setSelectedHistoryRecord}
+          />
         </TabsContent>
       </Tabs>
+      <WatchSessionDrawer
+        record={selectedHistoryRecord}
+        locale={locale}
+        t={t}
+        open={selectedHistoryRecord !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedHistoryRecord(null);
+        }}
+      />
     </div>
   );
 }

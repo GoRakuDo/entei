@@ -385,11 +385,28 @@
 }
 
 .entei-profile-history-card {
+  display: block;
+  width: 100%;
   min-width: 0;
   overflow: visible;
+  border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: start;
+}
+
+.entei-profile-history-card:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 4px;
+}
+
+.entei-profile-history-card:active {
+  transform: scale(0.98);
 }
 
 .entei-profile-history-poster {
@@ -479,7 +496,140 @@
   font-size: 0.875rem;
 }
 
+.entei-profile-watch-sessions-drawer {
+  top: 0;
+  right: 0;
+  left: auto;
+  transform: none;
+  width: min(100% - var(--entei-gutter), 32rem);
+  max-width: 32rem;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: var(--entei-radius-lg) 0 0 var(--entei-radius-lg);
+  padding: var(--entei-space-32) var(--entei-gutter);
+}
+
+.entei-profile-watch-sessions-summary {
+  display: block;
+  margin-top: var(--entei-space-8);
+  color: var(--entei-text-secondary);
+  font-size: 0.875rem;
+}
+
+.entei-profile-watch-sessions-status {
+  padding: var(--entei-space-24) 0;
+  color: var(--entei-text-muted);
+  text-align: center;
+}
+
+.entei-profile-watch-session-list {
+  display: grid;
+  gap: var(--entei-space-12);
+  overflow-y: auto;
+  margin: var(--entei-space-24) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entei-profile-watch-session {
+  overflow: hidden;
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  background: var(--entei-surface-2);
+}
+
+.entei-profile-watch-session-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-16);
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  border: 0;
+  background: transparent;
+  color: var(--entei-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+
+.entei-profile-watch-session-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: -3px;
+}
+
+.entei-profile-watch-session-date,
+.entei-profile-watch-session-meta {
+  display: block;
+}
+
+.entei-profile-watch-session-date {
+  font-weight: 600;
+}
+
+.entei-profile-watch-session-meta {
+  margin-top: var(--entei-space-4);
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+}
+
+.entei-profile-watch-session-trigger svg {
+  flex: 0 0 auto;
+  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-profile-watch-session-chevron--open {
+  transform: rotate(180deg);
+}
+
+.entei-profile-watch-session-details {
+  padding: 0 var(--entei-space-16) var(--entei-space-16);
+  color: var(--entei-text-secondary);
+  font-size: 0.875rem;
+}
+
+.entei-profile-watch-session-details h3 {
+  margin: 0 0 var(--entei-space-8);
+  color: var(--entei-text);
+  font-size: 0.8125rem;
+}
+
+.entei-profile-watch-session-details p {
+  margin: 0;
+}
+
+.entei-profile-watch-session-details ul {
+  display: grid;
+  gap: var(--entei-space-8);
+  margin: 0;
+  padding-inline-start: var(--entei-space-16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-profile-history-card,
+  .entei-profile-watch-session-trigger svg {
+    transition: none;
+  }
+
+  .entei-profile-history-card:active {
+    transform: none;
+  }
+}
+
 @media (max-width: 767px) {
+  .entei-profile-watch-sessions-drawer {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: min(85dvh, 42rem);
+    max-height: 85dvh;
+    border-radius: var(--entei-radius-lg) var(--entei-radius-lg) 0 0;
+  }
+
   .entei-profile-root {
     gap: var(--entei-space-32);
   }
