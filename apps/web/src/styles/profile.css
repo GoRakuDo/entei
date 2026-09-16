@@ -463,9 +463,31 @@
     gap: var(--entei-space-32);
   }
 
+  /* Mobile-only layout: avatar left, name stacked vertically on the right.
+     Narrow columns force the long name to wrap instead of overflowing. */
   .entei-profile-identity {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: 7rem minmax(0, 1fr);
     gap: var(--entei-space-16);
+    align-items: start;
+  }
+
+  .entei-profile-fields {
+    overflow: visible;
+  }
+
+  .entei-profile-title {
+    font-size: 1.25rem;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .entei-profile-view {
+    max-width: 100%;
+  }
+
+  .entei-profile-view-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .entei-profile-name-controls {
