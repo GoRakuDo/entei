@@ -35,6 +35,12 @@ function dataBox(dataType: number, payload: Uint8Array): Uint8Array {
   return fullBox('data', new Uint8Array([...u32(dataType), ...u32(0), ...payload]));
 }
 
+/** Audible-style data box: version/flags + dataType 0, NO locale field —
+    image bytes start at +8 instead of +12. */
+function audibleDataBox(payload: Uint8Array): Uint8Array {
+  return box('data', new Uint8Array([0, 0, 0, 0, ...u32(0), ...payload]));
+}
+
 function textDataBox(text: string): Uint8Array {
   return dataBox(1, new Uint8Array([...new TextEncoder().encode(text), 0]));
 }
@@ -211,6 +217,24 @@ describe('MP4 cover extraction', () => {
       expect.objectContaining({ type: 'image/jpeg' }),
     );
     expect(musicMetadataMocks.parseBlob).not.toHaveBeenCalled();
+  });
+
+  it('extracts an Audible-style covr with no locale field', async () => {
+    const items = box('covr', audibleDataBox(JPEG_PAYLOAD));
+    const ilst = box('ilst', items);
+    const meta = fullBox('meta', ilst);
+    const moov = box('moov', box('udta', meta));
+    const file = new File([new Uint8Array([...moov])], 'audible.m4b', {
+      type: 'audio/mp4',
+    });
+
+    await expect(extractAudioCover(file)).resolves.toEqual({
+      title: 'audible.m4b',
+      coverUrl: 'blob:cover-art',
+    });
+    expect(URL.createObjectURL).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'image/jpeg' }),
+    );
   });
 
   it('omits a cover when the m4b has a title but no covr atom', async () => {

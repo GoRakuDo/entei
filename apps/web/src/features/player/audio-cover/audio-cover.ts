@@ -159,18 +159,30 @@ async function readDataPayload(
   const valid = await scanBoxRange(file, item.contentStart, item.end, async (box) => {
     if (box.type !== 'data' || result !== null) return true;
 
-    // A data box is a full box: version/flags (4), data type (4), locale (4),
-    // then the payload.
-    if (box.end - box.contentStart < 12) return false;
-    const header = await readRange(file, box.contentStart, 12);
-    if (header === null) return false;
+    // A data box is normally a full box: version/flags (4), data type (4),
+    // locale (4), then the payload. Audible covr omits the locale field
+    // (dataType 0, image bytes start at +8), so detect image magic at +8
+    // first and only fall back to the standard +12 layout otherwise.
+    if (box.end - box.contentStart < 8) return false;
+    const peekLength = Math.min(16, box.end - box.contentStart);
+    const peek = await readRange(file, box.contentStart, peekLength);
+    if (peek === null) return false;
 
-    const headerView = new DataView(
-      header.buffer,
-      header.byteOffset,
-      header.byteLength,
+    const peekView = new DataView(
+      peek.buffer,
+      peek.byteOffset,
+      peek.byteLength,
     );
-    const payloadStart = box.contentStart + 12;
+    const dataType = peekView.getUint32(4);
+    const tail = peek.subarray(8);
+    const payloadStart =
+      imageFormat(dataType, tail) !== null
+        ? box.contentStart + 8
+        : box.contentStart + 12;
+    if (box.end - payloadStart < 0) return false;
+    if (payloadStart === box.contentStart + 12 && box.end - box.contentStart < 12) {
+      return false;
+    }
     const payloadLength = box.end - payloadStart;
     if (payloadLength < 0) return false;
 
@@ -180,7 +192,7 @@ async function readDataPayload(
     const payload = await readRange(file, payloadStart, payloadLength);
     if (payload === null) return false;
 
-    result = { dataType: headerView.getUint32(4), payload };
+    result = { dataType, payload };
     return true;
   });
 
