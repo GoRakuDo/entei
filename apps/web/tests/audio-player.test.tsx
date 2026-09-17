@@ -11,8 +11,8 @@ const cues = [
 ] as const;
 
 describe('AudioPlayer', () => {
-  it('renders cover/subtitle ButtonGroup tabs and subtitle cues from props', () => {
-    render(<AudioPlayer title="Book title" cues={cues} />);
+  it('renders cover/subtitle ButtonGroup tabs and subtitle cues from a loaded source', () => {
+    render(<AudioPlayer src="/book.m4b" title="Book title" cues={cues} />);
 
     const subtitleTab = screen.getByRole('button', { name: 'Subtitle' });
     const coverTab = screen.getByRole('button', { name: 'Cover' });
@@ -28,20 +28,49 @@ describe('AudioPlayer', () => {
     expect(coverTab.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('exposes keyboard and touch-sized playback controls with existing speed values', () => {
+  it('shows only the file-selection panel before an audio source is loaded', () => {
     render(<AudioPlayer />);
 
-    expect((screen.getByRole('button', { name: 'Play' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Skip back 10 seconds' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Skip back 30 seconds' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Skip forward 10 seconds' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Skip forward 30 seconds' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Open audio file' })).not.toBeNull();
+    expect(screen.getByText('Accepted formats: MP3, WAV, FLAC, AAC, M4A, M4B, and OPUS.')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Subtitle' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cover' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Play' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Skip back 10 seconds' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Skip back 30 seconds' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Skip forward 10 seconds' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Skip forward 30 seconds' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Playback speed' })).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Seek through audio' })).toBeNull();
+  });
+
+  it('shows the full playback chrome when a source is supplied', () => {
+    render(<AudioPlayer src="/book.m4b" />);
+
+    expect(screen.getByRole('button', { name: 'Subtitle' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Cover' })).not.toBeNull();
+
+    const play = screen.getByRole('button', { name: 'Play' }) as HTMLButtonElement;
+    expect(play.disabled).toBe(false);
+    expect(
+      (screen.getByRole('button', { name: 'Skip back 10 seconds' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (screen.getByRole('button', { name: 'Skip back 30 seconds' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (screen.getByRole('button', { name: 'Skip forward 10 seconds' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (screen.getByRole('button', { name: 'Skip forward 30 seconds' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    const seek = screen.getByRole('slider', { name: 'Seek through audio' }) as HTMLInputElement;
+    expect(seek.disabled).toBe(true);
 
     const speed = screen.getByRole('combobox', { name: 'Playback speed' }) as HTMLSelectElement;
     expect(speed.value).toBe('1');
-
     expect(screen.getAllByRole('option')).toHaveLength(8);
-    expect((screen.getByRole('slider', { name: 'Seek through audio' }) as HTMLInputElement).disabled).toBe(true);
   });
 });
 

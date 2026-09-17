@@ -9,6 +9,32 @@
   color: var(--entei-text);
 }
 
+.audio-player__empty-state {
+  display: flex;
+  min-height: calc(100dvh - var(--entei-topbar-height) - 8rem);
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex-direction: column;
+  padding: clamp(2rem, 6vw, 5rem);
+  border: 1px solid var(--audio-player-border);
+  border-radius: calc(var(--entei-radius-lg) + 0.25rem);
+  background: var(--audio-player-surface);
+  box-shadow: 0 1.5rem 4rem oklch(0% 0 0deg / 0.18);
+  text-align: center;
+}
+
+.audio-player__empty-state .audio-player__title {
+  max-width: 32rem;
+  margin-block: 0.25rem;
+}
+
+.audio-player__formats {
+  margin-block-start: 0.25rem;
+  color: var(--entei-text-muted);
+  font-size: 0.85rem;
+}
+
 .audio-player__header {
   display: flex;
   align-items: flex-start;

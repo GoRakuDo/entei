@@ -61,6 +61,7 @@ const STRINGS = {
   playbackError: 'Unable to play this audio file.',
   audioElement: 'Audio playback',
   noTrack: 'Choose an audio file to begin listening.',
+  acceptedFormats: 'Accepted formats: MP3, WAV, FLAC, AAC, M4A, M4B, and OPUS.',
 } as const;
 
 export interface AudioPlayerProps {
@@ -106,6 +107,7 @@ export default function AudioPlayer({
   cues = [],
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const ownedAudioUrlRef = useRef<string | null>(null);
   const coverUrlRef = useRef<string | null>(null);
   const coverRequestRef = useRef(0);
@@ -211,7 +213,7 @@ export default function AudioPlayer({
 
   const togglePlayback = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio || audioSrc === null) return;
+    if (!audio) return;
 
     if (audio.paused) {
       try {
@@ -224,18 +226,18 @@ export default function AudioPlayer({
     } else {
       audio.pause();
     }
-  }, [audioSrc]);
+  }, []);
 
   const skipBy = useCallback((seconds: number) => {
     const audio = audioRef.current;
-    if (!audio || audioSrc === null) return;
+    if (!audio) return;
     const target = clampAudioSeekTarget(
       audio.currentTime + seconds,
       audio.duration,
     );
     audio.currentTime = target;
     setCurrentTime(target);
-  }, [audioSrc]);
+  }, []);
 
   const handleSeek = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -306,21 +308,75 @@ export default function AudioPlayer({
   const handleCueClick = useCallback(
     (cue: SubtitleCue) => {
       const audio = audioRef.current;
-      if (!audio || audioSrc === null) return;
+      if (!audio) return;
       const target = clampAudioSeekTarget(cue.start, audio.duration);
       audio.currentTime = target;
       setCurrentTime(target);
     },
-    [audioSrc],
+    [],
   );
 
-  const isSeekable = audioSrc !== null && duration > 0;
+  const isSeekable = duration > 0;
   const displayedTime = Number.isFinite(currentTime) ? currentTime : 0;
   const displayedDuration = Number.isFinite(duration) ? duration : 0;
   const coverVideoId = isLocalSource ? null : youtubeVideoId;
+  const filePicker = (
+    <>
+      <button
+        className="audio-player__open-button"
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <FolderOpen size={18} aria-hidden="true" />
+        <span>{STRINGS.openFile}</span>
+      </button>
+      <input
+        ref={fileInputRef}
+        className="audio-player__file-input"
+        type="file"
+        accept="audio/*,.m4b,.m4a,.mp3,.wav,.flac,.aac,.opus"
+        aria-label={STRINGS.fileInput}
+        onChange={handleFileChange}
+      />
+    </>
+  );
+
+  if (audioSrc === null) {
+    return (
+      <section className="audio-player" aria-labelledby="audio-player-title">
+        {/* This must stay the first child in both branches so the listener effect survives reconciliation. */}
+        <audio
+          ref={audioRef}
+          src={audioSrc ?? undefined}
+          preload="metadata"
+          aria-label={`${STRINGS.audioElement}: ${title}`}
+        />
+
+        <div className="audio-player__empty-state">
+          <h1 id="audio-player-title" className="audio-player__title">
+            {STRINGS.noTrack}
+          </h1>
+          {filePicker}
+          <p className="audio-player__formats">{STRINGS.acceptedFormats}</p>
+          {error !== null && (
+            <p className="audio-player__status" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="audio-player" aria-labelledby="audio-player-title">
+      <audio
+        ref={audioRef}
+        src={audioSrc}
+        preload="metadata"
+        aria-label={`${STRINGS.audioElement}: ${title}`}
+      />
+
       <header className="audio-player__header">
         <div>
           <p className="audio-player__eyebrow">{STRINGS.eyebrow}</p>
@@ -328,17 +384,7 @@ export default function AudioPlayer({
             {title}
           </h1>
         </div>
-        <label className="audio-player__open-button">
-          <FolderOpen size={18} aria-hidden="true" />
-          <span>{STRINGS.openFile}</span>
-          <input
-            className="audio-player__file-input"
-            type="file"
-            accept="audio/*,.m4b,.m4a,.mp3,.wav,.flac,.aac,.opus"
-            aria-label={STRINGS.fileInput}
-            onChange={handleFileChange}
-          />
-        </label>
+        {filePicker}
       </header>
 
       <div className="audio-player__stage">
@@ -409,9 +455,7 @@ export default function AudioPlayer({
             </section>
           )}
 
-          <p className="audio-player__now-playing">
-            {audioSrc === null ? STRINGS.noTrack : title}
-          </p>
+          <p className="audio-player__now-playing">{title}</p>
 
           <div className="audio-player__controls">
             <div className="audio-player__seek-wrap">
@@ -437,7 +481,6 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                disabled={audioSrc === null}
                 aria-label={STRINGS.skipBack30}
                 title={STRINGS.skipBack30}
                 onClick={() => skipBy(-30)}
@@ -448,7 +491,6 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                disabled={audioSrc === null}
                 aria-label={STRINGS.skipBack10}
                 title={STRINGS.skipBack10}
                 onClick={() => skipBy(-10)}
@@ -459,7 +501,6 @@ export default function AudioPlayer({
               <button
                 className="audio-player__control audio-player__control--primary"
                 type="button"
-                disabled={audioSrc === null}
                 aria-label={isPlaying ? STRINGS.pause : STRINGS.play}
                 title={isPlaying ? STRINGS.pause : STRINGS.play}
                 onClick={() => void togglePlayback()}
@@ -473,7 +514,6 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                disabled={audioSrc === null}
                 aria-label={STRINGS.skipForward10}
                 title={STRINGS.skipForward10}
                 onClick={() => skipBy(10)}
@@ -484,7 +524,6 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                disabled={audioSrc === null}
                 aria-label={STRINGS.skipForward30}
                 title={STRINGS.skipForward30}
                 onClick={() => skipBy(30)}
@@ -521,14 +560,6 @@ export default function AudioPlayer({
         </div>
 
       </div>
-
-      <audio
-        ref={audioRef}
-        src={audioSrc ?? undefined}
-        preload="metadata"
-        aria-label={`${STRINGS.audioElement}: ${title}`}
-      />
-
     </section>
   );
 }
