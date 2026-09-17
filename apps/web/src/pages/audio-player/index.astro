@@ -1,0 +1,15 @@
+---
+/**
+ * Audio Player Page — `/audio-player/`.
+ *
+ * This route intentionally has no navigation wiring yet. The React island owns
+ * local file selection and accepts future subtitle/source props without
+ * connecting history or session storage.
+ */
+import PlayerLayout from '@layouts/PlayerLayout.astro';
+import AudioPlayer from '@/components/player/AudioPlayer';
+---
+
+<PlayerLayout locale="id" path="/audio-player/" noindex={true}>
+  <AudioPlayer client:only="react" />
+</PlayerLayout>

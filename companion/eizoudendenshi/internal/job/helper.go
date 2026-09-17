@@ -19,6 +19,11 @@ const qualityFormat = "bv*[height<=1080]+ba/b[height<=1080]/b"
 // so the video downloads and plays rather than failing with "Requested format is not available".
 const speedFormat = "b/bv*[height<=1080]+ba/b[height<=1080]/b"
 
+// audioFormat selects the single best audio-only source. It deliberately
+// does not use --extract-audio (or any other postprocessor option): yt-dlp
+// downloads the selected original container/codec and writes it unchanged.
+const audioFormat = "bestaudio"
+
 // heightPrintTemplate writes the selected format's height (e.g. "720") to a
 // sidecar file so the companion can report the actual resolution for the
 // quality toast (docs: "選択された画質とモード"). `--print-to-file` runs
@@ -51,27 +56,34 @@ const totalPrintTemplate = "%(filesize_approx)s"
 //   - speed: progressive selector, NO --no-part → yt-dlp writes
 //     media.<ext>.part and renames it on completion; the .part file is
 //     served while it grows (instant playback).
+//   - audio: bestaudio + --no-part (the selected original audio file is
+//     served only after download completion; no transcode/postprocessor).
 //
-// Both modes write the selected height to height.txt for the toast.
+// Both video modes write the selected height to height.txt for the toast.
 //
 // The -o template resolves inside the job's private temp directory, so a
 // malicious URL can never make the helper write outside it.
 func helperArgs(jobDir, url string, mode Mode) []string {
 	format := qualityFormat
 	noPart := "--no-part"
-	if mode == ModeSpeed {
+	switch mode {
+	case ModeSpeed:
 		format = speedFormat
 		noPart = "" // keep .part so the growing file can be streamed
+	case ModeAudio:
+		format = audioFormat
+		// Keep --no-part: audio uses the completed original file and never
+		// exposes a growing container to the audio player.
 	}
 	args := []string{
-		"--no-playlist",                              // deterministic single video
-		"--no-progress",                              // keep helper output quiet
-		"--no-write-info-json",                       // no sidecar files
-		"--no-write-thumbnail",                       // media bytes only
-		"--write-subs",                               // download subtitles (manual preferred)
-		"--write-auto-subs",                          // download auto-generated subtitles (fallback)
-		"--sub-langs", "ja,ja-orig,ja-JP,ja-Hrkt",    // Japanese subtitles only (avoids ja-en/ja-es auto-translation 429 errors)
-		"--sub-format", "vtt",                        // deterministic format
+		"--no-playlist",                           // deterministic single video
+		"--no-progress",                           // keep helper output quiet
+		"--no-write-info-json",                    // no sidecar files
+		"--no-write-thumbnail",                    // media bytes only
+		"--write-subs",                            // download subtitles (manual preferred)
+		"--write-auto-subs",                       // download auto-generated subtitles (fallback)
+		"--sub-langs", "ja,ja-orig,ja-JP,ja-Hrkt", // Japanese subtitles only (avoids ja-en/ja-es auto-translation 429 errors)
+		"--sub-format", "vtt", // deterministic format
 		"--extractor-args", "youtube:player_client=mweb,android,web", // robust clients to bypass 403 Forbidden
 	}
 	if noPart != "" {

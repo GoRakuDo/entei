@@ -53,13 +53,14 @@ type Media struct {
 // URL, local paths, the helper command line, or helper output. Error is a
 // generic message present only in the error state.
 type Snapshot struct {
-	ID      string `json:"id"`
-	State   State  `json:"state"`
-	Mode    Mode   `json:"mode"`
-	Quality int    `json:"quality,omitempty"` // selected format height (0 = unknown)
-	Title   string `json:"title,omitempty"`   // YouTube video title (empty = not yet known)
-	Error   string `json:"error,omitempty"`
-	Media   Media  `json:"media"`
+	ID        string `json:"id"`
+	State     State  `json:"state"`
+	Mode      Mode   `json:"mode"`
+	Quality   int    `json:"quality,omitempty"` // selected format height (0 = unknown)
+	Title     string `json:"title,omitempty"`   // YouTube video title (empty = not yet known)
+	Error     string `json:"error,omitempty"`
+	Media     Media  `json:"media"`
+	MediaType string `json:"-"` // internal original audio MIME type; never serialized
 }
 
 // Mode is the YouTube download strategy (docs/EIZOU_DENDENSHI.md "YouTube
@@ -72,11 +73,15 @@ const (
 	ModeQuality Mode = "quality"
 	// ModeSpeed — progressive single-file; plays while downloading (.part).
 	ModeSpeed Mode = "speed"
+	// ModeAudio — bestaudio original-container passthrough. It never invokes
+	// an audio postprocessor or transcode; the completed file's extension
+	// determines the HTTP Content-Type.
+	ModeAudio Mode = "audio"
 )
 
 // ValidMode reports whether m is a known download mode.
 func ValidMode(m Mode) bool {
-	return m == ModeQuality || m == ModeSpeed
+	return m == ModeQuality || m == ModeSpeed || m == ModeAudio
 }
 
 // ErrInvalidMode is returned when an unknown download mode is requested.

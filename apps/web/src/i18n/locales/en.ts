@@ -464,6 +464,7 @@ export const en: Dictionary = {
     contentHistoryLoading: 'Loading content history…',
     contentHistoryLocalSection: 'Anime / drama',
     contentHistoryYouTubeSection: 'YouTube',
+    contentHistoryListeningSection: 'Listening',
     contentHistoryLoadMore: 'Load more',
     contentHistorySectionEmpty: 'Nothing here yet.',
     contentHistoryEpisode: (episode) =>

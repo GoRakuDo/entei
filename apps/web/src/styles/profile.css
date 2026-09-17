@@ -370,6 +370,10 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.entei-profile-history-grid--audio {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .entei-profile-history-section-empty {
   padding: var(--entei-space-16);
   border: 1px dashed oklch(100% 0 0deg / 0.16);
@@ -421,6 +425,10 @@
 .entei-profile-history-poster--youtube {
   aspect-ratio: 16 / 9;
   background: var(--entei-surface);
+}
+
+.entei-profile-history-poster--audio {
+  aspect-ratio: 1 / 1;
 }
 
 .entei-profile-history-poster img {
@@ -692,6 +700,10 @@
 
   .entei-profile-history-grid--youtube {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .entei-profile-history-grid--audio {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .entei-profile-view-header > button {

@@ -367,6 +367,128 @@ func TestJobCreateModeSpeedStreamsWhileDownloading(t *testing.T) {
 	}
 }
 
+func TestAudioJobRangePreservesBytesAndContentType(t *testing.T) {
+	s, m := newJobsServer(t)
+	t.Setenv("EIZOU_FAKE_EXT", "m4a")
+	t.Setenv("EIZOU_FAKE_SIZE", "1024")
+	t.Setenv("EIZOU_FAKE_CHUNK", "1024")
+	t.Setenv("EIZOU_FAKE_HOLD", "")
+
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"audio"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("audio create = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	waitForState(t, m, created.ID, job.StateComplete, 5*time.Second)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/media/fixture?token="+s.token, nil)
+	req.Header.Set("Origin", allowedOriginLocal)
+	req.Header.Set("Range", "bytes=100-199")
+	mediaRec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(mediaRec, req)
+	if mediaRec.Code != http.StatusPartialContent {
+		t.Fatalf("audio range = %d, want 206", mediaRec.Code)
+	}
+	if got := mediaRec.Header().Get("Content-Type"); got != "audio/mp4" {
+		t.Fatalf("audio range Content-Type = %q, want audio/mp4", got)
+	}
+	if got := mediaRec.Header().Get("Content-Range"); got != "bytes 100-199/1024" {
+		t.Fatalf("audio range Content-Range = %q, want bytes 100-199/1024", got)
+	}
+	if len(mediaRec.Body.Bytes()) != 100 {
+		t.Fatalf("audio range body length = %d, want 100", len(mediaRec.Body.Bytes()))
+	}
+	for i, b := range mediaRec.Body.Bytes() {
+		if b != 0x41 {
+			t.Fatalf("audio range byte %d = %#x, want original 0x41", i, b)
+		}
+	}
+}
+
+func TestAudioJobContentTypes(t *testing.T) {
+	s, m := newJobsServer(t)
+	cases := []struct {
+		ext  string
+		mime string
+	}{
+		{"m4a", "audio/mp4"},
+		{"aac", "audio/aac"},
+		{"opus", "audio/ogg"},
+		{"webm", "audio/webm"},
+		{"mp3", "audio/mpeg"},
+		{"ogg", "audio/ogg"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ext, func(t *testing.T) {
+			t.Setenv("EIZOU_FAKE_EXT", tc.ext)
+			t.Setenv("EIZOU_FAKE_SIZE", "256")
+			t.Setenv("EIZOU_FAKE_HOLD", "")
+			rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+				`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"audio"}`)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("audio create = %d, want 201 (%s)", rec.Code, rec.Body.String())
+			}
+			var created struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+				t.Fatalf("decode create: %v", err)
+			}
+			waitForState(t, m, created.ID, job.StateComplete, 5*time.Second)
+
+			req := httptest.NewRequest(http.MethodGet, "/v1/media/fixture?token="+s.token, nil)
+			req.Header.Set("Origin", allowedOriginLocal)
+			req.Header.Set("Range", "bytes=0-0")
+			mediaRec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(mediaRec, req)
+			if mediaRec.Code != http.StatusPartialContent {
+				t.Fatalf("audio %s range = %d, want 206", tc.ext, mediaRec.Code)
+			}
+			if got := mediaRec.Header().Get("Content-Type"); got != tc.mime {
+				t.Fatalf("audio %s Content-Type = %q, want %q", tc.ext, got, tc.mime)
+			}
+		})
+	}
+}
+
+func TestAudioModeRejectsUnsupportedOutputExtension(t *testing.T) {
+	s, m := newJobsServer(t)
+	t.Setenv("EIZOU_FAKE_EXT", "mp4")
+	t.Setenv("EIZOU_FAKE_SIZE", "128")
+	t.Setenv("EIZOU_FAKE_HOLD", "")
+	rec := doJob(t, s, http.MethodPost, "/v1/source/jobs", allowedOriginLocal,
+		`{"url":"https://www.youtube.com/watch?v=abcdefghijk","mode":"audio"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("audio create = %d, want 201", rec.Code)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		current := m.Get(created.ID)
+		if current != nil && current.State == job.StateError {
+			if current.Error != "unsupported audio format" {
+				t.Fatalf("error = %q, want unsupported audio format", current.Error)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("audio job did not reject unsupported output: %+v", current)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestJobCreateInvalidURLAndRedaction(t *testing.T) {
 	s, _ := newJobsServer(t)
 	cases := []string{

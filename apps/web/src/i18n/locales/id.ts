@@ -469,6 +469,7 @@ export const id: Dictionary = {
     contentHistoryLoading: 'Memuat riwayat konten…',
     contentHistoryLocalSection: 'Anime / drama',
     contentHistoryYouTubeSection: 'YouTube',
+    contentHistoryListeningSection: 'Mendengarkan',
     contentHistoryLoadMore: 'Muat lebih banyak',
     contentHistorySectionEmpty: 'Belum ada.',
     contentHistoryEpisode: (episode) =>

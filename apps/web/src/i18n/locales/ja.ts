@@ -469,6 +469,7 @@ export const ja: Dictionary = {
     contentHistoryLoading: 'コンテンツ履歴を読み込み中…',
     contentHistoryLocalSection: 'アニメ・ドラマ',
     contentHistoryYouTubeSection: 'YouTube',
+    contentHistoryListeningSection: 'リスニング',
     contentHistoryLoadMore: 'もっと見る',
     contentHistorySectionEmpty: 'まだありません。',
     contentHistoryEpisode: (episode) =>

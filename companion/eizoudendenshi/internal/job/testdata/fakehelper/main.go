@@ -19,9 +19,12 @@
 //	                             value (e.g. "-Frag0" mirrors yt-dlp's
 //	                             fragmented-download naming, where the growing
 //	                             file is NOT media.<ext>.part)
+//	EIZOU_FAKE_EXT             — test-only output extension (default: mp4);
+//	                             audio tests use m4a/aac/opus/webm/mp3/ogg
+//	                             to exercise MIME selection.
 //
 // It parses its own argv only to find the "-o <dir>/media.%(ext)s" argument
-// (fixed by the manager) and writes <dir>/media.mp4 (+ suffix in speed
+// (fixed by the manager) and writes <dir>/media.<ext> (+ suffix in speed
 // mode). It also writes pid.txt into that directory so tests can observe
 // the process.
 package main
@@ -100,7 +103,14 @@ func main() {
 	// (EIZOU_FAKE_PART_SUFFIX, e.g. "-Frag0"), which yt-dlp actually uses
 	// for some formats; the classic naming is kept so existing tests
 	// still mirror the common case.
-	outPath = strings.Replace(outPath, "%(ext)s", "mp4", 1)
+	ext := os.Getenv("EIZOU_FAKE_EXT")
+	switch ext {
+	case "m4a", "aac", "opus", "webm", "mp3", "ogg":
+		// Test-only audio extensions.
+	default:
+		ext = "mp4"
+	}
+	outPath = strings.Replace(outPath, "%(ext)s", ext, 1)
 	if !noPart {
 		suffix := os.Getenv("EIZOU_FAKE_PART_SUFFIX")
 		if suffix == "" {

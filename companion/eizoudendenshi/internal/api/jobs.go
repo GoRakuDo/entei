@@ -93,6 +93,8 @@ func (s *Server) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		mode = job.ModeSpeed
 	case "quality":
 		mode = job.ModeQuality
+	case "audio":
+		mode = job.ModeAudio
 	default:
 		writeJSON(w, http.StatusBadRequest, errorBody("invalid mode"))
 		return
@@ -291,7 +293,8 @@ func (s *Server) activeJobStatus() (statusBody, bool) {
 // contract when the job is the current session. Returns true when the
 // request was fully handled. Mapping:
 //
-//	complete     → the growing serv (available == total → 200/206)
+//	complete     → the growing serv (available == total → 200/206), with
+//	                audio mode's original-extension Content-Type
 //	downloading/ → 503 buffering with current bytes / total (0 until known)
 //	buffering      … EXCEPT speed mode, where the growing .part source is
 //	                served (206 clamped to available; instant playback)
@@ -304,6 +307,13 @@ func (s *Server) serveJobMedia(w http.ResponseWriter, r *http.Request) bool {
 	switch snap.State {
 	case job.StateComplete:
 		if src != nil {
+			if snap.Mode == job.ModeAudio {
+				if snap.MediaType == "" {
+					writeJSON(w, http.StatusNotFound, errorBody("media not available"))
+					return true
+				}
+				w.Header().Set("Content-Type", snap.MediaType)
+			}
 			s.serveGrowingSource(src, w, r)
 			return true
 		}

@@ -1,4 +1,4 @@
-export type WatchHistorySource = 'local' | 'youtube';
+export type WatchHistorySource = 'local' | 'youtube' | 'audio';
 export type WatchHistoryPosterStatus = 'pending' | 'ready' | 'none';
 
 export interface WatchHistoryRecord {

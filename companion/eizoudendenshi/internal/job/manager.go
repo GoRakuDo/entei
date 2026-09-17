@@ -80,6 +80,7 @@ type job struct {
 	bytes        atomicInt64  // current media bytes on disk (polled)
 	quality      atomicInt64  // selected format height (0 = unknown, set once)
 	title        atomicString // YouTube video title (read once from title.txt)
+	mediaType    atomicString // completed media MIME type (audio mode only)
 	subtitlePath string       // path to the selected Japanese subtitle file (VTT)
 	partMu       sync.Mutex
 	partPath     string      // growing .part file path (speed mode streaming), "" if none
@@ -103,9 +104,10 @@ func (j *job) setError(msg string) {
 // complete state under one stateMu acquisition. snapshot and
 // completedSource read both fields under stateMu, so an observer sees a
 // consistent (src, state) pair — never StateComplete with a nil src.
-func (j *job) setCompleted(src *JobSource, size int64) {
+func (j *job) setCompleted(src *JobSource, size int64, mediaType string) {
 	j.stateMu.Lock()
 	j.src = src
+	j.mediaType.store(mediaType)
 	j.state = StateComplete
 	j.stateMu.Unlock()
 	j.bytes.store(size)
@@ -129,7 +131,14 @@ func (j *job) completedSource() media.GrowingSource {
 func (j *job) snapshot() Snapshot {
 	j.stateMu.Lock()
 	defer j.stateMu.Unlock()
-	snap := Snapshot{ID: j.id, State: j.state, Mode: j.mode, Quality: int(j.quality.load()), Title: j.title.load()}
+	snap := Snapshot{
+		ID:        j.id,
+		State:     j.state,
+		Mode:      j.mode,
+		Quality:   int(j.quality.load()),
+		Title:     j.title.load(),
+		MediaType: j.mediaType.load(),
+	}
 	if j.state == StateError {
 		snap.Error = j.errMsg
 	}
@@ -711,7 +720,17 @@ func (m *Manager) finalize(j *job, dir string) bool {
 	// Select the best Japanese subtitle file (manual preferred over auto).
 	j.subtitlePath = selectJapaneseSubtitle(dir)
 	j.refreshDownloadState(dir) // capture part path + height for the toast
-	j.setCompleted(src, size)
+	mediaType := ""
+	if j.mode == ModeAudio {
+		mediaType = audioMediaTypeForPath(path)
+		if mediaType == "" {
+			_ = src.Close()
+			removeAllBestEffort(dir)
+			j.setError("unsupported audio format")
+			return false
+		}
+	}
+	j.setCompleted(src, size, mediaType)
 	return true
 }
 

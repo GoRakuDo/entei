@@ -521,7 +521,9 @@ function HistoryCard({
   const posterClassName =
     record.source === 'youtube'
       ? 'entei-profile-history-poster entei-profile-history-poster--youtube'
-      : 'entei-profile-history-poster';
+      : record.source === 'audio'
+        ? 'entei-profile-history-poster entei-profile-history-poster--audio'
+        : 'entei-profile-history-poster';
 
   return (
     <button
@@ -609,7 +611,7 @@ function HistorySection({
       ) : (
         <>
           <div
-            className={`entei-profile-history-grid${source === 'youtube' ? ' entei-profile-history-grid--youtube' : ''}`}
+            className={`entei-profile-history-grid${source === 'youtube' ? ' entei-profile-history-grid--youtube' : source === 'audio' ? ' entei-profile-history-grid--audio' : ''}`}
           >
             {visibleRecords.map((record) => (
               <HistoryCard
@@ -680,6 +682,7 @@ function ContentHistoryGrid({
 
   const localRecords = records.filter((record) => record.source === 'local');
   const youtubeRecords = records.filter((record) => record.source === 'youtube');
+  const audioRecords = records.filter((record) => record.source === 'audio');
   return (
     <div data-testid="profile-content-history-grid">
       <HistorySection
@@ -700,6 +703,16 @@ function ContentHistoryGrid({
         heading={t.contentHistoryYouTubeSection}
         onHistoryCardClick={onHistoryCardClick}
         desktopInitialCount={6}
+        mobileInitialCount={6}
+      />
+      <HistorySection
+        records={audioRecords}
+        locale={locale}
+        t={t}
+        source="audio"
+        heading={t.contentHistoryListeningSection}
+        onHistoryCardClick={onHistoryCardClick}
+        desktopInitialCount={15}
         mobileInitialCount={6}
       />
     </div>
