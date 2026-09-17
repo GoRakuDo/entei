@@ -292,11 +292,90 @@
   font-size: 0.8rem;
 }
 
+/*
+ * Seek bar restyled to mirror the video player's seek slider
+ * (`.entei-controls-seek-slider` in styles/player.css): a 4px track that grows
+ * to 6px on hover/focus, an accent fill for the played share, and a 12px round
+ * accent thumb that stays invisible at rest and is revealed on hover, drag, or
+ * keyboard focus.
+ * Note: the video player expands its Radix thumb to a 44px hit area with a
+ * pseudo-element; a native `::-webkit-slider-thumb` cannot host pseudo-elements,
+ * so the 44px touch target is the input box itself. Native ranges seek and drag
+ * from anywhere on the track, so the whole strip stays grabbable.
+ */
 .audio-player__seek {
+  --audio-player-seek-track: oklch(100% 0 0deg / 0.22);
+  --audio-player-seek-thumb: var(--entei-accent);
+  /* Played share of the track, injected inline by AudioPlayer.tsx. The 0%
+     default keeps a solid muted track (never an invalid gradient) before any
+     duration metadata arrives. */
+  --audio-player-seek-fill: 0%;
   width: 100%;
-  min-height: 2rem;
+  height: 2.75rem;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  /* Fallback for engines that ignore appearance: none. */
   accent-color: var(--entei-accent);
+  background: transparent;
   cursor: pointer;
+}
+
+.audio-player__seek::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--audio-player-seek-thumb) var(--audio-player-seek-fill),
+    var(--audio-player-seek-track) var(--audio-player-seek-fill)
+  );
+}
+
+.audio-player__seek:hover::-webkit-slider-runnable-track,
+.audio-player__seek:focus-within::-webkit-slider-runnable-track {
+  height: 6px;
+}
+
+.audio-player__seek::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--audio-player-seek-thumb);
+  /* WebKit aligns the thumb box to the track top, so center the 12px knob on
+     the 4px track with (track - thumb) / 2. */
+  margin-top: -4px;
+  opacity: 0;
+  transition: opacity var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* Reveal on hover, pointer drag (:active also covers touch), or keyboard
+   focus — matching the video player's thumb reveal. */
+.audio-player__seek:hover::-webkit-slider-thumb,
+.audio-player__seek:active::-webkit-slider-thumb,
+.audio-player__seek:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+
+/* Firefox paints the accent fill natively with `::-moz-range-progress` and
+   centers the track/thumb itself, so no margin-top correction is needed. */
+.audio-player__seek::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background-color: var(--audio-player-seek-track);
+}
+
+.audio-player__seek::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background-color: var(--audio-player-seek-thumb);
+}
+
+.audio-player__seek:hover::-moz-range-track,
+.audio-player__seek:focus-within::-moz-range-track,
+.audio-player__seek:hover::-moz-range-progress,
+.audio-player__seek:focus-within::-moz-range-progress {
+  height: 6px;
 }
 
 .audio-player__control-row {

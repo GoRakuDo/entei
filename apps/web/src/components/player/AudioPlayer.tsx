@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
 } from 'react';
 import {
   Captions,
@@ -515,6 +516,12 @@ export default function AudioPlayer({
   const isSeekable = duration > 0;
   const displayedTime = Number.isFinite(currentTime) ? currentTime : 0;
   const displayedDuration = Number.isFinite(duration) ? duration : 0;
+  // Played share of the seek track, consumed by AudioPlayer.css as the
+  // --audio-player-seek-fill gradient stop.
+  const seekFillPercent =
+    displayedDuration > 0
+      ? Math.min(100, Math.max(0, (displayedTime / displayedDuration) * 100))
+      : 0;
   const coverVideoId = isLocalSource ? null : youtubeVideoId;
   const filePicker = (
     <div className="audio-player__entry-actions">
@@ -744,6 +751,11 @@ export default function AudioPlayer({
                 step={0.1}
                 value={Math.min(displayedTime, displayedDuration)}
                 disabled={!isSeekable}
+                style={
+                  {
+                    '--audio-player-seek-fill': `${seekFillPercent}%`,
+                  } as CSSProperties
+                }
                 aria-label={t.seek}
                 aria-valuetext={`${formatTime(displayedTime)} / ${formatTime(displayedDuration)}`}
                 onChange={handleSeek}

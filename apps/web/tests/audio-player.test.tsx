@@ -194,6 +194,9 @@ describe('AudioPlayer', () => {
 
     const seek = screen.getByRole('slider', { name: 'Seek through audio' }) as HTMLInputElement;
     expect(seek.disabled).toBe(true);
+    // Restyle contract: AudioPlayer.css reads the played share from this custom
+    // property, which stays 0% until duration metadata arrives.
+    expect(seek.style.getPropertyValue('--audio-player-seek-fill')).toBe('0%');
 
     const speed = screen.getByRole('combobox', { name: 'Playback speed' }) as HTMLSelectElement;
     expect(speed.value).toBe('1');
