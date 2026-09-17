@@ -467,6 +467,31 @@ export interface Dictionary {
     lead: string;
     backToHome: string;
   };
+  audioPlayer: {
+    eyebrow: string;
+    openFile: string;
+    fileInput: string;
+    subtitle: string;
+    cover: string;
+    coverPanel: string;
+    subtitlePanel: string;
+    noSubtitles: string;
+    play: string;
+    pause: string;
+    seek: string;
+    skipBack10: string;
+    skipBack30: string;
+    skipForward10: string;
+    skipForward30: string;
+    playbackSpeed: string;
+    unsupportedFile: string;
+    playbackError: string;
+    audioElement: string;
+    defaultTitle: string;
+    noTrack: string;
+    acceptedFormats: string;
+    displayMode: string;
+  };
   profile: {
     title: string;
     localOnlyBadge: string;

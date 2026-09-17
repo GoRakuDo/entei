@@ -33,6 +33,12 @@ import {
   type PlayerPreferences,
 } from '@/features/player/preferences';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
+import {
+  LOCALE_CHANGE_EVENT,
+  type LocaleChangeDetail,
+} from '@i18n/locale-events';
+import { getDictionary } from '@i18n/index';
+import type { Locale } from '@i18n/types';
 import { AudioCover } from '@/features/player/audio-cover/AudioCover';
 import {
   extractAudioCover,
@@ -40,29 +46,11 @@ import {
 } from '@/features/player/audio-cover/audio-cover';
 import './AudioPlayer.css';
 
-const STRINGS = {
-  eyebrow: 'Audio player',
-  openFile: 'Open audio file',
-  fileInput: 'Choose an audio file',
-  subtitle: 'Subtitle',
-  cover: 'Cover',
-  coverPanel: 'Cover artwork',
-  subtitlePanel: 'Loaded subtitles',
-  noSubtitles: 'No subtitles loaded',
-  play: 'Play',
-  pause: 'Pause',
-  seek: 'Seek through audio',
-  skipBack10: 'Skip back 10 seconds',
-  skipBack30: 'Skip back 30 seconds',
-  skipForward10: 'Skip forward 10 seconds',
-  skipForward30: 'Skip forward 30 seconds',
-  playbackSpeed: 'Playback speed',
-  unsupportedFile: 'Choose a supported audio file.',
-  playbackError: 'Unable to play this audio file.',
-  audioElement: 'Audio playback',
-  noTrack: 'Choose an audio file to begin listening.',
-  acceptedFormats: 'Accepted formats: MP3, WAV, FLAC, AAC, M4A, M4B, and OPUS.',
-} as const;
+function getInitialLocale(): Locale {
+  const lang = document.documentElement.lang;
+  if (lang === 'ja' || lang === 'en') return lang;
+  return 'id';
+}
 
 export interface AudioPlayerProps {
   /** Optional source supplied by a future local/companion integration. */
@@ -102,10 +90,12 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 export default function AudioPlayer({
   src = null,
-  title: suppliedTitle = 'Audio track',
+  title: suppliedTitle,
   youtubeVideoId = null,
   cues = [],
 }: AudioPlayerProps) {
+  const [locale, setLocale] = useState<Locale>(getInitialLocale);
+  const t = getDictionary(locale).audioPlayer;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const ownedAudioUrlRef = useRef<string | null>(null);
@@ -113,7 +103,7 @@ export default function AudioPlayer({
   const coverRequestRef = useRef(0);
   const preferencesRef = useRef<PlayerPreferences>(readPlayerPreferences());
   const [audioSrc, setAudioSrc] = useState<string | null>(src);
-  const [title, setTitle] = useState(suppliedTitle);
+  const [title, setTitle] = useState(suppliedTitle ?? '');
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [isLocalSource, setIsLocalSource] = useState(false);
   const [view, setView] = useState<'cover' | 'subtitle'>('cover');
@@ -123,7 +113,21 @@ export default function AudioPlayer({
   const [playbackRate, setPlaybackRate] = useState(
     preferencesRef.current.playbackRate,
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<
+    'unsupportedFile' | 'playbackError' | null
+  >(null);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<LocaleChangeDetail>).detail;
+      if (detail?.locale) setLocale(detail.locale);
+    };
+    window.addEventListener(LOCALE_CHANGE_EVENT, handler);
+    return () => window.removeEventListener(LOCALE_CHANGE_EVENT, handler);
+  }, []);
+
+  const displayTitle = title || t.defaultTitle;
+  const errorMessage = error === null ? null : t[error];
 
   const activeCue = useMemo(
     () => findActiveAudioCue(cues, currentTime),
@@ -160,7 +164,7 @@ export default function AudioPlayer({
     };
     const onError = () => {
       setIsPlaying(false);
-      setError(STRINGS.playbackError);
+      setError('playbackError');
     };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
@@ -272,7 +276,7 @@ export default function AudioPlayer({
       if (!file) return;
 
       if (!isAudioFile(file)) {
-        setError(STRINGS.unsupportedFile);
+        setError('unsupportedFile');
         return;
       }
 
@@ -283,7 +287,7 @@ export default function AudioPlayer({
       setDuration(0);
       setError(null);
       setIsLocalSource(true);
-      setTitle(file.name || 'Audio track');
+      setTitle(file.name || '');
       releaseCover();
 
       const nextAudioUrl = createMediaUrl(file, ownedAudioUrlRef.current);
@@ -328,14 +332,14 @@ export default function AudioPlayer({
         onClick={() => fileInputRef.current?.click()}
       >
         <FolderOpen size={18} aria-hidden="true" />
-        <span>{STRINGS.openFile}</span>
+        <span>{t.openFile}</span>
       </button>
       <input
         ref={fileInputRef}
         className="audio-player__file-input"
         type="file"
         accept="audio/*,.m4b,.m4a,.mp3,.wav,.flac,.aac,.opus"
-        aria-label={STRINGS.fileInput}
+        aria-label={t.fileInput}
         onChange={handleFileChange}
       />
     </>
@@ -349,18 +353,18 @@ export default function AudioPlayer({
           ref={audioRef}
           src={audioSrc ?? undefined}
           preload="metadata"
-          aria-label={`${STRINGS.audioElement}: ${title}`}
+          aria-label={`${t.audioElement}: ${displayTitle}`}
         />
 
         <div className="audio-player__empty-state">
           <h1 id="audio-player-title" className="audio-player__title">
-            {STRINGS.noTrack}
+            {t.noTrack}
           </h1>
           {filePicker}
-          <p className="audio-player__formats">{STRINGS.acceptedFormats}</p>
-          {error !== null && (
+          <p className="audio-player__formats">{t.acceptedFormats}</p>
+          {errorMessage !== null && (
             <p className="audio-player__status" role="alert">
-              {error}
+              {errorMessage}
             </p>
           )}
         </div>
@@ -374,14 +378,14 @@ export default function AudioPlayer({
         ref={audioRef}
         src={audioSrc}
         preload="metadata"
-        aria-label={`${STRINGS.audioElement}: ${title}`}
+        aria-label={`${t.audioElement}: ${displayTitle}`}
       />
 
       <header className="audio-player__header">
         <div>
-          <p className="audio-player__eyebrow">{STRINGS.eyebrow}</p>
+          <p className="audio-player__eyebrow">{t.eyebrow}</p>
           <h1 id="audio-player-title" className="audio-player__title">
-            {title}
+            {displayTitle}
           </h1>
         </div>
         {filePicker}
@@ -390,7 +394,7 @@ export default function AudioPlayer({
       <div className="audio-player__stage">
         <div className="audio-player__media-panel">
           <div className="audio-player__tabs">
-            <ButtonGroup aria-label="Audio display mode">
+            <ButtonGroup aria-label={t.displayMode}>
               <button
                 className="audio-player__tab"
                 type="button"
@@ -398,7 +402,7 @@ export default function AudioPlayer({
                 onClick={() => setView('subtitle')}
               >
                 <Captions size={17} aria-hidden="true" />
-                {STRINGS.subtitle}
+                {t.subtitle}
               </button>
               <button
                 className="audio-player__tab"
@@ -407,15 +411,15 @@ export default function AudioPlayer({
                 onClick={() => setView('cover')}
               >
                 <Image size={17} aria-hidden="true" />
-                {STRINGS.cover}
+                {t.cover}
               </button>
             </ButtonGroup>
           </div>
 
           {view === 'cover' ? (
-            <div className="audio-player__cover" aria-label={STRINGS.coverPanel}>
+            <div className="audio-player__cover" aria-label={t.coverPanel}>
               <AudioCover
-                title={title}
+                title={displayTitle}
                 coverUrl={coverUrl}
                 youtubeVideoId={coverVideoId}
               />
@@ -429,7 +433,7 @@ export default function AudioPlayer({
                 id="audio-player-subtitle-heading"
                 className="audio-player__panel-heading"
               >
-                {STRINGS.subtitlePanel}
+                {t.subtitlePanel}
               </h2>
               {cues.length > 0 ? (
                 <ol className="audio-player__cue-list">
@@ -450,12 +454,12 @@ export default function AudioPlayer({
                   ))}
                 </ol>
               ) : (
-                <p className="audio-player__empty">{STRINGS.noSubtitles}</p>
+                <p className="audio-player__empty">{t.noSubtitles}</p>
               )}
             </section>
           )}
 
-          <p className="audio-player__now-playing">{title}</p>
+          <p className="audio-player__now-playing">{displayTitle}</p>
 
           <div className="audio-player__controls">
             <div className="audio-player__seek-wrap">
@@ -468,7 +472,7 @@ export default function AudioPlayer({
                 step={0.1}
                 value={Math.min(displayedTime, displayedDuration)}
                 disabled={!isSeekable}
-                aria-label={STRINGS.seek}
+                aria-label={t.seek}
                 aria-valuetext={`${formatTime(displayedTime)} / ${formatTime(displayedDuration)}`}
                 onChange={handleSeek}
               />
@@ -481,8 +485,8 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                aria-label={STRINGS.skipBack30}
-                title={STRINGS.skipBack30}
+                aria-label={t.skipBack30}
+                title={t.skipBack30}
                 onClick={() => skipBy(-30)}
               >
                 <RotateCcw size={17} aria-hidden="true" />
@@ -491,8 +495,8 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                aria-label={STRINGS.skipBack10}
-                title={STRINGS.skipBack10}
+                aria-label={t.skipBack10}
+                title={t.skipBack10}
                 onClick={() => skipBy(-10)}
               >
                 <RotateCcw size={17} aria-hidden="true" />
@@ -501,8 +505,8 @@ export default function AudioPlayer({
               <button
                 className="audio-player__control audio-player__control--primary"
                 type="button"
-                aria-label={isPlaying ? STRINGS.pause : STRINGS.play}
-                title={isPlaying ? STRINGS.pause : STRINGS.play}
+                aria-label={isPlaying ? t.pause : t.play}
+                title={isPlaying ? t.pause : t.play}
                 onClick={() => void togglePlayback()}
               >
                 {isPlaying ? (
@@ -514,8 +518,8 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                aria-label={STRINGS.skipForward10}
-                title={STRINGS.skipForward10}
+                aria-label={t.skipForward10}
+                title={t.skipForward10}
                 onClick={() => skipBy(10)}
               >
                 <RotateCw size={17} aria-hidden="true" />
@@ -524,8 +528,8 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                aria-label={STRINGS.skipForward30}
-                title={STRINGS.skipForward30}
+                aria-label={t.skipForward30}
+                title={t.skipForward30}
                 onClick={() => skipBy(30)}
               >
                 <RotateCw size={17} aria-hidden="true" />
@@ -535,12 +539,12 @@ export default function AudioPlayer({
 
             <div className="audio-player__bottom-row">
               <span className="audio-player__speed-label">
-                <Gauge size={16} aria-hidden="true" /> {STRINGS.playbackSpeed}
+                <Gauge size={16} aria-hidden="true" /> {t.playbackSpeed}
               </span>
               <select
                 className="audio-player__speed"
                 value={playbackRate}
-                aria-label={STRINGS.playbackSpeed}
+                aria-label={t.playbackSpeed}
                 onChange={handleRateChange}
               >
                 {PLAYBACK_RATES.map((rate) => (
@@ -552,9 +556,9 @@ export default function AudioPlayer({
             </div>
           </div>
 
-          {error !== null && (
+          {errorMessage !== null && (
             <p className="audio-player__status" role="alert">
-              {error}
+              {errorMessage}
             </p>
           )}
         </div>

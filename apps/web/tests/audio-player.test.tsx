@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import AudioPlayer, {
   clampAudioSeekTarget,
   findActiveAudioCue,
 } from '@/components/player/AudioPlayer';
+import { LOCALE_CHANGE_EVENT } from '@i18n/locale-events';
 
 const cues = [
   { id: 1, start: 0, end: 2, text: 'First line' },
@@ -11,6 +12,10 @@ const cues = [
 ] as const;
 
 describe('AudioPlayer', () => {
+  beforeEach(() => {
+    document.documentElement.lang = 'en';
+  });
+
   it('renders cover/subtitle ButtonGroup tabs and subtitle cues from a loaded source', () => {
     render(<AudioPlayer src="/book.m4b" title="Book title" cues={cues} />);
 
@@ -42,6 +47,35 @@ describe('AudioPlayer', () => {
     expect(screen.queryByRole('button', { name: 'Skip forward 30 seconds' })).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Playback speed' })).toBeNull();
     expect(screen.queryByRole('slider', { name: 'Seek through audio' })).toBeNull();
+  });
+
+  it('uses Japanese labels for the open button and empty state', () => {
+    document.documentElement.lang = 'ja';
+    render(<AudioPlayer />);
+
+    expect(screen.getByRole('button', { name: '音声ファイルを開く' })).not.toBeNull();
+    expect(
+      screen.getByRole('heading', {
+        name: '音声ファイルを選択して聴き始めてください。',
+      }),
+    ).not.toBeNull();
+  });
+
+  it('updates labels when the shared locale event changes to Japanese', () => {
+    render(<AudioPlayer />);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(LOCALE_CHANGE_EVENT, { detail: { locale: 'ja' } }),
+      );
+    });
+
+    expect(screen.getByRole('button', { name: '音声ファイルを開く' })).not.toBeNull();
+    expect(
+      screen.getByRole('heading', {
+        name: '音声ファイルを選択して聴き始めてください。',
+      }),
+    ).not.toBeNull();
   });
 
   it('shows the full playback chrome when a source is supplied', () => {

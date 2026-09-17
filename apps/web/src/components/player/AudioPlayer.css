@@ -85,9 +85,13 @@
 .audio-player__open-button {
   flex-shrink: 0;
   padding-inline: 0.9rem;
+  background: var(--entei-btn-color);
 }
 
-.audio-player__open-button:hover,
+.audio-player__open-button:hover {
+  background: var(--entei-btn-color);
+}
+
 .audio-player__control:hover,
 .audio-player__skip:hover,
 .audio-player__tab:hover {
