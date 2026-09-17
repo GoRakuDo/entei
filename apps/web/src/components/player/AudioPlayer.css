@@ -92,6 +92,7 @@
 .audio-player__open-button {
   flex-shrink: 0;
   padding-inline: 0.9rem;
+  border: none;
   background: var(--entei-btn-color);
 }
 
@@ -102,7 +103,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border: 1px solid var(--audio-player-border);
+  border: none;
   border-radius: var(--entei-radius-md);
   background: var(--entei-btn-color);
   color: var(--entei-accent-hover);
