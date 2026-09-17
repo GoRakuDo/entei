@@ -30,9 +30,16 @@ interface Props {
   locale?: Locale;
   path?: string;
   noindex?: boolean;
+  /** Treat audio player chrome like the video player navigation. */
+  isPlayer?: boolean;
 }
 
-const { locale = 'id', path = '/player/', noindex = true } = Astro.props;
+const {
+  locale = 'id',
+  path = '/player/',
+  noindex = true,
+  isPlayer = false,
+} = Astro.props;
 const dictionary: Dictionary = getDictionary(locale);
 ---
 
@@ -77,6 +84,7 @@ const dictionary: Dictionary = getDictionary(locale);
       dictionary={dictionary}
       showLanguageSelector={false}
       currentPath={path}
+      isPlayer={isPlayer}
     />
     <main id="entei-main" class="entei-player-main" tabindex="-1">
       <slot />

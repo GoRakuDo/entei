@@ -437,6 +437,19 @@
   text-align: center;
 }
 
+/*
+ * Auto-hide chrome once a track is loaded (mirrors the video player, which
+ * renders no mobile top bar). AudioPlayer.tsx toggles `entei-audio-loaded` on
+ * <html>; this rule hides only the mobile top bar. The bar stays mounted in
+ * the DOM for SEO and app-shell stability, and the mobile dock remains
+ * reachable so the user is never trapped.
+ */
+@media (max-width: 767px) {
+  html.entei-audio-loaded .entei-topbar-mobile {
+    display: none;
+  }
+}
+
 @media (max-width: 700px) {
   .audio-player {
     min-height: auto;

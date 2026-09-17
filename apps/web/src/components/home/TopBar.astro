@@ -58,6 +58,8 @@ const {
   dictionary,
   showLanguageSelector = true,
   currentPath = '/',
+  /** Treat this route like the video player (hover-reveal desktop pill zone). */
+  isPlayer: playerLike = false,
 } = Astro.props;
 
 /**
@@ -69,7 +71,14 @@ function normalisePath(p: string): string {
   return p.endsWith('/') ? p.slice(0, -1) : p;
 }
 const activePath = normalisePath(currentPath);
-const isPlayer = activePath === '/player';
+/** Only the real /player/ route renders no mobile top chrome at all. */
+const isVideoPlayer = activePath === '/player';
+/**
+ * Player-style chrome (the hover-reveal desktop pill zone). True for the
+ * video player route and for any route that opts in via `isPlayer` — the
+ * audio player does, but keeps its mobile top bar until a track loads.
+ */
+const isPlayer = isVideoPlayer || playerLike;
 
 /**
  * Full serializable playerUI dictionary for the global settings dialog
@@ -86,10 +95,13 @@ const settingsUIProps = dictionary.playerUI;
   ============================================================
   MOBILE: sticky header with brand + optional LanguageSelector
   Hidden on desktop via CSS (display:none ≥768px).
-  Not rendered on Player mobile (Player has no top chrome).
+  Rendered on every route except the video player, which has no top chrome.
+  On the audio player the AudioPlayer wrapper marks the document with
+  `entei-audio-loaded` once a track loads; AudioPlayer.css hides this header
+  while keeping the DOM mounted for SEO and app-shell stability.
   ============================================================
 -->{
-  !isPlayer && (
+  !isVideoPlayer && (
     <header class="entei-topbar-mobile" role="banner">
       <div class="entei-topbar-mobile-inner">
         <a class="entei-wordmark" href="/">

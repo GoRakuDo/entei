@@ -163,6 +163,18 @@ export default function AudioPlayer({
     return () => window.removeEventListener(LOCALE_CHANGE_EVENT, handler);
   }, []);
 
+  // Mirror the video player chrome on mobile: once a track is loaded (file
+  // picked or YouTube job accepted), the `entei-audio-loaded` marker lets
+  // AudioPlayer.css hide the mobile top bar. The bar stays mounted in the DOM
+  // for SEO and app-shell stability; the mobile dock remains as the way out.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('entei-audio-loaded', audioSrc !== null);
+    return () => {
+      root.classList.remove('entei-audio-loaded');
+    };
+  }, [audioSrc]);
+
   const displayTitle = title || t.defaultTitle;
   const errorMessage = error === null ? null : t[error];
   const youtubeErrorMessage =

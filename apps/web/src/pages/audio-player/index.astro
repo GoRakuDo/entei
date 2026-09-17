@@ -10,6 +10,11 @@ import PlayerLayout from '@layouts/PlayerLayout.astro';
 import AudioPlayer from '@/components/player/AudioPlayer';
 ---
 
-<PlayerLayout locale="id" path="/audio-player/" noindex={true}>
+<PlayerLayout
+  locale="id"
+  path="/audio-player/"
+  noindex={true}
+  isPlayer={true}
+>
   <AudioPlayer client:only="react" />
 </PlayerLayout>

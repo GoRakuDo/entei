@@ -199,6 +199,22 @@ describe('AudioPlayer', () => {
     expect(speed.value).toBe('1');
     expect(screen.getAllByRole('option')).toHaveLength(8);
   });
+
+  it('marks the document as loaded so the mobile chrome auto-hides after a source loads', () => {
+    render(<AudioPlayer src="/book.m4b" title="Book title" />);
+
+    expect(
+      document.documentElement.classList.contains('entei-audio-loaded'),
+    ).toBe(true);
+  });
+
+  it('leaves the mobile chrome marker off while no track is loaded', () => {
+    render(<AudioPlayer />);
+
+    expect(
+      document.documentElement.classList.contains('entei-audio-loaded'),
+    ).toBe(false);
+  });
 });
 
 describe('audio player pure controls', () => {
