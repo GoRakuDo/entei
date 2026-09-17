@@ -342,7 +342,7 @@
 .audio-player__tabs {
   display: flex;
   justify-content: center;
-  margin-block-end: 1rem;
+  margin-block-end: 1.5rem;
 }
 
 .audio-player__tab {
