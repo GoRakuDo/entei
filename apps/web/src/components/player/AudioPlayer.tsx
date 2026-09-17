@@ -782,7 +782,7 @@ export default function AudioPlayer({
                 title={t.skipBack10}
                 onClick={() => skipBy(-10)}
               >
-                <IterationCw size={34} aria-hidden="true" />
+                <IterationCw width={60} height={60} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} aria-hidden="true" />
                 <span aria-hidden="true">10</span>
               </button>
               <button
@@ -805,7 +805,7 @@ export default function AudioPlayer({
                 title={t.skipForward30}
                 onClick={() => skipBy(30)}
               >
-                <IterationCcw size={34} aria-hidden="true" />
+                <IterationCcw width={60} height={60} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} aria-hidden="true" />
                 <span aria-hidden="true">30</span>
               </button>
             </div>
