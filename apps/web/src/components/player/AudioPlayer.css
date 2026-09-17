@@ -465,13 +465,23 @@
   transform: scale(0.96);
 }
 
+/*
+ * Speed popover panel.
+ * Radix `PopoverContent` portals into `document.body`, i.e. OUTSIDE the
+ * `.audio-player` subtree, so the `--audio-player-*` custom properties
+ * declared at the top of this file are NOT inherited here. Referencing them
+ * (background/border) made those declarations invalid at computed-value time,
+ * which left a shadowed-but-transparent panel floating over the cover. Use
+ * root-level tokens only — the same surface contract as the video player's
+ * `.entei-rate-popover` in styles/player.css.
+ */
 .audio-player__speed-popover {
   width: 8rem;
   padding: 0.35rem;
-  border: 1px solid var(--audio-player-border);
-  border-radius: var(--entei-radius-md);
-  background: var(--audio-player-surface-strong);
-  box-shadow: 0 0.75rem 2rem oklch(0% 0 0deg / 0.28);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-lg);
+  background: var(--entei-surface);
+  box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.4);
 }
 
 .audio-player__speed-list {
@@ -507,7 +517,10 @@
   color: var(--entei-text);
 }
 
+/* Selected rate: accent border on the reserved transparent border box, so the
+ * current rate stays visible even when the cursor hovers another row. */
 .audio-player__speed-option--active {
+  border-color: var(--entei-accent);
   color: var(--entei-accent-hover);
 }
 
