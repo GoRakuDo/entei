@@ -637,11 +637,6 @@ export default function AudioPlayer({
         {displayTitle}
       </h1>
 
-      <div className="audio-player__entry-bar">
-        {filePicker}
-        {youtubeDialog}
-      </div>
-
       <div className="audio-player__stage">
         <div className="audio-player__media-panel">
           <div className="audio-player__tabs">
@@ -813,7 +808,11 @@ export default function AudioPlayer({
             </p>
           )}
         </div>
+      </div>
 
+      <div className="audio-player__entry-bar">
+        {filePicker}
+        {youtubeDialog}
       </div>
     </section>
   );
