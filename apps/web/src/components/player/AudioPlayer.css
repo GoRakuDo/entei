@@ -401,16 +401,20 @@
 
 .audio-player__control--primary {
   flex: 0 0 auto;
-  min-width: 3.5rem;
-  min-height: 3.5rem;
-  border-color: var(--entei-accent);
-  background: var(--entei-accent);
+  width: 4.5rem;
+  height: 4.5rem;
+  min-width: 4.5rem;
+  min-height: 4.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--entei-btn-color);
   color: var(--entei-text);
 }
 
 .audio-player__control--primary:hover {
-  background: var(--entei-accent-hover);
-  color: var(--entei-bg);
+  background: var(--entei-btn-color);
+  color: var(--entei-text);
 }
 
 .audio-player__skip {
@@ -676,8 +680,10 @@
     }
 
     .audio-player__control--primary {
-      min-width: 3rem;
-      min-height: 3rem;
+      width: 4rem;
+      height: 4rem;
+      min-width: 4rem;
+      min-height: 4rem;
     }
 
     .audio-player__skip {
