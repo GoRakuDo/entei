@@ -778,16 +778,6 @@ export default function AudioPlayer({
               <button
                 className="audio-player__skip"
                 type="button"
-                aria-label={t.skipBack30}
-                title={t.skipBack30}
-                onClick={() => skipBy(-30)}
-              >
-                <RotateCcw size={17} aria-hidden="true" />
-                <span>30</span>
-              </button>
-              <button
-                className="audio-player__skip"
-                type="button"
                 aria-label={t.skipBack10}
                 title={t.skipBack10}
                 onClick={() => skipBy(-10)}
@@ -807,16 +797,6 @@ export default function AudioPlayer({
                 ) : (
                   <Play size={30} aria-hidden="true" />
                 )}
-              </button>
-              <button
-                className="audio-player__skip"
-                type="button"
-                aria-label={t.skipForward10}
-                title={t.skipForward10}
-                onClick={() => skipBy(10)}
-              >
-                <RotateCw size={17} aria-hidden="true" />
-                <span>10</span>
               </button>
               <button
                 className="audio-player__skip"

@@ -179,19 +179,13 @@ describe('AudioPlayer', () => {
 
     const controlRow = document.querySelector('.audio-player__control-row');
     expect(controlRow).not.toBeNull();
-    expect(controlRow?.children).toHaveLength(5);
+    expect(controlRow?.children).toHaveLength(3);
     expect(window.getComputedStyle(controlRow!).flexWrap).toBe('nowrap');
 
     const play = screen.getByRole('button', { name: 'Play' }) as HTMLButtonElement;
     expect(play.disabled).toBe(false);
     expect(
       (screen.getByRole('button', { name: 'Skip back 10 seconds' }) as HTMLButtonElement).disabled,
-    ).toBe(false);
-    expect(
-      (screen.getByRole('button', { name: 'Skip back 30 seconds' }) as HTMLButtonElement).disabled,
-    ).toBe(false);
-    expect(
-      (screen.getByRole('button', { name: 'Skip forward 10 seconds' }) as HTMLButtonElement).disabled,
     ).toBe(false);
     expect(
       (screen.getByRole('button', { name: 'Skip forward 30 seconds' }) as HTMLButtonElement).disabled,
