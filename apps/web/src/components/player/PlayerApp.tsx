@@ -4624,6 +4624,21 @@ export default function PlayerApp() {
     };
   }, [hasMedia]);
 
+  // --- Mobile chrome auto-hide ---
+  // Mirror the audio player (`entei-audio-loaded` in AudioPlayer.tsx): once
+  // media is loaded — local file, magnet/torrent session, or YouTube job —
+  // mark <html> so player.css hides the mobile top bar on <768px. The marker
+  // is removed on unmount and whenever the media is cleared, so the entry
+  // state (no media) keeps its chrome. The DOM stays mounted (SEO/app shell).
+  const hasLoadedMedia = hasMedia || jobSession.active;
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('entei-video-loaded', hasLoadedMedia);
+    return () => {
+      root.classList.remove('entei-video-loaded');
+    };
+  }, [hasLoadedMedia]);
+
   // --- Layout class ---
   const layoutClass = `entei-player-layout${isSubtitlePanelVisible ? ' entei-player-layout--with-panel' : ' entei-player-layout--no-panel'}`;
 

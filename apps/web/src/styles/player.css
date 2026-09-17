@@ -3093,6 +3093,19 @@ body.entei-fullscreen-active .entei-mobile-dock {
   display: none !important;
 }
 
+/* --- Mobile chrome auto-hide (mirrors the audio player) --- */
+/* PlayerApp toggles `entei-video-loaded` on <html> once media is loaded
+   (local file, magnet/torrent, or YouTube job). Hides only the mobile top bar
+   on <768px; the DOM stays mounted for SEO/app-shell stability and the mobile
+   dock remains reachable so the user is never trapped. Entry (no media) keeps
+   the chrome. NOTE: TopBar.astro currently renders no mobile header on
+   /player, so this rule becomes effective when that gate is lifted. */
+@media (max-width: 767px) {
+  html.entei-video-loaded .entei-topbar-mobile {
+    display: none;
+  }
+}
+
 /* Remove main padding in immersive mode */
 html.entei-player-immersive body > .entei-player-main {
   padding: 0;
