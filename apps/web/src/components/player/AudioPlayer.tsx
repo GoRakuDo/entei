@@ -633,16 +633,14 @@ export default function AudioPlayer({
         aria-label={`${t.audioElement}: ${displayTitle}`}
       />
 
-      <header className="audio-player__header">
-        <div>
-          <p className="audio-player__eyebrow">{t.eyebrow}</p>
-          <h1 id="audio-player-title" className="audio-player__title">
-            {displayTitle}
-          </h1>
-        </div>
+      <h1 id="audio-player-title" className="entei-sr-only">
+        {displayTitle}
+      </h1>
+
+      <div className="audio-player__entry-bar">
         {filePicker}
         {youtubeDialog}
-      </header>
+      </div>
 
       <div className="audio-player__stage">
         <div className="audio-player__media-panel">

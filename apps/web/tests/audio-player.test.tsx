@@ -135,7 +135,10 @@ describe('AudioPlayer', () => {
       url: 'https://www.youtube.com/watch?v=abcdefghijk',
       mode: 'audio',
     });
-    expect(screen.getByRole('heading', { name: 'YouTube lesson' })).not.toBeNull();
+    const heading = screen.getByRole('heading', { name: 'YouTube lesson' });
+    expect(heading).toHaveClass('entei-sr-only');
+    expect(document.querySelector('.audio-player__header')).toBeNull();
+    expect(document.querySelector('.audio-player__eyebrow')).toBeNull();
     expect(screen.getByRole('button', { name: 'Play' })).not.toBeNull();
   });
 
