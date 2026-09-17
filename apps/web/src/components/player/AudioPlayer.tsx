@@ -717,7 +717,21 @@ export default function AudioPlayer({
             </section>
           )}
 
-          <p className="audio-player__now-playing">{displayTitle}</p>
+          <p className="audio-player__now-playing">
+            <span
+              ref={(node) => {
+                if (!node) return;
+                const parent = node.parentElement;
+                if (!parent) return;
+                node.classList.toggle(
+                  'audio-player__now-playing--scroll',
+                  node.scrollWidth > parent.clientWidth,
+                );
+              }}
+            >
+              {displayTitle}
+            </span>
+          </p>
 
           <div className="audio-player__controls">
             <div className="audio-player__seek-wrap">

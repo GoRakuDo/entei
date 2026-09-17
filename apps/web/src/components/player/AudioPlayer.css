@@ -247,13 +247,33 @@
 
 .audio-player__now-playing {
   margin-block-start: 1.25rem;
+  overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--entei-text);
   font-family: var(--entei-font-display);
-  font-size: 1.25rem;
+  font-size: 2rem;
   font-weight: 700;
   line-height: 1.3;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-player__now-playing--scroll {
+  display: inline-block;
+  max-width: 100%;
+  padding-inline-start: 100%;
+  animation: audio-player-marquee 12s linear infinite;
+  white-space: nowrap;
+}
+
+@keyframes audio-player-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
 }
 
 .audio-player__controls {
