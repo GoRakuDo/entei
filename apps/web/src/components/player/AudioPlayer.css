@@ -435,8 +435,8 @@
   display: grid;
   place-items: center;
   padding-block-start: 0.35em;
-  color: var(--entei-btn-color);
-  font-size: 0.78rem;
+  color: var(--entei-text);
+  font-size: 0.95rem;
   font-weight: 700;
   pointer-events: none;
 }
