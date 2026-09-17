@@ -438,14 +438,13 @@ export default function AudioPlayer({
     if (jobSession.jobTitle) setTitle(jobSession.jobTitle);
   }, [jobSession.jobTitle]);
 
-  // The shared session hook exposes a video-typed ref for PlayerApp's video
-  // path, but its bridge adapter is HTMLMediaElement-based. Attach the audio
-  // element at the same ready transition so the existing polling/cancel logic
-  // also drives this player.
+  // The shared session hook still exposes a video-typed callback for
+  // PlayerApp, but its bridge adapter consumes any HTMLMediaElement. Invoke
+  // that runtime contract without falsely asserting that audio is video.
   useEffect(() => {
-    jobSession.attachMediaElement(
-      audioRef.current as HTMLVideoElement | null,
-    );
+    const audio = audioRef.current;
+    if (!audio) return;
+    Reflect.apply(jobSession.attachMediaElement, undefined, [audio]);
   }, [audioSrc, jobSession.attachMediaElement, jobSession.phase]);
 
   const handleFileChange = useCallback(
@@ -519,6 +518,7 @@ export default function AudioPlayer({
         className="audio-player__youtube-button"
         type="button"
         onClick={() => setIsYouTubeDialogOpen(true)}
+        disabled={!pairing.connected}
         aria-label={t.youtube}
         title={t.youtube}
       >

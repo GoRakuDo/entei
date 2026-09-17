@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
@@ -6,11 +6,12 @@ const audioPlayerMocks = vi.hoisted(() => ({
   beginJobSession: vi.fn(),
   cancelActiveJob: vi.fn(() => Promise.resolve()),
   attachMediaElement: vi.fn(),
+  pairingConnected: true,
 }));
 
 vi.mock('@/features/player/use-companion-pairing', () => ({
   useCompanionPairing: () => ({
-    connected: true,
+    connected: audioPlayerMocks.pairingConnected,
     tokenRef: { current: 'test-token' },
   }),
 }));
@@ -47,6 +48,11 @@ import AudioPlayer, {
   findActiveAudioCue,
 } from '@/components/player/AudioPlayer';
 import { LOCALE_CHANGE_EVENT } from '@i18n/locale-events';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  audioPlayerMocks.pairingConnected = true;
+});
 
 const cues = [
   { id: 1, start: 0, end: 2, text: 'First line' },
@@ -90,6 +96,15 @@ describe('AudioPlayer', () => {
     expect(screen.queryByRole('button', { name: 'Skip forward 30 seconds' })).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Playback speed' })).toBeNull();
     expect(screen.queryByRole('slider', { name: 'Seek through audio' })).toBeNull();
+  });
+
+  it('disables YouTube audio entry when the companion is not paired', () => {
+    audioPlayerMocks.pairingConnected = false;
+    render(<AudioPlayer />);
+
+    expect(
+      screen.getByRole('button', { name: 'Open YouTube audio' }),
+    ).toBeDisabled();
   });
 
   it('opens YouTube audio entry and loads the accepted job into the player', async () => {
