@@ -1,5 +1,47 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
+
+const audioPlayerMocks = vi.hoisted(() => ({
+  beginJobSession: vi.fn(),
+  cancelActiveJob: vi.fn(() => Promise.resolve()),
+  attachMediaElement: vi.fn(),
+}));
+
+vi.mock('@/features/player/use-companion-pairing', () => ({
+  useCompanionPairing: () => ({
+    connected: true,
+    tokenRef: { current: 'test-token' },
+  }),
+}));
+
+vi.mock('@/features/player/companion-media', () => ({
+  waitForPlayable: vi.fn(() => Promise.resolve({ ok: true, reason: 'playable' })),
+}));
+
+vi.mock('@/features/player/use-companion-job-session', () => ({
+  useCompanionJobSession: () => ({
+    active: false,
+    kind: null,
+    jobId: null,
+    jobQuality: 0,
+    jobMode: null,
+    phase: 'idle',
+    progress: null,
+    reason: null,
+    errorCode: null,
+    token: null,
+    subtitleFileId: null,
+    subtitleUrl: null,
+    jobTitle: null,
+    beginJobSession: audioPlayerMocks.beginJobSession,
+    cancelActiveJob: audioPlayerMocks.cancelActiveJob,
+    endJobSession: vi.fn(),
+    attachMediaElement: audioPlayerMocks.attachMediaElement,
+    setPlayIntent: vi.fn(),
+    requestSeek: vi.fn(),
+  }),
+}));
 import AudioPlayer, {
   clampAudioSeekTarget,
   findActiveAudioCue,
@@ -37,6 +79,7 @@ describe('AudioPlayer', () => {
     render(<AudioPlayer />);
 
     expect(screen.getByRole('button', { name: 'Open audio file' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Open YouTube audio' })).not.toBeNull();
     expect(screen.getByText('Accepted formats: MP3, WAV, FLAC, AAC, M4A, M4B, and OPUS.')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Subtitle' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Cover' })).toBeNull();
@@ -47,6 +90,38 @@ describe('AudioPlayer', () => {
     expect(screen.queryByRole('button', { name: 'Skip forward 30 seconds' })).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Playback speed' })).toBeNull();
     expect(screen.queryByRole('slider', { name: 'Seek through audio' })).toBeNull();
+  });
+
+  it('opens YouTube audio entry and loads the accepted job into the player', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ id: 'audio-job', title: 'YouTube lesson' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AudioPlayer />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open YouTube audio' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'YouTube URL' }), {
+      target: { value: 'https://www.youtube.com/watch?v=abcdefghijk' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start download' }));
+
+    await waitFor(() => {
+      expect(audioPlayerMocks.beginJobSession).toHaveBeenCalledWith({
+        baseUrl: 'http://127.0.0.1:4322',
+        token: 'test-token',
+        jobId: 'audio-job',
+        kind: 'youtube',
+      });
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      url: 'https://www.youtube.com/watch?v=abcdefghijk',
+      mode: 'audio',
+    });
+    expect(screen.getByRole('heading', { name: 'YouTube lesson' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Play' })).not.toBeNull();
   });
 
   it('uses Japanese labels for the open button and empty state', () => {

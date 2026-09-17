@@ -44,6 +44,21 @@ import {
   extractAudioCover,
   revokeAudioCoverUrl,
 } from '@/features/player/audio-cover/audio-cover';
+import { Button } from '@/components/player/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/player/ui/dialog';
+import { Input } from '@/components/player/ui/input';
+import { TypewriterLoading } from '@/components/player/TypewriterLoading';
+import { YouTubeMark } from '@/components/player/YouTubeMark';
+import {
+  parseYouTubeVideoId,
+  sanitizeYouTubeUrl,
+} from '@/components/player/YouTubeInput';
+import { isFirefox } from '@/features/player/browser-detect';
+import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
+import { waitForPlayable } from '@/features/player/companion-media';
+import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
+import { useCompanionPairing } from '@/features/player/use-companion-pairing';
+import { COMPANION_PAIRING_BASE_URL } from '@/features/player/companion-pairing-store';
 import './AudioPlayer.css';
 
 function getInitialLocale(): Locale {
@@ -88,24 +103,46 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   );
 }
 
+type YouTubeAudioError =
+  | 'invalid'
+  | 'repair'
+  | 'conflict'
+  | 'network'
+  | 'generic'
+  | null;
+
 export default function AudioPlayer({
   src = null,
   title: suppliedTitle,
-  youtubeVideoId = null,
+  youtubeVideoId: suppliedYouTubeVideoId = null,
   cues = [],
 }: AudioPlayerProps) {
   const [locale, setLocale] = useState<Locale>(getInitialLocale);
-  const t = getDictionary(locale).audioPlayer;
+  const dictionary = getDictionary(locale);
+  const t = dictionary.audioPlayer;
+  const youtubeDict = dictionary.playerUI;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const ownedAudioUrlRef = useRef<string | null>(null);
+  const youtubeWaitAbortRef = useRef<AbortController | null>(null);
+  const youtubeDialogOpenRef = useRef(false);
+  const mountedRef = useRef(true);
+  const pairing = useCompanionPairing();
+  const jobSession = useCompanionJobSession();
   const coverUrlRef = useRef<string | null>(null);
   const coverRequestRef = useRef(0);
   const preferencesRef = useRef<PlayerPreferences>(readPlayerPreferences());
   const [audioSrc, setAudioSrc] = useState<string | null>(src);
   const [title, setTitle] = useState(suppliedTitle ?? '');
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(
+    suppliedYouTubeVideoId,
+  );
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [isLocalSource, setIsLocalSource] = useState(false);
+  const [isYouTubeDialogOpen, setIsYouTubeDialogOpen] = useState(false);
+  const [youtubeUrl, setYouTubeUrl] = useState('');
+  const [youtubeSubmitting, setYouTubeSubmitting] = useState(false);
+  const [youtubeError, setYouTubeError] = useState<YouTubeAudioError>(null);
   const [view, setView] = useState<'cover' | 'subtitle'>('cover');
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -128,6 +165,18 @@ export default function AudioPlayer({
 
   const displayTitle = title || t.defaultTitle;
   const errorMessage = error === null ? null : t[error];
+  const youtubeErrorMessage =
+    youtubeError === null
+      ? null
+      : youtubeError === 'invalid'
+        ? youtubeDict.youtubeInputErrorInvalid
+        : youtubeError === 'repair'
+          ? youtubeDict.youtubeInputErrorRepair
+          : youtubeError === 'conflict'
+            ? youtubeDict.youtubeInputErrorConflict
+            : youtubeError === 'network'
+              ? youtubeDict.youtubeInputErrorNetwork
+              : youtubeDict.youtubeInputErrorGeneric;
 
   const activeCue = useMemo(
     () => findActiveAudioCue(cues, currentTime),
@@ -269,6 +318,136 @@ export default function AudioPlayer({
     writePlayerPreferences(nextPreferences);
   }, []);
 
+  const handleYouTubeSubmit = useCallback(async () => {
+    const token = pairing.tokenRef.current;
+    if (!pairing.connected || !token) return;
+    if (isFirefox()) {
+      notifyFirefoxUnsupported(youtubeDict.firefoxUnsupported);
+      return;
+    }
+
+    const sanitizedUrl = sanitizeYouTubeUrl(youtubeUrl);
+    const videoId = parseYouTubeVideoId(sanitizedUrl);
+    if (videoId === null) {
+      setYouTubeError('invalid');
+      return;
+    }
+
+    void jobSession.cancelActiveJob();
+    setYouTubeSubmitting(true);
+    setYouTubeError(null);
+    youtubeWaitAbortRef.current?.abort();
+    const waitAbort = new AbortController();
+    youtubeWaitAbortRef.current = waitAbort;
+
+    try {
+      const response = await fetch(
+        `${COMPANION_PAIRING_BASE_URL}/v1/source/jobs?token=${encodeURIComponent(token)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: sanitizedUrl, mode: 'audio' }),
+          cache: 'no-store',
+        },
+      );
+      if (response.status !== 201) {
+        setYouTubeError(
+          response.status === 400
+            ? 'invalid'
+            : response.status === 401 || response.status === 403
+              ? 'repair'
+              : response.status === 409
+                ? 'conflict'
+                : 'generic',
+        );
+        return;
+      }
+
+      const body = (await response.json()) as {
+        id?: unknown;
+        title?: unknown;
+      };
+      if (typeof body.id !== 'string' || body.id.length === 0) {
+        setYouTubeError('generic');
+        return;
+      }
+
+      const playable = await waitForPlayable(token, { signal: waitAbort.signal });
+      if (!playable.ok) {
+        if (playable.reason === 'aborted') return;
+        setYouTubeError(playable.reason === 'network' ? 'network' : 'generic');
+        return;
+      }
+      if (!mountedRef.current || !youtubeDialogOpenRef.current) return;
+
+      const audio = audioRef.current;
+      audio?.pause();
+      setIsPlaying(false);
+      setCurrentTime(0);
+      setDuration(0);
+      setError(null);
+      setIsLocalSource(false);
+      setYoutubeVideoId(videoId);
+      setTitle(typeof body.title === 'string' ? body.title : t.defaultTitle);
+      releaseCover();
+      revokeUrl(ownedAudioUrlRef.current);
+      ownedAudioUrlRef.current = null;
+      // waitForPlayable has confirmed that the fixture has playable bytes;
+      // the companion session then keeps the URL/status bridge alive.
+      setAudioSrc(
+        `${COMPANION_PAIRING_BASE_URL}/v1/media/fixture?token=${encodeURIComponent(token)}`,
+      );
+      jobSession.beginJobSession({
+        baseUrl: COMPANION_PAIRING_BASE_URL,
+        token,
+        jobId: body.id,
+        kind: 'youtube',
+      });
+      setYouTubeUrl('');
+      setYouTubeError(null);
+      setIsYouTubeDialogOpen(false);
+    } catch {
+      if (!waitAbort.signal.aborted) setYouTubeError('network');
+    } finally {
+      if (mountedRef.current) setYouTubeSubmitting(false);
+    }
+  }, [
+    jobSession,
+    pairing.connected,
+    pairing.tokenRef,
+    releaseCover,
+    t.defaultTitle,
+    youtubeDict,
+    youtubeUrl,
+  ]);
+
+  useEffect(() => {
+    youtubeDialogOpenRef.current = isYouTubeDialogOpen;
+    if (!isYouTubeDialogOpen) youtubeWaitAbortRef.current?.abort();
+  }, [isYouTubeDialogOpen]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      youtubeWaitAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (jobSession.jobTitle) setTitle(jobSession.jobTitle);
+  }, [jobSession.jobTitle]);
+
+  // The shared session hook exposes a video-typed ref for PlayerApp's video
+  // path, but its bridge adapter is HTMLMediaElement-based. Attach the audio
+  // element at the same ready transition so the existing polling/cancel logic
+  // also drives this player.
+  useEffect(() => {
+    jobSession.attachMediaElement(
+      audioRef.current as HTMLVideoElement | null,
+    );
+  }, [audioSrc, jobSession.attachMediaElement, jobSession.phase]);
+
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
@@ -285,8 +464,10 @@ export default function AudioPlayer({
       setIsPlaying(false);
       setCurrentTime(0);
       setDuration(0);
+      void jobSession.cancelActiveJob();
       setError(null);
       setIsLocalSource(true);
+      setYoutubeVideoId(null);
       setTitle(file.name || '');
       releaseCover();
 
@@ -306,7 +487,7 @@ export default function AudioPlayer({
       coverUrlRef.current = result.coverUrl;
       setCoverUrl(result.coverUrl);
     },
-    [releaseCover],
+    [jobSession, releaseCover],
   );
 
   const handleCueClick = useCallback(
@@ -325,7 +506,7 @@ export default function AudioPlayer({
   const displayedDuration = Number.isFinite(duration) ? duration : 0;
   const coverVideoId = isLocalSource ? null : youtubeVideoId;
   const filePicker = (
-    <>
+    <div className="audio-player__entry-actions">
       <button
         className="audio-player__open-button"
         type="button"
@@ -333,6 +514,15 @@ export default function AudioPlayer({
       >
         <FolderOpen size={18} aria-hidden="true" />
         <span>{t.openFile}</span>
+      </button>
+      <button
+        className="audio-player__youtube-button"
+        type="button"
+        onClick={() => setIsYouTubeDialogOpen(true)}
+        aria-label={t.youtube}
+        title={t.youtube}
+      >
+        <YouTubeMark width={19} height={19} />
       </button>
       <input
         ref={fileInputRef}
@@ -342,7 +532,68 @@ export default function AudioPlayer({
         aria-label={t.fileInput}
         onChange={handleFileChange}
       />
-    </>
+    </div>
+  );
+  const youtubeDialog = (
+    <Dialog
+      open={isYouTubeDialogOpen}
+      onOpenChange={(open) => {
+        setIsYouTubeDialogOpen(open);
+        if (open) {
+          setYouTubeUrl('');
+          setYouTubeError(null);
+        }
+      }}
+    >
+      <DialogContent closeLabel={youtubeDict.dialogClose}>
+        <DialogHeader>
+          <DialogTitle className="entei-magnet-dialog-title">
+            <YouTubeMark width={16} height={16} aria-hidden="true" />
+            {youtubeDict.youtubeInputTitle}
+          </DialogTitle>
+        </DialogHeader>
+        {pairing.connected ? (
+          <div className="entei-youtube-form">
+            <Input
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              placeholder={youtubeDict.youtubeInputPlaceholder}
+              aria-label={youtubeDict.youtubeInputLabel}
+              aria-invalid={youtubeError !== null}
+              value={youtubeUrl}
+              onChange={(event) => setYouTubeUrl(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !youtubeSubmitting) {
+                  void handleYouTubeSubmit();
+                }
+              }}
+            />
+            {youtubeErrorMessage !== null && (
+              <p className="entei-youtube-form-error" role="alert">
+                {youtubeErrorMessage}
+              </p>
+            )}
+            <Button
+              type="button"
+              className="entei-youtube-form-submit"
+              onClick={() => void handleYouTubeSubmit()}
+              disabled={youtubeSubmitting || youtubeUrl.trim() === ''}
+              aria-label={youtubeDict.youtubeInputSubmit}
+            >
+              {youtubeSubmitting ? (
+                <TypewriterLoading
+                  aria-hidden="true"
+                  className="entei-typewriter--btn"
+                />
+              ) : (
+                youtubeDict.youtubeInputSubmit
+              )}
+            </Button>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 
   if (audioSrc === null) {
@@ -361,6 +612,7 @@ export default function AudioPlayer({
             {t.noTrack}
           </h1>
           {filePicker}
+          {youtubeDialog}
           <p className="audio-player__formats">{t.acceptedFormats}</p>
           {errorMessage !== null && (
             <p className="audio-player__status" role="alert">
@@ -389,6 +641,7 @@ export default function AudioPlayer({
           </h1>
         </div>
         {filePicker}
+        {youtubeDialog}
       </header>
 
       <div className="audio-player__stage">

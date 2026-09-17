@@ -82,10 +82,40 @@
     transform var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
+.audio-player__entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .audio-player__open-button {
   flex-shrink: 0;
   padding-inline: 0.9rem;
   background: var(--entei-btn-color);
+}
+
+.audio-player__youtube-button {
+  display: inline-flex;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--audio-player-border);
+  border-radius: var(--entei-radius-md);
+  background: var(--audio-player-surface-strong);
+  color: var(--entei-text);
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.audio-player__youtube-button:hover {
+  background: var(--entei-btn-color);
+  color: var(--entei-accent-hover);
 }
 
 .audio-player__open-button:hover {
@@ -100,6 +130,7 @@
 }
 
 .audio-player__open-button:active,
+.audio-player__youtube-button:active,
 .audio-player__control:active,
 .audio-player__skip:active,
 .audio-player__tab:active {
@@ -107,6 +138,7 @@
 }
 
 .audio-player__open-button:focus-visible,
+.audio-player__youtube-button:focus-visible,
 .audio-player__control:focus-visible,
 .audio-player__skip:focus-visible,
 .audio-player__tab:focus-visible,
@@ -428,8 +460,12 @@
     flex-direction: column;
   }
 
-  .audio-player__open-button {
+  .audio-player__entry-actions {
     width: 100%;
+  }
+
+  .audio-player__open-button {
+    flex: 1;
   }
 
   .audio-player__stage {
@@ -447,6 +483,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .audio-player__open-button,
+  .audio-player__youtube-button,
   .audio-player__control,
   .audio-player__skip,
   .audio-player__tab {

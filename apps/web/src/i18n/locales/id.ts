@@ -450,6 +450,7 @@ export const id: Dictionary = {
   audioPlayer: {
     eyebrow: 'Pemutar audio',
     openFile: 'Buka file audio',
+    youtube: 'Buka audio YouTube',
     fileInput: 'Pilih file audio',
     subtitle: 'Subtitle',
     cover: 'Sampul',

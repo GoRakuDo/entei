@@ -450,6 +450,7 @@ export const ja: Dictionary = {
   audioPlayer: {
     eyebrow: '音声プレイヤー',
     openFile: '音声ファイルを開く',
+    youtube: 'YouTube音声を開く',
     fileInput: '音声ファイルを選択',
     subtitle: '字幕',
     cover: 'カバー',

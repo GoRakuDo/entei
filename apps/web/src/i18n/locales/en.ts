@@ -445,6 +445,7 @@ export const en: Dictionary = {
   audioPlayer: {
     eyebrow: 'Audio player',
     openFile: 'Open audio file',
+    youtube: 'Open YouTube audio',
     fileInput: 'Choose an audio file',
     subtitle: 'Subtitle',
     cover: 'Cover',

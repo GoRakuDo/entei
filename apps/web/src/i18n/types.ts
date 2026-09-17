@@ -470,6 +470,7 @@ export interface Dictionary {
   audioPlayer: {
     eyebrow: string;
     openFile: string;
+    youtube: string;
     fileInput: string;
     subtitle: string;
     cover: string;
