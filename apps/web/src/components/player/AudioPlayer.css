@@ -426,6 +426,7 @@
   position: relative;
   border: none;
   background: transparent;
+  color: var(--entei-btn-color);
 }
 
 .audio-player__skip--overlay > span[aria-hidden='true'] {
@@ -434,15 +435,15 @@
   display: grid;
   place-items: center;
   padding-block-start: 0.35em;
-  color: var(--entei-text);
-  font-size: 0.62rem;
+  color: var(--entei-btn-color);
+  font-size: 0.78rem;
   font-weight: 700;
   pointer-events: none;
 }
 
 .audio-player__skip--overlay:hover {
   background: transparent;
-  color: var(--entei-text);
+  color: var(--entei-btn-color);
 }
 
 .audio-player__control:disabled,
