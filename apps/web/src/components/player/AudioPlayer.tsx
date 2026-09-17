@@ -803,9 +803,9 @@ export default function AudioPlayer({
                 onClick={() => void togglePlayback()}
               >
                 {isPlaying ? (
-                  <Pause size={23} aria-hidden="true" />
+                  <Pause size={30} aria-hidden="true" />
                 ) : (
-                  <Play size={23} aria-hidden="true" />
+                  <Play size={30} aria-hidden="true" />
                 )}
               </button>
               <button
