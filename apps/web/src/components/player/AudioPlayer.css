@@ -17,10 +17,9 @@
   gap: 1rem;
   flex-direction: column;
   padding: clamp(2rem, 6vw, 5rem);
-  border: 1px solid var(--audio-player-border);
+  border: none;
   border-radius: calc(var(--entei-radius-lg) + 0.25rem);
-  background: var(--audio-player-surface);
-  box-shadow: 0 1.5rem 4rem oklch(0% 0 0deg / 0.18);
+  background: transparent;
   text-align: center;
 }
 
