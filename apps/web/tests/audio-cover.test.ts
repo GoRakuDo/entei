@@ -237,6 +237,22 @@ describe('MP4 cover extraction', () => {
     );
   });
 
+  it('decodes an Audible-style title with no locale field', async () => {
+    // ©nam data: version/flags + type 0, then UTF-8 text directly at +8.
+    const namItem = box('\xa9nam', audibleDataBox(new TextEncoder().encode('強運脳')));
+    const ilst = box('ilst', namItem);
+    const meta = fullBox('meta', ilst);
+    const moov = box('moov', box('udta', meta));
+    const file = new File([new Uint8Array([...moov])], 'audible-title.m4b', {
+      type: 'audio/mp4',
+    });
+
+    await expect(extractAudioCover(file)).resolves.toEqual({
+      title: '強運脳',
+      coverUrl: null,
+    });
+  });
+
   it('omits a cover when the m4b has a title but no covr atom', async () => {
     const file = mp4Fixture({ title: 'No art', cover: null });
 

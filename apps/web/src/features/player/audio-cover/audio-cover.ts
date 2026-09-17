@@ -175,10 +175,25 @@ async function readDataPayload(
     );
     const dataType = peekView.getUint32(4);
     const tail = peek.subarray(8);
+    // Image payloads: Audible covr omits the locale field (type 0, bytes at
+    // +8), so sniff image magic at +8. Text items never take the +8 path —
+    // their offset is resolved by the locale-zero rule in decodeMetadataText.
+    const looksLikeImage = imageFormat(dataType, tail) !== null;
+    // Audible omits the 4-byte locale field (payload at +8); standard boxes
+    // keep it (+12). Rule: all-zero locale bytes at +8 → standard text box,
+    // otherwise the payload already starts at +8.
+    const localeIsZero =
+      peekLength >= 12 &&
+      peek[8] === 0 &&
+      peek[9] === 0 &&
+      peek[10] === 0 &&
+      peek[11] === 0;
     const payloadStart =
-      imageFormat(dataType, tail) !== null
+      looksLikeImage && dataType !== 1 && !localeIsZero
         ? box.contentStart + 8
-        : box.contentStart + 12;
+        : localeIsZero
+          ? box.contentStart + 12
+          : box.contentStart + 8;
     if (box.end - payloadStart < 0) return false;
     if (payloadStart === box.contentStart + 12 && box.end - box.contentStart < 12) {
       return false;
@@ -202,17 +217,42 @@ async function readDataPayload(
 function decodeMetadataText(bytes: Uint8Array): string | null {
   if (bytes.length === 0) return null;
 
-  let decoder: TextDecoder;
-  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
-    decoder = new TextDecoder('utf-16le');
-  } else if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
-    decoder = new TextDecoder('utf-16be');
-  } else {
-    decoder = new TextDecoder('utf-8');
-  }
+  // Audible-style data box omits the locale field, shifting the text 4 bytes
+  // early. A leading NUL run (locale padding or a cut UTF-8 head) means the
+  // real text starts later — retry from each offset until decoding sticks.
+  for (let skip = 0; skip < Math.min(bytes.length, 8); skip += 1) {
+    const slice = bytes.subarray(skip);
+    if (slice.length === 0) break;
+    // Skip binary junk: text must start with printable ASCII, NUL, BOM, or a
+    // UTF-8 lead byte (C2+). Continuation bytes (80-BF) can't start a string.
+    const first = slice[0] ?? 0;
+    const textStart =
+      first === 0 ||
+      first === 0xef ||
+      first === 0xff ||
+      first === 0xfe ||
+      first === 0x0a ||
+      first === 0x0d ||
+      (first >= 0x20 && first < 0x7f) ||
+      first >= 0xc2;
+    if (!textStart) continue;
+    let decoder: TextDecoder;
+    if (slice.length >= 2 && slice[0] === 0xff && slice[1] === 0xfe) {
+      decoder = new TextDecoder('utf-16le');
+    } else if (slice.length >= 2 && slice[0] === 0xfe && slice[1] === 0xff) {
+      decoder = new TextDecoder('utf-16be');
+    } else {
+      decoder = new TextDecoder('utf-8', { fatal: true });
+    }
 
-  const text = decoder.decode(bytes).replace(/\u0000/g, '').trim();
-  return text.length > 0 ? text : null;
+    try {
+      const text = decoder.decode(slice).replace(/\u0000/g, '').trim();
+      if (text.length > 0) return text;
+    } catch {
+      // Sliced mid-character — try the next offset.
+    }
+  }
+  return null;
 }
 
 function imageFormat(dataType: number, bytes: Uint8Array): string | null {
