@@ -742,7 +742,6 @@ export default function AudioPlayer({
 
           <div className="audio-player__controls">
             <div className="audio-player__seek-wrap">
-              <span aria-hidden="true">{formatTime(displayedTime)}</span>
               <input
                 className="audio-player__seek"
                 type="range"
@@ -760,9 +759,12 @@ export default function AudioPlayer({
                 aria-valuetext={`${formatTime(displayedTime)} / ${formatTime(displayedDuration)}`}
                 onChange={handleSeek}
               />
-              <span aria-hidden="true">
-                {formatTime(displayedDuration)}
-              </span>
+              <div className="audio-player__seek-times" aria-hidden="true">
+                <span>{formatTime(displayedTime)}</span>
+                <span>
+                  {formatTime(displayedDuration)}
+                </span>
+              </div>
             </div>
 
             <div className="audio-player__control-row">

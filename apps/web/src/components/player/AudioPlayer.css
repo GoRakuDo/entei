@@ -284,12 +284,18 @@
 }
 
 .audio-player__seek-wrap {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.25rem;
   color: var(--entei-text-muted);
   font-variant-numeric: tabular-nums;
   font-size: 0.8rem;
+}
+
+.audio-player__seek-times {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 /*
