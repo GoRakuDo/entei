@@ -422,6 +422,29 @@
   font-size: 0.82rem;
 }
 
+.audio-player__skip--overlay {
+  position: relative;
+  border: none;
+  background: transparent;
+}
+
+.audio-player__skip--overlay > span[aria-hidden='true'] {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-block-start: 0.35em;
+  color: var(--entei-text);
+  font-size: 0.62rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.audio-player__skip--overlay:hover {
+  background: transparent;
+  color: var(--entei-text);
+}
+
 .audio-player__control:disabled,
 .audio-player__skip:disabled,
 .audio-player__seek:disabled {

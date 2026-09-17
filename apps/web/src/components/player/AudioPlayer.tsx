@@ -14,10 +14,10 @@ import {
   FolderOpen,
   Gauge,
   Image,
+  IterationCcw,
+  IterationCw,
   Pause,
   Play,
-  RotateCcw,
-  RotateCw,
 } from 'lucide-react';
 import { ButtonGroup } from '@/components/player/ui/button-group';
 import {
@@ -776,14 +776,14 @@ export default function AudioPlayer({
 
             <div className="audio-player__control-row">
               <button
-                className="audio-player__skip"
+                className="audio-player__skip audio-player__skip--overlay"
                 type="button"
                 aria-label={t.skipBack10}
                 title={t.skipBack10}
                 onClick={() => skipBy(-10)}
               >
-                <RotateCcw size={17} aria-hidden="true" />
-                <span>10</span>
+                <IterationCw size={34} aria-hidden="true" />
+                <span aria-hidden="true">10</span>
               </button>
               <button
                 className="audio-player__control audio-player__control--primary"
@@ -799,14 +799,14 @@ export default function AudioPlayer({
                 )}
               </button>
               <button
-                className="audio-player__skip"
+                className="audio-player__skip audio-player__skip--overlay"
                 type="button"
                 aria-label={t.skipForward30}
                 title={t.skipForward30}
                 onClick={() => skipBy(30)}
               >
-                <RotateCw size={17} aria-hidden="true" />
-                <span>30</span>
+                <IterationCcw size={34} aria-hidden="true" />
+                <span aria-hidden="true">30</span>
               </button>
             </div>
 
