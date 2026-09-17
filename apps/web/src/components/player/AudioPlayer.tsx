@@ -9,6 +9,8 @@ import {
 } from 'react';
 import {
   Captions,
+  Check,
+  ChevronDown,
   FolderOpen,
   Gauge,
   Image,
@@ -46,6 +48,11 @@ import {
   revokeAudioCoverUrl,
 } from '@/features/player/audio-cover/audio-cover';
 import { Button } from '@/components/player/ui/button';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/player/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/player/ui/dialog';
 import { Input } from '@/components/player/ui/input';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
@@ -151,6 +158,7 @@ export default function AudioPlayer({
   const [playbackRate, setPlaybackRate] = useState(
     preferencesRef.current.playbackRate,
   );
+  const [isSpeedOpen, setIsSpeedOpen] = useState(false);
   const [error, setError] = useState<
     'unsupportedFile' | 'playbackError' | null
   >(null);
@@ -316,8 +324,7 @@ export default function AudioPlayer({
     [duration],
   );
 
-  const handleRateChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    const rate = Number(event.target.value);
+  const handleRateChange = useCallback((rate: number) => {
     if (!PLAYBACK_RATES.includes(rate)) return;
 
     setPlaybackRate(rate);
@@ -824,21 +831,49 @@ export default function AudioPlayer({
             </div>
 
             <div className="audio-player__bottom-row">
-              <span className="audio-player__speed-label">
-                <Gauge size={16} aria-hidden="true" /> {t.playbackSpeed}
-              </span>
-              <select
-                className="audio-player__speed"
-                value={playbackRate}
-                aria-label={t.playbackSpeed}
-                onChange={handleRateChange}
-              >
-                {PLAYBACK_RATES.map((rate) => (
-                  <option key={rate} value={rate}>
-                    {rate}x
-                  </option>
-                ))}
-              </select>
+              <Popover open={isSpeedOpen} onOpenChange={setIsSpeedOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="audio-player__speed-button"
+                    type="button"
+                    aria-expanded={isSpeedOpen}
+                    aria-haspopup="menu"
+                    aria-label={`${t.playbackSpeed}: ${playbackRate}x`}
+                    title={t.playbackSpeed}
+                  >
+                    <Gauge size={15} aria-hidden="true" />
+                    <span>{playbackRate}x</span>
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="audio-player__speed-popover"
+                  side="top"
+                  align="end"
+                  aria-label={t.playbackSpeed}
+                >
+                  <ul className="audio-player__speed-list">
+                    {PLAYBACK_RATES.map((rate) => (
+                      <li key={rate}>
+                        <button
+                          className={`audio-player__speed-option${rate === playbackRate ? ' audio-player__speed-option--active' : ''}`}
+                          type="button"
+                          aria-pressed={rate === playbackRate}
+                          onClick={() => {
+                            handleRateChange(rate);
+                            setIsSpeedOpen(false);
+                          }}
+                        >
+                          <span>{rate}x</span>
+                          {rate === playbackRate && (
+                            <Check size={15} aria-hidden="true" />
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 

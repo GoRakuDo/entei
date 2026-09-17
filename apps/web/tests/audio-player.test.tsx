@@ -94,7 +94,7 @@ describe('AudioPlayer', () => {
     expect(screen.queryByRole('button', { name: 'Skip back 30 seconds' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Skip forward 10 seconds' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Skip forward 30 seconds' })).toBeNull();
-    expect(screen.queryByRole('combobox', { name: 'Playback speed' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Playback speed: 1x/ })).toBeNull();
     expect(screen.queryByRole('slider', { name: 'Seek through audio' })).toBeNull();
   });
 
@@ -177,6 +177,11 @@ describe('AudioPlayer', () => {
     expect(screen.getByRole('button', { name: 'Subtitle' })).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Cover' })).not.toBeNull();
 
+    const controlRow = document.querySelector('.audio-player__control-row');
+    expect(controlRow).not.toBeNull();
+    expect(controlRow?.children).toHaveLength(5);
+    expect(window.getComputedStyle(controlRow!).flexWrap).toBe('nowrap');
+
     const play = screen.getByRole('button', { name: 'Play' }) as HTMLButtonElement;
     expect(play.disabled).toBe(false);
     expect(
@@ -198,9 +203,30 @@ describe('AudioPlayer', () => {
     // property, which stays 0% until duration metadata arrives.
     expect(seek.style.getPropertyValue('--audio-player-seek-fill')).toBe('0%');
 
-    const speed = screen.getByRole('combobox', { name: 'Playback speed' }) as HTMLSelectElement;
-    expect(speed.value).toBe('1');
-    expect(screen.getAllByRole('option')).toHaveLength(8);
+    const speed = screen.getByRole('button', {
+      name: 'Playback speed: 1x',
+    });
+    expect(speed).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(speed);
+    expect(speed).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: '0.25x' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(screen.getByRole('button', { name: '1x' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(
+      screen.getAllByRole('button', { name: /^\d(?:\.\d+)?x$/ }),
+    ).toHaveLength(8);
+
+    fireEvent.click(screen.getByRole('button', { name: '1.5x' }));
+    expect(
+      screen.getByRole('button', { name: 'Playback speed: 1.5x' }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('audio')).toHaveProperty('playbackRate', 1.5);
   });
 
   it('marks the document as loaded so the mobile chrome auto-hides after a source loads', () => {

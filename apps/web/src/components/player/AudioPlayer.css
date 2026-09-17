@@ -129,7 +129,8 @@
 .audio-player__control:focus-visible,
 .audio-player__skip:focus-visible,
 .audio-player__tab:focus-visible,
-.audio-player__speed:focus-visible,
+.audio-player__speed-button:focus-visible,
+.audio-player__speed-option:focus-visible,
 .audio-player__seek:focus-visible,
 .audio-player__file-input:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
@@ -388,16 +389,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(0.35rem, 2vw, 0.75rem);
-  flex-wrap: wrap;
+  gap: clamp(0.25rem, 2vw, 0.75rem);
+  flex-wrap: nowrap;
 }
 
 .audio-player__control,
 .audio-player__skip {
-  padding-inline: 0.75rem;
+  flex: 0 1 auto;
+  padding-inline: clamp(0.35rem, 1.5vw, 0.75rem);
 }
 
 .audio-player__control--primary {
+  flex: 0 0 auto;
   min-width: 3.5rem;
   min-height: 3.5rem;
   border-color: var(--entei-accent);
@@ -425,26 +428,87 @@
 .audio-player__bottom-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 1rem;
-  flex-wrap: wrap;
   margin-block-start: 0.25rem;
 }
 
-.audio-player__speed-label {
-  color: var(--entei-text-muted);
-  font-size: 0.8rem;
-}
-
-.audio-player__speed {
-  min-height: 2.75rem;
-  padding: 0.5rem 2rem 0.5rem 0.75rem;
+.audio-player__speed-button {
+  display: inline-flex;
+  min-width: 4.5rem;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem;
   border: 1px solid var(--audio-player-border);
   border-radius: var(--entei-radius-md);
   background: var(--audio-player-surface-strong);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   cursor: pointer;
   font: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.audio-player__speed-button:hover {
+  background: var(--entei-btn-color);
+  color: var(--entei-accent-hover);
+}
+
+.audio-player__speed-button:active {
+  transform: scale(0.96);
+}
+
+.audio-player__speed-popover {
+  width: 8rem;
+  padding: 0.35rem;
+  border: 1px solid var(--audio-player-border);
+  border-radius: var(--entei-radius-md);
+  background: var(--audio-player-surface-strong);
+  box-shadow: 0 0.75rem 2rem oklch(0% 0 0deg / 0.28);
+}
+
+.audio-player__speed-list {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.audio-player__speed-option {
+  display: flex;
+  width: 100%;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--entei-radius-md) - 0.15rem);
+  background: transparent;
+  color: var(--entei-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  text-align: start;
+}
+
+.audio-player__speed-option:hover,
+.audio-player__speed-option--active {
+  background: var(--entei-btn-color);
+  color: var(--entei-text);
+}
+
+.audio-player__speed-option--active {
+  color: var(--entei-accent-hover);
 }
 
 .audio-player__tabs {
@@ -584,6 +648,29 @@
   .audio-player__subtitle-panel {
     min-height: 18rem;
   }
+
+  @media (max-width: 380px) {
+    .audio-player__control-row {
+      gap: 0.1rem;
+    }
+
+    .audio-player__control,
+    .audio-player__skip {
+      min-width: 2.5rem;
+      min-height: 2.5rem;
+      gap: 0.2rem;
+      padding-inline: 0.2rem;
+    }
+
+    .audio-player__control--primary {
+      min-width: 3rem;
+      min-height: 3rem;
+    }
+
+    .audio-player__skip {
+      font-size: 0.7rem;
+    }
+  }
 }
 
 .audio-player__tabs [data-slot='button-group'] {
@@ -605,7 +692,8 @@
   .audio-player__youtube-button,
   .audio-player__control,
   .audio-player__skip,
-  .audio-player__tab {
+  .audio-player__tab,
+  .audio-player__speed-button {
     transition: none;
   }
 }
