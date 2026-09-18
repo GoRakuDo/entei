@@ -457,6 +457,7 @@
 
 .audio-player__bottom-row {
   display: flex;
+  min-height: 2.5rem;
   align-items: center;
   justify-content: flex-end;
   gap: 1rem;
@@ -629,8 +630,10 @@
 
 .audio-player__subtitle-panel {
   display: flex;
-  min-height: 20rem;
+  width: min(100%, 27rem);
+  aspect-ratio: 1;
   flex-direction: column;
+  margin-inline: auto;
   padding: clamp(1rem, 3vw, 1.5rem);
 }
 
@@ -750,10 +753,6 @@
 
   .audio-player__media-panel {
     min-height: auto;
-  }
-
-  .audio-player__subtitle-panel {
-    min-height: 18rem;
   }
 
   @media (max-width: 380px) {

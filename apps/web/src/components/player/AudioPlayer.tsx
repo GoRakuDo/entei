@@ -880,11 +880,9 @@ export default function AudioPlayer({
               </button>
             </div>
 
-            {view !== 'cover' && (
-              <div className="audio-player__bottom-row">
-                {speedControl}
-              </div>
-            )}
+            <div className="audio-player__bottom-row">
+              {view !== 'cover' && speedControl}
+            </div>
           </div>
 
           {errorMessage !== null && (
