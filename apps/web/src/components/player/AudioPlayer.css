@@ -2,10 +2,10 @@
   --audio-player-surface: color-mix(in oklch, var(--entei-surface) 92%, transparent);
   --audio-player-surface-strong: color-mix(in oklch, var(--entei-surface-2) 86%, transparent);
   --audio-player-border: oklch(100% 0 0deg / 0.12);
-  width: min(100%, 72rem);
-  min-height: calc(100dvh - var(--entei-topbar-height) - 2rem);
+  width: min(100%, 36rem);
   margin-inline: auto;
-  padding: clamp(1rem, 3vw, 3rem);
+  margin-block: auto;
+  padding: clamp(1rem, 3vw, 2rem);
   color: var(--entei-text);
 }
 
@@ -164,7 +164,6 @@
 
 .audio-player__media-panel {
   display: flex;
-  min-height: clamp(20rem, 52vw, 34rem);
   flex-direction: column;
   justify-content: center;
   padding: clamp(1rem, 3vw, 2rem);
@@ -714,7 +713,9 @@
 @media (max-width: 700px) {
   .audio-player {
     display: flex;
+    width: 100%;
     min-height: 100dvh;
+    margin-block: 0;
     flex-direction: column;
     padding: 1.25rem 1.25rem max(1.75rem, env(safe-area-inset-bottom));
   }
