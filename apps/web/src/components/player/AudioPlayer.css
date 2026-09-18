@@ -583,12 +583,14 @@
 
 .audio-player__source-button {
   display: inline-flex;
-  width: 2.5rem;
+  width: auto;
   height: 2.5rem;
+  min-width: 2.5rem;
   flex-shrink: 0;
   align-items: center;
   align-self: center;
   justify-content: center;
+  padding-inline: 16px;
   border: 1px solid transparent;
   border-radius: 50%;
   background: transparent;
@@ -796,7 +798,7 @@
   border-end-end-radius: calc(var(--entei-radius-md) - 1px);
 }
 
-.audio-player__tabs [data-slot='button-group'] > :not(:last-child) {
+.audio-player__tabs [data-slot='button-group'] > .audio-player__tab:not(:last-child) {
   border-right: 1px solid oklch(1 0 0deg / 0.1);
 }
 
