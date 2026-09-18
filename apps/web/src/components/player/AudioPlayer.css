@@ -584,10 +584,13 @@
 .audio-player__source-button {
   display: inline-flex;
   width: 2.5rem;
-  min-height: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
   align-items: center;
+  align-self: center;
   justify-content: center;
   border: 1px solid transparent;
+  border-radius: 50%;
   background: transparent;
   color: var(--entei-text-global-muted);
   cursor: pointer;

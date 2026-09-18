@@ -262,8 +262,8 @@
   min-width: 0;
 }
 
-/* Segmented ButtonGroup look — mirrors .entei-right-panel-tabs (player.css):
-   one bordered outer frame, joined segments, first/last rounded. */
+/* Segmented pill look — mirrors the audio player tabs group:
+   one outer stadium frame, joined segments, half-stadium ends. */
 .entei-profile-tabs-list {
   display: flex;
   align-self: stretch;
@@ -273,7 +273,7 @@
   margin: 0;
   padding: 0;
   border: 1px solid oklch(1 0 0deg / 0.1);
-  border-radius: var(--entei-radius-md);
+  border-radius: 999px;
   background-color: oklch(1 0 0deg / 0.02);
 }
 
@@ -284,7 +284,6 @@
   justify-content: center;
   padding: 0 var(--entei-space-12);
   border: 0;
-  border-right: 1px solid oklch(1 0 0deg / 0.1);
   border-radius: 0;
   background: transparent;
   color: oklch(0.7 0.02 265deg);
@@ -294,14 +293,11 @@
 }
 
 .entei-profile-tabs-list [data-slot='tabs-trigger']:first-child {
-  border-radius: calc(var(--entei-radius-md) - 1px) 0 0
-    calc(var(--entei-radius-md) - 1px);
+  border-radius: 999px 0 0 999px;
 }
 
 .entei-profile-tabs-list [data-slot='tabs-trigger']:last-child {
-  border-right: 0;
-  border-radius: 0 calc(var(--entei-radius-md) - 1px)
-    calc(var(--entei-radius-md) - 1px) 0;
+  border-radius: 0 999px 999px 0;
 }
 
 .entei-profile-tabs-list [data-slot='tabs-trigger']:hover {
