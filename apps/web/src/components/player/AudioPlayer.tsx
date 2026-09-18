@@ -817,7 +817,6 @@ export default function AudioPlayer({
                 </ol>
               ) : (
                 <div className="audio-player__empty">
-                  <p>{t.noSubtitles}</p>
                   <button
                     className="audio-player__open-button"
                     type="button"

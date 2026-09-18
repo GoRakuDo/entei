@@ -456,7 +456,6 @@ export const ja: Dictionary = {
     cover: 'カバー',
     coverPanel: 'カバーアート',
     subtitlePanel: '読み込まれた字幕',
-    noSubtitles: '字幕なし',
     openSubtitleFile: '字幕ファイルを開く',
     subtitleFileInput: '字幕ファイルを選択',
     play: '再生',

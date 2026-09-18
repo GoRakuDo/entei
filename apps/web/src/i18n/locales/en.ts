@@ -451,7 +451,6 @@ export const en: Dictionary = {
     cover: 'Cover',
     coverPanel: 'Cover artwork',
     subtitlePanel: 'Loaded subtitles',
-    noSubtitles: 'No subtitles loaded',
     openSubtitleFile: 'Open subtitle file',
     subtitleFileInput: 'Choose a subtitle file',
     play: 'Play',

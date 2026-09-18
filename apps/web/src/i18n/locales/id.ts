@@ -456,7 +456,6 @@ export const id: Dictionary = {
     cover: 'Sampul',
     coverPanel: 'Sampul audio',
     subtitlePanel: 'Subtitle yang dimuat',
-    noSubtitles: 'Belum ada subtitle',
     openSubtitleFile: 'Buka file subtitle',
     subtitleFileInput: 'Pilih file subtitle',
     play: 'Putar',
