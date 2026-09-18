@@ -62,6 +62,7 @@ import {
 } from '@/components/player/YouTubeInput';
 import { isFirefox } from '@/features/player/browser-detect';
 import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
+import { toast } from 'sonner';
 import { waitForPlayable } from '@/features/player/companion-media';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
@@ -187,6 +188,12 @@ export default function AudioPlayer({
 
   const displayTitle = title || t.defaultTitle;
   const errorMessage = error === null ? null : t[error];
+
+  useEffect(() => {
+    if (errorMessage !== null) {
+      toast.error(errorMessage, { id: 'audio-player-error' });
+    }
+  }, [errorMessage]);
   const youtubeErrorMessage =
     youtubeError === null
       ? null
@@ -726,11 +733,6 @@ export default function AudioPlayer({
           {filePicker}
           {youtubeDialog}
           <p className="audio-player__formats">{t.acceptedFormats}</p>
-          {errorMessage !== null && (
-            <p className="audio-player__status" role="alert">
-              {errorMessage}
-            </p>
-          )}
         </div>
       </section>
     );
@@ -940,14 +942,7 @@ export default function AudioPlayer({
               </button>
             </div>
 
-            <div className="audio-player__bottom-row" aria-hidden="true" />
           </div>
-
-          {errorMessage !== null && (
-            <p className="audio-player__status" role="alert">
-              {errorMessage}
-            </p>
-          )}
         </div>
       </div>
 

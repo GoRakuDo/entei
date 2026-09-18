@@ -455,15 +455,6 @@
   opacity: 0.45;
 }
 
-.audio-player__bottom-row {
-  display: flex;
-  min-height: 2.5rem;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 1rem;
-  margin-block-start: 0.25rem;
-}
-
 .audio-player__speed-button {
   display: inline-flex;
   min-width: 4.5rem;
@@ -703,13 +694,6 @@
   text-align: center;
 }
 
-.audio-player__status {
-  margin-block-start: 1rem;
-  color: var(--entei-status-locked);
-  font-size: 0.9rem;
-  text-align: center;
-}
-
 /*
  * Auto-hide chrome once a track is loaded (mirrors the video player, which
  * renders no mobile top bar). AudioPlayer.tsx toggles `entei-audio-loaded` on
@@ -776,11 +760,6 @@
 
   .audio-player__controls {
     margin-block-start: 0.25rem;
-  }
-
-  .audio-player__bottom-row {
-    min-height: 2rem;
-    margin-block-start: 0;
   }
 
   .audio-player__entry-actions {
