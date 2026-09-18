@@ -204,6 +204,28 @@ export default function AudioPlayer({
     () => findActiveAudioCue(effectiveCues, currentTime),
     [effectiveCues, currentTime],
   );
+  const cueListRef = useRef<HTMLOListElement | null>(null);
+
+  // Keep the active cue centered while listening, mirroring the video
+  // player's auto-scroll: the list glides so the current line stays put.
+  useEffect(() => {
+    const list = cueListRef.current;
+    if (list === null || activeCue == null) return;
+    const current = list.querySelector<HTMLElement>(
+      `[data-cue-id="${activeCue.id}"]`,
+    );
+    if (current === null) return;
+    const reduce =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (typeof list.scrollTo === 'function') {
+      list.scrollTo({
+        top:
+          current.offsetTop - list.clientHeight / 2 + current.clientHeight / 2,
+        behavior: reduce ? 'auto' : 'smooth',
+      });
+    }
+  }, [activeCue?.id, view]);
 
   const releaseCover = useCallback(() => {
     revokeAudioCoverUrl(coverUrlRef.current);
@@ -798,12 +820,13 @@ export default function AudioPlayer({
                 {t.subtitlePanel}
               </h2>
               {effectiveCues.length > 0 ? (
-                <ol className="audio-player__cue-list">
+                <ol ref={cueListRef} className="audio-player__cue-list">
                   {effectiveCues.map((cue) => (
                     <li key={cue.id}>
                       <button
                         className="audio-player__cue-button"
                         type="button"
+                        data-cue-id={cue.id}
                         aria-current={activeCue?.id === cue.id ? 'true' : undefined}
                         onClick={() => handleCueClick(cue)}
                       >

@@ -258,6 +258,53 @@ describe('AudioPlayer', () => {
     });
   });
 
+  it('centers the active cue in the subtitle list', () => {
+    const listHeight = Object.getOwnPropertyDescriptor(
+      window.HTMLElement.prototype,
+      'clientHeight',
+    );
+    const offsetTop = Object.getOwnPropertyDescriptor(
+      window.HTMLElement.prototype,
+      'offsetTop',
+    );
+    const scrollTo = window.HTMLElement.prototype.scrollTo;
+    Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get() {
+        return this.classList?.contains('audio-player__cue-list') ? 300 : 40;
+      },
+    });
+    Object.defineProperty(window.HTMLElement.prototype, 'offsetTop', {
+      configurable: true,
+      get() {
+        return 200;
+      },
+    });
+    const scrollToMock = vi.fn();
+    window.HTMLElement.prototype.scrollTo = scrollToMock;
+    try {
+      render(<AudioPlayer src="/book.m4b" cues={cues} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Subtitle' }));
+      // First cue is active at time 0: 200 - 300/2 + 40/2 = 70.
+      expect(scrollToMock).toHaveBeenCalledWith({
+        top: 70,
+        behavior: 'smooth',
+      });
+    } finally {
+      if (listHeight) {
+        Object.defineProperty(
+          window.HTMLElement.prototype,
+          'clientHeight',
+          listHeight,
+        );
+      }
+      if (offsetTop) {
+        Object.defineProperty(window.HTMLElement.prototype, 'offsetTop', offsetTop);
+      }
+      window.HTMLElement.prototype.scrollTo = scrollTo;
+    }
+  });
+
   it('marks the document as loaded so the mobile chrome auto-hides after a source loads', () => {
     render(<AudioPlayer src="/book.m4b" title="Book title" />);
 
