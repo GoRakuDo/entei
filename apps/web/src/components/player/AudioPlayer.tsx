@@ -10,9 +10,7 @@ import {
 import {
   Captions,
   Check,
-  ChevronDown,
   FolderOpen,
-  Gauge,
   Image,
   IterationCcw,
   IterationCw,
@@ -530,6 +528,49 @@ export default function AudioPlayer({
       ? Math.min(100, Math.max(0, (displayedTime / displayedDuration) * 100))
       : 0;
   const coverVideoId = isLocalSource ? null : youtubeVideoId;
+  const speedControl = (
+    <Popover open={isSpeedOpen} onOpenChange={setIsSpeedOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className={`audio-player__speed-button${view === 'cover' ? ' audio-player__speed-button--overlay' : ''}`}
+          type="button"
+          aria-expanded={isSpeedOpen}
+          aria-haspopup="menu"
+          aria-label={`${t.playbackSpeed}: ${playbackRate}x`}
+          title={t.playbackSpeed}
+        >
+          <span>{playbackRate}x</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="audio-player__speed-popover"
+        side="top"
+        align="end"
+        aria-label={t.playbackSpeed}
+      >
+        <ul className="audio-player__speed-list">
+          {PLAYBACK_RATES.map((rate) => (
+            <li key={rate}>
+              <button
+                className={`audio-player__speed-option${rate === playbackRate ? ' audio-player__speed-option--active' : ''}`}
+                type="button"
+                aria-pressed={rate === playbackRate}
+                onClick={() => {
+                  handleRateChange(rate);
+                  setIsSpeedOpen(false);
+                }}
+              >
+                <span>{rate}x</span>
+                {rate === playbackRate && (
+                  <Check size={15} aria-hidden="true" />
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
   const filePicker = (
     <div className="audio-player__entry-actions">
       <button
@@ -671,7 +712,10 @@ export default function AudioPlayer({
                 className="audio-player__tab"
                 type="button"
                 aria-pressed={view === 'subtitle'}
-                onClick={() => setView('subtitle')}
+                onClick={() => {
+                  setIsSpeedOpen(false);
+                  setView('subtitle');
+                }}
               >
                 <Captions size={17} aria-hidden="true" />
                 {t.subtitle}
@@ -680,7 +724,10 @@ export default function AudioPlayer({
                 className="audio-player__tab"
                 type="button"
                 aria-pressed={view === 'cover'}
-                onClick={() => setView('cover')}
+                onClick={() => {
+                  setIsSpeedOpen(false);
+                  setView('cover');
+                }}
               >
                 <Image size={17} aria-hidden="true" />
                 {t.cover}
@@ -695,6 +742,7 @@ export default function AudioPlayer({
                 coverUrl={coverUrl}
                 youtubeVideoId={coverVideoId}
               />
+              {speedControl}
             </div>
           ) : (
             <section
@@ -810,51 +858,11 @@ export default function AudioPlayer({
               </button>
             </div>
 
-            <div className="audio-player__bottom-row">
-              <Popover open={isSpeedOpen} onOpenChange={setIsSpeedOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    className="audio-player__speed-button"
-                    type="button"
-                    aria-expanded={isSpeedOpen}
-                    aria-haspopup="menu"
-                    aria-label={`${t.playbackSpeed}: ${playbackRate}x`}
-                    title={t.playbackSpeed}
-                  >
-                    <Gauge size={15} aria-hidden="true" />
-                    <span>{playbackRate}x</span>
-                    <ChevronDown size={14} aria-hidden="true" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="audio-player__speed-popover"
-                  side="top"
-                  align="end"
-                  aria-label={t.playbackSpeed}
-                >
-                  <ul className="audio-player__speed-list">
-                    {PLAYBACK_RATES.map((rate) => (
-                      <li key={rate}>
-                        <button
-                          className={`audio-player__speed-option${rate === playbackRate ? ' audio-player__speed-option--active' : ''}`}
-                          type="button"
-                          aria-pressed={rate === playbackRate}
-                          onClick={() => {
-                            handleRateChange(rate);
-                            setIsSpeedOpen(false);
-                          }}
-                        >
-                          <span>{rate}x</span>
-                          {rate === playbackRate && (
-                            <Check size={15} aria-hidden="true" />
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </PopoverContent>
-              </Popover>
-            </div>
+            {view !== 'cover' && (
+              <div className="audio-player__bottom-row">
+                {speedControl}
+              </div>
+            )}
           </div>
 
           {errorMessage !== null && (

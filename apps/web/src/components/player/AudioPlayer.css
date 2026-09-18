@@ -173,6 +173,7 @@
 
 .audio-player__cover {
   display: grid;
+  position: relative;
   width: min(100%, 27rem);
   aspect-ratio: 1;
   place-items: center;
@@ -492,6 +493,26 @@
 
 .audio-player__speed-button:active {
   transform: scale(0.96);
+}
+
+.audio-player__speed-button--overlay {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  min-width: 0;
+  min-height: 2rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid oklch(1 0 0 / 0.16);
+  border-radius: 999px;
+  background: oklch(0% 0 0 / 0.55);
+  backdrop-filter: blur(6px);
+  color: var(--entei-text);
+  font-size: 0.75rem;
+}
+
+.audio-player__speed-button--overlay:hover {
+  background: oklch(0% 0 0 / 0.55);
+  color: var(--entei-text);
 }
 
 /*
