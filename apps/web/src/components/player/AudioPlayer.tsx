@@ -880,9 +880,7 @@ export default function AudioPlayer({
               </button>
             </div>
 
-            <div className="audio-player__bottom-row">
-              {view !== 'cover' && speedControl}
-            </div>
+            <div className="audio-player__bottom-row" aria-hidden="true" />
           </div>
 
           {errorMessage !== null && (
