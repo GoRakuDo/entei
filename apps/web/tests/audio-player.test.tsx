@@ -223,12 +223,20 @@ describe('AudioPlayer', () => {
     expect(document.querySelector('audio')).toHaveProperty('playbackRate', 1.5);
 
     // Loaded state: the bottom entry bar is gone, source switching lives
-    // left of the tabs instead.
+    // inside the tabs ButtonGroup instead.
     expect(document.querySelector('.audio-player__entry-actions')).toBeNull();
     expect(document.querySelector('.audio-player__entry-bar')).toBeNull();
-    expect(document.querySelector('.audio-player__source-switch')).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Open audio file' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Open YouTube audio' })).not.toBeNull();
+    expect(document.querySelector('.audio-player__source-switch')).toBeNull();
+    const tabsGroup = document.querySelector(
+      '.audio-player__tabs [data-slot="button-group"]',
+    );
+    expect(tabsGroup).not.toBeNull();
+    expect(
+      tabsGroup?.querySelector('button[aria-label="Open audio file"]'),
+    ).not.toBeNull();
+    expect(
+      tabsGroup?.querySelector('button[aria-label="Open YouTube audio"]'),
+    ).not.toBeNull();
   });
 
   it('marks the document as loaded so the mobile chrome auto-hides after a source loads', () => {

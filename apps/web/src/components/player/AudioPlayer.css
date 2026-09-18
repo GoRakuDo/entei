@@ -576,18 +576,9 @@
 
 .audio-player__tabs {
   display: flex;
-  position: relative;
   align-items: center;
   justify-content: center;
   margin-block-end: 1.5rem;
-}
-
-.audio-player__source-switch {
-  display: flex;
-  position: absolute;
-  left: 0;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 .audio-player__source-button {
@@ -597,9 +588,8 @@
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: var(--entei-radius-md);
   background: transparent;
-  color: var(--entei-btn-color);
+  color: var(--entei-text-global-muted);
   cursor: pointer;
 }
 

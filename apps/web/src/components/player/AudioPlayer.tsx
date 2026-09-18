@@ -604,29 +604,6 @@ export default function AudioPlayer({
       {fileInput}
     </div>
   );
-  const sourceSwitch = (
-    <div className="audio-player__source-switch">
-      <button
-        className="audio-player__source-button"
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        aria-label={t.openFile}
-        title={t.openFile}
-      >
-        <FolderOpen size={17} aria-hidden="true" />
-      </button>
-      <button
-        className="audio-player__source-button"
-        type="button"
-        onClick={() => setIsYouTubeDialogOpen(true)}
-        disabled={!pairing.connected}
-        aria-label={t.youtube}
-        title={t.youtube}
-      >
-        <YouTubeMark width={18} height={18} />
-      </button>
-    </div>
-  );
   const youtubeDialog = (
     <Dialog
       open={isYouTubeDialogOpen}
@@ -733,8 +710,26 @@ export default function AudioPlayer({
       <div className="audio-player__stage">
         <div className="audio-player__media-panel">
           <div className="audio-player__tabs">
-            {sourceSwitch}
             <ButtonGroup aria-label={t.displayMode}>
+              <button
+                className="audio-player__source-button"
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label={t.openFile}
+                title={t.openFile}
+              >
+                <FolderOpen size={17} aria-hidden="true" />
+              </button>
+              <button
+                className="audio-player__source-button"
+                type="button"
+                onClick={() => setIsYouTubeDialogOpen(true)}
+                disabled={!pairing.connected}
+                aria-label={t.youtube}
+                title={t.youtube}
+              >
+                <YouTubeMark width={18} height={18} />
+              </button>
               <button
                 className="audio-player__tab"
                 type="button"
