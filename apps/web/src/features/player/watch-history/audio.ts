@@ -1,5 +1,5 @@
 import { computeVideoFingerprint } from '../tracker/identity';
-import { recordWatchHistory } from './store';
+import { getAllWatchHistory, recordWatchHistory } from './store';
 import type {
   PosterResolution,
   WatchHistoryInput,
@@ -128,4 +128,115 @@ export function recordAudioWatchHistory(
   options: AudioWatchHistoryOptions,
 ): Promise<WatchHistoryRecord | null> {
   return recordWatchHistory(createAudioWatchHistoryInput(options));
+}
+
+/**
+ * Read the cached audio record for an already-fingerprinted file.
+ *
+ * Only `title` and the reload-safe `posterUrl` are consumed for the cover
+ * cache, so a plain store read is enough; unlike `resolvePoster` there is no
+ * network resolution and no side effect.
+ */
+export async function getAudioWatchHistoryRecord(
+  mediaId: string,
+): Promise<WatchHistoryRecord | null> {
+  if (!mediaId) return null;
+  const records = await getAllWatchHistory();
+  return records.find((record) => record.mediaId === mediaId) ?? null;
+}
+
+/**
+ * Convert the short-lived cover object URL produced by `extractAudioCover`
+ * into the reload-safe poster input expected by `recordAudioWatchHistory`.
+ *
+ * Best effort: a missing or already-revoked URL, a non-image blob, or a read
+ * failure returns `null`, which records a title card instead of an image.
+ */
+export async function createAudioPosterFromCoverUrl(
+  coverUrl: string | null,
+): Promise<AudioPosterInput | null> {
+  if (!coverUrl) return null;
+  try {
+    const response = await fetch(coverUrl);
+    const blob = await response.blob();
+    if (blob.size === 0 || !blob.type.startsWith('image/')) return null;
+    return { format: blob.type, data: await blob.arrayBuffer() };
+  } catch {
+    return null;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Playback position resume                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** Namespace for local-only playback positions, keyed by the Tracker mediaId. */
+const AUDIO_PROGRESS_PREFIX = 'entei:audio-progress:';
+
+/** Positions at or below this point are treated as "not started" and dropped. */
+const AUDIO_PROGRESS_MIN_SECONDS = 1;
+
+function audioProgressKey(mediaId: string): string {
+  return `${AUDIO_PROGRESS_PREFIX}${mediaId}`;
+}
+
+function audioProgressStorage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    // Some privacy modes throw on access; resume is best effort.
+    return null;
+  }
+}
+
+/**
+ * Read the saved playback position (seconds) for a mediaId.
+ * Returns null when nothing usable is stored: missing, malformed, or at the
+ * very start of the track. Never stores or returns a file path or URL.
+ */
+export function readAudioProgress(mediaId: string): number | null {
+  if (!mediaId) return null;
+  const storage = audioProgressStorage();
+  if (storage === null) return null;
+  try {
+    const raw = storage.getItem(audioProgressKey(mediaId));
+    if (raw === null) return null;
+    const seconds = Number(raw);
+    if (!Number.isFinite(seconds) || seconds < AUDIO_PROGRESS_MIN_SECONDS) {
+      return null;
+    }
+    return seconds;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the last playback position; ignores non-finite/start positions. */
+export function writeAudioProgress(mediaId: string, seconds: number): void {
+  if (
+    !mediaId ||
+    !Number.isFinite(seconds) ||
+    seconds < AUDIO_PROGRESS_MIN_SECONDS
+  ) {
+    return;
+  }
+  const storage = audioProgressStorage();
+  if (storage === null) return;
+  try {
+    storage.setItem(audioProgressKey(mediaId), String(seconds));
+  } catch {
+    // Storage may be full or blocked (private mode); resume is best effort.
+  }
+}
+
+/** Drop the saved position so the next open starts from the beginning. */
+export function clearAudioProgress(mediaId: string): void {
+  if (!mediaId) return;
+  const storage = audioProgressStorage();
+  if (storage === null) return;
+  try {
+    storage.removeItem(audioProgressKey(mediaId));
+  } catch {
+    // Best effort.
+  }
 }

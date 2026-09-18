@@ -43,14 +43,33 @@ vi.mock('@/features/player/use-companion-job-session', () => ({
     requestSeek: vi.fn(),
   }),
 }));
+vi.mock('@/features/player/watch-history/audio', () => ({
+  clearAudioProgress: vi.fn(),
+  computeAudioMediaId: vi.fn(),
+  createAudioPosterFromCoverUrl: vi.fn(),
+  getAudioWatchHistoryRecord: vi.fn(),
+  readAudioProgress: vi.fn(),
+  recordAudioWatchHistory: vi.fn(),
+  writeAudioProgress: vi.fn(),
+}));
+
+vi.mock('@/features/player/audio-cover/audio-cover', () => ({
+  extractAudioCover: vi.fn(),
+  revokeAudioCoverUrl: vi.fn(),
+}));
+
 import AudioPlayer, {
   clampAudioSeekTarget,
   findActiveAudioCue,
 } from '@/components/player/AudioPlayer';
 import { LOCALE_CHANGE_EVENT } from '@i18n/locale-events';
+import * as audioCover from '@/features/player/audio-cover/audio-cover';
+import * as audioHistory from '@/features/player/watch-history/audio';
+import type { WatchHistoryRecord } from '@/features/player/watch-history/types';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
   audioPlayerMocks.pairingConnected = true;
 });
 
@@ -333,5 +352,216 @@ describe('audio player pure controls', () => {
     expect(findActiveAudioCue(cues, 1)?.text).toBe('First line');
     expect(findActiveAudioCue(cues, 2)?.text).toBe('Second line');
     expect(findActiveAudioCue(cues, 5)).toBeNull();
+  });
+});
+
+const cachedRecord: WatchHistoryRecord = {
+  mediaId: 'fingerprint-1',
+  title: 'Cached book title',
+  episode: null,
+  watchedAt: 1,
+  source: 'audio',
+  anilistId: null,
+  tmdbId: null,
+  posterUrl: 'data:image/png;base64,CACHED',
+  posterStatus: 'ready',
+};
+
+function selectAudioFile(): void {
+  fireEvent.change(screen.getByLabelText('Choose an audio file'), {
+    target: {
+      files: [
+        new File([new Uint8Array([1, 2, 3, 4])], 'book.m4b', {
+          type: 'audio/mp4',
+        }),
+      ],
+    },
+  });
+}
+
+/** Load the fake media clock so resume/ended logic can run in jsdom. */
+function getAudioElement(): HTMLAudioElement {
+  return document.querySelector('audio') as HTMLAudioElement;
+}
+
+describe('AudioPlayer cover cache and playback resume', () => {
+  beforeEach(() => {
+    vi.mocked(audioHistory.computeAudioMediaId).mockResolvedValue(
+      'fingerprint-1',
+    );
+    vi.mocked(audioHistory.getAudioWatchHistoryRecord).mockResolvedValue(null);
+    vi.mocked(audioHistory.readAudioProgress).mockReturnValue(null);
+    vi.mocked(audioHistory.createAudioPosterFromCoverUrl).mockResolvedValue(
+      null,
+    );
+    vi.mocked(audioCover.extractAudioCover).mockResolvedValue({
+      title: 'Parsed book title',
+      coverUrl: 'blob:extracted-cover',
+    });
+  });
+
+  it('reuses a cached cover and title without parsing the file again', async () => {
+    vi.mocked(audioHistory.getAudioWatchHistoryRecord).mockResolvedValue(
+      cachedRecord,
+    );
+
+    render(<AudioPlayer />);
+    selectAudioFile();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('img', { name: 'Cached book title cover' }),
+      ).toHaveAttribute('src', 'data:image/png;base64,CACHED');
+    });
+    expect(audioHistory.getAudioWatchHistoryRecord).toHaveBeenCalledWith(
+      'fingerprint-1',
+    );
+    expect(audioCover.extractAudioCover).not.toHaveBeenCalled();
+    expect(audioHistory.recordAudioWatchHistory).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('heading', { name: 'Cached book title' }),
+    ).not.toBeNull();
+  });
+
+  it('records the extracted cover as a reload-safe poster for the next open', async () => {
+    const poster = { format: 'image/png', data: new Uint8Array([9, 8, 7]) };
+    vi.mocked(audioHistory.createAudioPosterFromCoverUrl).mockResolvedValue(
+      poster,
+    );
+
+    render(<AudioPlayer />);
+    selectAudioFile();
+
+    await waitFor(() => {
+      expect(audioHistory.recordAudioWatchHistory).toHaveBeenCalledTimes(1);
+    });
+    expect(audioCover.extractAudioCover).toHaveBeenCalledTimes(1);
+    expect(audioHistory.createAudioPosterFromCoverUrl).toHaveBeenCalledWith(
+      'blob:extracted-cover',
+    );
+    expect(audioHistory.recordAudioWatchHistory).toHaveBeenCalledWith({
+      mediaId: 'fingerprint-1',
+      fileName: 'book.m4b',
+      metadataTitle: 'Parsed book title',
+      poster,
+    });
+    expect(
+      screen.getByRole('img', { name: 'Parsed book title cover' }),
+    ).toHaveAttribute('src', 'blob:extracted-cover');
+  });
+
+  it('restores a saved playback position once metadata is known', async () => {
+    vi.mocked(audioHistory.readAudioProgress).mockReturnValue(42);
+
+    render(<AudioPlayer />);
+    selectAudioFile();
+    await waitFor(() => {
+      expect(audioHistory.getAudioWatchHistoryRecord).toHaveBeenCalled();
+    });
+
+    const audio = getAudioElement();
+    Object.defineProperty(audio, 'duration', {
+      configurable: true,
+      value: 600,
+    });
+    act(() => {
+      audio.dispatchEvent(new Event('loadedmetadata'));
+    });
+
+    expect(audioHistory.readAudioProgress).toHaveBeenCalledWith(
+      'fingerprint-1',
+    );
+    expect(audio.currentTime).toBe(42);
+    const seek = screen.getByRole('slider', {
+      name: 'Seek through audio',
+    }) as HTMLInputElement;
+    expect(seek.value).toBe('42');
+  });
+
+  it('does not resume a saved position inside the final seconds', async () => {
+    vi.mocked(audioHistory.readAudioProgress).mockReturnValue(598);
+
+    render(<AudioPlayer />);
+    selectAudioFile();
+    await waitFor(() => {
+      expect(audioHistory.getAudioWatchHistoryRecord).toHaveBeenCalled();
+    });
+
+    const audio = getAudioElement();
+    Object.defineProperty(audio, 'duration', {
+      configurable: true,
+      value: 600,
+    });
+    act(() => {
+      audio.dispatchEvent(new Event('loadedmetadata'));
+    });
+
+    expect(audio.currentTime).toBe(0);
+    expect(audioHistory.clearAudioProgress).toHaveBeenCalledWith(
+      'fingerprint-1',
+    );
+  });
+
+  it('persists the position from timeupdate, throttled to a few seconds', async () => {
+    render(<AudioPlayer />);
+    selectAudioFile();
+    await waitFor(() => {
+      expect(audioHistory.getAudioWatchHistoryRecord).toHaveBeenCalled();
+    });
+
+    const audio = getAudioElement();
+    Object.defineProperty(audio, 'duration', {
+      configurable: true,
+      value: 600,
+    });
+
+    audio.currentTime = 30;
+    act(() => {
+      audio.dispatchEvent(new Event('timeupdate'));
+    });
+    // A sub-throttle step must not write again.
+    audio.currentTime = 31;
+    act(() => {
+      audio.dispatchEvent(new Event('timeupdate'));
+    });
+
+    expect(audioHistory.writeAudioProgress).toHaveBeenCalledTimes(1);
+    expect(audioHistory.writeAudioProgress).toHaveBeenCalledWith(
+      'fingerprint-1',
+      30,
+    );
+  });
+
+  it('clears the saved position when the track ends or nears the end', async () => {
+    vi.mocked(audioHistory.readAudioProgress).mockReturnValue(42);
+
+    render(<AudioPlayer />);
+    selectAudioFile();
+    await waitFor(() => {
+      expect(audioHistory.getAudioWatchHistoryRecord).toHaveBeenCalled();
+    });
+
+    const audio = getAudioElement();
+    Object.defineProperty(audio, 'duration', {
+      configurable: true,
+      value: 600,
+    });
+
+    // Time inside the closing 5 seconds clears the record.
+    audio.currentTime = 597;
+    act(() => {
+      audio.dispatchEvent(new Event('timeupdate'));
+    });
+    expect(audioHistory.clearAudioProgress).toHaveBeenCalledWith(
+      'fingerprint-1',
+    );
+
+    vi.mocked(audioHistory.clearAudioProgress).mockClear();
+    act(() => {
+      audio.dispatchEvent(new Event('ended'));
+    });
+    expect(audioHistory.clearAudioProgress).toHaveBeenCalledWith(
+      'fingerprint-1',
+    );
   });
 });

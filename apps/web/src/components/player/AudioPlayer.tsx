@@ -46,6 +46,15 @@ import {
   extractAudioCover,
   revokeAudioCoverUrl,
 } from '@/features/player/audio-cover/audio-cover';
+import {
+  clearAudioProgress,
+  computeAudioMediaId,
+  createAudioPosterFromCoverUrl,
+  getAudioWatchHistoryRecord,
+  readAudioProgress,
+  recordAudioWatchHistory,
+  writeAudioProgress,
+} from '@/features/player/watch-history/audio';
 import { Button } from '@/components/player/ui/button';
 import {
   Popover,
@@ -74,6 +83,15 @@ function getInitialLocale(): Locale {
   if (lang === 'ja' || lang === 'en') return lang;
   return 'id';
 }
+
+/**
+ * Resume policy for local audio files. A saved position inside the final
+ * `AUDIO_RESUME_END_MARGIN_SECONDS` counts as "finished" and is cleared, and
+ * progress is only written every `AUDIO_PROGRESS_THROTTLE_SECONDS` to keep
+ * timeupdate writes off the hot path.
+ */
+const AUDIO_RESUME_END_MARGIN_SECONDS = 5;
+const AUDIO_PROGRESS_THROTTLE_SECONDS = 3;
 
 export interface AudioPlayerProps {
   /** Optional source supplied by a future local/companion integration. */
@@ -139,6 +157,12 @@ export default function AudioPlayer({
   const jobSession = useCompanionJobSession();
   const coverUrlRef = useRef<string | null>(null);
   const coverRequestRef = useRef(0);
+  /** Tracker fingerprint of the loaded local file; null for YouTube jobs. */
+  const mediaIdRef = useRef<string | null>(null);
+  /** Saved position waiting for `loadedmetadata` before it can be applied. */
+  const resumeTargetRef = useRef<number | null>(null);
+  /** Last position written to storage, used to throttle timeupdate writes. */
+  const lastProgressRef = useRef<number | null>(null);
   const preferencesRef = useRef<PlayerPreferences>(readPlayerPreferences());
   const [audioSrc, setAudioSrc] = useState<string | null>(src);
   const [title, setTitle] = useState(suppliedTitle ?? '');
@@ -240,6 +264,63 @@ export default function AudioPlayer({
     setCoverUrl(null);
   }, []);
 
+  /**
+   * Apply a saved position once the media duration is known. A target inside
+   * the closing seconds means the track was finished, so the saved position is
+   * cleared and playback starts from the beginning.
+   */
+  const applyResumeTarget = useCallback((audio: HTMLAudioElement) => {
+    const target = resumeTargetRef.current;
+    if (target === null) return;
+    const duration = audio.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    resumeTargetRef.current = null;
+    if (target >= duration - AUDIO_RESUME_END_MARGIN_SECONDS) {
+      if (mediaIdRef.current) clearAudioProgress(mediaIdRef.current);
+      return;
+    }
+    audio.currentTime = target;
+    setCurrentTime(target);
+    lastProgressRef.current = target;
+  }, []);
+
+  /**
+   * Persist the current position for the loaded local file. Called throttled
+   * from timeupdate and forced on pause/visibility/page unload. The final
+   * seconds clear the record so a replay starts from the beginning.
+   */
+  const persistProgress = useCallback(
+    (audio: HTMLAudioElement, force: boolean) => {
+      const mediaId = mediaIdRef.current;
+      if (!mediaId) return;
+      const time = audio.currentTime;
+      if (!Number.isFinite(time) || time <= 0) return;
+      const duration = audio.duration;
+      if (
+        Number.isFinite(duration) &&
+        duration > 0 &&
+        time >= duration - AUDIO_RESUME_END_MARGIN_SECONDS
+      ) {
+        // The closing seconds count as finished: make sure no stale position
+        // survives, even if this open never wrote one.
+        clearAudioProgress(mediaId);
+        lastProgressRef.current = null;
+        return;
+      }
+      if (
+        !force &&
+        lastProgressRef.current !== null &&
+        Math.abs(time - lastProgressRef.current) <
+          AUDIO_PROGRESS_THROTTLE_SECONDS
+      ) {
+        return;
+      }
+      writeAudioProgress(mediaId, time);
+      lastProgressRef.current = time;
+    },
+    [],
+  );
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -251,16 +332,26 @@ export default function AudioPlayer({
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const onTimeUpdate = () => {
+      setCurrentTime(audio.currentTime);
+      persistProgress(audio, false);
+    };
     const onLoadedMetadata = () => {
       setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
       setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+      applyResumeTarget(audio);
     };
     const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    const onPause = () => {
+      setIsPlaying(false);
+      persistProgress(audio, true);
+    };
     const onEnded = () => {
       setIsPlaying(false);
       setCurrentTime(audio.duration);
+      // A finished track restarts from the beginning on the next open.
+      if (mediaIdRef.current) clearAudioProgress(mediaIdRef.current);
+      lastProgressRef.current = null;
     };
     const onError = () => {
       setIsPlaying(false);
@@ -282,7 +373,25 @@ export default function AudioPlayer({
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
     };
-  }, []);
+  }, [applyResumeTarget, persistProgress]);
+
+  // Save the position when the tab is hidden or the page is unloaded: pause
+  // already covers explicit stops, this covers backgrounding and closes.
+  useEffect(() => {
+    const flush = () => {
+      const audio = audioRef.current;
+      if (audio) persistProgress(audio, true);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('beforeunload', flush);
+    };
+  }, [persistProgress]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -431,12 +540,21 @@ export default function AudioPlayer({
       if (!mountedRef.current || !youtubeDialogOpenRef.current) return;
 
       const audio = audioRef.current;
-      audio?.pause();
+      if (audio) {
+        // Save the outgoing local file before its mediaId is dropped.
+        persistProgress(audio, true);
+        audio.pause();
+      }
       setIsPlaying(false);
       setCurrentTime(0);
       setDuration(0);
       setError(null);
       setIsLocalSource(false);
+      // A YouTube job has no local fingerprint, so stop tracking the previous
+      // file's position instead of writing the job's time under its key.
+      mediaIdRef.current = null;
+      resumeTargetRef.current = null;
+      lastProgressRef.current = null;
       setYoutubeVideoId(videoId);
       setSubtitleCues(null);
       setTitle(typeof body.title === 'string' ? body.title : t.defaultTitle);
@@ -466,6 +584,7 @@ export default function AudioPlayer({
     jobSession,
     pairing.connected,
     pairing.tokenRef,
+    persistProgress,
     releaseCover,
     t.defaultTitle,
     youtubeDict,
@@ -510,7 +629,11 @@ export default function AudioPlayer({
       }
 
       const audio = audioRef.current;
-      audio?.pause();
+      if (audio) {
+        // Flush the outgoing track's position before its mediaId is replaced.
+        persistProgress(audio, true);
+        audio.pause();
+      }
       setIsPlaying(false);
       setCurrentTime(0);
       setDuration(0);
@@ -521,6 +644,9 @@ export default function AudioPlayer({
       setSubtitleCues(null);
       setTitle(file.name || '');
       releaseCover();
+      resumeTargetRef.current = null;
+      lastProgressRef.current = null;
+      mediaIdRef.current = null;
 
       const nextAudioUrl = createMediaUrl(file, ownedAudioUrlRef.current);
       ownedAudioUrlRef.current = nextAudioUrl;
@@ -528,6 +654,29 @@ export default function AudioPlayer({
 
       const requestId = coverRequestRef.current + 1;
       coverRequestRef.current = requestId;
+
+      // Fingerprint first: it is a bounded read (size + head/tail 1MiB) and it
+      // lets a cached cover/title skip the whole metadata parse below.
+      const mediaId = await computeAudioMediaId(file);
+      if (requestId !== coverRequestRef.current) return;
+      mediaIdRef.current = mediaId;
+
+      if (mediaId) {
+        resumeTargetRef.current = readAudioProgress(mediaId);
+        const cached = await getAudioWatchHistoryRecord(mediaId);
+        if (requestId !== coverRequestRef.current) return;
+        if (cached && cached.posterStatus === 'ready' && cached.posterUrl) {
+          // Cache hit: reuse the persisted data URL and title, and skip the
+          // file parse entirely. loadedmetadata may already have fired while
+          // the record was read, so retry the resume application here.
+          setTitle(cached.title);
+          coverUrlRef.current = cached.posterUrl;
+          setCoverUrl(cached.posterUrl);
+          if (audio) applyResumeTarget(audio);
+          return;
+        }
+      }
+
       const result = await extractAudioCover(file);
       if (requestId !== coverRequestRef.current) {
         revokeAudioCoverUrl(result.coverUrl);
@@ -537,8 +686,24 @@ export default function AudioPlayer({
       setTitle(result.title);
       coverUrlRef.current = result.coverUrl;
       setCoverUrl(result.coverUrl);
+      if (audio) applyResumeTarget(audio);
+
+      // Note: the poster is persisted at open time (not at the doc's 60s/5%
+      // history point) so the next open of the same file can skip this parse.
+      // `createAudioPosterResolution` still bounds the stored image to
+      // AUDIO_POSTER_MAX_BYTES, so oversized jackets simply re-extract.
+      if (mediaId) {
+        const poster = await createAudioPosterFromCoverUrl(result.coverUrl);
+        if (requestId !== coverRequestRef.current) return;
+        void recordAudioWatchHistory({
+          mediaId,
+          fileName: file.name,
+          metadataTitle: result.title,
+          poster,
+        });
+      }
     },
-    [jobSession, releaseCover],
+    [applyResumeTarget, jobSession, persistProgress, releaseCover],
   );
 
   const subtitleInputRef = useRef<HTMLInputElement | null>(null);
