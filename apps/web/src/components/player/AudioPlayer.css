@@ -576,8 +576,46 @@
 
 .audio-player__tabs {
   display: flex;
+  position: relative;
+  align-items: center;
   justify-content: center;
   margin-block-end: 1.5rem;
+}
+
+.audio-player__source-switch {
+  display: flex;
+  position: absolute;
+  left: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.audio-player__source-button {
+  display: inline-flex;
+  width: 2.5rem;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--entei-radius-md);
+  background: transparent;
+  color: var(--entei-btn-color);
+  cursor: pointer;
+}
+
+.audio-player__source-button:hover {
+  background: var(--entei-btn-color);
+  color: var(--entei-text);
+}
+
+.audio-player__source-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.audio-player__source-button:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 3px;
 }
 
 .audio-player__tab {

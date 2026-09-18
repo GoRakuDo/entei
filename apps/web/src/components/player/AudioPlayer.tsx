@@ -571,6 +571,16 @@ export default function AudioPlayer({
       </PopoverContent>
     </Popover>
   );
+  const fileInput = (
+    <input
+      ref={fileInputRef}
+      className="audio-player__file-input"
+      type="file"
+      accept="audio/*,.m4b,.m4a,.mp3,.wav,.flac,.aac,.opus"
+      aria-label={t.fileInput}
+      onChange={handleFileChange}
+    />
+  );
   const filePicker = (
     <div className="audio-player__entry-actions">
       <button
@@ -591,14 +601,30 @@ export default function AudioPlayer({
       >
         <YouTubeMark width={19} height={19} />
       </button>
-      <input
-        ref={fileInputRef}
-        className="audio-player__file-input"
-        type="file"
-        accept="audio/*,.m4b,.m4a,.mp3,.wav,.flac,.aac,.opus"
-        aria-label={t.fileInput}
-        onChange={handleFileChange}
-      />
+      {fileInput}
+    </div>
+  );
+  const sourceSwitch = (
+    <div className="audio-player__source-switch">
+      <button
+        className="audio-player__source-button"
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        aria-label={t.openFile}
+        title={t.openFile}
+      >
+        <FolderOpen size={17} aria-hidden="true" />
+      </button>
+      <button
+        className="audio-player__source-button"
+        type="button"
+        onClick={() => setIsYouTubeDialogOpen(true)}
+        disabled={!pairing.connected}
+        aria-label={t.youtube}
+        title={t.youtube}
+      >
+        <YouTubeMark width={18} height={18} />
+      </button>
     </div>
   );
   const youtubeDialog = (
@@ -707,6 +733,7 @@ export default function AudioPlayer({
       <div className="audio-player__stage">
         <div className="audio-player__media-panel">
           <div className="audio-player__tabs">
+            {sourceSwitch}
             <ButtonGroup aria-label={t.displayMode}>
               <button
                 className="audio-player__tab"
@@ -873,10 +900,8 @@ export default function AudioPlayer({
         </div>
       </div>
 
-      <div className="audio-player__entry-bar">
-        {filePicker}
-        {youtubeDialog}
-      </div>
+      {fileInput}
+      {youtubeDialog}
     </section>
   );
 }

@@ -221,6 +221,14 @@ describe('AudioPlayer', () => {
       screen.getByRole('button', { name: 'Playback speed: 1.5x' }),
     ).toHaveAttribute('aria-expanded', 'false');
     expect(document.querySelector('audio')).toHaveProperty('playbackRate', 1.5);
+
+    // Loaded state: the bottom entry bar is gone, source switching lives
+    // left of the tabs instead.
+    expect(document.querySelector('.audio-player__entry-actions')).toBeNull();
+    expect(document.querySelector('.audio-player__entry-bar')).toBeNull();
+    expect(document.querySelector('.audio-player__source-switch')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Open audio file' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Open YouTube audio' })).not.toBeNull();
   });
 
   it('marks the document as loaded so the mobile chrome auto-hides after a source loads', () => {
