@@ -154,8 +154,7 @@
   gap: clamp(1rem, 4vw, 3rem);
 }
 
-.audio-player__media-panel,
-.audio-player__subtitle-panel {
+.audio-player__media-panel {
   min-width: 0;
   border: none;
   border-radius: 0;
@@ -621,12 +620,17 @@
 
 .audio-player__subtitle-panel {
   display: flex;
+  position: relative;
   width: min(100%, 27rem);
-  aspect-ratio: 1;
-  min-height: 0;
+  height: clamp(20rem, 48vh, 28rem);
   flex-direction: column;
+  overflow: hidden;
   margin-inline: auto;
-  padding: clamp(1rem, 3vw, 1.5rem);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .audio-player__panel-heading {
@@ -744,13 +748,10 @@
   }
 
   .audio-player__subtitle-panel {
-    display: flex;
-    width: 100%;
-    aspect-ratio: auto;
-    flex: 1 1 0%;
-    min-height: 0;
-    padding: 0.5rem 0.5rem;
-    margin-block: 0.25rem;
+    width: min(100%, 25rem);
+    height: clamp(20rem, 48vh, 30rem);
+    margin-block: auto;
+    padding: 0;
   }
 
   .audio-player__now-playing {
