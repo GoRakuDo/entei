@@ -716,8 +716,19 @@
 
 @media (max-width: 700px) {
   .audio-player {
-    min-height: auto;
+    display: flex;
+    min-height: 100dvh;
+    flex-direction: column;
     padding: 1rem;
+    padding-bottom: 6.5rem;
+  }
+
+  .audio-player__stage {
+    flex: 1;
+  }
+
+  .audio-player__media-panel {
+    justify-content: space-evenly;
   }
 
   .audio-player__entry-actions {
