@@ -239,6 +239,25 @@ describe('AudioPlayer', () => {
     ).not.toBeNull();
   });
 
+  it('loads subtitle cues from a subtitle file in the empty state', async () => {
+    render(<AudioPlayer src="/book.m4b" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Subtitle' }));
+
+    expect(screen.getByRole('button', { name: 'Open subtitle file' })).not.toBeNull();
+    const file = new File(
+      ['WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nFirst line'],
+      'sub.vtt',
+      { type: 'text/vtt' },
+    );
+    fireEvent.change(screen.getByLabelText('Choose a subtitle file'), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /First line/ })).not.toBeNull();
+    });
+  });
+
   it('marks the document as loaded so the mobile chrome auto-hides after a source loads', () => {
     render(<AudioPlayer src="/book.m4b" title="Book title" />);
 

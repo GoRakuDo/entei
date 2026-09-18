@@ -34,6 +34,7 @@ import {
   type PlayerPreferences,
 } from '@/features/player/preferences';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
+import { parseSubtitle } from '@/features/player/subtitle-reader';
 import {
   LOCALE_CHANGE_EVENT,
   type LocaleChangeDetail,
@@ -150,6 +151,8 @@ export default function AudioPlayer({
   const [youtubeSubmitting, setYouTubeSubmitting] = useState(false);
   const [youtubeError, setYouTubeError] = useState<YouTubeAudioError>(null);
   const [view, setView] = useState<'cover' | 'subtitle'>('cover');
+  const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[] | null>(null);
+  const effectiveCues = subtitleCues ?? cues;
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -198,8 +201,8 @@ export default function AudioPlayer({
               : youtubeDict.youtubeInputErrorGeneric;
 
   const activeCue = useMemo(
-    () => findActiveAudioCue(cues, currentTime),
-    [cues, currentTime],
+    () => findActiveAudioCue(effectiveCues, currentTime),
+    [effectiveCues, currentTime],
   );
 
   const releaseCover = useCallback(() => {
@@ -406,6 +409,7 @@ export default function AudioPlayer({
       setError(null);
       setIsLocalSource(false);
       setYoutubeVideoId(videoId);
+      setSubtitleCues(null);
       setTitle(typeof body.title === 'string' ? body.title : t.defaultTitle);
       releaseCover();
       revokeUrl(ownedAudioUrlRef.current);
@@ -485,6 +489,7 @@ export default function AudioPlayer({
       setError(null);
       setIsLocalSource(true);
       setYoutubeVideoId(null);
+      setSubtitleCues(null);
       setTitle(file.name || '');
       releaseCover();
 
@@ -507,6 +512,21 @@ export default function AudioPlayer({
     [jobSession, releaseCover],
   );
 
+  const subtitleInputRef = useRef<HTMLInputElement | null>(null);
+  const handleSubtitleFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+      try {
+        const text = await file.text();
+        setSubtitleCues(parseSubtitle(text).cues);
+      } catch {
+        setSubtitleCues([]);
+      }
+    },
+    [],
+  );
   const handleCueClick = useCallback(
     (cue: SubtitleCue) => {
       const audio = audioRef.current;
@@ -777,9 +797,9 @@ export default function AudioPlayer({
               >
                 {t.subtitlePanel}
               </h2>
-              {cues.length > 0 ? (
+              {effectiveCues.length > 0 ? (
                 <ol className="audio-player__cue-list">
-                  {cues.map((cue) => (
+                  {effectiveCues.map((cue) => (
                     <li key={cue.id}>
                       <button
                         className="audio-player__cue-button"
@@ -796,7 +816,25 @@ export default function AudioPlayer({
                   ))}
                 </ol>
               ) : (
-                <p className="audio-player__empty">{t.noSubtitles}</p>
+                <div className="audio-player__empty">
+                  <p>{t.noSubtitles}</p>
+                  <button
+                    className="audio-player__open-button"
+                    type="button"
+                    onClick={() => subtitleInputRef.current?.click()}
+                  >
+                    <Captions size={18} aria-hidden="true" />
+                    <span>{t.openSubtitleFile}</span>
+                  </button>
+                  <input
+                    ref={subtitleInputRef}
+                    className="audio-player__file-input"
+                    type="file"
+                    accept=".srt,.vtt"
+                    aria-label={t.subtitleFileInput}
+                    onChange={(event) => void handleSubtitleFileChange(event)}
+                  />
+                </div>
               )}
             </section>
           )}

@@ -477,6 +477,8 @@ export interface Dictionary {
     coverPanel: string;
     subtitlePanel: string;
     noSubtitles: string;
+    openSubtitleFile: string;
+    subtitleFileInput: string;
     play: string;
     pause: string;
     seek: string;
