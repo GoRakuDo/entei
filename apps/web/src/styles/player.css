@@ -216,6 +216,7 @@
 .entei-player-video-wrapper {
   position: relative;
   width: 100%;
+  aspect-ratio: 16 / 9;
   background-color: var(--entei-surface);
   border-radius: var(--entei-radius-md);
   overflow: hidden;
@@ -224,6 +225,7 @@
 .entei-player-video {
   display: block;
   width: 100%;
+  height: 100%;
   max-height: 70vh;
   object-fit: contain;
   background-color: var(--entei-black-950);
@@ -1186,6 +1188,8 @@
   /* Video wrapper: 100% width × 100dvh, native controls visible. */
   .entei-player-video-wrapper {
     width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
     border-radius: 0;
   }
 
@@ -3071,6 +3075,39 @@
   }
 }
 
+/* --- Fullscreen video layout --- */
+/* The surface is the fullscreen element. Keep the wrapper unconstrained by
+   the normal 16:9 ratio so the video can fill the fullscreen display. */
+.entei-player-surface:fullscreen {
+  width: 100%;
+  height: 100%;
+}
+
+.entei-player-surface:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+}
+
+.entei-player-surface:fullscreen .entei-player-video-wrapper {
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.entei-player-surface:-webkit-full-screen .entei-player-video-wrapper {
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.entei-player-surface:fullscreen .entei-player-video {
+  height: 100%;
+  max-height: none;
+}
+
+.entei-player-surface:-webkit-full-screen .entei-player-video {
+  height: 100%;
+  max-height: none;
+}
+
 /* --- Desktop Immersive Layout --- */
 /* Applied to <html> via JS when media is loaded on desktop (≥1024px).
    Hides TopBar/SiteFooter, removes main padding, fills viewport. */
@@ -3159,9 +3196,10 @@ html.entei-player-immersive .entei-player-surface {
   height: 100%;
 }
 
-/* Video wrapper fills surface */
+/* Video wrapper fills surface instead of using the normal 16:9 ratio. */
 html.entei-player-immersive .entei-player-video-wrapper {
   height: 100%;
+  aspect-ratio: auto;
 }
 
 /* Video fills wrapper preserving aspect ratio */
