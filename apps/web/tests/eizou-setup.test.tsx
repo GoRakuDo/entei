@@ -251,7 +251,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
-        baseDict.eizouPairingErrorInvalidCode,
+        `${baseDict.pairingStagePost} ${baseDict.eizouPairingErrorInvalidCode}`,
       ),
     );
     expect(onPairSuccess).not.toHaveBeenCalled();
@@ -290,31 +290,6 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
     expect(onPairSuccess).not.toHaveBeenCalled();
   });
 
-  it('prefixes the failed POST step label on invalid-code rejection', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ error: 'invalid pairing code' }), { status: 403 }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    const onPairSuccess = vi.fn();
-    render(
-      <EizouDendenshiSetup
-        isConnected={false}
-        onPairSuccess={onPairSuccess}
-        dict={baseDict}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouSetupLabel }));
-    fillOtp('111111');
-    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouPairingSubmit }));
-
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        `${baseDict.pairingStagePost} ${baseDict.eizouPairingErrorInvalidCode}`,
-      ),
-    );
-    expect(onPairSuccess).not.toHaveBeenCalled();
-  });
-
   it('maps other server errors to the generic message', async () => {
     vi.stubGlobal(
       'fetch',
@@ -334,7 +309,7 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
-        baseDict.eizouPairingErrorGeneric,
+        `${baseDict.pairingStagePost} ${baseDict.eizouPairingErrorGeneric}`,
       ),
     );
     expect(onPairSuccess).not.toHaveBeenCalled();
