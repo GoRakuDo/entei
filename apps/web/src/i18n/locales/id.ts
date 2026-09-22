@@ -285,6 +285,8 @@ export const id: Dictionary = {
     companionJobError: 'Terjadi kesalahan. Silakan coba lagi.',
     companionJobFailed: 'Unduhan gagal. Silakan coba URL baru atau pilih file.',
     eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
+    // Stage label for the failed pairing step (POST /v1/pair).
+    pairingStagePost: '(POST /v1/pair)',
     eizouPairingTutorialPrefix: '* Petunjuk penyiapan dapat dilihat di ',
     eizouPairingTutorialLink: 'sini',
     eizouPairingTutorialSuffix: '.',

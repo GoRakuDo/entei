@@ -288,6 +288,8 @@ export const ja: Dictionary = {
     companionJobFailed:
       'ダウンロードに失敗しました。新しいURLまたはファイルを選択してください。',
     eizouPairingErrorGeneric: '接続に失敗しました。もう一度お試しください。',
+    // Stage label for the failed pairing step (POST /v1/pair).
+    pairingStagePost: '(POST /v1/pair)',
     eizouPairingTutorialPrefix: '※セットアップ方法は',
     eizouPairingTutorialLink: 'こちら',
     eizouPairingTutorialSuffix: 'から参照してください。',

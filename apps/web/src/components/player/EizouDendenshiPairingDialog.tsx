@@ -12,6 +12,16 @@
  * text, or telemetry. OTP digits and any token are cleared on close and on
  * unmount. Errors are localized and generic: no code/token/request detail.
  *
+ * Pairing flow & failure stages:
+ *   1. pair.reach   — reachability probe (no dedicated dialog UI)
+ *   2. pair.post    — POST /v1/pair (this dialog; the only request it makes)
+ *   3. pair.status  — GET /v1/pair/status polling after pair success (in the
+ *                     pairing hook; failures are silent retries, not dialog rows)
+ * The dialog error line prefixes the localized message with the failing stage
+ * label (pairingStagePost = "(POST /v1/pair)") so users/support can see where
+ * the flow broke. The only un-staged row is `incomplete` (client-side 6-digit
+ * validation — no request has been attempted).
+ *
  * Scope: no yt-dlp, aria2, downloads, cookie upload, or torrent behavior.
  * --------------------------------------------------------------------------- */
 'use client';
@@ -44,6 +54,8 @@ export interface EizouDendenshiPairingDict {
   eizouPairingErrorNetwork: string;
   eizouPairingErrorInvalidCode: string;
   eizouPairingErrorGeneric: string;
+  /** Stage label of the failed pairing step; prefixes the error line. */
+  pairingStagePost: string;
   eizouPairingTutorialPrefix: string;
   eizouPairingTutorialLink: string;
   eizouPairingTutorialSuffix: string;
@@ -107,6 +119,7 @@ export function EizouDendenshiPairingDialog({
     const abort = new AbortController();
     abortRef.current = abort;
     try {
+      // pair.post
       const res = await fetch(PAIR_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,7 +128,8 @@ export function EizouDendenshiPairingDialog({
       });
       if (epoch !== epochRef.current) return; // closed/unmounted meanwhile
       if (!res.ok) {
-        // 400/403 mean the code itself was rejected; never echo details.
+        // pair.post: server rejected the HTTP request (400/403 = code itself
+        // was rejected; never echo details).
         setErrorKind(
           res.status === 400 || res.status === 403
             ? 'invalidCode'
@@ -124,6 +138,7 @@ export function EizouDendenshiPairingDialog({
         return;
       }
       // Accept the token ONLY on 200. Fail closed if the body is malformed.
+      // pair.post: 200 body carried no usable token.
       let token: unknown = null;
       try {
         const body: unknown = await res.json();
@@ -142,7 +157,8 @@ export function EizouDendenshiPairingDialog({
       onPairSuccess(token);
       handleOpenChange(false);
     } catch {
-      // Network failure / abort — generic, localized, no request detail.
+      // pair.post: fetch threw (companion unreachable / abort) — generic,
+      // localized, no request detail.
       if (epoch === epochRef.current) setErrorKind('network');
     } finally {
       if (epoch === epochRef.current) setIsPairing(false);
@@ -150,7 +166,10 @@ export function EizouDendenshiPairingDialog({
     }
   }, [code, isPairing, onPairSuccess, handleOpenChange]);
 
-  const errorMessage =
+  // Every failure kind except `incomplete` (client-side validation, no request
+  // made) fails at the POST /v1/pair stage, so its stage label prefixes the
+  // localized message — the dialog error line then shows WHERE it broke.
+  const baseErrorMessage =
     errorKind === 'incomplete'
       ? dict.eizouPairingOtpInvalid
       : errorKind === 'network'
@@ -160,6 +179,10 @@ export function EizouDendenshiPairingDialog({
           : errorKind === 'generic'
             ? dict.eizouPairingErrorGeneric
             : null;
+  const errorMessage =
+    errorKind !== null && errorKind !== 'incomplete'
+      ? `${dict.pairingStagePost} ${baseErrorMessage}`
+      : baseErrorMessage;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

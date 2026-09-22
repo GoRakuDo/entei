@@ -393,6 +393,9 @@ export interface Dictionary {
     eizouPairingErrorNetwork: string;
     eizouPairingErrorInvalidCode: string;
     eizouPairingErrorGeneric: string;
+    // Stage label for the pairing step that failed (prefixes the dialog
+    // error line so users/support can see where the flow broke).
+    pairingStagePost: string;
     eizouPairingTutorialPrefix: string;
     eizouPairingTutorialLink: string;
     eizouPairingTutorialSuffix: string;

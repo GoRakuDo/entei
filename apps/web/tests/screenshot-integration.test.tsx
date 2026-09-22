@@ -284,6 +284,7 @@ const mockDict = {
   eizouPairingErrorNetwork: 'Could not reach EizouDendenshi.',
   eizouPairingErrorInvalidCode: 'Invalid code.',
   eizouPairingErrorGeneric: 'Pairing failed.',
+  pairingStagePost: '(POST /v1/pair)',
   eizouPairingTutorialPrefix: 'See setup guide ',
   eizouPairingTutorialLink: 'here',
   eizouPairingTutorialSuffix: '.',

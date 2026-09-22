@@ -282,6 +282,8 @@ export const en: Dictionary = {
     companionJobFailed:
       'The download failed. Please try a new URL or choose a file.',
     eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
+    // Stage label for the failed pairing step (POST /v1/pair).
+    pairingStagePost: '(POST /v1/pair)',
     eizouPairingTutorialPrefix: '* See the setup guide ',
     eizouPairingTutorialLink: 'here',
     eizouPairingTutorialSuffix: '.',

@@ -5036,6 +5036,7 @@ export default function PlayerApp() {
               eizouPairingErrorNetwork: dict.eizouPairingErrorNetwork,
               eizouPairingErrorInvalidCode: dict.eizouPairingErrorInvalidCode,
               eizouPairingErrorGeneric: dict.eizouPairingErrorGeneric,
+              pairingStagePost: dict.pairingStagePost,
               eizouPairingTutorialPrefix: dict.eizouPairingTutorialPrefix,
               eizouPairingTutorialLink: dict.eizouPairingTutorialLink,
               eizouPairingTutorialSuffix: dict.eizouPairingTutorialSuffix,

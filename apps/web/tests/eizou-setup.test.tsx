@@ -26,6 +26,7 @@ const baseDict = {
   eizouPairingErrorNetwork: 'Could not reach EizouDendenshi.',
   eizouPairingErrorInvalidCode: 'Invalid code.',
   eizouPairingErrorGeneric: 'Pairing failed.',
+  pairingStagePost: '(POST /v1/pair)',
   eizouPairingTutorialPrefix: 'See setup guide ',
   eizouPairingTutorialLink: 'here',
   eizouPairingTutorialSuffix: '.',
@@ -280,6 +281,35 @@ describe('EizouDendenshiPairingDialog — pair request', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
         baseDict.eizouPairingErrorNetwork,
+      ),
+    );
+    // The failing step is surfaced so users/support can see where it broke.
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      `${baseDict.pairingStagePost} ${baseDict.eizouPairingErrorNetwork}`,
+    );
+    expect(onPairSuccess).not.toHaveBeenCalled();
+  });
+
+  it('prefixes the failed POST step label on invalid-code rejection', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: 'invalid pairing code' }), { status: 403 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onPairSuccess = vi.fn();
+    render(
+      <EizouDendenshiSetup
+        isConnected={false}
+        onPairSuccess={onPairSuccess}
+        dict={baseDict}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouSetupLabel }));
+    fillOtp('111111');
+    fireEvent.click(screen.getByRole('button', { name: baseDict.eizouPairingSubmit }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        `${baseDict.pairingStagePost} ${baseDict.eizouPairingErrorInvalidCode}`,
       ),
     );
     expect(onPairSuccess).not.toHaveBeenCalled();
