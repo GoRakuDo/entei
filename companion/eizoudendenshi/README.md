@@ -1266,6 +1266,22 @@ correctness or safety today:
 6. `update_test.go` child-dispatch env guard comment could name
    `TestSpawnApplyWindowsRealSelfReplace` explicitly (cosmetic only).
 
+### Known issues / low findings (from code review 2026-09-22 — Termux shared-storage log)
+
+APPROVE with these LOW notes recorded (project convention #1772):
+
+1. `diag.go`: if `EIZOUDEN_LOG_DIR` is set to exactly
+   `/storage/emulated/0` and that open fails, the failure is misread as
+   "shared storage unusable" and silently falls back to
+   `$PREFIX/var/log/eizouden.log`. Extremely unlikely (the override is
+   documented as a separate directory); precedence otherwise intact.
+2. The pairing-error web copy hardcodes `/storage/emulated/0/eizouden.log`
+   as the Termux log path. If the startup fallback actually engaged, the
+   real log lives at `$PREFIX/var/log/eizouden.log` (startup line always
+   reports the chosen path). Acceptable: the message is platform-qualified.
+3. `DefaultDir`'s PREFIX→shared-root branch itself has no direct unit test;
+   composition is covered because both tests drive the same variable.
+
 
 ## Deferred boundaries (out of scope through ED-2B)
 
@@ -1785,16 +1801,24 @@ The companion writes a bounded file log of what it does in the background.
 Location and rotation:
 
 - Windows: `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\eizouden.log`
-- Android/Termux: `$PREFIX/var/log/eizouden.log`
+- Android/Termux: `/storage/emulated/0/eizouden.log` (shared-storage root, so
+  any file manager can open it). When shared storage is unavailable (no
+  storage permission, missing mount, etc.) the companion automatically
+  falls back to `$PREFIX/var/log/eizouden.log` — logging is never lost.
 - Override for harnesses/tests only: `EIZOUDEN_LOG_DIR`
 - 1 MiB cap; when exceeded the file rotates to `eizouden.log.1` (previous
   backup overwritten) and a fresh file starts. Mode 0600, append-only.
+  (Android's sdcard FUSE projects the owner mode bits onto group/other and
+  forces `|0664` at mknod, so a 0600 shared-storage file is still readable
+  by file managers.)
 - The log path is never printed in the API, CLI, or errors; CLI Service
-  Status shows only `log: enabled/disabled`.
+  Status shows only `log: enabled/disabled`. The one sanctioned exception
+  is the log's own startup line (`start ... path=...`), which records the
+  chosen path for support (it carries no secrets).
 
 What is logged (sanitized):
 
-- startup/termination (version, platform), every API request as
+- startup/termination (version, platform, and the resolved log path), every API request as
   `method path status` (query string stripped — a `?token=` can never
   reach the log), pairing success/failure only, torrent job lifecycle
   (job id, **shortened** infohash — first 12 hex chars + `…`, file count,
@@ -1807,6 +1831,8 @@ What is NEVER logged:
 - magnet URIs, tracker URLs (`tr=`), full infohashes, capability tokens,
   pairing codes, cookies, local absolute paths, API URLs, helper paths,
   or credentials. anacrolix's own raw log lines are discarded entirely.
+  (The only absolute path ever logged is the diagnostic log file's own
+  path on the startup line; it carries no secrets.)
 
 
 

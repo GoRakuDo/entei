@@ -128,7 +128,9 @@ type Manager struct {
 }
 
 // defaultStorageRoot resolves the persistent per-session storage root,
-// mirroring diag.DefaultDir's platform pattern:
+// following diag.DefaultDir's platform shape BUT deliberately app-private
+// (unlike the shared-storage diagnostic log on Termux — bbolt/session data
+// must never live on Android shared storage):
 //
 //   - Windows: %LOCALAPPDATA%\GoRakuDo\EizouDendenshi\torrent-sessions;
 //   - Android/Termux ($PREFIX set): $PREFIX/var/lib/eizouden/torrent-sessions;

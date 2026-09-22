@@ -351,3 +351,80 @@ func TestNewLoggerRejectsEmptyDir(t *testing.T) {
 		t.Fatal("NewLogger(\"\") must fail")
 	}
 }
+
+// TestNewLoggerTermuxPrefersSharedStorage: on Termux (PREFIX set) with a
+// writable shared-storage root, the log goes to
+// <shared>/eizouden.log so file managers can open it. The shared root is
+// injected via the termuxSharedLogDir var; the default resolution itself is
+// platform-dependent (on Windows hosts GOOS=="windows" wins in DefaultDir,
+// while Termux hosts report GOOS=="linux" and reach the PREFIX branch).
+func TestNewLoggerTermuxPrefersSharedStorage(t *testing.T) {
+	orig := termuxSharedLogDir
+	shared := filepath.Join(t.TempDir(), "shared")
+	termuxSharedLogDir = shared
+	t.Cleanup(func() { termuxSharedLogDir = orig })
+	prefix := t.TempDir()
+	t.Setenv("PREFIX", prefix)
+
+	l, err := NewLogger(termuxSharedLogDir)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	defer l.Close()
+
+	want := filepath.Join(shared, logFileName)
+	if l.Path() != want {
+		t.Errorf("Path() = %q, want shared-storage path %q", l.Path(), want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("shared-storage log missing: %v", err)
+	}
+	// The classic $PREFIX/var/log must not have been used.
+	if _, err := os.Stat(filepath.Join(prefix, "var", "log", logFileName)); !os.IsNotExist(err) {
+		t.Errorf("fallback log unexpectedly present where shared storage succeeded (stat err=%v)", err)
+	}
+}
+
+// TestNewLoggerTermuxFallsBackWhenSharedUnusable: when the shared-storage
+// root cannot be created/opened (here: it is an existing regular file, so
+// MkdirAll fails on every platform — the structural equivalent of a missing
+// storage permission), NewLogger falls back to $PREFIX/var/log exactly as
+// before, and logging still works.
+func TestNewLoggerTermuxFallsBackWhenSharedUnusable(t *testing.T) {
+	orig := termuxSharedLogDir
+	collision := filepath.Join(t.TempDir(), "shared")
+	if err := os.WriteFile(collision, []byte("occupied"), 0o600); err != nil {
+		t.Fatalf("writeFile collision: %v", err)
+	}
+	termuxSharedLogDir = collision
+	t.Cleanup(func() { termuxSharedLogDir = orig })
+	prefix := t.TempDir()
+	t.Setenv("PREFIX", prefix)
+
+	l, err := NewLogger(collision)
+	if err != nil {
+		t.Fatalf("NewLogger must fall back instead of failing: %v", err)
+	}
+	l.Infof("main", "on fallback path")
+	defer l.Close()
+
+	want := filepath.Join(prefix, "var", "log", logFileName)
+	if l.Path() != want {
+		t.Errorf("Path() = %q, want fallback %q", l.Path(), want)
+	}
+	raw, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("read fallback log: %v", err)
+	}
+	if !strings.Contains(string(raw), "on fallback path") {
+		t.Errorf("fallback log missing line; got:\n%s", raw)
+	}
+}
+
+// TestNilLoggerPath: a nil logger reports an empty path (nil-safe).
+func TestNilLoggerPath(t *testing.T) {
+	var l *Logger
+	if got := l.Path(); got != "" {
+		t.Errorf("nil Path() = %q, want empty", got)
+	}
+}

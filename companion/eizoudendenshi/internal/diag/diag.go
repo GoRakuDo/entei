@@ -13,14 +13,18 @@
 //     local absolute path, an API URL, a helper path, or any credential.
 //     ShortInfohash is the ONLY sanctioned way to reference an infohash:
 //     the first 12 hex characters followed by "…".
+//     The single sanctioned exception for "local absolute path" is the
+//     resolved log path, which the startup line reports so support can
+//     find the log (it never carries a token or credential).
 //   - API request lines are method + path (query stripped) + status only,
 //     so a token carried in the query string can never reach the log.
 //
 // The directory is resolved by DefaultDir: Windows uses
-// %LOCALAPPDATA%\GoRakuDo\EizouDendenshi, Android/Termux uses
-// $PREFIX/var/log, and EIZOUDEN_LOG_DIR overrides both for harnesses and
-// tests (the override never applies in production, where the env var is
-// absent).
+// %LOCALAPPDATA%\GoRakuDo\EizouDendenshi, Android/Termux prefers the
+// shared-storage root /storage/emulated/0 (any file manager can open it)
+// falling back to $PREFIX/var/log when shared storage is unavailable, and
+// EIZOUDEN_LOG_DIR overrides all of them for harnesses and tests (the
+// override never applies in production, where the env var is absent).
 package diag
 
 import (
@@ -39,6 +43,17 @@ import (
 // logFileName is the active log file name; the rotated previous file is
 // logFileName+".1" (overwritten on each rotation).
 const logFileName = "eizouden.log"
+
+// termuxSharedLogDir is the Android shared-storage root. On Termux the
+// companion prefers logging directly here so a normal file manager under
+// the same Android user can open the log. When shared storage is not
+// accessible (no storage permission, missing or unwritable mount),
+// NewLogger falls back to $PREFIX/var/log — the classic app-private
+// location.
+//
+// A var (not a const) so the hermetic unit tests can redirect it to a
+// temp dir instead of touching the real /storage/emulated/0.
+var termuxSharedLogDir = "/storage/emulated/0"
 
 // maxLogBytes is the rotation threshold: when appending would grow the
 // active file beyond this, the file is rotated (current → eizouden.log.1,
@@ -65,7 +80,9 @@ type Logger struct {
 //     mis-set env var can never resolve against an unpredictable working
 //     directory (defense in depth for a test-only escape hatch);
 //   - Windows: %LOCALAPPDATA%\GoRakuDo\EizouDendenshi;
-//   - Android/Termux: $PREFIX/var/log (Termux sets $PREFIX);
+//   - Android/Termux: /storage/emulated/0 (the shared-storage root, so
+//     file managers can open the log); NewLogger falls back to
+//     $PREFIX/var/log when shared storage is unusable;
 //   - other platforms: os.UserCacheDir()/GoRakuDo/EizouDendenshi, falling
 //     back to the OS temp dir.
 func DefaultDir() (string, error) {
@@ -83,7 +100,7 @@ func DefaultDir() (string, error) {
 		}
 		return filepath.Join(base, "GoRakuDo", "EizouDendenshi"), nil
 	case os.Getenv("PREFIX") != "":
-		return filepath.Join(os.Getenv("PREFIX"), "var", "log"), nil
+		return termuxSharedLogDir, nil
 	default:
 		if base, err := os.UserCacheDir(); err == nil && base != "" {
 			return filepath.Join(base, "GoRakuDo", "EizouDendenshi"), nil
@@ -96,7 +113,37 @@ func DefaultDir() (string, error) {
 // with user-private permissions (0600). The directory is created when
 // absent. An existing log file's size is accounted for, so rotation
 // triggers at the same total size regardless of process restarts.
+//
+// On Termux the preferred dir is the Android shared-storage root
+// (termuxSharedLogDir); if that path cannot be created or opened — no
+// storage permission, missing or unwritable shared mount — NewLogger falls
+// back to $PREFIX/var/log (the classic app-private location), so the
+// fallback never loses logging. The fallback never applies to the
+// EIZOUDEN_LOG_DIR override (it resolves to a different dir), keeping the
+// override's highest precedence. The path actually opened is reported by
+// Path().
 func NewLogger(dir string) (*Logger, error) {
+	l, err := openLogger(dir)
+	if err == nil || dir != termuxSharedLogDir || os.Getenv("PREFIX") == "" {
+		return l, err
+	}
+	// Termux shared storage is unusable: retry the classic app-private
+	// default exactly as before.
+	if l2, err2 := openLogger(termuxFallbackDir()); err2 == nil {
+		return l2, nil
+	}
+	return l, err // both unusable: report the original shared-storage failure
+}
+
+// termuxFallbackDir returns the classic Termux log directory
+// ($PREFIX/var/log), used when shared storage is unavailable.
+func termuxFallbackDir() string {
+	return filepath.Join(os.Getenv("PREFIX"), "var", "log")
+}
+
+// openLogger is the raw open path shared by NewLogger and its Termux
+// fallback.
+func openLogger(dir string) (*Logger, error) {
 	if dir == "" {
 		return nil, errors.New("diag: log dir required")
 	}
@@ -144,6 +191,19 @@ func (l *Logger) Close() error {
 	err := l.f.Close()
 	l.f = nil
 	return err
+}
+
+// Path returns the resolved path of the active log file — the path that
+// was actually opened, including a Termux shared-storage fallback to
+// $PREFIX/var/log. Nil-safe ("" for a nil logger). The startup line uses it
+// so support can locate the log.
+func (l *Logger) Path() string {
+	if l == nil {
+		return ""
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.path
 }
 
 func (l *Logger) logf(level, component, format string, args ...any) {

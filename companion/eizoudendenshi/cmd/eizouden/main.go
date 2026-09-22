@@ -430,10 +430,13 @@ type serverConfig struct {
 }
 
 // openDiagLogger opens the diagnostic file logger (best effort). The log
-// directory is resolved by diag.DefaultDir and is never printed anywhere;
-// a resolution or open failure disables logging silently (nil logger) so
-// the companion always runs. The startup line is the first entry: version,
-// platform, and the log status — no paths, no credentials.
+// directory is resolved by diag.DefaultDir; on Termux a writable
+// shared-storage path is preferred and NewLogger falls back to
+// $PREFIX/var/log when shared storage is unusable. A resolution or open
+// failure disables logging silently (nil logger) so the companion always
+// runs. The startup line is the first entry: version, platform, log status
+// and the resolved log path (the one sanctioned absolute-path disclosure —
+// it is a support aid and carries no secrets).
 func openDiagLogger() *diag.Logger {
 	dir, err := diag.DefaultDir()
 	if err != nil {
@@ -443,7 +446,7 @@ func openDiagLogger() *diag.Logger {
 	if err != nil {
 		return nil
 	}
-	l.Infof("main", "start version=%s platform=%s log=enabled", api.Version, runtime.GOOS)
+	l.Infof("main", "start version=%s platform=%s log=enabled path=%s", api.Version, runtime.GOOS, l.Path())
 	return l
 }
 

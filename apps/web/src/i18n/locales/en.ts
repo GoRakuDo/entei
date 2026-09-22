@@ -273,7 +273,7 @@ export const en: Dictionary = {
     eizouPairingSubmit: 'Pair',
     eizouPairingConnecting: 'Pairing…',
     eizouPairingErrorNetwork:
-      'Could not reach EizouDendenshi. Make sure the companion app is running.',
+      'Could not reach EizouDendenshi. Make sure the companion app is running. On Android/Termux, the companion log is at /storage/emulated/0/eizouden.log.',
     eizouPairingErrorInvalidCode:
       'Invalid code. Check the code shown in the companion app.',
     companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',

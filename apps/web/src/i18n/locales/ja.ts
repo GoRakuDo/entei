@@ -278,7 +278,7 @@ export const ja: Dictionary = {
     eizouPairingSubmit: 'ペアリングする',
     eizouPairingConnecting: '接続中…',
     eizouPairingErrorNetwork:
-      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
+      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。Android（Termux）のログは /storage/emulated/0/eizouden.log にあります。',
     eizouPairingErrorInvalidCode:
       'コードが正しくありません。アプリの表示コードを確認してください。',
     companionStreamNotReady:

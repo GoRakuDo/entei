@@ -805,14 +805,14 @@ ED-2D Stage B（clean Termux aarch64 gate）は2026-07-31に`eizoudendenshi-v0.2
 **場所と運用**:
 
 - Windows: `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\eizouden.log`
-- Android/Termux: `$PREFIX/var/log/eizouden.log`
+- Android/Termux: `/storage/emulated/0/eizouden.log`（共有ストレージ直下・通常のファイルマネージャーで開ける）。共有ストレージにアクセスできない場合（storage権限なし・マウント欠落など）は`$PREFIX/var/log/eizouden.log`へ自動フォールバック（logging は失われない）
 - harness/test override: `EIZOUDEN_LOG_DIR` env（productionでは未設定）
-- 上限1 MiB。超過時は`eizouden.log.1`へ回転（前回分は上書き）して新規開始。mode 0600、append。
-- ログパスはAPI応答・CLI出力・エラーメッセージへ一切出さない。CLI Service Statusは`log: enabled/disabled`のみ表示。
+- 上限1 MiB。超過時は`eizouden.log.1`へ回転（前回分は上書き）して新規開始。mode 0600、append。（Android共有ストレージはsdcard FUSEがowner bitsをgroup/otherへ投影・mknod時`|0664`するため、0600でもファイルマネージャーから読める）
+- ログパスはAPI応答・CLI出力・エラーメッセージへ一切出さない。CLI Service Statusは`log: enabled/disabled`のみ表示。唯一の例外はログ自身の起動行（`start ... path=...`）で、選択されたログパスをサポート向けに記録する（機密は含まない）。
 
 **書かれるもの（redaction済み）**:
 
-- 起動/終了（version・platform）、APIリクエスト（`method path status`、**query除去済み** — `?token=`は絶対に書かない）、pairing成功/失敗のみ、torrent jobライフサイクル（job ID・**短縮infohash（先頭12 hex + `…`）**・file数・video有無・select file ID・errorCode）、10秒ごとのengine診断（peer / active / seeder数、DHT node数、DHT announce成功/試行数）。
+- 起動/終了（version・platform・選択されたログパス）、APIリクエスト（`method path status`、**query除去済み** — `?token=`は絶対に書かない）、pairing成功/失敗のみ、torrent jobライフサイクル（job ID・**短縮infohash（先頭12 hex + `…`）**・file数・video有無・select file ID・errorCode）、10秒ごとのengine診断（peer / active / seeder数、DHT node数、DHT announce成功/試行数）。
 
 **絶対に書かれないもの**: magnet全文・tracker URL（`tr=`）・infohash全文・token・pairing code・cookie・ローカル絶対パス・API URL・helper path・credential。anacrolix生ログはファイルへ書かない（peer IPを含みうるため）。
 
