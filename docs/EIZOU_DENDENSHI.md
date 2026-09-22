@@ -245,7 +245,7 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 
 > **最終解決（2026-08-06確認済み）: シークループ（GPU Video Decode 100%）は完全解消。** サーバー: htorrent 方式（ServeContent + anacrolix Reader + modtime=CreationDate、rc.42）+ AnchorSeek（tiramisu 方式、rc.43）。Web: requestSeek 同値スキップ + playing 中 complete リセット防止 + Home キー clampSeek（commit 4a7fa0b）。ユーザー実機確認で「シークスムーズ・GPU100% 解消」。上記 #26-#33 はすべてこの解決に至る履歴。
 
-43. ペアリングstage表示のテスト改善（2026-09-22 LOW 2件・APPROVE）: ①`eizou-setup.test.tsx` のinvalid-code新テストが既存403テストと重複（prefixアサートを既存へ統合でDRY）。②500→`generic`系のテストにprefixアサート未追加（per-kind全カバレッジの余地）。いずれもテスト内cosmetic、本番挙動に影響なし。
+43. ペアリングstage表示のテスト改善（2026-09-22 LOW 2件・APPROVE）: ①`eizou-setup.test.tsx` のinvalid-code新テストが既存403テストと重複（prefixアサートを既存へ統合でDRY）→削除・統合済み。②500→`generic`系のテストにprefixアサート未追加→追加済み（2026-09-22 対応済み、commit 36a11e7）。
 
 
 ## Delivery contract
