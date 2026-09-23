@@ -277,7 +277,7 @@ export const id: Dictionary = {
     eizouPairingSubmit: 'Pasangkan',
     eizouPairingConnecting: 'Menghubungkan…',
     eizouPairingErrorNetwork:
-      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan. Di Android/Termux, log aplikasi pendamping ada di /storage/emulated/0/eizouden.log.',
+      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     eizouPairingErrorInvalidCode:
       'Kode tidak valid. Periksa kode yang ditampilkan di aplikasi.',
     companionStreamNotReady: 'Aliran belum siap. Menunggu data selanjutnya…',
