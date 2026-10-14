@@ -9,6 +9,12 @@ import type {
 /** Maximum decoded jacket image size persisted in a local history record. */
 export const AUDIO_POSTER_MAX_BYTES = 200 * 1024;
 
+/** Longest edge of the thumbnail written for oversized embedded jackets. */
+const AUDIO_POSTER_THUMBNAIL_EDGE = 320;
+
+/** WebP quality used when re-encoding an oversized jacket thumbnail. */
+const AUDIO_POSTER_THUMBNAIL_QUALITY = 0.85;
+
 const AUDIO_POSTER_MIME_TYPES = new Set([
   'image/avif',
   'image/bmp',
@@ -145,9 +151,91 @@ export async function getAudioWatchHistoryRecord(
   return records.find((record) => record.mediaId === mediaId) ?? null;
 }
 
+function loadCoverImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+}
+
+/**
+ * Downscale an oversized jacket into a bounded WebP thumbnail.
+ *
+ * Audiobook covers are frequently embedded as large square PNGs (1000x1000 at
+ * several hundred KB), which the history byte cap would reject and leave the
+ * profile history on its letter fallback. A 320px WebP thumbnail keeps the
+ * cover visible for a few kilobytes.
+ *
+ * Best effort: missing Image/Canvas/object URL support, a decode failure, or
+ * an empty encode returns `null` so the caller can keep the raw bytes.
+ */
+async function createDownscaledCoverPoster(
+  blob: Blob,
+): Promise<AudioPosterInput | null> {
+  if (
+    typeof document === 'undefined' ||
+    typeof Image === 'undefined' ||
+    typeof URL.createObjectURL !== 'function' ||
+    typeof URL.revokeObjectURL !== 'function'
+  ) {
+    return null;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const image = await loadCoverImage(objectUrl);
+    if (!image) return null;
+    const sourceWidth = image.naturalWidth;
+    const sourceHeight = image.naturalHeight;
+    if (!sourceWidth || !sourceHeight) return null;
+
+    const scale = Math.min(
+      1,
+      AUDIO_POSTER_THUMBNAIL_EDGE / Math.max(sourceWidth, sourceHeight),
+    );
+    const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const context = canvas.getContext('2d');
+    if (context === null) return null;
+    context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const thumbnail = await new Promise<Blob | null>((resolve) => {
+      try {
+        canvas.toBlob(
+          (result) => resolve(result),
+          'image/webp',
+          AUDIO_POSTER_THUMBNAIL_QUALITY,
+        );
+      } catch {
+        resolve(null);
+      }
+    });
+    if (!thumbnail || thumbnail.size === 0) return null;
+
+    return {
+      format: 'image/webp',
+      data: await thumbnail.arrayBuffer(),
+    };
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 /**
  * Convert the short-lived cover object URL produced by `extractAudioCover`
  * into the reload-safe poster input expected by `recordAudioWatchHistory`.
+ *
+ * Jackets larger than `AUDIO_POSTER_MAX_BYTES` are first re-encoded as a
+ * bounded WebP thumbnail; if that is unavailable the raw bytes are returned so
+ * the existing cap and title-card fallback still decide the outcome.
  *
  * Best effort: a missing or already-revoked URL, a non-image blob, or a read
  * failure returns `null`, which records a title card instead of an image.
@@ -160,6 +248,14 @@ export async function createAudioPosterFromCoverUrl(
     const response = await fetch(coverUrl);
     const blob = await response.blob();
     if (blob.size === 0 || !blob.type.startsWith('image/')) return null;
+
+    if (blob.size > AUDIO_POSTER_MAX_BYTES) {
+      const thumbnail = await createDownscaledCoverPoster(blob);
+      if (thumbnail && thumbnail.data.byteLength <= AUDIO_POSTER_MAX_BYTES) {
+        return thumbnail;
+      }
+    }
+
     return { format: blob.type, data: await blob.arrayBuffer() };
   } catch {
     return null;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openTrackerDB } from '@/features/player/tracker/db';
 import {
   AUDIO_POSTER_MAX_BYTES,
@@ -6,6 +6,7 @@ import {
   createAudioPosterResolution,
   recordAudioWatchHistory,
 } from '@/features/player/watch-history';
+import { createAudioPosterFromCoverUrl } from '@/features/player/watch-history/audio';
 
 vi.mock('@/features/player/tracker/db', () => ({
   openTrackerDB: vi.fn(),
@@ -183,5 +184,67 @@ describe('audio poster persistence', () => {
         data: null as unknown as Uint8Array,
       }),
     ).toEqual({ posterUrl: null, posterStatus: 'none' });
+  });
+});
+
+describe('createAudioPosterFromCoverUrl', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('downscales an oversized jacket into a WebP thumbnail under the byte cap', async () => {
+    const oversized = new Uint8Array(AUDIO_POSTER_MAX_BYTES + 1);
+    const coverBlob = new Blob([oversized], { type: 'image/png' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ blob: () => Promise.resolve(coverBlob) }));
+
+    class FakeImage {
+      naturalWidth = 1000;
+      naturalHeight = 1000;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('Image', FakeImage);
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:cover'),
+      revokeObjectURL: vi.fn(),
+    });
+
+    const thumbnailBlob = new Blob([new Uint8Array(64)], { type: 'image/webp' });
+    const drawImage = vi.fn();
+    const toBlob = vi.fn((callback: (blob: Blob | null) => void) => {
+      callback(thumbnailBlob);
+    });
+    vi.spyOn(document, 'createElement').mockReturnValue({
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage }),
+      toBlob,
+    } as unknown as HTMLCanvasElement);
+
+    const poster = await createAudioPosterFromCoverUrl('blob:extracted-cover');
+
+    expect(poster?.format).toBe('image/webp');
+    expect(poster?.data.byteLength).toBeLessThanOrEqual(AUDIO_POSTER_MAX_BYTES);
+    expect(drawImage).toHaveBeenCalled();
+    expect(toBlob).toHaveBeenCalled();
+  });
+
+  it('keeps the raw jacket bytes when the thumbnail path is unavailable', async () => {
+    const oversized = new Uint8Array(AUDIO_POSTER_MAX_BYTES + 1);
+    const coverBlob = new Blob([oversized], { type: 'image/png' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ blob: () => Promise.resolve(coverBlob) }));
+    vi.stubGlobal('URL', {
+      createObjectURL: undefined,
+      revokeObjectURL: vi.fn(),
+    });
+
+    const poster = await createAudioPosterFromCoverUrl('blob:extracted-cover');
+
+    expect(poster?.format).toBe('image/png');
+    expect(poster?.data.byteLength).toBe(AUDIO_POSTER_MAX_BYTES + 1);
   });
 });
