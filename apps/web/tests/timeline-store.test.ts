@@ -12,9 +12,12 @@ import {
   TIMELINE_SEED_POSTS,
   TIMELINE_STORAGE_KEY,
   clampTimelineMessage,
+  countTimelineComments,
+  countTimelineLikes,
   createTimelineComment,
   createTimelinePost,
   deriveHandle,
+  formatMetricCount,
   formatRelativeTime,
   mergeTimelineComments,
   mergeTimelinePosts,
@@ -301,5 +304,36 @@ describe('timeline persistence', () => {
       comments: [],
     });
     expect(readTimelineState().posts).toHaveLength(0);
+  });
+});
+
+describe('metric labels', () => {
+  it('formats counts with K / M abbreviations', () => {
+    expect(formatMetricCount(0)).toBe('');
+    expect(formatMetricCount(-3)).toBe('');
+    expect(formatMetricCount(1)).toBe('1');
+    expect(formatMetricCount(999)).toBe('999');
+    expect(formatMetricCount(1_000)).toBe('1K');
+    expect(formatMetricCount(1_250)).toBe('1.3K');
+    expect(formatMetricCount(999_999)).toBe('1M');
+    expect(formatMetricCount(1_000_000)).toBe('1M');
+    expect(formatMetricCount(2_450_000)).toBe('2.5M');
+  });
+
+  it('adds the seed like baseline and this device\u2019s own like', () => {
+    expect(countTimelineLikes('seed-3', false)).toBe(42);
+    expect(countTimelineLikes('seed-3', true)).toBe(43);
+    // A post written on this device has no baseline.
+    expect(countTimelineLikes('local-abc', false)).toBe(0);
+    expect(countTimelineLikes('local-abc', true)).toBe(1);
+  });
+
+  it('counts seeded and local replies for the same post', () => {
+    const seeded = countTimelineComments([], 'seed-1');
+    const local = createTimelineComment('seed-1', 'ありがとう', author)!;
+    expect(countTimelineComments([local], 'seed-1')).toBe(seeded + 1);
+    expect(countTimelineComments([local], 'seed-4')).toBe(
+      countTimelineComments([], 'seed-4'),
+    );
   });
 });

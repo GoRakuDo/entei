@@ -618,6 +618,5 @@ export const id: Dictionary = {
     replySubmit: 'Balas',
     replySubmitAriaLabel: 'Kirim balasan',
     noComments: 'Belum ada balasan',
-    commentCount: '{count} balasan',
   },
 };

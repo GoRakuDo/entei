@@ -57,9 +57,12 @@ import {
   TIMELINE_POST_MAX_LENGTH,
   clampTimelineComment,
   clampTimelineMessage,
+  countTimelineComments,
+  countTimelineLikes,
   createTimelineComment,
   createTimelinePost,
   deriveHandle,
+  formatMetricCount,
   formatRelativeTime,
   mergeTimelineComments,
   mergeTimelinePosts,
@@ -100,9 +103,13 @@ export const NEW_POSTS_POLL_INTERVAL_MS = 30_000;
 /** Matches the `max-width: 767px` breakpoint in `styles/timeline.css`. */
 const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
 
-/** Fill the `{count}` placeholder in the reply-count label. */
-export function formatCommentCount(template: string, count: number): string {
-  return template.replace('{count}', String(count));
+/**
+ * Accessible name for an action button that also shows a count: the count is
+ * part of the name so a screen reader hears "Comment 2" instead of a bare
+ * label with a silently skipped number.
+ */
+function actionLabel(label: string, countLabel: string): string {
+  return countLabel.length === 0 ? label : `${label} ${countLabel}`;
 }
 
 /** Fill the `{count}` placeholder in the "show new posts" label. */
@@ -273,6 +280,15 @@ export default function TimelineFeed() {
   );
   const canReply = clampTimelineComment(replyDraft).length > 0;
   const isDetail = selectedPost !== null;
+  // Computed once for the thread view, exactly like a feed row: the label
+  // feeds both the aria-label and the badge, and an empty label hides the
+  // badge so the pill never shows a dangling "0".
+  const detailLiked =
+    selectedPost !== null && likedIds.includes(selectedPost.id);
+  const detailLikeCountLabel =
+    selectedPost === null
+      ? ''
+      : formatMetricCount(countTimelineLikes(selectedPost.id, detailLiked));
 
   /** Release the pull indicator after a completed refresh. */
   useEffect(
@@ -642,37 +658,50 @@ export default function TimelineFeed() {
                 <span className="entei-timeline-author-name">
                   {selectedPost.authorName}
                 </span>
-                <span className="entei-timeline-author-handle">
-                  {selectedPost.authorHandle}
+                <span className="entei-timeline-author-meta">
+                  <span className="entei-timeline-author-handle">
+                    {selectedPost.authorHandle}
+                  </span>
+                  {now !== null && (
+                    <>
+                      <span
+                        className="entei-timeline-author-dot"
+                        aria-hidden="true"
+                      >
+                        ·
+                      </span>
+                      <time
+                        className="entei-timeline-time"
+                        dateTime={new Date(selectedPost.createdAt).toISOString()}
+                      >
+                        {formatRelativeTime(selectedPost.createdAt, now, locale)}
+                      </time>
+                    </>
+                  )}
                 </span>
               </span>
             </div>
 
             <p className="entei-timeline-detail-body">{selectedPost.message}</p>
 
-            {now !== null && (
-              <time
-                className="entei-timeline-detail-timestamp"
-                dateTime={new Date(selectedPost.createdAt).toISOString()}
-              >
-                {formatRelativeTime(selectedPost.createdAt, now, locale)}
-              </time>
-            )}
-
             <div className="entei-timeline-post-actions">
               <button
                 type="button"
                 className="entei-timeline-action"
-                aria-pressed={likedIds.includes(selectedPost.id)}
-                aria-label={
-                  likedIds.includes(selectedPost.id)
-                    ? t.actionUnlike
-                    : t.actionLike
-                }
+                aria-pressed={detailLiked}
+                aria-label={actionLabel(
+                  detailLiked ? t.actionUnlike : t.actionLike,
+                  detailLikeCountLabel,
+                )}
                 onClick={() => toggleLike(selectedPost.id)}
               >
                 <Sparkles size={16} aria-hidden="true" />
-                <span>{t.actionLike}</span>
+                <span>{detailLiked ? t.actionUnlike : t.actionLike}</span>
+                {detailLikeCountLabel !== '' && (
+                  <span className="entei-timeline-action-count">
+                    {detailLikeCountLabel}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -684,9 +713,6 @@ export default function TimelineFeed() {
                 <Share2 size={16} aria-hidden="true" />
                 <span>{t.actionShare}</span>
               </button>
-              <span className="entei-timeline-detail-replies">
-                {formatCommentCount(t.commentCount, thread.length)}
-              </span>
             </div>
           </article>
 
@@ -729,22 +755,38 @@ export default function TimelineFeed() {
                     <img src={comment.author.avatar} alt="" loading="lazy" />
                   </span>
                   <div className="entei-timeline-comment-main">
-                    <div className="entei-timeline-comment-meta">
+                    <span className="entei-timeline-author">
                       <span className="entei-timeline-author-name">
                         {comment.author.name}
                       </span>
-                      <span className="entei-timeline-author-handle">
-                        {comment.author.handle}
+                      <span className="entei-timeline-author-meta">
+                        <span className="entei-timeline-author-handle">
+                          {comment.author.handle}
+                        </span>
+                        {now !== null && (
+                          <>
+                            <span
+                              className="entei-timeline-author-dot"
+                              aria-hidden="true"
+                            >
+                              ·
+                            </span>
+                            <time
+                              className="entei-timeline-time"
+                              dateTime={new Date(
+                                comment.createdAt,
+                              ).toISOString()}
+                            >
+                              {formatRelativeTime(
+                                comment.createdAt,
+                                now,
+                                locale,
+                              )}
+                            </time>
+                          </>
+                        )}
                       </span>
-                      {now !== null && (
-                        <time
-                          className="entei-timeline-time"
-                          dateTime={new Date(comment.createdAt).toISOString()}
-                        >
-                          {formatRelativeTime(comment.createdAt, now, locale)}
-                        </time>
-                      )}
-                    </div>
+                    </span>
                     <p className="entei-timeline-comment-body">
                       {comment.text}
                     </p>
@@ -826,6 +868,14 @@ export default function TimelineFeed() {
           <ul className="entei-timeline-feed" role="list">
             {visiblePosts.map((post) => {
               const liked = likedIds.includes(post.id);
+              // Computed once per post: the label feeds both the aria-label
+              // and the badge below.
+              const commentCountLabel = formatMetricCount(
+                countTimelineComments(comments, post.id),
+              );
+              const likeCountLabel = formatMetricCount(
+                countTimelineLikes(post.id, liked),
+              );
               return (
                 <li
                   className="entei-timeline-post"
@@ -856,18 +906,28 @@ export default function TimelineFeed() {
                         <span className="entei-timeline-author-name">
                           {post.authorName}
                         </span>
-                        <span className="entei-timeline-author-handle">
-                          {post.authorHandle}
+                        <span className="entei-timeline-author-meta">
+                          <span className="entei-timeline-author-handle">
+                            {post.authorHandle}
+                          </span>
+                          {now !== null && (
+                            <>
+                              <span
+                                className="entei-timeline-author-dot"
+                                aria-hidden="true"
+                              >
+                                ·
+                              </span>
+                              <time
+                                className="entei-timeline-time"
+                                dateTime={new Date(post.createdAt).toISOString()}
+                              >
+                                {formatRelativeTime(post.createdAt, now, locale)}
+                              </time>
+                            </>
+                          )}
                         </span>
                       </span>
-                      {now !== null && (
-                        <time
-                          className="entei-timeline-time"
-                          dateTime={new Date(post.createdAt).toISOString()}
-                        >
-                          {formatRelativeTime(post.createdAt, now, locale)}
-                        </time>
-                      )}
                     </div>
 
                     <p className="entei-timeline-post-body">{post.message}</p>
@@ -877,6 +937,10 @@ export default function TimelineFeed() {
                     <button
                       type="button"
                       className="entei-timeline-action"
+                      aria-label={actionLabel(
+                        t.actionComment,
+                        commentCountLabel,
+                      )}
                       onClick={(event) => {
                         event.stopPropagation();
                         openPost(post.id);
@@ -884,19 +948,32 @@ export default function TimelineFeed() {
                     >
                       <MessageSquare size={16} aria-hidden="true" />
                       <span>{t.actionComment}</span>
+                      {commentCountLabel !== '' && (
+                        <span className="entei-timeline-action-count">
+                          {commentCountLabel}
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"
                       className="entei-timeline-action"
                       aria-pressed={liked}
-                      aria-label={liked ? t.actionUnlike : t.actionLike}
+                      aria-label={actionLabel(
+                        liked ? t.actionUnlike : t.actionLike,
+                        likeCountLabel,
+                      )}
                       onClick={(event) => {
                         event.stopPropagation();
                         toggleLike(post.id);
                       }}
                     >
                       <Sparkles size={16} aria-hidden="true" />
-                      <span>{t.actionLike}</span>
+                      <span>{liked ? t.actionUnlike : t.actionLike}</span>
+                      {likeCountLabel !== '' && (
+                        <span className="entei-timeline-action-count">
+                          {likeCountLabel}
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"

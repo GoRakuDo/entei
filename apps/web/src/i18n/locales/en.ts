@@ -613,6 +613,5 @@ export const en: Dictionary = {
     replySubmit: 'Reply',
     replySubmitAriaLabel: 'Post reply',
     noComments: 'No replies yet',
-    commentCount: '{count} replies',
   },
 };

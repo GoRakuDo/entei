@@ -643,7 +643,5 @@ export interface Dictionary {
     replySubmitAriaLabel: string;
     /** Shown when a post has no replies yet. */
     noComments: string;
-    /** Reply count label; `{count}` is replaced with the number of replies. */
-    commentCount: string;
   };
 }

@@ -115,6 +115,18 @@ export const TIMELINE_SEED_POSTS: readonly TimelinePost[] = [
 ];
 
 /**
+ * Baseline like counts for the seeded posts, so the feed shows plausible
+ * engagement instead of a wall of zeroes. Only the *seeds* carry a baseline:
+ * a post written on this device starts at 0 and grows by the user's own like.
+ */
+export const TIMELINE_SEED_LIKE_COUNTS: Readonly<Record<string, number>> = {
+  'seed-1': 5,
+  'seed-2': 12,
+  'seed-3': 42,
+  'seed-4': 8,
+};
+
+/**
  * Seeded replies so the thread views feel alive on first load. Timestamps are
  * relative to page load, like the seed posts, so a thread never shows a stale
  * "2 years ago" on a reply either.
@@ -316,12 +328,39 @@ export function mergeTimelineComments(
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** Reply count for a post, seeds included (used by the detail header). */
+/** Reply count for a post, seeds included (used by the action row). */
 export function countTimelineComments(
   localComments: readonly TimelineComment[],
   postId: string,
 ): number {
   return mergeTimelineComments(localComments, postId).length;
+}
+
+/**
+ * Displayed like count: the seed baseline (0 for local posts) plus this
+ * device's own like. The count is derived, never persisted, so the stored
+ * `likedIds` stays the single source of truth for the pressed state.
+ */
+export function countTimelineLikes(postId: string, liked: boolean): number {
+  const base = TIMELINE_SEED_LIKE_COUNTS[postId] ?? 0;
+  return base + (liked ? 1 : 0);
+}
+
+/**
+ * Compact metric label for the action counts: `0` renders nothing (an empty
+ * label keeps the action row quiet), 1–999 renders the number, thousands and
+ * millions collapse to one decimal with `K` / `M` and a stripped `.0`.
+ */
+export function formatMetricCount(count: number): string {
+  if (!Number.isFinite(count) || count <= 0) return '';
+  const compact = (value: number): string =>
+    value.toFixed(1).replace(/\.0$/, '');
+  if (count < 1_000) return String(Math.round(count));
+  const thousands = count / 1_000;
+  // `999_999` rounds to `1000.0K`, which reads as a broken label; it rolls
+  // over to `1M` instead.
+  if (thousands < 999.95) return `${compact(thousands)}K`;
+  return `${compact(count / 1_000_000)}M`;
 }
 
 /** Build a new local post from the composer draft and the device profile. */

@@ -15,7 +15,9 @@
   width: 100%;
   max-width: 42rem;
   margin-inline: auto;
-  padding-top: 0;
+  /* Breathing room from the top edge: the composer avatar used to sit flush
+     against the window, which read as clipped rather than intentional. */
+  padding-top: var(--entei-space-32);
   display: flex;
   flex-direction: column;
   font-family: var(--entei-font-body);
@@ -278,11 +280,28 @@
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-8);
-  padding-block: var(--entei-space-16);
+  /* Rule #1804: never pad below --entei-space-8. The vertical rhythm is 8px
+     here + 8px inside the surface below, so the highlight never looks glued
+     to the neighbouring card. */
+  padding-block: var(--entei-space-8);
+  /* The hover band covers the whole card — head, body *and* the action row —
+     so Like/Share sit inside the same highlight instead of hanging below it.
+     The 8px inline padding + matching negative margin make the band grow
+     outward without moving the content. They are declared on the base rule
+     (not on :hover) so hovering never shifts the text. */
+  padding-inline: var(--entei-space-8);
+  margin-inline: calc(var(--entei-space-8) * -1);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
+  border-radius: var(--entei-radius-lg);
   /* The whole card opens the thread, including the padding and the action row
      gutter. Action pills stop propagation so Like/Share stay independent. */
   cursor: pointer;
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-timeline-post:hover {
+  background-color: oklch(1 0 0 / 0.03);
 }
 
 /* Inner click surface: head + body. Keeps the keyboard affordance (focus ring)
@@ -291,14 +310,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-8);
+  padding: var(--entei-space-8);
   cursor: pointer;
-  border-radius: var(--entei-radius-md);
-  transition: background-color var(--entei-duration-fast)
-    var(--entei-ease-productive);
-}
-
-.entei-timeline-post-open:hover {
-  background-color: oklch(1 0 0 / 0.03);
+  border-radius: var(--entei-radius-lg);
 }
 
 .entei-timeline-post-open:focus-visible {
@@ -307,7 +321,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .entei-timeline-post-open {
+  .entei-timeline-post {
     transition: none;
   }
 }
@@ -339,10 +353,22 @@
   overflow-wrap: anywhere;
 }
 
+/* `@handle · 4 mnt lalu` — the timestamp belongs to the author block (Twitter
+   style), not to a separate right-aligned column. */
+.entei-timeline-author-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--entei-space-4);
+  min-width: 0;
+}
+
+.entei-timeline-author-dot {
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+}
+
 .entei-timeline-time {
-  margin-left: auto;
-  padding-left: var(--entei-space-8);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--entei-text-muted);
   white-space: nowrap;
 }
@@ -361,9 +387,12 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--entei-space-8);
-  /* Optically align the first/last label with the post body text: the
-     pill's own horizontal padding must not push the text inward. */
-  margin-inline: calc(var(--entei-space-16) * -1);
+  /* Align the first pill's *icon* with the body text: the pill's own 16px
+     inline padding is cancelled by the 8px card inset + this 8px pull-out,
+     so the Comment icon shares the text's left edge. The trailing edge is
+     never pulled out, so the Share pill can never spill past the card's
+     right boundary. */
+  margin-inline-start: calc(var(--entei-space-8) * -1);
 }
 
 .entei-timeline-action {
@@ -400,6 +429,11 @@
   color: var(--entei-accent-light);
 }
 
+/* Metric badge (reply / like count). Empty counts render nothing. */
+.entei-timeline-action-count {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===== POST DETAIL (thread) ===== */
 
 .entei-timeline-detail {
@@ -407,7 +441,11 @@
   flex-direction: column;
 }
 
-/* Sticky header keeps Back reachable while the thread scrolls (Twitter/X style frosted glass). */
+/* Sticky header keeps Back reachable while the thread scrolls. A fully
+   transparent surface let the scrolled thread text bleed through the Back
+   button; a solid strip read as a separate band. A gradient from the page
+   background to transparent masks the scrolled text cleanly while the page
+   still flows through at the bottom edge. */
 .entei-timeline-detail-head {
   position: sticky;
   top: 0;
@@ -416,9 +454,11 @@
   align-items: center;
   gap: var(--entei-space-12);
   padding-block: var(--entei-space-8) var(--entei-space-12);
-  background-color: color-mix(in oklch, var(--entei-bg) 75%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: linear-gradient(
+    to bottom,
+    var(--entei-bg) 80%,
+    color-mix(in oklch, var(--entei-bg) 0%, transparent)
+  );
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -469,7 +509,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-12);
-  padding-block: var(--entei-space-16) var(--entei-space-24);
+  /* Same 8px inline inset the feed card gets, so the action row's -8px
+     pull-out lands the Comment icon on the body text's left edge. */
+  padding: var(--entei-space-16) var(--entei-space-8) var(--entei-space-24);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -487,22 +529,6 @@
   overflow-wrap: anywhere;
 }
 
-.entei-timeline-detail-timestamp {
-  font-size: 0.8125rem;
-  color: var(--entei-text-muted);
-}
-
-/* Reply count sits at the end of the action row, aligned with the pills. */
-.entei-timeline-detail-replies {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2.25rem;
-  padding: 0 var(--entei-space-16);
-  font-size: 0.8125rem;
-  color: var(--entei-text-muted);
-  white-space: nowrap;
-}
-
 /* ===== REPLY COMPOSER ===== */
 
 .entei-timeline-reply {
@@ -514,8 +540,8 @@
 }
 
 .entei-timeline-reply-avatar {
-  width: var(--entei-space-32);
-  height: var(--entei-space-32);
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
 }
 
 .entei-timeline-reply-box {
@@ -604,8 +630,8 @@
 }
 
 .entei-timeline-comment-avatar {
-  width: var(--entei-space-32);
-  height: var(--entei-space-32);
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
 }
 
 .entei-timeline-comment-main {
@@ -614,14 +640,6 @@
   gap: var(--entei-space-4);
   flex: 1 1 auto;
   min-width: 0;
-}
-
-.entei-timeline-comment-meta {
-  display: flex;
-  align-items: baseline;
-  gap: var(--entei-space-8);
-  min-width: 0;
-  line-height: 1.25;
 }
 
 .entei-timeline-comment-body {
@@ -644,13 +662,12 @@
 /* ===== MOBILE ===== */
 
 @media (max-width: 767px) {
-  .entei-timeline-root {
-    padding-top: 0;
-  }
-
+  /* The mobile pill is narrower (12px inline padding instead of 16px), so the
+     pull-out is -4px: the Comment icon left edge (12px - 4px = 8px) matches the
+     post body text's 8px inline inset perfectly. */
   .entei-timeline-post-actions {
     gap: var(--entei-space-4);
-    margin-inline: calc(var(--entei-space-12) * -1);
+    margin-inline-start: calc(var(--entei-space-4) * -1);
   }
 
   .entei-timeline-action {
@@ -661,14 +678,10 @@
     padding: 0 var(--entei-space-16);
   }
 
-  /* The thread runs edge to edge: the header and the action row lose the
-     horizontal inset the desktop column has room for. */
+  /* The thread runs edge to edge: the header loses the horizontal inset the
+     desktop column has room for. */
   .entei-timeline-detail-head {
     gap: var(--entei-space-8);
-  }
-
-  .entei-timeline-detail-replies {
-    padding: 0 var(--entei-space-12);
   }
 
   .entei-timeline-reply {

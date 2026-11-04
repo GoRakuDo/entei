@@ -618,6 +618,5 @@ export const ja: Dictionary = {
     replySubmit: '返信',
     replySubmitAriaLabel: '返信をポスト',
     noComments: 'まだ返信はありません',
-    commentCount: '返信 {count}件',
   },
 };

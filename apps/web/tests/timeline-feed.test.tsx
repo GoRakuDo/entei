@@ -227,7 +227,7 @@ describe('TimelineFeed', () => {
 
   it('merges replies stored by another tab when toggling a like', async () => {
     renderFeed();
-    const likeButtons = await screen.findAllByRole('button', { name: 'Like' });
+    const likeButtons = await screen.findAllByRole('button', { name: /^Like/ });
 
     localStorage.setItem(
       TIMELINE_STORAGE_KEY,
@@ -259,21 +259,21 @@ describe('TimelineFeed', () => {
 
   it('toggles the like state and persists it', async () => {
     renderFeed();
-    const likeButtons = await screen.findAllByRole('button', { name: 'Like' });
+    const likeButtons = await screen.findAllByRole('button', { name: /^Like/ });
     const first = likeButtons[0]!;
     expect(first.getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(first);
     await waitFor(() => {
       expect(
-        screen.getAllByRole('button', { name: 'Batalkan suka' }).length,
+        screen.getAllByRole('button', { name: /^Batalkan suka/ }).length,
       ).toBe(1);
     });
     expect(readTimelineState().likedIds).toHaveLength(1);
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Batalkan suka' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Batalkan suka/ })[0]!);
     await waitFor(() => {
-      expect(screen.queryAllByRole('button', { name: 'Batalkan suka' })).toHaveLength(0);
+      expect(screen.queryAllByRole('button', { name: /^Batalkan suka/ })).toHaveLength(0);
     });
     expect(readTimelineState().likedIds).toHaveLength(0);
   });
@@ -622,7 +622,7 @@ describe('TimelineFeed — post detail', () => {
     renderFeed();
     await screen.findAllByRole('listitem');
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Comment' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Comment/ })[0]!);
 
     expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
   });
@@ -631,7 +631,7 @@ describe('TimelineFeed — post detail', () => {
     renderFeed();
     await screen.findAllByRole('listitem');
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Like' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Like/ })[0]!);
 
     // The like action stops propagation, so the card's open handler never runs.
     expect(screen.queryByRole('heading', { name: 'Pos' })).toBeNull();

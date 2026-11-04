@@ -104,10 +104,12 @@
 ポストをタップ/クリックすると、フィードを置き換えて Twitter/X 型のスレッドビューが開く。データは引き続き端末内のみ（ネットワーク同期なし）。
 
 - **遷移**: ポストカードの head + body（`role="button"`、Enter/Space 対応）または `Comment` ボタンで `selectedPostId` を立てる。`window.history.pushState({ enteiTimelinePost })` を積むため、ブラウザの戻る/戻るジェスチャ（`popstate`）でもフィードへ戻る。
-- **レイアウト**: スティッキーヘッダー（`← 戻る` 36px ピル + タイトル `ポスト`）→ 親ポスト（48px 角丸六角形アバター・本文・相対時刻・Like/Share・返信数）→ 返信コンポーザー（アバター + 入力 + `返信` 36px ピル、`--entei-btn-color`）→ 返信リスト（32px 角丸六角形アバター・名前・ハンドル・相対時刻・本文、`oklch(1 0 0 / 0.06)` の細い区切り線）。
+- **レイアウト**: スティッキーヘッダー（`← 戻る` 36px ピル + タイトル `ポスト`）→ 親ポスト（48px 角丸六角形アバター + 著者名 + メタ行の `ハンドル · 相対時刻`・本文・アクション行は `Like` / `Share` の 2 つのみ。`Comment` ピルはフィード行専用で、詳細ビューでは返信コンポーザーが受け持つ）→ 返信コンポーザー（アバター + 入力 + `返信` 36px ピル、`--entei-btn-color`）→ 返信リスト（`--entei-touch-min` = 44px 角丸六角形アバター・名前・メタ行の `ハンドル · 相対時刻`・本文、`oklch(1 0 0 / 0.06)` の細い区切り線）。親ポスト・返信とも時刻は本文の外ではなく著者メタ行に入る。
 - **返信データ**: `TimelineComment { id, postId, author: TimelineAuthor, text, createdAt }`。シード返信は `TIMELINE_SEED_COMMENTS`（`SEED_BASE` 基準の相対時刻）としてコード側に置き、端末内で書いた返信のみ `entei.timeline.v1` の `comments` に保存する。`comments` を持たない旧ペイロードもそのまま読める（schemaVersion は 1 のまま）。
 - **スレッド順序**: `mergeTimelineComments(local, postId)` がシードとローカルを `createdAt` 昇順で結合するため、ローカル返信は配列位置ではなく実時刻で会話に挟まる。
-- **i18n**: `back` / `backAriaLabel` / `postTitle` / `replyPlaceholder` / `replySubmit` / `replySubmitAriaLabel` / `noComments` / `commentCount`（`{count}`）を id/ja/en に追加。
+- **カード面とスティッキーヘッダー（レビュー反映）**: ポストのホバー面は `.entei-timeline-post`（カード全体）が持ち、`padding-inline: var(--entei-space-8)` + `margin-inline: calc(var(--entei-space-8) * -1)` で外側に広がるため、アクション行（Comment/Like/Share）も同じハイライト内に入る。この inline padding は `:hover` ではなく基本ルールに置き、ホバー時のテキストずれを防ぐ。詳細ビューの親ポスト `.entei-timeline-detail-post` も同じ 8px の inline inset（`padding: var(--entei-space-16) var(--entei-space-8) var(--entei-space-24)`）を持ち、アクション行の `-8px` 引き出しと打ち消し合って Comment アイコンが本文の左端に揃う。モバイル（`max-width: 767px`）ではピルの inline padding が 16px → 12px に縮むため、引き出しを `-4px`（`--entei-space-4`）にして `12px - 4px = 8px` となり、本文の 8px インセットと完全に一致して Comment アイコンの左端が揃う。スティッキーヘッダーは `linear-gradient(to bottom, var(--entei-bg) 80%, color-mix(in oklch, var(--entei-bg) 0%, transparent))` のグラデーションマスクで、スクロールした本文が戻るボタンに透けるのを防ぎつつページ背景と連続させる。padding は規約 #1804 に従い `--entei-space-8` 未満を使わない。
+- **Like数**: シード投稿のみ `TIMELINE_SEED_LIKE_COUNTS`（`seed-1`=5 / `seed-2`=12 / `seed-3`=42 / `seed-4`=8）のベースラインを持ち、端末内の投稿は 0 から自分の Like 分だけ増える。表示は `countTimelineLikes(postId, liked)` = ベースライン + Like状態。
+- **i18n**: `back` / `backAriaLabel` / `postTitle` / `replyPlaceholder` / `replySubmit` / `replySubmitAriaLabel` / `noComments` を id/ja/en に追加。Like数のバッジは i18n キーを持たず、`formatMetricCount`（`1.2K` / `3M` のコンパクト表記）でボタン内にインライン整形する。ラベルはフィード行・詳細ビューとも1回だけ計算し、空文字（=0）のときはバッジ `<span>` 自体を描画しないため、左右の余白が偏らない（aria-label 用のラベルは空文字のまま `actionLabel` に渡す）。
 
 ### 既知の指摘（Known issues / Low findings）
 
