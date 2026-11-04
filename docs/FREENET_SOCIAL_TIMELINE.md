@@ -77,3 +77,27 @@
 - **`docs/PROFILE.md`**: ローカルの `entei.profile.v1` をFreenetの `UserProfileContract` と相互同期可能にする。
 - **`docs/AUDIO_PLAYER.md` & `PlayerApp.tsx`**: 視聴セッション完了時、およびAnki採掘完了時に、本人のオプトイン設定（「タイムラインに共有する」トグル）に基づき自動的にフィードカードを生成してコントラクトへプッシュする。
 - **`docs/NAVIGATION_BAR.md`**: TopBar および DestinationDock の「Home」を「Timeline / ホーム」として位置づけを更新する。
+
+---
+
+## 5. 実装記録（第1フェーズ UI 先行分）
+
+モックアップ（コンポーザー＋タイムライン）に基づく UI を Home に実装した。ネットワーク同期はまだ無く、投稿は端末内に留まる。
+
+| 追加ファイル | 役割 |
+| --- | --- |
+| `apps/web/src/components/home/TimelineFeed.tsx` | Home の React 島。コンポーザー（`FeedComposer` 相当）＋投稿リスト（`TimelineFeed` 相当）を1アイランドで担当 |
+| `apps/web/src/features/timeline/timeline-store.ts` | 型・シード投稿・`entei.timeline.v1` 永続化・相対時刻整形・ハンドル生成 |
+| `apps/web/src/styles/timeline.css` | OKLCH トークンのみ使用した見た目（区切り線は `oklch(1 0 0 / 0.1)`） |
+| `apps/web/tests/timeline-store.test.ts` / `timeline-feed.test.tsx` | 純ロジックと島の振る舞い |
+
+- **配置**: `apps/web/src/pages/index.astro` のヒーロー直後、Roadmap の前に `client:load` で配置。デスクトップは中央寄せ読み列（最大 42rem）、モバイルは共有ガター（1rem）で端まで使う。
+- **永続化**: ローカル投稿と Like 状態のみ `entei.timeline.v1` に保存。シード投稿はコード側に残すため、コピー変更が既存ユーザーにも反映される。
+- **状態**: `Like` はトグル＋永続化、`Share` は投稿本文をクリップボードへコピー、`Comment` は返信 UI が未実装のためコンポーザーへフォーカスする（死んだボタンを作らないため）。
+- **i18n**: `Dictionary.timeline` を id/ja/en に追加。相対時刻は `Intl.RelativeTimeFormat` に任せ、単位名の翻訳キーを持たない。
+- **未実装（意図的）**: `ImmersionSessionCard` / `MinedSentenceCard`、無限スクロール、サイドカラム（本日のイマージョン概要・トレンド作品）、Freenet コントラクト同期。いずれも後続フェーズ。
+
+### 既知の指摘（Known issues / Low findings）
+
+プロジェクト規約（#1772）により記録：
+1. `timeline-store.ts` の破損ポスト個別フィルタリング（`filter(isTimelinePost)`）および `<ul>` の `role="list"` に対する専用単体テストケースが未追加（実装自体は修正完了済み・動作確認済み）。次回テスト拡充時にアサーションを追加する。

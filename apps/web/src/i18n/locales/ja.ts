@@ -595,4 +595,17 @@ export const ja: Dictionary = {
     apiKeyShow: '表示',
     apiKeyHide: '非表示',
   },
+  timeline: {
+    heading: 'みんなのイマージョンタイムライン',
+    composerPlaceholder: 'ポストするにはこっちから書きます！',
+    composerSubmit: 'Publish',
+    composerSubmitAriaLabel: 'ポストを投稿',
+    avatarAlt: 'プロフィール画像',
+    actionComment: 'Comment',
+    actionLike: 'Like',
+    actionUnlike: 'Like を取り消す',
+    actionShare: 'Share',
+    shareCopied: 'ポストをコピーしました',
+    shareFailed: 'コピーできませんでした',
+  },
 };

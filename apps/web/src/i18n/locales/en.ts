@@ -590,4 +590,17 @@ export const en: Dictionary = {
     apiKeyShow: 'Show',
     apiKeyHide: 'Hide',
   },
+  timeline: {
+    heading: 'Everyone’s immersion timeline',
+    composerPlaceholder: 'Write here to publish a post!',
+    composerSubmit: 'Publish',
+    composerSubmitAriaLabel: 'Publish post',
+    avatarAlt: 'Profile picture',
+    actionComment: 'Comment',
+    actionLike: 'Like',
+    actionUnlike: 'Remove like',
+    actionShare: 'Share',
+    shareCopied: 'Post copied',
+    shareFailed: 'Could not copy',
+  },
 };

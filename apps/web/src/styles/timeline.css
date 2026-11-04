@@ -1,0 +1,217 @@
+/* ===========================================================================
+ * Home timeline — / (docs/FREENET_SOCIAL_TIMELINE.md phase 1)
+ * ---------------------------------------------------------------------------
+ * Presentation only. All state lives in `features/timeline/timeline-store.ts`
+ * and the `TimelineFeed` island. Colors are OKLCH tokens only.
+ *
+ * Layout follows the approved mockup: composer (avatar + placeholder + Publish)
+ * on top, then a divider-separated post list with Comment / Like / Share.
+ * Desktop keeps a centered reading column; mobile runs edge-to-edge inside the
+ * shared page gutter (1rem).
+ * =========================================================================== */
+
+.entei-timeline-root {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 42rem;
+  margin-inline: auto;
+  padding-top: var(--entei-space-16);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--entei-font-body);
+  color: var(--entei-text);
+}
+
+/* ===== COMPOSER ===== */
+
+.entei-timeline-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding-bottom: var(--entei-space-16);
+  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+}
+
+.entei-timeline-composer-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--entei-space-16);
+}
+
+.entei-timeline-avatar {
+  flex: 0 0 auto;
+  display: block;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  border-radius: var(--entei-radius-pill);
+  overflow: hidden;
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(1 0 0 / 0.14);
+}
+
+.entei-timeline-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entei-timeline-textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--entei-touch-min);
+  padding-block: var(--entei-space-8);
+  border: 0;
+  background: transparent;
+  color: var(--entei-text);
+  font-size: 1rem;
+  line-height: 1.5;
+  resize: none;
+  /* Progressive enhancement: grow with the draft instead of scrolling. */
+  field-sizing: content;
+}
+
+.entei-timeline-textarea::placeholder {
+  color: var(--entei-text-muted);
+  opacity: 1;
+}
+
+.entei-timeline-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.entei-timeline-publish {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-16);
+  border-radius: var(--entei-radius-pill);
+  background-color: var(--entei-btn-color);
+  color: var(--entei-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-timeline-publish:hover:not(:disabled) {
+  background-color: var(--entei-btn-hover-bg);
+  color: var(--entei-white-base);
+}
+
+.entei-timeline-publish:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ===== FEED ===== */
+
+.entei-timeline-feed {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.entei-timeline-post {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding-block: var(--entei-space-16);
+  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+}
+
+.entei-timeline-post-head {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  min-width: 0;
+}
+
+.entei-timeline-author {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.entei-timeline-author-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--entei-text);
+  overflow-wrap: anywhere;
+}
+
+.entei-timeline-author-handle {
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.entei-timeline-time {
+  margin-left: auto;
+  padding-left: var(--entei-space-8);
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+  white-space: nowrap;
+}
+
+.entei-timeline-post-body {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--entei-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.entei-timeline-post-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+}
+
+.entei-timeline-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding-inline: var(--entei-space-8);
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text-muted);
+  font-size: 0.875rem;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-timeline-action:hover {
+  background-color: var(--entei-btn-hover-bg);
+  color: var(--entei-text);
+}
+
+.entei-timeline-action:active {
+  color: var(--entei-accent-light);
+}
+
+.entei-timeline-action[aria-pressed='true'] {
+  color: var(--entei-accent-light);
+}
+
+/* ===== MOBILE ===== */
+
+@media (max-width: 767px) {
+  .entei-timeline-root {
+    padding-top: var(--entei-space-8);
+  }
+
+  .entei-timeline-post-actions {
+    gap: var(--entei-space-4);
+  }
+
+  .entei-timeline-action {
+    padding-inline: var(--entei-space-4);
+  }
+}

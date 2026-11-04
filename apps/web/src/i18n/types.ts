@@ -610,4 +610,18 @@ export interface Dictionary {
     apiKeyShow: string;
     apiKeyHide: string;
   };
+  timeline: {
+    /** Screen-reader heading for the Home timeline section. */
+    heading: string;
+    composerPlaceholder: string;
+    composerSubmit: string;
+    composerSubmitAriaLabel: string;
+    avatarAlt: string;
+    actionComment: string;
+    actionLike: string;
+    actionUnlike: string;
+    actionShare: string;
+    shareCopied: string;
+    shareFailed: string;
+  };
 }

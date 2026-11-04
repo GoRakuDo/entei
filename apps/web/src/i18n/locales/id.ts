@@ -595,4 +595,17 @@ export const id: Dictionary = {
     apiKeyShow: 'Tampilkan',
     apiKeyHide: 'Sembunyikan',
   },
+  timeline: {
+    heading: 'Lini masa imersi semua orang',
+    composerPlaceholder: 'Tulis di sini untuk membuat pos!',
+    composerSubmit: 'Publish',
+    composerSubmitAriaLabel: 'Terbitkan pos',
+    avatarAlt: 'Foto profil',
+    actionComment: 'Comment',
+    actionLike: 'Like',
+    actionUnlike: 'Batalkan suka',
+    actionShare: 'Share',
+    shareCopied: 'Pos disalin',
+    shareFailed: 'Gagal menyalin',
+  },
 };

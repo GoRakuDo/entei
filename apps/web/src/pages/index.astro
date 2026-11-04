@@ -11,17 +11,21 @@
  * 2. Top Bar (in BaseLayout)
  * 3. Home hero (viewport-filling: Hub Identity 5/12 + Destination Dock
  *    7/12 stacked vertically on mobile) — entei-home-hero
- * 4. Roadmap (local MDX, full width, plain text below a thin separator)
- * 5. Local-first Note
- * 6. Footer (in BaseLayout)
+ * 4. Immersion timeline (FeedComposer + TimelineFeed island) —
+ *    docs/FREENET_SOCIAL_TIMELINE.md phase 1
+ * 5. Roadmap (local MDX, full width, plain text below a thin separator)
+ * 6. Local-first Note
+ * 7. Footer (in BaseLayout)
  */
 import BaseLayout from '@layouts/BaseLayout.astro';
 import HubIdentity from '@components/home/HubIdentity.astro';
 import DestinationDock from '@components/home/DestinationDock.astro';
+import TimelineFeed from '@components/home/TimelineFeed';
 import LocalFirstNote from '@components/home/LocalFirstNote.astro';
 import ThanksTo from '@components/home/ThanksTo.astro';
 import Roadmap from '@/content/home/future-features.mdx';
 import { getDictionary } from '@i18n/index';
+import '@styles/timeline.css';
 
 const dictionary = getDictionary('id');
 ---
@@ -33,6 +37,7 @@ const dictionary = getDictionary('id');
       <DestinationDock dictionary={dictionary} />
     </div>
   </div>
+  <TimelineFeed client:load />
   <Roadmap />
   <ThanksTo dictionary={dictionary} />
   <LocalFirstNote dictionary={dictionary} />
