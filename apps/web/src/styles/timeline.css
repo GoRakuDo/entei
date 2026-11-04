@@ -59,8 +59,8 @@
   display: block;
   width: var(--entei-touch-min);
   height: var(--entei-touch-min);
-  padding: 1px;
-  background-color: oklch(1 0 0 / 0.24);
+  padding: 0;
+  background-color: transparent;
   clip-path: url(#entei-hex-clip);
 }
 
