@@ -827,16 +827,21 @@ export default function TimelineFeed() {
             {visiblePosts.map((post) => {
               const liked = likedIds.includes(post.id);
               return (
-                <li className="entei-timeline-post" key={post.id}>
-                  {/* The whole head + body opens the thread. It is a
-                      role=button (not a <button>) because the content is
-                      flow content, and the actions below stay separate
-                      targets so Like/Share never navigate. */}
+                <li
+                  className="entei-timeline-post"
+                  key={post.id}
+                  onClick={() => openPost(post.id)}
+                >
+                  {/* The whole card opens the thread. The head + body wrapper
+                      keeps the keyboard affordance (role=button + focus ring)
+                      because the content is flow content; the pointer handler
+                      lives on the card so padding and the action-row gutter
+                      are clickable too. Action pills stop propagation so
+                      Like/Share never navigate. */}
                   <div
                     className="entei-timeline-post-open"
                     role="button"
                     tabIndex={0}
-                    onClick={() => openPost(post.id)}
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter' && event.key !== ' ') return;
                       event.preventDefault();
@@ -872,7 +877,10 @@ export default function TimelineFeed() {
                     <button
                       type="button"
                       className="entei-timeline-action"
-                      onClick={() => openPost(post.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openPost(post.id);
+                      }}
                     >
                       <MessageSquare size={16} aria-hidden="true" />
                       <span>{t.actionComment}</span>
@@ -882,7 +890,10 @@ export default function TimelineFeed() {
                       className="entei-timeline-action"
                       aria-pressed={liked}
                       aria-label={liked ? t.actionUnlike : t.actionLike}
-                      onClick={() => toggleLike(post.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleLike(post.id);
+                      }}
                     >
                       <Sparkles size={16} aria-hidden="true" />
                       <span>{t.actionLike}</span>
@@ -890,7 +901,8 @@ export default function TimelineFeed() {
                     <button
                       type="button"
                       className="entei-timeline-action"
-                      onClick={() => {
+                      onClick={(event) => {
+                        event.stopPropagation();
                         void sharePost(post);
                       }}
                     >

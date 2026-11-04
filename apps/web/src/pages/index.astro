@@ -27,19 +27,20 @@ import '@styles/timeline.css';
 
 <style>
   /*
-   * Home has no footer, so the shared 64px (desktop) / 64px + dock (mobile)
-   * bottom padding from BaseLayout + global.css leaves a large empty void
-   * under the last post. Keep only a small breathing room; on mobile still
-   * clear the fixed dock so it never covers the last post's actions.
-   * The `#entei-main` prefix outranks the single-class rule in global.css.
+   * Home has no footer, so the shared 32px top / 64px (desktop) bottom padding
+   * from BaseLayout + global.css leaves dead space above and below the feed.
+   * Zero both on desktop so the timeline starts right under the Top Bar; on
+   * mobile still clear the fixed dock so it never covers the last post's
+   * actions. The `#entei-main` prefix outranks the single-class rule in
+   * global.css.
    */
   :global(#entei-main .entei-main-inner) {
-    padding-bottom: var(--entei-space-32);
+    padding-block: 0;
   }
 
   @media (max-width: 767px) {
     :global(#entei-main .entei-main-inner) {
-      padding-bottom: calc(var(--entei-space-24) + var(--entei-dock-height));
+      padding-block: 0 calc(var(--entei-space-24) + var(--entei-dock-height));
     }
   }
 </style>

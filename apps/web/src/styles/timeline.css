@@ -15,7 +15,7 @@
   width: 100%;
   max-width: 42rem;
   margin-inline: auto;
-  padding-top: var(--entei-space-16);
+  padding-top: 0;
   display: flex;
   flex-direction: column;
   font-family: var(--entei-font-body);
@@ -280,10 +280,13 @@
   gap: var(--entei-space-8);
   padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
+  /* The whole card opens the thread, including the padding and the action row
+     gutter. Action pills stop propagation so Like/Share stay independent. */
+  cursor: pointer;
 }
 
-/* Click target that opens the post's thread: head + body only, so the action
-   pills below stay independent targets. */
+/* Inner click surface: head + body. Keeps the keyboard affordance (focus ring)
+   on the readable content while the whole card handles pointer clicks. */
 .entei-timeline-post-open {
   display: flex;
   flex-direction: column;
@@ -404,7 +407,7 @@
   flex-direction: column;
 }
 
-/* Sticky header keeps Back reachable while the thread scrolls (Twitter/X). */
+/* Sticky header keeps Back reachable while the thread scrolls (Twitter/X style frosted glass). */
 .entei-timeline-detail-head {
   position: sticky;
   top: 0;
@@ -413,7 +416,9 @@
   align-items: center;
   gap: var(--entei-space-12);
   padding-block: var(--entei-space-8) var(--entei-space-12);
-  background-color: var(--entei-surface);
+  background-color: color-mix(in oklch, var(--entei-bg) 75%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -640,7 +645,7 @@
 
 @media (max-width: 767px) {
   .entei-timeline-root {
-    padding-top: var(--entei-space-8);
+    padding-top: 0;
   }
 
   .entei-timeline-post-actions {

@@ -627,6 +627,28 @@ describe('TimelineFeed — post detail', () => {
     expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
   });
 
+  it('does not open the detail view from the Like button', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Like' })[0]!);
+
+    // The like action stops propagation, so the card's open handler never runs.
+    expect(screen.queryByRole('heading', { name: 'Pos' })).toBeNull();
+    expect(readTimelineState().likedIds).toHaveLength(1);
+  });
+
+  it('opens the detail view when the card itself is clicked', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+
+    // Click the card container (not the head/body wrapper) to prove the whole
+    // card is a target, including its padding.
+    fireEvent.click(screen.getAllByRole('listitem')[0]!);
+
+    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+  });
+
   it('renders the seeded replies of the opened post', async () => {
     renderFeed();
     await screen.findAllByRole('listitem');
