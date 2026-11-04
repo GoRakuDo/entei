@@ -606,5 +606,13 @@ export const en: Dictionary = {
     refreshing: 'Refreshing…',
     endOfFeed: 'No more posts',
     showNewPosts: 'Show {count} new posts',
+    back: 'Back',
+    backAriaLabel: 'Back to timeline',
+    postTitle: 'Post',
+    replyPlaceholder: 'Post your reply',
+    replySubmit: 'Reply',
+    replySubmitAriaLabel: 'Post reply',
+    noComments: 'No replies yet',
+    commentCount: '{count} replies',
   },
 };

@@ -631,5 +631,19 @@ export interface Dictionary {
     endOfFeed: string;
     /** Desktop pill label; `{count}` is replaced with the number of new posts. */
     showNewPosts: string;
+    /** Post detail view: back to the feed. */
+    back: string;
+    /** Accessible name for the back control. */
+    backAriaLabel: string;
+    /** Detail view header title. */
+    postTitle: string;
+    /** Reply composer placeholder / accessible label. */
+    replyPlaceholder: string;
+    replySubmit: string;
+    replySubmitAriaLabel: string;
+    /** Shown when a post has no replies yet. */
+    noComments: string;
+    /** Reply count label; `{count}` is replaced with the number of replies. */
+    commentCount: string;
   };
 }

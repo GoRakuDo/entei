@@ -611,5 +611,13 @@ export const id: Dictionary = {
     refreshing: 'Memperbarui…',
     endOfFeed: 'Tidak ada pos lain',
     showNewPosts: 'Tampilkan {count} pos baru',
+    back: 'Kembali',
+    backAriaLabel: 'Kembali ke lini masa',
+    postTitle: 'Pos',
+    replyPlaceholder: 'Balas dengan pos',
+    replySubmit: 'Balas',
+    replySubmitAriaLabel: 'Kirim balasan',
+    noComments: 'Belum ada balasan',
+    commentCount: '{count} balasan',
   },
 };

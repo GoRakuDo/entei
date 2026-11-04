@@ -6,8 +6,9 @@
  * local user publishes, and everything the user writes stays on the device.
  *
  * Design:
- * - Only *user-created* posts are persisted (seed posts live in code so copy
- *   changes propagate); likes are persisted as post ids.
+ * - Only *user-created* posts and replies are persisted (seed posts and seed
+ *   replies live in code so copy changes propagate); likes are persisted as post
+ *   ids.
  * - Versioned key (`entei.timeline.v1`) and exception-safe: storage failures
  *   never throw to the caller — the in-memory feed stays usable.
  * - No network, no account, no media. Nothing leaves the browser.
@@ -23,6 +24,14 @@ export const TIMELINE_SCHEMA_VERSION = 1;
 /** Maximum characters per post (docs/FREENET_SOCIAL_TIMELINE.md §2.2.3). */
 export const TIMELINE_POST_MAX_LENGTH = 360;
 
+/** A post or comment author as rendered in the feed. */
+export interface TimelineAuthor {
+  name: string;
+  handle: string;
+  /** Bundled `/avatars/N.webp` path or a processed image data URL. */
+  avatar: string;
+}
+
 export interface TimelinePost {
   id: string;
   authorName: string;
@@ -34,12 +43,25 @@ export interface TimelinePost {
   createdAt: number;
 }
 
+/** A reply on a post's detail view (phase 1.5 comments thread). */
+export interface TimelineComment {
+  id: string;
+  /** Id of the post this reply belongs to. */
+  postId: string;
+  author: TimelineAuthor;
+  text: string;
+  /** Creation time in epoch milliseconds. */
+  createdAt: number;
+}
+
 export interface TimelineState {
   schemaVersion: typeof TIMELINE_SCHEMA_VERSION;
   /** Posts created on this device, newest first. */
   posts: TimelinePost[];
   /** Ids of posts the user liked (seeds and local posts alike). */
   likedIds: string[];
+  /** Replies written on this device, oldest first per post. */
+  comments: TimelineComment[];
 }
 
 const MINUTE = 60_000;
@@ -92,10 +114,61 @@ export const TIMELINE_SEED_POSTS: readonly TimelinePost[] = [
   },
 ];
 
+/**
+ * Seeded replies so the thread views feel alive on first load. Timestamps are
+ * relative to page load, like the seed posts, so a thread never shows a stale
+ * "2 years ago" on a reply either.
+ */
+export const TIMELINE_SEED_COMMENTS: readonly TimelineComment[] = [
+  {
+    id: 'seed-c1',
+    postId: 'seed-1',
+    author: { name: 'Yuki-H2M8', handle: '@yuki_h2m8', avatar: '/avatars/7.webp' },
+    text: '7割拾えてたら十分すごい！フリーレンは話す速度がわりとゆっくりなので、通しで観るのは正解だと思う。',
+    createdAt: SEED_BASE - 3 * MINUTE,
+  },
+  {
+    id: 'seed-c2',
+    postId: 'seed-1',
+    author: { name: 'Ren-K7C5', handle: '@ren_k7c5', avatar: '/avatars/14.webp' },
+    text: '同じ話を字幕あり→なしで2周すると、2周目で一気に聞こえる量が増える気がします。',
+    createdAt: SEED_BASE - 2 * MINUTE,
+  },
+  {
+    id: 'seed-c3',
+    postId: 'seed-2',
+    author: { name: 'Sora-T4P1', handle: '@sora_t4p1', avatar: '/avatars/11.webp' },
+    text: '採掘した表現が翌話で出てくるの、本当に嬉しいですよね。脳が「必要だ」と判定した証拠。',
+    createdAt: SEED_BASE - 30 * MINUTE,
+  },
+  {
+    id: 'seed-c4',
+    postId: 'seed-2',
+    author: { name: 'Kitsune-A9K2', handle: '@kitsune_a9k2', avatar: '/avatars/3.webp' },
+    text: '「手を焼く」いい表現ですね。自分も次の視聴で意識して拾ってみます。',
+    createdAt: SEED_BASE - 20 * MINUTE,
+  },
+  {
+    id: 'seed-c5',
+    postId: 'seed-3',
+    author: { name: 'Ren-K7C5', handle: '@ren_k7c5', avatar: '/avatars/14.webp' },
+    text: '通勤イマージョン、継続のハードルが低いのが強いですよね。自分は駅までの往復だけやってます。',
+    createdAt: SEED_BASE - 2 * HOUR,
+  },
+  {
+    id: 'seed-c6',
+    postId: 'seed-4',
+    author: { name: 'Yuki-H2M8', handle: '@yuki_h2m8', avatar: '/avatars/7.webp' },
+    text: 'Nadeshiko の例文は語彙の幅が広がるので、採掘前の下見にちょうどいいですよね。',
+    createdAt: SEED_BASE - 1 * DAY,
+  },
+];
+
 export const EMPTY_TIMELINE_STATE: TimelineState = {
   schemaVersion: TIMELINE_SCHEMA_VERSION,
   posts: [],
   likedIds: [],
+  comments: [],
 };
 
 function isTimelinePost(value: unknown): value is TimelinePost {
@@ -114,6 +187,33 @@ function isTimelinePost(value: unknown): value is TimelinePost {
   );
 }
 
+function isTimelineAuthor(value: unknown): value is TimelineAuthor {
+  if (typeof value !== 'object' || value === null) return false;
+  const author = value as Record<string, unknown>;
+  return (
+    typeof author.name === 'string' &&
+    typeof author.handle === 'string' &&
+    typeof author.avatar === 'string'
+  );
+}
+
+function isTimelineComment(value: unknown): value is TimelineComment {
+  if (typeof value !== 'object' || value === null) return false;
+  const comment = value as Record<string, unknown>;
+  return (
+    typeof comment.id === 'string' &&
+    comment.id.length > 0 &&
+    typeof comment.postId === 'string' &&
+    comment.postId.length > 0 &&
+    isTimelineAuthor(comment.author) &&
+    typeof comment.text === 'string' &&
+    comment.text.length > 0 &&
+    comment.text.length <= TIMELINE_POST_MAX_LENGTH &&
+    typeof comment.createdAt === 'number' &&
+    Number.isFinite(comment.createdAt)
+  );
+}
+
 function parseTimelineState(value: unknown): TimelineState | null {
   if (typeof value !== 'object' || value === null) return null;
   const state = value as Record<string, unknown>;
@@ -126,25 +226,34 @@ function parseTimelineState(value: unknown): TimelineState | null {
   const likedIds = state.likedIds.filter(
     (id): id is string => typeof id === 'string',
   );
+  // `comments` joined the schema in phase 1.5; a payload written before it
+  // existed is still valid and simply has no replies yet.
+  const comments = Array.isArray(state.comments)
+    ? state.comments.filter(isTimelineComment)
+    : [];
   return {
     schemaVersion: TIMELINE_SCHEMA_VERSION,
     posts,
     likedIds,
+    comments,
   };
+}
+
+/** Fresh empty state (a new object each call, so callers cannot share it). */
+function emptyTimelineState(): TimelineState {
+  return { schemaVersion: TIMELINE_SCHEMA_VERSION, posts: [], likedIds: [], comments: [] };
 }
 
 /** Read the persisted timeline state; falls back to empty on any failure. */
 export function readTimelineState(): TimelineState {
   try {
     const raw = localStorage.getItem(TIMELINE_STORAGE_KEY);
-    if (raw === null) return { ...EMPTY_TIMELINE_STATE, posts: [], likedIds: [] };
+    if (raw === null) return emptyTimelineState();
     const parsed = parseTimelineState(JSON.parse(raw) as unknown);
-    if (parsed === null) {
-      return { ...EMPTY_TIMELINE_STATE, posts: [], likedIds: [] };
-    }
+    if (parsed === null) return emptyTimelineState();
     return parsed;
   } catch {
-    return { ...EMPTY_TIMELINE_STATE, posts: [], likedIds: [] };
+    return emptyTimelineState();
   }
 }
 
@@ -164,7 +273,56 @@ export function clampTimelineMessage(value: string): string {
   return value.trim().slice(0, TIMELINE_POST_MAX_LENGTH);
 }
 
+/** Trim and clamp a reply draft to the same limit as a post. */
+export function clampTimelineComment(value: string): string {
+  return clampTimelineMessage(value);
+}
+
 let postCounter = 0;
+let commentCounter = 0;
+
+/** Build a new local reply for `postId`, or null when the draft is empty. */
+export function createTimelineComment(
+  postId: string,
+  text: string,
+  author: TimelineAuthor,
+  now: number = Date.now(),
+): TimelineComment | null {
+  const body = clampTimelineComment(text);
+  if (body.length === 0) return null;
+  commentCounter += 1;
+  return {
+    id: `reply-${now.toString(36)}-${commentCounter}`,
+    postId,
+    author: { name: author.name, handle: author.handle, avatar: author.avatar },
+    text: body,
+    createdAt: now,
+  };
+}
+
+/**
+ * Every reply on `postId`, oldest first — the reading order of a thread.
+ *
+ * Local replies are merged with the seeded ones and sorted by `createdAt`, so a
+ * reply written on this device slots into the conversation by its real time
+ * instead of always landing at the bottom.
+ */
+export function mergeTimelineComments(
+  localComments: readonly TimelineComment[],
+  postId: string,
+): TimelineComment[] {
+  return [...localComments, ...TIMELINE_SEED_COMMENTS]
+    .filter((comment) => comment.postId === postId)
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** Reply count for a post, seeds included (used by the detail header). */
+export function countTimelineComments(
+  localComments: readonly TimelineComment[],
+  postId: string,
+): number {
+  return mergeTimelineComments(localComments, postId).length;
+}
 
 /** Build a new local post from the composer draft and the device profile. */
 export function createTimelinePost(

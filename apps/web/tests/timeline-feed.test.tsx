@@ -19,6 +19,7 @@ import TimelineFeed, {
   PULL_REFRESH_THRESHOLD,
 } from '@/components/home/TimelineFeed';
 import {
+  TIMELINE_SEED_COMMENTS,
   TIMELINE_SEED_POSTS,
   TIMELINE_STORAGE_KEY,
   readTimelineState,
@@ -184,6 +185,75 @@ describe('TimelineFeed', () => {
     await screen.findByText('復元されたポスト');
     expect(screen.getAllByRole('listitem')).toHaveLength(
       TIMELINE_SEED_POSTS.length + 1,
+    );
+  });
+
+  it('merges replies stored by another tab when publishing', async () => {
+    // A reply another tab already wrote; the feed's React state knows nothing
+    // about it, so only a merge at write time keeps it.
+    localStorage.setItem(
+      TIMELINE_STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        posts: [],
+        likedIds: [],
+        comments: [
+          {
+            id: 'reply-other-tab',
+            postId: 'seed-1',
+            author: { name: 'Yuki-H2M8', handle: '@yuki_h2m8', avatar: '/avatars/7.webp' },
+            text: '別タブの返信',
+            createdAt: Date.now(),
+          },
+        ],
+      }),
+    );
+
+    renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.change(
+      screen.getByPlaceholderText('Tulis di sini untuk membuat pos!'),
+      { target: { value: '返信を消さない投稿' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Terbitkan pos' }));
+
+    await waitFor(() => {
+      expect(readTimelineState().posts).toHaveLength(1);
+    });
+    expect(readTimelineState().comments.map((comment) => comment.text)).toEqual(
+      ['別タブの返信'],
+    );
+  });
+
+  it('merges replies stored by another tab when toggling a like', async () => {
+    renderFeed();
+    const likeButtons = await screen.findAllByRole('button', { name: 'Like' });
+
+    localStorage.setItem(
+      TIMELINE_STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        posts: [],
+        likedIds: [],
+        comments: [
+          {
+            id: 'reply-like-merge',
+            postId: 'seed-2',
+            author: { name: 'Sora-T4P1', handle: '@sora_t4p1', avatar: '/avatars/11.webp' },
+            text: 'いいね時の返信',
+            createdAt: Date.now(),
+          },
+        ],
+      }),
+    );
+
+    fireEvent.click(likeButtons[0]!);
+
+    await waitFor(() => {
+      expect(readTimelineState().likedIds).toHaveLength(1);
+    });
+    expect(readTimelineState().comments.map((comment) => comment.text)).toEqual(
+      ['いいね時の返信'],
     );
   });
 
@@ -527,5 +597,123 @@ describe('TimelineFeed — desktop new posts pill', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('TimelineFeed — post detail', () => {
+  const seedPost = TIMELINE_SEED_POSTS[0]!;
+
+  it('opens the detail view when a post is clicked', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+
+    fireEvent.click(screen.getByText(seedPost.message));
+
+    // The feed is replaced by the thread: header title + focused post + back.
+    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Kembali ke lini masa' }),
+    ).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Tulis di sini untuk membuat pos!')).toBeNull();
+    expect(screen.getByText(seedPost.message)).toBeTruthy();
+  });
+
+  it('opens the detail view from the Comment button', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Comment' })[0]!);
+
+    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+  });
+
+  it('renders the seeded replies of the opened post', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.click(screen.getByText(seedPost.message));
+
+    const seeded = TIMELINE_SEED_COMMENTS.filter(
+      (comment) => comment.postId === seedPost.id,
+    );
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const comment of seeded) {
+      expect(screen.getByText(comment.text)).toBeTruthy();
+    }
+  });
+
+  it('adds a reply to the thread and persists it', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.click(screen.getByText(seedPost.message));
+
+    const replyButton = screen.getByRole('button', { name: 'Kirim balasan' });
+    expect(replyButton.hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(screen.getByPlaceholderText('Balas dengan pos'), {
+      target: { value: '  参考になりました  ' },
+    });
+    fireEvent.click(replyButton);
+
+    const posted = await screen.findByText('参考になりました');
+    expect(posted).toBeTruthy();
+    // The composer resets after posting.
+    expect(
+      (screen.getByPlaceholderText('Balas dengan pos') as HTMLTextAreaElement)
+        .value,
+    ).toBe('');
+
+    const stored = readTimelineState();
+    expect(stored.comments).toHaveLength(1);
+    expect(stored.comments[0]!.postId).toBe(seedPost.id);
+    expect(stored.comments[0]!.text).toBe('参考になりました');
+  });
+
+  it('returns to the feed from the back button', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.click(screen.getByText(seedPost.message));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Kembali ke lini masa' }));
+
+    expect(
+      screen.getByPlaceholderText('Tulis di sini untuk membuat pos!'),
+    ).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(
+      TIMELINE_SEED_POSTS.length,
+    );
+    expect(screen.queryByRole('heading', { name: 'Pos' })).toBeNull();
+  });
+
+  it('consumes the pushed history entry when closing the thread', async () => {
+    const back = vi.spyOn(window.history, 'back');
+    renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.click(screen.getByText(seedPost.message));
+
+    expect(window.history.state?.enteiTimelinePost).toBe(seedPost.id);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Kembali ke lini masa' }));
+
+    // The thread entry is popped instead of being left behind, so the browser
+    // Back button still leaves the page in one press.
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByPlaceholderText('Tulis di sini untuk membuat pos!'),
+    ).toBeTruthy();
+  });
+
+  it('leaves the thread on browser back (popstate)', async () => {
+    renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.click(screen.getByText(seedPost.message));
+    expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(
+      screen.getByPlaceholderText('Tulis di sini untuk membuat pos!'),
+    ).toBeTruthy();
   });
 });

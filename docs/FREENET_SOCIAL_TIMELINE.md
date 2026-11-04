@@ -99,6 +99,16 @@
 - **フィード挙動（2026-11-04 追加）**: ① **最新順** — `mergeTimelinePosts` はローカル投稿とシードを結合した全件を `createdAt` 降順で厳密にソートする（配列位置ではなく実時刻。同時刻は安定ソートでローカル→シード）。② **Pull-to-Refresh（モバイル）** — ページ最上部でフィードを下へ引くと指の移動量に追従してインジケータが開き（上限 96px）、`PULL_REFRESH_THRESHOLD = 60px` を超えて離すとストア再読込（`now` 更新・localStorage 再同期・先頭 5 件にリセット）が走る。タッチリスナーは `passive: false` で張り、引いている間だけ `preventDefault()` する。③ **無限スクロール** — 初期表示 `INITIAL_VISIBLE_POSTS = 5` 件、フィード末尾の sentinel（`<ul>` の外・`aria-hidden`）が `IntersectionObserver`（`rootMargin: 200px`）で見えたら `LOAD_MORE_STEP = 5` 件ずつ追加し、全件表示後は `entei-timeline-end` の終端ラベルを出す。④ **デスクトップ新着ポーリング** — `NEW_POSTS_POLL_INTERVAL_MS = 30_000` の間隔と他タブの `storage` イベントでストアを差分チェックし（`matchMedia('(min-width: 768px)')` が真のときのみ）、未表示の投稿は画面へ流し込まずコンポーザー直下のピル `entei-timeline-new-posts`（`新しいポストを{n}件表示`）に留める。クリックで採用して `window.scrollTo({ top: 0, behavior: 'smooth' })` により先頭へ戻る。現時点のポーリング元はローカルストアだが、このフックが後続フェーズの Freenet 同期の差込口になる。
 - **未実装（意図的）**: `ImmersionSessionCard` / `MinedSentenceCard`、サイドカラム（本日のイマージョン概要・トレンド作品）、Freenet コントラクト同期。いずれも後続フェーズ。
 
+### 2.4 ポスト詳細（スレッド）ビュー（2026-11-04 追加）
+
+ポストをタップ/クリックすると、フィードを置き換えて Twitter/X 型のスレッドビューが開く。データは引き続き端末内のみ（ネットワーク同期なし）。
+
+- **遷移**: ポストカードの head + body（`role="button"`、Enter/Space 対応）または `Comment` ボタンで `selectedPostId` を立てる。`window.history.pushState({ enteiTimelinePost })` を積むため、ブラウザの戻る/戻るジェスチャ（`popstate`）でもフィードへ戻る。
+- **レイアウト**: スティッキーヘッダー（`← 戻る` 36px ピル + タイトル `ポスト`）→ 親ポスト（48px 角丸六角形アバター・本文・相対時刻・Like/Share・返信数）→ 返信コンポーザー（アバター + 入力 + `返信` 36px ピル、`--entei-btn-color`）→ 返信リスト（32px 角丸六角形アバター・名前・ハンドル・相対時刻・本文、`oklch(1 0 0 / 0.06)` の細い区切り線）。
+- **返信データ**: `TimelineComment { id, postId, author: TimelineAuthor, text, createdAt }`。シード返信は `TIMELINE_SEED_COMMENTS`（`SEED_BASE` 基準の相対時刻）としてコード側に置き、端末内で書いた返信のみ `entei.timeline.v1` の `comments` に保存する。`comments` を持たない旧ペイロードもそのまま読める（schemaVersion は 1 のまま）。
+- **スレッド順序**: `mergeTimelineComments(local, postId)` がシードとローカルを `createdAt` 昇順で結合するため、ローカル返信は配列位置ではなく実時刻で会話に挟まる。
+- **i18n**: `back` / `backAriaLabel` / `postTitle` / `replyPlaceholder` / `replySubmit` / `replySubmitAriaLabel` / `noComments` / `commentCount`（`{count}`）を id/ja/en に追加。
+
 ### 既知の指摘（Known issues / Low findings）
 
 プロジェクト規約（#1772）により記録：
@@ -106,3 +116,4 @@
 2. タイムラインのアクションボタン（Comment/Like/Share/Publish）はユーザー指定により `min-height: 32px` に統一（プロジェクトの一般的な 44px タッチ規約より視覚的なコンパクトさを優先、WCAG 2.2 AA の 24px は上回る）。
 3. 旧Home専用コンポーネント（`HubIdentity.astro` / `DestinationDock.astro` / `LocalFirstNote.astro` / `future-features.mdx`）は参照ゼロのファイルとして残存（削除はユーザー確認後に実施）。
 4. `TimelineFeed.tsx` の pull-to-refresh 表示で、`aria-live="polite"` が `aria-hidden` 切り替えと同居しているため、スクリーンリーダーの読み上げが一部環境で不安定になる余地がある。将来のアクセシビリティ見直し時に常設の `role="status"` を `sr-only` に分離する。
+5. ポスト詳細ビューは実装・ユニットテスト完了時点で Chrome 実表示によるビジュアルQAが未実施（開発サーバー未起動のため）。spacing/contrast/モバイルのスティッキーヘッダー重なりは次回表示確認時に検証する。

@@ -22,6 +22,10 @@
  *   "show N new posts" pill under the composer instead of yanking the reader's
  *   scroll position. Clicking it prepends the posts and glides to the top.
  *
+ * - **Post detail** — clicking a post (or its Comment button) swaps the feed
+ *   for a Twitter/X-style thread: back header, the focused post, a reply
+ *   composer, and the replies below it.
+ *
  * Hydration note: the device profile and the "time ago" labels only exist in
  * the browser, so both are gated behind a post-mount effect. That keeps the
  * prerendered HTML free of storage reads and prevents hydration mismatches;
@@ -32,7 +36,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MessageSquare, RefreshCw, Send, Share2, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  MessageSquare,
+  RefreshCw,
+  Send,
+  Share2,
+  Sparkles,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { getDictionary } from '@i18n/index';
@@ -44,14 +55,18 @@ import type { Locale } from '@i18n/types';
 import { readLocalProfile } from '@/features/player/profile/profile-store';
 import {
   TIMELINE_POST_MAX_LENGTH,
+  clampTimelineComment,
   clampTimelineMessage,
+  createTimelineComment,
   createTimelinePost,
   deriveHandle,
   formatRelativeTime,
+  mergeTimelineComments,
   mergeTimelinePosts,
   readTimelineState,
   writeTimelineState,
   TIMELINE_STORAGE_KEY,
+  type TimelineComment,
   type TimelinePost,
 } from '@/features/timeline/timeline-store';
 
@@ -85,6 +100,11 @@ export const NEW_POSTS_POLL_INTERVAL_MS = 30_000;
 /** Matches the `max-width: 767px` breakpoint in `styles/timeline.css`. */
 const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
 
+/** Fill the `{count}` placeholder in the reply-count label. */
+export function formatCommentCount(template: string, count: number): string {
+  return template.replace('{count}', String(count));
+}
+
 /** Fill the `{count}` placeholder in the "show new posts" label. */
 export function formatNewPostsLabel(template: string, count: number): string {
   return template.replace('{count}', String(count));
@@ -112,6 +132,45 @@ function mergeLikedIds(
   return [...new Set([...secondary, ...primary])];
 }
 
+/**
+ * Union reply lists by id and append `incoming`, so the reply just written and
+ * anything another tab stored meanwhile both survive the write.
+ *
+ * `incoming` is optional: a write that does not create a reply (publishing a
+ * post, toggling a like) still has to merge, otherwise the raw React state
+ * would overwrite replies another tab stored in the meantime.
+ */
+function mergeCommentsById(
+  primary: readonly TimelineComment[],
+  secondary: readonly TimelineComment[],
+  incoming?: TimelineComment,
+): TimelineComment[] {
+  const byId = new Map<string, TimelineComment>();
+  for (const comment of secondary) byId.set(comment.id, comment);
+  for (const comment of primary) byId.set(comment.id, comment);
+  if (incoming !== undefined && !byId.has(incoming.id)) {
+    byId.set(incoming.id, incoming);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * True when the current history entry is the one `openPost` pushed for a
+ * thread. Closing the thread must consume that entry (`history.back()`) rather
+ * than stacking another one, or the browser's Back button would need two
+ * presses to leave the page.
+ */
+function hasTimelineHistoryEntry(): boolean {
+  try {
+    const state = window.history.state as
+      | { enteiTimelinePost?: unknown }
+      | null;
+    return typeof state?.enteiTimelinePost === 'string';
+  } catch {
+    return false;
+  }
+}
+
 export default function TimelineFeed() {
   // The Home page is prerendered, so the initial locale must match the server
   // HTML. Reading `document.documentElement.lang` here would hydrate a
@@ -121,6 +180,10 @@ export default function TimelineFeed() {
   const [author, setAuthor] = useState<LocalAuthor | null>(null);
   const [localPosts, setLocalPosts] = useState<TimelinePost[]>([]);
   const [likedIds, setLikedIds] = useState<string[]>([]);
+  const [comments, setComments] = useState<TimelineComment[]>([]);
+  // Post detail view: `null` is the feed, an id is that post's thread.
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState('');
   const [draft, setDraft] = useState('');
   const [now, setNow] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_POSTS);
@@ -148,6 +211,7 @@ export default function TimelineFeed() {
     const state = readTimelineState();
     setLocalPosts(state.posts);
     setLikedIds(state.likedIds);
+    setComments(state.comments);
     setNow(Date.now());
     setVisibleCount(INITIAL_VISIBLE_POSTS);
   }, []);
@@ -190,6 +254,25 @@ export default function TimelineFeed() {
     [feed, visibleCount],
   );
   const hasMore = visibleCount < feed.length;
+
+  // Post detail view data. `selectedPost` is null when the id no longer exists
+  // (e.g. another tab removed it), which falls back to the feed.
+  const selectedPost = useMemo(
+    () =>
+      selectedPostId === null
+        ? null
+        : (feed.find((post) => post.id === selectedPostId) ?? null),
+    [feed, selectedPostId],
+  );
+  const thread = useMemo(
+    () =>
+      selectedPostId === null
+        ? []
+        : mergeTimelineComments(comments, selectedPostId),
+    [comments, selectedPostId],
+  );
+  const canReply = clampTimelineComment(replyDraft).length > 0;
+  const isDetail = selectedPost !== null;
 
   /** Release the pull indicator after a completed refresh. */
   useEffect(
@@ -293,6 +376,8 @@ export default function TimelineFeed() {
   // Pull to refresh. Native (non-passive) touch listeners so the drag can call
   // `preventDefault()` and stop the browser's own overscroll/refresh gesture.
   useEffect(() => {
+    // Pull-to-refresh belongs to the feed; the detail view is not a list.
+    if (isDetail) return;
     const node = rootRef.current;
     if (node === null) return;
 
@@ -345,7 +430,7 @@ export default function TimelineFeed() {
       node.removeEventListener('touchend', handleEnd);
       node.removeEventListener('touchcancel', handleEnd);
     };
-  }, [triggerRefresh]);
+  }, [triggerRefresh, isDetail]);
 
   // Infinite scroll: watch the sentinel that trails the last rendered post and
   // append the next (older) page when it comes into view.
@@ -366,13 +451,17 @@ export default function TimelineFeed() {
     return () => observer.disconnect();
   }, [hasMore, visibleCount]);
 
-  const persist = useCallback((posts: TimelinePost[], likes: string[]) => {
-    writeTimelineState({
-      schemaVersion: 1,
-      posts,
-      likedIds: likes,
-    });
-  }, []);
+  const persist = useCallback(
+    (posts: TimelinePost[], likes: string[], replies: TimelineComment[]) => {
+      writeTimelineState({
+        schemaVersion: 1,
+        posts,
+        likedIds: likes,
+        comments: replies,
+      });
+    },
+    [],
+  );
 
   const handlePublish = useCallback(
     (event: React.SyntheticEvent<HTMLFormElement>) => {
@@ -385,9 +474,11 @@ export default function TimelineFeed() {
       const state = readTimelineState();
       const next = [post, ...mergePostsById(localPosts, state.posts)];
       const likes = mergeLikedIds(likedIds, state.likedIds);
+      const replies = mergeCommentsById(comments, state.comments);
       setLocalPosts(next);
       setLikedIds(likes);
-      persist(next, likes);
+      setComments(replies);
+      persist(next, likes, replies);
       // The pill's snapshot is now stale and its posts are on screen: retire it
       // instead of letting a later click restore an older feed.
       pendingSnapshotRef.current = null;
@@ -398,7 +489,7 @@ export default function TimelineFeed() {
       // the top of the page window.
       setVisibleCount((count) => count + 1);
     },
-    [author, draft, localPosts, likedIds, persist],
+    [author, draft, localPosts, likedIds, comments, persist],
   );
 
   const toggleLike = useCallback(
@@ -408,22 +499,77 @@ export default function TimelineFeed() {
       const next = merged.includes(postId)
         ? merged.filter((id) => id !== postId)
         : [...merged, postId];
+      // A like is a full-state write, so replies written in another tab have to
+      // be merged in as well or they would be clobbered by the React copy.
+      const replies = mergeCommentsById(comments, state.comments);
       setLikedIds(next);
-      persist(mergePostsById(localPosts, state.posts), next);
+      setComments(replies);
+      persist(mergePostsById(localPosts, state.posts), next, replies);
       // Same reason as publishing: a like is a write, so the parked snapshot
       // would no longer match the store.
       pendingSnapshotRef.current = null;
       pendingLikesRef.current = [];
       setPendingCount(0);
     },
-    [likedIds, localPosts, persist],
+    [likedIds, localPosts, comments, persist],
   );
 
-  // Note: replies are not part of phase 1 — "Comment" opens the composer so the
-  // user lands in the right place instead of hitting a dead button.
-  const focusComposer = useCallback(() => {
-    textareaRef.current?.focus();
+  // Note: replies live in the post detail view — the feed's "Comment" button
+  // opens that post's thread, so the button never lands on a dead end.
+  const openPost = useCallback((postId: string) => {
+    setReplyDraft('');
+    setSelectedPostId(postId);
+    // Give the browser's Back button the same meaning as the header control.
+    try {
+      window.history.pushState({ enteiTimelinePost: postId }, '');
+    } catch {
+      // History is unavailable in some embeddings; the back button still works.
+    }
   }, []);
+
+  const closePost = useCallback(() => {
+    setSelectedPostId(null);
+    setReplyDraft('');
+    // `openPost` pushed a history entry so the browser Back button could leave
+    // the thread. Closing from the header control has to consume that entry,
+    // otherwise it stays behind and Back only appears to do nothing.
+    if (hasTimelineHistoryEntry()) {
+      try {
+        window.history.back();
+      } catch {
+        // History is unavailable in some embeddings; the state is cleared.
+      }
+    }
+  }, []);
+
+  // Browser back (and the hardware back gesture) leaves the thread. Clearing
+  // `selectedPostId` is what clears the thread: `selectedPost` is derived from
+  // it, so a null/undefined history state can never leave a stale post behind.
+  useEffect(() => {
+    const onPopState = () => {
+      setSelectedPostId(null);
+      setReplyDraft('');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const handleReply = useCallback(
+    (event: React.SyntheticEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (author === null || selectedPostId === null) return;
+      const comment = createTimelineComment(selectedPostId, replyDraft, author);
+      if (comment === null) return;
+      // Fold in whatever the store holds so a cross-tab reply is never dropped.
+      const state = readTimelineState();
+      const next = mergeCommentsById(comments, state.comments, comment);
+      setComments(next);
+      setReplyDraft('');
+      persist(mergePostsById(localPosts, state.posts), mergeLikedIds(likedIds, state.likedIds), next);
+      setNow(Date.now());
+    },
+    [author, selectedPostId, replyDraft, comments, localPosts, likedIds, persist],
+  );
 
   const sharePost = useCallback(
     async (post: TimelinePost) => {
@@ -471,145 +617,304 @@ export default function TimelineFeed() {
         </defs>
       </svg>
 
-      {/* Pull-to-refresh indicator: its height follows the finger, and it
-          collapses to 0 when idle so it never reserves layout space. */}
-      <div
-        className="entei-timeline-pull"
-        data-state={pullState}
-        style={{ height: `${indicatorHeight}px` }}
-        aria-live="polite"
-        aria-hidden={pullState === 'idle'}
-      >
-        <RefreshCw
-          className="entei-timeline-pull-icon"
-          size={18}
-          aria-hidden="true"
-        />
-        <span className="entei-timeline-pull-label">
-          {isRefreshing ? t.refreshing : t.pullToRefresh}
-        </span>
-      </div>
+      {isDetail && selectedPost !== null ? (
+        /* ===== POST DETAIL (thread) ===== */
+        <div className="entei-timeline-detail">
+          <div className="entei-timeline-detail-head">
+            <button
+              type="button"
+              className="entei-timeline-back"
+              onClick={closePost}
+              aria-label={t.backAriaLabel}
+            >
+              <ArrowLeft size={18} aria-hidden="true" />
+              <span>{t.back}</span>
+            </button>
+            <h2 className="entei-timeline-detail-title">{t.postTitle}</h2>
+          </div>
 
-      <form className="entei-timeline-composer" onSubmit={handlePublish}>
-        <div className="entei-timeline-composer-row">
-          <span className="entei-timeline-avatar">
-            {author !== null && (
-              <img src={author.avatar} alt={t.avatarAlt} loading="lazy" />
+          <article className="entei-timeline-detail-post">
+            <div className="entei-timeline-post-head">
+              <span className="entei-timeline-avatar entei-timeline-detail-avatar">
+                <img src={selectedPost.avatar} alt="" loading="lazy" />
+              </span>
+              <span className="entei-timeline-author">
+                <span className="entei-timeline-author-name">
+                  {selectedPost.authorName}
+                </span>
+                <span className="entei-timeline-author-handle">
+                  {selectedPost.authorHandle}
+                </span>
+              </span>
+            </div>
+
+            <p className="entei-timeline-detail-body">{selectedPost.message}</p>
+
+            {now !== null && (
+              <time
+                className="entei-timeline-detail-timestamp"
+                dateTime={new Date(selectedPost.createdAt).toISOString()}
+              >
+                {formatRelativeTime(selectedPost.createdAt, now, locale)}
+              </time>
             )}
-          </span>
-          <textarea
-            ref={textareaRef}
-            className="entei-timeline-textarea"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={t.composerPlaceholder}
-            aria-label={t.composerPlaceholder}
-            maxLength={TIMELINE_POST_MAX_LENGTH}
-            rows={1}
-          />
-        </div>
-        <div className="entei-timeline-composer-actions">
-          <button
-            type="submit"
-            className="entei-timeline-publish"
-            aria-label={t.composerSubmitAriaLabel}
-            disabled={!canPublish}
-          >
-            <Send size={16} aria-hidden="true" />
-            <span>{t.composerSubmit}</span>
-          </button>
-        </div>
-      </form>
 
-      {/* Desktop "new posts" pill: appears when the poll found posts that are
-          not on screen yet. Clicking adopts them and scrolls to the top. */}
-      {pendingCount > 0 && (
-        <div className="entei-timeline-new-posts-wrap" role="status">
-          <button
-            type="button"
-            className="entei-timeline-new-posts"
-            onClick={showNewPosts}
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            <span>{formatNewPostsLabel(t.showNewPosts, pendingCount)}</span>
-          </button>
-        </div>
-      )}
+            <div className="entei-timeline-post-actions">
+              <button
+                type="button"
+                className="entei-timeline-action"
+                aria-pressed={likedIds.includes(selectedPost.id)}
+                aria-label={
+                  likedIds.includes(selectedPost.id)
+                    ? t.actionUnlike
+                    : t.actionLike
+                }
+                onClick={() => toggleLike(selectedPost.id)}
+              >
+                <Sparkles size={16} aria-hidden="true" />
+                <span>{t.actionLike}</span>
+              </button>
+              <button
+                type="button"
+                className="entei-timeline-action"
+                onClick={() => {
+                  void sharePost(selectedPost);
+                }}
+              >
+                <Share2 size={16} aria-hidden="true" />
+                <span>{t.actionShare}</span>
+              </button>
+              <span className="entei-timeline-detail-replies">
+                {formatCommentCount(t.commentCount, thread.length)}
+              </span>
+            </div>
+          </article>
 
-      <ul className="entei-timeline-feed" role="list">
-        {visiblePosts.map((post) => {
-          const liked = likedIds.includes(post.id);
-          return (
-            <li className="entei-timeline-post" key={post.id}>
-              <div className="entei-timeline-post-head">
-                <span className="entei-timeline-avatar">
-                  <img src={post.avatar} alt="" loading="lazy" />
-                </span>
-                <span className="entei-timeline-author">
-                  <span className="entei-timeline-author-name">
-                    {post.authorName}
-                  </span>
-                  <span className="entei-timeline-author-handle">
-                    {post.authorHandle}
-                  </span>
-                </span>
-                {now !== null && (
-                  <time
-                    className="entei-timeline-time"
-                    dateTime={new Date(post.createdAt).toISOString()}
-                  >
-                    {formatRelativeTime(post.createdAt, now, locale)}
-                  </time>
-                )}
-              </div>
-
-              <p className="entei-timeline-post-body">{post.message}</p>
-
-              <div className="entei-timeline-post-actions">
+          {/* Reply composer: the local author replies into this thread. */}
+          <form className="entei-timeline-reply" onSubmit={handleReply}>
+            <span className="entei-timeline-avatar entei-timeline-reply-avatar">
+              {author !== null && (
+                <img src={author.avatar} alt={t.avatarAlt} loading="lazy" />
+              )}
+            </span>
+            <div className="entei-timeline-reply-box">
+              <textarea
+                className="entei-timeline-reply-input"
+                value={replyDraft}
+                onChange={(event) => setReplyDraft(event.target.value)}
+                placeholder={t.replyPlaceholder}
+                aria-label={t.replyPlaceholder}
+                maxLength={TIMELINE_POST_MAX_LENGTH}
+                rows={1}
+              />
+              <div className="entei-timeline-reply-actions">
                 <button
-                  type="button"
-                  className="entei-timeline-action"
-                  onClick={focusComposer}
+                  type="submit"
+                  className="entei-timeline-reply-submit"
+                  aria-label={t.replySubmitAriaLabel}
+                  disabled={!canReply}
                 >
-                  <MessageSquare size={16} aria-hidden="true" />
-                  <span>{t.actionComment}</span>
-                </button>
-                <button
-                  type="button"
-                  className="entei-timeline-action"
-                  aria-pressed={liked}
-                  aria-label={liked ? t.actionUnlike : t.actionLike}
-                  onClick={() => toggleLike(post.id)}
-                >
-                  <Sparkles size={16} aria-hidden="true" />
-                  <span>{t.actionLike}</span>
-                </button>
-                <button
-                  type="button"
-                  className="entei-timeline-action"
-                  onClick={() => {
-                    void sharePost(post);
-                  }}
-                >
-                  <Share2 size={16} aria-hidden="true" />
-                  <span>{t.actionShare}</span>
+                  <Send size={16} aria-hidden="true" />
+                  <span>{t.replySubmit}</span>
                 </button>
               </div>
-            </li>
-          );
-        })}
-      </ul>
+            </div>
+          </form>
 
-      {/* Infinite scroll: the sentinel is not a post, so it stays outside the
-          list (keeps `listitem` counts equal to the rendered posts). */}
-      {hasMore ? (
-        <div
-          className="entei-timeline-sentinel"
-          ref={sentinelRef}
-          aria-hidden="true"
-        />
+          {thread.length > 0 ? (
+            <ul className="entei-timeline-comments" role="list">
+              {thread.map((comment) => (
+                <li className="entei-timeline-comment" key={comment.id}>
+                  <span className="entei-timeline-avatar entei-timeline-comment-avatar">
+                    <img src={comment.author.avatar} alt="" loading="lazy" />
+                  </span>
+                  <div className="entei-timeline-comment-main">
+                    <div className="entei-timeline-comment-meta">
+                      <span className="entei-timeline-author-name">
+                        {comment.author.name}
+                      </span>
+                      <span className="entei-timeline-author-handle">
+                        {comment.author.handle}
+                      </span>
+                      {now !== null && (
+                        <time
+                          className="entei-timeline-time"
+                          dateTime={new Date(comment.createdAt).toISOString()}
+                        >
+                          {formatRelativeTime(comment.createdAt, now, locale)}
+                        </time>
+                      )}
+                    </div>
+                    <p className="entei-timeline-comment-body">
+                      {comment.text}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="entei-timeline-comments-empty">{t.noComments}</p>
+          )}
+        </div>
       ) : (
-        <p className="entei-timeline-end">{t.endOfFeed}</p>
+        <>
+          {/* Pull-to-refresh indicator: its height follows the finger, and it
+              collapses to 0 when idle so it never reserves layout space. */}
+          <div
+            className="entei-timeline-pull"
+            data-state={pullState}
+            style={{ height: `${indicatorHeight}px` }}
+            aria-live="polite"
+            aria-hidden={pullState === 'idle'}
+          >
+            <RefreshCw
+              className="entei-timeline-pull-icon"
+              size={18}
+              aria-hidden="true"
+            />
+            <span className="entei-timeline-pull-label">
+              {isRefreshing ? t.refreshing : t.pullToRefresh}
+            </span>
+          </div>
+
+          <form className="entei-timeline-composer" onSubmit={handlePublish}>
+            <div className="entei-timeline-composer-row">
+              <span className="entei-timeline-avatar">
+                {author !== null && (
+                  <img src={author.avatar} alt={t.avatarAlt} loading="lazy" />
+                )}
+              </span>
+              <textarea
+                ref={textareaRef}
+                className="entei-timeline-textarea"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder={t.composerPlaceholder}
+                aria-label={t.composerPlaceholder}
+                maxLength={TIMELINE_POST_MAX_LENGTH}
+                rows={1}
+              />
+            </div>
+            <div className="entei-timeline-composer-actions">
+              <button
+                type="submit"
+                className="entei-timeline-publish"
+                aria-label={t.composerSubmitAriaLabel}
+                disabled={!canPublish}
+              >
+                <Send size={16} aria-hidden="true" />
+                <span>{t.composerSubmit}</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Desktop "new posts" pill: appears when the poll found posts that
+              are not on screen yet. Clicking adopts them and scrolls to top. */}
+          {pendingCount > 0 && (
+            <div className="entei-timeline-new-posts-wrap" role="status">
+              <button
+                type="button"
+                className="entei-timeline-new-posts"
+                onClick={showNewPosts}
+              >
+                <Sparkles size={14} aria-hidden="true" />
+                <span>{formatNewPostsLabel(t.showNewPosts, pendingCount)}</span>
+              </button>
+            </div>
+          )}
+
+          <ul className="entei-timeline-feed" role="list">
+            {visiblePosts.map((post) => {
+              const liked = likedIds.includes(post.id);
+              return (
+                <li className="entei-timeline-post" key={post.id}>
+                  {/* The whole head + body opens the thread. It is a
+                      role=button (not a <button>) because the content is
+                      flow content, and the actions below stay separate
+                      targets so Like/Share never navigate. */}
+                  <div
+                    className="entei-timeline-post-open"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openPost(post.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      openPost(post.id);
+                    }}
+                  >
+                    <div className="entei-timeline-post-head">
+                      <span className="entei-timeline-avatar">
+                        <img src={post.avatar} alt="" loading="lazy" />
+                      </span>
+                      <span className="entei-timeline-author">
+                        <span className="entei-timeline-author-name">
+                          {post.authorName}
+                        </span>
+                        <span className="entei-timeline-author-handle">
+                          {post.authorHandle}
+                        </span>
+                      </span>
+                      {now !== null && (
+                        <time
+                          className="entei-timeline-time"
+                          dateTime={new Date(post.createdAt).toISOString()}
+                        >
+                          {formatRelativeTime(post.createdAt, now, locale)}
+                        </time>
+                      )}
+                    </div>
+
+                    <p className="entei-timeline-post-body">{post.message}</p>
+                  </div>
+
+                  <div className="entei-timeline-post-actions">
+                    <button
+                      type="button"
+                      className="entei-timeline-action"
+                      onClick={() => openPost(post.id)}
+                    >
+                      <MessageSquare size={16} aria-hidden="true" />
+                      <span>{t.actionComment}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="entei-timeline-action"
+                      aria-pressed={liked}
+                      aria-label={liked ? t.actionUnlike : t.actionLike}
+                      onClick={() => toggleLike(post.id)}
+                    >
+                      <Sparkles size={16} aria-hidden="true" />
+                      <span>{t.actionLike}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="entei-timeline-action"
+                      onClick={() => {
+                        void sharePost(post);
+                      }}
+                    >
+                      <Share2 size={16} aria-hidden="true" />
+                      <span>{t.actionShare}</span>
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Infinite scroll: the sentinel is not a post, so it stays outside
+              the list (keeps `listitem` counts equal to the rendered posts). */}
+          {hasMore ? (
+            <div
+              className="entei-timeline-sentinel"
+              ref={sentinelRef}
+              aria-hidden="true"
+            />
+          ) : (
+            <p className="entei-timeline-end">{t.endOfFeed}</p>
+          )}
+        </>
       )}
     </section>
   );

@@ -8,12 +8,15 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   EMPTY_TIMELINE_STATE,
   TIMELINE_POST_MAX_LENGTH,
+  TIMELINE_SEED_COMMENTS,
   TIMELINE_SEED_POSTS,
   TIMELINE_STORAGE_KEY,
   clampTimelineMessage,
+  createTimelineComment,
   createTimelinePost,
   deriveHandle,
   formatRelativeTime,
+  mergeTimelineComments,
   mergeTimelinePosts,
   readTimelineState,
   writeTimelineState,
@@ -59,6 +62,59 @@ describe('createTimelinePost', () => {
     const first = createTimelinePost('one', author, 1_700_000_000_000);
     const second = createTimelinePost('two', author, 1_700_000_000_000);
     expect(first?.id).not.toBe(second?.id);
+  });
+});
+
+describe('createTimelineComment', () => {
+  it('builds a reply bound to its post and author', () => {
+    const comment = createTimelineComment('seed-1', '  わかる  ', author, 1_700_000_000_000);
+    expect(comment).not.toBeNull();
+    expect(comment?.postId).toBe('seed-1');
+    expect(comment?.text).toBe('わかる');
+    expect(comment?.author).toEqual(author);
+    expect(comment?.createdAt).toBe(1_700_000_000_000);
+  });
+
+  it('returns null for an empty reply', () => {
+    expect(createTimelineComment('seed-1', '   ', author)).toBeNull();
+  });
+
+  it('generates unique ids for replies created in the same millisecond', () => {
+    const first = createTimelineComment('seed-1', 'one', author, 1_700_000_000_000);
+    const second = createTimelineComment('seed-1', 'two', author, 1_700_000_000_000);
+    expect(first?.id).not.toBe(second?.id);
+  });
+});
+
+describe('mergeTimelineComments', () => {
+  it('returns the seeded replies of a post, oldest first', () => {
+    const thread = mergeTimelineComments([], 'seed-1');
+    expect(thread).toHaveLength(
+      TIMELINE_SEED_COMMENTS.filter((comment) => comment.postId === 'seed-1')
+        .length,
+    );
+    for (let index = 1; index < thread.length; index += 1) {
+      expect(thread[index - 1]!.createdAt).toBeLessThanOrEqual(
+        thread[index]!.createdAt,
+      );
+    }
+  });
+
+  it('slots a local reply into the thread by its timestamp', () => {
+    const seedReply = mergeTimelineComments([], 'seed-1')[0]!;
+    const local = createTimelineComment(
+      'seed-1',
+      'ローカル返信',
+      author,
+      seedReply.createdAt - 1_000,
+    )!;
+    const thread = mergeTimelineComments([local], 'seed-1');
+    expect(thread[0]!.id).toBe(local.id);
+  });
+
+  it('excludes replies that belong to another post', () => {
+    const other = createTimelineComment('seed-2', 'other', author)!;
+    expect(mergeTimelineComments([other], 'seed-1').some((c) => c.id === other.id)).toBe(false);
   });
 });
 
@@ -182,11 +238,32 @@ describe('timeline persistence', () => {
       schemaVersion: 1,
       posts: [post],
       likedIds: ['seed-1', post.id],
+      comments: [],
     });
     const restored = readTimelineState();
     expect(restored.posts).toHaveLength(1);
     expect(restored.posts[0]!.message).toBe('保存テスト');
     expect(restored.likedIds).toEqual(['seed-1', post.id]);
+  });
+
+  it('round-trips local replies', () => {
+    const comment = createTimelineComment('seed-1', '保存される返信', author)!;
+    writeTimelineState({
+      schemaVersion: 1,
+      posts: [],
+      likedIds: [],
+      comments: [comment],
+    });
+    expect(readTimelineState().comments).toHaveLength(1);
+    expect(readTimelineState().comments[0]!.text).toBe('保存される返信');
+  });
+
+  it('accepts a payload written before replies existed', () => {
+    localStorage.setItem(
+      TIMELINE_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: 1, posts: [], likedIds: [] }),
+    );
+    expect(readTimelineState().comments).toEqual([]);
   });
 
   it('ignores malformed JSON', () => {
@@ -221,6 +298,7 @@ describe('timeline persistence', () => {
       schemaVersion: 1,
       posts: [{ ...post, message: 'あ'.repeat(TIMELINE_POST_MAX_LENGTH + 1) }],
       likedIds: [],
+      comments: [],
     });
     expect(readTimelineState().posts).toHaveLength(0);
   });

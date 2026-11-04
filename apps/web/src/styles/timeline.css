@@ -282,6 +282,33 @@
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
+/* Click target that opens the post's thread: head + body only, so the action
+   pills below stay independent targets. */
+.entei-timeline-post-open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  cursor: pointer;
+  border-radius: var(--entei-radius-md);
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-timeline-post-open:hover {
+  background-color: oklch(1 0 0 / 0.03);
+}
+
+.entei-timeline-post-open:focus-visible {
+  outline: 2px solid var(--entei-accent-light);
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-timeline-post-open {
+    transition: none;
+  }
+}
+
 .entei-timeline-post-head {
   display: flex;
   align-items: center;
@@ -370,6 +397,245 @@
   color: var(--entei-accent-light);
 }
 
+/* ===== POST DETAIL (thread) ===== */
+
+.entei-timeline-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sticky header keeps Back reachable while the thread scrolls (Twitter/X). */
+.entei-timeline-detail-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  padding-block: var(--entei-space-8) var(--entei-space-12);
+  background-color: var(--entei-surface);
+  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+}
+
+.entei-timeline-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  min-height: 2.25rem;
+  padding: 0 var(--entei-space-16);
+  border: none;
+  border-radius: var(--entei-radius-pill);
+  background-color: transparent;
+  color: var(--entei-text-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-timeline-back:hover {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-text);
+}
+
+.entei-timeline-back:active {
+  color: var(--entei-accent-light);
+}
+
+.entei-timeline-back:focus-visible {
+  outline: 2px solid var(--entei-accent-light);
+  outline-offset: 2px;
+}
+
+.entei-timeline-detail-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--entei-text);
+}
+
+/* Focused parent post: larger avatar and body than a feed row. */
+.entei-timeline-detail-post {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding-block: var(--entei-space-16) var(--entei-space-24);
+  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+}
+
+.entei-timeline-detail-avatar {
+  width: var(--entei-space-48);
+  height: var(--entei-space-48);
+}
+
+.entei-timeline-detail-body {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--entei-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.entei-timeline-detail-timestamp {
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+}
+
+/* Reply count sits at the end of the action row, aligned with the pills. */
+.entei-timeline-detail-replies {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 var(--entei-space-16);
+  font-size: 0.8125rem;
+  color: var(--entei-text-muted);
+  white-space: nowrap;
+}
+
+/* ===== REPLY COMPOSER ===== */
+
+.entei-timeline-reply {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--entei-space-12);
+  padding-block: var(--entei-space-16) var(--entei-space-24);
+  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+}
+
+.entei-timeline-reply-avatar {
+  width: var(--entei-space-32);
+  height: var(--entei-space-32);
+}
+
+.entei-timeline-reply-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.entei-timeline-reply-input {
+  min-height: var(--entei-touch-min);
+  padding-block: var(--entei-space-8);
+  border: 0;
+  background: transparent;
+  color: var(--entei-text);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  resize: none;
+  field-sizing: content;
+}
+
+.entei-timeline-reply-input::placeholder {
+  color: var(--entei-text-muted);
+  opacity: 1;
+}
+
+.entei-timeline-reply-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.entei-timeline-reply-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  min-height: 2.25rem;
+  padding: 0 var(--entei-space-24);
+  border: none;
+  border-radius: var(--entei-radius-pill);
+  background-color: var(--entei-btn-color);
+  color: var(--entei-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    filter var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-timeline-reply-submit:hover:not(:disabled) {
+  background-color: var(--entei-btn-color);
+  filter: brightness(1.15);
+}
+
+.entei-timeline-reply-submit:active:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.entei-timeline-reply-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ===== COMMENTS THREAD ===== */
+
+.entei-timeline-comments {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.entei-timeline-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--entei-space-12);
+  padding-block: var(--entei-space-16);
+  border-bottom: 1px solid oklch(1 0 0 / 0.06);
+}
+
+.entei-timeline-comment:last-child {
+  border-bottom: none;
+}
+
+.entei-timeline-comment-avatar {
+  width: var(--entei-space-32);
+  height: var(--entei-space-32);
+}
+
+.entei-timeline-comment-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.entei-timeline-comment-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--entei-space-8);
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.entei-timeline-comment-body {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--entei-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.entei-timeline-comments-empty {
+  margin: 0;
+  padding-block: var(--entei-space-24);
+  text-align: center;
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+}
+
 /* ===== MOBILE ===== */
 
 @media (max-width: 767px) {
@@ -387,6 +653,24 @@
   }
 
   .entei-timeline-publish {
+    padding: 0 var(--entei-space-16);
+  }
+
+  /* The thread runs edge to edge: the header and the action row lose the
+     horizontal inset the desktop column has room for. */
+  .entei-timeline-detail-head {
+    gap: var(--entei-space-8);
+  }
+
+  .entei-timeline-detail-replies {
+    padding: 0 var(--entei-space-12);
+  }
+
+  .entei-timeline-reply {
+    gap: var(--entei-space-8);
+  }
+
+  .entei-timeline-reply-submit {
     padding: 0 var(--entei-space-16);
   }
 }

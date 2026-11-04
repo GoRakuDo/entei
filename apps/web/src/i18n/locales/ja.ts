@@ -611,5 +611,13 @@ export const ja: Dictionary = {
     refreshing: '更新中…',
     endOfFeed: 'これ以上ポストはありません',
     showNewPosts: '新しいポストを{count}件表示',
+    back: '戻る',
+    backAriaLabel: 'タイムラインに戻る',
+    postTitle: 'ポスト',
+    replyPlaceholder: '返信をポストする',
+    replySubmit: '返信',
+    replySubmitAriaLabel: '返信をポスト',
+    noComments: 'まだ返信はありません',
+    commentCount: '返信 {count}件',
   },
 };
