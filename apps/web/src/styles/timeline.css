@@ -103,10 +103,10 @@
   align-items: center;
   justify-content: center;
   gap: var(--entei-space-8);
-  /* Compact 32px pill (the 44px touch minimum felt oversized here).
+  /* Compact 36px pill (the 44px touch minimum felt oversized here).
      Vertical padding is 0 so the fixed height drives the box and the
      label stays optically centered. */
-  min-height: var(--entei-space-32);
+  min-height: 2.25rem;
   /* Ample, symmetric horizontal breathing room — never a cramped box. */
   padding: 0 var(--entei-space-24);
   border: none;
@@ -210,8 +210,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--entei-space-8);
-  /* Compact 32px pill, matching the Publish button height. */
-  min-height: var(--entei-space-32);
+  /* Compact 36px pill, matching the Publish button height. */
+  min-height: 2.25rem;
   /* Generous, symmetric padding inside a fully rounded pill — the previous
      squarish radius-md box with 8px/4px inline padding looked cramped. */
   padding: 0 var(--entei-space-16);

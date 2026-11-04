@@ -6,15 +6,19 @@
  *
  * Desktop (≥768px):
  * - NO sticky black TopBar strip (removed per spec).
- * - Home / Profile: always-visible pill in normal document flow (scrolls out).
+ * - Home: SNS-style pinned LEFT SIDEBAR (brand, Home, Profile, Player,
+ *   Settings). The timeline keeps the centered column, giving a modern
+ *   2-column layout. See `eizouden-settings.css` for the sidebar rules.
+ * - Profile: always-visible pill in normal document flow (scrolls out).
  *   Pill = [HubEmblem + "Entei" (Home link) | Profile | Player].
- *   LanguageCombobox at right edge. Both scroll out naturally.
- * - Player: pill + Combobox hidden by default. Top-edge hover zone and
- *   keyboard focus reveal both, shared containment, 200ms dismiss delay.
- *   Closed state uses opacity + transform + pointer-events only.
+ * - Player: pill hidden by default. Top-edge hover zone and keyboard focus
+ *   reveal it, shared containment, 200ms dismiss delay.
+ * - Language selection lives in the Settings modal (the desktop topbar no
+ *   longer carries a language combobox).
  *
  * Mobile (<768px):
- * - Sticky header with brand + optional native LanguageSelector.
+ * - Sticky header with brand + optional native LanguageSelector — hidden
+ *   entirely on Home (the dock is the only chrome there).
  * - Floating bottom Dock: Home / Player / Settings.
  *   DOM-ordered from MOBILE_DESTINATIONS + the Settings dialog entry.
  *
@@ -23,12 +27,31 @@
  */
 import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
-import { LanguageCombobox } from '@components/home/LanguageCombobox';
 import { EizouSettingsDialog } from '@components/home/EizouSettingsDialog';
 import { House, Clapperboard, User } from '@lucide/astro';
 
 /** Destination definitions — desktop pill and mobile dock each read from their own array. */
 const DESKTOP_DESTINATIONS = [
+  {
+    route: '/profile/',
+    labelKey: 'destinationProfile' as const,
+    Icon: User,
+  },
+  {
+    route: '/player/',
+    labelKey: 'destinationPlayer' as const,
+    Icon: Clapperboard,
+  },
+] as const;
+
+/**
+ * Desktop Home sidebar destinations (SNS-style left rail).
+ * DOM order Home → Profile → Player; Settings is rendered after them as the
+ * EizouSettingsDialog island. The brand row above the list links to `/` but
+ * carries no aria-current — the Home row owns the active state.
+ */
+const SIDEBAR_DESTINATIONS = [
+  { route: '/', labelKey: 'destinationHome' as const, Icon: House },
   {
     route: '/profile/',
     labelKey: 'destinationProfile' as const,
@@ -79,6 +102,11 @@ const isVideoPlayer = activePath === '/player';
  * audio player does, but keeps its mobile top bar until a track loads.
  */
 const isPlayer = isVideoPlayer || playerLike;
+/**
+ * Home (`/`) uses the desktop left sidebar instead of the floating pill, and
+ * hides the mobile sticky header entirely (the dock is the only mobile chrome).
+ */
+const isHome = activePath === '/';
 
 /**
  * Full serializable playerUI dictionary for the global settings dialog
@@ -102,9 +130,13 @@ const settingsUIProps = dictionary.playerUI;
   On the audio player the AudioPlayer wrapper marks the document with
   `entei-audio-loaded` once a track loads; AudioPlayer.css hides this header
   while keeping the DOM mounted for SEO and app-shell stability.
+  Home (/) does NOT render this header at all: the mobile Home surface is the
+  dock-only SNS feed (the language selector moved into the Settings modal).
   ============================================================
 -->
-<header class="entei-topbar-mobile" role="banner">
+{
+  !isHome && (
+    <header class="entei-topbar-mobile" role="banner">
       <div class="entei-topbar-mobile-inner">
         <a class="entei-wordmark" href="/">
           <HubEmblem class="entei-wordmark-emblem" />
@@ -118,96 +150,157 @@ const settingsUIProps = dictionary.playerUI;
         )}
       </div>
     </header>
+  )
+}
 
 <!--
   ============================================================
-  DESKTOP: pill zone — pill + LanguageCombobox
+  DESKTOP HOME: pinned left sidebar (SNS-style navigation)
   Hidden on mobile via CSS (display:none <768px).
-
-  Home / Profile (.entei-desktop-pill-zone):
-    Normal document flow, centered pill, Combobox at right edge.
-    Both always visible; scroll out naturally.
-
-  Player (.entei-desktop-pill-zone--player):
-    Fixed at viewport top. pill + Combobox hidden by default.
-    Revealed on hover (fine pointer) and keyboard focus-within.
-    Shared containment, 200ms dismiss delay.
+  Brand → Home → Profile → Player → Settings.
+  The fixed sidebar reserves its width on the left edge of #entei-main
+  (see eizouden-settings.css), so the timeline stays in the center column.
   ============================================================
 -->
-<div
-  class:list={[
-    'entei-desktop-pill-zone',
-    { 'entei-desktop-pill-zone--player': isPlayer },
-  ]}
-  data-entei-desktop-nav-zone
->
-  {
-    isPlayer && (
-      <div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone />
-    )
-  }
-  <nav
-    class="entei-desktop-pill"
-    aria-label={dictionary.nav.desktopNavLabel}
-    data-entei-desktop-nav
-    data-i18n-aria-label="nav.desktopNavLabel"
-  >
-    <!-- Brand = Home link (NAVIGATION_BAR.md: brandはpillの最初のHome link) -->
-    <a
-      class="entei-desktop-pill-brand"
-      href="/"
-      aria-current={activePath === '/' ? 'page' : undefined}
-      data-entei-nav-destination="/"
+{
+  isHome && (
+    <aside class="entei-desktop-sidebar" data-entei-desktop-sidebar>
+      <nav
+        class="entei-desktop-sidebar-nav"
+        aria-label={dictionary.nav.desktopNavLabel}
+        data-entei-desktop-nav
+        data-i18n-aria-label="nav.desktopNavLabel"
+      >
+        <a
+          class="entei-desktop-sidebar-brand"
+          href="/"
+          data-entei-nav-destination="/"
+        >
+          <HubEmblem class="entei-desktop-sidebar-brand-emblem" />
+          <span class="entei-desktop-sidebar-brand-text">Entei</span>
+        </a>
+        <ul class="entei-desktop-sidebar-list">
+          {SIDEBAR_DESTINATIONS.map(({ route, labelKey, Icon }) => {
+            const isActive = normalisePath(route) === activePath;
+            return (
+              <li class="entei-desktop-sidebar-item">
+                <a
+                  class="entei-desktop-sidebar-link"
+                  href={route}
+                  aria-current={isActive ? 'page' : undefined}
+                  data-entei-nav-destination={route}
+                >
+                  <Icon class="entei-desktop-sidebar-icon" aria-hidden="true" />
+                  <span data-i18n={`nav.${labelKey}`}>
+                    {dictionary.nav[labelKey]}
+                  </span>
+                </a>
+              </li>
+            );
+          })}
+          <li class="entei-desktop-sidebar-item">
+            <EizouSettingsDialog
+              client:load
+              label={dictionary.nav.destinationSettings}
+              triggerLabel={dictionary.playerUI.settingsLabel}
+              variant="sidebar"
+              playerUI={settingsUIProps}
+              showShortcuts={isPlayer}
+              nadeshikoDict={dictionary.nadeshiko}
+              locale={locale}
+              languageLabel={dictionary.language.selectLabel}
+            />
+          </li>
+        </ul>
+      </nav>
+    </aside>
+  )
+}
+
+<!--
+  ============================================================
+  DESKTOP (non-Home): pill zone
+  Hidden on mobile via CSS (display:none <768px).
+
+  Profile (.entei-desktop-pill-zone):
+    Normal document flow, centered pill, always visible.
+
+  Player (.entei-desktop-pill-zone--player):
+    Fixed at viewport top. Pill hidden by default.
+    Revealed on hover (fine pointer) and keyboard focus-within.
+    Shared containment, 200ms dismiss delay.
+
+  The desktop language combobox was removed: language now lives in the
+  Settings modal (EizouSettingsDialog → language row).
+  ============================================================
+-->
+{
+  !isHome && (
+    <div
+      class:list={[
+        'entei-desktop-pill-zone',
+        { 'entei-desktop-pill-zone--player': isPlayer },
+      ]}
+      data-entei-desktop-nav-zone
     >
-      <HubEmblem class="entei-desktop-pill-icon" />
-      <span>Entei</span>
-    </a>
-    {
-      DESKTOP_DESTINATIONS.map(({ route, labelKey, Icon }) => {
-        const isActive = normalisePath(route) === activePath;
-        return (
-          <a
-            class="entei-desktop-pill-link"
-            href={route}
-            aria-current={isActive ? 'page' : undefined}
-            data-entei-nav-destination={route}
-          >
-            <Icon class="entei-desktop-pill-icon" aria-hidden="true" />
-            <span data-i18n={`nav.${labelKey}`}>
-              {dictionary.nav[labelKey]}
-            </span>
-          </a>
-        );
-      })
-    }
-    {
-      (
-        /* Settings button — opens the EizouDen settings modal from any page
-         (NAVIGATION_BAR.md 2026-08-07). Not a route. */
-        <EizouSettingsDialog
-          client:load
-          label={dictionary.nav.destinationSettings}
-          triggerLabel={dictionary.playerUI.settingsLabel}
-          variant="pill"
-          playerUI={settingsUIProps}
-          showShortcuts={isPlayer}
-          nadeshikoDict={dictionary.nadeshiko}
-        />
-      )
-    }
-  </nav>
-  {
-    !isPlayer && (
-      <div class="entei-desktop-combobox" data-entei-desktop-combobox>
-        <LanguageCombobox
-          client:load
-          currentLocale={locale}
-          selectLabel={dictionary.language.comboboxLabel}
-        />
-      </div>
-    )
-  }
-</div>
+      {isPlayer && (
+        <div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone />
+      )}
+      <nav
+        class="entei-desktop-pill"
+        aria-label={dictionary.nav.desktopNavLabel}
+        data-entei-desktop-nav
+        data-i18n-aria-label="nav.desktopNavLabel"
+      >
+        <!-- Brand = Home link (NAVIGATION_BAR.md: brandはpillの最初のHome link) -->
+        <a
+          class="entei-desktop-pill-brand"
+          href="/"
+          aria-current={activePath === '/' ? 'page' : undefined}
+          data-entei-nav-destination="/"
+        >
+          <HubEmblem class="entei-desktop-pill-icon" />
+          <span>Entei</span>
+        </a>
+        {
+          DESKTOP_DESTINATIONS.map(({ route, labelKey, Icon }) => {
+            const isActive = normalisePath(route) === activePath;
+            return (
+              <a
+                class="entei-desktop-pill-link"
+                href={route}
+                aria-current={isActive ? 'page' : undefined}
+                data-entei-nav-destination={route}
+              >
+                <Icon class="entei-desktop-pill-icon" aria-hidden="true" />
+                <span data-i18n={`nav.${labelKey}`}>
+                  {dictionary.nav[labelKey]}
+                </span>
+              </a>
+            );
+          })
+        }
+        {
+          (
+            /* Settings button — opens the EizouDen settings modal from any page
+             (NAVIGATION_BAR.md 2026-08-07). Not a route. */
+            <EizouSettingsDialog
+              client:load
+              label={dictionary.nav.destinationSettings}
+              triggerLabel={dictionary.playerUI.settingsLabel}
+              variant="pill"
+              playerUI={settingsUIProps}
+              showShortcuts={isPlayer}
+              nadeshikoDict={dictionary.nadeshiko}
+              locale={locale}
+              languageLabel={dictionary.language.selectLabel}
+            />
+          )
+        }
+      </nav>
+    </div>
+  )
+}
 
 <!--
   ============================================================
@@ -220,6 +313,7 @@ const settingsUIProps = dictionary.playerUI;
   aria-label={dictionary.nav.mobileDockLabel}
   data-entei-mobile-dock
   data-i18n-aria-label="nav.mobileDockLabel"
+  data-entei-mobile-dock-scroll-only={isHome ? '' : undefined}
 >
   {
     MOBILE_DESTINATIONS.map(({ route, labelKey, Icon }) => {
@@ -252,6 +346,8 @@ const settingsUIProps = dictionary.playerUI;
         playerUI={settingsUIProps}
         showShortcuts={isPlayer}
         nadeshikoDict={dictionary.nadeshiko}
+        locale={locale}
+        languageLabel={dictionary.language.selectLabel}
       />
     )
   }
@@ -450,13 +546,8 @@ const settingsUIProps = dictionary.playerUI;
       stroke-width: 2.5;
     }
 
-    /* Combobox — positioned at right edge of pill zone */
-    .entei-desktop-combobox {
-      position: absolute;
-      right: var(--entei-gutter);
-      top: 50%;
-      transform: translateY(-50%);
-    }
+    /* Combobox — REMOVED (2026-08-27): the desktop language selector now
+       lives inside the Settings modal, not the topbar. */
 
     /* Forced colors */
     @media (forced-colors: active) {
@@ -750,13 +841,17 @@ const settingsUIProps = dictionary.playerUI;
 <script>
   /**
    * Mobile floating dock auto-hide behavior:
-   * - On load: shown, automatically fades out after 6 seconds of inactivity.
+   * - On load: shown.
    * - Scrolling down: hides immediately.
    * - Scrolling up: reveals immediately and starts the 6-second idle timer.
    * - At/near top of page (<=10px): stays revealed with the 6-second timer.
    * - Direct dock interaction (touch, focus): keeps it revealed.
    * - Keyboard focus inside dock: stays revealed; idle timer restarts
    *   once focus leaves the dock.
+   * - Scroll-only mode (`data-entei-mobile-dock-scroll-only`, set on Home):
+   *   NO idle timer at all — the dock is visible by default and only
+   *   scroll direction changes its state (Home has no mobile top bar, so an
+   *   idle auto-hide would leave the page with no chrome at all).
    * - Scroll events are coalesced via requestAnimationFrame to avoid
    *   layout thrashing on high-frequency scroll bursts.
    */
@@ -765,6 +860,8 @@ const settingsUIProps = dictionary.playerUI;
     if (!dock || dock.dataset.autoHideBound) return;
     dock.dataset.autoHideBound = 'true';
 
+    /** Home: scroll direction only, never an idle fade-out. */
+    const scrollOnly = dock.hasAttribute('data-entei-mobile-dock-scroll-only');
     const AUTO_HIDE_DELAY_MS = 6000;
     const SCROLL_DELTA_THRESHOLD_PX = 6;
     let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -786,6 +883,11 @@ const settingsUIProps = dictionary.playerUI;
     function resetHideTimer() {
       if (hideTimer !== null) {
         clearTimeout(hideTimer);
+      }
+      // Home (scroll-only) never auto-hides while idle.
+      if (scrollOnly) {
+        hideTimer = null;
+        return;
       }
       hideTimer = setTimeout(hideDock, AUTO_HIDE_DELAY_MS);
     }

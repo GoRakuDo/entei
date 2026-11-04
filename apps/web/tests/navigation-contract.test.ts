@@ -2,17 +2,18 @@
  * Navigation contract tests — NAVIGATION_BAR.md full desktop redesign.
  *
  * Verifies:
- * 1. Exactly one aria-current="page" per route (desktop pill + mobile dock)
- * 2. Desktop pill present on all routes; Player zone has --player modifier
- * 3. Mobile dock always has 3 links
+ * 1. Exactly one aria-current="page" per nav surface (desktop sidebar/pill + mobile dock)
+ * 2. Home uses the desktop left sidebar; Profile/Player use the pill
+ * 3. Mobile dock always has 2 destination links (+ Settings island)
  * 4. All nav links use path hrefs (no hash, no javascript:)
  * 5. Dictionary nav keys exist and are non-empty in all locales
  * 6. data-i18n on nav link labels for locale-switcher text update
  * 7. data-i18n-aria-label on nav landmarks for locale-switcher aria-label update
  * 8. Locale switch updates nav label text and aria-label to translated values
- * 9. Desktop Combobox data-entei-desktop-combobox present on Home/Profile, absent on Player
- * 10. Player zone gets --player modifier class; Home/Profile do not
+ * 9. The desktop language combobox is gone (language lives in Settings)
+ * 10. Player zone gets --player modifier class; Profile does not
  * 11. Profile is present in the desktop pill before Player; Tracker is absent
+ * 12. Home mobile has no sticky header (dock-only SNS feed)
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyLocale } from '../src/scripts/locale-switcher';
@@ -103,6 +104,17 @@ const DESTINATIONS = [
 ] as const;
 
 /**
+ * Desktop Home sidebar destinations — mirrors SIDEBAR_DESTINATIONS in
+ * TopBar.astro: Home + Profile + Player. Settings follows as the
+ * EizouSettingsDialog island (not an `<a data-entei-nav-destination>` link).
+ */
+const SIDEBAR_DESTINATIONS = [
+  { route: '/', labelKey: 'destinationHome' },
+  { route: '/profile/', labelKey: 'destinationProfile' },
+  { route: '/player/', labelKey: 'destinationPlayer' },
+] as const;
+
+/**
  * Mobile dock destinations — mirrors MOBILE_DESTINATIONS in TopBar.astro:
  * Home + Player only. Profile is a desktop pill destination. Settings is
  * rendered separately as the EizouSettingsDialog
@@ -114,10 +126,12 @@ const MOBILE_DESTINATIONS = [
 ] as const;
 
 /**
- * Simulate the TopBar HTML output per the new NAVIGATION_BAR.md structure.
+ * Simulate the TopBar HTML output per the current structure.
  *
- * Desktop pill zone: always rendered. On Player, zone gets `--player` modifier.
- * Desktop Combobox: rendered inside pill zone on Home/Profile only (not Player).
+ * Home: desktop left sidebar (brand → Home → Profile → Player → Settings),
+ *       no desktop pill zone, no mobile sticky header.
+ * Profile/Player: desktop pill zone (Player gets the `--player` modifier).
+ * No desktop language combobox anywhere (language lives in Settings).
  * Mobile dock: always rendered.
  */
 function renderTopBarHtml(opts: {
@@ -127,10 +141,11 @@ function renderTopBarHtml(opts: {
   const { currentPath, showLanguageSelector = true } = opts;
   const activePath = normalisePath(currentPath);
   const isPlayer = activePath === '/player';
+  const isHome = activePath === '/';
 
-  // Mobile sticky header (hidden on desktop; not rendered on Player mobile)
+  // Mobile sticky header — not rendered on Home (dock-only mobile Home).
   let html = '';
-  if (!isPlayer) {
+  if (!isHome) {
     html += `<header class="entei-topbar-mobile" role="banner"><div class="entei-topbar-mobile-inner">`;
     html += `<a class="entei-wordmark" href="/"><span class="entei-wordmark-text">Entei</span></a>`;
     if (showLanguageSelector) {
@@ -139,40 +154,48 @@ function renderTopBarHtml(opts: {
     html += `</div></header>`;
   }
 
-  // Desktop pill zone
-  const zoneClass = isPlayer
-    ? 'entei-desktop-pill-zone entei-desktop-pill-zone--player'
-    : 'entei-desktop-pill-zone';
-  html += `<div class="${zoneClass}" data-entei-desktop-nav-zone>`;
+  if (isHome) {
+    // Desktop Home left sidebar
+    html += `<aside class="entei-desktop-sidebar" data-entei-desktop-sidebar>`;
+    html += `<nav class="entei-desktop-sidebar-nav" aria-label="Page navigation" data-entei-desktop-nav data-i18n-aria-label="nav.desktopNavLabel">`;
+    html += `<a class="entei-desktop-sidebar-brand" href="/" data-entei-nav-destination="/"><span>Entei</span></a>`;
+    html += `<ul class="entei-desktop-sidebar-list">`;
+    for (const { route, labelKey } of SIDEBAR_DESTINATIONS) {
+      const isActive = normalisePath(route) === activePath;
+      html += `<li class="entei-desktop-sidebar-item"><a class="entei-desktop-sidebar-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a></li>`;
+    }
+    // Settings dialog entry — React island, not a navigation link.
+    html += `<li class="entei-desktop-sidebar-item"><div data-entei-desktop-sidebar-settings></div></li>`;
+    html += `</ul></nav></aside>`;
+  } else {
+    // Desktop pill zone
+    const zoneClass = isPlayer
+      ? 'entei-desktop-pill-zone entei-desktop-pill-zone--player'
+      : 'entei-desktop-pill-zone';
+    html += `<div class="${zoneClass}" data-entei-desktop-nav-zone>`;
 
-  // Player trigger zone
-  if (isPlayer) {
-    html += `<div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone></div>`;
+    if (isPlayer) {
+      html += `<div class="entei-desktop-pill-trigger-zone" data-entei-trigger-zone></div>`;
+    }
+
+    html += `<nav class="entei-desktop-pill" aria-label="Page navigation" data-entei-desktop-nav data-i18n-aria-label="nav.desktopNavLabel">`;
+
+    // Brand = Home link
+    const homeActive = activePath === '/';
+    html += `<a class="entei-desktop-pill-brand" href="/"${homeActive ? ' aria-current="page"' : ''} data-entei-nav-destination="/"><span>Entei</span></a>`;
+
+    // Profile and Player links (Home is brand)
+    for (const { route, labelKey } of DESTINATIONS) {
+      if (route === '/') continue; // brand is Home
+      const isActive = normalisePath(route) === activePath;
+      html += `<a class="entei-desktop-pill-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a>`;
+    }
+    html += `</nav>`;
+    html += `</div>`;
   }
-
-  // Desktop pill nav
-  html += `<nav class="entei-desktop-pill" aria-label="Page navigation" data-entei-desktop-nav data-i18n-aria-label="nav.desktopNavLabel">`;
-
-  // Brand = Home link
-  const homeActive = activePath === '/';
-  html += `<a class="entei-desktop-pill-brand" href="/"${homeActive ? ' aria-current="page"' : ''} data-entei-nav-destination="/"><span>Entei</span></a>`;
-
-  // Profile and Player links (Home is brand)
-  for (const { route, labelKey } of DESTINATIONS) {
-    if (route === '/') continue; // brand is Home
-    const isActive = normalisePath(route) === activePath;
-    html += `<a class="entei-desktop-pill-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a>`;
-  }
-  html += `</nav>`;
-
-  // Desktop Combobox — absent on Player (conflicts with RightPanel controls)
-  if (!isPlayer) {
-    html += `<div class="entei-desktop-combobox" data-entei-desktop-combobox></div>`;
-  }
-  html += `</div>`;
 
   // Mobile dock: MOBILE_DESTINATIONS (Home + Player) + Settings dialog entry.
-  html += `<nav class="entei-mobile-dock" aria-label="Page navigation" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel">`;
+  html += `<nav class="entei-mobile-dock" aria-label="Page navigation" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel"${isHome ? ' data-entei-mobile-dock-scroll-only=""' : ''}>`;
   for (const { route, labelKey } of MOBILE_DESTINATIONS) {
     const isActive = normalisePath(route) === activePath;
     html += `<a class="entei-mobile-dock-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a>`;
@@ -200,7 +223,7 @@ describe('aria-current="page" — one per nav surface per route', () => {
   const routes = ['/', '/profile/', '/player/'] as const;
 
   for (const route of routes) {
-    it(`${route}: desktop pill has one aria-current; mobile dock marks active route only when present`, () => {
+    it(`${route}: desktop nav has one aria-current; mobile dock marks active route only when present`, () => {
       const html = renderTopBarHtml({ currentPath: route });
       const root = parseHtml(html);
 
@@ -230,22 +253,56 @@ describe('aria-current="page" — one per nav surface per route', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  5. Desktop pill present on all routes; Player zone has --player modifier  */
+/*  5. Home = desktop left sidebar; Profile/Player = pill zone                */
 /* -------------------------------------------------------------------------- */
-describe('Desktop pill zone visibility by route', () => {
-  it('Home (/): desktop pill <nav> is present, no --player modifier', () => {
+describe('Desktop nav surface by route', () => {
+  it('Home (/): left sidebar present, no pill zone', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
     const root = parseHtml(html);
     expect(root.querySelector('[data-entei-desktop-nav]')).not.toBeNull();
-    const zone = root.querySelector('[data-entei-desktop-nav-zone]');
-    expect(zone).not.toBeNull();
-    expect(zone!.classList.contains('entei-desktop-pill-zone--player')).toBe(false);
+    expect(root.querySelector('[data-entei-desktop-sidebar]')).not.toBeNull();
+    expect(root.querySelector('[data-entei-desktop-nav-zone]')).toBeNull();
+  });
+
+  it('Home (/): sidebar order is brand → Home → Profile → Player → Settings', () => {
+    const html = renderTopBarHtml({ currentPath: '/' });
+    const root = parseHtml(html);
+    const sidebar = root.querySelector('[data-entei-desktop-sidebar]');
+    expect(sidebar).not.toBeNull();
+
+    const brand = sidebar!.querySelector('.entei-desktop-sidebar-brand');
+    expect(brand).not.toBeNull();
+    expect(brand!.getAttribute('href')).toBe('/');
+
+    const hrefs = Array.from(
+      sidebar!.querySelectorAll('a[data-entei-nav-destination]'),
+    ).map((link) => link.getAttribute('href'));
+    expect(hrefs).toEqual(['/', '/', '/profile/', '/player/']);
+
+    // Settings entry is the last list item and is not a navigation link.
+    const items = sidebar!.querySelectorAll('.entei-desktop-sidebar-item');
+    expect(items.length).toBe(4);
+    expect(
+      items[3]!.querySelector('[data-entei-desktop-sidebar-settings]'),
+    ).not.toBeNull();
+  });
+
+  it('Home (/): brand carries no aria-current (Home row owns it)', () => {
+    const html = renderTopBarHtml({ currentPath: '/' });
+    const root = parseHtml(html);
+    const brand = root.querySelector('.entei-desktop-sidebar-brand');
+    expect(brand!.hasAttribute('aria-current')).toBe(false);
+    const homeRow = root.querySelector(
+      '.entei-desktop-sidebar-link[aria-current="page"]',
+    );
+    expect(homeRow!.getAttribute('href')).toBe('/');
   });
 
   it('Profile (/profile/): desktop pill <nav> is present, no --player modifier', () => {
     const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
     expect(root.querySelector('[data-entei-desktop-nav]')).not.toBeNull();
+    expect(root.querySelector('[data-entei-desktop-sidebar]')).toBeNull();
     const zone = root.querySelector('[data-entei-desktop-nav-zone]');
     expect(zone).not.toBeNull();
     expect(zone!.classList.contains('entei-desktop-pill-zone--player')).toBe(false);
@@ -262,42 +319,78 @@ describe('Desktop pill zone visibility by route', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  6. Desktop Combobox: present Home/Profile, absent Player                  */
+/*  6. Desktop language combobox removed (language lives in Settings)         */
 /* -------------------------------------------------------------------------- */
-describe('Desktop Combobox presence', () => {
-  it('Home: Combobox container present', () => {
-    const html = renderTopBarHtml({ currentPath: '/' });
-    expect(html).toContain('data-entei-desktop-combobox');
+describe('Desktop language combobox removal', () => {
+  const routes = ['/', '/profile/', '/player/'] as const;
+
+  for (const route of routes) {
+    it(`${route}: no desktop combobox container in the topbar`, () => {
+      const html = renderTopBarHtml({ currentPath: route });
+      expect(html).not.toContain('data-entei-desktop-combobox');
+      expect(html).not.toContain('entei-desktop-combobox');
+    });
+  }
+
+  it('language switching is wired into the Settings modal (EizouSettingsDialog)', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(__dirname, '../src/components/home/EizouSettingsDialog.tsx'),
+      'utf-8',
+    );
+    expect(src).toContain('LanguageCombobox');
+    expect(src).toContain('entei-settings-language-row');
   });
 
-  it('Player: Combobox container absent (conflicts with RightPanel controls)', () => {
-    const html = renderTopBarHtml({ currentPath: '/player/' });
-    expect(html).not.toContain('data-entei-desktop-combobox');
-  });
-
-  it('Profile: Combobox container present', () => {
-    const html = renderTopBarHtml({ currentPath: '/profile/' });
-    expect(html).toContain('data-entei-desktop-combobox');
+  it('TopBar no longer imports the desktop LanguageCombobox', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(__dirname, '../src/components/home/TopBar.astro'),
+      'utf-8',
+    );
+    expect(src).not.toContain("from '@components/home/LanguageCombobox'");
+    expect(src).not.toContain('entei-desktop-combobox');
   });
 });
 
 /* -------------------------------------------------------------------------- */
-/*  6b. Mobile header: present Home/Profile, absent Player                    */
+/*  6b. Mobile header: absent on Home, present on Profile/Player              */
 /* -------------------------------------------------------------------------- */
 describe('Mobile sticky header presence per route', () => {
-  it('Home: mobile header present', () => {
+  it('Home: mobile header absent (dock-only mobile Home)', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
-    expect(html).toContain('entei-topbar-mobile');
-  });
-
-  it('Player: mobile header absent (no top chrome on Player)', () => {
-    const html = renderTopBarHtml({ currentPath: '/player/' });
     expect(html).not.toContain('entei-topbar-mobile');
   });
 
   it('Profile: mobile header present', () => {
     const html = renderTopBarHtml({ currentPath: '/profile/' });
     expect(html).toContain('entei-topbar-mobile');
+  });
+
+  it('Player: mobile header markup kept for app-shell stability', () => {
+    const html = renderTopBarHtml({ currentPath: '/player/' });
+    expect(html).toContain('entei-topbar-mobile');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  6c. Mobile dock on Home: scroll-only (no idle auto-hide)                  */
+/* -------------------------------------------------------------------------- */
+describe('Mobile dock scroll-only mode on Home', () => {
+  it('Home: dock carries data-entei-mobile-dock-scroll-only', () => {
+    const html = renderTopBarHtml({ currentPath: '/' });
+    const root = parseHtml(html);
+    const dock = root.querySelector('[data-entei-mobile-dock]');
+    expect(dock!.hasAttribute('data-entei-mobile-dock-scroll-only')).toBe(true);
+  });
+
+  it('Profile: dock keeps the idle auto-hide behavior', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
+    const root = parseHtml(html);
+    const dock = root.querySelector('[data-entei-mobile-dock]');
+    expect(dock!.hasAttribute('data-entei-mobile-dock-scroll-only')).toBe(false);
   });
 });
 
@@ -335,8 +428,8 @@ describe('Nav link href validation', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
     const root = parseHtml(html);
     const allLinks = root.querySelectorAll('a[data-entei-nav-destination]');
-    // 3 desktop (brand + Profile + Player) + 2 mobile (Home + Player)
-    expect(allLinks.length).toBe(5);
+    // 4 sidebar (brand + Home + Profile + Player) + 2 mobile (Home + Player)
+    expect(allLinks.length).toBe(6);
 
     for (const link of Array.from(allLinks)) {
       const href = link.getAttribute('href') || '';
@@ -358,7 +451,7 @@ describe('TopBar prop contract', () => {
     expect(countAriaCurrentPage(html)).toBe(2);
   });
 
-  it('Player: aria-current count = 2 (desktop brand absent, Player link + mobile)', () => {
+  it('Player: aria-current count = 2 (desktop pill Player link + mobile)', () => {
     const html = renderTopBarHtml({ currentPath: '/player/' });
     expect(html).toContain('data-entei-desktop-nav');
     expect(html).toContain('data-entei-mobile-dock');
@@ -377,9 +470,9 @@ describe('TopBar prop contract', () => {
 /*  10. Language selector condition preserved                                */
 /* -------------------------------------------------------------------------- */
 describe('Language selector condition', () => {
-  it('Home: language selector present', () => {
+  it('Profile: language selector present when enabled', () => {
     const html = renderTopBarHtml({
-      currentPath: '/',
+      currentPath: '/profile/',
       showLanguageSelector: true,
     });
     expect(html).toContain('entei-language-selector');
@@ -389,6 +482,14 @@ describe('Language selector condition', () => {
     const html = renderTopBarHtml({
       currentPath: '/player/',
       showLanguageSelector: false,
+    });
+    expect(html).not.toContain('entei-language-selector');
+  });
+
+  it('Home: no mobile header, so no mobile language selector', () => {
+    const html = renderTopBarHtml({
+      currentPath: '/',
+      showLanguageSelector: true,
     });
     expect(html).not.toContain('entei-language-selector');
   });
@@ -420,8 +521,8 @@ describe('Skip link landmark order', () => {
 /*  12. data-i18n on nav link labels                                        */
 /* -------------------------------------------------------------------------- */
 describe('Nav link data-i18n attributes', () => {
-  it('desktop nav spans have data-i18n with nav.destination* keys', () => {
-    const html = renderTopBarHtml({ currentPath: '/' });
+  it('desktop pill spans have data-i18n with nav.destination* keys', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
     const desktopNav = root.querySelector('[data-entei-desktop-nav]');
     expect(desktopNav).not.toBeNull();
@@ -434,8 +535,22 @@ describe('Nav link data-i18n attributes', () => {
     expect(i18nKeys).toContain('nav.destinationPlayer');
   });
 
-  it('desktop pill order is Profile then Player and excludes Tracker', () => {
+  it('desktop sidebar spans have data-i18n for Home, Profile and Player', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
+    const root = parseHtml(html);
+    const sidebar = root.querySelector('[data-entei-desktop-sidebar]');
+    const spans = sidebar!.querySelectorAll('span[data-i18n]');
+    expect(spans.length).toBe(3);
+    const i18nKeys = Array.from(spans).map((s) => s.getAttribute('data-i18n'));
+    expect(i18nKeys).toEqual([
+      'nav.destinationHome',
+      'nav.destinationProfile',
+      'nav.destinationPlayer',
+    ]);
+  });
+
+  it('desktop pill order is Profile then Player and excludes Tracker', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
     const desktopNav = root.querySelector('[data-entei-desktop-nav]');
     const hrefs = Array.from(
@@ -664,7 +779,7 @@ describe('Player trigger zone for hover reveal', () => {
     expect(root.querySelector('[data-entei-trigger-zone]')).toBeNull();
   });
 
-  it('Player: trigger zone is sibling of pill inside zone (no combobox)', () => {
+  it('Player: trigger zone is the only sibling of the pill inside the zone', () => {
     const html = renderTopBarHtml({ currentPath: '/player/' });
     const root = parseHtml(html);
     const zone = root.querySelector('[data-entei-desktop-nav-zone]');
@@ -672,10 +787,9 @@ describe('Player trigger zone for hover reveal', () => {
 
     const trigger = zone!.querySelector('[data-entei-trigger-zone]');
     const pill = zone!.querySelector('[data-entei-desktop-nav]');
-    const combobox = zone!.querySelector('[data-entei-desktop-combobox]');
     expect(trigger).not.toBeNull();
     expect(pill).not.toBeNull();
-    expect(combobox).toBeNull();
+    expect(zone!.children.length).toBe(2);
 
     // All direct children of the zone
     expect(trigger!.parentElement).toBe(zone);

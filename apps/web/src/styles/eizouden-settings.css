@@ -390,6 +390,185 @@
 }
 
 /* ==============================================================================
+ * DESKTOP HOME LEFT SIDEBAR (SNS-style navigation, 2026-08-27)
+ * ------------------------------------------------------------------------------
+ * Global (not Astro-scoped) for the same reason as the nav settings trigger
+ * above: the Settings row is a React island and carries no Astro scope hash.
+ * The sidebar is fixed; it reserves its width on the left edge of #entei-main
+ * so the timeline keeps the centered column (2-column SNS layout).
+ * ============================================================================== */
+
+@media (max-width: 767px) {
+  .entei-desktop-sidebar {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .entei-desktop-sidebar {
+    position: fixed;
+    top: 0;
+    left: var(--entei-gutter);
+    z-index: var(--entei-z-topbar);
+    display: flex;
+    flex-direction: column;
+    width: var(--entei-sidebar-width);
+    height: 100dvh;
+    padding-block: var(--entei-space-24);
+  }
+
+  /* Reserve the rail so the timeline stays visually centered. */
+  body:has([data-entei-desktop-sidebar]) #entei-main {
+    padding-left: calc(var(--entei-sidebar-width) + var(--entei-sidebar-gap));
+  }
+
+  .entei-desktop-sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-24);
+  }
+
+  .entei-desktop-sidebar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-12);
+    min-height: var(--entei-touch-min);
+    padding-inline: var(--entei-space-12);
+    color: var(--entei-text);
+    font-family: var(--entei-font-system);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    border-radius: var(--entei-radius-pill);
+    transition: background-color var(--entei-duration-fast)
+      var(--entei-ease-productive);
+  }
+
+  .entei-desktop-sidebar-brand:hover {
+    color: var(--entei-text);
+    background-color: var(--entei-btn-color);
+  }
+
+  .entei-desktop-sidebar-brand:focus-visible {
+    outline: 3px solid var(--entei-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .entei-desktop-sidebar-brand-emblem {
+    width: 28px;
+    height: 28px;
+  }
+
+  .entei-desktop-sidebar-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-8);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .entei-desktop-sidebar-item {
+    display: block;
+  }
+
+  /* Shared by the Astro nav links and the Settings island button. */
+  .entei-desktop-sidebar-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-16);
+    width: 100%;
+    min-height: var(--entei-touch-min);
+    padding: var(--entei-space-12) var(--entei-space-16);
+    background: none;
+    border: none;
+    border-radius: var(--entei-radius-pill);
+    color: var(--entei-text-secondary);
+    font-family: var(--entei-font-body);
+    font-size: 1rem;
+    font-weight: 500;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+    transition:
+      color var(--entei-duration-fast) var(--entei-ease-productive),
+      background-color var(--entei-duration-fast) var(--entei-ease-productive);
+  }
+
+  .entei-desktop-sidebar-link:hover {
+    color: var(--entei-text);
+    background-color: var(--entei-btn-color);
+  }
+
+  .entei-desktop-sidebar-link:focus-visible {
+    outline: 3px solid var(--entei-focus-ring);
+    outline-offset: 2px;
+    color: var(--entei-text);
+  }
+
+  .entei-desktop-sidebar-link[aria-current='page'] {
+    color: var(--entei-status-locked);
+    background-color: var(--entei-btn-color);
+    font-weight: 600;
+  }
+
+  .entei-desktop-sidebar-icon,
+  .entei-desktop-sidebar-link .entei-nav-settings-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    stroke-width: 2.25;
+  }
+
+  @media (forced-colors: active) {
+    .entei-desktop-sidebar-link,
+    .entei-desktop-sidebar-brand {
+      color: LinkText;
+    }
+    .entei-desktop-sidebar-link:hover,
+    .entei-desktop-sidebar-link:focus-visible,
+    .entei-desktop-sidebar-link[aria-current='page'],
+    .entei-desktop-sidebar-brand:hover {
+      background-color: Highlight;
+      color: HighlightText;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .entei-desktop-sidebar-link,
+    .entei-desktop-sidebar-brand {
+      transition: none;
+    }
+  }
+}
+
+/* ==============================================================================
+ * Settings modal — language row (the desktop topbar no longer has a language
+ * combobox, so locale selection lives here, above the tabs).
+ * ============================================================================== */
+
+.entei-settings-language-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-16);
+  flex-shrink: 0;
+  padding: 0 var(--entei-space-24) var(--entei-space-16);
+}
+
+.entei-settings-language-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--entei-text-secondary);
+}
+
+.entei-settings-language-row .entei-combobox-trigger {
+  min-width: 10rem;
+}
+
+/* ==============================================================================
  * MIRRORED from player.css — Settings modal presentation (shared components:
  * SettingsTabs / EizouDen / subtitle / Anki). Loaded on EVERY page via global.css
  * so the nav settings dialog renders correctly on Home/Tracker too. Values are

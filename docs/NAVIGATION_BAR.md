@@ -1,6 +1,6 @@
 # NAVIGATION_BAR — Entei共通ナビゲーション設計
 
-> **状態:** IMPLEMENTED — デスクトップは中央ブランドピル（Home/Profile/Player）+ 右端Combobox、モバイルはTopBar + Dock、Playerは上端dwellでピル表示（2026-07-30実装・以降の調整は各コミット参照）。
+> **状態:** IMPLEMENTED — desktop Homeは左固定サイドバー（brand / Home / Profile / Player / Settings）、Profileは中央ブランドピル、Playerは上端dwellでピル表示。mobile HomeはDockのみ、ProfileはTopBar + Dock。locale選択はSettingsモーダル内（desktop Comboboxは撤去、2026-08-27）。
 > **対象:** `Entei/apps/web` の `/`、`/player/`、`/profile/`。旧 `/tracker/` は `/profile/` への noindex redirect。EPUB Readerは対象外。
 > **決定日:** 2026-07-30
 
@@ -174,3 +174,29 @@ NemotronはUI / CSSだけを担当する。
 - route遷移時の大きなpage animation
 
 これらは行き先が増える、または実際の操作上必要になった時に改めて判断する。今は3つの部屋を迷わず行き来できれば十分である。
+
+## 9. 2026-08-27 — Home左サイドバー / 言語選択のSettings移設
+
+ユーザー要望と参照スクリーンショット（X風2カラム、desktop Combobox撤去）に合わせた変更。
+
+### 9.1 desktop Homeは左固定サイドバー
+
+- `/` のdesktop（≥768px）は上中央ピルをやめ、左に固定サイドバーを置く。順序は brand（`/` へのリンク、`aria-current`なし）→ Home → Profile → Player → Settings（`EizouSettingsDialog` island、`variant="sidebar"`）。Home行だけが`aria-current="page"`を持つ。
+- サイドバーは`position: fixed`で、`body:has([data-entei-desktop-sidebar]) #entei-main`へ左padding（`--entei-sidebar-width` + `--entei-sidebar-gap`）を確保する。timelineは残り領域の中央カラムに残る。
+- 見た目は`src/styles/eizouden-settings.css`（global）にある。Settings行がReact islandでAstro scoped styleのhashを持たないため、`entei-nav-settings-trigger`と同じ理由でglobalに置く。
+- Profile / Playerは従来どおりピル（Playerは750ms dwell reveal）。`data-entei-desktop-combobox`は全routeで撤去した。
+
+### 9.2 mobile HomeはDockのみ
+
+- `/` のmobile（<768px）は`.entei-topbar-mobile`をDOMごと描画しない（brand + native LanguageSelectorも出さない）。
+- DockはHomeでは`data-entei-mobile-dock-scroll-only`が付き、idleの6秒自動フェードをしない。下スクロールで即非表示、上スクロールで即表示だけが状態を変える（Homeには他chromeが無いため、idleで消えると操作手段が無くなる）。Profile / PlayerのDockは従来のidle auto-hideを維持する。
+
+### 9.3 locale選択はSettingsモーダルへ
+
+- desktopの`LanguageCombobox`（`entei-desktop-combobox`）は撤去。`EizouSettingsDialog`がタブの上に「Bahasa / 言語 / Language」行を出し、既存`LanguageCombobox` islandをそこへ置く（`LOCALE_REQUEST_EVENT` → `locale-switcher`の単一経路は不変）。
+- islandが描画するtrigger label / row labelは`entei:locale-change`を購読してdictionaryから更新する（`data-i18n`の静的差し替えはReact islandには届かないため）。
+- mobileのnative `LanguageSelector`はHome以外のTopBarに残す。
+
+### 9.4 timelineのaction高さ
+
+- `.entei-timeline-action` / `.entei-timeline-publish`の`min-height`は32pxから`2.25rem`（36px）へ。垂直paddingは0のままで、固定高がboxを決めlabelは光学中心に残る。
