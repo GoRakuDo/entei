@@ -37,6 +37,8 @@ interface Props {
   noindex?: boolean;
   /** Whether to render the full Top Bar + Footer. Default true. */
   showChrome?: boolean;
+  /** Whether to render the site Footer (requires showChrome). Default true. */
+  showFooter?: boolean;
   /** Optional language alternates for hreflang tags (2026-08-26 DOCUMENTATION-PAGE.md). */
   alternates?: { lang: string; url: string }[];
   /** Whether this page is a static-locale route whose locale is fixed at build time. Default false. */
@@ -50,6 +52,7 @@ const {
   description,
   noindex = false,
   showChrome = true,
+  showFooter = true,
   alternates,
   staticLocale = false,
 } = Astro.props;
@@ -120,7 +123,7 @@ const dictionary: Dictionary = getDictionary(locale);
         <slot />
       </div>
     </main>
-    {showChrome && <SiteFooter dictionary={dictionary} />}
+    {showChrome && showFooter && <SiteFooter dictionary={dictionary} />}
     <EizouToaster client:load />
 
     {

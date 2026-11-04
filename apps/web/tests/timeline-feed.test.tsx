@@ -32,6 +32,18 @@ describe('TimelineFeed', () => {
     expect(screen.getByText(TIMELINE_SEED_POSTS[0]!.message)).toBeTruthy();
   });
 
+  it('exposes exactly one h1 and points the avatars at the rounded hexagon clip', () => {
+    const { container } = renderFeed();
+    const headings = container.querySelectorAll('h1');
+    expect(headings).toHaveLength(1);
+    expect(headings[0]!.getAttribute('id')).toBe('entei-timeline-heading');
+
+    const clip = container.querySelector('#entei-hex-clip');
+    expect(clip?.getAttribute('clipPathUnits')).toBe('objectBoundingBox');
+    // Smooth rounded corners: the contour uses quadratic joins, not sharp vertices.
+    expect(clip?.querySelector('path')?.getAttribute('d')).toContain('Q');
+  });
+
   it('keeps Publish disabled until the draft has content', () => {
     renderFeed();
     const publish = screen.getByRole('button', { name: 'Terbitkan pos' });

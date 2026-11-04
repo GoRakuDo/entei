@@ -91,7 +91,8 @@
 | `apps/web/src/styles/timeline.css` | OKLCH トークンのみ使用した見た目（区切り線は `oklch(1 0 0 / 0.1)`） |
 | `apps/web/tests/timeline-store.test.ts` / `timeline-feed.test.tsx` | 純ロジックと島の振る舞い |
 
-- **配置**: `apps/web/src/pages/index.astro` のヒーロー直後、Roadmap の前に `client:load` で配置。デスクトップは中央寄せ読み列（最大 42rem）、モバイルは共有ガター（1rem）で端まで使う。
+- **配置**: `apps/web/src/pages/index.astro` は旧ヒーロー・Roadmap・ThanksTo・LocalFirstNote・Footerを撤去し、`<TimelineFeed client:load />` のみをレンダリング。デスクトップは中央寄せ読み列（最大 42rem）、モバイルは共有ガター（1rem）で端まで使う。
+- **UI調整（2026-11-04）**: アバターフレームを尖った六角形から滑らかな「角丸六角形（SVG ベジェ曲線 clipPath）」に変更。アクションボタン・Publishボタンの高さをすっきり引き締まった 32px（Pill型）に統一し、左右パディング（16px / 24px）でバランスを最適化。Home の下部余白（padding-bottom）を縮小し、`showFooter={false}` でフッターを非表示化。
 - **永続化**: ローカル投稿と Like 状態のみ `entei.timeline.v1` に保存。シード投稿はコード側に残すため、コピー変更が既存ユーザーにも反映される。
 - **状態**: `Like` はトグル＋永続化、`Share` は投稿本文をクリップボードへコピー、`Comment` は返信 UI が未実装のためコンポーザーへフォーカスする（死んだボタンを作らないため）。
 - **i18n**: `Dictionary.timeline` を id/ja/en に追加。相対時刻は `Intl.RelativeTimeFormat` に任せ、単位名の翻訳キーを持たない。
@@ -101,3 +102,5 @@
 
 プロジェクト規約（#1772）により記録：
 1. `timeline-store.ts` の破損ポスト個別フィルタリング（`filter(isTimelinePost)`）および `<ul>` の `role="list"` に対する専用単体テストケースが未追加（実装自体は修正完了済み・動作確認済み）。次回テスト拡充時にアサーションを追加する。
+2. タイムラインのアクションボタン（Comment/Like/Share/Publish）はユーザー指定により `min-height: 32px` に統一（プロジェクトの一般的な 44px タッチ規約より視覚的なコンパクトさを優先、WCAG 2.2 AA の 24px は上回る）。
+3. 旧Home専用コンポーネント（`HubIdentity.astro` / `DestinationDock.astro` / `LocalFirstNote.astro` / `future-features.mdx`）は参照ゼロのファイルとして残存（削除はユーザー確認後に実施）。

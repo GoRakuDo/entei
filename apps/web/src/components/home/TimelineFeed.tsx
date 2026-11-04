@@ -147,9 +147,26 @@ export default function TimelineFeed() {
 
   return (
     <section className="entei-timeline-root" aria-labelledby="entei-timeline-heading">
-      <h2 className="entei-sr-only" id="entei-timeline-heading">
+      {/* The Home page has no other top-level heading, so the (visually
+          hidden) feed heading is the page h1 — exactly one h1 per page. */}
+      <h1 className="entei-sr-only" id="entei-timeline-heading">
         {t.heading}
-      </h2>
+      </h1>
+
+      {/* Rounded-hexagon avatar contour. Declared once here so the composer
+          avatar and every post avatar share the same smooth-cornered shape
+          (see `.entei-timeline-avatar` in `styles/timeline.css`). */}
+      <svg
+        className="entei-timeline-avatar-clip-defs"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <defs>
+          <clipPath id="entei-hex-clip" clipPathUnits="objectBoundingBox">
+            <path d="M0.661 0.0805L0.839 0.1695Q1 0.25 1 0.43L1 0.57Q1 0.75 0.839 0.8305L0.661 0.9195Q0.5 1 0.339 0.9195L0.161 0.8305Q0 0.75 0 0.57L0 0.43Q0 0.25 0.161 0.1695L0.339 0.0805Q0.5 0 0.661 0.0805Z" />
+          </clipPath>
+        </defs>
+      </svg>
 
       <form className="entei-timeline-composer" onSubmit={handlePublish}>
         <div className="entei-timeline-composer-row">

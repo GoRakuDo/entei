@@ -38,21 +38,39 @@
   gap: var(--entei-space-16);
 }
 
+/* Rounded-hexagon avatar frame (pointy-top, per approved mockup).
+   The contour lives in one SVG `clipPath` (`#entei-hex-clip`, rendered by
+   the `TimelineFeed` island) using `objectBoundingBox` units, so the six
+   corners stay smoothly rounded and scale exactly at any avatar size.
+   The 1px inset is a frame hairline, not layout padding: the ring is the
+   wrapper background showing through the outer clip, and the image
+   carries its own inset clip. `border` cannot be used here because
+   clip-path cuts the border off along the diagonal edges. */
+.entei-timeline-avatar-clip-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .entei-timeline-avatar {
   flex: 0 0 auto;
   display: block;
   width: var(--entei-touch-min);
   height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-pill);
-  overflow: hidden;
-  background-color: var(--entei-surface);
-  border: 1px solid oklch(1 0 0 / 0.14);
+  padding: 1px;
+  background-color: oklch(1 0 0 / 0.24);
+  clip-path: url(#entei-hex-clip);
 }
 
 .entei-timeline-avatar img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  background-color: var(--entei-surface);
+  clip-path: url(#entei-hex-clip);
 }
 
 .entei-timeline-textarea {
@@ -83,22 +101,33 @@
 .entei-timeline-publish {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--entei-space-8);
-  min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-16);
+  /* Compact 32px pill (the 44px touch minimum felt oversized here).
+     Vertical padding is 0 so the fixed height drives the box and the
+     label stays optically centered. */
+  min-height: var(--entei-space-32);
+  /* Ample, symmetric horizontal breathing room — never a cramped box. */
+  padding: 0 var(--entei-space-24);
+  border: none;
   border-radius: var(--entei-radius-pill);
   background-color: var(--entei-btn-color);
   color: var(--entei-text);
   font-size: 0.9375rem;
   font-weight: 600;
+  line-height: 1.25;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    color var(--entei-duration-fast) var(--entei-ease-productive);
+    filter var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-timeline-publish:hover:not(:disabled) {
-  background-color: var(--entei-btn-hover-bg);
-  color: var(--entei-white-base);
+  background-color: var(--entei-btn-color);
+  filter: brightness(1.15);
+}
+
+.entei-timeline-publish:active:not(:disabled) {
+  filter: brightness(0.95);
 }
 
 .entei-timeline-publish:disabled {
@@ -171,24 +200,34 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--entei-space-8);
+  /* Optically align the first/last label with the post body text: the
+     pill's own horizontal padding must not push the text inward. */
+  margin-inline: calc(var(--entei-space-16) * -1);
 }
 
 .entei-timeline-action {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--entei-space-8);
-  min-height: var(--entei-touch-min);
-  padding-inline: var(--entei-space-8);
-  border-radius: var(--entei-radius-md);
+  /* Compact 32px pill, matching the Publish button height. */
+  min-height: var(--entei-space-32);
+  /* Generous, symmetric padding inside a fully rounded pill — the previous
+     squarish radius-md box with 8px/4px inline padding looked cramped. */
+  padding: 0 var(--entei-space-16);
+  border: none;
+  border-radius: var(--entei-radius-pill);
+  background-color: transparent;
   color: var(--entei-text-muted);
   font-size: 0.875rem;
+  line-height: 1.25;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
     color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-timeline-action:hover {
-  background-color: var(--entei-btn-hover-bg);
+  background-color: var(--entei-btn-color);
   color: var(--entei-text);
 }
 
@@ -209,9 +248,14 @@
 
   .entei-timeline-post-actions {
     gap: var(--entei-space-4);
+    margin-inline: calc(var(--entei-space-12) * -1);
   }
 
   .entei-timeline-action {
-    padding-inline: var(--entei-space-4);
+    padding: 0 var(--entei-space-12);
+  }
+
+  .entei-timeline-publish {
+    padding: 0 var(--entei-space-16);
   }
 }
