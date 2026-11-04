@@ -24,6 +24,13 @@
   color: var(--entei-text);
 }
 
+/* Post detail (`/post/:id`-style thread view) starts with its own sticky
+   back-header, so the feed-level breathing room would push that header down
+   and leave an empty band above it. Detail mode sits flush at the top. */
+.entei-timeline-root--detail {
+  padding-top: 0;
+}
+
 /* ===== COMPOSER ===== */
 
 .entei-timeline-composer {
@@ -441,11 +448,9 @@
   flex-direction: column;
 }
 
-/* Sticky header keeps Back reachable while the thread scrolls. A fully
-   transparent surface let the scrolled thread text bleed through the Back
-   button; a solid strip read as a separate band. A gradient from the page
-   background to transparent masks the scrolled text cleanly while the page
-   still flows through at the bottom edge. */
+/* Sticky header keeps Back reachable while the thread scrolls. Transparent on
+   purpose: the page shows the gradient wallpaper behind it, avoiding an opaque
+   black strip over the background. */
 .entei-timeline-detail-head {
   position: sticky;
   top: 0;
@@ -454,11 +459,7 @@
   align-items: center;
   gap: var(--entei-space-12);
   padding-block: var(--entei-space-8) var(--entei-space-12);
-  background: linear-gradient(
-    to bottom,
-    var(--entei-bg) 80%,
-    color-mix(in oklch, var(--entei-bg) 0%, transparent)
-  );
+  background: transparent;
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 

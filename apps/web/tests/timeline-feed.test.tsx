@@ -604,13 +604,18 @@ describe('TimelineFeed — post detail', () => {
   const seedPost = TIMELINE_SEED_POSTS[0]!;
 
   it('opens the detail view when a post is clicked', async () => {
-    renderFeed();
+    const { container } = renderFeed();
     await screen.findAllByRole('listitem');
 
     fireEvent.click(screen.getByText(seedPost.message));
 
     // The feed is replaced by the thread: header title + focused post + back.
     expect(screen.getByRole('heading', { name: 'Pos' })).toBeTruthy();
+    // Detail mode drops the feed-level top padding so the sticky back-header
+    // sits flush against the top edge instead of leaving an empty band.
+    expect(
+      container.querySelector('.entei-timeline-root--detail'),
+    ).not.toBeNull();
     expect(
       screen.getByRole('button', { name: 'Kembali ke lini masa' }),
     ).toBeTruthy();

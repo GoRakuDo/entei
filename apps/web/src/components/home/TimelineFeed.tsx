@@ -608,7 +608,11 @@ export default function TimelineFeed() {
 
   return (
     <section
-      className="entei-timeline-root"
+      className={
+        isDetail
+          ? 'entei-timeline-root entei-timeline-root--detail'
+          : 'entei-timeline-root'
+      }
       aria-labelledby="entei-timeline-heading"
       ref={rootRef}
     >
