@@ -394,8 +394,9 @@
  * ------------------------------------------------------------------------------
  * Global (not Astro-scoped) for the same reason as the nav settings trigger
  * above: the Settings row is a React island and carries no Astro scope hash.
- * The sidebar is fixed; it reserves its width on the left edge of #entei-main
- * so the timeline keeps the centered column (2-column SNS layout).
+ * The sidebar is fixed and vertically centered on the left edge; it does NOT
+ * reserve width inside #entei-main, so the timeline stays centered in the
+ * viewport (the sidebar floats over the empty left gutter).
  * ============================================================================== */
 
 @media (max-width: 767px) {
@@ -405,6 +406,15 @@
 }
 
 @media (min-width: 768px) {
+  /* On narrower desktop viewports (768px-1231px), reserve padding so the fixed sidebar
+     does not collide with the 42rem timeline. On wide viewports (>=1232px), no padding
+     is needed and the timeline sits dead-center in the screen. */
+  @media (max-width: 1231px) {
+    body:has([data-entei-desktop-sidebar]) #entei-main {
+      padding-left: calc(var(--entei-sidebar-width) + var(--entei-space-24));
+    }
+  }
+
   .entei-desktop-sidebar {
     position: fixed;
     top: 0;
@@ -412,14 +422,10 @@
     z-index: var(--entei-z-topbar);
     display: flex;
     flex-direction: column;
+    justify-content: center;
     width: var(--entei-sidebar-width);
     height: 100dvh;
     padding-block: var(--entei-space-24);
-  }
-
-  /* Reserve the rail so the timeline stays visually centered. */
-  body:has([data-entei-desktop-sidebar]) #entei-main {
-    padding-left: calc(var(--entei-sidebar-width) + var(--entei-sidebar-gap));
   }
 
   .entei-desktop-sidebar-nav {

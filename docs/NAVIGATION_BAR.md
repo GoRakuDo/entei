@@ -182,7 +182,7 @@ NemotronはUI / CSSだけを担当する。
 ### 9.1 desktop Homeは左固定サイドバー
 
 - `/` のdesktop（≥768px）は上中央ピルをやめ、左に固定サイドバーを置く。順序は brand（`/` へのリンク、`aria-current`なし）→ Home → Profile → Player → Settings（`EizouSettingsDialog` island、`variant="sidebar"`）。Home行だけが`aria-current="page"`を持つ。
-- サイドバーは`position: fixed`で、`body:has([data-entei-desktop-sidebar]) #entei-main`へ左padding（`--entei-sidebar-width` + `--entei-sidebar-gap`）を確保する。timelineは残り領域の中央カラムに残る。
+- サイドバーは`position: fixed`で`height: 100dvh`・`justify-content: center`により左の上下中央に置く。`#entei-main`へ左paddingは確保しない（timelineは画面全体の中央列に残る）。
 - 見た目は`src/styles/eizouden-settings.css`（global）にある。Settings行がReact islandでAstro scoped styleのhashを持たないため、`entei-nav-settings-trigger`と同じ理由でglobalに置く。
 - Profile / Playerは従来どおりピル（Playerは750ms dwell reveal）。`data-entei-desktop-combobox`は全routeで撤去した。
 

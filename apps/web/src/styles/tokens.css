@@ -127,10 +127,10 @@
   /* ===== LAYOUT ===== */
   --entei-content-max: 72rem; /* desktop content ceiling (12.333) */
   --entei-topbar-height: 64px;
-  /* Desktop Home left sidebar (SNS-style nav) width + the space the fixed
-     sidebar reserves on the left edge of the main content. */
+  /* Desktop Home left sidebar (SNS-style nav) width. The rail is fixed and
+     vertically centered; it reserves no space inside the main content, so the
+     timeline stays centered in the viewport. */
   --entei-sidebar-width: 16rem;
-  --entei-sidebar-gap: 2rem;
 
   /* ===== SAFE AREA (PHASE0.md 12.316) ===== */
   --entei-safe-top: env(safe-area-inset-top, 0px);
