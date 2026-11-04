@@ -4,8 +4,7 @@
   "version": "0.1.0",
   "identifier": "org.gorakudo.entei",
   "build": {
-    "beforeDevCommand": "npm run dev --workspace=web",
-    "devUrl": "http://localhost:4321",
+    "beforeDevCommand": "npm run build --workspace=web",
     "beforeBuildCommand": "npm run build --workspace=web",
     "frontendDist": "../apps/web/dist"
   },
