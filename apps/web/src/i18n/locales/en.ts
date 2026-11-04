@@ -602,5 +602,9 @@ export const en: Dictionary = {
     actionShare: 'Share',
     shareCopied: 'Post copied',
     shareFailed: 'Could not copy',
+    pullToRefresh: 'Pull to refresh',
+    refreshing: 'Refreshing…',
+    endOfFeed: 'No more posts',
+    showNewPosts: 'Show {count} new posts',
   },
 };

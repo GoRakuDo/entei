@@ -135,12 +135,143 @@
   opacity: 0.5;
 }
 
+/* ===== PULL TO REFRESH (touch) ===== */
+
+/* Height is driven inline by the island (0 when idle), so this block only
+   owns the reveal styling. `overflow: hidden` clips the label mid-drag. */
+.entei-timeline-pull {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  overflow: hidden;
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.25;
+}
+
+/* The height tracks the finger 1:1 while dragging, so the transition is only
+   armed for the states that animate on their own: collapsing back to idle and
+   settling into refreshing. Anywhere else it would lag behind the gesture. */
+.entei-timeline-pull[data-state='idle'],
+.entei-timeline-pull[data-state='refreshing'] {
+  transition: height var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-timeline-pull-icon {
+  flex: 0 0 auto;
+  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* Dragged past the threshold: the hint turns accent-colored as a release cue. */
+.entei-timeline-pull[data-state='ready'] {
+  color: var(--entei-accent-light);
+}
+
+.entei-timeline-pull[data-state='refreshing'] {
+  color: var(--entei-accent-light);
+}
+
+.entei-timeline-pull[data-state='refreshing'] .entei-timeline-pull-icon {
+  animation: entei-timeline-spin 900ms linear infinite;
+}
+
+@keyframes entei-timeline-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-timeline-pull,
+  .entei-timeline-pull-icon {
+    transition: none;
+  }
+
+  .entei-timeline-pull[data-state='refreshing'] .entei-timeline-pull-icon {
+    animation: none;
+  }
+}
+
+/* ===== DESKTOP "NEW POSTS" PILL ===== */
+
+/* Sits between the composer and the feed. It only exists while posts are
+   waiting, so the fade-in is the whole reveal. */
+.entei-timeline-new-posts-wrap {
+  display: flex;
+  justify-content: center;
+  padding-block: var(--entei-space-12);
+  animation: entei-timeline-pill-in var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-timeline-new-posts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: 2.25rem;
+  padding: 0 var(--entei-space-24);
+  border: none;
+  border-radius: var(--entei-radius-pill);
+  background-color: var(--entei-accent);
+  color: var(--entei-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    filter var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-timeline-new-posts:hover {
+  background-color: var(--entei-accent-hover);
+}
+
+.entei-timeline-new-posts:active {
+  filter: brightness(0.95);
+}
+
+@keyframes entei-timeline-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-timeline-new-posts-wrap {
+    animation: none;
+  }
+}
+
 /* ===== FEED ===== */
 
 .entei-timeline-feed {
   list-style: none;
   display: flex;
   flex-direction: column;
+}
+
+/* Infinite-scroll sentinel: a zero-height hook for the IntersectionObserver
+   (not a post, so it lives outside the <ul>). */
+.entei-timeline-sentinel {
+  height: 1px;
+  width: 100%;
+}
+
+/* Terminal label once every post has been rendered. */
+.entei-timeline-end {
+  margin: 0;
+  padding-block: var(--entei-space-24);
+  text-align: center;
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
 }
 
 .entei-timeline-post {

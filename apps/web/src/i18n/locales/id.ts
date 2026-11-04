@@ -607,5 +607,9 @@ export const id: Dictionary = {
     actionShare: 'Share',
     shareCopied: 'Pos disalin',
     shareFailed: 'Gagal menyalin',
+    pullToRefresh: 'Tarik untuk memperbarui',
+    refreshing: 'Memperbarui…',
+    endOfFeed: 'Tidak ada pos lain',
+    showNewPosts: 'Tampilkan {count} pos baru',
   },
 };

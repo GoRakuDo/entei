@@ -96,7 +96,8 @@
 - **永続化**: ローカル投稿と Like 状態のみ `entei.timeline.v1` に保存。シード投稿はコード側に残すため、コピー変更が既存ユーザーにも反映される。
 - **状態**: `Like` はトグル＋永続化、`Share` は投稿本文をクリップボードへコピー、`Comment` は返信 UI が未実装のためコンポーザーへフォーカスする（死んだボタンを作らないため）。
 - **i18n**: `Dictionary.timeline` を id/ja/en に追加。相対時刻は `Intl.RelativeTimeFormat` に任せ、単位名の翻訳キーを持たない。
-- **未実装（意図的）**: `ImmersionSessionCard` / `MinedSentenceCard`、無限スクロール、サイドカラム（本日のイマージョン概要・トレンド作品）、Freenet コントラクト同期。いずれも後続フェーズ。
+- **フィード挙動（2026-11-04 追加）**: ① **最新順** — `mergeTimelinePosts` はローカル投稿とシードを結合した全件を `createdAt` 降順で厳密にソートする（配列位置ではなく実時刻。同時刻は安定ソートでローカル→シード）。② **Pull-to-Refresh（モバイル）** — ページ最上部でフィードを下へ引くと指の移動量に追従してインジケータが開き（上限 96px）、`PULL_REFRESH_THRESHOLD = 60px` を超えて離すとストア再読込（`now` 更新・localStorage 再同期・先頭 5 件にリセット）が走る。タッチリスナーは `passive: false` で張り、引いている間だけ `preventDefault()` する。③ **無限スクロール** — 初期表示 `INITIAL_VISIBLE_POSTS = 5` 件、フィード末尾の sentinel（`<ul>` の外・`aria-hidden`）が `IntersectionObserver`（`rootMargin: 200px`）で見えたら `LOAD_MORE_STEP = 5` 件ずつ追加し、全件表示後は `entei-timeline-end` の終端ラベルを出す。④ **デスクトップ新着ポーリング** — `NEW_POSTS_POLL_INTERVAL_MS = 30_000` の間隔と他タブの `storage` イベントでストアを差分チェックし（`matchMedia('(min-width: 768px)')` が真のときのみ）、未表示の投稿は画面へ流し込まずコンポーザー直下のピル `entei-timeline-new-posts`（`新しいポストを{n}件表示`）に留める。クリックで採用して `window.scrollTo({ top: 0, behavior: 'smooth' })` により先頭へ戻る。現時点のポーリング元はローカルストアだが、このフックが後続フェーズの Freenet 同期の差込口になる。
+- **未実装（意図的）**: `ImmersionSessionCard` / `MinedSentenceCard`、サイドカラム（本日のイマージョン概要・トレンド作品）、Freenet コントラクト同期。いずれも後続フェーズ。
 
 ### 既知の指摘（Known issues / Low findings）
 
@@ -104,3 +105,4 @@
 1. `timeline-store.ts` の破損ポスト個別フィルタリング（`filter(isTimelinePost)`）および `<ul>` の `role="list"` に対する専用単体テストケースが未追加（実装自体は修正完了済み・動作確認済み）。次回テスト拡充時にアサーションを追加する。
 2. タイムラインのアクションボタン（Comment/Like/Share/Publish）はユーザー指定により `min-height: 32px` に統一（プロジェクトの一般的な 44px タッチ規約より視覚的なコンパクトさを優先、WCAG 2.2 AA の 24px は上回る）。
 3. 旧Home専用コンポーネント（`HubIdentity.astro` / `DestinationDock.astro` / `LocalFirstNote.astro` / `future-features.mdx`）は参照ゼロのファイルとして残存（削除はユーザー確認後に実施）。
+4. `TimelineFeed.tsx` の pull-to-refresh 表示で、`aria-live="polite"` が `aria-hidden` 切り替えと同居しているため、スクリーンリーダーの読み上げが一部環境で不安定になる余地がある。将来のアクセシビリティ見直し時に常設の `role="status"` を `sr-only` に分離する。

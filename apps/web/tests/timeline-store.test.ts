@@ -92,6 +92,61 @@ describe('mergeTimelinePosts', () => {
       );
     }
   });
+
+  it('sorts by createdAt, not by array position', () => {
+    const newestSeed = TIMELINE_SEED_POSTS[0]!;
+    // A post written on this device *before* the newest seed belongs below it.
+    const older = createTimelinePost(
+      'older than the newest seed',
+      author,
+      newestSeed.createdAt - 60_000,
+    )!;
+    const merged = mergeTimelinePosts([older]);
+    const olderIndex = merged.findIndex((post) => post.id === older.id);
+    const newestSeedIndex = merged.findIndex(
+      (post) => post.id === newestSeed.id,
+    );
+    expect(newestSeedIndex).toBe(0);
+    expect(olderIndex).toBeGreaterThan(newestSeedIndex);
+  });
+
+  it('keeps a strict descending order across local posts and seeds', () => {
+    const now = Date.now();
+    const locals = [
+      createTimelinePost('a', author, now)!,
+      createTimelinePost('b', author, now - 5 * 60_000)!,
+      createTimelinePost('c', author, now - 3 * 86_400_000)!,
+    ];
+    const merged = mergeTimelinePosts(locals);
+    expect(merged).toHaveLength(TIMELINE_SEED_POSTS.length + locals.length);
+    for (let index = 1; index < merged.length; index += 1) {
+      expect(merged[index - 1]!.createdAt).toBeGreaterThanOrEqual(
+        merged[index]!.createdAt,
+      );
+    }
+  });
+
+  it('keeps local posts ahead of seeds that share their timestamp', () => {
+    const seed = TIMELINE_SEED_POSTS[0]!;
+    const sameTime = createTimelinePost(
+      'same instant',
+      author,
+      seed.createdAt,
+    )!;
+    const merged = mergeTimelinePosts([sameTime]);
+    const localIndex = merged.findIndex((post) => post.id === sameTime.id);
+    const seedIndex = merged.findIndex((post) => post.id === seed.id);
+    expect(localIndex).toBeLessThan(seedIndex);
+  });
+
+  it('does not mutate the caller array or the seeds', () => {
+    const local = createTimelinePost('keep me', author, Date.now())!;
+    const input = [local];
+    const seedSnapshot = TIMELINE_SEED_POSTS.map((post) => post.id);
+    mergeTimelinePosts(input);
+    expect(input).toEqual([local]);
+    expect(TIMELINE_SEED_POSTS.map((post) => post.id)).toEqual(seedSnapshot);
+  });
 });
 
 describe('formatRelativeTime', () => {
@@ -103,12 +158,16 @@ describe('formatRelativeTime', () => {
 
   it('formats minutes, hours, and days in Japanese', () => {
     expect(formatRelativeTime(now - 5 * 60_000, now, 'ja')).toContain('分');
-    expect(formatRelativeTime(now - 3 * 3_600_000, now, 'ja')).toContain('時間');
+    expect(formatRelativeTime(now - 3 * 3_600_000, now, 'ja')).toContain(
+      '時間',
+    );
     expect(formatRelativeTime(now - 2 * 86_400_000, now, 'ja')).toContain('日');
   });
 
   it('falls back to the default locale for an invalid locale tag', () => {
-    expect(formatRelativeTime(now - 5 * 60_000, now, 'not a locale')).not.toHaveLength(0);
+    expect(
+      formatRelativeTime(now - 5 * 60_000, now, 'not a locale'),
+    ).not.toHaveLength(0);
   });
 });
 
@@ -147,7 +206,11 @@ describe('timeline persistence', () => {
     const post = createTimelinePost('ok', author)!;
     localStorage.setItem(
       TIMELINE_STORAGE_KEY,
-      JSON.stringify({ schemaVersion: 1, posts: [post], likedIds: ['seed-1', 7] }),
+      JSON.stringify({
+        schemaVersion: 1,
+        posts: [post],
+        likedIds: ['seed-1', 7],
+      }),
     );
     expect(readTimelineState().likedIds).toEqual(['seed-1']);
   });

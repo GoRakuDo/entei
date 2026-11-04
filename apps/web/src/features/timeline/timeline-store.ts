@@ -195,7 +195,15 @@ export function deriveHandle(name: string): string {
   return `@${slug.length > 0 ? slug : 'entei'}`;
 }
 
-/** Merge seed posts with local posts, newest first. */
+/**
+ * Merge seed posts with local posts, newest first.
+ *
+ * The feed order is *always* strictly sorted by `createdAt` descending, so a
+ * post written on this device slots in by its real timestamp instead of by
+ * array position (a device post from yesterday belongs below today's seeds).
+ * `Array.prototype.sort` is stable, so posts that share a timestamp keep their
+ * insertion order — local posts first, seeds after.
+ */
 export function mergeTimelinePosts(
   localPosts: readonly TimelinePost[],
 ): TimelinePost[] {

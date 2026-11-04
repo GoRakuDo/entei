@@ -607,5 +607,9 @@ export const ja: Dictionary = {
     actionShare: 'Share',
     shareCopied: 'ポストをコピーしました',
     shareFailed: 'コピーできませんでした',
+    pullToRefresh: '引っ張って更新',
+    refreshing: '更新中…',
+    endOfFeed: 'これ以上ポストはありません',
+    showNewPosts: '新しいポストを{count}件表示',
   },
 };

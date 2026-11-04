@@ -623,5 +623,13 @@ export interface Dictionary {
     actionShare: string;
     shareCopied: string;
     shareFailed: string;
+    /** Pull-to-refresh hint shown while the user drags the feed down. */
+    pullToRefresh: string;
+    /** Shown while the pull gesture triggered a refresh. */
+    refreshing: string;
+    /** Terminal label once every post has been loaded. */
+    endOfFeed: string;
+    /** Desktop pill label; `{count}` is replaced with the number of new posts. */
+    showNewPosts: string;
   };
 }
