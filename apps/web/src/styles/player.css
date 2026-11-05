@@ -5154,10 +5154,13 @@ html.entei-player-immersive .entei-player-audio-area {
 /* --- ED-2F YouTube dialog — mockup layout (gold pixel title, URL + quality
  * ButtonGroup, Cancel/Stream Now ButtonGroup) --- */
 
-/* Gold pixel heading — matches the mockup title treatment. */
+/* Gold pixel heading — matches the mockup title treatment. The form's
+   shared gap is 16px, so the title adds the remaining 8px to make the
+   title → field-label spacing a full 24px (DESIGN.md spacing rhythm). */
 .entei-youtube-dialog-title {
   color: var(--entei-status-locked);
   font-family: var(--entei-font-system);
+  margin-bottom: calc(var(--entei-space-24) - var(--entei-space-16));
 }
 
 /* Visible field label above the URL row. */
@@ -5231,6 +5234,35 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text);
 }
 
+/* Quality popover: exactly the trigger's width (never overflows the trigger)
+   and re-skinned off the shadcn `bg-popover`/`bg-accent` defaults — the
+   selected row uses Entei's gold-on-muted-fill treatment instead of a
+   saturated periwinkle block. Portaled to <body>, so the classes are global. */
+.entei-youtube-quality-content {
+  width: var(--radix-select-trigger-width);
+  min-width: var(--radix-select-trigger-width);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+}
+
+.entei-youtube-quality-item:focus {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-text);
+}
+
+/* Checked wins over focus (declared after it) so the selected row keeps the
+   gold treatment while the pointer is over it. */
+.entei-youtube-quality-item[data-state='checked'] {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+}
+
+.entei-youtube-quality-item[data-state='checked'] svg {
+  color: var(--entei-status-locked);
+}
+
 /* Actions row: right-aligned joined pair on desktop; separate stacked
  * buttons on mobile with Stream Now on top and Cancel below (mockup). */
 .entei-youtube-actions {
@@ -5254,10 +5286,40 @@ html.entei-player-immersive .entei-player-audio-area {
     justify-content: flex-start;
   }
 
-  /* The joined-pair utilities key off DOM order, which row-reverse mirrors:
-     restore Cancel's outer (left) border so the pair reads as one surface. */
+  /* Shared right rail: the quality trigger and the Stream Now button occupy
+     the exact same column, so their vertical hairlines land on one pixel
+     column (a 3.8px seam showed when Stream Now was content-sized).
+     The trigger lives inside `.entei-youtube-input-group`, which draws its
+     own 1px outer border and therefore insets its content box by 1px; the
+     trigger's width is reduced by that border so its LEFT hairline sits at
+     the same x as Stream Now's (12rem rail measured from the dialog's right
+     edge). Stream Now is fixed rather than min-width for the same reason:
+     its intrinsic width (label + 40px padding) drifts with the locale. The
+     longest label (id `Streaming Sekarang` = 154.8px at 15px/600) still fits
+     inside the 150px content box without clipping, so keep the rail wide
+     enough if a longer locale label is ever added. */
+  .entei-youtube-input-group .entei-youtube-quality {
+    width: calc(12rem - 1px);
+  }
+
+  .entei-youtube-actions > .entei-youtube-form-submit {
+    width: 12rem;
+  }
+
+  /* True seamless joined pair: one outer box, flat inner seam. The radius
+     utilities key off DOM order (which row-reverse mirrors), so the visual
+     sides are set explicitly here — Cancel owns the rounded left end,
+     Stream Now the rounded right end. */
   .entei-youtube-actions > .entei-youtube-cancel {
+    border-radius: var(--entei-radius-md) 0 0 var(--entei-radius-md);
     border-left-width: 1px;
+    /* Only one divider: Stream Now's own left hairline. */
+    border-right-width: 0;
+  }
+
+  .entei-youtube-actions > .entei-youtube-form-submit {
+    border-radius: 0 var(--entei-radius-md) var(--entei-radius-md) 0;
+    border-left: 1px solid oklch(1 0 0deg / 0.1);
   }
 }
 
