@@ -5115,8 +5115,10 @@ html.entei-player-immersive .entei-player-audio-area {
     filter var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-youtube-form-submit:hover:not(:disabled) {
+.entei-youtube-form-submit:hover:not(:disabled),
+.entei-youtube-form-submit:active:not(:disabled) {
   background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
   filter: brightness(1.12);
 }
 
@@ -5196,7 +5198,7 @@ html.entei-player-immersive .entei-player-audio-area {
   background-color: transparent;
   border: none;
   box-shadow: none;
-  color: var(--entei-text);
+  color: var(--entei-status-locked);
   font-family: var(--entei-font-system);
   font-size: 0.9375rem;
 }
@@ -5231,7 +5233,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-youtube-input-group .entei-youtube-quality:hover {
   background-color: var(--entei-btn-hover-bg);
-  color: var(--entei-text);
+  color: var(--entei-status-locked);
 }
 
 /* Quality popover: exactly the trigger's width (never overflows the trigger)
