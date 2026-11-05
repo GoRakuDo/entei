@@ -5097,10 +5097,58 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.5;
 }
 
+/* Primary action — solid Entei fill, never the shadcn `bg-primary` accent
+   wash (DESIGN.md 8.1: primary = strongest fill). Disabled stays readable
+   instead of fading into the dialog surface. */
 .entei-youtube-form-submit {
   min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-20);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
   border-radius: var(--entei-radius-md);
-  font-size: 0.875rem;
+  background-color: var(--entei-btn-color);
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    filter var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-youtube-form-submit:hover:not(:disabled) {
+  background-color: var(--entei-btn-color);
+  filter: brightness(1.12);
+}
+
+.entei-youtube-form-submit:disabled {
+  opacity: 1;
+  background-color: var(--entei-btn-color);
+  border-color: oklch(100% 0 0deg / 0.06);
+  color: var(--entei-text-muted);
+  cursor: not-allowed;
+}
+
+/* Secondary action — neutral outline that only gains the shared fill on
+   hover (DESIGN.md 8.1: secondary = neutral outline). */
+.entei-youtube-cancel {
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-20);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  background-color: transparent;
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-youtube-cancel:hover {
+  background-color: var(--entei-btn-color);
+  border-color: oklch(100% 0 0deg / 0.16);
+  color: var(--entei-text);
 }
 
 /* --- ED-2F YouTube dialog — mockup layout (gold pixel title, URL + quality
@@ -5124,11 +5172,14 @@ html.entei-player-immersive .entei-player-audio-area {
  * stack (URL on top, quality below) below 768px. The wrapper owns the single
  * visible border/surface so the children never draw a second outline
  * (DESIGN.md 8.9). */
+/* Quiet dark field surface — `--entei-surface-2` reads as a saturated
+   blue block inside the dialog, so the group sits on `--entei-surface`
+   with a hairline border instead. */
 .entei-youtube-input-group {
   width: 100%;
   min-height: var(--entei-touch-min);
-  background-color: var(--entei-surface-2);
-  border: 1px solid oklch(100% 0 0deg / 0.08);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
   border-radius: var(--entei-radius-md);
   overflow: hidden;
 }
@@ -5144,12 +5195,18 @@ html.entei-player-immersive .entei-player-audio-area {
   box-shadow: none;
   color: var(--entei-text);
   font-family: var(--entei-font-system);
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
 }
 
 .entei-youtube-input-group .entei-youtube-url-input {
   flex: 1;
   min-width: 0;
+  padding-inline: var(--entei-space-16);
+}
+
+.entei-youtube-input-group .entei-youtube-url-input::placeholder {
+  color: var(--entei-text-muted);
+  opacity: 1;
 }
 
 /* Focus stays visible but inset, so it never reads as a thick double outline
@@ -5161,10 +5218,12 @@ html.entei-player-immersive .entei-player-audio-area {
   box-shadow: none;
 }
 
-/* Quality trigger keeps the ButtonGroup's flat, joined surface. */
+/* Quality trigger keeps the ButtonGroup's flat, joined surface and is
+   separated from the input by a single hairline rule. */
 .entei-youtube-input-group .entei-youtube-quality {
   flex-shrink: 0;
   padding-inline: var(--entei-space-12);
+  border-left: 1px solid oklch(100% 0 0deg / 0.1);
 }
 
 .entei-youtube-input-group .entei-youtube-quality:hover {
@@ -5180,8 +5239,10 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-youtube-actions > button {
   min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-20);
   border-radius: var(--entei-radius-md);
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
 @media (min-width: 768px) {
@@ -5208,7 +5269,7 @@ html.entei-player-immersive .entei-player-audio-area {
 @media (max-width: 767px) {
   .entei-youtube-input-group,
   .entei-youtube-actions {
-    gap: var(--entei-space-8);
+    gap: var(--entei-space-12);
   }
 
   /* Stacked layout: the shared wrapper surface is dropped and each control
@@ -5235,8 +5296,8 @@ html.entei-player-immersive .entei-player-audio-area {
 
   .entei-youtube-input-group > .entei-youtube-url-input,
   .entei-youtube-input-group > .entei-youtube-quality {
-    border: 1px solid oklch(100% 0 0deg / 0.08);
-    background-color: var(--entei-surface-2);
+    border: 1px solid oklch(100% 0 0deg / 0.1);
+    background-color: var(--entei-surface);
   }
 }
 
