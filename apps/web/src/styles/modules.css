@@ -7,6 +7,20 @@
  * (project rule #1804).
  * --------------------------------------------------------------------------- */
 
+/* Page-scoped main shell padding: /modules/ owns its own vertical rhythm,
+ * so the BaseLayout default (space-32 / space-64) would double the page
+ * padding. Mobile drops the top padding entirely because the sticky TopBar
+ * already carries its own spacing. */
+#entei-main .entei-main-inner {
+  padding-block-start: var(--entei-space-16);
+}
+
+@media (max-width: 767px) {
+  #entei-main .entei-main-inner {
+    padding-block-start: 0;
+  }
+}
+
 .entei-modules {
   display: flex;
   flex-direction: column;
@@ -14,7 +28,7 @@
   width: 100%;
   max-width: 56rem;
   margin-inline: auto;
-  padding: var(--entei-space-32) var(--entei-gutter) var(--entei-space-64);
+  padding: var(--entei-space-16) var(--entei-gutter) var(--entei-space-24);
 }
 
 .entei-modules-header {
@@ -42,15 +56,6 @@
   max-width: 60ch;
 }
 
-.entei-modules-heading {
-  font-family: var(--entei-font-system);
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--entei-text-muted);
-}
-
 .entei-modules-list {
   display: flex;
   flex-direction: column;
@@ -61,7 +66,7 @@
 }
 
 /* Module card — three-column grid:
- *   row 1: [icon 48px] [name + badge] [switch]
+ *   row 1: [icon 48px] [name (stacked badge)] [switch]
  *   row 2: description (full width)
  *   row 3: meta (full width)
  * The description/meta span every column so they never get squeezed by the
@@ -90,14 +95,19 @@
   border-radius: var(--entei-radius-md);
 }
 
+/* Name row stacks: line 1 = full-width single-line name, line 2 = badge.
+ * A horizontal name+badge row truncated long names ("yt-dlp (Y..."). */
 .entei-module-head {
   display: flex;
-  align-items: baseline;
-  gap: var(--entei-space-8);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--entei-space-4);
   min-width: 0;
 }
 
 .entei-module-name {
+  width: 100%;
+  max-width: 100%;
   font-family: var(--entei-font-system);
   font-size: 1.125rem;
   font-weight: 700;

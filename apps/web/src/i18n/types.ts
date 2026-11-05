@@ -472,7 +472,8 @@ export interface Dictionary {
   modulesPage: {
     title: string;
     description: string;
-    coreHeading: string;
+    /** Mobile TopBar back control on /modules/ ("Kembali"). */
+    back: string;
     enabled: string;
     disabled: string;
     builtIn: string;

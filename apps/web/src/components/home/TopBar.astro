@@ -34,7 +34,7 @@ import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
 import { EizouSettingsDialog } from '@components/home/EizouSettingsDialog';
 import { ImmersionToolsDialog } from '@components/home/ImmersionToolsDialog';
-import { House, User } from '@lucide/astro';
+import { ArrowLeft, House, User } from '@lucide/astro';
 
 /** Destination definitions — desktop pill and mobile dock each read from their own array. */
 const DESKTOP_DESTINATIONS = [
@@ -99,6 +99,13 @@ const isPlayer = isVideoPlayer || playerLike;
  * hides the mobile sticky header entirely (the dock is the only mobile chrome).
  */
 const isHome = activePath === '/';
+/**
+ * `/modules/` (and its subpages) swap the mobile TopBar brand + language
+ * selector for a single "← Kembali" back control: the page is a leaf surface
+ * opened from the Immersion Tools drawer, so going back is the only useful
+ * action there and the language selector lives in the Settings modal.
+ */
+const isModules = activePath === '/modules' || activePath.startsWith('/modules/');
 
 /**
  * Full serializable playerUI dictionary for the global settings dialog
@@ -130,11 +137,22 @@ const settingsUIProps = dictionary.playerUI;
   !isHome && (
     <header class="entei-topbar-mobile" role="banner">
       <div class="entei-topbar-mobile-inner">
-        <a class="entei-wordmark" href="/">
-          <HubEmblem class="entei-wordmark-emblem" />
-          <span class="entei-wordmark-text">Entei</span>
-        </a>
-        {showLanguageSelector && (
+        {isModules ? (
+          <a
+            class="entei-mobile-back"
+            href="/"
+            aria-label={dictionary.modulesPage.back}
+          >
+            <ArrowLeft class="entei-mobile-back-icon" aria-hidden="true" />
+            <span data-i18n="modulesPage.back">{dictionary.modulesPage.back}</span>
+          </a>
+        ) : (
+          <a class="entei-wordmark" href="/">
+            <HubEmblem class="entei-wordmark-emblem" />
+            <span class="entei-wordmark-text">Entei</span>
+          </a>
+        )}
+        {showLanguageSelector && !isModules && (
           <LanguageSelector
             currentLocale={locale}
             selectLabel={dictionary.language.selectLabel}
@@ -450,6 +468,30 @@ const settingsUIProps = dictionary.playerUI;
 
   .entei-wordmark-text {
     line-height: 1;
+  }
+
+  /* Mobile back control (/modules/): replaces brand + language selector. */
+  .entei-mobile-back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--entei-space-8);
+    min-height: var(--entei-touch-min);
+    padding: var(--entei-space-8) 0;
+    color: var(--entei-text);
+    font-family: var(--entei-font-body);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+
+  .entei-mobile-back:hover {
+    color: var(--entei-accent-hover);
+  }
+
+  .entei-mobile-back-icon {
+    width: 20px;
+    height: 20px;
   }
 
   /* ===========================================================================

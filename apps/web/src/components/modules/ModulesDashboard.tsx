@@ -95,8 +95,6 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
         </p>
       </header>
 
-      <h2 className="entei-modules-heading">{copy.coreHeading}</h2>
-
       <ul className="entei-modules-list">
         {CORE_MODULES.map((module) => {
           const Icon = ICONS[module.icon] ?? BookOpen;

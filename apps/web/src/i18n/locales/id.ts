@@ -450,7 +450,7 @@ export const id: Dictionary = {
     title: 'Modul',
     description:
       'Modul menyediakan streaming dan kamus tanpa aplikasi companion eksternal.',
-    coreHeading: 'Modul inti resmi',
+    back: 'Kembali',
     enabled: 'Aktif',
     disabled: 'Nonaktif',
     builtIn: 'Bawaan',

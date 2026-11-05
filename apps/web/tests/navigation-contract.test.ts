@@ -149,14 +149,21 @@ function renderTopBarHtml(opts: {
   const activePath = normalisePath(currentPath);
   const isPlayer = activePath === '/player';
   const isHome = activePath === '/';
+  const isModules =
+    activePath === '/modules' || activePath.startsWith('/modules/');
 
   // Mobile sticky header — not rendered on Home (dock-only mobile Home).
+  // `/modules/` swaps brand + language selector for a single back control.
   let html = '';
   if (!isHome) {
     html += `<header class="entei-topbar-mobile" role="banner"><div class="entei-topbar-mobile-inner">`;
-    html += `<a class="entei-wordmark" href="/"><span class="entei-wordmark-text">Entei</span></a>`;
-    if (showLanguageSelector) {
-      html += `<div class="entei-language-selector"></div>`;
+    if (isModules) {
+      html += `<a class="entei-mobile-back" href="/" data-i18n="modulesPage.back"><span>Kembali</span></a>`;
+    } else {
+      html += `<a class="entei-wordmark" href="/"><span class="entei-wordmark-text">Entei</span></a>`;
+      if (showLanguageSelector) {
+        html += `<div class="entei-language-selector"></div>`;
+      }
     }
     html += `</div></header>`;
   }
@@ -518,6 +525,37 @@ describe('Language selector condition', () => {
       showLanguageSelector: true,
     });
     expect(html).not.toContain('entei-language-selector');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  10b. /modules/ mobile TopBar = back control only                        */
+/* -------------------------------------------------------------------------- */
+describe('/modules/ mobile TopBar back control', () => {
+  for (const route of ['/modules/', '/modules'] as const) {
+    it(`${route}: back control replaces brand + language selector`, () => {
+      const html = renderTopBarHtml({
+        currentPath: route,
+        showLanguageSelector: true,
+      });
+      const root = parseHtml(html);
+      const header = root.querySelector('.entei-topbar-mobile');
+      expect(header).not.toBeNull();
+      expect(header!.querySelector('.entei-wordmark')).toBeNull();
+      expect(html).not.toContain('entei-language-selector');
+
+      const back = header!.querySelector('.entei-mobile-back');
+      expect(back).not.toBeNull();
+      expect(back!.getAttribute('href')).toBe('/');
+      expect(back!.getAttribute('data-i18n')).toBe('modulesPage.back');
+    });
+  }
+
+  it('non-modules route keeps the brand wordmark', () => {
+    const html = renderTopBarHtml({ currentPath: '/profile/' });
+    const root = parseHtml(html);
+    expect(root.querySelector('.entei-wordmark')).not.toBeNull();
+    expect(root.querySelector('.entei-mobile-back')).toBeNull();
   });
 });
 

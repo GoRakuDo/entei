@@ -450,7 +450,7 @@ export const ja: Dictionary = {
     title: 'モジュール管理',
     description:
       'モジュールは外部コンパニオンアプリなしでストリーミングと辞書を提供します。',
-    coreHeading: '公式コアモジュール',
+    back: '戻る',
     enabled: '有効',
     disabled: '無効',
     builtIn: '組み込み',

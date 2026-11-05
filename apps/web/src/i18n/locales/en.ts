@@ -445,7 +445,7 @@ export const en: Dictionary = {
     title: 'Modules',
     description:
       'Modules provide streaming and dictionaries without external companion apps.',
-    coreHeading: 'Official core modules',
+    back: 'Back',
     enabled: 'Enabled',
     disabled: 'Disabled',
     builtIn: 'Built-in',
