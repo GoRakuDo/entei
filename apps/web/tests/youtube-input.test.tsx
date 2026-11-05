@@ -574,3 +574,175 @@ describe('YouTubeInput — no pairing gate', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('YouTubeInput — desktop (Tauri) path', () => {
+  const STREAM = {
+    url: 'http://127.0.0.1:41234/stream/sess1',
+    urls: ['http://127.0.0.1:41234/stream/sess1'],
+    mode: 'video',
+    format_selector: 'best[height<=1080]',
+    relayed: true,
+  };
+  const INFO = {
+    id: 'abcdefghijk',
+    title: 'テスト動画',
+    is_live: false,
+    subtitles: ['ja'],
+  };
+
+  type Invoke = (
+    cmd: string,
+    args?: Record<string, unknown>,
+  ) => Promise<unknown>;
+
+  function stubTauri(invoke: Invoke) {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+      invoke,
+    };
+  }
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+
+  it('resolves the stream through the yt-dlp plugin and never needs a token', async () => {
+    const invoke = vi.fn<Invoke>((cmd) =>
+      Promise.resolve(cmd === 'plugin:ytdlp|stream_youtube' ? STREAM : INFO),
+    );
+    stubTauri(invoke);
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    const onStreamAccepted = vi.fn();
+    const onJobAccepted = vi.fn();
+    render(
+      <YouTubeInput
+        open={true}
+        onOpenChange={vi.fn()}
+        token={null}
+        onJobAccepted={onJobAccepted}
+        onStreamAccepted={onStreamAccepted}
+        dict={baseDict}
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
+
+    await waitFor(() =>
+      expect(onStreamAccepted).toHaveBeenCalledWith(STREAM, INFO),
+    );
+    // No companion create, no playable poll, no re-pair error.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onJobAccepted).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // The plugin receives the sanitized URL and the video mode only.
+    expect(invoke).toHaveBeenCalledWith('plugin:ytdlp|stream_youtube', {
+      url: VALID_URL,
+      mode: 'video',
+    });
+  });
+
+  it('still plays when the metadata lookup fails', async () => {
+    const invoke = vi.fn<Invoke>((cmd) =>
+      cmd === 'plugin:ytdlp|stream_youtube'
+        ? Promise.resolve(STREAM)
+        : Promise.reject(new Error('metadata failed')),
+    );
+    stubTauri(invoke);
+    const onStreamAccepted = vi.fn();
+    render(
+      <YouTubeInput
+        open={true}
+        onOpenChange={vi.fn()}
+        token={null}
+        onJobAccepted={vi.fn()}
+        onStreamAccepted={onStreamAccepted}
+        dict={baseDict}
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
+
+    await waitFor(() =>
+      expect(onStreamAccepted).toHaveBeenCalledWith(STREAM, null),
+    );
+  });
+
+  it('maps a plugin failure to the generic error without leaking details', async () => {
+    const invoke = vi.fn<Invoke>(() =>
+      Promise.reject(
+        new Error('yt-dlp failed: https://googlevideo.example/token'),
+      ),
+    );
+    stubTauri(invoke);
+    render(
+      <YouTubeInput
+        open={true}
+        onOpenChange={vi.fn()}
+        token={null}
+        onJobAccepted={vi.fn()}
+        onStreamAccepted={vi.fn()}
+        dict={baseDict}
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(baseDict.youtubeInputErrorGeneric);
+    expect(alert.textContent).not.toContain('googlevideo.example');
+  });
+
+  it('drops a late stream result after the dialog closed', async () => {
+    let resolveStream: (value: unknown) => void = () => {};
+    const invoke = vi.fn<Invoke>((cmd) =>
+      cmd === 'plugin:ytdlp|stream_youtube'
+        ? new Promise<unknown>((res) => {
+            resolveStream = res;
+          })
+        : Promise.reject(new Error('no metadata')),
+    );
+    stubTauri(invoke);
+    const onStreamAccepted = vi.fn();
+    const { rerender } = render(
+      <YouTubeInput
+        open={true}
+        onOpenChange={vi.fn()}
+        token={null}
+        onJobAccepted={vi.fn()}
+        onStreamAccepted={onStreamAccepted}
+        dict={baseDict}
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
+    rerender(
+      <YouTubeInput
+        open={false}
+        onOpenChange={vi.fn()}
+        token={null}
+        onJobAccepted={vi.fn()}
+        onStreamAccepted={onStreamAccepted}
+        dict={baseDict}
+      />,
+    );
+    resolveStream(STREAM);
+    await waitFor(() => expect(invoke).toHaveBeenCalled());
+    expect(onStreamAccepted).not.toHaveBeenCalled();
+  });
+});

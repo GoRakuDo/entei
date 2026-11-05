@@ -150,6 +150,10 @@ import {
 } from '@/features/player/lazy-sync';
 
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
+import type {
+  YtdlpStreamSource,
+  YtdlpVideoInfo,
+} from '@/features/player/tauri-bridge';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
@@ -1568,6 +1572,63 @@ export default function PlayerApp() {
       );
     },
     [],
+  );
+
+  // ED-2F desktop path: the Tauri yt-dlp plugin resolves the stream in-process,
+  // so its loopback relay URL is mounted as the media URL directly. There is no
+  // companion job session and no capability token on this path.
+  const handleYouTubeStreamAccepted = useCallback(
+    (source: YtdlpStreamSource, info: YtdlpVideoInfo | null) => {
+      const p = dictRef.current.playerUI;
+      // Relay guard: `relayed === false` means the loopback relay could not bind
+      // and the plugin fell back to the raw upstream URLs, which are tokenised
+      // and expire within minutes. Never mount one (it would die mid-playback
+      // and leak the tokenised URL into the media element). Generic toast only.
+      if (!source.relayed) {
+        setIsYouTubeDialogOpen(false);
+        notifyCompanionError(p.youtubeInputErrorGeneric);
+        return;
+      }
+      // Dual-stream guard: `urls.length > 1` is yt-dlp's video+audio fallback
+      // (`bestvideo+bestaudio`). The player mounts a single <video> element, so
+      // urls[0] would play a silent picture. The plugin's selector prefers a
+      // muxed stream first, so this only happens for videos with no muxed
+      // format at all — fail loudly instead of playing silent video.
+      // Note: attaching a separate audio track is deferred (needs a second
+      // media element plus drift correction inside VideoPlayer).
+      if (source.urls.length > 1) {
+        setIsYouTubeDialogOpen(false);
+        notifyCompanionError(p.youtubeInputErrorGeneric);
+        return;
+      }
+      watchHistoryRecordedRef.current = false;
+      mediaFileRef.current = null;
+      const videoId = youtubeVideoIdRef.current;
+      startWatchSession(videoId ? `youtube:${videoId}` : null, null);
+      // New media identity: drop the previous subtitles and mining captures.
+      subtitleTextRef.current = null;
+      setCues([]);
+      setSubtitleErrors([]);
+      setActiveCueId(null);
+      clearScreenshot();
+      clearAudioClip();
+      clearMiningPreview();
+      // Release the previous local blob URL before switching sources, otherwise
+      // every YouTube source switch leaks the prior object URL until unmount.
+      revokeUrl(activeUrlRef.current);
+      activeUrlRef.current = source.url;
+      setMediaUrl(source.url);
+      setMediaType('video');
+      // mediaName feeds the subtitle panel title and the mining source label.
+      setMediaName(info ? sanitizeDisplayName(info.title) : (videoId ?? ''));
+      setIsYouTubeDialogOpen(false);
+    },
+    [
+      startWatchSession,
+      clearScreenshot,
+      clearAudioClip,
+      clearMiningPreview,
+    ],
   );
 
   const handleMediaSelect = useCallback(
@@ -5161,6 +5222,7 @@ export default function PlayerApp() {
           isPaired={pairing.connected}
           token={pairing.tokenRef.current}
           onJobAccepted={handleYouTubeJobAccepted}
+          onStreamAccepted={handleYouTubeStreamAccepted}
           onVideoIdParsed={handleYouTubeVideoIdParsed}
           cancelActiveJob={jobSession.cancelActiveJob}
           dict={{

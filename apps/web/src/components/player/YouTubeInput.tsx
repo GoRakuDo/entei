@@ -41,6 +41,14 @@ import {
 import { isFirefox } from '@/features/player/browser-detect';
 import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
 import { waitForPlayable } from '@/features/player/companion-media';
+import {
+  isTauri,
+  streamYouTubeDirect,
+  getVideoInfoDirect,
+  type YtdlpStreamMode,
+  type YtdlpStreamSource,
+  type YtdlpVideoInfo,
+} from '@/features/player/tauri-bridge';
 
 /** Loopback companion origin; the only accepted job endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -68,7 +76,7 @@ const QUALITY_OPTIONS: readonly {
   label: string;
   mode: YtDownloadMode;
 }[] = [
-  { value: '1080p', label: 'HD 1080p', mode: 'quality' },
+  { value: '1080p', label: 'FHD 1080p', mode: 'quality' },
   { value: '720p', label: 'HD 720p', mode: 'speed' },
 ];
 
@@ -83,6 +91,22 @@ function qualityMode(quality: YouTubeQuality): YtDownloadMode {
   return (
     QUALITY_OPTIONS.find((option) => option.value === quality)?.mode ?? 'speed'
   );
+}
+
+/**
+ * Quality → yt-dlp plugin mode for the desktop (Tauri) path.
+ *
+ * The plugin's mode contract is `video` | `audio` and `stream_youtube` takes no
+ * height argument — its format selector caps at 1080p and prefers a muxed
+ * stream — so every height currently resolves to `video`. Kept as a mapping
+ * instead of a hard-coded literal so a future height argument only has to touch
+ * this table.
+ *
+ * Note: until that argument exists the Select is UI-only on the desktop path;
+ * the chosen height never reaches yt-dlp there.
+ */
+function desktopStreamMode(_quality: YouTubeQuality): YtdlpStreamMode {
+  return 'video';
 }
 
 /** Mobile (<768px) stacks the button groups vertically (mockup). */
@@ -124,6 +148,18 @@ interface YouTubeInputProps {
   token: string | null;
   /** Called with the opaque job id once the companion accepted the job. */
   onJobAccepted: (jobId: string) => void;
+  /**
+   * Desktop (Tauri) path: called with the resolved stream instead of a job id.
+   * The desktop app runs the yt-dlp plugin in-process, so there is no companion
+   * and no capability token — `source.url` is a loopback relay URL the player
+   * can mount directly. `info` carries the title/subtitles when the parallel
+   * metadata lookup succeeded, and is null when it did not (playback still
+   * works). Omitted in the browser build.
+   */
+  onStreamAccepted?: (
+    source: YtdlpStreamSource,
+    info: YtdlpVideoInfo | null,
+  ) => void;
   /** Supplies the accepted video's id without retaining the raw watch URL. */
   onVideoIdParsed?: (videoId: string) => void;
   /** Fire-and-forget cancel of the currently active YouTube job.
@@ -253,6 +289,7 @@ export function YouTubeInput({
   onOpenChange,
   token,
   onJobAccepted,
+  onStreamAccepted,
   onVideoIdParsed,
   cancelActiveJob,
   dict,
@@ -305,13 +342,10 @@ export function YouTubeInput({
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    // The form is never gated on pairing. Without a capability token the
-    // companion would reject the create, so surface the localized
-    // re-pair message instead of failing silently.
-    if (!token) {
-      setError('repair');
-      return;
-    }
+    // Desktop (Tauri) runs the yt-dlp plugin in-process: no companion, no
+    // capability token, no job polling. The browser build keeps the companion
+    // contract and its re-pair message.
+    const desktop = isTauri();
     // Firefox playback guard: block all media selection with a toast
     if (isFirefox()) {
       notifyFirefoxUnsupported(dict.firefoxUnsupported);
@@ -320,6 +354,43 @@ export function YouTubeInput({
     const sanitizedUrl = sanitizeYouTubeUrl(url);
     if (!isYouTubeUrlShape(sanitizedUrl)) {
       setError('invalid');
+      return;
+    }
+    if (desktop) {
+      if (!onStreamAccepted) {
+        setError('generic');
+        return;
+      }
+      setSubmitting(true);
+      setError(null);
+      try {
+        // Mode comes from the quality Select (see desktopStreamMode). The
+        // metadata lookup runs in parallel and is optional (title/subtitles
+        // only).
+        const [source, info] = await Promise.all([
+          streamYouTubeDirect(sanitizedUrl, desktopStreamMode(quality)),
+          getVideoInfoDirect(sanitizedUrl).catch(() => null),
+        ]);
+        if (!mountedRef.current || !openRef.current) return; // stale close/unmount
+        const videoId = parseYouTubeVideoId(sanitizedUrl);
+        setUrl('');
+        setSubmitting(false);
+        if (videoId !== null) onVideoIdParsed?.(videoId);
+        onStreamAccepted(source, info);
+      } catch {
+        // Plugin failures (yt-dlp missing, extraction error) stay generic:
+        // the raw message can name the tokenised upstream URL.
+        setError('generic');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+    // Browser build: the form is never gated on pairing, but without a
+    // capability token the companion would reject the create, so surface the
+    // localized re-pair message instead of failing silently.
+    if (!token) {
+      setError('repair');
       return;
     }
     // Server-side auto-cancel now handles this (ANY state): the create
@@ -414,6 +485,7 @@ export function YouTubeInput({
     url,
     quality,
     onJobAccepted,
+    onStreamAccepted,
     onVideoIdParsed,
     cancelActiveJob,
   ]);
@@ -476,9 +548,13 @@ export function YouTubeInput({
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="entei-youtube-quality-content">
                 {QUALITY_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
+                  <SelectItem
+                    key={option.value}
+                    className="entei-youtube-quality-item"
+                    value={option.value}
+                  >
                     {option.label}
                   </SelectItem>
                 ))}
