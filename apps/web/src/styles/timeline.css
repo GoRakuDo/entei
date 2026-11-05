@@ -679,10 +679,34 @@
     padding: 0 var(--entei-space-16);
   }
 
-  /* The thread runs edge to edge: the header loses the horizontal inset the
-     desktop column has room for. */
+  /* On mobile detail view, expand to full width so the header spans edge to edge */
+  .entei-timeline-root--detail {
+    max-width: none;
+  }
+
+  /* Mobile has no separate page top bar on Home, so the thread header IS the
+     surface top bar: full-bleed across the page gutter, topbar height and
+     safe-area padding, exactly like `.entei-topbar-mobile` on /modules/. */
   .entei-timeline-detail-head {
     gap: var(--entei-space-8);
+    z-index: var(--entei-z-topbar);
+    min-height: var(--entei-topbar-height);
+    margin-inline: calc(var(--entei-gutter) * -1);
+    padding: calc(var(--entei-safe-top) + var(--entei-space-8))
+      var(--entei-gutter) var(--entei-space-8);
+    background-color: var(--entei-bg);
+  }
+
+  /* Topbar back control: 44px touch target, no pill inset. */
+  .entei-timeline-back {
+    min-height: var(--entei-touch-min);
+    padding-inline: 0;
+    font-size: 0.9375rem;
+    letter-spacing: 0.01em;
+  }
+
+  .entei-timeline-detail-title {
+    font-size: 1rem;
   }
 
   .entei-timeline-reply {
