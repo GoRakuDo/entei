@@ -467,6 +467,9 @@ Minimum visual checks:
   rounded dialog are forbidden.
 - A dialog is never left with a raw rectangular frame while its siblings are
   rounded.
+- Dialog title and the first form field keep generous vertical breathing room
+  (`var(--entei-space-24)`). A title header sitting tight against the first
+  field label is forbidden; the header owns that space, not the form body.
 
 ### 8.9 Joined Control Groups
 
@@ -483,6 +486,53 @@ Minimum visual checks:
   segments and a subtle muted border.
 - When the group stacks vertically on mobile, the wrapper surface is dropped
   and each segment carries its own border and radius.
+
+#### 8.9.1 Joined Button Pairs (single continuous container)
+
+- Two actions joined into a pair (for example Cancel | Submit) must read as one
+  continuous outer container. Rendering two independently rounded buttons that
+  touch — leaving a rounded seam and a double gap in the middle — is forbidden.
+- Left button: left rounded corners only
+  (`border-radius: var(--entei-radius-md) 0 0 var(--entei-radius-md)`).
+- Right button: right rounded corners only
+  (`border-radius: 0 var(--entei-radius-md) var(--entei-radius-md) 0`).
+- Between the two segments there is exactly one flat 1px vertical hairline. It is
+  owned by a single side (`border-left` on the right button) while the left
+  button sets `border-right-width: 0`. Two adjacent borders forming a 2px seam
+  are forbidden.
+- Hover, active, and disabled states apply per segment and must never draw an
+  outer ring that re-separates the pair.
+
+### 8.10 Vertical Alignment and Hairline Precision
+
+#### 8.10.1 The 2px offset rule (wrapper border compensation)
+
+When a joined control group (Input + Select) sits above an actions row
+(Cancel | Submit) and a hairline or button edge is meant to align vertically,
+the wrapper border must be accounted for explicitly:
+
+- The wrapper carries a 1px border. An inner segment of `width: W` inside it
+  ends at `(right - 1px) - W`.
+- A bottom button of `width: W` flush against the same edge ends at `right - W`.
+- If the bottom button also grew due to `min-width` and localized text padding,
+  the resulting visual offset measures as a 2px to 4px jagged misalignment.
+- Therefore, to reach a 0px delta between the two hairlines, the inner segment
+  must be `width: calc(W - 1px)` — never the bare `W`.
+- Action buttons aligned to a fixed-width control above them use an explicit
+  `width: W`. `min-width` is forbidden there, because a long localized label
+  (for example "Streaming Sekarang") would grow the button and push its edge past
+  the intended alignment column.
+- Alignment is verified in the rendered browser at the real locale, not assumed
+  from source order.
+
+### 8.11 Select Popovers (width lock and active color)
+
+- A `SelectContent` popover is locked to its trigger width with
+  `width: var(--radix-select-trigger-width)`. It must never spill past the right
+  boundary of the trigger or the dialog.
+- Selected / active dropdown items never use the unstyled default accent fill.
+  They use Entei semantic tokens: `--entei-btn-color` as the item background and
+  `--entei-status-locked` for the label and the check icon.
 
 ---
 
@@ -610,6 +660,12 @@ Minimum visual checks:
 - Pure white (`oklch(100% 0 0deg)` without alpha) borders
 - An `X` close button alongside a Cancel button in the same dialog
 - Mismatched control heights inside a joined Input + Select group
+- Two independently rounded buttons touching as a joined action pair
+- A 2px double-border seam between joined buttons
+- `min-width` on an action button that must align to a fixed-width control above
+- An inner segment sized `W` when the wrapper border requires `calc(W - 1px)`
+- A `SelectContent` popover that is not width-locked to its trigger
+- Unstyled default accent fill on a selected dropdown item
 
 ---
 
