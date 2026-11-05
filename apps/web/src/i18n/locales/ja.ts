@@ -299,8 +299,11 @@ export const ja: Dictionary = {
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTubeストリーミング',
+    youtubeInputFieldLabel: 'ストリーミングするYouTubeリンク:',
+    youtubeInputQuality: '画質',
+    youtubeInputCancel: 'キャンセル',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
-    youtubeInputSubmit: 'ダウンロード開始',
+    youtubeInputSubmit: 'ストリーミング開始',
     youtubeInputErrorInvalid: 'YouTubeのURLが無効です。',
     youtubeInputErrorRepair:
       '再接続が必要です。「セットアップ」から接続し直してください。',

@@ -3604,10 +3604,10 @@ export default function PlayerApp() {
     });
   }, []);
 
-  // Pairing entry point moved into the EizouDen settings tab, which the nav
-  // settings island renders. A pair performed there hands the opaque token
-  // over this bridge so Magnet / YouTube unlock immediately instead of after
-  // a reload; the pairing hook validates the token (fail closed).
+  // Pairing handoff bridge. The EizouDen settings tab (its former UI entry
+  // point) was retired, so nothing dispatches this event right now; the
+  // listener is kept because the pairing hook still owns token validation
+  // (fail closed) and the planned Modules page will dispatch it again.
   useEffect(() => {
     return listenForCompanionPaired((token) => {
       pairing.handlePairSuccess(token);
@@ -5166,6 +5166,9 @@ export default function PlayerApp() {
           dict={{
             youtubeInputLabel: dict.youtubeInputLabel,
             youtubeInputTitle: dict.youtubeInputTitle,
+            youtubeInputFieldLabel: dict.youtubeInputFieldLabel,
+            youtubeInputQuality: dict.youtubeInputQuality,
+            youtubeInputCancel: dict.youtubeInputCancel,
             youtubeInputPlaceholder: dict.youtubeInputPlaceholder,
             youtubeInputSubmit: dict.youtubeInputSubmit,
             youtubeInputErrorInvalid: dict.youtubeInputErrorInvalid,

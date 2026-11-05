@@ -5083,6 +5083,114 @@ html.entei-player-immersive .entei-player-audio-area {
   font-size: 0.875rem;
 }
 
+/* --- ED-2F YouTube dialog — mockup layout (gold pixel title, URL + quality
+ * ButtonGroup, Cancel/Stream Now ButtonGroup) --- */
+
+/* Gold pixel heading — matches the mockup title treatment. */
+.entei-youtube-dialog-title {
+  color: var(--entei-status-locked);
+  font-family: var(--entei-font-system);
+}
+
+/* Visible field label above the URL row. */
+.entei-youtube-form-label {
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+/* URL input + quality Select share one joined ButtonGroup on desktop and
+ * stack (URL on top, quality below) below 768px. */
+.entei-youtube-input-group {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+}
+
+.entei-youtube-input-group .entei-youtube-url-input {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  min-height: var(--entei-touch-min);
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+}
+
+/* Quality trigger keeps the ButtonGroup's flat, joined surface. */
+.entei-youtube-input-group .entei-youtube-quality {
+  flex-shrink: 0;
+  height: auto;
+  min-height: var(--entei-touch-min);
+  background-color: var(--entei-btn-hover-bg);
+  border-color: transparent;
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+}
+
+.entei-youtube-input-group .entei-youtube-quality:hover {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-text);
+}
+
+/* Actions row: right-aligned joined pair on desktop; separate stacked
+ * buttons on mobile with Stream Now on top and Cancel below (mockup). */
+.entei-youtube-actions {
+  width: 100%;
+}
+
+.entei-youtube-actions > button {
+  min-height: var(--entei-touch-min);
+  border-radius: var(--entei-radius-md);
+  font-size: 0.875rem;
+}
+
+@media (min-width: 768px) {
+  .entei-youtube-actions {
+    /* DOM order is Stream Now → Cancel (mobile stacking order). Mirror the
+       row so Cancel sits on the left and Stream Now on the right (mockup),
+       packed against the right edge. */
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+  }
+
+  /* The joined-pair utilities key off DOM order, which row-reverse mirrors:
+     restore Cancel's outer (left) border so the pair reads as one surface. */
+  .entei-youtube-actions > .entei-youtube-cancel {
+    border-left-width: 1px;
+  }
+}
+
+/* Mobile (<768px): the joined groups split into separate, fully rounded
+ * controls (mockup): URL input, then quality Select, then Stream Now, then
+ * Cancel. ButtonGroup's vertical join rules are overridden here — this
+ * block is emitted after the Tailwind utilities, so equal-specificity
+ * declarations win. */
+@media (max-width: 767px) {
+  .entei-youtube-input-group,
+  .entei-youtube-actions {
+    gap: var(--entei-space-8);
+  }
+
+  .entei-youtube-actions {
+    /* DOM order is Stream Now → Cancel, which is also the stacked order. */
+    flex-direction: column;
+  }
+
+  .entei-youtube-input-group > .entei-youtube-url-input,
+  .entei-youtube-input-group > .entei-youtube-quality,
+  .entei-youtube-actions > .entei-youtube-cancel,
+  .entei-youtube-actions > .entei-youtube-form-submit {
+    width: 100%;
+    border-radius: var(--entei-radius-md);
+  }
+
+  .entei-youtube-input-group > .entei-youtube-quality {
+    border: 1px solid oklch(100% 0 0deg / 0.08);
+    background-color: var(--entei-surface-2);
+  }
+}
+
 /* ===========================================================================
  * ED-3 — EizouDendenshi setup section + pairing dialog
  * ---------------------------------------------------------------------------

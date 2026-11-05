@@ -293,8 +293,11 @@ export const en: Dictionary = {
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTube streaming',
+    youtubeInputFieldLabel: 'Link the YouTube video to stream:',
+    youtubeInputQuality: 'Quality',
+    youtubeInputCancel: 'Cancel',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
-    youtubeInputSubmit: 'Start download',
+    youtubeInputSubmit: 'Stream Now',
     youtubeInputErrorInvalid: 'Invalid YouTube URL.',
     youtubeInputErrorRepair:
       'The connection needs re-pairing. Open Setup and connect again.',

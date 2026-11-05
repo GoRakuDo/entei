@@ -296,8 +296,11 @@ export const id: Dictionary = {
     // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
     youtubeInputLabel: 'URL YouTube',
     youtubeInputTitle: 'Streaming YouTube',
+    youtubeInputFieldLabel: 'Link Video YouTube untuk Streaming:',
+    youtubeInputQuality: 'Kualitas',
+    youtubeInputCancel: 'Batal',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
-    youtubeInputSubmit: 'Mulai unduh',
+    youtubeInputSubmit: 'Streaming Sekarang',
     youtubeInputErrorInvalid: 'URL YouTube tidak valid.',
     youtubeInputErrorRepair:
       'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',

@@ -133,7 +133,7 @@ YouTube は「即再生」と「画質」がトレードオフ。**ユーザー�
 | **Speed（即再生優先・既定（2026-08-08 変更・2026-08-29 フォールバック追加））** | プログレッシブ最優先（`37`/`22`/`18` 等。プログレッシブ不在時は DASH へフォールバック = `b/bv*[height<=1080]+ba/b[height<=1080]/b`） | **DL 中から HTTP Range で配信し、Player が playable で即再生**（DASH フォールバック時は mux 完了後に再生） | 動画次第（360p〜1080p）。プログレッシブ優先、無ければ DASH 1080p |
 
 **設定 UI（どこからでも開ける）**
-- プレイヤー設定モーダル（デスクトップで Player の Settings から）に **「EizouDen」タブを新規追加**し、Quality / Speed Toggle を置く（localStorage `entei.eizou.yt-mode.v1` 等に保存、既定 Speed（2026-08-08 変更: 従来 Quality））。
+- プレイヤー設定モーダル（デスクトップで Player の Settings から）に **「EizouDen」タブを新規追加**し、Quality / Speed Toggle を置く（localStorage `entei.eizou.yt-mode.v1` 等に保存、既定 Speed（2026-08-08 変更: 従来 Quality））。**→ 2026-10-05 にこのタブを撤去**（画質選択は YouTube ソースダイアログの Quality Select へ移動）。詳細は「開発記録（2026-10-05）」を参照。
 - **TopBar ナビゲーションに「設定」ボタンを追加**（Home / Tracker でも設定モーダルを開ける）。
 - **モバイル下ナビゲーション**: 「ホーム / プレイヤー / 設定」の順（2026-09-06更新: Tracker から Player へ再配置）。
 
@@ -895,6 +895,13 @@ MKVに複数音声トラック（例: 日本語AC-3 + 英語AAC）がある場�
 **チュートリアル側の暫定対応:** チュートリアルは短縮URL（entei.gorakudo.org/eizouden-install.*）を使用、中身は GitHub API（`/releases/latest`）を通じて最新 stable bootstrap へ自動委譲されるためリリース毎のラッパー更新は不要。channel 分離実装まで一般ユーザーは最新 stable 自動追従、rc 追従はテスターが手動で行う。
 
 **トリガー:** チュートリアルページ完成後、次の EizouDendenshi release 作業時に本節を実装する。
+
+### 開発記録（2026-10-05）: 設定モーダルから「EizouDen」タブを撤去
+
+- **web**: Settings モーダル（`SettingsTabs`）から EizouDen タブを撤去した。`TabsTrigger` / `TabsContent` と `EizouDenSettingsTab` の import、および `SettingsTabs` / `PlayerSettingsDialog` / `EizouSettingsDialog` の pairing 系 props（`onResetPairing` / `isPaired` / `onPairSuccess` / `locale`）配線を削除。
+- **理由**: YouTube の画質選択は YouTube ソースダイアログ側（Quality Select）へ移り、設定タブの Quality / Speed ラジオは二重管理になっていた。
+- **残置（意図的）**: `EizouDenSettingsTab.tsx`・`tests/eizouden-settings-tab.test.tsx`・`.entei-eizouden-*` / `.entei-eizou-*` CSS は物理削除せず残置。Modules ページ移設時に再利用する（A 案・段階的移行）。
+- **既知の制約（新規）**: 設定モーダルが唯一の companion pairing 入口だったため、現時点で **UI から pairing / pairing reset を実行する手段がない**。`PlayerApp` の `listenForCompanionPaired` ブリッジと `useCompanionPairing` は温存しており、Modules ページ実装時に入口を再設置する。
 
 ## 既知の制約
 

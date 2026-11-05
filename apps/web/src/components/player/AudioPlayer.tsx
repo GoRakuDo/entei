@@ -835,9 +835,12 @@ export default function AudioPlayer({
         }
       }}
     >
-      <DialogContent closeLabel={youtubeDict.dialogClose}>
+      <DialogContent
+        className="entei-youtube-dialog"
+        closeLabel={youtubeDict.dialogClose}
+      >
         <DialogHeader>
-          <DialogTitle className="entei-magnet-dialog-title">
+          <DialogTitle className="entei-magnet-dialog-title entei-youtube-dialog-title">
             <YouTubeMark width={16} height={16} aria-hidden="true" />
             {youtubeDict.youtubeInputTitle}
           </DialogTitle>
@@ -864,22 +867,35 @@ export default function AudioPlayer({
                 {youtubeErrorMessage}
               </p>
             )}
-            <Button
-              type="button"
-              className="entei-youtube-form-submit"
-              onClick={() => void handleYouTubeSubmit()}
-              disabled={youtubeSubmitting || youtubeUrl.trim() === ''}
-              aria-label={youtubeDict.youtubeInputSubmit}
+            <ButtonGroup
+              orientation="horizontal"
+              className="entei-youtube-actions"
             >
-              {youtubeSubmitting ? (
-                <TypewriterLoading
-                  aria-hidden="true"
-                  className="entei-typewriter--btn"
-                />
-              ) : (
-                youtubeDict.youtubeInputSubmit
-              )}
-            </Button>
+              <Button
+                type="submit"
+                className="entei-youtube-form-submit"
+                onClick={() => void handleYouTubeSubmit()}
+                disabled={youtubeSubmitting || youtubeUrl.trim() === ''}
+                aria-label={youtubeDict.youtubeInputSubmit}
+              >
+                {youtubeSubmitting ? (
+                  <TypewriterLoading
+                    aria-hidden="true"
+                    className="entei-typewriter--btn"
+                  />
+                ) : (
+                  youtubeDict.youtubeInputSubmit
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="entei-youtube-cancel"
+                onClick={() => setIsYouTubeDialogOpen(false)}
+              >
+                {youtubeDict.youtubeInputCancel}
+              </Button>
+            </ButtonGroup>
           </div>
         ) : null}
       </DialogContent>

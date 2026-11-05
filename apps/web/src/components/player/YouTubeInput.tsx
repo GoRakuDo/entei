@@ -24,10 +24,21 @@ import {
   DialogTitle,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
+import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from '@/components/player/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/player/ui/select';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
-import { readYtDownloadMode } from '@/features/player/yt-download-mode';
+import {
+  readYtDownloadMode,
+  type YtDownloadMode,
+} from '@/features/player/yt-download-mode';
 import { isFirefox } from '@/features/player/browser-detect';
 import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
 import { waitForPlayable } from '@/features/player/companion-media';
@@ -38,9 +49,57 @@ const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
 type ErrorKind =
   'invalid' | 'repair' | 'conflict' | 'network' | 'generic' | null;
 
+/**
+ * Quality options shown in the dialog's Select.
+ *
+ * Note: the companion create contract (`POST /v1/source/jobs`) only accepts
+ * `url` + `mode` — there is no height parameter yet (quality is capped at
+ * 1080p server-side). Until that wiring lands, the selected option maps onto
+ * the existing mode contract: 1080p opts into the DASH `quality` strategy,
+ * every other height keeps the instant-playback `speed` strategy. The
+ * selected height is UI state only and never persisted.
+ */
+type YouTubeQuality = '1080p' | '720p' | '480p' | '360p';
+
+const QUALITY_OPTIONS: readonly {
+  value: YouTubeQuality;
+  label: string;
+  mode: YtDownloadMode;
+}[] = [
+  { value: '1080p', label: 'HD 1080p', mode: 'quality' },
+  { value: '720p', label: 'HD 720p', mode: 'speed' },
+  { value: '480p', label: 'SD 480p', mode: 'speed' },
+  { value: '360p', label: 'SD 360p', mode: 'speed' },
+];
+
+const DEFAULT_QUALITY: YouTubeQuality = '720p';
+
+/** Seed the Select from the persisted EizouDen mode (quality → 1080p). */
+function initialQuality(): YouTubeQuality {
+  return readYtDownloadMode() === 'quality' ? '1080p' : DEFAULT_QUALITY;
+}
+
+function qualityMode(quality: YouTubeQuality): YtDownloadMode {
+  return (
+    QUALITY_OPTIONS.find((option) => option.value === quality)?.mode ?? 'speed'
+  );
+}
+
+/** Mobile (<768px) stacks the button groups vertically (mockup). */
+function isMobileLayout(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(max-width: 767px)').matches
+  );
+}
+
 export interface YouTubeInputDict {
   youtubeInputLabel: string;
   youtubeInputTitle: string;
+  youtubeInputFieldLabel: string;
+  youtubeInputQuality: string;
+  youtubeInputCancel: string;
   youtubeInputPlaceholder: string;
   youtubeInputSubmit: string;
   youtubeInputErrorInvalid: string;
@@ -197,6 +256,8 @@ export function YouTubeInput({
   dict,
 }: YouTubeInputProps) {
   const [url, setUrl] = useState('');
+  const [quality, setQuality] = useState<YouTubeQuality>(initialQuality);
+  const [isMobile, setIsMobile] = useState(isMobileLayout);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ErrorKind>(null);
   // Stale-callback guards: a submit that resolves after the dialog closed
@@ -227,8 +288,19 @@ export function YouTubeInput({
     if (open) {
       setUrl('');
       setError(null);
+      setQuality(initialQuality());
     }
   }, [open]);
+
+  // Track the mobile breakpoint so the ButtonGroups can stack vertically.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const handleChange = (event: MediaQueryListEvent) =>
+      setIsMobile(event.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!isPaired || !token) return;
@@ -258,9 +330,10 @@ export function YouTubeInput({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             url: sanitizedUrl,
-            // YouTube DL mode (Quality/Speed) from the EizouDen settings tab;
-            // the companion defaults to speed when the field is absent.
-            mode: readYtDownloadMode(),
+            // Mode contract (url + mode only): the Select's height maps onto
+            // the existing quality/speed strategies until a height parameter
+            // exists in the companion create endpoint.
+            mode: qualityMode(quality),
           }),
           cache: 'no-store',
         },
@@ -332,59 +405,110 @@ export function YouTubeInput({
     isPaired,
     token,
     url,
+    quality,
     onJobAccepted,
     onVideoIdParsed,
     cancelActiveJob,
   ]);
 
+  const orientation = isMobile ? 'vertical' : 'horizontal';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={dict.dialogClose}>
+      <DialogContent className="entei-youtube-dialog" closeLabel={dict.dialogClose}>
         <DialogHeader>
-          <DialogTitle className="entei-magnet-dialog-title">
+          <DialogTitle className="entei-magnet-dialog-title entei-youtube-dialog-title">
             <YouTubeMark width={16} height={16} aria-hidden="true" />
             {dict.youtubeInputTitle}
           </DialogTitle>
         </DialogHeader>
         {isPaired ? (
-          <div className="entei-youtube-form">
-            <Input
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              placeholder={dict.youtubeInputPlaceholder}
-              aria-label={dict.youtubeInputLabel}
-              aria-invalid={error !== null}
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !submitting) {
-                  void handleSubmit();
-                }
-              }}
-            />
+          <form
+            className="entei-youtube-form"
+            // Our own shape check owns validation so the localized error
+            // message shows instead of the browser's native URL bubble.
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!submitting) void handleSubmit();
+            }}
+          >
+            <label
+              className="entei-youtube-form-label"
+              htmlFor="entei-youtube-url-input"
+            >
+              {dict.youtubeInputFieldLabel}
+            </label>
+            <ButtonGroup
+              orientation={orientation}
+              className="entei-youtube-input-group"
+            >
+              <Input
+                id="entei-youtube-url-input"
+                className="entei-youtube-url-input"
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                placeholder={dict.youtubeInputPlaceholder}
+                aria-invalid={error !== null}
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+              <Select
+                value={quality}
+                onValueChange={(value) => setQuality(value as YouTubeQuality)}
+              >
+                <SelectTrigger
+                  className="entei-youtube-quality"
+                  aria-label={dict.youtubeInputQuality}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {QUALITY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </ButtonGroup>
             {error !== null && (
               <p className="entei-youtube-form-error" role="alert">
                 {errorMessages[error](dict)}
               </p>
             )}
-            <Button
-              type="button"
-              className="entei-youtube-form-submit"
-              onClick={() => void handleSubmit()}
-              disabled={submitting || url.trim() === ''}
-              aria-label={dict.youtubeInputSubmit}
+            <ButtonGroup
+              orientation={orientation}
+              className="entei-youtube-actions"
             >
-              {submitting ? (
-                <TypewriterLoading
-                  aria-hidden="true"
-                  className="entei-typewriter--btn"
-                />
-              ) : (
-                dict.youtubeInputSubmit
-              )}
-            </Button>
-          </div>
+              {/* DOM order is Stream Now → Cancel (mobile stacking order).
+                  Desktop CSS mirrors the row so Cancel sits left. */}
+              <Button
+                type="submit"
+                className="entei-youtube-form-submit"
+                disabled={submitting || url.trim() === ''}
+                aria-label={dict.youtubeInputSubmit}
+              >
+                {submitting ? (
+                  <TypewriterLoading
+                    aria-hidden="true"
+                    className="entei-typewriter--btn"
+                  />
+                ) : (
+                  dict.youtubeInputSubmit
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="entei-youtube-cancel"
+                onClick={() => onOpenChange(false)}
+              >
+                {dict.youtubeInputCancel}
+              </Button>
+            </ButtonGroup>
+          </form>
         ) : null}
       </DialogContent>
     </Dialog>

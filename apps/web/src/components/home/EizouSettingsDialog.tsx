@@ -4,32 +4,20 @@
  * ---------------------------------------------------------------------------
  * NAVIGATION_BAR.md "設定ボタンの追加 (2026-08-07)": the Settings modal can
  * be opened from any page and shows the SAME settings as the Player modal —
- * the shared SettingsTabs body (Player / Subtitle / EizouDen / Anki Fields).
+ * the shared SettingsTabs body (Player / Subtitle / Nadeshiko / Anki Fields).
  *
  * Only the title differs (settingsTitleGlobal "Settings" vs the player's
  * "Player Settings"); the keyboard-shortcut reference is rebuilt from the
  * same dictionary the Player uses, so the Player tab is identical.
  *
  * The dict string props are supplied by the Astro TopBar (serializable —
- * playerUI is all strings), so the island boundary stays JSON-clean. The
- * ED-3 pairing reset is self-contained INSIDE this island (read token →
- * companion DELETE → clear store), so Home / Tracker also show the
- * "Reset pairing" control in the EizouDen tab — without starting a second
- * status-poll loop (the Player's own hook already polls shared
- * localStorage).
- *
- * PAIRING ENTRY POINT (Phase 2 transition): the Player empty state no longer
- * hosts EizouDendenshiSetup, so the EizouDen tab owns pairing. This island
- * reads the stored token when the dialog opens (unpaired → "Pairing" button),
- * persists the token from EizouDendenshiPairingDialog, and forwards it to the
- * Player island through the settings-bridge COMPANION_PAIRED event so Magnet /
- * YouTube unlock without a reload.
+ * playerUI is all strings), so the island boundary stays JSON-clean.
  * ---------------------------------------------------------------------------
  */
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Settings } from 'lucide-react';
 import {
   Dialog,
@@ -42,16 +30,9 @@ import { LanguageCombobox } from '@/components/home/LanguageCombobox';
 import { buildShortcuts } from '@/features/player/player-shortcuts';
 import {
   dispatchAnkiSessionCredentials,
-  dispatchCompanionPaired,
   dispatchSubtitleSettingsChange,
   listenForOpenSettings,
 } from '@/features/player/settings-bridge';
-import {
-  readStoredPairingToken,
-  clearStoredPairingToken,
-  writeStoredPairingToken,
-  COMPANION_PAIRING_BASE_URL,
-} from '@/features/player/companion-pairing-store';
 import { LOCALE_CHANGE_EVENT, type LocaleChangeDetail } from '@i18n/locale-events';
 import type { Dictionary, Locale } from '@i18n/types';
 
@@ -88,14 +69,6 @@ export function EizouSettingsDialog({
   languageLabel = 'Language',
 }: EizouSettingsDialogProps) {
   const [open, setOpen] = useState(false);
-  /** Paired state for the EizouDen tab's pairing entry point. Read from the
-   *  shared opaque store whenever the dialog opens (the Player island keeps
-   *  the live status poll; this island only needs the entry-point gate). */
-  const [isPaired, setIsPaired] = useState(false);
-
-  useEffect(() => {
-    if (open) setIsPaired(readStoredPairingToken() !== null);
-  }, [open]);
 
   /* Localized strings for the trigger + language row. The nav labels are
    * rendered by a React island, so the locale-switcher's data-i18n pass
@@ -133,38 +106,6 @@ export function EizouSettingsDialog({
     if (!handlesEvent) return;
     return listenForOpenSettings(() => setOpen(true));
   }, [variant]);
-
-  /** ED-3 explicit destructive pairing reset, self-contained inside the
-   *  island so Home / Tracker show the "Reset pairing" control in the
-   *  EizouDen tab too (mirrors useCompanionPairing().resetPairing without
-   *  starting a second status poll on every page mount). */
-  const handleResetPairing = useCallback(async () => {
-    const token = readStoredPairingToken();
-    // 1. Companion-side delete FIRST while a token exists (best effort).
-    if (token !== null) {
-      try {
-        await fetch(
-          `${COMPANION_PAIRING_BASE_URL}/v1/pair?token=${encodeURIComponent(token)}`,
-          { method: 'DELETE', cache: 'no-store' },
-        );
-      } catch {
-        // Companion unreachable: the browser-side clear below is still
-        // authoritative (graceful divergence).
-      }
-    }
-    // 2. Clear browser storage regardless of network outcome.
-    clearStoredPairingToken();
-    setIsPaired(false);
-  }, []);
-
-  /** ED-3 pairing handoff: persist the opaque token, flip the local gate, and
-   *  forward the token to the Player island so Magnet / YouTube become usable
-   *  immediately (no reload). The Player's hook re-validates it (fail closed). */
-  const handlePairSuccess = useCallback((token: string) => {
-    writeStoredPairingToken(token);
-    setIsPaired(true);
-    dispatchCompanionPaired(token);
-  }, []);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -210,10 +151,6 @@ export function EizouSettingsDialog({
           showShortcuts={showShortcuts}
           onSubtitleSettingsChange={dispatchSubtitleSettingsChange}
           onSessionCredentials={dispatchAnkiSessionCredentials}
-          onResetPairing={handleResetPairing}
-          isPaired={isPaired}
-          onPairSuccess={handlePairSuccess}
-          locale={locale}
           nadeshikoDict={nadeshikoDict}
         />
       </DialogContent>

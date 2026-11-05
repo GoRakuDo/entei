@@ -170,7 +170,7 @@ describe('AudioPlayer', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'YouTube URL' }), {
       target: { value: 'https://www.youtube.com/watch?v=abcdefghijk' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Start download' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stream Now' }));
 
     await waitFor(() => {
       expect(audioPlayerMocks.beginJobSession).toHaveBeenCalledWith({

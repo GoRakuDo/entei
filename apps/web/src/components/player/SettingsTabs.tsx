@@ -6,11 +6,17 @@
  * (EizouSettingsDialog) so both show the exact same settings.
  *
  * Tabs:
- *   1. Player   — keyboard shortcut reference
- *   2. Subtitle — subtitle appearance (live preview; persisted to
- *                `entei.player.prefs.v1`, same store the player reads)
- *   3. EizouDen — YouTube download mode (Quality / Speed)
- *   4. Anki     — AnkiConnect setup + field mapping
+ *   1. Player    — keyboard shortcut reference
+ *   2. Subtitle  — subtitle appearance (live preview; persisted to
+ *                 `entei.player.prefs.v1`, same store the player reads)
+ *   3. Nadeshiko — Nadeshiko dictionary API key (only when supplied)
+ *   4. Anki      — AnkiConnect setup + field mapping
+ *
+ * Note: the EizouDen tab (YouTube download mode + companion pairing /
+ * reset) was retired from the Settings modal. The YouTube playback quality
+ * now lives in the YouTube source dialog itself. The EizouDenSettingsTab
+ * component is intentionally kept in the tree (unwired) for the planned
+ * Modules page move; see docs/EIZOU_DENDENSHI.md.
  *
  * The dialog shell (overlay/content/header/title) is owned by each caller;
  * only the tabbed body lives here.
@@ -26,7 +32,6 @@ import {
   SubtitleAppearanceTab,
   type SubtitleAppearanceSettings,
 } from '@/components/player/SubtitleAppearanceTab';
-import { EizouDenSettingsTab } from '@/components/player/EizouDenSettingsTab';
 import { NadeshikoSettingsTab } from '@/components/player/NadeshikoSettingsTab';
 import { readPlayerPreferences, writePlayerPreferences } from '@/features/player/preferences';
 import type { ShortcutEntry } from '@/features/player/player-shortcuts';
@@ -54,20 +59,6 @@ export interface SettingsTabsProps {
   subtitleSettings?: Partial<SubtitleAppearanceSettings>;
   /** Live subtitle change callback from the player (optional). */
   onSubtitleSettingsChange?: (settings: Partial<SubtitleAppearanceSettings>) => void;
-  /** Explicit destructive pairing reset, supplied by the Player wiring and
-   *  the global nav settings modal (ED-3). Both supply onResetPairing; the
-   *  EizouDen tab renders its reset control only when present. */
-  onResetPairing?: () => void | Promise<void>;
-  /** Paired state for the EizouDen tab's pairing entry point. When the
-   *  browser is unpaired and `onPairSuccess` is wired, the tab shows a
-   *  "Pairing" button that opens the OTP dialog (Phase 2 transition: the
-   *  Player empty state no longer hosts the EizouDendenshi setup section). */
-  isPaired?: boolean;
-  /** Receives the capability token on a successful pair; the caller
-   *  persists it (player hook or nav island). */
-  onPairSuccess?: (token: string) => void;
-  /** Locale for the pairing dialog's tutorial link. */
-  locale?: 'id' | 'ja' | 'en';
   /** Nadeshiko dictionary block (for the new Nadeshiko settings tab).
    *  Player + nav settings modal both pass it; defaults to no tab when
    *  omitted. */
@@ -81,10 +72,6 @@ export function SettingsTabs({
   onSessionCredentials,
   subtitleSettings,
   onSubtitleSettingsChange,
-  onResetPairing,
-  isPaired = false,
-  onPairSuccess,
-  locale = 'id',
   nadeshikoDict,
 }: SettingsTabsProps) {
   // Subtitle appearance is self-contained here (reads/writes the same
@@ -166,7 +153,6 @@ export function SettingsTabs({
             <TabsTrigger value="shortcut">{dict.settingsTabShortcut}</TabsTrigger>
           )}
           <TabsTrigger value="subtitle">{dict.settingsTabSubtitle}</TabsTrigger>
-          <TabsTrigger value="eizouden">{dict.settingsTabEizouDen}</TabsTrigger>
           {nadeshikoDict && (
             <TabsTrigger value="nadeshiko">
               {nadeshikoDict.settingsTabLabel}
@@ -196,15 +182,6 @@ export function SettingsTabs({
               settings={effective}
               onChange={handleSubtitleChange}
               onReset={handleSubtitleReset}
-            />
-          </TabsContent>
-          <TabsContent value="eizouden" className="entei-settings-tab-content">
-            <EizouDenSettingsTab
-              dict={dict}
-              onResetPairing={onResetPairing}
-              isPaired={isPaired}
-              onPairSuccess={onPairSuccess}
-              locale={locale}
             />
           </TabsContent>
           {nadeshikoDict && (

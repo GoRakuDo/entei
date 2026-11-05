@@ -7,7 +7,7 @@
  * - Uses existing Dialog wrapper (focus trap, Escape, return-focus)
  * - Opening the modal does NOT pause media
  *
- * The tabbed body (Player / Subtitle / EizouDen / Anki Fields) is shared
+ * The tabbed body (Player / Subtitle / Nadeshiko / Anki Fields) is shared
  * with the global navigation settings modal (SettingsTabs) so both show
  * the exact same settings.
  * --------------------------------------------------------------------------- */
@@ -41,13 +41,6 @@ interface PlayerSettingsDialogProps {
   subtitleSettings?: Partial<SubtitleAppearanceSettings>;
   /** Callback when subtitle appearance settings change (live update). */
   onSubtitleSettingsChange?: SettingsTabsProps['onSubtitleSettingsChange'];
-  /** Explicit destructive pairing reset (ED-3), forwarded to the
-   *  EizouDen tab from PlayerApp's use-companion-pairing. */
-  onResetPairing?: SettingsTabsProps['onResetPairing'];
-  /** Paired state + pairing handoff, forwarded to the EizouDen tab so an
-   *  unpaired browser gets a pairing entry point (Phase 2 transition). */
-  isPaired?: SettingsTabsProps['isPaired'];
-  onPairSuccess?: SettingsTabsProps['onPairSuccess'];
   /** Nadeshiko settings dictionary block. */
   nadeshikoDict?: Dictionary['nadeshiko'];
 }
@@ -60,9 +53,6 @@ export function PlayerSettingsDialog({
   onSessionCredentials,
   subtitleSettings,
   onSubtitleSettingsChange,
-  onResetPairing,
-  isPaired,
-  onPairSuccess,
   nadeshikoDict,
 }: PlayerSettingsDialogProps) {
   /* W6: Toggle root class to hide TopBar on mobile while Settings is open.
@@ -108,9 +98,6 @@ export function PlayerSettingsDialog({
           onSessionCredentials={onSessionCredentials}
           subtitleSettings={subtitleSettings}
           onSubtitleSettingsChange={onSubtitleSettingsChange}
-          onResetPairing={onResetPairing}
-          isPaired={isPaired}
-          onPairSuccess={onPairSuccess}
           nadeshikoDict={nadeshikoDict}
         />
       </DialogContent>

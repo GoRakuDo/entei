@@ -27,8 +27,11 @@ import { YT_MODE_KEY } from '@/features/player/yt-download-mode';
 const baseDict: YouTubeInputDict = {
   youtubeInputLabel: 'YouTube URL',
   youtubeInputTitle: 'YouTube streaming',
+  youtubeInputFieldLabel: 'Link the YouTube video to stream:',
+  youtubeInputQuality: 'Quality',
+  youtubeInputCancel: 'Cancel',
   youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
-  youtubeInputSubmit: 'Start download',
+  youtubeInputSubmit: 'Stream Now',
   youtubeInputErrorInvalid: 'Invalid YouTube URL.',
   youtubeInputErrorRepair:
     'The connection needs re-pairing. Open Setup and connect again.',
@@ -142,11 +145,33 @@ describe('YouTubeInput — paired flow', () => {
   it('renders the URL input and submit when paired', () => {
     render(<YouTubeInput {...defaultProps} />);
     expect(
-      screen.getByRole('textbox', { name: baseDict.youtubeInputLabel }),
+      screen.getByRole('textbox', { name: baseDict.youtubeInputFieldLabel }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
     ).toBeInTheDocument();
+  });
+
+  it('renders the mockup layout: field label, quality select, cancel + submit', () => {
+    const onOpenChange = vi.fn();
+    render(<YouTubeInput {...defaultProps} onOpenChange={onOpenChange} />);
+    // Visible field label above the URL row.
+    expect(
+      screen.getByText(baseDict.youtubeInputFieldLabel),
+    ).toBeInTheDocument();
+    // Quality select defaults to HD 720p (matches the mockup trigger).
+    const quality = screen.getByRole('combobox', {
+      name: baseDict.youtubeInputQuality,
+    });
+    expect(quality).toHaveTextContent('HD 720p');
+    // Cancel closes the dialog without touching the network.
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputCancel }),
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    ).toHaveAttribute('type', 'submit');
   });
 
   it('submits the exact payload to the job endpoint with the token in the query', async () => {

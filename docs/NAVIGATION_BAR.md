@@ -81,10 +81,11 @@ route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成
 
 ### 設定ボタンの追加（2026-08-07設計確定・実装済み）
 
-- **TopBarナビに「設定」ボタン**（Lucide `Settings`、44px hit area）を追加し、**どのページからでもプレイヤー設定モーダル（EizouDen タブを含む）を開ける**ようにする。
+- **TopBarナビに「設定」ボタン**（Lucide `Settings`、44px hit area）を追加し、**どのページからでもプレイヤー設定モーダルを開ける**ようにする。
 - desktop: pill（Home / Profile / Tools）の右側 or 適切な位置に Settings ボタン。Player の top-edge hover pill には含めない（Player 内は既存の Settings アイコンで開く）。
 - mobile: floating bottom Dock は **Home / Tools / Settings**（Profile/Trackerは追加しない）。Profileへの導線はdesktop pillで提供し、旧 `/tracker/` は `/profile/` へredirectする。Dock のDOM順も Home → Tools → Settings に統一（視覚順とTab順を入れ替えない）。
 - 設定モーダルは共通コンポーネント化し、TopBarのボタンと Player 内の設定アイコンの両方から開ける。
+- **設定モーダルのタブ構成（2026-09更新）**: `Shortcut` / `Subtitle` / `Nadeshiko`（APIキー設定時のみ） / `Anki`。旧 **EizouDen タブは廃止**し、YouTube のダウンロードmodeと companion の pairing / 接続リセットは YouTube ソースダイアログ（`YouTubeInput`、`AudioPlayer` の YouTube ダイアログ）側へ移した。`SettingsTabs.tsx` に EizouDen タブは存在しない。
 
 ## 4. レスポンシブ契約
 

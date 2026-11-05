@@ -413,6 +413,12 @@ export interface Dictionary {
     firefoxUnsupported: string;
     youtubeInputLabel: string;
     youtubeInputTitle: string;
+    /** Visible field label above the URL row. */
+    youtubeInputFieldLabel: string;
+    /** Accessible name for the quality Select in the URL row. */
+    youtubeInputQuality: string;
+    /** Dialog cancel button. */
+    youtubeInputCancel: string;
     youtubeInputPlaceholder: string;
     youtubeInputSubmit: string;
     youtubeInputErrorInvalid: string;
