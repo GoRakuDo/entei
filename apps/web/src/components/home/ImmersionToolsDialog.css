@@ -147,6 +147,15 @@
   padding-right: var(--entei-space-48);
 }
 
+/* Drawer title: pixel display face + gold, matching the shelf cards. */
+.entei-tools-drawer .entei-dialog-title {
+  font-family: var(--entei-font-system);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--entei-status-locked);
+  letter-spacing: 0.04em;
+}
+
 .entei-tools-drawer-list {
   display: flex;
   flex-direction: column;
@@ -167,7 +176,7 @@
   gap: var(--entei-space-16);
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-16);
-  background-color: var(--entei-surface-2);
+  background-color: var(--entei-btn-color);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-card);
   color: inherit;
@@ -180,7 +189,9 @@
 .entei-tools-card:hover {
   color: inherit;
   border-color: oklch(57.74% 0.209 273.85deg / 0.5);
-  background-color: oklch(30.96% 0.15 271.29deg / 0.65);
+  /* Solid tile + subtle lift; no translucent blend over the backdrop. */
+  background-color: var(--entei-btn-color);
+  filter: brightness(1.12);
 }
 
 .entei-tools-card:focus-visible {
@@ -195,7 +206,7 @@
   width: var(--entei-space-48);
   height: var(--entei-space-48);
   flex-shrink: 0;
-  color: var(--entei-accent-hover);
+  color: var(--entei-status-locked);
   background-color: oklch(57.74% 0.209 273.85deg / 0.16);
   border-radius: var(--entei-radius-md);
 }
@@ -212,7 +223,7 @@
   font-size: 1rem;
   font-weight: 700;
   line-height: 1.3;
-  color: var(--entei-text);
+  color: var(--entei-status-locked);
   text-wrap: balance;
 }
 
@@ -228,16 +239,19 @@
  * DRAWER — desktop: side sheet sliding in from the LEFT
  * ========================================================================== */
 @media (min-width: 768px) {
+  /* Floating sheet: inset from the top, bottom and left edges so the drawer
+     reads as a detached panel instead of a full-height rail. */
   .entei-dialog-content.entei-tools-drawer--desktop {
-    top: 0;
-    left: 0;
+    top: var(--entei-space-24);
+    bottom: var(--entei-space-24);
+    left: var(--entei-space-24);
     transform: none;
-    width: min(24rem, calc(100% - 2 * var(--entei-gutter)));
+    width: min(24rem, calc(100% - 2 * var(--entei-space-24)));
     max-width: 24rem;
-    height: 100dvh;
-    max-height: 100dvh;
-    border-left: none;
-    border-radius: 0 var(--entei-radius-lg) var(--entei-radius-lg) 0;
+    height: calc(100dvh - 2 * var(--entei-space-24));
+    max-height: calc(100dvh - 2 * var(--entei-space-24));
+    border: 1px solid oklch(100% 0 0deg / 0.12);
+    border-radius: var(--entei-radius-card);
     animation: entei-tools-drawer-in-left var(--entei-duration-normal)
       var(--entei-ease-expressive);
   }

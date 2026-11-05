@@ -129,4 +129,30 @@ describe('ImmersionToolsDialog', () => {
         .getAttribute('aria-label'),
     ).toBe(ja.nav.destinationTools);
   });
+
+  it('closes the drawer when the overlay outside it is clicked', async () => {
+    renderDialog();
+    fireEvent.click(
+      screen.getByRole('button', { name: en.nav.destinationTools }),
+    );
+    expect(document.querySelector('[data-entei-tools-drawer]')).not.toBeNull();
+
+    // Radix attaches its document pointerdown listener on a 0ms timer, so the
+    // click-outside dismissal only works once that macrotask has flushed.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const overlay = document.querySelector('.entei-dialog-overlay');
+    expect(overlay).not.toBeNull();
+    // Radix defers pointer-down dismissal to the following click (so dragging
+    // out of the drawer does not close it), so both events are required.
+    await act(async () => {
+      fireEvent.pointerDown(overlay!);
+      fireEvent.click(overlay!);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(document.querySelector('[data-entei-tools-drawer]')).toBeNull();
+  });
 });
