@@ -4,16 +4,21 @@
 //!
 //! - `get_video_info(url)`  -> runs `yt-dlp --dump-json <url>` and returns the
 //!   normalized metadata (title / duration / thumbnail / formats / subtitles).
-//! - `stream_youtube(url, mode)` -> runs `yt-dlp -g -f <selector> <url>` and
-//!   returns the resolved direct media URL(s) that the webview can feed into a
-//!   `<video>` element. `mode == "video"` prefers a muxed (video+audio) single
-//!   stream; when yt-dlp has to fall back to separate streams, `urls` carries
+//! - `stream_youtube(url, mode)` -> runs `yt-dlp -g -f <selector> <url>`, then
+//!   registers every resolved URL with the loopback relay (see [`relay`]) and
+//!   returns the local `http://127.0.0.1:<port>/stream/<id>` URL(s) that the
+//!   webview can feed into a `<video>` element.
+//!   `mode == "video"` prefers a progressive muxed stream at 720p or better;
+//!   when yt-dlp has to fall back to separate streams, `urls` carries
 //!   `[video, audio]` in that order and `url` is the video URL.
 //!
 //! Note: yt-dlp must be reachable. Resolution order is
 //! `EIZOUDEN_YTDLP_PATH` env var, then the platform default binary name on
-//! `PATH`. No downloads are performed here; the caller owns the source URL and
-//! the returned googlevideo URLs carry short-lived tokens.
+//! `PATH`. No downloads are performed here; the caller owns the source URL.
+//! The upstream `googlevideo.com` URLs carry short-lived tokens and stay inside
+//! the process — only the local relay URLs are returned to the webview.
+
+mod relay;
 
 use std::process::Stdio;
 use std::time::Duration;
@@ -31,6 +36,14 @@ const MAX_STDOUT_BYTES: usize = 32 * 1024 * 1024;
 /// Hard upper bound for a single yt-dlp invocation. A hung process must not
 /// block a Tauri command forever, so every run is wrapped in this timeout.
 const SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// YouTube client fallback chain handed to yt-dlp.
+///
+/// `web` alone intermittently yields signed URLs that answer `403 Forbidden` on
+/// the first range request (the "confirm you're not a bot" throttling path).
+/// Listing `mweb` and `android` first makes yt-dlp try the clients whose
+/// formats are not throttled, and keeps `web` as the final fallback.
+const YOUTUBE_EXTRACTOR_ARGS: &str = "youtube:player_client=mweb,android,web";
 
 #[derive(Debug, thiserror::Error)]
 pub enum YtdlpError {
@@ -107,6 +120,12 @@ pub struct StreamSource {
     pub mode: String,
     /// The yt-dlp format selector that produced `url`.
     pub format_selector: String,
+    /// `true` when `url`/`urls` point at the loopback relay, `false` when the
+    /// relay could not start and the raw upstream URLs were returned instead.
+    /// The player should treat both the same; this only exists so a degraded
+    /// relay can be diagnosed instead of failing silently.
+    #[serde(default)]
+    pub relayed: bool,
 }
 
 fn ytdlp_binary() -> String {
@@ -239,15 +258,28 @@ fn parse_format(value: &serde_json::Value) -> Option<FormatInfo> {
 
 /// Format selectors.
 ///
-/// `video` prefers a muxed (video+audio) stream capped at 1080p — the same
-/// proven rule the EizouDendenshi companion uses (fixed 1080p cap, no quality
-/// selector). Only when no muxed format exists does it fall back to separate
-/// video+audio streams, which yields two URLs. A `<video>` element must never
-/// be handed the audio-only URL, so the caller inspects `urls`.
+/// `video` is built from three rules, in priority order:
+///
+/// 1. `best[height>=720][height<=1080]` — a progressive muxed stream (video and
+///    audio in one file). This is what makes playback start instantly: the
+///    `<video>` element needs a single URL and no client-side muxing.
+/// 2. `best[height<=1080]` — any muxed stream, accepting sub-720p rather than
+///    dropping to separate streams. YouTube only publishes muxed formats up to
+///    720p (or 360p on newer uploads), so this is the common case.
+/// 3. `bestvideo[height>=720][height<=1080]+bestaudio` — separate streams, which
+///    yields two URLs. Video quality wins over instant start here because a
+///    muxed stream simply does not exist for that video.
+///
+/// The 720p floor is deliberately only enforced where a muxed stream exists:
+/// demanding 720p unconditionally would force the separate-stream fallback on
+/// videos whose only muxed format is 360p, trading playback startup for pixels.
 fn format_selector_for(mode: &str) -> Result<&'static str, YtdlpError> {
     match mode {
         "audio" => Ok("bestaudio/best"),
-        "video" => Ok("best[height<=1080]/bestvideo[height<=1080]+bestaudio/best"),
+        "video" => Ok("best[height>=720][height<=1080]\
+/best[height<=1080]\
+/bestvideo[height>=720][height<=1080]+bestaudio\
+/best"),
         other => Err(YtdlpError::UnsupportedMode(other.to_string())),
     }
 }
@@ -282,6 +314,8 @@ async fn get_video_info(url: String) -> Result<VideoInfo, String> {
         "--no-playlist",
         "--no-warnings",
         "--skip-download",
+        "--extractor-args",
+        YOUTUBE_EXTRACTOR_ARGS,
         url,
     ])
     .await
@@ -295,15 +329,41 @@ async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, Strin
     let url = validate_url(&url).map_err(|err| err.message())?;
     let selector = format_selector_for(mode.trim()).map_err(|err| err.message())?;
 
-    let raw = run_ytdlp(&["-g", "-f", selector, "--no-playlist", "--no-warnings", url])
-        .await
-        .map_err(|err| err.message())?;
+    let raw = run_ytdlp(&[
+        "-g",
+        "-f",
+        selector,
+        "--no-playlist",
+        "--no-warnings",
+        "--extractor-args",
+        YOUTUBE_EXTRACTOR_ARGS,
+        url,
+    ])
+    .await
+    .map_err(|err| err.message())?;
 
     // `-g` prints one URL per selected stream. The primary URL is always the
     // first line: a muxed stream for video, or the only stream for audio.
     // Never take the last line — for separate streams that is the audio-only
     // URL and the player would show a black screen.
-    let urls = parse_stream_urls(&raw).map_err(|err| err.message())?;
+    let upstream_urls = parse_stream_urls(&raw).map_err(|err| err.message())?;
+
+    // Hand the webview loopback URLs instead of the upstream ones. The relay
+    // answers `Range` requests from a single persistent session, so seeking does
+    // not re-hit YouTube with a fresh (and throttled) request.
+    let (urls, relayed) = match relay::ensure().await {
+        Ok(relay) => (
+            upstream_urls
+                .iter()
+                .map(|upstream| relay.register(upstream))
+                .collect::<Vec<_>>(),
+            true,
+        ),
+        // Falling back keeps playback working when the listener cannot bind;
+        // `relayed: false` tells the caller the proxy is unavailable.
+        Err(_) => (upstream_urls, false),
+    };
+
     let primary = urls
         .first()
         .cloned()
@@ -314,6 +374,7 @@ async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, Strin
         urls,
         mode: mode.trim().to_string(),
         format_selector: selector.to_string(),
+        relayed,
     })
 }
 
@@ -337,11 +398,41 @@ mod tests {
     #[test]
     fn maps_modes_to_selectors() {
         assert_eq!(format_selector_for("audio").unwrap(), "bestaudio/best");
+
         let video = format_selector_for("video").unwrap();
-        // Muxed single stream is preferred, separate streams are the fallback.
-        assert!(video.starts_with("best[height<=1080]"));
-        assert!(video.contains("bestvideo[height<=1080]+bestaudio"));
+        // 1st choice: progressive muxed at 720p or better.
+        assert!(video.starts_with("best[height>=720][height<=1080]/"));
+        // 2nd choice: any muxed stream (YouTube only publishes 360p sometimes).
+        assert!(video.contains("/best[height<=1080]/"));
+        // 3rd choice: separate streams, still 720p floor, then last resort.
+        assert!(video.contains("/bestvideo[height>=720][height<=1080]+bestaudio/"));
+        assert!(video.ends_with("/best"));
+        assert_eq!(video.matches('/').count(), 3);
+
         assert!(format_selector_for("4k").is_err());
+    }
+
+    #[test]
+    fn youtube_requests_pin_the_client_fallback_chain() {
+        assert_eq!(YOUTUBE_EXTRACTOR_ARGS, "youtube:player_client=mweb,android,web");
+    }
+
+    #[tokio::test]
+    async fn relay_serves_loopback_urls_and_rejects_unknown_sessions() {
+        let relay = relay::ensure().await.expect("relay starts");
+        let local = relay.register("https://cdn.example/video.mp4");
+        assert!(local.starts_with("http://127.0.0.1:"), "{local}");
+        let (base, session) = local.split_once("/stream/").expect("session path");
+        assert!(!session.is_empty());
+        // Every registration gets its own session id, even for the same URL.
+        assert_ne!(relay.register("https://cdn.example/video.mp4"), local);
+
+        let response = reqwest::Client::new()
+            .get(format!("{base}/stream/missing-session"))
+            .send()
+            .await
+            .expect("relay answers");
+        assert_eq!(response.status().as_u16(), 404);
     }
 
     #[test]
