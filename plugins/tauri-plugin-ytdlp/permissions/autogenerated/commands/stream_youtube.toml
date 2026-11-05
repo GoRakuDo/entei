@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stream-youtube"
+description = "Enables the stream_youtube command without any pre-configured scope."
+commands.allow = ["stream_youtube"]
+
+[[permission]]
+identifier = "deny-stream-youtube"
+description = "Denies the stream_youtube command without any pre-configured scope."
+commands.deny = ["stream_youtube"]

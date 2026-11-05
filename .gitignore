@@ -58,3 +58,6 @@ members-supporter/.secrets/
 
 # subomatic Rust build cache
 vendor/subomatic/target/
+
+# Cargo build cache (src-tauri, plugins/*)
+target/

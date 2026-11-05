@@ -1,0 +1,20 @@
+[package]
+name = "tauri-plugin-ytdlp"
+links = "tauri-plugin-ytdlp"
+version = "0.1.0"
+description = "yt-dlp media extraction plugin for Entei"
+authors = ["GoRakuDo"]
+edition = "2021"
+
+[lib]
+name = "tauri_plugin_ytdlp"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "sync", "rt", "fs", "time"] }
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

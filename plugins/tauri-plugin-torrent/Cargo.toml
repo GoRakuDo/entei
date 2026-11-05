@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-torrent"
+links = "tauri-plugin-torrent"
+version = "0.1.0"
+description = "librqbit torrent session bridge for Entei"
+authors = ["GoRakuDo"]
+edition = "2021"
+
+[lib]
+name = "tauri_plugin_torrent"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt", "fs", "macros", "time"] }
+librqbit = { version = "8.1", default-features = false, features = ["default-tls"] }
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
