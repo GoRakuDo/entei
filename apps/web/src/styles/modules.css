@@ -37,6 +37,23 @@
   gap: var(--entei-space-8);
 }
 
+/* Desktop: title + description on the left, import entry pinned top-right.
+ * Mobile: the row collapses into a single column so the import button lands
+ * directly below the header, above the module list. */
+.entei-modules-header-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--entei-space-16);
+}
+
+.entei-modules-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  min-width: 0;
+}
+
 .entei-modules-title {
   font-family: var(--entei-font-system);
   font-size: clamp(1.75rem, 4vw, 2.25rem);
@@ -164,8 +181,6 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--entei-space-8);
-  padding-top: var(--entei-space-8);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-modules-import-button {
@@ -173,10 +188,12 @@
   align-items: center;
   justify-content: center;
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-24);
+  padding: var(--entei-space-8) var(--entei-space-20);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
   color: var(--entei-text-secondary);
   background-color: var(--entei-surface-2);
   border: 1px solid oklch(100% 0 0deg / 0.08);
@@ -190,6 +207,22 @@
   font-size: 0.8125rem;
   line-height: 1.5;
   color: var(--entei-text-muted);
+}
+
+@media (min-width: 768px) {
+  .entei-modules-header-row {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--entei-space-24);
+  }
+
+  .entei-modules-import {
+    flex-shrink: 0;
+    align-items: flex-end;
+    text-align: right;
+    max-width: 18rem;
+  }
 }
 
 @media (max-width: 480px) {

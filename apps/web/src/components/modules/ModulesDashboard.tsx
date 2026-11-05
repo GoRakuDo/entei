@@ -80,19 +80,40 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
   return (
     <section className="entei-modules" aria-labelledby="entei-modules-title">
       <header className="entei-modules-header">
-        <h1
-          id="entei-modules-title"
-          className="entei-modules-title"
-          data-i18n="modulesPage.title"
-        >
-          {copy.title}
-        </h1>
-        <p
-          className="entei-modules-description"
-          data-i18n="modulesPage.description"
-        >
-          {copy.description}
-        </p>
+        <div className="entei-modules-header-row">
+          <div className="entei-modules-heading">
+            <h1
+              id="entei-modules-title"
+              className="entei-modules-title"
+              data-i18n="modulesPage.title"
+            >
+              {copy.title}
+            </h1>
+            <p
+              className="entei-modules-description"
+              data-i18n="modulesPage.description"
+            >
+              {copy.description}
+            </p>
+          </div>
+
+          <div className="entei-modules-import">
+            <button
+              type="button"
+              className="entei-modules-import-button"
+              disabled
+              aria-describedby="entei-modules-import-hint"
+            >
+              {copy.importLabel}
+            </button>
+            <p
+              id="entei-modules-import-hint"
+              className="entei-modules-import-hint"
+            >
+              {copy.importHint}
+            </p>
+          </div>
+        </div>
       </header>
 
       <ul className="entei-modules-list">
@@ -133,23 +154,6 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
           );
         })}
       </ul>
-
-      <div className="entei-modules-import">
-        <button
-          type="button"
-          className="entei-modules-import-button"
-          disabled
-          aria-describedby="entei-modules-import-hint"
-        >
-          {copy.importLabel}
-        </button>
-        <p
-          id="entei-modules-import-hint"
-          className="entei-modules-import-hint"
-        >
-          {copy.importHint}
-        </p>
-      </div>
     </section>
   );
 }
