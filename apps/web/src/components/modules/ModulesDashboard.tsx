@@ -107,21 +107,13 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
               <span className="entei-module-icon" aria-hidden="true">
                 <Icon size={20} />
               </span>
-              <div className="entei-module-body">
-                <div className="entei-module-head">
-                  <h3 className="entei-module-name">{name}</h3>
-                  {module.builtIn && (
-                    <span className="entei-module-badge">{copy.builtIn}</span>
-                  )}
-                </div>
-                <p className="entei-module-description">
-                  {copy[module.descriptionKey]}
-                </p>
-                <p className="entei-module-meta">
-                  <span>{categoryLabel(module.category)}</span>
-                  <span>v{module.version}</span>
-                  <span>{module.author}</span>
-                </p>
+              <div className="entei-module-head">
+                <h3 className="entei-module-name" title={name}>
+                  {name}
+                </h3>
+                {module.builtIn && (
+                  <span className="entei-module-badge">{copy.builtIn}</span>
+                )}
               </div>
               <div className="entei-module-toggle">
                 <Switch
@@ -130,10 +122,15 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
                   onCheckedChange={() => handleToggle(module.id)}
                   aria-label={name}
                 />
-                <span className="entei-module-state" aria-hidden="true">
-                  {isOn ? copy.enabled : copy.disabled}
-                </span>
               </div>
+              <p className="entei-module-description">
+                {copy[module.descriptionKey]}
+              </p>
+              <p className="entei-module-meta">
+                <span>{categoryLabel(module.category)}</span>
+                <span>v{module.version}</span>
+                <span>{module.author}</span>
+              </p>
             </li>
           );
         })}

@@ -143,31 +143,17 @@ const dictionary: Dictionary = getDictionary(locale);
     outline: none;
   }
 
+  /* Single-column content shell. The old desktop 5fr/7fr hero grid was
+     removed (2026-08) — it squashed every non-Home page into the narrow left
+     column and left the right column as an empty void. Pages now own their
+     own width, capped by --entei-content-max. */
   .entei-main-inner {
+    display: flex;
+    flex-direction: column;
     padding: var(--entei-space-32) var(--entei-gutter) var(--entei-space-64);
     max-width: var(--entei-content-max);
     margin-inline: auto;
     width: 100%;
-  }
-
-  /* Desktop: asymmetric grid — Identity 5/12, Destinations 7/12 (12.332) */
-  @media (min-width: 1024px) {
-    .entei-main-inner {
-      display: grid;
-      grid-template-columns: 5fr 7fr;
-      grid-template-rows: auto 1fr;
-      flex: 1;
-      gap: var(--entei-space-64);
-      align-items: start;
-    }
-
-    :global(.entei-home-local-note) {
-      grid-column: 1 / -1;
-      grid-row: 2;
-      align-self: end;
-      justify-self: center;
-      width: min(100%, 36rem);
-    }
   }
 
   /* Focus target for skip link — visible focus indicator */

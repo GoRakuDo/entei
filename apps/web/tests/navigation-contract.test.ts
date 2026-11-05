@@ -1024,14 +1024,14 @@ describe('Immersion Tools drawer contract', () => {
       '../src/components/home/ImmersionToolsDialog.css',
     );
     const desktop = css.match(
-      /@media \(min-width: 768px\) \{[\s\S]*?\.entei-tools-drawer--desktop[\s\S]*?\n  \}\n\}/,
+      /@media \(min-width: 768px\) \{[\s\S]*?\.entei-tools-drawer--desktop[\s\S]*?\n  \}/,
     );
     expect(desktop).not.toBeNull();
-    expect(desktop![0]).toContain('left: 0');
+    expect(desktop![0]).toContain('left: var(--entei-space-24)');
     expect(desktop![0]).toContain('100dvh');
 
     const mobile = css.match(
-      /@media \(max-width: 767px\) \{[\s\S]*?\.entei-tools-drawer--mobile[\s\S]*?\n  \}\n\}/,
+      /@media \(max-width: 767px\) \{[\s\S]*?\.entei-tools-drawer--mobile[\s\S]*?\n  \}/,
     );
     expect(mobile).not.toBeNull();
     expect(mobile![0]).toContain('bottom: 0');

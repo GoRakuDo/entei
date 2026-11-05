@@ -153,9 +153,9 @@ export function ImmersionToolsDialog({
           onClick={(event) => event.stopPropagation()}
         >
           <Layers aria-hidden="true" className="entei-nav-tools-icon" />
-          {variant !== 'pill' && (
-            <span data-i18n="nav.destinationTools">{copy.trigger}</span>
-          )}
+          {/* The pill shows icon + label like the neighbouring Profile / Player
+              links; only the mobile dock hides the label via CSS. */}
+          <span data-i18n="nav.destinationTools">{copy.trigger}</span>
         </button>
       </DialogTrigger>
       <DialogContent
