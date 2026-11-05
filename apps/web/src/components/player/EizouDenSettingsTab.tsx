@@ -18,13 +18,26 @@
  * modal (via the useCompanionPairing hook) and the global nav settings
  * modal (self-contained implementation inside the EizouSettingsDialog
  * island).
+ *
+ * PAIRING ENTRY POINT (Phase 2 transition): EizouDendenshiSetup was
+ * retired from the Player empty state (which now only shows the local
+ * MediaPicker plus the enabled source module slots), so an unpaired user
+ * would have no way to pair. When `onPairSuccess` is wired and the
+ * browser is NOT paired, this tab shows a plain "EizouDendenshi Pairing"
+ * button that opens EizouDendenshiPairingDialog (the same OTP dialog the
+ * old empty-state section owned). The dialog still hands the token to
+ * `onPairSuccess` only — no storage access here.
  * ---------------------------------------------------------------------------
  */
 
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Unplug } from 'lucide-react';
+import { Link2, Unplug } from 'lucide-react';
+import {
+  EizouDendenshiPairingDialog,
+  type EizouDendenshiPairingDict,
+} from '@/components/player/EizouDendenshiPairingDialog';
 import { RadioGroup, RadioGroupItem } from '@/components/player/ui/radio-group';
 import { Button } from '@/components/player/ui/button';
 import {
@@ -49,6 +62,8 @@ export type EizouDenPlayerUI = Pick<
   | 'ytModeSpeed'
   | 'ytModeQualityDesc'
   | 'ytModeSpeedDesc'
+  // Pairing entry point (unpaired browsers only).
+  | 'eizouPairingOpenButton'
   // Pairing reset (destructive — EizouDen tab is its only home).
   | 'eizouResetButton'
   | 'eizouResetTitle'
@@ -56,7 +71,8 @@ export type EizouDenPlayerUI = Pick<
   | 'eizouResetConfirm'
   | 'eizouResetCancel'
   | 'dialogClose'
->;
+> &
+  EizouDendenshiPairingDict;
 
 interface EizouDenSettingsTabProps {
   dict: EizouDenPlayerUI;
@@ -64,17 +80,29 @@ interface EizouDenSettingsTabProps {
    *  then clear. The reset control only renders when this is provided
    *  (player settings modal; the global nav modal has no pairing context). */
   onResetPairing?: () => void | Promise<void>;
+  /** True when this browser already holds a paired companion session.
+   *  The pairing button renders only when this is not true. */
+  isPaired?: boolean;
+  /** Receives the capability token on a successful pair (the caller
+   *  persists it). The pairing button/dialog only render when provided. */
+  onPairSuccess?: (token: string) => void;
+  /** Locale for the tutorial link inside the pairing dialog. */
+  locale?: 'id' | 'ja' | 'en';
 }
 
 export function EizouDenSettingsTab({
   dict,
   onResetPairing,
+  isPaired = false,
+  onPairSuccess,
+  locale = 'id',
 }: EizouDenSettingsTabProps) {
   const [mode, setMode] = useState<YtDownloadMode>(() =>
     readYtDownloadMode(),
   );
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isPairingOpen, setIsPairingOpen] = useState(false);
 
   const handleChange = (value: string) => {
     const next = value as YtDownloadMode;
@@ -99,6 +127,26 @@ export function EizouDenSettingsTab({
 
   return (
     <div className="entei-settings-section">
+      {onPairSuccess && !isPaired ? (
+        <div className="entei-eizouden-pair-section">
+          <Button
+            type="button"
+            variant="default"
+            className="entei-eizouden-pair-btn"
+            onClick={() => setIsPairingOpen(true)}
+          >
+            <Link2 size={16} aria-hidden="true" />
+            {dict.eizouPairingOpenButton}
+          </Button>
+          <EizouDendenshiPairingDialog
+            open={isPairingOpen}
+            onOpenChange={setIsPairingOpen}
+            onPairSuccess={onPairSuccess}
+            dict={dict}
+            locale={locale}
+          />
+        </div>
+      ) : null}
       <h3 className="entei-settings-label">{dict.settingsEizouDenContentHeading}</h3>
       <RadioGroup
         className="entei-eizouden-mode-group"

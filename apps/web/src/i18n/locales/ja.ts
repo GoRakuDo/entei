@@ -273,6 +273,7 @@ export const ja: Dictionary = {
     eizouResetConfirm: 'リセットする',
     eizouResetCancel: 'キャンセル',
     eizouPairingTitle: 'EizouDendenshi OTP',
+    eizouPairingOpenButton: '映像伝電子とペアリング',
     eizouPairingOtpLabel: '6桁のペアリングコード',
     eizouPairingOtpInvalid: '6桁のコードを入力してください。',
     eizouPairingSubmit: 'ペアリングする',

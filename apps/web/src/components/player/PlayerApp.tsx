@@ -18,7 +18,14 @@
  * --------------------------------------------------------------------------- */
 'use client';
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from 'react';
 import {
   type SubtitleCue,
   parseSubtitle,
@@ -142,7 +149,6 @@ import {
   shiftCuesByOffset,
 } from '@/features/player/lazy-sync';
 
-import { EizouDendenshiSetup } from '@/components/player/EizouDendenshiSetup';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
@@ -177,6 +183,7 @@ import {
 import {
   dispatchOpenSettings,
   listenForAnkiSessionCredentials,
+  listenForCompanionPaired,
   listenForSubtitleSettingsChange,
   type SubtitleSettings,
 } from '@/features/player/settings-bridge';
@@ -3597,6 +3604,16 @@ export default function PlayerApp() {
     });
   }, []);
 
+  // Pairing entry point moved into the EizouDen settings tab, which the nav
+  // settings island renders. A pair performed there hands the opaque token
+  // over this bridge so Magnet / YouTube unlock immediately instead of after
+  // a reload; the pairing hook validates the token (fail closed).
+  useEffect(() => {
+    return listenForCompanionPaired((token) => {
+      pairing.handlePairSuccess(token);
+    });
+  }, [pairing.handlePairSuccess]);
+
   // Anki credentials are page-lifetime memory only. A Settings session
   // supersedes background work; disconnect resumes the existing keyless
   // background attempt after the same 1-second grace period as before.
@@ -4978,6 +4995,44 @@ export default function PlayerApp() {
     jobSession.active ? jobSession.kind : null,
   );
 
+  // MODULE_ARCHITECTURE.md §5.3: the empty-state picker row is the core
+  // local-media button plus an extensible slot. A source module registers
+  // its button here only while it is enabled — disabled means the button
+  // does not exist at all (and neither does its dialog, below).
+  const moduleSourceButtons: ReactNode[] = [];
+  if (torrentEnabled) {
+    moduleSourceButtons.push(
+      <Button
+        key="torrent"
+        variant="outline"
+        size="icon"
+        type="button"
+        className="entei-player-magnet-icon-btn"
+        onClick={() => setIsMagnetDialogOpen(true)}
+        aria-label={dict.magnetInputLabel}
+        title={dict.magnetInputLabel}
+      >
+        <Magnet />
+      </Button>,
+    );
+  }
+  if (ytdlpEnabled) {
+    moduleSourceButtons.push(
+      <Button
+        key="ytdlp"
+        variant="outline"
+        size="icon"
+        type="button"
+        className="entei-player-youtube-icon-btn"
+        onClick={() => setIsYouTubeDialogOpen(true)}
+        aria-label={dict.youtubeInputLabel}
+        title={dict.youtubeInputLabel}
+      >
+        <YouTubeMark />
+      </Button>,
+    );
+  }
+
   return (
     <div
       ref={mediaContainerRef}
@@ -4996,73 +5051,17 @@ export default function PlayerApp() {
               </h2>
               <p className="entei-player-empty-desc">{dict.selectMediaDesc}</p>
               <div className="entei-player-pickers">
+                {/* Core built-in source: local media files. */}
                 <MediaPicker
                   onSelect={handleMediaSelect}
                   accept={MEDIA_ACCEPT}
                   label={dict.chooseMedia}
                 />
-                {torrentEnabled && (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    type="button"
-                    className="entei-player-magnet-icon-btn"
-                    onClick={() => setIsMagnetDialogOpen(true)}
-                    aria-label={dict.magnetInputLabel}
-                    title={dict.magnetInputLabel}
-                  >
-                    <Magnet />
-                  </Button>
-                )}
-                {ytdlpEnabled && (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    type="button"
-                    className="entei-player-youtube-icon-btn"
-                    onClick={() => setIsYouTubeDialogOpen(true)}
-                    aria-label={dict.youtubeInputLabel}
-                    title={dict.youtubeInputLabel}
-                  >
-                    <YouTubeMark />
-                  </Button>
-                )}
+                {/* Extensible module slot (Magnet / YouTube). */}
+                {moduleSourceButtons}
               </div>
             </div>
           </div>
-          {/* ED-3: EizouDendenshi setup section — pairing state only; the
-              local-file player flow above is untouched by it. The pairing
-              is persistent: the opaque token survives reloads and
-              companion restarts (re-validated on mount via the status
-              endpoint) until the user explicitly resets it from the
-              EizouDen settings tab (EizouDenSettingsTab). */}
-          <EizouDendenshiSetup
-            isConnected={pairing.connected}
-            isValidating={pairing.validating}
-            onPairSuccess={pairing.handlePairSuccess}
-            locale={locale}
-            dict={{
-              eizouSetupLabel: dict.eizouSetupLabel,
-              eizouSetupTitle: dict.eizouSetupTitle,
-              eizouSetupImageAlt: dict.eizouSetupImageAlt,
-              eizouConnected: dict.eizouConnected,
-              eizouDisconnected: dict.eizouDisconnected,
-              eizouChecking: dict.eizouChecking,
-              eizouPairingTitle: dict.eizouPairingTitle,
-              eizouPairingOtpLabel: dict.eizouPairingOtpLabel,
-              eizouPairingOtpInvalid: dict.eizouPairingOtpInvalid,
-              eizouPairingSubmit: dict.eizouPairingSubmit,
-              eizouPairingConnecting: dict.eizouPairingConnecting,
-              eizouPairingErrorNetwork: dict.eizouPairingErrorNetwork,
-              eizouPairingErrorInvalidCode: dict.eizouPairingErrorInvalidCode,
-              eizouPairingErrorGeneric: dict.eizouPairingErrorGeneric,
-              pairingStagePost: dict.pairingStagePost,
-              eizouPairingTutorialPrefix: dict.eizouPairingTutorialPrefix,
-              eizouPairingTutorialLink: dict.eizouPairingTutorialLink,
-              eizouPairingTutorialSuffix: dict.eizouPairingTutorialSuffix,
-              dialogClose: dict.dialogClose,
-            }}
-          />
         </div>
       )}
 
@@ -5110,72 +5109,76 @@ export default function PlayerApp() {
       {/* ED-2G: Magnet source dialog — real companion torrent flow (pairing
            gate → create → poll → file selection → select). The
            selected video's sanitized basename travels with the job id. */}
-      <MagnetInput
-        open={isMagnetDialogOpen && torrentEnabled}
-        onOpenChange={setIsMagnetDialogOpen}
-        isPaired={pairing.connected}
-        token={pairing.tokenRef.current}
-        onJobAccepted={handleMagnetJobAccepted}
-        dict={{
-          magnetInputLabel: dict.magnetInputLabel,
-          magnetInputPlaceholder: dict.magnetInputPlaceholder,
-          magnetInputLabelTitle: dict.magnetInputLabelTitle,
-          magnetErrorInvalid: dict.magnetErrorInvalid,
-          magnetInputSubmit: dict.magnetInputSubmit,
-          magnetInputUnpairedBody: dict.magnetInputUnpairedBody,
-          magnetConsentLabel: dict.magnetConsentLabel,
-          magnetInputErrorRepair: dict.magnetInputErrorRepair,
-          magnetInputErrorConflict: dict.magnetInputErrorConflict,
-          magnetInputErrorNetwork: dict.magnetInputErrorNetwork,
-          magnetInputErrorGeneric: dict.magnetInputErrorGeneric,
-          magnetInputErrorMetadataTimeout: dict.magnetInputErrorMetadataTimeout,
-          magnetInputErrorEvicted: dict.magnetInputErrorEvicted,
-          magnetInputErrorV2Unsupported: dict.magnetInputErrorV2Unsupported,
-          magnetInputSubmitting: dict.magnetInputSubmitting,
-          magnetCheckMetadata: dict.magnetCheckMetadata,
-          magnetFilesTitle: dict.magnetFilesTitle,
-          magnetFilesBody: dict.magnetFilesBody,
-          magnetNoVideoError: dict.magnetNoVideoError,
-          magnetSelectSubmit: dict.magnetSelectSubmit,
-          magnetCancel: dict.magnetCancel,
-          dialogClose: dict.dialogClose,
-          magnetTableFileName: dict.magnetTableFileName,
-          magnetTableSize: dict.magnetTableSize,
-          magnetFileKindVideo: dict.magnetFileKindVideo,
-          magnetFileKindSubtitle: dict.magnetFileKindSubtitle,
-          magnetFileKindFolder: dict.magnetFileKindFolder,
-          magnetFileKindOther: dict.magnetFileKindOther,
-          magnetTableNavUp: dict.magnetTableNavUp,
-          magnetNoVideosInFolder: dict.magnetNoVideosInFolder,
-          firefoxUnsupported: dict.firefoxUnsupported,
-        }}
-      />
+      {torrentEnabled && (
+        <MagnetInput
+          open={isMagnetDialogOpen}
+          onOpenChange={setIsMagnetDialogOpen}
+          isPaired={pairing.connected}
+          token={pairing.tokenRef.current}
+          onJobAccepted={handleMagnetJobAccepted}
+          dict={{
+            magnetInputLabel: dict.magnetInputLabel,
+            magnetInputPlaceholder: dict.magnetInputPlaceholder,
+            magnetInputLabelTitle: dict.magnetInputLabelTitle,
+            magnetErrorInvalid: dict.magnetErrorInvalid,
+            magnetInputSubmit: dict.magnetInputSubmit,
+            magnetInputUnpairedBody: dict.magnetInputUnpairedBody,
+            magnetConsentLabel: dict.magnetConsentLabel,
+            magnetInputErrorRepair: dict.magnetInputErrorRepair,
+            magnetInputErrorConflict: dict.magnetInputErrorConflict,
+            magnetInputErrorNetwork: dict.magnetInputErrorNetwork,
+            magnetInputErrorGeneric: dict.magnetInputErrorGeneric,
+            magnetInputErrorMetadataTimeout: dict.magnetInputErrorMetadataTimeout,
+            magnetInputErrorEvicted: dict.magnetInputErrorEvicted,
+            magnetInputErrorV2Unsupported: dict.magnetInputErrorV2Unsupported,
+            magnetInputSubmitting: dict.magnetInputSubmitting,
+            magnetCheckMetadata: dict.magnetCheckMetadata,
+            magnetFilesTitle: dict.magnetFilesTitle,
+            magnetFilesBody: dict.magnetFilesBody,
+            magnetNoVideoError: dict.magnetNoVideoError,
+            magnetSelectSubmit: dict.magnetSelectSubmit,
+            magnetCancel: dict.magnetCancel,
+            dialogClose: dict.dialogClose,
+            magnetTableFileName: dict.magnetTableFileName,
+            magnetTableSize: dict.magnetTableSize,
+            magnetFileKindVideo: dict.magnetFileKindVideo,
+            magnetFileKindSubtitle: dict.magnetFileKindSubtitle,
+            magnetFileKindFolder: dict.magnetFileKindFolder,
+            magnetFileKindOther: dict.magnetFileKindOther,
+            magnetTableNavUp: dict.magnetTableNavUp,
+            magnetNoVideosInFolder: dict.magnetNoVideosInFolder,
+            firefoxUnsupported: dict.firefoxUnsupported,
+          }}
+        />
+      )}
 
       {/* ED-2F: YouTube source dialog — real URL input, job create on the
           paired companion; media switch / End button cancels the job. */}
-      <YouTubeInput
-        open={isYouTubeDialogOpen && ytdlpEnabled}
-        onOpenChange={setIsYouTubeDialogOpen}
-        isPaired={pairing.connected}
-        token={pairing.tokenRef.current}
-        onJobAccepted={handleYouTubeJobAccepted}
-        onVideoIdParsed={handleYouTubeVideoIdParsed}
-        cancelActiveJob={jobSession.cancelActiveJob}
-        dict={{
-          youtubeInputLabel: dict.youtubeInputLabel,
-          youtubeInputTitle: dict.youtubeInputTitle,
-          youtubeInputPlaceholder: dict.youtubeInputPlaceholder,
-          youtubeInputSubmit: dict.youtubeInputSubmit,
-          youtubeInputErrorInvalid: dict.youtubeInputErrorInvalid,
-          youtubeInputErrorRepair: dict.youtubeInputErrorRepair,
-          youtubeInputErrorConflict: dict.youtubeInputErrorConflict,
-          youtubeInputErrorNetwork: dict.youtubeInputErrorNetwork,
-          youtubeInputErrorGeneric: dict.youtubeInputErrorGeneric,
-          youtubeInputSubmitting: dict.youtubeInputSubmitting,
-          dialogClose: dict.dialogClose,
-          firefoxUnsupported: dict.firefoxUnsupported,
-        }}
-      />
+      {ytdlpEnabled && (
+        <YouTubeInput
+          open={isYouTubeDialogOpen}
+          onOpenChange={setIsYouTubeDialogOpen}
+          isPaired={pairing.connected}
+          token={pairing.tokenRef.current}
+          onJobAccepted={handleYouTubeJobAccepted}
+          onVideoIdParsed={handleYouTubeVideoIdParsed}
+          cancelActiveJob={jobSession.cancelActiveJob}
+          dict={{
+            youtubeInputLabel: dict.youtubeInputLabel,
+            youtubeInputTitle: dict.youtubeInputTitle,
+            youtubeInputPlaceholder: dict.youtubeInputPlaceholder,
+            youtubeInputSubmit: dict.youtubeInputSubmit,
+            youtubeInputErrorInvalid: dict.youtubeInputErrorInvalid,
+            youtubeInputErrorRepair: dict.youtubeInputErrorRepair,
+            youtubeInputErrorConflict: dict.youtubeInputErrorConflict,
+            youtubeInputErrorNetwork: dict.youtubeInputErrorNetwork,
+            youtubeInputErrorGeneric: dict.youtubeInputErrorGeneric,
+            youtubeInputSubmitting: dict.youtubeInputSubmitting,
+            dialogClose: dict.dialogClose,
+            firefoxUnsupported: dict.firefoxUnsupported,
+          }}
+        />
+      )}
 
       {/* --- Active state --- */}
       {hasMedia &&

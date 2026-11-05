@@ -97,6 +97,29 @@ describe('PlayerApp module gate', () => {
     expect(document.querySelector('.entei-player-empty-cta')).not.toBeNull();
   });
 
+  it('renders the empty state as the local picker only — no companion setup section', () => {
+    setModuleState({ ytdlp: false, torrent: false });
+    render(<PlayerApp />);
+
+    // The empty state core is the picker row: MediaPicker alone when every
+    // module is off — the module slot contributes nothing.
+    const pickers = document.querySelector('.entei-player-pickers');
+    expect(pickers).not.toBeNull();
+    expect(pickers!.querySelectorAll('button').length).toBe(1);
+
+    // ED-3 setup section was removed from the player empty state entirely.
+    expect(document.querySelector('.entei-eizou-section')).toBeNull();
+  });
+
+  it('renders one picker button per enabled module next to the local picker', () => {
+    render(<PlayerApp />);
+
+    const pickers = document.querySelector('.entei-player-pickers');
+    expect(pickers).not.toBeNull();
+    // MediaPicker + Magnet + YouTube.
+    expect(pickers!.querySelectorAll('button').length).toBe(3);
+  });
+
   it('suppresses the already-open Magnet dialog when torrent is disabled', () => {
     render(<PlayerApp />);
 

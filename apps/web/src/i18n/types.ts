@@ -386,6 +386,9 @@ export interface Dictionary {
     eizouResetConfirm: string;
     eizouResetCancel: string;
     eizouPairingTitle: string;
+    /** Button label that opens the pairing (OTP) dialog from the EizouDen
+     *  settings tab while this browser is unpaired. */
+    eizouPairingOpenButton: string;
     eizouPairingOtpLabel: string;
     eizouPairingOtpInvalid: string;
     eizouPairingSubmit: string;

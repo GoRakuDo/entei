@@ -272,6 +272,7 @@ export const id: Dictionary = {
     eizouResetConfirm: 'Reset pasangan',
     eizouResetCancel: 'Batal',
     eizouPairingTitle: 'EizouDendenshi OTP',
+    eizouPairingOpenButton: 'Pairing EizouDendenshi',
     eizouPairingOtpLabel: 'Kode pasangan 6 digit',
     eizouPairingOtpInvalid: 'Masukkan kode 6 digit.',
     eizouPairingSubmit: 'Pasangkan',

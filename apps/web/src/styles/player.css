@@ -102,19 +102,19 @@
 }
 
 /* --- Empty State --- */
+/* The empty state is ONLY the local-media CTA: a single centered block.
+   Module source buttons (Magnet / YouTube) register into the picker row
+   as an extension slot — no trailing section, divider, or reserved gap
+   sits below the CTA. */
 .entei-player-empty {
   display: flex;
-  /* Column of two independent blocks: the local-media CTA (its own centered
-     60vh upper zone) and the ED-3 EizouDendenshi setup section (separate
-     full-width block beneath, with deliberate token-based spacing). */
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   width: 100%;
   padding: var(--entei-space-32) var(--entei-gutter);
 }
 
-/* Local-media CTA is a complete upper block, vertically centered in its own
-   60vh zone — visually independent from the setup section below. */
 .entei-player-empty-cta {
   display: flex;
   flex-direction: column;
@@ -1837,6 +1837,23 @@
 }
 
 .entei-eizouden-reset-btn {
+  align-self: flex-start;
+  min-height: var(--entei-touch-min);
+  border-radius: var(--entei-radius-md);
+}
+
+/* --- EizouDen tab: pairing entry point (unpaired browsers only) ---
+   Phase 2 transition: EizouDendenshiSetup was retired from the Player empty
+   state, so pairing lives here instead. */
+.entei-eizouden-pair-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding-bottom: var(--entei-space-16);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+.entei-eizouden-pair-btn {
   align-self: flex-start;
   min-height: var(--entei-touch-min);
   border-radius: var(--entei-radius-md);

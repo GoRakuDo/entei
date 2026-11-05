@@ -70,6 +70,8 @@ EizouDendenshiがPoCを通過してから、Player empty stateは次の3つの�
 2. `Magnet URI`: 実torrent source dialog（ED-2G実装・2026-08-02）— pairing gate → tracker同意 → magnet create → metadata即時file list → video 1本 + subtitle任意選択 → select
 3. `YouTube`: Lucide `Youtube` iconのbutton。実URL dialog（ED-2F実装）— pairing gate → URL入力 → job create
 
+> **Empty stateのモジュール化（Phase 2・2026-11-05追記）:** Player empty stateは「local `MediaPicker` + 有効なsource module slot（Magnet / YouTube）」だけを表示する。`EizouDendenshiSetup`（カタツムリ画像・OTP setup section）はempty stateから撤去済みで、Player空状態にpairing UIは一切出さない。Phase 2-Cのnative rust streamingが入るまでの移行期間は、**pairing entry pointは設定モーダル「EizouDen」タブに置く**（下記「Pairing entry point（Phase 2 transition）」参照）。
+
 ED-1のMagnet dialogはvisual shellのみで、submit時にEizouDendenshi未接続の案内を表示していたが、**ED-2Gで実torrent source dialogへ置き換え済み**（ED-3の共通source entry dialog化はその後も有効なUI整理であり、browser WebTorrent endpointやpeer gateは再利用しない）。
 
 ### Pairing UI
@@ -82,6 +84,14 @@ source submit前にcompanionがunpairedなら、同じdialog flow内でpairing c
 - component追加は実装時に`npx shadcn@latest add input-otp`で行う。package.jsonを手編集しない
 
 Pairing成功後だけ、現在入力済みのmagnet / YouTube URLをcompanionへ送る。unpaired状態でsource jobを黙って開始しない。
+
+### Pairing entry point（Phase 2 transition・2026-11-05実装）
+
+- `EizouDendenshiSetup`（empty stateのsetup section）は撤去済み。unpairedユーザーが孤立しないよう、設定モーダルの「EizouDen」タブ（`EizouDenSettingsTab`）に`eizouPairingOpenButton`（Lucide `Link2` + shadcn Button）を置き、押すと`EizouDendenshiPairingDialog`（同じ`InputOTP` dialog）を開く。
+- 表示条件は「`onPairSuccess`が配線されている かつ `isPaired`でない」。paired済みならボタンは出ず、従来の「Reset pairing」だけが残る。
+- tokenはdialogから`onPairSuccess`へ渡すだけで、dialog自身はstorageに触れない。ナビゲーション設定モーダル（`EizouSettingsDialog`島）が`writeStoredPairingToken`で永続化し、`settings-bridge`の`COMPANION_PAIRED_EVENT`でPlayer島へtokenを渡す（`useCompanionPairing().handlePairSuccess`が`isValidPairingToken`で再検証しfail-closed）。これによりpair直後にMagnet / YouTubeがreload無しで使える。
+- Resetの反映は既存のpoll契約に任せる（companion側DELETE後の`GET /v1/pair/status`が401/403を返し、Player島は5秒以内にtokenを破棄して未接続へ戻る）。
+- 既知の制約: pairing dialogの`locale`はナビ島の現在localeをそのまま使う。tutorial linkは`/{locale}-tutorial/eizoudendenshi/`のみで、locale未対応時は`id`へフォールバックする。
 
 ## UX flow
 

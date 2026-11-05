@@ -273,6 +273,7 @@ const mockDict = {
   eizouSetupTitle: 'EizouDendenshi',
   eizouDisconnected: 'Disconnected',
   eizouChecking: 'Checking…',
+  eizouPairingOpenButton: 'EizouDendenshi Pairing',
   eizouResetButton: 'Reset pairing',
   eizouResetTitle: 'Reset pairing?',
   eizouResetDesc: 'Reset pairing?',

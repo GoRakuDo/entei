@@ -58,6 +58,16 @@ export interface SettingsTabsProps {
    *  the global nav settings modal (ED-3). Both supply onResetPairing; the
    *  EizouDen tab renders its reset control only when present. */
   onResetPairing?: () => void | Promise<void>;
+  /** Paired state for the EizouDen tab's pairing entry point. When the
+   *  browser is unpaired and `onPairSuccess` is wired, the tab shows a
+   *  "Pairing" button that opens the OTP dialog (Phase 2 transition: the
+   *  Player empty state no longer hosts the EizouDendenshi setup section). */
+  isPaired?: boolean;
+  /** Receives the capability token on a successful pair; the caller
+   *  persists it (player hook or nav island). */
+  onPairSuccess?: (token: string) => void;
+  /** Locale for the pairing dialog's tutorial link. */
+  locale?: 'id' | 'ja' | 'en';
   /** Nadeshiko dictionary block (for the new Nadeshiko settings tab).
    *  Player + nav settings modal both pass it; defaults to no tab when
    *  omitted. */
@@ -72,6 +82,9 @@ export function SettingsTabs({
   subtitleSettings,
   onSubtitleSettingsChange,
   onResetPairing,
+  isPaired = false,
+  onPairSuccess,
+  locale = 'id',
   nadeshikoDict,
 }: SettingsTabsProps) {
   // Subtitle appearance is self-contained here (reads/writes the same
@@ -186,7 +199,13 @@ export function SettingsTabs({
             />
           </TabsContent>
           <TabsContent value="eizouden" className="entei-settings-tab-content">
-            <EizouDenSettingsTab dict={dict} onResetPairing={onResetPairing} />
+            <EizouDenSettingsTab
+              dict={dict}
+              onResetPairing={onResetPairing}
+              isPaired={isPaired}
+              onPairSuccess={onPairSuccess}
+              locale={locale}
+            />
           </TabsContent>
           {nadeshikoDict && (
             <TabsContent value="nadeshiko" className="entei-settings-tab-content">

@@ -27,6 +27,19 @@ const dict = {
   eizouResetConfirm: 'Reset pairing',
   eizouResetCancel: 'Cancel',
   dialogClose: 'Close',
+  eizouPairingOpenButton: 'EizouDendenshi Pairing',
+  eizouPairingTitle: 'EizouDendenshi OTP',
+  eizouPairingOtpLabel: '6-digit pairing code',
+  eizouPairingOtpInvalid: 'Enter the 6-digit code.',
+  eizouPairingSubmit: 'Pair',
+  eizouPairingConnecting: 'Connecting…',
+  eizouPairingErrorNetwork: 'Cannot reach EizouDendenshi.',
+  eizouPairingErrorInvalidCode: 'The code is wrong.',
+  eizouPairingErrorGeneric: 'Pairing failed.',
+  pairingStagePost: '(POST /v1/pair)',
+  eizouPairingTutorialPrefix: 'See ',
+  eizouPairingTutorialLink: 'here',
+  eizouPairingTutorialSuffix: ' for setup.',
 } as const;
 
 function findRadio(container: HTMLElement, value: string) {
@@ -160,5 +173,62 @@ describe('EizouDenSettingsTab — explicit pairing reset (ED-3)', () => {
         screen.queryByRole('dialog', { name: dict.eizouResetTitle }),
       ).not.toBeInTheDocument(),
     );
+  });
+});
+
+describe('EizouDenSettingsTab — pairing entry point (Phase 2 transition)', () => {
+  const onPairSuccess = vi.fn();
+
+  beforeEach(() => {
+    localStorage.clear();
+    onPairSuccess.mockClear();
+    // input-otp measures the OTP slots on mount (jsdom has no ResizeObserver).
+    vi.stubGlobal(
+      'ResizeObserver',
+      vi.fn(function () {
+        return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+      }),
+    );
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it('shows the pairing button only when unpaired AND onPairSuccess is wired', () => {
+    const { rerender } = render(<EizouDenSettingsTab dict={dict} />);
+    expect(
+      screen.queryByRole('button', { name: dict.eizouPairingOpenButton }),
+    ).not.toBeInTheDocument();
+
+    rerender(<EizouDenSettingsTab dict={dict} onPairSuccess={onPairSuccess} />);
+    expect(
+      screen.getByRole('button', { name: dict.eizouPairingOpenButton }),
+    ).toBeInTheDocument();
+
+    // Already paired: no entry point (reset is the relevant control).
+    rerender(
+      <EizouDenSettingsTab
+        dict={dict}
+        onPairSuccess={onPairSuccess}
+        isPaired={true}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: dict.eizouPairingOpenButton }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opens the OTP pairing dialog from the button', () => {
+    render(<EizouDenSettingsTab dict={dict} onPairSuccess={onPairSuccess} />);
+    fireEvent.click(
+      screen.getByRole('button', { name: dict.eizouPairingOpenButton }),
+    );
+    expect(
+      screen.getByRole('dialog', { name: dict.eizouPairingTitle }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(dict.eizouPairingOtpLabel)).toBeInTheDocument();
   });
 });

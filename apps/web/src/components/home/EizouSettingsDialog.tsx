@@ -17,6 +17,13 @@
  * "Reset pairing" control in the EizouDen tab — without starting a second
  * status-poll loop (the Player's own hook already polls shared
  * localStorage).
+ *
+ * PAIRING ENTRY POINT (Phase 2 transition): the Player empty state no longer
+ * hosts EizouDendenshiSetup, so the EizouDen tab owns pairing. This island
+ * reads the stored token when the dialog opens (unpaired → "Pairing" button),
+ * persists the token from EizouDendenshiPairingDialog, and forwards it to the
+ * Player island through the settings-bridge COMPANION_PAIRED event so Magnet /
+ * YouTube unlock without a reload.
  * ---------------------------------------------------------------------------
  */
 
@@ -35,12 +42,14 @@ import { LanguageCombobox } from '@/components/home/LanguageCombobox';
 import { buildShortcuts } from '@/features/player/player-shortcuts';
 import {
   dispatchAnkiSessionCredentials,
+  dispatchCompanionPaired,
   dispatchSubtitleSettingsChange,
   listenForOpenSettings,
 } from '@/features/player/settings-bridge';
 import {
   readStoredPairingToken,
   clearStoredPairingToken,
+  writeStoredPairingToken,
   COMPANION_PAIRING_BASE_URL,
 } from '@/features/player/companion-pairing-store';
 import { LOCALE_CHANGE_EVENT, type LocaleChangeDetail } from '@i18n/locale-events';
@@ -79,6 +88,14 @@ export function EizouSettingsDialog({
   languageLabel = 'Language',
 }: EizouSettingsDialogProps) {
   const [open, setOpen] = useState(false);
+  /** Paired state for the EizouDen tab's pairing entry point. Read from the
+   *  shared opaque store whenever the dialog opens (the Player island keeps
+   *  the live status poll; this island only needs the entry-point gate). */
+  const [isPaired, setIsPaired] = useState(false);
+
+  useEffect(() => {
+    if (open) setIsPaired(readStoredPairingToken() !== null);
+  }, [open]);
 
   /* Localized strings for the trigger + language row. The nav labels are
    * rendered by a React island, so the locale-switcher's data-i18n pass
@@ -137,6 +154,16 @@ export function EizouSettingsDialog({
     }
     // 2. Clear browser storage regardless of network outcome.
     clearStoredPairingToken();
+    setIsPaired(false);
+  }, []);
+
+  /** ED-3 pairing handoff: persist the opaque token, flip the local gate, and
+   *  forward the token to the Player island so Magnet / YouTube become usable
+   *  immediately (no reload). The Player's hook re-validates it (fail closed). */
+  const handlePairSuccess = useCallback((token: string) => {
+    writeStoredPairingToken(token);
+    setIsPaired(true);
+    dispatchCompanionPaired(token);
   }, []);
 
   return (
@@ -184,6 +211,9 @@ export function EizouSettingsDialog({
           onSubtitleSettingsChange={dispatchSubtitleSettingsChange}
           onSessionCredentials={dispatchAnkiSessionCredentials}
           onResetPairing={handleResetPairing}
+          isPaired={isPaired}
+          onPairSuccess={handlePairSuccess}
+          locale={locale}
           nadeshikoDict={nadeshikoDict}
         />
       </DialogContent>

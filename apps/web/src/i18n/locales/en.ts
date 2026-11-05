@@ -268,6 +268,7 @@ export const en: Dictionary = {
     eizouResetConfirm: 'Reset pairing',
     eizouResetCancel: 'Cancel',
     eizouPairingTitle: 'EizouDendenshi OTP',
+    eizouPairingOpenButton: 'EizouDendenshi Pairing',
     eizouPairingOtpLabel: '6-digit pairing code',
     eizouPairingOtpInvalid: 'Enter the 6-digit code.',
     eizouPairingSubmit: 'Pair',
