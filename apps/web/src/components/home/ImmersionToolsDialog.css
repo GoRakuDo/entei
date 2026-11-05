@@ -134,7 +134,7 @@
 .entei-dialog-content.entei-tools-drawer {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-16);
+  gap: var(--entei-space-24);
   padding: var(--entei-space-24) 0 0;
 }
 
