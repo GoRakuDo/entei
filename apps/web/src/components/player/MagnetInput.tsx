@@ -47,7 +47,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
@@ -145,7 +144,11 @@ export interface MagnetInputDict {
 interface MagnetInputProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  isPaired: boolean;
+  /**
+   * Kept for existing callers (PlayerApp still passes the pairing state)
+   * but it no longer gates the form: the dialog always renders its input.
+   */
+  isPaired?: boolean;
   token: string | null;
   onJobAccepted: (jobId: string, selectedVideoName: string, subtitleFileId: string) => void;
   dict: MagnetInputDict;
@@ -210,7 +213,6 @@ function kindLabel(entry: FileEntry, dict: MagnetInputDict): string {
 export function MagnetInput({
   open,
   onOpenChange,
-  isPaired,
   token,
   onJobAccepted,
   dict,
@@ -379,7 +381,13 @@ export function MagnetInput({
   );
 
   const handleCreate = useCallback(async () => {
-    if (!isPaired || !token) return;
+    // The form is never gated on pairing. Without a capability token the
+    // companion would reject the create, so surface the localized
+    // re-pair message instead of failing silently.
+    if (!token) {
+      setError('repair');
+      return;
+    }
     if (settleRef.current) return;
     if (!isValidMagnetUri(magnet)) {
       setError('invalid');
@@ -471,7 +479,7 @@ export function MagnetInput({
       setError('network');
       setPhase('input');
     }
-  }, [isPaired, token, magnet]);
+  }, [token, magnet]);
 
   // Redacted status polling while checking metadata
   useEffect(() => {
@@ -692,7 +700,7 @@ export function MagnetInput({
   );
 
   const busy = phase === 'creating' || phase === 'submitting' || phase === 'settling';
-  const canCreate = isPaired && !busy && isValidMagnetUri(magnet);
+  const canCreate = !busy && isValidMagnetUri(magnet);
   const hasVideoSelected = videoId !== '';
   // Keep the file list visible during the playable wait (submitting): the
   // entries are still held and must not collapse into the empty state while
@@ -707,239 +715,234 @@ export function MagnetInput({
           <DialogTitle className="entei-magnet-dialog-title">
             {dict.magnetInputLabelTitle}
           </DialogTitle>
-          {!isPaired && (
-            <DialogDescription>{dict.magnetInputUnpairedBody}</DialogDescription>
-          )}
         </DialogHeader>
 
-        {!isPaired ? null : (
-          <div className="entei-magnet-shell">
-            {/* ── Top: Input + create button ── */}
-            <div className="entei-magnet-shell-top">
-              <ButtonGroup className="entei-magnet-input-row">
-                <Input
-                  className="entei-magnet-input"
-                  placeholder={dict.magnetInputPlaceholder}
-                  aria-label={dict.magnetInputLabel}
-                  aria-invalid={error === 'invalid'}
-                  value={magnet}
-                  onChange={(e) => {
-                    setMagnet(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  spellCheck={false}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="entei-magnet-add-btn"
-                  onClick={() => void handleCreate()}
-                  disabled={!canCreate}
-                  aria-label={dict.magnetInputLabelTitle}
-                  title={dict.magnetInputSubmit}
-                >
-                  <Magnet size={16} aria-hidden="true" />
-                </Button>
-              </ButtonGroup>
-            </div>
+        <div className="entei-magnet-shell">
+          {/* ── Top: Input + create button ── */}
+          <div className="entei-magnet-shell-top">
+            <ButtonGroup className="entei-magnet-input-row">
+              <Input
+                className="entei-magnet-input"
+                placeholder={dict.magnetInputPlaceholder}
+                aria-label={dict.magnetInputLabel}
+                aria-invalid={error === 'invalid'}
+                value={magnet}
+                onChange={(e) => {
+                  setMagnet(e.target.value);
+                  if (error) setError(null);
+                }}
+                spellCheck={false}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="entei-magnet-add-btn"
+                onClick={() => void handleCreate()}
+                disabled={!canCreate}
+                aria-label={dict.magnetInputLabelTitle}
+                title={dict.magnetInputSubmit}
+              >
+                <Magnet size={16} aria-hidden="true" />
+              </Button>
+            </ButtonGroup>
+          </div>
 
-            {/* ── Center: Table with state-dependent content ── */}
-            <div className="entei-magnet-table-wrap">
-              <Table className="entei-magnet-table">
-                <TableHeader>
-                  <TableRow className="entei-magnet-table-header-row">
-                    <TableHead className="entei-magnet-table-head-check">
-                      {/* ArrowUp: only rendered when folderPath is set (selecting
-                          phase with a subfolder open). Positioned in the leftmost
-                          column for consistent left-aligned navigation. */}
-                      {folderPath && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="entei-magnet-arrow-up-btn"
-                          onClick={handleFolderBack}
-                          disabled={busy}
-                          aria-label={dict.magnetTableNavUp}
-                          title={dict.magnetTableNavUp}
+          {/* ── Center: Table with state-dependent content ── */}
+          <div className="entei-magnet-table-wrap">
+            <Table className="entei-magnet-table">
+              <TableHeader>
+                <TableRow className="entei-magnet-table-header-row">
+                  <TableHead className="entei-magnet-table-head-check">
+                    {/* ArrowUp: only rendered when folderPath is set (selecting
+                        phase with a subfolder open). Positioned in the leftmost
+                        column for consistent left-aligned navigation. */}
+                    {folderPath && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="entei-magnet-arrow-up-btn"
+                        onClick={handleFolderBack}
+                        disabled={busy}
+                        aria-label={dict.magnetTableNavUp}
+                        title={dict.magnetTableNavUp}
+                      >
+                        <ArrowUp size={14} aria-hidden="true" />
+                      </Button>
+                    )}
+                  </TableHead>
+                  <TableHead className="entei-magnet-table-head-type" />
+                  <TableHead className="entei-magnet-table-head-name">
+                    {dict.magnetTableFileName}
+                  </TableHead>
+                  <TableHead className="entei-magnet-table-head-size">
+                    {dict.magnetTableSize}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {showTable && entries.length === 0
+                  ? (
+                      <TableRow className="entei-magnet-table-row--static">
+                        <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
+                          <div className="entei-magnet-empty">
+                            <span className="entei-magnet-empty-title">
+                              {dict.magnetNoVideosInFolder}
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  : showTable
+                    ? entries.map((entry) => {
+                      const isFolder = entry.kind === 'folder';
+                      const isVideo = entry.kind === 'video';
+                      const isSubtitle = entry.kind === 'subtitle';
+                      const isSelected =
+                        (isVideo && videoId === entry.id) ||
+                        (isSubtitle && subtitleId === entry.id);
+
+                      return (
+                        <TableRow
+                          key={entry.id ?? entry.relativePath ?? entry.basename}
+                          className={`entei-magnet-table-row ${isFolder ? 'entei-magnet-table-row--folder' : ''} ${isSelected ? 'entei-magnet-table-row--selected' : ''}`}
                         >
-                          <ArrowUp size={14} aria-hidden="true" />
-                        </Button>
-                      )}
-                    </TableHead>
-                    <TableHead className="entei-magnet-table-head-type" />
-                    <TableHead className="entei-magnet-table-head-name">
-                      {dict.magnetTableFileName}
-                    </TableHead>
-                    <TableHead className="entei-magnet-table-head-size">
-                      {dict.magnetTableSize}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {showTable && entries.length === 0
+                          <TableCell className="entei-magnet-table-cell-check">
+                            {isFolder ? (
+                              <Checkbox
+                                disabled
+                                checked={false}
+                                aria-label={`${dict.magnetFileKindFolder}: ${entry.basename}`}
+                              />
+                            ) : isVideo || isSubtitle ? (
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={(checked) =>
+                                  handleCheckboxChange(entry, checked === true)
+                                }
+                                disabled={busy}
+                                aria-label={`${kindLabel(entry, dict)}: ${entry.basename}`}
+                              />
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="entei-magnet-table-cell-icon">
+                            {kindIcon(entry.kind, 16)}
+                          </TableCell>
+                          <TableCell className="entei-magnet-table-cell-name">
+                            {isFolder ? (
+                              <button
+                                type="button"
+                                className="entei-magnet-folder-btn"
+                                onClick={() =>
+                                  handleFolderForward(entry.relativePath ?? entry.basename)
+                                }
+                                disabled={busy}
+                              >
+                                {entry.basename}
+                              </button>
+                            ) : (
+                              <span className="entei-magnet-file-name-text">
+                                {entry.basename}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="entei-magnet-table-cell-size">
+                            {isFolder
+                              ? ''
+                              : entry.byteSize != null
+                                ? formatBytes(entry.byteSize)
+                                : ''}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  : showChecking
                     ? (
                         <TableRow className="entei-magnet-table-row--static">
                           <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
-                            <div className="entei-magnet-empty">
-                              <span className="entei-magnet-empty-title">
-                                {dict.magnetNoVideosInFolder}
-                              </span>
+                            <div className="entei-magnet-checking" role="status">
+                              <span>{dict.magnetCheckMetadata}</span>
                             </div>
                           </TableCell>
                         </TableRow>
                       )
-                    : showTable
-                      ? entries.map((entry) => {
-                        const isFolder = entry.kind === 'folder';
-                        const isVideo = entry.kind === 'video';
-                        const isSubtitle = entry.kind === 'subtitle';
-                        const isSelected =
-                          (isVideo && videoId === entry.id) ||
-                          (isSubtitle && subtitleId === entry.id);
-
-                        return (
-                          <TableRow
-                            key={entry.id ?? entry.relativePath ?? entry.basename}
-                            className={`entei-magnet-table-row ${isFolder ? 'entei-magnet-table-row--folder' : ''} ${isSelected ? 'entei-magnet-table-row--selected' : ''}`}
-                          >
-                            <TableCell className="entei-magnet-table-cell-check">
-                              {isFolder ? (
-                                <Checkbox
-                                  disabled
-                                  checked={false}
-                                  aria-label={`${dict.magnetFileKindFolder}: ${entry.basename}`}
-                                />
-                              ) : isVideo || isSubtitle ? (
-                                <Checkbox
-                                  checked={isSelected}
-                                  onCheckedChange={(checked) =>
-                                    handleCheckboxChange(entry, checked === true)
-                                  }
-                                  disabled={busy}
-                                  aria-label={`${kindLabel(entry, dict)}: ${entry.basename}`}
-                                />
-                              ) : null}
-                            </TableCell>
-                            <TableCell className="entei-magnet-table-cell-icon">
-                              {kindIcon(entry.kind, 16)}
-                            </TableCell>
-                            <TableCell className="entei-magnet-table-cell-name">
-                              {isFolder ? (
-                                <button
-                                  type="button"
-                                  className="entei-magnet-folder-btn"
-                                  onClick={() =>
-                                    handleFolderForward(entry.relativePath ?? entry.basename)
-                                  }
-                                  disabled={busy}
-                                >
-                                  {entry.basename}
-                                </button>
-                              ) : (
-                                <span className="entei-magnet-file-name-text">
-                                  {entry.basename}
+                    : (
+                        <TableRow className="entei-magnet-table-row--static">
+                          <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
+                            <div className="entei-magnet-empty">
+                              {error !== null ? (
+                                <span className="entei-magnet-empty-error" role="alert">
+                                  {errorMessages[error](dict)}
                                 </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="entei-magnet-table-cell-size">
-                              {isFolder
-                                ? ''
-                                : entry.byteSize != null
-                                  ? formatBytes(entry.byteSize)
-                                  : ''}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    : showChecking
-                      ? (
-                          <TableRow className="entei-magnet-table-row--static">
-                            <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
-                              <div className="entei-magnet-checking" role="status">
-                                <span>{dict.magnetCheckMetadata}</span>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      : (
-                          <TableRow className="entei-magnet-table-row--static">
-                            <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
-                              <div className="entei-magnet-empty">
-                                {error !== null ? (
-                                  <span className="entei-magnet-empty-error" role="alert">
-                                    {errorMessages[error](dict)}
+                              ) : (
+                                <>
+                                  <span className="entei-magnet-empty-title">
+                                    {dict.magnetFilesTitle}
                                   </span>
-                                ) : (
-                                  <>
-                                    <span className="entei-magnet-empty-title">
-                                      {dict.magnetFilesTitle}
-                                    </span>
-                                    <span className="entei-magnet-empty-body">
-                                      {dict.magnetFilesBody}
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                </TableBody>
-              </Table>
-            </div>
+                                  <span className="entei-magnet-empty-body">
+                                    {dict.magnetFilesBody}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+              </TableBody>
+            </Table>
+          </div>
 
-            {/* ── Error (outside table, for visibility) ── */}
-            {error !== null && showTable && (
-              <p className="entei-magnet-error" role="alert">
-                {errorMessages[error](dict)}
-              </p>
-            )}
-
-            {/* ── Tracker/peer IP disclosure (plain text, no checkbox) ── */}
-            <p className="entei-magnet-consent-text">
-              {dict.magnetConsentLabel}
+          {/* ── Error (outside table, for visibility) ── */}
+          {error !== null && showTable && (
+            <p className="entei-magnet-error" role="alert">
+              {errorMessages[error](dict)}
             </p>
+          )}
 
-            {/* ── Bottom: Select & play ── */}
-            <div className="entei-magnet-browser-bottom">
-              {(showChecking || phase === 'submitting' || phase === 'settling') ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="entei-magnet-submit entei-magnet-cancel"
-                  onClick={handleCancel}
-                  aria-label={dict.magnetCancel}
-                >
-                  {/* Loading animation while the dialog is busy (metadata
-                      check / playable wait / cancel settle); the accessible
-                      name above keeps the cancel affordance for SR users. */}
+          {/* ── Tracker/peer IP disclosure (plain text, no checkbox) ── */}
+          <p className="entei-magnet-consent-text">
+            {dict.magnetConsentLabel}
+          </p>
+
+          {/* ── Bottom: Select & play ── */}
+          <div className="entei-magnet-browser-bottom">
+            {(showChecking || phase === 'submitting' || phase === 'settling') ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="entei-magnet-submit entei-magnet-cancel"
+                onClick={handleCancel}
+                aria-label={dict.magnetCancel}
+              >
+                {/* Loading animation while the dialog is busy (metadata
+                    check / playable wait / cancel settle); the accessible
+                    name above keeps the cancel affordance for SR users. */}
+                <TypewriterLoading
+                  aria-hidden="true"
+                  className="entei-typewriter--btn"
+                />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="entei-magnet-submit entei-magnet-select-play"
+                onClick={() => void handleSelect()}
+                disabled={busy || !showTable || !hasVideoSelected}
+                aria-label={dict.magnetSelectSubmit}
+              >
+                {busy ? (
                   <TypewriterLoading
                     aria-hidden="true"
                     className="entei-typewriter--btn"
                   />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  className="entei-magnet-submit entei-magnet-select-play"
-                  onClick={() => void handleSelect()}
-                  disabled={busy || !showTable || !hasVideoSelected}
-                  aria-label={dict.magnetSelectSubmit}
-                >
-                  {busy ? (
-                    <TypewriterLoading
-                      aria-hidden="true"
-                      className="entei-typewriter--btn"
-                    />
-                  ) : (
-                    dict.magnetSelectSubmit
-                  )}
-                </Button>
-              )}
-            </div>
+                ) : (
+                  dict.magnetSelectSubmit
+                )}
+              </Button>
+            )}
           </div>
-        )}
+        </div>
       </DialogContent>
     </Dialog>
   );

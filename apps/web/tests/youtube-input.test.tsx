@@ -511,8 +511,8 @@ describe('YouTubeInput — paired flow', () => {
   });
 });
 
-describe('YouTubeInput — unpaired gate', () => {
-  it('allows no input or submit while unpaired (title only)', () => {
+describe('YouTubeInput — no pairing gate', () => {
+  it('renders the form even when the pairing state is false and no token exists', () => {
     render(
       <YouTubeInput
         open={true}
@@ -523,16 +523,42 @@ describe('YouTubeInput — unpaired gate', () => {
         dict={baseDict}
       />,
     );
-    // The sr-only pairing notice was removed (2026-08-10 cleanup): the
-    // dialog keeps the title and the pairing happens in the settings UI.
+    // The dialog must never render as title-only: the input, the quality
+    // select and both actions stay visible without a companion pairing.
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
     expect(
-      screen.queryByText('Pair EizouDendenshi first to download from YouTube.'),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      screen.getByRole('combobox', { name: baseDict.youtubeInputQuality }),
+    ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: baseDict.youtubeInputSubmit }),
-    ).not.toBeInTheDocument();
-    // Only the X close remains.
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: baseDict.youtubeInputCancel }),
+    ).toBeInTheDocument();
+  });
+
+  it('submitting without a token shows the localized re-pair error and never fetches', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <YouTubeInput
+        open={true}
+        onOpenChange={vi.fn()}
+        isPaired={false}
+        token={null}
+        onJobAccepted={vi.fn()}
+        dict={baseDict}
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URL },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      baseDict.youtubeInputErrorRepair,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

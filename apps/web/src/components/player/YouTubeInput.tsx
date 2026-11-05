@@ -115,8 +115,11 @@ export interface YouTubeInputDict {
 interface YouTubeInputProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Paired state: job creation is allowed only after a successful pairing. */
-  isPaired: boolean;
+  /**
+   * Kept for existing callers (PlayerApp still passes the pairing state)
+   * but it no longer gates the form: the dialog always renders its input.
+   */
+  isPaired?: boolean;
   /** Page-memory capability token; used only in the request query string. */
   token: string | null;
   /** Called with the opaque job id once the companion accepted the job. */
@@ -248,7 +251,6 @@ export function parseYouTubeVideoId(raw: string): string | null {
 export function YouTubeInput({
   open,
   onOpenChange,
-  isPaired,
   token,
   onJobAccepted,
   onVideoIdParsed,
@@ -303,7 +305,13 @@ export function YouTubeInput({
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!isPaired || !token) return;
+    // The form is never gated on pairing. Without a capability token the
+    // companion would reject the create, so surface the localized
+    // re-pair message instead of failing silently.
+    if (!token) {
+      setError('repair');
+      return;
+    }
     // Firefox playback guard: block all media selection with a toast
     if (isFirefox()) {
       notifyFirefoxUnsupported(dict.firefoxUnsupported);
@@ -402,7 +410,6 @@ export function YouTubeInput({
       setSubmitting(false);
     }
   }, [
-    isPaired,
     token,
     url,
     quality,
@@ -422,94 +429,92 @@ export function YouTubeInput({
             {dict.youtubeInputTitle}
           </DialogTitle>
         </DialogHeader>
-        {isPaired ? (
-          <form
-            className="entei-youtube-form"
-            // Our own shape check owns validation so the localized error
-            // message shows instead of the browser's native URL bubble.
-            noValidate
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!submitting) void handleSubmit();
-            }}
+        <form
+          className="entei-youtube-form"
+          // Our own shape check owns validation so the localized error
+          // message shows instead of the browser's native URL bubble.
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!submitting) void handleSubmit();
+          }}
+        >
+          <label
+            className="entei-youtube-form-label"
+            htmlFor="entei-youtube-url-input"
           >
-            <label
-              className="entei-youtube-form-label"
-              htmlFor="entei-youtube-url-input"
+            {dict.youtubeInputFieldLabel}
+          </label>
+          <ButtonGroup
+            orientation={orientation}
+            className="entei-youtube-input-group"
+          >
+            <Input
+              id="entei-youtube-url-input"
+              className="entei-youtube-url-input"
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              placeholder={dict.youtubeInputPlaceholder}
+              aria-invalid={error !== null}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            <Select
+              value={quality}
+              onValueChange={(value) => setQuality(value as YouTubeQuality)}
             >
-              {dict.youtubeInputFieldLabel}
-            </label>
-            <ButtonGroup
-              orientation={orientation}
-              className="entei-youtube-input-group"
+              <SelectTrigger
+                className="entei-youtube-quality"
+                aria-label={dict.youtubeInputQuality}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {QUALITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </ButtonGroup>
+          {error !== null && (
+            <p className="entei-youtube-form-error" role="alert">
+              {errorMessages[error](dict)}
+            </p>
+          )}
+          <ButtonGroup
+            orientation={orientation}
+            className="entei-youtube-actions"
+          >
+            {/* DOM order is Stream Now → Cancel (mobile stacking order).
+                Desktop CSS mirrors the row so Cancel sits left. */}
+            <Button
+              type="submit"
+              className="entei-youtube-form-submit"
+              disabled={submitting || url.trim() === ''}
+              aria-label={dict.youtubeInputSubmit}
             >
-              <Input
-                id="entei-youtube-url-input"
-                className="entei-youtube-url-input"
-                type="url"
-                inputMode="url"
-                autoComplete="off"
-                placeholder={dict.youtubeInputPlaceholder}
-                aria-invalid={error !== null}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-              />
-              <Select
-                value={quality}
-                onValueChange={(value) => setQuality(value as YouTubeQuality)}
-              >
-                <SelectTrigger
-                  className="entei-youtube-quality"
-                  aria-label={dict.youtubeInputQuality}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {QUALITY_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </ButtonGroup>
-            {error !== null && (
-              <p className="entei-youtube-form-error" role="alert">
-                {errorMessages[error](dict)}
-              </p>
-            )}
-            <ButtonGroup
-              orientation={orientation}
-              className="entei-youtube-actions"
+              {submitting ? (
+                <TypewriterLoading
+                  aria-hidden="true"
+                  className="entei-typewriter--btn"
+                />
+              ) : (
+                dict.youtubeInputSubmit
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="entei-youtube-cancel"
+              onClick={() => onOpenChange(false)}
             >
-              {/* DOM order is Stream Now → Cancel (mobile stacking order).
-                  Desktop CSS mirrors the row so Cancel sits left. */}
-              <Button
-                type="submit"
-                className="entei-youtube-form-submit"
-                disabled={submitting || url.trim() === ''}
-                aria-label={dict.youtubeInputSubmit}
-              >
-                {submitting ? (
-                  <TypewriterLoading
-                    aria-hidden="true"
-                    className="entei-typewriter--btn"
-                  />
-                ) : (
-                  dict.youtubeInputSubmit
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="entei-youtube-cancel"
-                onClick={() => onOpenChange(false)}
-              >
-                {dict.youtubeInputCancel}
-              </Button>
-            </ButtonGroup>
-          </form>
-        ) : null}
+              {dict.youtubeInputCancel}
+            </Button>
+          </ButtonGroup>
+        </form>
       </DialogContent>
     </Dialog>
   );

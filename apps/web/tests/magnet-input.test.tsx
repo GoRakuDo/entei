@@ -113,15 +113,36 @@ async function fillMagnet() {
   fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URI } });
 }
 
-describe('MagnetInput — pairing gate', () => {
-  it('unpaired: pairing-needed notice only; no input/submit, no fetch', () => {
+describe('MagnetInput — no pairing gate', () => {
+  it('unpaired: the form still renders (input + create button), no fetch on open', () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
     render(
       <MagnetInput {...defaultProps} isPaired={false} token={null} />,
     );
-    expect(screen.getByText(baseDict.magnetInputUnpairedBody)).toBeInTheDocument();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(baseDict.magnetInputUnpairedBody),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('create without a token shows the localized re-pair error and never fetches', () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <MagnetInput {...defaultProps} isPaired={false} token={null} />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: VALID_URI },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }),
+    );
+    expect(screen.getByText(baseDict.magnetInputErrorRepair)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
