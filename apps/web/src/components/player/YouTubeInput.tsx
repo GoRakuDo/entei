@@ -20,7 +20,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
@@ -52,6 +51,9 @@ type ErrorKind =
 /**
  * Quality options shown in the dialog's Select.
  *
+ * DESIGN.md 8.9: 720p is the floor — lower heights (480p/360p) were removed
+ * because the user's minimum accepted resolution is 720p.
+ *
  * Note: the companion create contract (`POST /v1/source/jobs`) only accepts
  * `url` + `mode` — there is no height parameter yet (quality is capped at
  * 1080p server-side). Until that wiring lands, the selected option maps onto
@@ -59,7 +61,7 @@ type ErrorKind =
  * every other height keeps the instant-playback `speed` strategy. The
  * selected height is UI state only and never persisted.
  */
-type YouTubeQuality = '1080p' | '720p' | '480p' | '360p';
+type YouTubeQuality = '1080p' | '720p';
 
 const QUALITY_OPTIONS: readonly {
   value: YouTubeQuality;
@@ -68,8 +70,6 @@ const QUALITY_OPTIONS: readonly {
 }[] = [
   { value: '1080p', label: 'HD 1080p', mode: 'quality' },
   { value: '720p', label: 'HD 720p', mode: 'speed' },
-  { value: '480p', label: 'SD 480p', mode: 'speed' },
-  { value: '360p', label: 'SD 360p', mode: 'speed' },
 ];
 
 const DEFAULT_QUALITY: YouTubeQuality = '720p';
@@ -422,13 +422,13 @@ export function YouTubeInput({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="entei-youtube-dialog" closeLabel={dict.dialogClose}>
-        <DialogHeader>
-          <DialogTitle className="entei-magnet-dialog-title entei-youtube-dialog-title">
-            <YouTubeMark width={16} height={16} aria-hidden="true" />
-            {dict.youtubeInputTitle}
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent
+        className="entei-youtube-dialog"
+        closeLabel={dict.dialogClose}
+        /* DESIGN.md 8.8: the form already has a Cancel action, so the
+           corner X is omitted (never duplicate the affordance). */
+        hideClose
+      >
         <form
           className="entei-youtube-form"
           // Our own shape check owns validation so the localized error
@@ -439,6 +439,12 @@ export function YouTubeInput({
             if (!submitting) void handleSubmit();
           }}
         >
+          {/* Title lives inside the single form padding — no separate
+              DialogHeader band (DESIGN.md 8.8: one padding owner). */}
+          <DialogTitle className="entei-magnet-dialog-title entei-youtube-dialog-title">
+            <YouTubeMark width={16} height={16} aria-hidden="true" />
+            {dict.youtubeInputTitle}
+          </DialogTitle>
           <label
             className="entei-youtube-form-label"
             htmlFor="entei-youtube-url-input"

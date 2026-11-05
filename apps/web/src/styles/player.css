@@ -75,10 +75,17 @@
 }
 
 @layer base {
-  /* Only target elements inside [data-entei-player-root] to avoid Home leakage. */
+  /* Only target elements inside [data-entei-player-root] to avoid Home leakage.
+     Radix portals (Dialog, Select, Popover) mount to <body>, outside the root,
+     so they are listed explicitly — otherwise their `border` utilities fall
+     back to currentColor and render a harsh white outline (DESIGN.md 3.1). */
   [data-entei-player-root] *,
   [data-entei-player-root] *::before,
-  [data-entei-player-root] *::after {
+  [data-entei-player-root] *::after,
+  [data-radix-popper-content-wrapper],
+  [data-radix-popper-content-wrapper] *,
+  [data-radix-popper-content-wrapper] *::before,
+  [data-radix-popper-content-wrapper] *::after {
     border-color: var(--color-border);
   }
 }
@@ -2513,6 +2520,14 @@
 [data-slot='select-viewport'] {
   max-height: min(20rem, calc(100dvh - 4rem));
   overflow-y: auto;
+}
+
+/* Popover surface: subtle muted border + matching radius (DESIGN.md 8.9).
+   Portaled content sits outside [data-entei-player-root], so the border is
+   declared explicitly instead of inheriting the player base layer. */
+[data-slot='select-content'] {
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
 }
 
 /* W14: Remove white border from Player Select popup — keep Entei dark surface */
@@ -5064,10 +5079,15 @@ html.entei-player-immersive .entei-player-audio-area {
   font-family: var(
     --entei-font-system
   ); /* Pixel/brand — consistent with .entei-magnet-input */
-  /* Same inset rhythm as .entei-magnet-shell (16/24/16). The dialog
-     header border (a thin divider) was removed, so the form now adds
-     top padding to visually separate from the header. OKLCH tokens. */
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
+  /* Single padding owner (DESIGN.md 8.8): the title lives inside this box,
+     so there is no separate header band padding to stack on top. */
+  padding: var(--entei-space-24);
+}
+
+/* The dialog frame keeps the shared dialog radius; nested triggers, the
+   popover and the buttons inherit the same radius family (DESIGN.md 8.8). */
+.entei-dialog-content.entei-youtube-dialog {
+  border-radius: var(--entei-radius-lg);
 }
 
 .entei-youtube-form-error {
@@ -5101,35 +5121,54 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 /* URL input + quality Select share one joined ButtonGroup on desktop and
- * stack (URL on top, quality below) below 768px. */
+ * stack (URL on top, quality below) below 768px. The wrapper owns the single
+ * visible border/surface so the children never draw a second outline
+ * (DESIGN.md 8.9). */
 .entei-youtube-input-group {
   width: 100%;
   min-height: var(--entei-touch-min);
+  background-color: var(--entei-surface-2);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  overflow: hidden;
 }
 
-.entei-youtube-input-group .entei-youtube-url-input {
-  flex: 1;
-  min-width: 0;
-  height: auto;
-  min-height: var(--entei-touch-min);
-  font-family: var(--entei-font-system);
-  font-size: 0.8125rem;
-}
-
-/* Quality trigger keeps the ButtonGroup's flat, joined surface. */
+/* Both children share the exact same box: same min-height, same typography,
+   no border, no ring — a single flat surface. */
+.entei-youtube-input-group .entei-youtube-url-input,
 .entei-youtube-input-group .entei-youtube-quality {
-  flex-shrink: 0;
   height: auto;
-  min-height: var(--entei-touch-min);
-  background-color: var(--entei-btn-hover-bg);
-  border-color: transparent;
+  min-height: calc(var(--entei-touch-min) - 2px);
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
   color: var(--entei-text);
   font-family: var(--entei-font-system);
   font-size: 0.8125rem;
 }
 
+.entei-youtube-input-group .entei-youtube-url-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Focus stays visible but inset, so it never reads as a thick double outline
+   around the joined group. */
+.entei-youtube-input-group .entei-youtube-url-input:focus-visible,
+.entei-youtube-input-group .entei-youtube-quality:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+/* Quality trigger keeps the ButtonGroup's flat, joined surface. */
+.entei-youtube-input-group .entei-youtube-quality {
+  flex-shrink: 0;
+  padding-inline: var(--entei-space-12);
+}
+
 .entei-youtube-input-group .entei-youtube-quality:hover {
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-hover-bg);
   color: var(--entei-text);
 }
 
@@ -5172,6 +5211,14 @@ html.entei-player-immersive .entei-player-audio-area {
     gap: var(--entei-space-8);
   }
 
+  /* Stacked layout: the shared wrapper surface is dropped and each control
+     carries its own border/radius so the two never read as one block. */
+  .entei-youtube-input-group {
+    background-color: transparent;
+    border: none;
+    overflow: visible;
+  }
+
   .entei-youtube-actions {
     /* DOM order is Stream Now → Cancel, which is also the stacked order. */
     flex-direction: column;
@@ -5182,9 +5229,11 @@ html.entei-player-immersive .entei-player-audio-area {
   .entei-youtube-actions > .entei-youtube-cancel,
   .entei-youtube-actions > .entei-youtube-form-submit {
     width: 100%;
+    min-height: var(--entei-touch-min);
     border-radius: var(--entei-radius-md);
   }
 
+  .entei-youtube-input-group > .entei-youtube-url-input,
   .entei-youtube-input-group > .entei-youtube-quality {
     border: 1px solid oklch(100% 0 0deg / 0.08);
     background-color: var(--entei-surface-2);

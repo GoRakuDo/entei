@@ -97,6 +97,27 @@ Entei is a dark, immersive learning base.
 - Neon outer glows and rainbow gradients are forbidden.
 - Neutral transparent borders may use OKLCH alpha values.
 
+### 3.1.2 Button Surfaces
+
+- `--entei-accent` and `--entei-purple-500` are strictly forbidden as a button
+  background or surface fill. Purple is interaction, selection, and focus — not
+  a filled control surface.
+- Button backgrounds use `--entei-btn-color` (resting/hover) and
+  `--entei-btn-hover-bg`, or an existing semantic surface token
+  (`--entei-surface`, `--entei-surface-2`).
+- This applies to every button-like surface: buttons, triggers, joined-group
+  segments, icon buttons, and menu/popover rows.
+
+### 3.1.3 Border Strength
+
+- Pure white borders are forbidden — including `oklch(100% 0 0deg)` without
+  alpha, which renders as a harsh white outline on popovers and inputs.
+- Borders use subtle muted alpha only: `oklch(1 0 0 / 0.08)` (the
+  `--color-border` / `--color-input` value) or an existing border token.
+- Portaled surfaces (Radix Dialog, Select, Popover) mount outside
+  `[data-entei-player-root]`; declare their border color explicitly instead of
+  relying on the inherited player base layer.
+
 ### 3.1.1 Background Texture
 
 - `public/brand/entei-gradient-background.webp` is the shared page background,
@@ -432,6 +453,37 @@ Minimum visual checks:
 - Subtitle settings show a live preview before the adjustment controls.
 - Temporary parsing warnings must not consume large permanent screen areas when the malformed cue can be safely skipped.
 
+### 8.8 Dialogs
+
+- A dialog has exactly one padding owner. Do not stack a header band padding
+  (`--entei-space-16`/`--entei-space-24`) on top of a body/form padding; the
+  title lives inside the same single padded container.
+- If a dialog renders a Cancel action, the top-right `X`
+  (`button.entei-dialog-close`) is omitted. Never duplicate the close
+  affordance — pass `hideClose` to `DialogContent` instead.
+- The dialog frame, its triggers, its `SelectContent`, and its buttons all
+  share one radius family (`--entei-radius-lg` for the frame,
+  `--entei-radius-md` for nested controls). Sharp 90-degree corners inside a
+  rounded dialog are forbidden.
+- A dialog is never left with a raw rectangular frame while its siblings are
+  rounded.
+
+### 8.9 Joined Control Groups
+
+- In a joined group (for example Input + Select inside a `ButtonGroup`), every
+  segment must share the exact same box: identical `min-height`
+  (`var(--entei-touch-min)` for the group), identical border-box, and identical
+  typography size. Mismatched heights, misaligned borders, and jagged edges are
+  forbidden.
+- The group wrapper owns the single visible border and surface; segments stay
+  borderless and transparent so no second outline appears.
+- Focus inside a joined group is drawn inset (`outline-offset: -2px`), never as
+  a thick outer ring that reads as a double outline.
+- `SelectContent` popovers inside a group use the same radius as the group
+  segments and a subtle muted border.
+- When the group stacks vertically on mobile, the wrapper surface is dropped
+  and each segment carries its own border and radius.
+
 ---
 
 ## 9. Icons and Assets
@@ -554,6 +606,10 @@ Minimum visual checks:
 - `100vh` for mobile viewport shells
 - Blocked browser zoom
 - Desktop changes copied blindly into mobile rules
+- `--entei-accent` / `--entei-purple-500` as a button background or surface
+- Pure white (`oklch(100% 0 0deg)` without alpha) borders
+- An `X` close button alongside a Cancel button in the same dialog
+- Mismatched control heights inside a joined Input + Select group
 
 ---
 

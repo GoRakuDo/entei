@@ -61,7 +61,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/player/ui/popover';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/player/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/player/ui/dialog';
 import { Input } from '@/components/player/ui/input';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
@@ -838,66 +838,69 @@ export default function AudioPlayer({
       <DialogContent
         className="entei-youtube-dialog"
         closeLabel={youtubeDict.dialogClose}
+        /* DESIGN.md 8.8: the form already has a Cancel action, so the
+           corner X is omitted (never duplicate the affordance). */
+        hideClose
       >
-        <DialogHeader>
+        <div className="entei-youtube-form">
           <DialogTitle className="entei-magnet-dialog-title entei-youtube-dialog-title">
             <YouTubeMark width={16} height={16} aria-hidden="true" />
             {youtubeDict.youtubeInputTitle}
           </DialogTitle>
-        </DialogHeader>
-        {pairing.connected ? (
-          <div className="entei-youtube-form">
-            <Input
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              placeholder={youtubeDict.youtubeInputPlaceholder}
-              aria-label={youtubeDict.youtubeInputLabel}
-              aria-invalid={youtubeError !== null}
-              value={youtubeUrl}
-              onChange={(event) => setYouTubeUrl(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !youtubeSubmitting) {
-                  void handleYouTubeSubmit();
-                }
-              }}
-            />
-            {youtubeErrorMessage !== null && (
-              <p className="entei-youtube-form-error" role="alert">
-                {youtubeErrorMessage}
-              </p>
-            )}
-            <ButtonGroup
-              orientation="horizontal"
-              className="entei-youtube-actions"
-            >
-              <Button
-                type="submit"
-                className="entei-youtube-form-submit"
-                onClick={() => void handleYouTubeSubmit()}
-                disabled={youtubeSubmitting || youtubeUrl.trim() === ''}
-                aria-label={youtubeDict.youtubeInputSubmit}
+          {pairing.connected ? (
+            <>
+              <Input
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                placeholder={youtubeDict.youtubeInputPlaceholder}
+                aria-label={youtubeDict.youtubeInputLabel}
+                aria-invalid={youtubeError !== null}
+                value={youtubeUrl}
+                onChange={(event) => setYouTubeUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !youtubeSubmitting) {
+                    void handleYouTubeSubmit();
+                  }
+                }}
+              />
+              {youtubeErrorMessage !== null && (
+                <p className="entei-youtube-form-error" role="alert">
+                  {youtubeErrorMessage}
+                </p>
+              )}
+              <ButtonGroup
+                orientation="horizontal"
+                className="entei-youtube-actions"
               >
-                {youtubeSubmitting ? (
-                  <TypewriterLoading
-                    aria-hidden="true"
-                    className="entei-typewriter--btn"
-                  />
-                ) : (
-                  youtubeDict.youtubeInputSubmit
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="entei-youtube-cancel"
-                onClick={() => setIsYouTubeDialogOpen(false)}
-              >
-                {youtubeDict.youtubeInputCancel}
-              </Button>
-            </ButtonGroup>
-          </div>
-        ) : null}
+                <Button
+                  type="submit"
+                  className="entei-youtube-form-submit"
+                  onClick={() => void handleYouTubeSubmit()}
+                  disabled={youtubeSubmitting || youtubeUrl.trim() === ''}
+                  aria-label={youtubeDict.youtubeInputSubmit}
+                >
+                  {youtubeSubmitting ? (
+                    <TypewriterLoading
+                      aria-hidden="true"
+                      className="entei-typewriter--btn"
+                    />
+                  ) : (
+                    youtubeDict.youtubeInputSubmit
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="entei-youtube-cancel"
+                  onClick={() => setIsYouTubeDialogOpen(false)}
+                >
+                  {youtubeDict.youtubeInputCancel}
+                </Button>
+              </ButtonGroup>
+            </>
+          ) : null}
+        </div>
       </DialogContent>
     </Dialog>
   );

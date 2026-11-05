@@ -174,6 +174,18 @@ describe('YouTubeInput — paired flow', () => {
     ).toHaveAttribute('type', 'submit');
   });
 
+  it('offers only 1080p and 720p, and omits the corner X close button', () => {
+    render(<YouTubeInput {...defaultProps} />);
+    // DESIGN.md 8.9: 720p is the resolution floor — lower heights are gone.
+    expect(document.body).not.toHaveTextContent('480p');
+    expect(document.body).not.toHaveTextContent('360p');
+    // DESIGN.md 8.8: Cancel is the only close affordance, no duplicated X.
+    expect(document.body.querySelector('.entei-dialog-close')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: baseDict.youtubeInputCancel }),
+    ).toBeInTheDocument();
+  });
+
   it('submits the exact payload to the job endpoint with the token in the query', async () => {
     const fetchMock = vi.fn<typeof fetch>((input) => {
       const url = String(input);

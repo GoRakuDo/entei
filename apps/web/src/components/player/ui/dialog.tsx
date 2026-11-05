@@ -31,6 +31,12 @@ const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     closeLabel?: string;
     overlayClassName?: string;
+    /**
+     * Omits the top-right X close button.
+     * DESIGN.md 8.8: a dialog that already renders a Cancel action must not
+     * duplicate the affordance with an X in the corner.
+     */
+    hideClose?: boolean;
   }
 >(
   (
@@ -39,6 +45,7 @@ const DialogContent = React.forwardRef<
       children,
       closeLabel = 'Close',
       overlayClassName,
+      hideClose = false,
       onClick,
       ...props
     },
@@ -56,10 +63,12 @@ const DialogContent = React.forwardRef<
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="entei-dialog-close">
-          <X size={16} />
-          <span className="entei-sr-only">{closeLabel}</span>
-        </DialogPrimitive.Close>
+        {hideClose ? null : (
+          <DialogPrimitive.Close className="entei-dialog-close">
+            <X size={16} />
+            <span className="entei-sr-only">{closeLabel}</span>
+          </DialogPrimitive.Close>
+        )}
       </DialogPrimitive.Content>
     </DialogPortal>
   ),
