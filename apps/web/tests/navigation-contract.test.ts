@@ -4,7 +4,7 @@
  * Verifies:
  * 1. Exactly one aria-current="page" per nav surface (desktop sidebar/pill + mobile dock)
  * 2. Home uses the desktop left sidebar; Profile/Player use the pill
- * 3. Mobile dock always has 2 destination links (+ Settings island)
+ * 3. Mobile dock always has 1 destination link (+ Immersion Tools + Settings islands)
  * 4. All nav links use path hrefs (no hash, no javascript:)
  * 5. Dictionary nav keys exist and are non-empty in all locales
  * 6. data-i18n on nav link labels for locale-switcher text update
@@ -12,8 +12,10 @@
  * 8. Locale switch updates nav label text and aria-label to translated values
  * 9. The desktop language combobox is gone (language lives in Settings)
  * 10. Player zone gets --player modifier class; Profile does not
- * 11. Profile is present in the desktop pill before Player; Tracker is absent
+ * 11. Profile is present in the desktop pill before the Immersion Tools drawer; Tracker is absent
  * 12. Home mobile has no sticky header (dock-only SNS feed)
+ * 13. The Immersion Tools drawer replaces the direct Player destination
+ *     (MODULE_ARCHITECTURE.md §4)
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyLocale } from '../src/scripts/locale-switcher';
@@ -41,7 +43,7 @@ describe('Retired Tracker route contract', () => {
 describe('Nav dictionary keys (Stage N1)', () => {
   const navKeys = [
     'destinationHome',
-    'destinationPlayer',
+    'destinationTools',
     'destinationProfile',
     'desktopNavLabel',
     'mobileDockLabel',
@@ -97,38 +99,43 @@ function normalisePath(p: string): string {
   return p.endsWith('/') ? p.slice(0, -1) : p;
 }
 
+/**
+ * Tool routes are owned by the Immersion Tools drawer trigger
+ * (MODULE_ARCHITECTURE.md §4), so no nav link carries aria-current there.
+ */
+function isToolsRoute(path: string): boolean {
+  return (
+    path === '/player' || path === '/audio-player' || path === '/modules'
+  );
+}
+
 const DESTINATIONS = [
-  { route: '/', labelKey: 'destinationHome' },
   { route: '/profile/', labelKey: 'destinationProfile' },
-  { route: '/player/', labelKey: 'destinationPlayer' },
 ] as const;
 
 /**
  * Desktop Home sidebar destinations — mirrors SIDEBAR_DESTINATIONS in
- * TopBar.astro: Home + Profile + Player. Settings follows as the
- * EizouSettingsDialog island (not an `<a data-entei-nav-destination>` link).
+ * TopBar.astro: Home + Profile. The Immersion Tools drawer and Settings
+ * follow as React islands (not `<a data-entei-nav-destination>` links).
  */
 const SIDEBAR_DESTINATIONS = [
   { route: '/', labelKey: 'destinationHome' },
   { route: '/profile/', labelKey: 'destinationProfile' },
-  { route: '/player/', labelKey: 'destinationPlayer' },
 ] as const;
 
 /**
  * Mobile dock destinations — mirrors MOBILE_DESTINATIONS in TopBar.astro:
- * Home + Player only. Profile is a desktop pill destination. Settings is
- * rendered separately as the EizouSettingsDialog
- * React island and is not an `<a data-entei-nav-destination>` link.
+ * Home only. The Immersion Tools drawer and the Settings dialog are rendered
+ * separately as React islands.
  */
 const MOBILE_DESTINATIONS = [
   { route: '/', labelKey: 'destinationHome' },
-  { route: '/player/', labelKey: 'destinationPlayer' },
 ] as const;
 
 /**
  * Simulate the TopBar HTML output per the current structure.
  *
- * Home: desktop left sidebar (brand → Home → Profile → Player → Settings),
+ * Home: desktop left sidebar (brand → Home → Profile → Tools → Settings),
  *       no desktop pill zone, no mobile sticky header.
  * Profile/Player: desktop pill zone (Player gets the `--player` modifier).
  * No desktop language combobox anywhere (language lives in Settings).
@@ -164,6 +171,8 @@ function renderTopBarHtml(opts: {
       const isActive = normalisePath(route) === activePath;
       html += `<li class="entei-desktop-sidebar-item"><a class="entei-desktop-sidebar-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a></li>`;
     }
+    // Immersion Tools drawer entry — React island, not a navigation link.
+    html += `<li class="entei-desktop-sidebar-item"><button type="button" class="entei-nav-tools-trigger" data-entei-nav-tools data-entei-nav-tools-variant="sidebar"${isToolsRoute(activePath) ? ' data-active="true"' : ''}></button></li>`;
     // Settings dialog entry — React island, not a navigation link.
     html += `<li class="entei-desktop-sidebar-item"><div data-entei-desktop-sidebar-settings></div></li>`;
     html += `</ul></nav></aside>`;
@@ -184,22 +193,25 @@ function renderTopBarHtml(opts: {
     const homeActive = activePath === '/';
     html += `<a class="entei-desktop-pill-brand" href="/"${homeActive ? ' aria-current="page"' : ''} data-entei-nav-destination="/"><span>Entei</span></a>`;
 
-    // Profile and Player links (Home is brand)
+    // Profile and Tools entries (Home is brand)
     for (const { route, labelKey } of DESTINATIONS) {
-      if (route === '/') continue; // brand is Home
       const isActive = normalisePath(route) === activePath;
       html += `<a class="entei-desktop-pill-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a>`;
     }
+    // Immersion Tools drawer entry — React island, not a navigation link.
+    html += `<button type="button" class="entei-nav-tools-trigger" data-entei-nav-tools data-entei-nav-tools-variant="pill"${isToolsRoute(activePath) ? ' data-active="true"' : ''}></button>`;
     html += `</nav>`;
     html += `</div>`;
   }
 
-  // Mobile dock: MOBILE_DESTINATIONS (Home + Player) + Settings dialog entry.
+  // Mobile dock: MOBILE_DESTINATIONS (Home) + Immersion Tools + Settings entries.
   html += `<nav class="entei-mobile-dock" aria-label="Page navigation" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel"${isHome ? ' data-entei-mobile-dock-scroll-only=""' : ''}>`;
   for (const { route, labelKey } of MOBILE_DESTINATIONS) {
     const isActive = normalisePath(route) === activePath;
     html += `<a class="entei-mobile-dock-link" href="${route}"${isActive ? ' aria-current="page"' : ''} data-entei-nav-destination="${route}"><span data-i18n="nav.${labelKey}">${labelKey}</span></a>`;
   }
+  // Immersion Tools drawer entry — React island, not a navigation link.
+  html += `<div data-entei-mobile-dock-tools></div>`;
   // Settings dialog entry — React island, not a navigation link.
   html += `<div data-entei-mobile-dock-settings></div>`;
   html += `</nav>`;
@@ -227,23 +239,32 @@ describe('aria-current="page" — one per nav surface per route', () => {
       const html = renderTopBarHtml({ currentPath: route });
       const root = parseHtml(html);
 
-      // Desktop nav — always present, exactly one aria-current
+      // Desktop nav — always present. The tool routes (/player/, /audio-player/,
+      // /modules/) are owned by the Immersion Tools drawer trigger, so no
+      // link carries aria-current there; the trigger carries data-active.
       const desktopNav = root.querySelector('[data-entei-desktop-nav]');
       expect(desktopNav).not.toBeNull();
       const desktopCurrent = desktopNav!.querySelectorAll(
         '[aria-current="page"]',
       );
-      expect(desktopCurrent.length).toBe(1);
-      expect(desktopCurrent[0]!.getAttribute('href')).toBe(route);
+      const expectedDesktopCount =
+        route === '/' || route === '/profile/' ? 1 : 0;
+      expect(desktopCurrent.length).toBe(expectedDesktopCount);
+      if (expectedDesktopCount === 1) {
+        expect(desktopCurrent[0]!.getAttribute('href')).toBe(route);
+      } else {
+        const toolsTrigger = desktopNav!.querySelector('[data-entei-nav-tools]');
+        expect(toolsTrigger).not.toBeNull();
+        expect(toolsTrigger!.getAttribute('data-active')).toBe('true');
+      }
 
-      // Mobile dock — Home and Player only. Profile has no mobile link.
+      // Mobile dock — Home only. Profile and the tool routes have no link.
       const mobileDock = root.querySelector('[data-entei-mobile-dock]');
       expect(mobileDock).not.toBeNull();
       const mobileCurrent = mobileDock!.querySelectorAll(
         '[aria-current="page"]',
       );
-      const expectedMobileCount =
-        route === '/' || route === '/player/' ? 1 : 0;
+      const expectedMobileCount = route === '/' ? 1 : 0;
       expect(mobileCurrent.length).toBe(expectedMobileCount);
       if (expectedMobileCount === 1) {
         expect(mobileCurrent[0]!.getAttribute('href')).toBe(route);
@@ -264,7 +285,7 @@ describe('Desktop nav surface by route', () => {
     expect(root.querySelector('[data-entei-desktop-nav-zone]')).toBeNull();
   });
 
-  it('Home (/): sidebar order is brand → Home → Profile → Player → Settings', () => {
+  it('Home (/): sidebar order is brand → Home → Profile → Tools → Settings', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
     const root = parseHtml(html);
     const sidebar = root.querySelector('[data-entei-desktop-sidebar]');
@@ -277,11 +298,13 @@ describe('Desktop nav surface by route', () => {
     const hrefs = Array.from(
       sidebar!.querySelectorAll('a[data-entei-nav-destination]'),
     ).map((link) => link.getAttribute('href'));
-    expect(hrefs).toEqual(['/', '/', '/profile/', '/player/']);
+    expect(hrefs).toEqual(['/', '/', '/profile/']);
 
-    // Settings entry is the last list item and is not a navigation link.
+    // Tools drawer + Settings entries are the last two list items and are
+    // not navigation links.
     const items = sidebar!.querySelectorAll('.entei-desktop-sidebar-item');
     expect(items.length).toBe(4);
+    expect(items[2]!.querySelector('[data-entei-nav-tools]')).not.toBeNull();
     expect(
       items[3]!.querySelector('[data-entei-desktop-sidebar-settings]'),
     ).not.toBeNull();
@@ -395,26 +418,27 @@ describe('Mobile dock scroll-only mode on Home', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  7. Mobile dock always has 2 destination links (Home + Player) + Settings  */
+/*  7. Mobile dock always has 1 destination link (Home) + Tools + Settings  */
 /* -------------------------------------------------------------------------- */
-describe('Mobile dock always present with 2 destination links', () => {
+describe('Mobile dock always present with 1 destination link', () => {
   const routes = ['/', '/profile/', '/player/'] as const;
 
   for (const route of routes) {
-    it(`${route}: mobile dock has Home and Player links (Profile is desktop-only)`, () => {
+    it(`${route}: mobile dock has the Home link only (Profile and Player are not dock links)`, () => {
       const html = renderTopBarHtml({ currentPath: route });
       const root = parseHtml(html);
       const dock = root.querySelector('[data-entei-mobile-dock]');
       expect(dock).not.toBeNull();
       const links = dock!.querySelectorAll('a[data-entei-nav-destination]');
-      expect(links.length).toBe(2);
+      expect(links.length).toBe(1);
 
       const hrefs = Array.from(links).map((l) => l.getAttribute('href'));
-      expect(hrefs).toContain('/');
-      expect(hrefs).toContain('/player/');
+      expect(hrefs).toEqual(['/']);
       expect(hrefs).not.toContain('/profile/');
+      expect(hrefs).not.toContain('/player/');
 
-      // Settings dialog entry (non-link island) is always present.
+      // Tools drawer + Settings entries (non-link islands) are always present.
+      expect(dock!.querySelector('[data-entei-mobile-dock-tools]')).not.toBeNull();
       expect(dock!.querySelector('[data-entei-mobile-dock-settings]')).not.toBeNull();
     });
   }
@@ -428,8 +452,8 @@ describe('Nav link href validation', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
     const root = parseHtml(html);
     const allLinks = root.querySelectorAll('a[data-entei-nav-destination]');
-    // 4 sidebar (brand + Home + Profile + Player) + 2 mobile (Home + Player)
-    expect(allLinks.length).toBe(6);
+    // 3 sidebar (brand + Home + Profile) + 1 mobile (Home)
+    expect(allLinks.length).toBe(4);
 
     for (const link of Array.from(allLinks)) {
       const href = link.getAttribute('href') || '';
@@ -451,11 +475,13 @@ describe('TopBar prop contract', () => {
     expect(countAriaCurrentPage(html)).toBe(2);
   });
 
-  it('Player: aria-current count = 2 (desktop pill Player link + mobile)', () => {
+  it('Player: aria-current count = 0 (tool routes live behind the Immersion Tools drawer)', () => {
     const html = renderTopBarHtml({ currentPath: '/player/' });
     expect(html).toContain('data-entei-desktop-nav');
     expect(html).toContain('data-entei-mobile-dock');
-    expect(countAriaCurrentPage(html)).toBe(2);
+    expect(countAriaCurrentPage(html)).toBe(0);
+    // The drawer trigger owns the active state on tool routes.
+    expect(html).toContain('data-active="true"');
   });
 
   it('Profile: aria-current count = 1 (desktop only — Profile is not in mobile dock)', () => {
@@ -528,36 +554,37 @@ describe('Nav link data-i18n attributes', () => {
     expect(desktopNav).not.toBeNull();
 
     const spans = desktopNav!.querySelectorAll('span[data-i18n]');
-    // Profile + Player (Home is brand, no data-i18n on brand text)
-    expect(spans.length).toBe(2);
+    // Profile (Home is brand, no data-i18n on brand text). The Immersion
+    // Tools trigger is a React island, so its label is not in this markup.
+    expect(spans.length).toBe(1);
     const i18nKeys = Array.from(spans).map((s) => s.getAttribute('data-i18n'));
-    expect(i18nKeys).toContain('nav.destinationProfile');
-    expect(i18nKeys).toContain('nav.destinationPlayer');
+    expect(i18nKeys).toEqual(['nav.destinationProfile']);
   });
 
-  it('desktop sidebar spans have data-i18n for Home, Profile and Player', () => {
+  it('desktop sidebar spans have data-i18n for Home and Profile', () => {
     const html = renderTopBarHtml({ currentPath: '/' });
     const root = parseHtml(html);
     const sidebar = root.querySelector('[data-entei-desktop-sidebar]');
     const spans = sidebar!.querySelectorAll('span[data-i18n]');
-    expect(spans.length).toBe(3);
+    expect(spans.length).toBe(2);
     const i18nKeys = Array.from(spans).map((s) => s.getAttribute('data-i18n'));
     expect(i18nKeys).toEqual([
       'nav.destinationHome',
       'nav.destinationProfile',
-      'nav.destinationPlayer',
     ]);
   });
 
-  it('desktop pill order is Profile then Player and excludes Tracker', () => {
+  it('desktop pill order is Profile then the Immersion Tools drawer, and excludes Player/Tracker', () => {
     const html = renderTopBarHtml({ currentPath: '/profile/' });
     const root = parseHtml(html);
     const desktopNav = root.querySelector('[data-entei-desktop-nav]');
     const hrefs = Array.from(
       desktopNav!.querySelectorAll('a[data-entei-nav-destination]'),
     ).map((link) => link.getAttribute('href'));
-    expect(hrefs).toEqual(['/', '/profile/', '/player/']);
+    expect(hrefs).toEqual(['/', '/profile/']);
     expect(html).not.toContain('/tracker/');
+    // The direct Player link is replaced by the drawer trigger.
+    expect(desktopNav!.querySelector('[data-entei-nav-tools]')).not.toBeNull();
   });
 
   it('mobile dock spans have data-i18n with nav.destination* keys', () => {
@@ -567,12 +594,10 @@ describe('Nav link data-i18n attributes', () => {
     expect(dock).not.toBeNull();
 
     const spans = dock!.querySelectorAll('span[data-i18n]');
-    // Mobile dock has Home + Player (Profile is desktop-only).
-    expect(spans.length).toBe(2);
+    // Mobile dock has the Home link only (Tools + Settings are islands).
+    expect(spans.length).toBe(1);
     const i18nKeys = Array.from(spans).map((s) => s.getAttribute('data-i18n'));
-    expect(i18nKeys).toContain('nav.destinationHome');
-    expect(i18nKeys).toContain('nav.destinationPlayer');
-    expect(i18nKeys).not.toContain('nav.destinationProfile');
+    expect(i18nKeys).toEqual(['nav.destinationHome']);
   });
 });
 
@@ -628,11 +653,11 @@ function setupNavDom(): void {
     <nav class="entei-desktop-pill" aria-label="Navigasi halaman" data-entei-desktop-nav data-i18n-aria-label="nav.desktopNavLabel">
       <a href="/" class="entei-desktop-pill-brand" data-entei-nav-destination="/"><span>Entei</span></a>
       <a href="/profile/" data-entei-nav-destination="/profile/"><span data-i18n="nav.destinationProfile">Profil</span></a>
-      <a href="/player/" data-entei-nav-destination="/player/"><span data-i18n="nav.destinationPlayer">Player</span></a>
+      <button type="button" data-entei-nav-tools><span data-i18n="nav.destinationTools">Perkakas Imersi</span></button>
     </nav>
     <nav class="entei-mobile-dock" aria-label="Navigasi halaman" data-entei-mobile-dock data-i18n-aria-label="nav.mobileDockLabel">
       <a href="/" data-entei-nav-destination="/"><span data-i18n="nav.destinationHome">Home</span></a>
-      <a href="/player/" data-entei-nav-destination="/player/" aria-current="page"><span data-i18n="nav.destinationPlayer">Player</span></a>
+      <button type="button" data-entei-nav-tools><span data-i18n="nav.destinationTools">Perkakas Imersi</span></button>
       <div data-entei-mobile-dock-settings></div>
     </nav>
     <select data-entei-language-select autocomplete="off">
@@ -660,7 +685,7 @@ describe('Locale switch updates nav label text', () => {
 
     const spans = desktopNav!.querySelectorAll('span[data-i18n]');
     const texts = Array.from(spans).map((s) => s.textContent);
-    expect(texts).toContain('プレイヤー');
+    expect(texts).toContain('イマージョンツール');
     expect(texts).toContain('プロフィール');
   });
 
@@ -672,20 +697,22 @@ describe('Locale switch updates nav label text', () => {
     const spans = dock!.querySelectorAll('span[data-i18n]');
     const texts = Array.from(spans).map((s) => s.textContent);
     expect(texts).toContain('ホーム');
-    expect(texts).toContain('プレイヤー');
+    expect(texts).toContain('イマージョンツール');
     expect(texts).not.toContain('Tracker');
   });
 
   it('switching locale updates nav link labels to translated values', () => {
     const dock = document.querySelector('[data-entei-mobile-dock]');
-    const playerSpan = dock!.querySelector('[data-i18n="nav.destinationPlayer"]');
-    expect(playerSpan!.textContent).toBe('Player');
+    const toolsSpan = dock!.querySelector(
+      '[data-i18n="nav.destinationTools"]',
+    );
+    expect(toolsSpan!.textContent).toBe('Perkakas Imersi');
 
     applyLocale('ja');
-    expect(playerSpan!.textContent).toBe('プレイヤー');
+    expect(toolsSpan!.textContent).toBe('イマージョンツール');
 
     applyLocale('en');
-    expect(playerSpan!.textContent).toBe('Player');
+    expect(toolsSpan!.textContent).toBe('Immersion Tools');
   });
 });
 
@@ -953,5 +980,93 @@ describe('LOCALE_REQUEST_EVENT dispatch flow', () => {
 
     const desktopNav = document.querySelector('[data-entei-desktop-nav]');
     expect(desktopNav!.getAttribute('aria-label')).toBe('ページナビゲーション');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  19. Immersion Tools drawer replaces the direct Player destination          */
+/*     (MODULE_ARCHITECTURE.md §4)                                            */
+/* -------------------------------------------------------------------------- */
+describe('Immersion Tools drawer contract', () => {
+  const readSource = async (relative: string): Promise<string> => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    return fs.readFileSync(path.resolve(__dirname, relative), 'utf-8');
+  };
+
+  it('TopBar renders the ImmersionToolsDialog island on all three surfaces', async () => {
+    const src = await readSource('../src/components/home/TopBar.astro');
+    expect(src).toContain(
+      "import { ImmersionToolsDialog } from '@components/home/ImmersionToolsDialog'",
+    );
+    expect(src).toContain('variant="sidebar"');
+    expect(src).toContain('variant="pill"');
+    expect(src).toContain('variant="dock"');
+    // The direct Player nav destination is gone from the nav arrays.
+    expect(src).not.toContain("route: '/player/'");
+    expect(src).not.toContain('destinationPlayer');
+  });
+
+  it('drawer island lists video, audio and modules destinations', async () => {
+    const src = await readSource(
+      '../src/components/home/ImmersionToolsDialog.tsx',
+    );
+    expect(src).toContain("href: '/player/'");
+    expect(src).toContain("href: '/audio-player/'");
+    expect(src).toContain("href: '/modules/'");
+    // Both geometry modifiers are rendered; CSS media queries pick one.
+    expect(src).toContain('entei-tools-drawer--desktop');
+    expect(src).toContain('entei-tools-drawer--mobile');
+  });
+
+  it('drawer CSS slides from the left on desktop and from the bottom on mobile', async () => {
+    const css = await readSource(
+      '../src/components/home/ImmersionToolsDialog.css',
+    );
+    const desktop = css.match(
+      /@media \(min-width: 768px\) \{[\s\S]*?\.entei-tools-drawer--desktop[\s\S]*?\n  \}\n\}/,
+    );
+    expect(desktop).not.toBeNull();
+    expect(desktop![0]).toContain('left: 0');
+    expect(desktop![0]).toContain('100dvh');
+
+    const mobile = css.match(
+      /@media \(max-width: 767px\) \{[\s\S]*?\.entei-tools-drawer--mobile[\s\S]*?\n  \}\n\}/,
+    );
+    expect(mobile).not.toBeNull();
+    expect(mobile![0]).toContain('bottom: 0');
+    expect(mobile![0]).toContain('100%');
+  });
+
+  it('tools dictionary copy exists in every locale', () => {
+    const keys = [
+      'title',
+      'description',
+      'close',
+      'videoTitle',
+      'videoDescription',
+      'audioTitle',
+      'audioDescription',
+      'modulesTitle',
+      'modulesDescription',
+    ] as const;
+
+    for (const locale of ['id', 'ja', 'en'] as const) {
+      const dict = dictionaries[locale];
+      expect(dict.nav.destinationTools.length).toBeGreaterThan(0);
+      for (const key of keys) {
+        expect(
+          dict.toolsDrawer[key].length,
+          `${locale}.toolsDrawer.${key} is empty`,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('/modules/ page mounts the ModulesDashboard island', async () => {
+    const src = await readSource('../src/pages/modules/index.astro');
+    expect(src).toContain('path="/modules/"');
+    expect(src).toContain('showChrome={true}');
+    expect(src).toContain('ModulesDashboard client:only="react"');
   });
 });

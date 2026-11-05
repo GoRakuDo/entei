@@ -444,8 +444,9 @@ export interface Dictionary {
     skipToMain: string;
     /** Visible label for Home destination in nav */
     destinationHome: string;
-    /** Visible label for Player destination in nav */
-    destinationPlayer: string;
+    /** Visible label for the Immersion Tools drawer trigger (MODULE_ARCHITECTURE.md
+     *  §4.1: the direct Player link was replaced by the tools drawer). */
+    destinationTools: string;
     /** Visible label for the Profile destination in the desktop pill. */
     destinationProfile: string;
     /** Visible label for Settings destination in nav (opens settings modal) */
@@ -454,6 +455,37 @@ export interface Dictionary {
     desktopNavLabel: string;
     /** Accessible name for mobile floating dock nav landmark */
     mobileDockLabel: string;
+  };
+  /** Immersion Tools drawer (MODULE_ARCHITECTURE.md §4.2). */
+  toolsDrawer: {
+    title: string;
+    description: string;
+    close: string;
+    videoTitle: string;
+    videoDescription: string;
+    audioTitle: string;
+    audioDescription: string;
+    modulesTitle: string;
+    modulesDescription: string;
+  };
+  /** Modules management page (MODULE_ARCHITECTURE.md §5). */
+  modulesPage: {
+    title: string;
+    description: string;
+    coreHeading: string;
+    enabled: string;
+    disabled: string;
+    builtIn: string;
+    categorySource: string;
+    categoryDictionary: string;
+    importLabel: string;
+    importHint: string;
+    ytdlpName: string;
+    ytdlpDescription: string;
+    torrentName: string;
+    torrentDescription: string;
+    yomitanName: string;
+    yomitanDescription: string;
   };
   language: {
     selectLabel: string;

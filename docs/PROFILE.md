@@ -80,8 +80,8 @@ interface LocalProfile {
 
 ## 4. ルートとナビ
 
-- `/profile/` は noindex のプロフィールページで、desktop TopBar の pill では **Profile → Player → Settings** の順に Profile destination として表示する。
-- モバイル Dockには Profile を追加しない。Dockの順序は Home → Player → Settings を維持する。
+- `/profile/` は noindex のプロフィールページで、desktop TopBar の pill では **Profile → Tools (Drawer) → Settings** の順に Profile destination として表示する。pill の中央は Player 直リンクではなく Immersion Tools drawer（`ImmersionToolsDialog`、`/player/`・`/audio-player/`・`/modules/` の棚）である。
+- モバイル Dockには Profile を追加しない。Dockの順序は Home → Tools (Drawer) → Settings を維持する。
 - 旧 `/tracker/` は独立ページとして廃止し、静的 noindex redirect で `/profile/` へ誘導する。既存ブックマークや古いリンクを404にしない。
 
 ## 5. `/tracker/` との関係（統計データの要約）

@@ -6,21 +6,26 @@
  *
  * Desktop (≥768px):
  * - NO sticky black TopBar strip (removed per spec).
- * - Home: SNS-style pinned LEFT SIDEBAR (brand, Home, Profile, Player,
- *   Settings). The timeline keeps the centered column, giving a modern
- *   2-column layout. See `eizouden-settings.css` for the sidebar rules.
+ * - Home: SNS-style pinned LEFT SIDEBAR (brand, Home, Profile,
+ *   Immersion Tools drawer, Settings). The timeline keeps the centered
+ *   column, giving a modern 2-column layout. See `eizouden-settings.css`
+ *   for the sidebar rules.
  * - Profile: always-visible pill in normal document flow (scrolls out).
- *   Pill = [HubEmblem + "Entei" (Home link) | Profile | Player].
+ *   Pill = [HubEmblem + "Entei" (Home link) | Profile | Immersion Tools].
  * - Player: pill hidden by default. Top-edge hover zone and keyboard focus
  *   reveal it, shared containment, 200ms dismiss delay.
  * - Language selection lives in the Settings modal (the desktop topbar no
  *   longer carries a language combobox).
  *
+ * MODULE_ARCHITECTURE.md §4: the former direct "Player" destination is now
+ * the Immersion Tools drawer (ImmersionToolsDialog island), which opens
+ * /player/, /audio-player/ and /modules/ from one shelf.
+ *
  * Mobile (<768px):
  * - Sticky header with brand + optional native LanguageSelector — hidden
  *   entirely on Home (the dock is the only chrome there).
- * - Floating bottom Dock: Home / Player / Settings.
- *   DOM-ordered from MOBILE_DESTINATIONS + the Settings dialog entry.
+ * - Floating bottom Dock: Home / Immersion Tools / Settings.
+ *   DOM-ordered from MOBILE_DESTINATIONS + the dialog entries.
  *
  * Wordmark uses Pixelify Sans (font-system) for a consistent game-accent
  * feel across all pages.
@@ -28,7 +33,8 @@
 import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
 import { EizouSettingsDialog } from '@components/home/EizouSettingsDialog';
-import { House, Clapperboard, User } from '@lucide/astro';
+import { ImmersionToolsDialog } from '@components/home/ImmersionToolsDialog';
+import { House, User } from '@lucide/astro';
 
 /** Destination definitions — desktop pill and mobile dock each read from their own array. */
 const DESKTOP_DESTINATIONS = [
@@ -37,18 +43,13 @@ const DESKTOP_DESTINATIONS = [
     labelKey: 'destinationProfile' as const,
     Icon: User,
   },
-  {
-    route: '/player/',
-    labelKey: 'destinationPlayer' as const,
-    Icon: Clapperboard,
-  },
 ] as const;
 
 /**
  * Desktop Home sidebar destinations (SNS-style left rail).
- * DOM order Home → Profile → Player; Settings is rendered after them as the
- * EizouSettingsDialog island. The brand row above the list links to `/` but
- * carries no aria-current — the Home row owns the active state.
+ * DOM order Home → Profile; the Immersion Tools drawer and Settings follow as
+ * React islands. The brand row above the list links to `/` but carries no
+ * aria-current — the Home row owns the active state.
  */
 const SIDEBAR_DESTINATIONS = [
   { route: '/', labelKey: 'destinationHome' as const, Icon: House },
@@ -57,23 +58,14 @@ const SIDEBAR_DESTINATIONS = [
     labelKey: 'destinationProfile' as const,
     Icon: User,
   },
-  {
-    route: '/player/',
-    labelKey: 'destinationPlayer' as const,
-    Icon: Clapperboard,
-  },
 ] as const;
 
 /**
- * Mobile dock destinations: DOM order Home → Player → Settings.
+ * Mobile dock destinations: Home only. The Immersion Tools drawer and the
+ * Settings dialog entries follow as islands.
  */
 const MOBILE_DESTINATIONS = [
   { route: '/', labelKey: 'destinationHome' as const, Icon: House },
-  {
-    route: '/player/',
-    labelKey: 'destinationPlayer' as const,
-    Icon: Clapperboard,
-  },
 ] as const;
 
 const {
@@ -157,7 +149,7 @@ const settingsUIProps = dictionary.playerUI;
   ============================================================
   DESKTOP HOME: pinned left sidebar (SNS-style navigation)
   Hidden on mobile via CSS (display:none <768px).
-  Brand → Home → Profile → Player → Settings.
+  Brand → Home → Profile → Immersion Tools → Settings.
   The fixed sidebar reserves its width on the left edge of #entei-main
   (see eizouden-settings.css), so the timeline stays in the center column.
   ============================================================
@@ -198,6 +190,15 @@ const settingsUIProps = dictionary.playerUI;
               </li>
             );
           })}
+          <li class="entei-desktop-sidebar-item">
+            <ImmersionToolsDialog
+              client:load
+              label={dictionary.nav.destinationTools}
+              variant="sidebar"
+              dict={dictionary.toolsDrawer}
+              currentPath={activePath}
+            />
+          </li>
           <li class="entei-desktop-sidebar-item">
             <EizouSettingsDialog
               client:load
@@ -282,6 +283,19 @@ const settingsUIProps = dictionary.playerUI;
         }
         {
           (
+            /* Immersion Tools drawer — replaces the former direct Player link
+             (MODULE_ARCHITECTURE.md §4). */
+            <ImmersionToolsDialog
+              client:load
+              label={dictionary.nav.destinationTools}
+              variant="pill"
+              dict={dictionary.toolsDrawer}
+              currentPath={activePath}
+            />
+          )
+        }
+        {
+          (
             /* Settings button — opens the EizouDen settings modal from any page
              (NAVIGATION_BAR.md 2026-08-07). Not a route. */
             <EizouSettingsDialog
@@ -334,6 +348,19 @@ const settingsUIProps = dictionary.playerUI;
         </a>
       );
     })
+  }
+  {
+    (
+      /* Immersion Tools drawer — the mobile dock's middle entry
+       (MODULE_ARCHITECTURE.md §4.1). */
+      <ImmersionToolsDialog
+        client:load
+        label={dictionary.nav.destinationTools}
+        variant="dock"
+        dict={dictionary.toolsDrawer}
+        currentPath={activePath}
+      />
+    )
   }
   {
     (

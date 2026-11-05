@@ -1,6 +1,6 @@
 # NAVIGATION_BAR — Entei共通ナビゲーション設計
 
-> **状態:** IMPLEMENTED — desktop Homeは左固定サイドバー（brand / Home / Profile / Player / Settings）、Profileは中央ブランドピル、Playerは上端dwellでピル表示。mobile HomeはDockのみ、ProfileはTopBar + Dock。locale選択はSettingsモーダル内（desktop Comboboxは撤去、2026-08-27）。
+> **状態:** IMPLEMENTED — desktop Homeは左固定サイドバー（brand / Home / Profile / Immersion Tools / Settings）、Profileは中央ブランドピル、Playerは上端dwellでピル表示。mobile HomeはDockのみ、ProfileはTopBar + Dock。中央の行き先はPlayer直リンクではなく **Immersion Tools drawer**（`ImmersionToolsDialog`、`/player/`・`/audio-player/`・`/modules/` への棚）。locale選択はSettingsモーダル内（desktop Comboboxは撤去、2026-08-27）。
 > **対象:** `Entei/apps/web` の `/`、`/player/`、`/profile/`。旧 `/tracker/` は `/profile/` への noindex redirect。EPUB Readerは対象外。
 > **決定日:** 2026-07-30
 
@@ -8,13 +8,13 @@
 
 ## 1. 人間語でいう共通ナビ
 
-Enteiは、Homeで入口を探し、Playerで学び、Profileで振り返る3つの部屋を持つ。desktopのHome / Profileでは、brandを含むpill navigationを上中央へ常時表示する。desktop Playerだけはそのsurfaceを普段隠し、画面上端のhover / keyboard focus時にだけ現す。mobileは今のTopBarとfloating Dockを維持する。
+Enteiは、Homeで入口を探し、Immersion Toolsで学び、Profileで振り返る3つの部屋を持つ。desktopのHome / Profileでは、brandを含むpill navigationを上中央へ常時表示する。desktop Playerだけはそのsurfaceを普段隠し、画面上端のhover / keyboard focus時にだけ現す。mobileは今のTopBarとfloating Dockを維持する。
 
 Homeの`DestinationDock`は「今から使う学習機能」を説明する場所のままにする。Profileを大きなtileに追加しない。Profileは作業を始める扉ではなく、どこからでも戻れる記録室だからである。旧 `/tracker/` へのリンクは `/profile/` へ誘導する。
 
 ```text
 Home        → 学習を始める拠点
-Player      → mediaとsubtitleを使う部屋
+Player      → Immersion Tools drawer経由で開くmediaとsubtitleの部屋
 Profile     → local-firstの記録を振り返る部屋
 ```
 
@@ -26,10 +26,22 @@ Profile     → local-firstの記録を振り返る部屋
 | ----------- | ---------- | --------------------- | ------------------------------------ | ------- |
 | `/`         | Home       | `House`               | Enteiの拠点へ戻る                    | index   |
 | `/profile/` | Profile    | `User`                | local-onlyのプロフィールと没入記録を見る | noindex |
-| `/player/`  | Player     | `Clapperboard`        | local mediaの再生・学習を開く        | noindex |
+| —           | Tools      | `Layers`              | Immersion Tools drawerを開く（routeを持たないdialog trigger） | — |
 | `/tracker/` | retired    | —                     | `/profile/` への noindex redirect      | noindex |
 
-- desktop pillのdestination順は **Profile → Player → Settings**。brandのHome linkは常に先頭。
+Immersion Tools drawerが束ねる行き先は次の3つ。navigationの1行は drawer trigger だけであり、`/player/` は独立したnav destinationではない。
+
+| Route           | 見せる名前        | Lucide icon    | 役割                                       |
+| --------------- | ----------------- | -------------- | ------------------------------------------ |
+| `/player/`      | Video Player      | `Clapperboard` | 動画＋字幕＋採掘のメイン環境               |
+| `/audio-player/`| Audio Player      | `Headphones`   | 音声・音楽・YouTube音声専用の環境          |
+| `/modules/`     | Modules           | `Blocks`       | モジュールの有効化・設定・インポート       |
+
+- ナビゲーション順は次の3面で固定する。
+  - desktop sidebar: **Home → Profile → Tools (Drawer) → Settings**
+  - desktop pill: **Profile → Tools (Drawer) → Settings**（brandのHome linkが先頭）
+  - mobile dock: **Home → Tools (Drawer) → Settings**
+- drawer triggerは`/player/`・`/audio-player/`・`/modules/`（とその配下）でactive表示にする。
 - `/profile/` はdesktop pillのdestinationとし、mobile Dockには追加しない（`docs/PROFILE.md` §4）。
 - `/tracker/` は旧リンク互換のredirectだけを残し、nav destinationにはしない。
 - 3件以外はこのnavへ入れない。EPUB Readerは未提供なのでリンクを作らない。
@@ -48,13 +60,15 @@ Profile     → local-firstの記録を振り返る部屋
 
 ```text
 TopBar.astro
-├── desktop Home / Profile: scroll outする常時pill（brand + Profile / Player）
-├── desktop Player: top-edge hover / focus reveal pill（brand + Profile / Player）
+├── desktop Home / Profile: scroll outする常時pill（brand + Profile / Immersion Tools）
+├── desktop Player: top-edge hover / focus reveal pill（brand + Profile / Immersion Tools）
 ├── desktopすべて: 設定ボタン（Settingsモーダルをどこからでも開ける）※詳細は後述「設定ボタンの追加（2026-08-07）」
 ├── desktop Home / Profile: right edgeにLanguage Combobox React island
 └── mobile chrome: brand + optional Language Selector
-    └── floating bottom Dock: Home / Player / Settings（2026-08-07変更: Trackerを除外し、Settingsを追加）
+    └── floating bottom Dock: Home / Immersion Tools / Settings（2026-08-07変更: Trackerを除外し、Settingsを追加）
 ```
+
+中央の行き先は `ImmersionToolsDialog`（React island）が担う。desktopは左サイドシート、mobileはボトムシートで開き、`/player/`・`/audio-player/`・`/modules/` の3カードを並べる。triggerは`<DialogTrigger asChild>`でbuttonを包み、閉じた時にRadixがtriggerへfocusを戻す。
 
 route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成立させる。Language Comboboxだけはshadcnの`Popover + Command`構成を使う小さなReact islandにする。navigation全体をReactへ移さない。
 
@@ -63,22 +77,22 @@ route判定・destination link・locale copyは`TopBar.astro`の静的HTMLで成
 - iconは`@lucide/astro`のnamed importだけを使う。手書きSVG、emoji、icon fontは入れない。
 - `TopBar.astro`のpropsへ現在pathを明示して渡す。component内でURLやbrowser APIを推測しない。
 - desktop Language Comboboxはnavの外、viewport右端に置く。destination pillへ入れない。Home / Profileだけに表示し、Playerにはrenderしない。
-- mobileはnative Language Selectorを保つ。mobile Dockは **Home / Player / Settings** の3 destination（Profileはdesktop pillのみ）。旧 `/tracker/` への直接アクセスは `/profile/` へredirectする。Dock内のDOM順は `Home → Player → Settings` を保つ。
+- mobileはnative Language Selectorを保つ。mobile Dockは **Home / Tools / Settings** の3 destination（Profileはdesktop pillのみ）。旧 `/tracker/` への直接アクセスは `/profile/` へredirectする。Dock内のDOM順は `Home → Tools → Settings` を保つ。
 
 ### 設定ボタンの追加（2026-08-07設計確定・実装済み）
 
 - **TopBarナビに「設定」ボタン**（Lucide `Settings`、44px hit area）を追加し、**どのページからでもプレイヤー設定モーダル（EizouDen タブを含む）を開ける**ようにする。
-- desktop: pill（Home / Profile / Player）の右側 or 適切な位置に Settings ボタン。Player の top-edge hover pill には含めない（Player 内は既存の Settings アイコンで開く）。
-- mobile: floating bottom Dock は **Home / Player / Settings**（Profile/Trackerは追加しない）。Profileへの導線はdesktop pillで提供し、旧 `/tracker/` は `/profile/` へredirectする。Dock のDOM順も Home → Player → Settings に統一（視覚順とTab順を入れ替えない）。
+- desktop: pill（Home / Profile / Tools）の右側 or 適切な位置に Settings ボタン。Player の top-edge hover pill には含めない（Player 内は既存の Settings アイコンで開く）。
+- mobile: floating bottom Dock は **Home / Tools / Settings**（Profile/Trackerは追加しない）。Profileへの導線はdesktop pillで提供し、旧 `/tracker/` は `/profile/` へredirectする。Dock のDOM順も Home → Tools → Settings に統一（視覚順とTab順を入れ替えない）。
 - 設定モーダルは共通コンポーネント化し、TopBarのボタンと Player 内の設定アイコンの両方から開ける。
 
 ## 4. レスポンシブ契約
 
 ### 4.1 desktop / tablet（768px以上）
 
-desktopの黒いTopBar帯は撤去する。Home / Profileでは、`[SVG emblem + Entei | Profile | Player | Settings]`を上中央に常時表示し、通常document flowでscroll outさせる。sticky / fixedにしない。
+desktopの黒いTopBar帯は撤去する。Home / Profileでは、`[SVG emblem + Entei | Profile | Tools | Settings]`を上中央に常時表示し、通常document flowでscroll outさせる。sticky / fixedにしない。
 
-- Home / Profileのdestination pillは上中央に置く。brandはpillの最初のHome linkとしてまとめ、Profile・Player・Settingsを続ける。destination linkはicon + 短い文字を表示し、active pageには`aria-current="page"`を付ける。
+- Home / Profileのdestination pillは上中央に置く。brandはpillの最初のHome linkとしてまとめ、Profile・Tools・Settingsを続ける。destination linkはicon + 短い文字を表示し、active pageには`aria-current="page"`を付ける。
 - desktop Language Comboboxはpillへ入れず、viewport右端へ置く。Combobox triggerのwidthはlocale名でlayout shiftしない固定幅とし、popover contentはtriggerへanchorする。
 - Playerは通常時、desktop pillを表示しない。pointerがPlayer viewportの上端central trigger zoneへ入った時、またはkeyboard focusがnav pathへ入った時だけ、中央pillをrevealする。Language ComboboxはPlayerでrenderしない。RightPanelのCaptions / Context tab（`captions` = 字幕/Subtitle/Captions、`context` = ニュアンス検索/Konteks/Context、`apps/web/src/components/player/RightPanel.tsx:23` の `RightPanelTab = 'captions' | 'context'`）やtop-right controlsを塞がないためである。
 - Playerのreveal対象は`@media (hover: hover) and (pointer: fine)`だけにする。top-edge trigger zoneへpointerが**750ms連続で留まった時だけ**pillを表示し、通り過ぎただけでは表示しない。pillとtrigger zoneを同じcontainmentに置き、top-edgeからpillへpointerを移す途中で消さない。leave時は150〜250ms後に隠す。keyboard focus時は待機なしで即表示する。
@@ -93,7 +107,7 @@ Home / ProfileのTopBarはbrandと必要なLanguage Selectorだけを保ち、de
 - `env(safe-area-inset-bottom)`と既存Entei spacing tokenを足し、iPhoneのhome indicatorやbrowser chromeに重ねない。
 - 3 destinationは等しい幅で、iconの下に短いlabelを置く。tap targetは各44×44 CSS px以上。
 - ページ本文にはDock高さ + safe-area分のbottom paddingを確保し、最後の操作・footer・Player controlsをDockで隠さない。
-- Dockはすべてのpageで同じDOM順 `Home → Player → Settings` を保つ。視覚順とTab順を入れ替えない（2026-08-07変更: Trackerを除外し、Settingsを追加）。
+- Dockはすべてのpageで同じDOM順 `Home → Tools → Settings` を保つ。視覚順とTab順を入れ替えない（2026-08-07変更: Trackerを除外し、Settingsを追加）。
 - Player mobileでTopBarを隠してもDockは残す。Home / ProfileのTopBarはmobile language selectionの入口として維持する。
 
 ### 4.3 Player short-height landscape / fullscreen
@@ -181,10 +195,10 @@ NemotronはUI / CSSだけを担当する。
 
 ### 9.1 desktop Homeは左固定サイドバー
 
-- `/` のdesktop（≥768px）は上中央ピルをやめ、左に固定サイドバーを置く。順序は brand（`/` へのリンク、`aria-current`なし）→ Home → Profile → Player → Settings（`EizouSettingsDialog` island、`variant="sidebar"`）。Home行だけが`aria-current="page"`を持つ。
+- `/` のdesktop（≥768px）は上中央ピルをやめ、左に固定サイドバーを置く。順序は brand（`/` へのリンク、`aria-current`なし）→ Home → Profile → Tools（`ImmersionToolsDialog` island、`variant="sidebar"`）→ Settings（`EizouSettingsDialog` island、`variant="sidebar"`）。Home行だけが`aria-current="page"`を持つ。
 - サイドバーは`position: fixed`で`height: 100dvh`・`justify-content: center`により左の上下中央に置く。`#entei-main`へ左paddingは確保しない（timelineは画面全体の中央列に残る）。
 - 見た目は`src/styles/eizouden-settings.css`（global）にある。Settings行がReact islandでAstro scoped styleのhashを持たないため、`entei-nav-settings-trigger`と同じ理由でglobalに置く。
-- Profile / Playerは従来どおりピル（Playerは750ms dwell reveal）。`data-entei-desktop-combobox`は全routeで撤去した。
+- Profile / Playerは従来どおりピル（Playerは750ms dwell reveal）。`data-entei-desktop-combobox`は全routeで撤去した。ピル内の中央destinationはPlayer直リンクではなく **Tools drawer trigger**（`ImmersionToolsDialog`、`variant="pill"`）である。
 
 ### 9.2 mobile HomeはDockのみ
 
@@ -200,3 +214,15 @@ NemotronはUI / CSSだけを担当する。
 ### 9.4 timelineのaction高さ
 
 - `.entei-timeline-action` / `.entei-timeline-publish`の`min-height`は32pxから`2.25rem`（36px）へ。垂直paddingは0のままで、固定高がboxを決めlabelは光学中心に残る。
+
+## 10. 2026-08-27 — 中央destinationをImmersion Tools drawerへ
+
+Player直リンクをナビから外し、中央の1項目を **Immersion Tools drawer**（`ImmersionToolsDialog`）に置き換えた（詳細は `docs/MODULE_ARCHITECTURE.md` §4）。
+
+- ナビ順序は3面で固定:
+  - desktop sidebar: **Home → Profile → Tools (Drawer) → Settings**
+  - desktop pill: **Profile → Tools (Drawer) → Settings**
+  - mobile dock: **Home → Tools (Drawer) → Settings**
+- drawerは `/player/`・`/audio-player/`・`/modules/` の3カードを並べ、desktopは左サイドシート、mobileはボトムシートで開く。
+- triggerは`<DialogTrigger asChild>`でbuttonを包み、閉じた時にRadixがtriggerへfocusを戻す（`EizouSettingsDialog`と同じDialog基盤）。
+- triggerは`/player/`・`/audio-player/`・`/modules/` とその配下でactive表示にする（`aria-current`ではなく`data-active`）。

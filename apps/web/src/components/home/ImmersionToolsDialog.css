@@ -1,0 +1,316 @@
+/**
+ * ImmersionToolsDialog.css — trigger metrics + drawer geometry for the
+ * Immersion Tools shelf (MODULE_ARCHITECTURE.md §4).
+ *
+ * Imported by the React island (not by global.css) so the drawer styles
+ * only ship on pages that render the TopBar — which is every page, but the
+ * import keeps the drawer's CSS ownership next to its component.
+ *
+ * The trigger buttons are client-rendered, so Astro's scoped
+ * `.entei-desktop-pill-link` / `.entei-mobile-dock-link` rules cannot match
+ * them; the pill and dock metrics are mirrored here (the sidebar variant is
+ * already global in eizouden-settings.css). All colors use OKLCH or
+ * `var(--entei-*)` tokens (project rule #1621).
+ */
+
+/* ==========================================================================
+ * TRIGGER — desktop pill
+ * ========================================================================== */
+.entei-desktop-pill .entei-nav-tools-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-4) var(--entei-space-12);
+  background-color: transparent;
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--entei-radius-card);
+  cursor: pointer;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-desktop-pill .entei-nav-tools-trigger:hover {
+  color: var(--entei-text);
+  background-color: var(--entei-btn-color);
+  border-radius: var(--entei-radius-pill);
+}
+
+.entei-desktop-pill .entei-nav-tools-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  color: var(--entei-text);
+}
+
+.entei-desktop-pill .entei-nav-tools-trigger[data-active='true'] {
+  color: var(--entei-status-locked);
+  font-weight: 600;
+  background-color: var(--entei-btn-color);
+}
+
+.entei-desktop-pill .entei-nav-tools-trigger[data-active='true']:hover {
+  color: var(--entei-status-locked);
+}
+
+/* ==========================================================================
+ * TRIGGER — mobile dock (icon only, 64×44 like the other dock links)
+ * ========================================================================== */
+.entei-mobile-dock .entei-nav-tools-trigger {
+  width: 64px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--entei-text-secondary);
+  border-radius: var(--entei-radius-pill);
+  cursor: pointer;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-mobile-dock .entei-nav-tools-trigger span {
+  display: none;
+}
+
+.entei-mobile-dock .entei-nav-tools-trigger:hover {
+  color: var(--entei-text);
+  background-color: var(--entei-surface-2);
+}
+
+.entei-mobile-dock .entei-nav-tools-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  color: var(--entei-text);
+  background-color: var(--entei-surface-2);
+}
+
+.entei-mobile-dock .entei-nav-tools-trigger[data-active='true'] {
+  color: var(--entei-status-locked);
+  background-color: oklch(57.74% 0.209 273.85deg / 0.16);
+  border-color: oklch(100% 0 0deg / 0.12);
+}
+
+/* ==========================================================================
+ * TRIGGER — desktop Home sidebar (metrics come from the global
+ * `.entei-desktop-sidebar-link` rule; only the active tint is added here)
+ * ========================================================================== */
+.entei-desktop-sidebar-link.entei-nav-tools-trigger {
+  cursor: pointer;
+}
+
+.entei-desktop-sidebar-link.entei-nav-tools-trigger[data-active='true'] {
+  color: var(--entei-status-locked);
+  background-color: var(--entei-btn-color);
+  font-weight: 600;
+}
+
+.entei-nav-tools-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  stroke-width: 2.25;
+}
+
+.entei-desktop-pill .entei-nav-tools-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.5;
+}
+
+/* ==========================================================================
+ * DRAWER — shared
+ * ========================================================================== */
+.entei-dialog-content.entei-tools-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-24) 0 0;
+}
+
+.entei-tools-drawer-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding: 0 var(--entei-space-24);
+  /* Room for the shared dialog close button (top-right). */
+  padding-right: var(--entei-space-48);
+}
+
+.entei-tools-drawer-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  margin: 0;
+  padding: 0 var(--entei-space-16) var(--entei-space-24);
+  list-style: none;
+}
+
+.entei-tools-drawer-item {
+  margin: 0;
+}
+
+/* Card tile */
+.entei-tools-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--entei-space-16);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-16);
+  background-color: var(--entei-surface-2);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-tools-card:hover {
+  color: inherit;
+  border-color: oklch(57.74% 0.209 273.85deg / 0.5);
+  background-color: oklch(30.96% 0.15 271.29deg / 0.65);
+}
+
+.entei-tools-card:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-tools-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-space-48);
+  height: var(--entei-space-48);
+  flex-shrink: 0;
+  color: var(--entei-accent-hover);
+  background-color: oklch(57.74% 0.209 273.85deg / 0.16);
+  border-radius: var(--entei-radius-md);
+}
+
+.entei-tools-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  min-width: 0;
+}
+
+.entei-tools-card-title {
+  font-family: var(--entei-font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--entei-text);
+  text-wrap: balance;
+}
+
+.entei-tools-card-description {
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text-secondary);
+  text-wrap: pretty;
+}
+
+/* ==========================================================================
+ * DRAWER — desktop: side sheet sliding in from the LEFT
+ * ========================================================================== */
+@media (min-width: 768px) {
+  .entei-dialog-content.entei-tools-drawer--desktop {
+    top: 0;
+    left: 0;
+    transform: none;
+    width: min(24rem, calc(100% - 2 * var(--entei-gutter)));
+    max-width: 24rem;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-left: none;
+    border-radius: 0 var(--entei-radius-lg) var(--entei-radius-lg) 0;
+    animation: entei-tools-drawer-in-left var(--entei-duration-normal)
+      var(--entei-ease-expressive);
+  }
+}
+
+/* ==========================================================================
+ * DRAWER — mobile: bottom sheet sliding up from the BOTTOM
+ * ========================================================================== */
+@media (max-width: 767px) {
+  .entei-dialog-content.entei-tools-drawer--mobile {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
+    max-width: none;
+    max-height: 82dvh;
+    border-bottom: none;
+    border-radius: var(--entei-radius-lg) var(--entei-radius-lg) 0 0;
+    padding-bottom: var(--entei-safe-bottom);
+    animation: entei-tools-drawer-in-bottom var(--entei-duration-normal)
+      var(--entei-ease-expressive);
+  }
+}
+
+@keyframes entei-tools-drawer-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes entei-tools-drawer-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+ * Accessibility fallbacks
+ * ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .entei-dialog-content.entei-tools-drawer--desktop,
+  .entei-dialog-content.entei-tools-drawer--mobile {
+    animation: none;
+  }
+
+  .entei-tools-card,
+  .entei-nav-tools-trigger {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .entei-tools-card {
+    border-color: ButtonText;
+  }
+
+  .entei-tools-card:focus-visible {
+    outline-color: Highlight;
+  }
+
+  .entei-tools-card-icon {
+    color: CanvasText;
+    background-color: Canvas;
+  }
+}

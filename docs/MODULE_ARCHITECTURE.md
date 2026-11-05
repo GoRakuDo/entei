@@ -133,8 +133,12 @@ export interface EnteiModuleManifest {
 
 ### 5.2 画面仕様
 - **有効化トグル**: 各モジュールカードに Switch を配置し、不要な機能は即座にOFFにできる（KISS・軽量性の担保）。
-- **設定ボタン**: モジュールごとの専用設定モーダル（Cookie設定やダウンロード先など）。
+- **設定ボタン**: モジュールごとの専用設定モーダル（Cookie設定やダウンロード先など）。フェーズ2-A ではボタンと導線だけを置き、設定モーダル本体（cookies.txt アップロード、ダウンロード先パスなど）は **フェーズ2-B / 2-C** で実装する。
 - **外部モジュール追加**: 「モジュールをインポート」ボタンから、将来的にコミュニティ製プラグイン（URLやファイル）を読み込める拡張スロットを用意。
+
+### 5.3 未実装（フェーズ2-B / 2-C に延期）
+- **モジュール別の詳細設定ダイアログ**（Cookieアップロード、ダウンロード先パス等）はフェーズ2-A では作らない。Switch のON/OFF（`entei.modules.v1`）だけを永続化する。
+- **モジュール状態によるPlayer streamの実行時ゲート**（例: `ytdlp` OFF ならYouTube取得を拒否、`torrent` OFF ならmagnetを受けない）もフェーズ2-B / 2-C に延期する。現在はトグル状態を保存するだけで、Player側の取得経路はゲートされない。
 
 ---
 
@@ -146,6 +150,8 @@ export interface EnteiModuleManifest {
 2. **フェーズ2-B（データフローAPI化）**:
    - `EnteiMediaPayload` 受付アダプターの実装。
    - 既存 `PlayerApp` / `AudioPlayer` をアダプター経由にリファクタリング。
+   - モジュール別詳細設定ダイアログ（Cookieアップロード、ダウンロード先パス等）の実装。
+   - モジュール状態によるPlayer streamの実行時ゲート（OFFのモジュールは取得経路を拒否）。
 3. **フェーズ2-C（Rustネイティブ統合）**:
    - Tauri core 側に `module-ytdlp` および `module-torrent` を実装。
    - 旧Goコンパニオン（EizouDendenshi）およびペアリング/CORSコードの完全退役。
