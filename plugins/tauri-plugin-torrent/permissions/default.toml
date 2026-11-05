@@ -1,9 +1,10 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = """Default permissions for the torrent plugin: magnet add, status polling and cancel."""
+description = """Default permissions for the torrent plugin: magnet add, status polling, file selection and cancel."""
 permissions = [
   "allow-add-torrent",
   "allow-get-torrent-status",
+  "allow-select-torrent-files",
   "allow-cancel-torrent",
 ]

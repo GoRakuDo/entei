@@ -4466,6 +4466,7 @@ dependencies = [
 name = "tauri-plugin-torrent"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "librqbit",
  "serde",
  "serde_json",
@@ -4473,6 +4474,7 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

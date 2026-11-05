@@ -1284,3 +1284,217 @@ describe('MagnetInput — folder navigation robustness', () => {
     expect(onJobAccepted).toHaveBeenCalledWith('jobFoldOnly', 'movie.mkv', '');
   });
 });
+
+/**
+ * Desktop (Tauri) direct mode
+ * ---------------------------------------------------------------------------
+ * Inside the Entei desktop app the dialog talks to the in-process
+ * `tauri-plugin-torrent` instead of the Go companion: no capability token, no
+ * `/v1/*` fetch, and `select_torrent_files` hands back loopback relay URLs.
+ * These tests stub `window.__TAURI_INTERNALS__.invoke` and assert both the IPC
+ * payloads and the complete absence of companion traffic.
+ * --------------------------------------------------------------------------- */
+const DIRECT_FILES = [
+  { index: 0, path: 'movie.mkv', length: 2_000_000 },
+  { index: 1, path: 'movie.ass', length: 40_000 },
+  { index: 2, path: 'readme.txt', length: 1_000 },
+];
+
+const NESTED_FILES = [
+  { index: 0, path: 'Show/Episode 01.mkv', length: 2_000_000 },
+  { index: 1, path: 'Show/Episode 02.mkv', length: 2_000_000 },
+];
+
+describe('MagnetInput — desktop (Tauri) direct torrent flow', () => {
+  type InvokeHandler = (args: Record<string, unknown>) => unknown;
+  let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+
+  function installTauri(handlers: Record<string, InvokeHandler>) {
+    calls = [];
+    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
+      calls.push({ cmd, args: args ?? {} });
+      const handler = handlers[cmd];
+      if (!handler) throw new Error(`unexpected command: ${cmd}`);
+      return handler(args ?? {});
+    });
+    (
+      window as unknown as { __TAURI_INTERNALS__?: { invoke: typeof invoke } }
+    ).__TAURI_INTERNALS__ = { invoke };
+  }
+
+  function uninstallTauri() {
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  }
+
+  afterEach(() => {
+    uninstallTauri();
+    calls = [];
+  });
+
+  async function startTorrent() {
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+  }
+
+  it('creates the torrent through the plugin with no token and no companion fetch', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't1',
+        info_hash: 'hash',
+        name: 'Movie',
+        files: DIRECT_FILES,
+      }),
+    });
+
+    render(<MagnetInput {...defaultProps} token={null} />);
+    await startTorrent();
+
+    await waitFor(() => expect(screen.getByText('movie.mkv')).toBeInTheDocument());
+    // The magnet never reaches the companion and never leaks into the DOM.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(VALID_URI)).not.toBeInTheDocument();
+    expect(calls[0]).toEqual({
+      cmd: 'plugin:torrent|add_torrent',
+      args: { magnetUri: VALID_URI },
+    });
+  });
+
+  it('selects video + subtitle and hands the loopback relay URLs to the Player', async () => {
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't2',
+        info_hash: 'hash',
+        name: 'Movie',
+        files: DIRECT_FILES,
+      }),
+      'plugin:torrent|select_torrent_files': () => ({
+        video_url: 'http://127.0.0.1:5555/stream/video',
+        video_name: 'movie.mkv',
+        video_length: 2_000_000,
+        subtitle_url: 'http://127.0.0.1:5555/stream/subtitle',
+        subtitle_name: 'movie.ass',
+      }),
+    });
+    const onJobAccepted = vi.fn();
+    render(
+      <MagnetInput {...defaultProps} token={null} onJobAccepted={onJobAccepted} />,
+    );
+    await startTorrent();
+    await waitFor(() => expect(screen.getByText('movie.mkv')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`));
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindSubtitle}: movie.ass`));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit }));
+
+    await waitFor(() =>
+      expect(onJobAccepted).toHaveBeenCalledWith('t2', 'movie.mkv', '', {
+        videoUrl: 'http://127.0.0.1:5555/stream/video',
+        subtitleUrl: 'http://127.0.0.1:5555/stream/subtitle',
+      }),
+    );
+    // The metadata file indices travel to the plugin, not the row ids.
+    expect(
+      calls.find((call) => call.cmd === 'plugin:torrent|select_torrent_files')?.args,
+    ).toEqual({ id: 't2', videoIndex: 0, subtitleIndex: 1 });
+  });
+
+  it('cancels the in-process torrent when the dialog closes', async () => {
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't3',
+        info_hash: 'hash',
+        name: 'Movie',
+        files: DIRECT_FILES,
+      }),
+      'plugin:torrent|cancel_torrent': () => null,
+    });
+    render(<MagnetInput {...defaultProps} token={null} />);
+    await startTorrent();
+    await waitFor(() => expect(screen.getByText('movie.mkv')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+
+    await waitFor(() =>
+      expect(
+        calls.find((call) => call.cmd === 'plugin:torrent|cancel_torrent')?.args,
+      ).toEqual({ id: 't3' }),
+    );
+  });
+
+  it('polls the plugin until the metadata file list arrives', async () => {
+    vi.useFakeTimers();
+    let statusFiles: Array<{ index: number; path: string; length: number }> = [];
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't4',
+        info_hash: 'hash',
+        name: 'Movie',
+        files: [],
+      }),
+      'plugin:torrent|get_torrent_status': () => ({
+        id: 't4',
+        info_hash: 'hash',
+        name: 'Movie',
+        state: 'initializing',
+        progress_bytes: 0,
+        total_bytes: 0,
+        progress_percent: 0,
+        download_speed_mbps: 0,
+        peers_live: 0,
+        finished: false,
+        playable: false,
+        error: null,
+        files: statusFiles,
+      }),
+    });
+    render(<MagnetInput {...defaultProps} token={null} />);
+    await startTorrent();
+    await flush(0);
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+
+    statusFiles = DIRECT_FILES;
+    await flush(5000);
+
+    expect(screen.getByText('movie.mkv')).toBeInTheDocument();
+    expect(calls.filter((call) => call.cmd === 'plugin:torrent|get_torrent_status')).toHaveLength(1);
+  });
+
+  it('browses folders from the in-memory file list without another IPC round trip', async () => {
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't5',
+        info_hash: 'hash',
+        name: 'Show',
+        files: NESTED_FILES,
+      }),
+    });
+    render(<MagnetInput {...defaultProps} token={null} />);
+    await startTorrent();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument(),
+    );
+
+    const callsBefore = calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+
+    await waitFor(() => expect(screen.getByText('Episode 01.mkv')).toBeInTheDocument());
+    expect(calls).toHaveLength(callsBefore);
+  });
+
+  it('maps a plugin magnet rejection to the localized invalid label', async () => {
+    installTauri({
+      'plugin:torrent|add_torrent': () => {
+        throw new Error('invalid magnet uri: not-a-magnet');
+      },
+    });
+    render(<MagnetInput {...defaultProps} token={null} />);
+    await startTorrent();
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetErrorInvalid),
+    );
+    expect(screen.queryByText(/not-a-magnet/)).not.toBeInTheDocument();
+  });
+});

@@ -789,7 +789,9 @@ export default function PlayerApp() {
     (session: NonNullable<typeof watchSessionRef.current>) => {
       const pendingMutation = watchSessionPendingMutationRef.current;
       if (pendingMutation) {
-        void pendingMutation.then(() => persistWatchSession(session, Date.now()));
+        void pendingMutation.then(() =>
+          persistWatchSession(session, Date.now()),
+        );
       } else {
         persistWatchSession(session, Date.now());
       }
@@ -842,21 +844,19 @@ export default function PlayerApp() {
     [persistWatchSession],
   );
 
-  const appendWatchSessionSentence = useCallback(
-    (sentence: string) => {
-      const session = watchSessionRef.current;
-      const normalized = sentence.trim();
-      if (!session || !normalized) return Promise.resolve();
-      session.minedSentences.push(normalized);
-      const previous = watchSessionPendingMutationRef.current ?? Promise.resolve();
-      const mutation = previous.then(async () => {
-        await appendMinedSentence(session.sessionId, normalized);
-      });
-      watchSessionPendingMutationRef.current = mutation.catch(() => {});
-      return mutation;
-    },
-    [],
-  );
+  const appendWatchSessionSentence = useCallback((sentence: string) => {
+    const session = watchSessionRef.current;
+    const normalized = sentence.trim();
+    if (!session || !normalized) return Promise.resolve();
+    session.minedSentences.push(normalized);
+    const previous =
+      watchSessionPendingMutationRef.current ?? Promise.resolve();
+    const mutation = previous.then(async () => {
+      await appendMinedSentence(session.sessionId, normalized);
+    });
+    watchSessionPendingMutationRef.current = mutation.catch(() => {});
+    return mutation;
+  }, []);
 
   const handleYouTubeVideoIdParsed = useCallback((videoId: string) => {
     youtubeVideoIdRef.current = videoId;
@@ -956,15 +956,44 @@ export default function PlayerApp() {
   }, []);
 
   const handleMagnetJobAccepted = useCallback(
-    (jobId: string, selectedName: string, subtitleFileId: string) => {
-      const token = pairing.tokenRef.current;
-      if (!token) return;
+    (
+      jobId: string,
+      selectedName: string,
+      subtitleFileId: string,
+      direct?: { videoUrl: string; subtitleUrl: string | null },
+    ) => {
+      // Session leak guard: an accepted magnet must first cancel whatever job
+      // session is still running (previous torrent job / companion job), the
+      // same way handleMediaSelect does. Without this the old in-process
+      // torrent keeps downloading and holds a relay slot.
+      void jobSession.cancelActiveJob();
       // Torrent basename handoff (C): the companion's sanitized file list
       // provides the selected video's basename; mirror it into mediaName
       // for the top-left controls / history, sanitized for safe display.
       endWatchSession();
       setMediaName(sanitizeDisplayName(selectedName));
       mediaFileRef.current = null;
+
+      // Desktop (Tauri) direct mode: the in-process torrent plugin already
+      // produced loopback relay URLs, so there is no companion job, no
+      // capability token and no `/v1/*` polling — mount the relay URL as the
+      // media source directly.
+      if (direct) {
+        jobSession.beginDirectTorrentSession({
+          torrentId: jobId,
+          videoUrl: direct.videoUrl,
+          subtitleUrl: direct.subtitleUrl,
+        });
+        // P3 auto-load: only when the torrent carried no subtitle file.
+        if (!direct.subtitleUrl) {
+          void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${jobId}`);
+        }
+        setIsMagnetDialogOpen(false);
+        return;
+      }
+
+      const token = pairing.tokenRef.current;
+      if (!token) return;
       jobSession.beginJobSession({
         baseUrl: 'http://127.0.0.1:4322',
         token,
@@ -1270,7 +1299,8 @@ export default function PlayerApp() {
       if (document.visibilityState === 'hidden') flushWatchSession();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    return () =>
+      document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [flushWatchSession]);
 
   // Session boundaries are pagehide and player unmount. The media switch and
@@ -1623,12 +1653,7 @@ export default function PlayerApp() {
       setMediaName(info ? sanitizeDisplayName(info.title) : (videoId ?? ''));
       setIsYouTubeDialogOpen(false);
     },
-    [
-      startWatchSession,
-      clearScreenshot,
-      clearAudioClip,
-      clearMiningPreview,
-    ],
+    [startWatchSession, clearScreenshot, clearAudioClip, clearMiningPreview],
   );
 
   const handleMediaSelect = useCallback(
@@ -1688,8 +1713,12 @@ export default function PlayerApp() {
       startWatchSession(null, parseMediaFileName(file.name).episode);
       const sessionId = watchSessionRef.current?.sessionId;
       void computeVideoFingerprint(file).then((mediaId) => {
-        if (!mediaId || watchSessionRef.current?.sessionId !== sessionId) return;
-        attachWatchSessionMediaId(mediaId, parseMediaFileName(file.name).episode);
+        if (!mediaId || watchSessionRef.current?.sessionId !== sessionId)
+          return;
+        attachWatchSessionMediaId(
+          mediaId,
+          parseMediaFileName(file.name).episode,
+        );
       });
     },
     [
@@ -1912,7 +1941,13 @@ export default function PlayerApp() {
         titleNative: jimakuMatchRef.current.titleNative,
       });
     },
-    [jobSession.active, jobSession.kind, jobSession.jobTitle, mediaName, trackerRuntime.mediaId],
+    [
+      jobSession.active,
+      jobSession.kind,
+      jobSession.jobTitle,
+      mediaName,
+      trackerRuntime.mediaId,
+    ],
   );
 
   const handleTimeUpdate = useCallback(
@@ -3897,7 +3932,10 @@ export default function PlayerApp() {
     }
     if (exportMode === 'new') {
       const wordField = miningDraftFields.find((f) => f.key === 'word');
-      if (prefs.fields.word && (!wordField || wordField.value.trim().length === 0)) {
+      if (
+        prefs.fields.word &&
+        (!wordField || wordField.value.trim().length === 0)
+      ) {
         return d.exportSendDisabledNoWord;
       }
     }
@@ -5189,7 +5227,8 @@ export default function PlayerApp() {
             magnetInputErrorConflict: dict.magnetInputErrorConflict,
             magnetInputErrorNetwork: dict.magnetInputErrorNetwork,
             magnetInputErrorGeneric: dict.magnetInputErrorGeneric,
-            magnetInputErrorMetadataTimeout: dict.magnetInputErrorMetadataTimeout,
+            magnetInputErrorMetadataTimeout:
+              dict.magnetInputErrorMetadataTimeout,
             magnetInputErrorEvicted: dict.magnetInputErrorEvicted,
             magnetInputErrorV2Unsupported: dict.magnetInputErrorV2Unsupported,
             magnetInputSubmitting: dict.magnetInputSubmitting,

@@ -331,10 +331,22 @@
           "markdownDescription": "Denies the get_torrent_status command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the torrent plugin: magnet add, status polling and cancel.\n#### This default permission set includes:\n\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-cancel-torrent`",
+          "description": "Enables the select_torrent_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-select-torrent-files",
+          "markdownDescription": "Enables the select_torrent_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the select_torrent_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-select-torrent-files",
+          "markdownDescription": "Denies the select_torrent_files command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the torrent plugin: magnet add, status polling, file selection and cancel.\n#### This default permission set includes:\n\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-cancel-torrent`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the torrent plugin: magnet add, status polling and cancel.\n#### This default permission set includes:\n\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-cancel-torrent`"
+          "markdownDescription": "Default permissions for the torrent plugin: magnet add, status polling, file selection and cancel.\n#### This default permission set includes:\n\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-cancel-torrent`"
         }
       ]
     }

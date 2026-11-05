@@ -164,3 +164,28 @@ export interface EnteiModuleManifest {
 3. **フェーズ2-C（Rustネイティブ統合）**:
    - Tauri core 側に `module-ytdlp` および `module-torrent` を実装。
    - 旧Goコンパニオン（EizouDendenshi）およびペアリング/CORSコードの完全退役。
+
+---
+
+## 7. フェーズ2-C 実装記録: Torrent モジュール直結ストリーミング（コード実装済み）
+
+デスクトップ（Tauri）では Go コンパニオンもペアリングトークンも使わず、Magnet の追加から `<video>` 再生までをインプロセスで完結させる。
+
+### 7.1 Rust 側（`plugins/tauri-plugin-torrent`）
+- **`select_torrent_files(id, video_index, subtitle_index)`**: 選択ファイルだけにダウンロードを絞り（`librqbit` の `update_only_files`、best-effort）、動画の先頭 1 byte がディスクに載るまで待って（`FIRST_BYTE_TIMEOUT` = 20 s、タイムアウトはエラーにしない）ループバック URL を返す。container header が無い状態で `<video>` を開くと Chrome/WebView2 が約 30 s で諦めるため、待機はモーダルのローディング内に閉じ込める。
+- **`relay.rs`**: `127.0.0.1` のエフェメラルポートに axum をバインドし、`GET /stream/<session>` で選択ファイルを配信する。リクエスト毎に `librqbit` の `FileStream`（seek 可能な `AsyncRead`）を生成して要求オフセットへシークし、`Content-Range`/`Content-Length` 付きの `206` を返す。`AsyncReadExt::take` で閉区間レンジを要求長で打ち切るため、`bytes=0-1023` が EOF まで流れることはない。未取得 piece の読み出しは piece 到着まで park して再開する（シーク先が未 DL でも失敗しない）。
+- **`build.rs` / `permissions/default.toml`**: `select_torrent_files` を追加（`allow-select-torrent-files`）。
+- 公開面は既存どおり 127.0.0.1 のみ。infohash・tracker・peer・ファイルパスは webview に返さない（パスは basename のみ）。
+
+### 7.2 フロント側
+- `features/player/tauri-bridge.ts`: `addTorrentDirect` / `getTorrentStatusDirect` / `selectTorrentFilesDirect` / `cancelTorrentDirect`（`plugin:torrent|*`）。返り値は形状検証してから UI へ渡す。
+- `components/player/MagnetInput.tsx`: `isTauri()` で分岐。トークン不要・companion fetch 無しで create →（メタデータ未解決なら 5 s × 6 回ポーリング）→ ファイル表 → `Pilih & putar` → `onJobAccepted(jobId, name, '', { videoUrl, subtitleUrl })`。プラグインはフラットなパス一覧を返すため `synthesizeEntries()` でフォルダ/ファイル行を合成し、フォルダ移動はメモリ上の一覧をフィルタするだけ（ジョブの再作成も IPC 往復もしない）。
+- `features/player/use-companion-job-session.ts`: `beginDirectTorrentSession()` を追加。companion ブリッジを起動せず relay URL をそのまま `jobMediaUrl`/`subtitleUrl` として公開し、phase は `ready`、`cancelActiveJob()` は `cancel_torrent` を呼ぶ。
+- `components/player/PlayerApp.tsx`: `handleMagnetJobAccepted` の第4引数 `direct` で直結経路へ分岐（字幕が無い場合のみ JIMAKU 自動ロード）。
+
+### 7.3 既知の指摘（Known issues / Low findings）
+1. **LazySync（字幕同期）は未対応**: 参照字幕の取得は companion の `/v1/source/torrents/{id}/subtitle` 前提のため、直結モードでは字幕表示はできても同期参照の自動取得は行わない（手動同期のみ）。
+2. **torrent 内蔵字幕の自動抽出は無し**: 字幕はファイル一覧から手動選択する方式のみ（companion の自動検出に相当する処理は未実装）。
+3. **relay は無認証**: 127.0.0.1 のエフェメラルポート + CORS `*` で、プロセス外からは到達できないが同一マシンの他プロセスからは読める（旧 companion と同じ前提）。
+4. **シーク先の piece 優先度は librqbit のストリーム実装依存**: 未 DL 領域へのシークは piece 到着まで待つ。初回 byte 待ちで Chrome のタイムアウトは回避しているが、シーク後の体感は回線と swarm 次第。
+5. **実環境 E2E は未確認**: ここまではコード実装と自動テスト（Rust unit 6 件 / MagnetInput 54 件、`astro check` 0 error）のみ。実際の WebView2 での magnet 再生確認はまだ行っていない。

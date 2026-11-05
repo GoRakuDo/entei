@@ -30,6 +30,21 @@
  * - An operation epoch isolates attempts: a stale poll/create/cancel
  *   response from a previous attempt can never mutate the current one.
  *
+ * Desktop (Tauri) direct mode:
+ * - Inside the Entei desktop app there is no companion and no capability
+ *   token: the same dialog drives the in-process `tauri-plugin-torrent`
+ *   (`add_torrent` / `get_torrent_status` / `select_torrent_files` /
+ *   `cancel_torrent`) through `@/features/player/tauri-bridge`.
+ * - The plugin returns a flat file list, so the rows are synthesized into
+ *   the same folder/file table the companion flow shows (folders first,
+ *   nested paths grouped per level) and folder navigation filters that
+ *   list locally — no extra IPC round trip per folder.
+ * - "Pilih & putar" calls `select_torrent_files`, which restricts the
+ *   download to the chosen files and answers with loopback relay URLs
+ *   (127.0.0.1 Range server) once the video's first byte is on disk. Those
+ *   URLs are handed to the Player through `onJobAccepted`'s `direct`
+ *   argument; the companion job/token path is skipped entirely.
+ *
  * Hygiene contract:
  * - The magnet and job state live in component/page memory only — never
  *   localStorage / IndexedDB / sessionStorage / cookies / history / logs.
@@ -72,9 +87,22 @@ import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { waitForPlayable } from '@/features/player/companion-media';
 import { isFirefox } from '@/features/player/browser-detect';
 import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
+import {
+  addTorrentDirect,
+  cancelTorrentDirect,
+  getTorrentStatusDirect,
+  isTauri,
+  selectTorrentFilesDirect,
+  type DirectTorrentFile,
+} from '@/features/player/tauri-bridge';
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
+
+/** Desktop direct mode: metadata poll interval (matches the companion flow). */
+const DIRECT_POLL_INTERVAL_MS = 5000;
+/** Desktop direct mode: bounded metadata polls before the timeout error. */
+const DIRECT_METADATA_MAX_POLLS = 6;
 
 type ErrorKind =
   | 'invalid'
@@ -150,8 +178,20 @@ interface MagnetInputProps {
    */
   isPaired?: boolean;
   token: string | null;
-  onJobAccepted: (jobId: string, selectedVideoName: string, subtitleFileId: string) => void;
+  onJobAccepted: (
+    jobId: string,
+    selectedVideoName: string,
+    subtitleFileId: string,
+    /** Desktop (Tauri) direct mode: loopback relay URLs, no companion job. */
+    direct?: DirectTorrentHandoff,
+  ) => void;
   dict: MagnetInputDict;
+}
+
+/** Desktop direct handoff: the relay URLs the Player mounts directly. */
+export interface DirectTorrentHandoff {
+  videoUrl: string;
+  subtitleUrl: string | null;
 }
 
 // Basic client-side magnet shape check only; the companion is the source of truth.
@@ -210,6 +250,121 @@ function kindLabel(entry: FileEntry, dict: MagnetInputDict): string {
   }
 }
 
+const VIDEO_EXTENSIONS = new Set([
+  'mp4',
+  'mkv',
+  'webm',
+  'avi',
+  'mov',
+  'm4v',
+  'ts',
+  'm2ts',
+  'ogv',
+  'wmv',
+  'flv',
+  'mpg',
+  'mpeg',
+]);
+const AUDIO_EXTENSIONS = new Set([
+  'mp3',
+  'm4a',
+  'aac',
+  'flac',
+  'ogg',
+  'opus',
+  'wav',
+]);
+const SUBTITLE_EXTENSIONS = new Set([
+  'srt',
+  'vtt',
+  'ass',
+  'ssa',
+  'sub',
+  'idx',
+  'ttml',
+  'dfxp',
+]);
+
+/** Extension of a path, lowercased, or an empty string when it has none. */
+function pathExtension(path: string): string {
+  const base = path.slice(path.lastIndexOf('/') + 1);
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+}
+
+function kindForPath(path: string): FileEntry['kind'] {
+  const extension = pathExtension(path);
+  if (VIDEO_EXTENSIONS.has(extension)) return 'video';
+  if (SUBTITLE_EXTENSIONS.has(extension)) return 'subtitle';
+  if (AUDIO_EXTENSIONS.has(extension)) return 'audio';
+  return 'other';
+}
+
+/**
+ * Synthesize the folder/file table rows for one level of a flat torrent file
+ * list (desktop direct mode).
+ *
+ * The plugin returns paths like `Show/Season 1/Episode 01.mkv`, while the
+ * table browses one level at a time: rows for the current level's files plus
+ * one folder row per immediate subdirectory. Folders come first, in first-seen
+ * order, matching the companion's synthesized listing.
+ *
+ * `parentPath` is the folder currently open ('' = torrent root).
+ */
+export function synthesizeEntries(
+  files: DirectTorrentFile[],
+  parentPath: string,
+): FileEntry[] {
+  const prefix = parentPath ? `${parentPath.replace(/\/$/, '')}/` : '';
+  const folders: FileEntry[] = [];
+  const seenFolders = new Set<string>();
+  const rows: FileEntry[] = [];
+
+  for (const file of files) {
+    const normalized = file.path.replace(/\\/g, '/').replace(/^\.\//, '');
+    if (prefix && !normalized.startsWith(prefix)) continue;
+    const relative = normalized.slice(prefix.length);
+    if (!relative) continue;
+
+    const slash = relative.indexOf('/');
+    if (slash === -1) {
+      rows.push({
+        id: `f${file.index}`,
+        basename: relative,
+        extension: pathExtension(relative),
+        byteSize: file.length,
+        kind: kindForPath(relative),
+        relativePath: normalized,
+      });
+      continue;
+    }
+
+    const folderName = relative.slice(0, slash);
+    if (!folderName || seenFolders.has(folderName)) continue;
+    seenFolders.add(folderName);
+    folders.push({
+      basename: folderName,
+      kind: 'folder',
+      relativePath: `${prefix}${folderName}`,
+    });
+  }
+
+  return [...folders, ...rows];
+}
+
+/** Parse the metadata file index out of a synthesized row id (`f12`). */
+function directIndexFromId(id: string): number | null {
+  if (!/^f\d+$/.test(id)) return null;
+  const index = Number.parseInt(id.slice(1), 10);
+  return Number.isInteger(index) && index >= 0 ? index : null;
+}
+
+/** Map a plugin rejection onto the dialog's localized error kinds. */
+function mapDirectError(error: unknown): ErrorKind {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /invalid magnet/i.test(message) ? 'invalid' : 'generic';
+}
+
 export function MagnetInput({
   open,
   onOpenChange,
@@ -227,10 +382,19 @@ export function MagnetInput({
   // Folder navigation: internal path state (never sent to cancel/recreate)
   const [folderPath, setFolderPath] = useState('');
 
+  // Desktop (Tauri) direct mode: the plugin's flat file list, kept so folder
+  // navigation filters locally instead of re-querying the torrent. Page
+  // memory only; cleared with the job like every other torrent field.
+  const directFilesRef = useRef<DirectTorrentFile[]>([]);
+
   // Stale-callback guards
   const mountedRef = useRef(true);
   const openRef = useRef(open);
   const jobIdRef = useRef<string | null>(null);
+  // Mirrors the newest capability token for the unmount-only cleanup below:
+  // that effect must not re-run on token changes, or it would cancel a live
+  // job just because the token was refreshed.
+  const tokenRef = useRef(token);
   // Monotonic generation counter for the async flows this dialog owns
   // (create/poll/select/cancel). Every dialog close, reopen, cancel, or new
   // attempt bumps it, so responses that were in flight for a PREVIOUS
@@ -248,10 +412,30 @@ export function MagnetInput({
   const settleRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
+
+  useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       waitAbortRef.current?.abort();
+      // A torrent this dialog created but never handed off (the dialog or the
+      // whole island unmounts before select/cancel) would otherwise keep
+      // downloading forever. Fire-and-forget: unmount cleanup cannot await.
+      const abandonedId = jobIdRef.current;
+      jobIdRef.current = null;
+      if (!abandonedId) return;
+      if (isTauri()) {
+        void cancelTorrentDirect(abandonedId).catch(() => undefined);
+        return;
+      }
+      const currentToken = tokenRef.current;
+      if (!currentToken) return;
+      void fetch(
+        `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(abandonedId)}/cancel?token=${encodeURIComponent(currentToken)}`,
+        { method: 'POST', cache: 'no-store' },
+      ).catch(() => undefined);
     };
   }, []);
   useEffect(() => {
@@ -277,6 +461,7 @@ export function MagnetInput({
       epochRef.current += 1;
       jobIdRef.current = null;
       settleRef.current = null;
+      directFilesRef.current = [];
       setMagnet('');
       setPhase('input');
       setJobId('');
@@ -311,6 +496,12 @@ export function MagnetInput({
       setFolderPath('');
       const settle = (async () => {
         try {
+          if (isTauri()) {
+            // Desktop direct mode: cancel the in-process torrent. A rejection
+            // is best-effort (the session may already be gone).
+            await cancelTorrentDirect(id).catch(() => undefined);
+            return;
+          }
           const res = await fetch(
             `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(id)}/cancel?token=${encodeURIComponent(token ?? '')}`,
             { method: 'POST', cache: 'no-store' },
@@ -380,7 +571,82 @@ export function MagnetInput({
     [token],
   );
 
+  // Desktop (Tauri) direct create: no companion, no capability token. The
+  // in-process plugin validates the magnet, resolves metadata (bounded) and
+  // returns the file list; an empty list means "metadata still resolving",
+  // which the direct poll below picks up.
+  const createDirect = useCallback(async () => {
+    if (settleRef.current) return;
+    if (!isValidMagnetUri(magnet)) {
+      setError('invalid');
+      return;
+    }
+
+    // Replace any torrent this dialog already owns (same semantics as the
+    // companion flow: the new attempt wins, the old session is dropped).
+    const existingJobId = jobIdRef.current;
+    if (existingJobId) {
+      void cancelTorrentDirect(existingJobId).catch(() => undefined);
+      jobIdRef.current = null;
+      setJobId('');
+      setEntries([]);
+      setVideoId('');
+      setSubtitleId('');
+      setFolderPath('');
+    }
+
+    epochRef.current += 1;
+    const attempt = epochRef.current;
+    directFilesRef.current = [];
+    setPhase('creating');
+    setError(null);
+
+    try {
+      const added = await addTorrentDirect(magnet.trim());
+      if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) {
+        // The dialog was closed/reopened while the add was in flight: never
+        // own the torrent, release it immediately instead of leaving it
+        // downloading in the background.
+        if (added.id) void cancelTorrentDirect(added.id).catch(() => undefined);
+        return;
+      }
+      if (!added.id) {
+        setError('generic');
+        setPhase('input');
+        return;
+      }
+      jobIdRef.current = added.id;
+      setJobId(added.id);
+      directFilesRef.current = added.files;
+      if (added.files.length === 0) {
+        // Metadata not resolved yet — the direct poll retries.
+        setPhase('checking');
+        return;
+      }
+      const list = synthesizeEntries(added.files, '');
+      if (
+        !list.some((entry) => entry.kind === 'video') &&
+        !list.some((entry) => entry.kind === 'folder')
+      ) {
+        setError('novideo');
+        setPhase('input');
+        return;
+      }
+      setEntries(list);
+      setFolderPath('');
+      setPhase('selecting');
+    } catch (err) {
+      if (attempt !== epochRef.current || !mountedRef.current) return;
+      setError(mapDirectError(err));
+      setPhase('input');
+    }
+  }, [magnet]);
+
   const handleCreate = useCallback(async () => {
+    if (isTauri()) {
+      await createDirect();
+      return;
+    }
     // The form is never gated on pairing. Without a capability token the
     // companion would reject the create, so surface the localized
     // re-pair message instead of failing silently.
@@ -479,7 +745,7 @@ export function MagnetInput({
       setError('network');
       setPhase('input');
     }
-  }, [token, magnet]);
+  }, [token, magnet, createDirect]);
 
   // Redacted status polling while checking metadata
   useEffect(() => {
@@ -560,9 +826,76 @@ export function MagnetInput({
     };
   }, [phase, jobId, token]);
 
+  // Desktop (Tauri) direct mode: poll the in-process torrent until the
+  // metadata (file list) arrives. The plugin reports `initializing` while it
+  // is still resolving peers, so the table keeps showing the "checking
+  // metadata" spinner; a bounded poll count turns a torrent that never
+  // resolves into the localized metadata-timeout error instead of an endless
+  // spinner.
+  useEffect(() => {
+    if (!isTauri()) return;
+    if (phase !== 'checking' || !jobId) return;
+    const attempt = epochRef.current;
+    let cancelled = false;
+    let polls = 0;
+    const safe = () =>
+      !cancelled && attempt === epochRef.current && mountedRef.current && openRef.current;
+
+    const timer = window.setInterval(async () => {
+      if (!safe()) return;
+      polls += 1;
+      if (polls > DIRECT_METADATA_MAX_POLLS) {
+        setError('metadataTimeout');
+        setPhase('input');
+        return;
+      }
+      try {
+        const status = await getTorrentStatusDirect(jobId);
+        if (!safe()) return;
+        if (status.state === 'error') {
+          setError('generic');
+          setPhase('input');
+          return;
+        }
+        if (status.files.length === 0) return;
+        directFilesRef.current = status.files;
+        const list = synthesizeEntries(status.files, '');
+        if (
+          !list.some((entry) => entry.kind === 'video') &&
+          !list.some((entry) => entry.kind === 'folder')
+        ) {
+          setError('novideo');
+          setPhase('input');
+          return;
+        }
+        setEntries(list);
+        setFolderPath('');
+        setPhase('selecting');
+      } catch {
+        if (!safe()) return;
+        setError('generic');
+        setPhase('input');
+      }
+    }, DIRECT_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [phase, jobId]);
+
   // Fetch files for a specific folder path (folder navigation)
   const fetchFolderContents = useCallback(
     async (targetPath: string) => {
+      // Desktop direct mode: the full flat file list is already in memory, so
+      // folder navigation is a pure filter — no IPC round trip, and the
+      // torrent job is never re-created just to browse.
+      if (isTauri()) {
+        setError(null);
+        setEntries(synthesizeEntries(directFilesRef.current, targetPath));
+        setFolderPath(targetPath);
+        return;
+      }
       if (!jobId || !token) return;
       setError(null); // clear any recoverable error from previous navigation
       try {
@@ -602,7 +935,10 @@ export function MagnetInput({
   }, [folderPath, fetchFolderContents]);
 
   const handleSelect = useCallback(async () => {
-    if (!token || !jobId || !videoId) return;
+    // Desktop direct mode has no capability token; the companion flow does.
+    const desktop = isTauri();
+    if (!desktop && !token) return;
+    if (!jobId || !videoId) return;
     if (!entries.some((f) => f.id === videoId && f.kind === 'video')) {
       setError('generic');
       return;
@@ -627,6 +963,44 @@ export function MagnetInput({
     // unmount while the select is in flight must drop the late 200/error —
     // the stale success must never reach onJobAccepted / the Player.
     const attempt = epochRef.current;
+
+    if (desktop) {
+      // Desktop direct mode: restrict the download to the chosen files and
+      // take the loopback relay URLs. The plugin only answers once the
+      // video's first byte is on disk, so the URLs are safe to mount.
+      const videoIndex = directIndexFromId(videoId);
+      const subtitleIndex = subtitleId ? directIndexFromId(subtitleId) : null;
+      if (videoIndex === null || (subtitleId !== '' && subtitleIndex === null)) {
+        setError('generic');
+        setPhase('selecting');
+        return;
+      }
+      try {
+        const selection = await selectTorrentFilesDirect(jobId, videoIndex, subtitleIndex);
+        if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
+        const selected = entries.find((f) => f.id === videoId);
+        jobIdRef.current = null;
+        directFilesRef.current = [];
+        setPhase('input');
+        setMagnet('');
+        setFolderPath('');
+        onJobAccepted(
+          jobId,
+          selection.video_name || (selected ? selected.basename : ''),
+          '',
+          { videoUrl: selection.video_url, subtitleUrl: selection.subtitle_url },
+        );
+      } catch (err) {
+        if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;
+        setError(mapDirectError(err));
+        setPhase('selecting');
+      }
+      return;
+    }
+
+    // Companion flow below: a capability token is mandatory.
+    if (!token) return;
+
     try {
       const res = await fetch(
         `${COMPANION_BASE_URL}/v1/source/torrents/${encodeURIComponent(jobId)}/select?token=${encodeURIComponent(token)}`,

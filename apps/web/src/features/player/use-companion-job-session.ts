@@ -22,6 +22,16 @@
  *   one-active session and its private temp dir) then ends the local
  *   session. Used by the banner's End button and by media switch.
  * - endJobSession: local-only end (media switch / unmount safety).
+ *
+ * Desktop (Tauri) direct torrent sessions:
+ * - `beginDirectTorrentSession` mounts the loopback relay URLs the in-process
+ *   torrent plugin produced (`tauri-plugin-torrent` → 127.0.0.1 Range server)
+ *   and skips the companion bridge entirely: no token, no `/v1/*` polling,
+ *   phase is reported as `ready` from the start because the plugin only hands
+ *   out a URL once the file's first byte is on disk.
+ * - `cancelActiveJob` then cancels the in-process torrent instead of POSTing
+ *   the companion cancel endpoint.
+ *
  * All job/session state is page memory only — never localStorage/
  * IndexedDB/sessionStorage/cookies/URL/logs. The capability token itself
  * is persisted by the pairing controller (opaque localStorage envelope;
@@ -30,12 +40,13 @@
  */
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CompanionBridgePhase,
   CompanionBridgeProgress,
 } from '@/features/player/companion-bridge';
 import { useCompanionBridge } from '@/features/player/use-companion-bridge';
+import { cancelTorrentDirect } from '@/features/player/tauri-bridge';
 
 export type CompanionJobKind = 'youtube' | 'torrent';
 
@@ -65,6 +76,19 @@ export interface CompanionJobSource {
   subtitleFileId?: string;
 }
 
+/**
+ * Desktop (Tauri) direct torrent session: the loopback relay URLs the
+ * in-process torrent plugin produced. No companion, no capability token.
+ */
+export interface DirectTorrentSession {
+  /** Plugin torrent id (used only to cancel the in-process session). */
+  torrentId: string;
+  /** `http://127.0.0.1:<port>/stream/<session>` for the selected video. */
+  videoUrl: string;
+  /** Relay URL for the selected subtitle file, when one was chosen. */
+  subtitleUrl?: string | null;
+}
+
 export interface UseCompanionJobSessionResult {
   /** True while a companion job session is active. */
   active: boolean;
@@ -91,6 +115,11 @@ export interface UseCompanionJobSessionResult {
   subtitleFileId: string | null;
   /** Begin the bridge session for an accepted YouTube job. */
   beginJobSession: (source: CompanionJobSource) => void;
+  /**
+   * Begin a desktop (Tauri) direct torrent session from the in-process
+   * plugin's loopback relay URLs — no companion, no capability token.
+   */
+  beginDirectTorrentSession: (source: DirectTorrentSession) => void;
   /** Cancel the job on the companion, then end the local session. */
   cancelActiveJob: () => Promise<void>;
   /** End the local session only (media switch, unmount safety). */
@@ -125,6 +154,10 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const [jobMode, setJobMode] = useState<'speed' | 'quality' | null>(null);
   const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState<string | null>(null);
+  // Desktop direct torrent session (no companion bridge involved).
+  const directRef = useRef<DirectTorrentSession | null>(null);
+  const [directActive, setDirectActive] = useState(false);
+  const [directMediaUrl, setDirectMediaUrl] = useState<string | null>(null);
   const activeRef = useRef(false);
   const sourceRef = useRef<CompanionJobSource | null>(null);
   const attachedRef = useRef(false);
@@ -146,36 +179,48 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       { cache: 'no-store' },
     )
       .then((res) => (res.ok ? res.json() : null))
-      .then((body: { title?: string; state?: string; quality?: number; mode?: string } | null) => {
-        if (body?.title) {
-          setJobTitle(body.title);
-        }
-        // The job poll also carries the selected format height + mode for
-        // the quality toast (notifyQuality): yt-dlp writes height.txt as
-        // soon as the format is chosen, so quality arrives early — expose
-        // it without waiting for the download to finish.
-        if (body && typeof body.quality === 'number' && body.quality > 0) {
-          setJobQuality(body.quality);
-        }
-        if (body?.mode === 'speed' || body?.mode === 'quality') {
-          setJobMode(body.mode);
-        }
-        // Job failed (error/cancelled): the title will never appear — stop
-        // polling instead of burning the bounded retries. A job reported
-        // error also means the quality that may already have arrived is
-        // final; the session (and toast) surface that through phase.
-        if (body?.state === 'error' || body?.state === 'cancelled') {
-          return;
-        }
-        // Not ready yet; give it a bounded number of retries.
-        if (
-          activeRef.current &&
-          titleAttemptsRef.current < TITLE_POLL_MAX_ATTEMPTS
-        ) {
-          titleAttemptsRef.current += 1;
-          titlePollRef.current = setTimeout(pollTitle, TITLE_POLL_INTERVAL_MS);
-        }
-      })
+      .then(
+        (
+          body: {
+            title?: string;
+            state?: string;
+            quality?: number;
+            mode?: string;
+          } | null,
+        ) => {
+          if (body?.title) {
+            setJobTitle(body.title);
+          }
+          // The job poll also carries the selected format height + mode for
+          // the quality toast (notifyQuality): yt-dlp writes height.txt as
+          // soon as the format is chosen, so quality arrives early — expose
+          // it without waiting for the download to finish.
+          if (body && typeof body.quality === 'number' && body.quality > 0) {
+            setJobQuality(body.quality);
+          }
+          if (body?.mode === 'speed' || body?.mode === 'quality') {
+            setJobMode(body.mode);
+          }
+          // Job failed (error/cancelled): the title will never appear — stop
+          // polling instead of burning the bounded retries. A job reported
+          // error also means the quality that may already have arrived is
+          // final; the session (and toast) surface that through phase.
+          if (body?.state === 'error' || body?.state === 'cancelled') {
+            return;
+          }
+          // Not ready yet; give it a bounded number of retries.
+          if (
+            activeRef.current &&
+            titleAttemptsRef.current < TITLE_POLL_MAX_ATTEMPTS
+          ) {
+            titleAttemptsRef.current += 1;
+            titlePollRef.current = setTimeout(
+              pollTitle,
+              TITLE_POLL_INTERVAL_MS,
+            );
+          }
+        },
+      )
       .catch(() => {
         // Companion unreachable mid-poll: retry while active, but do NOT
         // consume a "not ready" attempt — a transient network error is not
@@ -211,14 +256,18 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   // playback (found by headed Chrome QA). The element unmounts when the
   // session ends, the source fails, or re-pairing is required.
   const jobMediaUrl = useMemo(() => {
-    if (!active || !sourceRef.current) return null;
+    if (!active) return null;
+    // Desktop direct torrent: the plugin already waited for the file's first
+    // byte before handing out the relay URL, so there is nothing to gate.
+    if (directActive) return directMediaUrl;
+    if (!sourceRef.current) return null;
     // Gate on bridge phase: only surface the media URL when the companion
     // confirms playable (available > 0) or complete. This prevents the
     // browser from issuing a fetch that would block on 0 available pieces.
     if (bridge.phase !== 'ready' && bridge.phase !== 'playing') return null;
     const src = sourceRef.current;
     return `${src.baseUrl}/v1/media/fixture?token=${encodeURIComponent(src.token)}`;
-  }, [active, bridge.phase]);
+  }, [active, bridge.phase, directActive, directMediaUrl]);
 
   const clearIntentListeners = useCallback(() => {
     intentCleanupRef.current?.();
@@ -236,15 +285,18 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const beginJobSession = useCallback(
     (source: CompanionJobSource) => {
       if (activeRef.current) bridge.endSession();
+      directRef.current = null;
+      setDirectActive(false);
+      setDirectMediaUrl(null);
       sourceRef.current = source;
       activeRef.current = true;
       attachedRef.current = false;
       clearIntentListeners();
       setActive(true);
-    setKind(source.kind);
-    setJobId(source.jobId);
-    setSessionToken(source.token ?? null);
-    setSubtitleFileId(source.subtitleFileId ?? null);
+      setKind(source.kind);
+      setJobId(source.jobId);
+      setSessionToken(source.token ?? null);
+      setSubtitleFileId(source.subtitleFileId ?? null);
       setJobQuality(0);
       setJobMode(source.kind === 'youtube' ? 'speed' : null);
       // Speed is the unified default; the job poll corrects to "quality"
@@ -282,10 +334,53 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     [bridge, clearIntentListeners, pollTitle],
   );
 
+  // Desktop (Tauri) direct torrent session: mount the loopback relay URLs the
+  // in-process plugin produced. No companion bridge is started (no token, no
+  // `/v1/*` polling), so the media URL is available immediately and the phase
+  // reports `ready` — the plugin only returns a URL once the file's first byte
+  // is on disk.
+  const beginDirectTorrentSession = useCallback(
+    (source: DirectTorrentSession) => {
+      // End any previous session's bridge polling without cancelling the
+      // torrent we are about to start (the caller already owns the switch).
+      if (activeRef.current) bridge.endSession();
+      if (titlePollRef.current !== null) {
+        clearTimeout(titlePollRef.current);
+        titlePollRef.current = null;
+      }
+      titleAttemptsRef.current = 0;
+      titleErrorRef.current = 0;
+      clearIntentListeners();
+      sourceRef.current = null;
+      directRef.current = {
+        torrentId: source.torrentId,
+        videoUrl: source.videoUrl,
+        subtitleUrl: source.subtitleUrl ?? null,
+      };
+      activeRef.current = true;
+      attachedRef.current = false;
+      setActive(true);
+      setKind('torrent');
+      setJobId(source.torrentId);
+      setSessionToken(null);
+      setSubtitleFileId(null);
+      setJobQuality(0);
+      setJobMode(null);
+      setJobTitle(null);
+      setDirectActive(true);
+      setDirectMediaUrl(source.videoUrl);
+      setSubtitleUrl(source.subtitleUrl ?? null);
+    },
+    [bridge, clearIntentListeners],
+  );
+
   const endJobSession = useCallback(() => {
     if (!activeRef.current) return;
     bridge.endSession();
     sourceRef.current = null;
+    directRef.current = null;
+    setDirectActive(false);
+    setDirectMediaUrl(null);
     activeRef.current = false;
     attachedRef.current = false;
     clearIntentListeners();
@@ -307,7 +402,24 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   }, [bridge, clearIntentListeners]);
 
   const cancelActiveJob = useCallback(async () => {
+    // Capture the outgoing session, then end it locally FIRST and only then
+    // talk to the plugin / companion. Callers start the replacement session
+    // immediately after calling this (magnet switch), so ending the local
+    // state after the await would clobber the new session.
+    const direct = directRef.current;
     const src = sourceRef.current;
+    endJobSession();
+
+    if (direct) {
+      try {
+        // Desktop direct mode: cancel the in-process torrent (best effort —
+        // the session may already be gone). Downloaded files stay on disk.
+        await cancelTorrentDirect(direct.torrentId);
+      } catch {
+        // Plugin unreachable: the local session is already ended.
+      }
+      return;
+    }
     if (src?.jobId) {
       try {
         // Best-effort companion-side cancel (frees the one-active session
@@ -322,15 +434,20 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
           { method: 'POST', cache: 'no-store' },
         );
       } catch {
-        // Companion unreachable: the local session still ends below.
+        // Companion unreachable: the local session is already ended.
       }
     }
-    endJobSession();
   }, [endJobSession]);
 
   const attachMediaElement = useCallback(
     (el: HTMLVideoElement | null) => {
       if (!el || !activeRef.current || attachedRef.current) return;
+      // Desktop direct mode: the relay URL is a plain HTTP media source, so
+      // the element needs no bridge wiring at all (native seek/buffer).
+      if (directRef.current) {
+        attachedRef.current = true;
+        return;
+      }
       // The player's video element mounts only after jobMediaUrl surfaces
       // (bridge phase `ready`/`playing`), so this callback is typically
       // called when the phase is already `ready`. The `buffering` guard
@@ -360,6 +477,27 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     [bridge],
   );
 
+  // Unmount safety: a desktop direct torrent session owns an in-process
+  // torrent inside the Rust plugin. Leaving the player without cancelling it
+  // would keep the download running (and the relay slot occupied) with no UI
+  // left to stop it. Refs are read inside the cleanup so the effect can stay
+  // dependency-free. Downloaded files stay on disk (cancel never deletes).
+  useEffect(() => {
+    return () => {
+      const direct = directRef.current;
+      directRef.current = null;
+      if (direct) {
+        void cancelTorrentDirect(direct.torrentId).catch(() => {
+          // Plugin already gone / app closing: nothing left to clean up.
+        });
+      }
+      if (titlePollRef.current !== null) {
+        clearTimeout(titlePollRef.current);
+        titlePollRef.current = null;
+      }
+    };
+  }, []);
+
   const setPlayIntent = useCallback(
     (play: boolean) => bridge.setPlayIntent(play),
     [bridge],
@@ -378,11 +516,12 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     subtitleFileId,
     jobQuality,
     jobMode,
-    phase: bridge.phase,
+    phase: directActive ? 'ready' : bridge.phase,
     progress: bridge.progress,
     reason: bridge.reason,
     errorCode: derivedErrorCode,
     beginJobSession,
+    beginDirectTorrentSession,
     cancelActiveJob,
     endJobSession,
     attachMediaElement,
