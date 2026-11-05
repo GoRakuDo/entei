@@ -57,6 +57,7 @@ import {
   writePanelLayout,
   DEFAULT_LAYOUT,
 } from '@/features/player/panel-layout';
+import { useModuleState } from '@/features/modules/use-module-state';
 import {
   surfaceClickEffect,
   nextCaptionDisplayMode,
@@ -698,8 +699,24 @@ export default function PlayerApp() {
     return () => mql.removeEventListener('change', handler);
   }, []);
 
+  // MODULE_ARCHITECTURE.md §5.3: module toggles gate the source entry points at
+  // runtime — a disabled source module hides its button and its dialog.
+  const moduleState = useModuleState();
+  const torrentEnabled = moduleState.torrent;
+  const ytdlpEnabled = moduleState.ytdlp;
+
   // ED-1: Magnet URI dialog visibility — visual shell only, no torrent runtime.
   const [isMagnetDialogOpen, setIsMagnetDialogOpen] = useState(false);
+  const [isYouTubeDialogOpen, setIsYouTubeDialogOpen] = useState(false);
+
+  // MODULE_ARCHITECTURE.md §5.3: a module disabled in another tab while its
+  // dialog is open must close the dialog, not just hide the entry button.
+  useEffect(() => {
+    if (!torrentEnabled) setIsMagnetDialogOpen(false);
+  }, [torrentEnabled]);
+  useEffect(() => {
+    if (!ytdlpEnabled) setIsYouTubeDialogOpen(false);
+  }, [ytdlpEnabled]);
   // ED-3: EizouDendenshi local-companion pairing — persistent credential.
   // The opaque token is persisted (browser localStorage envelope) after a
   // successful pair and re-validated on mount, so pairing survives F5 /
@@ -1171,7 +1188,6 @@ export default function PlayerApp() {
   useEffect(() => {
     jobSession.attachMediaElement(videoRef.current);
   }, [jobSession, jobSession.jobMediaUrl, jobSession.phase]);
-  const [isYouTubeDialogOpen, setIsYouTubeDialogOpen] = useState(false);
 
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -4985,28 +5001,32 @@ export default function PlayerApp() {
                   accept={MEDIA_ACCEPT}
                   label={dict.chooseMedia}
                 />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  type="button"
-                  className="entei-player-magnet-icon-btn"
-                  onClick={() => setIsMagnetDialogOpen(true)}
-                  aria-label={dict.magnetInputLabel}
-                  title={dict.magnetInputLabel}
-                >
-                  <Magnet />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  type="button"
-                  className="entei-player-youtube-icon-btn"
-                  onClick={() => setIsYouTubeDialogOpen(true)}
-                  aria-label={dict.youtubeInputLabel}
-                  title={dict.youtubeInputLabel}
-                >
-                  <YouTubeMark />
-                </Button>
+                {torrentEnabled && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    type="button"
+                    className="entei-player-magnet-icon-btn"
+                    onClick={() => setIsMagnetDialogOpen(true)}
+                    aria-label={dict.magnetInputLabel}
+                    title={dict.magnetInputLabel}
+                  >
+                    <Magnet />
+                  </Button>
+                )}
+                {ytdlpEnabled && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    type="button"
+                    className="entei-player-youtube-icon-btn"
+                    onClick={() => setIsYouTubeDialogOpen(true)}
+                    aria-label={dict.youtubeInputLabel}
+                    title={dict.youtubeInputLabel}
+                  >
+                    <YouTubeMark />
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -5091,7 +5111,7 @@ export default function PlayerApp() {
            gate → create → poll → file selection → select). The
            selected video's sanitized basename travels with the job id. */}
       <MagnetInput
-        open={isMagnetDialogOpen}
+        open={isMagnetDialogOpen && torrentEnabled}
         onOpenChange={setIsMagnetDialogOpen}
         isPaired={pairing.connected}
         token={pairing.tokenRef.current}
@@ -5134,7 +5154,7 @@ export default function PlayerApp() {
       {/* ED-2F: YouTube source dialog — real URL input, job create on the
           paired companion; media switch / End button cancels the job. */}
       <YouTubeInput
-        open={isYouTubeDialogOpen}
+        open={isYouTubeDialogOpen && ytdlpEnabled}
         onOpenChange={setIsYouTubeDialogOpen}
         isPaired={pairing.connected}
         token={pairing.tokenRef.current}

@@ -84,6 +84,8 @@ export interface EnteiMediaPayload {
 }
 ```
 
+実装: `apps/web/src/features/player/media-payload.ts`（型 + 変換ヘルパー `createLocalFilePayload` / `createYouTubePayload` / `createTorrentPayload`）。単体テストは `apps/web/tests/media-payload.test.ts`。
+
 ---
 
 ## 4. イマージョンツール棚（Navigation Drawer）
@@ -136,9 +138,16 @@ export interface EnteiModuleManifest {
 - **設定ボタン**: モジュールごとの専用設定モーダル（Cookie設定やダウンロード先など）。フェーズ2-A ではボタンと導線だけを置き、設定モーダル本体（cookies.txt アップロード、ダウンロード先パスなど）は **フェーズ2-B / 2-C** で実装する。
 - **外部モジュール追加**: 「モジュールをインポート」ボタンから、将来的にコミュニティ製プラグイン（URLやファイル）を読み込める拡張スロットを用意。
 
-### 5.3 未実装（フェーズ2-B / 2-C に延期）
-- **モジュール別の詳細設定ダイアログ**（Cookieアップロード、ダウンロード先パス等）はフェーズ2-A では作らない。Switch のON/OFF（`entei.modules.v1`）だけを永続化する。
-- **モジュール状態によるPlayer streamの実行時ゲート**（例: `ytdlp` OFF ならYouTube取得を拒否、`torrent` OFF ならmagnetを受けない）もフェーズ2-B / 2-C に延期する。現在はトグル状態を保存するだけで、Player側の取得経路はゲートされない。
+### 5.3 実行時ゲート（フェーズ2-B で実装済み）
+- **モジュール状態によるPlayer実行時ゲート**: 実装済み（フェーズ2-B）。`readModuleState()` / `useModuleState()`（`features/modules/use-module-state.ts`）を Player 島が読み、OFF のモジュールは取得入口そのものを描画しない。
+  - `PlayerApp`: `torrent` OFF → Magnet ボタン（`.entei-player-magnet-icon-btn`）を非表示＋Magnet ダイアログを開かない。`ytdlp` OFF → YouTube ボタン（`.entei-player-youtube-icon-btn`）を非表示＋YouTube ダイアログを開かない。実行中に OFF へ切り替わった場合（他タブの `storage` イベント）は、開いていたダイアログも `useEffect` で閉じる。
+  - `AudioPlayer`: `ytdlp` OFF → YouTube 入口（`.audio-player__youtube-button` / `.audio-player__source-button` の YouTube 項目）を非表示＋ダイアログを開かない。
+  - ローカルファイル選択はビルトイン能力のため常に有効。
+  - タブ間の切り替えは `storage` イベントで追従し、同一タブ内はプレイヤー島の再マウント時に読み直す。
+- **標準受付API**: `EnteiMediaPayload` と変換ヘルパーを `features/player/media-payload.ts` に実装済み（§3）。変換ヘルパーはプレイヤー側コンポーネントへの接続が未了で、フェーズ2-C（Rustネイティブのストリーミング配線）で `PlayerApp` / `AudioPlayer` の取得経路をこのペイロードへ差し替える。それまでは純粋関数 + 単体テストのみが存在し、既存経路はそのまま維持される。
+  - `createLocalFilePayload` の `sourceId` は呼び出し側が発行する object URL 由来（`local-file:<objectUrl>`）で、同じ pick を何度変換しても同一、別 pick では必ず別になる（モジュール内カウンタを持たない）。
+  - `createTorrentPayload` は YouTube の videoId を取らない（torrent に videoId は存在しない）。ポスターは呼び出し側が解決済みの `posterUrl` としてのみ受け取る。
+- **未実装（フェーズ2-B後半 / 2-C に延期）**: モジュール別の詳細設定ダイアログ（cookies.txt アップロード、ダウンロード先パス等）はまだ作らない。`PlayerApp` / `AudioPlayer` の既存取得経路をアダプター経由へ全面リファクタリングする作業も、Rust ネイティブモジュール（フェーズ2-C）と同時に行う（現状はペイロードAPIを用意し、既存経路はそのまま維持）。
 
 ---
 
@@ -148,10 +157,10 @@ export interface EnteiModuleManifest {
    - イマージョンツールDrawer（デスクトップ: 左スライド / モバイル: ボトムシート）の実装。
    - `/modules/` モジュール管理ページの雛形作成。
 2. **フェーズ2-B（データフローAPI化）**:
-   - `EnteiMediaPayload` 受付アダプターの実装。
-   - 既存 `PlayerApp` / `AudioPlayer` をアダプター経由にリファクタリング。
-   - モジュール別詳細設定ダイアログ（Cookieアップロード、ダウンロード先パス等）の実装。
-   - モジュール状態によるPlayer streamの実行時ゲート（OFFのモジュールは取得経路を拒否）。
+   - `EnteiMediaPayload` 受付アダプターの実装 — **実装済み**（`features/player/media-payload.ts`、変換ヘルパー: `createLocalFilePayload` / `createYouTubePayload` / `createTorrentPayload`）。
+   - モジュール状態によるPlayer streamの実行時ゲート（OFFのモジュールは取得経路を拒否） — **実装済み**（`useModuleState` + PlayerApp / AudioPlayer の入口ゲート）。
+   - 既存 `PlayerApp` / `AudioPlayer` をアダプター経由にリファクタリング — フェーズ2-C と同時（Rustネイティブの実体が入ってから差し替える）。
+   - モジュール別詳細設定ダイアログ（Cookieアップロード、ダウンロード先パス等）の実装 — 未着手。
 3. **フェーズ2-C（Rustネイティブ統合）**:
    - Tauri core 側に `module-ytdlp` および `module-torrent` を実装。
    - 旧Goコンパニオン（EizouDendenshi）およびペアリング/CORSコードの完全退役。

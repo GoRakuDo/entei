@@ -62,6 +62,7 @@ import AudioPlayer, {
   clampAudioSeekTarget,
   findActiveAudioCue,
 } from '@/components/player/AudioPlayer';
+import { MODULES_KEY } from '@/features/modules/modules-store';
 import { LOCALE_CHANGE_EVENT } from '@i18n/locale-events';
 import * as audioCover from '@/features/player/audio-cover/audio-cover';
 import * as audioHistory from '@/features/player/watch-history/audio';
@@ -124,6 +125,35 @@ describe('AudioPlayer', () => {
     expect(
       screen.getByRole('button', { name: 'Open YouTube audio' }),
     ).toBeDisabled();
+  });
+
+  it('hides every YouTube entry when the yt-dlp module is disabled', () => {
+    // MODULE_ARCHITECTURE.md §5.3 — module toggles gate the source entries.
+    localStorage.setItem(
+      MODULES_KEY,
+      JSON.stringify({ version: 1, enabled: { ytdlp: false } }),
+    );
+    try {
+      const empty = render(<AudioPlayer />);
+      expect(
+        screen.queryByRole('button', { name: 'Open YouTube audio' }),
+      ).toBeNull();
+      // The local-file entry is a built-in capability and stays available.
+      expect(
+        screen.getByRole('button', { name: 'Open audio file' }),
+      ).not.toBeNull();
+      empty.unmount();
+
+      render(<AudioPlayer src="/book.m4b" title="Book title" />);
+      expect(
+        screen.queryByRole('button', { name: 'Open YouTube audio' }),
+      ).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Open audio file' }),
+      ).not.toBeNull();
+    } finally {
+      localStorage.removeItem(MODULES_KEY);
+    }
   });
 
   it('opens YouTube audio entry and loads the accepted job into the player', async () => {

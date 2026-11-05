@@ -75,6 +75,7 @@ import { toast } from 'sonner';
 import { waitForPlayable } from '@/features/player/companion-media';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
+import { useModuleState } from '@/features/modules/use-module-state';
 import { COMPANION_PAIRING_BASE_URL } from '@/features/player/companion-pairing-store';
 import './AudioPlayer.css';
 
@@ -154,6 +155,9 @@ export default function AudioPlayer({
   const youtubeDialogOpenRef = useRef(false);
   const mountedRef = useRef(true);
   const pairing = useCompanionPairing();
+  // MODULE_ARCHITECTURE.md §5.3: the yt-dlp module toggle gates every YouTube
+  // entry point on this screen (empty-state button + in-player source button).
+  const ytdlpEnabled = useModuleState().ytdlp;
   const jobSession = useCompanionJobSession();
   const coverUrlRef = useRef<string | null>(null);
   const coverRequestRef = useRef(0);
@@ -805,22 +809,24 @@ export default function AudioPlayer({
         <FolderOpen size={18} aria-hidden="true" />
         <span>{t.openFile}</span>
       </button>
-      <button
-        className="audio-player__youtube-button"
-        type="button"
-        onClick={() => setIsYouTubeDialogOpen(true)}
-        disabled={!pairing.connected}
-        aria-label={t.youtube}
-        title={t.youtube}
-      >
-        <YouTubeMark width={19} height={19} />
-      </button>
+      {ytdlpEnabled && (
+        <button
+          className="audio-player__youtube-button"
+          type="button"
+          onClick={() => setIsYouTubeDialogOpen(true)}
+          disabled={!pairing.connected}
+          aria-label={t.youtube}
+          title={t.youtube}
+        >
+          <YouTubeMark width={19} height={19} />
+        </button>
+      )}
       {fileInput}
     </div>
   );
   const youtubeDialog = (
     <Dialog
-      open={isYouTubeDialogOpen}
+      open={isYouTubeDialogOpen && ytdlpEnabled}
       onOpenChange={(open) => {
         setIsYouTubeDialogOpen(open);
         if (open) {
@@ -929,16 +935,18 @@ export default function AudioPlayer({
               >
                 <FolderOpen size={17} aria-hidden="true" />
               </button>
-              <button
-                className="audio-player__source-button"
-                type="button"
-                onClick={() => setIsYouTubeDialogOpen(true)}
-                disabled={!pairing.connected}
-                aria-label={t.youtube}
-                title={t.youtube}
-              >
-                <YouTubeMark width={18} height={18} />
-              </button>
+              {ytdlpEnabled && (
+                <button
+                  className="audio-player__source-button"
+                  type="button"
+                  onClick={() => setIsYouTubeDialogOpen(true)}
+                  disabled={!pairing.connected}
+                  aria-label={t.youtube}
+                  title={t.youtube}
+                >
+                  <YouTubeMark width={18} height={18} />
+                </button>
+              )}
               <button
                 className="audio-player__tab"
                 type="button"
