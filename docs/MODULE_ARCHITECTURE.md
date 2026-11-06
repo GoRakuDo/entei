@@ -198,14 +198,15 @@ export interface EnteiModuleManifest {
 
 ### 8.1 yt-dlp 実行ファイルの解決順
 
-`ytdlp_binary()` は次の順で解決する（2026-08-14 修正）:
+`ytdlp_binary()` は次の順で解決する（2026-08-20 修正・アプリ内蔵バイナリ対応）:
 
 1. `EIZOUDEN_YTDLP_PATH`（明示 override）
-2. EizouDendenshi が導入した検証済み helper
+2. **アプリに同梱した yt-dlp（`bundle.resources`）** — 下記 8.1.1
+3. EizouDendenshi が導入した検証済み helper
    — Windows: `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\helpers\yt-dlp-windows-amd64.exe` →
    `…\helpers\yt-dlp.exe`（存在するものだけ採用。companion の update plan は `helpers\` 配下に
    release asset 名のまま配置するため、この 2 つが実在しうる名前）
-3. `PATH` 上の `yt-dlp.exe` / `yt-dlp`
+4. `PATH` 上の `yt-dlp.exe` / `yt-dlp`
 
 **背景（実測）**: Windows の `PATH` 先頭に python の Scripts 配下のランチャー
 `…\Python314\Scripts\yt-dlp.exe` が存在する環境では、`--version` が**出力なしで exit 1**
@@ -214,6 +215,67 @@ yt-dlp 呼び出しが失敗していた。実際に動く実体は
 `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\helpers\yt-dlp-windows-amd64.exe`（実測 `--version` =
 `2026.07.04`）にあるため、helper を先に探す。Termux は `pkg` 管理の `yt-dlp` が `PATH` にあるため
 候補を持たない。
+
+### 8.1.1 アプリ内蔵（完全スタンドアロン）
+
+新しい PC に Entei を入れるだけで YouTube 再生が動くよう、Windows ビルドには yt-dlp 本体を同梱する。
+Python も EizouDendenshi も `PATH` 設定も不要。
+
+**プラットフォーム分割の原則（2026-08-20 修正）**: 同梱は**プラットフォーム別 config で行う**。
+Windows インストーラだけが Windows 版 exe を持ち、Android APK には Windows 実行ファイルが
+**一切入らない**。
+
+| 項目 | Windows | Android (APK) / その他 |
+| --- | --- | --- |
+| 実体の配置 | `src-tauri/resources/windows/yt-dlp.exe` | 配置しない |
+| バンドル宣言 | `src-tauri/tauri.windows.conf.json` の `bundle.resources: ["resources/windows/*"]` | なし（base `tauri.conf.json` に `resources` キー自体が存在しない） |
+| インストール後の実体 | `<resource dir>/resources/windows/yt-dlp.exe` | — |
+| 解決関数 | `bundled_candidates()` が Windows でのみ候補を返す | `bundled_candidates()` は空を返す |
+
+- **base `tauri.conf.json` は `resources` を持たない**: ここに書くと全プラットフォームの
+  バンドルに 18MB の Windows exe が混入する（APK が肥大し、実行不能なバイナリを配ることになる）。
+  そのため base から撤去し、Windows 専用宣言だけを `tauri.windows.conf.json` に置く。
+  Tauri v2 は `tauri.<platform>.conf.json` を JSON Merge Patch（RFC 7396）で合成するため、
+  `bundle.resources` 配列は**丸ごと置換**される（追記ではない）。base 側に配列を残すと
+  二重定義になるので base は無指定にしてある。
+- **解決順（`bundled_candidates()` / `#[cfg(windows)]` のみ）**:
+  1. プラグイン `setup()` で `app.path().resolve("resources", BaseDirectory::Resource)` を
+     `OnceLock` に一度だけ保存したディレクトリ配下の `windows\yt-dlp.exe`
+  2. 同じディレクトリ直下の `yt-dlp.exe`（プラットフォーム分割前の旧レイアウト互換）
+  3. 実行ファイルと同じディレクトリの `resources\windows\yt-dlp.exe`、次に `resources\yt-dlp.exe`
+     （インストーラ無しの portable 展開向け）
+  4. **debug ビルドのみ**: 相対パス `src-tauri/resources/windows/yt-dlp.exe` と
+     `resources/windows/yt-dlp.exe`（`tauri dev` は CWD が `src-tauri`。出荷ビルドでは起動
+     ディレクトリの stray な `yt-dlp.exe` を拾わないよう debug 限定にしてある）
+- **旧バグの修正**: 以前は `dir.join("resources")` と二重に連結して
+  `<resource dir>/resources/resources/yt-dlp.exe` を探していた（`dir` 自体が既に `resources`）。
+  `dir.join("windows").join(YTDLP_EXE_NAME)` と `dir.join(YTDLP_EXE_NAME)` に修正した。
+- 見つかったものだけ採用するので、同梱が欠けたビルドでも従来どおり helper / `PATH` へ
+  サイレントにフォールバックする（起動失敗にしない）。
+- **実測**: `cargo check --manifest-path src-tauri/Cargo.toml` 実行後、`tauri-build` が
+  `src-tauri/target/debug/resources/windows/yt-dlp.exe` を生成することを確認済み
+  （= `tauri.windows.conf.json` が実際に読まれ、glob が解決されている）。
+  同梱 exe 単体の `--version` は `2026.07.04`。
+
+### 8.1.2 Android（APK）は別方式
+
+APK には Windows 版のような「実行ファイルを同梱して spawn する」手段が使えない。
+
+- **同梱なしの保証**: base `tauri.conf.json` は `bundle.resources` を持たず、
+  `tauri.windows.conf.json` は Windows ターゲットでのみ合成される。したがって APK には
+  `yt-dlp.exe` が**物理的に入らない**。加えて `bundled_candidates()` は
+  `#[cfg(windows)]` の外では空の `Vec` を返すので、Windows exe を探しにいくコードパスも存在しない。
+- **制約**: Android 10 以降のアプリ専用ディレクトリは W^X 制約（`noexec`）で、ダウンロードした
+  ELF バイナリを子プロセスとして exec できない。`yt-dlp.exe` を `assets/` に入れて
+  `Runtime.exec` する設計は成立しない。
+- **方式**: Chaquopy で Python ランタイムを APK に同梱し、yt-dlp を Python パッケージとして
+  埋め込む。ネイティブ依存は `.so`（JNI ライブラリ）として `jniLibs/` に置き、Java/Kotlin から
+  は Python モジュール経由で呼ぶ。
+- **帰結**: プラットフォームごとに取得層の実装が分かれる（Windows: Rust プラグインが
+  同梱 exe を spawn / Android: Python ランタイムを in-process 呼び出し）。共通なのは
+  「ネットワークから yt-dlp を落としてこない」「ユーザーに Python を要求しない」という
+  **自己完結の原則**だけで、プレイヤー側の受付 API（`EnteiMediaPayload`）は共通のまま。
+- **状態**: Android 側は未実装（設計のみ）。
 
 ### 8.2 ダイアログのエラー表示（Toast 統一）
 
@@ -233,5 +295,5 @@ yt-dlp 呼び出しが失敗していた。実際に動く実体は
    （YouTube / Magnet / Audio input 等）は本文にインラインエラー段落を出さず Toast へ統一する
    （DESIGN.md 8.8）。既存の mining / pairing プレビューダイアログは個別再設計までインライン
    バリデーション表示を残す。
-3. **実環境 E2E は未確認**: `cargo check` / `cargo test`（plugin 14 件）と web テストのみ。
-   WebView2 実機での YouTube 再生確認は未実施。
+3. **実環境 E2E は未確認**: `cargo check`（`src-tauri`）+ `cargo test`（plugin 16 件）と
+   web テストのみ。WebView2 実機での YouTube 再生確認は未実施。

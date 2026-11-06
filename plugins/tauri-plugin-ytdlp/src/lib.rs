@@ -13,11 +13,13 @@
 //!   `[video, audio]` in that order and `url` is the video URL.
 //!
 //! Note: yt-dlp must be reachable. Resolution order is
-//! `EIZOUDEN_YTDLP_PATH` env var, then the verified helper EizouDendenshi
-//! installed under its companion install root (see [`helper_candidates`]),
-//! then the platform default binary name on `PATH`. The helper step matters on
-//! Windows: a python stub named `yt-dlp.exe` often sits on `PATH` and is not a
-//! working yt-dlp, while the signed helper always is. No downloads are
+//! `EIZOUDEN_YTDLP_PATH` env var, then the binary embedded in the Windows Entei
+//! bundle via `bundle.resources` (see [`bundled_candidates`]), then the verified
+//! helper EizouDendenshi installed under its companion install root (see
+//! [`helper_candidates`]), then the platform default binary name on `PATH`.
+//! The bundled step is what makes a fresh install self-contained: no Python, no
+//! EizouDendenshi, no `PATH` entry required. The helper step remains as a
+//! fallback for machines that already ran the companion. No downloads are
 //! performed here; the caller owns the source URL.
 //! The upstream `googlevideo.com` URLs carry short-lived tokens and stay inside
 //! the process — only the local relay URLs are returned to the webview.
@@ -26,11 +28,12 @@ mod relay;
 
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::Runtime;
+use tauri::{Manager, Runtime};
 use tokio::process::Command;
 
 /// Maximum bytes of yt-dlp stdout we accept before parsing. `--dump-json` on a
@@ -133,6 +136,73 @@ pub struct StreamSource {
     pub relayed: bool,
 }
 
+/// File name of the yt-dlp binary inside the bundle resource directory.
+const YTDLP_EXE_NAME: &str = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
+
+/// Bundle resource directory resolved by Tauri while the plugin initializes.
+///
+/// This is the `resources/` sub-directory of the bundle resource root (i.e.
+/// `app.path().resolve("resources", BaseDirectory::Resource)`), matching the
+/// `resources/windows/*` entry in `tauri.windows.conf.json`.
+/// Stored once because [`ytdlp_binary`] runs per command and must stay
+/// synchronous; the path is fixed for the lifetime of the process.
+static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// yt-dlp shipped inside the Entei bundle, most likely location first.
+///
+/// Only Windows bundles an executable: `tauri.windows.conf.json` lists
+/// `resources/windows/*` under `bundle.resources`, so the installer carries the
+/// binary at `<resource dir>/resources/windows/`. The base `tauri.conf.json`
+/// declares **no** resources at all, which is what keeps the 18MB Windows
+/// `yt-dlp.exe` out of every other bundle (Android APK in particular).
+///
+/// `tauri dev` has no bundle yet, which is why the checked-in
+/// `src-tauri/resources/windows/yt-dlp.exe` is probed by relative path — those
+/// probes are debug-only so a stray `yt-dlp.exe` in the launch directory of a
+/// shipped build can never win. The flat `resources/yt-dlp.exe` location is
+/// kept as a second probe for bundles produced before the platform split.
+fn bundled_candidates() -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        let mut candidates = Vec::new();
+        if let Some(dir) = RESOURCE_DIR.get() {
+            candidates.push(dir.join("windows").join(YTDLP_EXE_NAME));
+            candidates.push(dir.join(YTDLP_EXE_NAME));
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let resources = dir.join("resources");
+                candidates.push(resources.join("windows").join(YTDLP_EXE_NAME));
+                candidates.push(resources.join(YTDLP_EXE_NAME));
+            }
+        }
+        #[cfg(debug_assertions)]
+        {
+            // `tauri dev` runs with the working directory set to `src-tauri`.
+            candidates.push(
+                PathBuf::from("src-tauri")
+                    .join("resources")
+                    .join("windows")
+                    .join(YTDLP_EXE_NAME),
+            );
+            candidates.push(
+                PathBuf::from("resources")
+                    .join("windows")
+                    .join(YTDLP_EXE_NAME),
+            );
+        }
+        candidates
+    }
+    // Android (APK) and every other non-Windows target bundle no executable:
+    // Android 10+ app-private storage is W^X (`noexec`), so a spawned binary is
+    // not an option there, and Termux manages yt-dlp through `pkg` on `PATH`.
+    // Returning an empty list guarantees no Windows `.exe` is ever probed.
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
 /// Verified yt-dlp helpers installed by EizouDendenshi, most specific first.
 ///
 /// Windows install root is `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi` and its
@@ -164,9 +234,9 @@ fn helper_candidates() -> Vec<PathBuf> {
 
 /// Resolve the yt-dlp executable to spawn.
 ///
-/// A path is only taken from the helper candidates when the file actually
-/// exists, so a missing helper silently falls through to `PATH` instead of
-/// failing to spawn.
+/// A path is only taken from the candidate lists when the file actually exists,
+/// so a missing bundle resource or helper silently falls through to the next
+/// step instead of failing to spawn.
 fn ytdlp_binary() -> String {
     if let Ok(path) = std::env::var("EIZOUDEN_YTDLP_PATH") {
         let trimmed = path.trim();
@@ -174,14 +244,14 @@ fn ytdlp_binary() -> String {
             return trimmed.to_string();
         }
     }
-    if let Some(helper) = helper_candidates().into_iter().find(|path| path.is_file()) {
-        return helper.to_string_lossy().into_owned();
+    let found = bundled_candidates()
+        .into_iter()
+        .chain(helper_candidates())
+        .find(|path| path.is_file());
+    if let Some(binary) = found {
+        return binary.to_string_lossy().into_owned();
     }
-    if cfg!(windows) {
-        "yt-dlp.exe".to_string()
-    } else {
-        "yt-dlp".to_string()
-    }
+    YTDLP_EXE_NAME.to_string()
 }
 
 fn validate_url(url: &str) -> Result<&str, YtdlpError> {
@@ -422,6 +492,15 @@ async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, Strin
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("ytdlp")
+        .setup(|app, _api| {
+            // Resolve the bundle resource directory once so `ytdlp_binary` can
+            // stay synchronous. Failure is not fatal: the dev-relative and
+            // `PATH` fallbacks still apply.
+            if let Ok(dir) = app.path().resolve("resources", tauri::path::BaseDirectory::Resource) {
+                let _ = RESOURCE_DIR.set(dir);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![get_video_info, stream_youtube])
         .build()
 }
@@ -441,6 +520,50 @@ mod tests {
                 "unexpected helper candidate: {}",
                 candidate.display());
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bundled_candidates_point_at_the_shipped_windows_resource_file() {
+        let candidates = bundled_candidates();
+        let expected = PathBuf::from("resources")
+            .join("windows")
+            .join(YTDLP_EXE_NAME);
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.ends_with(&expected)),
+            "no bundled candidate points at {}",
+            expected.display()
+        );
+        for candidate in &candidates {
+            assert_eq!(
+                candidate.file_name().and_then(|name| name.to_str()),
+                Some(YTDLP_EXE_NAME)
+            );
+            // The flat layout is a legacy fallback, never `resources/resources/`.
+            assert!(
+                !candidate.to_string_lossy().contains("resources\\resources")
+                    && !candidate.to_string_lossy().contains("resources/resources"),
+                "duplicated resources segment: {}",
+                candidate.display()
+            );
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn bundled_candidates_stay_empty_off_windows() {
+        // Android APKs must never carry or probe a Windows executable.
+        assert!(
+            bundled_candidates().is_empty(),
+            "non-Windows builds must not resolve a bundled executable"
+        );
+    }
+
+    #[test]
+    fn resolves_to_a_non_empty_binary_name() {
+        assert!(!ytdlp_binary().trim().is_empty());
     }
 
     #[test]
