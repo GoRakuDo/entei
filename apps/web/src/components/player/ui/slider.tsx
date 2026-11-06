@@ -7,10 +7,19 @@ import * as SliderPrimitive from '@radix-ui/react-slider';
 
 import { cn } from '@/lib/utils';
 
+export interface SliderProps
+  extends React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root> {
+  /**
+   * Optional 0–100 percentage of already-buffered media, drawn as a muted
+   * bar behind the played range (YouTube-style). Omit to render nothing.
+   */
+  bufferPercent?: number;
+}
+
 const Slider = React.forwardRef<
   React.ComponentRef<typeof SliderPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root>
->(({ className, value, defaultValue, ...props }, ref) => {
+  SliderProps
+>(({ className, value, defaultValue, bufferPercent, ...props }, ref) => {
   // Derive thumb count: controlled value → defaultValue → fallback 1
   const thumbCount = Array.isArray(value)
     ? value.length
@@ -30,6 +39,14 @@ const Slider = React.forwardRef<
       {...props}
     >
       <SliderPrimitive.Track className="relative h-2 w-full grow overflow-hidden rounded-full bg-surface">
+        {/* Buffered range sits behind the played range (DOM order = paint order). */}
+        {bufferPercent !== undefined && bufferPercent > 0 && (
+          <span
+            className="entei-slider-buffer"
+            style={{ width: `${Math.min(100, bufferPercent)}%` }}
+            aria-hidden="true"
+          />
+        )}
         <SliderPrimitive.Range className="absolute h-full bg-primary" />
       </SliderPrimitive.Track>
       {Array.from({ length: thumbCount }, (_, i) => (

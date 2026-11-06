@@ -45,6 +45,53 @@ export function clampSeek(time: number, duration: number): number {
 }
 
 /**
+ * Minimal shape of `TimeRanges` — kept structural so tests can pass plain
+ * objects without a real media element.
+ */
+export interface TimeRangesLike {
+  length: number;
+  start(index: number): number;
+  end(index: number): number;
+}
+
+/**
+ * Tolerance (seconds) for treating a buffered range as covering the playhead.
+ * After a seek the playhead can land a few milliseconds past the reported
+ * range end; without the tolerance the buffered bar would flicker to zero.
+ */
+export const BUFFER_RANGE_TOLERANCE_SEC = 0.5;
+
+/**
+ * P1: Compute the buffered end (seconds) for a YouTube-style buffered bar.
+ *
+ * Returns the end of the buffered range covering `currentTime`, so the bar
+ * never claims data that does not exist ahead of the playhead. Returns 0 when
+ * the playhead sits in an unbuffered gap (the played range already covers the
+ * area behind it, so nothing extra is drawn).
+ *
+ * Note: only one contiguous range is rendered, matching the single-bar visual.
+ * Multiple disjoint ranges ahead of the playhead are intentionally not drawn.
+ */
+export function computeBufferedEnd(
+  ranges: TimeRangesLike | null | undefined,
+  currentTime: number,
+): number {
+  if (!ranges || ranges.length === 0) return 0;
+  const time = Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0;
+
+  for (let i = 0; i < ranges.length; i += 1) {
+    const start = ranges.start(i);
+    const end = ranges.end(i);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)
+      continue;
+    if (start <= time + BUFFER_RANGE_TOLERANCE_SEC && time - end <= BUFFER_RANGE_TOLERANCE_SEC)
+      return end;
+  }
+
+  return 0;
+}
+
+/**
  * Toggle mute. If currently muted (volume === 0), restore to prevVolume.
  * If currently unmuted, set volume to 0 and remember the old value.
  * Returns { volume, restored } where restored > 0 means unmute happened.

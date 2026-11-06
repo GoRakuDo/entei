@@ -1402,9 +1402,27 @@
 }
 
 /* Req 4: Thinner seek track — 4px default, 6px on hover/focus. */
+.entei-controls-seek-slider {
+  /* Generous vertical hit target: Radix Slider jumps to the clicked position
+     on pointerdown anywhere inside the root box, so the box must be taller
+     than the 4px visual track (and the 12px thumb) to feel clickable. */
+  min-height: var(--entei-space-24);
+  cursor: pointer;
+}
+
 .entei-controls-seek-slider > span:first-child {
   height: 4px;
   transition: height var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* YouTube-style buffered range: muted white behind the played (primary) range. */
+.entei-slider-buffer {
+  position: absolute;
+  left: 0;
+  inset-block: 0;
+  border-radius: inherit;
+  background-color: oklch(100% 0 0deg / 0.25);
+  pointer-events: none;
 }
 
 .entei-controls-seek-slider:hover > span:first-child,

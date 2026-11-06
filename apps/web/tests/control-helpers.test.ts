@@ -17,6 +17,7 @@ import {
   BLUR_RESTORE_TIMEOUT_MS,
   shouldTriggerBlurHover,
   isPlaybackResume,
+  computeBufferedEnd,
 } from '@/features/player/control-helpers';
 
 describe('formatTime', () => {
@@ -340,5 +341,48 @@ describe('isPlaybackResume', () => {
 
   it('returns false for idle (false→false)', () => {
     expect(isPlaybackResume(false, false)).toBe(false);
+  });
+});
+
+describe('computeBufferedEnd', () => {
+  const ranges = (list: Array<[number, number]>) => ({
+    length: list.length,
+    start: (i: number) => list[i]?.[0] ?? 0,
+    end: (i: number) => list[i]?.[1] ?? 0,
+  });
+
+  it('returns 0 when no ranges are available', () => {
+    expect(computeBufferedEnd(null, 0)).toBe(0);
+    expect(computeBufferedEnd(undefined, 5)).toBe(0);
+    expect(computeBufferedEnd(ranges([]), 5)).toBe(0);
+  });
+
+  it('returns the end of the range covering the playhead', () => {
+    expect(computeBufferedEnd(ranges([[0, 30]]), 10)).toBe(30);
+  });
+
+  it('returns 0 when the playhead sits in an unbuffered gap', () => {
+    expect(computeBufferedEnd(ranges([[0, 10], [100, 120]]), 50)).toBe(0);
+  });
+
+  it('tolerates the playhead landing just past a range end after a seek', () => {
+    expect(computeBufferedEnd(ranges([[0, 30]]), 30.2)).toBe(30);
+  });
+
+  it('picks the later range when the playhead is inside it', () => {
+    expect(computeBufferedEnd(ranges([[0, 10], [100, 120]]), 105)).toBe(120);
+  });
+
+  it('ignores non-finite or inverted ranges', () => {
+    expect(
+      computeBufferedEnd(
+        {
+          length: 2,
+          start: (i: number) => (i === 0 ? Number.NaN : 0),
+          end: (i: number) => (i === 0 ? 5 : 0),
+        },
+        0,
+      ),
+    ).toBe(0);
   });
 });

@@ -54,6 +54,7 @@ import {
   formatTime,
   clampSeek,
   toggleMute,
+  computeBufferedEnd,
   PLAYBACK_RATES,
   nextControlsVisibility,
   shouldScheduleAutoHide,
@@ -166,6 +167,8 @@ export const PlayerControls = forwardRef<
   // --- Local state ---
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  /** P1: End (seconds) of the buffered range covering the playhead. */
+  const [bufferedEnd, setBufferedEnd] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [prevVolume, setPrevVolume] = useState(volume > 0 ? volume : 0.5);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
@@ -252,6 +255,34 @@ export const PlayerControls = forwardRef<
       media.removeEventListener('loadedmetadata', onLoadedMetadata);
     };
   }, [mediaRef, mediaKey, hasMedia, isSeeking]);
+
+  // --- P1: Buffered progress tracking (YouTube-style buffer bar) ---
+  // Kept in its own effect so seeking (isSeeking toggles) does not tear down
+  // and reattach the media listeners of the effect above.
+  useEffect(() => {
+    setBufferedEnd(0);
+    const media = mediaRef.current;
+    if (!media) return;
+    const syncBuffered = () => {
+      setBufferedEnd(computeBufferedEnd(media.buffered, media.currentTime));
+    };
+    media.addEventListener('progress', syncBuffered);
+    media.addEventListener('timeupdate', syncBuffered);
+    media.addEventListener('loadedmetadata', syncBuffered);
+    media.addEventListener('durationchange', syncBuffered);
+    media.addEventListener('seeked', syncBuffered);
+    media.addEventListener('emptied', syncBuffered);
+    syncBuffered();
+
+    return () => {
+      media.removeEventListener('progress', syncBuffered);
+      media.removeEventListener('timeupdate', syncBuffered);
+      media.removeEventListener('loadedmetadata', syncBuffered);
+      media.removeEventListener('durationchange', syncBuffered);
+      media.removeEventListener('seeked', syncBuffered);
+      media.removeEventListener('emptied', syncBuffered);
+    };
+  }, [mediaRef, mediaKey, hasMedia]);
 
   // --- Fullscreen change listener (standard + webkit) ---
   useEffect(() => {
@@ -536,6 +567,15 @@ export const PlayerControls = forwardRef<
   );
   const formattedDuration = useMemo(() => formatTime(duration), [duration]);
 
+  // P1: Buffered percentage for the seek bar (0 when nothing is buffered).
+  const bufferedPercent = useMemo(
+    () =>
+      duration > 0 && bufferedEnd > 0
+        ? Math.min(100, (bufferedEnd / duration) * 100)
+        : 0,
+    [bufferedEnd, duration],
+  );
+
   // --- Whether controls should render ---
   if (!hasMedia) return null;
 
@@ -639,6 +679,7 @@ export const PlayerControls = forwardRef<
             step={0.1}
             onValueChange={handleSeekValueChange}
             onValueCommit={handleSeekEnd}
+            bufferPercent={bufferedPercent}
             aria-label={dict.seekAriaLabel}
           />
         </div>
