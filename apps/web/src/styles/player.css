@@ -141,11 +141,12 @@
 }
 
 .entei-player-empty-title {
-  font-family: var(--entei-font-display);
+  font-family: var(--entei-font-system);
   font-size: clamp(1.5rem, 4vw, 2.5rem);
   font-weight: 700;
   line-height: 1.2;
-  color: var(--entei-text);
+  letter-spacing: 0.04em;
+  color: var(--entei-status-locked);
 }
 
 .entei-player-empty-desc {
@@ -181,8 +182,19 @@
   border-color: transparent;
 }
 
-/* Picker button hover — match the unified button hover color (the shadcn
-   outline variant's hover:bg-surface is overridden by this CSS rule). */
+/* Picker button hover — text and SVG icon only turn gold; the button
+   background is intentionally left untouched (no background-color here)
+   so hover/focus reads as a color accent, not a surface change.
+   Hovered/active source pickers (local media, Magnet, YouTube) turn gold
+   so the empty-state entry points read as one interactive group. */
+.entei-player-pickers .entei-picker-btn:hover,
+.entei-player-pickers .entei-player-magnet-icon-btn:hover,
+.entei-player-pickers .entei-player-youtube-icon-btn:hover,
+.entei-player-pickers .entei-picker-btn:focus-visible,
+.entei-player-pickers .entei-player-magnet-icon-btn:focus-visible,
+.entei-player-pickers .entei-player-youtube-icon-btn:focus-visible {
+  color: var(--entei-status-locked);
+}
 
 .entei-picker-label {
   min-width: 0;
