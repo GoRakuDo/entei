@@ -220,9 +220,9 @@ export const ja: Dictionary = {
     playModeFastForward: '早送り',
     playModeLabel: '再生モード',
     // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
-    magnetInputLabel: 'マグネットURI',
+    magnetInputLabel: 'ストリーミング用マグネットURI:',
     magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
-    magnetInputLabelTitle: 'トレントストリームを開く',
+    magnetInputLabelTitle: 'ストリーミングトレント',
     magnetErrorInvalid:
       '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
     magnetInputSubmit: 'ダウンロード開始',
@@ -248,7 +248,7 @@ export const ja: Dictionary = {
     magnetFilesTitle: 'ファイルを選択',
     magnetFilesBody: '動画を1つ、任意で字幕を1つ選択してください。',
     magnetNoVideoError: 'このtorrentには選択できる動画がありません。',
-    magnetSelectSubmit: '選択して再生',
+    magnetSelectSubmit: 'ストリーム再生',
     magnetCancel: 'キャンセル',
     // ED-2G: File browser table
     magnetTableFileName: 'ファイル名',
@@ -259,6 +259,8 @@ export const ja: Dictionary = {
     magnetFileKindOther: 'ファイル',
     magnetTableNavUp: '上の階層へ',
     magnetNoVideosInFolder: 'このフォルダーに動画がありません',
+    magnetBreadcrumbLabel: '現在のフォルダー',
+    magnetBreadcrumbRoot: 'トレント',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'OTP セットアップ',
     eizouSetupTitle: '映像伝電子',

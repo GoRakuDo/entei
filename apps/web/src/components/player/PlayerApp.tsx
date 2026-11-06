@@ -5367,6 +5367,8 @@ export default function PlayerApp() {
             magnetFileKindOther: dict.magnetFileKindOther,
             magnetTableNavUp: dict.magnetTableNavUp,
             magnetNoVideosInFolder: dict.magnetNoVideosInFolder,
+            magnetBreadcrumbLabel: dict.magnetBreadcrumbLabel,
+            magnetBreadcrumbRoot: dict.magnetBreadcrumbRoot,
             firefoxUnsupported: dict.firefoxUnsupported,
           }}
         />

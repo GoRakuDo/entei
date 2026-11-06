@@ -217,9 +217,9 @@ export const en: Dictionary = {
     playModeFastForward: 'Fast-forward',
     playModeLabel: 'Playback mode',
     // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
-    magnetInputLabel: 'Magnet URI',
+    magnetInputLabel: 'Magnet URI for streaming:',
     magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
-    magnetInputLabelTitle: 'Open Torrent Stream',
+    magnetInputLabelTitle: 'Streaming Torrent',
     magnetErrorInvalid: 'Invalid magnet URI. Please enter a valid magnet link.',
     magnetInputSubmit: 'Start download',
     magnetInputUnpairedBody: 'Pair EizouDendenshi first to download a torrent.',
@@ -243,7 +243,7 @@ export const en: Dictionary = {
     magnetFilesTitle: 'Select files',
     magnetFilesBody: 'Pick one video and, optionally, one subtitle.',
     magnetNoVideoError: 'No selectable video in this torrent.',
-    magnetSelectSubmit: 'Select & play',
+    magnetSelectSubmit: 'Stream Now',
     magnetCancel: 'Cancel',
     // ED-2G: File browser table
     magnetTableFileName: 'File name',
@@ -254,6 +254,8 @@ export const en: Dictionary = {
     magnetFileKindOther: 'file',
     magnetTableNavUp: 'Go up one level',
     magnetNoVideosInFolder: 'No videos in this folder',
+    magnetBreadcrumbLabel: 'Current folder',
+    magnetBreadcrumbRoot: 'Torrent',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'OTP Setup',
     eizouSetupTitle: 'EizouDendenshi',

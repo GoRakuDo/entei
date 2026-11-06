@@ -1,21 +1,21 @@
 /**
- * Static CSS-contract tests for the magnet file table's bounded scroll.
+ * Static CSS-contract tests for the magnet dialog's file list and shell.
  * ---------------------------------------------------------------------------
- * The shadcn `Table` component renders `<div data-slot="table-container">`
- * as an ANCESTOR of `<table class="entei-magnet-table">`:
+ * The ED-2G dialog was redesigned to the mockup: a joined magnet input group,
+ * a breadcrumb strip, plain file/folder rows (no <table>) and a Cancel |
+ * Stream Now action pair. These tests read player.css as text and pin the
+ * layout contract that the component relies on:
  *
- *   <div class="entei-magnet-table-wrap">        ← outer frame (border/radius/clip)
- *     <div data-slot="table-container">          ← scroll container
- *       <table class="entei-magnet-table">…
+ *  - the file list is the bounded scroll container (desktop 20rem cap),
+ *  - the breadcrumb stays on one line (horizontal scroll, never wrap),
+ *  - on mobile the form scrolls inside the 100dvh sheet so the actions stay
+ *    reachable,
+ *  - the old table shell is gone (no dead selectors left behind),
+ *  - every colour in the magnet section is an OKLCH value or an Entei token
+ *    (project rule: no HEX/RGB/HSL/named colours).
  *
- * The scroll constraint must therefore be selected from the wrap's DIRECT
- * CHILD — a descendant selector rooted at the table matches nothing and the
- * inner div keeps its full content height while the wrap's overflow:hidden
- * clips the tail rows (the regression this suite pins).
- *
- * These tests read player.css as text: they verify the selector contract
- * (right selector, right caps, no inverted selector), not pixel layout —
- * the layout half is verified in the browser against a 24-row listing.
+ * Pixel layout itself is verified in the browser; these tests only pin the
+ * selector/declaration contract.
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -29,11 +29,9 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles/player.css'), 'utf8'
 /**
  * Returns the declaration text of the first rule block for `selector`.
  *
- * This is a deliberately naive parser: it reads from the first `{` after
- * the selector to the very next `}`, assuming the matched block has no
- * nested blocks and no braces inside strings. That holds for every block
- * in player.css (plain declarations only, no @-rule nesting in the magnet
- * section), so the helper stays intentionally simple.
+ * Deliberately naive parser: it reads from the first `{` after the selector
+ * to the very next `}`. That holds for every magnet block (plain declarations
+ * only, no nested @-rule).
  */
 function ruleBlock(selector: string): string {
   const start = css.indexOf(`${selector} {`);
@@ -43,9 +41,7 @@ function ruleBlock(selector: string): string {
   return css.slice(open + 1, close);
 }
 
-/** Returns the declaration text of every `@media (max-width: 767px)` block.
- *  Brace-balanced so nested selector blocks inside the media query are
- *  captured in full (e.g. .entei-magnet-dialog + its descendants). */
+/** Returns the declaration text of every `@media (max-width: 767px)` block. */
 function mobileBlocks(): string[] {
   const out: string[] = [];
   const needle = '@media (max-width: 767px) {';
@@ -54,9 +50,6 @@ function mobileBlocks(): string[] {
     const start = css.indexOf(needle, from);
     if (start < 0) break;
     const open = css.indexOf('{', start);
-    // Walk braces to find the matching close — nested selector blocks
-    // (e.g. .entei-magnet-dialog { ... } inside the media block) would
-    // otherwise truncate the captured text.
     let depth = 1;
     let i = open + 1;
     while (i < css.length && depth > 0) {
@@ -72,50 +65,95 @@ function mobileBlocks(): string[] {
   return out;
 }
 
-describe('Magnet table bounded-scroll CSS contract', () => {
-  it('targets the inner scroll container from the wrap direct child', () => {
-    expect(css).toContain(".entei-magnet-table-wrap > [data-slot='table-container']");
-  });
+/** Text of the magnet shell section (from its banner to the YouTube section). */
+function magnetSection(): string {
+  const start = css.indexOf('/* --- ED-2G magnet source dialog');
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = css.indexOf('/* --- ED-2F YouTube source dialog --- */', start);
+  expect(end).toBeGreaterThan(start);
+  return css.slice(start, end);
+}
 
-  it('applies the desktop 20rem cap and scroll to the inner container', () => {
-    const b = ruleBlock(".entei-magnet-table-wrap > [data-slot='table-container']");
+describe('Magnet dialog CSS contract (mockup shell)', () => {
+  it('keeps the file list as the bounded desktop scroll container', () => {
+    const b = ruleBlock('.entei-magnet-list');
     expect(b).toContain('max-height: 20rem');
     expect(b).toContain('overflow-y: auto');
   });
 
-  it('does not rely on the inverted table-descendant selector', () => {
-    expect(css).not.toContain(".entei-magnet-table [data-slot='table-container']");
+  it('renders rows as flex items with a touch-sized hit area', () => {
+    const b = ruleBlock('.entei-magnet-item');
+    expect(b).toContain('min-height: var(--entei-touch-min)');
+    expect(b).toContain('display: flex');
   });
 
-  it('lets the table-wrap flex on mobile (no 18rem cap)', () => {
-    // Mobile (<768px) rule used to cap both .entei-magnet-table-wrap and
-    // its inner [data-slot='table-container'] at 18rem. That pushed the
-    // nav row past the viewport on 375px-wide phones. The new contract
-    // (full-screen sheet mirroring .entei-settings-dialog) lets the
-    // table-wrap flex inside the 100dvh dialog so only the table region
-    // scrolls; the inner container is also uncapped (relies on the wrap's
-    // overflow). The desktop 20rem cap is preserved via the base rules
-    // outside any media query (see other tests in this suite).
-    const magnetBlocks = mobileBlocks().filter((b) =>
-      b.includes('.entei-magnet-table-wrap'),
+  it('keeps the breadcrumb on one line (horizontal scroll, no wrap)', () => {
+    const b = ruleBlock('.entei-magnet-breadcrumb');
+    expect(b).toContain('overflow-x: auto');
+    expect(b).not.toContain('flex-wrap');
+    const crumb = ruleBlock('.entei-magnet-crumb');
+    expect(crumb).toContain('text-overflow: ellipsis');
+    expect(crumb).toContain('white-space: nowrap');
+  });
+
+  it('joins the magnet input and the create button into one group', () => {
+    const group = ruleBlock('.entei-magnet-input-row');
+    expect(group).toContain('border-radius: var(--entei-radius-md)');
+    expect(group).toContain('overflow: hidden');
+    const input = ruleBlock('.entei-magnet-input-row .entei-magnet-input');
+    expect(input).toContain('background-color: transparent');
+    expect(input).toContain('border: none');
+    // The inset focus ring lives on the focus-visible rule of the group.
+    const focus = /(\.entei-magnet-input-row [^{]*:focus-visible[^{]*)\{([^}]*)\}/.exec(
+      magnetSection(),
     );
-    expect(magnetBlocks.length).toBeGreaterThan(0);
-    const combined = magnetBlocks.join('\n');
-    // The wrap rule in the mobile block must remove the 18rem cap.
-    expect(combined).toContain('max-height: none');
-    // The inner-container rule in the mobile block must also drop the cap.
-    expect(combined.replace(/\s+/g, ' ')).toContain(
-      ".entei-magnet-table-wrap > [data-slot='table-container']",
+    expect(focus).not.toBeNull();
+    expect(focus![1]).toContain('.entei-magnet-input-row .entei-magnet-input:focus-visible');
+    expect(focus![2]).toContain('outline-offset: -2px');
+  });
+
+  it('joins Cancel | Stream Now with a single divider on desktop', () => {
+    const section = magnetSection();
+    const desktop = section.slice(section.indexOf('@media (min-width: 768px) {'));
+    expect(desktop).toContain('.entei-magnet-actions > .entei-magnet-cancel');
+    expect(desktop).toContain('.entei-magnet-actions > .entei-magnet-select-play');
+    expect(desktop).toContain('flex-direction: row-reverse');
+    // Only the Stream Now side draws the seam.
+    const cancel = ruleBlock('.entei-magnet-actions > .entei-magnet-cancel');
+    expect(cancel).toContain('border-right-width: 0');
+  });
+
+  it('stacks the actions vertically on mobile', () => {
+    const magnetMobile = mobileBlocks().filter((b) => b.includes('.entei-magnet-actions'));
+    expect(magnetMobile.length).toBeGreaterThan(0);
+    const combined = magnetMobile.join('\n');
+    expect(combined).toContain('flex-direction: column');
+    expect(combined).toContain('min-height: var(--entei-touch-min)');
+  });
+
+  it('lets the form scroll inside the mobile 100dvh sheet', () => {
+    const formBlocks = mobileBlocks().filter((b) =>
+      b.includes('.entei-magnet-dialog .entei-magnet-form'),
     );
-    expect(combined).not.toContain('max-height: 18rem');
-    // The wrap must flex-grow so it takes the remaining 100dvh space.
+    expect(formBlocks.length).toBeGreaterThan(0);
+    const combined = formBlocks.join('\n');
     expect(combined).toContain('flex: 1');
+    expect(combined).toContain('min-height: 0');
+    expect(combined).toContain('overflow-y: auto');
   });
 
-  it('keeps the wrap as the clipped outer frame', () => {
-    const b = ruleBlock('.entei-magnet-table-wrap');
-    expect(b).toContain('overflow: hidden');
-    expect(b).toContain('max-height: 20rem');
-    expect(b).toContain('border-radius: var(--entei-radius-md)');
+  it('leaves no dead table shell behind', () => {
+    expect(css).not.toContain('.entei-magnet-table');
+    expect(css).not.toContain('.entei-magnet-shell');
+    expect(css).not.toContain('.entei-magnet-browser-bottom');
+    expect(css).not.toContain('.entei-magnet-folder-btn');
+  });
+
+  it('uses only OKLCH colours and Entei tokens in the magnet section', () => {
+    const section = magnetSection().replace(/\/\*[\s\S]*?\*\//g, '');
+    const colourValues = [
+      ...section.matchAll(/(?:^|[\s:(,])(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()/gm),
+    ];
+    expect(colourValues).toHaveLength(0);
   });
 });

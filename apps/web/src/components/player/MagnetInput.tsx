@@ -1,29 +1,31 @@
 /**
  * MagnetInput — ED-2G magnet source dialog (real companion torrent flow).
  * ---------------------------------------------------------------------------
- * Unified shell visible from modal open:
- * - Top: shadcn Input (magnet URI) + Lucide Magnet icon-only create button.
- * - Center: shadcn Table — empty state before metadata, spinner during
- *           checking, file/folder rows after metadata arrives.
- *           Table header "file name" column shows an ArrowUp button when
- *           navigating inside a subfolder (folderPath set).
- * - Bottom: "Pilih & putar" (select & play) / "Batal" (cancel during
- *           checking/settling). No chevron buttons; folder navigation is
- *           via clicking folder names in the table or the ArrowUp button.
- * - Tracker/peer IP disclosure shown as plain text above bottom nav.
+ * Unified mockup shell visible from modal open (DESIGN.md 8.8: one padding
+ * owner, no corner X because Cancel is the dismissal action):
+ * - Title: gold pixel heading with the Lucide Magnet icon.
+ * - Field label + joined ButtonGroup: magnet URI Input + Magnet icon-only
+ *   create button (single flat surface, hairline divider, inset focus ring).
+ * - Breadcrumb: torrent root › folders walked into. Clicking a non-current
+ *   segment navigates back to that level; deep paths collapse their middle
+ *   (`root › … › Season 1`) and long paths scroll horizontally on mobile.
+ * - File/folder rows (no <table>): folder rows navigate, video/subtitle rows
+ *   show name + size with a checkbox on the right, other files are inert.
+ * - Tracker/peer IP disclosure shown as plain text above the actions.
+ * - Actions: Cancel | Stream Now (desktop joined pair, mobile stacked).
  *
- * Only the explicit "Pilih & putar" button calls /select and hands the
- * accepted job to Player. Merely checking rows or navigating folders must
- * never start payload or Player playback.
+ * Only the explicit "Stream Now" button calls /select and hands the accepted
+ * job to Player. Merely checking rows or navigating folders must never start
+ * payload or Player playback.
  *
  * Flow semantics:
  * - After create the job is in its metadata-fetch phase: the table shows
  *   a spinner + localized "checking metadata" label, NEVER byte counts.
  * - The file picker appears once the companion reports `buffering` (the
  *   metadata is listed); payload download only begins after selection.
- * - Cancel / Back ("Kembali") / dialog close cancels the owned job
- *   asynchronously; the UI stays non-actionable ('settling') until the
- *   cancel response settles, so a second create can never race cleanup.
+ * - Cancel / Escape / overlay click cancels the owned job asynchronously;
+ *   the UI stays non-actionable ('settling') until the cancel response
+ *   settles, so a second create can never race cleanup.
  * - A 201 answered after the dialog closed/reopened is parsed for its id
  *   and released with an immediate cancel (never owned, polled, or
  *   accepted), so the companion job can never be orphaned.
@@ -60,7 +62,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
@@ -68,20 +69,11 @@ import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Checkbox } from '@/components/player/ui/checkbox';
 import { Input } from '@/components/player/ui/input';
 import {
-  Table,
-  TableHeader,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-} from '@/components/player/ui/table';
-import {
   Magnet,
-  Film,
-  Subtitles,
+  Clapperboard,
+  Captions,
   FileText,
   Folder,
-  ArrowUp,
 } from 'lucide-react';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { waitForPlayable } from '@/features/player/companion-media';
@@ -169,6 +161,8 @@ export interface MagnetInputDict {
   magnetFileKindOther: string;
   magnetTableNavUp: string;
   magnetNoVideosInFolder: string;
+  magnetBreadcrumbLabel: string;
+  magnetBreadcrumbRoot: string;
   firefoxUnsupported: string;
 }
 
@@ -215,6 +209,80 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Display name of a torrent, taken from the magnet's `dn=` parameter.
+ *
+ * The companion API never returns the torrent name (its snapshot body only
+ * carries state/media), so the breadcrumb root segment is derived from the
+ * magnet itself. Missing/undecodable `dn` yields an empty string and the
+ * breadcrumb simply starts at the first folder.
+ */
+export function magnetDisplayName(uri: string): string {
+  const match = uri.match(/[?&]dn=([^&]*)/i);
+  if (!match || !match[1]) return '';
+  try {
+    return decodeURIComponent(match[1].replace(/\+/g, ' ')).trim();
+  } catch {
+    return '';
+  }
+}
+
+/** One breadcrumb segment (or the collapsed-middle ellipsis placeholder). */
+export interface MagnetCrumb {
+  label: string;
+  /** Folder path this segment navigates to ('' = torrent root). */
+  path: string;
+  /** True for the folder currently open — rendered as plain text. */
+  current: boolean;
+  ellipsis?: boolean;
+}
+
+/**
+ * Build the breadcrumb for the current folder.
+ *
+ * The first segment is the torrent root (magnet `dn`, or the desktop plugin's
+ * torrent name), followed by one segment per folder walked into. Deep paths
+ * collapse their middle (`[Root] › … › Season 1`) so the strip never wraps or
+ * pushes the file list around.
+ */
+export function buildBreadcrumb(
+  rootName: string,
+  folderPath: string,
+  maxVisible = 3,
+): MagnetCrumb[] {
+  const parts = folderPath.split('/').filter(Boolean);
+  const all: Array<{ label: string; path: string }> = [];
+  if (rootName) all.push({ label: rootName, path: '' });
+  parts.forEach((part, index) => {
+    all.push({ label: part, path: parts.slice(0, index + 1).join('/') });
+  });
+  if (all.length === 0) return [];
+
+  const asCrumb = (segment: { label: string; path: string }): MagnetCrumb => ({
+    ...segment,
+    current: segment.path === folderPath,
+  });
+
+  if (all.length <= maxVisible) return all.map(asCrumb);
+  const first = all[0];
+  const last = all[all.length - 1];
+  if (!first || !last) return all.map(asCrumb);
+  return [
+    asCrumb(first),
+    { label: '', path: '', current: false, ellipsis: true },
+    asCrumb(last),
+  ];
+}
+
+/** Mobile (<768px) stacks the button groups vertically (mockup). */
+function isMobileLayout(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(max-width: 767px)').matches
+  );
+}
+
 const errorMessages: Record<Exclude<ErrorKind, null>, (d: MagnetInputDict) => string> = {
   invalid: (d) => d.magnetErrorInvalid,
   repair: (d) => d.magnetInputErrorRepair,
@@ -230,9 +298,9 @@ const errorMessages: Record<Exclude<ErrorKind, null>, (d: MagnetInputDict) => st
 function kindIcon(kind: FileEntry['kind'], size: number) {
   switch (kind) {
     case 'video':
-      return <Film size={size} aria-hidden="true" />;
+      return <Clapperboard size={size} aria-hidden="true" />;
     case 'subtitle':
-      return <Subtitles size={size} aria-hidden="true" />;
+      return <Captions size={size} aria-hidden="true" />;
     case 'folder':
       return <Folder size={size} aria-hidden="true" />;
     default:
@@ -382,6 +450,11 @@ export function MagnetInput({
   const [videoId, setVideoId] = useState('');
   const [subtitleId, setSubtitleId] = useState('');
   const [error, setError] = useState<ErrorKind>(null);
+  // Breadcrumb root label: the magnet `dn` (companion) or the plugin's
+  // torrent name (desktop). Display-only, cleared with the job.
+  const [torrentName, setTorrentName] = useState('');
+  // Mobile (<768px) stacks the button groups vertically (mockup).
+  const [isMobile, setIsMobile] = useState(isMobileLayout);
   // Folder navigation: internal path state (never sent to cancel/recreate)
   const [folderPath, setFolderPath] = useState('');
 
@@ -459,6 +532,15 @@ export function MagnetInput({
     }
   }, [open]);
 
+  // Track the mobile breakpoint so the ButtonGroups can stack vertically.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const handleChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
   // Clear everything whenever the dialog (re)opens
   useEffect(() => {
     if (!open) return;
@@ -484,6 +566,7 @@ export function MagnetInput({
       setSubtitleId('');
       setError(null);
       setFolderPath('');
+      setTorrentName('');
     })();
     return () => {
       active = false;
@@ -508,6 +591,7 @@ export function MagnetInput({
       setError(null);
       setPhase('settling');
       setFolderPath('');
+      setTorrentName('');
       const settle = (async () => {
         try {
           if (isTauri()) {
@@ -554,9 +638,12 @@ export function MagnetInput({
     [runCancel, onOpenChange],
   );
 
+  // Cancel is the dialog's only dismissal affordance (the corner X is
+  // omitted, DESIGN.md 8.8): it releases the owned job and closes.
   const handleCancel = useCallback(() => {
     void runCancel();
-  }, [runCancel]);
+    onOpenChange(false);
+  }, [runCancel, onOpenChange]);
 
   // Releases a job the companion accepted for a create request this dialog
   // no longer owns (the dialog was closed/reopened while the create was in
@@ -607,6 +694,7 @@ export function MagnetInput({
       setVideoId('');
       setSubtitleId('');
       setFolderPath('');
+      setTorrentName('');
     }
 
     epochRef.current += 1;
@@ -631,6 +719,7 @@ export function MagnetInput({
       }
       jobIdRef.current = added.id;
       setJobId(added.id);
+      setTorrentName(added.name ?? '');
       directFilesRef.current = added.files;
       if (added.files.length === 0) {
         // Metadata not resolved yet — the direct poll retries.
@@ -698,6 +787,7 @@ export function MagnetInput({
       setVideoId('');
       setSubtitleId('');
       setFolderPath('');
+      setTorrentName('');
     }
 
     epochRef.current += 1;
@@ -730,6 +820,7 @@ export function MagnetInput({
           }
           jobIdRef.current = id;
           setJobId(id);
+          setTorrentName(magnetDisplayName(magnet));
           setPhase('checking');
           return;
         }
@@ -873,6 +964,7 @@ export function MagnetInput({
         }
         if (status.files.length === 0) return;
         directFilesRef.current = status.files;
+        setTorrentName(status.name ?? '');
         const list = synthesizeEntries(status.files, '');
         if (
           !list.some((entry) => entry.kind === 'video') &&
@@ -940,13 +1032,6 @@ export function MagnetInput({
     },
     [fetchFolderContents],
   );
-
-  const handleFolderBack = useCallback(() => {
-    if (!folderPath) return;
-    const parts = folderPath.split('/').filter(Boolean);
-    parts.pop();
-    void fetchFolderContents(parts.join('/'));
-  }, [folderPath, fetchFolderContents]);
 
   const handleSelect = useCallback(async () => {
     // Desktop direct mode has no capability token; the companion flow does.
@@ -1095,226 +1180,261 @@ export function MagnetInput({
   // waitForPlayable runs after /select.
   const showTable = phase === 'selecting' || phase === 'submitting';
   const showChecking = phase === 'checking';
+  // The root crumb always exists so navigating back to the torrent root is
+  // always possible, even when the magnet carries no `dn` display name.
+  const crumbs = buildBreadcrumb(
+    torrentName || dict.magnetBreadcrumbRoot,
+    folderPath,
+  );
+  const orientation = isMobile ? 'vertical' : 'horizontal';
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="entei-magnet-dialog" closeLabel={dict.dialogClose}>
-        <DialogHeader>
+      <DialogContent
+        className="entei-magnet-dialog"
+        closeLabel={dict.dialogClose}
+        /* DESIGN.md 8.8: the shell already renders a Cancel action, so the
+           corner X is omitted (never duplicate the affordance). */
+        hideClose
+      >
+        {/* Deliberately a div, not a <form>: a form would turn every
+            Radix Checkbox in the row list into a form control (Radix mounts
+            its bubble input + ResizeObserver path), which buys nothing here —
+            the magnet shape check owns validation and Enter is handled on the
+            input itself. */}
+        <div className="entei-magnet-form">
+          {/* Title lives inside the single form padding — no separate
+              DialogHeader band (DESIGN.md 8.8: one padding owner). */}
           <DialogTitle className="entei-magnet-dialog-title">
+            <Magnet size={16} aria-hidden="true" />
             {dict.magnetInputLabelTitle}
           </DialogTitle>
-        </DialogHeader>
 
-        <div className="entei-magnet-shell">
-          {/* ── Top: Input + create button ── */}
-          <div className="entei-magnet-shell-top">
-            <ButtonGroup className="entei-magnet-input-row">
-              <Input
-                className="entei-magnet-input"
-                placeholder={dict.magnetInputPlaceholder}
-                aria-label={dict.magnetInputLabel}
-                aria-invalid={error === 'invalid'}
-                value={magnet}
-                onChange={(e) => {
-                  setMagnet(e.target.value);
-                  if (error) setError(null);
-                }}
-                spellCheck={false}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="entei-magnet-add-btn"
-                onClick={() => void handleCreate()}
-                disabled={!canCreate}
-                aria-label={dict.magnetInputLabelTitle}
-                title={dict.magnetInputSubmit}
-              >
-                <Magnet size={16} aria-hidden="true" />
-              </Button>
-            </ButtonGroup>
-          </div>
+          <label
+            className="entei-magnet-form-label"
+            htmlFor="entei-magnet-input"
+          >
+            {dict.magnetInputLabel}
+          </label>
 
-          {/* ── Center: Table with state-dependent content ── */}
-          <div className="entei-magnet-table-wrap">
-            <Table className="entei-magnet-table">
-              <TableHeader>
-                <TableRow className="entei-magnet-table-header-row">
-                  <TableHead className="entei-magnet-table-head-check">
-                    {/* ArrowUp: only rendered when folderPath is set (selecting
-                        phase with a subfolder open). Positioned in the leftmost
-                        column for consistent left-aligned navigation. */}
-                    {folderPath && (
-                      <Button
+          {/* Joined input + create button group (mockup): one flat surface,
+              hairline divider, focus ring inset. */}
+          <ButtonGroup
+            orientation={orientation}
+            className="entei-magnet-input-row"
+          >
+            <Input
+              id="entei-magnet-input"
+              className="entei-magnet-input"
+              placeholder={dict.magnetInputPlaceholder}
+              aria-invalid={error === 'invalid'}
+              value={magnet}
+              onChange={(e) => {
+                setMagnet(e.target.value);
+                if (error) setError(null);
+              }}
+              spellCheck={false}
+              autoComplete="off"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canCreate) {
+                  e.preventDefault();
+                  void handleCreate();
+                }
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="entei-magnet-add-btn"
+              onClick={() => void handleCreate()}
+              disabled={!canCreate}
+              aria-label={dict.magnetInputSubmit}
+              title={dict.magnetInputSubmit}
+            >
+              <Magnet size={16} aria-hidden="true" />
+            </Button>
+          </ButtonGroup>
+
+          {/* Breadcrumb: torrent root + the folders walked into. Clicking a
+              non-current segment navigates back to that level (the job is
+              never cancelled — browsing is display-only). */}
+          {crumbs.length > 0 && (
+            <nav
+              className="entei-magnet-breadcrumb"
+              aria-label={dict.magnetBreadcrumbLabel}
+            >
+              {crumbs.map((crumb, index) => (
+                <span
+                  key={`${crumb.ellipsis ? 'ellipsis' : crumb.path || 'root'}-${index}`}
+                  className="entei-magnet-crumb-slot"
+                >
+                  {index > 0 && (
+                    <span className="entei-magnet-crumb-sep" aria-hidden="true">
+                      ›
+                    </span>
+                  )}
+                  {crumb.ellipsis ? (
+                    <span
+                      className="entei-magnet-crumb-ellipsis"
+                      aria-hidden="true"
+                    >
+                      …
+                    </span>
+                  ) : crumb.current ? (
+                    <span
+                      className="entei-magnet-crumb entei-magnet-crumb--current"
+                      aria-current="location"
+                      title={crumb.label}
+                    >
+                      {crumb.label}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="entei-magnet-crumb"
+                      onClick={() => handleFolderForward(crumb.path)}
+                      disabled={busy}
+                      aria-label={`${dict.magnetTableNavUp}: ${crumb.label}`}
+                      title={crumb.label}
+                    >
+                      {crumb.label}
+                    </button>
+                  )}
+                </span>
+              ))}
+            </nav>
+          )}
+
+          {/* File/folder rows (mockup): folders navigate, video/subtitle rows
+              carry a checkbox on the right. */}
+          <div className="entei-magnet-list">
+            {showTable ? (
+              entries.length === 0 ? (
+                <div className="entei-magnet-empty">
+                  <span className="entei-magnet-empty-title">
+                    {dict.magnetNoVideosInFolder}
+                  </span>
+                </div>
+              ) : (
+                entries.map((entry) => {
+                  const isFolder = entry.kind === 'folder';
+                  const isVideo = entry.kind === 'video';
+                  const isSubtitle = entry.kind === 'subtitle';
+                  const selectable = isVideo || isSubtitle;
+                  const isSelected =
+                    (isVideo && videoId === entry.id) ||
+                    (isSubtitle && subtitleId === entry.id);
+                  const itemClass = `entei-magnet-item${isFolder ? ' entei-magnet-item--folder' : ''}${isSelected ? ' entei-magnet-item--selected' : ''}`;
+                  const key = entry.id ?? entry.relativePath ?? entry.basename;
+                  const rowBody = (
+                    <>
+                      <span className="entei-magnet-item-icon" aria-hidden="true">
+                        {kindIcon(entry.kind, 18)}
+                      </span>
+                      <span className="entei-magnet-item-text">
+                        <span className="entei-magnet-item-name">
+                          {entry.basename}
+                        </span>
+                        {!isFolder && entry.byteSize != null && (
+                          <span className="entei-magnet-item-size">
+                            {formatBytes(entry.byteSize)}
+                          </span>
+                        )}
+                      </span>
+                    </>
+                  );
+
+                  if (isFolder) {
+                    return (
+                      <button
+                        key={key}
                         type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="entei-magnet-arrow-up-btn"
-                        onClick={handleFolderBack}
+                        className={itemClass}
+                        onClick={() =>
+                          handleFolderForward(entry.relativePath ?? entry.basename)
+                        }
                         disabled={busy}
-                        aria-label={dict.magnetTableNavUp}
-                        title={dict.magnetTableNavUp}
                       >
-                        <ArrowUp size={14} aria-hidden="true" />
-                      </Button>
-                    )}
-                  </TableHead>
-                  <TableHead className="entei-magnet-table-head-type" />
-                  <TableHead className="entei-magnet-table-head-name">
-                    {dict.magnetTableFileName}
-                  </TableHead>
-                  <TableHead className="entei-magnet-table-head-size">
-                    {dict.magnetTableSize}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {showTable && entries.length === 0
-                  ? (
-                      <TableRow className="entei-magnet-table-row--static">
-                        <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
-                          <div className="entei-magnet-empty">
-                            <span className="entei-magnet-empty-title">
-                              {dict.magnetNoVideosInFolder}
-                            </span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  : showTable
-                    ? entries.map((entry) => {
-                      const isFolder = entry.kind === 'folder';
-                      const isVideo = entry.kind === 'video';
-                      const isSubtitle = entry.kind === 'subtitle';
-                      const isSelected =
-                        (isVideo && videoId === entry.id) ||
-                        (isSubtitle && subtitleId === entry.id);
+                        {rowBody}
+                      </button>
+                    );
+                  }
 
-                      return (
-                        <TableRow
-                          key={entry.id ?? entry.relativePath ?? entry.basename}
-                          className={`entei-magnet-table-row ${isFolder ? 'entei-magnet-table-row--folder' : ''} ${isSelected ? 'entei-magnet-table-row--selected' : ''}`}
-                        >
-                          <TableCell className="entei-magnet-table-cell-check">
-                            {isFolder ? (
-                              <Checkbox
-                                disabled
-                                checked={false}
-                                aria-label={`${dict.magnetFileKindFolder}: ${entry.basename}`}
-                              />
-                            ) : isVideo || isSubtitle ? (
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={(checked) =>
-                                  handleCheckboxChange(entry, checked === true)
-                                }
-                                disabled={busy}
-                                aria-label={`${kindLabel(entry, dict)}: ${entry.basename}`}
-                              />
-                            ) : null}
-                          </TableCell>
-                          <TableCell className="entei-magnet-table-cell-icon">
-                            {kindIcon(entry.kind, 16)}
-                          </TableCell>
-                          <TableCell className="entei-magnet-table-cell-name">
-                            {isFolder ? (
-                              <button
-                                type="button"
-                                className="entei-magnet-folder-btn"
-                                onClick={() =>
-                                  handleFolderForward(entry.relativePath ?? entry.basename)
-                                }
-                                disabled={busy}
-                              >
-                                {entry.basename}
-                              </button>
-                            ) : (
-                              <span className="entei-magnet-file-name-text">
-                                {entry.basename}
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="entei-magnet-table-cell-size">
-                            {isFolder
-                              ? ''
-                              : entry.byteSize != null
-                                ? formatBytes(entry.byteSize)
-                                : ''}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  : showChecking
-                    ? (
-                        <TableRow className="entei-magnet-table-row--static">
-                          <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
-                            <div className="entei-magnet-checking" role="status">
-                              <span>{dict.magnetCheckMetadata}</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    : (
-                        <TableRow className="entei-magnet-table-row--static">
-                          <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
-                            <div className="entei-magnet-empty">
-                              <span className="entei-magnet-empty-title">
-                                {dict.magnetFilesTitle}
-                              </span>
-                              <span className="entei-magnet-empty-body">
-                                {dict.magnetFilesBody}
-                              </span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                  return (
+                    <div key={key} className={itemClass}>
+                      {rowBody}
+                      {selectable && (
+                        <Checkbox
+                          className="entei-magnet-item-check"
+                          checked={isSelected}
+                          onCheckedChange={(checked) =>
+                            handleCheckboxChange(entry, checked === true)
+                          }
+                          disabled={busy}
+                          aria-label={`${kindLabel(entry, dict)}: ${entry.basename}`}
+                        />
                       )}
-              </TableBody>
-            </Table>
+                    </div>
+                  );
+                })
+              )
+            ) : showChecking ? (
+              <div className="entei-magnet-checking" role="status">
+                <span>{dict.magnetCheckMetadata}</span>
+              </div>
+            ) : (
+              <div className="entei-magnet-empty">
+                <span className="entei-magnet-empty-title">
+                  {dict.magnetFilesTitle}
+                </span>
+                <span className="entei-magnet-empty-body">
+                  {dict.magnetFilesBody}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* ── Tracker/peer IP disclosure (plain text, no checkbox) ── */}
-          <p className="entei-magnet-consent-text">
-            {dict.magnetConsentLabel}
-          </p>
+          {/* Tracker/peer IP disclosure (plain text, no checkbox) */}
+          <p className="entei-magnet-consent-text">{dict.magnetConsentLabel}</p>
 
-          {/* ── Bottom: Select & play ── */}
-          <div className="entei-magnet-browser-bottom">
-            {(showChecking || phase === 'submitting' || phase === 'settling') ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="entei-magnet-submit entei-magnet-cancel"
-                onClick={handleCancel}
-                aria-label={dict.magnetCancel}
-              >
-                {/* Loading animation while the dialog is busy (metadata
-                    check / playable wait / cancel settle); the accessible
-                    name above keeps the cancel affordance for SR users. */}
+          {/* Actions: DOM order is Stream Now → Cancel (mobile stacking
+              order). Desktop CSS mirrors the row so Cancel sits left and the
+              pair is packed against the right edge (mockup). */}
+          <ButtonGroup orientation={orientation} className="entei-magnet-actions">
+            <Button
+              type="button"
+              className="entei-magnet-select-play"
+              onClick={() => void handleSelect()}
+              disabled={busy || !showTable || !hasVideoSelected}
+              aria-label={dict.magnetSelectSubmit}
+            >
+              {phase === 'submitting' ? (
                 <TypewriterLoading
                   aria-hidden="true"
                   className="entei-typewriter--btn"
                 />
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                className="entei-magnet-submit entei-magnet-select-play"
-                onClick={() => void handleSelect()}
-                disabled={busy || !showTable || !hasVideoSelected}
-                aria-label={dict.magnetSelectSubmit}
-              >
-                {busy ? (
-                  <TypewriterLoading
-                    aria-hidden="true"
-                    className="entei-typewriter--btn"
-                  />
-                ) : (
-                  dict.magnetSelectSubmit
-                )}
-              </Button>
-            )}
-          </div>
+              ) : (
+                dict.magnetSelectSubmit
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="entei-magnet-cancel"
+              onClick={handleCancel}
+              aria-label={dict.magnetCancel}
+            >
+              {phase === 'settling' ? (
+                <TypewriterLoading
+                  aria-hidden="true"
+                  className="entei-typewriter--btn"
+                />
+              ) : (
+                dict.magnetCancel
+              )}
+            </Button>
+          </ButtonGroup>
         </div>
       </DialogContent>
     </Dialog>

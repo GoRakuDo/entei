@@ -17,7 +17,12 @@ import {
   waitFor,
   act,
 } from '@testing-library/react';
-import { MagnetInput, type FileEntry } from '@/components/player/MagnetInput';
+import {
+  MagnetInput,
+  buildBreadcrumb,
+  magnetDisplayName,
+  type FileEntry,
+} from '@/components/player/MagnetInput';
 
 const baseDict = {
   magnetInputLabel: 'Magnet URI',
@@ -40,7 +45,7 @@ const baseDict = {
   magnetFilesTitle: 'Select files',
   magnetFilesBody: 'Pick one video and, optionally, one subtitle.',
   magnetNoVideoError: 'No selectable video in this torrent.',
-  magnetSelectSubmit: 'Select & play',
+  magnetSelectSubmit: 'Stream Now',
   magnetCancel: 'Cancel',
   dialogClose: 'Close',
   // ED-2G: File browser table
@@ -52,6 +57,8 @@ const baseDict = {
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
   magnetNoVideosInFolder: 'No videos in this folder',
+  magnetBreadcrumbLabel: 'Current folder',
+  magnetBreadcrumbRoot: 'Torrent',
   hevcUnsupported: 'H.265 (HEVC) video playback is not supported.',
   firefoxUnsupported: 'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
 };
@@ -142,7 +149,7 @@ describe('MagnetInput — no pairing gate', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole('textbox')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }),
+      screen.getByRole('button', { name: baseDict.magnetInputSubmit }),
     ).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -157,7 +164,7 @@ describe('MagnetInput — no pairing gate', () => {
       target: { value: VALID_URI },
     });
     fireEvent.click(
-      screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }),
+      screen.getByRole('button', { name: baseDict.magnetInputSubmit }),
     );
     await waitFor(() => expect(lastErrorToast()).toBe(baseDict.magnetInputErrorRepair));
     expect(screen.queryByText(baseDict.magnetInputErrorRepair)).not.toBeInTheDocument();
@@ -167,7 +174,7 @@ describe('MagnetInput — no pairing gate', () => {
   it('paired: input and create button render; submit disabled without valid magnet', () => {
     render(<MagnetInput {...defaultProps} />);
     expect(screen.getByRole('textbox')).toBeInTheDocument();
-    const submit = screen.getByRole('button', { name: baseDict.magnetInputLabelTitle });
+    const submit = screen.getByRole('button', { name: baseDict.magnetInputSubmit });
     expect(submit).toBeDisabled();
     // Valid magnet enables the button (no consent checkbox needed).
     fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_URI } });
@@ -179,9 +186,12 @@ describe('MagnetInput — no pairing gate', () => {
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
-  it('no "URI Magnet" in dialog description when paired', () => {
+  it('renders the magnet field label bound to the input (mockup)', () => {
     render(<MagnetInput {...defaultProps} />);
-    expect(screen.queryByText(baseDict.magnetInputLabel)).not.toBeInTheDocument();
+    const label = screen.getByText(baseDict.magnetInputLabel);
+    expect(label.tagName).toBe('LABEL');
+    expect(label.getAttribute('for')).toBe('entei-magnet-input');
+    expect(document.getElementById('entei-magnet-input')).toBeInTheDocument();
   });
 
   it('consent text is shown as plain text near the bottom', () => {
@@ -189,10 +199,10 @@ describe('MagnetInput — no pairing gate', () => {
     expect(screen.getByText(baseDict.magnetConsentLabel)).toBeInTheDocument();
   });
 
-  it('empty state row has static class to disable hover', () => {
+  it('empty state renders inside the bounded file list', () => {
     render(<MagnetInput {...defaultProps} />);
-    const emptyRow = document.querySelector('.entei-magnet-table-row--static');
-    expect(emptyRow).toBeInTheDocument();
+    expect(document.querySelector('.entei-magnet-list')).toBeInTheDocument();
+    expect(document.querySelector('.entei-magnet-empty')).toBeInTheDocument();
   });
 
   it('no bottom ChevronLeft or ChevronRight buttons exist in the DOM', () => {
@@ -202,17 +212,22 @@ describe('MagnetInput — no pairing gate', () => {
     expect(document.querySelector('.lucide-chevron-right')).not.toBeInTheDocument();
   });
 
-  it('title has no Magnet SVG icon', () => {
+  it('title renders the Magnet icon next to the gold pixel heading', () => {
     render(<MagnetInput {...defaultProps} />);
     const titleEl = document.querySelector('.entei-magnet-dialog-title');
     expect(titleEl).toBeInTheDocument();
-    expect(titleEl!.querySelector('.lucide-magnet')).not.toBeInTheDocument();
+    expect(titleEl!.querySelector('.lucide-magnet')).toBeInTheDocument();
+  });
+
+  it('omits the corner X close button (Cancel is the dismissal action)', () => {
+    render(<MagnetInput {...defaultProps} />);
+    expect(document.querySelector('.entei-dialog-close')).not.toBeInTheDocument();
   });
 
   it('input and create button share equal min-height', () => {
     render(<MagnetInput {...defaultProps} />);
     const input = screen.getByRole('textbox');
-    const btn = screen.getByRole('button', { name: baseDict.magnetInputLabelTitle });
+    const btn = screen.getByRole('button', { name: baseDict.magnetInputSubmit });
     const inputStyle = window.getComputedStyle(input);
     const btnStyle = window.getComputedStyle(btn);
     expect(inputStyle.minHeight).toBe(btnStyle.minHeight);
@@ -220,7 +235,7 @@ describe('MagnetInput — no pairing gate', () => {
 
   it('interactive buttons have transition properties', () => {
     render(<MagnetInput {...defaultProps} />);
-    const addBtn = screen.getByRole('button', { name: baseDict.magnetInputLabelTitle });
+    const addBtn = screen.getByRole('button', { name: baseDict.magnetInputSubmit });
     // Verify the button has our CSS class that defines transitions
     expect(addBtn.className).toContain('entei-magnet-add-btn');
   });
@@ -242,7 +257,7 @@ describe('MagnetInput — create + errors', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await waitFor(() => expect(calls).toHaveLength(1));
     const firstCall = calls[0];
     expect(firstCall?.url).toBe('http://127.0.0.1:4322/v1/source/torrents?token=tok123');
@@ -266,7 +281,7 @@ describe('MagnetInput — create + errors', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await waitFor(() => expect(lastErrorToast()).toBe(label));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText(/raw server detail/)).not.toBeInTheDocument();
@@ -277,7 +292,7 @@ describe('MagnetInput — create + errors', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await waitFor(() =>
       expect(lastErrorToast()).toBe(baseDict.magnetInputErrorNetwork),
     );
@@ -294,7 +309,7 @@ describe('MagnetInput — create + errors', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await waitFor(() =>
       expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument(),
     );
@@ -308,7 +323,7 @@ describe('MagnetInput — create + errors', () => {
       <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
     );
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
     rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={true} />);
@@ -321,9 +336,9 @@ describe('MagnetInput — create + errors', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await waitFor(() => expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await waitFor(() => {
       const cancel = calls.find((c) => c.url.includes('/v1/source/torrents/jobCancel/cancel'));
       expect(cancel).toBeTruthy();
@@ -342,7 +357,7 @@ describe('MagnetInput — create + errors', () => {
       <MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />,
     );
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     unmount();
     resolveCreate(jsonResponse({ id: 'stale' }, 201));
     await Promise.resolve();
@@ -375,7 +390,7 @@ describe('MagnetInput — v2-only torrent rejection', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0); // create resolves → checking
     expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
     await flush(5000); // poll fires → error state
@@ -410,7 +425,7 @@ describe('MagnetInput — selection contracts (checkbox per kind)', () => {
   /** Drive the dialog from input → selecting phase with the given file list. */
   async function reachSelecting() {
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000); // poll: downloading
     await flush(5000); // poll: buffering → files fetched
@@ -579,7 +594,7 @@ describe('MagnetInput — selection flow', () => {
     const onJobAccepted = vi.fn();
     render(<MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
     await flush(5000); // poll: downloading
@@ -631,7 +646,7 @@ describe('MagnetInput — selection flow', () => {
     const onJobAccepted = vi.fn();
     render(<MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
@@ -645,8 +660,12 @@ describe('MagnetInput — selection flow', () => {
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
     // …and the bottom button is the loading cancel (TypewriterLoading; the
     // accessible name still says "Batalkan").
-    const cancelBtn = screen.getByRole('button', { name: baseDict.magnetCancel });
-    expect(cancelBtn.querySelector('.entei-typewriter')).toBeTruthy();
+    const submitBtn = screen.getByRole('button', { name: baseDict.magnetSelectSubmit });
+    expect(submitBtn.querySelector('.entei-typewriter')).toBeTruthy();
+    expect(submitBtn).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: baseDict.magnetCancel }),
+    ).toBeEnabled();
     expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobWait/select'))).toBe(true);
 
     // Complete the playable wait → the job reaches the Player.
@@ -665,32 +684,32 @@ describe('MagnetInput — selection flow', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
     expect(lastErrorToast()).toBe(baseDict.magnetNoVideoError);
   });
 
-  it('Cancel while checking metadata cancels the job; input returns only after the cancel settles', async () => {
+  it('Cancel during the metadata check cancels the owned job and dismisses the dialog', async () => {
     const { fetchMock, calls } = makeFetcher([
       jsonResponse({ id: 'jobCancel2' }, 201),
       jsonResponse({ id: 'jobCancel2', state: 'cancelled' }, 200),
     ]);
     vi.stubGlobal('fetch', fetchMock);
-    render(<MagnetInput {...defaultProps} />);
+    const onOpenChange = vi.fn();
+    render(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     // Flush microtasks so the create fetch resolves and state commits.
     await flush(0);
     await flush(0);
-    // The checking label and Cancel button should both be visible now.
+    // The checking label and both actions should be visible now.
     expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
-    // After clicking Cancel, the input is still visible (unified shell).
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    // Cancel is the dialog's only dismissal affordance (no corner X).
+    expect(onOpenChange).toHaveBeenCalledWith(false);
     await flush(0);
-    expect(screen.getByRole('textbox')).toBeInTheDocument(); // back to input
     expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobCancel2/cancel'))).toBe(true);
   });
 
@@ -708,14 +727,14 @@ describe('MagnetInput — selection flow', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
     // Now in selecting phase — file table visible.
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
     // The create icon button must be enabled during selecting.
-    const createBtn = screen.getByRole('button', { name: baseDict.magnetInputLabelTitle });
+    const createBtn = screen.getByRole('button', { name: baseDict.magnetInputSubmit });
     expect(createBtn).toBeEnabled();
     // Clicking it cancels the old job and creates a new one.
     fireEvent.click(createBtn);
@@ -748,7 +767,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
@@ -776,7 +795,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
 
     // First attempt: create → metadata → file picker.
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
@@ -784,7 +803,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
 
     // Close (×) from the file picker: the dialog must NOT become
     // actionable while the cancel settlement is pending.
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     // Reopen the dialog — the cancel settles during reopen.
     rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
@@ -794,7 +813,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
 
     // Same attempt, same magnet: submit again immediately.
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
 
     // The first cancel (call) completed before the second create was posted.
@@ -834,7 +853,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     render(<MagnetInput {...defaultProps} />);
 
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000); // poll A fires and stays pending
 
@@ -845,7 +864,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     expect(screen.getByRole('textbox')).toBeInTheDocument();
 
     // Retry immediately.
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
 
@@ -870,7 +889,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await flush(0);
@@ -887,7 +906,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await flush(0);
@@ -904,7 +923,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await flush(0);
@@ -927,13 +946,12 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
     );
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
-    // B1 starts the cancel; it stays pending.
+    // B1 starts the cancel and dismisses; it stays pending.
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
-    // Close the dialog while the cancel is in flight, then reopen.
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    // Reopen while the cancel is still in flight.
     rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
     rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={true} />);
     await flush(0);
@@ -947,7 +965,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 
-  it('ArrowUp in a subfolder navigates up without cancelling the job', async () => {
+  it('breadcrumb root segment navigates up without cancelling the job', async () => {
     const { fetchMock, calls } = makeFetcher([
       jsonResponse({ id: 'jobUp' }, 201),                           // create
       jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200), // poll
@@ -968,42 +986,55 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
           ],
         },
         200,
-      ), // ArrowUp → root re-fetch
+      ), // breadcrumb → root re-fetch
     ]);
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
-    // Root: ArrowUp must NOT be in the DOM.
-    expect(screen.queryByRole('button', { name: baseDict.magnetTableNavUp })).not.toBeInTheDocument();
+
+    // At the torrent root the breadcrumb has a single (current) segment and
+    // therefore no navigation button.
+    const nav = screen.getByRole('navigation', { name: baseDict.magnetBreadcrumbLabel });
+    expect(nav).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: `${baseDict.magnetTableNavUp}: ${baseDict.magnetBreadcrumbRoot}` }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(baseDict.magnetBreadcrumbRoot)).toBeInTheDocument();
+
     // Open the subfolder.
     fireEvent.click(screen.getByRole('button', { name: 'Season 01' }));
     await flush(0);
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
-    // ArrowUp is now visible.
-    const arrowUp = screen.getByRole('button', { name: baseDict.magnetTableNavUp });
-    expect(arrowUp).toBeInTheDocument();
-    // Click ArrowUp: should fetch root (parentPath absent) and NOT call /cancel.
-    fireEvent.click(arrowUp);
+    // The breadcrumb now shows root › Season 01; the root segment is clickable.
+    const rootCrumb = screen.getByRole('button', {
+      name: `${baseDict.magnetTableNavUp}: ${baseDict.magnetBreadcrumbRoot}`,
+    });
+    expect(rootCrumb).toBeInTheDocument();
+    expect(
+      screen.getByText('Season 01', { selector: '.entei-magnet-crumb--current' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(rootCrumb);
     await flush(0);
     await flush(0);
-    await flush(0);
-    // The root fetch should have been made (no parentPath param).
+    // The root fetch ran (no parentPath param) and the job was never cancelled.
     const rootFetch = calls.find(
       (c) => c.url.includes('/v1/source/torrents/jobUp/files') && !c.url.includes('parentPath'),
     );
     expect(rootFetch).toBeTruthy();
-    // The cancel endpoint must NOT have been called.
     expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobUp/cancel'))).toBe(false);
-    // Back to root: ArrowUp disappears.
+    // Back at root: the root segment is current again (no button).
     await flush(0);
-    expect(screen.queryByRole('button', { name: baseDict.magnetTableNavUp })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: `${baseDict.magnetTableNavUp}: ${baseDict.magnetBreadcrumbRoot}` }),
+    ).not.toBeInTheDocument();
   });
 
-  it('top-right close from the file picker cancels the owned job and gates the next open', async () => {
+  it('Cancel from the file picker cancels the owned job and gates the next open', async () => {
     const { fetchMock, calls } = makeFetcher([
       jsonResponse({ id: 'jobCloseSel' }, 201),
       jsonResponse({ state: 'downloading', media: { available: 0, total: 0 } }, 200),
@@ -1017,14 +1048,14 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
     );
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
     // Top-right × from selecting: the owned job is cancelled (awaited) and
     // the dialog closes.
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await flush(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobCloseSel/cancel'))).toBe(true);
@@ -1061,8 +1092,8 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       />,
     );
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle })); // create pending
-    fireEvent.click(screen.getByRole('button', { name: /close/i })); // close while in flight
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit })); // create pending
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel })); // close while in flight
     await flush(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);
     rerender(
@@ -1097,7 +1128,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     // While the late cleanup is still settling, a retry create is gated.
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     const createPosts = () =>
       calls.filter((c) => c.url === 'http://127.0.0.1:4322/v1/source/torrents?token=tok123');
@@ -1105,7 +1136,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     // The late cleanup settles; only then may a fresh create run.
     resolveLateCancel(jsonResponse({ id: 'orphanedLate', state: 'cancelled' }, 200));
     await flush(0);
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     expect(createPosts()).toHaveLength(2);
   });
@@ -1126,11 +1157,11 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       <MagnetInput {...defaultProps} onOpenChange={onOpenChange} />,
     );
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000); // poll fires and stays pending
     // Close while the poll is in flight: cancel + settle.
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await flush(0);
     expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobPoll/cancel'))).toBe(true);
     rerender(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} open={false} />);
@@ -1172,7 +1203,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
       />,
     );
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
@@ -1180,7 +1211,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`));
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit })); // select pending
     // Close × while the select is in flight: cancel the owned job.
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await flush(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(calls.some((c) => c.url.includes('/v1/source/torrents/jobSelX/cancel'))).toBe(true);
@@ -1240,7 +1271,7 @@ describe('MagnetInput — folder navigation robustness', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     // After buffering + files, we should see the folder button
@@ -1280,7 +1311,7 @@ describe('MagnetInput — folder navigation robustness', () => {
     const onJobAccepted = vi.fn();
     render(<MagnetInput {...defaultProps} onJobAccepted={onJobAccepted} />);
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
     await flush(0);
     await flush(5000);
     await flush(5000);
@@ -1351,7 +1382,7 @@ describe('MagnetInput — desktop (Tauri) direct torrent flow', () => {
 
   async function startTorrent() {
     await fillMagnet();
-    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
   }
 
   it('creates the torrent through the plugin with no token and no companion fetch', async () => {
@@ -1432,7 +1463,7 @@ describe('MagnetInput — desktop (Tauri) direct torrent flow', () => {
     await startTorrent();
     await waitFor(() => expect(screen.getByText('movie.mkv')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
 
     await waitFor(() =>
       expect(
@@ -1514,5 +1545,62 @@ describe('MagnetInput — desktop (Tauri) direct torrent flow', () => {
       expect(lastErrorToast()).toBe(baseDict.magnetErrorInvalid),
     );
     expect(screen.queryByText(/not-a-magnet/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Pure helpers behind the breadcrumb strip. No DOM, no network — these pin the
+ * name fallback and the collapse rule so the strip cannot silently regress.
+ */
+describe('MagnetInput — breadcrumb helpers', () => {
+  describe('magnetDisplayName', () => {
+    it('reads and decodes the dn parameter', () => {
+      expect(
+        magnetDisplayName('magnet:?xt=urn:btih:abc123&dn=My+Movie&tr=udp%3A%2F%2Fx'),
+      ).toBe('My Movie');
+      expect(magnetDisplayName('magnet:?dn=%E6%98%A0%E7%94%BB')).toBe('映画');
+    });
+
+    it('falls back to an empty string when dn is missing, empty or undecodable', () => {
+      expect(magnetDisplayName('magnet:?xt=urn:btih:abc123')).toBe('');
+      expect(magnetDisplayName('magnet:?xt=urn:btih:abc123&dn=')).toBe('');
+      expect(magnetDisplayName('magnet:?xt=urn:btih:abc123&dn=%E0%A4%A')).toBe('');
+    });
+  });
+
+  describe('buildBreadcrumb', () => {
+    it('marks the torrent root as the current segment at the top level', () => {
+      const crumbs = buildBreadcrumb('Movie', '');
+      expect(crumbs).toEqual([
+        { label: 'Movie', path: '', current: true },
+      ]);
+    });
+
+    it('starts at the first folder when dn yielded no name', () => {
+      const crumbs = buildBreadcrumb('', 'Season 1');
+      expect(crumbs).toEqual([
+        { label: 'Season 1', path: 'Season 1', current: true },
+      ]);
+    });
+
+    it('returns no crumbs for an unnamed torrent at the root', () => {
+      expect(buildBreadcrumb('', '')).toEqual([]);
+    });
+
+    it('keeps every segment up to the visible limit, marking only the current one', () => {
+      const crumbs = buildBreadcrumb('Movie', 'A/B');
+      expect(crumbs.map((c) => c.label)).toEqual(['Movie', 'A', 'B']);
+      expect(crumbs.map((c) => c.path)).toEqual(['', 'A', 'A/B']);
+      expect(crumbs.map((c) => c.current)).toEqual([false, false, true]);
+    });
+
+    it('collapses a deep path to [Root] › … › Final', () => {
+      const crumbs = buildBreadcrumb('Movie', 'A/B/C');
+      expect(crumbs).toHaveLength(3);
+      expect(crumbs[0]).toEqual({ label: 'Movie', path: '', current: false });
+      expect(crumbs[1]?.ellipsis).toBe(true);
+      expect(crumbs[1]?.label).toBe('');
+      expect(crumbs[2]).toEqual({ label: 'C', path: 'A/B/C', current: true });
+    });
   });
 });

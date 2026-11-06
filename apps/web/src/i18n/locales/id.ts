@@ -219,9 +219,9 @@ export const id: Dictionary = {
     playModeFastForward: 'Percepat',
     playModeLabel: 'Mode pemutaran',
     // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
-    magnetInputLabel: 'URI Magnet',
+    magnetInputLabel: 'Magnet URI untuk Streaming:',
     magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
-    magnetInputLabelTitle: 'Buka Streaming Torrent',
+    magnetInputLabelTitle: 'Streaming Torrent',
     magnetErrorInvalid:
       'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
     magnetInputSubmit: 'Mulai unduh',
@@ -247,8 +247,8 @@ export const id: Dictionary = {
     magnetFilesTitle: 'Pilih file',
     magnetFilesBody: 'Pilih satu video dan, opsional, satu subtitle.',
     magnetNoVideoError: 'Tidak ada video yang dapat dipilih dalam torrent ini.',
-    magnetSelectSubmit: 'Pilih & putar',
-    magnetCancel: 'Batalkan',
+    magnetSelectSubmit: 'Streaming Sekarang',
+    magnetCancel: 'Batal',
     // ED-2G: File browser table
     magnetTableFileName: 'Nama file',
     magnetTableSize: 'Ukuran',
@@ -258,6 +258,8 @@ export const id: Dictionary = {
     magnetFileKindOther: 'file',
     magnetTableNavUp: 'Kembali ke atas',
     magnetNoVideosInFolder: 'Tidak ada video di folder ini',
+    magnetBreadcrumbLabel: 'Folder saat ini',
+    magnetBreadcrumbRoot: 'Torrent',
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: 'Pengaturan OTP',
     eizouSetupTitle: 'EizouDendenshi',

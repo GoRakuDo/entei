@@ -373,6 +373,8 @@ export interface Dictionary {
     magnetFileKindOther: string;
     magnetTableNavUp: string;
     magnetNoVideosInFolder: string;
+    magnetBreadcrumbLabel: string;
+    magnetBreadcrumbRoot: string;
     // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
     eizouSetupLabel: string;
     eizouSetupTitle: string;
