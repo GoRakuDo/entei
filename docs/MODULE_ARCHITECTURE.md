@@ -133,6 +133,14 @@ export interface EnteiModuleManifest {
 }
 ```
 
+`CORE_MODULES`（`apps/web/src/features/modules/modules-store.ts`）の `version` は実体のバージョンを表示する（ダミー値ではない）:
+
+| id | version | 実体の根拠 |
+| --- | --- | --- |
+| `ytdlp` | `2026.07.04` | 同梱 yt-dlp helper（`bundle.resources`）の `--version`（§8.1.1） |
+| `torrent` | `8.1.1` | `librqbit` crate（`plugins/tauri-plugin-torrent/Cargo.toml` の `8.1` が解決する実バージョン、`Cargo.lock` 実測） |
+| `yomitan` | `0.1.1` | `@gorakudo/yomitan-headless` の公開バージョン |
+
 ### 5.2 画面仕様
 - **有効化トグル**: 各モジュールカードに Switch を配置し、不要な機能は即座にOFFにできる（KISS・軽量性の担保）。
 - **設定ボタン**: モジュールごとの専用設定モーダル（Cookie設定やダウンロード先など）。フェーズ2-A ではボタンと導線だけを置き、設定モーダル本体（cookies.txt アップロード、ダウンロード先パスなど）は **フェーズ2-B / 2-C** で実装する。
