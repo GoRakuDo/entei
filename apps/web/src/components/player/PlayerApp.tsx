@@ -1652,8 +1652,35 @@ export default function PlayerApp() {
       // mediaName feeds the subtitle panel title and the mining source label.
       setMediaName(info ? sanitizeDisplayName(info.title) : (videoId ?? ''));
       setIsYouTubeDialogOpen(false);
+
+      // YouTube subtitles: the plugin resolves the Japanese WebVTT URL for us
+      // (already relayed through its loopback proxy, so the tokenised upstream
+      // URL never reaches the webview and CORS is satisfied). Fetch it and run
+      // it through the shared subtitle pipeline — this is the desktop path's
+      // replacement for the companion's subtitle step.
+      const subtitleUrl = info?.subtitle_vtt_url;
+      if (subtitleUrl) {
+        const requestedMediaUrl = source.url;
+        void fetch(subtitleUrl)
+          .then((response) => (response.ok ? response.text() : ''))
+          .then((text) => {
+            // Guard: the user may have switched media while the track was in
+            // flight, and a stale track must not overwrite the new media's cues.
+            if (!text || activeUrlRef.current !== requestedMediaUrl) return;
+            handleSubtitleText(text);
+          })
+          .catch(() => {
+            // Subtitles are optional; a failed track fetch never breaks playback.
+          });
+      }
     },
-    [startWatchSession, clearScreenshot, clearAudioClip, clearMiningPreview],
+    [
+      startWatchSession,
+      clearScreenshot,
+      clearAudioClip,
+      clearMiningPreview,
+      handleSubtitleText,
+    ],
   );
 
   const handleMediaSelect = useCallback(

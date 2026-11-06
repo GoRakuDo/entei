@@ -77,6 +77,14 @@ export interface YtdlpVideoInfo {
   is_live: boolean;
   /** Available subtitle languages (manual + automatic). */
   subtitles: string[];
+  /**
+   * Direct Japanese WebVTT URL published by YouTube, when one exists.
+   *
+   * The player fetches this itself to restore the YouTube subtitle pipeline on
+   * the desktop path (no companion involvement). Absent when the video has no
+   * Japanese track, which is not an error.
+   */
+  subtitle_vtt_url?: string | null;
 }
 
 /** Shape check for the IPC result so a malformed reply never reaches the player. */
@@ -156,6 +164,9 @@ export async function getVideoInfoDirect(url: string): Promise<YtdlpVideoInfo> {
   if (typeof value.uploader === 'string') info.uploader = value.uploader;
   if (typeof value.thumbnail === 'string') info.thumbnail = value.thumbnail;
   if (typeof value.duration === 'number') info.duration = value.duration;
+  if (typeof value.subtitle_vtt_url === 'string' && value.subtitle_vtt_url.length > 0) {
+    info.subtitle_vtt_url = value.subtitle_vtt_url;
+  }
   return info;
 }
 

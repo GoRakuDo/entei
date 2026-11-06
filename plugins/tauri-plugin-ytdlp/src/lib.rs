@@ -109,6 +109,17 @@ pub struct VideoInfo {
     pub is_live: bool,
     /// Available subtitle languages (manual + automatic).
     pub subtitles: Vec<String>,
+    /// Direct WebVTT URL for the Japanese track, when YouTube published one.
+    ///
+    /// `parse_video_info` fills this with the upstream timedtext URL; the
+    /// `get_video_info` command then swaps it for a loopback relay URL, so the
+    /// webview never sees the tokenised upstream address. The webview fetches it
+    /// to restore the YouTube subtitle pipeline on the desktop path, which is why
+    /// it is resolved here instead of forcing a second yt-dlp invocation.
+    /// `None` means "no Japanese track", never an error: playback must work
+    /// without subtitles.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle_vtt_url: Option<String>,
     pub formats: Vec<FormatInfo>,
 }
 
@@ -317,6 +328,7 @@ fn parse_video_info(raw: &str) -> Result<VideoInfo, YtdlpError> {
         .ok_or_else(|| YtdlpError::Parse("missing title".into()))?;
 
     let subtitles = collect_subtitle_languages(&root);
+    let subtitle_vtt_url = japanese_vtt_url(&root);
 
     let formats = root
         .get("formats")
@@ -333,6 +345,7 @@ fn parse_video_info(raw: &str) -> Result<VideoInfo, YtdlpError> {
         webpage_url: opt_string(root.get("webpage_url")),
         is_live: root.get("is_live").and_then(|v| v.as_bool()).unwrap_or(false),
         subtitles,
+        subtitle_vtt_url,
         formats,
     })
 }
@@ -350,6 +363,44 @@ fn collect_subtitle_languages(root: &serde_json::Value) -> Vec<String> {
     }
     languages.sort();
     languages
+}
+
+/// Japanese track keys in preference order, per yt-dlp's source map.
+///
+/// `ja` is the plain Japanese track, `ja-orig` the original Japanese audio on
+/// auto-dubbed uploads, and `ja-JP` the regional spelling some extractors emit.
+/// Manual `subtitles` are always tried before `automatic_captions`.
+const JAPANESE_SUBTITLE_KEYS: [&str; 3] = ["ja", "ja-orig", "ja-JP"];
+
+/// Pick the first WebVTT entry from a yt-dlp subtitle language list.
+///
+/// yt-dlp publishes every requested format under one language key (json3,
+/// ttml, vtt, ...), so the `ext` filter is what keeps the returned URL a plain
+/// text track the webview can parse with `parseSubtitle`.
+fn vtt_entry_url(entries: Option<&serde_json::Value>) -> Option<String> {
+    entries?
+        .as_array()?
+        .iter()
+        .find(|entry| entry.get("ext").and_then(|v| v.as_str()) == Some("vtt"))
+        .and_then(|entry| entry.get("url"))
+        .and_then(|v| v.as_str())
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .map(|url| url.to_string())
+}
+
+/// Resolve the Japanese WebVTT URL from `subtitles` then `automatic_captions`.
+fn japanese_vtt_url(root: &serde_json::Value) -> Option<String> {
+    for source in ["subtitles", "automatic_captions"] {
+        let Some(map) = root.get(source).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for key in JAPANESE_SUBTITLE_KEYS {
+            if let Some(url) = vtt_entry_url(map.get(key)) {
+                return Some(url);
+            }
+        }
+    }
+    None
 }
 
 fn parse_format(value: &serde_json::Value) -> Option<FormatInfo> {
@@ -433,7 +484,22 @@ async fn get_video_info(url: String) -> Result<VideoInfo, String> {
     .await
     .map_err(|err| err.message())?;
 
-    parse_video_info(&raw).map_err(|err| err.message())
+    let mut info = parse_video_info(&raw).map_err(|err| err.message())?;
+
+    // Hand the webview a loopback URL instead of the raw YouTube one. Two
+    // reasons: the timedtext URL carries a token that the plugin keeps inside
+    // the process, and `youtube.com/api/timedtext` answers without CORS headers
+    // so a direct webview fetch would be blocked. The relay adds
+    // `Access-Control-Allow-Origin: *` and forwards `text/vtt` unchanged.
+    // When the relay cannot bind, the raw URL is returned and the webview fetch
+    // fails silently — subtitles are optional, playback is not.
+    if let Some(upstream) = info.subtitle_vtt_url.clone() {
+        if let Ok(relay) = relay::ensure().await {
+            info.subtitle_vtt_url = Some(relay.register(&upstream));
+        }
+    }
+
+    Ok(info)
 }
 
 #[tauri::command]
@@ -643,7 +709,7 @@ mod tests {
             "thumbnail": "https://img.example/t.jpg",
             "webpage_url": "https://www.youtube.com/watch?v=abc123",
             "is_live": false,
-            "subtitles": { "ja": [{"ext": "vtt"}], "en": [] },
+            "subtitles": { "ja": [{"ext": "vtt", "url": "https://tt.example/ja.vtt"}], "en": [] },
             "automatic_captions": { "ja": [], "id": [] },
             "formats": [
                 {"format_id": "137", "ext": "mp4", "height": 1080, "vcodec": "avc1", "acodec": "none", "filesize_approx": 1234},
@@ -655,9 +721,75 @@ mod tests {
         assert_eq!(info.title, "テスト動画");
         assert_eq!(info.duration, Some(12.5));
         assert_eq!(info.subtitles, vec!["en", "id", "ja"]);
+        assert_eq!(
+            info.subtitle_vtt_url.as_deref(),
+            Some("https://tt.example/ja.vtt")
+        );
         // The entry without a format_id is dropped.
         assert_eq!(info.formats.len(), 1);
         assert_eq!(info.formats[0].filesize, Some(1234));
+    }
+
+    #[test]
+    fn prefers_manual_japanese_vtt_over_automatic_captions() {
+        let raw = r#"{
+            "title": "t",
+            "subtitles": {"ja": [{"ext": "json3", "url": "https://tt.example/ja.json3"}]},
+            "automatic_captions": {
+                "ja": [
+                    {"ext": "json3", "url": "https://tt.example/auto.json3"},
+                    {"ext": "vtt", "url": "https://tt.example/auto.vtt"}
+                ]
+            }
+        }"#;
+        let info = parse_video_info(raw).expect("parses");
+        // Manual `ja` has no vtt entry, so the automatic vtt wins.
+        assert_eq!(
+            info.subtitle_vtt_url.as_deref(),
+            Some("https://tt.example/auto.vtt")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_ja_orig_and_ja_jp() {
+        // `ja` is checked first per the documented preference order; `ja-orig`
+        // only wins when no plain `ja` vtt entry exists.
+        let both = r#"{"title":"t","automatic_captions":{"ja-orig":[{"ext":"vtt","url":"https://tt.example/orig.vtt"}],"ja":[{"ext":"vtt","url":"https://tt.example/ja.vtt"}]}}"#;
+        assert_eq!(
+            parse_video_info(both).expect("parses").subtitle_vtt_url.as_deref(),
+            Some("https://tt.example/ja.vtt")
+        );
+
+        let orig_only = r#"{"title":"t","automatic_captions":{"ja-orig":[{"ext":"vtt","url":"https://tt.example/orig.vtt"}]}}"#;
+        assert_eq!(
+            parse_video_info(orig_only)
+                .expect("parses")
+                .subtitle_vtt_url
+                .as_deref(),
+            Some("https://tt.example/orig.vtt")
+        );
+
+        let regional = r#"{"title":"t","subtitles":{"ja-JP":[{"ext":"vtt","url":"https://tt.example/jp.vtt"}]}}"#;
+        assert_eq!(
+            parse_video_info(regional)
+                .expect("parses")
+                .subtitle_vtt_url
+                .as_deref(),
+            Some("https://tt.example/jp.vtt")
+        );
+    }
+
+    #[test]
+    fn omits_subtitle_url_without_japanese_track() {
+        let raw = r#"{"title":"t","subtitles":{"en":[{"ext":"vtt","url":"https://tt.example/en.vtt"}]}}"#;
+        assert!(parse_video_info(raw)
+            .expect("parses")
+            .subtitle_vtt_url
+            .is_none());
+        assert!(parse_video_info(r#"{"title":"t"}"#)
+            .expect("parses")
+            .subtitle_vtt_url
+            .is_none());
     }
 
     #[test]
