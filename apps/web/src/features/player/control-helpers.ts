@@ -62,6 +62,16 @@ export interface TimeRangesLike {
 export const BUFFER_RANGE_TOLERANCE_SEC = 0.5;
 
 /**
+ * Poll interval (ms) for refreshing the buffered bar.
+ *
+ * While paused, browsers (and WebView2) fire `timeupdate` never and `progress`
+ * rarely, so bytes arriving in `media.buffered` in the background would never
+ * reach the bar. A 500ms poll keeps the bar live in real time even when the
+ * player is paused — matching the download progress the user sees grow.
+ */
+export const BUFFERED_POLL_INTERVAL_MS = 500;
+
+/**
  * P1: Compute the buffered end (seconds) for a YouTube-style buffered bar.
  *
  * Returns the end of the buffered range covering `currentTime`, so the bar
@@ -79,16 +89,25 @@ export function computeBufferedEnd(
   if (!ranges || ranges.length === 0) return 0;
   const time = Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0;
 
+  // Collect every range that covers the playhead (tolerance absorbs the few
+  // milliseconds the playhead can land past a reported range end) and keep the
+  // largest end. Overlapping/adjacent ranges therefore never under-report, and
+  // a playhead at 0 still resolves the range that starts at 0.
+  let best = 0;
   for (let i = 0; i < ranges.length; i += 1) {
     const start = ranges.start(i);
     const end = ranges.end(i);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)
       continue;
-    if (start <= time + BUFFER_RANGE_TOLERANCE_SEC && time - end <= BUFFER_RANGE_TOLERANCE_SEC)
-      return end;
+    if (
+      start <= time + BUFFER_RANGE_TOLERANCE_SEC &&
+      time - end <= BUFFER_RANGE_TOLERANCE_SEC
+    ) {
+      if (end > best) best = end;
+    }
   }
 
-  return 0;
+  return best;
 }
 
 /**

@@ -46,15 +46,13 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/player/ui/popover';
-import {
-  RadioGroup,
-  RadioGroupItem,
-} from '@/components/player/ui/radio-group';
+import { RadioGroup, RadioGroupItem } from '@/components/player/ui/radio-group';
 import {
   formatTime,
   clampSeek,
   toggleMute,
   computeBufferedEnd,
+  BUFFERED_POLL_INTERVAL_MS,
   PLAYBACK_RATES,
   nextControlsVisibility,
   shouldScheduleAutoHide,
@@ -64,6 +62,13 @@ import {
   type CaptionDisplayMode,
   type PlayMode,
 } from '@/features/player/control-helpers';
+
+/**
+ * Minimum interval between live-scrub seeks while dragging the track.
+ * Continuous pointermove on a Range stream would otherwise churn in-flight
+ * requests; ~70ms still feels continuous to the eye.
+ */
+const SEEK_DRAG_THROTTLE_MS = 70;
 
 interface PlayerControlsProps {
   mediaRef: RefObject<HTMLMediaElement | null>;
@@ -181,6 +186,12 @@ export const PlayerControls = forwardRef<
   // never passes value={[]}. seekStartFiredRef ensures showControls only fires once.
   const seekValueRef = useRef<number | null>(null);
   const seekStartFiredRef = useRef(false);
+  /** Wrapper around the seek slider — used to measure the real track box. */
+  const seekAreaRef = useRef<HTMLDivElement>(null);
+  /** Active pointer id while the user drags directly on the track. */
+  const seekDragPointerRef = useRef<number | null>(null);
+  /** Timestamp of the last applied scrub seek (throttles pointermove). */
+  const lastSeekApplyRef = useRef(0);
   // Fix #6: Ref for throttling pointer move
   const lastPointerMoveRef = useRef(0);
 
@@ -274,7 +285,14 @@ export const PlayerControls = forwardRef<
     media.addEventListener('emptied', syncBuffered);
     syncBuffered();
 
+    // Live buffer while paused: neither `timeupdate` nor (in WebView2/Chrome)
+    // `progress` fires reliably when playback is paused, so background data
+    // arriving in `media.buffered` would never be painted. Poll instead —
+    // setBufferedEnd with an unchanged number bails out, so this is cheap.
+    const pollId = setInterval(syncBuffered, BUFFERED_POLL_INTERVAL_MS);
+
     return () => {
+      clearInterval(pollId);
       media.removeEventListener('progress', syncBuffered);
       media.removeEventListener('timeupdate', syncBuffered);
       media.removeEventListener('loadedmetadata', syncBuffered);
@@ -290,8 +308,8 @@ export const PlayerControls = forwardRef<
       if (typeof document === 'undefined') return;
       const isFs =
         document.fullscreenElement != null ||
-          (document as unknown as { webkitFullscreenElement?: Element | null })
-            .webkitFullscreenElement != null;
+        (document as unknown as { webkitFullscreenElement?: Element | null })
+          .webkitFullscreenElement != null;
       setIsFullscreen(isFs);
       // Add/remove class on document.body for CSS to hide mobile dock during fullscreen
       if (isFs) {
@@ -441,6 +459,123 @@ export const PlayerControls = forwardRef<
       showControls({ type: 'seek-start' });
     }
   }, [showControls]);
+
+  /**
+   * Apply a seek to the given viewport X immediately.
+   * Measures the real Radix track box (not the padded wrapper) so the mapping
+   * from pointer position to time is exact. Returns the applied time or null.
+   */
+  const seekToClientX = useCallback(
+    (clientX: number): number | null => {
+      const media = mediaRef.current;
+      const track = seekAreaRef.current?.querySelector<HTMLElement>(
+        '[data-entei-slider-track]',
+      );
+      if (!media || !track || !(duration > 0)) return null;
+      const rect = track.getBoundingClientRect();
+      if (rect.width <= 0) return null;
+      const ratio = Math.min(
+        1,
+        Math.max(0, (clientX - rect.left) / rect.width),
+      );
+      const raw = ratio * duration;
+      const target = clampSeekTime
+        ? clampSeekTime(clampSeek(raw, duration))
+        : clampSeek(raw, duration);
+      // Immediate seek — click-to-seek must never wait for pointerup.
+      media.currentTime = target;
+      seekValueRef.current = target;
+      setCurrentTime(target);
+      return target;
+    },
+    [mediaRef, duration, clampSeekTime],
+  );
+
+  const handleSeekPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      // Pressing the thumb itself keeps Radix's own drag/keyboard handling.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[role="slider"]')) return;
+      // Immediate seek on press — never wait for pointerup/commit.
+      if (seekToClientX(e.clientX) === null) return;
+      seekDragPointerRef.current = e.pointerId;
+      lastSeekApplyRef.current = Date.now();
+      // Capture the pointer so the drag keeps tracking even when the cursor
+      // leaves the (short) seek bar while the button is held.
+      // Note: best-effort — synthetic events / older engines may reject it.
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture unavailable: drag still works inside the bar */
+      }
+      handleSeekStart();
+    },
+    [seekToClientX, handleSeekStart],
+  );
+
+  /** Shared teardown for pointerup, pointercancel and lost-button drags. */
+  const finishSeekDrag = useCallback(
+    (el?: HTMLElement | null) => {
+      // Best-effort capture release so the next drag starts from a clean state.
+      const pointerId = seekDragPointerRef.current;
+      if (el && pointerId !== null) {
+        try {
+          if (el.hasPointerCapture?.(pointerId))
+            el.releasePointerCapture(pointerId);
+        } catch {
+          /* already released or capture never granted */
+        }
+      }
+      seekDragPointerRef.current = null;
+      seekStartFiredRef.current = false;
+      seekValueRef.current = null;
+      setIsSeeking(false);
+      showControls({ type: 'seek-end' });
+    },
+    [showControls],
+  );
+
+  const handleSeekPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (seekDragPointerRef.current !== e.pointerId) return;
+      // Button released outside the window (or pointerup was swallowed):
+      // `buttons === 0` is the only reliable signal left, so end the drag.
+      if (e.buttons === 0) {
+        finishSeekDrag(e.currentTarget);
+        return;
+      }
+      // Live scrub, throttled: the playhead follows the pointer while held.
+      const now = Date.now();
+      if (now - lastSeekApplyRef.current < SEEK_DRAG_THROTTLE_MS) return;
+      lastSeekApplyRef.current = now;
+      seekToClientX(e.clientX);
+    },
+    [seekToClientX, finishSeekDrag],
+  );
+
+  const handleSeekPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (seekDragPointerRef.current !== e.pointerId) return;
+      // Land exactly where the pointer was released — the live scrub is
+      // throttled, so the last move may not have been applied yet.
+      seekToClientX(e.clientX);
+      finishSeekDrag(e.currentTarget);
+    },
+    [seekToClientX, finishSeekDrag],
+  );
+
+  /**
+   * pointercancel must NOT seek: mobile/touch cancels frequently report
+   * `clientX === 0`, which would jump playback back to 0:00.
+   */
+  const handleSeekPointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (seekDragPointerRef.current !== e.pointerId) return;
+      finishSeekDrag(e.currentTarget);
+    },
+    [finishSeekDrag],
+  );
 
   const handleSeekValueChange = useCallback(
     (value: number[]) => {
@@ -664,13 +799,19 @@ export const PlayerControls = forwardRef<
           >
             <Timeline size={18} />
           </button>
-
         </div>
       </div>
 
       {/* --- Two-row bottom bar: seek on top, controls below --- */}
       <div className="entei-controls-bottom">
-        <div className="entei-controls-seek">
+        <div
+          ref={seekAreaRef}
+          className="entei-controls-seek"
+          onPointerDown={handleSeekPointerDown}
+          onPointerMove={handleSeekPointerMove}
+          onPointerUp={handleSeekPointerUp}
+          onPointerCancel={handleSeekPointerCancel}
+        >
           <Slider
             className="entei-controls-seek-slider"
             value={[seekSliderValue]}
@@ -795,9 +936,7 @@ export const PlayerControls = forwardRef<
                 </div>
                 {/* P2.1: Playback mode radio group */}
                 <div className="entei-rate-popover-divider" />
-                <p className="entei-rate-popover-title">
-                  {dict.playModeLabel}
-                </p>
+                <p className="entei-rate-popover-title">{dict.playModeLabel}</p>
                 <RadioGroup
                   value={playMode}
                   onValueChange={(value) => {

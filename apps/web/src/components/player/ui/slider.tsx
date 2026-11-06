@@ -38,7 +38,12 @@ const Slider = React.forwardRef<
       defaultValue={defaultValue}
       {...props}
     >
-      <SliderPrimitive.Track className="relative h-2 w-full grow overflow-hidden rounded-full bg-surface">
+      {/* data-entei-slider-track: stable handle so PlayerControls can measure
+          the real track box for click-to-seek instead of the padded wrapper. */}
+      <SliderPrimitive.Track
+        data-entei-slider-track=""
+        className="relative h-2 w-full grow overflow-hidden rounded-full bg-surface"
+      >
         {/* Buffered range sits behind the played range (DOM order = paint order). */}
         {bufferPercent !== undefined && bufferPercent > 0 && (
           <span

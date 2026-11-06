@@ -373,6 +373,14 @@ describe('computeBufferedEnd', () => {
     expect(computeBufferedEnd(ranges([[0, 10], [100, 120]]), 105)).toBe(120);
   });
 
+  it('picks the largest end when several ranges cover the playhead', () => {
+    expect(computeBufferedEnd(ranges([[0, 30], [20, 45]]), 25)).toBe(45);
+  });
+
+  it('resolves a range starting at 0 when the playhead is at 0', () => {
+    expect(computeBufferedEnd(ranges([[0, 12]]), 0)).toBe(12);
+  });
+
   it('ignores non-finite or inverted ranges', () => {
     expect(
       computeBufferedEnd(

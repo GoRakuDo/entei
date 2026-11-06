@@ -1391,6 +1391,15 @@
   padding: 0 var(--entei-space-4);
   /* Ensure the 44px hit-area pseudo-element on the thumb is not clipped */
   overflow: visible;
+  /* Clicking anywhere on the bar seeks immediately (PlayerControls handles
+     the pointer itself), so the whole strip must read as interactive and
+     must not be stolen by browser scroll/pan gestures on touch. */
+  cursor: pointer;
+  touch-action: none;
+  /* The controls layer is pointer-events: none so background clicks reach the
+     media surface; the seek strip (and the Radix track inside it) must opt
+     back in or clicks fall straight through to the video element. */
+  pointer-events: auto;
 }
 
 /* --- Lower control row --- */
