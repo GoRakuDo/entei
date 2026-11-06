@@ -1,0 +1,14 @@
+# Bun test configuration for apps/web.
+#
+# `isolate` is intentionally NOT here: Bun 1.4.4 reads `preload` and
+# `environment` from this file but ignores an `isolate` key, and isolation is
+# required (test files leak globals into each other without it). The npm
+# scripts pass it on the command line instead:
+#
+#   bun test --isolate        # package.json "test"
+#
+# Run the suite through `bun run test` (or `bun test --isolate`), not a bare
+# `bun test`.
+[test]
+preload = ["./tests/setup-bun.ts"]
+environment = "jsdom"

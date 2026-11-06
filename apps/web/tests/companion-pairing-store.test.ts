@@ -6,7 +6,7 @@
  * tokens, and the "only the opaque token is persisted" contract.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'bun:test';
 import {
   ENTEI_EIZOU_PAIRING_KEY,
   PAIRING_SCHEMA_VERSION,

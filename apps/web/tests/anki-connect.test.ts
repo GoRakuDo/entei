@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'bun:test';
 import {
   AnkiConnectClient,
   AnkiConnectError,
@@ -471,7 +471,7 @@ describe('AnkiConnectClient', () => {
     );
     await client.version();
 
-    const call = fetchSpy.mock.calls[0];
+    const call = fetchSpy.mock.calls[0]!;
     const body = JSON.parse(call[1].body);
     expect(body.key).toBe('my-secret-key');
   });
@@ -492,7 +492,7 @@ describe('AnkiConnectClient', () => {
     const controller = new AbortController();
     await client.version(controller.signal);
 
-    const call = fetchSpy.mock.calls[0];
+    const call = fetchSpy.mock.calls[0]!;
     expect(call[1].signal).toBe(controller.signal);
   });
 
@@ -624,7 +624,7 @@ describe('AnkiConnectClient', () => {
     const fields = await client.modelFieldNames('Basic');
     expect(fields).toEqual(['Front', 'Back']);
 
-    const call = fetchSpy.mock.calls[0];
+    const call = fetchSpy.mock.calls[0]!;
     const body = JSON.parse(call[1].body);
     expect(body.params.modelName).toBe('Basic');
   });
@@ -641,7 +641,7 @@ describe('AnkiConnectClient', () => {
     const controller = new AbortController();
     await client.modelFieldNames('Basic', controller.signal);
 
-    const call = fetchSpy.mock.calls[0];
+    const call = fetchSpy.mock.calls[0]!;
     expect(call[1].signal).toBe(controller.signal);
   });
 

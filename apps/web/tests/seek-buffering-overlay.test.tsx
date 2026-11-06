@@ -9,9 +9,8 @@
  * mock harness that exercises the core seek-buffering logic.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 
 // Mock the video element to simulate readyState and seek events
 function createMockVideo(readyState = 0) {

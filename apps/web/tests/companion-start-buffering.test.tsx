@@ -20,9 +20,8 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import PlayerApp from '@/components/player/PlayerApp';
 
 // --- Controllable companion job session (companion-loading-overlay pattern) ---

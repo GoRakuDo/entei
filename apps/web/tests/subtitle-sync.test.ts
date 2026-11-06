@@ -4,7 +4,7 @@
 // the client-side wrapper logic (job payload, progress relay, done/error/
 // abort handling) is what is exercised here.
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'bun:test';
 import {
   syncSubtitleToAudio,
   syncSubtitleToReference,

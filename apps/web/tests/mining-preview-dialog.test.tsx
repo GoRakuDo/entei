@@ -14,7 +14,7 @@
  * - No Anki / localStorage / fetch calls.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, fireEvent, screen } from '@testing-library/react';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 

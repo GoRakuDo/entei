@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { tutorialIndex } from '../src/i18n/tutorial-index';
 import type { Locale } from '../src/i18n/types';
 

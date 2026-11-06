@@ -1,7 +1,7 @@
 /**
  * Tests for seek-limiter — companion seek clamping to verified byte range.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { clampCompanionSeek } from '@/features/player/seek-limiter';
 
 describe('clampCompanionSeek', () => {

@@ -9,10 +9,9 @@
  * component so the test fails if the gate is removed from PlayerApp.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { act } from 'react';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 
 vi.mock('@/features/player/use-companion-pairing', () => ({
   useCompanionPairing: () => ({

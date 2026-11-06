@@ -15,7 +15,7 @@
  * ---------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
 import {
   LAZY_SYNC_POLL_INTERVAL_MS,

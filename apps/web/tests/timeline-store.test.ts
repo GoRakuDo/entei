@@ -4,7 +4,7 @@
  * order, relative-time formatting, and the defensive localStorage round trip.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   EMPTY_TIMELINE_STATE,
   TIMELINE_POST_MAX_LENGTH,

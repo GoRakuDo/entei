@@ -4,7 +4,7 @@
 // the wasm_exec.js single-injection guard. The wasm module itself is never
 // loaded — WebAssembly.instantiateStreaming and the Go global are stubbed.
 
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'bun:test';
 
 /** Minimal stand-in for the Go class wasm_exec.js installs on globalThis. */
 class TestGo {

@@ -13,7 +13,7 @@
  * - stopPropagation: clicking mine button does NOT trigger parent onCueClick.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, fireEvent, screen } from '@testing-library/react';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';

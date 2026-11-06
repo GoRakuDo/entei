@@ -6,7 +6,7 @@
  * default, storage-failure safety.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   YT_MODE_KEY,
   readYtDownloadMode,

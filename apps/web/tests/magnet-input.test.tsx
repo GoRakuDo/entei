@@ -8,7 +8,7 @@
  * is involved.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import {
   render,
   screen,
@@ -17,7 +17,6 @@ import {
   waitFor,
   act,
 } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { MagnetInput, type FileEntry } from '@/components/player/MagnetInput';
 
 const baseDict = {

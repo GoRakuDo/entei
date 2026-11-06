@@ -14,7 +14,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'bun:test';
 import {
   render,
   fireEvent,
@@ -212,26 +212,46 @@ function installIntersectionObserverStub() {
      * doesn't fire for the resulting state updates.
      */
     async triggerAllIntersecting(observerIndex?: number) {
-      for (let i = 0; i < observers.length; i++) {
-        if (observerIndex !== undefined && i !== observerIndex) continue;
-        const obs = observers[i]!;
-        const entries = obs.takeTargets().map(
-          (target) =>
-            ({
-              isIntersecting: true,
-              target,
-              intersectionRatio: 1,
-              intersectionRect: {} as DOMRectReadOnly,
-              boundingClientRect: {} as DOMRectReadOnly,
-              rootBounds: null,
-              time: Date.now(),
-            }) as IntersectionObserverEntry,
-        );
-        obs.callback(entries, obs as unknown as IntersectionObserver);
+      // A real IntersectionObserver keeps firing for as long as the target
+      // stays intersecting — it is not a one-shot event. The panel also
+      // re-creates its observer whenever its effect deps change (new page,
+      // hasMore flip, new generation). Firing every observer exactly once
+      // therefore loses the race when the observer the panel had at trigger
+      // time is still the pre-commit one: the callback lands, React commits,
+      // the effect swaps in a fresh observer, and nobody ever fires it, so
+      // the pagination never starts. Firing each *newly created* observer
+      // until the observer set stops growing models the real thing and makes
+      // the trigger deterministic.
+      const fired = new Set<Observer>();
+      for (let round = 0; round < 6; round++) {
+        let firedThisRound = 0;
+        for (let i = 0; i < observers.length; i++) {
+          if (observerIndex !== undefined && i !== observerIndex) continue;
+          const obs = observers[i]!;
+          if (fired.has(obs)) continue;
+          const targets = obs.takeTargets();
+          if (targets.length === 0) continue;
+          fired.add(obs);
+          firedThisRound += 1;
+          const entries = targets.map(
+            (target) =>
+              ({
+                isIntersecting: true,
+                target,
+                intersectionRatio: 1,
+                intersectionRect: {} as DOMRectReadOnly,
+                boundingClientRect: {} as DOMRectReadOnly,
+                rootBounds: null,
+                time: Date.now(),
+              }) as IntersectionObserverEntry,
+          );
+          obs.callback(entries, obs as unknown as IntersectionObserver);
+        }
+        if (firedThisRound === 0 && round > 0) break;
+        // Yield so the state update commits, the effect re-attaches a fresh
+        // observer, and any async work kicked off by `loadMore` advances.
+        await new Promise((r) => setTimeout(r, 0));
       }
-      // Yield so any async work kicked off by the callback (e.g.
-      // `loadMore`) gets a chance to advance before the caller asserts.
-      await new Promise((r) => setTimeout(r, 0));
     },
     async triggerNoIntersection(observerIndex?: number) {
       for (let i = 0; i < observers.length; i++) {

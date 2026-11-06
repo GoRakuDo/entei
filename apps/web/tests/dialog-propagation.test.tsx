@@ -7,7 +7,7 @@
  * surface click handler that toggles playback).
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import { useState } from 'react';
 import {

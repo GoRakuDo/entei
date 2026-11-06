@@ -17,12 +17,12 @@
  * (right selector, right caps, no inverted selector), not pixel layout —
  * the layout half is verified in the browser against a 24-row listing.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// Vitest runs from the web workspace root (apps/web), so the stylesheet is
-// at src/styles/player.css. Avoid import.meta.url — vitest's transform can
+// `bun test` runs from the web workspace root (apps/web), so the stylesheet
+// is at src/styles/player.css. Avoid import.meta.url — Bun's transform can
 // rewrite it to a non-file scheme in the jsdom environment.
 const css = readFileSync(resolve(process.cwd(), 'src/styles/player.css'), 'utf8');
 

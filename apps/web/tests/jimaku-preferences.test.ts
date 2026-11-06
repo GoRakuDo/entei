@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach } from 'bun:test';
 import {
   DEFAULT_JIMAKU_PREFERENCES,
   JIMAKU_PREFS_KEY,

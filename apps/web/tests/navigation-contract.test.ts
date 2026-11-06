@@ -17,7 +17,7 @@
  * 13. The Immersion Tools drawer replaces the direct Player destination
  *     (MODULE_ARCHITECTURE.md §4)
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { applyLocale } from '../src/scripts/locale-switcher';
 import { dictionaries } from '../src/i18n/index';
 import type { Locale } from '../src/i18n/types';

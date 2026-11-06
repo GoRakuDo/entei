@@ -14,7 +14,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'bun:test';
 import type { ExposureCell, TimeTotals } from '@/features/player/tracker/types';
 import { emptyTotals } from '@/features/player/tracker/engine';
 

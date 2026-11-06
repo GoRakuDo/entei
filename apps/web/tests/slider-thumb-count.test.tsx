@@ -7,7 +7,7 @@
  * - Mining [start, end] two thumbs with stable index key.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup } from '@testing-library/react';
 import { Slider } from '@/components/player/ui/slider';
 

@@ -5,7 +5,7 @@
  * paused/mining guards, Fast-forward 600ms boundary and 1x/3x behavior,
  * manual rate restored after disabling Fast-forward.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import {
   shouldCondensedSeek,
   shouldFastForward,

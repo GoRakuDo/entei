@@ -7,10 +7,10 @@
  * - URL lifecycle (create / revoke)
  * ---------------------------------------------------------------------------
  * Note: These tests use the existing jsdom + React Testing Library setup
- * without jest-dom matchers (not configured in vitest.config.ts).
+ * without jest-dom matchers (provided by the bun test preload).
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, fireEvent, act } from '@testing-library/react';
 import { useRef, useEffect, useCallback, useState, StrictMode } from 'react';
 import { PlayerControls } from '@/components/player/PlayerControls';

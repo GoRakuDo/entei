@@ -8,9 +8,8 @@
  * when the callback rejects.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { EizouDenSettingsTab } from '../src/components/player/EizouDenSettingsTab';
 import { YT_MODE_KEY } from '../src/features/player/yt-download-mode';
 

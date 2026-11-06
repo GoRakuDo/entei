@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'bun:test';
 import {
   PROFILE_AVATAR_MAX_BYTES,
   PROFILE_BIO_MAX_LENGTH,

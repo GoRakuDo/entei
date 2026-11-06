@@ -9,7 +9,7 @@
  * - toggleModuleState is pure (returns a new object, does not persist)
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   CORE_MODULES,
   DEFAULT_MODULE_STATE,

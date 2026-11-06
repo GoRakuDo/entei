@@ -5,7 +5,7 @@
  * cancellation, cleanup, and error transitions.
  */
 
-import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'bun:test';
 import {
   selectSupportedMimeType,
   checkAudioClipCapabilities,

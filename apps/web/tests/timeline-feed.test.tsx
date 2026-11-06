@@ -3,7 +3,7 @@
  * Covers the composer → feed flow, the like toggle, and local persistence.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
   act,
   fireEvent,

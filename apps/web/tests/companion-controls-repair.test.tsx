@@ -9,9 +9,8 @@
  * proves the timestamp updates and Play/Pause drive the real video element.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import PlayerApp from '@/components/player/PlayerApp';
 
 // Mock the companion job session hook: a controllable fake.

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { openTrackerDB } from '@/features/player/tracker/db';
 import {
   AUDIO_POSTER_MAX_BYTES,

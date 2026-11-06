@@ -2,7 +2,7 @@
 // Pure-logic tests for planSync (mode × source × reference-subtitle matrix)
 // and the mono downsample helper.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   detectSourceKind,
   planSync,

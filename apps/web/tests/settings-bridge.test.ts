@@ -1,6 +1,6 @@
 /** Behavioral tests for the browser CustomEvent settings bridge. */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'bun:test';
 import {
   ANKI_SESSION_CREDENTIALS_EVENT,
   SUBTITLE_SETTINGS_CHANGE_EVENT,

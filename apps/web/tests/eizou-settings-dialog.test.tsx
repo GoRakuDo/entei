@@ -1,6 +1,6 @@
 /** The global settings route wires shared tab callbacks to the event bridge. */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { en } from '@/i18n/locales/en';
 import { EizouSettingsDialog } from '@/components/home/EizouSettingsDialog';

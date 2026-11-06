@@ -5,7 +5,7 @@
  * wrapped in `<span class="group">…</span>`. No configuration.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import {
   wrapDenChouField,
   isDenChouActiveTarget,

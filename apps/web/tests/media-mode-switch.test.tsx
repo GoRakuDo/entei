@@ -10,7 +10,7 @@
  * - Player time/pause restored after terminal path
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { cleanup, act } from '@testing-library/react';
 import { recordAudioClip } from '@/features/player/audio-clip';
 import { captureVideoFrame } from '@/features/player/screenshot-capture';

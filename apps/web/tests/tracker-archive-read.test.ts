@@ -10,7 +10,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { getTrackerHistoryEntries } from '@/features/player/tracker/tracker-archive-read';
 import * as db from '@/features/player/tracker/db';
 import * as oldDbGate from '@/features/player/tracker/old-db-gate';

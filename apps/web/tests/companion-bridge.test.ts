@@ -11,7 +11,7 @@
  * Magnet/YouTube).
  * --------------------------------------------------------------------------- */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
   BRIDGE_BASE_POLL_MS,
   BRIDGE_DISCONNECTED_POLL_MS,

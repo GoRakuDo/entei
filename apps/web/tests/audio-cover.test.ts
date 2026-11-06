@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'bun:test';
 import { extractAudioCover, revokeAudioCoverUrl } from '@/features/player/audio-cover/audio-cover';
 
 const musicMetadataMocks = vi.hoisted(() => ({

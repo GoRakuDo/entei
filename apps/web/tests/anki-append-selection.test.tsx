@@ -20,7 +20,7 @@
  * - No regression in type filtering/selection
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import {
   render,
   cleanup,

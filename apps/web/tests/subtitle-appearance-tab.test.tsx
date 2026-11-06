@@ -15,7 +15,7 @@
  * All stored/applied colors are canonical oklch(...) strings.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { SubtitleAppearanceTab } from '@/components/player/SubtitleAppearanceTab';
 import { SubtitleOverlay } from '@/components/player/SubtitleOverlay';

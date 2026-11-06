@@ -1,5 +1,5 @@
 import { render, cleanup, fireEvent, screen, act } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'bun:test';
 import { JimakuSearchDialog } from '@/components/player/JimakuSearchDialog';
 import { dispatchJimakuKeyChanged } from '@/features/player/settings-bridge';
 import { en } from '@i18n/locales/en';

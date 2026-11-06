@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { YouTubeMark } from '../src/components/player/YouTubeMark';
 
 describe('YouTubeMark — theSVG mono play mark (CC0-1.0)', () => {

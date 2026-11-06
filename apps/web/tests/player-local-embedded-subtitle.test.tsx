@@ -12,7 +12,7 @@
  * props so tests can feed the exact handlers PlayerApp wires up.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, act, waitFor } from '@testing-library/react';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 
@@ -312,11 +312,14 @@ const SYNCED_VTT = [
 
 /** Let FileReader's onload (and React's re-render) settle between the
  *  subtitle select and the sync click, so subtitleTextRef is populated
- *  before handleSyncSubtitle reads it. */
+ *  before handleSyncSubtitle reads it.
+ *
+ *  Polls for the observable effect (the parsed cues reaching the panel) rather
+ *  than sleeping a fixed 10 ms: jsdom's FileReader is a real async task, and a
+ *  fixed tick loses that race on a loaded machine. */
 async function flushMicrotasks() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    await Promise.resolve();
+  await waitFor(() => {
+    expect(mocks.capturedCues?.length ?? 0).toBeGreaterThan(0);
   });
 }
 
@@ -374,6 +377,15 @@ beforeEach(() => {
       createObjectURL: vi.fn(() => 'blob:mock-media'),
       revokeObjectURL: vi.fn(),
     }),
+  );
+  // The audio fallback (sub-to-audio-local) fetches the media URL. A browser
+  // rejects immediately for a blob: URL that no longer exists, but Bun's
+  // jsdom-backed `fetch()` never settles for a `blob:` scheme, which would
+  // hang the fallback forever. Stub it to reject so the failure path is
+  // deterministic and matches the browser.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
   );
 });
 

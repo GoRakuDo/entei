@@ -1,7 +1,7 @@
 /**
  * Tests for player control-helpers (P1.1, P1.3a.2).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import {
   formatTime,
   clampSeek,

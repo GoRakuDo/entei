@@ -5,7 +5,7 @@
  * Infinity, or 0, and that actual finite duration overrides it later.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 

@@ -33,7 +33,7 @@ import {
   vi,
   beforeEach,
   afterEach,
-} from 'vitest';
+} from 'bun:test';
 import {
   render,
   cleanup,
@@ -346,7 +346,7 @@ beforeEach(() => {
   // Spy on play() at the prototype level so we can prove handleCueClick never
   // forces playback. JSDOM's HTMLMediaElement.play resolves a Promise, so we
   // don't need to override the implementation — but we DO need to track the
-  // call count, which vitest's spyOn gives us for free.
+  // call count, which `vi.spyOn` gives us for free.
   vi.spyOn(HTMLMediaElement.prototype, 'play');
 });
 

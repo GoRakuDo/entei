@@ -14,9 +14,8 @@
  * pointermove both restore the controls.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, fireEvent, act } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import PlayerApp from '@/components/player/PlayerApp';
 
 // Mock the companion job session hook: a controllable fake.

@@ -9,7 +9,7 @@
  * - Invalid range returns empty
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { selectCueTextInRange } from '@/features/player/subtitle-interval';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 

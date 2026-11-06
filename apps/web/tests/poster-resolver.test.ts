@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { resolvePoster } from '../src/features/player/watch-history/poster-resolver';
 
 function jsonResponse(data: unknown, status = 200): Response {

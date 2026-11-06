@@ -1,6 +1,6 @@
 /**
  * Pure logic for the Thanks To members pipeline (Stage 1 — scripts only).
- * Kept dependency-free so it can be unit-tested with vitest.
+ * Kept dependency-free so it can be unit-tested with `bun test`.
  */
 
 /**

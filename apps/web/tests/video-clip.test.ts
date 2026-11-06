@@ -11,7 +11,7 @@
  * - Frame timer cleanup in lifecycle
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import {
   MAX_CLIP_DURATION_S,
   VIDEO_CODEC_CANDIDATES,

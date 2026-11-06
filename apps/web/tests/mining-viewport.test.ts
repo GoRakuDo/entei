@@ -10,7 +10,7 @@
  * - Selection invariance: zoom never changes rangeStart/rangeEnd.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import {
   computeInitialViewport,
   zoomIn,

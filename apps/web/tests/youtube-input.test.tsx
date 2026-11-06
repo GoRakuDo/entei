@@ -7,7 +7,7 @@
  * close/unmount. Unpaired: pairing-needed notice only, no job create.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'bun:test';
 import {
   render,
   screen,
@@ -15,7 +15,6 @@ import {
   cleanup,
   waitFor,
 } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import {
   YouTubeInput,
   parseYouTubeVideoId,

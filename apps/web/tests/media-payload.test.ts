@@ -7,7 +7,7 @@
  * refactor cannot silently change what the player receives.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   createLocalFilePayload,
   createTorrentPayload,

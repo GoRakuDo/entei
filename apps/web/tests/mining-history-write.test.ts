@@ -6,7 +6,7 @@
  * deduplication of the call site so we don't mirror PlayerApp logic.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   recordMiningHistory,
   _setAdapter,

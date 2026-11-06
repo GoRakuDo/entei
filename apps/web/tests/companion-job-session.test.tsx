@@ -1,6 +1,5 @@
-import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { useCompanionJobSession } from '../src/features/player/use-companion-job-session';
 
 /** Mirrors PlayerApp's wiring: the video element mounts only when the

@@ -5,7 +5,7 @@
  * of AnkiFieldsTab using React Testing Library with mocked fetch and
  * fake timers.
  * --------------------------------------------------------------------------- */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
 import { createElement } from 'react';
 import { AnkiFieldsTab } from '../src/components/player/AnkiFieldsTab';

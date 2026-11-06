@@ -15,7 +15,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, screen } from '@testing-library/react';
 
 // Mock the hook before importing the component.

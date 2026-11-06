@@ -9,13 +9,12 @@
  * before).
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import {
   render,
   fireEvent,
   cleanup,
 } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import type { ComponentProps } from 'react';
 import { VideoPlayer } from '@/components/player/VideoPlayer';
 

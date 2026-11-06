@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Unit tests for the companion media helpers (mock fetch; no real network).
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'bun:test';
 import {
   CompanionBufferingError,
   dlProgressPercent,

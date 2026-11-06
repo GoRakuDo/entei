@@ -2,7 +2,7 @@
 // Pure-logic tests for LazySync (docs SUBTITLE_SYNC.md §10): rank-pairing
 // median offset estimation and offset application.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import type { SubtitleCue } from '../src/features/player/subtitle-reader';
 import {
   estimateMedianOffset,

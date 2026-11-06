@@ -69,7 +69,8 @@ export function classifyMediaFile(file: File): MediaAdmissionResult {
  * Returns null if no error.
  *
  * Uses numeric constants directly instead of `MediaError.MEDIA_ERR_*` statics
- * because jsdom (vitest environment) does not define the `MediaError` constructor.
+ * because jsdom (the `bun test` environment) does not define the `MediaError`
+ * constructor.
  */
 export function classifyMediaError(
   error: { code: number } | null,

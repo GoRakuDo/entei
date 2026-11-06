@@ -20,7 +20,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { getTrackerDashboard } from '@/features/player/tracker/tracker-dashboard-read';
 import * as db from '@/features/player/tracker/db';
 import { getLocalDay } from '@/features/player/tracker/local-day';

@@ -7,7 +7,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup } from '@testing-library/react';
 import { MiningHistoryPanel } from '@/components/player/MiningHistoryPanel';
 import * as trackerArchiveRead from '@/features/player/tracker/tracker-archive-read';

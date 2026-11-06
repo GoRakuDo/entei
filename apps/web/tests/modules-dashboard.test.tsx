@@ -7,7 +7,7 @@
  * - a stored disabled module renders as disabled on mount
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { ModulesDashboard } from '@/components/modules/ModulesDashboard';
 import { en } from '@/i18n/locales/en';

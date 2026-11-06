@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RightPanel } from '@/components/player/RightPanel';
 import { en } from '@i18n/locales/en';

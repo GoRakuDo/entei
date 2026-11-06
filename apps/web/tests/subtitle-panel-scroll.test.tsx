@@ -15,7 +15,7 @@
  *   leaks after unmount, and mocks/DOM additions are cleaned up.
  * --------------------------------------------------------------------------- */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup } from '@testing-library/react';
 import { SubtitlePanel } from '@/components/player/SubtitlePanel';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';

@@ -9,7 +9,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import { PlayerControls } from '@/components/player/PlayerControls';
 import { isSubtitleFile } from '@/features/player/media-url';

@@ -1,7 +1,7 @@
 /**
  * Tests for screenshot-capture utility (AM-2).
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'bun:test';
 import {
   MAX_CAPTURE_DIMENSION,
   JPEG_QUALITY,
