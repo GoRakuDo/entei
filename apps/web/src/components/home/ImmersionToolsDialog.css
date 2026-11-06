@@ -109,6 +109,13 @@
   cursor: pointer;
 }
 
+/* The island trigger keeps the shared gold hover from
+   `.entei-desktop-sidebar-link:hover`; restated here so island CSS order
+   can never fall back to the white hover. */
+.entei-desktop-sidebar-link.entei-nav-tools-trigger:hover {
+  color: var(--entei-status-locked);
+}
+
 .entei-desktop-sidebar-link.entei-nav-tools-trigger[data-active='true'] {
   color: var(--entei-status-locked);
   background-color: var(--entei-btn-color);

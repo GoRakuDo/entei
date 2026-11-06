@@ -519,8 +519,10 @@
       background-color var(--entei-duration-fast) var(--entei-ease-productive);
   }
 
+  /* Hover reads as a gold accent (same hue as the active page) rather
+     than a plain white highlight. */
   .entei-desktop-sidebar-link:hover {
-    color: var(--entei-text);
+    color: var(--entei-status-locked);
     background-color: var(--entei-btn-color);
   }
 

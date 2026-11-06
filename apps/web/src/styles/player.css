@@ -137,7 +137,9 @@
   align-items: center;
   gap: var(--entei-space-24);
   text-align: center;
-  max-width: 32rem;
+  /* Wide enough that the title never wraps on desktop; the description
+     keeps its own narrow measure below. */
+  max-width: min(100%, 48rem);
 }
 
 .entei-player-empty-title {
@@ -147,6 +149,13 @@
   line-height: 1.2;
   letter-spacing: 0.04em;
   color: var(--entei-status-locked);
+}
+
+/* Desktop has horizontal room to spare — keep the headline on one line. */
+@media (min-width: 768px) {
+  .entei-player-empty-title {
+    white-space: nowrap;
+  }
 }
 
 .entei-player-empty-desc {
