@@ -377,14 +377,21 @@ const JAPANESE_SUBTITLE_KEYS: [&str; 3] = ["ja", "ja-orig", "ja-JP"];
 /// yt-dlp publishes every requested format under one language key (json3,
 /// ttml, vtt, ...), so the `ext` filter is what keeps the returned URL a plain
 /// text track the webview can parse with `parseSubtitle`.
+/// Pick the first usable WebVTT URL from a subtitle-track entry list.
+///
+/// YouTube lists auto-translated tracks (`lang=en-US&tlang=ja`) next to the
+/// native track (`lang=ja&kind=asr`). The `tlang=` variants answer HTTP 429 on
+/// the timedtext endpoint, so taking them first silently discards subtitles for
+/// every video whose only Japanese track is a machine translation source. Only
+/// native tracks (`no tlang=` query parameter) are eligible here.
 fn vtt_entry_url(entries: Option<&serde_json::Value>) -> Option<String> {
     entries?
         .as_array()?
         .iter()
-        .find(|entry| entry.get("ext").and_then(|v| v.as_str()) == Some("vtt"))
-        .and_then(|entry| entry.get("url"))
-        .and_then(|v| v.as_str())
+        .filter(|entry| entry.get("ext").and_then(|v| v.as_str()) == Some("vtt"))
+        .filter_map(|entry| entry.get("url").and_then(|v| v.as_str()))
         .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .find(|url| !url.contains("tlang="))
         .map(|url| url.to_string())
 }
 
@@ -748,6 +755,35 @@ mod tests {
             info.subtitle_vtt_url.as_deref(),
             Some("https://tt.example/auto.vtt")
         );
+    }
+
+    #[test]
+    fn skips_auto_translated_tlang_entries() {
+        // Real shape from YouTube: the translated track is listed first and
+        // answers HTTP 429, so the native `kind=asr` track must be chosen.
+        let raw = r#"{
+            "title": "t",
+            "automatic_captions": {
+                "ja": [
+                    {"ext": "vtt", "url": "https://tt.example/api/timedtext?lang=en-US&tlang=ja&fmt=vtt"},
+                    {"ext": "vtt", "url": "https://tt.example/api/timedtext?lang=ja&kind=asr&fmt=vtt"}
+                ]
+            }
+        }"#;
+        assert_eq!(
+            parse_video_info(raw)
+                .expect("parses")
+                .subtitle_vtt_url
+                .as_deref(),
+            Some("https://tt.example/api/timedtext?lang=ja&kind=asr&fmt=vtt")
+        );
+
+        // A track with only translated entries yields no URL at all.
+        let translated_only = r#"{"title":"t","automatic_captions":{"ja":[{"ext":"vtt","url":"https://tt.example/timedtext?lang=en-US&tlang=ja&fmt=vtt"}]}}"#;
+        assert!(parse_video_info(translated_only)
+            .expect("parses")
+            .subtitle_vtt_url
+            .is_none());
     }
 
     #[test]
