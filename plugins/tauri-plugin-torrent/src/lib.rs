@@ -11,7 +11,10 @@
 //! - `select_torrent_files(id, video_index, subtitle_index)` -> restricts the
 //!   download to the chosen files (`only_files`), waits (bounded) for the
 //!   video's first byte and returns loopback relay URLs for playback (see
-//!   [`relay`]).
+//!   [`relay`]). The response also carries the Matroska track list and the
+//!   auto-selected Japanese audio/subtitle track numbers.
+//! - `inspect_torrent_tracks(id, file_index)` -> re-reads the container header
+//!   on demand and returns the same track report on its own.
 //! - `cancel_torrent(id)` -> removes the torrent from the session and drops the
 //!   in-memory handle. Downloaded files are kept on disk.
 //!
@@ -19,7 +22,10 @@
 //! the lifetime of the app. One session is shared by every torrent so the DHT
 //! node, TCP listener and peer cache are reused.
 
+mod mkv;
 mod relay;
+
+pub use mkv::{MkvTrackInfo, MkvTrackReport};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -46,6 +52,20 @@ const METADATA_TIMEOUT: Duration = Duration::from_secs(30);
 /// stalls (and Chrome gives up after ~30 s), so the wait stays inside the
 /// modal's loading state instead.
 const FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Bytes of the container header read for track inspection.
+///
+/// Matroska puts `Tracks` before the first `Cluster`, so a few hundred KiB is
+/// normally enough; the cap keeps the read bounded even on a malformed file.
+const HEADER_READ_LIMIT: usize = 2 * 1024 * 1024;
+
+/// Read granularity while pulling the header. Each chunk is parsed again, so a
+/// short header costs one read instead of a full 2 MiB.
+const HEADER_READ_CHUNK: usize = 64 * 1024;
+
+/// Upper bound on the whole header inspection. Pieces that have not arrived yet
+/// park the read, so the wait is capped instead of blocking the command.
+const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `librqbit` does not re-export its `ManagedTorrentHandle` alias, so the same
 /// `Arc<ManagedTorrent>` is spelled out here.
@@ -122,6 +142,13 @@ pub struct SelectedTorrentFiles {
     /// Loopback URL for the selected subtitle file, when one was chosen.
     pub subtitle_url: Option<String>,
     pub subtitle_name: Option<String>,
+    /// Matroska track list of the selected video, when its header was readable
+    /// within [`HEADER_READ_TIMEOUT`]. Empty/`None` for non-Matroska files.
+    pub mkv_tracks: Option<Vec<MkvTrackInfo>>,
+    /// Japanese audio track number chosen by the `--alang=ja,jpn` rule.
+    pub selected_audio_track: Option<u32>,
+    /// Japanese subtitle track number chosen by the `--slang=ja,jpn` rule.
+    pub selected_subtitle_track: Option<u32>,
 }
 
 struct Entry {
@@ -253,6 +280,64 @@ async fn wait_first_byte(handle: &TorrentHandle, file_id: usize) {
     }
     let mut probe = [0u8; 1];
     let _ = tokio::time::timeout(FIRST_BYTE_TIMEOUT, stream.read(&mut probe)).await;
+}
+
+/// Is this path a Matroska-family container whose header we can inspect?
+fn is_matroska_path(path: &str) -> bool {
+    let extension = match path.rsplit_once('.') {
+        Some((_, extension)) => extension.to_ascii_lowercase(),
+        None => return false,
+    };
+    matches!(extension.as_str(), "mkv" | "mk3d" | "webm" | "mka" | "mks")
+}
+
+/// Read just enough of the file header to list its tracks.
+///
+/// Every read is bounded twice: by [`HEADER_READ_LIMIT`] bytes and by
+/// [`HEADER_READ_TIMEOUT`] wall clock, because a read on a missing piece parks
+/// the task. Returns `None` when no `Tracks` element could be parsed in time;
+/// playback then simply keeps the engine default track.
+async fn read_mkv_track_report(
+    handle: &TorrentHandle,
+    file_id: usize,
+    path: &str,
+) -> Option<MkvTrackReport> {
+    if !is_matroska_path(path) {
+        return None;
+    }
+    let mut stream = handle.clone().stream(file_id).ok()?;
+    if stream.len() == 0 {
+        return None;
+    }
+
+    let deadline = tokio::time::Instant::now() + HEADER_READ_TIMEOUT;
+    let mut buffer: Vec<u8> = Vec::with_capacity(HEADER_READ_CHUNK);
+    let mut chunk = vec![0u8; HEADER_READ_CHUNK];
+
+    while buffer.len() < HEADER_READ_LIMIT {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let read = match tokio::time::timeout(remaining, stream.read(&mut chunk)).await {
+            Ok(Ok(read)) => read,
+            _ => break,
+        };
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+
+        // `Truncated` just means the Tracks payload is not complete yet: keep
+        // reading until the limit or the deadline is hit.
+        if let Ok(tracks) = mkv::parse_tracks(&buffer) {
+            if !tracks.is_empty() {
+                return Some(MkvTrackReport::from_tracks(tracks));
+            }
+        }
+    }
+
+    None
 }
 
 fn state_label(state: &TorrentStatsState) -> String {
@@ -452,13 +537,49 @@ async fn select_torrent_files(
         .as_ref()
         .map(|file| relay.register(&id, handle.clone(), file.index, mime_for_path(&file.path)));
 
+    // The header bytes are already here (first byte waited above), so listing
+    // the container tracks costs no extra wait in the common case.
+    let track_report = read_mkv_track_report(&handle, video.index, &video.path).await;
+
     Ok(SelectedTorrentFiles {
         video_url,
         video_name: file_basename(&video.path),
         video_length: video.length,
         subtitle_url,
         subtitle_name: subtitle.as_ref().map(|file| file_basename(&file.path)),
+        mkv_tracks: track_report.as_ref().map(|report| report.tracks.clone()),
+        selected_audio_track: track_report
+            .as_ref()
+            .and_then(|report| report.selected_audio),
+        selected_subtitle_track: track_report
+            .as_ref()
+            .and_then(|report| report.selected_subtitle),
     })
+}
+
+/// List the Matroska tracks of a torrent file and the auto-selected Japanese
+/// audio/subtitle track numbers.
+///
+/// Returns an empty report (no tracks, no selections) when the file is not a
+/// Matroska container or its header did not arrive within the bounded read —
+/// the caller then keeps the engine default track. Only an unknown torrent id
+/// or file index is an error.
+#[tauri::command]
+async fn inspect_torrent_tracks(
+    state: tauri::State<'_, TorrentState>,
+    id: String,
+    file_index: usize,
+) -> Result<MkvTrackReport, String> {
+    let (_, handle) = state.entry(&id).map_err(|err| err.message())?;
+    let files = collect_files(&handle);
+    let file = files
+        .iter()
+        .find(|file| file.index == file_index)
+        .ok_or_else(|| TorrentError::Operation("unknown file index".into()).message())?;
+
+    Ok(read_mkv_track_report(&handle, file.index, &file.path)
+        .await
+        .unwrap_or_default())
 }
 
 /// Resolve the on-disk directory torrents are written to.
@@ -499,6 +620,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             add_torrent,
             get_torrent_status,
             select_torrent_files,
+            inspect_torrent_tracks,
             cancel_torrent
         ])
         .setup(|app, _api| {
@@ -522,6 +644,16 @@ mod tests {
         assert!(
             validate_magnet("magnet:?xt=urn:btih:cab507494d02ebb1178b38f2e9d7be299c86b862").is_ok()
         );
+    }
+
+    #[test]
+    fn recognizes_matroska_paths() {
+        assert!(is_matroska_path("Show/Episode 01.mkv"));
+        assert!(is_matroska_path("EP01.MKV"));
+        assert!(is_matroska_path("clip.webm"));
+        assert!(!is_matroska_path("Episode 01.mp4"));
+        assert!(!is_matroska_path("Episode 01.srt"));
+        assert!(!is_matroska_path("mkv"));
     }
 
     #[test]

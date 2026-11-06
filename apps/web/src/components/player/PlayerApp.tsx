@@ -149,6 +149,14 @@ import {
   shiftCuesByOffset,
 } from '@/features/player/lazy-sync';
 
+import {
+  createSubDelayState,
+  listenForSubDelay,
+  rebaseSubDelay,
+  setSubDelayOffset,
+  subDelayCues,
+} from '@/features/player/sub-delay';
+
 import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import type {
   YtdlpStreamSource,
@@ -410,6 +418,12 @@ export default function PlayerApp() {
      *  LAZY_SYNC_MAX_WAIT_POLLS. */
     waitPollCount: number;
   } | null>(null);
+  // --- Sub-delay (docs MODULE_ARCHITECTURE.md §9.3) ---
+  // The native engine reads the audio waveform timing itself and pushes a
+  // plain offset in seconds (libmpv `--sub-delay=<sec>`). Kept as immutable
+  // state so every application shifts the ORIGINAL base cues: repeated
+  // adjustments never degrade the base.
+  const subDelayStateRef = useRef(createSubDelayState());
   // P4 jimaku search modal: open flag + prefill (title + anime/drama) chosen by
   // the opener — RightPanel button (current media name) or the P3 auto-load
   // fallback (parsed title + last-tried mode).
@@ -918,7 +932,13 @@ export default function PlayerApp() {
   // auto-load hook AND the P4 search modal).
   const handleSubtitleText = useCallback((text: string) => {
     const result = parseSubtitle(text);
-    setCues(result.cues);
+    // Re-anchor the sub-delay base to the freshly loaded cues (the current
+    // offset is kept) so a later native offset still shifts the originals.
+    subDelayStateRef.current = rebaseSubDelay(
+      subDelayStateRef.current,
+      result.cues,
+    );
+    setCues(subDelayCues(subDelayStateRef.current));
     setSubtitleErrors(result.errors);
     setActiveCueId(null);
     subtitleTextRef.current = text;
@@ -1215,7 +1235,12 @@ export default function PlayerApp() {
         const text = await res.text();
         if (cancelled) return;
         const result = parseSubtitle(text);
-        setCues(result.cues);
+        // Re-anchor the sub-delay base to these cues (offset preserved).
+        subDelayStateRef.current = rebaseSubDelay(
+          subDelayStateRef.current,
+          result.cues,
+        );
+        setCues(subDelayCues(subDelayStateRef.current));
         setSubtitleErrors(result.errors);
         setActiveCueId(null);
         subtitleTextRef.current = text;
@@ -1672,6 +1697,8 @@ export default function PlayerApp() {
       startWatchSession(videoId ? `youtube:${videoId}` : null, null);
       // New media identity: drop the previous subtitles and mining captures.
       subtitleTextRef.current = null;
+      // Sub-delay belongs to the previous media's timings: reset the base.
+      subDelayStateRef.current = createSubDelayState();
       setCues([]);
       setSubtitleErrors([]);
       setActiveCueId(null);
@@ -1747,6 +1774,8 @@ export default function PlayerApp() {
       subtitleTextRef.current = null;
       // Also clear the rendered cues so stale subtitles don't linger — this
       // also lets the jimaku auto-load spinner show (cues.length === 0).
+      // Sub-delay is anchored to the previous media's timings: reset it.
+      subDelayStateRef.current = createSubDelayState();
       setCues([]);
       // P3 auto-load: local file selected — auto-load jimaku subtitles.
       jimakuMatchRef.current = {
@@ -2633,7 +2662,11 @@ export default function PlayerApp() {
   const applySyncedSubtitle = useCallback(
     (syncedText: string) => {
       const result = parseSubtitle(syncedText);
-      setCues(result.cues);
+      subDelayStateRef.current = rebaseSubDelay(
+        subDelayStateRef.current,
+        result.cues,
+      );
+      setCues(subDelayCues(subDelayStateRef.current));
       setSubtitleErrors(result.errors);
       setActiveCueId(null);
       subtitleTextRef.current = syncedText;
@@ -3054,6 +3087,29 @@ export default function PlayerApp() {
     void runLazySyncPolling(ac.signal);
     return () => ac.abort();
   }, [isLazySyncOn, runLazySyncPolling]);
+
+  /**
+   * Apply a sub-delay offset in seconds (docs §9.3). The native engine hands
+   * the value over as-is — no rounding, no sign conversion — and the cues
+   * re-render immediately because the offset is a pure re-shift of the
+   * untouched base (no audio analysis, so no stutter). An invalid or
+   * unchanged offset is a no-op.
+   */
+  const applySubDelayOffset = useCallback((offsetSeconds: number) => {
+    const next = setSubDelayOffset(subDelayStateRef.current, offsetSeconds);
+    if (next === subDelayStateRef.current) return;
+    subDelayStateRef.current = next;
+    setCues(subDelayCues(next));
+    setActiveCueId(null);
+  }, []);
+
+  // Native engine sub-delay handoff: the engine computes the offset and pushes
+  // it across the island boundary, so the Player never runs the heavy JS
+  // analysis LazySync needs.
+  useEffect(
+    () => listenForSubDelay(applySubDelayOffset),
+    [applySubDelayOffset],
+  );
 
   /** Magnet audio sync: dialog handed us decoded PCM — run sub-to-audio. */
   const handleAudioSyncComplete = useCallback(
