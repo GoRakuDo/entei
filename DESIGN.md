@@ -443,6 +443,12 @@ Minimum visual checks:
 - Error toast uses an error icon and structural emphasis without turning the entire toast into a red slab.
 - Repeated identical errors should not stack endlessly.
 - Important actions and errors must remain long enough to read or dismiss.
+- Errors and status notifications are never written as raw inline text
+  paragraphs inside a dialog body. All user-facing error feedback is dispatched
+  through the standard Toast helpers (`notifyCompanionError` / `toast.error`),
+  keeping dialog layouts clean and preventing modal content from jumping when a
+  message appears or disappears. Inline state (for example `aria-invalid`) may
+  still mark the offending field, but the message itself is a Toast.
 
 ### 8.7 Media and Subtitle UI
 
@@ -470,6 +476,14 @@ Minimum visual checks:
 - Dialog title and the first form field keep generous vertical breathing room
   (`var(--entei-space-24)`). A title header sitting tight against the first
   field label is forbidden; the header owns that space, not the form body.
+- Media-source and player dialogs (YouTube, Magnet, Audio input, etc.) must
+  never render an inline error paragraph inside the dialog body
+  (`.entei-*-form-error`, `.entei-magnet-error`, …). All user-facing error
+  feedback for media inputs must be dispatched through standard Toast
+  notifications (`toast.error(...)` / `notifyCompanionError`), keeping dialog
+  layouts clean and preventing modal content jumping. Existing mining and
+  pairing preview dialogs retain inline validation alerts until their separate
+  redesigns.
 
 ### 8.9 Joined Control Groups
 

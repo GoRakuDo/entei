@@ -45,6 +45,26 @@ const baseDict: YouTubeInputDict = {
   firefoxUnsupported: 'Firefox is not yet supported.',
 };
 
+// --- Sonner toast spy -------------------------------------------------------
+// Error feedback is a Toast, never inline text inside the dialog body
+// (DESIGN.md 8.6/8.8), so every error assertion reads the toast spy.
+const toastSpy = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  success: vi.fn(),
+  warning: vi.fn(),
+}));
+
+vi.mock('sonner', () => ({ toast: toastSpy }));
+
+/** Message of the most recent error toast, or undefined when none fired. */
+function lastErrorToast(): string | undefined {
+  const calls = toastSpy.error.mock.calls;
+  return calls.length === 0
+    ? undefined
+    : (calls[calls.length - 1] as [string])[0];
+}
+
 const VALID_URL = 'https://www.youtube.com/watch?v=abcdefghijk';
 const TOKEN = 'tok123';
 
@@ -312,8 +332,8 @@ describe('YouTubeInput — paired flow', () => {
       fireEvent.click(
         screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
       );
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        baseDict.youtubeInputErrorInvalid,
+      await waitFor(() =>
+        expect(lastErrorToast()).toBe(baseDict.youtubeInputErrorInvalid),
       );
     }
     expect(fetchMock).not.toHaveBeenCalled();
@@ -341,11 +361,13 @@ describe('YouTubeInput — paired flow', () => {
       fireEvent.click(
         screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
       );
-      const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(baseDict[key]);
+      await waitFor(() => expect(lastErrorToast()).toBe(baseDict[key]));
+      const message = lastErrorToast()!;
       // Raw server detail and the URL must never surface in the UI.
-      expect(alert.textContent).not.toContain('raw server detail');
-      expect(alert.textContent).not.toContain(VALID_URL);
+      expect(message).not.toContain('raw server detail');
+      expect(message).not.toContain(VALID_URL);
+      // No inline error paragraph is rendered in the dialog body.
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByText(VALID_URL)).not.toBeInTheDocument();
     },
   );
@@ -362,10 +384,12 @@ describe('YouTubeInput — paired flow', () => {
     fireEvent.click(
       screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
     );
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(baseDict.youtubeInputErrorNetwork);
-    expect(alert.textContent).not.toContain('Failed to fetch');
-    expect(alert.textContent).not.toContain(VALID_URL);
+    await waitFor(() =>
+      expect(lastErrorToast()).toBe(baseDict.youtubeInputErrorNetwork),
+    );
+    const message = lastErrorToast()!;
+    expect(message).not.toContain('Failed to fetch');
+    expect(message).not.toContain(VALID_URL);
   });
 
   it('never touches storage during the flow', async () => {
@@ -568,8 +592,8 @@ describe('YouTubeInput — no pairing gate', () => {
     fireEvent.click(
       screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
     );
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      baseDict.youtubeInputErrorRepair,
+    await waitFor(() =>
+      expect(lastErrorToast()).toBe(baseDict.youtubeInputErrorRepair),
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -699,9 +723,10 @@ describe('YouTubeInput — desktop (Tauri) path', () => {
       screen.getByRole('button', { name: baseDict.youtubeInputSubmit }),
     );
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(baseDict.youtubeInputErrorGeneric);
-    expect(alert.textContent).not.toContain('googlevideo.example');
+    await waitFor(() =>
+      expect(lastErrorToast()).toBe(baseDict.youtubeInputErrorGeneric),
+    );
+    expect(lastErrorToast()).not.toContain('googlevideo.example');
   });
 
   it('drops a late stream result after the dialog closed', async () => {

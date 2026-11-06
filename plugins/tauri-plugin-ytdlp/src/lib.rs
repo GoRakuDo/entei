@@ -13,13 +13,18 @@
 //!   `[video, audio]` in that order and `url` is the video URL.
 //!
 //! Note: yt-dlp must be reachable. Resolution order is
-//! `EIZOUDEN_YTDLP_PATH` env var, then the platform default binary name on
-//! `PATH`. No downloads are performed here; the caller owns the source URL.
+//! `EIZOUDEN_YTDLP_PATH` env var, then the verified helper EizouDendenshi
+//! installed under its companion install root (see [`helper_candidates`]),
+//! then the platform default binary name on `PATH`. The helper step matters on
+//! Windows: a python stub named `yt-dlp.exe` often sits on `PATH` and is not a
+//! working yt-dlp, while the signed helper always is. No downloads are
+//! performed here; the caller owns the source URL.
 //! The upstream `googlevideo.com` URLs carry short-lived tokens and stay inside
 //! the process — only the local relay URLs are returned to the webview.
 
 mod relay;
 
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -128,12 +133,49 @@ pub struct StreamSource {
     pub relayed: bool,
 }
 
+/// Verified yt-dlp helpers installed by EizouDendenshi, most specific first.
+///
+/// Windows install root is `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi` and its
+/// update plan drops the yt-dlp artifact under `helpers/` keeping the release
+/// asset name (`yt-dlp-windows-amd64.exe`). `yt-dlp.exe` is listed as well so a
+/// manually renamed helper keeps working. Termux manages yt-dlp through `pkg`
+/// (it lives on `PATH`), so there are no candidates there.
+fn helper_candidates() -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        let mut candidates = Vec::new();
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            if !local_app_data.trim().is_empty() {
+                let helpers = PathBuf::from(local_app_data)
+                    .join("GoRakuDo")
+                    .join("EizouDendenshi")
+                    .join("helpers");
+                candidates.push(helpers.join("yt-dlp-windows-amd64.exe"));
+                candidates.push(helpers.join("yt-dlp.exe"));
+            }
+        }
+        candidates
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+/// Resolve the yt-dlp executable to spawn.
+///
+/// A path is only taken from the helper candidates when the file actually
+/// exists, so a missing helper silently falls through to `PATH` instead of
+/// failing to spawn.
 fn ytdlp_binary() -> String {
     if let Ok(path) = std::env::var("EIZOUDEN_YTDLP_PATH") {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
             return trimmed.to_string();
         }
+    }
+    if let Some(helper) = helper_candidates().into_iter().find(|path| path.is_file()) {
+        return helper.to_string_lossy().into_owned();
     }
     if cfg!(windows) {
         "yt-dlp.exe".to_string()
@@ -387,6 +429,19 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn helper_candidates_target_the_companion_helpers_dir() {
+        // The install root is only known at runtime; assert the shape of every
+        // candidate so a renamed helper directory cannot pass unnoticed.
+        for candidate in helper_candidates() {
+            assert!(candidate.ends_with("GoRakuDo\\EizouDendenshi\\helpers\\yt-dlp-windows-amd64.exe")
+                || candidate.ends_with("GoRakuDo\\EizouDendenshi\\helpers\\yt-dlp.exe"),
+                "unexpected helper candidate: {}",
+                candidate.display());
+        }
+    }
 
     #[test]
     fn rejects_non_http_urls() {

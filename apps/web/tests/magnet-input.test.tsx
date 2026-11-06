@@ -57,6 +57,24 @@ const baseDict = {
   firefoxUnsupported: 'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
 };
 
+// --- Sonner toast spy -------------------------------------------------------
+// Error feedback is a Toast, never inline text inside the dialog body
+// (DESIGN.md 8.6/8.8), so every error assertion reads the toast spy.
+const toastSpy = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  success: vi.fn(),
+  warning: vi.fn(),
+}));
+
+vi.mock('sonner', () => ({ toast: toastSpy }));
+
+/** Message of the most recent error toast, or undefined when none fired. */
+function lastErrorToast(): string | undefined {
+  const calls = toastSpy.error.mock.calls;
+  return calls.length === 0 ? undefined : (calls[calls.length - 1] as [string])[0];
+}
+
 const VALID_URI = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -130,7 +148,7 @@ describe('MagnetInput — no pairing gate', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('create without a token shows the localized re-pair error and never fetches', () => {
+  it('create without a token shows the localized re-pair error and never fetches', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
     render(
@@ -142,7 +160,8 @@ describe('MagnetInput — no pairing gate', () => {
     fireEvent.click(
       screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }),
     );
-    expect(screen.getByText(baseDict.magnetInputErrorRepair)).toBeInTheDocument();
+    await waitFor(() => expect(lastErrorToast()).toBe(baseDict.magnetInputErrorRepair));
+    expect(screen.queryByText(baseDict.magnetInputErrorRepair)).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -249,7 +268,8 @@ describe('MagnetInput — create + errors', () => {
     render(<MagnetInput {...defaultProps} />);
     await fillMagnet();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(label));
+    await waitFor(() => expect(lastErrorToast()).toBe(label));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText(/raw server detail/)).not.toBeInTheDocument();
   });
 
@@ -260,7 +280,7 @@ describe('MagnetInput — create + errors', () => {
     await fillMagnet();
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputLabelTitle }));
     await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetInputErrorNetwork),
+      expect(lastErrorToast()).toBe(baseDict.magnetInputErrorNetwork),
     );
   });
 
@@ -361,9 +381,7 @@ describe('MagnetInput — v2-only torrent rejection', () => {
     expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
     await flush(5000); // poll fires → error state
     // The dedicated localized message is shown, not the generic fallback.
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      baseDict.magnetInputErrorV2Unsupported,
-    );
+    expect(lastErrorToast()).toBe(baseDict.magnetInputErrorV2Unsupported);
     // The raw server error detail must not leak into the UI.
     expect(screen.queryByText(/v2-only torrent not supported/)).not.toBeInTheDocument();
   });
@@ -652,7 +670,7 @@ describe('MagnetInput — selection flow', () => {
     await flush(0);
     await flush(5000);
     await flush(5000);
-    expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetNoVideoError);
+    expect(lastErrorToast()).toBe(baseDict.magnetNoVideoError);
   });
 
   it('Cancel while checking metadata cancels the job; input returns only after the cancel settles', async () => {
@@ -859,7 +877,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     await flush(0);
     // Recoverable: the input is back and the failure is visible.
     expect(screen.getByRole('textbox')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetInputErrorNetwork);
+    expect(lastErrorToast()).toBe(baseDict.magnetInputErrorNetwork);
   });
 
   it('cancel non-OK (500) recovers visibly with a generic localized error', async () => {
@@ -875,7 +893,7 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     fireEvent.click(screen.getByRole('button', { name: baseDict.magnetCancel }));
     await flush(0);
     expect(screen.getByRole('textbox')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetInputErrorGeneric);
+    expect(lastErrorToast()).toBe(baseDict.magnetInputErrorGeneric);
     expect(screen.queryByText(/raw server detail/)).not.toBeInTheDocument();
   });
 
@@ -1232,8 +1250,9 @@ describe('MagnetInput — folder navigation robustness', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'server error' }, 500));
     fireEvent.click(folderBtn);
     await flush(0);
-    // Error should be displayed
-    expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetInputErrorGeneric);
+    // Error is surfaced as a Toast, not as inline dialog text.
+    expect(lastErrorToast()).toBe(baseDict.magnetInputErrorGeneric);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('folder-only root enters selecting (no no-video error); opening the folder reveals playable videos', async () => {
@@ -1493,7 +1512,7 @@ describe('MagnetInput — desktop (Tauri) direct torrent flow', () => {
     await startTorrent();
 
     await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(baseDict.magnetErrorInvalid),
+      expect(lastErrorToast()).toBe(baseDict.magnetErrorInvalid),
     );
     expect(screen.queryByText(/not-a-magnet/)).not.toBeInTheDocument();
   });

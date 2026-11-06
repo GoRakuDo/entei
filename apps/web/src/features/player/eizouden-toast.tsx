@@ -67,10 +67,16 @@ export const COMPANION_ERROR_TOAST_KEY = 'eizouden-companion-error';
  * with the text via the Entei toast CSS (flex + gap).
  *
  * @param label - localized message (playerUI.companionJobError).
+ * @param id - toast id; defaults to the generic companion-job key. Media-input
+ *   dialogs pass their own id so their validation errors do not replace (or get
+ *   replaced by) a generic companion job error toast.
  */
-export function notifyCompanionError(label: string): void {
+export function notifyCompanionError(
+  label: string,
+  id: string = COMPANION_ERROR_TOAST_KEY,
+): void {
   toast.error(label, {
-    id: COMPANION_ERROR_TOAST_KEY,
+    id,
     icon: <CircleAlert aria-hidden="true" />,
   });
 }

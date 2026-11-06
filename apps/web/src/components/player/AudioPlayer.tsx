@@ -235,6 +235,14 @@ export default function AudioPlayer({
               ? youtubeDict.youtubeInputErrorNetwork
               : youtubeDict.youtubeInputErrorGeneric;
 
+  // Errors are surfaced as a Toast, never as inline text inside the dialog
+  // (DESIGN.md 8.6/8.8) — same contract as the `error` toast above.
+  useEffect(() => {
+    if (youtubeErrorMessage !== null) {
+      toast.error(youtubeErrorMessage, { id: 'audio-player-youtube-error' });
+    }
+  }, [youtubeErrorMessage]);
+
   const activeCue = useMemo(
     () => findActiveAudioCue(effectiveCues, currentTime),
     [effectiveCues, currentTime],
@@ -864,11 +872,6 @@ export default function AudioPlayer({
                   }
                 }}
               />
-              {youtubeErrorMessage !== null && (
-                <p className="entei-youtube-form-error" role="alert">
-                  {youtubeErrorMessage}
-                </p>
-              )}
               <ButtonGroup
                 orientation="horizontal"
                 className="entei-youtube-actions"

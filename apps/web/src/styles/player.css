@@ -4699,13 +4699,6 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-.entei-magnet-error {
-  padding: 0;
-  color: var(--color-destructive);
-  font-size: 0.75rem;
-  line-height: 1.4;
-}
-
 /* --- ED-2G File Browser (table-based) --- */
 
 /* Empty state row inside the table */
@@ -4731,11 +4724,6 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-empty-body {
   color: var(--entei-text-muted);
   font-size: 0.75rem;
-}
-
-.entei-magnet-empty-error {
-  color: var(--color-destructive);
-  font-size: 0.8125rem;
 }
 
 /* Checking spinner row inside the table. The 10rem min-height here used
@@ -5088,13 +5076,6 @@ html.entei-player-immersive .entei-player-audio-area {
    popover and the buttons inherit the same radius family (DESIGN.md 8.8). */
 .entei-dialog-content.entei-youtube-dialog {
   border-radius: var(--entei-radius-lg);
-}
-
-.entei-youtube-form-error {
-  color: oklch(60% 0.22 25deg); /* matches the disconnected status red */
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  line-height: 1.5;
 }
 
 /* Primary action — solid Entei fill, never the shadcn `bg-primary` accent

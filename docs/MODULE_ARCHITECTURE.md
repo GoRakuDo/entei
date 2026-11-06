@@ -189,3 +189,49 @@ export interface EnteiModuleManifest {
 3. **relay は無認証**: 127.0.0.1 のエフェメラルポート + CORS `*` で、プロセス外からは到達できないが同一マシンの他プロセスからは読める（旧 companion と同じ前提）。
 4. **シーク先の piece 優先度は librqbit のストリーム実装依存**: 未 DL 領域へのシークは piece 到着まで待つ。初回 byte 待ちで Chrome のタイムアウトは回避しているが、シーク後の体感は回線と swarm 次第。
 5. **実環境 E2E は未確認**: ここまではコード実装と自動テスト（Rust unit 6 件 / MagnetInput 54 件、`astro check` 0 error）のみ。実際の WebView2 での magnet 再生確認はまだ行っていない。
+
+---
+
+## 8. フェーズ2-C 実装記録: YouTube モジュール（`plugins/tauri-plugin-ytdlp`）
+
+デスクトップ（Tauri）では YouTube 取得もインプロセスで完結する。companion の job / pairing token は使わない。
+
+### 8.1 yt-dlp 実行ファイルの解決順
+
+`ytdlp_binary()` は次の順で解決する（2026-08-14 修正）:
+
+1. `EIZOUDEN_YTDLP_PATH`（明示 override）
+2. EizouDendenshi が導入した検証済み helper
+   — Windows: `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\helpers\yt-dlp-windows-amd64.exe` →
+   `…\helpers\yt-dlp.exe`（存在するものだけ採用。companion の update plan は `helpers\` 配下に
+   release asset 名のまま配置するため、この 2 つが実在しうる名前）
+3. `PATH` 上の `yt-dlp.exe` / `yt-dlp`
+
+**背景（実測）**: Windows の `PATH` 先頭に python の Scripts 配下のランチャー
+`…\Python314\Scripts\yt-dlp.exe` が存在する環境では、`--version` が**出力なしで exit 1**
+（python モジュール未導入のため実行不能）になり、companion を使わないデスクトップ経路だけ
+yt-dlp 呼び出しが失敗していた。実際に動く実体は
+`%LOCALAPPDATA%\GoRakuDo\EizouDendenshi\helpers\yt-dlp-windows-amd64.exe`（実測 `--version` =
+`2026.07.04`）にあるため、helper を先に探す。Termux は `pkg` 管理の `yt-dlp` が `PATH` にあるため
+候補を持たない。
+
+### 8.2 ダイアログのエラー表示（Toast 統一）
+
+`YouTubeInput` / `MagnetInput` / `AudioPlayer` のダイアログ本文にあったインラインエラー段落
+（`.entei-youtube-form-error` / `.entei-magnet-error` / `.entei-magnet-empty-error`）は撤去し、
+エラーは `notifyCompanionError`（Sonner Toast）で通知する。`error` state は `aria-invalid` の
+マーク用に残すが、本文にはテキストを出さない（DESIGN.md 8.6 / 8.8）。理由は「メッセージの出現・
+消滅でモーダルの高さとボタン位置が動く」ことの防止。
+
+### 8.3 既知の指摘（Known issues / Low findings）
+
+1. **Toast の id は固定**: `notifyCompanionError` は既定で同一 id で置換するため、種類の違う
+   エラーが連続すると前の Toast は上書きされる（積み上げない設計）。メディア入力ダイアログは
+   第2引数に専用 id（`youtube-input-error` / `magnet-input-error`）を渡し、汎用の
+   companion job エラーと衝突させない。
+2. **インラインエラーは対象外ダイアログあり**: メディアソース・プレイヤー系ダイアログ
+   （YouTube / Magnet / Audio input 等）は本文にインラインエラー段落を出さず Toast へ統一する
+   （DESIGN.md 8.8）。既存の mining / pairing プレビューダイアログは個別再設計までインライン
+   バリデーション表示を残す。
+3. **実環境 E2E は未確認**: `cargo check` / `cargo test`（plugin 14 件）と web テストのみ。
+   WebView2 実機での YouTube 再生確認は未実施。

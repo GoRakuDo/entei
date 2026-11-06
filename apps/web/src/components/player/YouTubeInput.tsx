@@ -39,7 +39,10 @@ import {
   type YtDownloadMode,
 } from '@/features/player/yt-download-mode';
 import { isFirefox } from '@/features/player/browser-detect';
-import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
+import {
+  notifyCompanionError,
+  notifyFirefoxUnsupported,
+} from '@/features/player/eizouden-toast';
 import { waitForPlayable } from '@/features/player/companion-media';
 import {
   isTauri,
@@ -331,6 +334,18 @@ export function YouTubeInput({
     }
   }, [open]);
 
+  // Errors are surfaced as a Toast, never as inline text inside the dialog
+  // (DESIGN.md 8.6/8.8): the dialog body keeps its layout and the message
+  // cannot push the buttons around. `error` still drives `aria-invalid`.
+  // `dict` is read through a ref so a new dictionary object cannot re-fire the
+  // toast for the same error.
+  const dictRef = useRef(dict);
+  dictRef.current = dict;
+  useEffect(() => {
+    if (error === null) return;
+    notifyCompanionError(errorMessages[error](dictRef.current), 'youtube-input-error');
+  }, [error]);
+
   // Track the mobile breakpoint so the ButtonGroups can stack vertically.
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
@@ -561,11 +576,6 @@ export function YouTubeInput({
               </SelectContent>
             </Select>
           </ButtonGroup>
-          {error !== null && (
-            <p className="entei-youtube-form-error" role="alert">
-              {errorMessages[error](dict)}
-            </p>
-          )}
           <ButtonGroup
             orientation={orientation}
             className="entei-youtube-actions"

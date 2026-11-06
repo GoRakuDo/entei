@@ -86,7 +86,10 @@ import {
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { waitForPlayable } from '@/features/player/companion-media';
 import { isFirefox } from '@/features/player/browser-detect';
-import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
+import {
+  notifyCompanionError,
+  notifyFirefoxUnsupported,
+} from '@/features/player/eizouden-toast';
 import {
   addTorrentDirect,
   cancelTorrentDirect,
@@ -381,6 +384,17 @@ export function MagnetInput({
   const [error, setError] = useState<ErrorKind>(null);
   // Folder navigation: internal path state (never sent to cancel/recreate)
   const [folderPath, setFolderPath] = useState('');
+
+  // Errors are surfaced as a Toast, never as inline text inside the dialog
+  // (DESIGN.md 8.6/8.8): the table and the bottom actions keep their layout.
+  // `error` still drives `aria-invalid`. `dict` is read through a ref so a new
+  // dictionary object cannot re-fire the toast for the same error.
+  const dictRef = useRef(dict);
+  dictRef.current = dict;
+  useEffect(() => {
+    if (error === null) return;
+    notifyCompanionError(errorMessages[error](dictRef.current), 'magnet-input-error');
+  }, [error]);
 
   // Desktop (Tauri) direct mode: the plugin's flat file list, kept so folder
   // navigation filters locally instead of re-querying the torrent. Page
@@ -1245,20 +1259,12 @@ export function MagnetInput({
                         <TableRow className="entei-magnet-table-row--static">
                           <TableCell colSpan={4} className="entei-magnet-table-cell-empty">
                             <div className="entei-magnet-empty">
-                              {error !== null ? (
-                                <span className="entei-magnet-empty-error" role="alert">
-                                  {errorMessages[error](dict)}
-                                </span>
-                              ) : (
-                                <>
-                                  <span className="entei-magnet-empty-title">
-                                    {dict.magnetFilesTitle}
-                                  </span>
-                                  <span className="entei-magnet-empty-body">
-                                    {dict.magnetFilesBody}
-                                  </span>
-                                </>
-                              )}
+                              <span className="entei-magnet-empty-title">
+                                {dict.magnetFilesTitle}
+                              </span>
+                              <span className="entei-magnet-empty-body">
+                                {dict.magnetFilesBody}
+                              </span>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1266,13 +1272,6 @@ export function MagnetInput({
               </TableBody>
             </Table>
           </div>
-
-          {/* ── Error (outside table, for visibility) ── */}
-          {error !== null && showTable && (
-            <p className="entei-magnet-error" role="alert">
-              {errorMessages[error](dict)}
-            </p>
-          )}
 
           {/* ── Tracker/peer IP disclosure (plain text, no checkbox) ── */}
           <p className="entei-magnet-consent-text">
