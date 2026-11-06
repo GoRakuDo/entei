@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  resolveMediaSourceKind,
   shouldHideJimakuSearch,
   shouldHideSubtitleSync,
 } from '../src/components/player/PlayerApp';
@@ -128,5 +129,78 @@ describe('shouldHideJimakuSearch', () => {
 
   it('shows for local media (null jobKind)', () => {
     expect(shouldHideJimakuSearch(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ED-2F desktop path: YouTube played directly from the in-process yt-dlp
+// relay has NO companion job session, so `jobSession.kind` stays null. The
+// effective source kind must still resolve to 'youtube', otherwise both the
+// subtitle-sync button and the Jimaku search button reappear on YouTube.
+// ---------------------------------------------------------------------------
+
+describe('resolveMediaSourceKind (ED-2F desktop YouTube stream)', () => {
+  it("resolves 'youtube' for a direct Tauri yt-dlp stream (no job session)", () => {
+    const kind = resolveMediaSourceKind({
+      jobActive: false,
+      jobKind: null,
+      youtubeStreamActive: true,
+    });
+    expect(kind).toBe('youtube');
+    expect(shouldHideJimakuSearch(kind)).toBe(true);
+    expect(
+      shouldHideSubtitleSync({ jobKind: kind, isMagnet: false, mediaName: '' }),
+    ).toBe(true);
+  });
+
+  it("resolves 'youtube' for a companion YouTube job", () => {
+    expect(
+      resolveMediaSourceKind({
+        jobActive: true,
+        jobKind: 'youtube',
+        youtubeStreamActive: false,
+      }),
+    ).toBe('youtube');
+  });
+
+  it("resolves 'torrent' for a companion Magnet job", () => {
+    const kind = resolveMediaSourceKind({
+      jobActive: true,
+      jobKind: 'torrent',
+      youtubeStreamActive: false,
+    });
+    expect(kind).toBe('torrent');
+    expect(shouldHideJimakuSearch(kind)).toBe(false);
+  });
+
+  it('resolves null for local media (no job, no YouTube stream)', () => {
+    const kind = resolveMediaSourceKind({
+      jobActive: false,
+      jobKind: null,
+      youtubeStreamActive: false,
+    });
+    expect(kind).toBeNull();
+    expect(shouldHideJimakuSearch(kind)).toBe(false);
+  });
+
+  it('ignores a stale kind on an inactive session', () => {
+    // Defense in depth: endJobSession clears kind, but never trust stale state.
+    expect(
+      resolveMediaSourceKind({
+        jobActive: false,
+        jobKind: 'youtube',
+        youtubeStreamActive: false,
+      }),
+    ).toBeNull();
+  });
+
+  it('prefers the active job kind over a stale YouTube stream flag', () => {
+    expect(
+      resolveMediaSourceKind({
+        jobActive: true,
+        jobKind: 'torrent',
+        youtubeStreamActive: true,
+      }),
+    ).toBe('torrent');
   });
 });

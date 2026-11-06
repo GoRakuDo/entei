@@ -255,6 +255,28 @@ export function shouldHideJimakuSearch(
   return jobKind === 'youtube';
 }
 
+/**
+ * Resolve the effective media source kind used for YouTube-only UI gating.
+ *
+ * YouTube media reaches the player through two different paths:
+ *   1. Companion job session (`jobKind === 'youtube'`) — ED-2F browser path.
+ *   2. Tauri desktop direct stream (ED-2F desktop path): the in-process
+ *      yt-dlp plugin resolves a loopback relay URL and it is mounted as the
+ *      media URL directly — there is no companion job session at all.
+ *
+ * Without (2) the YouTube-only predicates (`shouldHideSubtitleSync`,
+ * `shouldHideJimakuSearch`) evaluate as "no active job" and wrongly show the
+ * subtitle-sync and Jimaku search buttons for a YouTube video.
+ */
+export function resolveMediaSourceKind(args: {
+  jobActive: boolean;
+  jobKind: 'youtube' | 'torrent' | null;
+  youtubeStreamActive: boolean;
+}): 'youtube' | 'torrent' | null {
+  if (args.jobActive && args.jobKind) return args.jobKind;
+  return args.youtubeStreamActive ? 'youtube' : null;
+}
+
 /** Companion start-buffering safety timeout: if the overlay has shown but
  *  canplay never fires (e.g. a stalled .part), hide it after 15 s so the
  *  player does not sit on the overlay forever. Longer than the 5 s seek
@@ -751,6 +773,17 @@ export default function PlayerApp() {
   jobSessionRef.current = jobSession;
   /** Magnet (torrent) source — drives the LazySync toggle rendering. */
   const isMagnet = jobSession.kind === 'torrent';
+  /** ED-2F desktop path: YouTube played directly from the in-process yt-dlp
+   *  relay (no companion job session). Keeps the YouTube-only UI gating
+   *  (`hideSyncSubtitle` / `hideJimakuSearch`) correct on that path. */
+  const [isYouTubeStream, setIsYouTubeStream] = useState(false);
+  /** Effective source kind for YouTube-only UI gating (see
+   *  `resolveMediaSourceKind`). */
+  const mediaSourceKind = resolveMediaSourceKind({
+    jobActive: jobSession.active,
+    jobKind: jobSession.kind,
+    youtubeStreamActive: isYouTubeStream,
+  });
 
   // ED-2H: Seek clamp — when streaming from a companion, clamp seek targets
   // to the verified byte range (available) to prevent the player from seeking
@@ -971,6 +1004,7 @@ export default function PlayerApp() {
       // provides the selected video's basename; mirror it into mediaName
       // for the top-left controls / history, sanitized for safe display.
       endWatchSession();
+      setIsYouTubeStream(false);
       setMediaName(sanitizeDisplayName(selectedName));
       mediaFileRef.current = null;
 
@@ -1633,6 +1667,7 @@ export default function PlayerApp() {
       }
       watchHistoryRecordedRef.current = false;
       mediaFileRef.current = null;
+      setIsYouTubeStream(true);
       const videoId = youtubeVideoIdRef.current;
       startWatchSession(videoId ? `youtube:${videoId}` : null, null);
       // New media identity: drop the previous subtitles and mining captures.
@@ -1735,6 +1770,7 @@ export default function PlayerApp() {
       setMediaName(file.name);
       watchHistoryRecordedRef.current = false;
       youtubeVideoIdRef.current = null;
+      setIsYouTubeStream(false);
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
       startWatchSession(null, parseMediaFileName(file.name).episode);
@@ -5108,18 +5144,19 @@ export default function PlayerApp() {
   const subtitleErrorsBlock = null;
 
   // SUBTITLE_SYNC.md §2.11-12: hide for YouTube; show for .mkv/.mp4.
+  // `mediaSourceKind` (not raw `jobSession.kind`) so the Tauri direct yt-dlp
+  // stream — which has no companion job session — is gated as YouTube too.
   const hideSyncSubtitle = shouldHideSubtitleSync({
-    jobKind: jobSession.kind,
+    jobKind: mediaSourceKind,
     isMagnet,
     mediaName,
   });
 
   // docs/JIMAKU_SUBS.md §2.2.1: Jimaku search button hidden for YouTube.
   // Defense-in-depth: a stale `kind` on an inactive session must not hide
-  // the button (endJobSession clears kind, but never trust stale state).
-  const hideJimakuSearch = shouldHideJimakuSearch(
-    jobSession.active ? jobSession.kind : null,
-  );
+  // the button (endJobSession clears kind, but never trust stale state) —
+  // `resolveMediaSourceKind` already requires `jobActive` for the job kind.
+  const hideJimakuSearch = shouldHideJimakuSearch(mediaSourceKind);
 
   // MODULE_ARCHITECTURE.md §5.3: the empty-state picker row is the core
   // local-media button plus an extensible slot. A source module registers
