@@ -322,22 +322,25 @@ APK には Windows 版のような「実行ファイルを同梱して spawn す
 
 | プラットフォーム | 再生エンジン | 主な設定 |
 | --- | --- | --- |
-| デスクトップ（Windows / macOS / Linux） | ネイティブ `libmpv` を GPU 直結で使用 | `hwdec: auto` / `vo: gpu-next` |
-| モバイル（Android） | ネイティブ Android `Media3 (ExoPlayer)` | ハードウェア `MediaCodec` を直接使用 |
+| 全プラットフォーム共通（Windows / macOS / Linux / Android） | ネイティブ `libmpv`（Android は `libmpv.so` + `mpv-client-cross` JNI） | `hwdec: auto` / `vo: gpu-next`（Android は `vo: gpu` + `hwdec: mediacodec`） |
 
 描画は Player の**透明な HTML/CSS UI オーバーレイの背面**で行う。つまり既存の React UI
 （シークバー・字幕パネル・採掘ボタン・設定モーダル）はそのまま被さり、映像面だけが
 ネイティブに置き換わる。UI 側の実装は「映像要素の差し替え」だけを見ればよく、
 トラック選択やデコード可否を UI が知る必要はない。
 
-**なぜ直結なのか（Chromium `<video>` の限界を消す）:**
+**なぜ libmpv 一本化なのか（重複コードの完全排除とKISS）:**
 
-1. **HEVC / H.265 / 10bit の黒画面**（Android で頻発）を根本から解消する。WebView の
-   `<video>` はコンテナ・コーデック対応が環境依存で、`canPlayType` が空を返す／黒画面になる
-   事例が既知（CONSTRAINTS #1885）。
-2. **4K 高ビットレートのカクつき**を解消する。ブラウザ経由のソフトウェアデコードではなく
-   ハードウェアデコードパスに直接乗せる。
-3. **CPU 使用率をほぼ 0% に落とす**。GPU / `MediaCodec` にデコードを任せ、JS スレッドは
+1. **二重開発の完全撲滅**: デスクトップ用と Android 用で別々のエンジン（ExoPlayer vs mpv）を
+   作ると、音声トラック選定や字幕同期（`sub-delay`）のロジックが二重化してバグの温床になる。
+   `libmpv` に一本化することで、全 OS で同一の C/Rust API（`--alang`、`--slang`、`--sub-delay`）が
+   100% そのまま動作する！
+2. **HEVC / H.265 / 10bit の黒画面**（Android で頻発）を根本から解消する。Android でも
+   `libmpv` 経由でハードウェアデコーダー（`MediaCodec`）を直接叩けるため、ブラウザ WebView の
+   `<video>` のような黒画面・音声のみ現象（CONSTRAINTS #1885）が消滅する。
+3. **4K 高ビットレートのカクつき**を解消する。ブラウザ経由のソフトウェアデコードではなく
+   GPU ハードウェアデコードパスに直接乗せる。
+4. **CPU 使用率をほぼ 0% に落とす**。GPU / `MediaCodec` にデコードを任せ、JS スレッドは
    UI と字幕ロジックに専念できる。
 
 ### 9.2 日本語音声・字幕の自動選択（MKV マルチトラック問題の解決）
