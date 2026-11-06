@@ -1449,6 +1449,45 @@ describe('MagnetInput — desktop (Tauri) direct torrent flow', () => {
     ).toEqual({ id: 't2', videoIndex: 0, subtitleIndex: 1 });
   });
 
+  it('carries the plugin\'s Matroska track selection into the handoff', async () => {
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't4',
+        info_hash: 'hash',
+        name: 'Movie',
+        files: DIRECT_FILES,
+      }),
+      'plugin:torrent|select_torrent_files': () => ({
+        video_url: 'http://127.0.0.1:5555/stream/video',
+        video_name: 'movie.mkv',
+        video_length: 2_000_000,
+        subtitle_url: null,
+        subtitle_name: null,
+        mkv_tracks: [],
+        selected_audio_track: 2,
+        selected_subtitle_track: 1,
+      }),
+    });
+    const onJobAccepted = vi.fn();
+    render(
+      <MagnetInput {...defaultProps} token={null} onJobAccepted={onJobAccepted} />,
+    );
+    await startTorrent();
+    await waitFor(() => expect(screen.getByText('movie.mkv')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText(`${baseDict.magnetFileKindVideo}: movie.mkv`));
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetSelectSubmit }));
+
+    await waitFor(() =>
+      expect(onJobAccepted).toHaveBeenCalledWith('t4', 'movie.mkv', '', {
+        videoUrl: 'http://127.0.0.1:5555/stream/video',
+        subtitleUrl: null,
+        selectedAudioTrack: 2,
+        selectedSubtitleTrack: 1,
+      }),
+    );
+  });
+
   it('cancels the in-process torrent when the dialog closes', async () => {
     installTauri({
       'plugin:torrent|add_torrent': () => ({

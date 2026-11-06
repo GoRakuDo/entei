@@ -189,6 +189,13 @@ interface MagnetInputProps {
 export interface DirectTorrentHandoff {
   videoUrl: string;
   subtitleUrl: string | null;
+  /**
+   * Matroska track numbers the torrent plugin auto-selected (Japanese audio /
+   * subtitle). Absent or `null` when the file is not Matroska or its header was
+   * not readable in time; the Player then keeps the engine's own selection.
+   */
+  selectedAudioTrack?: number | null;
+  selectedSubtitleTrack?: number | null;
 }
 
 // Basic client-side magnet shape check only; the companion is the source of truth.
@@ -1087,7 +1094,18 @@ export function MagnetInput({
           jobId,
           selection.video_name || (selected ? selected.basename : ''),
           '',
-          { videoUrl: selection.video_url, subtitleUrl: selection.subtitle_url },
+          {
+            videoUrl: selection.video_url,
+            subtitleUrl: selection.subtitle_url,
+            // Only carried when the plugin actually scanned a Matroska header:
+            // a non-Matroska file keeps the handoff shape it had before.
+            ...(selection.selected_audio_track !== null
+              ? { selectedAudioTrack: selection.selected_audio_track }
+              : {}),
+            ...(selection.selected_subtitle_track !== null
+              ? { selectedSubtitleTrack: selection.selected_subtitle_track }
+              : {}),
+          },
         );
       } catch (err) {
         if (attempt !== epochRef.current || !mountedRef.current || !openRef.current) return;

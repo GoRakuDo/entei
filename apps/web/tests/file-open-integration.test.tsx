@@ -364,6 +364,9 @@ const mockDict = {
   trackerEnabledAriaDescription: 'Recording watch time and mining history',
   trackerDisabledAriaDescription:
     'Tracker is off — no new recording, existing history preserved',
+  // ED-2G: breadcrumb (folder path header)
+  magnetBreadcrumbLabel: 'Current folder',
+  magnetBreadcrumbRoot: 'Torrent',
   // P3 jimaku auto-load toasts
   jimakuRateLimit: 'Rate limit reached. Please try again shortly.',
   jimakuAuthError: 'Invalid jimaku API key. Check it in settings.',

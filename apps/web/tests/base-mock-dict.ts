@@ -273,6 +273,9 @@ export const baseMockDict = {
   magnetFileKindOther: 'file',
   magnetTableNavUp: 'Go up one level',
   magnetNoVideosInFolder: 'No videos in this folder',
+  // ED-2G: breadcrumb (folder path header)
+  magnetBreadcrumbLabel: 'Current folder',
+  magnetBreadcrumbRoot: 'Torrent',
   // Tracker (IMMERSION_TRACKER Stage 2b)
   trackerLabel: 'Tracker',
   trackerOn: 'ON',

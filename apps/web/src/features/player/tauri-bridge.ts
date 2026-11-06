@@ -217,6 +217,13 @@ export interface DirectTorrentSelection {
   /** Loopback relay URL for the selected subtitle file, when chosen. */
   subtitle_url: string | null;
   subtitle_name: string | null;
+  /**
+   * Matroska audio track number the plugin auto-selected (`--alang=ja,jpn`).
+   * `null` for non-Matroska files or when the header was not readable yet.
+   */
+  selected_audio_track: number | null;
+  /** Same for the subtitle track (`--slang=ja,jpn`). */
+  selected_subtitle_track: number | null;
 }
 
 /** Read the injected `invoke`, or throw when the runtime is not Tauri. */
@@ -339,6 +346,14 @@ export async function selectTorrentFilesDirect(
         ? value.subtitle_url
         : null,
     subtitle_name: typeof value.subtitle_name === 'string' ? value.subtitle_name : null,
+    selected_audio_track:
+      typeof value.selected_audio_track === 'number'
+        ? value.selected_audio_track
+        : null,
+    selected_subtitle_track:
+      typeof value.selected_subtitle_track === 'number'
+        ? value.selected_subtitle_track
+        : null,
   };
 }
 
@@ -351,4 +366,102 @@ export async function selectTorrentFilesDirect(
 export async function cancelTorrentDirect(id: string): Promise<void> {
   const invoke = tauriInvoke();
   await invoke('plugin:torrent|cancel_torrent', { id });
+}
+
+/* ---------------------------------------------------------------------------
+ * mpv native engine (`plugin:mpv`)
+ * ---------------------------------------------------------------------------
+ * The desktop build ships `plugins/tauri-plugin-mpv`, which drives libmpv
+ * in-process. Entei's HTML/CSS controls stay the only visible control surface
+ * (the plugin runs mpv with `osc=no` / `osd-level=0`), so every call below is a
+ * one-way mirror: the Player keeps doing exactly what it does in the browser
+ * and the native engine is nudged alongside it.
+ *
+ * Contract shared by all six wrappers:
+ * - outside Tauri (the standalone browser build) they resolve immediately and
+ *   never touch the IPC bridge — no throw, no console noise;
+ * - a rejection is swallowed: libmpv may be missing on the machine, and a
+ *   missing native engine must never break HTML playback.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Run one `plugin:mpv` command, best-effort.
+ *
+ * Deliberately silent on failure: the web layer is the source of truth for
+ * playback state, so a missing/erroring mpv is a degraded mirror, not a user
+ * facing error.
+ */
+async function mpvInvoke(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<void> {
+  if (!isTauri()) return;
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (typeof invoke !== 'function') return;
+  try {
+    await invoke(cmd, args);
+  } catch {
+    // Native engine unavailable or rejected the command — HTML playback stands.
+  }
+}
+
+/**
+ * True when a Player source URL is something libmpv can resolve by itself.
+ *
+ * Local file picks reach the Player as `blob:` object URLs. mpv cannot open
+ * those, and a failed `loadfile … replace` still clears the engine's current
+ * file and track state — so such sources are never mirrored. Relay URLs
+ * (`http(s)://`) and real file paths stay eligible.
+ */
+export function isMpvResolvableSource(url: string): boolean {
+  if (!url) return false;
+  return !url.startsWith('blob:');
+}
+
+/** Load a source into the native engine (`loadfile <url> replace`). */
+export async function mpvLoad(url: string): Promise<void> {
+  if (!isMpvResolvableSource(url)) return;
+  await mpvInvoke('plugin:mpv|mpv_load', { url });
+}
+
+/** Resume native playback (`pause = no`). */
+export async function mpvPlay(): Promise<void> {
+  await mpvInvoke('plugin:mpv|mpv_play');
+}
+
+/** Pause native playback (`pause = yes`). */
+export async function mpvPause(): Promise<void> {
+  await mpvInvoke('plugin:mpv|mpv_pause');
+}
+
+/** Absolute seek in seconds; non-finite targets are dropped before the IPC. */
+export async function mpvSeek(seconds: number): Promise<void> {
+  if (!Number.isFinite(seconds)) return;
+  await mpvInvoke('plugin:mpv|mpv_seek', { seconds });
+}
+
+/**
+ * Subtitle offset in seconds (negative = earlier). Decimal precision is kept
+ * as-is: the plugin formats it for `sub-delay` without rounding here.
+ */
+export async function mpvSetSubDelay(seconds: number): Promise<void> {
+  if (!Number.isFinite(seconds)) return;
+  await mpvInvoke('plugin:mpv|mpv_set_sub_delay', { seconds });
+}
+
+/**
+ * Select the audio/subtitle track by mpv track id (`aid` / `sid`).
+ *
+ * An absent or empty value is sent as `null` so the plugin leaves that track
+ * untouched (it skips `None`), which keeps the engine's auto-selection intact
+ * when only one of the two is known.
+ */
+export async function mpvSetTracks(
+  aid?: string | null,
+  sid?: string | null,
+): Promise<void> {
+  await mpvInvoke('plugin:mpv|mpv_set_tracks', {
+    aid: aid || null,
+    sid: sid || null,
+  });
 }

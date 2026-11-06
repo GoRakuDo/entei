@@ -113,6 +113,7 @@ import {
   checkAudioClipCapabilities,
 } from '@/features/player/audio-clip';
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
+import type { DirectTorrentHandoff } from '@/components/player/MagnetInput';
 import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
@@ -161,6 +162,15 @@ import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import type {
   YtdlpStreamSource,
   YtdlpVideoInfo,
+} from '@/features/player/tauri-bridge';
+import {
+  isMpvResolvableSource,
+  mpvLoad,
+  mpvPause,
+  mpvPlay,
+  mpvSeek,
+  mpvSetSubDelay,
+  mpvSetTracks,
 } from '@/features/player/tauri-bridge';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
@@ -1013,7 +1023,7 @@ export default function PlayerApp() {
       jobId: string,
       selectedName: string,
       subtitleFileId: string,
-      direct?: { videoUrl: string; subtitleUrl: string | null },
+      direct?: DirectTorrentHandoff,
     ) => {
       // Session leak guard: an accepted magnet must first cancel whatever job
       // session is still running (previous torrent job / companion job), the
@@ -1038,6 +1048,24 @@ export default function PlayerApp() {
           videoUrl: direct.videoUrl,
           subtitleUrl: direct.subtitleUrl,
         });
+        // Desktop native engine: hand the same loopback relay URL to libmpv so
+        // the mpv window plays alongside the HTML controls. Track numbers come
+        // from the plugin's Matroska header scan (`--alang=ja,jpn` /
+        // `--slang=ja,jpn`); an unknown value stays null and the engine keeps
+        // its own auto-selection.
+        mpvActiveRef.current = isMpvResolvableSource(direct.videoUrl);
+        void mpvLoad(direct.videoUrl);
+        const aid = direct.selectedAudioTrack;
+        const sid = direct.selectedSubtitleTrack;
+        if (aid != null || sid != null) {
+          // Do NOT send this in the same tick as `mpvLoad`: `loadfile …
+          // replace` clears the engine's selection, so the pick is held here
+          // and applied by the media-element effect once the file has loaded.
+          pendingMpvTracksRef.current = {
+            aid: aid != null ? String(aid) : null,
+            sid: sid != null ? String(sid) : null,
+          };
+        }
         // P3 auto-load: only when the torrent carried no subtitle file.
         if (!direct.subtitleUrl) {
           void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${jobId}`);
@@ -1295,6 +1323,19 @@ export default function PlayerApp() {
   const mediaContainerRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const sharedMediaRef = useRef<HTMLMediaElement | null>(null);
+  // Desktop native engine: track pick that still has to be handed to libmpv.
+  // `mpvLoad` runs `loadfile … replace`, which resets the engine's own track
+  // selection, so `set aid/sid` must wait until the new file is loaded.
+  const pendingMpvTracksRef = useRef<{
+    aid: string | null;
+    sid: string | null;
+  } | null>(null);
+  // Desktop native engine: is the *current* media actually loaded into libmpv?
+  // A local pick is a `blob:` object URL that mpv cannot open, so the engine
+  // still shows the previous file (or nothing). Transport mirrors must stay
+  // silent in that case, otherwise a local playback session would seek/pause
+  // whatever stale media the engine happens to hold.
+  const mpvActiveRef = useRef(false);
 
   // --- Stage 2a: Tracker runtime (non-visual, side-effect only) ---
   // Refs to carry latest media identity into the flush callback (defined
@@ -1380,6 +1421,8 @@ export default function PlayerApp() {
       endWatchSession();
       revokeUrl(activeUrlRef.current);
       activeUrlRef.current = null;
+      // Nothing is loaded into the engine any more: stop mirroring transport.
+      mpvActiveRef.current = false;
       // AM-2: Revoke any lingering screenshot object URL
       if (screenshotUrlRef.current) {
         URL.revokeObjectURL(screenshotUrlRef.current);
@@ -1711,6 +1754,9 @@ export default function PlayerApp() {
       activeUrlRef.current = source.url;
       setMediaUrl(source.url);
       setMediaType('video');
+      // Desktop native engine: mirror the resolved relay stream into libmpv.
+      mpvActiveRef.current = isMpvResolvableSource(source.url);
+      void mpvLoad(source.url);
       // mediaName feeds the subtitle panel title and the mining source label.
       setMediaName(info ? sanitizeDisplayName(info.title) : (videoId ?? ''));
       setIsYouTubeDialogOpen(false);
@@ -1796,6 +1842,12 @@ export default function PlayerApp() {
       activeUrlRef.current = newUrl;
       setMediaUrl(newUrl);
       setMediaType(admission.kind);
+      // Desktop native engine: mirror only resolvable sources. A local pick
+      // is a `blob:` object URL that mpv cannot open, and a failed
+      // `loadfile … replace` would still reset the engine's state — so it is
+      // skipped here (`mpvLoad` enforces the same guard).
+      mpvActiveRef.current = isMpvResolvableSource(newUrl);
+      if (mpvActiveRef.current) void mpvLoad(newUrl);
       setMediaName(file.name);
       watchHistoryRecordedRef.current = false;
       youtubeVideoIdRef.current = null;
@@ -2063,6 +2115,8 @@ export default function PlayerApp() {
     [cues, recordWatchHistoryAtProgress],
   );
 
+  // Play/pause only update React state: the native engine mirror happens in
+  // the media-element funnel effect below, which sees every transition.
   const handlePlay = useCallback(() => {
     watchSessionIsPlayingRef.current = true;
     watchSessionLastTimeRef.current = null;
@@ -2149,6 +2203,100 @@ export default function PlayerApp() {
       setIsSeekBuffering(false);
     };
   }, [mediaType, mediaUrl]);
+
+  // --- Desktop native engine: mirror transport into libmpv ---
+  // Every seek path (controls slider, scrub, cue click, condensed-mode auto
+  // seek, mining restore) ends in `media.currentTime = …`, so the element's own
+  // `seeking` event is the single funnel: no per-callsite wiring and no way for
+  // a future seek path to be missed. The same reasoning applies to transport:
+  // every pause path (mining auto-pause, mobile blur pause, click-to-pause,
+  // error handling) ends in the element's own `pause` event, so listening here
+  // keeps the engine in sync without duplicating `mpvPause` at each callsite.
+  // `mpvSeek` / `mpvPlay` / `mpvPause` are no-ops outside Tauri.
+  useEffect(() => {
+    const media = mediaType === 'video' ? videoRef.current : audioRef.current;
+    if (!media) return;
+    // Gate every mirror on `mpvActiveRef`: when the element is playing a local
+    // `blob:` the engine holds an unrelated file, so these calls would seek or
+    // pause the wrong media.
+    const onSeeking = () => {
+      if (!mpvActiveRef.current) return;
+      void mpvSeek(media.currentTime);
+    };
+    const onPlay = () => {
+      if (!mpvActiveRef.current) return;
+      void mpvPlay();
+    };
+    const onPause = () => {
+      if (!mpvActiveRef.current) return;
+      void mpvPause();
+    };
+    media.addEventListener('seeking', onSeeking);
+    media.addEventListener('play', onPlay);
+    media.addEventListener('pause', onPause);
+    return () => {
+      media.removeEventListener('seeking', onSeeking);
+      media.removeEventListener('play', onPlay);
+      media.removeEventListener('pause', onPause);
+    };
+  }, [mediaType, mediaUrl]);
+
+  // --- Desktop native engine: apply a pending track pick after load ---
+  // The torrent plugin resolves the Japanese audio/subtitle track from the
+  // Matroska header, but the pick cannot travel with `mpvLoad`: `loadfile …
+  // replace` resets the engine's selection. Applying it once the element has
+  // actually loaded the new media — with a short delay so libmpv's own file
+  // open has settled — makes the selection stick.
+  useEffect(() => {
+    if (!pendingMpvTracksRef.current) return;
+    const media = mediaType === 'video' ? videoRef.current : audioRef.current;
+    if (!media) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const apply = () => {
+      timer = null;
+      const tracks = pendingMpvTracksRef.current;
+      if (!tracks) return;
+      // The engine may have moved on to a non-mpv source (local blob pick, or
+      // the torrent/companion session ended) while this timer was armed. Track
+      // numbers belong to the media that produced them, so a stale pick must
+      // never be applied to whatever the engine holds now.
+      if (!mpvActiveRef.current) {
+        pendingMpvTracksRef.current = null;
+        return;
+      }
+      pendingMpvTracksRef.current = null;
+      void mpvSetTracks(tracks.aid, tracks.sid);
+    };
+    const schedule = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(apply, 400);
+    };
+    media.addEventListener('loadeddata', schedule);
+    media.addEventListener('canplay', schedule);
+    // The element may already carry the loaded media when this effect runs
+    // (state update and mount land in the same commit).
+    if (media.readyState >= 1) schedule();
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      media.removeEventListener('loadeddata', schedule);
+      media.removeEventListener('canplay', schedule);
+      // An aborted or failed load must not leak its pick into the next source:
+      // by now the engine has been told to open a different file, so the stale
+      // track numbers would be applied to the wrong media.
+      pendingMpvTracksRef.current = null;
+    };
+  }, [mediaType, displayMediaUrl]);
+
+  // --- Desktop native engine: drop mirroring when the source leaves mpv ---
+  // A direct torrent / companion job session ends or is cancelled, or the user
+  // picks a local file: `displayMediaUrl` then falls back to a `blob:` (or
+  // null) that the engine cannot open. Without this reset `mpvActiveRef` stays
+  // true and the transport mirrors seek/play/pause into an unrelated file.
+  useEffect(() => {
+    if (!displayMediaUrl || !isMpvResolvableSource(displayMediaUrl)) {
+      mpvActiveRef.current = false;
+    }
+  }, [displayMediaUrl]);
 
   // --- Companion start buffering: monitor the initial playability ---
   // The companion surfaces jobMediaUrl while the .part is still being
@@ -3101,6 +3249,10 @@ export default function PlayerApp() {
     subDelayStateRef.current = next;
     setCues(subDelayCues(next));
     setActiveCueId(null);
+    // Desktop native engine: mirror the offset so mpv renders the same timings.
+    // Echoing an offset the engine itself pushed is idempotent (same value).
+    // Skipped while the engine holds no matching media (local `blob:` pick).
+    if (mpvActiveRef.current) void mpvSetSubDelay(next.offsetSeconds);
   }, []);
 
   // Native engine sub-delay handoff: the engine computes the offset and pushes
