@@ -61,3 +61,9 @@ vendor/subomatic/target/
 
 # Cargo build cache (src-tauri, plugins/*)
 target/
+
+# Bundled runtime DLLs (libmpv-2.dll is ~117 MB, over GitHub's 100 MB file
+# limit). They are fetched/installed at build time next to the executable and
+# must never enter git history.
+src-tauri/resources/windows/*.dll
+src-tauri/resources/*.dll

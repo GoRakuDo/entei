@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capability set for the Entei desktop window.",
   "windows": ["main"],
-  "permissions": ["core:default", "ytdlp:default", "torrent:default"]
+  "permissions": ["core:default", "ytdlp:default", "torrent:default", "mpv:default"]
 }

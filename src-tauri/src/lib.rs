@@ -3,6 +3,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_ytdlp::init())
         .plugin(tauri_plugin_torrent::init())
+        .plugin(tauri_plugin_mpv::init())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
