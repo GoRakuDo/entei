@@ -221,7 +221,7 @@ export const en: Dictionary = {
     magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
     magnetInputLabelTitle: 'Streaming Torrent',
     magnetErrorInvalid: 'Invalid magnet URI. Please enter a valid magnet link.',
-    magnetInputSubmit: 'Start download',
+    magnetInputSubmit: 'Load torrent',
     magnetInputUnpairedBody: 'Pair EizouDendenshi first to download a torrent.',
     magnetConsentLabel:
       'I understand: torrent trackers and peers can see my IP address while downloading.',

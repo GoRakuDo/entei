@@ -4843,7 +4843,9 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-breadcrumb {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-4);
+  /* 8px between a crumb and the next separator: 4px read as cramped against
+     the › glyph at 0.8125rem. */
+  gap: var(--entei-space-8);
   min-width: 0;
   min-height: var(--entei-space-24);
   overflow-x: auto;
@@ -4851,9 +4853,20 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
-  /* The trail and the rows read as one block: the form gap (16px) and the
-     list's own top padding used to stack into a dead band under the crumbs. */
-  margin-bottom: calc(-1 * var(--entei-space-16));
+  /* The trail and the rows read as one block. Three things stacked into a dead
+     band under the crumbs: the form gap (16px), the first row's own top padding
+     (8px) and the crumb line's leading (4px). All three are pulled back so the
+     only space left between the trail and the first row's content is the
+     intended --entei-space-4 hairline. */
+  margin-bottom: calc(
+    var(--entei-space-4) - var(--entei-space-16) - var(--entei-space-8) -
+      var(--entei-space-4)
+  );
+  /* The negative margin above pulls the trail over the first row; keep the
+     crumbs on their own layer so the row underneath can never steal the
+     lower half of a crumb's hit area. */
+  position: relative;
+  z-index: 1;
 }
 
 .entei-magnet-breadcrumb::-webkit-scrollbar {
@@ -4863,7 +4876,8 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-crumb-slot {
   display: inline-flex;
   align-items: center;
-  gap: var(--entei-space-4);
+  /* Separator (›) to its folder name: 8px so the trail breathes. */
+  gap: var(--entei-space-8);
   min-width: 0;
   flex-shrink: 0;
 }
@@ -4924,7 +4938,9 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-item {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-12);
+  /* Matches the row's 8px padding so the leading icon keeps the same optical
+     gutter on its left and on its right. */
+  gap: var(--entei-space-8);
   width: 100%;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8);
@@ -4963,9 +4979,15 @@ html.entei-player-immersive .entei-player-audio-area {
   border-color: color-mix(in oklch, var(--entei-accent) 35%, transparent);
 }
 
+/* Leading icon: a fixed square box with the SVG centred in both axes, so the
+   glyph never drifts into a corner on one-line and two-line rows alike. */
 .entei-magnet-item-icon {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  width: var(--entei-space-20);
+  height: var(--entei-space-20);
   color: var(--entei-text-secondary);
 }
 
@@ -4997,7 +5019,9 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-item-check {
   flex-shrink: 0;
   align-self: center;
-  margin: 0;
+  /* Pull the box out of the row padding so its right edge sits on the same
+     vertical line as the magnet create button above it. */
+  margin: 0 calc(-1 * var(--entei-space-8)) 0 0;
   border-color: oklch(100% 0 0deg / 0.3);
   background-color: oklch(100% 0 0deg / 0.05);
   box-shadow: none;
@@ -5049,7 +5073,7 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-skeleton-row {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-8);
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8);
 }
@@ -5057,8 +5081,8 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-magnet-skeleton-icon {
   position: relative;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: var(--entei-space-20);
+  height: var(--entei-space-20);
   border-radius: var(--entei-radius-sm);
   background-color: oklch(100% 0 0deg / 0.06);
   overflow: hidden;

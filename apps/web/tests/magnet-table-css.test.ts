@@ -173,12 +173,55 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
   });
 
   it('collapses the dead band between the breadcrumb and the rows', () => {
-    // Form gap is 16px; the trail pulls itself back by exactly that much and
-    // the list drops its top padding, so the rows start right under it.
+    // Form gap (16px) + first-row top padding (8px) + crumb leading (4px) are
+    // all pulled back, leaving a --entei-space-4 hairline under the trail.
     const crumb = ruleBlock('.entei-magnet-breadcrumb');
-    expect(crumb).toContain('margin-bottom: calc(-1 * var(--entei-space-16))');
+    expect(crumb).toContain('margin-bottom: calc(');
+    expect(crumb).toContain(
+      'var(--entei-space-4) - var(--entei-space-16) - var(--entei-space-8)',
+    );
     const list = ruleBlock('.entei-magnet-list');
     expect(list).toContain('padding: 0 0 var(--entei-space-8)');
+  });
+
+  it('spaces the breadcrumb trail and its separators at 8px', () => {
+    // 4px between a › glyph and the folder name read as cramped; both the
+    // trail gap and the separator gap are now one --entei-space-8 step.
+    expect(ruleBlock('.entei-magnet-breadcrumb')).toContain(
+      'gap: var(--entei-space-8)',
+    );
+    expect(ruleBlock('.entei-magnet-crumb-slot')).toContain(
+      'gap: var(--entei-space-8)',
+    );
+  });
+
+  it('keeps the breadcrumb clickable above the rows it overlaps', () => {
+    // The trail is pulled down with a negative margin, so it must own its own
+    // stacking layer or the first row would steal the lower hit area.
+    const crumb = ruleBlock('.entei-magnet-breadcrumb');
+    expect(crumb).toContain('position: relative');
+    expect(crumb).toContain('z-index: 1');
+  });
+
+  it('lines the row checkbox up with the magnet create button', () => {
+    // The button is flush with the dialog content edge; the checkbox cancels
+    // the row padding so both right edges share one vertical line.
+    const check = ruleBlock('.entei-magnet-item-check');
+    expect(check).toContain('margin: 0 calc(-1 * var(--entei-space-8)) 0 0');
+    const addBtn = ruleBlock('.entei-magnet-add-btn');
+    expect(addBtn).toContain('width: var(--entei-touch-min)');
+  });
+
+  it('seats the leading row icon in a centred square box', () => {
+    const icon = ruleBlock('.entei-magnet-item-icon');
+    expect(icon).toContain('align-items: center');
+    expect(icon).toContain('justify-content: center');
+    expect(icon).toContain('width: var(--entei-space-20)');
+    expect(icon).toContain('height: var(--entei-space-20)');
+    // Same gutter left and right of the icon: row padding === row gap.
+    expect(ruleBlock('.entei-magnet-item')).toContain(
+      'gap: var(--entei-space-8)',
+    );
   });
 
   it('renders folder/file names and the current crumb in secondary text', () => {

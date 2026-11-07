@@ -29,7 +29,7 @@ const baseDict = {
   magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
   magnetInputLabelTitle: 'Open Torrent Stream',
   magnetErrorInvalid: 'Invalid magnet URI.',
-  magnetInputSubmit: 'Start download',
+  magnetInputSubmit: 'Load torrent',
   magnetInputUnpairedBody: 'Pair EizouDendenshi first to download a torrent.',
   magnetConsentLabel: 'I understand: torrent trackers and peers can see my IP address while downloading.',
   magnetInputErrorRepair: 'The connection needs re-pairing.',
@@ -390,6 +390,42 @@ describe('MagnetInput — create + errors', () => {
       const cancel = calls.find((c) => c.url.includes('/v1/source/torrents/jobCancel/cancel'));
       expect(cancel).toBeTruthy();
     });
+  });
+
+  it('shows the shimmering skeleton from the moment create starts (before the response)', async () => {
+    let resolveCreate!: (r: Response) => void;
+    const gate = new Promise<Response>((res) => {
+      resolveCreate = res;
+    });
+    const { fetchMock } = makeFetcher([() => gate]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    // The create request is still in flight ('creating'): the bones must be
+    // up already. Before this contract the dialog sat as a bare input shell
+    // for the whole request and the file list appeared out of nowhere.
+    expect(
+      document.querySelector('.entei-magnet-breadcrumb--skeleton'),
+    ).toBeTruthy();
+    expect(
+      document.querySelectorAll('.entei-magnet-skeleton-row'),
+    ).toHaveLength(5);
+    expect(
+      document.querySelectorAll('.entei-magnet-skeleton-icon'),
+    ).toHaveLength(5);
+    expect(document.querySelector('.entei-magnet-item')).not.toBeInTheDocument();
+    // Accepted → the same bones carry through the metadata check.
+    resolveCreate(jsonResponse({ id: 'jobCreating' }, 201));
+    await waitFor(() =>
+      expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument(),
+    );
+    expect(
+      document.querySelectorAll('.entei-magnet-skeleton-row'),
+    ).toHaveLength(5);
+    expect(
+      document.querySelector('.entei-magnet-breadcrumb--skeleton'),
+    ).toBeTruthy();
   });
 
   it('stale acceptance after unmount does not fire the callback', async () => {

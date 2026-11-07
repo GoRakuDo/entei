@@ -114,3 +114,14 @@ describe('Dictionary key parity (PHASE0.md 8.197)', () => {
     expect(dictionaries.en).toBeDefined();
   });
 });
+
+describe('Magnet create-button label', () => {
+  // The magnet icon button only LOADS the torrent and resolves its file list;
+  // downloading starts later from the file picker's "Stream Now". Labelling it
+  // "start download" made the tooltip promise an action the button never does.
+  it('says load/resolve, never "start download"', () => {
+    expect(id.playerUI.magnetInputSubmit).toBe('Muat torrent');
+    expect(ja.playerUI.magnetInputSubmit).toBe('トレントを読み込む');
+    expect(en.playerUI.magnetInputSubmit).toBe('Load torrent');
+  });
+});

@@ -225,7 +225,7 @@ export const ja: Dictionary = {
     magnetInputLabelTitle: 'ストリーミングトレント',
     magnetErrorInvalid:
       '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
-    magnetInputSubmit: 'ダウンロード開始',
+    magnetInputSubmit: 'トレントを読み込む',
     magnetInputUnpairedBody:
       'Torrentをダウンロードするには、先に映像伝電子をペアリングしてください。',
     magnetConsentLabel:

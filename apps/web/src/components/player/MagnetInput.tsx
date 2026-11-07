@@ -24,8 +24,10 @@
  * payload or Player playback.
  *
  * Flow semantics:
- * - After create the job is in its metadata-fetch phase: the table shows
- *   a spinner + localized "checking metadata" label, NEVER byte counts.
+ * - The metadata skeleton (shimmering breadcrumb bar + file bones) is shown
+ *   from the moment the create request starts ('creating') through metadata
+ *   resolution ('checking'), so the dialog never sits as a bare input shell
+ *   while the companion/plugin is working. Byte counts are NEVER shown here.
  * - The file picker appears once the companion reports `buffering` (the
  *   metadata is listed); payload download only begins after selection.
  * - Cancel / Escape / overlay click cancels the owned job asynchronously;
@@ -1252,12 +1254,17 @@ export function MagnetInput({
   // entries are still held and must not collapse into the empty state while
   // waitForPlayable runs after /select.
   const showTable = phase === 'selecting' || phase === 'submitting';
-  const showChecking = phase === 'checking';
-  // Breadcrumb + file list only exist once a torrent has been created: the
-  // metadata check (spinner) or the file listing. Before that (input /
-  // creating / settling) the dialog is a pure input shell — no empty box, no
-  // root-only breadcrumb strip.
-  const showFiles = showTable || showChecking;
+  // Skeleton phase: the create request is in flight ('creating') or the
+  // torrent's metadata is still resolving ('checking'). Both must show the
+  // shimmering bones — the create request itself can take seconds (companion
+  // POST / desktop plugin metadata wait), and showing a bare input shell for
+  // that stretch reads as "nothing is happening".
+  const showLoading = phase === 'creating' || phase === 'checking';
+  // Breadcrumb + file list only exist once a torrent attempt has started: the
+  // skeleton (creating/checking) or the file listing. Before that (input /
+  // settling) the dialog is a pure input shell — no empty box, no root-only
+  // breadcrumb strip.
+  const showFiles = showTable || showLoading;
   // The root crumb always exists so navigating back to the torrent root is
   // always possible, even when the magnet carries no `dn` display name.
   const crumbs = buildBreadcrumb(
@@ -1338,7 +1345,7 @@ export function MagnetInput({
               non-current segment navigates back to that level (the job is
               never cancelled — browsing is display-only). Only rendered once
               a torrent exists (see `showFiles`). */}
-          {showFiles && showChecking && (
+          {showFiles && showLoading && (
             <nav
               className="entei-magnet-breadcrumb entei-magnet-breadcrumb--skeleton"
               aria-label={dict.magnetBreadcrumbLabel}
@@ -1350,7 +1357,7 @@ export function MagnetInput({
             </nav>
           )}
 
-          {showFiles && !showChecking && crumbs.length > 0 && (
+          {showFiles && !showLoading && crumbs.length > 0 && (
             <nav
               className="entei-magnet-breadcrumb"
               aria-label={dict.magnetBreadcrumbLabel}
@@ -1479,9 +1486,10 @@ export function MagnetInput({
                   })
                 )
               ) : (
-                /* Metadata fetch: the trail is unknown yet, so the strip above
-                   and this list show shimmering bones. The status copy stays
-                   in the a11y tree (visually hidden) for screen readers. */
+                /* Skeleton (creating + metadata fetch): the trail is unknown
+                   yet, so the strip above and this list show shimmering
+                   bones. The status copy stays in the a11y tree (visually
+                   hidden) for screen readers. */
                 <div className="entei-magnet-checking" role="status">
                   <span className="entei-sr-only">
                     {dict.magnetCheckMetadata}

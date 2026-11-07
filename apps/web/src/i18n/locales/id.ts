@@ -224,7 +224,7 @@ export const id: Dictionary = {
     magnetInputLabelTitle: 'Streaming Torrent',
     magnetErrorInvalid:
       'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
-    magnetInputSubmit: 'Mulai unduh',
+    magnetInputSubmit: 'Muat torrent',
     magnetInputUnpairedBody:
       'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh torrent.',
     magnetConsentLabel:
