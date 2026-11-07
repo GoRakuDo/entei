@@ -51,6 +51,7 @@ import {
   LOCALE_CHANGE_EVENT,
   type LocaleChangeDetail,
 } from '@i18n/locale-events';
+import { trace, traceError } from '@/features/trace/trace-logger';
 import { getDictionary } from '@i18n/index';
 import type { Dictionary, Locale } from '@i18n/types';
 
@@ -628,7 +629,14 @@ function HistorySection({
               type="button"
               variant="secondary"
               className="entei-profile-history-load-more entei-profile-solid-btn"
-              onClick={() => setPage((current) => current + 1)}
+              onClick={() => {
+                setPage((current) => current + 1);
+                trace('profile', 'history_load_more', {
+                  source,
+                  shown: visibleRecords.length,
+                  total: records.length,
+                });
+              }}
             >
               <ArrowDownFromLine aria-hidden="true" />
               {t.contentHistoryLoadMore}
@@ -653,9 +661,23 @@ function ContentHistoryGrid({
 
   useEffect(() => {
     let active = true;
-    void getAllWatchHistory().then((next) => {
-      if (active) setRecords(next);
-    });
+    trace('profile', 'history_load_start', {});
+    void getAllWatchHistory().then(
+      (next) => {
+        if (!active) return;
+        setRecords(next);
+        trace('profile', 'history_load_complete', {
+          total: next.length,
+          local: next.filter((record) => record.source === 'local').length,
+          youtube: next.filter((record) => record.source === 'youtube').length,
+          audio: next.filter((record) => record.source === 'audio').length,
+        });
+      },
+      (error: unknown) => {
+        if (!active) return;
+        traceError('profile', 'history_load_failed', error);
+      },
+    );
     return () => {
       active = false;
     };
@@ -740,7 +762,11 @@ export default function ProfileDashboard() {
     <div className="entei-profile-root" data-testid="profile-dashboard">
       <ProfileHeader profile={profile} t={t} onProfileChange={setProfile} />
 
-      <Tabs defaultValue="stats" className="entei-profile-tabs">
+      <Tabs
+        defaultValue="stats"
+        className="entei-profile-tabs"
+        onValueChange={(value) => trace('profile', 'tab_change', { tab: value })}
+      >
         <TabsList className="entei-profile-tabs-list" aria-label={t.tabsLabel}>
           <TabsTrigger value="stats">{t.immersionStats}</TabsTrigger>
           <TabsTrigger value="history">{t.contentHistory}</TabsTrigger>
@@ -752,7 +778,14 @@ export default function ProfileDashboard() {
           <ContentHistoryGrid
             locale={locale}
             t={t}
-            onHistoryCardClick={setSelectedHistoryRecord}
+            onHistoryCardClick={(record) => {
+              trace('profile', 'history_card_open', {
+                mediaId: record.mediaId,
+                source: record.source,
+                title: record.title,
+              });
+              setSelectedHistoryRecord(record);
+            }}
           />
         </TabsContent>
       </Tabs>

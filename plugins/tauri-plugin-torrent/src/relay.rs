@@ -13,6 +13,14 @@
 //! wakes it when the piece arrives, so a seek into an undownloaded region
 //! simply waits instead of failing.
 //!
+//! The torrent's *initialization* is waited for the same way. `stream()` refuses
+//! a torrent whose storage is not open yet ("invalid state: initializing"), and a
+//! 130 GB / 1372-file torrent stays in that state for minutes while librqbit
+//! checksums the pieces. Answering `503` there is fatal: a browser media element
+//! does not retry a `503`, it stops with error code 4 and never recovers. The
+//! first request is therefore parked until initialization lands and answered with
+//! `206` right after, so the player only ever sees a buffering wait.
+//!
 //! Only loopback traffic is accepted: the listener binds `127.0.0.1` with an
 //! ephemeral port, so nothing is reachable from the network and no torrent
 //! metadata (infohash, tracker, peer) is ever exposed to the webview.
@@ -20,7 +28,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -41,6 +49,31 @@ const MAX_SESSIONS: usize = 16;
 
 /// Read chunk size handed to the response body stream.
 const CHUNK_SIZE: usize = 64 * 1024;
+
+/// How long a request may stay parked while the torrent finishes initializing.
+///
+/// librqbit opens a torrent's storage only after its initial piece check, and on
+/// a 130 GB / 1372-file torrent that check runs for minutes. The browser's first
+/// `Range` request is held open for that whole window instead of being answered
+/// `503` — a media element never retries a `503`, so an early refusal is a
+/// permanent playback failure, while a parked request is just a buffering wait
+/// the player already shows a spinner for.
+const STREAM_INIT_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Poll interval between `stream()` probes after initialization resolved.
+/// `wait_until_initialized` itself parks on the torrent's notify handle, so this
+/// only bounds the re-probe of a torrent that is already past initializing.
+const STREAM_INIT_RETRY: Duration = Duration::from_millis(500);
+
+/// How many `stream()` re-probes are allowed once initialization resolved.
+///
+/// `wait_until_initialized` returns immediately on an already-initialized
+/// torrent, so an unbounded retry loop would spin every [`STREAM_INIT_RETRY`]
+/// for the whole [`STREAM_INIT_TIMEOUT`] whenever the file is genuinely
+/// unaddressable (storage closed, file removed). Eight probes ≈ 4 s is enough
+/// for the transient window right after the piece check and short enough that a
+/// dead file fails fast.
+const STREAM_INIT_MAX_RETRIES: u32 = 8;
 
 static RELAY: OnceCell<Arc<Relay>> = OnceCell::const_new();
 
@@ -324,6 +357,69 @@ async fn handle_stream(
     with_cors(stream_file(relay, id, headers).await)
 }
 
+/// Why a stream could not be opened for a registered session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StreamWait {
+    /// The torrent never left `Initializing` inside [`STREAM_INIT_TIMEOUT`].
+    Timeout,
+    /// The torrent is in an error state or the file is no longer addressable;
+    /// no amount of waiting can make it streamable.
+    Unavailable,
+}
+
+/// Status the relay answers when a stream cannot be opened at all.
+///
+/// Deliberately not `404`/`500`: the session exists and the request is valid, the
+/// torrent just is not servable — and `503` is the honest signal for that.
+fn unavailable_status() -> StatusCode {
+    StatusCode::SERVICE_UNAVAILABLE
+}
+
+/// Wait until `file_id` can be streamed, parking on the torrent's own state.
+///
+/// The fast path is a single `stream()` probe: a live or paused torrent whose
+/// storage is open returns `Ok` and the caller re-opens the stream itself. Every
+/// other case waits for initialization to finish and then re-probes, so a
+/// torrent that needs minutes to checksum never produces a `503` that the
+/// browser would treat as fatal.
+async fn wait_streamable(handle: &Arc<ManagedTorrent>, file_id: usize) -> Result<(), StreamWait> {
+    // `stream()` only succeeds once the storage is open; the error text is
+    // deliberately dropped because librqbit's message can carry cache paths and
+    // no torrent detail may reach the webview.
+    if handle.clone().stream(file_id).is_ok() {
+        return Ok(());
+    }
+
+    let deadline = tokio::time::Instant::now() + STREAM_INIT_TIMEOUT;
+    let budget = deadline.saturating_duration_since(tokio::time::Instant::now());
+    // Parks until the state changes; an error state can never become
+    // streamable, so it fails at once instead of burning the budget.
+    match tokio::time::timeout(budget, handle.wait_until_initialized()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => return Err(StreamWait::Unavailable),
+        Err(_) => return Err(StreamWait::Timeout),
+    }
+
+    // Initialization is done. A handful of bounded re-probes covers the short
+    // window where storage is still being opened; past that the file is not
+    // servable and retrying cannot change it, so stop instead of spinning.
+    for _ in 0..STREAM_INIT_MAX_RETRIES {
+        if handle.clone().stream(file_id).is_ok() {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(StreamWait::Timeout);
+        }
+        tokio::time::sleep(STREAM_INIT_RETRY).await;
+    }
+
+    if handle.clone().stream(file_id).is_ok() {
+        Ok(())
+    } else {
+        Err(StreamWait::Unavailable)
+    }
+}
+
 /// The response is `206 Partial Content` whenever the client sent a usable
 /// `Range`, with `Content-Range`/`Content-Length` describing exactly the bytes
 /// that follow, which is what lets the `<video>` element seek natively.
@@ -332,17 +428,27 @@ async fn stream_file(relay: Arc<Relay>, id: String, headers: HeaderMap) -> Respo
         return (StatusCode::NOT_FOUND, "unknown stream session").into_response();
     };
 
+    // Hold the request until the torrent can actually serve bytes. Returning
+    // `503` here instead is what used to kill playback outright: Chrome stops a
+    // media element on the first `503` and never retries it.
+    if let Err(wait) = wait_streamable(&handle, file_id).await {
+        // The message stays generic: no torrent detail may reach the webview.
+        return match wait {
+            StreamWait::Timeout => {
+                (unavailable_status(), "torrent stream still initializing").into_response()
+            }
+            StreamWait::Unavailable => {
+                (unavailable_status(), "torrent stream unavailable").into_response()
+            }
+        };
+    }
+
     let mut stream = match handle.stream(file_id) {
         Ok(stream) => stream,
         Err(_) => {
-            // The torrent is not in a streamable state (still initializing,
-            // paused without files, or removed). The message stays generic:
-            // no torrent detail may reach the webview.
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "torrent stream unavailable",
-            )
-                .into_response();
+            // The torrent stopped being streamable between the wait and this
+            // call (cancelled, removed). The message stays generic.
+            return (unavailable_status(), "torrent stream unavailable").into_response();
         }
     };
 
@@ -463,6 +569,25 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("*")
         );
+    }
+
+    #[test]
+    fn both_wait_outcomes_answer_service_unavailable() {
+        // Whatever the reason a stream cannot be opened, the browser must get the
+        // same retryable status. Anything else (`404`/`500`) would be read as a
+        // different failure class, and the message must not leak torrent detail.
+        for wait in [StreamWait::Timeout, StreamWait::Unavailable] {
+            assert_eq!(unavailable_status(), StatusCode::SERVICE_UNAVAILABLE);
+            let response = match wait {
+                StreamWait::Timeout => {
+                    (unavailable_status(), "torrent stream still initializing").into_response()
+                }
+                StreamWait::Unavailable => {
+                    (unavailable_status(), "torrent stream unavailable").into_response()
+                }
+            };
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
     }
 
     #[test]

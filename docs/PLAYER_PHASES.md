@@ -949,3 +949,43 @@ Sentence Mining:
 
 - `tests/magnet-input.test.tsx`: checkbox 不在・同意パラグラフ不在・idle で breadcrumb/file list/empty state が無いことを pin。
 - `tests/magnet-table-css.test.ts`: 撤去済みセレクタが player.css に戻っていないことを pin。
+
+---
+
+## 23. Desktop direct torrent: `Initializing` 中の select 失敗を廃止
+
+> **追加日:** 2026-09-05
+> **対象:** `plugins/tauri-plugin-torrent/src/lib.rs`, `plugins/tauri-plugin-torrent/src/relay.rs`
+
+### 症状
+
+「Streaming Sekarang（Pilih & putar）」押下時に Magnet モーダルが汎用トースト「Terjadi kesalahan. Coba lagi.」で停止し、先へ進めない。
+
+### 原因（実測済み）
+
+| # | 事実 |
+|---|---|
+| 1 | `select_torrent_files` の `wait_streamable` が 20 秒（`STREAM_READY_TIMEOUT`）で `Err("torrent file did not become streamable in time")` を返していた |
+| 2 | 130 GB / 1372 ファイルの torrent は librqbit の `FileOps::initial_check`（全 piece の初期チェックサム走査）で `initializing` が 2〜3 分継続する |
+| 3 | `Initializing` 中は `handle.stream()` が必ず `bail!("invalid state: initializing")`。20 秒では足りずコマンドが失敗 → UI が汎用エラーで停止 |
+| 4 | 初期化完了後（`state == live`）は同じコマンドが 28 ms で成功し URL を返す |
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| `select_torrent_files` | `wait_streamable` による失敗を撤去。初期化待ちは `TRACK_SCAN_TIMEOUT`(20 s) の best-effort に格下げし、`Err` を返さない。relay 登録後すぐ URL を返す |
+| 初期化待ちの意味 | コンテナヘッダを読んで MKV トラック一覧を返せるかどうかだけを決める。遅い torrent は `mkv_tracks: None` で返り、エンジン既定のトラック選択に任せる |
+| `relay::stream_file` | `stream()` が `Err` の時すぐ 503 にせず、`wait_streamable` で `wait_until_initialized` を最大 `STREAM_INIT_TIMEOUT`(5 分) 待ってから再度 `stream()` を開く。準備でき次第 `206 Partial Content` を返す |
+| 503 を返す条件 | 5 分待っても初期化しない（`StreamWait::Timeout`）か、エラー状態で回復不能（`StreamWait::Unavailable`）の時だけ。文言は汎用のまま torrent 詳細を出さない |
+| 理由 | ブラウザの media element は 503 を再試行せず error code 4 で恒久停止する。リクエストを保持して待てば、Player 側は `readyState < 2` のバッファリングスピナーを出しながら自然に待機できる |
+
+### 検証
+
+- `cargo test --manifest-path plugins/tauri-plugin-torrent/Cargo.toml` → 23 passed（`relay::tests::both_wait_outcomes_answer_service_unavailable` を追加）
+- `cargo check --manifest-path src-tauri/Cargo.toml` → 警告なし
+
+### 既知の制限
+
+- 初期化が 5 分を超える torrent では relay が 503 を返す。Player 側の bounded `src` 再設定 + `load()` 復旧が最後の砦。
+- 初期化が `TRACK_SCAN_TIMEOUT` を超えた torrent では `selected_audio_track` / `selected_subtitle_track` が返らず、mpv の自動選択になる（日本語音声が既定でない場合は英語で再生される可能性がある）。

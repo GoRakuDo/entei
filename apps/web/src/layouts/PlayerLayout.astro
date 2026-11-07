@@ -94,6 +94,13 @@ const dictionary: Dictionary = getDictionary(locale);
     <script>
       import '../scripts/locale-switcher.ts';
     </script>
+    {
+      /* Trace instrumentation — user action → system reaction journal.
+        Player routes need it too: file picks, seeks, IPC and errors. */
+    }
+    <script>
+      import '../scripts/trace-boot.ts';
+    </script>
   </body>
 </html>
 

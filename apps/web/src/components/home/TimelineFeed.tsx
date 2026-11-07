@@ -53,6 +53,7 @@ import {
 } from '@i18n/locale-events';
 import type { Locale } from '@i18n/types';
 import { readLocalProfile } from '@/features/player/profile/profile-store';
+import { trace, traceError } from '@/features/trace/trace-logger';
 import {
   TIMELINE_POST_MAX_LENGTH,
   clampTimelineComment,
@@ -236,6 +237,13 @@ export default function TimelineFeed() {
       avatar: profile.avatar,
     });
     syncFromStorage();
+    const state = readTimelineState();
+    trace('home', 'feed_ready', {
+      posts: state.posts.length,
+      likes: state.likedIds.length,
+      comments: state.comments.length,
+      hasProfileName: profile.name.trim().length > 0,
+    });
   }, [syncFromStorage]);
 
   useEffect(() => {
@@ -368,6 +376,7 @@ export default function TimelineFeed() {
     setLikedIds((current) => mergeLikedIds(likes, current));
     setNow(Date.now());
     setVisibleCount((count) => Math.max(count, INITIAL_VISIBLE_POSTS) + added);
+    trace('home', 'new_posts_click', { added, total: parked.length });
 
     // Smooth scroll to the top so the newest post lands in view.
     try {
@@ -381,6 +390,7 @@ export default function TimelineFeed() {
     refreshingRef.current = true;
     setIsRefreshing(true);
     syncFromStorage();
+    trace('home', 'refresh', { posts: localPostsRef.current.length });
     if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
       settleTimerRef.current = null;
@@ -460,6 +470,7 @@ export default function TimelineFeed() {
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         setVisibleCount((count) => count + LOAD_MORE_STEP);
+        trace('home', 'load_more', { step: LOAD_MORE_STEP });
       },
       { rootMargin: '200px 0px' },
     );
@@ -504,6 +515,12 @@ export default function TimelineFeed() {
       // Keep every already-visible post on screen: the new one adds a row at
       // the top of the page window.
       setVisibleCount((count) => count + 1);
+      trace('home', 'post_publish', {
+        postId: post.id,
+        length: post.message.length,
+        author: post.authorName,
+        totalPosts: next.length,
+      });
     },
     [author, draft, localPosts, likedIds, comments, persist],
   );
@@ -526,6 +543,11 @@ export default function TimelineFeed() {
       pendingSnapshotRef.current = null;
       pendingLikesRef.current = [];
       setPendingCount(0);
+      trace('home', 'like_toggle', {
+        postId,
+        liked: next.includes(postId),
+        likes: next.length,
+      });
     },
     [likedIds, localPosts, comments, persist],
   );
@@ -535,6 +557,7 @@ export default function TimelineFeed() {
   const openPost = useCallback((postId: string) => {
     setReplyDraft('');
     setSelectedPostId(postId);
+    trace('home', 'post_open', { postId });
     // Give the browser's Back button the same meaning as the header control.
     try {
       window.history.pushState({ enteiTimelinePost: postId }, '');
@@ -544,6 +567,7 @@ export default function TimelineFeed() {
   }, []);
 
   const closePost = useCallback(() => {
+    trace('home', 'post_close', { postId: selectedPostId });
     setSelectedPostId(null);
     setReplyDraft('');
     // `openPost` pushed a history entry so the browser Back button could leave
@@ -556,7 +580,7 @@ export default function TimelineFeed() {
         // History is unavailable in some embeddings; the state is cleared.
       }
     }
-  }, []);
+  }, [selectedPostId]);
 
   // Browser back (and the hardware back gesture) leaves the thread. Clearing
   // `selectedPostId` is what clears the thread: `selectedPost` is derived from
@@ -583,6 +607,12 @@ export default function TimelineFeed() {
       setReplyDraft('');
       persist(mergePostsById(localPosts, state.posts), mergeLikedIds(likedIds, state.likedIds), next);
       setNow(Date.now());
+      trace('home', 'comment_publish', {
+        postId: selectedPostId,
+        commentId: comment.id,
+        length: comment.text.length,
+        replies: next.filter((item) => item.postId === selectedPostId).length,
+      });
     },
     [author, selectedPostId, replyDraft, comments, localPosts, likedIds, persist],
   );
@@ -592,8 +622,10 @@ export default function TimelineFeed() {
       try {
         await navigator.clipboard.writeText(post.message);
         toast.success(t.shareCopied);
-      } catch {
+        trace('home', 'share', { postId: post.id, ok: true });
+      } catch (error) {
         toast.error(t.shareFailed);
+        traceError('home', 'share', error, { postId: post.id, ok: false });
       }
     },
     [t.shareCopied, t.shareFailed],

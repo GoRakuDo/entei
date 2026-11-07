@@ -14,10 +14,13 @@
 //! - `select_torrent_files(id, video_index, subtitle_index)` -> *this* is where
 //!   the download starts: the torrent is added to the session from the stored
 //!   torrent bytes with `only_files` set to the chosen video (and subtitle), so
-//!   every other file stays untouched. It then waits (bounded) for the video's
-//!   first byte and returns loopback relay URLs for playback (see [`relay`]).
-//!   The response also carries the Matroska track list and the auto-selected
-//!   Japanese audio/subtitle track numbers.
+//!   every other file stays untouched. It then returns loopback relay URLs for
+//!   playback (see [`relay`]) **without** gating on the file being streamable
+//!   yet: a torrent stays `Initializing` for as long as librqbit's initial piece
+//!   check runs, and the relay holds the browser's first range request until
+//!   then. The response also carries the Matroska track list and the
+//!   auto-selected Japanese audio/subtitle track numbers when the header could
+//!   be read inside the scan budget.
 //! - `inspect_torrent_tracks(id, file_index)` -> re-reads the container header
 //!   on demand and returns the same track report on its own.
 //! - `cancel_torrent(id)` -> removes the torrent from the session and deletes
@@ -66,29 +69,24 @@ use tokio::sync::Mutex;
 /// until a later `get_torrent_status` call.
 const METADATA_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Shared wall-clock budget for the "make the selected file playable" gate
-/// (`wait_until_initialized` → streamable → first byte on disk).
+/// Wall-clock budget for the *best-effort* container-header scan that follows
+/// the add in `select_torrent_files`.
 ///
-/// The steps used to carry separate timeouts (20 s + 30 s + 20 s), so a stalled
-/// torrent could keep the modal spinner alive for 80 s. They now share this one
-/// deadline — the wait the user actually sits through has a single ceiling.
+/// This is no longer a playback gate. It used to be one, and that was the bug:
+/// a large torrent (130 GB over 1372 files) spends minutes in librqbit's
+/// `Initializing` state while the initial piece check runs, `stream()` refuses
+/// every file in that window ("invalid state: initializing"), the bounded wait
+/// expired, and the command failed — the Magnet modal then showed a generic
+/// "Terjadi kesalahan" toast for a torrent that streams fine 28 ms after
+/// initialization lands.
 ///
-/// Why the gate exists: the relay answers `503` while the torrent is still
-/// `Initializing` (its `stream()` bails with "invalid state"), a browser media
-/// element does not retry a `503` (Chrome stops with error code 4 and never
-/// recovers), and a `<video>` opened over a file whose container header is still
-/// missing stalls until Chrome gives up (~30 s). The URL therefore must not
-/// leave the plugin before the file is streamable and its first byte is on disk.
-const STREAM_READY_TIMEOUT: Duration = Duration::from_secs(20);
-
-/// Total wall-clock budget for `select_torrent_files`: the readiness gate above
-/// plus the bounded MKV track inspection that follows it. The command never
-/// takes longer than this, so the modal's loading state has a hard ceiling.
-const SELECT_READY_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Backoff between streamability probes (cheap: one `stream()` + immediate
-/// drop, no piece is requested).
-const STREAM_READY_POLL: Duration = Duration::from_millis(200);
+/// The readiness gate now lives in [`relay`]: it parks the browser's first range
+/// request until the file can be streamed and answers `206` then, so a `503`
+/// (which Chrome never retries) can no longer reach the media element. This
+/// budget therefore only decides whether the reply can *also* carry the Matroska
+/// track list: a torrent that is still initializing gets its URL immediately and
+/// the engine keeps its own track auto-selection.
+const TRACK_SCAN_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Bytes of the container header read for track inspection.
 ///
@@ -443,8 +441,7 @@ fn mime_for_path(path: &str) -> &'static str {
 /// Time left before `deadline` (zero once it has passed).
 ///
 /// Every wait in the selection path is bounded by a shared deadline instead of
-/// its own timeout, so a slow step cannot hand the player a spinner that keeps
-/// turning past [`SELECT_READY_TIMEOUT`].
+/// its own timeout, so a slow step cannot stack onto the next one.
 fn remaining(deadline: tokio::time::Instant) -> Duration {
     deadline.saturating_duration_since(tokio::time::Instant::now())
 }
@@ -453,8 +450,8 @@ fn remaining(deadline: tokio::time::Instant) -> Duration {
 ///
 /// A `FileStream` read on a missing piece parks until the piece arrives, so a
 /// one-byte read is the cheapest exact "container header is here" probe. A
-/// timeout is not an error: the relay URL stays valid and the player simply
-/// waits a little longer on its first range request.
+/// timeout is not an error: the relay URL stays valid and the relay parks the
+/// browser's first range request until the piece arrives.
 async fn wait_first_byte(handle: &TorrentHandle, file_id: usize, deadline: tokio::time::Instant) {
     let Ok(mut stream) = handle.clone().stream(file_id) else {
         return;
@@ -468,49 +465,6 @@ async fn wait_first_byte(handle: &TorrentHandle, file_id: usize, deadline: tokio
     }
     let mut probe = [0u8; 1];
     let _ = tokio::time::timeout(budget, stream.read(&mut probe)).await;
-}
-
-/// Wait (bounded) until `file_id` can actually be streamed.
-///
-/// `add_torrent` hands the handle back while the torrent is still
-/// `Initializing`, and [`relay::stream_file`] answers `503` for every request in
-/// that window because `stream()` refuses a torrent whose storage is not open
-/// ("streams: invalid state"). A `<video>` element does not retry a `503` —
-/// Chrome stops with error code 4 and stays dead — so the relay URL must not
-/// leave the plugin before the file is streamable.
-///
-/// The wait is bounded by the caller's shared `deadline`: a torrent that never
-/// becomes streamable (no peers, error state, removed while waiting) returns an
-/// error instead of handing the player a URL that can only answer `503`. The
-/// probe stream is dropped immediately, so it registers nothing with the piece
-/// scheduler.
-async fn wait_streamable(
-    handle: &TorrentHandle,
-    file_id: usize,
-    deadline: tokio::time::Instant,
-) -> Result<(), TorrentError> {
-    loop {
-        // `stream()` only succeeds once the storage is open and the torrent is
-        // live or paused — exactly the state the relay needs. The error text is
-        // deliberately dropped: librqbit's message can carry cache paths and no
-        // torrent detail may reach the webview.
-        if handle.clone().stream(file_id).is_ok() {
-            return Ok(());
-        }
-        // A torrent that went into an error state never becomes streamable;
-        // fail now instead of burning the whole budget.
-        if handle.stats().error.is_some() {
-            return Err(TorrentError::Operation(
-                "torrent failed before it could be streamed".into(),
-            ));
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(TorrentError::Operation(
-                "torrent file did not become streamable in time".into(),
-            ));
-        }
-        tokio::time::sleep(STREAM_READY_POLL).await;
-    }
 }
 
 /// Is this path a Matroska-family container whose header we can inspect?
@@ -741,11 +695,16 @@ async fn cancel_torrent(state: tauri::State<'_, TorrentState>, id: String) -> Re
 /// the `TorrentFile.index` values from `add_torrent` (the metadata file index,
 /// which is what librqbit's `only_files` expects). Everything else in the
 /// torrent — other episodes, extras, soundtracks — is excluded from the start,
-/// so a 67 GB multi-file torrent only ever fetches the selected episode. The
-/// command returns only when the video is actually streamable and its first byte
-/// is present — all of it inside one shared budget ([`STREAM_READY_TIMEOUT`]),
-/// so the relay can never answer `503` to the player's first request and the
-/// modal spinner cannot run past [`SELECT_READY_TIMEOUT`] in total.
+/// so a 67 GB multi-file torrent only ever fetches the selected episode.
+///
+/// The command never fails because the torrent is still `Initializing`. librqbit
+/// opens the storage only after its initial piece check, which on a 130 GB /
+/// 1372-file torrent runs for minutes; waiting for that here is what used to
+/// abort the modal with a generic error. The relay sessions are registered first
+/// — the URLs are final as soon as the handle exists — and every long
+/// initialization wait is left to the relay's `wait_streamable`, which parks the
+/// browser's first range request instead of refusing it. Only the best-effort
+/// Matroska header scan below stays bounded here, by [`TRACK_SCAN_TIMEOUT`].
 #[tauri::command]
 async fn select_torrent_files(
     state: tauri::State<'_, TorrentState>,
@@ -803,41 +762,9 @@ async fn select_torrent_files(
         Entry::Active { handle, .. } => handle.clone(),
     };
 
-    // `add_torrent` hands the handle back while it is still `Initializing`: the
-    // storage is not open yet, so `update_only_files`, `stream()` (the
-    // streamability gate and first-byte probe) and the MKV header read would all
-    // bail out instantly. Wait for initialization to finish first. This wait is
-    // only a shortcut (it resolves early on the usual path); the authoritative
-    // gate is `wait_streamable` below.
-    //
-    // Every wait below shares one deadline: separate timeouts added up to 80 s of
-    // spinner on a stalled torrent, which is exactly what the player showed.
-    let start = tokio::time::Instant::now();
-    let ready_deadline = start + STREAM_READY_TIMEOUT;
-    let select_deadline = start + SELECT_READY_TIMEOUT;
-    let _ = tokio::time::timeout(remaining(ready_deadline), handle.wait_until_initialized()).await;
-
-    // Best effort: a fresh add already honours `only_files`, and an already
-    // live torrent needs the restriction applied now. `unpause` is only worth
-    // the tracker re-announce when the torrent really sits paused (librqbit
-    // rejects `start` on a live torrent anyway).
-    let _ = session.update_only_files(&handle, &only_files).await;
-    if handle.is_paused() {
-        let _ = session.unpause(&handle).await;
-    }
-
-    // The relay URL must not leave the plugin while the torrent is still
-    // initializing: the relay would answer `503` and the browser would stop the
-    // media element with error code 4 for good (it does not retry). Gate on a
-    // streamable file first, and fail loudly instead of handing out a dead URL.
-    wait_streamable(&handle, video.index, ready_deadline)
-        .await
-        .map_err(|err| err.message())?;
-
-    // Now that the storage is open the probe below can actually read; a late
-    // header is fine (the relay parks the read until the piece arrives).
-    wait_first_byte(&handle, video.index, ready_deadline).await;
-
+    // Register the relay sessions before anything can wait: the URLs are
+    // deterministic once the handle exists, so the reply's playback surface is
+    // final immediately and no initialization delay can hold it back.
     let relay = relay::ensure().await?;
     // Re-selecting a file in the same torrent replaces its streams: drop the
     // previous relay sessions first, otherwise dead URLs keep occupying slots
@@ -849,10 +776,22 @@ async fn select_torrent_files(
         .as_ref()
         .map(|file| relay.register(&id, handle.clone(), file.index, mime_for_path(&file.path)));
 
-    // The header bytes are already here (first byte waited above), so listing
-    // the container tracks costs no extra wait in the common case.
+    // Best effort: a fresh add already honours `only_files`, and an already
+    // live torrent needs the restriction applied now. Neither call blocks on
+    // initialization — on a torrent that is still `Initializing` librqbit
+    // rejects them and the add above already carries the file restriction.
+    let _ = session.update_only_files(&handle, &only_files).await;
+    if handle.is_paused() {
+        let _ = session.unpause(&handle).await;
+    }
+
+    let scan_deadline = tokio::time::Instant::now() + TRACK_SCAN_TIMEOUT;
+    // Both probes below are opportunistic: they warm the first piece and let the
+    // reply carry the track list. When the torrent is still initializing they
+    // return at once and the relay keeps the browser parked instead.
+    wait_first_byte(&handle, video.index, scan_deadline).await;
     let track_report =
-        read_mkv_track_report(&handle, video.index, &video.path, select_deadline).await;
+        read_mkv_track_report(&handle, video.index, &video.path, scan_deadline).await;
 
     Ok(SelectedTorrentFiles {
         video_url,

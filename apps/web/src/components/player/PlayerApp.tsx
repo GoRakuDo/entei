@@ -118,6 +118,7 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
 import { clampCompanionSeek } from '@/features/player/seek-limiter';
+import { trace, traceError } from '@/features/trace/trace-logger';
 import { isFirefox } from '@/features/player/browser-detect';
 import {
   notifyQuality,
@@ -319,6 +320,12 @@ function sanitizeDisplayName(name: string): string {
   return cleaned.slice(0, MAX_MEDIA_NAME_LENGTH);
 }
 
+/** Round a playback position to 2 decimals for trace payloads. */
+function round2(seconds: number): number {
+  if (!Number.isFinite(seconds)) return 0;
+  return Math.round(seconds * 100) / 100;
+}
+
 function seekVideoSafely(
   video: HTMLVideoElement,
   targetTime: number,
@@ -376,6 +383,15 @@ export default function PlayerApp() {
     return () => window.removeEventListener(LOCALE_CHANGE_EVENT, handler);
   }, []);
 
+  // Trace: what the Player screen opened with (runtime, modules, prefs). The
+  // per-action entries that follow inherit this context.
+  useEffect(() => {
+    trace('player', 'mount', {
+      tauri: '__TAURI_INTERNALS__' in window,
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+    });
+  }, []);
+
   // --- Preferences ---
   const prefsRef = useRef(readPlayerPreferences());
 
@@ -395,6 +411,16 @@ export default function PlayerApp() {
     minedSentences: string[];
   } | null>(null);
   const watchSessionLastTimeRef = useRef<number | null>(null);
+  /**
+   * Last known playback position, name and duration, kept in a ref so the
+   * stable media callbacks (play / pause / seek / error) can label a trace
+   * entry without being re-created on every render.
+   */
+  const traceMediaRef = useRef<{ time: number; name: string; duration: number | null }>({
+    time: 0,
+    name: '',
+    duration: null,
+  });
   const watchSessionIsPlayingRef = useRef(false);
   const watchSessionPendingMutationRef = useRef<Promise<void> | null>(null);
   const jimakuMatchRef = useRef<{
@@ -1030,6 +1056,14 @@ export default function PlayerApp() {
       // same way handleMediaSelect does. Without this the old in-process
       // torrent keeps downloading and holds a relay slot.
       void jobSession.cancelActiveJob();
+      trace('player', 'magnet_job_accepted', {
+        jobId,
+        name: selectedName,
+        subtitle: subtitleFileId.length > 0,
+        direct: direct !== undefined,
+        selectedAudioTrack: direct?.selectedAudioTrack ?? null,
+        selectedSubtitleTrack: direct?.selectedSubtitleTrack ?? null,
+      });
       // Torrent basename handoff (C): the companion's sanitized file list
       // provides the selected video's basename; mirror it into mediaName
       // for the top-left controls / history, sanitized for safe display.
@@ -1719,6 +1753,10 @@ export default function PlayerApp() {
       if (!source.relayed) {
         setIsYouTubeDialogOpen(false);
         notifyCompanionError(p.youtubeInputErrorGeneric);
+        trace('player', 'youtube_stream_rejected', {
+          reason: 'relay_unavailable',
+          videoId: youtubeVideoIdRef.current,
+        });
         return;
       }
       // Dual-stream guard: `urls.length > 1` is yt-dlp's video+audio fallback
@@ -1731,8 +1769,20 @@ export default function PlayerApp() {
       if (source.urls.length > 1) {
         setIsYouTubeDialogOpen(false);
         notifyCompanionError(p.youtubeInputErrorGeneric);
+        trace('player', 'youtube_stream_rejected', {
+          reason: 'dual_stream',
+          videoId: youtubeVideoIdRef.current,
+          urlCount: source.urls.length,
+        });
         return;
       }
+      trace('player', 'youtube_stream_accepted', {
+        videoId: youtubeVideoIdRef.current,
+        title: info ? sanitizeDisplayName(info.title) : null,
+        mode: source.mode,
+        duration: info?.duration ?? null,
+        hasJapaneseSubtitle: Boolean(info?.subtitle_vtt_url),
+      });
       watchHistoryRecordedRef.current = false;
       mediaFileRef.current = null;
       setIsYouTubeStream(true);
@@ -1803,6 +1853,11 @@ export default function PlayerApp() {
           `${dictRef.current.playerUI.unsupportedFormat}: .${admission.ext}`,
         );
         setIsLoading(false);
+        trace('player', 'media_select_rejected', {
+          name: file.name,
+          ext: admission.ext,
+          bytes: file.size,
+        });
         return;
       }
 
@@ -1810,8 +1865,16 @@ export default function PlayerApp() {
       // directing the user to Chrome or a Chromium-based browser.
       if (isFirefox()) {
         notifyFirefoxUnsupported(dictRef.current.playerUI.firefoxUnsupported);
+        trace('player', 'media_select_blocked', { reason: 'firefox' });
         return;
       }
+
+      trace('player', 'media_select', {
+        name: file.name,
+        kind: admission.kind,
+        mime: file.type,
+        bytes: file.size,
+      });
 
       setIsLoading(true);
       setLoadError(null);
@@ -1887,8 +1950,17 @@ export default function PlayerApp() {
             message: `${p.unsupportedFormat}: .${getFileExtension(file)}`,
           },
         ]);
+        trace('player', 'subtitle_select_rejected', {
+          name: file.name,
+          ext: getFileExtension(file),
+        });
         return;
       }
+
+      trace('player', 'subtitle_select', {
+        name: file.name,
+        bytes: file.size,
+      });
 
       // BLOCKER 1: a manual subtitle pick must win over any in-flight jimaku
       // auto-load. Cancel the run so its pending fetch can't clobber this pick
@@ -1942,6 +2014,13 @@ export default function PlayerApp() {
         ? clampSeekTime(cue.start)
         : cue.start;
       media.currentTime = targetTime;
+      trace('player', 'cue_click', {
+        cueId: cue.id,
+        start: Math.round(cue.start * 100) / 100,
+        end: Math.round(cue.end * 100) / 100,
+        clamped: targetTime !== cue.start,
+        streaming: jobSession.active,
+      });
       // Note: do NOT call media.play() here. Setting currentTime preserves
       // the media's current playback state (stays paused if paused, continues
       // playing if playing) without forcing unwanted playback on click/tap.
@@ -2098,6 +2177,8 @@ export default function PlayerApp() {
     (time: number) => {
       const active = findActiveCue(cues, time);
       setActiveCueId(active?.id ?? null);
+      // Keep the trace label in sync with the real position.
+      traceMediaRef.current.time = time;
       if (watchSessionIsPlayingRef.current) {
         const session = watchSessionRef.current;
         if (session) {
@@ -2121,21 +2202,32 @@ export default function PlayerApp() {
     watchSessionIsPlayingRef.current = true;
     watchSessionLastTimeRef.current = null;
     setIsPlaying(true);
+    trace('player', 'play', { at: round2(traceMediaRef.current.time) });
   }, []);
   const handlePause = useCallback(() => {
     watchSessionIsPlayingRef.current = false;
     watchSessionLastTimeRef.current = null;
     setIsPlaying(false);
+    trace('player', 'pause', { at: round2(traceMediaRef.current.time) });
   }, []);
 
   const handleLoaded = useCallback(() => {
     setIsLoading(false);
     setLoadError(null);
+    trace('player', 'media_loaded', {
+      name: traceMediaRef.current.name,
+      duration: traceMediaRef.current.duration,
+    });
   }, []);
 
   const handleError = useCallback((error: string) => {
     setIsLoading(false);
     setLoadError(error);
+    trace('player', 'media_error', {
+      name: traceMediaRef.current.name,
+      at: round2(traceMediaRef.current.time),
+      message: error,
+    });
     // Clear seek buffering on error — the overlay is meaningless if the
     // element has errored.
     setIsSeekBuffering(false);
@@ -2517,6 +2609,7 @@ export default function PlayerApp() {
   const handlePlaybackRateChange = useCallback((rate: number) => {
     setPlaybackRate(rate);
     manualPlaybackRateRef.current = rate;
+    trace('player', 'playback_rate', { rate });
     writePlayerPreferences({
       volume: prefsRef.current.volume,
       playbackRate: rate,
@@ -2536,6 +2629,7 @@ export default function PlayerApp() {
     (mode: PlayMode) => {
       const prevMode = playMode;
       setPlayMode(mode);
+      trace('player', 'play_mode', { from: prevMode, to: mode });
 
       // When switching away from fast-forward, restore manual rate
       if (prevMode === 'fast-forward' && mode !== 'fast-forward') {
@@ -2666,6 +2760,59 @@ export default function PlayerApp() {
     onTimeUpdate();
     return () => media.removeEventListener('timeupdate', onTimeUpdate);
   }, [playMode, mediaType, cues, isPlaying]);
+
+  // Trace: the media element is the single funnel for every position change
+  // (slider scrub, cue click, condensed/fast-forward jump), so seek and end
+  // are recorded here instead of at each call site. `from` comes from the
+  // last timeupdate so a trace line reads "12.4s → 88.1s".
+  useEffect(() => {
+    const media = mediaType === 'video' ? videoRef.current : audioRef.current;
+    if (!media) return;
+
+    let from = media.currentTime;
+    const onSeeking = () => {
+      from = traceMediaRef.current.time;
+    };
+    const onSeeked = () => {
+      trace('player', 'seek', {
+        from: round2(from),
+        to: round2(media.currentTime),
+        playMode,
+      });
+      traceMediaRef.current.time = media.currentTime;
+    };
+    const onEnded = () => {
+      trace('player', 'ended', {
+        name: traceMediaRef.current.name,
+        duration: round2(Number.isFinite(media.duration) ? media.duration : 0),
+      });
+    };
+    const onLoadedMetadata = () => {
+      traceMediaRef.current.duration = Number.isFinite(media.duration)
+        ? round2(media.duration)
+        : null;
+    };
+
+    media.addEventListener('seeking', onSeeking);
+    media.addEventListener('seeked', onSeeked);
+    media.addEventListener('ended', onEnded);
+    media.addEventListener('loadedmetadata', onLoadedMetadata);
+    return () => {
+      media.removeEventListener('seeking', onSeeking);
+      media.removeEventListener('seeked', onSeeked);
+      media.removeEventListener('ended', onEnded);
+      media.removeEventListener('loadedmetadata', onLoadedMetadata);
+    };
+    // `displayMediaUrl` re-mounts the element (new src, recovered session) and
+    // `loadError` marks the recovery of a failed one: without both here the
+    // listeners would stay bound to the detached element and every seek/ended
+    // after a recovery would go untraced.
+  }, [mediaType, playMode, displayMediaUrl, loadError]);
+
+  // Keep the trace label's media name current (state is the source of truth).
+  useEffect(() => {
+    traceMediaRef.current.name = mediaName;
+  }, [mediaName]);
 
   // --- AM-2: Screenshot capture ---
   const handleScreenshot = useCallback(async () => {
@@ -3297,6 +3444,14 @@ export default function PlayerApp() {
 
       const targetCue = overrideCue ?? cues.find((c) => c.id === activeCueId);
       if (!targetCue) return;
+
+      trace('player', 'mine_start', {
+        cueId: targetCue.id,
+        start: round2(targetCue.start),
+        end: round2(targetCue.end),
+        rowMining: overrideCue !== undefined,
+        name: traceMediaRef.current.name,
+      });
 
       const media = sharedMediaRef.current;
 
@@ -4306,6 +4461,14 @@ export default function PlayerApp() {
     exportEpochRef.current = epoch;
     setIsExporting(true);
     setExportSuccess(false);
+    trace('player', 'export_start', {
+      mode: exportMode,
+      deck: prefs.deck,
+      noteType: prefs.noteType,
+      tags: exportTags.length,
+      hasScreenshot: miningScreenshotBlobRef.current !== null,
+      hasAudio: miningAudioBlobRef.current !== null,
+    });
 
     const abortController = new AbortController();
     exportAbortControllerRef.current = abortController;
@@ -4320,6 +4483,12 @@ export default function PlayerApp() {
      *  setIsExporting(false) via its epoch guard. */
     const closeAfterExportSuccess = (toastLabel: string) => {
       notifyMiningExportSuccess(toastLabel);
+      trace('player', 'export_success', {
+        mode: exportMode,
+        deck: prefs.deck,
+        noteType: prefs.noteType,
+        tags: exportTags.length,
+      });
       setIsMiningPreviewOpen(false);
       // Clean up mining state (normally done by handleMiningPreviewClose,
       // but we must not bump exportEpochRef here).
@@ -4616,10 +4785,12 @@ export default function PlayerApp() {
       if (!mountedRef.current || exportEpochRef.current !== epoch) return;
       if (e instanceof DOMException && e.name === 'AbortError') {
         // Aborted — don't set error
+        trace('player', 'export_aborted', { mode: exportMode });
         return;
       }
       console.error('[AnkiExport] Export failed:', e);
       const rawMessage = e instanceof Error ? e.message : String(e);
+      traceError('player', 'export_failed', e, { mode: exportMode });
       notifyMiningExportError(rawMessage || d.exportError);
     } finally {
       if (mountedRef.current && exportEpochRef.current === epoch) {

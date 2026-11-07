@@ -13,6 +13,7 @@ Entei runs local media files and subtitles in your web browser. Your user data, 
 _Note: While your data stays on your machine, Entei is not strictly offline-only. When you stream a magnet or YouTube source through the optional EizouDendenshi companion, it connects to external BitTorrent swarms or YouTube, which involves standard network communication._
 
 For details on the project phases, see the [PLAYER_PHASES.md](./docs/PLAYER_PHASES.md) design document.
+The user-action trace journal (what was pressed, what the system answered, 24h retention) is documented in [TRACE_LOG.md](./docs/TRACE_LOG.md).
 
 ---
 

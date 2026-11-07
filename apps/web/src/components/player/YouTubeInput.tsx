@@ -44,6 +44,7 @@ import {
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast';
 import { waitForPlayable } from '@/features/player/companion-media';
+import { trace, traceError } from '@/features/trace/trace-logger';
 import {
   isTauri,
   streamYouTubeDirect,
@@ -369,8 +370,15 @@ export function YouTubeInput({
     const sanitizedUrl = sanitizeYouTubeUrl(url);
     if (!isYouTubeUrlShape(sanitizedUrl)) {
       setError('invalid');
+      trace('player', 'youtube_submit', { valid: false, mode: desktop ? 'desktop' : 'companion' });
       return;
     }
+    trace('player', 'youtube_submit', {
+      valid: true,
+      mode: desktop ? 'desktop' : 'companion',
+      videoId: parseYouTubeVideoId(sanitizedUrl),
+      quality: qualityMode(quality),
+    });
     if (desktop) {
       if (!onStreamAccepted) {
         setError('generic');
@@ -395,6 +403,7 @@ export function YouTubeInput({
       } catch {
         // Plugin failures (yt-dlp missing, extraction error) stay generic:
         // the raw message can name the tokenised upstream URL.
+        trace('player', 'youtube_submit_failed', { reason: 'plugin' });
         setError('generic');
       } finally {
         setSubmitting(false);

@@ -35,6 +35,7 @@ import {
   LOCALE_CHANGE_EVENT,
   type LocaleChangeDetail,
 } from '@i18n/locale-events';
+import { trace } from '@/features/trace/trace-logger';
 import type { Dictionary } from '@i18n/types';
 
 export interface ModulesDashboardProps {
@@ -65,10 +66,25 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
     return () => window.removeEventListener(LOCALE_CHANGE_EVENT, handler);
   }, []);
 
+  // The dashboard is the only place a module can be switched off, so record
+  // what state the screen opened with (the import button is disabled today:
+  // community modules are not loadable yet).
+  useEffect(() => {
+    trace('modules', 'dashboard_ready', {
+      enabled: readModuleState(),
+      importAvailable: false,
+    });
+  }, []);
+
   function handleToggle(id: EnteiModuleId) {
     const nextState = toggleModuleState(enabled, id);
     setEnabled(nextState);
     writeModuleState(nextState);
+    trace('modules', 'module_toggle', {
+      moduleId: id,
+      enabled: nextState[id],
+      enabledCount: Object.values(nextState).filter(Boolean).length,
+    });
   }
 
   function categoryLabel(category: EnteiModuleCategory): string {

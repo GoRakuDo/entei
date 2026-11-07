@@ -85,6 +85,7 @@ import {
 } from 'lucide-react';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
 import { waitForPlayable } from '@/features/player/companion-media';
+import { trace, traceError } from '@/features/trace/trace-logger';
 import { isFirefox } from '@/features/player/browser-detect';
 import {
   notifyCompanionError,
@@ -692,6 +693,7 @@ export function MagnetInput({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
+      trace('player', 'magnet_dialog', { open: nextOpen });
       if (!nextOpen) {
         epochRef.current += 1;
         waitAbortRef.current?.abort();
@@ -744,8 +746,15 @@ export function MagnetInput({
     if (settleRef.current) return;
     if (!isValidMagnetUri(magnet)) {
       setError('invalid');
+      trace('player', 'magnet_submit', { valid: false, mode: 'desktop' });
       return;
     }
+    trace('player', 'magnet_submit', {
+      valid: true,
+      mode: 'desktop',
+      length: magnet.trim().length,
+      hasTrackers: magnet.includes('tr='),
+    });
 
     // Replace any torrent this dialog already owns (same semantics as the
     // companion flow: the new attempt wins, the old session is dropped).
@@ -804,6 +813,7 @@ export function MagnetInput({
       setPhase('selecting');
     } catch (err) {
       if (attempt !== epochRef.current || !mountedRef.current) return;
+      traceError('player', 'magnet_add_failed', err, { mode: 'desktop' });
       setError(mapDirectError(err));
       setPhase('input');
     }
@@ -824,8 +834,15 @@ export function MagnetInput({
     if (settleRef.current) return;
     if (!isValidMagnetUri(magnet)) {
       setError('invalid');
+      trace('player', 'magnet_submit', { valid: false, mode: 'companion' });
       return;
     }
+    trace('player', 'magnet_submit', {
+      valid: true,
+      mode: 'companion',
+      length: magnet.trim().length,
+      hasTrackers: magnet.includes('tr='),
+    });
 
     // If there is an existing job (checking/selecting), cancel it first
     // so the companion releases the session before we create a new one.
@@ -1122,6 +1139,11 @@ export function MagnetInput({
 
     setPhase('submitting');
     setError(null);
+    trace('player', 'magnet_play_click', {
+      videoId,
+      hasSubtitle: subtitleId !== '',
+      mode: desktop ? 'desktop' : 'companion',
+    });
     // Guard against stale select responses: a close/reopen (epoch bump) or
     // unmount while the select is in flight must drop the late 200/error —
     // the stale success must never reach onJobAccepted / the Player.

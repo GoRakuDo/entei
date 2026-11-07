@@ -133,6 +133,14 @@ const dictionary: Dictionary = getDictionary(locale);
     <script>
       import '../scripts/locale-switcher.ts';
     </script>
+    {
+      /* Trace instrumentation — user action → system reaction journal.
+        Loaded by every page so the automatic layers (clicks, keys, Tauri IPC,
+        HTTP, lifecycle) are installed before the islands hydrate. */
+    }
+    <script>
+      import '../scripts/trace-boot.ts';
+    </script>
   </body>
 </html>
 

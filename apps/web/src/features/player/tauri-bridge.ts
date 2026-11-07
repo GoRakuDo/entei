@@ -16,7 +16,13 @@
  * is guarded by `isTauri()` and callers keep their companion path untouched.
  * Nothing in this module touches storage, and the upstream (tokenised) URLs
  * never reach this layer — only the relay URLs do.
+ *
+ * Every IPC call goes through `tracedInvoke`, so the trace journal records
+ * each command with its duration and outcome instead of every wrapper
+ * repeating that bookkeeping.
  * --------------------------------------------------------------------------- */
+
+import { tracedInvoke } from '@/features/trace/trace-logger';
 
 /** Subset of Tauri v2's injected runtime internals that this module uses. */
 interface TauriInternals {
@@ -122,7 +128,7 @@ export async function streamYouTubeDirect(
   if (typeof invoke !== 'function') {
     throw new Error('tauri runtime unavailable');
   }
-  const raw = await invoke('plugin:ytdlp|stream_youtube', { url, mode });
+  const raw = await tracedInvoke('plugin:ytdlp|stream_youtube', { url, mode });
   const source = parseStreamSource(raw);
   if (!source) throw new Error('invalid stream source reply');
   return source;
@@ -142,7 +148,7 @@ export async function getVideoInfoDirect(url: string): Promise<YtdlpVideoInfo> {
   if (typeof invoke !== 'function') {
     throw new Error('tauri runtime unavailable');
   }
-  const raw = await invoke('plugin:ytdlp|get_video_info', { url });
+  const raw = await tracedInvoke('plugin:ytdlp|get_video_info', { url });
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('invalid video info reply');
   }
@@ -236,7 +242,8 @@ function tauriInvoke(): (
   if (typeof invoke !== 'function') {
     throw new Error('tauri runtime unavailable');
   }
-  return invoke;
+  // Traced: the journal records the command, its duration and its outcome.
+  return tracedInvoke;
 }
 
 /** Shape check for a torrent file list so malformed replies never reach the UI. */
@@ -403,7 +410,7 @@ async function mpvInvoke(
   const invoke = window.__TAURI_INTERNALS__?.invoke;
   if (typeof invoke !== 'function') return;
   try {
-    await invoke(cmd, args);
+    await tracedInvoke(cmd, args);
   } catch {
     // Native engine unavailable or rejected the command — HTML playback stands.
   }

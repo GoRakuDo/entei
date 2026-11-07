@@ -28,6 +28,7 @@ import {
   isAudioFile,
   revokeUrl,
 } from '@/features/player/media-url';
+import { trace } from '@/features/trace/trace-logger';
 import {
   readPlayerPreferences,
   writePlayerPreferences,
@@ -361,6 +362,9 @@ export default function AudioPlayer({
     const onEnded = () => {
       setIsPlaying(false);
       setCurrentTime(audio.duration);
+      trace('audio', 'ended', {
+        duration: Math.round((Number.isFinite(audio.duration) ? audio.duration : 0) * 100) / 100,
+      });
       // A finished track restarts from the beginning on the next open.
       if (mediaIdRef.current) clearAudioProgress(mediaIdRef.current);
       lastProgressRef.current = null;
@@ -368,6 +372,10 @@ export default function AudioPlayer({
     const onError = () => {
       setIsPlaying(false);
       setError('playbackError');
+      trace('audio', 'error', {
+        message: audio.error?.message ?? null,
+        code: audio.error?.code ?? null,
+      });
     };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
@@ -469,6 +477,10 @@ export default function AudioPlayer({
       const audio = audioRef.current;
       if (!audio) return;
       const target = clampAudioSeekTarget(Number(event.target.value), duration);
+      trace('audio', 'seek', {
+        from: Math.round(audio.currentTime * 100) / 100,
+        to: Math.round(target * 100) / 100,
+      });
       audio.currentTime = target;
       setCurrentTime(target);
     },
@@ -501,8 +513,10 @@ export default function AudioPlayer({
     const videoId = parseYouTubeVideoId(sanitizedUrl);
     if (videoId === null) {
       setYouTubeError('invalid');
+      trace('audio', 'youtube_submit', { valid: false });
       return;
     }
+    trace('audio', 'youtube_submit', { valid: true, videoId });
 
     void jobSession.cancelActiveJob();
     setYouTubeSubmitting(true);
@@ -637,8 +651,15 @@ export default function AudioPlayer({
 
       if (!isAudioFile(file)) {
         setError('unsupportedFile');
+        trace('audio', 'file_rejected', { name: file.name, mime: file.type });
         return;
       }
+
+      trace('audio', 'file_select', {
+        name: file.name,
+        mime: file.type,
+        bytes: file.size,
+      });
 
       const audio = audioRef.current;
       if (audio) {
