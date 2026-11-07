@@ -1431,18 +1431,20 @@ export function MagnetInput({
                       (isVideo && videoId === entry.id) ||
                       (isSubtitle && subtitleId === entry.id);
                     const itemClass = `entei-magnet-item${isFolder ? ' entei-magnet-item--folder' : ''}${isSelected ? ' entei-magnet-item--selected' : ''}`;
+                    const iconClass = `entei-magnet-item-icon${isSelected ? ' entei-magnet-item-selected-icon' : ''}`;
+                    const nameClass = `entei-magnet-item-name${isSelected ? ' entei-magnet-item-selected-name' : ''}`;
                     const key =
                       entry.id ?? entry.relativePath ?? entry.basename;
                     const rowBody = (
                       <>
                         <span
-                          className="entei-magnet-item-icon"
+                          className={iconClass}
                           aria-hidden="true"
                         >
                           {kindIcon(entry.kind, 18)}
                         </span>
                         <span className="entei-magnet-item-text">
-                          <span className="entei-magnet-item-name">
+                          <span className={nameClass}>
                             {entry.basename}
                           </span>
                           {!isFolder && entry.byteSize != null && (

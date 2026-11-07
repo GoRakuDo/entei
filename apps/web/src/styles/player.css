@@ -4991,6 +4991,14 @@ html.entei-player-immersive .entei-player-audio-area {
   border-color: color-mix(in oklch, var(--entei-accent) 35%, transparent);
 }
 
+.entei-magnet-item-selected-icon {
+  color: var(--entei-status-locked);
+}
+
+.entei-magnet-item-selected-name {
+  color: var(--entei-status-locked);
+}
+
 /* Leading icon: a fixed square box with the SVG centred in both axes, so the
    glyph never drifts into a corner on one-line and two-line rows alike. */
 .entei-magnet-item-icon {
