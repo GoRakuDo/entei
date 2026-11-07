@@ -3,14 +3,21 @@
 //! Decoupled BitTorrent bridge for Entei, backed by an in-process
 //! [`librqbit::Session`]. Five commands are exposed:
 //!
-//! - `add_torrent(magnet_uri)` -> validates the magnet URI, resolves the
+//! - `add_torrent(magnet_uri)` -> validates the magnet URI, starts resolving the
 //!   metadata with `list_only` and returns the plugin torrent id plus the file
 //!   list. **Nothing is written to disk and nothing is downloaded** except the
 //!   info dictionary itself (a few KB): the torrent is never added to the
 //!   session at this point, so a 67 GB multi-file torrent costs only its
-//!   metadata while the user browses the file table.
+//!   metadata while the user browses the file table. The fetch itself runs in
+//!   its own task (see [`resolve_metadata`]), so a cold DHT that needs minutes
+//!   to find the swarm cannot fail the command: `add_torrent` waits
+//!   [`METADATA_INITIAL_WAIT`] for a warm swarm and otherwise answers with an
+//!   empty file list, which `get_torrent_status` fills in once the info
+//!   dictionary lands.
 //! - `get_torrent_status(id)` -> progress, download speed, peer count and a
-//!   `playable` flag. A metadata-only entry reports state `metadata`.
+//!   `playable` flag. A metadata-only entry reports state `metadata` (with the
+//!   file list once resolved), and a resolution that gave up reports state
+//!   `error` with the reason.
 //! - `select_torrent_files(id, video_index, subtitle_index)` -> *this* is where
 //!   the download starts: the torrent is added to the session from the stored
 //!   torrent bytes with `only_files` set to the chosen video (and subtitle), so
@@ -61,13 +68,25 @@ use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime};
 use tokio::io::AsyncReadExt;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
-/// Upper bound on waiting for magnet metadata (peer discovery + info dict).
-/// Metadata can take a while on a cold DHT; timing out is not an error, the
-/// torrent keeps resolving in the background and the file list stays empty
-/// until a later `get_torrent_status` call.
-const METADATA_TIMEOUT: Duration = Duration::from_secs(30);
+/// Upper bound on one magnet's metadata resolution (peer discovery + info
+/// dictionary fetch), enforced inside the background task.
+///
+/// A cold DHT routinely needs 30-60 s to find the swarm for a rare torrent, and
+/// the previous 30 s ceiling turned those healthy magnets into a hard failure
+/// (`metadata resolution timed out`, measured at 30009 ms in the trace log).
+/// The fetch now outlives the command that started it, so this budget is the
+/// real patience of the feature and the UI polls while it runs.
+const METADATA_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How long `add_torrent` itself waits for the info dictionary before replying.
+///
+/// A warm swarm answers in well under a second, so the common case still gets
+/// the file table in the same reply. Anything slower is handed to
+/// `get_torrent_status`: the dialog keeps its metadata skeleton and stays
+/// cancellable instead of blocking one IPC call for the whole two minutes.
+const METADATA_INITIAL_WAIT: Duration = Duration::from_secs(20);
 
 /// Wall-clock budget for the *best-effort* container-header scan that follows
 /// the add in `select_torrent_files`.
@@ -139,7 +158,8 @@ pub struct AddTorrentResult {
     pub id: String,
     pub info_hash: String,
     pub name: String,
-    /// Empty when metadata was not resolved within `METADATA_TIMEOUT`.
+    /// Empty while the metadata is still resolving; `get_torrent_status` then
+    /// carries the file list as soon as the info dictionary arrives.
     pub files: Vec<TorrentFile>,
 }
 
@@ -197,12 +217,32 @@ struct PendingTorrent {
     torrent_bytes: Bytes,
 }
 
+/// Resolution state of one magnet's info dictionary.
+///
+/// Published through a `watch` channel so the fetch task can hand its outcome
+/// to whoever asks next: the command that started it, a later
+/// `get_torrent_status` poll, or `select_torrent_files`. The value is read
+/// without a lock, and a resolved entry costs one clone.
+#[derive(Clone)]
+enum Metadata {
+    /// Peer discovery / info dictionary fetch is still running.
+    Resolving,
+    /// Info dictionary resolved; nothing is scheduled for download yet.
+    Ready(PendingTorrent),
+    /// Resolution gave up (timeout or engine error).
+    Failed(String),
+}
+
 /// What the plugin knows about one `add_torrent` call.
 #[derive(Clone)]
 enum Entry {
-    /// Metadata resolved only: the torrent was never added to the session, so
-    /// no file, folder or piece exists on disk yet.
-    Pending(PendingTorrent),
+    /// Metadata only: the torrent was never added to the session, so no file,
+    /// folder or piece exists on disk yet. `info_hash` comes from the magnet so
+    /// the status reply is useful before the engine reports its own.
+    Metadata {
+        info_hash: String,
+        state: watch::Receiver<Metadata>,
+    },
     /// Added to the session and restricted to the files the user selected.
     Active {
         torrent_id: usize,
@@ -274,8 +314,16 @@ impl TorrentState {
             .ok_or_else(|| TorrentError::UnknownTorrent(id.to_string()))
     }
 
-    fn insert_pending(&self, id: String, pending: PendingTorrent) -> Result<(), TorrentError> {
-        self.entries_lock()?.insert(id, Entry::Pending(pending));
+    /// Register a metadata entry before its fetch task starts, so the id is
+    /// usable (pollable, cancellable) from the first millisecond.
+    fn insert_metadata(
+        &self,
+        id: String,
+        info_hash: String,
+        state: watch::Receiver<Metadata>,
+    ) -> Result<(), TorrentError> {
+        self.entries_lock()?
+            .insert(id, Entry::Metadata { info_hash, state });
         Ok(())
     }
 
@@ -304,6 +352,18 @@ impl TorrentState {
         );
         Ok(())
     }
+}
+
+/// Infohash carried by the magnet URI itself.
+///
+/// Used until the engine reports its own spelling, so a torrent that is still
+/// resolving already has a stable identity in the status reply and the trace
+/// log. Lowercased to match the hex form librqbit returns.
+fn magnet_info_hash(uri: &str) -> String {
+    uri.split(['?', '&'])
+        .find_map(|part| part.strip_prefix("xt=urn:btih:"))
+        .unwrap_or_default()
+        .to_ascii_lowercase()
 }
 
 fn validate_magnet(uri: &str) -> Result<&str, TorrentError> {
@@ -385,16 +445,43 @@ fn find_file(files: &[TorrentFile], index: usize) -> Result<TorrentFile, Torrent
         .ok_or_else(|| TorrentError::Operation("unknown file index".into()))
 }
 
-/// Status of a torrent whose metadata is resolved but which was not started.
+/// Status of a torrent that has not started downloading: still resolving its
+/// metadata, resolved but not scheduled, or given up on.
 ///
 /// `total_bytes` stays 0 on purpose: nothing is scheduled for download yet, so
-/// any progress figure would be a lie until the user picks files.
-fn pending_status(id: &str, pending: &PendingTorrent) -> TorrentStatus {
+/// any progress figure would be a lie until the user picks files. `error` is
+/// the only non-empty field of a `Failed` entry, which is how the UI learns
+/// that a magnet never found its swarm instead of polling forever.
+fn metadata_status(id: &str, magnet_info_hash: &str, metadata: &Metadata) -> TorrentStatus {
+    let (info_hash, state, name, files, error) = match metadata {
+        Metadata::Resolving => (
+            magnet_info_hash.to_string(),
+            "metadata",
+            String::new(),
+            Vec::new(),
+            None,
+        ),
+        Metadata::Ready(pending) => (
+            pending.info_hash.clone(),
+            "metadata",
+            pending.name.clone(),
+            pending.files.clone(),
+            None,
+        ),
+        Metadata::Failed(message) => (
+            magnet_info_hash.to_string(),
+            "error",
+            String::new(),
+            Vec::new(),
+            Some(message.clone()),
+        ),
+    };
+
     TorrentStatus {
         id: id.to_string(),
-        info_hash: pending.info_hash.clone(),
-        name: pending.name.clone(),
-        state: "metadata".to_string(),
+        info_hash,
+        name,
+        state: state.to_string(),
         progress_bytes: 0,
         total_bytes: 0,
         progress_percent: 0.0,
@@ -402,8 +489,8 @@ fn pending_status(id: &str, pending: &PendingTorrent) -> TorrentStatus {
         peers_live: 0,
         finished: false,
         playable: false,
-        error: None,
-        files: pending.files.clone(),
+        error,
+        files,
     }
 }
 
@@ -579,11 +666,79 @@ async fn add_torrent(
     let uri = validate_magnet(&magnet_uri).map_err(|err| err.message())?;
     let session = state.session().await.map_err(|err| err.message())?;
 
+    // The id exists before the fetch starts, so the entry is pollable and
+    // cancellable from the first millisecond.
+    let id = state.next_id();
+    let info_hash = magnet_info_hash(uri);
+    let (sender, receiver) = watch::channel(Metadata::Resolving);
+    state
+        .insert_metadata(id.clone(), info_hash.clone(), receiver.clone())
+        .map_err(|err| err.message())?;
+
     // `list_only` resolves the info dictionary and stops there: the torrent is
     // never added to the session, so no file, folder or piece is created on
     // disk. Only the few KB of metadata cross the wire here — a magnet pointing
     // at a 67 GB season must not start downloading while the user is still
     // reading the file table.
+    //
+    // The fetch owns the session handle in its own task, so a cold DHT that
+    // needs a minute of peer discovery keeps going after this command returns
+    // instead of being cancelled with the future that started it.
+    let uri_owned = uri.to_string();
+    tauri::async_runtime::spawn(async move {
+        let outcome = resolve_metadata(&session, &uri_owned).await;
+        // A dropped receiver means the dialog was cancelled; nothing was
+        // written to disk, so there is nothing else to undo.
+        let _ = sender.send(outcome);
+    });
+
+    // Short wait so a warm swarm still answers with the file table inline.
+    let mut receiver = receiver;
+    let _ = tokio::time::timeout(METADATA_INITIAL_WAIT, async {
+        loop {
+            let resolved = !matches!(&*receiver.borrow(), Metadata::Resolving);
+            if resolved {
+                break;
+            }
+            if receiver.changed().await.is_err() {
+                break;
+            }
+        }
+    })
+    .await;
+
+    let outcome = receiver.borrow().clone();
+    match outcome {
+        Metadata::Ready(pending) => Ok(AddTorrentResult {
+            id,
+            info_hash: pending.info_hash,
+            name: pending.name,
+            files: pending.files,
+        }),
+        // A failure that arrived inside the wait is still reported as a
+        // rejection: the UI shows the reason instead of a polling skeleton.
+        Metadata::Failed(error) => {
+            let _ = state.take_entry(&id);
+            Err(TorrentError::Operation(error).message())
+        }
+        // Still resolving: hand the id back and let `get_torrent_status` carry
+        // the file list when the info dictionary lands.
+        Metadata::Resolving => Ok(AddTorrentResult {
+            id,
+            info_hash,
+            name: String::new(),
+            files: Vec::new(),
+        }),
+    }
+}
+
+/// Resolve one magnet's info dictionary without starting a download.
+///
+/// `list_only` keeps the torrent out of the session, so nothing is written to
+/// disk while the user is still reading the file table. The whole fetch is
+/// bounded by [`METADATA_TIMEOUT`]; exceeding it reports `Failed` so the UI can
+/// stop its skeleton instead of polling a torrent that will never resolve.
+async fn resolve_metadata(session: &Arc<Session>, uri: &str) -> Metadata {
     let response = tokio::time::timeout(
         METADATA_TIMEOUT,
         session.add_torrent(
@@ -594,47 +749,35 @@ async fn add_torrent(
             }),
         ),
     )
-    .await
-    .map_err(|_| {
-        TorrentError::Operation("metadata resolution timed out".into()).message()
-    })?
-    .map_err(|err| TorrentError::Operation(format!("{err:#}")).message())?;
+    .await;
 
     let listed = match response {
-        AddTorrentResponse::ListOnly(listed) => listed,
+        Err(_) => {
+            return Metadata::Failed(format!(
+                "metadata resolution timed out after {}s",
+                METADATA_TIMEOUT.as_secs()
+            ))
+        }
+        Ok(Err(err)) => return Metadata::Failed(format!("{err:#}")),
+        Ok(Ok(AddTorrentResponse::ListOnly(listed))) => listed,
         // `list_only` returns before the session registers anything, so any
         // other variant means the download started — refuse instead of leaving
         // a running torrent the UI never asked for.
-        AddTorrentResponse::Added(_, _) | AddTorrentResponse::AlreadyManaged(_, _) => {
-            return Err(TorrentError::Operation(
-                "torrent was started instead of listed".into(),
-            )
-            .message())
+        Ok(Ok(AddTorrentResponse::Added(_, _) | AddTorrentResponse::AlreadyManaged(_, _))) => {
+            return Metadata::Failed("torrent was started instead of listed".into())
         }
     };
 
-    let info_hash = listed.info_hash.as_string();
-    let name = name_from_info(&listed.info);
-    let files = files_from_info(&listed.info).map_err(|err| err.message())?;
+    let files = match files_from_info(&listed.info) {
+        Ok(files) => files,
+        Err(err) => return Metadata::Failed(err.message()),
+    };
 
-    let id = state.next_id();
-    state
-        .insert_pending(
-            id.clone(),
-            PendingTorrent {
-                info_hash: info_hash.clone(),
-                name: name.clone(),
-                files: files.clone(),
-                torrent_bytes: listed.torrent_bytes,
-            },
-        )
-        .map_err(|err| err.message())?;
-
-    Ok(AddTorrentResult {
-        id,
-        info_hash,
-        name,
+    Metadata::Ready(PendingTorrent {
+        info_hash: listed.info_hash.as_string(),
+        name: name_from_info(&listed.info),
         files,
+        torrent_bytes: listed.torrent_bytes,
     })
 }
 
@@ -645,7 +788,10 @@ async fn get_torrent_status(
 ) -> Result<TorrentStatus, String> {
     let entry = state.entry(&id).map_err(|err| err.message())?;
     Ok(match &entry {
-        Entry::Pending(pending) => pending_status(&id, pending),
+        Entry::Metadata {
+            info_hash,
+            state: metadata,
+        } => metadata_status(&id, info_hash, &metadata.borrow()),
         Entry::Active { handle, .. } => status_of(&id, handle),
     })
 }
@@ -689,6 +835,30 @@ async fn cancel_torrent(state: tauri::State<'_, TorrentState>, id: String) -> Re
     Ok(())
 }
 
+/// What one entry can offer for a file selection: resolved metadata (nothing on
+/// disk yet) or a live handle.
+enum SelectionSource {
+    Metadata(PendingTorrent),
+    Active(TorrentHandle),
+}
+
+/// Read the entry as a selection source.
+///
+/// A torrent whose metadata is still resolving has no file list, so selecting a
+/// file for it is a caller bug; a failed resolution carries the reason.
+fn selection_source(entry: &Entry) -> Result<SelectionSource, TorrentError> {
+    match entry {
+        Entry::Metadata { state, .. } => match state.borrow().clone() {
+            Metadata::Ready(pending) => Ok(SelectionSource::Metadata(pending)),
+            Metadata::Resolving => Err(TorrentError::Operation(
+                "metadata is still resolving".into(),
+            )),
+            Metadata::Failed(error) => Err(TorrentError::Operation(error)),
+        },
+        Entry::Active { handle, .. } => Ok(SelectionSource::Active(handle.clone())),
+    }
+}
+
 /// Start downloading the chosen files and hand back loopback URLs.
 ///
 /// This is the only place a download begins. `video_index`/`subtitle_index` are
@@ -717,9 +887,10 @@ async fn select_torrent_files(
     // Metadata-only entries carry the file list in memory; a live entry reads
     // it back from librqbit. Both enumerate in the same order, so the indices
     // the UI holds stay valid across the transition.
-    let files = match &entry {
-        Entry::Pending(pending) => pending.files.clone(),
-        Entry::Active { handle, .. } => collect_files(handle),
+    let source = selection_source(&entry).map_err(|err| err.message())?;
+    let files = match &source {
+        SelectionSource::Metadata(pending) => pending.files.clone(),
+        SelectionSource::Active(handle) => collect_files(handle),
     };
 
     let video = find_file(&files, video_index).map_err(|err| err.message())?;
@@ -735,8 +906,8 @@ async fn select_torrent_files(
     }
 
     let session = state.session().await.map_err(|err| err.message())?;
-    let handle = match &entry {
-        Entry::Pending(pending) => {
+    let handle = match &source {
+        SelectionSource::Metadata(pending) => {
             let only: Vec<usize> = only_files.iter().copied().collect();
             let response = session
                 .add_torrent(
@@ -759,7 +930,7 @@ async fn select_torrent_files(
         }
         // Re-selecting files for a torrent that is already live keeps the same
         // handle; the restriction below is what changes.
-        Entry::Active { handle, .. } => handle.clone(),
+        SelectionSource::Active(handle) => handle.clone(),
     };
 
     // Register the relay sessions before anything can wait: the URLs are
@@ -824,13 +995,18 @@ async fn inspect_torrent_tracks(
     file_index: usize,
 ) -> Result<MkvTrackReport, String> {
     let entry = state.entry(&id).map_err(|err| err.message())?;
-    let files = match &entry {
-        Entry::Pending(pending) => pending.files.clone(),
-        Entry::Active { handle, .. } => collect_files(handle),
+    let (files, handle) = match &entry {
+        Entry::Metadata { state, .. } => match state.borrow().clone() {
+            Metadata::Ready(pending) => (pending.files.clone(), None),
+            // Still resolving or already failed: no bytes on disk, so there is
+            // no header to parse.
+            Metadata::Resolving | Metadata::Failed(_) => return Ok(MkvTrackReport::default()),
+        },
+        Entry::Active { handle, .. } => (collect_files(handle), Some(handle.clone())),
     };
     let file = find_file(&files, file_index).map_err(|err| err.message())?;
 
-    let Entry::Active { handle, .. } = entry else {
+    let Some(handle) = handle else {
         // Metadata-only: no bytes on disk, so there is no header to parse.
         return Ok(MkvTrackReport::default());
     };
@@ -1050,14 +1226,74 @@ mod tests {
             files: files_from_info(&multi_file_info()).expect("file list"),
             torrent_bytes: Bytes::new(),
         };
-        let status = pending_status("torrent-0", &pending);
+        let status = metadata_status("torrent-0", "magnet-hash", &Metadata::Ready(pending));
         assert_eq!(status.state, "metadata");
+        assert_eq!(status.info_hash, "abc");
         assert_eq!(status.progress_bytes, 0);
         assert_eq!(status.total_bytes, 0);
         assert_eq!(status.download_speed_mbps, 0.0);
         assert!(!status.playable);
         assert!(!status.finished);
+        assert!(status.error.is_none());
         assert_eq!(status.files.len(), 2);
+    }
+
+    /// While the info dictionary is still in flight the poll must keep the
+    /// skeleton alive: no files, no error, and the magnet's own infohash so the
+    /// entry has an identity before the engine answers.
+    #[test]
+    fn resolving_status_has_no_files_and_no_error() {
+        let status = metadata_status("torrent-1", "abcdef", &Metadata::Resolving);
+        assert_eq!(status.state, "metadata");
+        assert_eq!(status.info_hash, "abcdef");
+        assert!(status.files.is_empty());
+        assert!(status.error.is_none());
+    }
+
+    /// A resolution that gave up must reach the UI as an error, otherwise the
+    /// dialog would poll a torrent that will never resolve.
+    #[test]
+    fn failed_resolution_reports_the_reason() {
+        let status = metadata_status(
+            "torrent-2",
+            "abcdef",
+            &Metadata::Failed("metadata resolution timed out after 120s".into()),
+        );
+        assert_eq!(status.state, "error");
+        assert_eq!(
+            status.error.as_deref(),
+            Some("metadata resolution timed out after 120s")
+        );
+        assert!(status.files.is_empty());
+    }
+
+    /// The magnet already names the infohash; the status reply must not be
+    /// blank while the engine is still resolving it.
+    #[test]
+    fn reads_the_infohash_from_the_magnet() {
+        assert_eq!(
+            magnet_info_hash("magnet:?xt=urn:btih:CAB507494D02EBB1178B38F2E9D7BE299C86B862&dn=x"),
+            "cab507494d02ebb1178b38f2e9d7be299c86b862"
+        );
+        assert_eq!(
+            magnet_info_hash("magnet:?dn=x&xt=urn:btih:abc123&tr=udp%3A%2F%2Fy"),
+            "abc123"
+        );
+    }
+
+    /// A torrent that is still resolving has no file list, so selecting a file
+    /// for it must fail instead of silently picking index 0.
+    #[test]
+    fn selection_requires_resolved_metadata() {
+        let (_sender, receiver) = watch::channel(Metadata::Resolving);
+        let entry = Entry::Metadata {
+            info_hash: "abc".into(),
+            state: receiver,
+        };
+        assert!(matches!(
+            selection_source(&entry),
+            Err(TorrentError::Operation(_))
+        ));
     }
 
     /// The startup/exit sweep must empty the plugin's cache dir and keep the dir

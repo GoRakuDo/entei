@@ -1653,6 +1653,81 @@ describe('MagnetInput — desktop (Tauri) direct torrent flow', () => {
     expect(calls.filter((call) => call.cmd === 'plugin:torrent|get_torrent_status')).toHaveLength(1);
   });
 
+  it('keeps polling past the old 30 s budget and only times out after the extended window', async () => {
+    vi.useFakeTimers();
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't6',
+        info_hash: 'hash',
+        name: '',
+        files: [],
+      }),
+      'plugin:torrent|get_torrent_status': () => ({
+        id: 't6',
+        info_hash: 'hash',
+        name: '',
+        state: 'metadata',
+        progress_bytes: 0,
+        total_bytes: 0,
+        progress_percent: 0,
+        download_speed_mbps: 0,
+        peers_live: 0,
+        finished: false,
+        playable: false,
+        error: null,
+        files: [],
+      }),
+    });
+    render(<MagnetInput {...defaultProps} token={null} />);
+    await startTorrent();
+    await flush(0);
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+
+    // A cold DHT needs tens of seconds: ten empty polls (50 s) must still be
+    // "checking", not the old 30 s failure.
+    for (let i = 0; i < 10; i += 1) await flush(5000);
+    expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument();
+    expect(lastErrorToast()).toBeUndefined();
+
+    // The budget is still bounded: past it the dialog reports the metadata
+    // timeout instead of spinning forever.
+    for (let i = 0; i < 16; i += 1) await flush(5000);
+    expect(lastErrorToast()).toBe(baseDict.magnetInputErrorMetadataTimeout);
+    expect(screen.queryByText(baseDict.magnetCheckMetadata)).not.toBeInTheDocument();
+  });
+
+  it('surfaces a plugin metadata resolution failure as the metadata timeout toast', async () => {
+    vi.useFakeTimers();
+    installTauri({
+      'plugin:torrent|add_torrent': () => ({
+        id: 't7',
+        info_hash: 'hash',
+        name: '',
+        files: [],
+      }),
+      'plugin:torrent|get_torrent_status': () => ({
+        id: 't7',
+        info_hash: 'hash',
+        name: '',
+        state: 'error',
+        progress_bytes: 0,
+        total_bytes: 0,
+        progress_percent: 0,
+        download_speed_mbps: 0,
+        peers_live: 0,
+        finished: false,
+        playable: false,
+        error: 'metadata resolution timed out after 120s',
+        files: [],
+      }),
+    });
+    render(<MagnetInput {...defaultProps} token={null} />);
+    await startTorrent();
+    await flush(5000);
+
+    expect(lastErrorToast()).toBe(baseDict.magnetInputErrorMetadataTimeout);
+  });
+
   it('browses folders from the in-memory file list without another IPC round trip', async () => {
     installTauri({
       'plugin:torrent|add_torrent': () => ({

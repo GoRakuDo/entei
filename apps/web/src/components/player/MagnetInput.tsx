@@ -143,8 +143,13 @@ const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
 
 /** Desktop direct mode: metadata poll interval (matches the companion flow). */
 const DIRECT_POLL_INTERVAL_MS = 5000;
-/** Desktop direct mode: bounded metadata polls before the timeout error. */
-const DIRECT_METADATA_MAX_POLLS = 6;
+/** Desktop direct mode: bounded metadata polls before the timeout error.
+ *
+ *  24 × 5 s = 2 min of polling after `add_torrent`'s own 20 s wait, which
+ *  matches the plugin's `METADATA_TIMEOUT`. A cold DHT needs tens of seconds
+ *  to find the swarm for a rare torrent, so the old 6 polls (30 s) turned
+ *  healthy magnets into a premature timeout. */
+const DIRECT_METADATA_MAX_POLLS = 24;
 
 /** Metadata-check skeleton: five placeholder rows with staggered widths so the
  *  shimmering bones read as a file list instead of a solid block. */
@@ -1039,7 +1044,13 @@ export function MagnetInput({
         const status = await getTorrentStatusDirect(jobId);
         if (!safe()) return;
         if (status.state === 'error') {
-          setError('generic');
+          // The plugin reports a resolution that gave up (no swarm, 2 min
+          // spent) as `error`; the reason decides the toast.
+          setError(
+            /metadata resolution timed out/i.test(status.error ?? '')
+              ? 'metadataTimeout'
+              : 'generic',
+          );
           setPhase('input');
           return;
         }
