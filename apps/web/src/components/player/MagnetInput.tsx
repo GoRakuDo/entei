@@ -1341,74 +1341,79 @@ export function MagnetInput({
             </Button>
           </ButtonGroup>
 
-          {/* Breadcrumb: torrent root + the folders walked into. Clicking a
-              non-current segment navigates back to that level (the job is
-              never cancelled — browsing is display-only). Only rendered once
-              a torrent exists (see `showFiles`). */}
-          {showFiles && showLoading && (
-            <nav
-              className="entei-magnet-breadcrumb entei-magnet-breadcrumb--skeleton"
-              aria-label={dict.magnetBreadcrumbLabel}
-            >
-              <span
-                className="entei-magnet-skeleton-crumb"
-                aria-hidden="true"
-              />
-            </nav>
-          )}
-
-          {showFiles && !showLoading && crumbs.length > 0 && (
-            <nav
-              className="entei-magnet-breadcrumb"
-              aria-label={dict.magnetBreadcrumbLabel}
-            >
-              {crumbs.map((crumb, index) => (
-                <span
-                  key={`${crumb.ellipsis ? 'ellipsis' : crumb.path || 'root'}-${index}`}
-                  className="entei-magnet-crumb-slot"
-                >
-                  {index > 0 && (
-                    <span className="entei-magnet-crumb-sep" aria-hidden="true">
-                      ›
-                    </span>
-                  )}
-                  {crumb.ellipsis ? (
-                    <span
-                      className="entei-magnet-crumb-ellipsis"
-                      aria-hidden="true"
-                    >
-                      …
-                    </span>
-                  ) : crumb.current ? (
-                    <span
-                      className="entei-magnet-crumb entei-magnet-crumb--current"
-                      aria-current="location"
-                      title={crumb.label}
-                    >
-                      {crumb.label}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="entei-magnet-crumb"
-                      onClick={() => handleFolderForward(crumb.path)}
-                      disabled={busy}
-                      aria-label={`${dict.magnetTableNavUp}: ${crumb.label}`}
-                      title={crumb.label}
-                    >
-                      {crumb.label}
-                    </button>
-                  )}
-                </span>
-              ))}
-            </nav>
-          )}
-
           {/* File/folder rows (mockup): folders navigate, video/subtitle rows
               carry a checkbox on the right. Only rendered once a torrent
-              exists — an idle dialog never shows an empty list box. */}
+              exists — an idle dialog never shows an empty list box.
+              The breadcrumb lives INSIDE this list as its first child: the
+              trail and the rows are one scroll box, so the list's own
+              flex/gap owns the spacing (no negative-margin hack). */}
           {showFiles && (
             <div className="entei-magnet-list">
+              {/* Breadcrumb: torrent root + the folders walked into. Clicking a
+                  non-current segment navigates back to that level (the job is
+                  never cancelled — browsing is display-only). */}
+              {showLoading ? (
+                <nav
+                  className="entei-magnet-breadcrumb entei-magnet-breadcrumb--skeleton"
+                  aria-label={dict.magnetBreadcrumbLabel}
+                >
+                  <span
+                    className="entei-magnet-skeleton-crumb"
+                    aria-hidden="true"
+                  />
+                </nav>
+              ) : (
+                crumbs.length > 0 && (
+                  <nav
+                    className="entei-magnet-breadcrumb"
+                    aria-label={dict.magnetBreadcrumbLabel}
+                  >
+                    {crumbs.map((crumb, index) => (
+                      <span
+                        key={`${crumb.ellipsis ? 'ellipsis' : crumb.path || 'root'}-${index}`}
+                        className="entei-magnet-crumb-slot"
+                      >
+                        {index > 0 && (
+                          <span
+                            className="entei-magnet-crumb-sep"
+                            aria-hidden="true"
+                          >
+                            ›
+                          </span>
+                        )}
+                        {crumb.ellipsis ? (
+                          <span
+                            className="entei-magnet-crumb-ellipsis"
+                            aria-hidden="true"
+                          >
+                            …
+                          </span>
+                        ) : crumb.current ? (
+                          <span
+                            className="entei-magnet-crumb entei-magnet-crumb--current"
+                            aria-current="location"
+                            title={crumb.label}
+                          >
+                            {crumb.label}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="entei-magnet-crumb"
+                            onClick={() => handleFolderForward(crumb.path)}
+                            disabled={busy}
+                            aria-label={`${dict.magnetTableNavUp}: ${crumb.label}`}
+                            title={crumb.label}
+                          >
+                            {crumb.label}
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </nav>
+                )
+              )}
+
               {showTable ? (
                 entries.length === 0 ? (
                   <div className="entei-magnet-empty">
@@ -1487,9 +1492,9 @@ export function MagnetInput({
                 )
               ) : (
                 /* Skeleton (creating + metadata fetch): the trail is unknown
-                   yet, so the strip above and this list show shimmering
-                   bones. The status copy stays in the a11y tree (visually
-                   hidden) for screen readers. */
+                   yet, so the breadcrumb above and these rows both show
+                   shimmering bones. The status copy stays in the a11y tree
+                   (visually hidden) for screen readers. */
                 <div className="entei-magnet-checking" role="status">
                   <span className="entei-sr-only">
                     {dict.magnetCheckMetadata}

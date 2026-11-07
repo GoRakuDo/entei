@@ -172,16 +172,16 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     expect(hover).not.toContain('background-color: transparent');
   });
 
-  it('collapses the dead band between the breadcrumb and the rows', () => {
-    // Form gap (16px) + first-row top padding (8px) + crumb leading (4px) are
-    // all pulled back, leaving a --entei-space-4 hairline under the trail.
+  it('lets the list own the breadcrumb spacing (no negative-margin hack)', () => {
+    // The trail is the list's first child, so the list's own column flex/gap
+    // is the only spacing between it and the first row.
     const crumb = ruleBlock('.entei-magnet-breadcrumb');
-    expect(crumb).toContain('margin-bottom: calc(');
-    expect(crumb).toContain(
-      'var(--entei-space-4) - var(--entei-space-16) - var(--entei-space-8)',
-    );
+    expect(crumb).not.toContain('margin-bottom');
+    expect(crumb).not.toContain('margin-top');
     const list = ruleBlock('.entei-magnet-list');
-    expect(list).toContain('padding: 0 0 var(--entei-space-8)');
+    expect(list).toContain('display: flex');
+    expect(list).toContain('flex-direction: column');
+    expect(list).toContain('gap: var(--entei-space-4)');
   });
 
   it('spaces the breadcrumb trail and its separators at 8px', () => {
@@ -195,21 +195,27 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     );
   });
 
-  it('keeps the breadcrumb clickable above the rows it overlaps', () => {
-    // The trail is pulled down with a negative margin, so it must own its own
-    // stacking layer or the first row would steal the lower hit area.
+  it('needs no stacking hack: the trail no longer overlaps the rows', () => {
+    // The trail used to be pulled over the first row with a negative margin,
+    // which forced position: relative + z-index. Inside the list it is a plain
+    // flex item, so both declarations are gone.
     const crumb = ruleBlock('.entei-magnet-breadcrumb');
-    expect(crumb).toContain('position: relative');
-    expect(crumb).toContain('z-index: 1');
+    expect(crumb).not.toContain('z-index');
+    expect(crumb).not.toContain('position: relative');
   });
 
-  it('lines the row checkbox up with the magnet create button', () => {
-    // The button is flush with the dialog content edge; the checkbox cancels
-    // the row padding so both right edges share one vertical line.
+  it('seats the row checkbox inside the row padding (no negative-margin hack)', () => {
+    // The box used to be pulled out of the row with a negative right margin,
+    // which pushed it outside the hover/selected fill. It is now a plain flex
+    // child: no negative margins, so the row's 8px padding is the only inset
+    // and the fill wraps icon + box evenly.
     const check = ruleBlock('.entei-magnet-item-check');
-    expect(check).toContain('margin: 0 calc(-1 * var(--entei-space-8)) 0 0');
-    const addBtn = ruleBlock('.entei-magnet-add-btn');
-    expect(addBtn).toContain('width: var(--entei-touch-min)');
+    expect(check).not.toContain('margin');
+    expect(check).toContain('flex-shrink: 0');
+    expect(check).toContain('align-self: center');
+    // The row owns the gutter on both sides.
+    const row = ruleBlock('.entei-magnet-item');
+    expect(row).toContain('padding: var(--entei-space-8)');
   });
 
   it('seats the leading row icon in a centred square box', () => {

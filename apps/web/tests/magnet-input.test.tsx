@@ -317,6 +317,25 @@ describe('MagnetInput — create + errors', () => {
     expect(status.closest('[role="status"]')).toBeTruthy();
   });
 
+  it('nests the breadcrumb inside the file list as its first child', async () => {
+    // The trail and the rows are one scroll box: the list's own column gap
+    // owns the spacing, so no negative-margin correction is needed.
+    const { fetchMock } = makeFetcher([jsonResponse({ id: 'job123' }, 201)]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await waitFor(() =>
+      expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument(),
+    );
+    const list = document.querySelector('.entei-magnet-list');
+    const breadcrumb = document.querySelector('.entei-magnet-breadcrumb');
+    expect(list).toBeInTheDocument();
+    expect(breadcrumb).toBeInTheDocument();
+    expect(breadcrumb!.parentElement).toBe(list);
+    expect(list!.firstElementChild).toBe(breadcrumb);
+  });
+
   it.each([
     [400, baseDict.magnetErrorInvalid],
     [401, baseDict.magnetInputErrorRepair],
