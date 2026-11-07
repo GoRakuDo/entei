@@ -32,7 +32,7 @@ tokio = { version = "1", features = [
 # Loopback Range relay for selected torrent files.
 axum = "0.8"
 tokio-util = { version = "0.7", features = ["io"] }
-librqbit = { version = "8.1", default-features = false, features = ["default-tls"] }
+librqbit = { version = "9.1", default-features = false, features = ["default-tls"] }
 thiserror = "2"
 
 [build-dependencies]

@@ -61,8 +61,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use librqbit::api::TorrentIdOrHash;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, AddTorrentResponse, ByteBufOwned, Session,
-    TorrentMetaV1Info, TorrentStatsState,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, ByteBufOwned, Session, TorrentStatsState,
+    ValidatedTorrentMetaV1Info,
 };
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
@@ -404,36 +404,28 @@ fn collect_files(handle: &TorrentHandle) -> Vec<TorrentFile> {
 /// The enumeration order matches librqbit's own file indices, which is exactly
 /// what `only_files` expects later, so the indices stay valid from the
 /// metadata-only reply through `select_torrent_files`.
-fn files_from_info(
-    info: &TorrentMetaV1Info<ByteBufOwned>,
-) -> Result<Vec<TorrentFile>, TorrentError> {
-    let details = info
-        .iter_file_details()
-        .map_err(|err| TorrentError::Operation(format!("{err:#}")))?;
+///
+/// librqbit 9 hands back an already validated info dictionary, so the file
+/// iterator is infallible here: the paths were checked for traversal and empty
+/// components when the torrent was parsed.
+fn files_from_info(info: &ValidatedTorrentMetaV1Info<ByteBufOwned>) -> Vec<TorrentFile> {
     let mut files = Vec::new();
-    for (index, detail) in details.enumerate() {
+    for (index, detail) in info.iter_file_details().enumerate() {
         // Components are joined with `/` so the path shape is identical on
         // every platform; the UI normalizes both separators anyway.
-        let path = detail
-            .filename
-            .to_vec()
-            .map_err(|err| TorrentError::Operation(format!("{err:#}")))?
-            .join("/");
+        let path = detail.filename.to_vec().join("/");
         files.push(TorrentFile {
             index,
             path,
             length: detail.len,
         });
     }
-    Ok(files)
+    files
 }
 
 /// Display name of a resolved torrent (never a full path).
-fn name_from_info(info: &TorrentMetaV1Info<ByteBufOwned>) -> String {
-    info.name
-        .as_ref()
-        .map(|name| String::from_utf8_lossy(name.as_ref()).into_owned())
-        .unwrap_or_default()
+fn name_from_info(info: &ValidatedTorrentMetaV1Info<ByteBufOwned>) -> String {
+    info.name().map(|name| name.into_owned()).unwrap_or_default()
 }
 
 /// Look up one file by its metadata index.
@@ -540,7 +532,7 @@ fn remaining(deadline: tokio::time::Instant) -> Duration {
 /// timeout is not an error: the relay URL stays valid and the relay parks the
 /// browser's first range request until the piece arrives.
 async fn wait_first_byte(handle: &TorrentHandle, file_id: usize, deadline: tokio::time::Instant) {
-    let Ok(mut stream) = handle.clone().stream(file_id) else {
+    let Ok(mut stream) = handle.clone().stream(file_id).await else {
         return;
     };
     if stream.len() == 0 {
@@ -578,7 +570,7 @@ async fn read_mkv_track_report(
     if !is_matroska_path(path) {
         return None;
     }
-    let mut stream = handle.clone().stream(file_id).ok()?;
+    let mut stream = handle.clone().stream(file_id).await.ok()?;
     if stream.len() == 0 {
         return None;
     }
@@ -617,7 +609,7 @@ async fn read_mkv_track_report(
 
 fn state_label(state: &TorrentStatsState) -> String {
     match state {
-        TorrentStatsState::Initializing => "initializing",
+        TorrentStatsState::Initializing { .. } => "initializing",
         TorrentStatsState::Live => "live",
         TorrentStatsState::Paused => "paused",
         TorrentStatsState::Error => "error",
@@ -629,7 +621,9 @@ fn status_of(id: &str, handle: &TorrentHandle) -> TorrentStatus {
     let stats = handle.stats();
     let live = stats.live.as_ref();
     let download_speed_mbps = live.map(|l| l.download_speed.mbps).unwrap_or(0.0);
-    let peers_live = live.map(|l| l.snapshot.peer_stats.live).unwrap_or(0);
+    let peers_live = live
+        .map(|l| l.snapshot.peer_stats.live as usize)
+        .unwrap_or(0);
     let progress_percent = if stats.total_bytes == 0 {
         0.0
     } else {
@@ -768,15 +762,10 @@ async fn resolve_metadata(session: &Arc<Session>, uri: &str) -> Metadata {
         }
     };
 
-    let files = match files_from_info(&listed.info) {
-        Ok(files) => files,
-        Err(err) => return Metadata::Failed(err.message()),
-    };
-
     Metadata::Ready(PendingTorrent {
         info_hash: listed.info_hash.as_string(),
         name: name_from_info(&listed.info),
-        files,
+        files: files_from_info(&listed.info),
         torrent_bytes: listed.torrent_bytes,
     })
 }
@@ -1132,6 +1121,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use librqbit::TorrentMetaV1Info;
 
     #[test]
     fn rejects_invalid_magnets() {
@@ -1156,7 +1146,7 @@ mod tests {
     #[test]
     fn maps_states_to_labels() {
         assert_eq!(
-            state_label(&TorrentStatsState::Initializing),
+            state_label(&TorrentStatsState::Initializing { paused: false }),
             "initializing"
         );
         assert_eq!(state_label(&TorrentStatsState::Live), "live");
@@ -1168,7 +1158,9 @@ mod tests {
         ByteBufOwned(Bytes::from_static(value))
     }
 
-    fn multi_file_info() -> TorrentMetaV1Info<ByteBufOwned> {
+    /// The info dictionary librqbit hands back from `list_only` is already
+    /// validated, so the tests build it the same way.
+    fn multi_file_info() -> ValidatedTorrentMetaV1Info<ByteBufOwned> {
         TorrentMetaV1Info {
             name: Some(byte_buf(b"Show")),
             pieces: byte_buf(&[0u8; 20]),
@@ -1191,6 +1183,8 @@ mod tests {
             ]),
             ..Default::default()
         }
+        .validate()
+        .expect("validated info")
     }
 
     /// The metadata-only file list must carry the same indices librqbit will
@@ -1199,7 +1193,7 @@ mod tests {
     #[test]
     fn lists_metadata_files_with_librqbit_indices() {
         let info = multi_file_info();
-        let files = files_from_info(&info).expect("file list");
+        let files = files_from_info(&info);
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].index, 0);
         assert_eq!(files[0].path, "Show/Episode 01.mkv");
@@ -1211,7 +1205,7 @@ mod tests {
 
     #[test]
     fn finds_files_by_index_only() {
-        let files = files_from_info(&multi_file_info()).expect("file list");
+        let files = files_from_info(&multi_file_info());
         assert_eq!(find_file(&files, 1).expect("index 1").path, "Show/Episode 01.srt");
         assert!(find_file(&files, 2).is_err());
     }
@@ -1223,7 +1217,7 @@ mod tests {
         let pending = PendingTorrent {
             info_hash: "abc".into(),
             name: "Show".into(),
-            files: files_from_info(&multi_file_info()).expect("file list"),
+            files: files_from_info(&multi_file_info()),
             torrent_bytes: Bytes::new(),
         };
         let status = metadata_status("torrent-0", "magnet-hash", &Metadata::Ready(pending));

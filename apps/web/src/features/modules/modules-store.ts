@@ -72,7 +72,7 @@ export const CORE_MODULES: readonly EnteiModuleManifest[] = [
     id: 'torrent',
     nameKey: 'torrentName',
     descriptionKey: 'torrentDescription',
-    version: '8.1.1',
+    version: '9.1.0',
     author: 'Entei',
     icon: 'Magnet',
     category: 'source',

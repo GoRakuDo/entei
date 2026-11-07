@@ -138,7 +138,7 @@ export interface EnteiModuleManifest {
 | id | version | 実体の根拠 |
 | --- | --- | --- |
 | `ytdlp` | `2026.07.04` | 同梱 yt-dlp helper（`bundle.resources`）の `--version`（§8.1.1） |
-| `torrent` | `8.1.1` | `librqbit` crate（`plugins/tauri-plugin-torrent/Cargo.toml` の `8.1` が解決する実バージョン、`Cargo.lock` 実測） |
+| `torrent` | `9.1.0` | `librqbit` crate（`plugins/tauri-plugin-torrent/Cargo.toml` の `9.1` が解決する実バージョン、`Cargo.lock` 実測）。8.1.1 から上げた理由は §7.2 の Windows DHT 停止バグ（`librqbit-dht` 5.3.1 → 9.1.0 で修正済み） |
 | `yomitan` | `0.1.1` | `@gorakudo/yomitan-headless` の公開バージョン |
 
 ### 5.2 画面仕様
@@ -195,12 +195,29 @@ export interface EnteiModuleManifest {
 - `features/player/use-companion-job-session.ts`: `beginDirectTorrentSession()` を追加。companion ブリッジを起動せず relay URL をそのまま `jobMediaUrl`/`subtitleUrl` として公開し、phase は `ready`、`cancelActiveJob()` は `cancel_torrent` を呼ぶ。**direct モードは media error 回復を自前で持つ**（companion ブリッジ側の回復と同じ実測済み経路）: `error` で `DIRECT_MEDIA_RESET_DELAY_MS` = 600 ms 後に同じ relay URL へ `src` を再設定して `load()` し、`loadeddata` 成功で予算を戻す（上限 `DIRECT_MEDIA_RESET_LIMIT` = 3 回。枯渇後は error として表面化させ、無限リロードにしない）。復帰位置は `timeupdate` で記録した最終位置から `loadedmetadata` / `canplay` で復元し、エラー前に再生中だった場合だけ `play()` で再開する（`el.currentTime` は使えない — プレイヤー側の error 処理が先に `src` を外して `load()` するため 0 に戻っている）。unmount 時はリスナーと保留中のリセットタイマーを解放する。
 - `components/player/PlayerApp.tsx`: `handleMagnetJobAccepted` の第4引数 `direct` で直結経路へ分岐（字幕が無い場合のみ JIMAKU 自動ロード）。
 
+### 7.2.1 Windows で DHT が即死して `metadata resolution timed out` になる不具合（修正済み）
+
+実機（Tauri debug ビルド + MCP bridge）で `plugin:torrent|get_torrent_status` を直接叩いたところ、人気 torrent（`b8b448b3…5985e8`）でも `state: "error"` / `metadata resolution timed out after 120s` になっていた。
+
+調査で判明した事実:
+- **`peers_live` は証拠にならない**: `metadata_status()` はメタデータ段階で `peers_live: 0` を固定で返す（`Active` に昇格して初めて実値を返す）。この 0 は DHT 失敗の証拠ではない。
+- 同じマシンの生 DHT クライアント（KRPC `get_peers`）では同 infohash のピアが **37 件** 見つかった。Windows Firewall も全プロファイル無効。つまり回線・DHT・swarm は正常。
+- `librqbit` 8.1.1 を単体で動かすと session 生成直後に `ERROR librqbit_dht: framer quit: … error reading from UDP socket … os error 10054` で **DHT ワーカータスクが永久終了**していた。10054 = `WSAECONNRESET`。Windows は「送った先の UDP ポートが閉じている（ICMP port unreachable）」を次回 `recv_from` のエラーとして返すため、`librqbit-dht` 5.3.1 の framer はそれを致命的エラーとして扱い DHT 全体を止めていた（ルーティングテーブルは空のまま → `get_peers` は何も返さない → メタデータ永久未解決）。
+- **`librqbit-dht` 9.1.0 でこの不具合は上流修正済み**（`is_datagram_error()` が `WSAECONNRESET` / `WSAENETRESET` / `WSAEMSGSIZE` を無視して `continue` する）。9.0.1 には未修正。
+
+対応: `plugins/tauri-plugin-torrent/Cargo.toml` の `librqbit` を `8.1` → `9.1` に上げ、9 系の API 差分（`stream()` が `async`、`ListOnlyResponse.info` が `ValidatedTorrentMetaV1Info`、`TorrentStatsState::Initializing { paused }`、`PeerStats.live` が `u32`）に追随した。`SessionOptions` は既定（DHT 有効 + 永続化）のまま変更していない — 原因は設定不足ではなくライブラリ側のバグだったため。
+
+実機検証（Tauri debug ビルド、MCP bridge の `execute_js` 経由で `plugin:torrent|*` を直接実行）:
+- `add_torrent` が **4.0 s** でメタデータ解決（`[VCB-Studio] K-ON!` / 1372 ファイル）。修正前は 120 s タイムアウト。
+- `select_torrent_files` が relay URL と MKV トラック表（HEVC 映像 + 字幕）を返却。
+- `get_torrent_status` が `state: "live"`, **`peers_live: 4`**, `progress_bytes > 0` を報告（= ピア接続と実データ取得を実測）。
+
 ### 7.3 既知の指摘（Known issues / Low findings）
 1. **LazySync（字幕同期）は未対応**: 参照字幕の取得は companion の `/v1/source/torrents/{id}/subtitle` 前提のため、直結モードでは字幕表示はできても同期参照の自動取得は行わない（手動同期のみ）。
 2. **torrent 内蔵字幕の自動抽出は無し**: 字幕はファイル一覧から手動選択する方式のみ（companion の自動検出に相当する処理は未実装）。
 3. **relay は無認証**: 127.0.0.1 のエフェメラルポート + CORS `*` で、プロセス外からは到達できないが同一マシンの他プロセスからは読める（旧 companion と同じ前提）。
 4. **シーク先の piece 優先度は librqbit のストリーム実装依存**: 未 DL 領域へのシークは piece 到着まで待つ。初回 byte 待ちで Chrome のタイムアウトは回避しているが、シーク後の体感は回線と swarm 次第。
-5. **実環境 E2E は未確認**: ここまではコード実装と自動テスト（Rust unit 6 件 / MagnetInput 54 件、`astro check` 0 error）のみ。実際の WebView2 での magnet 再生確認はまだ行っていない。
+5. **実環境 E2E は一部確認済み**: Rust unit 27 件は pass。実機（Tauri debug ビルド）で `add_torrent` → 1372 ファイルのメタデータ解決（4.0 s）、`select_torrent_files` → relay URL + MKV トラック表、`get_torrent_status` → `peers_live: 4` / 実データ取得までを MCP bridge 経由で確認済み（§7.2.1）。**未確認**: WebView2 の `<video>` での実再生（映像表示・シーク・字幕選択）と、実 UI の Magnet モーダル操作経路。
 
 ---
 

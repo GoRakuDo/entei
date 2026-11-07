@@ -386,7 +386,7 @@ async fn wait_streamable(handle: &Arc<ManagedTorrent>, file_id: usize) -> Result
     // `stream()` only succeeds once the storage is open; the error text is
     // deliberately dropped because librqbit's message can carry cache paths and
     // no torrent detail may reach the webview.
-    if handle.clone().stream(file_id).is_ok() {
+    if handle.clone().stream(file_id).await.is_ok() {
         return Ok(());
     }
 
@@ -404,7 +404,7 @@ async fn wait_streamable(handle: &Arc<ManagedTorrent>, file_id: usize) -> Result
     // window where storage is still being opened; past that the file is not
     // servable and retrying cannot change it, so stop instead of spinning.
     for _ in 0..STREAM_INIT_MAX_RETRIES {
-        if handle.clone().stream(file_id).is_ok() {
+        if handle.clone().stream(file_id).await.is_ok() {
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
@@ -413,7 +413,7 @@ async fn wait_streamable(handle: &Arc<ManagedTorrent>, file_id: usize) -> Result
         tokio::time::sleep(STREAM_INIT_RETRY).await;
     }
 
-    if handle.clone().stream(file_id).is_ok() {
+    if handle.clone().stream(file_id).await.is_ok() {
         Ok(())
     } else {
         Err(StreamWait::Unavailable)
@@ -443,7 +443,7 @@ async fn stream_file(relay: Arc<Relay>, id: String, headers: HeaderMap) -> Respo
         };
     }
 
-    let mut stream = match handle.stream(file_id) {
+    let mut stream = match handle.clone().stream(file_id).await {
         Ok(stream) => stream,
         Err(_) => {
             // The torrent stopped being streamable between the wait and this
