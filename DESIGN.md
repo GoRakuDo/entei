@@ -680,6 +680,9 @@ the wrapper border must be accounted for explicitly:
 - An inner segment sized `W` when the wrapper border requires `calc(W - 1px)`
 - A `SelectContent` popover that is not width-locked to its trigger
 - Unstyled default accent fill on a selected dropdown item
+- Negative margin hacks to forcibly pull elements out of parent padding or cancel unrelated gaps (e.g. `margin-bottom: -24px` to pull lists under breadcrumbs, `margin-right: -8px` to force checkboxes outside row padding); container layout (flex/grid gap and proper DOM nesting) must own the rhythm naturally
+- Hacky `z-index` band-aids to fix hit-testing or click-target loss caused by overlapping negative margins
+- White or unstyled native OS scrollbars leaking into dark themed dialogs or root pages; use the standardized 6px thin transparent scrollbar tokens
 
 ---
 

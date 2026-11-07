@@ -60,6 +60,51 @@ html {
   }
 }
 
+/* ===== SCROLLBARS =====
+ * WebView2/Chromium ships the chunky light Windows classic scrollbar, which
+ * breaks the dark shell on every scroll container (page body, magnet file
+ * list, subtitle panel, settings tabs). Both the standard properties
+ * (scrollbar-width/scrollbar-color) and the WebKit pseudo-elements
+ * (Chromium/WebView2) are themed to a 6px pill: transparent track plus a
+ * translucent white thumb that brightens on hover.
+ * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621).
+ * `scrollbar-color` inherits, `scrollbar-width` does not, so both are set on
+ * `html` (root scroller) and on `*` (every inner scroll container). Any
+ * more specific rule (e.g. `.entei-settings-tabs-list { scrollbar-width:
+ * none }`) still wins by specificity.
+ */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: oklch(100% 0 0deg / 0.18);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(100% 0 0deg / 0.32);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ===== FOUC PREVENTION (PHASE0.md 8.223, 20.541) =====
  * The inline script in <head> adds .entei-hydrating to <html> ONLY when a
  * saved non-id locale exists. The module script removes the class after
