@@ -1,9 +1,21 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_ytdlp::init())
         .plugin(tauri_plugin_torrent::init())
-        .plugin(tauri_plugin_mpv::init())
+        .plugin(tauri_plugin_mpv::init());
+
+    // Debug-only developer bridge (MCP). Two guards:
+    // - `debug_assertions`: the plugin is not compiled/registered in release builds.
+    // - bind_address "127.0.0.1": the bridge WebSocket never listens on other interfaces.
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(
+        tauri_plugin_mcp_bridge::Builder::new()
+            .bind_address("127.0.0.1")
+            .build(),
+    );
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
