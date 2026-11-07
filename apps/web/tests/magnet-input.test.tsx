@@ -194,15 +194,21 @@ describe('MagnetInput — no pairing gate', () => {
     expect(document.getElementById('entei-magnet-input')).toBeInTheDocument();
   });
 
-  it('consent text is shown as plain text near the bottom', () => {
+  it('does not render the tracker/peer consent paragraph (moved to the app ToS)', () => {
     render(<MagnetInput {...defaultProps} />);
-    expect(screen.getByText(baseDict.magnetConsentLabel)).toBeInTheDocument();
+    expect(screen.queryByText(baseDict.magnetConsentLabel)).not.toBeInTheDocument();
+    expect(
+      document.querySelector('.entei-magnet-consent-text'),
+    ).not.toBeInTheDocument();
   });
 
-  it('empty state renders inside the bounded file list', () => {
+  it('hides the breadcrumb and the file list until a magnet is loaded', () => {
     render(<MagnetInput {...defaultProps} />);
-    expect(document.querySelector('.entei-magnet-list')).toBeInTheDocument();
-    expect(document.querySelector('.entei-magnet-empty')).toBeInTheDocument();
+    // Idle dialog = pure input shell: no empty list box, no root breadcrumb.
+    expect(document.querySelector('.entei-magnet-list')).not.toBeInTheDocument();
+    expect(document.querySelector('.entei-magnet-empty')).not.toBeInTheDocument();
+    expect(document.querySelector('.entei-magnet-breadcrumb')).not.toBeInTheDocument();
+    expect(screen.queryByText(baseDict.magnetFilesTitle)).not.toBeInTheDocument();
   });
 
   it('no bottom ChevronLeft or ChevronRight buttons exist in the DOM', () => {
@@ -212,11 +218,19 @@ describe('MagnetInput — no pairing gate', () => {
     expect(document.querySelector('.lucide-chevron-right')).not.toBeInTheDocument();
   });
 
-  it('title renders the Magnet icon next to the gold pixel heading', () => {
+  it('title renders the users-collaboration icon next to the gold pixel heading', () => {
     render(<MagnetInput {...defaultProps} />);
     const titleEl = document.querySelector('.entei-magnet-dialog-title');
     expect(titleEl).toBeInTheDocument();
-    expect(titleEl!.querySelector('.lucide-magnet')).toBeInTheDocument();
+    // lucide-react 1.31.0 predates this glyph, so the component inlines the
+    // official artwork — it must still carry the Lucide class contract.
+    const icon = titleEl!.querySelector('svg.lucide-users-collaboration');
+    expect(icon).toBeInTheDocument();
+    expect(icon!.getAttribute('aria-hidden')).toBe('true');
+    expect(icon!.getAttribute('viewBox')).toBe('0 0 24 24');
+    expect(icon!.getAttribute('stroke-width')).toBe('2');
+    // The old Magnet title icon is gone (it still marks the create button).
+    expect(titleEl!.querySelector('.lucide-magnet')).not.toBeInTheDocument();
   });
 
   it('omits the corner X close button (Cancel is the dismissal action)', () => {
@@ -239,12 +253,6 @@ describe('MagnetInput — no pairing gate', () => {
     // Verify the button has our CSS class that defines transitions
     expect(addBtn.className).toContain('entei-magnet-add-btn');
   });
-
-  it('consent text has correct CSS class for font sizing', () => {
-    render(<MagnetInput {...defaultProps} />);
-    const consentEl = screen.getByText(baseDict.magnetConsentLabel);
-    expect(consentEl.className).toContain('entei-magnet-consent-text');
-  });
 });
 
 describe('MagnetInput — create + errors', () => {
@@ -266,8 +274,11 @@ describe('MagnetInput — create + errors', () => {
     expect(body.magnet).toBe(VALID_URI);
     // The magnet must not leak into the DOM.
     expect(screen.queryByText(VALID_URI)).not.toBeInTheDocument();
-    // Accepted: dialog moves to the metadata-checking phase.
+    // Accepted: dialog moves to the metadata-checking phase, which is the
+    // first moment the breadcrumb + file list container may appear.
     await waitFor(() => expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument());
+    expect(document.querySelector('.entei-magnet-list')).toBeInTheDocument();
+    expect(document.querySelector('.entei-magnet-breadcrumb')).toBeInTheDocument();
   });
 
   it.each([
@@ -1173,9 +1184,11 @@ describe('MagnetInput — cancel serialization & re-open races (ED-2G) — happy
     await flush(0);
     // It must NOT resurrect the file picker or trigger a files fetch.
     expect(screen.getByRole('textbox')).toBeInTheDocument();
-    // magnetFilesTitle is the default empty-state label in the unified shell,
-    // so it IS expected to be visible; the key check is that no file rows appear.
+    // magnetFilesTitle was the idle empty-state label; the list (and its
+    // empty state) is no longer rendered before a magnet is loaded, so no
+    // file rows and no empty box may appear.
     expect(screen.queryByText('movie.mkv')).not.toBeInTheDocument();
+    expect(document.querySelector('.entei-magnet-list')).not.toBeInTheDocument();
     expect(calls.some((c) => c.url.includes('/files'))).toBe(false);
   });
 

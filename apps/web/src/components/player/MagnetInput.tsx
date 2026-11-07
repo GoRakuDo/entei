@@ -3,16 +3,21 @@
  * ---------------------------------------------------------------------------
  * Unified mockup shell visible from modal open (DESIGN.md 8.8: one padding
  * owner, no corner X because Cancel is the dismissal action):
- * - Title: gold pixel heading with the Lucide Magnet icon.
+ * - Title: gold pixel heading with the Lucide `users-collaboration` icon.
  * - Field label + joined ButtonGroup: magnet URI Input + Magnet icon-only
  *   create button (single flat surface, hairline divider, inset focus ring).
  * - Breadcrumb: torrent root › folders walked into. Clicking a non-current
  *   segment navigates back to that level; deep paths collapse their middle
  *   (`root › … › Season 1`) and long paths scroll horizontally on mobile.
+ *   Rendered only once a torrent exists (metadata check or file list) — the
+ *   idle dialog is a pure input shell with no empty box.
  * - File/folder rows (no <table>): folder rows navigate, video/subtitle rows
  *   show name + size with a checkbox on the right, other files are inert.
- * - Tracker/peer IP disclosure shown as plain text above the actions.
  * - Actions: Cancel | Stream Now (desktop joined pair, mobile stacked).
+ *
+ * Note: the tracker/peer IP disclosure that used to sit above the actions is
+ * intentionally not rendered here anymore — that consent wording belongs in
+ * the app's Terms of Service, not in a per-dialog paragraph.
  *
  * Only the explicit "Stream Now" button calls /select and hands the accepted
  * job to Player. Merely checking rows or navigating folders must never start
@@ -50,7 +55,8 @@
  * Hygiene contract:
  * - The magnet and job state live in component/page memory only — never
  *   localStorage / IndexedDB / sessionStorage / cookies / history / logs.
- * - Unpaired: only a pairing-needed notice; no input / submit.
+ * - Unpaired: the form is still rendered (the dialog never gates on
+ *   pairing); submit surfaces the pairing-needed error.
  * - Errors are generic and localized; raw server/magnet/tracker/URL detail
  *   is suppressed. 400 = invalid magnet, 401/403 = re-pair, 409 = active
  *   job, network = companion unavailable.
@@ -90,6 +96,44 @@ import {
   selectTorrentFilesDirect,
   type DirectTorrentFile,
 } from '@/features/player/tauri-bridge';
+
+/**
+ * Lucide `users-collaboration` (official 24×24 artwork, 2px stroke).
+ *
+ * Inlined rather than imported from `lucide-react`: the installed release
+ * (1.31.0) predates this glyph (upstream 1.57.0+), and bumping the whole icon
+ * package to chase one icon would churn every icon import in the Player. It
+ * keeps the Lucide contract the packaged icons have — 24×24 viewBox,
+ * `currentColor` stroke, `lucide lucide-users-collaboration` class,
+ * aria-hidden — so `size` and colour tokens behave identically.
+ *
+ * Note: replace with `<UsersCollaboration />` from `lucide-react` once the
+ * dependency is at 1.57.0 or later.
+ */
+function UsersCollaboration({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="lucide lucide-users-collaboration"
+      aria-hidden="true"
+    >
+      <path d="M12.925 3.047a9 9 0 017.616 6.11" />
+      <path d="M13 22a2 2 0 012-2h4a2 2 0 012 2" />
+      <path d="M3 12a2 2 0 012-2h4a2 2 0 012 2" />
+      <path d="M3.889 15.9a9 9 0 005.247 4.632" />
+      <circle cx="17" cy="14" r="2" />
+      <circle cx="7" cy="4" r="2" />
+    </svg>
+  );
+}
 
 /** Loopback companion origin; the only accepted torrent endpoint. */
 const COMPANION_BASE_URL = 'http://127.0.0.1:4322';
@@ -136,6 +180,9 @@ export interface MagnetInputDict {
   magnetErrorInvalid: string;
   magnetInputSubmit: string;
   magnetInputUnpairedBody: string;
+  // Reserved: the tracker/peer IP disclosure paragraph is no longer rendered
+  // in the dialog (that consent wording belongs in the app's Terms of
+  // Service). Kept in the shared dict shape until the i18n key is retired.
   magnetConsentLabel: string;
   magnetInputErrorRepair: string;
   magnetInputErrorConflict: string;
@@ -146,6 +193,10 @@ export interface MagnetInputDict {
   magnetInputErrorV2Unsupported: string;
   magnetInputSubmitting: string;
   magnetCheckMetadata: string;
+  // Reserved: the idle "select files" empty state was removed (the list is
+  // only rendered once a torrent exists), so these two keys are no longer
+  // read here. Kept in the shared dict shape until the i18n keys are retired
+  // in one sweep together with every other consumer's fixture.
   magnetFilesTitle: string;
   magnetFilesBody: string;
   magnetNoVideoError: string;
@@ -1198,6 +1249,11 @@ export function MagnetInput({
   // waitForPlayable runs after /select.
   const showTable = phase === 'selecting' || phase === 'submitting';
   const showChecking = phase === 'checking';
+  // Breadcrumb + file list only exist once a torrent has been created: the
+  // metadata check (spinner) or the file listing. Before that (input /
+  // creating / settling) the dialog is a pure input shell — no empty box, no
+  // root-only breadcrumb strip.
+  const showFiles = showTable || showChecking;
   // The root crumb always exists so navigating back to the torrent root is
   // always possible, even when the magnet carries no `dn` display name.
   const crumbs = buildBreadcrumb(
@@ -1224,7 +1280,7 @@ export function MagnetInput({
           {/* Title lives inside the single form padding — no separate
               DialogHeader band (DESIGN.md 8.8: one padding owner). */}
           <DialogTitle className="entei-magnet-dialog-title">
-            <Magnet size={16} aria-hidden="true" />
+            <UsersCollaboration size={16} />
             {dict.magnetInputLabelTitle}
           </DialogTitle>
 
@@ -1276,8 +1332,9 @@ export function MagnetInput({
 
           {/* Breadcrumb: torrent root + the folders walked into. Clicking a
               non-current segment navigates back to that level (the job is
-              never cancelled — browsing is display-only). */}
-          {crumbs.length > 0 && (
+              never cancelled — browsing is display-only). Only rendered once
+              a torrent exists (see `showFiles`). */}
+          {showFiles && crumbs.length > 0 && (
             <nav
               className="entei-magnet-breadcrumb"
               aria-label={dict.magnetBreadcrumbLabel}
@@ -1325,96 +1382,93 @@ export function MagnetInput({
           )}
 
           {/* File/folder rows (mockup): folders navigate, video/subtitle rows
-              carry a checkbox on the right. */}
-          <div className="entei-magnet-list">
-            {showTable ? (
-              entries.length === 0 ? (
-                <div className="entei-magnet-empty">
-                  <span className="entei-magnet-empty-title">
-                    {dict.magnetNoVideosInFolder}
-                  </span>
-                </div>
-              ) : (
-                entries.map((entry) => {
-                  const isFolder = entry.kind === 'folder';
-                  const isVideo = entry.kind === 'video';
-                  const isSubtitle = entry.kind === 'subtitle';
-                  const selectable = isVideo || isSubtitle;
-                  const isSelected =
-                    (isVideo && videoId === entry.id) ||
-                    (isSubtitle && subtitleId === entry.id);
-                  const itemClass = `entei-magnet-item${isFolder ? ' entei-magnet-item--folder' : ''}${isSelected ? ' entei-magnet-item--selected' : ''}`;
-                  const key = entry.id ?? entry.relativePath ?? entry.basename;
-                  const rowBody = (
-                    <>
-                      <span className="entei-magnet-item-icon" aria-hidden="true">
-                        {kindIcon(entry.kind, 18)}
-                      </span>
-                      <span className="entei-magnet-item-text">
-                        <span className="entei-magnet-item-name">
-                          {entry.basename}
+              carry a checkbox on the right. Only rendered once a torrent
+              exists — an idle dialog never shows an empty list box. */}
+          {showFiles && (
+            <div className="entei-magnet-list">
+              {showTable ? (
+                entries.length === 0 ? (
+                  <div className="entei-magnet-empty">
+                    <span className="entei-magnet-empty-title">
+                      {dict.magnetNoVideosInFolder}
+                    </span>
+                  </div>
+                ) : (
+                  entries.map((entry) => {
+                    const isFolder = entry.kind === 'folder';
+                    const isVideo = entry.kind === 'video';
+                    const isSubtitle = entry.kind === 'subtitle';
+                    const selectable = isVideo || isSubtitle;
+                    const isSelected =
+                      (isVideo && videoId === entry.id) ||
+                      (isSubtitle && subtitleId === entry.id);
+                    const itemClass = `entei-magnet-item${isFolder ? ' entei-magnet-item--folder' : ''}${isSelected ? ' entei-magnet-item--selected' : ''}`;
+                    const key =
+                      entry.id ?? entry.relativePath ?? entry.basename;
+                    const rowBody = (
+                      <>
+                        <span
+                          className="entei-magnet-item-icon"
+                          aria-hidden="true"
+                        >
+                          {kindIcon(entry.kind, 18)}
                         </span>
-                        {!isFolder && entry.byteSize != null && (
-                          <span className="entei-magnet-item-size">
-                            {formatBytes(entry.byteSize)}
+                        <span className="entei-magnet-item-text">
+                          <span className="entei-magnet-item-name">
+                            {entry.basename}
                           </span>
-                        )}
-                      </span>
-                    </>
-                  );
-
-                  if (isFolder) {
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={itemClass}
-                        onClick={() =>
-                          handleFolderForward(entry.relativePath ?? entry.basename)
-                        }
-                        disabled={busy}
-                      >
-                        {rowBody}
-                      </button>
+                          {!isFolder && entry.byteSize != null && (
+                            <span className="entei-magnet-item-size">
+                              {formatBytes(entry.byteSize)}
+                            </span>
+                          )}
+                        </span>
+                      </>
                     );
-                  }
 
-                  return (
-                    <div key={key} className={itemClass}>
-                      {rowBody}
-                      {selectable && (
-                        <Checkbox
-                          className="entei-magnet-item-check"
-                          checked={isSelected}
-                          onCheckedChange={(checked) =>
-                            handleCheckboxChange(entry, checked === true)
+                    if (isFolder) {
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          className={itemClass}
+                          onClick={() =>
+                            handleFolderForward(
+                              entry.relativePath ?? entry.basename,
+                            )
                           }
                           disabled={busy}
-                          aria-label={`${kindLabel(entry, dict)}: ${entry.basename}`}
-                        />
-                      )}
-                    </div>
-                  );
-                })
-              )
-            ) : showChecking ? (
-              <div className="entei-magnet-checking" role="status">
-                <span>{dict.magnetCheckMetadata}</span>
-              </div>
-            ) : (
-              <div className="entei-magnet-empty">
-                <span className="entei-magnet-empty-title">
-                  {dict.magnetFilesTitle}
-                </span>
-                <span className="entei-magnet-empty-body">
-                  {dict.magnetFilesBody}
-                </span>
-              </div>
-            )}
-          </div>
+                        >
+                          {rowBody}
+                        </button>
+                      );
+                    }
 
-          {/* Tracker/peer IP disclosure (plain text, no checkbox) */}
-          <p className="entei-magnet-consent-text">{dict.magnetConsentLabel}</p>
+                    return (
+                      <div key={key} className={itemClass}>
+                        {rowBody}
+                        {selectable && (
+                          <Checkbox
+                            className="entei-magnet-item-check"
+                            checked={isSelected}
+                            onCheckedChange={(checked) =>
+                              handleCheckboxChange(entry, checked === true)
+                            }
+                            disabled={busy}
+                            aria-label={`${kindLabel(entry, dict)}: ${entry.basename}`}
+                          />
+                        )}
+                      </div>
+                    );
+                  })
+                )
+              ) : (
+                <div className="entei-magnet-checking" role="status">
+                  <span>{dict.magnetCheckMetadata}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Actions: DOM order is Stream Now → Cancel (mobile stacking
               order). Desktop CSS mirrors the row so Cancel sits left and the

@@ -927,3 +927,25 @@ Sentence Mining:
 3. **Stage 3:** UI制御（音量スライダー、ミュート、Pause）を`<audio>`に接続
 4. **Stage 4:** Sentence Miningの音声キャプチャを`<audio>`から取得するよう変更
 5. **Stage 5:** torrent再生中のMKV未完成対応、パフォーマンス最適化
+
+---
+
+## 22. Magnet モーダル idle 状態と同意文言の契約
+
+> **追加日:** 2026-08-22
+> **対象:** `apps/web/src/components/player/MagnetInput.tsx`, `apps/web/src/styles/player.css`
+
+### 契約
+
+| 項目 | 契約 |
+|---|---|
+| pairing gate | なし。unpaired でも入力フォームを常時描画し、送信時に pairing-required エラーを返す |
+| 同意（consent） | tracker/peer の同意文言・チェックボックス・パラグラフは撤去し、アプリ ToS へ移管。モーダル内に checkbox は存在しない |
+| idle 状態 | pure input shell。torrent create 前は breadcrumb・file list・empty state を一切描画しない |
+| empty state | 描画されるのは「folder 移動後に対象 file が 0 件」の時だけ。idle 用の空リスト box は持たない |
+| dead CSS | `.entei-magnet-empty-body`（idle empty state 用）と `.entei-magnet-consent-text` はセレクタごと撤去し、`tests/magnet-table-css.test.ts` が再混入を検出する |
+
+### 検証
+
+- `tests/magnet-input.test.tsx`: checkbox 不在・同意パラグラフ不在・idle で breadcrumb/file list/empty state が無いことを pin。
+- `tests/magnet-table-css.test.ts`: 撤去済みセレクタが player.css に戻っていないことを pin。

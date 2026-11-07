@@ -4622,22 +4622,6 @@ html.entei-player-immersive .entei-player-audio-area {
   margin-bottom: calc(var(--entei-space-24) - var(--entei-space-16));
 }
 
-/* --- ED-2G magnet source dialog — unified shell --- */
-
-/* Main shell: wraps input row + table + bottom nav in a single column */
-/* Top section: input row + consent disclosure text */
-/* Input + icon-button row. The gap to the table below comes solely from
-   the shell's 16px gap — no extra margin, or the two stack into a
-   lopsided 40px gap. ButtonGroup handles display:flex + items-stretch
-   and stitches the rounded corners between siblings (input + button). */
-/* Tracker/peer IP disclosure — plain text, no checkbox */
-.entei-magnet-consent-text {
-  margin: 0;
-  color: var(--entei-text-muted);
-  font-size: 0.75rem;
-  line-height: 1.4;
-}
-
 .entei-spin {
   animation: entei-spin 1s linear infinite;
 }
@@ -4707,11 +4691,6 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
   font-size: 0.8125rem;
   font-weight: 600;
-}
-
-.entei-magnet-empty-body {
-  color: var(--entei-text-muted);
-  font-size: 0.75rem;
 }
 
 /* Checking state (metadata fetch). Same min-height as the empty state so

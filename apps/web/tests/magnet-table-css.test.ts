@@ -147,6 +147,11 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     expect(css).not.toContain('.entei-magnet-shell');
     expect(css).not.toContain('.entei-magnet-browser-bottom');
     expect(css).not.toContain('.entei-magnet-folder-btn');
+    // Idle dialog is a pure input shell: the empty-state body copy and the
+    // tracker consent paragraph moved to the app ToS, so their selectors are
+    // dead too.
+    expect(css).not.toContain('.entei-magnet-empty-body');
+    expect(css).not.toContain('.entei-magnet-consent-text');
   });
 
   it('uses only OKLCH colours and Entei tokens in the magnet section', () => {
