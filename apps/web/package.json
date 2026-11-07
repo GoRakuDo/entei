@@ -5,10 +5,10 @@
   "private": true,
   "description": "Entei web app — Astro static home hub for entei.gorakudo.org.",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "check": "astro check",
+    "dev": "bun ../../node_modules/astro/bin/astro.mjs dev",
+    "build": "bun ../../node_modules/astro/bin/astro.mjs build",
+    "preview": "bun ../../node_modules/astro/bin/astro.mjs preview",
+    "check": "bun ../../node_modules/astro/bin/astro.mjs check",
     "test": "bun test --isolate",
     "test:watch": "bun test --isolate --watch"
   },

@@ -65,30 +65,26 @@ html {
  * breaks the dark shell on every scroll container (page body, magnet file
  * list, subtitle panel, settings tabs).
  *
- * Chromium / WebView2 / Safari are themed through the ::-webkit-scrollbar
- * pseudo-elements ONLY: a 6px pill, transparent track, translucent white
- * thumb that turns --entei-accent-hover on hover/drag (track stays fully
- * transparent).
+ * Contract (matches the Tailwind Play reference the user approved):
+ *   scrollbar-width: thin;
+ *   scrollbar-color: var(--entei-accent-hover) transparent;
+ * i.e. the thumb is the vivid accent at rest — NOT a translucent white that
+ * only lights up on hover — and the track is fully transparent. Both the
+ * standard properties (Chromium 121+, Firefox, WebView2) and the
+ * ::-webkit-scrollbar pseudo-elements are written with the same colours, so
+ * every engine lands on the same thin accent pill.
  *
- * Do NOT set `scrollbar-width` or `scrollbar-color` to any non-auto value in
- * those engines: as soon as either standard property is present, Chromium
- * ignores every ::-webkit-scrollbar rule for that element. That is exactly
- * why the hover/active thumb colour never showed up — the chunky standard
- * scrollbar won over the pseudo-elements. The standard properties are
- * therefore scoped to engines that do not implement the pseudo-elements
- * (Firefox), where they are the only styling hook.
+ * `scrollbar-color` inherits, `scrollbar-width` does not, hence the pair is
+ * declared on both `html` and `*` (every scroll container, root included).
+ * More specific rules (e.g. `.entei-settings-tabs-list { scrollbar-width:
+ * none }`) still win by specificity.
  *
  * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621).
- * `scrollbar-color` inherits, `scrollbar-width` does not, so the Firefox
- * fallback is set on `*` (every scroll container, root included). Any more
- * specific rule (e.g. `.entei-settings-tabs-list { scrollbar-width: none }`)
- * still wins by specificity.
  */
-@supports (not selector(::-webkit-scrollbar)) or (-moz-appearance: none) {
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
-  }
+html,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--entei-accent-hover) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -101,18 +97,16 @@ html {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: oklch(100% 0 0deg / 0.18);
+  background-color: var(--entei-accent-hover);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:active {
   background-color: var(--entei-accent-hover);
-  /* The hovered/dragged pill must read instantly against both the dark track
-     and the resting translucent white thumb (~L31.7% over the dark surface).
-     --entei-btn-color (L31.5%) sat at the same lightness and disappeared, so
-     the state now uses the bright accent (L76%) as a plain background-color —
-     no box-shadow trick needed. */
+  /* Same fill, brighter: the pill is already the vivid accent at rest, so the
+     hover/drag state reads as a glow rather than a colour swap. */
+  filter: brightness(1.15);
 }
 
 ::-webkit-scrollbar-corner {

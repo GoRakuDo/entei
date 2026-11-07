@@ -4919,15 +4919,14 @@ html.entei-player-immersive .entei-player-audio-area {
   max-height: 20rem;
   overflow-y: auto;
   padding: 0 0 var(--entei-space-8);
-  /* Slim dark scrollbar: the global 6px rule already applies, but pinning it
-     here keeps the contract local — a 20rem capped list that fills up on
-     multi-file magnets must not sprout the light Windows classic bar.
-     Chromium/WebView2 styling lives in the ::-webkit-scrollbar rules below;
-     the standard `scrollbar-width`/`scrollbar-color` fallback is scoped to
-     engines without the pseudo-elements (Firefox) at the end of this group,
-     because Chromium drops every ::-webkit-scrollbar rule as soon as either
-     standard property is set — that killed the hover/active thumb colour.
+  /* Slim accent scrollbar (same contract as global.css): a 20rem capped list
+     that fills up on multi-file magnets must not sprout the light Windows
+     classic bar. Thumb = --entei-accent-hover at rest, track fully
+     transparent, 6px. Declared with both the standard properties and the
+     ::-webkit-scrollbar pseudo-elements so every engine matches.
      OKLCH only (project rule #1621). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--entei-accent-hover) transparent;
 }
 
 .entei-magnet-list::-webkit-scrollbar {
@@ -4940,29 +4939,15 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-magnet-list::-webkit-scrollbar-thumb {
-  background-color: oklch(100% 0 0deg / 0.18);
+  background-color: var(--entei-accent-hover);
   border-radius: 999px;
 }
 
 .entei-magnet-list::-webkit-scrollbar-thumb:hover,
 .entei-magnet-list::-webkit-scrollbar-thumb:active {
   background-color: var(--entei-accent-hover);
-  /* Same reasoning as the global thumb inside dark dialogs: the dark
-     --entei-btn-color fill was invisible against the translucent resting
-     thumb, so the hover/drag state uses the bright accent as a plain
-     background-color instead of a box-shadow highlight. */
-}
-
-/* Firefox: the only scrollbar hook it has. Must not leak into Chromium.
-   The `or (-moz-appearance: none)` branch keeps the standard properties
-   applying in Firefox even once it ships ::-webkit-scrollbar support
-   (Bug 2031468): the first branch turns false there, the second stays true,
-   while Chromium evaluates both as false. */
-@supports (not selector(::-webkit-scrollbar)) or (-moz-appearance: none) {
-  .entei-magnet-list {
-    scrollbar-width: thin;
-    scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
-  }
+  /* Same fill, brighter: reads as a glow instead of a colour swap. */
+  filter: brightness(1.15);
 }
 
 .entei-magnet-item {
