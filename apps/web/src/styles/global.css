@@ -63,24 +63,31 @@ html {
 /* ===== SCROLLBARS =====
  * WebView2/Chromium ships the chunky light Windows classic scrollbar, which
  * breaks the dark shell on every scroll container (page body, magnet file
- * list, subtitle panel, settings tabs). Both the standard properties
- * (scrollbar-width/scrollbar-color) and the WebKit pseudo-elements
- * (Chromium/WebView2) are themed to a 6px pill: transparent track plus a
- * translucent white thumb that brightens on hover.
+ * list, subtitle panel, settings tabs).
+ *
+ * Chromium / WebView2 / Safari are themed through the ::-webkit-scrollbar
+ * pseudo-elements ONLY: a 6px pill, transparent track, translucent white
+ * thumb that turns --entei-btn-color on hover/drag.
+ *
+ * Do NOT set `scrollbar-width` or `scrollbar-color` to any non-auto value in
+ * those engines: as soon as either standard property is present, Chromium
+ * ignores every ::-webkit-scrollbar rule for that element. That is exactly
+ * why the hover/active thumb colour never showed up — the chunky standard
+ * scrollbar won over the pseudo-elements. The standard properties are
+ * therefore scoped to engines that do not implement the pseudo-elements
+ * (Firefox), where they are the only styling hook.
+ *
  * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621).
- * `scrollbar-color` inherits, `scrollbar-width` does not, so both are set on
- * `html` (root scroller) and on `*` (every inner scroll container). Any
- * more specific rule (e.g. `.entei-settings-tabs-list { scrollbar-width:
- * none }`) still wins by specificity.
+ * `scrollbar-color` inherits, `scrollbar-width` does not, so the Firefox
+ * fallback is set on `*` (every scroll container, root included). Any more
+ * specific rule (e.g. `.entei-settings-tabs-list { scrollbar-width: none }`)
+ * still wins by specificity.
  */
-html {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
+@supports not selector(::-webkit-scrollbar) or (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -100,6 +107,11 @@ html {
 ::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:active {
   background-color: var(--entei-btn-color);
+  /* --entei-btn-color (L31.5%) and the resting translucent white thumb
+     (~L31.7% over the dark dialog surface) sit at almost the same lightness,
+     so the fill alone reads as "nothing happened". A 1px inner highlight
+     lifts the hovered pill off the track and makes the state change obvious. */
+  box-shadow: inset 0 0 0 1px oklch(100% 0 0deg / 0.35);
 }
 
 ::-webkit-scrollbar-corner {
