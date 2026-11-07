@@ -121,6 +121,25 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     // Only the Stream Now side draws the seam.
     const cancel = ruleBlock('.entei-magnet-actions > .entei-magnet-cancel');
     expect(cancel).toContain('border-right-width: 0');
+    // Both buttons hold a fixed rail: the Cancel label also swaps to the
+    // typewriter loading text while `settling`, so it needs the same
+    // no-layout-shift guarantee (DESIGN.md 8.1).
+    expect(cancel).toContain('width: 7rem');
+    expect(cancel).not.toContain('min-width');
+  });
+
+  it('locks the desktop Stream Now width so the loading label cannot shrink it', () => {
+    // The label swaps to the typewriter loading text while submitting; a
+    // content-sized button would animate its own shrink. Fixed `width` keeps
+    // the button (and its Cancel neighbour) pixel-stable.
+    const section = magnetSection();
+    const desktop = section.slice(section.indexOf('@media (min-width: 768px) {'));
+    const play = /(\.entei-magnet-actions > \.entei-magnet-select-play)\s*\{([^}]*)\}/.exec(
+      desktop,
+    );
+    expect(play).not.toBeNull();
+    expect(play![2]).toContain('width: 12rem');
+    expect(play![2]).not.toContain('min-width');
   });
 
   it('stacks the actions vertically on mobile', () => {

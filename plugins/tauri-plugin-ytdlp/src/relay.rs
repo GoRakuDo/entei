@@ -87,7 +87,7 @@ impl Relay {
         });
 
         let router = Router::new()
-            .route("/stream/{id}", get(handle_stream))
+            .route("/stream/{id}", get(handle_stream).options(handle_options))
             .with_state(Arc::clone(&relay));
 
         tokio::spawn(async move {
@@ -213,8 +213,71 @@ pub(crate) fn parse_range_header(value: &str) -> Option<ByteRange> {
     }
 }
 
+// --- CORS -----------------------------------------------------------------
+//
+// The webview origin (`http://tauri.localhost` on Windows, `https://localhost`
+// on Android) differs from the relay's `http://127.0.0.1:<port>`, so every
+// request the `<video>` element makes is cross-origin. A missing
+// `Access-Control-Allow-Origin` on *any* status — preflight, 404, 416, 500,
+// 502 — makes the browser reject the response and the media pipeline dies with
+// a CORS error before a single byte is decoded. Keep this identical to the
+// torrent relay so both plugins behave the same.
+
+const CORS_ORIGIN: &str = "*";
+const CORS_METHODS: &str = "GET, HEAD, OPTIONS";
+const CORS_HEADERS: &str = "Range, Content-Type, Accept";
+const CORS_EXPOSE_HEADERS: &str = "Content-Length, Content-Range, Accept-Ranges";
+const CORS_MAX_AGE: &str = "86400";
+
+/// Attach the full CORS header set to a response.
+///
+/// Applied at the single exit point of every handler so success, error and
+/// preflight responses are indistinguishable to the browser's CORS check.
+fn with_cors(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static(CORS_ORIGIN),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static(CORS_METHODS),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static(CORS_HEADERS),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static(CORS_EXPOSE_HEADERS),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static(CORS_MAX_AGE),
+    );
+    response
+}
+
+/// Answer the CORS preflight for a stream URL.
+///
+/// `OPTIONS` never touches YouTube: the browser only wants permission to send
+/// the real ranged `GET`, so the answer is an empty `204` plus headers.
+async fn handle_options() -> Response {
+    with_cors(StatusCode::NO_CONTENT.into_response())
+}
+
 /// Proxy `GET`/`HEAD /stream/<id>` to the registered upstream URL.
 ///
+/// Wraps [`stream_response`] so that every possible status leaves with the CORS
+/// header set — there is no error path that can slip past the browser check.
+async fn handle_stream(
+    State(relay): State<Arc<Relay>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    with_cors(stream_response(relay, id, headers).await)
+}
+
 /// The client's `Range` header is forwarded verbatim (after validation), so the
 /// upstream decides the exact byte window and returns `206 Partial Content`
 /// with its own `Content-Range`. That header and `Content-Length` are relayed
@@ -224,11 +287,7 @@ pub(crate) fn parse_range_header(value: &str) -> Option<ByteRange> {
 /// the full body, that response is passed through untouched rather than sliced
 /// here. Media elements tolerate it (they fall back to a plain full download),
 /// and every YouTube CDN host honours `Range`.
-async fn handle_stream(
-    State(relay): State<Arc<Relay>>,
-    Path(id): Path<String>,
-    headers: HeaderMap,
-) -> Response {
+async fn stream_response(relay: Arc<Relay>, id: String, headers: HeaderMap) -> Response {
     let Some(upstream) = relay.lookup(&id) else {
         return (StatusCode::NOT_FOUND, "unknown stream session").into_response();
     };
@@ -264,7 +323,6 @@ async fn handle_stream(
         .status(StatusCode::from_u16(upstream_response.status().as_u16()).unwrap_or(
             StatusCode::BAD_GATEWAY,
         ))
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CACHE_CONTROL, "no-store");
 
@@ -294,6 +352,60 @@ async fn handle_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cors_headers_survive_every_status() {
+        // The webview rejects a response with no `Access-Control-Allow-Origin`
+        // even when the status is an error, so every relay exit path must
+        // carry the same header set.
+        for status in [
+            StatusCode::OK,
+            StatusCode::PARTIAL_CONTENT,
+            StatusCode::NO_CONTENT,
+            StatusCode::NOT_FOUND,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ] {
+            let response = with_cors(status.into_response());
+            let headers = response.headers();
+            assert_eq!(
+                headers
+                    .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                    .and_then(|value| value.to_str().ok()),
+                Some("*"),
+                "missing allow-origin for {status}"
+            );
+            let allow_methods = headers
+                .get(header::ACCESS_CONTROL_ALLOW_METHODS)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            assert!(allow_methods.contains("GET"));
+            assert!(allow_methods.contains("HEAD"));
+            assert!(allow_methods.contains("OPTIONS"));
+            let allow_headers = headers
+                .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            // `Range` is what the `<video>` element needs to seek at all.
+            assert!(allow_headers.contains("range"));
+            assert!(headers.contains_key(header::ACCESS_CONTROL_MAX_AGE));
+        }
+    }
+
+    #[tokio::test]
+    async fn preflight_is_an_empty_204_with_cors() {
+        let response = handle_options().await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("*")
+        );
+    }
 
     #[test]
     fn parses_closed_range() {

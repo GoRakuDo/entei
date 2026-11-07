@@ -5211,9 +5211,20 @@ html.entei-player-immersive .entei-player-audio-area {
     border-radius: var(--entei-radius-md) 0 0 var(--entei-radius-md);
     border-left-width: 1px;
     border-right-width: 0;
+    /* Fixed rail so the label swap (`Batal` → `MENUNGGU…`) cannot resize
+       the button either (DESIGN.md 8.1: no layout shift on label change).
+       Wide enough for the longest locale label plus the spinner. */
+    width: 7rem;
   }
 
+  /* Fixed rail, same as the YouTube dialog's Stream Now button: the label
+     swaps to the typewriter loading text (`LOA…`) while submitting, and a
+     content-sized button would visibly collapse mid-animation. A fixed
+     `width` keeps both the button and its Cancel neighbour pixel-stable
+     through the state change (DESIGN.md 8.1: no layout shift on label
+     change). */
   .entei-magnet-actions > .entei-magnet-select-play {
+    width: 12rem;
     border-radius: 0 var(--entei-radius-md) var(--entei-radius-md) 0;
     border-left: 1px solid oklch(1 0 0deg / 0.1);
   }

@@ -395,6 +395,7 @@ Minimum visual checks:
 - Follow the border-hover rule in section 3.4.
 - Disabled state remains readable and does not rely only on reduced opacity.
 - Full-width reset or destructive actions must be visibly separate from content and keep clear wording.
+- A button whose label changes at runtime (loading/typewriter text, status swap) must declare an explicit fixed size (`width`, and `height`/`min-height` where the row depends on it) instead of sizing to content. Label changes must never resize the button or shift its neighbours; mobile keeps `width: 100%`. Size the fixed rail for the longest locale label so localization still fits.
 
 ### 8.2 Icon-Only Buttons
 
@@ -677,6 +678,7 @@ the wrapper border must be accounted for explicitly:
 - Two independently rounded buttons touching as a joined action pair
 - A 2px double-border seam between joined buttons
 - `min-width` on an action button that must align to a fixed-width control above
+- Content-sized buttons whose label swaps at runtime (e.g. `Stream Now` → `LOA…` while submitting); any layout shift or animated shrink from a text change is forbidden — declare a fixed `width`
 - An inner segment sized `W` when the wrapper border requires `calc(W - 1px)`
 - A `SelectContent` popover that is not width-locked to its trigger
 - Unstyled default accent fill on a selected dropdown item
