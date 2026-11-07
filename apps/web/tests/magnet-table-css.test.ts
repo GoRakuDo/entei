@@ -161,4 +161,60 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     ];
     expect(colourValues).toHaveLength(0);
   });
+
+  it('gives the create button its shared fill at rest, not only on hover', () => {
+    const base = ruleBlock('.entei-magnet-add-btn');
+    expect(base).toContain('background-color: var(--entei-btn-color)');
+    expect(base).toContain('color: var(--entei-status-locked)');
+    // Hover only lifts the same fill (no colour swap, no transparent flash).
+    const hover = ruleBlock('.entei-magnet-add-btn:hover:not(:disabled)');
+    expect(hover).toContain('filter: brightness(1.12)');
+    expect(hover).not.toContain('background-color: transparent');
+  });
+
+  it('collapses the dead band between the breadcrumb and the rows', () => {
+    // Form gap is 16px; the trail pulls itself back by exactly that much and
+    // the list drops its top padding, so the rows start right under it.
+    const crumb = ruleBlock('.entei-magnet-breadcrumb');
+    expect(crumb).toContain('margin-bottom: calc(-1 * var(--entei-space-16))');
+    const list = ruleBlock('.entei-magnet-list');
+    expect(list).toContain('padding: 0 0 var(--entei-space-8)');
+  });
+
+  it('renders folder/file names and the current crumb in secondary text', () => {
+    expect(ruleBlock('.entei-magnet-crumb')).toContain(
+      'color: var(--entei-text-secondary)',
+    );
+    expect(ruleBlock('.entei-magnet-crumb--current')).toContain(
+      'color: var(--entei-text-secondary)',
+    );
+    expect(ruleBlock('.entei-magnet-item-name')).toContain(
+      'color: var(--entei-text-secondary)',
+    );
+  });
+
+  it('keeps the row checkbox visible and vertically centred', () => {
+    const check = ruleBlock('.entei-magnet-item-check');
+    expect(check).toContain('border-color: oklch(100% 0 0deg / 0.3)');
+    expect(check).toContain('align-self: center');
+    const checked = ruleBlock(
+      ".entei-magnet-item-check[data-state='checked'],\n.entei-magnet-item-check[data-state='indeterminate']",
+    );
+    expect(checked).toContain('background-color: var(--entei-accent)');
+  });
+
+  it('pins the metadata-check skeleton bones and their shimmer', () => {
+    const section = magnetSection();
+    expect(section).toContain('.entei-magnet-skeleton-crumb');
+    expect(section).toContain('.entei-magnet-skeleton-list');
+    expect(section).toContain('.entei-magnet-skeleton-row');
+    expect(section).toContain('.entei-magnet-skeleton-icon');
+    expect(section).toContain('.entei-magnet-skeleton-name');
+    // Reuses the player's shared shimmer keyframes instead of a new one.
+    expect(section).toContain('animation: entei-skeleton-shimmer 1.6s');
+    expect(section).toContain('@media (prefers-reduced-motion: reduce)');
+    // The status copy no longer owns the wait state; the bones do.
+    const checking = ruleBlock('.entei-magnet-checking');
+    expect(checking).toContain('flex-direction: column');
+  });
 });

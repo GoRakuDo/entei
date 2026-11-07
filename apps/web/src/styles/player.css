@@ -4693,15 +4693,12 @@ html.entei-player-immersive .entei-player-audio-area {
   font-weight: 600;
 }
 
-/* Checking state (metadata fetch). Same min-height as the empty state so
-   the list box does not jump when metadata arrives. */
+/* Checking state (metadata fetch): the status copy is visually hidden and the
+   bones below carry the wait. Column flow so the rows fill the list width. */
 .entei-magnet-checking {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-12) 0;
-  min-height: var(--entei-touch-min);
+  flex-direction: column;
+  width: 100%;
   color: var(--entei-text-secondary);
   font-size: 0.8125rem;
 }
@@ -4809,7 +4806,9 @@ html.entei-player-immersive .entei-player-audio-area {
   box-shadow: none;
 }
 
-/* Icon-only create button: flat joined surface, one hairline divider. */
+/* Icon-only create button: flat joined surface, one hairline divider. The
+   shared button fill is the default (not a hover-only reward) so the magnet
+   icon reads as an action the moment the dialog opens; hover just lifts it. */
 .entei-magnet-add-btn {
   flex-shrink: 0;
   width: var(--entei-touch-min);
@@ -4818,16 +4817,18 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: 0;
   border: none;
   border-left: 1px solid oklch(100% 0 0deg / 0.1);
-  background-color: transparent;
+  background-color: var(--entei-btn-color);
   color: var(--entei-status-locked);
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    filter var(--entei-duration-fast) var(--entei-ease-productive),
     color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-magnet-add-btn:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
   color: var(--entei-status-locked);
+  filter: brightness(1.12);
 }
 
 .entei-magnet-add-btn:disabled {
@@ -4850,6 +4851,9 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
+  /* The trail and the rows read as one block: the form gap (16px) and the
+     list's own top padding used to stack into a dead band under the crumbs. */
+  margin-bottom: calc(-1 * var(--entei-space-16));
 }
 
 .entei-magnet-breadcrumb::-webkit-scrollbar {
@@ -4898,7 +4902,7 @@ html.entei-player-immersive .entei-player-audio-area {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 .entei-magnet-crumb-sep,
@@ -4914,7 +4918,7 @@ html.entei-player-immersive .entei-player-audio-area {
   gap: var(--entei-space-4);
   max-height: 20rem;
   overflow-y: auto;
-  padding: var(--entei-space-8) 0;
+  padding: 0 0 var(--entei-space-8);
 }
 
 .entei-magnet-item {
@@ -4977,7 +4981,7 @@ html.entei-player-immersive .entei-player-audio-area {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 .entei-magnet-item-size {
@@ -4987,8 +4991,110 @@ html.entei-player-immersive .entei-player-audio-area {
   font-variant-numeric: tabular-nums;
 }
 
+/* Row checkbox: the shadcn `border-input` hairline disappears on the dialog
+   surface, so the box gets an explicit high-visibility outline and is pinned
+   to the row's optical centre. */
 .entei-magnet-item-check {
   flex-shrink: 0;
+  align-self: center;
+  margin: 0;
+  border-color: oklch(100% 0 0deg / 0.3);
+  background-color: oklch(100% 0 0deg / 0.05);
+  box-shadow: none;
+}
+
+.entei-magnet-item-check:hover:not(:disabled) {
+  border-color: oklch(100% 0 0deg / 0.45);
+  background-color: oklch(100% 0 0deg / 0.08);
+}
+
+.entei-magnet-item-check[data-state='checked'],
+.entei-magnet-item-check[data-state='indeterminate'] {
+  border-color: var(--entei-accent);
+  background-color: var(--entei-accent);
+  color: oklch(98% 0 0deg);
+}
+
+.entei-magnet-item-check:focus-visible {
+  border-color: var(--entei-focus-ring);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklch, var(--entei-accent) 40%, transparent);
+}
+
+/* --- Metadata-check skeleton (breadcrumb bar + file rows) --- */
+/* Same shimmer as the player skeleton so the wait state reads as one system.
+   Every bone is its own clipping box, so the gradient sweeps per element. */
+.entei-magnet-breadcrumb--skeleton {
+  overflow: hidden;
+}
+
+.entei-magnet-skeleton-crumb {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 9rem;
+  height: 0.75rem;
+  border-radius: var(--entei-radius-sm);
+  background-color: oklch(100% 0 0deg / 0.06);
+  overflow: hidden;
+}
+
+.entei-magnet-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  width: 100%;
+}
+
+.entei-magnet-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8);
+}
+
+.entei-magnet-skeleton-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--entei-radius-sm);
+  background-color: oklch(100% 0 0deg / 0.06);
+  overflow: hidden;
+}
+
+.entei-magnet-skeleton-name {
+  position: relative;
+  height: 0.75rem;
+  border-radius: var(--entei-radius-sm);
+  background-color: oklch(100% 0 0deg / 0.06);
+  overflow: hidden;
+}
+
+.entei-magnet-skeleton-crumb::after,
+.entei-magnet-skeleton-icon::after,
+.entei-magnet-skeleton-name::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(100% 0 0deg / 0.08) 50%,
+    transparent 100%
+  );
+  animation: entei-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Reduced motion: freeze the sweep, keep the bones visible. */
+@media (prefers-reduced-motion: reduce) {
+  .entei-magnet-skeleton-crumb::after,
+  .entei-magnet-skeleton-icon::after,
+  .entei-magnet-skeleton-name::after {
+    animation: none;
+    opacity: 0.08;
+  }
 }
 
 /* --- Actions: Cancel | Stream Now --- */

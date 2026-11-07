@@ -143,6 +143,10 @@ const DIRECT_POLL_INTERVAL_MS = 5000;
 /** Desktop direct mode: bounded metadata polls before the timeout error. */
 const DIRECT_METADATA_MAX_POLLS = 6;
 
+/** Metadata-check skeleton: five placeholder rows with staggered widths so the
+ *  shimmering bones read as a file list instead of a solid block. */
+const SKELETON_ROW_WIDTHS = ['62%', '48%', '71%', '55%', '66%'];
+
 type ErrorKind =
   | 'invalid'
   | 'repair'
@@ -1334,7 +1338,19 @@ export function MagnetInput({
               non-current segment navigates back to that level (the job is
               never cancelled — browsing is display-only). Only rendered once
               a torrent exists (see `showFiles`). */}
-          {showFiles && crumbs.length > 0 && (
+          {showFiles && showChecking && (
+            <nav
+              className="entei-magnet-breadcrumb entei-magnet-breadcrumb--skeleton"
+              aria-label={dict.magnetBreadcrumbLabel}
+            >
+              <span
+                className="entei-magnet-skeleton-crumb"
+                aria-hidden="true"
+              />
+            </nav>
+          )}
+
+          {showFiles && !showChecking && crumbs.length > 0 && (
             <nav
               className="entei-magnet-breadcrumb"
               aria-label={dict.magnetBreadcrumbLabel}
@@ -1463,8 +1479,27 @@ export function MagnetInput({
                   })
                 )
               ) : (
+                /* Metadata fetch: the trail is unknown yet, so the strip above
+                   and this list show shimmering bones. The status copy stays
+                   in the a11y tree (visually hidden) for screen readers. */
                 <div className="entei-magnet-checking" role="status">
-                  <span>{dict.magnetCheckMetadata}</span>
+                  <span className="entei-sr-only">
+                    {dict.magnetCheckMetadata}
+                  </span>
+                  <div
+                    className="entei-magnet-skeleton-list"
+                    aria-hidden="true"
+                  >
+                    {SKELETON_ROW_WIDTHS.map((width, index) => (
+                      <div className="entei-magnet-skeleton-row" key={index}>
+                        <span className="entei-magnet-skeleton-icon" />
+                        <span
+                          className="entei-magnet-skeleton-name"
+                          style={{ width }}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

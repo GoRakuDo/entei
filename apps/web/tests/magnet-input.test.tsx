@@ -281,6 +281,42 @@ describe('MagnetInput — create + errors', () => {
     expect(document.querySelector('.entei-magnet-breadcrumb')).toBeInTheDocument();
   });
 
+  it('shows shimmering bones in the breadcrumb and list while metadata loads', async () => {
+    const { fetchMock } = makeFetcher([jsonResponse({ id: 'job123' }, 201)]);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MagnetInput {...defaultProps} />);
+    await fillMagnet();
+    fireEvent.click(screen.getByRole('button', { name: baseDict.magnetInputSubmit }));
+    await waitFor(() => expect(screen.getByText(baseDict.magnetCheckMetadata)).toBeInTheDocument());
+
+    // Breadcrumb strip: one placeholder bar instead of the (unknown) trail.
+    const breadcrumb = document.querySelector('.entei-magnet-breadcrumb');
+    expect(breadcrumb).toBeInTheDocument();
+    expect(breadcrumb!.className).toContain(
+      'entei-magnet-breadcrumb--skeleton',
+    );
+    expect(
+      breadcrumb!.querySelector('.entei-magnet-skeleton-crumb'),
+    ).toBeTruthy();
+
+    // File list: a fixed set of icon + name bones, never real rows.
+    expect(
+      document.querySelectorAll('.entei-magnet-skeleton-row'),
+    ).toHaveLength(5);
+    expect(
+      document.querySelectorAll('.entei-magnet-skeleton-icon'),
+    ).toHaveLength(5);
+    expect(
+      document.querySelectorAll('.entei-magnet-skeleton-name'),
+    ).toHaveLength(5);
+    expect(document.querySelector('.entei-magnet-item')).not.toBeInTheDocument();
+
+    // The status copy stays in the a11y tree but is visually hidden.
+    const status = screen.getByText(baseDict.magnetCheckMetadata);
+    expect(status.className).toContain('entei-sr-only');
+    expect(status.closest('[role="status"]')).toBeTruthy();
+  });
+
   it.each([
     [400, baseDict.magnetErrorInvalid],
     [401, baseDict.magnetInputErrorRepair],
