@@ -1,17 +1,22 @@
 /**
  * Static contract test for the themed scrollbar.
  * ---------------------------------------------------------------------------
- * Approved reference (Tailwind Play): the thumb is the vivid accent at rest,
- * the track is fully transparent, the bar is `thin`/6px.
+ * Approved reference: a faint translucent pill at rest that turns into the
+ * button colour while hovered/dragged, over a FULLY TRANSPARENT track so the
+ * gradient wallpaper shows through.
  *
- *   scrollbar-width: thin;
- *   scrollbar-color: var(--entei-accent-hover) transparent;
+ *   ::-webkit-scrollbar        → 6px, transparent box
+ *   ::-webkit-scrollbar-track  → transparent
+ *   ::-webkit-scrollbar-corner → transparent
+ *   ::-webkit-scrollbar-thumb  → oklch(100% 0 0deg / 0.18)
+ *   :hover / :active           → var(--entei-btn-color)
  *
- * Both the standard properties (Chromium 121+, WebView2, Firefox) and the
- * ::-webkit-scrollbar pseudo-elements carry the same colours, so every engine
- * lands on the same thin accent pill. The standard properties are therefore
- * expected in the plain cascade now — the old contract that banned them
- * outside a Firefox `@supports` gate is gone on purpose.
+ * The standard `scrollbar-width`/`scrollbar-color` pair is deliberately NOT
+ * declared for visible bars: on Chromium 121+ setting either one to a
+ * non-initial value makes the engine ignore ::-webkit-scrollbar and paint its
+ * own standard bar, whose track rendered as an opaque black gutter on top of
+ * the wallpaper. `scrollbar-width: none` stays allowed for the intentionally
+ * hidden strips.
  *
  * Pixel appearance itself is verified in the browser; this test only guards
  * the selector/declaration contract.
@@ -37,9 +42,10 @@ const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
  */
 function ruleBody(css: string, selector: string): string | null {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`(?:^|[},])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm').exec(
-    css,
-  );
+  const match = new RegExp(
+    `(?:^|[},])\\s*${escaped}\\s*\\{([^}]*)\\}`,
+    'm',
+  ).exec(css);
   return match?.[1] ?? null;
 }
 
@@ -51,10 +57,10 @@ function declarations(body: string): Array<[string, string]> {
     .filter(Boolean)
     .map((part) => {
       const at = part.indexOf(':');
-      return [
-        part.slice(0, at).trim(),
-        part.slice(at + 1).trim(),
-      ] as [string, string];
+      return [part.slice(0, at).trim(), part.slice(at + 1).trim()] as [
+        string,
+        string,
+      ];
     });
 }
 
@@ -64,84 +70,76 @@ const backgroundDeclarations = (body: string) =>
     ([prop]) => prop === 'background' || prop === 'background-color',
   );
 
-const ACCENT_THUMB = 'var(--entei-accent-hover)';
-const TRACK = 'transparent';
+/** Thumb fill at rest: faint translucent white, OKLCH only (rule #1621). */
+const RESTING_THUMB = 'oklch(100% 0 0deg / 0.18)';
+/** Thumb fill while hovered or dragged. */
+const ACTIVE_THUMB = 'var(--entei-btn-color)';
 
-describe('themed scrollbar (thin accent pill, transparent track)', () => {
+describe('themed scrollbar (translucent pill, transparent track)', () => {
   it('styles/ ships at least the global and player stylesheets', () => {
     expect(cssFiles).toContain('global.css');
     expect(cssFiles).toContain('player.css');
   });
 
   for (const file of cssFiles) {
-    it(`${file}: every standard scrollbar declaration is the approved pair`, () => {
+    it(`${file}: never declares scrollbar-color (it kills the webkit track)`, () => {
+      const css = stripComments(read(file));
+      const offenders = [...css.matchAll(/scrollbar-color\s*:\s*([^;]+);/g)].map(
+        (m) => m[1]?.trim() ?? '',
+      );
+      expect(offenders).toEqual([]);
+    });
+
+    it(`${file}: scrollbar-width is only ever \`none\``, () => {
       const css = stripComments(read(file));
       const offenders: string[] = [];
-      for (const match of css.matchAll(
-        /(scrollbar-width|scrollbar-color)\s*:\s*([^;]+);/g,
-      )) {
-        const prop = match[1] ?? '';
-        const value = (match[2] ?? '').replace(/\s+/g, ' ').trim();
-        // `scrollbar-width: none` is the intentional hide used by the settings
-        // tab strip, the magnet breadcrumb and the settings dialog body.
-        if (prop === 'scrollbar-width' && value === 'none') continue;
-        if (prop === 'scrollbar-width' && value === 'thin') continue;
-        if (prop === 'scrollbar-color' && value === `${ACCENT_THUMB} ${TRACK}`)
-          continue;
-        offenders.push(`${prop}: ${value}`);
+      for (const match of css.matchAll(/scrollbar-width\s*:\s*([^;]+);/g)) {
+        const value = (match[1] ?? '').replace(/\s+/g, ' ').trim();
+        // `none` is the intentional hide used by the settings tab strip, the
+        // magnet breadcrumb and the settings dialog body.
+        if (value === 'none') continue;
+        offenders.push(value);
       }
       expect(offenders).toEqual([]);
     });
   }
 
-  it('global.css: html and * carry the thin accent standard scrollbar', () => {
-    const css = stripComments(read('global.css'));
-    const body = ruleBody(css, 'html,\n*') ?? ruleBody(css, 'html, *');
-    expect(body).not.toBeNull();
-    const decls = declarations(body!);
-    expect(decls).toContainEqual(['scrollbar-width', 'thin']);
-    expect(decls).toContainEqual([
-      'scrollbar-color',
-      `${ACCENT_THUMB} ${TRACK}`,
-    ]);
-  });
-
-  it('global.css: the bar itself is a 6px pill', () => {
+  it('global.css: the bar is a 6px transparent box', () => {
     const css = stripComments(read('global.css'));
     const body = ruleBody(css, '::-webkit-scrollbar');
     expect(body).not.toBeNull();
     const decls = declarations(body!);
     expect(decls).toContainEqual(['width', '6px']);
     expect(decls).toContainEqual(['height', '6px']);
+    expect(decls).toContainEqual(['background', 'transparent']);
   });
 
-  it('global.css: the resting thumb is the accent, not translucent white', () => {
+  it('global.css: the resting thumb is the faint translucent white', () => {
     const css = stripComments(read('global.css'));
     const body = ruleBody(css, '::-webkit-scrollbar-thumb');
     expect(body).not.toBeNull();
     expect(backgroundDeclarations(body!)).toEqual([
-      ['background-color', ACCENT_THUMB],
+      ['background-color', RESTING_THUMB],
     ]);
   });
 
-  it('global.css: hover and drag brighten the same accent thumb', () => {
+  it('global.css: hover and drag swap the thumb to --entei-btn-color', () => {
     const css = stripComments(read('global.css'));
     const rule =
       /::-webkit-scrollbar-thumb:hover,\s*::-webkit-scrollbar-thumb:active\s*\{([^}]*)\}/.exec(
         css,
       );
     expect(rule).not.toBeNull();
-    expect(rule![1]).toContain(`background-color: ${ACCENT_THUMB}`);
-    expect(rule![1]).toContain('filter: brightness(1.15)');
-    // The state change must stay a plain fill: the dark --entei-btn-color plus
-    // a box-shadow highlight was unreadable on the dark track.
-    expect(rule![1]).not.toContain('--entei-btn-color');
+    expect(backgroundDeclarations(rule![1]!)).toEqual([
+      ['background-color', ACTIVE_THUMB],
+    ]);
+    // No brightness/glow trickery: the state change is a plain fill swap.
+    expect(rule![1]).not.toContain('filter');
     expect(rule![1]).not.toContain('box-shadow');
   });
 
-  it('global.css: track and corner stay fully transparent, no background colour', () => {
+  it('global.css: track and corner stay fully transparent, no black gutter', () => {
     const css = stripComments(read('global.css'));
-    // User requirement: the track must never get a fill of its own.
     for (const selector of [
       '::-webkit-scrollbar-track',
       '::-webkit-scrollbar-corner',
@@ -154,21 +152,29 @@ describe('themed scrollbar (thin accent pill, transparent track)', () => {
     }
   });
 
-  it('player.css: the magnet list keeps its own 6px accent pill', () => {
+  it('player.css: the magnet list keeps its own 6px pill', () => {
     const css = stripComments(read('player.css'));
     const list = ruleBody(css, '.entei-magnet-list');
     expect(list).not.toBeNull();
     const decls = declarations(list!);
-    expect(decls).toContainEqual(['scrollbar-width', 'thin']);
-    expect(decls).toContainEqual([
-      'scrollbar-color',
-      `${ACCENT_THUMB} ${TRACK}`,
+    expect(decls).not.toContainEqual(['scrollbar-width', 'thin']);
+
+    const size = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar');
+    expect(size).not.toBeNull();
+    expect(declarations(size!)).toContainEqual(['width', '6px']);
+    expect(declarations(size!)).toContainEqual(['height', '6px']);
+    expect(declarations(size!)).toContainEqual(['background', 'transparent']);
+
+    const track = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar-track');
+    expect(track).not.toBeNull();
+    expect(backgroundDeclarations(track!)).toEqual([
+      ['background', 'transparent'],
     ]);
 
     const thumb = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar-thumb');
     expect(thumb).not.toBeNull();
     expect(backgroundDeclarations(thumb!)).toEqual([
-      ['background-color', ACCENT_THUMB],
+      ['background-color', RESTING_THUMB],
     ]);
 
     const hover =
@@ -176,20 +182,9 @@ describe('themed scrollbar (thin accent pill, transparent track)', () => {
         css,
       );
     expect(hover).not.toBeNull();
-    expect(hover![1]).toContain(`background-color: ${ACCENT_THUMB}`);
-    expect(hover![1]).toContain('filter: brightness(1.15)');
-    expect(hover![1]).not.toContain('--entei-btn-color');
-    expect(hover![1]).not.toContain('box-shadow');
-
-    // Size and track are pinned per rule block, not by a loose whole-file grep.
-    const size = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar');
-    expect(size).not.toBeNull();
-    expect(declarations(size!)).toContainEqual(['width', '6px']);
-    expect(declarations(size!)).toContainEqual(['height', '6px']);
-    const track = ruleBody(css, '.entei-magnet-list::-webkit-scrollbar-track');
-    expect(track).not.toBeNull();
-    expect(backgroundDeclarations(track!)).toEqual([
-      ['background', 'transparent'],
+    expect(backgroundDeclarations(hover![1]!)).toEqual([
+      ['background-color', ACTIVE_THUMB],
     ]);
+    expect(hover![1]).not.toContain('filter');
   });
 });

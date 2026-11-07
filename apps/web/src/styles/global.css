@@ -65,52 +65,46 @@ html {
  * breaks the dark shell on every scroll container (page body, magnet file
  * list, subtitle panel, settings tabs).
  *
- * Contract (matches the Tailwind Play reference the user approved):
- *   scrollbar-width: thin;
- *   scrollbar-color: var(--entei-accent-hover) transparent;
- * i.e. the thumb is the vivid accent at rest — NOT a translucent white that
- * only lights up on hover — and the track is fully transparent. Both the
- * standard properties (Chromium 121+, Firefox, WebView2) and the
- * ::-webkit-scrollbar pseudo-elements are written with the same colours, so
- * every engine lands on the same thin accent pill.
+ * Why the standard pair is NOT declared here: as soon as `scrollbar-width` or
+ * `scrollbar-color` is set to anything but its initial value, Chromium 121+
+ * stops honouring ::-webkit-scrollbar and paints its own standard bar, whose
+ * track came out as an opaque black gutter sitting on top of the wallpaper.
+ * The ::-webkit-scrollbar pseudo-elements are therefore the single source of
+ * truth, and they give a genuinely transparent track.
  *
- * `scrollbar-color` inherits, `scrollbar-width` does not, hence the pair is
- * declared on both `html` and `*` (every scroll container, root included).
- * More specific rules (e.g. `.entei-settings-tabs-list { scrollbar-width:
- * none }`) still win by specificity.
+ * Contract:
+ *   thumb at rest      → oklch(100% 0 0deg / 0.18)  (faint translucent white)
+ *   thumb hover / drag → var(--entei-btn-color)
+ *   track + corner     → transparent, so the gradient wallpaper shows through
+ *   size               → 6px pill
+ *
+ * `scrollbar-width: none` is still used by the intentionally hidden strips
+ * (settings tabs, magnet breadcrumb); hiding is all that it does.
  *
  * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621).
  */
-html,
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--entei-accent-hover) transparent;
-}
-
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
-  background-color: var(--entei-accent-hover);
+  background-color: oklch(100% 0 0deg / 0.18);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:active {
-  background-color: var(--entei-accent-hover);
-  /* Same fill, brighter: the pill is already the vivid accent at rest, so the
-     hover/drag state reads as a glow rather than a colour swap. */
-  filter: brightness(1.15);
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
+  background-color: var(--entei-btn-color);
 }
 
 /* ===== FOUC PREVENTION (PHASE0.md 8.223, 20.541) =====
