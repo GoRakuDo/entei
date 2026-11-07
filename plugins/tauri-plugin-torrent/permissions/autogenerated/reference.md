@@ -1,12 +1,13 @@
 ## Default Permission
 
-Default permissions for the torrent plugin: magnet add, status polling, file selection and cancel.
+Default permissions for the torrent plugin: magnet add, status polling, file selection, track inspection and cancel.
 
 #### This default permission set includes the following:
 
 - `allow-add-torrent`
 - `allow-get-torrent-status`
 - `allow-select-torrent-files`
+- `allow-inspect-torrent-tracks`
 - `allow-cancel-torrent`
 
 ## Permission Table
@@ -92,6 +93,32 @@ Enables the get_torrent_status command without any pre-configured scope.
 <td>
 
 Denies the get_torrent_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`torrent:allow-inspect-torrent-tracks`
+
+</td>
+<td>
+
+Enables the inspect_torrent_tracks command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`torrent:deny-inspect-torrent-tracks`
+
+</td>
+<td>
+
+Denies the inspect_torrent_tracks command without any pre-configured scope.
 
 </td>
 </tr>

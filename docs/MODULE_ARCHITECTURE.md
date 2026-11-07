@@ -180,9 +180,13 @@ export interface EnteiModuleManifest {
 デスクトップ（Tauri）では Go コンパニオンもペアリングトークンも使わず、Magnet の追加から `<video>` 再生までをインプロセスで完結させる。
 
 ### 7.1 Rust 側（`plugins/tauri-plugin-torrent`）
-- **`select_torrent_files(id, video_index, subtitle_index)`**: 選択ファイルだけにダウンロードを絞り（`librqbit` の `update_only_files`、best-effort）、動画の先頭 1 byte がディスクに載るまで待って（`FIRST_BYTE_TIMEOUT` = 20 s、タイムアウトはエラーにしない）ループバック URL を返す。container header が無い状態で `<video>` を開くと Chrome/WebView2 が約 30 s で諦めるため、待機はモーダルのローディング内に閉じ込める。
+- **`add_torrent(magnet_uri)`**: `librqbit` の `AddTorrentOptions { list_only: true }` で **メタデータ（info dictionary、数 KB）だけ** を解決してファイル一覧を返す。torrent はセッションに追加しないため、この段階では **ディスクへの書き込みもダウンロードも 0 bytes**（フォルダ・空ファイルすら作らない）。67 GB のシリーズを丸ごと持つ magnet でも、一覧を見ている間のコストはメタデータだけ。
+- **`select_torrent_files(id, video_index, subtitle_index)`**: **ダウンロードを開始するのはここだけ**。解決済みの `.torrent` bytes から `only_files`（選択した動画＋字幕）を指定してセッションに追加するので、他のエピソード・特典・サントラは最初から対象外。追加直後の handle は `Initializing`（storage 未オープン）で `update_only_files` / `stream()` / MKV header read が即失敗するため、**`wait_until_initialized()` を `FIRST_BYTE_TIMEOUT` で bound して必ず await** してから `update_only_files` / `unpause` を best-effort で適用し（同一 info hash の再選択時の復帰経路）、動画の先頭 1 byte がディスクに載るまで待って（`FIRST_BYTE_TIMEOUT` = 20 s、タイムアウトはエラーにしない）ループバック URL を返す。container header が無い状態で `<video>` を開くと Chrome/WebView2 が約 30 s で諦めるため、待機はモーダルのローディング内に閉じ込める。
+- **`inspect_torrent_tracks(id, file_index)`**: 選択済みファイルの container header を再読込して MKV トラック一覧と日本語自動選択トラック番号だけを返す単独コマンド（メタデータのみの entry は空レポート）。
+- **`cancel_torrent(id)`**: `Session::delete(id, delete_files: true)` でストリーミングキャッシュを削除する（プラグイン自身の書き込みのみで、ユーザーのメディアには触れない）。
+- **キャッシュのライフサイクル**: ダウンロード先は `app.path().app_cache_dir()/torrent`（解決できなければ `app_local_data_dir()/torrent`、最後に Windows は `%LOCALAPPDATA%\GoRakuDo\Entei\torrent`）。Tauri の `PathResolver` 基準なので Android では `<app data>/cache` になる。**起動時（`setup`）に前回の残存物を全削除**し（新パスに加えて、旧バージョンが残した `app_local_data_dir()/torrent` も別パスであれば 1 度だけ purge して回収する）、**終了時（`RunEvent::Exit`）にも best-effort で全削除**するため、クラッシュや強制終了で残っても次の起動で回収される。
 - **`relay.rs`**: `127.0.0.1` のエフェメラルポートに axum をバインドし、`GET /stream/<session>` で選択ファイルを配信する。リクエスト毎に `librqbit` の `FileStream`（seek 可能な `AsyncRead`）を生成して要求オフセットへシークし、`Content-Range`/`Content-Length` 付きの `206` を返す。`AsyncReadExt::take` で閉区間レンジを要求長で打ち切るため、`bytes=0-1023` が EOF まで流れることはない。未取得 piece の読み出しは piece 到着まで park して再開する（シーク先が未 DL でも失敗しない）。
-- **`build.rs` / `permissions/default.toml`**: `select_torrent_files` を追加（`allow-select-torrent-files`）。
+- **`build.rs` / `permissions/default.toml`**: `add_torrent` / `get_torrent_status` / `select_torrent_files` / `inspect_torrent_tracks` / `cancel_torrent` の 5 コマンドを登録し、`default` 権限セットに `allow-*` を揃える（`src-tauri/capabilities/default.json` は `torrent:default` のみ参照）。
 - 公開面は既存どおり 127.0.0.1 のみ。infohash・tracker・peer・ファイルパスは webview に返さない（パスは basename のみ）。
 
 ### 7.2 フロント側
@@ -284,6 +288,12 @@ APK には Windows 版のような「実行ファイルを同梱して spawn す
   「ネットワークから yt-dlp を落としてこない」「ユーザーに Python を要求しない」という
   **自己完結の原則**だけで、プレイヤー側の受付 API（`EnteiMediaPayload`）は共通のまま。
 - **状態**: Android 側は未実装（設計のみ）。
+
+### 8.1.3 ディスクフットプリント（キャッシュのライフサイクル）
+
+- `get_video_info` / `stream_youtube` はどちらもメタデータ取得のみ（`--dump-json` / `-g`）で、動画データはディスクに書かない。
+- それでも yt-dlp 自身のキャッシュや一時ファイルがユーザー共通領域に残らないよう、全呼び出しに `--no-cache-dir` と `--paths temp:<dir>` を付与する。`<dir>` はプラグイン専用の `app.path().app_cache_dir()/ytdlp`（解決できなければ `app_local_data_dir()/ytdlp`）で、Tauri の `PathResolver` 基準なので **Android では `<app data>/cache`** になる。
+- このディレクトリは **起動時（`setup`）に全削除**、**終了時（`RunEvent::Exit`）にも best-effort で全削除** する。クラッシュや OS による強制終了で残っても、次の起動で必ず回収される。
 
 ### 8.2 ダイアログのエラー表示（Toast 統一）
 

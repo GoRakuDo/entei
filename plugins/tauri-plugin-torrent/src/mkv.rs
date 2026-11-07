@@ -30,8 +30,8 @@ const ID_TRACKS: u32 = 0x1654_AE6B;
 const ID_TRACK_ENTRY: u32 = 0xAE;
 const ID_TRACK_NUMBER: u32 = 0xD7;
 const ID_TRACK_TYPE: u32 = 0x83;
-const ID_LANGUAGE: u32 = 0x22B5_9C;
-const ID_LANGUAGE_BCP47: u32 = 0x22B5_9D;
+const ID_LANGUAGE: u32 = 0x0022_B59C;
+const ID_LANGUAGE_BCP47: u32 = 0x0022_B59D;
 const ID_NAME: u32 = 0x536E;
 const ID_CODEC_ID: u32 = 0x86;
 

@@ -413,7 +413,8 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     if (direct) {
       try {
         // Desktop direct mode: cancel the in-process torrent (best effort —
-        // the session may already be gone). Downloaded files stay on disk.
+        // the session may already be gone). The plugin deletes its streaming
+        // cache, so no partial episode is left on disk.
         await cancelTorrentDirect(direct.torrentId);
       } catch {
         // Plugin unreachable: the local session is already ended.
@@ -481,7 +482,8 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   // torrent inside the Rust plugin. Leaving the player without cancelling it
   // would keep the download running (and the relay slot occupied) with no UI
   // left to stop it. Refs are read inside the cleanup so the effect can stay
-  // dependency-free. Downloaded files stay on disk (cancel never deletes).
+  // dependency-free. The plugin deletes its streaming cache on cancel, so no
+  // partial episode is left on disk.
   useEffect(() => {
     return () => {
       const direct = directRef.current;

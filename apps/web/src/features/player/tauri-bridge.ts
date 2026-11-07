@@ -185,7 +185,7 @@ export interface DirectTorrentAdded {
   id: string;
   info_hash: string;
   name: string;
-  /** Empty when metadata was not resolved within the plugin's timeout. */
+  /** Resolved file list. Empty only when the torrent reports no files. */
   files: DirectTorrentFile[];
 }
 
@@ -194,7 +194,8 @@ export interface DirectTorrentStatus {
   id: string;
   info_hash: string;
   name: string;
-  /** `initializing` | `live` | `paused` | `error`. */
+  /** `metadata` (list only, nothing downloaded yet) | `initializing` | `live` |
+   * `paused` | `error`. */
   state: string;
   progress_bytes: number;
   total_bytes: number;
@@ -259,12 +260,12 @@ function parseTorrentFiles(raw: unknown): DirectTorrentFile[] {
 }
 
 /**
- * Add a magnet URI to the in-process torrent session.
+ * Resolve a magnet URI's metadata without starting any download.
  *
- * The plugin validates the URI, waits (bounded) for metadata and returns the
- * plugin torrent id plus whatever file list it resolved. An empty `files`
- * array is legitimate: the caller polls `getTorrentStatusDirect` until the
- * metadata arrives.
+ * The plugin validates the URI, resolves the info dictionary only (a few KB —
+ * no file is created and no piece is fetched) and returns the plugin torrent id
+ * plus the file list. The download starts later, in `selectTorrentFilesDirect`,
+ * restricted to the files the user picks.
  */
 export async function addTorrentDirect(magnetUri: string): Promise<DirectTorrentAdded> {
   const invoke = tauriInvoke();
@@ -315,11 +316,13 @@ export async function getTorrentStatusDirect(id: string): Promise<DirectTorrentS
 }
 
 /**
- * Restrict the torrent to the chosen files and get loopback playback URLs.
+ * Start the download for the chosen files and get loopback playback URLs.
  *
  * `videoIndex`/`subtitleIndex` are the `TorrentFile.index` values from the
- * plugin's file list. The plugin waits (bounded) for the video's first byte
- * before answering, so the returned URL is safe to mount on a `<video>`.
+ * plugin's file list. This is the only call that starts downloading: every
+ * other file in the torrent stays untouched. The plugin waits (bounded) for the
+ * video's first byte before answering, so the returned URL is safe to mount on
+ * a `<video>`.
  */
 export async function selectTorrentFilesDirect(
   id: string,
@@ -361,7 +364,8 @@ export async function selectTorrentFilesDirect(
  * Remove a torrent from the in-process session.
  *
  * Best-effort by contract: the caller ignores a rejection (the session may
- * already be gone). Downloaded files are kept on disk by the plugin.
+ * already be gone). The plugin deletes the streaming cache it wrote, so a
+ * cancelled torrent leaves no partial data behind.
  */
 export async function cancelTorrentDirect(id: string): Promise<void> {
   const invoke = tauriInvoke();

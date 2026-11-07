@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-inspect-torrent-tracks"
+description = "Enables the inspect_torrent_tracks command without any pre-configured scope."
+commands.allow = ["inspect_torrent_tracks"]
+
+[[permission]]
+identifier = "deny-inspect-torrent-tracks"
+description = "Denies the inspect_torrent_tracks command without any pre-configured scope."
+commands.deny = ["inspect_torrent_tracks"]

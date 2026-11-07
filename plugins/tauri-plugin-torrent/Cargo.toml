@@ -13,6 +13,10 @@ name = "tauri_plugin_torrent"
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# `AddTorrent::TorrentFileBytes` takes `bytes::Bytes`: the magnet metadata is
+# resolved once (list_only) and re-added from those bytes when the user picks
+# files, so the info dictionary never has to be fetched twice.
+bytes = "1"
 # `net` + `io-util` are required by the loopback Range relay (TCP listener,
 # seeking/streaming file bodies); `rt-multi-thread`/`macros` cover the tests.
 tokio = { version = "1", features = [

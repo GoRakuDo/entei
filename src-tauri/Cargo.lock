@@ -4490,6 +4490,7 @@ name = "tauri-plugin-torrent"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
  "librqbit",
  "serde",
  "serde_json",

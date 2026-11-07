@@ -23,6 +23,13 @@
 //! performed here; the caller owns the source URL.
 //! The upstream `googlevideo.com` URLs carry short-lived tokens and stay inside
 //! the process — only the local relay URLs are returned to the webview.
+//!
+//! Disk footprint: both commands are metadata-only (`--dump-json`, `-g`), and
+//! every invocation is pinned with `--no-cache-dir` plus `--paths temp:<dir>`
+//! to the plugin's own scratch dir (`app_cache_dir()/ytdlp`, falling back to
+//! `app_local_data_dir()/ytdlp`, so Android lands in `<app data>/cache`). That
+//! dir is emptied on startup, on app exit and on plugin teardown, so no
+//! streaming artifact survives a session.
 
 mod relay;
 
@@ -159,6 +166,56 @@ const YTDLP_EXE_NAME: &str = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" }
 /// synchronous; the path is fixed for the lifetime of the process.
 static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+/// Scratch directory owned by this plugin.
+///
+/// Resolved once at startup from Tauri's `PathResolver` (cache dir first, local
+/// data dir as a fallback), so it lands in an app-private, writable location on
+/// every platform — including Android, where `<app data>/cache` is the only
+/// place the app may freely write. Every yt-dlp invocation is pinned to this
+/// directory with `--paths temp:` and `--no-cache-dir`, and the directory is
+/// emptied on startup, on exit and on app teardown, so no streaming artifact
+/// survives a session.
+static WORK_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// The plugin's scratch directory, when it could be resolved.
+fn work_dir() -> Option<&'static PathBuf> {
+    WORK_DIR.get()
+}
+
+/// Resolve the scratch directory through Tauri's `PathResolver`.
+fn resolve_work_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<PathBuf> {
+    if let Ok(dir) = app.path().app_cache_dir() {
+        return Some(dir.join("ytdlp"));
+    }
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        return Some(dir.join("ytdlp"));
+    }
+    None
+}
+
+/// Delete everything inside the plugin's scratch directory, keeping the
+/// directory itself.
+///
+/// The directory only ever holds yt-dlp scratch data written by this plugin, so
+/// wiping it is always safe. Symlinks are unlinked, not followed, and a single
+/// locked entry does not abort the sweep.
+fn purge_dir_contents(dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+        let _ = if is_dir {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+    }
+}
+
 /// yt-dlp shipped inside the Entei bundle, most likely location first.
 ///
 /// Only Windows bundles an executable: `tauri.windows.conf.json` lists
@@ -278,7 +335,19 @@ fn validate_url(url: &str) -> Result<&str, YtdlpError> {
 
 async fn run_ytdlp(args: &[&str]) -> Result<String, YtdlpError> {
     let binary = ytdlp_binary();
-    let spawn = Command::new(&binary)
+    // Nothing this plugin runs may write outside the plugin's own work dir:
+    // `--no-cache-dir` disables yt-dlp's filesystem cache (its default cache
+    // lives in a user-wide location the app must not own) and `--paths temp:`
+    // points any temporary artifact at the dir that is wiped on startup and on
+    // exit. Both invocations (`--dump-json`, `-g`) are metadata-only today, so
+    // this is the guarantee that stays true if a download path is added later.
+    let mut command = Command::new(&binary);
+    command.args(["--no-cache-dir"]);
+    let temp_paths = work_dir().map(|dir| format!("temp:{}", dir.display()));
+    if let Some(temp_paths) = temp_paths.as_deref() {
+        command.args(["--paths", temp_paths]);
+    }
+    let spawn = command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -572,7 +641,22 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             if let Ok(dir) = app.path().resolve("resources", tauri::path::BaseDirectory::Resource) {
                 let _ = RESOURCE_DIR.set(dir);
             }
+            // Startup sweep: drop whatever a crash, a force quit or an OS kill
+            // left in the plugin's scratch dir before any new run can start.
+            if let Some(dir) = resolve_work_dir(app) {
+                let _ = std::fs::create_dir_all(&dir);
+                purge_dir_contents(&dir);
+                let _ = WORK_DIR.set(dir);
+            }
             Ok(())
+        })
+        .on_event(|_app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                // Exit sweep: nothing yt-dlp wrote is needed after the app ends.
+                if let Some(dir) = work_dir() {
+                    purge_dir_contents(dir);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![get_video_info, stream_youtube])
         .build()
@@ -581,6 +665,37 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The startup/exit sweep must empty the plugin's scratch dir and keep the
+    /// dir itself, so a killed session leaves nothing behind.
+    #[test]
+    fn purges_work_dir_contents_and_keeps_the_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "entei-ytdlp-purge-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let nested = root.join("tmp").join("fragments");
+        std::fs::create_dir_all(&nested).expect("nested dirs");
+        std::fs::write(nested.join("video.f137.mp4.part"), b"partial").expect("nested file");
+        std::fs::write(root.join("stray.tmp"), b"x").expect("root file");
+
+        purge_dir_contents(&root);
+
+        assert!(root.is_dir(), "the work directory itself must survive");
+        assert_eq!(
+            std::fs::read_dir(&root).expect("read dir").count(),
+            0,
+            "every leftover entry must be gone"
+        );
+
+        // A missing directory is not an error: cleanup runs before the dir is
+        // created and on exit, where it may already be gone.
+        let _ = std::fs::remove_dir_all(&root);
+        purge_dir_contents(&root);
+        assert!(!root.exists());
+    }
 
     #[cfg(windows)]
     #[test]
