@@ -19,9 +19,10 @@
 //! `resources/libmpv-2.dll`), then next to the executable, then the platform
 //! loader search path (bare library name).
 //!
-//! The player UI stays 100% Entei's: mpv is initialized with `osc = no` and
-//! `osd-level = 0`, so mpv never draws its own controller or OSD on top of the
-//! webview-driven HTML/CSS controls.
+//! The player UI stays 100% Entei's: mpv is initialized headless (`vo = null`,
+//! `ao = null`, `pause = yes`, `osc = no`, `osd-level = 0`), so mpv never opens
+//! its own OS window, never makes sound and never paints its own controller on
+//! top of the webview-driven HTML/CSS controls.
 //!
 //! Note: the mpv instance is created lazily on the first command and kept for
 //! the lifetime of the process. A failed lookup is not cached, so dropping the
@@ -61,28 +62,45 @@ const LIB_NAMES: &[&str] = &["libmpv.so", "libmpv.so.2", "libmpv.so.1"];
 /// mpv options applied once, right after `mpv_create` and before
 /// `mpv_initialize`.
 ///
+/// Entei's HTML/CSS player is the only surface that is allowed to be visible or
+/// audible. mpv is a **headless** engine here: it holds the media, scans the
+/// container and answers track/duration queries, but it must never open its own
+/// window or make sound.
+///
+/// - `vo = null` / `ao = null`: no video output window and no audio output. A
+///   real VO made mpv open a second, independent OS window that played the
+///   video (and its audio) in parallel with the `<video>` element — the
+///   "two windows / doubled audio" symptom.
+/// - `pause = yes`: the engine starts held. `loadfile … replace` otherwise
+///   starts its own clock immediately, so it would advance on its own while the
+///   user has not pressed Play yet.
 /// - `osc = no` / `osd-level = 0`: mpv must never paint its own controller or
 ///   OSD; Entei's HTML/CSS UI is the only control surface.
 /// - `alang` / `slang`: prefer Japanese audio and subtitle tracks automatically.
-/// - `hwdec = auto-safe`: hardware decode when the driver is known-good.
 /// - `idle = yes`: keep the playloop alive between files, so a second
 ///   `mpv_load` after the previous media reached EOF still starts playback.
 const BASE_OPTIONS: &[(&str, &str)] = &[
     ("osc", "no"),
     ("osd-level", "0"),
+    ("vo", "null"),
+    ("ao", "null"),
+    ("pause", "yes"),
     ("alang", "ja,jpn"),
     ("slang", "ja,jpn"),
-    ("hwdec", "auto-safe"),
     ("idle", "yes"),
 ];
 
-/// Preferred video outputs, first working one wins.
-const VO_CANDIDATES: &[&str] = &["gpu-next", "gpu"];
-
-/// Options that keep mpv from drawing its own UI. Unlike the remaining
-/// `BASE_OPTIONS`, a rejection here is fatal for the plugin's contract.
-fn is_ui_option(name: &str) -> bool {
-    matches!(name, "osc" | "osd-level")
+/// Options that keep the engine invisible and silent. Unlike the remaining
+/// `BASE_OPTIONS`, a rejection here is fatal for the plugin's contract:
+/// silently tolerating it would put mpv's own window (and audio) back on top of
+/// Entei's player.
+///
+/// `pause` is deliberately *not* listed: its real guarantee is the
+/// `set_property("pause", "yes")` asserted on the live handle after
+/// `mpv_initialize` (and again after every `loadfile`), so a build that rejects
+/// the start-time option must not take the whole engine down.
+fn is_contract_option(name: &str) -> bool {
+    matches!(name, "osc" | "osd-level" | "vo" | "ao")
 }
 
 /// Tauri bundle resource directory, resolved while the plugin initializes.
@@ -307,6 +325,10 @@ impl MpvInstance {
         check_rc(instance.error_string, "mpv_initialize", unsafe {
             initialize(instance.handle)
         })?;
+        // `pause` is a property as well as a start option, so it is asserted a
+        // second time on the live handle: the engine must never begin playing
+        // on its own, whatever the option layer did with the start value.
+        instance.set_property("pause", "yes")?;
         Ok(instance)
     }
 
@@ -314,19 +336,12 @@ impl MpvInstance {
         for (name, value) in BASE_OPTIONS {
             match self.set_option(name, value) {
                 Ok(()) => {}
-                // `osc` / `osd-level` are the contract that mpv never paints
-                // its own controller or OSD on top of the HTML/CSS player, so
-                // a rejection is reported instead of silently tolerated.
-                Err(err) if is_ui_option(name) => return Err(err),
+                // `vo` / `ao` / `osc` / `osd-level` are the contract that mpv
+                // stays invisible and silent, so a rejection is reported
+                // instead of silently tolerated.
+                Err(err) if is_contract_option(name) => return Err(err),
                 // Best effort: an unsupported option must not stop playback.
                 Err(err) => eprintln!("tauri-plugin-mpv: optional option {name} rejected: {err}"),
-            }
-        }
-        // `gpu-next` is unavailable on older builds / some Android GPUs, so
-        // fall back to the classic `gpu` VO instead of failing to start.
-        for vo in VO_CANDIDATES {
-            if self.set_option("vo", vo).is_ok() {
-                break;
             }
         }
         Ok(())
@@ -405,6 +420,12 @@ fn mpv_load(url: String) -> Result<(), String> {
     let instance = instance().map_err(|err| err.message())?;
     instance
         .command(&["loadfile", url, "replace"])
+        .map_err(|err| err.message())?;
+    // Hold the freshly loaded file. `loadfile` starts the engine's own clock, so
+    // the pause is re-asserted here instead of relying on the load not having
+    // touched it.
+    instance
+        .set_property("pause", "yes")
         .map_err(|err| err.message())
 }
 
@@ -527,10 +548,27 @@ mod tests {
     }
 
     #[test]
-    fn ui_options_are_the_fatal_ones() {
-        assert!(is_ui_option("osc"));
-        assert!(is_ui_option("osd-level"));
-        assert!(!is_ui_option("alang"));
+    fn contract_options_are_the_fatal_ones() {
+        assert!(is_contract_option("osc"));
+        assert!(is_contract_option("osd-level"));
+        assert!(is_contract_option("vo"));
+        assert!(is_contract_option("ao"));
+        assert!(!is_contract_option("pause"));
+        assert!(!is_contract_option("alang"));
+    }
+
+    #[test]
+    fn base_options_keep_the_engine_headless_and_held() {
+        let value_of = |wanted: &str| {
+            BASE_OPTIONS
+                .iter()
+                .find(|(name, _)| *name == wanted)
+                .map(|(_, value)| *value)
+        };
+        // No window, no sound, never self-starting: the engine is a mirror only.
+        assert_eq!(value_of("vo"), Some("null"));
+        assert_eq!(value_of("ao"), Some("null"));
+        assert_eq!(value_of("pause"), Some("yes"));
     }
 
     #[test]

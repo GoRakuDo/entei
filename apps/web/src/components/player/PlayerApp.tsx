@@ -964,6 +964,16 @@ export default function PlayerApp() {
     [jobSession, pairing.tokenRef, startWatchSession],
   );
 
+  // Desktop native engine: hand a source to libmpv and hold it paused.
+  // `loadfile … replace` starts the engine's own clock, so without the explicit
+  // pause the engine would begin playing on its own — audible in parallel with
+  // the HTML element once the user presses Play (the "two engines singing"
+  // symptom). Every load site goes through here so no future call site can
+  // forget it.
+  const loadMpvPaused = useCallback((url: string) => {
+    void mpvLoad(url).then(() => mpvPause());
+  }, []);
+
   // Shared subtitle-text pipeline: parse + replace cues (used by the P3
   // auto-load hook AND the P4 search modal).
   const handleSubtitleText = useCallback((text: string) => {
@@ -1088,7 +1098,7 @@ export default function PlayerApp() {
         // `--slang=ja,jpn`); an unknown value stays null and the engine keeps
         // its own auto-selection.
         mpvActiveRef.current = isMpvResolvableSource(direct.videoUrl);
-        void mpvLoad(direct.videoUrl);
+        loadMpvPaused(direct.videoUrl);
         const aid = direct.selectedAudioTrack;
         const sid = direct.selectedSubtitleTrack;
         if (aid != null || sid != null) {
@@ -1123,7 +1133,13 @@ export default function PlayerApp() {
       }
       setIsMagnetDialogOpen(false);
     },
-    [endWatchSession, jobSession, pairing.tokenRef, jimakuAutoLoad],
+    [
+      endWatchSession,
+      jobSession,
+      pairing.tokenRef,
+      jimakuAutoLoad,
+      loadMpvPaused,
+    ],
   );
 
   // Attach the actual video element on the complete gate (existing ref).
@@ -1806,7 +1822,7 @@ export default function PlayerApp() {
       setMediaType('video');
       // Desktop native engine: mirror the resolved relay stream into libmpv.
       mpvActiveRef.current = isMpvResolvableSource(source.url);
-      void mpvLoad(source.url);
+      loadMpvPaused(source.url);
       // mediaName feeds the subtitle panel title and the mining source label.
       setMediaName(info ? sanitizeDisplayName(info.title) : (videoId ?? ''));
       setIsYouTubeDialogOpen(false);
@@ -1838,6 +1854,7 @@ export default function PlayerApp() {
       clearAudioClip,
       clearMiningPreview,
       handleSubtitleText,
+      loadMpvPaused,
     ],
   );
 
@@ -1910,7 +1927,7 @@ export default function PlayerApp() {
       // `loadfile … replace` would still reset the engine's state — so it is
       // skipped here (`mpvLoad` enforces the same guard).
       mpvActiveRef.current = isMpvResolvableSource(newUrl);
-      if (mpvActiveRef.current) void mpvLoad(newUrl);
+      if (mpvActiveRef.current) loadMpvPaused(newUrl);
       setMediaName(file.name);
       watchHistoryRecordedRef.current = false;
       youtubeVideoIdRef.current = null;
@@ -1935,6 +1952,7 @@ export default function PlayerApp() {
       jobSession,
       jimakuAutoLoad,
       startWatchSession,
+      loadMpvPaused,
     ],
   );
 
@@ -2317,7 +2335,11 @@ export default function PlayerApp() {
     };
     const onPlay = () => {
       if (!mpvActiveRef.current) return;
-      void mpvPlay();
+      // Align the engine with the element BEFORE it is allowed to make sound:
+      // the engine sits paused at its own position (0:00 after a fresh load),
+      // so a bare `mpvPlay` would start the audio from the wrong offset. The
+      // seek is awaited so the two commands cannot race in the IPC queue.
+      void mpvSeek(media.currentTime).then(() => mpvPlay());
     };
     const onPause = () => {
       if (!mpvActiveRef.current) return;
