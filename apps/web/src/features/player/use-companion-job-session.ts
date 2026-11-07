@@ -62,6 +62,18 @@ const TITLE_POLL_MAX_ATTEMPTS = 5;
  *  unreachability should retry, but not forever). */
 const TITLE_POLL_MAX_ERRORS = 5;
 
+/** Media-error resets allowed for a desktop direct torrent session. A browser
+ *  media element never retries a failed fetch on its own (Chrome stops with
+ *  error code 4), so the relay's transient `503`/aborted range request is
+ *  recovered by an explicit `src` + `load()` reset — bounded, because a truly
+ *  dead relay must surface as an error instead of an endless reload loop. */
+const DIRECT_MEDIA_RESET_LIMIT = 3;
+
+/** Backoff before a direct-torrent media reset. The plugin only hands out the
+ *  relay URL once the file is streamable, so a reset mostly races a very short
+ *  window; a small delay keeps it from hammering the relay. */
+const DIRECT_MEDIA_RESET_DELAY_MS = 600;
+
 export interface CompanionJobSource {
   /** Loopback companion origin, e.g. "http://127.0.0.1:4322". */
   baseUrl: string;
@@ -162,6 +174,18 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
   const sourceRef = useRef<CompanionJobSource | null>(null);
   const attachedRef = useRef(false);
   const intentCleanupRef = useRef<(() => void) | null>(null);
+  /** Media-error resets already spent by the current direct torrent session. */
+  const directResetsRef = useRef(0);
+  /** Last position reported by the direct session's media element. It is the
+   *  only trustworthy resume point: by the time our reset runs, the player's
+   *  own error handling has already stripped `src` and called `load()`, which
+   *  rewinds `el.currentTime` to 0. */
+  const lastPositionRef = useRef(0);
+  /** Playback intent captured before the reset: `load()` pauses the element,
+   *  so the "was playing" answer has to be taken while it is still playing. */
+  const wasPlayingRef = useRef(false);
+  /** Pending direct-torrent media reset (one at a time). */
+  const directResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titlePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleAttemptsRef = useRef(0);
   const titleErrorRef = useRef(0);
@@ -370,6 +394,9 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
       setDirectActive(true);
       setDirectMediaUrl(source.videoUrl);
       setSubtitleUrl(source.subtitleUrl ?? null);
+      directResetsRef.current = 0;
+      lastPositionRef.current = 0;
+      wasPlayingRef.current = false;
     },
     [bridge, clearIntentListeners],
   );
@@ -381,6 +408,9 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     directRef.current = null;
     setDirectActive(false);
     setDirectMediaUrl(null);
+    directResetsRef.current = 0;
+    lastPositionRef.current = 0;
+    wasPlayingRef.current = false;
     activeRef.current = false;
     attachedRef.current = false;
     clearIntentListeners();
@@ -444,9 +474,111 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
     (el: HTMLVideoElement | null) => {
       if (!el || !activeRef.current || attachedRef.current) return;
       // Desktop direct mode: the relay URL is a plain HTTP media source, so
-      // the element needs no bridge wiring at all (native seek/buffer).
+      // the element needs no bridge wiring — but it does need its own error
+      // recovery. A browser media element never retries a failed fetch
+      // (Chrome stops with error code 4 and stays dead), so one transient
+      // relay answer — the `503` window while the torrent was still opening
+      // its storage, or an aborted range request — would kill playback for
+      // good. Recover with the measured explicit `src` + `load()` reset,
+      // bounded so a genuinely dead relay still surfaces as an error.
       if (directRef.current) {
         attachedRef.current = true;
+        /** Resume point + play intent armed by the last media error. */
+        let resumeAt = 0;
+        let resumePlay = false;
+
+        // The element's own position is not usable across a reset: `error`
+        // recovery strips `src` and calls `load()`, which rewinds
+        // `currentTime` to 0. Track the position as it plays instead.
+        const onTimeUpdate = () => {
+          const at = el.currentTime;
+          if (Number.isFinite(at) && at > 0) lastPositionRef.current = at;
+        };
+        const onPlaying = () => {
+          wasPlayingRef.current = true;
+        };
+        const onPause = () => {
+          // A fatal media error also pauses the element; keep the intent so the
+          // reset can resume it. Only a user/API pause clears it.
+          if (el.error) return;
+          wasPlayingRef.current = false;
+        };
+        // Restore once the reset load has a seekable timeline. `loadedmetadata`
+        // and `canplay` are both listened to because either can arrive first
+        // across WebView2 / Chrome; the first one clears the pending state, so
+        // the seek and the resume happen exactly once.
+        const onResumePoint = () => {
+          if (resumeAt <= 0 && !resumePlay) return;
+          const at = resumeAt;
+          const shouldPlay = resumePlay;
+          resumeAt = 0;
+          resumePlay = false;
+          if (at > 0) {
+            try {
+              el.currentTime = at;
+            } catch {
+              // Seek refused (not seekable yet): playback starts from the head.
+            }
+          }
+          if (!shouldPlay) return;
+          try {
+            const started = el.play();
+            if (started && typeof started.catch === 'function') {
+              started.catch(() => {
+                // Autoplay policy refused the resume; the user can press play.
+              });
+            }
+          } catch {
+            // No media pipeline (test/unsupported env): nothing to resume.
+          }
+        };
+        const onLoaded = () => {
+          // A successful load earns the reset budget back, so a later hiccup
+          // in the same session is still recoverable.
+          directResetsRef.current = 0;
+        };
+        const onError = () => {
+          const direct = directRef.current;
+          if (!direct || !activeRef.current) return;
+          if (directResetsRef.current >= DIRECT_MEDIA_RESET_LIMIT) return;
+          // One pending reset at a time: a media element fires `error` once
+          // per failed load, but the guard keeps a burst from stacking timers.
+          if (directResetTimerRef.current !== null) return;
+          directResetsRef.current += 1;
+          resumeAt = lastPositionRef.current;
+          resumePlay = wasPlayingRef.current;
+          directResetTimerRef.current = setTimeout(() => {
+            directResetTimerRef.current = null;
+            // The session may have ended or been replaced while waiting.
+            if (!activeRef.current || directRef.current !== direct) return;
+            // The relay URL stays valid across a reset (same session id), so
+            // the element is simply pointed at it again. `load()` runs the
+            // media load algorithm even for the same URL, which is what makes
+            // the browser fetch again.
+            el.src = direct.videoUrl;
+            el.load();
+          }, DIRECT_MEDIA_RESET_DELAY_MS);
+        };
+        el.addEventListener('timeupdate', onTimeUpdate);
+        el.addEventListener('playing', onPlaying);
+        el.addEventListener('pause', onPause);
+        el.addEventListener('loadedmetadata', onResumePoint);
+        el.addEventListener('canplay', onResumePoint);
+        el.addEventListener('loadeddata', onLoaded);
+        el.addEventListener('error', onError);
+        intentCleanupRef.current = () => {
+          el.removeEventListener('timeupdate', onTimeUpdate);
+          el.removeEventListener('playing', onPlaying);
+          el.removeEventListener('pause', onPause);
+          el.removeEventListener('loadedmetadata', onResumePoint);
+          el.removeEventListener('canplay', onResumePoint);
+          el.removeEventListener('loadeddata', onLoaded);
+          el.removeEventListener('error', onError);
+          if (directResetTimerRef.current !== null) {
+            clearTimeout(directResetTimerRef.current);
+            directResetTimerRef.current = null;
+          }
+        };
         return;
       }
       // The player's video element mounts only after jobMediaUrl surfaces
@@ -493,12 +625,16 @@ export function useCompanionJobSession(): UseCompanionJobSessionResult {
           // Plugin already gone / app closing: nothing left to clean up.
         });
       }
+      // Release the media-element listeners and any pending reset timer: an
+      // unmount leaves no element to fire them on, and the timer would touch
+      // a detached element after the session is gone.
+      clearIntentListeners();
       if (titlePollRef.current !== null) {
         clearTimeout(titlePollRef.current);
         titlePollRef.current = null;
       }
     };
-  }, []);
+  }, [clearIntentListeners]);
 
   const setPlayIntent = useCallback(
     (play: boolean) => bridge.setPlayIntent(play),

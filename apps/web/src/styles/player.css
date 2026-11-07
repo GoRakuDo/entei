@@ -4993,14 +4993,6 @@ html.entei-player-immersive .entei-player-audio-area {
   border-color: color-mix(in oklch, var(--entei-accent) 35%, transparent);
 }
 
-.entei-magnet-item-selected-icon {
-  color: var(--entei-status-locked);
-}
-
-.entei-magnet-item-selected-name {
-  color: var(--entei-status-locked);
-}
-
 /* Leading icon: a fixed square box with the SVG centred in both axes, so the
    glyph never drifts into a corner on one-line and two-line rows alike. */
 .entei-magnet-item-icon {
@@ -5026,6 +5018,21 @@ html.entei-player-immersive .entei-player-audio-area {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--entei-text-secondary);
+}
+
+/* Selected rows lift the leading icon and the file name to the gold (locked)
+   accent. These rules must stay *after* the base `.entei-magnet-item-icon` /
+   `.entei-magnet-item-name` declarations and outrank them (0,2,0 vs 0,1,0):
+   with the same specificity the secondary text colour used to win on source
+   order and the selected row kept its grey icon and label. */
+.entei-magnet-item--selected .entei-magnet-item-icon,
+.entei-magnet-item-icon.entei-magnet-item-selected-icon {
+  color: var(--entei-status-locked);
+}
+
+.entei-magnet-item--selected .entei-magnet-item-name,
+.entei-magnet-item-name.entei-magnet-item-selected-name {
+  color: var(--entei-status-locked);
 }
 
 .entei-magnet-item-size {

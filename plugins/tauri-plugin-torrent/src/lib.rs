@@ -66,12 +66,29 @@ use tokio::sync::Mutex;
 /// until a later `get_torrent_status` call.
 const METADATA_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Upper bound on waiting for the selected video file's first byte before the
-/// relay URL is handed to the player. Mirrors the companion handoff contract:
-/// a `<video>` opened over a file whose container header is still missing
-/// stalls (and Chrome gives up after ~30 s), so the wait stays inside the
-/// modal's loading state instead.
-const FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(20);
+/// Shared wall-clock budget for the "make the selected file playable" gate
+/// (`wait_until_initialized` → streamable → first byte on disk).
+///
+/// The steps used to carry separate timeouts (20 s + 30 s + 20 s), so a stalled
+/// torrent could keep the modal spinner alive for 80 s. They now share this one
+/// deadline — the wait the user actually sits through has a single ceiling.
+///
+/// Why the gate exists: the relay answers `503` while the torrent is still
+/// `Initializing` (its `stream()` bails with "invalid state"), a browser media
+/// element does not retry a `503` (Chrome stops with error code 4 and never
+/// recovers), and a `<video>` opened over a file whose container header is still
+/// missing stalls until Chrome gives up (~30 s). The URL therefore must not
+/// leave the plugin before the file is streamable and its first byte is on disk.
+const STREAM_READY_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Total wall-clock budget for `select_torrent_files`: the readiness gate above
+/// plus the bounded MKV track inspection that follows it. The command never
+/// takes longer than this, so the modal's loading state has a hard ceiling.
+const SELECT_READY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Backoff between streamability probes (cheap: one `stream()` + immediate
+/// drop, no piece is requested).
+const STREAM_READY_POLL: Duration = Duration::from_millis(200);
 
 /// Bytes of the container header read for track inspection.
 ///
@@ -423,21 +440,77 @@ fn mime_for_path(path: &str) -> &'static str {
     }
 }
 
+/// Time left before `deadline` (zero once it has passed).
+///
+/// Every wait in the selection path is bounded by a shared deadline instead of
+/// its own timeout, so a slow step cannot hand the player a spinner that keeps
+/// turning past [`SELECT_READY_TIMEOUT`].
+fn remaining(deadline: tokio::time::Instant) -> Duration {
+    deadline.saturating_duration_since(tokio::time::Instant::now())
+}
+
 /// Wait (bounded) until the file's first byte is on disk.
 ///
 /// A `FileStream` read on a missing piece parks until the piece arrives, so a
 /// one-byte read is the cheapest exact "container header is here" probe. A
 /// timeout is not an error: the relay URL stays valid and the player simply
 /// waits a little longer on its first range request.
-async fn wait_first_byte(handle: &TorrentHandle, file_id: usize) {
+async fn wait_first_byte(handle: &TorrentHandle, file_id: usize, deadline: tokio::time::Instant) {
     let Ok(mut stream) = handle.clone().stream(file_id) else {
         return;
     };
     if stream.len() == 0 {
         return;
     }
+    let budget = remaining(deadline);
+    if budget.is_zero() {
+        return;
+    }
     let mut probe = [0u8; 1];
-    let _ = tokio::time::timeout(FIRST_BYTE_TIMEOUT, stream.read(&mut probe)).await;
+    let _ = tokio::time::timeout(budget, stream.read(&mut probe)).await;
+}
+
+/// Wait (bounded) until `file_id` can actually be streamed.
+///
+/// `add_torrent` hands the handle back while the torrent is still
+/// `Initializing`, and [`relay::stream_file`] answers `503` for every request in
+/// that window because `stream()` refuses a torrent whose storage is not open
+/// ("streams: invalid state"). A `<video>` element does not retry a `503` —
+/// Chrome stops with error code 4 and stays dead — so the relay URL must not
+/// leave the plugin before the file is streamable.
+///
+/// The wait is bounded by the caller's shared `deadline`: a torrent that never
+/// becomes streamable (no peers, error state, removed while waiting) returns an
+/// error instead of handing the player a URL that can only answer `503`. The
+/// probe stream is dropped immediately, so it registers nothing with the piece
+/// scheduler.
+async fn wait_streamable(
+    handle: &TorrentHandle,
+    file_id: usize,
+    deadline: tokio::time::Instant,
+) -> Result<(), TorrentError> {
+    loop {
+        // `stream()` only succeeds once the storage is open and the torrent is
+        // live or paused — exactly the state the relay needs. The error text is
+        // deliberately dropped: librqbit's message can carry cache paths and no
+        // torrent detail may reach the webview.
+        if handle.clone().stream(file_id).is_ok() {
+            return Ok(());
+        }
+        // A torrent that went into an error state never becomes streamable;
+        // fail now instead of burning the whole budget.
+        if handle.stats().error.is_some() {
+            return Err(TorrentError::Operation(
+                "torrent failed before it could be streamed".into(),
+            ));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(TorrentError::Operation(
+                "torrent file did not become streamable in time".into(),
+            ));
+        }
+        tokio::time::sleep(STREAM_READY_POLL).await;
+    }
 }
 
 /// Is this path a Matroska-family container whose header we can inspect?
@@ -459,6 +532,7 @@ async fn read_mkv_track_report(
     handle: &TorrentHandle,
     file_id: usize,
     path: &str,
+    deadline: tokio::time::Instant,
 ) -> Option<MkvTrackReport> {
     if !is_matroska_path(path) {
         return None;
@@ -468,16 +542,18 @@ async fn read_mkv_track_report(
         return None;
     }
 
-    let deadline = tokio::time::Instant::now() + HEADER_READ_TIMEOUT;
+    // Never outlive the caller's budget, and never spend more than
+    // [`HEADER_READ_TIMEOUT`] on the header itself.
+    let deadline = deadline.min(tokio::time::Instant::now() + HEADER_READ_TIMEOUT);
     let mut buffer: Vec<u8> = Vec::with_capacity(HEADER_READ_CHUNK);
     let mut chunk = vec![0u8; HEADER_READ_CHUNK];
 
     while buffer.len() < HEADER_READ_LIMIT {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
+        let budget = remaining(deadline);
+        if budget.is_zero() {
             break;
         }
-        let read = match tokio::time::timeout(remaining, stream.read(&mut chunk)).await {
+        let read = match tokio::time::timeout(budget, stream.read(&mut chunk)).await {
             Ok(Ok(read)) => read,
             _ => break,
         };
@@ -666,9 +742,10 @@ async fn cancel_torrent(state: tauri::State<'_, TorrentState>, id: String) -> Re
 /// which is what librqbit's `only_files` expects). Everything else in the
 /// torrent — other episodes, extras, soundtracks — is excluded from the start,
 /// so a 67 GB multi-file torrent only ever fetches the selected episode. The
-/// command returns only when the video's first byte is present (bounded by
-/// [`FIRST_BYTE_TIMEOUT`]) so the player never opens a `<video>` over a file
-/// whose header is still missing.
+/// command returns only when the video is actually streamable and its first byte
+/// is present — all of it inside one shared budget ([`STREAM_READY_TIMEOUT`]),
+/// so the relay can never answer `503` to the player's first request and the
+/// modal spinner cannot run past [`SELECT_READY_TIMEOUT`] in total.
 #[tauri::command]
 async fn select_torrent_files(
     state: tauri::State<'_, TorrentState>,
@@ -728,12 +805,17 @@ async fn select_torrent_files(
 
     // `add_torrent` hands the handle back while it is still `Initializing`: the
     // storage is not open yet, so `update_only_files`, `stream()` (the
-    // first-byte probe) and the MKV header read would all bail out instantly and
-    // the player would end up opening a `<video>` over a file with no bytes.
-    // Wait for initialization to finish first. The wait is bounded so a stuck
-    // torrent cannot hang the command, and a timeout/error state only means the
-    // steps below degrade to their best-effort behaviour.
-    let _ = tokio::time::timeout(FIRST_BYTE_TIMEOUT, handle.wait_until_initialized()).await;
+    // streamability gate and first-byte probe) and the MKV header read would all
+    // bail out instantly. Wait for initialization to finish first. This wait is
+    // only a shortcut (it resolves early on the usual path); the authoritative
+    // gate is `wait_streamable` below.
+    //
+    // Every wait below shares one deadline: separate timeouts added up to 80 s of
+    // spinner on a stalled torrent, which is exactly what the player showed.
+    let start = tokio::time::Instant::now();
+    let ready_deadline = start + STREAM_READY_TIMEOUT;
+    let select_deadline = start + SELECT_READY_TIMEOUT;
+    let _ = tokio::time::timeout(remaining(ready_deadline), handle.wait_until_initialized()).await;
 
     // Best effort: a fresh add already honours `only_files`, and an already
     // live torrent needs the restriction applied now. `unpause` is only worth
@@ -744,7 +826,17 @@ async fn select_torrent_files(
         let _ = session.unpause(&handle).await;
     }
 
-    wait_first_byte(&handle, video.index).await;
+    // The relay URL must not leave the plugin while the torrent is still
+    // initializing: the relay would answer `503` and the browser would stop the
+    // media element with error code 4 for good (it does not retry). Gate on a
+    // streamable file first, and fail loudly instead of handing out a dead URL.
+    wait_streamable(&handle, video.index, ready_deadline)
+        .await
+        .map_err(|err| err.message())?;
+
+    // Now that the storage is open the probe below can actually read; a late
+    // header is fine (the relay parks the read until the piece arrives).
+    wait_first_byte(&handle, video.index, ready_deadline).await;
 
     let relay = relay::ensure().await?;
     // Re-selecting a file in the same torrent replaces its streams: drop the
@@ -759,7 +851,8 @@ async fn select_torrent_files(
 
     // The header bytes are already here (first byte waited above), so listing
     // the container tracks costs no extra wait in the common case.
-    let track_report = read_mkv_track_report(&handle, video.index, &video.path).await;
+    let track_report =
+        read_mkv_track_report(&handle, video.index, &video.path, select_deadline).await;
 
     Ok(SelectedTorrentFiles {
         video_url,
@@ -803,9 +896,14 @@ async fn inspect_torrent_tracks(
         return Ok(MkvTrackReport::default());
     };
 
-    Ok(read_mkv_track_report(&handle, file.index, &file.path)
-        .await
-        .unwrap_or_default())
+    Ok(read_mkv_track_report(
+        &handle,
+        file.index,
+        &file.path,
+        tokio::time::Instant::now() + HEADER_READ_TIMEOUT,
+    )
+    .await
+    .unwrap_or_default())
 }
 
 /// Resolve the on-disk directory torrents are written to.
