@@ -4946,11 +4946,11 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-magnet-list::-webkit-scrollbar-thumb:hover,
 .entei-magnet-list::-webkit-scrollbar-thumb:active {
-  background-color: var(--entei-btn-color);
-  /* Same lightness problem as the global thumb inside dark dialogs: the
-     button fill alone is invisible against the translucent resting thumb.
-     A 1px inner highlight makes the hovered pill read as a distinct state. */
-  box-shadow: inset 0 0 0 1px oklch(100% 0 0deg / 0.35);
+  background-color: var(--entei-accent-hover);
+  /* Same reasoning as the global thumb inside dark dialogs: the dark
+     --entei-btn-color fill was invisible against the translucent resting
+     thumb, so the hover/drag state uses the bright accent as a plain
+     background-color instead of a box-shadow highlight. */
 }
 
 /* Firefox: the only scrollbar hook it has. Must not leak into Chromium.
