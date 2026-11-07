@@ -32,7 +32,8 @@ const cssFiles = readdirSync(stylesDir)
   .filter((name) => name.endsWith('.css'))
   .sort();
 
-const fallbackNeedle = '@supports not selector(::-webkit-scrollbar)';
+const fallbackNeedle =
+  '@supports (not selector(::-webkit-scrollbar)) or (-moz-appearance: none)';
 
 /**
  * Removes every Firefox `@supports` scrollbar fallback block, so what remains
@@ -93,7 +94,7 @@ describe('themed scrollbar (Chromium keeps ::-webkit-scrollbar)', () => {
 
   it('the Firefox fallback also survives ::-webkit-scrollbar landing in Firefox', () => {
     const gate =
-      '@supports not selector(::-webkit-scrollbar) or (-moz-appearance: none) {';
+      '@supports (not selector(::-webkit-scrollbar)) or (-moz-appearance: none) {';
     expect(stripComments(read('global.css'))).toContain(gate);
     expect(stripComments(read('player.css'))).toContain(gate);
   });

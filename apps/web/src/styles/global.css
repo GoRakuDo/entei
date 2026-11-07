@@ -83,7 +83,7 @@ html {
  * specific rule (e.g. `.entei-settings-tabs-list { scrollbar-width: none }`)
  * still wins by specificity.
  */
-@supports not selector(::-webkit-scrollbar) or (-moz-appearance: none) {
+@supports (not selector(::-webkit-scrollbar)) or (-moz-appearance: none) {
   * {
     scrollbar-width: thin;
     scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;

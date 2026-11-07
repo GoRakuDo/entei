@@ -4958,7 +4958,7 @@ html.entei-player-immersive .entei-player-audio-area {
    applying in Firefox even once it ships ::-webkit-scrollbar support
    (Bug 2031468): the first branch turns false there, the second stays true,
    while Chromium evaluates both as false. */
-@supports not selector(::-webkit-scrollbar) or (-moz-appearance: none) {
+@supports (not selector(::-webkit-scrollbar)) or (-moz-appearance: none) {
   .entei-magnet-list {
     scrollbar-width: thin;
     scrollbar-color: oklch(100% 0 0deg / 0.18) transparent;
