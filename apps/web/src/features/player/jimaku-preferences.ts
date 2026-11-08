@@ -1,20 +1,19 @@
 /**
  * jimaku-preferences — jimaku.cc auto-load preferences.
  * ---------------------------------------------------------------------------
- * Persisted in localStorage under `entei.jimaku.v1` (design: docs/JIMAKU_SUBS.md
- * §2.1). Stores the API key (read-only usage), the auto-load Switch, the
- * no-key toast counter (max 7), and the anime/drama search toggle.
+ * Persisted in localStorage under entei.jimaku.v1 (design: docs/JIMAKU_SUBS.md
+ * §2.1). Stores the API key (read-only usage), the auto-load Switch, and the
+ * no-key toast counter. The manual search modal searches anime and drama in
+ * parallel, so there is no persisted anime/drama mode.
  *
  * Privacy: the API key is kept in localStorage only — never logged, never put
  * into URLs or error surfaces (design §9).
- * ---------------------------------------------------------------------------
- */
+ * --------------------------------------------------------------------------- */
 
 export interface JimakuPreferences {
   apiKey: string;
   autoLoadEnabled: boolean;
   toastCount: number;
-  searchAnime: boolean;
 }
 
 export const JIMAKU_PREFS_KEY = 'entei.jimaku.v1';
@@ -26,7 +25,6 @@ export const DEFAULT_JIMAKU_PREFERENCES: JimakuPreferences = {
   apiKey: '',
   autoLoadEnabled: true,
   toastCount: 0,
-  searchAnime: true,
 };
 
 function isJimakuPreferences(value: unknown): value is JimakuPreferences {
@@ -35,7 +33,6 @@ function isJimakuPreferences(value: unknown): value is JimakuPreferences {
   if (typeof v.apiKey !== 'string') return false;
   if (typeof v.autoLoadEnabled !== 'boolean') return false;
   if (typeof v.toastCount !== 'number' || !Number.isFinite(v.toastCount)) return false;
-  if (typeof v.searchAnime !== 'boolean') return false;
   return true;
 }
 
@@ -71,13 +68,6 @@ export function setJimakuApiKey(apiKey: string): JimakuPreferences {
 /** Toggle the auto-load Switch. */
 export function setJimakuAutoLoad(enabled: boolean): JimakuPreferences {
   const next = { ...readJimakuPreferences(), autoLoadEnabled: enabled };
-  writeJimakuPreferences(next);
-  return next;
-}
-
-/** Toggle the anime/drama search mode (defaults to anime). */
-export function setJimakuSearchAnime(anime: boolean): JimakuPreferences {
-  const next = { ...readJimakuPreferences(), searchAnime: anime };
   writeJimakuPreferences(next);
   return next;
 }

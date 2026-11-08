@@ -4,8 +4,9 @@
  * Presentation only. All state lives in `features/timeline/timeline-store.ts`
  * and the `TimelineFeed` island. Colors are OKLCH tokens only.
  *
- * Layout follows the approved mockup: composer (avatar + placeholder + Publish)
- * on top, then a divider-separated post list with Comment / Like / Share.
+ * Layout follows the approved mockup: a shadcn-style block-end InputGroup
+ * (one joined box with the textarea, count and Publish/Balas) on top, then a
+ * divider-separated post list with Comment / Like / Share.
  * Desktop keeps a centered reading column; mobile runs edge-to-edge inside the
  * shared page gutter (1rem).
  * =========================================================================== */
@@ -34,9 +35,6 @@
 /* ===== COMPOSER ===== */
 
 .entei-timeline-composer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
   padding-bottom: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
@@ -82,32 +80,106 @@
   clip-path: url(#entei-hex-clip);
 }
 
-.entei-timeline-textarea {
+/* ===== INPUT GROUP (shadcn InputGroup, align="block-end") =====
+ * One joined box owns the border, radius and surface. The textarea is a
+ * borderless control at the top; the addon below it is the block-end footer.
+ * `data-slot` mirrors the official composition so the same DOM can later be
+ * swapped for the registry components without changing the tests. Official
+ * contract: the addon follows the control in DOM order so keyboard focus moves
+ * from the textarea into the footer actions. */
+.entei-timeline-input-group {
+  display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid oklch(1 0 0 / 0.1);
+  border-radius: var(--entei-radius-md);
+  background-color: var(--entei-surface);
+  transition: border-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-timeline-input-group > textarea {
+  flex: none;
+  width: 100%;
   min-width: 0;
   min-height: var(--entei-touch-min);
-  padding-block: var(--entei-space-8);
+  padding: var(--entei-space-8) var(--entei-space-16);
   border: 0;
   background: transparent;
   color: var(--entei-text);
-  font-size: 1rem;
   line-height: 1.5;
   resize: none;
   /* Progressive enhancement: grow with the draft instead of scrolling. */
   field-sizing: content;
 }
 
-.entei-timeline-textarea::placeholder {
+.entei-timeline-input-group > textarea::placeholder {
   color: var(--entei-text-muted);
   opacity: 1;
 }
 
-.entei-timeline-composer-actions {
-  display: flex;
-  justify-content: flex-end;
+/* Composer and reply share the box; only their type scale differs. */
+.entei-timeline-textarea {
+  font-size: 1rem;
 }
 
-.entei-timeline-publish {
+.entei-timeline-reply-input {
+  font-size: 0.9375rem;
+}
+
+.entei-timeline-input-group-addon {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-8) var(--entei-space-16);
+}
+
+/* The counter sits at the start and the action pill at the end — the `ml-auto`
+   of the official block-end sample, written as a logical property. */
+.entei-timeline-input-group-text {
+  margin-inline-end: auto;
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+/* DESIGN.md 8.13: exactly ONE visible boundary. :has() gives the wrapper the
+   2px inset ring while its control owns keyboard focus, and the control hands
+   its own inset outline over, so no second frame appears inside the box. The
+   class-scoped selector outranks global.css's unlayered textarea rule. */
+.entei-timeline-input-group:has(
+    > [data-slot='input-group-control']:focus-visible:not([aria-invalid='true'])
+  ) {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+  border-color: var(--entei-focus-ring);
+}
+
+/* Hand the ring over only where :has() can draw the replacement. On older
+   engines the textarea keeps global.css's inset outline instead of losing
+   keyboard focus entirely. */
+@supports selector(:has(*)) {
+  .entei-timeline-input-group
+    > textarea:focus-visible:not([aria-invalid='true']) {
+    outline: none;
+    border-color: transparent;
+    box-shadow: none;
+  }
+}
+
+/* Joined-group segments (DESIGN.md 8.9): the button keeps the same inset
+   boundary instead of global.css's outer 3px ring, so nothing escapes the box. */
+.entei-timeline-input-group [data-slot='input-group-button']:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+/* Publish / Balas: one shared pill for both joined boxes. */
+.entei-timeline-publish,
+.entei-timeline-reply-submit {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -125,21 +197,25 @@
   font-size: 0.9375rem;
   font-weight: 600;
   line-height: 1.25;
+  cursor: pointer;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
     filter var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-timeline-publish:hover:not(:disabled) {
+.entei-timeline-publish:hover:not(:disabled),
+.entei-timeline-reply-submit:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
   filter: brightness(1.15);
 }
 
-.entei-timeline-publish:active:not(:disabled) {
+.entei-timeline-publish:active:not(:disabled),
+.entei-timeline-reply-submit:active:not(:disabled) {
   filter: brightness(0.95);
 }
 
-.entei-timeline-publish:disabled {
+.entei-timeline-publish:disabled,
+.entei-timeline-reply-submit:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -545,71 +621,6 @@
   height: var(--entei-touch-min);
 }
 
-.entei-timeline-reply-box {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.entei-timeline-reply-input {
-  min-height: var(--entei-touch-min);
-  padding-block: var(--entei-space-8);
-  border: 0;
-  background: transparent;
-  color: var(--entei-text);
-  font-family: inherit;
-  font-size: 0.9375rem;
-  line-height: 1.5;
-  resize: none;
-  field-sizing: content;
-}
-
-.entei-timeline-reply-input::placeholder {
-  color: var(--entei-text-muted);
-  opacity: 1;
-}
-
-.entei-timeline-reply-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.entei-timeline-reply-submit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--entei-space-8);
-  min-height: 2.25rem;
-  padding: 0 var(--entei-space-24);
-  border: none;
-  border-radius: var(--entei-radius-pill);
-  background-color: var(--entei-btn-color);
-  color: var(--entei-text);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  line-height: 1.25;
-  cursor: pointer;
-  transition:
-    background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    filter var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-.entei-timeline-reply-submit:hover:not(:disabled) {
-  background-color: var(--entei-btn-color);
-  filter: brightness(1.15);
-}
-
-.entei-timeline-reply-submit:active:not(:disabled) {
-  filter: brightness(0.95);
-}
-
-.entei-timeline-reply-submit:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 /* ===== COMMENTS THREAD ===== */
 
 .entei-timeline-comments {
@@ -675,7 +686,8 @@
     padding: 0 var(--entei-space-12);
   }
 
-  .entei-timeline-publish {
+  .entei-timeline-publish,
+  .entei-timeline-reply-submit {
     padding: 0 var(--entei-space-16);
   }
 
@@ -714,9 +726,5 @@
 
   .entei-timeline-reply {
     gap: var(--entei-space-8);
-  }
-
-  .entei-timeline-reply-submit {
-    padding: 0 var(--entei-space-16);
   }
 }

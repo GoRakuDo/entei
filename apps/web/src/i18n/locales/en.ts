@@ -373,7 +373,7 @@ export const en: Dictionary = {
     contextLoadingMore: 'Loading more results…',
     contextRetry: 'Retry',
     contextEndOfResults: 'No more results',
-    // P4: jimaku search modal (design §2.3)
+    // P4: jimaku search modal (mockup redesign)
     jimakuSearchTitle: 'Title',
     jimakuSearchEpisode: 'Episode',
     jimakuSearchButton: 'Search',

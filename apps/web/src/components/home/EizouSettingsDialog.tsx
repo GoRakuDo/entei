@@ -31,7 +31,6 @@ import { buildShortcuts } from '@/features/player/player-shortcuts';
 import {
   dispatchAnkiSessionCredentials,
   dispatchSubtitleSettingsChange,
-  listenForOpenSettings,
 } from '@/features/player/settings-bridge';
 import { LOCALE_CHANGE_EVENT, type LocaleChangeDetail } from '@i18n/locale-events';
 import type { Dictionary, Locale } from '@i18n/types';
@@ -94,18 +93,6 @@ export function EizouSettingsDialog({
     window.addEventListener(LOCALE_CHANGE_EVENT, handler);
     return () => window.removeEventListener(LOCALE_CHANGE_EVENT, handler);
   }, []);
-
-  // P4: the jimaku search dialog (PlayerApp island) can open this settings
-  // modal via the settings-bridge event. Only the variant visible at the
-  // current viewport reacts (desktop pill / mobile dock), so the two
-  // instances never stack two settings modals on top of each other.
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return; // non-browser (tests)
-    const media = window.matchMedia('(min-width: 768px)');
-    const handlesEvent = variant === 'dock' ? !media.matches : media.matches;
-    if (!handlesEvent) return;
-    return listenForOpenSettings(() => setOpen(true));
-  }, [variant]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

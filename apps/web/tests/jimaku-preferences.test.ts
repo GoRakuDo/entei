@@ -7,7 +7,6 @@ import {
   readJimakuPreferences,
   setJimakuApiKey,
   setJimakuAutoLoad,
-  setJimakuSearchAnime,
   shouldShowJimakuToast,
   writeJimakuPreferences,
 } from '../src/features/player/jimaku-preferences';
@@ -24,13 +23,11 @@ describe('jimaku-preferences', () => {
       apiKey: 'key-1',
       autoLoadEnabled: false,
       toastCount: 3,
-      searchAnime: false,
     });
     expect(readJimakuPreferences()).toEqual({
       apiKey: 'key-1',
       autoLoadEnabled: false,
       toastCount: 3,
-      searchAnime: false,
     });
   });
 
@@ -59,18 +56,13 @@ describe('jimaku-preferences', () => {
   it('setJimakuApiKey updates only the key', () => {
     const prefs = setJimakuApiKey('new-key');
     expect(prefs.apiKey).toBe('new-key');
-    expect(prefs.autoLoadEnabled).toBe(true); // default unchanged
+    expect(prefs.autoLoadEnabled).toBe(true);
     expect(readJimakuPreferences().apiKey).toBe('new-key');
   });
 
   it('setJimakuAutoLoad toggles and persists', () => {
     setJimakuAutoLoad(false);
     expect(readJimakuPreferences().autoLoadEnabled).toBe(false);
-  });
-
-  it('setJimakuSearchAnime toggles and persists', () => {
-    setJimakuSearchAnime(false);
-    expect(readJimakuPreferences().searchAnime).toBe(false);
   });
 
   it('incrementJimakuToastCount caps at JIMAKU_TOAST_MAX', () => {

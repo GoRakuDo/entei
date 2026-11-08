@@ -6473,225 +6473,362 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 .entei-jimaku-search-dialog {
-  /* Unified desktop modal width — 42.5rem (680px), 2026-08-15. Narrow
-     screens use the gutter-margin width rule from .entei-dialog-content. */
+  /* Unified desktop modal width; the single form owns all padding. */
   max-width: 42.5rem;
+  overflow: hidden;
+  border-radius: var(--entei-radius-lg);
 }
 
-/* Dialog title — pixel/brand font (Pixelify Sans), matching the settings
-   modal titles (design: tokens.css --entei-font-system). */
-.entei-jimaku-search-dialog .entei-jimaku-search-title {
-  font-family: var(--entei-font-system);
-}
-
-.entei-jimaku-search-body {
+.entei-jimaku-form {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
+  gap: var(--entei-space-24);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--entei-space-24);
+  font-family: var(--entei-font-body);
+}
+
+.entei-jimaku-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  margin: 0;
+  color: var(--entei-status-locked);
+  font-family: var(--entei-font-system);
+  letter-spacing: 0.02em;
 }
 
 .entei-jimaku-search-field {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-4);
-}
-
-.entei-jimaku-search-label {
-  color: var(--entei-text-muted);
-  font-size: 0.75rem;
-  line-height: 1.4;
-}
-
-.entei-jimaku-search-fields-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--entei-space-12);
-  /* Bottom-align the inputs so a wrapping label (e.g. the long episode
-     label) never pushes its field out of alignment with the neighbor. */
-  align-items: flex-end;
-}
-
-.entei-jimaku-search-fields-row .entei-jimaku-search-field {
-  flex: 1;
+  gap: var(--entei-space-8);
   min-width: 0;
 }
 
-.entei-jimaku-search-fields-row .entei-jimaku-search-episode-field {
-  flex: 0 0 8rem; /* episode field is a narrow fixed-width column */
-}
-
-.entei-jimaku-search-submit {
-  min-height: var(--entei-touch-min);
-}
-
-.entei-jimaku-search-error {
-  margin: 0;
-  color: var(--color-destructive);
-  font-size: 0.8125rem;
+.entei-jimaku-field-label {
+  color: var(--entei-text-secondary);
+  font-size: 0.875rem;
   line-height: 1.4;
 }
 
-.entei-jimaku-search-empty-state {
+/* Joined input + icon search button: one surface, one hairline, inset focus. */
+.entei-jimaku-input-group,
+.entei-jimaku-key-group {
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  overflow: hidden;
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(1 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+}
+
+.entei-jimaku-input-group > input,
+.entei-jimaku-input-group > button,
+.entei-jimaku-key-group > input,
+.entei-jimaku-key-group > button {
+  height: auto;
+  min-height: calc(var(--entei-touch-min) - 2px);
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+  font-size: 0.9375rem;
+  transition-property: background-color, color;
+  transition-duration: var(--entei-duration-fast);
+  transition-timing-function: var(--entei-ease-productive);
+}
+
+.entei-jimaku-input-group > input,
+.entei-jimaku-key-group > input {
+  flex: 1;
+  min-width: 0;
+  padding-inline: var(--entei-space-16);
+}
+
+.entei-jimaku-input-group > button,
+.entei-jimaku-key-group > button {
+  flex: 0 0 var(--entei-touch-min);
+  width: var(--entei-touch-min);
+  border-left: 1px solid oklch(1 0 0deg / 0.1);
+  border-radius: 0;
+}
+
+.entei-jimaku-input-group > input:focus-visible,
+.entei-jimaku-input-group > button:focus-visible,
+.entei-jimaku-key-group > input:focus-visible,
+.entei-jimaku-key-group > button:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+.entei-jimaku-input-group > button:hover:not(:disabled),
+.entei-jimaku-key-group > button:hover:not(:disabled) {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+}
+
+.entei-jimaku-input-group > button:disabled,
+.entei-jimaku-key-group > button:disabled {
+  color: var(--entei-text-muted);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Inline API-key state stays in the same padded form. */
+.entei-jimaku-no-key {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: var(--entei-space-12);
   padding: var(--entei-space-32) var(--entei-space-16);
   text-align: center;
 }
 
-.entei-jimaku-search-empty-icon {
-  color: var(--entei-gold-base);
-  opacity: 0.85;
+.entei-jimaku-no-key-icon {
+  color: var(--entei-status-locked);
 }
 
-.entei-jimaku-search-empty-title {
+.entei-jimaku-no-key-text {
   margin: 0;
-  font-size: 0.875rem;
   color: var(--entei-text-secondary);
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
-.entei-jimaku-search-no-key {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--entei-space-8);
-  margin-top: var(--entei-space-8);
-}
-
-/* Inline API-key form (Nadeshiko pattern) — replaces the old
-   "open settings" button so users can paste their jimaku.cc key without
-   leaving this dialog. */
 .entei-jimaku-key-form {
   width: 100%;
   max-width: 24rem;
 }
 
-.entei-jimaku-form-group {
-  width: 100%;
-  min-height: var(--entei-touch-min);
-}
-
-.entei-jimaku-form-group > input {
-  height: auto;
-  min-height: var(--entei-touch-min);
-}
-
-/* Icon-only save button — same treatment as the Nadeshiko save button
-   (outline variant + surface hover fill + 44px touch minimum), so the
-   form controls read consistently across the player. */
-.entei-jimaku-key-save-btn {
-  flex-shrink: 0;
-  min-height: var(--entei-touch-min);
-  background-color: var(--entei-btn-hover-bg);
-  border-color: transparent;
-}
-
-.entei-jimaku-search-section {
+/* Bounded internal scroll; long names truncate instead of animating. */
+.entei-jimaku-list-section {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-8);
+  min-width: 0;
 }
 
-.entei-jimaku-search-hint {
-  margin: 0;
-  color: var(--entei-text-muted);
-  font-size: 0.75rem;
-  line-height: 1.4;
-}
-
-/* Bounded internal scroll for entry / file lists (§2.3-6) */
-.entei-jimaku-search-scroll {
+.entei-jimaku-list-scroll {
   max-height: 20rem;
   overflow-y: auto;
-  border: 1px solid oklch(100% 0 0deg / 0.1);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(1 0 0deg / 0.1);
   border-radius: var(--entei-radius-md);
 }
 
-.entei-jimaku-search-item {
+.entei-jimaku-row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--entei-space-2);
+  align-items: center;
+  gap: var(--entei-space-12);
   width: 100%;
+  min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-12);
   border: none;
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.05);
+  border-bottom: 1px solid oklch(1 0 0deg / 0.06);
   background: none;
   color: var(--entei-text);
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    color var(--entei-duration-fast) var(--entei-ease-productive);
+  transition-property: background-color, color;
+  transition-duration: var(--entei-duration-fast);
+  transition-timing-function: var(--entei-ease-productive);
 }
 
-.entei-jimaku-search-item:last-child {
+.entei-jimaku-row:last-child {
   border-bottom: none;
 }
 
-.entei-jimaku-search-item:hover:not(:disabled) {
+.entei-jimaku-row:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
   color: var(--entei-accent-hover);
 }
 
-.entei-jimaku-search-item:disabled {
+.entei-jimaku-row[aria-current='true'],
+.entei-jimaku-row[aria-pressed='true'] {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+}
+
+.entei-jimaku-row:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+}
+
+.entei-jimaku-row:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.entei-jimaku-search-item-name {
+.entei-jimaku-badge,
+.entei-jimaku-file-icon {
+  display: grid;
+  flex: 0 0 1.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(1 0 0deg / 0.16);
+  border-radius: var(--entei-radius-md);
+  line-height: 1;
+}
+
+.entei-jimaku-badge {
+  color: var(--entei-status-locked);
+  font-family: var(--entei-font-system);
   font-size: 0.8125rem;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
 }
 
-.entei-jimaku-search-item-sub,
-.entei-jimaku-search-item-size {
-  color: var(--entei-text-muted);
-  font-size: 0.75rem;
+.entei-jimaku-file-icon {
+  color: var(--entei-text-secondary);
+}
+
+.entei-jimaku-row[aria-pressed='true'] .entei-jimaku-file-icon {
+  color: var(--entei-status-locked);
+}
+
+.entei-jimaku-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
   line-height: 1.4;
 }
 
-.entei-jimaku-search-empty {
+.entei-jimaku-empty,
+.entei-jimaku-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 8rem;
   margin: 0;
-  padding: var(--entei-space-12);
+  padding: var(--entei-space-16);
+  color: var(--entei-text-muted);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.entei-jimaku-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-width: 0;
   color: var(--entei-text-muted);
   font-size: 0.8125rem;
 }
 
-.entei-jimaku-search-back {
+.entei-jimaku-crumb-back {
   display: inline-flex;
   align-items: center;
   gap: var(--entei-space-4);
-  align-self: flex-start;
-  padding: var(--entei-space-4) var(--entei-space-8);
+  flex-shrink: 0;
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-8);
   border: none;
   background: none;
   color: var(--entei-text-secondary);
   font-size: 0.8125rem;
   cursor: pointer;
-  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+  transition-property: color;
+  transition-duration: var(--entei-duration-fast);
+  transition-timing-function: var(--entei-ease-productive);
 }
 
-.entei-jimaku-search-back:hover:not(:disabled) {
-  color: var(--entei-accent-hover);
+.entei-jimaku-crumb-back:hover:not(:disabled) {
+  color: var(--entei-status-locked);
 }
 
-.entei-jimaku-search-back:disabled {
+.entei-jimaku-crumb-back:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+}
+
+.entei-jimaku-crumb-back:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* --- Mobile (<768px): full-screen sheet ---
-   Mirrors the .entei-settings-dialog / .entei-magnet-dialog patterns: the
-   dialog becomes a full-bleed sheet with a fixed header and a flex-growing
-   scroll body (only the body scrolls). The fields row stacks full-width on
-   every mobile viewport — align-items: stretch kills the desktop
-   flex-end right-alignment dead space. */
+.entei-jimaku-crumb-separator {
+  color: var(--entei-text-muted);
+}
+
+.entei-jimaku-crumb-current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--entei-text);
+}
+
+/* DOM order is Load then Cancel. Desktop mirrors it to Cancel | Load. */
+.entei-jimaku-actions {
+  width: 17rem;
+  align-self: flex-end;
+}
+
+.entei-jimaku-actions > button {
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-20);
+  border: 1px solid oklch(1 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  background: none;
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition-property: background-color, color;
+  transition-duration: var(--entei-duration-fast);
+  transition-timing-function: var(--entei-ease-productive);
+}
+
+.entei-jimaku-load {
+  width: 10rem;
+}
+
+.entei-jimaku-cancel {
+  width: 7rem;
+}
+
+.entei-jimaku-actions > button:hover:not(:disabled) {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+}
+
+.entei-jimaku-actions > button:disabled {
+  color: var(--entei-text-muted);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.entei-jimaku-actions > button:focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+}
+
+@media (min-width: 768px) {
+  .entei-jimaku-actions {
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+  }
+
+  .entei-jimaku-actions > .entei-jimaku-cancel {
+    border-radius: var(--entei-radius-md) 0 0 var(--entei-radius-md);
+    border-left-width: 1px;
+    border-right-width: 0;
+  }
+
+  .entei-jimaku-actions > .entei-jimaku-load {
+    border-radius: 0 var(--entei-radius-md) var(--entei-radius-md) 0;
+    border-left: 1px solid oklch(1 0 0deg / 0.1);
+  }
+}
+
+/* Mobile: full-screen sheet; actions become full-width stacked controls. */
 @media (max-width: 767px) {
   .entei-jimaku-search-dialog {
     position: fixed;
@@ -6704,51 +6841,65 @@ html.entei-player-immersive .entei-player-audio-area {
     max-width: none;
     max-height: none;
     margin: 0;
+    border: none;
     border-radius: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     background-color: var(--entei-surface);
-    border: none;
     padding: 0;
     box-shadow: none;
   }
 
-  .entei-jimaku-search-dialog .entei-dialog-header {
-    flex-shrink: 0;
-    padding: var(--entei-space-16) var(--entei-space-24);
-  }
-
-  .entei-jimaku-search-body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
+  .entei-jimaku-form {
     gap: var(--entei-space-16);
     padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
   }
 
-  .entei-jimaku-search-fields-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .entei-jimaku-search-fields-row .entei-jimaku-search-episode-field {
-    flex: 1;
-  }
-
-  .entei-jimaku-search-section {
+  .entei-jimaku-list-section {
     flex: 1;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
   }
 
-  .entei-jimaku-search-scroll {
+  .entei-jimaku-list-scroll {
     flex: 1;
-    min-height: 14rem;
+    min-height: 12rem;
     max-height: none;
+  }
+
+  .entei-jimaku-actions {
+    width: 100%;
+    align-self: stretch;
+    flex-direction: column;
+    gap: var(--entei-space-12);
+    margin-top: auto;
+  }
+
+  .entei-jimaku-actions > button {
+    width: 100%;
+    border-top-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-left-width: 1px;
+    border-radius: var(--entei-radius-md);
+  }
+
+  .entei-jimaku-actions > .entei-jimaku-load {
+    border-left-width: 1px;
+  }
+
+  .entei-jimaku-actions > .entei-jimaku-cancel {
+    border-right-width: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-jimaku-input-group > button,
+  .entei-jimaku-key-group > button,
+  .entei-jimaku-row,
+  .entei-jimaku-crumb-back,
+  .entei-jimaku-actions > button {
+    transition: none;
   }
 }
 

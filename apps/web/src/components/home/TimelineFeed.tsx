@@ -5,9 +5,10 @@
  * community posts plus the posts this device publishes. Everything is local —
  * no network, no account (Freenet sync lands in a later phase).
  *
- * Layout follows the approved mockup: composer on top (avatar + placeholder +
- * "Publish" with a paper-plane icon), then a divider-separated post list with
- * Comment / Like / Share on each item.
+ * Layout follows the approved mockup: composer on top (avatar + a shadcn-style
+ * block-end InputGroup holding the textarea, character count and Publish),
+ * then a divider-separated post list with Comment / Like / Share on each item.
+ * The thread reply composer uses the same joined InputGroup.
  *
  * Feed behaviour:
  * - **Newest first** — `mergeTimelinePosts` sorts every post by `createdAt`.
@@ -752,16 +753,19 @@ export default function TimelineFeed() {
             </div>
           </article>
 
-          {/* Reply composer: the local author replies into this thread. */}
+          {/* Reply composer: shadcn InputGroup with a block-end addon. The
+              control comes first in the DOM so focus moves from the textarea
+              into the footer actions (official InputGroupAddon contract). */}
           <form className="entei-timeline-reply" onSubmit={handleReply}>
             <span className="entei-timeline-avatar entei-timeline-reply-avatar">
               {author !== null && (
                 <img src={author.avatar} alt={t.avatarAlt} loading="lazy" />
               )}
             </span>
-            <div className="entei-timeline-reply-box">
+            <div className="entei-timeline-input-group" data-slot="input-group">
               <textarea
                 className="entei-timeline-reply-input"
+                data-slot="input-group-control"
                 value={replyDraft}
                 onChange={(event) => setReplyDraft(event.target.value)}
                 placeholder={t.replyPlaceholder}
@@ -769,10 +773,22 @@ export default function TimelineFeed() {
                 maxLength={TIMELINE_POST_MAX_LENGTH}
                 rows={1}
               />
-              <div className="entei-timeline-reply-actions">
+              <div
+                className="entei-timeline-input-group-addon"
+                data-slot="input-group-addon"
+                data-align="block-end"
+              >
+                <span
+                  className="entei-timeline-input-group-text"
+                  data-slot="input-group-text"
+                  aria-hidden="true"
+                >
+                  {replyDraft.length}/{TIMELINE_POST_MAX_LENGTH}
+                </span>
                 <button
                   type="submit"
                   className="entei-timeline-reply-submit"
+                  data-slot="input-group-button"
                   aria-label={t.replySubmitAriaLabel}
                   disabled={!canReply}
                 >
@@ -862,27 +878,45 @@ export default function TimelineFeed() {
                   <img src={author.avatar} alt={t.avatarAlt} loading="lazy" />
                 )}
               </span>
-              <textarea
-                ref={textareaRef}
-                className="entei-timeline-textarea"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={t.composerPlaceholder}
-                aria-label={t.composerPlaceholder}
-                maxLength={TIMELINE_POST_MAX_LENGTH}
-                rows={1}
-              />
-            </div>
-            <div className="entei-timeline-composer-actions">
-              <button
-                type="submit"
-                className="entei-timeline-publish"
-                aria-label={t.composerSubmitAriaLabel}
-                disabled={!canPublish}
+              <div
+                className="entei-timeline-input-group"
+                data-slot="input-group"
               >
-                <Send size={16} aria-hidden="true" />
-                <span>{t.composerSubmit}</span>
-              </button>
+                <textarea
+                  ref={textareaRef}
+                  className="entei-timeline-textarea"
+                  data-slot="input-group-control"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder={t.composerPlaceholder}
+                  aria-label={t.composerPlaceholder}
+                  maxLength={TIMELINE_POST_MAX_LENGTH}
+                  rows={1}
+                />
+                <div
+                  className="entei-timeline-input-group-addon"
+                  data-slot="input-group-addon"
+                  data-align="block-end"
+                >
+                  <span
+                    className="entei-timeline-input-group-text"
+                    data-slot="input-group-text"
+                    aria-hidden="true"
+                  >
+                    {draft.length}/{TIMELINE_POST_MAX_LENGTH}
+                  </span>
+                  <button
+                    type="submit"
+                    className="entei-timeline-publish"
+                    data-slot="input-group-button"
+                    aria-label={t.composerSubmitAriaLabel}
+                    disabled={!canPublish}
+                  >
+                    <Send size={16} aria-hidden="true" />
+                    <span>{t.composerSubmit}</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </form>
 

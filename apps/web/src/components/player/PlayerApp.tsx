@@ -204,7 +204,6 @@ import {
   runAnkiConnectionFlow,
 } from '@/features/player/anki-connect';
 import {
-  dispatchOpenSettings,
   listenForAnkiSessionCredentials,
   listenForCompanionPaired,
   listenForSubtitleSettingsChange,
@@ -460,14 +459,10 @@ export default function PlayerApp() {
   // state so every application shifts the ORIGINAL base cues: repeated
   // adjustments never degrade the base.
   const subDelayStateRef = useRef(createSubDelayState());
-  // P4 jimaku search modal: open flag + prefill (title + anime/drama) chosen by
-  // the opener — RightPanel button (current media name) or the P3 auto-load
-  // fallback (parsed title + last-tried mode).
+  // P4 jimaku search modal: open flag + title prefill chosen by the opener —
+  // RightPanel button (current media name) or the P3 auto-load fallback.
   const [isJimakuSearchOpen, setIsJimakuSearchOpen] = useState(false);
-  const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState<{
-    title: string;
-    anime?: boolean;
-  }>({ title: '' });
+  const [jimakuSearchPrefill, setJimakuSearchPrefill] = useState('');
 
   // --- Subtitle state ---
   const [cues, setCues] = useState<SubtitleCue[]>([]);
@@ -1036,14 +1031,14 @@ export default function PlayerApp() {
 
   // P3 jimaku auto-load (§2.2): fires on local media select / Magnet handoff
   // when the switch is ON. Exact match replaces subtitles; otherwise the
-  // search modal opens with the parsed title and the last-tried mode.
+  // search modal opens with the parsed title.
   const jimakuAutoLoad = useJimakuAutoLoad({
     onSubtitleLoaded: handleSubtitleText,
     onMatchResolved: (match) => {
       jimakuMatchRef.current = match;
     },
-    onOpenSearch: (_title, _animeLastTried) => {
-      setJimakuSearchPrefill({ title: _title, anime: _animeLastTried });
+    onOpenSearch: (_title) => {
+      setJimakuSearchPrefill(_title);
       setIsJimakuSearchOpen(true);
     },
     onToast: handleJimakuToast,
@@ -1057,17 +1052,9 @@ export default function PlayerApp() {
     // clean title (e.g. "Meitantei no Mama de Ite" from the raw .mkv name)
     // instead of the raw filename — raw names never match jimaku.
     const parsed = parseMediaFileName(mediaName);
-    setJimakuSearchPrefill({ title: parsed.title || mediaName });
+    setJimakuSearchPrefill(parsed.title || mediaName);
     setIsJimakuSearchOpen(true);
   }, [mediaName]);
-
-  // P4: "Open settings" from the jimaku search modal — the settings modal
-  // lives in the TopBar island, so bridge via CustomEvent; close the search
-  // modal so the two never stack.
-  const handleOpenSettingsFromSearch = useCallback(() => {
-    dispatchOpenSettings();
-    setIsJimakuSearchOpen(false);
-  }, []);
 
   const handleMagnetJobAccepted = useCallback(
     (
@@ -5538,19 +5525,17 @@ export default function PlayerApp() {
         token={jobSession.token ?? ''}
         onComplete={handleAudioSyncComplete}
       />
-      {/* P4: jimaku search modal (§2.3) — opened from the RightPanel button
+      {/* P4: jimaku search modal — opened from the RightPanel button
           or the P3 auto-load fallback (title pre-filled either way). */}
       <JimakuSearchDialog
         open={isJimakuSearchOpen}
         onOpenChange={setIsJimakuSearchOpen}
-        initialTitle={jimakuSearchPrefill.title}
-        initialAnime={jimakuSearchPrefill.anime}
+        initialTitle={jimakuSearchPrefill}
         onSubtitleLoaded={handleSubtitleText}
         onMatchResolved={(match) => {
           jimakuMatchRef.current = match;
         }}
         onToast={handleJimakuToast}
-        onOpenSettings={handleOpenSettingsFromSearch}
         dict={dict}
       />
       <MiningPreviewDialog

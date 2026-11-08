@@ -231,9 +231,9 @@ export function useJimakuAutoLoad({
           selectedEntry = entries.ok
             ? pickJimakuEntry(entries.data, title, mediaName)
             : null;
-          // The last-tried mode is surfaced only via the onOpenSearch
-          // prefill (animeLastTried) — we no longer mutate the user's
-          // persisted manual toggle here (RISK 1).
+          // The last-tried mode is surfaced only via onOpenSearch; the
+          // manual modal now searches both catalogs in parallel and keeps
+          // no persisted anime/drama mode.
         }
         if (!entries.ok && entries.error !== 'empty') {
           if (entries.error === 'rate-limit') onToast('rate-limit');

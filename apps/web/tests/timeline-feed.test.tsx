@@ -19,12 +19,22 @@ import TimelineFeed, {
   PULL_REFRESH_THRESHOLD,
 } from '@/components/home/TimelineFeed';
 import {
+  TIMELINE_POST_MAX_LENGTH,
   TIMELINE_SEED_COMMENTS,
   TIMELINE_SEED_POSTS,
   TIMELINE_STORAGE_KEY,
   readTimelineState,
   type TimelinePost,
 } from '@/features/timeline/timeline-store';
+
+/** The one joined shadcn-style box of a composer, by its form class. */
+function inputGroup(container: HTMLElement, formClass: string) {
+  const group = container.querySelector(
+    `${formClass} [data-slot='input-group']`,
+  );
+  expect(group).not.toBeNull();
+  return group as HTMLElement;
+}
 
 function renderFeed() {
   return render(<TimelineFeed />);
@@ -742,5 +752,116 @@ describe('TimelineFeed — post detail', () => {
     expect(
       screen.getByPlaceholderText('Tulis di sini untuk membuat pos!'),
     ).toBeTruthy();
+  });
+});
+
+describe('TimelineFeed — block-end InputGroup composer', () => {
+  const seedPost = TIMELINE_SEED_POSTS[0]!;
+
+  /** The four shadcn slots, in the official DOM order. */
+  function expectJoinedGroup(container: HTMLElement, formClass: string) {
+    const group = inputGroup(container, formClass);
+    const control = group.querySelector(
+      'textarea[data-slot="input-group-control"]',
+    );
+    const addon = group.querySelector(
+      '[data-slot="input-group-addon"][data-align="block-end"]',
+    );
+    const text = addon?.querySelector('[data-slot="input-group-text"]');
+    const button = addon?.querySelector('[data-slot="input-group-button"]');
+
+    expect(control).not.toBeNull();
+    expect(addon).not.toBeNull();
+    expect(button).not.toBeNull();
+    // Addon follows the control so keyboard focus travels textarea → footer.
+    expect(group.firstElementChild).toBe(control);
+    expect(group.lastElementChild).toBe(addon);
+    // The old detached action row is gone: the button lives inside the box.
+    expect(container.querySelector('.entei-timeline-composer-actions')).toBeNull();
+    expect(container.querySelector('.entei-timeline-reply-actions')).toBeNull();
+    expect(container.querySelector('.entei-timeline-reply-box')).toBeNull();
+    return { control: control as HTMLTextAreaElement, text, button };
+  }
+
+  it('joins the composer textarea, counter and Publish in one block-end box', () => {
+    const { container } = renderFeed();
+    const { control, text, button } = expectJoinedGroup(
+      container,
+      '.entei-timeline-composer',
+    );
+
+    expect(control.getAttribute('placeholder')).toBe(
+      'Tulis di sini untuk membuat pos!',
+    );
+    expect(control.getAttribute('aria-label')).toBe(
+      'Tulis di sini untuk membuat pos!',
+    );
+    expect(control.getAttribute('maxlength')).toBe(
+      String(TIMELINE_POST_MAX_LENGTH),
+    );
+    expect(text?.textContent).toBe(`0/${TIMELINE_POST_MAX_LENGTH}`);
+    expect(text?.getAttribute('aria-hidden')).toBe('true');
+    expect(button?.getAttribute('type')).toBe('submit');
+    expect(button?.getAttribute('aria-label')).toBe('Terbitkan pos');
+    expect(button?.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('updates the counter live and keeps publishing inside the joined box', async () => {
+    const { container } = renderFeed();
+    const { control, text, button } = expectJoinedGroup(
+      container,
+      '.entei-timeline-composer',
+    );
+
+    fireEvent.change(control, { target: { value: 'こんにちは' } });
+    expect(text?.textContent).toBe(`5/${TIMELINE_POST_MAX_LENGTH}`);
+    expect(button?.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(button as Element);
+    await waitFor(() => {
+      expect(screen.getAllByRole('listitem')).toHaveLength(
+        TIMELINE_SEED_POSTS.length + 1,
+      );
+    });
+    expect(screen.getByText('こんにちは')).toBeTruthy();
+    expect(control.value).toBe('');
+    expect(text?.textContent).toBe(`0/${TIMELINE_POST_MAX_LENGTH}`);
+    // The box itself survives the re-render (no detached row reappears).
+    expectJoinedGroup(container, '.entei-timeline-composer');
+  });
+
+  it('joins the reply textarea, counter and Balas in one block-end box', async () => {
+    const { container } = renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.click(screen.getByText(seedPost.message));
+
+    const { control, text, button } = expectJoinedGroup(
+      container,
+      '.entei-timeline-reply',
+    );
+    expect(control.getAttribute('placeholder')).toBe('Balas dengan pos');
+    expect(control.getAttribute('aria-label')).toBe('Balas dengan pos');
+    expect(text?.textContent).toBe(`0/${TIMELINE_POST_MAX_LENGTH}`);
+    expect(button?.getAttribute('aria-label')).toBe('Kirim balasan');
+    expect(button?.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('replies from the joined box and resets the counter', async () => {
+    const { container } = renderFeed();
+    await screen.findAllByRole('listitem');
+    fireEvent.click(screen.getByText(seedPost.message));
+
+    const { control, text, button } = expectJoinedGroup(
+      container,
+      '.entei-timeline-reply',
+    );
+    fireEvent.change(control, { target: { value: '  参考になりました  ' } });
+    expect(text?.textContent).toBe(`12/${TIMELINE_POST_MAX_LENGTH}`);
+
+    fireEvent.click(button as Element);
+    expect(await screen.findByText('参考になりました')).toBeTruthy();
+    expect(control.value).toBe('');
+    expect(text?.textContent).toBe(`0/${TIMELINE_POST_MAX_LENGTH}`);
+    expect(readTimelineState().comments).toHaveLength(1);
   });
 });

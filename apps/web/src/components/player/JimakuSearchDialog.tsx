@@ -1,46 +1,43 @@
 /**
- * JimakuSearchDialog — P4 manual search modal (design: docs/JIMAKU_SUBS.md §2.3).
+ * JimakuSearchDialog — JIMAKU.CC manual search modal (mockup redesign).
  * ---------------------------------------------------------------------------
- * Manual subtitle search flow: title + episode inputs (title pre-filled from
- * the current media name), anime/drama ToggleGroup (persisted via
- * jimaku-preferences), entry list → file list, and file selection downloads
- * the subtitle body back to the parent. Episode changes re-fetch the file
- * list (§2.3-5). Files are filtered to uncompressed + Japanese-only (§2.3-3/4),
- * falling back to all uncompressed files when no Japanese ones exist.
- *
- * Privacy (§9): the API key is only used inside jimaku-client — it never
- * appears in this dialog's UI, logs, or error text. Errors are localized and
- * generic (rate-limit / auth toasts, silent network).
+ * One title query searches anime and drama catalogs in parallel, dedupes by
+ * entry id, sorts by name A-Z, and shows one mixed list with 「ア」/「ド」
+ * badges. Selecting an entry opens its subtitle files; a file row only
+ * selects, and the bottom Load action downloads it. The API key and its
+ * inline entry form stay memory/localStorage only — never logged.
  * --------------------------------------------------------------------------- */
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, KeyRound, Search } from 'lucide-react';
+import {
+  ChevronLeft,
+  FileText,
+  KeyRound,
+  Search,
+  Subtitles,
+} from 'lucide-react';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
 } from '@/components/player/ui/dialog';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from '@/components/player/ui/input';
 import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from '@/components/player/ui/toggle-group';
-import {
   searchJimakuEntries,
   getJimakuEntryFiles,
   downloadJimakuSubtitle,
   type JimakuEntry,
   type JimakuFile,
+  type JimakuResult,
+  type JimakuSearchError,
 } from '@/features/player/jimaku-client';
 import type { JimakuAutoLoadMatch } from '@/features/player/use-jimaku-auto-load';
 import {
   readJimakuPreferences,
   setJimakuApiKey,
-  setJimakuSearchAnime,
 } from '@/features/player/jimaku-preferences';
 import {
   isNonJapanese,
@@ -52,83 +49,114 @@ import {
 } from '@/features/player/settings-bridge';
 
 export interface JimakuSearchDialogDict {
-  jimakuSearchTitle: string;
-  jimakuSearchEpisode: string;
   jimakuSearchButton: string;
-  jimakuSearchAnimeToggle: string;
-  jimakuSearchDramaToggle: string;
   jimakuSearchResultsEmpty: string;
   jimakuSearchFilesEmpty: string;
   jimakuSearchFilesLabel: string;
   jimakuSearchSelectEntry: string;
-  jimakuSearchOpenButton: string;
   jimakuSearchNoKey: string;
-  /** Placeholder for the inline API-key input (Nadeshiko pattern). */
   jimakuApiKeyPlaceholder: string;
-  /** Save-button aria-label/title for the inline API-key form. */
   contextKeySave: string;
   jimakuSearchBack: string;
-  jimakuRateLimit: string;
-  jimakuAuthError: string;
   dialogClose: string;
 }
 
+type JimakuKind = 'anime' | 'drama';
+
+interface JimakuCatalogEntry {
+  entry: JimakuEntry;
+  kind: JimakuKind;
+}
+
+export interface MergedJimakuEntries {
+  entries: JimakuCatalogEntry[];
+  errors: JimakuSearchError[];
+}
+
 type JimakuSearchStatus =
-  | 'idle' // inputs ready, nothing searched yet
-  | 'searching' // entry search in flight
-  | 'results' // entry list shown
-  | 'files' // file list shown for a selected entry
-  | 'loading-file'; // subtitle download in flight
+  | 'idle'
+  | 'searching'
+  | 'results'
+  | 'loading-files'
+  | 'files'
+  | 'loading-file';
 
 interface JimakuSearchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Pre-filled title (current media name or parsed title from auto-load). */
   initialTitle: string;
-  /** Initial anime/drama state; falls back to persisted preferences. */
-  initialAnime?: boolean;
   /** Receives the downloaded subtitle text; the parent applies + closes. */
   onSubtitleLoaded: (text: string) => void;
   /** Pass the selected jimaku catalog IDs to the record-time owner. */
   onMatchResolved?: (match: JimakuAutoLoadMatch) => void;
-  /** Localized toast (rate-limit / auth / key-missing), design §2.2-7. */
+  /** Localized toast (rate-limit / auth / key-missing). */
   onToast: (kind: 'rate-limit' | 'auth' | 'key-missing') => void;
-  /** Opens the settings modal (where the API key is managed). */
-  onOpenSettings: () => void;
   dict: JimakuSearchDialogDict;
+}
+
+const ENTRY_COLLATOR = new Intl.Collator('en', {
+  sensitivity: 'base',
+  numeric: true,
+});
+
+/** Merge both catalog searches into one deduped, A-Z sorted list. */
+export function mergeJimakuEntries(
+  anime: JimakuResult<JimakuEntry[]>,
+  drama: JimakuResult<JimakuEntry[]>,
+): MergedJimakuEntries {
+  const byId = new Map<number, JimakuCatalogEntry>();
+  const errors: JimakuSearchError[] = [];
+  const add = (result: JimakuResult<JimakuEntry[]>) => {
+    if (!result.ok) {
+      errors.push(result.error);
+      return;
+    }
+    for (const entry of result.data) {
+      if (byId.has(entry.id)) continue;
+      byId.set(entry.id, {
+        entry,
+        kind: entry.flags.anime ? 'anime' : 'drama',
+      });
+    }
+  };
+  add(anime);
+  add(drama);
+  return {
+    entries: Array.from(byId.values()).sort((a, b) =>
+      ENTRY_COLLATOR.compare(a.entry.name, b.entry.name),
+    ),
+    errors,
+  };
 }
 
 export function JimakuSearchDialog({
   open,
   onOpenChange,
   initialTitle,
-  initialAnime,
   onSubtitleLoaded,
   onMatchResolved,
   onToast,
-  onOpenSettings: _onOpenSettings,
   dict,
 }: JimakuSearchDialogProps) {
   const [status, setStatus] = useState<JimakuSearchStatus>('idle');
   const [title, setTitle] = useState('');
-  const [episode, setEpisode] = useState('');
-  const [anime, setAnime] = useState(true);
-  const [entries, setEntries] = useState<JimakuEntry[]>([]);
-  const [selectedEntry, setSelectedEntry] = useState<JimakuEntry | null>(null);
+  const [entries, setEntries] = useState<JimakuCatalogEntry[]>([]);
+  const [selectedEntry, setSelectedEntry] =
+    useState<JimakuCatalogEntry | null>(null);
   const [entryFiles, setEntryFiles] = useState<JimakuFile[]>([]);
+  const [selectedFile, setSelectedFile] = useState<JimakuFile | null>(null);
   const [noKey, setNoKey] = useState(false);
-  // Inline API-key form state (Nadeshiko pattern). Reset via the open-effect.
   const [keyDraft, setKeyDraft] = useState('');
-  const [keySaving, setKeySaving] = useState(false);
-  // Guards stale responses after close / a newer request; in-flight requests
-  // are aborted so an older search or file fetch can never win.
   const epochRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const backButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  // Keep the no-key error in sync with the stored API key via the settings
-  // bridge event (DESIGN 1): SubtitleAppearanceTab dispatches a
-  // jimaku-key-changed event when the key is saved/cleared, so this dialog
-  // reflects key presence live while open — no localStorage polling.
+  const isBusy =
+    status === 'searching' ||
+    status === 'loading-files' ||
+    status === 'loading-file';
+
   useEffect(() => {
     if (!open) return;
     const cleanup = listenForJimakuKeyChanged((hasKey) => {
@@ -137,8 +165,6 @@ export function JimakuSearchDialog({
     return cleanup;
   }, [open]);
 
-  // Reset to a fresh form every time the dialog opens, with the caller's
-  // pre-fill (current media name) and the persisted/derived anime state.
   useEffect(() => {
     if (!open) return;
     epochRef.current += 1;
@@ -146,23 +172,26 @@ export function JimakuSearchDialog({
     abortRef.current = null;
     setStatus('idle');
     setTitle(initialTitle);
-    setEpisode('');
-    setAnime(initialAnime ?? readJimakuPreferences().searchAnime);
     setEntries([]);
     setSelectedEntry(null);
     setEntryFiles([]);
+    setSelectedFile(null);
     setNoKey(!readJimakuPreferences().apiKey);
     setKeyDraft('');
-    setKeySaving(false);
-  }, [open, initialTitle, initialAnime]);
+  }, [open, initialTitle]);
 
-  // Unmount cleanup: abort any in-flight request.
   useEffect(
     () => () => {
       abortRef.current?.abort();
     },
     [],
   );
+
+  useEffect(() => {
+    if (status === 'files' || status === 'loading-files') {
+      backButtonRef.current?.focus();
+    }
+  }, [status]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -176,24 +205,14 @@ export function JimakuSearchDialog({
     [onOpenChange],
   );
 
-  // Save the typed jimaku.cc API key, broadcast the change (DESIGN 1: the
-  // SubtitleAppearanceTab listener re-renders), and switch back to the
-  // search fields. Mirrors the NadeshikoPanel inline save flow.
   const handleKeySave = useCallback(() => {
     const trimmed = keyDraft.trim();
     if (trimmed.length === 0) return;
-    setKeySaving(true);
     setJimakuApiKey(trimmed);
     dispatchJimakuKeyChanged(true);
-    setKeySaving(false);
     setKeyDraft('');
     setNoKey(false);
   }, [keyDraft]);
-
-  const handleAnimeToggle = useCallback((next: boolean) => {
-    setAnime(next);
-    setJimakuSearchAnime(next);
-  }, []);
 
   const handleSearch = useCallback(async () => {
     const prefs = readJimakuPreferences();
@@ -203,35 +222,42 @@ export function JimakuSearchDialog({
       return;
     }
     const query = title.trim();
-    if (!query || status === 'searching') return;
+    if (!query || isBusy) return;
     const epoch = epochRef.current + 1;
     epochRef.current = epoch;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setNoKey(false);
+    setSelectedEntry(null);
+    setEntryFiles([]);
+    setSelectedFile(null);
     setStatus('searching');
-    const result = await searchJimakuEntries(
-      prefs.apiKey,
-      query,
-      anime,
-      controller.signal,
-    );
-    if (epoch !== epochRef.current) return; // stale (closed / newer search)
-    if (!result.ok) {
-      if (result.error === 'rate-limit') onToast('rate-limit');
-      else if (result.error === 'auth') onToast('auth');
-      // network / not-found / empty: stay quiet, show the empty state
+
+    let animeResult: JimakuResult<JimakuEntry[]>;
+    let dramaResult: JimakuResult<JimakuEntry[]>;
+    try {
+      [animeResult, dramaResult] = await Promise.all([
+        searchJimakuEntries(prefs.apiKey, query, true, controller.signal),
+        searchJimakuEntries(prefs.apiKey, query, false, controller.signal),
+      ]);
+    } catch {
+      if (epoch !== epochRef.current) return;
       setEntries([]);
       setStatus('results');
       return;
     }
-    setEntries(result.data);
+    if (epoch !== epochRef.current) return;
+    const merged = mergeJimakuEntries(animeResult, dramaResult);
+    for (const error of new Set(merged.errors)) {
+      if (error === 'rate-limit' || error === 'auth') onToast(error);
+    }
+    setEntries(merged.entries);
     setStatus('results');
-  }, [title, anime, status, onToast]);
+  }, [title, isBusy, onToast]);
 
   const loadFiles = useCallback(
-    async (entry: JimakuEntry, episodeText: string) => {
+    async (item: JimakuCatalogEntry) => {
       const prefs = readJimakuPreferences();
       if (!prefs.apiKey) return;
       const epoch = epochRef.current + 1;
@@ -239,149 +265,201 @@ export function JimakuSearchDialog({
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-      setSelectedEntry(entry);
+      setSelectedEntry(item);
       setEntryFiles([]);
-      setStatus('files');
-      const parsedEpisode =
-        episodeText.trim() === '' ? undefined : Number(episodeText);
+      setSelectedFile(null);
+      setStatus('loading-files');
       const result = await getJimakuEntryFiles(
         prefs.apiKey,
-        entry.id,
-        Number.isFinite(parsedEpisode) ? parsedEpisode : undefined,
+        item.entry.id,
+        undefined,
         controller.signal,
       );
-      if (epoch !== epochRef.current) return; // stale (episode changed / closed)
+      if (epoch !== epochRef.current) return;
       if (!result.ok) {
         if (result.error === 'rate-limit') onToast('rate-limit');
         else if (result.error === 'auth') onToast('auth');
         setEntryFiles([]);
-        return;
+      } else {
+        setEntryFiles(result.data);
       }
-      setEntryFiles(result.data);
+      setStatus('files');
     },
     [onToast],
   );
 
   const handleEntrySelect = useCallback(
-    (entry: JimakuEntry) => {
-      void loadFiles(entry, episode);
+    (item: JimakuCatalogEntry) => {
+      void loadFiles(item);
     },
-    [loadFiles, episode],
+    [loadFiles],
   );
 
-  const handleEpisodeChange = useCallback(
-    (value: string) => {
-      setEpisode(value);
-      // §2.3-5: an episode change on a selected entry re-fetches the file list.
-      if (selectedEntry) void loadFiles(selectedEntry, value);
-    },
-    [selectedEntry, loadFiles],
-  );
+  const handleFileSelect = useCallback((file: JimakuFile) => {
+    setSelectedFile(file);
+  }, []);
 
-  const handleFileSelect = useCallback(
-    async (file: JimakuFile) => {
-      const epoch = epochRef.current + 1;
-      epochRef.current = epoch;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setStatus('loading-file');
-      const result = await downloadJimakuSubtitle(file.url, controller.signal);
-      if (epoch !== epochRef.current) return; // stale (closed / newer action)
-      if (!result.ok) {
-        if (result.error === 'rate-limit') onToast('rate-limit');
-        // network / not-found: stay silent — return to the file list
-        setStatus('files');
-        return;
-      }
-      onMatchResolved?.({
-        anilistId:
-          typeof selectedEntry?.anilist_id === 'number'
-            ? selectedEntry.anilist_id
-            : null,
-        tmdbId:
-          typeof selectedEntry?.tmdb_id === 'string'
-            ? selectedEntry.tmdb_id
-            : null,
-        titleNative:
-          typeof selectedEntry?.japanese_name === 'string' &&
-          selectedEntry.japanese_name.trim().length > 0
-            ? selectedEntry.japanese_name.trim()
-            : null,
-      });
-      onSubtitleLoaded(result.data);
-      handleOpenChange(false);
-    },
-    [
-      onSubtitleLoaded,
-      onMatchResolved,
-      onToast,
-      handleOpenChange,
-      selectedEntry,
-    ],
-  );
+  const handleBack = useCallback(() => {
+    epochRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setEntryFiles([]);
+    setSelectedFile(null);
+    setStatus('results');
+  }, []);
+
+  const handleLoad = useCallback(async () => {
+    if (!selectedFile || isBusy) return;
+    const epoch = epochRef.current + 1;
+    epochRef.current = epoch;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setStatus('loading-file');
+    const result = await downloadJimakuSubtitle(
+      selectedFile.url,
+      controller.signal,
+    );
+    if (epoch !== epochRef.current) return;
+    if (!result.ok) {
+      if (result.error === 'rate-limit') onToast('rate-limit');
+      setStatus('files');
+      return;
+    }
+    onMatchResolved?.({
+      anilistId:
+        typeof selectedEntry?.entry.anilist_id === 'number'
+          ? selectedEntry.entry.anilist_id
+          : null,
+      tmdbId:
+        typeof selectedEntry?.entry.tmdb_id === 'string'
+          ? selectedEntry.entry.tmdb_id
+          : null,
+      titleNative:
+        typeof selectedEntry?.entry.japanese_name === 'string' &&
+        selectedEntry.entry.japanese_name.trim().length > 0
+          ? selectedEntry.entry.japanese_name.trim()
+          : null,
+    });
+    onSubtitleLoaded(result.data);
+    handleOpenChange(false);
+  }, [
+    selectedFile,
+    isBusy,
+    onToast,
+    onMatchResolved,
+    onSubtitleLoaded,
+    handleOpenChange,
+    selectedEntry,
+  ]);
+
+  const handleCancel = useCallback(() => {
+    handleOpenChange(false);
+  }, [handleOpenChange]);
 
   const visibleFiles = useMemo(() => {
     const japanese = entryFiles.filter(
-      (f) => isUncompressed(f.name) && !isNonJapanese(f.name),
+      (file) => isUncompressed(file.name) && !isNonJapanese(file.name),
     );
-    // §2.3-3: zero Japanese files → include the non-Japanese ones too.
     return japanese.length > 0
       ? japanese
-      : entryFiles.filter((f) => isUncompressed(f.name));
+      : entryFiles.filter((file) => isUncompressed(file.name));
   }, [entryFiles]);
 
-  const isBusy = status === 'searching' || status === 'loading-file';
+  const showResults = !noKey && (status === 'searching' || status === 'results');
+  const showFiles =
+    !noKey &&
+    (status === 'loading-files' ||
+      status === 'files' ||
+      status === 'loading-file');
+  const canLoad =
+    !noKey && status === 'files' && selectedFile !== null && !isBusy;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         className="entei-jimaku-search-dialog"
         closeLabel={dict.dialogClose}
+        hideClose
       >
-        <DialogHeader>
-          <DialogTitle className="entei-jimaku-search-title">
-            {dict.jimakuSearchOpenButton}
+        <div className="entei-jimaku-form" aria-busy={isBusy}>
+          <DialogTitle className="entei-jimaku-dialog-title">
+            <Subtitles size={16} aria-hidden="true" />
+            <span>JIMAKU.CC</span>
           </DialogTitle>
-        </DialogHeader>
-        <div className="entei-jimaku-search-body">
+
+          {!noKey && (
+            <div className="entei-jimaku-search-field">
+              <label
+                htmlFor="jimaku-search-title"
+                className="entei-jimaku-field-label"
+              >
+                Judul Anime / Drama:
+              </label>
+              <ButtonGroup className="entei-jimaku-input-group">
+                <Input
+                  id="jimaku-search-title"
+                  type="text"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void handleSearch();
+                    }
+                  }}
+                  disabled={isBusy}
+                  autoComplete="off"
+                  autoFocus
+                  spellCheck={false}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => void handleSearch()}
+                  disabled={isBusy || title.trim() === ''}
+                  aria-label={dict.jimakuSearchButton}
+                  title={dict.jimakuSearchButton}
+                >
+                  <Search size={16} aria-hidden="true" />
+                </Button>
+              </ButtonGroup>
+            </div>
+          )}
+
           {noKey ? (
-            /* No API key — the whole form is replaced by a centered empty
-               state with an inline key-entry form (Nadeshiko pattern):
-               the user can paste their jimaku.cc key right here without
-               bouncing into the settings modal. */
-            <div className="entei-jimaku-search-empty-state">
+            <div className="entei-jimaku-no-key">
               <KeyRound
                 size={48}
                 aria-hidden="true"
-                className="entei-jimaku-search-empty-icon"
+                className="entei-jimaku-no-key-icon"
               />
-              <p className="entei-jimaku-search-empty-title">
+              <p className="entei-jimaku-no-key-text">
                 {dict.jimakuSearchNoKey}
               </p>
               <form
                 className="entei-jimaku-key-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
+                onSubmit={(event) => {
+                  event.preventDefault();
                   handleKeySave();
                 }}
               >
-                <ButtonGroup className="entei-jimaku-form-group">
+                <ButtonGroup className="entei-jimaku-key-group">
                   <Input
                     type="password"
+                    autoFocus
                     value={keyDraft}
-                    onChange={(e) => setKeyDraft(e.target.value)}
+                    onChange={(event) => setKeyDraft(event.target.value)}
                     placeholder={dict.jimakuApiKeyPlaceholder}
                     aria-label={dict.jimakuApiKeyPlaceholder}
-                    disabled={keySaving}
                     autoComplete="off"
                   />
                   <Button
                     type="submit"
-                    size="sm"
+                    size="icon"
                     variant="outline"
-                    className="entei-jimaku-key-save-btn"
-                    disabled={keySaving || keyDraft.trim().length === 0}
+                    disabled={keyDraft.trim().length === 0}
                     aria-label={dict.contextKeySave}
                     title={dict.contextKeySave}
                   >
@@ -392,169 +470,164 @@ export function JimakuSearchDialog({
             </div>
           ) : (
             <>
-              {/* Title + episode side by side (§2.3-1) — title flexes, EP is a
-                narrow fixed-width field. Stacks on narrow screens. */}
-              <div className="entei-jimaku-search-fields-row">
-                <div className="entei-jimaku-search-field">
-                  <label
-                    htmlFor="jimaku-search-title"
-                    className="entei-jimaku-search-label"
-                  >
-                    {dict.jimakuSearchTitle}
-                  </label>
-                  <Input
-                    id="jimaku-search-title"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder={dict.jimakuSearchTitle}
-                    disabled={isBusy}
-                  />
-                </div>
-                <div className="entei-jimaku-search-field entei-jimaku-search-episode-field">
-                  <label
-                    htmlFor="jimaku-search-episode"
-                    className="entei-jimaku-search-label"
-                  >
-                    {dict.jimakuSearchEpisode}
-                  </label>
-                  <Input
-                    id="jimaku-search-episode"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={episode}
-                    onChange={(e) => handleEpisodeChange(e.target.value)}
-                    placeholder={dict.jimakuSearchEpisode}
-                    disabled={isBusy}
-                  />
-                </div>
-              </div>
-
-              {/* Anime/drama toggle (§2.3-2) — centered ToggleGroup, persisted
-                via jimaku-preferences (same pattern as the mining controls). */}
-              <div className="entei-mining-controls-row">
-                <ToggleGroup
-                  type="single"
-                  value={anime ? 'anime' : 'drama'}
-                  onValueChange={(v) => {
-                    if (v === 'anime' || v === 'drama')
-                      handleAnimeToggle(v === 'anime');
-                  }}
-                  variant="outline"
-                  aria-label={`${dict.jimakuSearchAnimeToggle} / ${dict.jimakuSearchDramaToggle}`}
-                  disabled={isBusy}
-                >
-                  <ToggleGroupItem
-                    value="anime"
-                    aria-label={dict.jimakuSearchAnimeToggle}
-                  >
-                    <span>{dict.jimakuSearchAnimeToggle}</span>
-                  </ToggleGroupItem>
-                  <ToggleGroupItem
-                    value="drama"
-                    aria-label={dict.jimakuSearchDramaToggle}
-                  >
-                    <span>{dict.jimakuSearchDramaToggle}</span>
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              </div>
-
-              {/* Search button */}
-              <Button
-                type="button"
-                variant="default"
-                className="entei-jimaku-search-submit"
-                onClick={() => void handleSearch()}
-                disabled={isBusy || title.trim() === ''}
-              >
-                <Search size={16} aria-hidden="true" />
-                <span>{dict.jimakuSearchButton}</span>
-              </Button>
-
-              {/* Entry list (results stage) */}
-              {status === 'results' && (
-                <div className="entei-jimaku-search-section">
-                  <p className="entei-jimaku-search-hint">
-                    {dict.jimakuSearchSelectEntry}
-                  </p>
-                  <div
-                    className="entei-jimaku-search-scroll"
-                    role="list"
-                    aria-label={dict.jimakuSearchSelectEntry}
-                  >
-                    {entries.length === 0 ? (
-                      <p className="entei-jimaku-search-empty">
-                        {dict.jimakuSearchResultsEmpty}
-                      </p>
-                    ) : (
-                      entries.map((entry) => (
-                        <div role="listitem" key={entry.id}>
-                          <button
-                            type="button"
-                            className="entei-jimaku-search-item"
-                            onClick={() => handleEntrySelect(entry)}
-                          >
-                            <span className="entei-jimaku-search-item-name">
-                              {entry.name}
-                            </span>
-                            {entry.japanese_name && (
-                              <span className="entei-jimaku-search-item-sub">
-                                {entry.japanese_name}
+              {showResults && (
+                <div className="entei-jimaku-list-section">
+                  {status === 'searching' ? (
+                    <div
+                      className="entei-jimaku-loading"
+                      role="status"
+                      aria-label="Loading"
+                    >
+                      <span>Loading...</span>
+                    </div>
+                  ) : (
+                    <div
+                      className="entei-jimaku-list-scroll"
+                      role="list"
+                      aria-label={dict.jimakuSearchSelectEntry}
+                    >
+                      {entries.length === 0 ? (
+                        <p className="entei-jimaku-empty">
+                          {dict.jimakuSearchResultsEmpty}
+                        </p>
+                      ) : (
+                        entries.map((item) => (
+                          <div role="listitem" key={item.entry.id}>
+                            <button
+                              type="button"
+                              className="entei-jimaku-row"
+                              onClick={() => handleEntrySelect(item)}
+                              aria-label={
+                                item.entry.name +
+                                (item.kind === 'anime'
+                                  ? ' (Anime)'
+                                  : ' (Drama)')
+                              }
+                              aria-current={
+                                selectedEntry?.entry.id === item.entry.id
+                                  ? 'true'
+                                  : undefined
+                              }
+                            >
+                              <span
+                                className="entei-jimaku-badge"
+                                aria-hidden="true"
+                              >
+                                {item.kind === 'anime' ? 'ア' : 'ド'}
                               </span>
-                            )}
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                              <span
+                                className="entei-jimaku-row-text"
+                                title={item.entry.name}
+                              >
+                                {item.entry.name}
+                              </span>
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* File list (files stage) */}
-              {status === 'files' && (
-                <div className="entei-jimaku-search-section">
-                  <button
-                    type="button"
-                    className="entei-jimaku-search-back"
-                    onClick={() => setStatus('results')}
-                    disabled={isBusy}
-                  >
-                    <ChevronLeft size={16} aria-hidden="true" />
-                    <span>{dict.jimakuSearchBack}</span>
-                  </button>
-                  <div
-                    className="entei-jimaku-search-scroll"
-                    role="list"
+              {showFiles && (
+                <div className="entei-jimaku-list-section">
+                  <nav
+                    className="entei-jimaku-breadcrumb"
                     aria-label={dict.jimakuSearchFilesLabel}
                   >
-                    {visibleFiles.length === 0 ? (
-                      <p className="entei-jimaku-search-empty">
-                        {dict.jimakuSearchFilesEmpty}
-                      </p>
-                    ) : (
-                      visibleFiles.map((file) => (
-                        <div role="listitem" key={file.url}>
-                          <button
-                            type="button"
-                            className="entei-jimaku-search-item"
-                            onClick={() => void handleFileSelect(file)}
-                            disabled={isBusy}
-                          >
-                            <span className="entei-jimaku-search-item-name">
-                              {file.name}
-                            </span>
-                            <span className="entei-jimaku-search-item-size">
-                              {(file.size / 1024).toFixed(0)} KB
-                            </span>
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                    <button
+                      ref={backButtonRef}
+                      type="button"
+                      className="entei-jimaku-crumb-back"
+                      onClick={handleBack}
+                      disabled={status === 'loading-file'}
+                    >
+                      <ChevronLeft size={16} aria-hidden="true" />
+                      <span>{dict.jimakuSearchBack}</span>
+                    </button>
+                    <span
+                      className="entei-jimaku-crumb-separator"
+                      aria-hidden="true"
+                    >
+                      ›
+                    </span>
+                    <span
+                      className="entei-jimaku-crumb-current"
+                      aria-current="page"
+                      title={selectedEntry?.entry.name}
+                    >
+                      {selectedEntry?.entry.name}
+                    </span>
+                  </nav>
+                  {status === 'loading-files' ? (
+                    <div
+                      className="entei-jimaku-loading"
+                      role="status"
+                      aria-label="Loading"
+                    >
+                      <span>Loading...</span>
+                    </div>
+                  ) : (
+                    <div
+                      className="entei-jimaku-list-scroll"
+                      role="list"
+                      aria-label={dict.jimakuSearchFilesLabel}
+                    >
+                      {visibleFiles.length === 0 ? (
+                        <p className="entei-jimaku-empty">
+                          {dict.jimakuSearchFilesEmpty}
+                        </p>
+                      ) : (
+                        visibleFiles.map((file) => (
+                          <div role="listitem" key={file.url}>
+                            <button
+                              type="button"
+                              className="entei-jimaku-row"
+                              onClick={() => handleFileSelect(file)}
+                              disabled={isBusy}
+                              aria-pressed={selectedFile?.url === file.url}
+                            >
+                              <span className="entei-jimaku-file-icon">
+                                <FileText size={16} aria-hidden="true" />
+                              </span>
+                              <span
+                                className="entei-jimaku-row-text"
+                                title={file.name}
+                              >
+                                {file.name}
+                              </span>
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </>
           )}
+
+          <ButtonGroup className="entei-jimaku-actions">
+            <Button
+              type="button"
+              variant="outline"
+              className="entei-jimaku-load"
+              onClick={() => void handleLoad()}
+              disabled={!canLoad}
+              aria-busy={status === 'loading-file'}
+            >
+              {status === 'loading-file' ? 'Loading...' : 'Load'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="entei-jimaku-cancel"
+              onClick={handleCancel}
+            >
+              Cancel
+            </Button>
+          </ButtonGroup>
         </div>
       </DialogContent>
     </Dialog>

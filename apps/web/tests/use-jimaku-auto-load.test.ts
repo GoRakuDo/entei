@@ -18,7 +18,6 @@ vi.mock('../src/features/player/jimaku-preferences', () => ({
   readJimakuPreferences: () => ({ ...prefs }),
   shouldShowJimakuToast: () => true,
   incrementJimakuToastCount: () => 1,
-  setJimakuSearchAnime: () => {},
 }));
 
 const client = vi.hoisted(() => ({

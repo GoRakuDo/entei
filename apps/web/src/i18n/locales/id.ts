@@ -377,7 +377,7 @@ export const id: Dictionary = {
     contextLoadingMore: 'Memuat hasil berikutnya…',
     contextRetry: 'Coba lagi',
     contextEndOfResults: 'Tidak ada hasil lain',
-    // P4: modal pencarian jimaku (desain 2.3)
+    // P4: modal pencarian jimaku (desain mockup)
     jimakuSearchTitle: 'Judul',
     jimakuSearchEpisode: 'Episode',
     jimakuSearchButton: 'Cari',

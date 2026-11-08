@@ -111,6 +111,14 @@
 - **Like数**: シード投稿のみ `TIMELINE_SEED_LIKE_COUNTS`（`seed-1`=5 / `seed-2`=12 / `seed-3`=42 / `seed-4`=8）のベースラインを持ち、端末内の投稿は 0 から自分の Like 分だけ増える。表示は `countTimelineLikes(postId, liked)` = ベースライン + Like状態。
 - **i18n**: `back` / `backAriaLabel` / `postTitle` / `replyPlaceholder` / `replySubmit` / `replySubmitAriaLabel` / `noComments` を id/ja/en に追加。Like数のバッジは i18n キーを持たず、`formatMetricCount`（`1.2K` / `3M` のコンパクト表記）でボタン内にインライン整形する。ラベルはフィード行・詳細ビューとも1回だけ計算し、空文字（=0）のときはバッジ `<span>` 自体を描画しないため、左右の余白が偏らない（aria-label 用のラベルは空文字のまま `actionLabel` に渡す）。
 
+### 2.5 InputGroup（block-end 一体型コンポーザー）（2026-11-08 追加）
+
+新規投稿フォーム（`entei-timeline-composer`）および詳細ビューの返信フォーム（`entei-timeline-reply-composer`）を、shadcn/ui の `InputGroup`（`block-end` パターン）に準拠した一体型ボックスへ刷新。
+
+- **構造**: 外側の統合コンテナ内に、上部〜中央の `<Textarea>` と下部（block-end）のアクション行（文字数カウンター `0/360` ＋ `Publish` / `Balas` ボタン）がシームレスに収まる。入力枠とボタンが二段に分断される旧レイアウトを撤去。
+- **フォーカス規約**: DESIGN.md §8.13 準拠。コンテナ全体に 2px の inset outline（`outline: 2px solid var(--entei-focus-ring); outline-offset: -2px`）を適用し、内部のテキストエリアは個別の外側リングを出さない。
+- **ボタンスタイル**: `--entei-btn-color`、ホバー時テキスト金色（`--entei-status-locked`）。
+
 ### 既知の指摘（Known issues / Low findings）
 
 プロジェクト規約（#1772）により記録：
