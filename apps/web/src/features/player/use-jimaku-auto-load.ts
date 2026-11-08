@@ -38,6 +38,21 @@ function getMediaPathHints(mediaPath: string, query: string): MediaPathHints {
 }
 
 /**
+ * A movie / standalone work has no episode to filter by: jimaku ignores the
+ * `episode` query parameter for movie entries (official OpenAPI,
+ * `GET /api/entries/{id}/files`). Path + name hints cover entries whose
+ * `flags.movie` is absent; `tmdb_id: movie:*` covers live-action movies.
+ */
+function isSingleWorkEntry(entry: JimakuEntry, movieHint: boolean): boolean {
+  return (
+    movieHint ||
+    entry.flags.movie === true ||
+    entry.tmdb_id?.startsWith('movie:') === true ||
+    MOVIE_ENTRY_RE.test(entry.name)
+  );
+}
+
+/**
  * Pick the best entry without relying on the API's fuzzy-result ordering.
  * Exact/containment matching is scored first; explicit path hints then
  * distinguish K-ON! variants. A strict `>` comparison keeps server order as
@@ -146,8 +161,8 @@ export interface JimakuAutoLoadCallbacks {
 /**
  * P3 auto-load (§2.2): when media is selected / Magnet handed off and the
  * auto-load switch is ON, parse the media name, run the two-stage search,
- * and replace the subtitles on an exact match. Non-exact / empty Japanese
- * falls back to the search modal (opened via onOpenSearch).
+ * and replace the subtitles on an exact match. Non-exact / ambiguous /
+ * empty Japanese falls back to the search modal (opened via onOpenSearch).
  */
 export function useJimakuAutoLoad({
   onSubtitleLoaded,
@@ -231,12 +246,9 @@ export function useJimakuAutoLoad({
           return;
         }
         const movieHint = getMediaPathHints(mediaName, title).movie;
-        // A selected movie has no episode marker, so fetch its full file list.
-        // Other episode-less titles retain the existing modal fallback.
-        if (parsed.episode === null && !movieHint) {
-          onOpenSearch(title, animeLastTried);
-          return;
-        }
+        // An episode-less title has no episode marker, so fetch its full file
+        // list. Even without a "Movie" path hint we try the matched entry:
+        // a movie / single-file result is unambiguous enough to auto-apply.
         const files = await getJimakuEntryFiles(
           prefs.apiKey,
           selectedEntry.id,
@@ -255,6 +267,17 @@ export function useJimakuAutoLoad({
         );
         if (jp.length === 0) {
           // No Japanese subtitle — fall back to the search modal (all files).
+          onOpenSearch(title, animeLastTried);
+          return;
+        }
+        // Without an episode marker, several Japanese files on a TV-series
+        // entry are ambiguous (we cannot know which episode is playing).
+        // Single-work entries and single-file results stay auto-applied.
+        if (
+          parsed.episode === null &&
+          jp.length > 1 &&
+          !isSingleWorkEntry(selectedEntry, movieHint)
+        ) {
           onOpenSearch(title, animeLastTried);
           return;
         }

@@ -2088,7 +2088,6 @@
   color: var(--entei-text);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
-  outline: none;
   transition:
     border-color var(--entei-duration-fast) var(--entei-ease-productive),
     box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
@@ -2096,8 +2095,7 @@
 
 .entei-anki-input:focus-visible {
   border-color: var(--entei-focus-ring);
-  box-shadow: 0 0 0 3px
-    color-mix(in oklch, var(--entei-focus-ring) 25%, transparent);
+  box-shadow: none;
 }
 
 .entei-anki-input:disabled {
@@ -3444,7 +3442,6 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
-  outline: none;
   transition:
     border-color var(--entei-duration-fast) var(--entei-ease-productive),
     box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
@@ -3452,8 +3449,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-mining-input:focus-visible {
   border-color: var(--entei-focus-ring);
-  box-shadow: 0 0 0 3px
-    color-mix(in oklch, var(--entei-focus-ring) 25%, transparent);
+  box-shadow: none;
 }
 
 .entei-mining-input[aria-invalid='true'] {
@@ -3462,8 +3458,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-mining-input[aria-invalid='true']:focus-visible {
   border-color: var(--color-destructive);
-  box-shadow: 0 0 0 3px
-    color-mix(in oklch, var(--color-destructive) 25%, transparent);
+  box-shadow: none;
 }
 
 .entei-mining-field-error {

@@ -388,21 +388,180 @@ describe('useJimakuAutoLoad', () => {
     expect(client.files).not.toHaveBeenCalled();
   });
 
-  it('opens the search modal when the episode cannot be extracted (§2.2-4)', async () => {
+  it('auto-loads a movie without a "movie" path hint (episode: null)', async () => {
+    // Reported file: [MegaMT80] Kimi no Na wa. (2016) (BD 1080p) [0E49A996].mkv
     client.search.mockResolvedValueOnce({
       ok: true,
-      data: [{ id: 729, name: 'Sousou no Frieren', flags: { anime: true } }],
+      data: [{
+        id: 999,
+        name: 'Kimi no Na wa',
+        japanese_name: '君の名は。',
+        flags: { anime: true, movie: true },
+      }],
+    });
+    client.files.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        { url: 'https://jimaku.cc/dl/en.srt', name: 'kimi.en.srt', size: 90, last_modified: '' },
+        { url: 'https://jimaku.cc/dl/jp.srt', name: 'Kimi.no.Na.wa.2016.srt', size: 62379, last_modified: '' },
+        { url: 'https://jimaku.cc/dl/jp.ass', name: 'Kimi.no.Na.wa.2016.ass', size: 50000, last_modified: '' },
+      ],
+    });
+    client.download.mockResolvedValueOnce({
+      ok: true,
+      data: '1\n00:00:01,000 --> 00:00:02,000\nTest',
     });
 
     const { result } = render();
     await act(async () => {
-      // "Sousou no Frieren.mkv" parses to episode null (no EP marker).
+      await result.current.runAutoLoad(
+        '[MegaMT80] Kimi no Na wa. (2016) (BD 1080p) [0E49A996].mkv',
+        'k1',
+      );
+    });
+
+    // (BD ) is gone from the query, and the movie's full file list is used.
+    expect(client.search).toHaveBeenCalledWith(
+      'test-key',
+      'Kimi no Na wa',
+      true,
+      expect.any(AbortSignal),
+    );
+    expect(client.files).toHaveBeenCalledWith(
+      'test-key',
+      999,
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(client.download).toHaveBeenCalledWith(
+      'https://jimaku.cc/dl/jp.srt',
+      expect.any(AbortSignal),
+    );
+    expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('00:00:01'));
+    expect(onOpenSearch).not.toHaveBeenCalled();
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('auto-loads an episode-less entry with one Japanese file and no movie flag', async () => {
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [{ id: 42, name: 'Kimi no Na wa', flags: { anime: true } }],
+    });
+    client.files.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        { url: 'https://jimaku.cc/dl/only.srt', name: 'Kimi.no.Na.wa.srt', size: 100, last_modified: '' },
+      ],
+    });
+    client.download.mockResolvedValueOnce({
+      ok: true,
+      data: 'WEBVTT\n\n00:00:01 --> 00:00:02\nTest',
+    });
+
+    const { result } = render();
+    await act(async () => {
+      await result.current.runAutoLoad('Kimi no Na wa.mkv', 'k1');
+    });
+
+    expect(client.files).toHaveBeenCalledWith(
+      'test-key',
+      42,
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('WEBVTT'));
+    expect(onOpenSearch).not.toHaveBeenCalled();
+  });
+
+  it('auto-loads a live-action movie found on the drama stage (tmdb_id movie:*)', async () => {
+    client.search
+      .mockResolvedValueOnce({ ok: false, error: 'empty' })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [{ id: 555, name: 'Kimi no Na wa', tmdb_id: 'movie:372058', flags: { anime: false } }],
+      });
+    client.files.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        { url: 'https://jimaku.cc/dl/a.srt', name: 'movie.a.srt', size: 200, last_modified: '' },
+        { url: 'https://jimaku.cc/dl/b.srt', name: 'movie.b.srt', size: 100, last_modified: '' },
+      ],
+    });
+    client.download.mockResolvedValueOnce({
+      ok: true,
+      data: 'WEBVTT\n\n00:00:01 --> 00:00:02\nTest',
+    });
+
+    const { result } = render();
+    await act(async () => {
+      await result.current.runAutoLoad('Kimi no Na wa.mkv', 'k1');
+    });
+
+    expect(client.files).toHaveBeenCalledWith(
+      'test-key',
+      555,
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(client.download).toHaveBeenCalledWith(
+      'https://jimaku.cc/dl/a.srt',
+      expect.any(AbortSignal),
+    );
+    expect(onSubtitleLoaded).toHaveBeenCalledWith(expect.stringContaining('WEBVTT'));
+    expect(onOpenSearch).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the search modal when a matched movie has no Japanese subtitle', async () => {
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [{ id: 999, name: 'Kimi no Na wa', flags: { anime: true, movie: true } }],
+    });
+    client.files.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        { url: 'https://jimaku.cc/dl/en.srt', name: 'kimi.en.srt', size: 90, last_modified: '' },
+      ],
+    });
+
+    const { result } = render();
+    await act(async () => {
+      await result.current.runAutoLoad('Kimi no Na wa.mkv', 'k1');
+    });
+
+    expect(onOpenSearch).toHaveBeenCalledWith('Kimi no Na wa', true);
+    expect(onSubtitleLoaded).not.toHaveBeenCalled();
+    expect(client.download).not.toHaveBeenCalled();
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('keeps the search modal for an episode-less TV series with several Japanese files', async () => {
+    client.search.mockResolvedValueOnce({
+      ok: true,
+      data: [{ id: 729, name: 'Sousou no Frieren', flags: { anime: true, movie: false } }],
+    });
+    client.files.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        { url: 'https://jimaku.cc/dl/ep01.srt', name: 'Frieren.EP01.srt', size: 100, last_modified: '' },
+        { url: 'https://jimaku.cc/dl/ep02.srt', name: 'Frieren.EP02.srt', size: 100, last_modified: '' },
+      ],
+    });
+
+    const { result } = render();
+    await act(async () => {
       await result.current.runAutoLoad('Sousou no Frieren.mkv', 'k1');
     });
 
-    // Episode extraction failed → must open the search modal, NOT auto-apply.
+    // We still try the full file list, but without an episode the two
+    // episode files are ambiguous: let the user pick in the modal.
+    expect(client.files).toHaveBeenCalledWith(
+      'test-key',
+      729,
+      undefined,
+      expect.any(AbortSignal),
+    );
     expect(onOpenSearch).toHaveBeenCalledWith('Sousou no Frieren', true);
     expect(onSubtitleLoaded).not.toHaveBeenCalled();
-    expect(client.files).not.toHaveBeenCalled();
+    expect(client.download).not.toHaveBeenCalled();
   });
 });

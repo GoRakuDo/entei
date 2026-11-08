@@ -563,6 +563,45 @@ the wrapper border must be accounted for explicitly:
   data-table hit target stays transparent; only its 16x16 `::before` box
   receives the checked fill. Verify the result in the rendered browser.
 
+### 8.13 Text Input Focus
+
+- A focused text control has exactly one visible boundary: a 2px inset outline
+  in `--entei-focus-ring` (`outline-offset: -2px`) with a matching border
+  color. Thick outer rings are forbidden: no `ring-[3px]`, no
+  `box-shadow: 0 0 0 3px`, and no outer 3px `:focus-visible` outline on inputs.
+- The base `:focus-visible` outline in `global.css` is unlayered and therefore
+  beats Tailwind's utility layer. Stacking it with a shadcn ring produced the
+  blue-violet double frame seen on the JIMAKU API key field. Text inputs must
+  override it with the inset rule; `outline-none` alone is not enough and would
+  remove keyboard focus entirely.
+- Focus must never depend on the control owning a border. Borderless fields
+  such as `.entei-timeline-textarea` rely on the inset outline alone.
+- Inside a joined group (`ButtonGroup`, 8.9), every segment — Input, Button,
+  SelectTrigger — uses the same inset outline with `box-shadow: none`, so no
+  segment's ring can float over its neighbour or break the shared box.
+- The contract is declared once in `global.css` as an unlayered rule so
+  component utilities cannot drift back, and is pinned by
+  `tests/input-focus-css.test.ts`. Verify the rendered result in Chrome at both
+  desktop and mobile widths.
+- This contract covers `:focus-visible` on text inputs only. The InputOTP
+  active-slot indicator is a separate "current digit" state, not focus, and
+  keeps its own treatment. Range, checkbox, and radio inputs are excluded and
+  keep their own shadcn focus treatment.
+- An `aria-invalid="true"` control keeps its destructive border and a
+  destructive 2px inset outline while focused. The purple focus colour is
+  restricted to valid controls, so keyboard focus can never repaint an errored
+  field as though it were fixed. Both states are declared unlayered in
+  `global.css` so component utilities cannot override either one.
+- Focusing a text control must not shrink its corner radius. The base
+  `:focus-visible` 4px radius excludes `input`, `textarea`, and `select`, so
+  shadcn `rounded-md` and `--entei-radius-md` stay intact.
+- The contract uses explicit element selectors, not `:where(...)`.
+  `player.css` and `profile.css` load after `global.css`; a zero-specificity
+  `:where()` rule lost to their single-class base rules by source order, and
+  their `outline: none` erased the ring. Base rules for text controls must not
+  declare `outline: none`.
+- Colours use OKLCH tokens only (3.4, project rule #1621).
+
 ---
 
 ## 9. Icons and Assets

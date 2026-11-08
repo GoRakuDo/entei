@@ -184,12 +184,67 @@ a:hover {
 :focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 3px;
+}
+
+/* Text controls keep their own radius. Forcing 4px here made 8px fields
+ * visibly jump on keyboard focus (DESIGN.md 8.13). :where() keeps this rule
+ * at the original (0,1,0) specificity, so later single-class rules such as
+ * .entei-skip-link still win exactly as they did before. */
+:focus-visible:where(:not(input, textarea, select)) {
   border-radius: var(--entei-radius-sm);
 }
 
 /* Remove default outline on mouse click but keep for keyboard */
 :focus:not(:focus-visible) {
   outline: none;
+}
+
+/* ===== TEXT INPUT FOCUS (DESIGN.md 8.13) =====
+ * One inset hairline for every text control, on every page. Declared
+ * unlayered so it beats BOTH Tailwind's utility layer (shadcn Input used to
+ * ship `focus-visible:ring-[3px]`) and the base `:focus-visible` 3px outline
+ * above. Those two stacked into a thick blue-violet double frame that also
+ * broke out of joined ButtonGroups over the neighbouring segment.
+ *
+ * Inset is essential: borderless fields such as `.entei-timeline-textarea`
+ * have no border of their own, so relying on `border-color` alone would make
+ * keyboard focus disappear there. An inset outline never escapes the box.
+ *
+ * Explicit element selectors (not :where()) raise specificity above the
+ * single-class base rules in player.css / profile.css, which load AFTER
+ * global.css. A zero-specificity :where() lost to those rules by source
+ * order, and their `outline: none` erased the ring entirely.
+ * Range/checkbox/radio keep their own shadcn focus treatment.
+ * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621). */
+input:focus-visible:not([type='range']):not([type='checkbox']):not([type='radio']):not([aria-invalid='true']),
+textarea:focus-visible:not([aria-invalid='true']),
+select:focus-visible:not([aria-invalid='true']) {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+  box-shadow: none;
+  border-color: var(--entei-focus-ring);
+}
+
+/* Invalid controls keep a destructive border AND inset outline on focus.
+ * The purple rule above excludes them, so an errored field can never be
+ * repainted as "fixed" just because it received keyboard focus. Same
+ * unlayered origin and equal-or-higher specificity. */
+input:focus-visible:not([type='range']):not([type='checkbox']):not([type='radio'])[aria-invalid='true'],
+textarea:focus-visible[aria-invalid='true'],
+select:focus-visible[aria-invalid='true'] {
+  outline: 2px solid var(--color-destructive);
+  outline-offset: -2px;
+  box-shadow: none;
+  border-color: var(--color-destructive);
+}
+
+/* Joined groups (DESIGN.md 8.9): every segment — Input, Button, SelectTrigger
+ * — gets the same inset boundary. shadcn Buttons ship a `ring-offset-2` outer
+ * ring that would otherwise float above the adjacent segment. */
+[data-slot='button-group'] :focus-visible {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 /* ===== SKIP LINK (PHASE0.md 6.139, 14.365) ===== */

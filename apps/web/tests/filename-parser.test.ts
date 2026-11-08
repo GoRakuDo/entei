@@ -112,4 +112,28 @@ describe('parseMediaFileName', () => {
       parseMediaFileName('D:/Anime/K-ON!/The Movie/K-ON! the Movie.mkv'),
     ).toEqual({ title: 'K-ON! the Movie', episode: null });
   });
+
+  it('strips (BD 1080p) release tags from the reported movie filename', () => {
+    expect(
+      parseMediaFileName(
+        '[MegaMT80] Kimi no Na wa. (2016) (BD 1080p) [0E49A996].mkv',
+      ),
+    ).toEqual({ title: 'Kimi no Na wa', episode: null });
+  });
+
+  it('strips UHD / Remux / BDRip tags and separator-only parentheses', () => {
+    expect(
+      parseMediaFileName('Kimi no Na wa. (2016) (UHD BDRip Remux).mkv'),
+    ).toEqual({ title: 'Kimi no Na wa', episode: null });
+    expect(parseMediaFileName('Title (BD-1080p x265).mkv')).toEqual({
+      title: 'Title',
+      episode: null,
+    });
+  });
+
+  it('drops a whole release-info paren even with extra release tags', () => {
+    expect(
+      parseMediaFileName('Kimi no Na wa. (2016) (BD 1080p JPN).mkv'),
+    ).toEqual({ title: 'Kimi no Na wa', episode: null });
+  });
 });

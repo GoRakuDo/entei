@@ -4,6 +4,7 @@
  * Follows the SubMiner/jimaku conventions (docs/JIMAKU_SUBS.md §7.1):
  *  - strips bracket tags ([SubGroup], [1080p], [HEVC], [JPN_SUB]…)
  *  - strips year tags ((2024)…)
+ *  - strips quality/release tags ((BD 1080p), bare 1080p, UHD, Remux…)
  *  - normalizes EP notation (EP01 / E01 / S01E01 / 1x01 / 第1話 / Title 01)
  *  - strips the extension, normalizes . _ - into spaces
  *  - title is the part before the episode marker, trimmed
@@ -18,7 +19,23 @@ export interface ParsedMediaName {
 const EXTENSION_RE = /\.[a-z0-9]{2,4}$/i;
 const BRACKET_RE = /\[[^\]]*\]/g;
 const PAREN_YEAR_RE = /\(\d{4}\)|（\d{4}）|\(\d{4}-\)/g;
-const QUALITY_RE = /\b(?:1080p?|720p?|480p?|2160p?|4k|HEVC|WEB-?DL|WEBRip|BluRay|BDrip)\b/gi;
+// One tag vocabulary for both bare quality tags and whole release-info
+// parentheses, so the two cleanup regexes cannot drift apart.
+const QUALITY_TAGS =
+  '1080p?|720p?|480p?|2160p?|4k|HEVC|WEB-?DL|WEBRip|Blu-?Ray|BDRip|BRRip|BD|UHD|' +
+  'Remux|HDR(?:10)?|DV|SDR|x26[45]|H\\.?26[45]|10-?bit|8-?bit|Ma10p|AVC|AAC|FLAC|' +
+  'DVD(?:Rip)?|HDTV';
+const QUALITY_RE = new RegExp(`\\b(?:${QUALITY_TAGS})\\b`, 'gi');
+// Drop the whole release-info parenthesis, e.g. "(BD 1080p)" or
+// "(UHD Remux JPN)", so leftover release tokens cannot reach the query.
+// Note: a paren group with no known quality tag is treated as title text.
+const PAREN_TAG_RE = new RegExp(
+  `\\((?:[^()]*\\b(?:${QUALITY_TAGS})\\b[^()]*)\\)` +
+    `|（(?:[^（）]*\\b(?:${QUALITY_TAGS})\\b[^（）]*)）`,
+  'gi',
+);
+// Parentheses left empty (or separator-only) after tag removal, e.g. "( )".
+const EMPTY_PAREN_RE = /\([^()\p{L}\p{N}]*\)|（[^（）\p{L}\p{N}]*）/gu;
 const SEPARATOR_RE = /[._]+/g;
 const WHITESPACE_RE = /\s+/g;
 
@@ -52,7 +69,9 @@ function normalizeMediaName(rawName: string): string {
   let name = stripExtension(rawName);
   name = name.replace(BRACKET_RE, ' '); // [SubGroup] [1080p] …
   name = name.replace(PAREN_YEAR_RE, ' '); // (2024)
+  name = name.replace(PAREN_TAG_RE, ' '); // (BD 1080p) / (UHD Remux)
   name = name.replace(QUALITY_RE, ' '); // bare 1080p / 720p / WEB-DL …
+  name = name.replace(EMPTY_PAREN_RE, ' '); // leftover ( )
   name = name.replace(SEPARATOR_RE, ' '); // . _ → space
   return name.replace(WHITESPACE_RE, ' ').trim();
 }

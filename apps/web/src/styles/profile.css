@@ -240,7 +240,6 @@
   padding: var(--entei-space-12);
   font: inherit;
   line-height: 1.6;
-  outline: none;
   transition:
     border-color var(--entei-duration-fast) var(--entei-ease-productive),
     box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
@@ -248,7 +247,7 @@
 
 .entei-profile-textarea:focus-visible {
   border-color: var(--entei-focus-ring);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--entei-focus-ring) 30%, transparent);
+  box-shadow: none;
 }
 
 .entei-profile-avatar-error {

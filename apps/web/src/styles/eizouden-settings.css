@@ -967,8 +967,7 @@
 
 .entei-anki-input:focus-visible {
   border-color: var(--entei-focus-ring);
-  box-shadow: 0 0 0 3px
-    color-mix(in oklch, var(--entei-focus-ring) 25%, transparent);
+  box-shadow: none;
 }
 
 .entei-anki-input:disabled {
