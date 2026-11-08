@@ -5,7 +5,7 @@
 //! a machine without mpv still starts the app and every command reports an
 //! explicit error instead of aborting the process.
 //!
-//! Six commands are exposed:
+//! Nine commands are exposed:
 //!
 //! - `mpv_load(url)`          -> `loadfile <url> replace`
 //! - `mpv_play()`             -> sets `pause = no`
@@ -13,6 +13,8 @@
 //! - `mpv_seek(seconds)`      -> `seek <seconds> absolute`
 //! - `mpv_set_sub_delay(sec)` -> sets `sub-delay = <seconds>`
 //! - `mpv_set_tracks(aid, sid)` -> sets `aid` / `sid` when provided
+//! - `mpv_set_bounds(x, y, w, h)` -> moves the native picture to the HTML
+//!   media frame (physical pixels, relative to the window's client area)
 //!
 //! Resolution order for the shared library is `EIZOUDEN_MPV_PATH`, then the
 //! Tauri resource directory (`resources/windows/libmpv-2.dll`, then
@@ -20,13 +22,24 @@
 //! loader search path (bare library name).
 //!
 //! mpv is the real media renderer: `vo = gpu-next` (falling back to `gpu`),
-//! native audio output, and on Windows `wid = <main window HWND>` so libmpv
+//! native audio output, and on Windows `wid = <surface HWND>` so libmpv
 //! paints into a child of the Tauri window instead of opening a detached
 //! top-level window. The HWND cannot be read during plugin `setup` (the window
 //! from the Tauri config is created afterwards), so it is resolved lazily from
 //! the stored app handle right before the instance is created. `osc = no` / `osd-level = 0` keep Entei's HTML/CSS
 //! controls as the only control surface and `pause = yes` holds the engine
 //! until Play.
+//!
+//! The `wid` parent is **not** the Tauri window itself but a plugin-owned
+//! *surface window* (a plain child of the Tauri window). libmpv always
+//! resizes its video window to fill the `wid` parent, so with the Tauri
+//! window as the parent the picture would be letterboxed against the whole
+//! window and the right panel would cover its right edge. The surface is
+//! moved to the HTML media frame instead (`mpv_set_bounds`), so the native
+//! picture and the HTML subtitles share one frame.
+//!
+//! Subtitles never come from mpv: `sid` / `sub-visibility` are switched off
+//! because Entei draws every cue in HTML.
 //!
 //! Note: on Windows WebView2 owns a sibling child HWND covering the client
 //! area. `wid` guarantees there is no extra OS window; the z-order/airspace
@@ -90,10 +103,10 @@ const AUDIO_OUTPUT_FALLBACK: &str = "auto";
 /// layer, so the two engines never sing at once.
 ///
 /// - `vo` / `ao`: real GPU video and native audio output. On Windows `wid`
-///   is added separately from the main window's HWND, which makes libmpv
-///   create its video output as a CHILD of the Tauri window — no second
-///   top-level window and no extra taskbar entry. The child window is
-///   created with the parent as its owner and lands at the BOTTOM of the
+///   is added separately, pointing at the plugin's own *surface window* — a
+///   plain child of the Tauri window — which makes libmpv create its video
+///   output as a CHILD of the app window: no second top-level window and no
+///   extra taskbar entry. The video window lands at the BOTTOM of the
 ///   z-order, so the WebView2 keeps painting the HTML UI on top of it and the
 ///   native picture is only visible where the page is transparent.
 /// - `force-window`: create the output window even when the file has no video
@@ -106,7 +119,12 @@ const AUDIO_OUTPUT_FALLBACK: &str = "auto";
 ///   user has not pressed Play yet.
 /// - `osc = no` / `osd-level = 0`: mpv must never paint its own controller or
 ///   OSD; Entei's HTML/CSS UI is the only control surface.
-/// - `alang` / `slang`: prefer Japanese audio and subtitle tracks automatically.
+/// - `alang`: prefer Japanese audio automatically. Subtitles are never
+///   auto-selected: Entei draws every cue in HTML.
+/// - `sid = no` / `sub-visibility = no`: switch mpv's own subtitle
+///   rendering off. `sid = no` keeps mpv from selecting (and decoding) a
+///   track, `sub-visibility = no` is the hard guarantee that nothing is ever
+///   painted over the video — even if a track is selected later.
 /// - `idle = yes`: keep the playloop alive between files, so a second
 ///   `mpv_load` after the previous media reached EOF still starts playback.
 const BASE_OPTIONS: &[(&str, &str)] = &[
@@ -116,7 +134,8 @@ const BASE_OPTIONS: &[(&str, &str)] = &[
     ("ao", AUDIO_OUTPUT),
     ("pause", "yes"),
     ("alang", "ja,jpn"),
-    ("slang", "ja,jpn"),
+    ("sid", "no"),
+    ("sub-visibility", "no"),
     ("idle", "yes"),
     ("force-window", "yes"),
 ];
@@ -131,6 +150,483 @@ const BASE_OPTIONS: &[(&str, &str)] = &[
 /// the start-time option must not take the whole engine down.
 fn is_contract_option(name: &str) -> bool {
     matches!(name, "osc" | "osd-level" | "vo" | "ao" | "wid")
+}
+
+/// Rectangle of the native video surface, in physical pixels relative to the
+/// Tauri window's client area.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SurfaceBounds {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+#[cfg(windows)]
+impl SurfaceBounds {
+    /// True when the rectangle has no area: the surface is hidden then.
+    fn is_empty(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+}
+
+/// Minimal Win32 helpers for the native video surface.
+///
+/// libmpv always resizes its video window to fill the `wid` parent (mpv's
+/// `video/out/w32_common.c` re-fills the child whenever the parent changes
+/// size). The parent is therefore a plugin-owned **surface window** — a plain
+/// child of the Tauri window — and not the Tauri window itself: with the
+/// Tauri window as the parent the picture would be letterboxed against the
+/// whole window and the right panel would cover its right edge.
+#[cfg(windows)]
+mod win {
+    use std::sync::OnceLock;
+
+    use super::SurfaceBounds;
+
+    /// Win32 window handle.
+    pub type Hwnd = isize;
+
+    /// `RECT` (winuser.h).
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Rect {
+        pub left: i32,
+        pub top: i32,
+        pub right: i32,
+        pub bottom: i32,
+    }
+
+    /// `WNDCLASSW` (winuser.h) in its x64 layout.
+    ///
+    /// `style` is padded to the pointer alignment because `lpfnWndProc`
+    /// follows it; `cbClsExtra` / `cbWndExtra` are the only 32-bit fields
+    /// between pointer-sized ones.
+    #[repr(C)]
+    struct WndClassW {
+        style: u32,
+        wnd_proc: unsafe extern "system" fn(Hwnd, u32, isize, isize) -> isize,
+        cb_cls_extra: i32,
+        cb_wnd_extra: i32,
+        h_instance: isize,
+        h_icon: isize,
+        h_cursor: isize,
+        h_brush_background: isize,
+        lpsz_menu_name: *const u16,
+        lpsz_class_name: *const u16,
+    }
+
+    // Win32 constants (winuser.h / wingdi.h).
+    const WS_CHILD: u32 = 0x4000_0000;
+    const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
+    const WS_CLIPCHILDREN: u32 = 0x0200_0000;
+    const WS_VISIBLE: u32 = 0x1000_0000;
+    const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
+    const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
+    const SWP_NOZORDER: u32 = 0x0004;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_NOOWNERZORDER: u32 = 0x0200;
+    const HWND_TOP: Hwnd = 0;
+    const HWND_BOTTOM: Hwnd = 1;
+    const SW_SHOW: i32 = 5;
+    const SW_HIDE: i32 = 0;
+    /// `WS_OVERLAPPEDWINDOW`.
+    #[cfg(test)]
+    const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
+    /// `GetStockObject(BLACK_BRUSH)`.
+    const BLACK_BRUSH: isize = 4;
+
+    unsafe extern "system" {
+        fn RegisterClassW(class: *const WndClassW) -> u16;
+        fn CreateWindowExW(
+            ex_style: u32,
+            class_name: *const u16,
+            window_name: *const u16,
+            style: u32,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            parent: Hwnd,
+            menu: isize,
+            instance: isize,
+            param: isize,
+        ) -> Hwnd;
+        fn DefWindowProcW(hwnd: Hwnd, message: u32, wparam: isize, lparam: isize) -> isize;
+        fn SetWindowPos(
+            hwnd: Hwnd,
+            insert_after: Hwnd,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            flags: u32,
+        ) -> i32;
+        fn GetClientRect(hwnd: Hwnd, rect: *mut Rect) -> i32;
+        fn FindWindowExW(
+            parent: Hwnd,
+            after: Hwnd,
+            class_name: *const u16,
+            window_name: *const u16,
+        ) -> Hwnd;
+        fn GetModuleHandleW(module_name: *const u16) -> isize;
+        fn GetCurrentThreadId() -> u32;
+        fn GetWindowThreadProcessId(hwnd: Hwnd, process_id: *mut u32) -> u32;
+        fn ShowWindow(hwnd: Hwnd, command: i32) -> i32;
+        #[cfg(test)]
+        fn DestroyWindow(hwnd: Hwnd) -> i32;
+    }
+
+    /// UTF-16, NUL-terminated copy of `text`.
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// The surface window procedure: the surface has no behaviour of its own.
+    unsafe extern "system" fn surface_wnd_proc(
+        hwnd: Hwnd,
+        message: u32,
+        wparam: isize,
+        lparam: isize,
+    ) -> isize {
+        // Safety: forwarding an unhandled message is DefWindowProcW's job.
+        unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+    }
+
+    /// Register the surface window class (once per process).
+    fn surface_class() -> u16 {
+        static CLASS: OnceLock<u16> = OnceLock::new();
+        *CLASS.get_or_init(|| {
+            let class_name = wide("EnteiMpvSurface");
+            // Safety: a null module name resolves to the current module.
+            let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
+            // Safety: `class_name` is NUL-terminated and outlives the call;
+            // RegisterClassW copies the string.
+            let class = WndClassW {
+                style: 0,
+                wnd_proc: surface_wnd_proc,
+                cb_cls_extra: 0,
+                cb_wnd_extra: 0,
+                h_instance: instance,
+                h_icon: 0,
+                h_cursor: 0,
+                // A black brush: the surface is fully covered by mpv's child,
+                // but a defined colour avoids unpainted garbage between
+                // creating the surface and mpv's child appearing.
+                h_brush_background: BLACK_BRUSH,
+                lpsz_menu_name: std::ptr::null(),
+                lpsz_class_name: class_name.as_ptr(),
+            };
+            // Safety: `class` is a fully initialised WNDCLASSW.
+            unsafe { RegisterClassW(&class) }
+        })
+    }
+
+    /// Create the surface window as a child of `parent`.
+    pub fn create(parent: Hwnd, bounds: SurfaceBounds) -> Result<Hwnd, String> {
+        if surface_class() == 0 {
+            return Err("RegisterClassW failed for the mpv surface class".to_string());
+        }
+        let class_name = wide("EnteiMpvSurface");
+        // Safety: a null module name resolves to the current module.
+        let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
+        // Safety: the class is registered above and the name buffer outlives
+        // the call.
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+                class_name.as_ptr(),
+                std::ptr::null(),
+                WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_VISIBLE,
+                bounds.x,
+                bounds.y,
+                bounds.width,
+                bounds.height,
+                parent,
+                0,
+                instance,
+                0,
+            )
+        };
+        if hwnd == 0 {
+            return Err("CreateWindowExW failed for the mpv surface".to_string());
+        }
+        // The surface must stay at the bottom of the z-order: the WebView2
+        // paints the HTML UI on top of it, and only the transparent part of
+        // the page lets the native picture through.
+        set_bounds(hwnd, bounds);
+        Ok(hwnd)
+    }
+
+    /// Move and resize the surface, keeping it at the bottom of the z-order.
+    pub fn set_bounds(hwnd: Hwnd, bounds: SurfaceBounds) -> bool {
+        // Safety: a valid handle and plain integers; the call reports failure
+        // through its return value.
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_BOTTOM,
+                bounds.x,
+                bounds.y,
+                bounds.width,
+                bounds.height,
+                SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+            ) != 0
+        }
+    }
+
+    /// Show or hide the surface.
+    pub fn set_visible(hwnd: Hwnd, visible: bool) {
+        // Safety: a valid handle.
+        unsafe {
+            ShowWindow(hwnd, if visible { SW_SHOW } else { SW_HIDE });
+        }
+    }
+
+    /// Find libmpv's video window inside the surface.
+    pub fn find_mpv_child(surface: Hwnd) -> Option<Hwnd> {
+        let class = wide("mpv");
+        // Safety: a NUL-terminated class name and a valid parent handle.
+        let child = unsafe { FindWindowExW(surface, 0, class.as_ptr(), std::ptr::null()) };
+        (child != 0).then_some(child)
+    }
+
+    /// Resize a child window so it fills its parent's client area.
+    pub fn fill_parent(child: Hwnd, parent: Hwnd) -> bool {
+        let mut rect = Rect::default();
+        // Safety: `rect` is a valid, correctly sized RECT.
+        if unsafe { GetClientRect(parent, &mut rect) } == 0 {
+            return false;
+        }
+        // Safety: valid handles and plain integers.
+        unsafe {
+            SetWindowPos(
+                child,
+                HWND_TOP,
+                0,
+                0,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            ) != 0
+        }
+    }
+
+    /// The client size of a window, in physical pixels.
+    pub fn client_size(hwnd: Hwnd) -> Option<(i32, i32)> {
+        let mut rect = Rect::default();
+        // Safety: `rect` is a valid, correctly sized RECT.
+        if unsafe { GetClientRect(hwnd, &mut rect) } == 0 {
+            return None;
+        }
+        Some((rect.right - rect.left, rect.bottom - rect.top))
+    }
+
+    /// True when the calling thread owns `hwnd` — and therefore pumps its
+    /// messages.
+    pub fn owns_thread(hwnd: Hwnd) -> bool {
+        // Safety: a null process-id pointer is allowed.
+        let thread = unsafe { GetWindowThreadProcessId(hwnd, std::ptr::null_mut()) };
+        thread != 0 && thread == unsafe { GetCurrentThreadId() }
+    }
+
+    /// Create a hidden top-level window, used by the tests as a parent.
+    ///
+    /// `WS_OVERLAPPEDWINDOW` does not include `WS_VISIBLE`, so the window
+    /// never appears on screen.
+    #[cfg(test)]
+    pub fn create_test_parent() -> Option<Hwnd> {
+        if surface_class() == 0 {
+            return None;
+        }
+        let class_name = wide("EnteiMpvSurface");
+        // Safety: a null module name resolves to the current module.
+        let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
+        // Safety: the class is registered and the name buffer outlives the
+        // call.
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+                class_name.as_ptr(),
+                std::ptr::null(),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                400,
+                300,
+                0,
+                0,
+                instance,
+                0,
+            )
+        };
+        if hwnd == 0 {
+            return None;
+        }
+        Some(hwnd)
+    }
+
+    /// Destroy a window created by this module.
+    #[cfg(test)]
+    pub fn destroy(hwnd: Hwnd) {
+        // Safety: a valid handle.
+        unsafe {
+            DestroyWindow(hwnd);
+        }
+    }
+}
+
+/// State of the native video surface.
+#[cfg(windows)]
+struct SurfaceState {
+    /// The rectangle the page last asked for.
+    bounds: SurfaceBounds,
+    /// True once the page sent a rectangle. An unset rectangle means "fill
+    /// the whole window", which is the behaviour without `mpv_set_bounds`.
+    requested: bool,
+    /// The surface window handle, `0` until the surface exists.
+    hwnd: i64,
+}
+
+#[cfg(windows)]
+static SURFACE_STATE: OnceLock<Mutex<SurfaceState>> = OnceLock::new();
+
+#[cfg(windows)]
+fn surface_state() -> &'static Mutex<SurfaceState> {
+    SURFACE_STATE.get_or_init(|| {
+        Mutex::new(SurfaceState {
+            bounds: SurfaceBounds {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            },
+            requested: false,
+            hwnd: 0,
+        })
+    })
+}
+
+/// Lock the surface state, mapping a poisoned mutex onto a command error.
+#[cfg(windows)]
+fn lock_surface() -> Result<std::sync::MutexGuard<'static, SurfaceState>, MpvError> {
+    surface_state().lock().map_err(|_| MpvError::Command {
+        op: "surface lock".to_string(),
+        detail: "mutex poisoned by an earlier panic".to_string(),
+    })
+}
+
+/// Runs a closure on the thread that owns the Tauri window.
+#[cfg(windows)]
+type MainThreadRunner =
+    Box<dyn Fn(Box<dyn FnOnce() + Send + 'static>) -> Result<(), String> + Send + Sync>;
+
+#[cfg(windows)]
+static MAIN_THREAD_RUNNER: OnceLock<MainThreadRunner> = OnceLock::new();
+
+/// Create the native surface window (once) and return its handle.
+///
+/// The surface has to live on the thread that owns the Tauri window: a Win32
+/// window only reacts to `WM_SIZE` / `WM_WINDOWPOSCHANGED` on a thread that
+/// pumps messages, and that is the window's own thread.
+#[cfg(windows)]
+fn ensure_surface() -> Result<i64, MpvError> {
+    let parent = embedded_window_hwnd()?;
+    {
+        let guard = lock_surface()?;
+        if guard.hwnd != 0 {
+            return Ok(guard.hwnd);
+        }
+    }
+    let bounds = {
+        let guard = lock_surface()?;
+        if guard.requested {
+            guard.bounds
+        } else {
+            // No rectangle yet: fill the whole window, exactly like the
+            // behaviour without `mpv_set_bounds`.
+            let (width, height) = win::client_size(parent as win::Hwnd).unwrap_or((0, 0));
+            SurfaceBounds {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            }
+        }
+    };
+    let hwnd = create_surface(parent, bounds)?;
+    let mut guard = lock_surface()?;
+    if guard.hwnd == 0 {
+        guard.hwnd = hwnd;
+    }
+    Ok(guard.hwnd)
+}
+
+/// Create the surface window on the thread that owns the Tauri window.
+#[cfg(windows)]
+fn create_surface(parent: i64, bounds: SurfaceBounds) -> Result<i64, MpvError> {
+    let parent = parent as win::Hwnd;
+    // Already on the window's thread: create it here. Posting a task to the
+    // window's thread and waiting for it here would deadlock the UI thread.
+    if win::owns_thread(parent) {
+        return win::create(parent, bounds)
+            .map(|hwnd| hwnd as i64)
+            .map_err(MpvError::WindowHandle);
+    }
+    let runner = MAIN_THREAD_RUNNER.get().ok_or_else(|| {
+        MpvError::WindowHandle(
+            "main thread runner was not installed during plugin setup".to_string(),
+        )
+    })?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let task: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
+        let _ = sender.send(win::create(parent, bounds));
+    });
+    runner(task).map_err(MpvError::WindowHandle)?;
+    let created = receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|err| {
+            MpvError::WindowHandle(format!(
+                "timed out waiting for the window thread: {err}"
+            ))
+        })?;
+    created
+        .map(|hwnd| hwnd as i64)
+        .map_err(MpvError::WindowHandle)
+}
+
+/// Move the native picture to the HTML media frame.
+#[cfg(windows)]
+fn apply_surface_bounds(bounds: SurfaceBounds) -> Result<(), MpvError> {
+    let surface = {
+        let mut guard = lock_surface()?;
+        if !bounds.is_empty() {
+            // Only a real rectangle is remembered: an empty one means "hide",
+            // not "the surface has no size".
+            guard.bounds = bounds;
+            guard.requested = true;
+        }
+        guard.hwnd as win::Hwnd
+    };
+    if surface == 0 {
+        // The surface is created together with the mpv instance, which picks
+        // the stored rectangle up.
+        return Ok(());
+    }
+    if bounds.is_empty() {
+        win::set_visible(surface, false);
+        return Ok(());
+    }
+    win::set_visible(surface, true);
+    win::set_bounds(surface, bounds);
+    // libmpv's own hook resizes its child whenever the surface changes, but
+    // the explicit call makes the new frame immediate instead of one tick
+    // later.
+    if let Some(child) = win::find_mpv_child(surface) {
+        win::fill_parent(child, surface);
+    }
+    Ok(())
 }
 
 /// Tauri bundle resource directory, resolved while the plugin initializes.
@@ -389,6 +885,11 @@ impl MpvInstance {
         // second time on the live handle: the engine must never begin playing
         // on its own, whatever the option layer did with the start value.
         instance.set_property("pause", "yes")?;
+        // Subtitles belong to the HTML layer. The option layer already asked
+        // for `sid = no` / `sub-visibility = no`; the properties are asserted
+        // again on the live handle, because a build that rejected the option
+        // would otherwise burn its own subtitles into the picture.
+        instance.disable_native_subtitles()?;
         Ok(instance)
     }
 
@@ -414,11 +915,26 @@ impl MpvInstance {
             }
         }
         // `wid` must land before `mpv_initialize` like every other option. On
-        // Windows the Tauri HWND makes libmpv create its video output as a
-        // child of the app window, so no second OS window is ever opened.
+        // Windows the surface window makes libmpv create its video output as
+        // a child of the app window, so no second OS window is ever opened.
         #[cfg(windows)]
         {
-            let hwnd = embedded_window_hwnd()?;
+            // libmpv always fills the `wid` parent, so the parent is the
+            // plugin's own surface window: the picture then lands in the
+            // HTML media frame instead of being letterboxed against the whole
+            // window, where the right panel would cover it.
+            let hwnd = match ensure_surface() {
+                Ok(hwnd) => hwnd,
+                Err(err) => {
+                    // A missing surface must not take the engine down: the
+                    // Tauri window is a working (if unaligned) fallback.
+                    eprintln!(
+                        "tauri-plugin-mpv: native surface unavailable ({err}); \
+                         falling back to the window parent"
+                    );
+                    embedded_window_hwnd()?
+                }
+            };
             self.set_option("wid", &hwnd.to_string())?;
         }
         Ok(())
@@ -463,6 +979,29 @@ impl MpvInstance {
         let code =
             unsafe { (self.set_property_string)(self.handle, name_c.as_ptr(), value_c.as_ptr()) };
         check_rc(self.error_string, name, code)
+    }
+
+    /// Switch mpv's own subtitle rendering off for good.
+    ///
+    /// `sub-visibility = no` is the guarantee (nothing is painted, whatever
+    /// track is selected), `sid = no` additionally keeps mpv from decoding a
+    /// track at all. Both are properties, so they also hold after a later
+    /// `loadfile` or track switch.
+    fn disable_native_subtitles(&self) -> Result<(), MpvError> {
+        let mut failures = Vec::new();
+        for (property, value) in [("sub-visibility", "no"), ("sid", "no")] {
+            if let Err(err) = self.set_property(property, value) {
+                failures.push(err);
+            }
+        }
+        if failures.len() == 2 {
+            // Neither property was accepted: mpv would paint subtitles over
+            // the video, which Entei renders in HTML instead.
+            return Err(failures
+                .pop()
+                .expect("two failures were collected before this point"));
+        }
+        Ok(())
     }
 
     /// Read a numeric property (time-pos, duration) as f64.
@@ -606,6 +1145,49 @@ fn mpv_set_tracks(aid: Option<String>, sid: Option<String>) -> Result<(), String
     Ok(())
 }
 
+/// Validate a surface rectangle coming from the page.
+fn validate_bounds(width: i32, height: i32) -> Result<(), MpvError> {
+    if width < 0 || height < 0 {
+        return Err(MpvError::Invalid(
+            "surface bounds must not be negative".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Move and resize the native video surface so the picture matches the HTML
+/// media frame.
+///
+/// The rectangle is in **physical pixels relative to the Tauri window's client
+/// area** (the page multiplies its CSS-pixel rect by `devicePixelRatio`).
+/// libmpv letterboxes the video inside that rectangle exactly like the page's
+/// `object-fit: contain`, so the native picture and the HTML subtitles share
+/// one frame.
+///
+/// A rectangle without area hides the surface: the media frame is gone (no
+/// media, immersive mode exited), so no stale picture may stay on screen.
+#[tauri::command]
+fn mpv_set_bounds(x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
+    validate_bounds(width, height).map_err(|err| err.message())?;
+    #[cfg(windows)]
+    {
+        apply_surface_bounds(SurfaceBounds {
+            x,
+            y,
+            width,
+            height,
+        })
+        .map_err(|err| err.message())
+    }
+    #[cfg(not(windows))]
+    {
+        // The native surface is a Windows-only concern; other platforms keep
+        // the mpv window filling its parent.
+        let _ = (x, y);
+        Ok(())
+    }
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("mpv")
         .setup(|app, _api| {
@@ -634,6 +1216,17 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                         .map(|handle| handle.0 as isize as i64)
                         .filter(|hwnd| *hwnd != 0)
                 }));
+                // The native surface window must be created on the thread
+                // that owns the Tauri window: only that thread pumps its
+                // messages, and a Win32 window that never gets its messages
+                // never resizes. Commands normally run there already; the
+                // runner is the fallback for the case where they do not.
+                let app_handle = app.app_handle().clone();
+                let _ = MAIN_THREAD_RUNNER.set(Box::new(move |task| {
+                    app_handle
+                        .run_on_main_thread(task)
+                        .map_err(|err| err.to_string())
+                }));
             }
             Ok(())
         })
@@ -645,7 +1238,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             mpv_get_time,
             mpv_get_duration,
             mpv_set_sub_delay,
-            mpv_set_tracks
+            mpv_set_tracks,
+            mpv_set_bounds
         ])
         .build()
 }
@@ -782,5 +1376,64 @@ mod tests {
         // possible if the resolver is consulted on every instance creation.
         HWND.store(0x1234, Ordering::Relaxed);
         assert_eq!(embedded_window_hwnd().unwrap(), 0x1234);
+    }
+
+    #[test]
+    fn native_subtitles_are_disabled_by_the_engine() {
+        let value_of = |wanted: &str| {
+            BASE_OPTIONS
+                .iter()
+                .find(|(name, _)| *name == wanted)
+                .map(|(_, value)| *value)
+        };
+        // `sid = no` keeps mpv from selecting a subtitle track, and
+        // `sub-visibility = no` is the hard guarantee that nothing is painted
+        // over the video — Entei draws every cue in HTML.
+        assert_eq!(value_of("sid"), Some("no"));
+        assert_eq!(value_of("sub-visibility"), Some("no"));
+        // No language auto-selection either: a track would only be decoded
+        // for nothing.
+        assert_eq!(value_of("slang"), None);
+    }
+
+    #[test]
+    fn surface_bounds_reject_negative_sizes() {
+        assert!(validate_bounds(320, 180).is_ok());
+        assert!(validate_bounds(0, 0).is_ok());
+        assert!(validate_bounds(-1, 180).is_err());
+        assert!(validate_bounds(320, -1).is_err());
+    }
+
+    /// The surface is the `wid` parent libmpv paints into, and it has to
+    /// follow the rectangle the page asks for — that is what keeps the
+    /// picture out of the right panel.
+    #[cfg(windows)]
+    #[test]
+    fn surface_window_follows_the_requested_rectangle() {
+        let Some(parent) = win::create_test_parent() else {
+            panic!("could not create the test parent window");
+        };
+        let bounds = SurfaceBounds {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 180,
+        };
+        let surface = win::create(parent, bounds).expect("the surface window must be creatable");
+        assert_eq!(win::client_size(surface), Some((320, 180)));
+        // No mpv is running in a test, so the surface has no video child.
+        assert!(win::find_mpv_child(surface).is_none());
+
+        let moved = SurfaceBounds {
+            x: 12,
+            y: 8,
+            width: 640,
+            height: 360,
+        };
+        assert!(win::set_bounds(surface, moved));
+        assert_eq!(win::client_size(surface), Some((640, 360)));
+
+        win::destroy(surface);
+        win::destroy(parent);
     }
 }

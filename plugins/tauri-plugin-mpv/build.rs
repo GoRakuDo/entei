@@ -7,6 +7,7 @@ const COMMANDS: &[&str] = &[
     "mpv_get_duration",
     "mpv_set_sub_delay",
     "mpv_set_tracks",
+    "mpv_set_bounds",
 ];
 
 fn main() {

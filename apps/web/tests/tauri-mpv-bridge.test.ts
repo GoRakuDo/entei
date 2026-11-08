@@ -24,6 +24,7 @@ import {
   mpvPause,
   mpvPlay,
   mpvSeek,
+  mpvSetBounds,
   mpvSetSubDelay,
   mpvSetTracks,
   resolvePhysicalPath,
@@ -88,6 +89,7 @@ describe('tauri-bridge mpv wrappers — outside Tauri', () => {
     await expect(mpvSeek(12.5)).resolves.toBeUndefined();
     await expect(mpvSetSubDelay(-0.25)).resolves.toBeUndefined();
     await expect(mpvSetTracks('2', '1')).resolves.toBeUndefined();
+    await expect(mpvSetBounds(0, 0, 320, 180)).resolves.toBeUndefined();
 
     expect(internals().__TAURI_INTERNALS__).toBeUndefined();
   });
@@ -216,6 +218,40 @@ describe('tauri-bridge mpv wrappers — inside Tauri', () => {
     await expect(mpvSeek(5)).resolves.toBeUndefined();
     await expect(mpvSetSubDelay(1.5)).resolves.toBeUndefined();
     await expect(mpvSetTracks('1', '1')).resolves.toBeUndefined();
+    await expect(mpvSetBounds(0, 0, 640, 360)).resolves.toBeUndefined();
+  });
+
+  it('moves the native surface to the requested physical rectangle', async () => {
+    const calls = installTauri();
+    await mpvSetBounds(12, 8, 1024, 576);
+    expect(calls).toEqual([
+      {
+        cmd: 'plugin:mpv|mpv_set_bounds',
+        args: { x: 12, y: 8, width: 1024, height: 576 },
+      },
+    ]);
+  });
+
+  it('keeps an empty rectangle as a hide request', async () => {
+    // A frame without area means "the media frame is gone": the surface must
+    // be hidden, not resized to nothing.
+    const calls = installTauri();
+    await mpvSetBounds(0, 0, 0, 0);
+    expect(calls).toEqual([
+      {
+        cmd: 'plugin:mpv|mpv_set_bounds',
+        args: { x: 0, y: 0, width: 0, height: 0 },
+      },
+    ]);
+  });
+
+  it('drops a non-finite or negative surface rectangle', async () => {
+    const calls = installTauri();
+    await mpvSetBounds(Number.NaN, 0, 320, 180);
+    await mpvSetBounds(0, Number.POSITIVE_INFINITY, 320, 180);
+    await mpvSetBounds(0, 0, -1, 180);
+    await mpvSetBounds(0, 0, 320, -1);
+    expect(calls).toEqual([]);
   });
 });
 

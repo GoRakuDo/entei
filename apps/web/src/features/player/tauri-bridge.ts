@@ -620,3 +620,35 @@ export async function mpvSetTracks(
     sid: sid || null,
   });
 }
+
+/**
+ * Move and resize the native video surface so the picture matches the HTML
+ * media frame.
+ *
+ * The rectangle is in physical pixels relative to the Tauri window's client
+ * area (the page multiplies its CSS-pixel rect by `devicePixelRatio`). The
+ * plugin takes integers, so the values are rounded here: a fractional
+ * argument is rejected by the IPC deserializer and the surface would then
+ * silently stay where it was.
+ *
+ * A rectangle without area is a valid request — the media frame is gone (no
+ * media, immersive mode exited), so the surface must be hidden instead of
+ * resized to nothing. Values the plugin rejects anyway (a non-finite number
+ * or a negative width/height) are dropped before the IPC call.
+ */
+export async function mpvSetBounds(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): Promise<void> {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+  if (width < 0 || height < 0) return;
+  await mpvInvoke('plugin:mpv|mpv_set_bounds', {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round(height),
+  });
+}

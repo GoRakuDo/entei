@@ -300,10 +300,10 @@ export function resolveMediaSourceKind(args: {
 }
 
 /** Debounce before the companion start-buffering overlay appears. */
-const START_BUFFERING_DELAY_MS = 1000;
+const START_BUFFERING_DELAY_MS = 2000;
 
 /** Absolute upper bound for the start-buffering overlay, measured from the
- *  FIRST arm: 1 s debounce + 3 s visible. The first PAINTED frame normally
+ *  FIRST arm: 2 s debounce + 3 s visible. The first PAINTED frame normally
  *  clears it much earlier via rVFC, or via loadeddata/canplay/playing on
  *  browsers without rVFC. Armed once per effect lifetime and never re-armed
  *  by later `waiting` events, so fragmented stalls cannot push the deadline
@@ -519,7 +519,7 @@ export default function PlayerApp() {
   // The companion job media URL is surfaced (video element mounted) but no
   // current frame is available yet (readyState < HAVE_CURRENT_DATA or a
   // `waiting` event while the growing .part yields no playable data). After
-  // 1 s of that state the larger "Preparing video…" overlay shows (same 1 s
+  // 2 s of that state the larger "Preparing video…" overlay shows (same 2 s
   // debounce pattern as isSeekBuffering, so fast starts never flash); the
   // first PAINTED frame clears it via rVFC, or via loadeddata/canplay/
   // playing on browsers without rVFC.
@@ -2615,7 +2615,7 @@ export default function PlayerApp() {
   // --- Companion start buffering: monitor the initial playability ---
   // The companion surfaces jobMediaUrl while the .part is still being
   // written; the video element can mount but has no current frame yet.
-  // After 1 s of that state show the "Preparing video…" overlay (the delay
+  // After 2 s of that state show the "Preparing video…" overlay (the delay
   // avoids flashing for fast starts).
   //
   // Clear on the FIRST PAINTED FRAME, not on readyState or 'playing'.
@@ -2628,7 +2628,7 @@ export default function PlayerApp() {
   // changing React state, so those media events are the only signals while
   // the element is still PAUSED. Once cleared, a source-scoped ref latch
   // stops a later 'waiting' (or a phase re-run) from re-arming the overlay.
-  // Both the 1 s debounce and the 3 s safety bound are armed once, at the
+  // Both the 2 s debounce and the 3 s safety bound are armed once, at the
   // first arm; later `waiting` bursts never postpone them.
   // Seek buffering deliberately keeps its own canplay-based clearing.
   useEffect(() => {
@@ -2706,7 +2706,7 @@ export default function PlayerApp() {
       // pixels. Non-rVFC: HAVE_FUTURE_DATA or an active playback is.
       if (hasStartPlayableSignal()) return;
       // Both timers are armed ONCE, at the first arm. A burst of short
-      // `waiting` events must neither restart the 1 s debounce nor push
+      // `waiting` events must neither restart the 2 s debounce nor push
       // the 3 s safety bound forward: clearing both timers here used to
       // cancel the bound (or, before it was ever armed, stop it from being
       // armed at all), leaving the overlay unbounded.
@@ -5645,7 +5645,7 @@ export default function PlayerApp() {
       )}
       {/* Companion start buffering overlay: the job media URL surfaced
           but no current frame yet (readyState below HAVE_CURRENT_DATA /
-          'waiting' for over 1 s). Shows the same "preparing video" copy
+          'waiting' for over 2 s). Shows the same "preparing video" copy
           as the pre-URL loading overlay, at a larger size, in gold with
           a black drop shadow so it reads on bright frames. Clears the
           instant the first PAINTED frame arrives (rVFC on supported

@@ -1,6 +1,6 @@
 ## Default Permission
 
-Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, subtitle delay and audio/subtitle track selection.
+Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, subtitle delay, audio/subtitle track selection and the native surface rectangle.
 
 #### This default permission set includes the following:
 
@@ -12,6 +12,7 @@ Default permissions for the mpv plugin: media load, play/pause, absolute seek, n
 - `allow-mpv-get-duration`
 - `allow-mpv-set-sub-delay`
 - `allow-mpv-set-tracks`
+- `allow-mpv-set-bounds`
 
 ## Permission Table
 
@@ -174,6 +175,32 @@ Enables the mpv_seek command without any pre-configured scope.
 <td>
 
 Denies the mpv_seek command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mpv:allow-mpv-set-bounds`
+
+</td>
+<td>
+
+Enables the mpv_set_bounds command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mpv:deny-mpv-set-bounds`
+
+</td>
+<td>
+
+Denies the mpv_set_bounds command without any pre-configured scope.
 
 </td>
 </tr>

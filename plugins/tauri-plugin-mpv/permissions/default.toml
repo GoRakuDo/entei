@@ -1,7 +1,7 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = """Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, subtitle delay and audio/subtitle track selection."""
+description = """Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, subtitle delay, audio/subtitle track selection and the native surface rectangle."""
 permissions = [
   "allow-mpv-load",
   "allow-mpv-play",
@@ -11,4 +11,5 @@ permissions = [
   "allow-mpv-get-duration",
   "allow-mpv-set-sub-delay",
   "allow-mpv-set-tracks",
+  "allow-mpv-set-bounds",
 ]

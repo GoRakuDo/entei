@@ -3,11 +3,12 @@
  * ---------------------------------------------------------------------------
  * When the companion job media URL is surfaced (video element mounted) but
  * no current frame is available yet (readyState < HAVE_CURRENT_DATA or a
- * `waiting` event) for more than 1 s, PlayerApp shows the "Preparing video…" overlay
+ * `waiting` event) for more than 2 s, PlayerApp shows the "Preparing video…" overlay
  * — the same copy as the pre-URL loading overlay, at a larger responsive
- * size. The 1 s debounce prevents flashing for fast starts.
+ * size. The 2 s debounce prevents flashing for fast starts: a 1–2 s load
+ * never shows the overlay at all.
  *
- * Clear condition is the first PAINTED frame. On rVFC browsers the 1 s
+ * Clear condition is the first PAINTED frame. On rVFC browsers the 2 s
  * debounce re-check ignores readyState: only a presented frame with real
  * pixels (meta.width/height > 0) ends the wait, and showing the overlay
  * also requests that frame. loadeddata / canplay / playing only REQUEST a
@@ -17,7 +18,7 @@
  * in a ref, so a later 'waiting' — or a jobSession.phase effect re-run —
  * cannot resurrect the start overlay. The 3 s safety bound remains the
  * last resort for stalled/autoplay-blocked downloads: it is armed once at
- * the first arm (1 s debounce + 3 s = 4 s absolute), so fragmented
+ * the first arm (2 s debounce + 3 s = 5 s absolute), so fragmented
  * `waiting` events cannot postpone it.
  *
  * Drives the real PlayerApp with a mocked (controllable) job session and a
@@ -51,6 +52,11 @@ vi.mock('@/features/player/use-companion-job-session', () => ({
 }));
 
 const MEDIA_URL = 'http://127.0.0.1:4322/v1/media/fixture?token=tok123';
+
+/** Debounce before the start-buffering overlay appears (PlayerApp). */
+const START_BUFFERING_DELAY_MS = 2000;
+/** Absolute bound measured from the FIRST arm (debounce + 3 s). */
+const START_BUFFERING_SAFETY_MS = START_BUFFERING_DELAY_MS + 3000;
 
 function freshSession() {
   return {
@@ -153,7 +159,7 @@ function installRVFCPrototype() {
 }
 
 describe('companion start-buffering overlay (black-screen wait)', () => {
-  it('shows the overlay when readyState < 2 persists for over 1 s', async () => {
+  it('shows the overlay when readyState < 2 persists for over 2 s', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -165,13 +171,13 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     // jsdom: readyState = 0 < HAVE_CURRENT_DATA(2).
     expect((video as HTMLVideoElement).readyState).toBeLessThan(2);
 
-    // Before the 1 s debounce: no overlay yet.
+    // Before the 2 s debounce: no overlay yet (a 1–2 s load stays silent).
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(999);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS - 1);
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
 
-    // 1 s reached with data still missing: overlay appears.
+    // 2 s reached with data still missing: overlay appears.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
@@ -202,7 +208,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     fireEvent.canPlay(video!);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS - 500);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -221,9 +227,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     mockSession.jobMediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
-    // Overlay appears after 1 s of no data.
+    // Overlay appears after 2 s of no data.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -244,7 +250,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
@@ -255,7 +261,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
@@ -267,9 +273,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     mockSession.jobMediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
-    // Overlay appears after 1 s of no data.
+    // Overlay appears after 2 s of no data.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -290,13 +296,13 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
     // Still visible before the bound elapses…
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2999);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_SAFETY_MS - START_BUFFERING_DELAY_MS - 1);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -314,9 +320,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     mockSession.jobMediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
-    // Overlay appears after 1 s of no data…
+    // Overlay appears after 2 s of no data…
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -337,7 +343,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('fragmented waiting every 500 ms cannot postpone the 1 s + 3 s bound', async () => {
+  it('fragmented waiting every 500 ms cannot postpone the 2 s + 3 s bound', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -345,7 +351,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
-    // Fire `waiting` INSIDE the 1 s debounce repeatedly. The old code
+    // Fire `waiting` INSIDE the 2 s debounce repeatedly. The old code
     // cleared both timers on every call, so the debounce never settled and
     // the safety bound was never even armed.
     const stall = async (ms: number) => {
@@ -356,19 +362,22 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     };
 
     await stall(500); // t=500
-    await stall(500); // t=1000 — debounce still fires from the first arm
+    await stall(500); // t=1000 — debounce has not fired yet
+    await stall(500); // t=1500 — still no overlay
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
+
+    await stall(500); // t=2000 — debounce fires from the first arm
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
-    await stall(500); // t=1500
-    await stall(500); // t=2000
     await stall(500); // t=2500
     await stall(500); // t=3000
     await stall(500); // t=3500
-    await stall(499); // t=3999 — still inside the bound
+    await stall(500); // t=4000
+    await stall(999); // t=4999 — still inside the bound
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
-    // The absolute 1 s + 3 s bound fires at t=4000, NOT at
-    // 4000 + (number of stalls × 500 ms).
+    // The absolute 2 s + 3 s bound fires at t=5000, NOT at
+    // 5000 + (number of stalls × 500 ms).
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
@@ -390,9 +399,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     mockSession.jobMediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
-    // Start buffering arms on mount (readyState 0): overlay after 1 s.
+    // Start buffering arms on mount (readyState 0): overlay after 2 s.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -419,9 +428,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     mockSession.jobMediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
-    // Overlay appears after 1 s of no data.
+    // Overlay appears after 2 s of no data.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -453,7 +462,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -494,7 +503,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
     // The .part has no data yet: the overlay is up.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -549,7 +558,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const video = container.querySelector('video') as HTMLVideoElement;
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -579,11 +588,11 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     const video = container.querySelector('video');
 
-    // The 1 s debounce already registered once; each playing transition
+    // The 2 s debounce already registered once; each playing transition
     // re-registers (and cancels the stale handle) to catch later frames.
     video!.dispatchEvent(new Event('playing'));
     await act(async () => {
@@ -611,7 +620,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { rerender } = render(<PlayerApp />);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     const video = document.querySelector('video');
     video!.dispatchEvent(new Event('playing'));
@@ -644,9 +653,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
-    // 1 s debounce with no frame: the overlay is up.
+    // 2 s debounce with no frame: the overlay is up.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -681,7 +690,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     const video = container.querySelector('video') as HTMLVideoElement;
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -695,7 +704,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
 
     // A phase transition re-runs the effect (cleanup + re-attach). With a
-    // current frame present the fresh effect must not arm the 1 s timer —
+    // current frame present the fresh effect must not arm the 2 s timer —
     // previously the paused element re-armed and the overlay came back.
     mockSession.phase = 'buffering';
     rerender(<PlayerApp />);
@@ -716,7 +725,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
     // The overlay is up while the .part has no playable frame.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
@@ -750,7 +759,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(rvfc.hasRegisteredCallback()).toBe(false);
   });
 
-  it('rVFC browser: loadeddata BEFORE the 1 s debounce still guards the black frame until real pixels', async () => {
+  it('rVFC browser: loadeddata BEFORE the 2 s debounce still guards the black frame until real pixels', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
     mockSession.kind = 'youtube';
@@ -773,10 +782,10 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
 
-    // The 1 s re-check must ignore readyState and show the overlay, then
+    // The 2 s re-check must ignore readyState and show the overlay, then
     // wait for the first painted frame via rVFC.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(700);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS - 300);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
     expect(rvfc.hasRegisteredCallback()).toBe(true);
@@ -795,7 +804,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(video.paused).toBe(true);
   });
 
-  it('non-rVFC: a silent HAVE_CURRENT_DATA jump does not suppress the 1 s debounce', async () => {
+  it('non-rVFC: a silent HAVE_CURRENT_DATA jump does not suppress the 2 s debounce', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -810,7 +819,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
       value: 2,
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(START_BUFFERING_DELAY_MS);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
