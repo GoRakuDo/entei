@@ -515,3 +515,20 @@ svg {
 [data-sonner-toaster] [data-sonner-toast] button[data-close-button] {
   border-radius: var(--entei-radius-md);
 }
+
+/* ===== CHECKBOX CHECKED STATE (global, DESIGN.md 8.12) =====
+ * One checked-state contract for every shadcn Checkbox on every page:
+ * the shared button surface for the box, gold for the check icon.
+ * Unlayered on purpose — an unlayered rule beats Tailwind's utility layer,
+ * so component classes cannot drift back to the default primary fill.
+ * The Lucide icon inherits `currentColor` (DESIGN.md 9), so setting `color`
+ * here reaches the check and minus glyphs without an icon-level override.
+ * The 44x44 data-table hit target stays transparent in player.css; only its
+ * 16x16 ::before visual box receives the fill there.
+ */
+[data-slot='checkbox'][data-state='checked'],
+[data-slot='checkbox'][data-state='indeterminate'] {
+  border-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+}

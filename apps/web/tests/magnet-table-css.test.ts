@@ -21,10 +21,14 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// `bun test` runs from the web workspace root (apps/web), so the stylesheet
-// is at src/styles/player.css. Avoid import.meta.url — Bun's transform can
+// `bun test` runs from the web workspace root (apps/web), so the stylesheets
+// live under src/styles/. Avoid import.meta.url — Bun's transform can
 // rewrite it to a non-file scheme in the jsdom environment.
 const css = readFileSync(resolve(process.cwd(), 'src/styles/player.css'), 'utf8');
+const globalCss = readFileSync(
+  resolve(process.cwd(), 'src/styles/global.css'),
+  'utf8',
+);
 
 /**
  * Returns the declaration text of the first rule block for `selector`.
@@ -181,6 +185,15 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     expect(colourValues).toHaveLength(0);
   });
 
+  it('pins the single global checked-state colour contract on the checkbox root', () => {
+    const start = globalCss.indexOf("[data-slot='checkbox'][data-state='checked']");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const open = globalCss.indexOf('{', start);
+    const contract = globalCss.slice(open + 1, globalCss.indexOf('}', open));
+    expect(contract).toContain('background-color: var(--entei-btn-color)');
+    expect(contract).toContain('color: var(--entei-status-locked)');
+  });
+
   it('gives the create button its shared fill at rest, not only on hover', () => {
     const base = ruleBlock('.entei-magnet-add-btn');
     expect(base).toContain('background-color: var(--entei-btn-color)');
@@ -261,14 +274,17 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     );
   });
 
-  it('keeps the row checkbox visible and vertically centred', () => {
+  it('keeps the row checkbox visible, centred and on the shared checked palette', () => {
     const check = ruleBlock('.entei-magnet-item-check');
     expect(check).toContain('border-color: oklch(100% 0 0deg / 0.3)');
     expect(check).toContain('align-self: center');
     const checked = ruleBlock(
       ".entei-magnet-item-check[data-state='checked'],\n.entei-magnet-item-check[data-state='indeterminate']",
     );
-    expect(checked).toContain('background-color: var(--entei-accent)');
+    expect(checked).toContain('border-color: var(--entei-btn-color)');
+    expect(checked).toContain('background-color: var(--entei-btn-color)');
+    expect(checked).toContain('color: var(--entei-status-locked)');
+    expect(checked).not.toContain('var(--entei-accent)');
   });
 
   it('pins the metadata-check skeleton bones and their shimmer', () => {

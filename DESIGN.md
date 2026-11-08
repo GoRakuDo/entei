@@ -549,6 +549,20 @@ the wrapper border must be accounted for explicitly:
   They use Entei semantic tokens: `--entei-btn-color` as the item background and
   `--entei-status-locked` for the label and the check icon.
 
+### 8.12 Checkboxes
+
+- One checked-state contract for every shadcn `Checkbox` on every page,
+  declared globally in `global.css` on `[data-slot='checkbox']` so component
+  utilities cannot drift back to `bg-primary`.
+- At rest: the existing muted hairline border and subtle surface fill.
+  `--entei-accent` is never a checkbox fill (3.1.2).
+- Checked / indeterminate: `--entei-btn-color` for the box background and
+  border; `--entei-status-locked` (gold) for the check / minus icon, inherited
+  through `currentColor` (9). No icon-level colour override.
+- Hover and disabled states must not reintroduce purple or white. The 44x44
+  data-table hit target stays transparent; only its 16x16 `::before` box
+  receives the checked fill. Verify the result in the rendered browser.
+
 ---
 
 ## 9. Icons and Assets

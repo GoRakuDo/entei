@@ -4105,11 +4105,18 @@ html.entei-player-immersive .entei-player-audio-area {
   pointer-events: none;
 }
 
-/* Checked/indeterminate: purple fill on visual box */
+/* 44x44 hit target stays transparent: global.css also fills the checked
+   root, so pin it here with higher specificity. Only ::before carries colour. */
+.entei-data-table [data-slot='checkbox'][data-state='checked'],
+.entei-data-table [data-slot='checkbox'][data-state='indeterminate'] {
+  background-color: transparent;
+}
+
+/* Checked/indeterminate: shared button fill on the 16px visual box */
 .entei-data-table [data-slot='checkbox'][data-state='checked']::before,
 .entei-data-table [data-slot='checkbox'][data-state='indeterminate']::before {
-  border-color: var(--entei-accent);
-  background-color: var(--entei-accent);
+  border-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-color);
 }
 
 /* Focus ring on hit target */
@@ -4123,8 +4130,10 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-data-table [data-slot='checkbox']:hover::before {
   background-color: oklch(100% 0 0deg / 0.08);
 }
-.entei-data-table [data-slot='checkbox'][data-state='checked']:hover::before {
-  background-color: var(--entei-accent-hover);
+/* Checked/indeterminate keep the shared fill on hover — no purple flash */
+.entei-data-table [data-slot='checkbox'][data-state='checked']:hover::before,
+.entei-data-table [data-slot='checkbox'][data-state='indeterminate']:hover::before {
+  background-color: var(--entei-btn-color);
 }
 
 /* Indicator (check/minus icon): optically centered on the 16px visual box */
@@ -4137,7 +4146,6 @@ html.entei-player-immersive .entei-player-audio-area {
   transform: translate(-50%, -50%);
   display: grid;
   place-content: center;
-  color: oklch(98% 0 0deg);
   pointer-events: none;
 }
 
@@ -5074,16 +5082,17 @@ html.entei-player-immersive .entei-player-audio-area {
   box-shadow: none;
 }
 
-.entei-magnet-item-check:hover:not(:disabled) {
+/* Rest-state hover only. A checked box must not lose its shared fill. */
+.entei-magnet-item-check:hover:not(:disabled):not([data-state='checked']):not([data-state='indeterminate']) {
   border-color: oklch(100% 0 0deg / 0.45);
   background-color: oklch(100% 0 0deg / 0.08);
 }
 
 .entei-magnet-item-check[data-state='checked'],
 .entei-magnet-item-check[data-state='indeterminate'] {
-  border-color: var(--entei-accent);
-  background-color: var(--entei-accent);
-  color: oklch(98% 0 0deg);
+  border-color: var(--entei-btn-color);
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
 }
 
 .entei-magnet-item-check:focus-visible {
