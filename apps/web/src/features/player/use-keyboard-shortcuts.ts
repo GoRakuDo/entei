@@ -36,6 +36,12 @@ interface UseKeyboardShortcutsOptions {
    * reliable source of truth. Without it the element is toggled directly.
    */
   onTogglePlayback?: () => void;
+  /**
+   * Seek override for the Home shortcut. When provided the caller owns the
+   * seek — the desktop native mpv mode, where the element is a passive shim
+   * and its own `seeking` event no longer reaches the engine.
+   */
+  onSeekTo?: (seconds: number) => void;
   enabled: boolean;
 }
 
@@ -60,6 +66,7 @@ export function useKeyboardShortcuts({
   setPlaybackRate,
   onCueClick,
   onTogglePlayback,
+  onSeekTo,
   enabled,
 }: UseKeyboardShortcutsOptions) {
   const activeCueIdRef = useRef(activeCueId);
@@ -147,7 +154,12 @@ export function useKeyboardShortcuts({
           const currentCues = cuesRef.current;
           if (currentId !== null && currentId < currentCues.length) {
             const cue = currentCues[currentId]!;
-            media.currentTime = clampSeek(cue.start, media.duration);
+            const target = clampSeek(cue.start, media.duration);
+            if (onSeekTo) {
+              onSeekTo(target);
+              break;
+            }
+            media.currentTime = target;
           }
           break;
         }
@@ -182,6 +194,7 @@ export function useKeyboardShortcuts({
       setPlaybackRate,
       onCueClick,
       onTogglePlayback,
+      onSeekTo,
     ],
   );
 

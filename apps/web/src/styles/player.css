@@ -102,9 +102,14 @@
  * =========================================================================== */
 
 /* --- Native mpv surface (desktop) ---
- * libmpv paints the picture into a child HWND behind the webview, so the
- * media surface has to be genuinely transparent: the window is created with
- * `transparent: true` and every chrome layer keeps its own opaque background.
+ * libmpv paints the picture into its own child HWND (class "mpv") that is
+ * created as a child of the Tauri main window and placed at the BOTTOM of
+ * the z-order, i.e. BEHIND the WebView2. The webview is created with
+ * `transparent: true`, so the native picture only shows through where the
+ * page does not paint an opaque background.
+ * Every layer between the two has to stay transparent: an opaque container
+ * (or layout / surface / wrapper) covered the whole mpv picture and made the
+ * player black.
  * The `<video>` element stays mounted as the timing/transport shim (muted by
  * VideoPlayer's `nativeRender`) but must never paint over the native picture. */
 html.entei-native-video,
@@ -113,10 +118,9 @@ html.entei-native-video body {
   background-image: none;
 }
 
-html.entei-native-video .entei-player-container {
-  background-color: var(--entei-black-950);
-}
-
+html.entei-native-video .entei-player-container,
+html.entei-native-video .entei-player-layout,
+html.entei-native-video .entei-player-media-area,
 html.entei-native-video .entei-player-surface,
 html.entei-native-video .entei-player-video-wrapper {
   background-color: transparent;

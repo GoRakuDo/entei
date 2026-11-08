@@ -1024,6 +1024,12 @@ export default function PlayerApp() {
   const [isMpvNative, setIsMpvNative] = useState(false);
   /** Native mpv clock while it renders; null outside native mode. */
   const [mpvTime, setMpvTime] = useState<number | null>(null);
+  /** The same clock as a ref, for callbacks that must not re-create on every
+   *  poll tick (mining snapshot, native seek targets). */
+  const mpvTimeRef = useRef<number | null>(null);
+  /** True once the engine reported a position, i.e. the native picture is on
+   *  screen. The transparent surface is only enabled from that moment on. */
+  const [nativePictureReady, setNativePictureReady] = useState(false);
   const [mpvDuration, setMpvDuration] = useState<number | null>(null);
 
   /**
@@ -1427,11 +1433,19 @@ export default function PlayerApp() {
   // Native mode makes the media surface genuinely transparent so libmpv's
   // child HWND (created from `wid`) shows through the webview. The class is
   // scoped to <html>, so Home/Tracker keep their opaque shell.
+  //
+  // The class is applied only once the native picture is actually on screen
+  // (the engine reports a position). The Tauri window is created with
+  // `transparent: true`, so a transparent page before libmpv has painted
+  // would show the desktop through the app for the whole engine start-up.
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('entei-native-video', isMpvNative);
+    root.classList.toggle(
+      'entei-native-video',
+      isMpvNative && nativePictureReady,
+    );
     return () => root.classList.remove('entei-native-video');
-  }, [isMpvNative]);
+  }, [isMpvNative, nativePictureReady]);
 
   // --- Stage 2a: Tracker runtime (non-visual, side-effect only) ---
   // Refs to carry latest media identity into the flush callback (defined
@@ -2223,16 +2237,57 @@ export default function PlayerApp() {
     }, BLUR_RESTORE_TIMEOUT_MS);
   }, [captionDisplayMode]);
 
+  // --- Transport state ---
+  // In native mode the engine is the source of truth: the HTML element is a
+  // passive shim and its own play/pause events never reach libmpv (the
+  // element-event funnel below is switched off there) nor the UI state.
+  // Play/pause state updates only. The engine side lives in two places: the
+  // media-element funnel effect below (every transition the element itself
+  // reports) and `togglePlayback`, which drives libmpv directly for sources the
+  // element cannot decode and therefore never reports.
+  const handlePlay = useCallback(() => {
+    watchSessionIsPlayingRef.current = true;
+    watchSessionLastTimeRef.current = null;
+    setIsPlaying(true);
+    trace('player', 'play', { at: round2(traceMediaRef.current.time) });
+  }, []);
+  const handlePause = useCallback(() => {
+    watchSessionIsPlayingRef.current = false;
+    watchSessionLastTimeRef.current = null;
+    setIsPlaying(false);
+    trace('player', 'pause', { at: round2(traceMediaRef.current.time) });
+  }, []);
+
+  /**
+   * Pause the transport for a capture / mining round.
+   *
+   * The element is always paused: it is the frame source for the capture and
+   * must not run on while the round is open.
+   *
+   * Native mode: the element's `pause` event is a shim event and no longer
+   * reaches libmpv (the funnel is off there), so the engine is paused
+   * explicitly and the UI state is updated here as well.
+   */
+  const pauseTransport = useCallback(() => {
+    sharedMediaRef.current?.pause();
+    if (mpvActiveRef.current) {
+      void mpvPause();
+      handlePause();
+    }
+  }, [handlePause]);
+
   // Mobile: tap blurred overlay → pause media + reveal text
   const handleOverlayTouchTap = useCallback(() => {
     if (captionDisplayMode !== 'blurred') return;
     const media = sharedMediaRef.current;
     if (media && !media.paused) {
-      media.pause();
+      // Native engine: the shim's `pause` event no longer reaches libmpv, so
+      // the engine is paused explicitly through the shared helper.
+      pauseTransport();
     }
     setIsOverlayRevealed(true);
     controlsHandleRef.current?.show();
-  }, [captionDisplayMode]);
+  }, [captionDisplayMode, pauseTransport]);
 
   // Cleanup blur timer on unmount or mode change away from blurred
   useEffect(() => {
@@ -2351,6 +2406,8 @@ export default function PlayerApp() {
     if (!isMpvNative) {
       setMpvTime(null);
       setMpvDuration(null);
+      mpvTimeRef.current = null;
+      setNativePictureReady(false);
       return;
     }
     let cancelled = false;
@@ -2362,7 +2419,9 @@ export default function PlayerApp() {
       if (cancelled) return;
       if (duration !== null) setMpvDuration(duration);
       if (time !== null) {
+        mpvTimeRef.current = time;
         setMpvTime(time);
+        setNativePictureReady(true);
         handleTimeUpdateRef.current(time);
       }
     };
@@ -2374,23 +2433,6 @@ export default function PlayerApp() {
     };
   }, [isMpvNative]);
 
-  // Play/pause state updates only. The engine side lives in two places: the
-  // media-element funnel effect below (every transition the element itself
-  // reports) and `togglePlayback`, which drives libmpv directly for sources the
-  // element cannot decode and therefore never reports.
-  const handlePlay = useCallback(() => {
-    watchSessionIsPlayingRef.current = true;
-    watchSessionLastTimeRef.current = null;
-    setIsPlaying(true);
-    trace('player', 'play', { at: round2(traceMediaRef.current.time) });
-  }, []);
-  const handlePause = useCallback(() => {
-    watchSessionIsPlayingRef.current = false;
-    watchSessionLastTimeRef.current = null;
-    setIsPlaying(false);
-    trace('player', 'pause', { at: round2(traceMediaRef.current.time) });
-  }, []);
-
   /**
    * Single play/pause entry point for every user transport trigger: the
    * control button, the Space shortcut and the desktop surface click.
@@ -2401,9 +2443,11 @@ export default function PlayerApp() {
    * `media.play()` would leave the picture and the sound paused forever. The
    * intent therefore goes straight to the engine and `isPlaying` is updated
    * here, because no element event will ever report it. The element is still
-   * nudged (it is muted in native mode) so its own clock keeps working for
-   * decodable media (mining snapshot, layout restore); an undecodable element
-   * rejects harmlessly.
+   * nudged (it is muted in native mode) so it stays a live frame source for
+   * mining captures; an undecodable element rejects harmlessly.
+   * No seek is sent to the engine: mpv's own position is authoritative in
+   * native mode, and a seek to the element's `currentTime` would restart an
+   * undecodable source from 0:00.
    *
    * HTML mode: the element is the transport and its own events keep updating
    * `isPlaying`, so the element's real `paused` flag decides the intent. That
@@ -2417,9 +2461,6 @@ export default function PlayerApp() {
         media?.pause();
         handlePause();
       } else {
-        // No seek: mpv's own position is authoritative in native mode, and a
-        // seek to the element's `currentTime` would restart an undecodable
-        // source from 0:00.
         void mpvPlay();
         void media?.play().catch(() => {});
         handlePlay();
@@ -2527,14 +2568,21 @@ export default function PlayerApp() {
   // auto-pause, mobile blur pause, error handling).
   // User play/pause does NOT rely on these events: an undecodable source never
   // fires them, so `togglePlayback` drives the engine directly.
-  // Note: pause-only paths that call `media.pause()` (mining auto-pause, mobile
-  // blur pause) still rely on the element's event. They are unreachable for a
-  // source the element cannot decode — mining needs a decodable frame from the
-  // element in the first place, and blur pause is a mobile-only path.
   // `mpvSeek` / `mpvPlay` / `mpvPause` are no-ops outside Tauri.
+  //
+  // NATIVE MODE EXCEPTION: while libmpv owns the media the element is a
+  // passive shim and the mirror is switched off completely. The element's
+  // position is not the engine's position — WebView2 cannot decode HEVC
+  // 4:4:4 10-bit / FLAC, so the element can sit at 0:00 while the engine
+  // plays on — and mirroring it dragged the engine back to that stale
+  // position. Every transport intent is sent to the engine explicitly at its
+  // own site (togglePlayback, controls slider, cue click, condensed seek,
+  // keyboard Home, mining pause) instead of through the element's events.
   useEffect(() => {
     const media = mediaType === 'video' ? videoRef.current : audioRef.current;
     if (!media) return;
+    // Native mode: the element never drives the engine (see above).
+    if (isMpvNative) return;
     // Gate every mirror on `mpvActiveRef`: mpv only holds a local file, so a
     // relay / `blob:` source must never seek or pause whatever the engine
     // happens to hold.
@@ -2562,7 +2610,7 @@ export default function PlayerApp() {
       media.removeEventListener('play', onPlay);
       media.removeEventListener('pause', onPause);
     };
-  }, [mediaType, mediaUrl]);
+  }, [mediaType, mediaUrl, isMpvNative]);
 
   // --- Companion start buffering: monitor the initial playability ---
   // The companion surfaces jobMediaUrl while the .part is still being
@@ -2921,9 +2969,13 @@ export default function PlayerApp() {
           }
           isCondensedSeekingRef.current = true;
           // ED-2H: Clamp condensed-mode seek to companion's verified range.
-          media.currentTime = jobSession.active
+          const condensedTarget = jobSession.active
             ? clampSeekTime(next.start)
             : next.start;
+          media.currentTime = condensedTarget;
+          // Native engine: the element is a passive shim there — its `seeking`
+          // event no longer reaches libmpv, so the engine is seeked directly.
+          if (mpvActiveRef.current) void mpvSeek(condensedTarget);
           // Fall back to a bounded release if this browser does not dispatch seeked.
           condensedSeekTimeoutRef.current = setTimeout(() => {
             isCondensedSeekingRef.current = false;
@@ -3690,7 +3742,7 @@ export default function PlayerApp() {
       // Row mining: seek the visible media to the target cue start so
       // the screenshot/video-clip frame reflects the mined timestamp.
       if (overrideCue && media) {
-        media.pause();
+        pauseTransport();
         if (mediaType === 'video' && videoRef.current) {
           const seekController = new AbortController();
           try {
@@ -3708,9 +3760,13 @@ export default function PlayerApp() {
         }
       }
 
-      const snapshotTime = media?.currentTime ?? 0;
+      // Native mode: the engine's position is the real one — the element can
+      // sit at a stale position when WebView2 cannot decode the source.
+      const snapshotTime = mpvActiveRef.current
+        ? (mpvTimeRef.current ?? 0)
+        : (media?.currentTime ?? 0);
       miningSnapshotTimeRef.current = snapshotTime;
-      media?.pause();
+      pauseTransport();
 
       const epoch = miningEpochRef.current + 1;
       miningEpochRef.current = epoch;
@@ -3926,6 +3982,7 @@ export default function PlayerApp() {
       mediaName,
       mediaMode,
       playbackRate,
+      pauseTransport,
       replaceMiningScreenshotUrl,
       replaceMiningAudioUrl,
     ],
@@ -5371,6 +5428,17 @@ export default function PlayerApp() {
   );
 
   // --- Keyboard shortcuts ---
+  /**
+   * Home shortcut seek. Native mode: the element is a passive shim there, so
+   * the engine has to be seeked explicitly — the element's `seeking` event no
+   * longer reaches libmpv.
+   */
+  const handleShortcutSeek = useCallback((seconds: number) => {
+    const media = sharedMediaRef.current;
+    if (media) media.currentTime = seconds;
+    if (mpvActiveRef.current) void mpvSeek(seconds);
+  }, []);
+
   useKeyboardShortcuts({
     videoRef: sharedMediaRef,
     cues,
@@ -5379,6 +5447,7 @@ export default function PlayerApp() {
     setPlaybackRate: handlePlaybackRateChange,
     onCueClick: handleCueClick,
     onTogglePlayback: togglePlayback,
+    onSeekTo: handleShortcutSeek,
     enabled: true,
   });
 
@@ -5657,6 +5726,7 @@ export default function PlayerApp() {
         clampSeekTime={jobSession.active ? clampSeekTime : undefined}
         externalTime={mpvTime}
         externalDuration={mpvDuration}
+        nativeRender={isMpvNative}
       />
       <ScreenshotPreviewDialog
         open={isScreenshotDialogOpen}

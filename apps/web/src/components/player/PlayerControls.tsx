@@ -134,6 +134,12 @@ interface PlayerControlsProps {
   externalTime?: number | null;
   /** Native mpv media duration (seconds), same rationale as `externalTime`. */
   externalDuration?: number | null;
+  /**
+   * libmpv owns the picture, the sound and the clock. The HTML element is
+   * then a passive shim: its own time events must never write the position,
+   * because the engine's `externalTime` is the only clock that may.
+   */
+  nativeRender?: boolean;
 }
 
 export interface PlayerControlsHandle {
@@ -183,6 +189,7 @@ export const PlayerControls = forwardRef<
     clampSeekTime,
     externalTime = null,
     externalDuration = null,
+    nativeRender = false,
   },
   ref,
 ) {
@@ -240,6 +247,12 @@ export const PlayerControls = forwardRef<
   // When it changes (new file, video↔audio switch), this effect reattaches
   // listeners to the newly mounted element via mediaRef.current.
   useEffect(() => {
+    // Native mpv mode: the element is a passive shim and the engine's
+    // `externalTime` / `externalDuration` are the only clock. The element's
+    // own timeupdate must never write the position — it fought the 200 ms
+    // mpv poll and made the timestamp jump back and forth.
+    if (nativeRender) return;
+
     // Reset state immediately when media changes to avoid stale display
     setCurrentTime(0);
     setDuration(0);
@@ -282,7 +295,7 @@ export const PlayerControls = forwardRef<
       media.removeEventListener('error', onError);
       media.removeEventListener('loadedmetadata', onLoadedMetadata);
     };
-  }, [mediaRef, mediaKey, hasMedia, isSeeking]);
+  }, [mediaRef, mediaKey, hasMedia, isSeeking, nativeRender]);
 
   // --- Native mpv clock (desktop) ---
   // While libmpv renders, the HTML element may never report a position
@@ -513,16 +526,18 @@ export const PlayerControls = forwardRef<
         ? clampSeekTime(clampSeek(raw, duration))
         : clampSeek(raw, duration);
       // Immediate seek — click-to-seek must never wait for pointerup.
+      // The element is kept in sync on purpose: it is the frame source for
+      // mining captures and the play-mode effects read its position.
       media.currentTime = target;
-      // Desktop native engine: the element's own `seeking` event only mirrors
-      // a seek the element can actually perform. When it cannot (unsupported
-      // codec), this direct call is the only thing that moves the picture.
-      void mpvSeek(target);
+      // Desktop native engine: libmpv is the renderer, so the seek has to
+      // reach the engine directly — the element's own `seeking` event is no
+      // longer mirrored (the element's position is not the engine's).
+      if (nativeRender) void mpvSeek(target);
       seekValueRef.current = target;
       setCurrentTime(target);
       return target;
     },
-    [mediaRef, duration, clampSeekTime],
+    [mediaRef, duration, clampSeekTime, nativeRender],
   );
 
   const handleSeekPointerDown = useCallback(
@@ -635,7 +650,8 @@ export const PlayerControls = forwardRef<
           ? clampSeekTime(clampSeek(seekTime, duration))
           : clampSeek(seekTime, duration);
         media.currentTime = clamped;
-        void mpvSeek(clamped);
+        // Native engine: the engine is the renderer, so it needs the seek.
+        if (nativeRender) void mpvSeek(clamped);
         // Sync state immediately so slider doesn't show stale time
         // before the next timeupdate fires.
         setCurrentTime(clamped);
@@ -645,7 +661,7 @@ export const PlayerControls = forwardRef<
       setIsSeeking(false);
       showControls({ type: 'seek-end' });
     },
-    [mediaRef, duration, showControls, clampSeekTime],
+    [mediaRef, duration, showControls, clampSeekTime, nativeRender],
   );
 
   // Compute seek slider value: during drag use seekValueRef, otherwise media currentTime

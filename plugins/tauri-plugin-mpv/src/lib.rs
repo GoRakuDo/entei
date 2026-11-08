@@ -92,7 +92,15 @@ const AUDIO_OUTPUT_FALLBACK: &str = "auto";
 /// - `vo` / `ao`: real GPU video and native audio output. On Windows `wid`
 ///   is added separately from the main window's HWND, which makes libmpv
 ///   create its video output as a CHILD of the Tauri window — no second
-///   top-level window and no extra taskbar entry.
+///   top-level window and no extra taskbar entry. The child window is
+///   created with the parent as its owner and lands at the BOTTOM of the
+///   z-order, so the WebView2 keeps painting the HTML UI on top of it and the
+///   native picture is only visible where the page is transparent.
+/// - `force-window`: create the output window even when the file has no video
+///   track (audio-only MKV). Without it libmpv creates no window at all for
+///   such a file, and the transparent media surface of the native mode would
+///   show the desktop through the app. It does NOT change the window
+///   geometry: with `wid` the window still tracks the parent's client area.
 /// - `pause = yes`: the engine starts held. `loadfile … replace` otherwise
 ///   starts its own clock immediately, so it would advance on its own while the
 ///   user has not pressed Play yet.
@@ -110,6 +118,7 @@ const BASE_OPTIONS: &[(&str, &str)] = &[
     ("alang", "ja,jpn"),
     ("slang", "ja,jpn"),
     ("idle", "yes"),
+    ("force-window", "yes"),
 ];
 
 /// Options whose rejection breaks the native-renderer contract. `vo` / `ao`
@@ -708,6 +717,10 @@ mod tests {
         assert_ne!(value_of("vo"), Some("null"));
         assert_ne!(value_of("ao"), Some("null"));
         assert_eq!(value_of("pause"), Some("yes"));
+        // The output window must exist even for a file without a video track,
+        // otherwise the transparent native surface shows the desktop through
+        // the app.
+        assert_eq!(value_of("force-window"), Some("yes"));
     }
 
     #[test]

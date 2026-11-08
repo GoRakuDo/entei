@@ -51,14 +51,36 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   ) {
     const handleTimeUpdate = useCallback(
       (e: React.SyntheticEvent<HTMLVideoElement>) => {
+        // Native render mode: libmpv owns the clock (the 200 ms
+        // `mpv_get_time` poll in PlayerApp). The element's own position is
+        // a different clock — feeding it into the cue / tracker pipeline made
+        // the two fight over the same position and the time display jumped
+        // back and forth. The element stays mounted as the frame source for
+        // mining captures, but it never reports a position here.
+        if (nativeRender) return;
         onTimeUpdate(e.currentTarget.currentTime);
       },
-      [onTimeUpdate],
+      [onTimeUpdate, nativeRender],
     );
 
     const handleLoadedData = useCallback(() => {
       onLoaded();
     }, [onLoaded]);
+
+    // Native render mode: libmpv owns the transport state. The element's own
+    // play/pause events describe the shim, not the engine, so they must not
+    // drive the UI state — the engine's intent does (togglePlayback, mining
+    // auto-pause). A stale shim event would otherwise flip the play/pause
+    // button while the picture stands still.
+    const handlePlay = useCallback(() => {
+      if (nativeRender) return;
+      onPlay();
+    }, [onPlay, nativeRender]);
+
+    const handlePause = useCallback(() => {
+      if (nativeRender) return;
+      onPause();
+    }, [onPause, nativeRender]);
 
     const handleError = useCallback(
       (e: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -120,8 +142,8 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         crossOrigin="anonymous"
         className="entei-player-video"
         onTimeUpdate={handleTimeUpdate}
-        onPlay={onPlay}
-        onPause={onPause}
+        onPlay={handlePlay}
+        onPause={handlePause}
         onLoadedData={handleLoadedData}
         onError={handleError}
         onKeyDown={handleKeyDown}

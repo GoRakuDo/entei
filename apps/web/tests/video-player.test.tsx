@@ -299,4 +299,90 @@ describe('VideoPlayer', () => {
     expect(removeAttribute).toHaveBeenCalledWith('src');
     expect(load).toHaveBeenCalledTimes(1);
   });
+
+  // --- Native mpv mode: the element is a passive shim -------------------
+  // libmpv owns the clock (the 200 ms `mpv_get_time` poll) and the
+  // transport state. The element's own events describe the shim, not the
+  // engine: two clocks writing the same position made the time display
+  // jump back and forth.
+
+  it('reports the element position in HTML mode', () => {
+    const onTimeUpdate = vi.fn();
+    const { container } = render(
+      <VideoPlayer {...makeProps({ onTimeUpdate })} />,
+    );
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'currentTime', {
+      value: 12.5,
+      configurable: true,
+    });
+    fireEvent.timeUpdate(video);
+    expect(onTimeUpdate).toHaveBeenCalledTimes(1);
+    expect(onTimeUpdate).toHaveBeenCalledWith(12.5);
+  });
+
+  it('never reports the element position in native render mode', () => {
+    const onTimeUpdate = vi.fn();
+    const { container } = render(
+      <VideoPlayer {...makeProps({ onTimeUpdate, nativeRender: true })} />,
+    );
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'currentTime', {
+      value: 12.5,
+      configurable: true,
+    });
+    fireEvent.timeUpdate(video);
+    expect(onTimeUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not forward play/pause in native render mode (the engine owns the transport state)', () => {
+    const onPlay = vi.fn();
+    const onPause = vi.fn();
+    const { container } = render(
+      <VideoPlayer
+        {...makeProps({ onPlay, onPause, nativeRender: true })}
+      />,
+    );
+    const video = container.querySelector('video')!;
+    fireEvent.play(video);
+    fireEvent.pause(video);
+    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPause).not.toHaveBeenCalled();
+  });
+
+  it('forwards play/pause in HTML mode', () => {
+    const onPlay = vi.fn();
+    const onPause = vi.fn();
+    const { container } = render(
+      <VideoPlayer {...makeProps({ onPlay, onPause })} />,
+    );
+    const video = container.querySelector('video')!;
+    fireEvent.play(video);
+    fireEvent.pause(video);
+    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(onPause).toHaveBeenCalledTimes(1);
+  });
+
+  it('mutes the shim in native render mode so it never makes sound next to the engine', () => {
+    const { container } = render(
+      <VideoPlayer {...makeProps({ nativeRender: true })} />,
+    );
+    expect(container.querySelector('video')?.muted).toBe(true);
+  });
+
+  it('keeps the decode error out of the surface in native render mode (the engine paints the picture)', () => {
+    const onError = vi.fn();
+    const { container } = render(
+      <VideoPlayer {...makeProps({ onError, nativeRender: true })} />,
+    );
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'error', {
+      value: { code: 3, message: 'DEMUXER_ERROR' },
+      configurable: true,
+    });
+    fireEvent.error(video);
+    expect(onError).not.toHaveBeenCalled();
+    // The element stays mounted — it is the frame source for mining captures.
+    expect(container.querySelector('video')).not.toBeNull();
+  });
 });
