@@ -1016,4 +1016,6 @@ Sentence Mining:
 - **待機中の phase 遷移:** 1 フレーム目が描画される前に `jobSession.phase` が遷移した場合、クリーンアップによって一時的にオーバーレイがアンマウントされ再 arm される可能性がある。
 - **15 秒安全タイマー:** 細切れの `waiting` イベントが連続する場合にタイマーが延長され得るが、`pointer-events: none` のためプレイヤー操作自体は阻害されない。
 - **seek 側の HAVE_FUTURE_DATA 命名:** 同一ファイル内に値 2 の同名定数が残存しているが、HTMLMediaElement の仕様値（2 = HAVE_CURRENT_DATA）と整合しており動作上の問題はない。
+- **JIMAKU 行の角丸と区切り線:** `.entei-jimaku-row` は `border-radius: var(--entei-radius-md)` を持ち、Magnet リストと同様に枠線なし（frameless）で運用されている。
+- **モバイル Load ボタンの幅:** `@media (max-width: 767px)` で `.entei-jimaku-load` を `width: 100%` に上書きして全幅化している。
 

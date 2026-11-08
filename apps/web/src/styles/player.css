@@ -6662,6 +6662,7 @@ html.entei-player-immersive .entei-player-audio-area {
   padding: var(--entei-space-8) var(--entei-space-12);
   border: none;
   border-bottom: 1px solid oklch(1 0 0deg / 0.06);
+  border-radius: var(--entei-radius-md);
   background: none;
   color: var(--entei-text);
   text-align: left;
@@ -7024,6 +7025,9 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 
   .entei-jimaku-actions > .entei-jimaku-load {
+    /* Same specificity as the 10rem desktop rule, so it wins by source
+       order; the `> button` rule above cannot override that width. */
+    width: 100%;
     border-left-width: 1px;
   }
 

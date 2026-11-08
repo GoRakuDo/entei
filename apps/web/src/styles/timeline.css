@@ -16,9 +16,9 @@
   width: 100%;
   max-width: 42rem;
   margin-inline: auto;
-  /* Symmetric vertical breathing room: 16px above and below keeps the same
-     total 32px the old top-only padding had, without a lopsided bottom edge. */
-  padding-block: var(--entei-space-16);
+  /* The composer below owns the 16px vertical breathing room, so the root
+     stays flush and the feed gets no extra gap above or below the surface. */
+  padding-block: 0;
   display: flex;
   flex-direction: column;
   font-family: var(--entei-font-body);
@@ -35,9 +35,9 @@
 /* ===== COMPOSER ===== */
 
 .entei-timeline-composer {
-  /* Symmetric 8px above/below the divider: the old bottom-only 16px made the
-     composer look glued to the top while the border floated below it. */
-  padding-block: var(--entei-space-8);
+  /* Symmetric 16px above/below now owns the breathing room that used to sit
+     on the root, so the divider keeps an even gap on both sides. */
+  padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
