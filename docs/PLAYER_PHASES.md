@@ -989,3 +989,31 @@ Sentence Mining:
 
 - 初期化が 5 分を超える torrent では relay が 503 を返す。Player 側の bounded `src` 再設定 + `load()` 復旧が最後の砦。
 - 初期化が `TRACK_SCAN_TIMEOUT` を超えた torrent では `selected_audio_track` / `selected_subtitle_track` が返らず、mpv の自動選択になる（日本語音声が既定でない場合は英語で再生される可能性がある）。
+
+---
+
+## 24. プレイヤー枠内ローディング表示の金色・落とし影と実フレーム消去
+
+> **追加日:** 2026-09-06
+> **対象:** `apps/web/src/styles/player.css`, `apps/web/src/components/player/PlayerApp.tsx`, `apps/web/tests/companion-start-buffering.test.tsx`
+
+### 症状と課題
+
+1. **視認性:** 明るい映像シーン上で「Menyiapkan video…」のローディング文字が `var(--entei-text-muted)` のグレーで薄く、埋もれて視認不能。
+2. **消去タイミング:** 動画の一時停止中（paused）に 1 フレーム目が画面に読み込まれて描画されているにもかかわらず、ローディング表示が真ん中に残り続ける。
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| スタイリング | `.entei-companion-loading` に `var(--entei-status-locked)`（ゴールド）＋黒い 3 層 OKLCH `text-shadow`（硬い 1px 縁＋ぼかし 2 段）を適用。キャレット（`.entei-typewriter-caret`）にも `filter: drop-shadow` を適用し、明るい映像上でもクッキリ可視化 |
+| 1 フレーム消去 (rVFC) | Chromium / Tauri 環境では `onFirstFrame` で実ピクセル（`meta.width > 0 && meta.height > 0`）が提示された瞬間に `clearStartBuffering()` で即座に非表示 |
+| ラッチ | `startBufferingExhaustedRef`（source キー付き）により、同一動画ソースである限り phase 遷移などの effect 再実行があっても再出現を防止 |
+| フォールバック | 非 rVFC ブラウザでは `media.readyState >= 3`（`HAVE_FUTURE_DATA`）または `!media.paused` で消去 |
+
+### 既知の指摘（Known issues / Low findings）
+
+- **待機中の phase 遷移:** 1 フレーム目が描画される前に `jobSession.phase` が遷移した場合、クリーンアップによって一時的にオーバーレイがアンマウントされ再 arm される可能性がある。
+- **15 秒安全タイマー:** 細切れの `waiting` イベントが連続する場合にタイマーが延長され得るが、`pointer-events: none` のためプレイヤー操作自体は阻害されない。
+- **seek 側の HAVE_FUTURE_DATA 命名:** 同一ファイル内に値 2 の同名定数が残存しているが、HTMLMediaElement の仕様値（2 = HAVE_CURRENT_DATA）と整合しており動作上の問題はない。
+

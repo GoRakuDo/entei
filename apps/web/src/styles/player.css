@@ -832,9 +832,27 @@
   align-items: center;
   justify-content: center;
   gap: var(--entei-space-12);
-  color: var(--entei-text-muted);
+  /* The copy sits directly over video frames. The old muted grey (L ~70%)
+     vanished into bright scenes, so use the gold status accent with a hard
+     1px black edge plus two soft black drops. color and text-shadow are
+     inherited by the typewriter span; the caret is a border, so it gets its
+     own drop-shadow filter below. Applies to .entei-start-buffering too —
+     it shares this element. */
+  color: var(--entei-status-locked);
+  font-weight: 600;
+  text-shadow:
+    0 1px 0 oklch(0% 0 0deg / 0.9),
+    0 2px 6px oklch(0% 0 0deg / 0.9),
+    0 0 12px oklch(0% 0 0deg / 0.7);
   z-index: 1;
   pointer-events: none;
+}
+
+/* The caret is a 2px border, not text, so text-shadow never reaches it.
+   Mirror the copy's hard black edge with a filter: the blinking bar stays
+   visible over bright video frames in both loading overlays. */
+.entei-companion-loading .entei-typewriter-caret {
+  filter: drop-shadow(0 1px 2px oklch(0% 0 0deg / 0.9));
 }
 
 .entei-companion-loading-text {
@@ -846,7 +864,8 @@
 /* Companion START buffering (black-screen wait): the job media URL is up
    but the .part has not yielded playable data yet. Larger, responsive
    type (scale 1rem → 1.5rem, clamped by viewport) so the waiting state
-   reads on phones; same layout pattern as the loading overlay. */
+   reads on phones; same layout pattern as the loading overlay. Colour and
+   weight come from the shared .entei-companion-loading parent. */
 .entei-start-buffering .entei-typewriter--start,
 .entei-companion-loading-text--start {
   font-size: clamp(1rem, 3vw, 1.5rem);
