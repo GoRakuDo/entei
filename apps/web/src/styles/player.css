@@ -3232,8 +3232,8 @@ body.entei-fullscreen-active .entei-mobile-dock {
    (local file, magnet/torrent, or YouTube job). Hides only the mobile top bar
    on <768px; the DOM stays mounted for SEO/app-shell stability and the mobile
    dock remains reachable so the user is never trapped. Entry (no media) keeps
-   the chrome. NOTE: TopBar.astro currently renders no mobile header on
-   /player, so this rule becomes effective when that gate is lifted. */
+   the chrome, which TopBar.astro renders as the "← Kembali" back control on
+   /player/ as well as /modules/. */
 @media (max-width: 767px) {
   html.entei-video-loaded .entei-topbar-mobile {
     display: none;
@@ -5098,7 +5098,8 @@ html.entei-player-immersive .entei-player-audio-area {
 
 /* --- Metadata-check skeleton (breadcrumb bar + file rows) --- */
 /* Same shimmer as the player skeleton so the wait state reads as one system.
-   Every bone is its own clipping box, so the gradient sweeps per element. */
+   Every bone is its own clipping box, so the gradient sweeps per element.
+   The JIMAKU list-loading bones reuse this exact sweep below. */
 .entei-magnet-breadcrumb--skeleton {
   overflow: hidden;
 }
@@ -5149,7 +5150,9 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-magnet-skeleton-crumb::after,
 .entei-magnet-skeleton-icon::after,
-.entei-magnet-skeleton-name::after {
+.entei-magnet-skeleton-name::after,
+.entei-jimaku-skeleton-icon::after,
+.entei-jimaku-skeleton-name::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -5166,7 +5169,9 @@ html.entei-player-immersive .entei-player-audio-area {
 @media (prefers-reduced-motion: reduce) {
   .entei-magnet-skeleton-crumb::after,
   .entei-magnet-skeleton-icon::after,
-  .entei-magnet-skeleton-name::after {
+  .entei-magnet-skeleton-name::after,
+  .entei-jimaku-skeleton-icon::after,
+  .entei-jimaku-skeleton-name::after {
     animation: none;
     opacity: 0.08;
   }
@@ -6556,6 +6561,35 @@ html.entei-player-immersive .entei-player-audio-area {
   border-radius: 0;
 }
 
+/* Gold query text + always-filled search action: the Magnet dialog's add
+   button carries this fill at rest, not only as a hover reward. */
+.entei-jimaku-input-group > .entei-jimaku-title-input {
+  color: var(--entei-status-locked);
+}
+
+.entei-jimaku-input-group > .entei-jimaku-title-input::placeholder {
+  color: var(--entei-text-muted);
+  opacity: 1;
+}
+
+.entei-jimaku-input-group > .entei-jimaku-search-btn {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+  transition-property: background-color, color, filter;
+}
+
+.entei-jimaku-input-group > .entei-jimaku-search-btn:hover:not(:disabled) {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+  filter: brightness(1.12);
+}
+
+.entei-jimaku-input-group > .entei-jimaku-search-btn:disabled {
+  color: var(--entei-status-locked);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .entei-jimaku-input-group > input:focus-visible,
 .entei-jimaku-input-group > button:focus-visible,
 .entei-jimaku-key-group > input:focus-visible,
@@ -6604,7 +6638,8 @@ html.entei-player-immersive .entei-player-audio-area {
   max-width: 24rem;
 }
 
-/* Bounded internal scroll; long names truncate instead of animating. */
+/* Bounded internal scroll, frameless like the Magnet list. Long names scroll
+   on hover/focus instead of being clipped with an ellipsis. */
 .entei-jimaku-list-section {
   display: flex;
   flex-direction: column;
@@ -6615,9 +6650,7 @@ html.entei-player-immersive .entei-player-audio-area {
 .entei-jimaku-list-scroll {
   max-height: 20rem;
   overflow-y: auto;
-  background-color: var(--entei-surface);
-  border: 1px solid oklch(1 0 0deg / 0.1);
-  border-radius: var(--entei-radius-md);
+  border: none;
 }
 
 .entei-jimaku-row {
@@ -6642,9 +6675,16 @@ html.entei-player-immersive .entei-player-audio-area {
   border-bottom: none;
 }
 
-.entei-jimaku-row:hover:not(:disabled) {
+.entei-jimaku-row:hover:not(:disabled),
+.entei-jimaku-row:focus-visible:not(:disabled) {
   background-color: var(--entei-btn-color);
-  color: var(--entei-accent-hover);
+  color: var(--entei-status-locked);
+}
+
+/* The leading icon follows the label into gold on hover or keyboard focus. */
+.entei-jimaku-row:hover:not(:disabled) .entei-jimaku-file-icon,
+.entei-jimaku-row:focus-visible:not(:disabled) .entei-jimaku-file-icon {
+  color: var(--entei-status-locked);
 }
 
 .entei-jimaku-row[aria-current='true'],
@@ -6690,6 +6730,10 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-status-locked);
 }
 
+/* Only names measured as overflowing get --marquee (shouldMarquee in the
+   TSX); short names never move. Non-marquee clipping ends in a static
+   ellipsis; --marquee drops it for a right-side fade and scrolls its two-copy
+   track left on hover/focus. */
 .entei-jimaku-row-text {
   flex: 1;
   min-width: 0;
@@ -6700,8 +6744,92 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
-.entei-jimaku-empty,
-.entei-jimaku-loading {
+.entei-jimaku-marquee-track {
+  display: inline-flex;
+  width: max-content;
+  white-space: nowrap;
+}
+
+.entei-jimaku-marquee-copy {
+  flex: none;
+}
+
+.entei-jimaku-row-text--marquee {
+  text-overflow: clip;
+  mask-image: linear-gradient(
+    90deg,
+    oklch(0% 0 0deg) 0%,
+    oklch(0% 0 0deg) 92%,
+    oklch(0% 0 0deg / 0) 100%
+  );
+}
+
+/* Duplicate via generated content: no second text node in the DOM. The 2rem
+   gap plus the extra 1rem in the keyframe makes the loop seamless. */
+.entei-jimaku-row-text--marquee .entei-jimaku-marquee-track::after {
+  content: attr(data-title);
+  flex: none;
+  padding-inline-start: var(--entei-space-32);
+  white-space: nowrap;
+}
+
+.entei-jimaku-row:hover .entei-jimaku-row-text--marquee .entei-jimaku-marquee-track,
+.entei-jimaku-row:focus-visible .entei-jimaku-row-text--marquee .entei-jimaku-marquee-track {
+  animation: entei-marquee 12s linear infinite;
+}
+
+@keyframes entei-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-50% - var(--entei-space-16)));
+  }
+}
+
+/* Loading lists reuse the Magnet dialog's shimmer bones; the ::after sweep is
+   declared in the shared skeleton section above. */
+.entei-jimaku-skeleton {
+  display: flex;
+  flex-direction: column;
+  min-height: 8rem;
+  padding: var(--entei-space-8) 0;
+}
+
+.entei-jimaku-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  width: 100%;
+}
+
+.entei-jimaku-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8);
+}
+
+.entei-jimaku-skeleton-icon,
+.entei-jimaku-skeleton-name {
+  position: relative;
+  border-radius: var(--entei-radius-sm);
+  background-color: oklch(100% 0 0deg / 0.06);
+  overflow: hidden;
+}
+
+.entei-jimaku-skeleton-icon {
+  flex: 0 0 var(--entei-space-20);
+  width: var(--entei-space-20);
+  height: var(--entei-space-20);
+}
+
+.entei-jimaku-skeleton-name {
+  height: 0.75rem;
+}
+
+.entei-jimaku-empty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6786,8 +6914,19 @@ html.entei-player-immersive .entei-player-audio-area {
   transition-timing-function: var(--entei-ease-productive);
 }
 
-.entei-jimaku-load {
+/* Primary action: solid Entei fill at rest (Magnet's "Streaming Sekarang"),
+   including the disabled state. Hover lifts the label to gold. */
+.entei-jimaku-actions > .entei-jimaku-load {
   width: 10rem;
+  background-color: var(--entei-btn-color);
+  transition-property: background-color, color, filter;
+}
+
+.entei-jimaku-actions > .entei-jimaku-load:hover:not(:disabled),
+.entei-jimaku-actions > .entei-jimaku-load:active:not(:disabled) {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+  filter: brightness(1.12);
 }
 
 .entei-jimaku-cancel {
@@ -6900,6 +7039,26 @@ html.entei-player-immersive .entei-player-audio-area {
   .entei-jimaku-crumb-back,
   .entei-jimaku-actions > button {
     transition: none;
+  }
+
+  /* No motion: the long name falls back to a static ellipsis. */
+  .entei-jimaku-row:hover .entei-jimaku-row-text--marquee .entei-jimaku-marquee-track,
+  .entei-jimaku-row:focus-visible .entei-jimaku-row-text--marquee .entei-jimaku-marquee-track {
+    animation: none;
+  }
+
+  .entei-jimaku-row-text--marquee .entei-jimaku-marquee-track {
+    display: inline;
+    width: auto;
+  }
+
+  .entei-jimaku-row-text--marquee .entei-jimaku-marquee-track::after {
+    content: none;
+  }
+
+  .entei-jimaku-row-text--marquee {
+    text-overflow: ellipsis;
+    mask-image: none;
   }
 }
 

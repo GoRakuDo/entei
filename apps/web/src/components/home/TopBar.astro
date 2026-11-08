@@ -23,7 +23,8 @@
  *
  * Mobile (<768px):
  * - Sticky header with brand + optional native LanguageSelector — hidden
- *   entirely on Home (the dock is the only chrome there).
+ *   entirely on Home (the dock is the only chrome there). Leaf surfaces
+ *   (/modules/, /player/) replace both with a single "← Kembali" back control.
  * - Floating bottom Dock: Home / Immersion Tools / Settings.
  *   DOM-ordered from MOBILE_DESTINATIONS + the dialog entries.
  *
@@ -86,7 +87,8 @@ function normalisePath(p: string): string {
   return p.endsWith('/') ? p.slice(0, -1) : p;
 }
 const activePath = normalisePath(currentPath);
-/** Only the real /player/ route renders no mobile top chrome at all. */
+/** The real /player/ route: player.css hides its mobile chrome once media
+ *  loads, so the entry screen still shows the TopBar. */
 const isVideoPlayer = activePath === '/player';
 /**
  * Player-style chrome (the hover-reveal desktop pill zone). True for the
@@ -100,12 +102,16 @@ const isPlayer = isVideoPlayer || playerLike;
  */
 const isHome = activePath === '/';
 /**
- * `/modules/` (and its subpages) swap the mobile TopBar brand + language
- * selector for a single "← Kembali" back control: the page is a leaf surface
- * opened from the Immersion Tools drawer, so going back is the only useful
- * action there and the language selector lives in the Settings modal.
+ * Leaf surfaces opened from the Immersion Tools drawer swap the mobile TopBar
+ * brand + language selector for a single "← Kembali" back control: going back
+ * is the only useful action there and language lives in the Settings modal.
+ * `/player/` joins `/modules/` (and its subpages): on a phone the video
+ * player entry screen needs the same back affordance instead of the wordmark.
+ * Both reuse modulesPage.back, present in id/ja/en as Kembali / 戻る / Back
+ * and resolved by the locale switcher through data-i18n.
  */
 const isModules = activePath === '/modules' || activePath.startsWith('/modules/');
+const isMobileBack = isModules || isVideoPlayer;
 
 /**
  * Full serializable playerUI dictionary for the global settings dialog
@@ -137,7 +143,7 @@ const settingsUIProps = dictionary.playerUI;
   !isHome && (
     <header class="entei-topbar-mobile" role="banner">
       <div class="entei-topbar-mobile-inner">
-        {isModules ? (
+        {isMobileBack ? (
           <a
             class="entei-mobile-back"
             href="/"
@@ -152,7 +158,7 @@ const settingsUIProps = dictionary.playerUI;
             <span class="entei-wordmark-text">Entei</span>
           </a>
         )}
-        {showLanguageSelector && !isModules && (
+        {showLanguageSelector && !isMobileBack && (
           <LanguageSelector
             currentLocale={locale}
             selectLabel={dictionary.language.selectLabel}
@@ -470,7 +476,7 @@ const settingsUIProps = dictionary.playerUI;
     line-height: 1;
   }
 
-  /* Mobile back control (/modules/): replaces brand + language selector. */
+  /* Mobile back control (/modules/ + /player/): replaces brand + language selector. */
   .entei-mobile-back {
     display: inline-flex;
     align-items: center;

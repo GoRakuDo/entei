@@ -12,7 +12,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
-  FileText,
   KeyRound,
   Search,
   Subtitles,
@@ -99,6 +98,46 @@ const ENTRY_COLLATOR = new Intl.Collator('en', {
   sensitivity: 'base',
   numeric: true,
 });
+
+/** Shimmer bone widths, staggered so the wait state reads as a file list. */
+const SKELETON_ROW_WIDTHS = ['62%', '48%', '71%', '55%', '66%'];
+
+/** A long name needs the hover marquee only when it actually overflows. */
+export function shouldMarquee(
+  scrollWidth: number,
+  clientWidth: number,
+): boolean {
+  return scrollWidth > clientWidth;
+}
+
+/** Ref callback: mark only overflowing name spans for the CSS marquee. */
+function applyMarqueeOverflow(node: HTMLSpanElement | null): void {
+  if (!node) return;
+  node.classList.toggle(
+    'entei-jimaku-row-text--marquee',
+    shouldMarquee(node.scrollWidth, node.clientWidth),
+  );
+}
+
+/** List-loading placeholder; the shimmer sweep is shared with MagnetInput. */
+function JimakuListSkeleton() {
+  return (
+    <div className="entei-jimaku-skeleton" role="status">
+      <span className="entei-sr-only">Loading...</span>
+      <div className="entei-jimaku-skeleton-list" aria-hidden="true">
+        {SKELETON_ROW_WIDTHS.map((width, index) => (
+          <div className="entei-jimaku-skeleton-row" key={index}>
+            <span className="entei-jimaku-skeleton-icon" />
+            <span
+              className="entei-jimaku-skeleton-name"
+              style={{ width }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /** Merge both catalog searches into one deduped, A-Z sorted list. */
 export function mergeJimakuEntries(
@@ -399,6 +438,7 @@ export function JimakuSearchDialog({
               <ButtonGroup className="entei-jimaku-input-group">
                 <Input
                   id="jimaku-search-title"
+                  className="entei-jimaku-title-input"
                   type="text"
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
@@ -417,6 +457,7 @@ export function JimakuSearchDialog({
                   type="button"
                   variant="outline"
                   size="icon"
+                  className="entei-jimaku-search-btn"
                   onClick={() => void handleSearch()}
                   disabled={isBusy || title.trim() === ''}
                   aria-label={dict.jimakuSearchButton}
@@ -473,13 +514,7 @@ export function JimakuSearchDialog({
               {showResults && (
                 <div className="entei-jimaku-list-section">
                   {status === 'searching' ? (
-                    <div
-                      className="entei-jimaku-loading"
-                      role="status"
-                      aria-label="Loading"
-                    >
-                      <span>Loading...</span>
-                    </div>
+                    <JimakuListSkeleton />
                   ) : (
                     <div
                       className="entei-jimaku-list-scroll"
@@ -518,8 +553,16 @@ export function JimakuSearchDialog({
                               <span
                                 className="entei-jimaku-row-text"
                                 title={item.entry.name}
+                                ref={applyMarqueeOverflow}
                               >
-                                {item.entry.name}
+                                <span
+                                  className="entei-jimaku-marquee-track"
+                                  data-title={item.entry.name}
+                                >
+                                  <span className="entei-jimaku-marquee-copy">
+                                    {item.entry.name}
+                                  </span>
+                                </span>
                               </span>
                             </button>
                           </div>
@@ -561,13 +604,7 @@ export function JimakuSearchDialog({
                     </span>
                   </nav>
                   {status === 'loading-files' ? (
-                    <div
-                      className="entei-jimaku-loading"
-                      role="status"
-                      aria-label="Loading"
-                    >
-                      <span>Loading...</span>
-                    </div>
+                    <JimakuListSkeleton />
                   ) : (
                     <div
                       className="entei-jimaku-list-scroll"
@@ -586,16 +623,25 @@ export function JimakuSearchDialog({
                               className="entei-jimaku-row"
                               onClick={() => handleFileSelect(file)}
                               disabled={isBusy}
+                              aria-label={file.name}
                               aria-pressed={selectedFile?.url === file.url}
                             >
                               <span className="entei-jimaku-file-icon">
-                                <FileText size={16} aria-hidden="true" />
+                                <Subtitles size={16} aria-hidden="true" />
                               </span>
                               <span
                                 className="entei-jimaku-row-text"
                                 title={file.name}
+                                ref={applyMarqueeOverflow}
                               >
-                                {file.name}
+                                <span
+                                  className="entei-jimaku-marquee-track"
+                                  data-title={file.name}
+                                >
+                                  <span className="entei-jimaku-marquee-copy">
+                                    {file.name}
+                                  </span>
+                                </span>
                               </span>
                             </button>
                           </div>

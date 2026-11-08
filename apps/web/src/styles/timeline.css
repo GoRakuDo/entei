@@ -16,9 +16,9 @@
   width: 100%;
   max-width: 42rem;
   margin-inline: auto;
-  /* Breathing room from the top edge: the composer avatar used to sit flush
-     against the window, which read as clipped rather than intentional. */
-  padding-top: var(--entei-space-32);
+  /* Symmetric vertical breathing room: 16px above and below keeps the same
+     total 32px the old top-only padding had, without a lopsided bottom edge. */
+  padding-block: var(--entei-space-16);
   display: flex;
   flex-direction: column;
   font-family: var(--entei-font-body);
@@ -26,16 +26,18 @@
 }
 
 /* Post detail (`/post/:id`-style thread view) starts with its own sticky
-   back-header, so the feed-level breathing room would push that header down
-   and leave an empty band above it. Detail mode sits flush at the top. */
+   back-header, so both feed-level paddings are dropped: the header sits flush
+   at the top and the comment thread's own padding owns the bottom edge. */
 .entei-timeline-root--detail {
-  padding-top: 0;
+  padding-block: 0;
 }
 
 /* ===== COMPOSER ===== */
 
 .entei-timeline-composer {
-  padding-bottom: var(--entei-space-16);
+  /* Symmetric 8px above/below the divider: the old bottom-only 16px made the
+     composer look glued to the top while the border floated below it. */
+  padding-block: var(--entei-space-8);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -81,7 +83,8 @@
 }
 
 /* ===== INPUT GROUP (shadcn InputGroup, align="block-end") =====
- * One joined box owns the border, radius and surface. The textarea is a
+ * One joined box owns only the hairline border and radius: the surface stays
+ * transparent so the page wallpaper shows through. The textarea is a
  * borderless control at the top; the addon below it is the block-end footer.
  * `data-slot` mirrors the official composition so the same DOM can later be
  * swapped for the registry components without changing the tests. Official
@@ -94,7 +97,7 @@
   min-width: 0;
   border: 1px solid oklch(1 0 0 / 0.1);
   border-radius: var(--entei-radius-md);
-  background-color: var(--entei-surface);
+  background: transparent;
   transition: border-color var(--entei-duration-fast)
     var(--entei-ease-productive);
 }
@@ -132,7 +135,9 @@
   display: flex;
   align-items: center;
   gap: var(--entei-space-8);
-  padding: var(--entei-space-8) var(--entei-space-16);
+  /* 8px vertical / 12px inline: keeps the counter and pill optically centred
+     inside the transparent box without a wide empty gutter. */
+  padding: var(--entei-space-8) var(--entei-space-12);
 }
 
 /* The counter sits at the start and the action pill at the end — the `ml-auto`
@@ -534,7 +539,7 @@
   display: flex;
   align-items: center;
   gap: var(--entei-space-12);
-  padding-block: var(--entei-space-8) var(--entei-space-12);
+  padding-block: var(--entei-space-8);
   background: transparent;
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
@@ -587,8 +592,9 @@
   flex-direction: column;
   gap: var(--entei-space-12);
   /* Same 8px inline inset the feed card gets, so the action row's -8px
-     pull-out lands the Comment icon on the body text's left edge. */
-  padding: var(--entei-space-16) var(--entei-space-8) var(--entei-space-24);
+     pull-out lands the Comment icon on the body text's left edge. Symmetric
+     16px block padding replaces the old 16/24 imbalance. */
+  padding: var(--entei-space-16) var(--entei-space-8);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -612,7 +618,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--entei-space-12);
-  padding-block: var(--entei-space-16) var(--entei-space-24);
+  padding-block: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
