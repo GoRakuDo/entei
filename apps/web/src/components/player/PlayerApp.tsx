@@ -295,13 +295,20 @@ export function resolveMediaSourceKind(args: {
   return args.youtubeStreamActive ? 'youtube' : null;
 }
 
-/** Companion start-buffering safety timeout: last-resort bound for a load
- *  that never reaches HAVE_CURRENT_DATA (e.g. a stalled .part). The first
- *  PAINTED frame normally clears the overlay much earlier via rVFC, or via
- *  loadeddata/canplay/playing on browsers without rVFC. Longer than the 5 s
- *  seek buffer bound because the initial load can legitimately take longer
- *  (the piece may still be downloading). */
-const START_BUFFERING_SAFETY_MS = 15000;
+/** Debounce before the companion start-buffering overlay appears. */
+const START_BUFFERING_DELAY_MS = 1000;
+
+/** Absolute upper bound for the start-buffering overlay, measured from the
+ *  FIRST arm: 1 s debounce + 3 s visible. The first PAINTED frame normally
+ *  clears it much earlier via rVFC, or via loadeddata/canplay/playing on
+ *  browsers without rVFC. Armed once per effect lifetime and never re-armed
+ *  by later `waiting` events, so fragmented stalls cannot push the deadline
+ *  forward (or keep the overlay from ever showing). Deliberately shorter
+ *  than the 5 s seek buffer bound: playback and the controls stay usable,
+ *  so a lingering start overlay is only noise.
+ *  Note: a jobSession.phase transition re-runs the effect and re-arms both
+ *  timers for a not-yet-exhausted source; that path is unchanged here. */
+const START_BUFFERING_SAFETY_MS = START_BUFFERING_DELAY_MS + 3000;
 
 /** Maximum length of a displayed media name (defense in depth). */
 const MAX_MEDIA_NAME_LENGTH = 255;
@@ -505,12 +512,13 @@ export default function PlayerApp() {
   const startBufferingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  // Last-resort bound for the start-buffering overlay; cleared as soon as
-  // the first frame arrives, on error, or on unmount.
+  // Absolute last-resort bound for the start-buffering overlay, armed once
+  // at the first arm; cleared as soon as the first frame arrives, on error,
+  // or on unmount. Later `waiting` events leave it untouched.
   const startBufferingSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  // Source-scoped one-shot latch: once a real frame (or the 15 s safety
+  // Source-scoped one-shot latch: once a real frame (or the 3 s safety
   // bound) has ended start buffering, a later 'waiting' must never bring
   // the overlay back for the SAME media. A ref (not an in-effect let) is
   // required because jobSession.phase transitions re-run the effect.
@@ -2430,6 +2438,8 @@ export default function PlayerApp() {
   // changing React state, so those media events are the only signals while
   // the element is still PAUSED. Once cleared, a source-scoped ref latch
   // stops a later 'waiting' (or a phase re-run) from re-arming the overlay.
+  // Both the 1 s debounce and the 3 s safety bound are armed once, at the
+  // first arm; later `waiting` bursts never postpone them.
   // Seek buffering deliberately keeps its own canplay-based clearing.
   useEffect(() => {
     // Source-scoped flags live in refs: jobSession.phase transitions re-run
@@ -2487,7 +2497,7 @@ export default function PlayerApp() {
 
     // Single clearing path for every end-of-start-buffering signal, so the
     // in-effect flags, both timers and the rendered state never drift apart.
-    // Latching here (not only at the 15 s bound) stops a later 'waiting'
+    // Latching here (not only at the 3 s bound) stops a later 'waiting'
     // from resurrecting the start overlay after this source has shown a
     // real frame. The latch is source-scoped and survives effect re-runs.
     const clearStartBuffering = () => {
@@ -2505,7 +2515,23 @@ export default function PlayerApp() {
       // rVFC: readyState/loadeddata/playing are NOT proof of presented
       // pixels. Non-rVFC: HAVE_FUTURE_DATA or an active playback is.
       if (hasStartPlayableSignal()) return;
-      clearStartBufferingTimers();
+      // Both timers are armed ONCE, at the first arm. A burst of short
+      // `waiting` events must neither restart the 1 s debounce nor push
+      // the 3 s safety bound forward: clearing both timers here used to
+      // cancel the bound (or, before it was ever armed, stop it from being
+      // armed at all), leaving the overlay unbounded.
+      if (
+        startBufferingDelayRef.current !== null ||
+        startBufferingSafetyRef.current !== null
+      ) {
+        return;
+      }
+      startBufferingSafetyRef.current = setTimeout(() => {
+        startBufferingSafetyRef.current = null;
+        // Give up on this source through the single path, so the latch
+        // and bufferingShown stay in sync with the rendered state.
+        clearStartBuffering();
+      }, START_BUFFERING_SAFETY_MS);
       startBufferingDelayRef.current = setTimeout(() => {
         startBufferingDelayRef.current = null;
         // Re-check after the delay. A paused element can report
@@ -2521,17 +2547,7 @@ export default function PlayerApp() {
         if (hasRVFC) {
           requestFirstFrame();
         }
-        // Safety bound: hide the overlay after 15 s even if playing never
-        // fires (stalled download or autoplay block) — playback itself is
-        // unaffected, and the controls stay usable thanks to the
-        // pointer-events:none on the overlay.
-        startBufferingSafetyRef.current = setTimeout(() => {
-          startBufferingSafetyRef.current = null;
-          // Give up on this source through the single path, so the latch
-          // and bufferingShown stay in sync with the rendered state.
-          clearStartBuffering();
-        }, START_BUFFERING_SAFETY_MS);
-      }, 1000);
+      }, START_BUFFERING_DELAY_MS);
     };
 
     // First visible frame: rVFC fires only after a frame has literally been
@@ -2561,7 +2577,7 @@ export default function PlayerApp() {
       }
       // Empty frame (still black): keep the overlay up and wait for the
       // NEXT frame. Re-register only while the overlay is actually shown
-      // and the 15 s safety bound is still armed — that bound is the
+      // and the 3 s safety bound is still armed — that bound is the
       // ultimate upper limit, so this cannot loop forever.
       // One diagnostic line per black frame: a real-device .part interleave
       // is otherwise invisible in the logs.
@@ -5423,7 +5439,7 @@ export default function PlayerApp() {
           a black drop shadow so it reads on bright frames. Clears the
           instant the first PAINTED frame arrives (rVFC on supported
           browsers, loadeddata / canplay / playing elsewhere), on error,
-          or at the 15 s safety bound. Mutually exclusive with
+          or at the 3 s safety bound. Mutually exclusive with
           the seek-buffering overlay: when both are true only the seek
           one renders, so the surface never shows two stacked loaders. */}
       {isStartBuffering &&

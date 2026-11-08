@@ -15,8 +15,10 @@
  * re-check uses HAVE_FUTURE_DATA (3) or active playback, and loadeddata /
  * canplay / PLAYING clear immediately. Once cleared the source is latched
  * in a ref, so a later 'waiting' — or a jobSession.phase effect re-run —
- * cannot resurrect the start overlay. The 15 s safety bound remains the
- * last resort for stalled/autoplay-blocked downloads.
+ * cannot resurrect the start overlay. The 3 s safety bound remains the
+ * last resort for stalled/autoplay-blocked downloads: it is armed once at
+ * the first arm (1 s debounce + 3 s = 4 s absolute), so fragmented
+ * `waiting` events cannot postpone it.
  *
  * Drives the real PlayerApp with a mocked (controllable) job session and a
  * real <video> element (jsdom readyState = 0), advancing fake timers.
@@ -280,7 +282,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('hides the overlay after the 15 s safety bound (no playing)', async () => {
+  it('hides the overlay after the 3 s safety bound (no playing)', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -294,18 +296,18 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
     // Still visible before the bound elapses…
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(14999);
+      await vi.advanceTimersByTimeAsync(2999);
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
-    // …and gone at 15 s even though playing never fired.
+    // …and gone at the 3 s safety bound even though playing never fired.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('stays hidden after the 15 s safety bound — a later waiting event does NOT re-arm it', async () => {
+  it('stays hidden after the 3 s safety bound — a later waiting event does NOT re-arm it', async () => {
     mockSession.active = true;
     mockSession.kind = 'youtube';
     mockSession.phase = 'ready';
@@ -318,9 +320,9 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
-    // …and is force-cleared at the 15 s safety bound.
+    // …and is force-cleared at the 3 s safety bound.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(15000);
+      await vi.advanceTimersByTimeAsync(3000);
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
 
@@ -332,6 +334,52 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
+  });
+
+  it('fragmented waiting every 500 ms cannot postpone the 1 s + 3 s bound', async () => {
+    mockSession.active = true;
+    mockSession.kind = 'youtube';
+    mockSession.phase = 'ready';
+    mockSession.jobMediaUrl = MEDIA_URL;
+    const { container } = render(<PlayerApp />);
+    const video = container.querySelector('video') as HTMLVideoElement;
+
+    // Fire `waiting` INSIDE the 1 s debounce repeatedly. The old code
+    // cleared both timers on every call, so the debounce never settled and
+    // the safety bound was never even armed.
+    const stall = async (ms: number) => {
+      fireEvent.waiting(video);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    };
+
+    await stall(500); // t=500
+    await stall(500); // t=1000 — debounce still fires from the first arm
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+
+    await stall(500); // t=1500
+    await stall(500); // t=2000
+    await stall(500); // t=2500
+    await stall(500); // t=3000
+    await stall(500); // t=3500
+    await stall(499); // t=3999 — still inside the bound
+    expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
+
+    // The absolute 1 s + 3 s bound fires at t=4000, NOT at
+    // 4000 + (number of stalls × 500 ms).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(container.querySelector('.entei-start-buffering')).toBeNull();
+
+    // Latched: after the bound the source never re-arms, even after the
+    // stalls stop and another `waiting` arrives.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await stall(2000);
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
