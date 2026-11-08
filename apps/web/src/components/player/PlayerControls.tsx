@@ -62,6 +62,7 @@ import {
   type CaptionDisplayMode,
   type PlayMode,
 } from '@/features/player/control-helpers';
+import { mpvSeek } from '@/features/player/tauri-bridge';
 
 /**
  * Minimum interval between live-scrub seeks while dragging the track.
@@ -97,6 +98,13 @@ interface PlayerControlsProps {
   onVolumeChange: (volume: number) => void;
   playbackRate: number;
   onPlaybackRateChange: (rate: number) => void;
+  /**
+   * Play/pause intent. The parent owns the transport: it drives libmpv in
+   * desktop native mode — where the HTML element cannot decode the source and
+   * therefore never fires its own play/pause events — and the media element
+   * otherwise. The control layer must never call `media.play()` itself.
+   */
+  onTogglePlayback: () => void;
   // P2.1: Playback mode
   playMode?: PlayMode;
   onPlayModeChange?: (mode: PlayMode) => void;
@@ -120,6 +128,12 @@ interface PlayerControlsProps {
    *  seek targets are clamped to the companion's verified byte range to
    *  prevent stalls from seeking beyond available data. */
   clampSeekTime?: (seconds: number) => number;
+  /** Native mpv clock (seconds). While mpv renders, the HTML element may
+   *  never report a position (WebView2 cannot decode HEVC 4:4:4 10-bit /
+   *  FLAC), so the parent supplies `time-pos` and it wins over the element. */
+  externalTime?: number | null;
+  /** Native mpv media duration (seconds), same rationale as `externalTime`. */
+  externalDuration?: number | null;
 }
 
 export interface PlayerControlsHandle {
@@ -154,6 +168,7 @@ export const PlayerControls = forwardRef<
     onVolumeChange,
     playbackRate,
     onPlaybackRateChange,
+    onTogglePlayback,
     playMode = 'normal',
     onPlayModeChange = () => {},
     isTouchDevice,
@@ -166,6 +181,8 @@ export const PlayerControls = forwardRef<
     fileAccept,
     fileOpenLabel,
     clampSeekTime,
+    externalTime = null,
+    externalDuration = null,
   },
   ref,
 ) {
@@ -266,6 +283,21 @@ export const PlayerControls = forwardRef<
       media.removeEventListener('loadedmetadata', onLoadedMetadata);
     };
   }, [mediaRef, mediaKey, hasMedia, isSeeking]);
+
+  // --- Native mpv clock (desktop) ---
+  // While libmpv renders, the HTML element may never report a position
+  // (WebView2 cannot decode HEVC 4:4:4 10-bit / FLAC), so the parent's
+  // `time-pos` / `duration` reads win over the element's own events.
+  useEffect(() => {
+    if (externalTime === null || externalTime === undefined) return;
+    if (isSeeking) return;
+    setCurrentTime(externalTime);
+  }, [externalTime, isSeeking]);
+
+  useEffect(() => {
+    if (externalDuration === null || externalDuration === undefined) return;
+    setDuration(externalDuration);
+  }, [externalDuration]);
 
   // --- P1: Buffered progress tracking (YouTube-style buffer bar) ---
   // Kept in its own effect so seeking (isSeeking toggles) does not tear down
@@ -435,19 +467,17 @@ export const PlayerControls = forwardRef<
   }, [surfaceRef, handlePointerMove]);
 
   // --- Play/Pause ---
+  // Delegated to the parent, which knows whether the HTML element can decode
+  // this source at all: in native mpv mode the element never fires `play`,
+  // so driving it here would leave the picture and sound paused.
   const handlePlayPause = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      const media = mediaRef.current;
-      if (!media || isLoading || error) return;
-      if (media.paused) {
-        media.play().catch(() => {});
-      } else {
-        media.pause();
-      }
+      if (!mediaRef.current || isLoading || error) return;
+      onTogglePlayback();
       showControls({ type: isPlaying ? 'media-paused' : 'media-played' });
     },
-    [mediaRef, isLoading, error, isPlaying, showControls],
+    [mediaRef, isLoading, error, isPlaying, showControls, onTogglePlayback],
   );
 
   // --- Seek (Fix #1+7: seekValue ref for continuous drag, single seek-start) ---
@@ -484,6 +514,10 @@ export const PlayerControls = forwardRef<
         : clampSeek(raw, duration);
       // Immediate seek — click-to-seek must never wait for pointerup.
       media.currentTime = target;
+      // Desktop native engine: the element's own `seeking` event only mirrors
+      // a seek the element can actually perform. When it cannot (unsupported
+      // codec), this direct call is the only thing that moves the picture.
+      void mpvSeek(target);
       seekValueRef.current = target;
       setCurrentTime(target);
       return target;
@@ -601,6 +635,7 @@ export const PlayerControls = forwardRef<
           ? clampSeekTime(clampSeek(seekTime, duration))
           : clampSeek(seekTime, duration);
         media.currentTime = clamped;
+        void mpvSeek(clamped);
         // Sync state immediately so slider doesn't show stale time
         // before the next timeupdate fires.
         setCurrentTime(clamped);

@@ -6,6 +6,9 @@ pub fn run() {
         .plugin(tauri_plugin_ytdlp::init())
         .plugin(tauri_plugin_torrent::init())
         .plugin(tauri_plugin_mpv::init())
+        // Native file dialog: the only way to obtain an absolute path for a
+        // "choose media" click, because WebView2 never exposes `File.path`.
+        .plugin(tauri_plugin_dialog::init())
         // Trace log: the web layer's only way to write the action journal.
         // `trace_log` appends a batch, `trace_dir_path` reports where the
         // files live. Both are app commands (no plugin capability needed).

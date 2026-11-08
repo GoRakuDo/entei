@@ -19,10 +19,19 @@
 //! `resources/libmpv-2.dll`), then next to the executable, then the platform
 //! loader search path (bare library name).
 //!
-//! The player UI stays 100% Entei's: mpv is initialized headless (`vo = null`,
-//! `ao = null`, `pause = yes`, `osc = no`, `osd-level = 0`), so mpv never opens
-//! its own OS window, never makes sound and never paints its own controller on
-//! top of the webview-driven HTML/CSS controls.
+//! mpv is the real media renderer: `vo = gpu-next` (falling back to `gpu`),
+//! native audio output, and on Windows `wid = <main window HWND>` so libmpv
+//! paints into a child of the Tauri window instead of opening a detached
+//! top-level window. The HWND cannot be read during plugin `setup` (the window
+//! from the Tauri config is created afterwards), so it is resolved lazily from
+//! the stored app handle right before the instance is created. `osc = no` / `osd-level = 0` keep Entei's HTML/CSS
+//! controls as the only control surface and `pause = yes` holds the engine
+//! until Play.
+//!
+//! Note: on Windows WebView2 owns a sibling child HWND covering the client
+//! area. `wid` guarantees there is no extra OS window; the z-order/airspace
+//! between that WebView2 surface and mpv's child is a separate composition
+//! concern that must be verified on a real desktop build.
 //!
 //! Note: the mpv instance is created lazily on the first command and kept for
 //! the lifetime of the process. A failed lookup is not cached, so dropping the
@@ -59,18 +68,31 @@ const LIB_NAMES: &[&str] = &["libmpv-2.dll"];
 #[cfg(not(windows))]
 const LIB_NAMES: &[&str] = &["libmpv.so", "libmpv.so.2", "libmpv.so.1"];
 
+/// Primary GPU video output. `gpu-next` needs libplacebo; builds that lack it
+/// fall back to `gpu`, which is still a real GPU VO and still honours `wid`.
+const VIDEO_OUTPUT: &str = "gpu-next";
+const VIDEO_OUTPUT_FALLBACK: &str = "gpu";
+
+/// WASAPI is the native Windows output and keeps FLAC bit-exact. Every other
+/// platform (and any build without WASAPI) lets mpv pick its own backend.
+#[cfg(windows)]
+const AUDIO_OUTPUT: &str = "wasapi";
+#[cfg(not(windows))]
+const AUDIO_OUTPUT: &str = "auto";
+const AUDIO_OUTPUT_FALLBACK: &str = "auto";
+
 /// mpv options applied once, right after `mpv_create` and before
 /// `mpv_initialize`.
 ///
-/// Entei's HTML/CSS player is the only surface that is allowed to be visible or
-/// audible. mpv is a **headless** engine here: it holds the media, scans the
-/// container and answers track/duration queries, but it must never open its own
-/// window or make sound.
+/// mpv is the native renderer: it decodes and paints formats WebView2 cannot
+/// (HEVC 4:4:4 10-bit, FLAC in MKV) and owns audio output. The HTML element
+/// stays mounted as Entei's timing/transport shim and is muted by the web
+/// layer, so the two engines never sing at once.
 ///
-/// - `vo = null` / `ao = null`: no video output window and no audio output. A
-///   real VO made mpv open a second, independent OS window that played the
-///   video (and its audio) in parallel with the `<video>` element — the
-///   "two windows / doubled audio" symptom.
+/// - `vo` / `ao`: real GPU video and native audio output. On Windows `wid`
+///   is added separately from the main window's HWND, which makes libmpv
+///   create its video output as a CHILD of the Tauri window — no second
+///   top-level window and no extra taskbar entry.
 /// - `pause = yes`: the engine starts held. `loadfile … replace` otherwise
 ///   starts its own clock immediately, so it would advance on its own while the
 ///   user has not pressed Play yet.
@@ -82,25 +104,24 @@ const LIB_NAMES: &[&str] = &["libmpv.so", "libmpv.so.2", "libmpv.so.1"];
 const BASE_OPTIONS: &[(&str, &str)] = &[
     ("osc", "no"),
     ("osd-level", "0"),
-    ("vo", "null"),
-    ("ao", "null"),
+    ("vo", VIDEO_OUTPUT),
+    ("ao", AUDIO_OUTPUT),
     ("pause", "yes"),
     ("alang", "ja,jpn"),
     ("slang", "ja,jpn"),
     ("idle", "yes"),
 ];
 
-/// Options that keep the engine invisible and silent. Unlike the remaining
-/// `BASE_OPTIONS`, a rejection here is fatal for the plugin's contract:
-/// silently tolerating it would put mpv's own window (and audio) back on top of
-/// Entei's player.
+/// Options whose rejection breaks the native-renderer contract. `vo` / `ao`
+/// get one documented fallback first; `osc` / `osd-level` / `wid` must simply
+/// work, otherwise mpv would paint its own UI or open a detached OS window.
 ///
 /// `pause` is deliberately *not* listed: its real guarantee is the
 /// `set_property("pause", "yes")` asserted on the live handle after
 /// `mpv_initialize` (and again after every `loadfile`), so a build that rejects
 /// the start-time option must not take the whole engine down.
 fn is_contract_option(name: &str) -> bool {
-    matches!(name, "osc" | "osd-level" | "vo" | "ao")
+    matches!(name, "osc" | "osd-level" | "vo" | "ao" | "wid")
 }
 
 /// Tauri bundle resource directory, resolved while the plugin initializes.
@@ -108,6 +129,36 @@ fn is_contract_option(name: &str) -> bool {
 /// Mirrors the `resources/windows/*` entry in `tauri.windows.conf.json`, the
 /// same layout the yt-dlp plugin uses for its bundled binary.
 static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Lazy resolver for the native HWND of the Tauri main window.
+///
+/// The window declared in the Tauri config does **not** exist yet when plugin
+/// `setup` runs: it is created afterwards, so `get_webview_window("main")`
+/// returns `None` there. Resolving the HWND in `setup` would therefore pin
+/// `0` forever and make every `mpv_initialize` fail. Instead `setup` stores the
+/// `AppHandle` in this resolver and the HWND is read at the moment the mpv
+/// instance is created — by then the window is guaranteed to exist.
+///
+/// A missing window is a hard error, never a fallback: without `wid` libmpv
+/// would create its own detached OS window, which is exactly the extra taskbar
+/// entry this plugin must never produce.
+#[cfg(windows)]
+static WINDOW_HWND_RESOLVER: OnceLock<Box<dyn Fn() -> Option<i64> + Send + Sync>> =
+    OnceLock::new();
+
+#[cfg(windows)]
+fn embedded_window_hwnd() -> Result<i64, MpvError> {
+    let resolver = WINDOW_HWND_RESOLVER.get().ok_or_else(|| {
+        MpvError::WindowHandle(
+            "main window HWND resolver was not installed during plugin setup".to_string(),
+        )
+    })?;
+    resolver().ok_or_else(|| {
+        MpvError::WindowHandle(
+            "main window HWND is not available yet; retry once the window exists".to_string(),
+        )
+    })
+}
 
 /// Lazily created singleton instance. `None` means "not created yet" or "the
 /// last creation attempt failed" (the error is returned, never cached).
@@ -125,6 +176,8 @@ pub enum MpvError {
     Command { op: String, detail: String },
     #[error("invalid argument: {0}")]
     Invalid(String),
+    #[error("native video window unavailable: {0}")]
+    WindowHandle(String),
 }
 
 impl MpvError {
@@ -176,12 +229,10 @@ struct MpvInstance {
     /// `mpv_error_string`, used to turn every negative return code into the
     /// message libmpv itself would print.
     error_string: MpvErrorString,
-    /// Bound as part of the required C surface. No command reads a property
-    /// back yet, so it stays unused until a state read is actually needed.
-    #[allow(dead_code)]
+    /// `mpv_get_property_string`, paired with `mpv_free`. Reads `time-pos`
+    /// and `duration` for the web layer's native-mode clock.
     get_property_string: MpvGetPropertyString,
-    /// Paired with `get_property_string` for the same reason.
-    #[allow(dead_code)]
+    /// Releases the string `get_property_string` hands back.
     free: MpvFree,
     terminate_destroy: MpvTerminateDestroy,
 }
@@ -336,13 +387,30 @@ impl MpvInstance {
         for (name, value) in BASE_OPTIONS {
             match self.set_option(name, value) {
                 Ok(()) => {}
-                // `vo` / `ao` / `osc` / `osd-level` are the contract that mpv
-                // stays invisible and silent, so a rejection is reported
-                // instead of silently tolerated.
+                // `gpu-next` needs libplacebo; an older build still has `gpu`.
+                Err(_) if *name == "vo" => {
+                    self.set_option(name, VIDEO_OUTPUT_FALLBACK)?;
+                }
+                // A build without WASAPI still has `auto`. Losing native audio
+                // entirely would be worse than falling back to mpv's own pick.
+                Err(_) if *name == "ao" && *value != AUDIO_OUTPUT_FALLBACK => {
+                    self.set_option(name, AUDIO_OUTPUT_FALLBACK)?;
+                }
+                // `osc` / `osd-level` / `wid` are the contract: silently
+                // tolerating a rejection would put mpv's own UI or window back
+                // on top of Entei's player.
                 Err(err) if is_contract_option(name) => return Err(err),
                 // Best effort: an unsupported option must not stop playback.
                 Err(err) => eprintln!("tauri-plugin-mpv: optional option {name} rejected: {err}"),
             }
+        }
+        // `wid` must land before `mpv_initialize` like every other option. On
+        // Windows the Tauri HWND makes libmpv create its video output as a
+        // child of the app window, so no second OS window is ever opened.
+        #[cfg(windows)]
+        {
+            let hwnd = embedded_window_hwnd()?;
+            self.set_option("wid", &hwnd.to_string())?;
         }
         Ok(())
     }
@@ -387,6 +455,26 @@ impl MpvInstance {
             unsafe { (self.set_property_string)(self.handle, name_c.as_ptr(), value_c.as_ptr()) };
         check_rc(self.error_string, name, code)
     }
+
+    /// Read a numeric property (time-pos, duration) as f64.
+    ///
+    /// None means "the engine has no value yet" (idle, file still opening),
+    /// which is not an error: the web layer keeps its previous clock.
+    fn get_number(&self, name: &str) -> Result<Option<f64>, MpvError> {
+        let name_c = c_string(name, "property name")?;
+        // Safety: name_c is NUL-terminated and outlives the call; the returned
+        // string is owned by libmpv until mpv_free.
+        let ptr = unsafe { (self.get_property_string)(self.handle, name_c.as_ptr()) };
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        // Safety: non-null NUL-terminated string as documented by libmpv.
+        let text = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+        // Safety: ptr came from mpv_get_property_string, which pairs with
+        // mpv_free; it is released exactly once here.
+        unsafe { (self.free)(ptr.cast()) };
+        Ok(parse_number_property(&text))
+    }
 }
 
 /// The process-wide instance, created on first use.
@@ -409,6 +497,13 @@ fn require_finite(seconds: f64, what: &str) -> Result<f64, MpvError> {
         return Err(MpvError::Invalid(format!("{what} must be a finite number")));
     }
     Ok(seconds)
+}
+
+/// Parse a libmpv numeric property string. Non-finite values are rejected so
+/// the web layer never receives NaN/Infinity from the engine.
+fn parse_number_property(text: &str) -> Option<f64> {
+    let value = text.trim().parse::<f64>().ok()?;
+    value.is_finite().then_some(value)
 }
 
 #[tauri::command]
@@ -455,6 +550,26 @@ fn mpv_seek(seconds: f64) -> Result<(), String> {
         .map_err(|err| err.message())
 }
 
+/// Current playback position in seconds (time-pos), or None while the engine
+/// has no file open.
+///
+/// Needed because WebView2 cannot decode every container/codec libmpv can
+/// (HEVC 4:4:4 10-bit, FLAC in MKV): the HTML element never fires timeupdate
+/// for those sources, so the native clock becomes the only position the web
+/// layer can render subtitles and the seek bar from.
+#[tauri::command]
+fn mpv_get_time() -> Result<Option<f64>, String> {
+    let instance = instance().map_err(|err| err.message())?;
+    instance.get_number("time-pos").map_err(|err| err.message())
+}
+
+/// Media duration in seconds (duration), or None while unknown.
+#[tauri::command]
+fn mpv_get_duration() -> Result<Option<f64>, String> {
+    let instance = instance().map_err(|err| err.message())?;
+    instance.get_number("duration").map_err(|err| err.message())
+}
+
 #[tauri::command]
 fn mpv_set_sub_delay(seconds: f64) -> Result<(), String> {
     let seconds = require_finite(seconds, "sub-delay").map_err(|err| err.message())?;
@@ -494,6 +609,23 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             {
                 let _ = RESOURCE_DIR.set(dir);
             }
+            #[cfg(windows)]
+            {
+                // `WebviewWindow::hwnd()` is Windows-only and returns the
+                // top-level HWND, but the window does not exist yet at this
+                // point in the Tauri lifecycle — it is created after plugin
+                // `setup`. Store the app handle instead and let the resolver
+                // read the HWND when the mpv instance is created (options such
+                // as `wid` can only be applied at creation time).
+                let app_handle = app.clone();
+                let _ = WINDOW_HWND_RESOLVER.set(Box::new(move || {
+                    app_handle
+                        .get_webview_window("main")
+                        .and_then(|window| window.hwnd().ok())
+                        .map(|handle| handle.0 as isize as i64)
+                        .filter(|hwnd| *hwnd != 0)
+                }));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -501,6 +633,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             mpv_play,
             mpv_pause,
             mpv_seek,
+            mpv_get_time,
+            mpv_get_duration,
             mpv_set_sub_delay,
             mpv_set_tracks
         ])
@@ -553,22 +687,46 @@ mod tests {
         assert!(is_contract_option("osd-level"));
         assert!(is_contract_option("vo"));
         assert!(is_contract_option("ao"));
+        assert!(is_contract_option("wid"));
         assert!(!is_contract_option("pause"));
         assert!(!is_contract_option("alang"));
     }
 
     #[test]
-    fn base_options_keep_the_engine_headless_and_held() {
+    fn base_options_render_natively_and_start_held() {
         let value_of = |wanted: &str| {
             BASE_OPTIONS
                 .iter()
                 .find(|(name, _)| *name == wanted)
                 .map(|(_, value)| *value)
         };
-        // No window, no sound, never self-starting: the engine is a mirror only.
-        assert_eq!(value_of("vo"), Some("null"));
-        assert_eq!(value_of("ao"), Some("null"));
+        // A real GPU VO, real audio output, never self-starting: mpv is the
+        // renderer, not a silent headless mirror.
+        assert_eq!(value_of("vo"), Some(VIDEO_OUTPUT));
+        assert_eq!(value_of("vo"), Some("gpu-next"));
+        assert_eq!(value_of("ao"), Some(AUDIO_OUTPUT));
+        assert_ne!(value_of("vo"), Some("null"));
+        assert_ne!(value_of("ao"), Some("null"));
         assert_eq!(value_of("pause"), Some("yes"));
+    }
+
+    #[test]
+    fn fallback_backends_are_real_outputs_not_null() {
+        assert_eq!(VIDEO_OUTPUT_FALLBACK, "gpu");
+        assert_ne!(VIDEO_OUTPUT_FALLBACK, VIDEO_OUTPUT);
+        assert_eq!(AUDIO_OUTPUT_FALLBACK, "auto");
+        assert_ne!(AUDIO_OUTPUT_FALLBACK, "null");
+    }
+
+    #[test]
+    fn number_properties_parse_finite_values_only() {
+        assert_eq!(parse_number_property("12.5"), Some(12.5));
+        assert_eq!(parse_number_property("  3.25 "), Some(3.25));
+        assert_eq!(parse_number_property("0"), Some(0.0));
+        assert_eq!(parse_number_property("nan"), None);
+        assert_eq!(parse_number_property("inf"), None);
+        assert_eq!(parse_number_property(""), None);
+        assert_eq!(parse_number_property("no"), None);
     }
 
     #[test]
@@ -584,5 +742,32 @@ mod tests {
         assert!(candidates
             .iter()
             .any(|path| path.file_name().and_then(|name| name.to_str()) == Some(LIB_NAMES[0])));
+    }
+
+    /// The main window from the Tauri config does not exist while plugin
+    /// `setup` runs, so the HWND must be read lazily at instance creation.
+    /// Resolving it once during `setup` pinned `0` and made every
+    /// `mpv_initialize` fail.
+    #[cfg(windows)]
+    #[test]
+    fn hwnd_is_resolved_lazily_so_a_late_window_is_seen() {
+        use std::sync::atomic::{AtomicI64, Ordering};
+
+        static HWND: AtomicI64 = AtomicI64::new(0);
+
+        // Stands in for `get_webview_window("main")`: no window yet, exactly
+        // the state `setup` observes.
+        let _ = WINDOW_HWND_RESOLVER.set(Box::new(|| {
+            let value = HWND.load(Ordering::Relaxed);
+            (value != 0).then_some(value)
+        }));
+
+        // A missing window is an explicit error, never a silent `0`.
+        assert!(embedded_window_hwnd().is_err());
+
+        // The window appears later: the next call must see it, which is only
+        // possible if the resolver is consulted on every instance creation.
+        HWND.store(0x1234, Ordering::Relaxed);
+        assert_eq!(embedded_window_hwnd().unwrap(), 0x1234);
     }
 }

@@ -165,6 +165,29 @@ export function getFileExtension(file: File): string {
 }
 
 /**
+ * Get the extension of a file name (lowercase, no dot).
+ * Same rules as `getFileExtension`, for callers that only have a name/path.
+ */
+export function getExtensionFromName(name: string): string {
+  const lastDot = name.lastIndexOf('.');
+  if (lastDot === -1 || lastDot === name.length - 1) return '';
+  return name.slice(lastDot + 1).toLowerCase();
+}
+
+/**
+ * Classify a media file by name alone.
+ *
+ * A Tauri native dialog pick hands back an absolute path and never a `File`,
+ * so `classifyMediaFile` cannot be used on that path.
+ */
+export function classifyMediaName(name: string): MediaAdmissionResult {
+  const ext = getExtensionFromName(name);
+  if (VIDEO_EXTENSIONS.has(ext)) return { kind: 'video', ext };
+  if (AUDIO_EXTENSIONS.has(ext)) return { kind: 'audio', ext };
+  return { kind: 'rejected', ext };
+}
+
+/**
  * Check if a file is a video based on MIME type or extension.
  * MIME is a hint; extension is authoritative.
  */

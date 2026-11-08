@@ -351,10 +351,7 @@ APK には Windows 版のような「実行ファイルを同梱して spawn す
 | --- | --- | --- |
 | 全プラットフォーム共通（Windows / macOS / Linux / Android） | ネイティブ `libmpv`（Android は `libmpv.so` + `mpv-client-cross` JNI） | `hwdec: auto` / `vo: gpu-next`（Android は `vo: gpu` + `hwdec: mediacodec`） |
 
-> **現行実装（`plugins/tauri-plugin-mpv`）:** mpv は **headless ミラー**として動く。
-> `vo = null` / `ao = null` / `pause = yes` で初期化し、独自ウィンドウも音声も出さない。
-> 映像・音声は当面 `<video>` 要素が担当し、mpv 側はコンテナ走査（トラック判定）と
-> 将来のネイティブ描画への受け渡しに限定する。
+> **現行実装（`plugins/tauri-plugin-mpv`）:** mpv は **ネイティブメディアレンダラー（`wid` 埋め込み、GPU 映像描画、WASAPI 音声出力）** として稼働。WebView2 の背景透明化（`transparent: true`）と連携し、HEVC Rext (4:4:4 10-bit) や FLAC 音声を含む特殊コーデック動画を GPU/FFmpeg で直接デコード・描画する。HTML/CSS レイヤーは UI・字幕・シーク操作を担当し、`mpv_get_time` / `mpv_get_duration` と 200ms ポーリングで時刻・シーク位置を同期する。
 
 描画は Player の**透明な HTML/CSS UI オーバーレイの背面**で行う。つまり既存の React UI
 （シークバー・字幕パネル・採掘ボタン・設定モーダル）はそのまま被さり、映像面だけが

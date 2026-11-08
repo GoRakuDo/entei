@@ -15,14 +15,18 @@
 
 import { describe, it, expect, vi, afterEach } from 'bun:test';
 import {
+  DROP_PATH_TTL_MS,
+  installTauriDragDropPaths,
   isMpvResolvableSource,
   isTauri,
+  matchPhysicalPath,
   mpvLoad,
   mpvPause,
   mpvPlay,
   mpvSeek,
   mpvSetSubDelay,
   mpvSetTracks,
+  resolvePhysicalPath,
 } from '@/features/player/tauri-bridge';
 
 type InvokeCall = { cmd: string; args: Record<string, unknown> | undefined };
@@ -33,14 +37,25 @@ interface InternalsWindow {
   };
 }
 
-const internalsWindow = window as unknown as InternalsWindow;
+/**
+ * The Tauri runtime object, read lazily from `globalThis`.
+ *
+ * A module-load `window` reference throws `ReferenceError: window is not
+ * defined` when the file is imported by a runner that has no DOM global (for
+ * example a bare `bun test` outside `apps/web`, where `bunfig.toml` and its
+ * `environment = "jsdom"` are not loaded). `globalThis` always exists, so the
+ * import stays clean and a missing DOM only affects the assertions.
+ */
+function internals(): InternalsWindow {
+  return globalThis as unknown as InternalsWindow;
+}
 
 /** Install a fake Tauri IPC bridge and record every call it receives. */
 function installTauri(
   impl: (cmd: string, args?: Record<string, unknown>) => unknown = () => null,
 ): InvokeCall[] {
   const calls: InvokeCall[] = [];
-  internalsWindow.__TAURI_INTERNALS__ = {
+  internals().__TAURI_INTERNALS__ = {
     invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
       calls.push({ cmd, args });
       return impl(cmd, args);
@@ -50,7 +65,7 @@ function installTauri(
 }
 
 function uninstallTauri(): void {
-  delete internalsWindow.__TAURI_INTERNALS__;
+  delete internals().__TAURI_INTERNALS__;
 }
 
 afterEach(() => {
@@ -74,12 +89,12 @@ describe('tauri-bridge mpv wrappers — outside Tauri', () => {
     await expect(mpvSetSubDelay(-0.25)).resolves.toBeUndefined();
     await expect(mpvSetTracks('2', '1')).resolves.toBeUndefined();
 
-    expect(internalsWindow.__TAURI_INTERNALS__).toBeUndefined();
+    expect(internals().__TAURI_INTERNALS__).toBeUndefined();
   });
 
   it('does not invoke anything when the runtime object exists without invoke', async () => {
     // Defensive shape: a partially injected runtime must still be a no-op.
-    internalsWindow.__TAURI_INTERNALS__ = {} as InternalsWindow['__TAURI_INTERNALS__'];
+    internals().__TAURI_INTERNALS__ = {} as InternalsWindow['__TAURI_INTERNALS__'];
     await expect(mpvPlay()).resolves.toBeUndefined();
   });
 });
@@ -201,5 +216,80 @@ describe('tauri-bridge mpv wrappers — inside Tauri', () => {
     await expect(mpvSeek(5)).resolves.toBeUndefined();
     await expect(mpvSetSubDelay(1.5)).resolves.toBeUndefined();
     await expect(mpvSetTracks('1', '1')).resolves.toBeUndefined();
+  });
+});
+
+describe('tauri-bridge — absolute local paths', () => {
+  it('never resolves a path outside Tauri, even with File.path injected', () => {
+    const file = new File(['x'], 'Kimi no Na wa.mkv');
+    Object.defineProperty(file, 'path', {
+      value: 'Z:\\Anime\\Kimi no Na wa.mkv',
+      configurable: true,
+    });
+    expect(resolvePhysicalPath(file)).toBeNull();
+  });
+
+  it('installTauriDragDropPaths is a no-op outside Tauri', () => {
+    const off = installTauriDragDropPaths();
+    expect(typeof off).toBe('function');
+    expect(() => off()).not.toThrow();
+  });
+
+  it('uses File.path when the Tauri runtime exposes it, without IPC', () => {
+    const calls = installTauri();
+    const file = new File(['x'], 'Kimi no Na wa.mkv');
+    Object.defineProperty(file, 'path', {
+      value: 'Z:\\Anime\\Kimi no Na wa.mkv',
+      configurable: true,
+    });
+    expect(resolvePhysicalPath(file)).toBe('Z:\\Anime\\Kimi no Na wa.mkv');
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps an absolute Windows / UNC / POSIX path eligible for mpvLoad', () => {
+    expect(isMpvResolvableSource('Z:\\Anime\\Kimi no Na wa.mkv')).toBe(true);
+    expect(isMpvResolvableSource('\\\\NAS\\Anime\\ep01.mkv')).toBe(true);
+    expect(isMpvResolvableSource('/mnt/nas/anime/ep01.mkv')).toBe(true);
+    expect(isMpvResolvableSource('blob:http://localhost/uuid')).toBe(false);
+  });
+
+  it('matchPhysicalPath matches a dropped path by basename', () => {
+    const file = new File(['x'], 'Kimi no Na wa.mkv');
+    const paths = [
+      'Z:\\Anime\\subs.ja.srt',
+      'Z:\\Anime\\Kimi no Na wa.mkv',
+    ];
+    expect(matchPhysicalPath(file, paths, 1000, 900)).toBe(
+      'Z:\\Anime\\Kimi no Na wa.mkv',
+    );
+  });
+
+  it('matchPhysicalPath is case-insensitive on the file name', () => {
+    const file = new File(['x'], 'KIMI NO NA WA.MKV');
+    expect(
+      matchPhysicalPath(file, ['Z:\\Anime\\kimi no na wa.mkv'], 1000, 900),
+    ).toBe('Z:\\Anime\\kimi no na wa.mkv');
+  });
+
+  it('matchPhysicalPath accepts a lone dropped path with a renamed file', () => {
+    const file = new File(['x'], 'renamed.mkv');
+    expect(matchPhysicalPath(file, ['Z:\\Anime\\ep01.mkv'], 1000, 900)).toBe(
+      'Z:\\Anime\\ep01.mkv',
+    );
+  });
+
+  it('matchPhysicalPath refuses ambiguous multi-path drops and stale/empty drops', () => {
+    const file = new File(['x'], 'unknown.mkv');
+    const paths = ['Z:\\Anime\\a.mkv', 'Z:\\Anime\\b.mkv'];
+    expect(matchPhysicalPath(file, paths, 1000, 900)).toBeNull();
+    expect(matchPhysicalPath(file, [], 1000, 900)).toBeNull();
+    expect(
+      matchPhysicalPath(
+        file,
+        ['Z:\\Anime\\a.mkv'],
+        DROP_PATH_TTL_MS + 1000,
+        0,
+      ),
+    ).toBeNull();
   });
 });

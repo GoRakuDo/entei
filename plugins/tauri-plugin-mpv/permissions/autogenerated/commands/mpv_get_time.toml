@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-mpv-get-time"
+description = "Enables the mpv_get_time command without any pre-configured scope."
+commands.allow = ["mpv_get_time"]
+
+[[permission]]
+identifier = "deny-mpv-get-time"
+description = "Denies the mpv_get_time command without any pre-configured scope."
+commands.deny = ["mpv_get_time"]

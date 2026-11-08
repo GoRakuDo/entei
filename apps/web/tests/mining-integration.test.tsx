@@ -465,6 +465,7 @@ const baseControlsProps = {
   onVolumeChange: vi.fn(),
   playbackRate: 1,
   onPlaybackRateChange: vi.fn(),
+  onTogglePlayback: vi.fn(),
   shortcuts: [] as { key: string; desc: string }[],
   isTouchDevice: false,
   reducedMotion: false,

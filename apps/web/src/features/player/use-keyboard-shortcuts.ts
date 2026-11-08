@@ -29,6 +29,13 @@ interface UseKeyboardShortcutsOptions {
   playbackRate: number;
   setPlaybackRate: (rate: number) => void;
   onCueClick: (cue: SubtitleCue) => void;
+  /**
+   * Transport override for Space. When provided the caller owns playback — the
+   * desktop native mpv mode, where the element never fires `play`/`pause` for a
+   * source it cannot decode — and the element's own `paused` flag is not a
+   * reliable source of truth. Without it the element is toggled directly.
+   */
+  onTogglePlayback?: () => void;
   enabled: boolean;
 }
 
@@ -52,6 +59,7 @@ export function useKeyboardShortcuts({
   playbackRate,
   setPlaybackRate,
   onCueClick,
+  onTogglePlayback,
   enabled,
 }: UseKeyboardShortcutsOptions) {
   const activeCueIdRef = useRef(activeCueId);
@@ -74,6 +82,10 @@ export function useKeyboardShortcuts({
       switch (e.key) {
         case ' ': {
           e.preventDefault();
+          if (onTogglePlayback) {
+            onTogglePlayback();
+            break;
+          }
           if (media.paused) {
             media.play().catch(() => {});
           } else {
@@ -163,7 +175,14 @@ export function useKeyboardShortcuts({
         }
       }
     },
-    [enabled, videoRef, playbackRate, setPlaybackRate, onCueClick],
+    [
+      enabled,
+      videoRef,
+      playbackRate,
+      setPlaybackRate,
+      onCueClick,
+      onTogglePlayback,
+    ],
   );
 
   useEffect(() => {

@@ -49,6 +49,7 @@ import {
   MEDIA_ACCEPT,
   SUBTITLE_ACCEPT,
   classifyMediaFile,
+  classifyMediaName,
   classifyMediaError,
   isVideoFile,
   isAudioFile,
@@ -118,6 +119,7 @@ import { MagnetInput } from '@/components/player/MagnetInput';
 import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
 import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
 import { clampCompanionSeek } from '@/features/player/seek-limiter';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { trace, traceError } from '@/features/trace/trace-logger';
 import { isFirefox } from '@/features/player/browser-detect';
 import {
@@ -165,13 +167,15 @@ import type {
   YtdlpVideoInfo,
 } from '@/features/player/tauri-bridge';
 import {
-  isMpvResolvableSource,
+  installTauriDragDropPaths,
+  mpvGetDuration,
+  mpvGetTime,
   mpvLoad,
   mpvPause,
   mpvPlay,
   mpvSeek,
   mpvSetSubDelay,
-  mpvSetTracks,
+  resolvePhysicalPath,
 } from '@/features/player/tauri-bridge';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
@@ -398,6 +402,11 @@ export default function PlayerApp() {
     });
   }, []);
 
+  // Tauri v2 never exposes an absolute path on the standard HTML `File`
+  // object, so the native `tauri://drag-drop` event is the only source of
+  // `Z:\...` paths. Subscribe once, for the lifetime of the Player.
+  useEffect(() => installTauriDragDropPaths(), []);
+
   // --- Preferences ---
   const prefsRef = useRef(readPlayerPreferences());
 
@@ -480,6 +489,12 @@ export default function PlayerApp() {
 
   // --- Playback state ---
   const [isPlaying, setIsPlaying] = useState(false);
+  /** `isPlaying` for the stable transport callback (`togglePlayback`).
+   *  In native mode the element never reports a transition, so the React state
+   *  is the only truth there and it must be readable without re-creating the
+   *  callback on every play/pause. */
+  const isPlayingRef = useRef(false);
+  isPlayingRef.current = isPlaying;
   const prevIsPlayingRef = useRef(false);
   const [playbackRate, setPlaybackRate] = useState(
     prefsRef.current.playbackRate,
@@ -982,14 +997,47 @@ export default function PlayerApp() {
     [jobSession, pairing.tokenRef, startWatchSession],
   );
 
-  // Desktop native engine: hand a source to libmpv and hold it paused.
+  // Desktop native engine: hand a local file to libmpv and hold it paused.
   // `loadfile … replace` starts the engine's own clock, so without the explicit
   // pause the engine would begin playing on its own — audible in parallel with
   // the HTML element once the user presses Play (the "two engines singing"
-  // symptom). Every load site goes through here so no future call site can
-  // forget it.
+  // symptom).
+  // Only a source with an absolute physical path is ever loaded: relay streams
+  // (torrent / YouTube) stay on the HTML element, and a local `blob:` pick is
+  // not resolvable by mpv at all. Attaching mpv to a relay stream would put a
+  // second, native audio output next to the element's own and double every
+  // sound, so `mpvActiveRef` is false for those and this is never called.
   const loadMpvPaused = useCallback((url: string) => {
     void mpvLoad(url).then(() => mpvPause());
+  }, []);
+
+  // Desktop native engine: does libmpv hold the *current* media?
+  // True only for a local file with an absolute physical path — the one case
+  // where mpv is the renderer and the HTML element is a muted shim. Relay
+  // streams (torrent / YouTube) and local `blob:` picks keep the engine out of
+  // the picture: transport mirrors and native play/pause must stay silent for
+  // them, otherwise mpv would seek/pause a stale file or sing next to the
+  // element.
+  const mpvActiveRef = useRef(false);
+  /** True while mpv owns the picture and sound for the current media. Drives
+   *  the HTML element's `muted` and decode-error suppression. */
+  const [isMpvNative, setIsMpvNative] = useState(false);
+  /** Native mpv clock while it renders; null outside native mode. */
+  const [mpvTime, setMpvTime] = useState<number | null>(null);
+  const [mpvDuration, setMpvDuration] = useState<number | null>(null);
+
+  /**
+   * Hand the media back to the HTML element and stop the native engine.
+   *
+   * Every source that leaves native mode goes through here: a torrent/YouTube
+   * relay stream, or a local `blob:` pick. Pausing the engine matters — a
+   * still-playing mpv would keep sounding behind the webview after the element
+   * took over (double audio), and a stale picture would stay loaded.
+   */
+  const releaseMpv = useCallback(() => {
+    if (mpvActiveRef.current) void mpvPause();
+    mpvActiveRef.current = false;
+    setIsMpvNative(false);
   }, []);
 
   // Shared subtitle-text pipeline: parse + replace cues (used by the P3
@@ -1102,24 +1150,16 @@ export default function PlayerApp() {
           videoUrl: direct.videoUrl,
           subtitleUrl: direct.subtitleUrl,
         });
-        // Desktop native engine: hand the same loopback relay URL to libmpv so
-        // the mpv window plays alongside the HTML controls. Track numbers come
-        // from the plugin's Matroska header scan (`--alang=ja,jpn` /
-        // `--slang=ja,jpn`); an unknown value stays null and the engine keeps
-        // its own auto-selection.
-        mpvActiveRef.current = isMpvResolvableSource(direct.videoUrl);
-        loadMpvPaused(direct.videoUrl);
-        const aid = direct.selectedAudioTrack;
-        const sid = direct.selectedSubtitleTrack;
-        if (aid != null || sid != null) {
-          // Do NOT send this in the same tick as `mpvLoad`: `loadfile …
-          // replace` clears the engine's selection, so the pick is held here
-          // and applied by the media-element effect once the file has loaded.
-          pendingMpvTracksRef.current = {
-            aid: aid != null ? String(aid) : null,
-            sid: sid != null ? String(sid) : null,
-          };
-        }
+        // Desktop native engine: relay playback stays on the HTML element.
+        // mpv is only attached to a local file with an absolute path — loading
+        // a relay stream as well would add a second, native audio output next
+        // to the element's own and double every sound. The plugin's Matroska
+        // track numbers therefore stay informational: Chromium does not expose
+        // MKV audio tracks to JavaScript, so the container's own default track
+        // plays.
+        // Note: per-file audio/subtitle track selection for torrents is a
+        // known limitation of keeping mpv out of relay playback.
+        releaseMpv();
         // P3 auto-load: only when the torrent carried no subtitle file.
         if (!direct.subtitleUrl) {
           void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${jobId}`);
@@ -1148,7 +1188,7 @@ export default function PlayerApp() {
       jobSession,
       pairing.tokenRef,
       jimakuAutoLoad,
-      loadMpvPaused,
+      releaseMpv,
     ],
   );
 
@@ -1383,19 +1423,15 @@ export default function PlayerApp() {
   const mediaContainerRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const sharedMediaRef = useRef<HTMLMediaElement | null>(null);
-  // Desktop native engine: track pick that still has to be handed to libmpv.
-  // `mpvLoad` runs `loadfile … replace`, which resets the engine's own track
-  // selection, so `set aid/sid` must wait until the new file is loaded.
-  const pendingMpvTracksRef = useRef<{
-    aid: string | null;
-    sid: string | null;
-  } | null>(null);
-  // Desktop native engine: is the *current* media actually loaded into libmpv?
-  // A local pick is a `blob:` object URL that mpv cannot open, so the engine
-  // still shows the previous file (or nothing). Transport mirrors must stay
-  // silent in that case, otherwise a local playback session would seek/pause
-  // whatever stale media the engine happens to hold.
-  const mpvActiveRef = useRef(false);
+
+  // Native mode makes the media surface genuinely transparent so libmpv's
+  // child HWND (created from `wid`) shows through the webview. The class is
+  // scoped to <html>, so Home/Tracker keep their opaque shell.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('entei-native-video', isMpvNative);
+    return () => root.classList.remove('entei-native-video');
+  }, [isMpvNative]);
 
   // --- Stage 2a: Tracker runtime (non-visual, side-effect only) ---
   // Refs to carry latest media identity into the flush callback (defined
@@ -1482,6 +1518,7 @@ export default function PlayerApp() {
       revokeUrl(activeUrlRef.current);
       activeUrlRef.current = null;
       // Nothing is loaded into the engine any more: stop mirroring transport.
+      // State is intentionally not touched here — this is an unmount cleanup.
       mpvActiveRef.current = false;
       // AM-2: Revoke any lingering screenshot object URL
       if (screenshotUrlRef.current) {
@@ -1830,9 +1867,10 @@ export default function PlayerApp() {
       activeUrlRef.current = source.url;
       setMediaUrl(source.url);
       setMediaType('video');
-      // Desktop native engine: mirror the resolved relay stream into libmpv.
-      mpvActiveRef.current = isMpvResolvableSource(source.url);
-      loadMpvPaused(source.url);
+      // Desktop native engine: the resolved relay stream stays on the HTML
+      // element. mpv is only attached to a local file with an absolute path,
+      // so YouTube playback never produces a second audio output.
+      releaseMpv();
       // mediaName feeds the subtitle panel title and the mining source label.
       setMediaName(info ? sanitizeDisplayName(info.title) : (videoId ?? ''));
       setIsYouTubeDialogOpen(false);
@@ -1864,16 +1902,34 @@ export default function PlayerApp() {
       clearAudioClip,
       clearMiningPreview,
       handleSubtitleText,
-      loadMpvPaused,
+      releaseMpv,
     ],
   );
 
-  const handleMediaSelect = useCallback(
-    (file: File) => {
+  /**
+   * Shared local-media entry point for every pick path.
+   *
+   * `file` is present for a browser pick and for a Tauri drop that also
+   * produced a `File`. A native dialog pick has only an absolute path
+   * (WebView2 never exposes `File.path`), so `file` is null there and every
+   * `File`-only step — object URL, tracker fingerprint — is skipped while the
+   * path itself still goes straight to libmpv.
+   */
+  const selectLocalMedia = useCallback(
+    (input: {
+      name: string;
+      mime: string;
+      bytes: number;
+      file: File | null;
+      physicalPath: string | null;
+    }) => {
+      const { name, mime, bytes, file, physicalPath } = input;
       // ED-2E: media switch ends any active companion fixture session.
       void jobSession.cancelActiveJob();
 
-      const admission = classifyMediaFile(file);
+      const admission = file
+        ? classifyMediaFile(file)
+        : classifyMediaName(name);
 
       if (admission.kind === 'rejected') {
         setLoadError(
@@ -1881,9 +1937,9 @@ export default function PlayerApp() {
         );
         setIsLoading(false);
         trace('player', 'media_select_rejected', {
-          name: file.name,
+          name,
           ext: admission.ext,
-          bytes: file.size,
+          bytes,
         });
         return;
       }
@@ -1897,10 +1953,11 @@ export default function PlayerApp() {
       }
 
       trace('player', 'media_select', {
-        name: file.name,
+        name,
         kind: admission.kind,
-        mime: file.type,
-        bytes: file.size,
+        mime,
+        bytes,
+        nativePath: physicalPath !== null,
       });
 
       setIsLoading(true);
@@ -1919,7 +1976,7 @@ export default function PlayerApp() {
         tmdbId: null,
         titleNative: null,
       };
-      void jimakuAutoLoad.runAutoLoad(file.name, `local:${file.name}`);
+      void jimakuAutoLoad.runAutoLoad(name, `local:${name}`);
       // AM-2: Invalidate any prior screenshot when selecting new media
       clearScreenshot();
       // AM-3: Invalidate any prior audio clip when selecting new media
@@ -1927,33 +1984,59 @@ export default function PlayerApp() {
       // AM-4: Invalidate any prior mining preview when selecting new media
       clearMiningPreview();
 
+      // Desktop native engine: an absolute path (native dialog / Tauri drop)
+      // goes straight to libmpv. The HTML element still needs a source for its
+      // timing shim, and a native pick has no `File`, so the asset-protocol URL
+      // of the same file is mounted instead of an object URL. mpv opens
+      // `Z:\...` natively — no blob conversion, no HTTP relay, and SMB/CIFS
+      // seeks are answered by the OS cache directly.
       const oldUrl = activeUrlRef.current;
-      const newUrl = createMediaUrl(file, oldUrl);
-      activeUrlRef.current = newUrl;
+      const newUrl = file
+        ? createMediaUrl(file, oldUrl)
+        : physicalPath
+          ? convertFileSrc(physicalPath)
+          : '';
+      if (file) {
+        activeUrlRef.current = newUrl;
+      } else {
+        // An asset URL is not an object URL: never hand it to revokeUrl.
+        revokeUrl(oldUrl);
+        activeUrlRef.current = null;
+      }
       setMediaUrl(newUrl);
       setMediaType(admission.kind);
-      // Desktop native engine: mirror only resolvable sources. A local pick
-      // is a `blob:` object URL that mpv cannot open, and a failed
-      // `loadfile … replace` would still reset the engine's state — so it is
-      // skipped here (`mpvLoad` enforces the same guard).
-      mpvActiveRef.current = isMpvResolvableSource(newUrl);
-      if (mpvActiveRef.current) loadMpvPaused(newUrl);
-      setMediaName(file.name);
+      if (physicalPath) {
+        mpvActiveRef.current = true;
+        setIsMpvNative(true);
+        // The HTML element cannot decode HEVC 4:4:4 10-bit / FLAC, so its
+        // `loadeddata` never fires. Do not leave the loading overlay (and the
+        // surface-click guard) stuck on for a source mpv already renders.
+        setIsLoading(false);
+        loadMpvPaused(physicalPath);
+      } else {
+        // A `blob:` object URL is not resolvable by libmpv: the element owns
+        // this source and the engine is released so it cannot keep sounding
+        // behind the webview.
+        releaseMpv();
+      }
+      setMediaName(name);
       watchHistoryRecordedRef.current = false;
       youtubeVideoIdRef.current = null;
       setIsYouTubeStream(false);
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
-      startWatchSession(null, parseMediaFileName(file.name).episode);
-      const sessionId = watchSessionRef.current?.sessionId;
-      void computeVideoFingerprint(file).then((mediaId) => {
-        if (!mediaId || watchSessionRef.current?.sessionId !== sessionId)
-          return;
-        attachWatchSessionMediaId(
-          mediaId,
-          parseMediaFileName(file.name).episode,
-        );
-      });
+      startWatchSession(null, parseMediaFileName(name).episode);
+      if (file) {
+        const sessionId = watchSessionRef.current?.sessionId;
+        void computeVideoFingerprint(file).then((mediaId) => {
+          if (!mediaId || watchSessionRef.current?.sessionId !== sessionId)
+            return;
+          attachWatchSessionMediaId(
+            mediaId,
+            parseMediaFileName(name).episode,
+          );
+        });
+      }
     },
     [
       clearScreenshot,
@@ -1963,7 +2046,36 @@ export default function PlayerApp() {
       jimakuAutoLoad,
       startWatchSession,
       loadMpvPaused,
+      releaseMpv,
     ],
+  );
+
+  /** Browser pick, or a Tauri drop that also produced a `File`. */
+  const handleMediaSelect = useCallback(
+    (file: File) => {
+      selectLocalMedia({
+        name: file.name,
+        mime: file.type,
+        bytes: file.size,
+        file,
+        physicalPath: resolvePhysicalPath(file),
+      });
+    },
+    [selectLocalMedia],
+  );
+
+  /** Tauri native dialog pick: an absolute path with no `File` object. */
+  const handleMediaSelectPath = useCallback(
+    (path: string, name: string) => {
+      selectLocalMedia({
+        name,
+        mime: '',
+        bytes: 0,
+        file: null,
+        physicalPath: path,
+      });
+    },
+    [selectLocalMedia],
   );
 
   const handleSubtitleSelect = useCallback(
@@ -2042,6 +2154,10 @@ export default function PlayerApp() {
         ? clampSeekTime(cue.start)
         : cue.start;
       media.currentTime = targetTime;
+      // Native engine: mirror the seek directly. An element that cannot decode
+      // the source may never fire `seeking`, and mpv is the renderer that
+      // actually moves the picture, so the cue jump must reach it either way.
+      if (mpvActiveRef.current) void mpvSeek(targetTime);
       trace('player', 'cue_click', {
         cueId: cue.id,
         start: Math.round(cue.start * 100) / 100,
@@ -2224,8 +2340,44 @@ export default function PlayerApp() {
     [cues, recordWatchHistoryAtProgress],
   );
 
-  // Play/pause only update React state: the native engine mirror happens in
-  // the media-element funnel effect below, which sees every transition.
+  // --- Native mpv clock (desktop) ---
+  // WebView2 cannot decode every source libmpv can (HEVC 4:4:4 10-bit, FLAC in
+  // MKV), so the element's `timeupdate` may never fire. While mpv renders, its
+  // own `time-pos` becomes the clock for subtitles, the seek bar and the
+  // tracker; `externalTime`/`externalDuration` feed the controls.
+  const handleTimeUpdateRef = useRef(handleTimeUpdate);
+  handleTimeUpdateRef.current = handleTimeUpdate;
+  useEffect(() => {
+    if (!isMpvNative) {
+      setMpvTime(null);
+      setMpvDuration(null);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      const [time, duration] = await Promise.all([
+        mpvGetTime(),
+        mpvGetDuration(),
+      ]);
+      if (cancelled) return;
+      if (duration !== null) setMpvDuration(duration);
+      if (time !== null) {
+        setMpvTime(time);
+        handleTimeUpdateRef.current(time);
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 200);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isMpvNative]);
+
+  // Play/pause state updates only. The engine side lives in two places: the
+  // media-element funnel effect below (every transition the element itself
+  // reports) and `togglePlayback`, which drives libmpv directly for sources the
+  // element cannot decode and therefore never reports.
   const handlePlay = useCallback(() => {
     watchSessionIsPlayingRef.current = true;
     watchSessionLastTimeRef.current = null;
@@ -2238,6 +2390,49 @@ export default function PlayerApp() {
     setIsPlaying(false);
     trace('player', 'pause', { at: round2(traceMediaRef.current.time) });
   }, []);
+
+  /**
+   * Single play/pause entry point for every user transport trigger: the
+   * control button, the Space shortcut and the desktop surface click.
+   *
+   * Native mode (mpv owns the media): the HTML element cannot decode the
+   * source (HEVC 4:4:4 10-bit, FLAC in MKV), so it never fires `play`/`pause`
+   * and the element-event funnel above can never reach libmpv — a bare
+   * `media.play()` would leave the picture and the sound paused forever. The
+   * intent therefore goes straight to the engine and `isPlaying` is updated
+   * here, because no element event will ever report it. The element is still
+   * nudged (it is muted in native mode) so its own clock keeps working for
+   * decodable media (mining snapshot, layout restore); an undecodable element
+   * rejects harmlessly.
+   *
+   * HTML mode: the element is the transport and its own events keep updating
+   * `isPlaying`, so the element's real `paused` flag decides the intent. That
+   * also makes one click replay after `ended`, where no pause event fires.
+   */
+  const togglePlayback = useCallback(() => {
+    const media = sharedMediaRef.current;
+    if (mpvActiveRef.current) {
+      if (isPlayingRef.current) {
+        void mpvPause();
+        media?.pause();
+        handlePause();
+      } else {
+        // No seek: mpv's own position is authoritative in native mode, and a
+        // seek to the element's `currentTime` would restart an undecodable
+        // source from 0:00.
+        void mpvPlay();
+        void media?.play().catch(() => {});
+        handlePlay();
+      }
+      return;
+    }
+    if (!media) return;
+    if (media.paused) {
+      void media.play().catch(() => {});
+    } else {
+      media.pause();
+    }
+  }, [handlePlay, handlePause]);
 
   const handleLoaded = useCallback(() => {
     setIsLoading(false);
@@ -2325,20 +2520,24 @@ export default function PlayerApp() {
   }, [mediaType, mediaUrl]);
 
   // --- Desktop native engine: mirror transport into libmpv ---
-  // Every seek path (controls slider, scrub, cue click, condensed-mode auto
-  // seek, mining restore) ends in `media.currentTime = …`, so the element's own
-  // `seeking` event is the single funnel: no per-callsite wiring and no way for
-  // a future seek path to be missed. The same reasoning applies to transport:
-  // every pause path (mining auto-pause, mobile blur pause, click-to-pause,
-  // error handling) ends in the element's own `pause` event, so listening here
-  // keeps the engine in sync without duplicating `mpvPause` at each callsite.
+  // Every seek path that touches the element (controls slider, scrub, condensed
+  // mode auto seek, mining restore) ends in `media.currentTime = …`, so the
+  // element's own `seeking` event is a single funnel for those. The same
+  // reasoning applies to pause paths that end in `media.pause()` (mining
+  // auto-pause, mobile blur pause, error handling).
+  // User play/pause does NOT rely on these events: an undecodable source never
+  // fires them, so `togglePlayback` drives the engine directly.
+  // Note: pause-only paths that call `media.pause()` (mining auto-pause, mobile
+  // blur pause) still rely on the element's event. They are unreachable for a
+  // source the element cannot decode — mining needs a decodable frame from the
+  // element in the first place, and blur pause is a mobile-only path.
   // `mpvSeek` / `mpvPlay` / `mpvPause` are no-ops outside Tauri.
   useEffect(() => {
     const media = mediaType === 'video' ? videoRef.current : audioRef.current;
     if (!media) return;
-    // Gate every mirror on `mpvActiveRef`: when the element is playing a local
-    // `blob:` the engine holds an unrelated file, so these calls would seek or
-    // pause the wrong media.
+    // Gate every mirror on `mpvActiveRef`: mpv only holds a local file, so a
+    // relay / `blob:` source must never seek or pause whatever the engine
+    // happens to hold.
     const onSeeking = () => {
       if (!mpvActiveRef.current) return;
       void mpvSeek(media.currentTime);
@@ -2364,63 +2563,6 @@ export default function PlayerApp() {
       media.removeEventListener('pause', onPause);
     };
   }, [mediaType, mediaUrl]);
-
-  // --- Desktop native engine: apply a pending track pick after load ---
-  // The torrent plugin resolves the Japanese audio/subtitle track from the
-  // Matroska header, but the pick cannot travel with `mpvLoad`: `loadfile …
-  // replace` resets the engine's selection. Applying it once the element has
-  // actually loaded the new media — with a short delay so libmpv's own file
-  // open has settled — makes the selection stick.
-  useEffect(() => {
-    if (!pendingMpvTracksRef.current) return;
-    const media = mediaType === 'video' ? videoRef.current : audioRef.current;
-    if (!media) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const apply = () => {
-      timer = null;
-      const tracks = pendingMpvTracksRef.current;
-      if (!tracks) return;
-      // The engine may have moved on to a non-mpv source (local blob pick, or
-      // the torrent/companion session ended) while this timer was armed. Track
-      // numbers belong to the media that produced them, so a stale pick must
-      // never be applied to whatever the engine holds now.
-      if (!mpvActiveRef.current) {
-        pendingMpvTracksRef.current = null;
-        return;
-      }
-      pendingMpvTracksRef.current = null;
-      void mpvSetTracks(tracks.aid, tracks.sid);
-    };
-    const schedule = () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(apply, 400);
-    };
-    media.addEventListener('loadeddata', schedule);
-    media.addEventListener('canplay', schedule);
-    // The element may already carry the loaded media when this effect runs
-    // (state update and mount land in the same commit).
-    if (media.readyState >= 1) schedule();
-    return () => {
-      if (timer !== null) clearTimeout(timer);
-      media.removeEventListener('loadeddata', schedule);
-      media.removeEventListener('canplay', schedule);
-      // An aborted or failed load must not leak its pick into the next source:
-      // by now the engine has been told to open a different file, so the stale
-      // track numbers would be applied to the wrong media.
-      pendingMpvTracksRef.current = null;
-    };
-  }, [mediaType, displayMediaUrl]);
-
-  // --- Desktop native engine: drop mirroring when the source leaves mpv ---
-  // A direct torrent / companion job session ends or is cancelled, or the user
-  // picks a local file: `displayMediaUrl` then falls back to a `blob:` (or
-  // null) that the engine cannot open. Without this reset `mpvActiveRef` stays
-  // true and the transport mirrors seek/play/pause into an unrelated file.
-  useEffect(() => {
-    if (!displayMediaUrl || !isMpvResolvableSource(displayMediaUrl)) {
-      mpvActiveRef.current = false;
-    }
-  }, [displayMediaUrl]);
 
   // --- Companion start buffering: monitor the initial playability ---
   // The companion surfaces jobMediaUrl while the .part is still being
@@ -5220,14 +5362,12 @@ export default function PlayerApp() {
 
       // Only toggle play on desktop — touch uses the Play/Pause button only
       if (effect.togglePlay) {
-        if (media.paused) {
-          media.play().catch(() => {});
-        } else {
-          media.pause();
-        }
+        // Delegated, never `media.play()`: in native mode the element cannot
+        // decode the source, so it would leave libmpv paused forever.
+        togglePlayback();
       }
     },
-    [isLoading, loadError, displayMediaUrl, isTouchDevice],
+    [isLoading, loadError, displayMediaUrl, isTouchDevice, togglePlayback],
   );
 
   // --- Keyboard shortcuts ---
@@ -5238,6 +5378,7 @@ export default function PlayerApp() {
     playbackRate,
     setPlaybackRate: handlePlaybackRateChange,
     onCueClick: handleCueClick,
+    onTogglePlayback: togglePlayback,
     enabled: true,
   });
 
@@ -5371,6 +5512,7 @@ export default function PlayerApp() {
               : dict.failedToLoadVideo
           }
           decodeErrorLabel={dict.videoDecodeError}
+          nativeRender={isMpvNative}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
           onPause={handlePause}
@@ -5500,6 +5642,7 @@ export default function PlayerApp() {
         onVolumeChange={handleVolumeChange}
         playbackRate={playbackRate}
         onPlaybackRateChange={handlePlaybackRateChange}
+        onTogglePlayback={togglePlayback}
         playMode={playMode}
         onPlayModeChange={handlePlayModeChange}
         isTouchDevice={isTouchDevice}
@@ -5512,6 +5655,8 @@ export default function PlayerApp() {
         fileAccept={`${MEDIA_ACCEPT},${SUBTITLE_ACCEPT}`}
         fileOpenLabel={dict.fileOpenLabel}
         clampSeekTime={jobSession.active ? clampSeekTime : undefined}
+        externalTime={mpvTime}
+        externalDuration={mpvDuration}
       />
       <ScreenshotPreviewDialog
         open={isScreenshotDialogOpen}
@@ -5685,6 +5830,7 @@ export default function PlayerApp() {
                 {/* Core built-in source: local media files. */}
                 <MediaPicker
                   onSelect={handleMediaSelect}
+                  onSelectPath={handleMediaSelectPath}
                   accept={MEDIA_ACCEPT}
                   label={dict.chooseMedia}
                 />

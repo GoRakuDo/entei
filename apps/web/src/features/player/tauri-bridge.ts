@@ -227,9 +227,15 @@ export interface DirectTorrentSelection {
   /**
    * Matroska audio track number the plugin auto-selected (`--alang=ja,jpn`).
    * `null` for non-Matroska files or when the header was not readable yet.
+   *
+   * Currently informational: relay playback stays on the HTML element (mpv is
+   * only attached to a local file with an absolute path, so no second audio
+   * output is created), and Chromium does not expose MKV audio tracks to
+   * JavaScript. The value is kept for diagnostics and for a future native
+   * relay path.
    */
   selected_audio_track: number | null;
-  /** Same for the subtitle track (`--slang=ja,jpn`). */
+  /** Same for the subtitle track (`--slang=ja,jpn`); informational, see above. */
   selected_subtitle_track: number | null;
 }
 
@@ -383,10 +389,16 @@ export async function cancelTorrentDirect(id: string): Promise<void> {
  * mpv native engine (`plugin:mpv`)
  * ---------------------------------------------------------------------------
  * The desktop build ships `plugins/tauri-plugin-mpv`, which drives libmpv
- * in-process. Entei's HTML/CSS controls stay the only visible control surface
- * (the plugin runs mpv with `osc=no` / `osd-level=0`), so every call below is a
- * one-way mirror: the Player keeps doing exactly what it does in the browser
- * and the native engine is nudged alongside it.
+ * in-process as the media renderer for a **local file with an absolute path**
+ * (`vo=gpu-next`, native audio, and on Windows `wid=<HWND>` so it paints into
+ * the Tauri window). Entei's HTML/CSS controls stay the only control surface
+ * (`osc=no` / `osd-level=0`); the HTML `<video>` is muted and kept as the
+ * timing/transport shim, while every transport event below is mirrored into
+ * the native engine.
+ *
+ * Relay streams (torrent / YouTube loopback URLs) are deliberately NOT loaded
+ * into mpv: mpv owns a native audio output, so attaching it to a stream the
+ * HTML element already plays would double every sound.
  *
  * Contract shared by all six wrappers:
  * - outside Tauri (the standalone browser build) they resolve immediately and
@@ -416,20 +428,147 @@ async function mpvInvoke(
   }
 }
 
+/* --- Absolute local paths --------------------------------------------------
+ * Tauri v2's WebView2 does NOT expose an absolute path on the standard HTML
+ * `File` object (tauri-apps/tauri#11156, wry#87), so a `Pilih Media` pick can
+ * only reach mpv through the native `tauri://drag-drop` event, which carries
+ * absolute paths. `file.path` is still honoured for runtimes that expose it.
+ * Paths stay in module memory only: never persisted, traced or logged.
+ * ------------------------------------------------------------------------- */
+
+type FileWithPath = File & { path?: unknown };
+
+/** Native drop paths are only meaningful for the drop that just happened. */
+export const DROP_PATH_TTL_MS = 2000;
+let lastDropPaths: string[] = [];
+let lastDropAt = 0;
+
+/** Basename of a Windows, UNC or POSIX path, compared case-insensitively. */
+function pathBasename(path: string): string {
+  const normalized = path.replace(/[\\/]+/g, '/');
+  return normalized.slice(normalized.lastIndexOf('/') + 1).toLowerCase();
+}
+
+/**
+ * Pure resolver: pick the absolute path belonging to `file` from a native
+ * drop list. A single dropped path is accepted even when the basename does not
+ * match, so a renamed or oddly encoded file name never blocks direct playback.
+ */
+export function matchPhysicalPath(
+  file: File,
+  paths: readonly string[],
+  now: number,
+  droppedAt: number,
+): string | null {
+  if (paths.length === 0 || now - droppedAt > DROP_PATH_TTL_MS) return null;
+  const name = file.name.toLowerCase();
+  const exact = paths.find((path) => pathBasename(path) === name);
+  if (exact) return exact;
+  return paths.length === 1 ? (paths[0] ?? null) : null;
+}
+
+/**
+ * Subscribe to Tauri's native drag-drop event. Returns an unsubscribe fn.
+ * A no-op outside Tauri, so the standalone browser build never loads the
+ * event bridge at runtime.
+ */
+export function installTauriDragDropPaths(): () => void {
+  if (!isTauri()) return () => {};
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  void (async () => {
+    try {
+      const { listen } = await import('@tauri-apps/api/event');
+      const off = await listen<{ paths?: unknown }>(
+        'tauri://drag-drop',
+        (event) => {
+          const paths = event.payload?.paths;
+          if (!Array.isArray(paths)) return;
+          lastDropPaths = paths.filter(
+            (entry): entry is string =>
+              typeof entry === 'string' && entry.length > 0,
+          );
+          lastDropAt = Date.now();
+        },
+      );
+      if (disposed) off();
+      else unlisten = off;
+    } catch {
+      // No event bridge (e.g. a bare WebView2 host): `File.path` remains the
+      // only resolver, and HTML `blob:` playback keeps working unchanged.
+    }
+  })();
+  return () => {
+    disposed = true;
+    unlisten?.();
+    lastDropPaths = [];
+    lastDropAt = 0;
+  };
+}
+
+/** Resolve the absolute path of a picked/dropped local `File`, else null. */
+export function resolvePhysicalPath(file: File): string | null {
+  if (!isTauri()) return null;
+  const direct = (file as FileWithPath).path;
+  if (typeof direct === 'string' && direct.trim().length > 0) {
+    return direct;
+  }
+  return matchPhysicalPath(file, lastDropPaths, Date.now(), lastDropAt);
+}
+
+/** Run one `plugin:mpv` command that returns a value, or null on any failure. */
+async function mpvInvokeValue(cmd: string): Promise<unknown> {
+  if (!isTauri()) return null;
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (typeof invoke !== 'function') return null;
+  try {
+    return await tracedInvoke(cmd);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Native engine position (`time-pos`) in seconds.
+ *
+ * `null` outside Tauri, when libmpv is missing, or while the engine has no
+ * file open. Used only while mpv is the native renderer: WebView2 cannot
+ * decode every source libmpv can (HEVC 4:4:4 10-bit, FLAC in MKV), so the
+ * element's `timeupdate` may never arrive and the native clock has to drive
+ * the subtitles, seek bar and tracker instead.
+ */
+export async function mpvGetTime(): Promise<number | null> {
+  const value = await mpvInvokeValue('plugin:mpv|mpv_get_time');
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** Native engine media duration (`duration`) in seconds, or null. */
+export async function mpvGetDuration(): Promise<number | null> {
+  const value = await mpvInvokeValue('plugin:mpv|mpv_get_duration');
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 /**
  * True when a Player source URL is something libmpv can resolve by itself.
  *
  * Local file picks reach the Player as `blob:` object URLs. mpv cannot open
  * those, and a failed `loadfile … replace` still clears the engine's current
  * file and track state — so such sources are never mirrored. Relay URLs
- * (`http(s)://`) and real file paths stay eligible.
+ * (`http(s)://`) and absolute file paths (`Z:\Anime\...`, UNC, POSIX) stay
+ * eligible; the latter is what a native desktop pick hands to `mpvLoad`.
  */
 export function isMpvResolvableSource(url: string): boolean {
   if (!url) return false;
   return !url.startsWith('blob:');
 }
 
-/** Load a source into the native engine (`loadfile <url> replace`). */
+/**
+ * Load a source into the native engine (`loadfile <url> replace`).
+ *
+ * Only an absolute local path is ever loaded by the Player: relay streams stay
+ * on the HTML element so mpv cannot add a second audio output. The `blob:`
+ * guard remains because an object URL is never resolvable by mpv.
+ */
 export async function mpvLoad(url: string): Promise<void> {
   if (!isMpvResolvableSource(url)) return;
   await mpvInvoke('plugin:mpv|mpv_load', { url });
@@ -466,6 +605,11 @@ export async function mpvSetSubDelay(seconds: number): Promise<void> {
  * An absent or empty value is sent as `null` so the plugin leaves that track
  * untouched (it skips `None`), which keeps the engine's auto-selection intact
  * when only one of the two is known.
+ *
+ * Note: the Player currently loads only local files into mpv and never switches
+ * their tracks, so this wrapper has no call site in the app. It stays part of
+ * the plugin's command surface (and its contract test) for a future native
+ * relay path.
  */
 export async function mpvSetTracks(
   aid?: string | null,

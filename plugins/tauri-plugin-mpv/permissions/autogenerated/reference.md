@@ -1,6 +1,6 @@
 ## Default Permission
 
-Default permissions for the mpv plugin: media load, play/pause, absolute seek, subtitle delay and audio/subtitle track selection.
+Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, subtitle delay and audio/subtitle track selection.
 
 #### This default permission set includes the following:
 
@@ -8,6 +8,8 @@ Default permissions for the mpv plugin: media load, play/pause, absolute seek, s
 - `allow-mpv-play`
 - `allow-mpv-pause`
 - `allow-mpv-seek`
+- `allow-mpv-get-time`
+- `allow-mpv-get-duration`
 - `allow-mpv-set-sub-delay`
 - `allow-mpv-set-tracks`
 
@@ -19,6 +21,58 @@ Default permissions for the mpv plugin: media load, play/pause, absolute seek, s
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`mpv:allow-mpv-get-duration`
+
+</td>
+<td>
+
+Enables the mpv_get_duration command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mpv:deny-mpv-get-duration`
+
+</td>
+<td>
+
+Denies the mpv_get_duration command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mpv:allow-mpv-get-time`
+
+</td>
+<td>
+
+Enables the mpv_get_time command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mpv:deny-mpv-get-time`
+
+</td>
+<td>
+
+Denies the mpv_get_time command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

@@ -8,6 +8,7 @@
     "ytdlp:default",
     "torrent:default",
     "mpv:default",
+    "dialog:default",
     "mcp-bridge:default"
   ]
 }

@@ -19,6 +19,11 @@ interface VideoPlayerProps {
    *  src/load — the element must survive the error to receive the
    *  loadeddata event that clears the overlay. */
   keepElementOnError?: boolean;
+  /** mpv owns the picture and sound for this source. The HTML element stays
+   *  mounted as the timing/transport shim, but WebView2's decode failure on
+   *  formats such as HEVC 4:4:4 10-bit / FLAC must neither replace the surface
+   *  with an error state nor let the element make sound. */
+  nativeRender?: boolean;
   onTimeUpdate: (time: number) => void;
   onPlay: () => void;
   onPause: () => void;
@@ -35,6 +40,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       errorLabel = 'Failed to load video',
       decodeErrorLabel = 'Video playback error',
       keepElementOnError = false,
+      nativeRender = false,
       onTimeUpdate,
       onPlay,
       onPause,
@@ -56,6 +62,11 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
     const handleError = useCallback(
       (e: React.SyntheticEvent<HTMLVideoElement>) => {
+        // Native render mode: WebView2 cannot decode formats libmpv handles
+        // (HEVC 4:4:4 10-bit, FLAC in MKV). The element is only a shim here,
+        // so its decode failure must not replace the surface with an error
+        // state — mpv is painting the real picture behind the HTML UI.
+        if (nativeRender) return;
         // Capture the MediaError FIRST: load() below resets the element's
         // error state, so classification must read it before the reset.
         const mediaError = e.currentTarget.error;
@@ -77,7 +88,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
           onError(errorLabel);
         }
       },
-      [onError, errorLabel, decodeErrorLabel],
+      [onError, errorLabel, decodeErrorLabel, nativeRender],
     );
 
     /* Guard #4: Prevent Space/Enter on focused video element from
@@ -105,6 +116,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       <video
         ref={ref}
         src={src}
+        muted={nativeRender}
         crossOrigin="anonymous"
         className="entei-player-video"
         onTimeUpdate={handleTimeUpdate}
@@ -119,7 +131,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       />
     );
 
-    if (error) {
+    if (error && !nativeRender) {
       if (keepElementOnError) {
         // Overlay error state: keep the element mounted (the companion
         // bridge's src/load recovery needs it) and cover it with the error.
@@ -142,7 +154,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     return (
       <div className="entei-player-video-wrapper">
         {videoElement}
-        {isLoading && (
+        {isLoading && !nativeRender && (
           <div className="entei-player-loading-overlay">
             <div className="entei-player-skeleton" />
           </div>

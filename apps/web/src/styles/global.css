@@ -50,6 +50,10 @@ html {
   color-scheme: dark;
   font-size: 100%; /* Respect user font-size preference (PHASE0.md 14.374-376) */
   scroll-behavior: smooth;
+  /* Window transparency (tauri.conf.json `transparent: true`) lets libmpv
+   * paint behind the webview. The root must still be opaque, otherwise the
+   * desktop shows through every pixel the HTML layer does not paint. */
+  background-color: var(--entei-black-950);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }

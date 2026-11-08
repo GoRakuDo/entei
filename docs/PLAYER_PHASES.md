@@ -988,7 +988,7 @@ Sentence Mining:
 ### 既知の制限
 
 - 初期化が 5 分を超える torrent では relay が 503 を返す。Player 側の bounded `src` 再設定 + `load()` 復旧が最後の砦。
-- 初期化が `TRACK_SCAN_TIMEOUT` を超えた torrent では `selected_audio_track` / `selected_subtitle_track` が返らず、mpv の自動選択になる（日本語音声が既定でない場合は英語で再生される可能性がある）。
+- 初期化が `TRACK_SCAN_TIMEOUT` を超えた torrent では `selected_audio_track` / `selected_subtitle_track` が返らず、ブラウザの自動選択になる。
 
 ---
 

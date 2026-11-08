@@ -17,13 +17,19 @@
         "width": 1280,
         "height": 800,
         "resizable": true,
+        "dragDropEnabled": true,
+        "transparent": true,
         "minWidth": 360,
         "minHeight": 600,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,FluentScrollbar,OverlayScrollbar --autoplay-policy=no-user-gesture-required"
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
     }
   },
   "bundle": {

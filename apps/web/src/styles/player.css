@@ -101,6 +101,31 @@
  * They use Entei's OKLCH tokens exclusively.
  * =========================================================================== */
 
+/* --- Native mpv surface (desktop) ---
+ * libmpv paints the picture into a child HWND behind the webview, so the
+ * media surface has to be genuinely transparent: the window is created with
+ * `transparent: true` and every chrome layer keeps its own opaque background.
+ * The `<video>` element stays mounted as the timing/transport shim (muted by
+ * VideoPlayer's `nativeRender`) but must never paint over the native picture. */
+html.entei-native-video,
+html.entei-native-video body {
+  background-color: transparent;
+  background-image: none;
+}
+
+html.entei-native-video .entei-player-container {
+  background-color: var(--entei-black-950);
+}
+
+html.entei-native-video .entei-player-surface,
+html.entei-native-video .entei-player-video-wrapper {
+  background-color: transparent;
+}
+
+html.entei-native-video .entei-player-video {
+  opacity: 0;
+}
+
 /* --- Container --- */
 .entei-player-container {
   position: relative;
