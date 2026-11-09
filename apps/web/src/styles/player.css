@@ -4651,6 +4651,13 @@ html.entei-player-immersive .entei-player-audio-area {
   touch-action: none;
 }
 
+/* The right panel is COLLAPSED (not unmounted) when it is closed, so the
+   resize handle has nothing to resize: hide it instead of leaving a 1px
+   seam at the right edge of the player. */
+.entei-resizable-handle--hidden {
+  display: none;
+}
+
 .entei-resizable-handle::after {
   content: '';
   position: absolute;

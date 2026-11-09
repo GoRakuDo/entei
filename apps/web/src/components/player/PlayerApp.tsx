@@ -26,6 +26,7 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
+import { usePanelRef } from 'react-resizable-panels';
 import {
   type SubtitleCue,
   parseSubtitle,
@@ -576,11 +577,21 @@ export default function PlayerApp() {
 
   // --- Panel layout persistence (desktop only) ---
   const [panelLayout, setPanelLayout] = useState(DEFAULT_LAYOUT);
-  const [panelLayoutKey, setPanelLayoutKey] = useState(0);
+  // The side panel is COLLAPSED IN PLACE when the user closes it. Unmounting
+  // it remounted the whole panel group — and with it the <video> element, so
+  // the browser had to re-fetch the media and the panel took 1-2 seconds to
+  // reopen. The imperative handle lets us collapse/expand the very same
+  // mounted panel instead.
+  const sidePanelRef = usePanelRef();
+  // The group element: the library converts a percentage size through the
+  // MEASURED group size, so the handle is only usable once the group has a
+  // width (it never has one while it is hidden).
+  const groupElementRef = useRef<HTMLDivElement | null>(null);
 
-  // A layout branch swap remounts the media element. Keep the snapshot tied to
-  // the current media identity so a normal media switch can never restore an
-  // old position into the new file.
+  // A viewport branch swap (desktop <-> mobile/immersive) remounts the media
+  // element. The panel toggle does NOT: the side panel is collapsed in place.
+  // Keep the snapshot tied to the current media identity so a normal media
+  // switch can never restore an old position into the new file.
   const layoutMediaElementRef = useRef<HTMLMediaElement | null>(null);
   const layoutMediaSnapshotRef = useRef<{
     mediaUrl: string;
@@ -643,17 +654,17 @@ export default function PlayerApp() {
     setIsLandscapeImmersive(landscapeImmersiveMql.matches);
     setMobileViewport();
     const desktopHandler = (e: MediaQueryListEvent) => {
-      const previousBranch =
-        isDesktop && !isLandscapeImmersive && isSubtitlePanelVisible;
-      const nextBranch =
-        e.matches && !isLandscapeImmersive && isSubtitlePanelVisible;
+      // The layout branch depends on the viewport only. The right panel is
+      // collapsed in place, so toggling it never swaps the branch and never
+      // remounts the media element.
+      const previousBranch = isDesktop && !isLandscapeImmersive;
+      const nextBranch = e.matches && !isLandscapeImmersive;
       if (previousBranch !== nextBranch) snapshotLayoutMedia();
       setIsDesktop(e.matches);
     };
     const landscapeHandler = (e: MediaQueryListEvent) => {
-      const previousBranch =
-        isDesktop && !isLandscapeImmersive && isSubtitlePanelVisible;
-      const nextBranch = isDesktop && !e.matches && isSubtitlePanelVisible;
+      const previousBranch = isDesktop && !isLandscapeImmersive;
+      const nextBranch = isDesktop && !e.matches;
       if (previousBranch !== nextBranch) snapshotLayoutMedia();
       setIsLandscapeImmersive(e.matches);
     };
@@ -673,7 +684,6 @@ export default function PlayerApp() {
   }, [
     isDesktop,
     isLandscapeImmersive,
-    isSubtitlePanelVisible,
     snapshotLayoutMedia,
   ]);
 
@@ -681,6 +691,38 @@ export default function PlayerApp() {
   useEffect(() => {
     setPanelLayout(readPanelLayout());
   }, []);
+
+  // --- Right panel open/close (desktop) ---
+  // The panel is collapsed IN PLACE instead of being unmounted: the <video>
+  // element (and its decoder) stays alive across the toggle, so the browser
+  // never re-fetches the media and the panel opens instantly.
+  useEffect(() => {
+    const panel = sidePanelRef.current;
+    if (!panel) return;
+    if (isSubtitlePanelVisible) {
+      if (!panel.isCollapsed()) return;
+      // Reopen at the width the user last chose. The library forgets that
+      // width when the group remounts (desktop <-> mobile), so the
+      // persisted width is applied. resize() converts the percentage through
+      // the measured group size, so it needs a laid-out group; expand() is
+      // the fallback when the group has no size yet.
+      const groupWidth = groupElementRef.current?.clientWidth ?? 0;
+      if (groupWidth > 0) {
+        panel.resize(`${panelLayout.sidePct}%`);
+      } else {
+        panel.expand();
+      }
+    } else if (!panel.isCollapsed()) {
+      panel.collapse();
+    }
+  }, [
+    isSubtitlePanelVisible,
+    isDesktop,
+    isLandscapeImmersive,
+    panelLayout.sidePct,
+    sidePanelRef,
+    groupElementRef,
+  ]);
 
   // --- P1.3a.2: caption display mode + overlay reveal state ---
   const [captionDisplayMode, setCaptionDisplayMode] =
@@ -1857,7 +1899,7 @@ export default function PlayerApp() {
       media.removeEventListener('loadedmetadata', onLoaded);
       media.removeEventListener('loadeddata', onLoaded);
     };
-  }, [isDesktop, isLandscapeImmersive, isSubtitlePanelVisible]);
+  }, [isDesktop, isLandscapeImmersive]);
 
   // Fix #4: Apply volume using direct element refs (avoids sharedRef timing race)
   useEffect(() => {
@@ -5900,21 +5942,10 @@ export default function PlayerApp() {
         dict={dict}
         isSubtitlePanelVisible={isSubtitlePanelVisible}
         onToggleSubtitlePanel={() => {
-          const next = !isSubtitlePanelVisible;
-          // Desktop (non-immersive) toggles swap the layout branch, which
-          // remounts the media element — snapshot position/pause before the
-          // re-render so restoreLayoutMedia can bring them back after the
-          // replacement loads. Mobile/immersive toggles keep the same branch
-          // and never remount, so they must not snapshot.
-          if (isDesktop && !isLandscapeImmersive) {
-            snapshotLayoutMedia();
-          }
-          if (next) {
-            // Re-read layout from storage when showing panel
-            setPanelLayout(readPanelLayout());
-            setPanelLayoutKey((k) => k + 1);
-          }
-          setIsSubtitlePanelVisible(next);
+          // The panel is collapsed in place (desktop) or unmounted (mobile /
+          // immersive). Neither path remounts the media element, so no
+          // position snapshot is needed and the toggle stays instant.
+          setIsSubtitlePanelVisible((visible) => !visible);
         }}
         captionDisplayMode={captionDisplayMode}
         onCycleCaptionMode={handleCycleCaptionMode}
@@ -6245,22 +6276,27 @@ export default function PlayerApp() {
         />
       )}
 
-      {/* --- Active state --- */}
-      {hasMedia &&
-      isDesktop &&
-      !isLandscapeImmersive &&
-      isSubtitlePanelVisible ? (
+      {/* --- Active state ---
+          The desktop branch keeps the panel group MOUNTED while the right
+          panel is closed. Closing the panel collapses it in place (see the
+          collapse/expand effect) instead of unmounting it, so the media
+          element — and its decoder — survive the toggle: the browser never
+          has to re-fetch the media and the panel opens instantly. */}
+      {hasMedia && isDesktop && !isLandscapeImmersive ? (
         <ResizablePanelGroup
-          key={panelLayoutKey}
           id="entei-player-layout"
+          elementRef={groupElementRef}
           orientation="horizontal"
           className="entei-resizable-group"
           defaultLayout={{
-            'entei-main': panelLayout.mainPct,
-            'entei-side': panelLayout.sidePct,
+            'entei-main': isSubtitlePanelVisible ? panelLayout.mainPct : 100,
+            'entei-side': isSubtitlePanelVisible ? panelLayout.sidePct : 0,
           }}
           onLayoutChanged={(layout, { isUserInteraction }) => {
             if (!isUserInteraction) return;
+            // While the panel is closed the side column is 0% wide:
+            // persisting that would store a broken layout.
+            if (!isSubtitlePanelVisible) return;
             const main = layout['entei-main'];
             const side = layout['entei-side'];
             if (typeof main === 'number' && typeof side === 'number') {
@@ -6272,7 +6308,9 @@ export default function PlayerApp() {
         >
           <ResizablePanel
             id="entei-main"
-            defaultSize={`${panelLayout.mainPct}%`}
+            defaultSize={
+              isSubtitlePanelVisible ? `${panelLayout.mainPct}%` : '100%'
+            }
             minSize="45%"
             className="entei-resizable-panel-main"
           >
@@ -6281,12 +6319,22 @@ export default function PlayerApp() {
               {subtitleErrorsBlock}
             </div>
           </ResizablePanel>
-          <ResizableHandle withHandle className="entei-resizable-handle" />
+          <ResizableHandle
+            withHandle
+            className={`entei-resizable-handle${
+              isSubtitlePanelVisible ? '' : ' entei-resizable-handle--hidden'
+            }`}
+          />
           <ResizablePanel
             id="entei-side"
-            defaultSize={`${panelLayout.sidePct}%`}
+            defaultSize={
+              isSubtitlePanelVisible ? `${panelLayout.sidePct}%` : '0%'
+            }
             minSize="10%"
             maxSize="45%"
+            collapsible
+            collapsedSize={0}
+            panelRef={sidePanelRef}
             className="entei-resizable-panel-side"
           >
             <RightPanel
