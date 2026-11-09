@@ -179,12 +179,11 @@ import {
   resolvePhysicalPath,
 } from '@/features/player/tauri-bridge';
 import {
-  buildNativePictureHole,
   computeNativePictureRect,
   NATIVE_HOLE_PROPERTY,
   planNativeSurfaceUpdate,
   toPhysicalSurfaceBounds,
-  type PhysicalSurfaceBounds,
+  type NativePictureState,
 } from '@/features/player/native-surface';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
@@ -1497,8 +1496,8 @@ export default function PlayerApp() {
 
     let frame = 0;
     let observed: HTMLElement | null = null;
-    /** The rectangle the picture is known to be in; null = no picture. */
-    let lastBounds: PhysicalSurfaceBounds | null = null;
+    /** The state the picture is known to be in; null = no picture. */
+    let lastPicture: NativePictureState | null = null;
     /** True once a picture was requested: the cleanup has to hide it again,
      *  even when the move never came back. */
     let pictureRequested = false;
@@ -1523,7 +1522,7 @@ export default function PlayerApp() {
       generation += 1;
       const wasRequested = pictureRequested;
       pictureRequested = false;
-      lastBounds = null;
+      lastPicture = null;
       setHole('');
       if (!wasRequested) return;
       void mpvSetBounds(0, 0, 0, 0);
@@ -1564,33 +1563,38 @@ export default function PlayerApp() {
         video?.videoWidth ?? 0,
         video?.videoHeight ?? 0,
       );
-      const hole = nativePictureReadyRef.current
-        ? buildNativePictureHole(pictureRect)
+      const plan = planNativeSurfaceUpdate(lastPicture, {
+        bounds,
+        picture: pictureRect,
+      });
+      const move = plan.movePicture;
+      // Without a picture on screen there is no hole at all: the wallpaper
+      // covers the frame and the desktop can never come through.
+      const holeDuringMove = nativePictureReadyRef.current
+        ? plan.holeDuringMove
         : '';
-      const plan = planNativeSurfaceUpdate(lastBounds, bounds, hole);
-      if (!plan.movePicture) {
+      const holeAfterMove = nativePictureReadyRef.current
+        ? plan.holeAfterMove
+        : '';
+      if (!move) {
         // The picture already sits in this rectangle: the hole may follow.
-        setHole(plan.hole);
+        setHole(holeAfterMove);
+        lastPicture = { bounds, picture: pictureRect };
         return;
       }
-      // The picture moves FIRST. A hole that is bigger than the picture
-      // shows the desktop through the transparent window — the right panel
-      // toggle used to open a full-width hole while the picture was still
-      // the old, narrower one.
-      if (plan.closeHoleFirst) setHole('');
+      // The hole never outlives the picture. While the picture moves, the
+      // hole shrinks to the overlap of the old and the new frame, so the
+      // transparent window can never show the desktop — not even for the
+      // few milliseconds the move takes.
+      setHole(holeDuringMove);
       const gen = ++generation;
       pictureRequested = true;
-      void mpvSetBounds(
-        plan.movePicture.x,
-        plan.movePicture.y,
-        plan.movePicture.width,
-        plan.movePicture.height,
-      )
+      void mpvSetBounds(move.x, move.y, move.width, move.height)
         .then(() => {
           if (gen !== generation) return;
           // The picture is in the new frame: the hole may open now.
-          lastBounds = plan.movePicture;
-          setHole(plan.hole);
+          lastPicture = { bounds: move, picture: pictureRect };
+          setHole(holeAfterMove);
         })
         .catch(() => {
           if (gen !== generation) return;

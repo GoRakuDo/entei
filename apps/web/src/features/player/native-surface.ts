@@ -14,6 +14,10 @@
  * Both are derived from the same `getBoundingClientRect()` measurement, so
  * they cannot drift apart. The helpers stay pure so the contract is unit
  * testable without a browser.
+ *
+ * The wallpaper itself is a permanent layer (`html::before` in global.css)
+ * and is painted in every state: the hole is the native picture's own
+ * window, not a peeled background.
  * ---------------------------------------------------------------------------
  */
 
@@ -145,6 +149,20 @@ export function buildNativePictureHole(rect: SurfaceRect): string {
 }
 
 /**
+ * The native picture's state: where the plugin was told to put it.
+ *
+ * `bounds` is the rectangle the plugin received (physical pixels), `picture`
+ * the rectangle the video really covers inside it (CSS pixels, letterboxed
+ * exactly like the page's `object-fit: contain`).
+ */
+export interface NativePictureState {
+  /** The rectangle the plugin was given (physical pixels). */
+  bounds: PhysicalSurfaceBounds;
+  /** The letterboxed picture rectangle inside the surface (CSS pixels). */
+  picture: SurfaceRect;
+}
+
+/**
  * One native surface update, ordered so the desktop can never show through.
  *
  * The wallpaper hole (a CSS clip-path inside the webview) and the native
@@ -158,45 +176,76 @@ export function buildNativePictureHole(rect: SurfaceRect): string {
  * picture was still the old, narrower one.
  *
  * The plan therefore:
- *  - moves the picture FIRST and opens the hole only after the move is
+ *  - moves the picture FIRST and opens the full hole only after the move is
  *    confirmed, and
- *  - closes the hole before the picture shrinks, because the old (bigger)
- *    hole would outlive the old picture.
+ *  - shrinks the hole to the OVERLAP of the old and the new picture while
+ *    the picture moves. The overlap lies inside both surfaces, so the hole
+ *    can never be bigger than the picture — not even for the few
+ *    milliseconds the move takes — and the picture stays visible.
  */
 export interface NativeSurfaceUpdate {
   /** The rectangle the plugin has to be given; null when it already matches. */
   movePicture: PhysicalSurfaceBounds | null;
+  /** The hole to hold while the picture moves (never bigger than the picture). */
+  holeDuringMove: string;
   /** The hole to open once the picture sits in the new rectangle. */
-  hole: string;
-  /** True when the hole has to be closed before the picture moves. */
-  closeHoleFirst: boolean;
+  holeAfterMove: string;
+}
+
+/**
+ * The overlap of two rectangles; null when they do not overlap.
+ *
+ * Used to keep the wallpaper hole inside the native picture while the
+ * picture moves to a new frame.
+ */
+export function intersectRects(
+  a: SurfaceRect,
+  b: SurfaceRect,
+): SurfaceRect | null {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  if (right <= left || bottom <= top) return null;
+  return { left, top, width: right - left, height: bottom - top };
 }
 
 /**
  * Plan the next native surface update.
  *
- * `current` is the rectangle the picture is known to be in (null when there
- * is no picture on screen), `next` the rectangle the media frame asks for and
- * `hole` the wallpaper hole that belongs to `next`.
+ * `current` is the state the picture is known to be in (null when there is
+ * no picture on screen), `next` the state the media frame asks for.
  */
 export function planNativeSurfaceUpdate(
-  current: PhysicalSurfaceBounds | null,
-  next: PhysicalSurfaceBounds,
-  hole: string,
+  current: NativePictureState | null,
+  next: NativePictureState,
 ): NativeSurfaceUpdate {
   const same =
     current !== null &&
-    current.x === next.x &&
-    current.y === next.y &&
-    current.width === next.width &&
-    current.height === next.height;
+    current.bounds.x === next.bounds.x &&
+    current.bounds.y === next.bounds.y &&
+    current.bounds.width === next.bounds.width &&
+    current.bounds.height === next.bounds.height;
+  const holeAfterMove = buildNativePictureHole(next.picture);
   if (same) {
     // The picture already sits in this rectangle: the hole may follow
     // immediately, there is nothing to wait for.
-    return { movePicture: null, hole, closeHoleFirst: false };
+    return {
+      movePicture: null,
+      holeDuringMove: holeAfterMove,
+      holeAfterMove,
+    };
   }
-  const shrinking =
-    current !== null &&
-    (next.width < current.width || next.height < current.height);
-  return { movePicture: next, hole, closeHoleFirst: shrinking };
+  // The hole may never outlive the picture. While the picture moves, the
+  // hole therefore shrinks to the overlap of the old and the new picture
+  // rectangle: the overlap is inside the old AND the new surface, so the
+  // desktop can never come through it — and the picture stays visible.
+  const overlap = current
+    ? intersectRects(current.picture, next.picture)
+    : null;
+  return {
+    movePicture: next.bounds,
+    holeDuringMove: overlap ? buildNativePictureHole(overlap) : '',
+    holeAfterMove,
+  };
 }

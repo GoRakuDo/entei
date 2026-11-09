@@ -1089,3 +1089,41 @@ Sentence Mining:
 - **`WS_CLIPSIBLINGS` は libmpv 側の子ウィンドウには残る:** libmpv が作る `mpv` 子ウィンドウは `WS_CLIPSIBLINGS` を持つが、その兄弟は同一 surface 内の子和のみなので WebView2 には影響しない（実測で映像表示を確認）。
 - **1px 未満の段差:** 壁紙のホールは CSS ピクセル、ネイティブ面は物理ピクセル丸めのため、極端な devicePixelRatio で 1 物理ピクセル未満の隙間が生じうる。現状は目視できない مستوى、恒久対応は未実施。
 
+
+## 27. 壁紙の常設化（背景画像の剥がし撤廃）とネイティブ面 بتاريخ順序バグの修正
+
+> **追加日:** 2026-11-09
+> **対象:** `apps/web/src/styles/global.css`, `apps/web/src/styles/player.css`, `apps/web/src/features/player/native-surface.ts`, `apps/web/src/components/player/PlayerApp.tsx`, `apps/web/tests/native-surface.test.ts`
+
+### 症状と課題
+
+ユーザー指示（最優先）: **「アプリの全ページに関係なく、その背景画像を貼ります」「背景画像を剥ぎ取るような例外ルール（`background-image: none` や `background-color: transparent` 等）は完全に根絶してください」**。
+
+実挙動（右パネルの開閉時）: **一瞬だけ背後の Windows デスクトップ（YouTube 画面）が透けて見え**、数ミリ秒遅れて背景画像が出て、その後に映像のサイズが追従した。
+
+### 真因
+
+原因は 2 つ重なっていた。
+
+1. **壁紙の「層」が差し替わっていた。** §25 で壁紙を `<body>` から `html.entei-native-video body::before`（ネイティブモード限定）へ移し、同一モードで `html.entei-native-video body { background-image: none; background-color: transparent; }` として `<body>` の背景を剥がしていた。**モードの切り替えで「描画する層」ごと入れ替わる**ため、切り替えの数ミリ秒は「どの層も描いていない」= 透明 = デスクトップが透ける窓になる。症状の順序（透けて → 数ミリ秒後に背景画像 → その後サイズ）と一致する。
+2. **穴が映像より大きい瞬間があった。** `planNativeSurfaceUpdate` の `closeHoleFirst` は**幅と高さの大小だけ**で判定していたため、**枠が「移動」だけした場合**（右パネル開閉でメディア領域が作り直され縦位置がずれる等）は「縮小ではない」と判定され、穴が旧位置に残ったまま映像だけが移動した。移動後は旧穴の位置にネイティブ面が存在せず、**デスクトップが透けた**。
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| 壁紙の常設 | 壁紙は `html::before` の**常設レイヤー**（`position: fixed; top/left/bottom: 0; width: 100vw; z-index: -1`）が常に描く。**ルートと `<body>` は全状態で背景を持たない**（`background-image: none` / `background-color: transparent` の例外ルールは全面削除） |
+| モード切替 | `entei-native-video` クラスを付け外しても壁紙の層は作られず消されない → 透明の窓が存在しない（モード切替が透ける原因を消滅） |
+| 全ページ | 常設レイヤーは `global.css`（BaseLayout 経由）にあるため、Home / Tracker / Player / チュートリアル等の全ページで同じ壁紙が最背面にある |
+| 穴の意味 | 穴は**ネイティブ映像自身の窓**。壁紙の層が映像分だけ切り抜く（`clip-path: var(--entei-native-hole, none)`）。映像が無いときは閉じたまま |
+| 穴の順序 | 映像の移動中、穴は**旧映像矩形と新映像矩形の重なり**へ縮む（`intersectRects`）。重なりは旧・新両方の面の内側なので、**移動中の数ミリ秒でも穴が映像より大きくなることはない** |
+| 枠の移動 | 旧/new 双方の矩形を保持し、幅/高さの大小判定（`shrinking`）をやめる |
+| スクロールバー帯 | 壁紙の層の幅は `100vw`（クラシックスクロールバー幅を含む）。スクロールバーのトラックは意図的に透明なので、層が覆わなければデスクトップが透ける |
+
+### 既知の指摘（Known issues / Low findings）
+
+- **実機 E2E 未実施:** コードと単体テスト（25 件）と型チェックは完了したが、**Tauri 実窓での libmpv 映像・右パネル開閉・デスクトップ貫通ゼロは未確認**（E2E 待ち）。ブラウザでの見た目確認も dev サーバーに依存するため未実施。
+- **キャンバスが透明になる:** `<body>` の背景はキャンバスへ伝播しなくなるため、Tauri ウィンドウでは **CSS 読み込み直後**に壁紙の層が描かれるまでの僅かな間、透明（デスクトップ）が見える可能性が残る。壁紙の層は常設なので、以後は二度と生じない。
+- **`prefers-contrast: more`:** 旧 `body { background-color: var(--entei-black-950); }` は壁紙の層（`html::before`）の `background-color` に移した。旧仕様と同じ見た目。
+- **モバイルの背景変数:** `--entei-bg-size` / `--entei-bg-position` のモバイル上書きは、層が `<body>` の子ではなくなったため `:root` のメディアクエリへ移動した（`<body>` のカスタムプロパティは `html::before` に継承されない）。
+- **残る `background-color: transparent`:** `html.entei-native-video .entei-player-*` の透明指定は**ネイティブ映像自身の窓**（壁紙の層は背後に残ったまま透けて見える）であり、背景画像を剥がす例外ルールではない。映像を通すために構造上必須。

@@ -120,42 +120,34 @@
  *     `transparent: true`, so a transparent page shows the desktop through
  *     the app (the bug that made the whole Player look like a hole).
  *
- * The wallpaper therefore moves from <body> onto a fixed pseudo-element that
- * carries a rectangular hole at the media frame. PlayerApp writes the hole
- * (`--entei-native-hole`) from the very same measurement it hands to the
- * plugin, so the picture and the hole can never drift apart. The hole opens
- * only while the native picture is on screen; before that the wallpaper
- * covers the frame, so the desktop can never show through.
+ * The wallpaper is a PERMANENT layer (`html::before` in global.css): it is
+ * painted on every route and in every state, so the desktop can never come
+ * through the app. The rules below do NOT peel the wallpaper away — they
+ * only make the media frame itself transparent, because that rectangle is
+ * the native picture's own window.
+ *
+ * The wallpaper layer carries the rectangular hole at the media frame
+ * (`--entei-native-hole`). PlayerApp writes the hole from the very same
+ * measurement it hands to the plugin, so the picture and the hole can never
+ * drift apart. The hole opens only while the native picture is on screen;
+ * before that the wallpaper covers the frame, so the desktop can never show
+ * through.
  *
  * The hole is the ONE place where the desktop can come through, so it may
  * never be bigger than the native picture. PlayerApp therefore moves the
  * picture first and opens the hole only after the move was confirmed, and it
- * closes the hole before a shrinking frame moves the picture (see
- * `planNativeSurfaceUpdate` in features/player/native-surface.ts).
+ * shrinks the hole to the overlap of the old and the new frame while the
+ * picture moves (see `planNativeSurfaceUpdate` in
+ * features/player/native-surface.ts).
  *
- * This layer is the app-wide opacity guarantee: every pixel outside the
- * hole is painted by the wallpaper, so no panel, dialog, drawer or layout
+ * The wallpaper layer is the app-wide opacity guarantee: every pixel outside
+ * the hole is painted by the wallpaper, so no panel, dialog, drawer or layout
  * gap can ever show the desktop through the transparent Tauri window. */
-html.entei-native-video,
-html.entei-native-video body {
-  background-color: transparent;
-  background-image: none;
-}
 
-html.entei-native-video body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-color: var(--entei-bg);
-  background-image: var(--entei-bg-image);
-  background-repeat: no-repeat;
-  background-size: var(--entei-bg-size);
-  background-position: var(--entei-bg-position);
-  clip-path: var(--entei-native-hole, none);
-}
-
+/* The media frame is the native picture's OWN window: it must not paint
+   anything, or the picture behind the webview would be covered. This is
+   not the app background — the wallpaper layer (global.css) stays painted
+   in every state. */
 html.entei-native-video .entei-player-container,
 html.entei-native-video .entei-player-layout,
 html.entei-native-video .entei-player-media-area,

@@ -1,5 +1,6 @@
 /**
- * Native surface contract — the wallpaper hole and the plugin rectangle.
+ * Native surface contract — the permanent wallpaper layer and the plugin
+ * rectangle.
  * ---------------------------------------------------------------------------
  * libmpv paints the picture into a child HWND that lives BEHIND the WebView2
  * (the webview is created with `transparent: true`). The page therefore has
@@ -10,12 +11,15 @@
  *  - every other pixel stays opaque, so the desktop never shows through the
  *    transparent Tauri window.
  *
- * The wallpaper therefore carries a rectangular hole at the media frame, and
- * that hole is built from the very same measurement the plugin is given.
+ * The wallpaper itself is a PERMANENT layer (`html::before` in global.css):
+ * it is painted on every route and in every state, native playback or not,
+ * and no rule may ever peel it away. The layer carries the rectangular hole
+ * for the native picture, and that hole is built from the very same
+ * measurement the plugin is given.
+ *
  * These tests pin the pure helpers and the stylesheet contract that keeps
- * the two apart: the page background and the native wallpaper layer share
- * one set of wallpaper variables, so they cannot drift into two different
- * pictures.
+ * the two apart: the wallpaper stays painted, and the hole never grows
+ * bigger than the picture that shows through it.
  * ---------------------------------------------------------------------------
  */
 import { describe, expect, it } from 'bun:test';
@@ -24,9 +28,11 @@ import { resolve } from 'node:path';
 import {
   buildNativePictureHole,
   computeNativePictureRect,
+  intersectRects,
   NATIVE_HOLE_PROPERTY,
   planNativeSurfaceUpdate,
   toPhysicalSurfaceBounds,
+  type NativePictureState,
 } from '../src/features/player/native-surface';
 
 // `bun test` runs from the web workspace root (apps/web).
@@ -78,6 +84,11 @@ function ruleText(source: string, selector: string): string {
     i++;
   }
   return source.slice(start, i);
+}
+
+/** Removes CSS comments so a rule lookup cannot hit a comment. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 describe('native surface rectangle (plugin side)', () => {
@@ -153,7 +164,9 @@ describe('native surface hole (wallpaper side)', () => {
 
   it('uses the custom property the stylesheet reads', () => {
     expect(NATIVE_HOLE_PROPERTY).toBe('--entei-native-hole');
-    expect(playerCss).toContain(`var(${NATIVE_HOLE_PROPERTY}, none)`);
+    expect(stripComments(globalCss)).toContain(
+      `clip-path: var(${NATIVE_HOLE_PROPERTY}, none)`,
+    );
   });
 });
 
@@ -185,69 +198,124 @@ describe('native picture rectangle (what the hole may cover)', () => {
   });
 });
 
+describe('native hole overlap', () => {
+  it('returns the shared strip of two overlapping rectangles', () => {
+    expect(
+      intersectRects(
+        { left: 0, top: 0, width: 100, height: 100 },
+        { left: 50, top: 50, width: 100, height: 100 },
+      ),
+    ).toEqual({ left: 50, top: 50, width: 50, height: 50 });
+  });
+
+  it('returns null when the rectangles do not overlap', () => {
+    expect(
+      intersectRects(
+        { left: 0, top: 0, width: 10, height: 10 },
+        { left: 50, top: 50, width: 10, height: 10 },
+      ),
+    ).toBeNull();
+    // Touching edges share no area either.
+    expect(
+      intersectRects(
+        { left: 0, top: 0, width: 10, height: 10 },
+        { left: 10, top: 0, width: 10, height: 10 },
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('native surface update order (no desktop through the hole)', () => {
-  const hole = 'path(evenodd, "M0 0H99999V99999H0Z M0 144H1457V963H0Z")';
+  const narrow: NativePictureState = {
+    bounds: { x: 0, y: 29, width: 1457, height: 1051 },
+    picture: { left: 0, top: 29, width: 1457, height: 1051 },
+  };
+  const wide: NativePictureState = {
+    bounds: { x: 0, y: 29, width: 1920, height: 1051 },
+    picture: { left: 0, top: 29, width: 1920, height: 1051 },
+  };
+  const moved: NativePictureState = {
+    bounds: { x: 0, y: 200, width: 1457, height: 1051 },
+    picture: { left: 0, top: 200, width: 1457, height: 1051 },
+  };
 
-  it('moves the picture and opens the hole only afterwards', () => {
-    const next = { x: 0, y: 29, width: 1920, height: 1051 };
-    const plan = planNativeSurfaceUpdate(
-      { x: 0, y: 29, width: 1457, height: 1051 },
-      next,
-      hole,
-    );
-    expect(plan.movePicture).toEqual(next);
-    // Growing: the old (smaller) hole stays closed until the picture moved.
-    expect(plan.closeHoleFirst).toBe(false);
-    expect(plan.hole).toBe(hole);
-  });
-
-  it('closes the hole before a shrinking frame moves the picture', () => {
-    const next = { x: 0, y: 29, width: 1457, height: 1051 };
-    const plan = planNativeSurfaceUpdate(
-      { x: 0, y: 29, width: 1920, height: 1051 },
-      next,
-      hole,
-    );
-    expect(plan.movePicture).toEqual(next);
-    expect(plan.closeHoleFirst).toBe(true);
-  });
-
-  it('does not move the picture when it already sits in the frame', () => {
-    const bounds = { x: 0, y: 29, width: 1457, height: 1051 };
-    const plan = planNativeSurfaceUpdate(bounds, bounds, hole);
+  it('opens the hole right away when the picture already sits in the frame', () => {
+    const plan = planNativeSurfaceUpdate(narrow, narrow);
     expect(plan.movePicture).toBeNull();
-    expect(plan.closeHoleFirst).toBe(false);
-    expect(plan.hole).toBe(hole);
+    expect(plan.holeAfterMove).toBe(plan.holeDuringMove);
+    expect(plan.holeAfterMove).toContain('M0 29H1457V1080H0Z');
   });
 
-  it('treats the first picture as a move, never as a shrink', () => {
-    const next = { x: 0, y: 29, width: 1920, height: 1051 };
-    const plan = planNativeSurfaceUpdate(null, next, hole);
-    expect(plan.movePicture).toEqual(next);
-    expect(plan.closeHoleFirst).toBe(false);
+  it('keeps the hole inside the picture while a growing frame moves', () => {
+    // The old hole lies inside the new (bigger) picture, so it may stay
+    // open: the picture simply grows into it.
+    const plan = planNativeSurfaceUpdate(narrow, wide);
+    expect(plan.movePicture).toEqual(wide.bounds);
+    expect(plan.holeDuringMove).toContain('M0 29H1457V1080H0Z');
+    expect(plan.holeAfterMove).toContain('M0 29H1920V1080H0Z');
+  });
+
+  it('shrinks the hole to the new picture when the frame shrinks', () => {
+    const plan = planNativeSurfaceUpdate(wide, narrow);
+    expect(plan.movePicture).toEqual(narrow.bounds);
+    expect(plan.holeDuringMove).toContain('M0 29H1457V1080H0Z');
+    expect(plan.holeAfterMove).toContain('M0 29H1457V1080H0Z');
+  });
+
+  it('shrinks the hole to the overlap when the frame moves', () => {
+    // The desktop leaked through exactly here: the hole stayed on the old
+    // position while the picture had already moved away from it.
+    const plan = planNativeSurfaceUpdate(narrow, moved);
+    expect(plan.movePicture).toEqual(moved.bounds);
+    expect(plan.holeDuringMove).toContain('M0 200H1457V1080H0Z');
+    expect(plan.holeAfterMove).toContain('M0 200H1457V1251H0Z');
+  });
+
+  it('closes the wall while the first picture is placed', () => {
+    const plan = planNativeSurfaceUpdate(null, narrow);
+    expect(plan.movePicture).toEqual(narrow.bounds);
+    expect(plan.holeDuringMove).toBe('');
+    expect(plan.holeAfterMove).toContain('M0 29H1457V1080H0Z');
   });
 });
 
 describe('native wallpaper CSS contract', () => {
-  it('punches the hole into a fixed wallpaper layer behind the page', () => {
-    const layer = ruleBody(playerCss, 'html.entei-native-video body::before');
+  const globalRules = stripComments(globalCss);
+  const playerRules = stripComments(playerCss);
+
+  it('paints the wallpaper on a permanent layer behind every page', () => {
+    const layer = ruleBody(globalRules, 'html::before {');
     expect(layer).toContain('position: fixed');
-    expect(layer).toContain('inset: 0');
+    expect(layer).toContain('top: 0');
+    expect(layer).toContain('left: 0');
+    expect(layer).toContain('bottom: 0');
+    // 100vw reaches the transparent scrollbar track: a strip that showed
+    // the desktop through the transparent Tauri window.
+    expect(layer).toContain('width: 100vw');
     expect(layer).toContain('z-index: -1');
     expect(layer).toContain('pointer-events: none');
-    expect(layer).toContain(`clip-path: var(${NATIVE_HOLE_PROPERTY}, none)`);
     expect(layer).toContain('background-image: var(--entei-bg-image)');
+    expect(layer).toContain(`clip-path: var(${NATIVE_HOLE_PROPERTY}, none)`);
   });
 
-  it('keeps the root and the body transparent so the hole can show through', () => {
-    const shell = ruleBody(playerCss, 'html.entei-native-video body');
-    expect(shell).toContain('background-color: transparent');
-    expect(shell).toContain('background-image: none');
+  it('never peels the wallpaper away', () => {
+    // The wallpaper is painted in EVERY state. No rule may remove the
+    // background image or switch the page background off: that is what made
+    // the desktop show through the transparent Tauri window for a few
+    // milliseconds while the wallpaper was late.
+    expect(playerRules).not.toContain('background-image: none');
+    expect(globalRules).not.toContain('background-image: none');
+    // `<body>` paints no background at all — not in the normal state and
+    // not in the native state.
+    expect(globalRules).not.toMatch(/^body\s*\{[^}]*background/m);
+    expect(playerRules).not.toMatch(
+      /html\.entei-native-video[^{]*\{[^}]*background-image/m,
+    );
   });
 
   it('keeps the media frame itself transparent (the picture lives behind it)', () => {
     const frame = ruleText(
-      playerCss,
+      playerRules,
       'html.entei-native-video .entei-player-container',
     );
     expect(frame).toContain('background-color: transparent');
@@ -256,7 +324,7 @@ describe('native wallpaper CSS contract', () => {
     expect(frame).toContain('.entei-player-video-wrapper');
   });
 
-  it('shares one wallpaper between the page and the native layer', () => {
+  it('shares one wallpaper between the layer and the native hole', () => {
     expect(globalCss).toContain(
       "--entei-bg-image: url('/brand/entei-gradient-background.webp')",
     );
@@ -274,18 +342,21 @@ describe('native wallpaper CSS contract', () => {
     // Regression guard: the plugin call and the hole were dropped once, which
     // left the native picture behind an opaque page.
     expect(playerApp).toContain('mpvSetBounds(');
-    expect(playerApp).toContain('buildNativePictureHole(');
+    expect(playerApp).toContain('computeNativePictureRect(');
     expect(playerApp).toContain('NATIVE_HOLE_PROPERTY');
   });
 
-  it('opens the hole only after the picture move was confirmed', () => {
-    // The hole is the only place where the desktop can come through: it may
-    // never be bigger than the native picture. The picture therefore moves
-    // first (an awaited IPC) and the hole opens in the reply.
+  it('shrinks the hole while the picture moves and opens it afterwards', () => {
+    // The hole is the ONE place where the desktop can come through, so it
+    // may never be bigger than the picture — not even for the few
+    // milliseconds the picture move takes.
     expect(playerApp).toContain('planNativeSurfaceUpdate(');
-    expect(playerApp).toContain('computeNativePictureRect(');
     expect(playerApp).toMatch(
-      /void mpvSetBounds\([\s\S]*?plan\.movePicture\.x[\s\S]*?\)\s*\.then\(\(\) => \{[\s\S]*?setHole\(plan\.hole\)/,
+      /void mpvSetBounds\([\s\S]*?\.then\(\(\) => \{[\s\S]*?setHole\(holeAfterMove\)/,
+    );
+    // The hole that holds the move is written BEFORE the move is issued.
+    expect(playerApp).toMatch(
+      /setHole\(holeDuringMove\);[\s\S]*?mpvSetBounds\(/,
     );
     // A failed move keeps the wall closed — the desktop cannot come through.
     expect(playerApp).toMatch(/\.catch\(\(\) => \{[\s\S]*?setHole\(''\)/);

@@ -121,16 +121,63 @@ html.entei-hydrating body {
   visibility: hidden;
 }
 
-/* ===== PAGE WALLPAPER (shared with the native-mpv layer) =====
- * The wallpaper lives in custom properties so the page background and the
- * native-mpv wallpaper layer (player.css) can never drift apart: both read
- * the same image, size and position. The native layer needs its own copy
- * because it carries a rectangular hole for the native picture.
+/* ===== PAGE WALLPAPER (always the bottom layer) =====
+ * The wallpaper is a PERMANENT layer: `html::before` paints it on every
+ * route and in every state — native mpv playback included. The layer is
+ * never removed, never re-created and never swapped for a second copy, so
+ * the app can never be seen without the wallpaper.
+ *
+ * It used to live on `<body>`, and native playback replaced that copy with
+ * a second one on `<body>::before` (the native layer needs a rectangular
+ * hole for the native picture). The swap tore the wallpaper away for a few
+ * milliseconds: the transparent Tauri window showed the desktop through the
+ * app, the wallpaper arrived late, and only then the picture appeared at
+ * its size. One permanent layer removes that window completely.
+ *
+ * The hole for the native picture (`--entei-native-hole`) is a clip on this
+ * layer: it is the picture's own window, not a peeled background.
  */
 :root {
   --entei-bg-image: url('/brand/entei-gradient-background.webp');
   --entei-bg-size: cover;
   --entei-bg-position: center top;
+}
+
+@media (max-width: 767px) {
+  /* Mobile portrait: fit height only so the gradient never squashes.
+     The override lives on `:root` so the wallpaper layer inherits it
+     (a layer inside <body> would not see a <body> custom property). */
+  :root {
+    --entei-bg-size: auto 100dvh;
+    --entei-bg-position: center center;
+  }
+}
+
+/* The permanent bottom layer. Page background (DESIGN.md "Background
+   Texture"): --entei-bg stays as the fallback while the image loads; the
+   1920x1080 gradient is pinned to the viewport (100dvw x 100dvh, no
+   stretch on long pages) and stays fixed while content scrolls above it.
+   `z-index: -1` keeps it behind every element; the native picture comes
+   through the hole in its clip-path. */
+html::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  /* 100vw includes the classic scrollbar strip: the scrollbar track is
+     transparent on purpose (see the scrollbar contract above), so the
+     wallpaper has to reach it — otherwise the track would show the desktop
+     through the transparent Tauri window. */
+  width: 100vw;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--entei-bg);
+  background-image: var(--entei-bg-image);
+  background-repeat: no-repeat;
+  background-size: var(--entei-bg-size);
+  background-position: var(--entei-bg-position);
+  clip-path: var(--entei-native-hole, none);
 }
 
 /* ===== BASE TYPOGRAPHY ===== */
@@ -140,22 +187,9 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
-  /* Page background (DESIGN.md "Background Texture"): --entei-bg stays as
-     the fallback while the image loads; the 1920x1080 gradient is pinned
-     to the viewport (100dvw x 100dvh, no stretch on long pages) and stays
-     fixed while content scrolls above it. */
-  background-color: var(--entei-bg);
-  background-image: var(--entei-bg-image);
-  background-repeat: no-repeat;
-  background-size: var(--entei-bg-size);
-  background-position: var(--entei-bg-position);
-  background-attachment: fixed;
-
-  @media (max-width: 767px) {
-    /* Mobile portrait: fit height only so the gradient never squashes. */
-    --entei-bg-size: auto 100dvh;
-    --entei-bg-position: center center;
-  }
+  /* NO background here — in ANY state. The page wallpaper is the permanent
+     `html::before` layer above, so no rule can ever peel it away and the
+     native picture keeps a transparent canvas to come through. */
   color: var(--entei-text);
   font-family: var(--entei-font-body);
   font-size: 1rem;
@@ -500,7 +534,9 @@ svg {
     --entei-text-muted: var(--entei-white-base);
   }
 
-  body {
+  /* The wallpaper layer, not <body>: an opaque <body> background would
+     propagate to the canvas and hide the native picture. */
+  html::before {
     background-color: var(--entei-black-950);
   }
 }
