@@ -121,6 +121,18 @@ html.entei-hydrating body {
   visibility: hidden;
 }
 
+/* ===== PAGE WALLPAPER (shared with the native-mpv layer) =====
+ * The wallpaper lives in custom properties so the page background and the
+ * native-mpv wallpaper layer (player.css) can never drift apart: both read
+ * the same image, size and position. The native layer needs its own copy
+ * because it carries a rectangular hole for the native picture.
+ */
+:root {
+  --entei-bg-image: url('/brand/entei-gradient-background.webp');
+  --entei-bg-size: cover;
+  --entei-bg-position: center top;
+}
+
 /* ===== BASE TYPOGRAPHY ===== */
 /* Flex column layout so .entei-main { flex: 1 0 auto } pushes footer down
    on short pages like /player/ (reviewer P1 finding #4). */
@@ -133,16 +145,16 @@ body {
      to the viewport (100dvw x 100dvh, no stretch on long pages) and stays
      fixed while content scrolls above it. */
   background-color: var(--entei-bg);
-  background-image: url('/brand/entei-gradient-background.webp');
+  background-image: var(--entei-bg-image);
   background-repeat: no-repeat;
-  background-size: cover;
-  background-position: center top;
+  background-size: var(--entei-bg-size);
+  background-position: var(--entei-bg-position);
   background-attachment: fixed;
 
   @media (max-width: 767px) {
     /* Mobile portrait: fit height only so the gradient never squashes. */
-    background-size: auto 100dvh;
-    background-position: center center;
+    --entei-bg-size: auto 100dvh;
+    --entei-bg-position: center center;
   }
   color: var(--entei-text);
   font-family: var(--entei-font-body);

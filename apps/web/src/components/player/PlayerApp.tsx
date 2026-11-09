@@ -174,9 +174,15 @@ import {
   mpvPause,
   mpvPlay,
   mpvSeek,
+  mpvSetBounds,
   mpvSetSubDelay,
   resolvePhysicalPath,
 } from '@/features/player/tauri-bridge';
+import {
+  buildNativePictureHole,
+  NATIVE_HOLE_PROPERTY,
+  toPhysicalSurfaceBounds,
+} from '@/features/player/native-surface';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
@@ -1446,6 +1452,134 @@ export default function PlayerApp() {
     );
     return () => root.classList.remove('entei-native-video');
   }, [isMpvNative, nativePictureReady]);
+
+  // --- Native surface: the rectangle the plugin and the wallpaper share ---
+  //
+  // libmpv paints into a child HWND that lives BEHIND the WebView2, so the
+  // webview has to stay transparent exactly at the media frame. The wallpaper
+  // carries a matching hole (`--entei-native-hole`); both rectangles come
+  // from the same measurement, so they can never drift apart.
+  //
+  // The effect only restarts when the native mode itself starts or stops: a
+  // picture that merely becomes visible must not hide and re-show the
+  // surface, that would flash the frame.
+  const nativeSurfaceSyncRef = useRef<(() => void) | null>(null);
+  /** True while the native picture is on screen. Read inside the sync
+   *  callback, which must not be re-created on every clock tick. */
+  const nativePictureReadyRef = useRef(nativePictureReady);
+  nativePictureReadyRef.current = nativePictureReady;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!isMpvNative) {
+      // Nothing native to place. The cleanup of the previous native run has
+      // already hidden the picture, so there is nothing to do here.
+      return;
+    }
+
+    let frame = 0;
+    let observed: HTMLElement | null = null;
+    /** The rectangle the plugin was last given; HIDDEN = no picture on screen. */
+    const HIDDEN = 'hidden';
+    let lastBoundsKey = HIDDEN;
+    let lastHole = '';
+
+    /** Hide the native picture and close the wallpaper hole. */
+    const hideSurface = () => {
+      lastHole = '';
+      root.style.removeProperty(NATIVE_HOLE_PROPERTY);
+      if (lastBoundsKey === HIDDEN) return;
+      lastBoundsKey = HIDDEN;
+      void mpvSetBounds(0, 0, 0, 0);
+    };
+
+    const sync = () => {
+      frame = 0;
+      const surface = surfaceRef.current;
+      if (!surface) {
+        hideSurface();
+        return;
+      }
+      if (surface !== observed) {
+        // The layout branch can remount the media area, so the observer
+        // follows the element that is actually on screen.
+        if (observed) observer?.unobserve(observed);
+        observer?.observe(surface);
+        observed = surface;
+      }
+      const rect = surface.getBoundingClientRect();
+      const bounds = toPhysicalSurfaceBounds(rect, window.devicePixelRatio);
+      if (!bounds) {
+        // No media frame (no media, immersive mode exited): hide the picture.
+        hideSurface();
+        return;
+      }
+      // The hole opens only while the picture is on screen: before that the
+      // wallpaper has to cover the frame, or the transparent Tauri window
+      // would show the desktop through the app.
+      const hole = nativePictureReadyRef.current
+        ? buildNativePictureHole(rect)
+        : '';
+      if (hole !== lastHole) {
+        lastHole = hole;
+        if (hole) {
+          root.style.setProperty(NATIVE_HOLE_PROPERTY, hole);
+        } else {
+          root.style.removeProperty(NATIVE_HOLE_PROPERTY);
+        }
+      }
+      // A scroll inside the subtitle panel also fires the listener; only a
+      // moved frame is worth an IPC call.
+      const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+      if (key === lastBoundsKey) return;
+      lastBoundsKey = key;
+      void mpvSetBounds(bounds.x, bounds.y, bounds.width, bounds.height);
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(sync);
+    };
+
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(schedule)
+        : null;
+
+    nativeSurfaceSyncRef.current = sync;
+    sync();
+
+    window.addEventListener('resize', schedule);
+    // The media frame moves with the page (and with the sticky media area on
+    // mobile), so the surface has to follow every scroll.
+    window.addEventListener('scroll', schedule, true);
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
+      nativeSurfaceSyncRef.current = null;
+      hideSurface();
+    };
+  }, [isMpvNative]);
+
+  // The native picture just appeared (or vanished): re-measure so the
+  // wallpaper hole opens exactly when the picture is on screen.
+  useEffect(() => {
+    nativeSurfaceSyncRef.current?.();
+  }, [nativePictureReady]);
+
+  // The media frame is mounted through a callback ref: the layout branch can
+  // remount the media area, and the native surface then has to follow the new
+  // element instead of the detached one.
+  const attachSurface = useCallback((element: HTMLDivElement | null) => {
+    surfaceRef.current = element;
+    // A remount fires the callback twice (null, then the new element); only
+    // the mounted element has to be measured, so the transient null must not
+    // hide the picture.
+    if (element) nativeSurfaceSyncRef.current?.();
+  }, []);
 
   // --- Stage 2a: Tracker runtime (non-visual, side-effect only) ---
   // Refs to carry latest media identity into the flush callback (defined
@@ -5553,7 +5687,7 @@ export default function PlayerApp() {
   // --- Shared media area content (extracted to avoid duplication) ---
   const mediaArea = (
     <div
-      ref={surfaceRef}
+      ref={attachSurface}
       className="entei-player-surface"
       onClick={handleSurfaceClick}
     >

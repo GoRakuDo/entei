@@ -1019,3 +1019,30 @@ Sentence Mining:
 - **JIMAKU 行の角丸と区切り線:** `.entei-jimaku-row` は `border-radius: var(--entei-radius-md)` を持ち、Magnet リストと同様に枠線なし（frameless）で運用されている。
 - **モバイル Load ボタンの幅:** `@media (max-width: 767px)` で `.entei-jimaku-load` を `width: 100%` に上書きして全幅化している。
 
+## 25. ネイティブ mpv 再生時の壁紙復元とデスクトップ透過の停止
+
+> **追加日:** 2026-11-09
+> **対象:** `apps/web/src/styles/player.css`, `apps/web/src/styles/global.css`, `apps/web/src/components/player/PlayerApp.tsx`, `apps/web/src/features/player/native-surface.ts`, `apps/web/tests/native-surface.test.ts`
+
+### 症状と課題
+
+1. **デスクトップの貫通:** ネイティブ mpv モード（`html.entei-native-video`）では `html` / `body` の背景を全面 transparent にしていたため、Tauri ウィンドウ（`transparent: true`）の背面にあるデスクトップ（VS Code 等）がそのまま透けて見えた。壁紙の画像も消えていた。
+2. **ネイティブ面の未配線:** `mpv_set_bounds`（bridge / Rust 側）は存在するのに `PlayerApp` からの呼び出しが無く、mpv の子 HWND はウィンドウ全面を覆ったままだった（`mpv_set_bounds` の配線漏れ）。
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| 壁紙の置き場所 | ネイティブモードでは壁紙の描画を `<body>` から固定 `body::before`（`z-index: -1`）へ移し、`clip-path` で映像枠に矩形ホール（`--entei-native-hole`）を開ける |
+| ホールの開閉 | ホールはネイティブ映像が画面にある間だけ開く（`nativePictureReady`）。それ以外は壁紙の覆いでデスクトップが透けない |
+| 矩形の単一来源 | プラグインへ渡す物理ピクセル矩形と壁紙のホールは同一の `getBoundingClientRect()` 測定から生成（`apps/web/src/features/player/native-surface.ts`）。両者がずれることはない |
+| 追従 | `ResizeObserver` / `resize` / `scroll`（capture）で追従。矩形が変わらない場合は IPC を発行しない |
+| 壁紙の共有 | 画像・サイズ・位置は `global.css` のカスタムプロパティ（`--entei-bg-image` / `--entei-bg-size` / `--entei-bg-position`）で共有し、ページ背景とネイティブ層が乖離しない |
+| レイアウト再マウント | 映像枠は callback ref で追従（分岐切替でメディア領域が作り直されるため）。一時的な detach では映像を隠さない |
+
+### 既知の指摘（Known issues / Low findings）
+
+- **実機 E2E 未実施:** 壁紙の復元とホールの開口は browser（Chrome DevTools）でネイティブ状態を模した描画まで確認済み。Tauri 実窓での libmpv 映像・重なりの確認は未実施（E2E 待ち）。
+- **`path(evenodd, …)` 依存:** ホールの矩形は `clip-path: path()` の even-odd ルールで表現している。ネイティブモードは Windows デスクトップ（Tauri WebView2）専用なので対象環境では対応済み。
+- **`html` / `body` の透明化はネイティブモード限定:** ブラウザ実行や `blob:` 再生では背景は従来どおり `<body>` が持ち、壁紙はそのまま全线画される。
+

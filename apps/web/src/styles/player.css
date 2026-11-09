@@ -111,11 +111,39 @@
  * (or layout / surface / wrapper) covered the whole mpv picture and made the
  * player black.
  * The `<video>` element stays mounted as the timing/transport shim (muted by
- * VideoPlayer's `nativeRender`) but must never paint over the native picture. */
+ * VideoPlayer's `nativeRender`) but must never paint over the native picture.
+ *
+ * Two constraints fight each other here:
+ *  1. The media frame must stay transparent, otherwise an opaque layer
+ *     covers the whole mpv picture and the player turns black.
+ *  2. Every OTHER pixel must be opaque. The Tauri window is created with
+ *     `transparent: true`, so a transparent page shows the desktop through
+ *     the app (the bug that made the whole Player look like a hole).
+ *
+ * The wallpaper therefore moves from <body> onto a fixed pseudo-element that
+ * carries a rectangular hole at the media frame. PlayerApp writes the hole
+ * (`--entei-native-hole`) from the very same measurement it hands to the
+ * plugin, so the picture and the hole can never drift apart. The hole opens
+ * only while the native picture is on screen; before that the wallpaper
+ * covers the frame, so the desktop can never show through. */
 html.entei-native-video,
 html.entei-native-video body {
   background-color: transparent;
   background-image: none;
+}
+
+html.entei-native-video body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--entei-bg);
+  background-image: var(--entei-bg-image);
+  background-repeat: no-repeat;
+  background-size: var(--entei-bg-size);
+  background-position: var(--entei-bg-position);
+  clip-path: var(--entei-native-hole, none);
 }
 
 html.entei-native-video .entei-player-container,
