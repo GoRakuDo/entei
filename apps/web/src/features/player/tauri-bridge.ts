@@ -34,6 +34,17 @@ import {
   type ParsedMediaName,
 } from '@/features/player/filename-parser';
 import { estimateMedianOffset } from '@/features/player/lazy-sync';
+import type {
+  JimakuEntry,
+  JimakuFile,
+} from '@/features/player/jimaku-client';
+import type {
+  NadeshikoContextOptions,
+  NadeshikoSearchOptions,
+  NadeshikoSearchPage,
+  NadeshikoSegmentContextResponse,
+  NadeshikoUserMe as NadeshikoUserMeContract,
+} from '@/features/nadeshiko/nadeshiko-client';
 
 /** Subset of Tauri v2's injected runtime internals that this module uses. */
 interface TauriInternals {
@@ -58,6 +69,187 @@ declare global {
  */
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+/** AnkiConnect error kinds returned by `tauri-plugin-anki`. */
+export type AnkiNativeErrorKind =
+  | 'network'
+  | 'api-key-required'
+  | 'permission-denied'
+  | 'server-error'
+  | 'invalid-response';
+
+/** Native connection states returned by `anki_check_connection`. */
+export type AnkiNativeConnectionState =
+  | 'connected'
+  | 'unavailable'
+  | 'api-key-required'
+  | 'permission-denied'
+  | 'unknown-error';
+
+export interface AnkiNativeConnectionStatus {
+  state: AnkiNativeConnectionState;
+  endpoint: string;
+  version: number | null;
+  requireApiKey: boolean;
+  decks: string[];
+  models: string[];
+  message: string | null;
+  errorKind: AnkiNativeErrorKind | null;
+}
+
+/** Invoke one AnkiConnect action through the desktop plugin. */
+export function ankiRequestDirect<T = unknown>(args: {
+  endpoint?: string;
+  action: string;
+  version?: number;
+  params?: Record<string, unknown>;
+  key?: string;
+}): Promise<T> {
+  return invokePluginCommand<T>('plugin:anki|anki_request', args);
+}
+
+/** Run the native version / permission / deck / model connection flow. */
+export async function ankiCheckConnectionDirect(
+  endpoint?: string,
+  key?: string,
+): Promise<AnkiNativeConnectionStatus> {
+  const raw = await invokePluginCommand<unknown>(
+    'plugin:anki|anki_check_connection',
+    { endpoint, key },
+  );
+  if (!isAnkiNativeConnectionStatus(raw)) {
+    throw new Error('invalid Anki connection status reply');
+  }
+  return raw;
+}
+
+function isAnkiNativeConnectionStatus(
+  value: unknown,
+): value is AnkiNativeConnectionStatus {
+  if (typeof value !== 'object' || value === null) return false;
+  const status = value as Record<string, unknown>;
+  const validStates: AnkiNativeConnectionState[] = [
+    'connected',
+    'unavailable',
+    'api-key-required',
+    'permission-denied',
+    'unknown-error',
+  ];
+  const validErrorKinds: Array<AnkiNativeErrorKind | null> = [
+    null,
+    'network',
+    'api-key-required',
+    'permission-denied',
+    'server-error',
+    'invalid-response',
+  ];
+  const validStringArray = (items: unknown): items is string[] =>
+    Array.isArray(items) && items.every((item) => typeof item === 'string');
+  return (
+    validStates.includes(status.state as AnkiNativeConnectionState) &&
+    typeof status.endpoint === 'string' &&
+    (typeof status.version === 'number' || status.version === null) &&
+    typeof status.requireApiKey === 'boolean' &&
+    validStringArray(status.decks) &&
+    validStringArray(status.models) &&
+    (typeof status.message === 'string' || status.message === null) &&
+    validErrorKinds.includes(status.errorKind as AnkiNativeErrorKind | null)
+  );
+}
+
+/** Search Jimaku entries for anime or dramas. */
+export function jimakuSearchEntriesDirect(
+  apiKey: string,
+  query: string,
+  anime: boolean,
+): Promise<JimakuEntry[]> {
+  return invokePluginCommand<JimakuEntry[]>(
+    'plugin:modules|modules_jimaku_search_entries',
+    { apiKey, query, anime },
+  );
+}
+
+/** Search anime and dramas together, sorted and de-duplicated natively. */
+export function jimakuSearchEntriesCombinedDirect(
+  apiKey: string,
+  query: string,
+): Promise<JimakuEntry[]> {
+  return invokePluginCommand<JimakuEntry[]>(
+    'plugin:modules|modules_jimaku_search_entries_combined',
+    { apiKey, query },
+  );
+}
+
+/** List the subtitle files for a Jimaku entry. */
+export function jimakuEntryFilesDirect(
+  apiKey: string,
+  entryId: number,
+  episode?: number,
+): Promise<JimakuFile[]> {
+  return invokePluginCommand<JimakuFile[]>(
+    'plugin:modules|modules_jimaku_entry_files',
+    { apiKey, entryId, episode },
+  );
+}
+
+/** Download one public Jimaku subtitle through the native HTTP client. */
+export function jimakuDownloadSubtitleDirect(url: string): Promise<string> {
+  return invokePluginCommand<string>(
+    'plugin:modules|modules_jimaku_download_subtitle',
+    { url },
+  );
+}
+
+/** Search Nadeshiko segments through the native API client. */
+export function nadeshikoSearchDirect(
+  apiKey: string,
+  query: string,
+  options?: NadeshikoSearchOptions,
+): Promise<NadeshikoSearchPage> {
+  return invokePluginCommand<NadeshikoSearchPage>(
+    'plugin:modules|modules_nadeshiko_search',
+    { apiKey, query, options },
+  );
+}
+
+/** Fetch the context around one Nadeshiko segment. */
+export function nadeshikoSegmentContextDirect(
+  apiKey: string,
+  segmentId: string,
+  options?: NadeshikoContextOptions,
+): Promise<NadeshikoSegmentContextResponse> {
+  return invokePluginCommand<NadeshikoSegmentContextResponse>(
+    'plugin:modules|modules_nadeshiko_segment_context',
+    { apiKey, segmentId, options },
+  );
+}
+
+/** Fetch the Nadeshiko account and quota data through the native client. */
+export function nadeshikoUserMeDirect(
+  apiKey: string,
+): Promise<NadeshikoUserMeContract> {
+  return invokePluginCommand<NadeshikoUserMeContract>(
+    'plugin:modules|modules_nadeshiko_user_me',
+    { apiKey },
+  );
+}
+
+/** Shared traced IPC gateway for the Anki and module plugins. */
+function invokePluginCommand<T>(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  if (typeof window === 'undefined' || typeof window.__TAURI_INTERNALS__?.invoke !== 'function') {
+    return Promise.reject(new Error('tauri runtime unavailable'));
+  }
+  const definedArgs = Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value !== undefined),
+  );
+  if (command.startsWith('plugin:anki|')) {
+    return tracedInvoke(command, definedArgs) as Promise<T>;
+  }
+  return tracedInvoke(command, definedArgs) as Promise<T>;
 }
 
 /** yt-dlp stream kind understood by the plugin's format selector. */
@@ -881,3 +1073,38 @@ export async function estimateLazySyncOffsetDirect(
   // native command, which takes (ref, drift).
   return estimateMedianOffset(driftCues, refCues)?.offsetMs ?? null;
 }
+
+/**
+ * Race a promise with an AbortSignal so desktop Tauri IPC calls abort
+ * consistently with web fetch callers when a request is cancelled.
+ */
+export function raceWithAbort<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    signal.addEventListener('abort', onAbort);
+    promise.then(
+      (res) => {
+        cleanup();
+        resolve(res);
+      },
+      (err) => {
+        cleanup();
+        reject(err);
+      },
+    );
+  });
+}
+

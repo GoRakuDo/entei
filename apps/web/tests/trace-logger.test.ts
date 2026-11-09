@@ -35,13 +35,14 @@ describe('sanitize', () => {
   it('redacts token-ish keys at any depth', () => {
     const clean = sanitize({
       token: 'abc123',
-      nested: { apiKey: 'k', password: 'p', cookie: 'c' },
+      nested: { apiKey: 'k', key: 'secret-key', password: 'p', cookie: 'c' },
       safe: 'kept',
     }) as Record<string, unknown>;
 
     expect(clean.token).toBe('[redacted]');
     const nested = clean.nested as Record<string, unknown>;
     expect(nested.apiKey).toBe('[redacted]');
+    expect(nested.key).toBe('[redacted]');
     expect(nested.password).toBe('[redacted]');
     expect(nested.cookie).toBe('[redacted]');
     expect(clean.safe).toBe('kept');

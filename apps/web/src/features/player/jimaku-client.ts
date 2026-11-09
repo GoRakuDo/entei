@@ -11,6 +11,15 @@
  * ---------------------------------------------------------------------------
  */
 
+import {
+  isTauri,
+  jimakuDownloadSubtitleDirect,
+  jimakuEntryFilesDirect,
+  jimakuSearchEntriesCombinedDirect,
+  jimakuSearchEntriesDirect,
+  raceWithAbort,
+} from '@/features/player/tauri-bridge';
+
 export interface JimakuEntry {
   id: number;
   name: string;
@@ -85,6 +94,20 @@ export async function searchJimakuEntries(
   anime: boolean,
   signal?: AbortSignal,
 ): Promise<JimakuResult<JimakuEntry[]>> {
+  if (isTauri()) {
+    try {
+      const entries = await raceWithAbort(
+        jimakuSearchEntriesDirect(apiKey, query.trim(), anime),
+        signal,
+      );
+      return entries.length > 0
+        ? { ok: true, data: entries }
+        : { ok: false, error: 'empty' };
+    } catch (error) {
+      return { ok: false, error: normalizeJimakuError(error) };
+    }
+  }
+
   const q = encodeURIComponent(query.trim());
   const result = await apiGet(
     apiKey,
@@ -99,6 +122,48 @@ export async function searchJimakuEntries(
   return { ok: true, data: entries };
 }
 
+/** Search anime and dramas together, retaining successful results from either side. */
+export async function searchJimakuEntriesCombined(
+  apiKey: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<JimakuResult<JimakuEntry[]>> {
+  if (isTauri()) {
+    try {
+      const entries = await raceWithAbort(
+        jimakuSearchEntriesCombinedDirect(apiKey, query.trim()),
+        signal,
+      );
+      return entries.length > 0
+        ? { ok: true, data: entries }
+        : { ok: false, error: 'empty' };
+    } catch (error) {
+      return { ok: false, error: normalizeJimakuError(error) };
+    }
+  }
+
+  const [anime, drama] = await Promise.all([
+    searchJimakuEntries(apiKey, query, true, signal),
+    searchJimakuEntries(apiKey, query, false, signal),
+  ]);
+  const entries = [
+    ...(anime.ok ? anime.data : []),
+    ...(drama.ok ? drama.data : []),
+  ];
+  if (entries.length === 0) {
+    const error = !anime.ok && anime.error !== 'empty' ? anime.error :
+      !drama.ok && drama.error !== 'empty' ? drama.error : 'empty';
+    return { ok: false, error };
+  }
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  return {
+    ok: true,
+    data: [...byId.values()].sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' }),
+    ),
+  };
+}
+
 /** Get the subtitle files for an entry (optionally for one episode). */
 export async function getJimakuEntryFiles(
   apiKey: string,
@@ -106,6 +171,20 @@ export async function getJimakuEntryFiles(
   episode?: number,
   signal?: AbortSignal,
 ): Promise<JimakuResult<JimakuFile[]>> {
+  if (isTauri()) {
+    try {
+      const files = await raceWithAbort(
+        jimakuEntryFilesDirect(apiKey, entryId, episode),
+        signal,
+      );
+      return files.length > 0
+        ? { ok: true, data: files }
+        : { ok: false, error: 'empty' };
+    } catch (error) {
+      return { ok: false, error: normalizeJimakuError(error) };
+    }
+  }
+
   const ep = episode !== undefined ? `?episode=${episode}` : '';
   const result = await apiGet(apiKey, `/entries/${entryId}/files${ep}`, signal);
   if (!result.ok) return result;
@@ -121,6 +200,17 @@ export async function downloadJimakuSubtitle(
   url: string,
   signal?: AbortSignal,
 ): Promise<JimakuResult<string>> {
+  if (isTauri()) {
+    try {
+      return {
+        ok: true,
+        data: await raceWithAbort(jimakuDownloadSubtitleDirect(url), signal),
+      };
+    } catch (error) {
+      return { ok: false, error: normalizeJimakuError(error) };
+    }
+  }
+
   let res: Response;
   try {
     res = await fetch(url, { signal });
@@ -134,5 +224,24 @@ export async function downloadJimakuSubtitle(
     return { ok: true, data: text };
   } catch {
     return { ok: false, error: 'network' };
+  }
+}
+
+function normalizeJimakuError(error: unknown): JimakuSearchError {
+  const kind =
+    typeof error === 'object' && error !== null
+      ? (error as Record<string, unknown>).kind
+      : undefined;
+  switch (kind) {
+    case 'auth':
+      return 'auth';
+    case 'not-found':
+      return 'not-found';
+    case 'rate-limit':
+      return 'rate-limit';
+    case 'empty':
+      return 'empty';
+    default:
+      return 'network';
   }
 }

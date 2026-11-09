@@ -96,7 +96,7 @@ const MAX_ITEMS = 40;
 /** Max nesting depth kept. */
 const MAX_DEPTH = 4;
 /** Keys whose values are never written to disk. */
-const SECRET_KEY = /token|secret|password|passwd|apikey|api_key|authorization|cookie|credential/i;
+const SECRET_KEY = /token|secret|password|passwd|apikey|api_key|authorization|cookie|credential|(?:^|_)key$/i;
 
 /** Per-page-load session marker so interleaved sessions stay distinguishable. */
 const SESSION_ID = createSessionId();

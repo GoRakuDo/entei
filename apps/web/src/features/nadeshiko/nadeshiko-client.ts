@@ -28,6 +28,14 @@
  * ---------------------------------------------------------------------------
  */
 
+import {
+  isTauri,
+  nadeshikoSearchDirect,
+  nadeshikoSegmentContextDirect,
+  nadeshikoUserMeDirect,
+  raceWithAbort,
+} from '@/features/player/tauri-bridge';
+
 const API_BASE = 'https://api.nadeshiko.co/v1';
 
 /* ------------------------------------------------------------------------ */
@@ -149,6 +157,22 @@ export interface NadeshikoSearchPage {
   estimatedTotalHits?: number;
   /** Spec's `pagination.estimatedTotalHitsRelation` ("EXACT"|"AT_LEAST"). */
   estimatedTotalHitsRelation?: 'EXACT' | 'AT_LEAST';
+}
+
+export interface NadeshikoUserMe {
+  user?: {
+    username?: string;
+    createdAt?: string;
+    role?: string;
+  };
+  quota?: {
+    used?: number;
+    limit?: number;
+    remaining?: number;
+    periodYyyymm?: number;
+    periodStart?: string;
+    periodEnd?: string;
+  };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -389,6 +413,10 @@ async function apiRequest(
 export type SearchSortMode =
   'RELEVANCE' | 'ASC' | 'DESC' | 'TIME_ASC' | 'TIME_DESC' | 'RANDOM';
 
+export interface NadeshikoContextOptions {
+  take?: number;
+}
+
 export interface NadeshikoSearchOptions {
   /** Max results (1-50; default 10 per spec). */
   take?: number;
@@ -413,6 +441,21 @@ export async function searchNadeshikoSegments(
   const trimmed = query.trim();
   if (trimmed.length === 0) {
     return { segments: [], hasMore: false, nextCursor: null };
+  }
+
+  if (isTauri()) {
+    try {
+      const page = await raceWithAbort(
+        nadeshikoSearchDirect(apiKey, trimmed, options),
+        signal,
+      );
+      return {
+        ...page,
+        nextCursor: page.hasMore ? page.nextCursor : null,
+      };
+    } catch (error) {
+      throw normalizeNativeNadeshikoError(error);
+    }
   }
 
   // Spec: `query` is an object — omit to do a queryless browse, set
@@ -513,8 +556,19 @@ export async function getNadeshikoSegmentContext(
   apiKey: string,
   segmentId: string,
   signal?: AbortSignal,
-  options: { take?: number } = {},
+  options: NadeshikoContextOptions = {},
 ): Promise<NadeshikoSegmentContextResponse> {
+  if (isTauri()) {
+    try {
+      return await raceWithAbort(
+        nadeshikoSegmentContextDirect(apiKey, segmentId, options),
+        signal,
+      );
+    } catch (error) {
+      throw normalizeNativeNadeshikoError(error);
+    }
+  }
+
   // The spec accepts `include[]` (array form) and `take` (1-30, default 3).
   // We default to including media so the centre + surrounding can be
   // labelled with the work name without a second round-trip. The endpoint
@@ -566,4 +620,76 @@ export async function getNadeshikoSegmentContext(
   const center = all[centerIdx]!;
   const surrounding = [...all.slice(0, centerIdx), ...all.slice(centerIdx + 1)];
   return { center, surrounding, centerIdx };
+}
+
+/** Read the authenticated Nadeshiko account and quota data. */
+export async function getNadeshikoUserMe(
+  apiKey: string,
+): Promise<NadeshikoUserMe> {
+  if (isTauri()) {
+    try {
+      return await nadeshikoUserMeDirect(apiKey);
+    } catch (error) {
+      throw normalizeNativeNadeshikoError(error);
+    }
+  }
+
+  const data = await apiRequest(apiKey, '/user/me', { method: 'GET' });
+  if (typeof data !== 'object' || data === null) {
+    throw makeError('invalid-response', 'Malformed user response');
+  }
+  const value = data as Record<string, unknown>;
+  return {
+    ...(isRecord(value.user) ? { user: parseNadeshikoUser(value.user) } : {}),
+    ...(isRecord(value.quota) ? { quota: parseNadeshikoQuota(value.quota) } : {}),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseNadeshikoUser(value: Record<string, unknown>): NonNullable<NadeshikoUserMe['user']> {
+  return {
+    ...(typeof value.username === 'string' ? { username: value.username } : {}),
+    ...(typeof value.createdAt === 'string' ? { createdAt: value.createdAt } : {}),
+    ...(typeof value.role === 'string' ? { role: value.role } : {}),
+  };
+}
+
+function parseNadeshikoQuota(value: Record<string, unknown>): NonNullable<NadeshikoUserMe['quota']> {
+  return {
+    ...(typeof value.used === 'number' ? { used: value.used } : {}),
+    ...(typeof value.limit === 'number' ? { limit: value.limit } : {}),
+    ...(typeof value.remaining === 'number' ? { remaining: value.remaining } : {}),
+    ...(typeof value.periodYyyymm === 'number' ? { periodYyyymm: value.periodYyyymm } : {}),
+    ...(typeof value.periodStart === 'string' ? { periodStart: value.periodStart } : {}),
+    ...(typeof value.periodEnd === 'string' ? { periodEnd: value.periodEnd } : {}),
+  };
+}
+
+function normalizeNativeNadeshikoError(error: unknown): NadeshikoError {
+  const value =
+    typeof error === 'object' && error !== null
+      ? (error as Record<string, unknown>)
+      : {};
+  const kind = value.kind;
+  const normalizedKind: NadeshikoErrorKind =
+    kind === 'invalid-key' ||
+    kind === 'rate-limited' ||
+    kind === 'quota-exceeded' ||
+    kind === 'network' ||
+    kind === 'invalid-response'
+      ? kind
+      : 'network';
+  const extras: { retryAfterSeconds?: number; status?: number } = {};
+  if (typeof value.retryAfterSeconds === 'number') {
+    extras.retryAfterSeconds = value.retryAfterSeconds;
+  }
+  if (typeof value.status === 'number') extras.status = value.status;
+  return makeError(
+    normalizedKind,
+    typeof value.message === 'string' ? value.message : 'Nadeshiko API request failed',
+    extras,
+  );
 }

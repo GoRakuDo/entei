@@ -14,6 +14,8 @@
  * All requests are typed. Errors are normalized to AnkiConnectError.
  * --------------------------------------------------------------------------- */
 
+import { ankiRequestDirect, isTauri, raceWithAbort } from '@/features/player/tauri-bridge';
+
 /** Well-known AnkiConnect actions used in Stage 1A. */
 type ReadAction =
   | 'version'
@@ -98,6 +100,47 @@ export class AnkiConnectClient {
     signal?: AbortSignal,
   ): Promise<T> {
     const body = this.buildRequest(action, params);
+
+    if (isTauri()) {
+      try {
+        return await raceWithAbort(
+          ankiRequestDirect<T>({
+            endpoint: this.endpoint,
+            action: body.action,
+            version: body.version,
+            params: body.params,
+            key: body.key,
+          }),
+          signal,
+        );
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') {
+          throw e;
+        }
+        const details =
+          typeof e === 'object' && e !== null
+            ? (e as Record<string, unknown>)
+            : {};
+        const errorKind = details.kind;
+        const message =
+          typeof details.message === 'string'
+            ? details.message
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        const kind: AnkiConnectionState | undefined =
+          errorKind === 'network'
+            ? 'unavailable'
+            : errorKind === 'api-key-required' || errorKind === 'permission-denied'
+              ? errorKind
+              : undefined;
+        const state = kind ??
+          (message.includes('CORS') || message.includes('cross-origin')
+            ? 'cors-error'
+            : 'unknown-error');
+        throw new AnkiConnectError(message, state, e);
+      }
+    }
 
     let response: Response;
     try {
