@@ -20,6 +20,7 @@ tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-ytdlp = { path = "../plugins/tauri-plugin-ytdlp" }
+tauri-plugin-modules = { path = "../plugins/tauri-plugin-modules" }
 tauri-plugin-torrent = { path = "../plugins/tauri-plugin-torrent" }
 tauri-plugin-mpv = { path = "../plugins/tauri-plugin-mpv" }
 # Native subtitle parsing, media filename parsing and LazySync offset

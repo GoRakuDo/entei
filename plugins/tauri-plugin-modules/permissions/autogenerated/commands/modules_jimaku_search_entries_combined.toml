@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-modules-jimaku-search-entries-combined"
+description = "Enables the modules_jimaku_search_entries_combined command without any pre-configured scope."
+commands.allow = ["modules_jimaku_search_entries_combined"]
+
+[[permission]]
+identifier = "deny-modules-jimaku-search-entries-combined"
+description = "Denies the modules_jimaku_search_entries_combined command without any pre-configured scope."
+commands.deny = ["modules_jimaku_search_entries_combined"]

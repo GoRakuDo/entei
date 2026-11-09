@@ -1132,6 +1132,7 @@ dependencies = [
  "tauri-plugin-anki",
  "tauri-plugin-dialog",
  "tauri-plugin-mcp-bridge",
+ "tauri-plugin-modules",
  "tauri-plugin-mpv",
  "tauri-plugin-subtitles",
  "tauri-plugin-torrent",
@@ -5146,6 +5147,20 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-core",
+]
+
+[[package]]
+name = "tauri-plugin-modules"
+version = "0.1.0"
+dependencies = [
+ "httpdate",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
+ "url",
 ]
 
 [[package]]

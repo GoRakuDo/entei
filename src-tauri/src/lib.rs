@@ -10,6 +10,8 @@ pub fn run() {
         // estimation. The commands run their CPU-bound work on the blocking
         // thread pool, so the webview never waits for a 3 000-cue parse.
         .plugin(tauri_plugin_subtitles::init())
+        // Native external API clients for Jimaku and Nadeshiko.
+        .plugin(tauri_plugin_modules::init())
         // Native AnkiConnect transport: outside the webview PNA/CORS boundary.
         .plugin(tauri_plugin_anki::init())
         // Native file dialog: the only way to obtain an absolute path for a

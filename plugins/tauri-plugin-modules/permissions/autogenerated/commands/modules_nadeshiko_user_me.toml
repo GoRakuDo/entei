@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-modules-nadeshiko-user-me"
+description = "Enables the modules_nadeshiko_user_me command without any pre-configured scope."
+commands.allow = ["modules_nadeshiko_user_me"]
+
+[[permission]]
+identifier = "deny-modules-nadeshiko-user-me"
+description = "Denies the modules_nadeshiko_user_me command without any pre-configured scope."
+commands.deny = ["modules_nadeshiko_user_me"]

@@ -1,0 +1,13 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """Default permissions for native Jimaku and Nadeshiko API requests."""
+permissions = [
+  "allow-modules-jimaku-search-entries",
+  "allow-modules-jimaku-search-entries-combined",
+  "allow-modules-jimaku-entry-files",
+  "allow-modules-jimaku-download-subtitle",
+  "allow-modules-nadeshiko-search",
+  "allow-modules-nadeshiko-segment-context",
+  "allow-modules-nadeshiko-user-me",
+]

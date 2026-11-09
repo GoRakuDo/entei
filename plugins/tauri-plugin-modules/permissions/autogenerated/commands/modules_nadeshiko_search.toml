@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-modules-nadeshiko-search"
+description = "Enables the modules_nadeshiko_search command without any pre-configured scope."
+commands.allow = ["modules_nadeshiko_search"]
+
+[[permission]]
+identifier = "deny-modules-nadeshiko-search"
+description = "Denies the modules_nadeshiko_search command without any pre-configured scope."
+commands.deny = ["modules_nadeshiko_search"]

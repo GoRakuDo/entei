@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-modules-jimaku-entry-files"
+description = "Enables the modules_jimaku_entry_files command without any pre-configured scope."
+commands.allow = ["modules_jimaku_entry_files"]
+
+[[permission]]
+identifier = "deny-modules-jimaku-entry-files"
+description = "Denies the modules_jimaku_entry_files command without any pre-configured scope."
+commands.deny = ["modules_jimaku_entry_files"]
