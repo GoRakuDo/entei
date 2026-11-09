@@ -23,7 +23,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   buildNativePictureHole,
+  computeNativePictureRect,
   NATIVE_HOLE_PROPERTY,
+  planNativeSurfaceUpdate,
   toPhysicalSurfaceBounds,
 } from '../src/features/player/native-surface';
 
@@ -155,6 +157,77 @@ describe('native surface hole (wallpaper side)', () => {
   });
 });
 
+describe('native picture rectangle (what the hole may cover)', () => {
+  it('keeps a 16:9 frame unchanged for a 16:9 file', () => {
+    const frame = { left: 0, top: 144, width: 1600, height: 900 };
+    expect(computeNativePictureRect(frame, 1920, 1080)).toEqual(frame);
+  });
+
+  it('letterboxes the picture inside a frame that is not 16:9', () => {
+    // libmpv letterboxes like `object-fit: contain`; the hole may only cover
+    // the letterboxed rectangle, otherwise the desktop shows through the
+    // pillarbox strips.
+    const picture = computeNativePictureRect(
+      { left: 0, top: 29, width: 1920, height: 1051 },
+      1920,
+      1080,
+    );
+    expect(picture.height).toBeCloseTo(1051, 5);
+    expect(picture.width).toBeCloseTo(1868.48, 1);
+    expect(picture.left).toBeCloseTo(25.76, 1);
+    expect(picture.top).toBeCloseTo(29, 5);
+  });
+
+  it('falls back to the frame when the media size is unknown', () => {
+    const frame = { left: 0, top: 144, width: 1457, height: 819 };
+    expect(computeNativePictureRect(frame, 0, 0)).toEqual(frame);
+    expect(computeNativePictureRect(frame, null, null)).toEqual(frame);
+  });
+});
+
+describe('native surface update order (no desktop through the hole)', () => {
+  const hole = 'path(evenodd, "M0 0H99999V99999H0Z M0 144H1457V963H0Z")';
+
+  it('moves the picture and opens the hole only afterwards', () => {
+    const next = { x: 0, y: 29, width: 1920, height: 1051 };
+    const plan = planNativeSurfaceUpdate(
+      { x: 0, y: 29, width: 1457, height: 1051 },
+      next,
+      hole,
+    );
+    expect(plan.movePicture).toEqual(next);
+    // Growing: the old (smaller) hole stays closed until the picture moved.
+    expect(plan.closeHoleFirst).toBe(false);
+    expect(plan.hole).toBe(hole);
+  });
+
+  it('closes the hole before a shrinking frame moves the picture', () => {
+    const next = { x: 0, y: 29, width: 1457, height: 1051 };
+    const plan = planNativeSurfaceUpdate(
+      { x: 0, y: 29, width: 1920, height: 1051 },
+      next,
+      hole,
+    );
+    expect(plan.movePicture).toEqual(next);
+    expect(plan.closeHoleFirst).toBe(true);
+  });
+
+  it('does not move the picture when it already sits in the frame', () => {
+    const bounds = { x: 0, y: 29, width: 1457, height: 1051 };
+    const plan = planNativeSurfaceUpdate(bounds, bounds, hole);
+    expect(plan.movePicture).toBeNull();
+    expect(plan.closeHoleFirst).toBe(false);
+    expect(plan.hole).toBe(hole);
+  });
+
+  it('treats the first picture as a move, never as a shrink', () => {
+    const next = { x: 0, y: 29, width: 1920, height: 1051 };
+    const plan = planNativeSurfaceUpdate(null, next, hole);
+    expect(plan.movePicture).toEqual(next);
+    expect(plan.closeHoleFirst).toBe(false);
+  });
+});
+
 describe('native wallpaper CSS contract', () => {
   it('punches the hole into a fixed wallpaper layer behind the page', () => {
     const layer = ruleBody(playerCss, 'html.entei-native-video body::before');
@@ -203,5 +276,40 @@ describe('native wallpaper CSS contract', () => {
     expect(playerApp).toContain('mpvSetBounds(');
     expect(playerApp).toContain('buildNativePictureHole(');
     expect(playerApp).toContain('NATIVE_HOLE_PROPERTY');
+  });
+
+  it('opens the hole only after the picture move was confirmed', () => {
+    // The hole is the only place where the desktop can come through: it may
+    // never be bigger than the native picture. The picture therefore moves
+    // first (an awaited IPC) and the hole opens in the reply.
+    expect(playerApp).toContain('planNativeSurfaceUpdate(');
+    expect(playerApp).toContain('computeNativePictureRect(');
+    expect(playerApp).toMatch(
+      /void mpvSetBounds\([\s\S]*?plan\.movePicture\.x[\s\S]*?\)\s*\.then\(\(\) => \{[\s\S]*?setHole\(plan\.hole\)/,
+    );
+    // A failed move keeps the wall closed — the desktop cannot come through.
+    expect(playerApp).toMatch(/\.catch\(\(\) => \{[\s\S]*?setHole\(''\)/);
+  });
+
+  it('re-measures the surface when the layout changes', () => {
+    // The right panel toggle remounts the media area: without a re-measure
+    // the hole keeps the old frame while the picture follows the new one.
+    expect(playerApp).toMatch(
+      /nativeSurfaceSyncRef\.current\?\.\(\);\s*\}, \[isSubtitlePanelVisible/,
+    );
+  });
+
+  it('keeps the right panel column opaque', () => {
+    // The panel column sits next to the media frame. The wallpaper layer
+    // covers it, and the panel paints its own opaque surface on top.
+    expect(playerCss).toMatch(
+      /\.entei-right-panel-inner\s*\{[^}]*background-color:\s*var\(--entei-surface\)/,
+    );
+    expect(playerCss).toMatch(
+      /\.entei-right-panel-content\s*\{[^}]*background-color:\s*var\(--entei-surface\)/,
+    );
+    expect(playerCss).toMatch(
+      /\.entei-resizable-panel-side\s*\{[^}]*background-color:\s*var\(--entei-surface\)/,
+    );
   });
 });

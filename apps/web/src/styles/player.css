@@ -125,7 +125,17 @@
  * (`--entei-native-hole`) from the very same measurement it hands to the
  * plugin, so the picture and the hole can never drift apart. The hole opens
  * only while the native picture is on screen; before that the wallpaper
- * covers the frame, so the desktop can never show through. */
+ * covers the frame, so the desktop can never show through.
+ *
+ * The hole is the ONE place where the desktop can come through, so it may
+ * never be bigger than the native picture. PlayerApp therefore moves the
+ * picture first and opens the hole only after the move was confirmed, and it
+ * closes the hole before a shrinking frame moves the picture (see
+ * `planNativeSurfaceUpdate` in features/player/native-surface.ts).
+ *
+ * This layer is the app-wide opacity guarantee: every pixel outside the
+ * hole is painted by the wallpaper, so no panel, dialog, drawer or layout
+ * gap can ever show the desktop through the transparent Tauri window. */
 html.entei-native-video,
 html.entei-native-video body {
   background-color: transparent;
@@ -654,6 +664,8 @@ html.entei-native-video .entei-player-video {
   gap: var(--entei-space-12);
   padding: var(--entei-space-48) var(--entei-space-16);
   text-align: center;
+  /* Opaque: the empty state is a full-panel surface, not a transparent hole. */
+  background-color: var(--entei-surface);
 }
 
 .entei-subtitle-empty-text {
@@ -4335,7 +4347,12 @@ html.entei-player-immersive .entei-player-audio-area {
    Inside a ResizablePanel (desktop) the library applies our className to a
    nested div, so min-width:0 (not 200px) is required to avoid horizontal
    overflow when the panel is resized to its 20% minimum. height:100% fills
-   the panel cell so the scrollable content area can flex. */
+   the panel cell so the scrollable content area can flex.
+
+   The background is opaque on purpose: the panel column sits next to the
+   media frame, and the wallpaper layer already covers it — this is the
+   second line of defence, so the column can never show the desktop through
+   the transparent Tauri window even if the wallpaper hole were wrong. */
 .entei-right-panel-inner {
   display: flex;
   flex-direction: column;
@@ -4347,6 +4364,12 @@ html.entei-player-immersive .entei-player-audio-area {
   border-left: 1px solid oklch(0% 0 0deg / 0.08);
   container-type: inline-size;
   container-name: right-panel;
+}
+
+/* The resizable panel cell around it: opaque for the same reason, so a
+   collapsed panel column still blocks the desktop. */
+.entei-resizable-panel-side {
+  background-color: var(--entei-surface);
 }
 
 /* --- Tab selector bar ---
@@ -4428,7 +4451,9 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-/* --- Right panel content area (scrollable) --- */
+/* --- Right panel content area (scrollable) ---
+   Opaque like the panel shell: the content area is the part the user reads,
+   and it must never show the desktop through the transparent window. */
 .entei-right-panel-content {
   display: flex;
   flex-direction: column;
@@ -4437,6 +4462,7 @@ html.entei-player-immersive .entei-player-audio-area {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  background-color: var(--entei-surface);
 }
 
 /* RightPanel adds a flex wrapper around SubtitlePanel. Give the panel the

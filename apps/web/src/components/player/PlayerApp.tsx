@@ -180,8 +180,11 @@ import {
 } from '@/features/player/tauri-bridge';
 import {
   buildNativePictureHole,
+  computeNativePictureRect,
   NATIVE_HOLE_PROPERTY,
+  planNativeSurfaceUpdate,
   toPhysicalSurfaceBounds,
+  type PhysicalSurfaceBounds,
 } from '@/features/player/native-surface';
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
@@ -1494,17 +1497,35 @@ export default function PlayerApp() {
 
     let frame = 0;
     let observed: HTMLElement | null = null;
-    /** The rectangle the plugin was last given; HIDDEN = no picture on screen. */
-    const HIDDEN = 'hidden';
-    let lastBoundsKey = HIDDEN;
+    /** The rectangle the picture is known to be in; null = no picture. */
+    let lastBounds: PhysicalSurfaceBounds | null = null;
+    /** True once a picture was requested: the cleanup has to hide it again,
+     *  even when the move never came back. */
+    let pictureRequested = false;
     let lastHole = '';
+    /** Bumped for every request: a late IPC reply must never open a hole
+     *  that belongs to an outdated frame. */
+    let generation = 0;
+
+    /** Write (or clear) the wallpaper hole. */
+    const setHole = (hole: string) => {
+      if (hole === lastHole) return;
+      lastHole = hole;
+      if (hole) {
+        root.style.setProperty(NATIVE_HOLE_PROPERTY, hole);
+      } else {
+        root.style.removeProperty(NATIVE_HOLE_PROPERTY);
+      }
+    };
 
     /** Hide the native picture and close the wallpaper hole. */
     const hideSurface = () => {
-      lastHole = '';
-      root.style.removeProperty(NATIVE_HOLE_PROPERTY);
-      if (lastBoundsKey === HIDDEN) return;
-      lastBoundsKey = HIDDEN;
+      generation += 1;
+      const wasRequested = pictureRequested;
+      pictureRequested = false;
+      lastBounds = null;
+      setHole('');
+      if (!wasRequested) return;
       void mpvSetBounds(0, 0, 0, 0);
     };
 
@@ -1532,23 +1553,51 @@ export default function PlayerApp() {
       // The hole opens only while the picture is on screen: before that the
       // wallpaper has to cover the frame, or the transparent Tauri window
       // would show the desktop through the app.
+      //
+      // The hole is the rectangle the picture really covers: libmpv
+      // letterboxes the video inside the surface exactly like the page's
+      // `object-fit: contain`, so a hole built from the surface alone would
+      // be bigger than the picture and expose the desktop.
+      const video = videoRef.current;
+      const pictureRect = computeNativePictureRect(
+        rect,
+        video?.videoWidth ?? 0,
+        video?.videoHeight ?? 0,
+      );
       const hole = nativePictureReadyRef.current
-        ? buildNativePictureHole(rect)
+        ? buildNativePictureHole(pictureRect)
         : '';
-      if (hole !== lastHole) {
-        lastHole = hole;
-        if (hole) {
-          root.style.setProperty(NATIVE_HOLE_PROPERTY, hole);
-        } else {
-          root.style.removeProperty(NATIVE_HOLE_PROPERTY);
-        }
+      const plan = planNativeSurfaceUpdate(lastBounds, bounds, hole);
+      if (!plan.movePicture) {
+        // The picture already sits in this rectangle: the hole may follow.
+        setHole(plan.hole);
+        return;
       }
-      // A scroll inside the subtitle panel also fires the listener; only a
-      // moved frame is worth an IPC call.
-      const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
-      if (key === lastBoundsKey) return;
-      lastBoundsKey = key;
-      void mpvSetBounds(bounds.x, bounds.y, bounds.width, bounds.height);
+      // The picture moves FIRST. A hole that is bigger than the picture
+      // shows the desktop through the transparent window — the right panel
+      // toggle used to open a full-width hole while the picture was still
+      // the old, narrower one.
+      if (plan.closeHoleFirst) setHole('');
+      const gen = ++generation;
+      pictureRequested = true;
+      void mpvSetBounds(
+        plan.movePicture.x,
+        plan.movePicture.y,
+        plan.movePicture.width,
+        plan.movePicture.height,
+      )
+        .then(() => {
+          if (gen !== generation) return;
+          // The picture is in the new frame: the hole may open now.
+          lastBounds = plan.movePicture;
+          setHole(plan.hole);
+        })
+        .catch(() => {
+          if (gen !== generation) return;
+          // The picture did not move: the wall stays closed, so the desktop
+          // can never come through.
+          setHole('');
+        });
     };
 
     const schedule = () => {
@@ -1584,6 +1633,15 @@ export default function PlayerApp() {
   useEffect(() => {
     nativeSurfaceSyncRef.current?.();
   }, [nativePictureReady]);
+
+  // The layout can change without the media frame moving on its own: the
+  // right panel toggle and the immersive mode swap the whole layout branch
+  // (the media area is remounted). Re-measure so the picture follows the new
+  // frame immediately — otherwise the wallpaper hole can be bigger than the
+  // picture and the desktop shows through the transparent window.
+  useEffect(() => {
+    nativeSurfaceSyncRef.current?.();
+  }, [isSubtitlePanelVisible, isDesktop, isLandscapeImmersive]);
 
   // The media frame is mounted through a callback ref: the layout branch can
   // remount the media area, and the native surface then has to follow the new

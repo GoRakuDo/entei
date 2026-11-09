@@ -85,6 +85,45 @@ export function toPhysicalSurfaceBounds(
 }
 
 /**
+ * The rectangle the native picture really covers inside the surface.
+ *
+ * libmpv letterboxes the video inside the surface rectangle exactly like the
+ * page's `object-fit: contain` (see the plugin's `mpv_set_bounds` contract),
+ * so the wallpaper hole has to be the *letterboxed* rectangle. A hole that is
+ * bigger than the picture shows the desktop through the transparent Tauri
+ * window — the hole is a hole in the wallpaper, not a window into the video.
+ *
+ * A square-pixel file (every normal MKV) fills a 16:9 surface exactly, so the
+ * frame is returned unchanged in the common case. When the media size is not
+ * known yet the frame is the only safe answer.
+ */
+export function computeNativePictureRect(
+  frame: SurfaceRect,
+  mediaWidth: number | null,
+  mediaHeight: number | null,
+): SurfaceRect {
+  if (
+    !mediaWidth ||
+    !mediaHeight ||
+    !Number.isFinite(mediaWidth) ||
+    !Number.isFinite(mediaHeight) ||
+    mediaWidth <= 0 ||
+    mediaHeight <= 0
+  ) {
+    return frame;
+  }
+  const scale = Math.min(frame.width / mediaWidth, frame.height / mediaHeight);
+  const width = mediaWidth * scale;
+  const height = mediaHeight * scale;
+  return {
+    left: frame.left + (frame.width - width) / 2,
+    top: frame.top + (frame.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+/**
  * Build the `clip-path` that punches the native picture's hole into the
  * wallpaper.
  *
@@ -103,4 +142,61 @@ export function buildNativePictureHole(rect: SurfaceRect): string {
     `path(evenodd, "M0 0H${HOLE_OUTER_EDGE}V${HOLE_OUTER_EDGE}H0Z` +
     ` M${left} ${top}H${right}V${bottom}H${left}Z")`
   );
+}
+
+/**
+ * One native surface update, ordered so the desktop can never show through.
+ *
+ * The wallpaper hole (a CSS clip-path inside the webview) and the native
+ * picture (a child HWND behind it) are two different surfaces that are
+ * updated by two different mechanisms: the hole is written synchronously
+ * into a custom property, the picture moves through an asynchronous IPC.
+ *
+ * A hole that is bigger than the picture exposes the desktop through the
+ * transparent Tauri window. That is exactly what happened when the right
+ * panel was toggled: the hole followed the new (full-width) layout while the
+ * picture was still the old, narrower one.
+ *
+ * The plan therefore:
+ *  - moves the picture FIRST and opens the hole only after the move is
+ *    confirmed, and
+ *  - closes the hole before the picture shrinks, because the old (bigger)
+ *    hole would outlive the old picture.
+ */
+export interface NativeSurfaceUpdate {
+  /** The rectangle the plugin has to be given; null when it already matches. */
+  movePicture: PhysicalSurfaceBounds | null;
+  /** The hole to open once the picture sits in the new rectangle. */
+  hole: string;
+  /** True when the hole has to be closed before the picture moves. */
+  closeHoleFirst: boolean;
+}
+
+/**
+ * Plan the next native surface update.
+ *
+ * `current` is the rectangle the picture is known to be in (null when there
+ * is no picture on screen), `next` the rectangle the media frame asks for and
+ * `hole` the wallpaper hole that belongs to `next`.
+ */
+export function planNativeSurfaceUpdate(
+  current: PhysicalSurfaceBounds | null,
+  next: PhysicalSurfaceBounds,
+  hole: string,
+): NativeSurfaceUpdate {
+  const same =
+    current !== null &&
+    current.x === next.x &&
+    current.y === next.y &&
+    current.width === next.width &&
+    current.height === next.height;
+  if (same) {
+    // The picture already sits in this rectangle: the hole may follow
+    // immediately, there is nothing to wait for.
+    return { movePicture: null, hole, closeHoleFirst: false };
+  }
+  const shrinking =
+    current !== null &&
+    (next.width < current.width || next.height < current.height);
+  return { movePicture: next, hole, closeHoleFirst: shrinking };
 }
