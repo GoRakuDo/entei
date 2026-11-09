@@ -1127,3 +1127,42 @@ Sentence Mining:
 - **`prefers-contrast: more`:** 旧 `body { background-color: var(--entei-black-950); }` は壁紙の層（`html::before`）の `background-color` に移した。旧仕様と同じ見た目。
 - **モバイルの背景変数:** `--entei-bg-size` / `--entei-bg-position` のモバイル上書きは、層が `<body>` の子ではなくなったため `:root` のメディアクエリへ移動した（`<body>` のカスタムプロパティは `html::before` に継承されない）。
 - **残る `background-color: transparent`:** `html.entei-native-video .entei-player-*` の透明指定は**ネイティブ映像自身の窓**（壁紙の層は背後に残ったまま透けて見える）であり、背景画像を剥がす例外ルールではない。映像を通すために構造上必須。
+
+## 28. 字幕リストの仮想ウィンドウ化（タブ切替のフリーズ解消）
+
+> **追加日:** 2026-11-10
+> **対象:** `apps/web/src/features/player/cue-virtual-window.ts`（新規・純ロジック）, `apps/web/src/features/player/use-cue-virtual-list.ts`（新規）, `apps/web/src/components/player/SubtitlePanel.tsx`, `apps/web/tests/cue-virtual-window.test.ts`（新規）, `apps/web/tests/subtitle-panel-virtual-list.test.tsx`（新規）
+
+### 症状と課題
+
+ユーザー報告: **「そのコンテキストのタブをそのままにして、字幕のタブに戻るとそのような重さ」**。
+
+実挙動: 2 時間の映画（字幕 3 000 行前後）で Konteks タブ → Subtitle タブに戻すと **1〜2 秒フリーズ**。三千行の字幕が `RightPanel` の条件レンダリング（`activeTab === 'captions' && ...`）で **全アンマウント → 全再マウント**され、1 行あたり約 6〜8 個の DOM ノード = **20 000 個超のノード生成**が 1 フレーム目に集中していた。
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| タブの切替 | `RightPanel` の条件マウントは**維持する**（非アクティブタブを DOM に溜め込まない）。重さは「全行レンダリング」側を潰す |
+| 描画範囲 | ビューポート周辺（可視行 + 上下 8 行のバッファ）だけを描画する。3 000 行でもマウント済み `<li>` は **約 20〜30 行**に収まる |
+| 未描画行の代用 | `<ul>` の `padding-top` / `padding-bottom` をスペーサーとして、マウントしていない行の高さを代替する |
+| 行高 | 字幕行の高さは可変（テキストの折り返しで 1 行〜4 行）なので**固定高にしない**。マウント済みの行だけを実測し、実測値の平均を未実測行の推定に使う。**推定値が最終位置を決めることはなく**、最終位置は必ず実 DOM の geometry で補正する |
+| アクティブ字幕への追従 | `activeCueId` の行が DOM に無い状態（シーク直後、タブ再マウント直後）でも追従できる。**インデックスから計算した推定位置で即ジャンプ → その行を強制的にマウント → 実測 geometry で厳密に再センタリング**の 3 段で解決する |
+| cues 配列 | 仮想化は cues 配列を**読み取り専用**として扱う（並び替え・削除・書き換えをしない）。高さキャッシュは cue id キーで|text 検証つきで保持し、LazySync の再採番（`shiftCuesByOffset` が collapsed cue を落として id を振り直す）と衝突させない |
+
+### LazySync との競合防止（チェックポイント）
+
+1. **配列の長さ・index を狂わせない:** 仮想化は `cues.length` と index のみを参照し、配列自体を変更しない。`shiftCuesByOffset`（id 再採番 + collapsed cue の削除）と `shiftCuesBySubDelay`（timestamp のみ書き換え・id 保持）のどちらでも index ベース描画が成立する。
+2. **行高キャッシュの失効:** 高さは cue id キーで保存するが、**cue text が一致する場合だけ再利用**する。id が他 cue に再採番された場合も text 不一致で破棄され、再実測される。
+3. **auto-scroll の DOM 非依存:** `scrollIntoView` だけでは DOM に存在しない行を追従できない。`cue-virtual-window.ts` の `buildCueOffsets` が **index → pixel** の写像を Pure 関数として提供し、DOM 非依存でスクロール位置を合成できる。
+
+### 検証
+
+- `bun run check`（apps/web）: **0 errors**
+- `bun test --isolate`: **2313 pass / 0 fail**（LazySync 系 54 件を含む: `tests/lazy-sync.test.ts`, `tests/player-lazy-sync.test.tsx`, `tests/sub-delay.test.ts`）
+
+### 既知の指摘（Known issues / Low findings）
+
+- **実機 E2E 未実施:** コードと単体/統合テストは完了したが、**実ブラウザ（Chrome / Tauri）でのフreeze解消・スクロール追従の見た目は未確認**（E2E 待ち）。dev サーバーは Executor が起動しない運用のため、ブラウザ実表示の確認は保留。
+- **スクロールバー全長の誤差は残る:** 未実測行の高さは推定値なので、スクロールバーの全長は実寸と数 % ずれる。マウント済み行の実測値が増えるほど収束する。
+- **`jsdom` ではスクロールできない:** テスト環境では `window.scrollBy` が no-op のため、補正パスが収束せず強制ウィンドウが維持されたままになる（テストは「cue がマウントされること」で担保）。実ブラウザでは収束して通常ウィンドウへ戻る。

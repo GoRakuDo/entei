@@ -6,13 +6,21 @@
  * ul > li > button semantics; aria-current on active cue.
  * Reduced-motion: reads matchMedia directly in scroll effect.
  * Row mining: each cue row has an optional Pickaxe button for mining that cue.
+ *
+ * Virtual windowing: a real movie carries thousands of cues, so mounting
+ * every row made the panel take seconds to mount and to remount on every
+ * Captions ⇄ Context tab switch. Only the rows near the viewport are mounted
+ * now; the rest are replaced by two spacers. See
+ * `features/player/use-cue-virtual-list.ts` for the scrolling contract and
+ * `features/player/cue-virtual-window.ts` for the pure window math.
  * --------------------------------------------------------------------------- */
 
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
 import { formatTime } from '@/features/player/control-helpers';
+import { useCueVirtualList } from '@/features/player/use-cue-virtual-list';
 import { ScrollArea } from './ui/scroll-area';
 import { SubtitlePicker } from './SubtitlePicker';
 import { TypewriterLoading } from './TypewriterLoading';
@@ -67,8 +75,13 @@ export function SubtitlePanel({
   mineRowDisabledLabel = 'Mining unavailable',
   mineCapturingLabel = 'Mining…',
 }: SubtitlePanelProps) {
-  // Ref on the ScrollArea root — query viewport inside for scroll checks.
-  const scrollRootRef = useRef<HTMLDivElement>(null);
+  const {
+    listRef,
+    scrollRootRef,
+    window: virtualWindow,
+    spacers,
+    scrollToCue,
+  } = useCueVirtualList({ cues, enabled: cues.length > 0 });
 
   const handleCueClick = useCallback(
     (cue: SubtitleCue) => {
@@ -78,7 +91,6 @@ export function SubtitlePanel({
   );
 
   // Programmatic scroll to active cue.
-  // Queries the Radix ScrollArea viewport for visibility and scrollIntoView.
   // Desktop: the Radix viewport is the scroll container — the active cue is
   // allowed to drift inside a comfortable middle band and is smoothly
   // recentered once it leaves that band, so the dialogue stays in the middle
@@ -86,87 +98,13 @@ export function SubtitlePanel({
   // Mobile: the page itself scrolls (sticky media area + tabs bar above the
   // visible subtitle area), so the window is scrolled to keep the active cue
   // centered in the visible subtitle area below those headers.
+  // When the active cue is outside the mounted window the hook forces the
+  // window to contain it and corrects the position against its real
+  // geometry — the estimate never decides the final position.
   useEffect(() => {
     if (activeCueId === null) return;
-    const root = scrollRootRef.current;
-    if (!root) return;
-
-    // Radix ScrollArea viewport is the actual scrollable element.
-    const viewport =
-      root.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]') ??
-      root;
-
-    const activeEl = viewport.querySelector<HTMLElement>(
-      `[data-cue-id="${activeCueId}"]`,
-    );
-    if (!activeEl) return;
-
-    const prefersReduced =
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const behavior = prefersReduced ? 'instant' : 'smooth';
-
-    // Desktop: Radix viewport is the scroll container.
-    const isViewportScrollable =
-      typeof window !== 'undefined' &&
-      viewport.scrollHeight > viewport.clientHeight &&
-      window.getComputedStyle(viewport).overflowY !== 'visible';
-
-    const elRect = activeEl.getBoundingClientRect();
-    const cueCenterY = elRect.top + elRect.height / 2;
-
-    if (isViewportScrollable) {
-      // Container is Radix viewport.
-      const vRect = viewport.getBoundingClientRect();
-      const targetCenterY = vRect.top + vRect.height / 2;
-
-      // If the cue drifts beyond a comfortable middle band (e.g. 1.5 cue
-      // heights or 18% of viewport height), smoothly center it in the panel.
-      const tolerance = Math.max(elRect.height * 1.5, vRect.height * 0.18);
-      if (Math.abs(cueCenterY - targetCenterY) > tolerance) {
-        const deltaY = cueCenterY - targetCenterY;
-        if (typeof viewport.scrollBy === 'function') {
-          viewport.scrollBy({ top: deltaY, behavior });
-        } else if (typeof activeEl.scrollIntoView === 'function') {
-          activeEl.scrollIntoView({ block: 'center', behavior });
-        }
-      }
-      return;
-    }
-
-    if (typeof window !== 'undefined') {
-      // Mobile: container is the page window. The visible subtitle area is
-      // between the bottom of sticky headers (media area + tabs bar) and the
-      // window bottom.
-      const tabsBar = document.querySelector<HTMLElement>(
-        '.entei-right-panel-tabs-bar',
-      );
-      const mediaArea = document.querySelector<HTMLElement>(
-        '.entei-player-media-area',
-      );
-      const headerBottom = tabsBar
-        ? tabsBar.getBoundingClientRect().bottom
-        : mediaArea
-          ? mediaArea.getBoundingClientRect().bottom
-          : 0;
-
-      const windowHeight =
-        window.innerHeight || document.documentElement.clientHeight;
-      const visibleHeight = Math.max(0, windowHeight - headerBottom);
-      const targetCenterY = headerBottom + visibleHeight / 2;
-
-      // When cue drifts beyond the middle zone, scroll window to center it
-      const tolerance = Math.max(elRect.height * 1.5, visibleHeight * 0.18);
-      if (Math.abs(cueCenterY - targetCenterY) > tolerance) {
-        const deltaY = cueCenterY - targetCenterY;
-        if (typeof window.scrollBy === 'function') {
-          window.scrollBy({ top: deltaY, behavior });
-        } else if (typeof activeEl.scrollIntoView === 'function') {
-          activeEl.scrollIntoView({ block: 'center', behavior });
-        }
-      }
-    }
-  }, [activeCueId]);
+    scrollToCue(activeCueId);
+  }, [activeCueId, scrollToCue]);
 
   if (cues.length === 0 && isLoadingSubtitles) {
     // Companion job (YouTube/Magnet): subtitles are still being fetched
@@ -209,16 +147,37 @@ export function SubtitlePanel({
     );
   }
 
+  const visibleCues = cues.slice(
+    virtualWindow.startIndex,
+    virtualWindow.endIndex,
+  );
+
   return (
     <div className="entei-subtitle-panel">
       <ScrollArea ref={scrollRootRef} className="entei-subtitle-scroll-area">
-        <ul className="entei-subtitle-list">
-          {cues.map((cue) => {
+        <ul
+          className="entei-subtitle-list"
+          ref={listRef}
+          style={{
+            paddingTop: `${spacers.top}px`,
+            paddingBottom: `${spacers.bottom}px`,
+          }}
+        >
+          {visibleCues.map((cue, offset) => {
             const isActive = cue.id === activeCueId;
             const timeStr = formatTime(cue.start);
             const mineDisabled = !canMineRow || isMining;
+            const cueIndex = virtualWindow.startIndex + offset;
             return (
-              <li key={cue.id} className="entei-subtitle-cue-item">
+              <li
+                key={cue.id}
+                className="entei-subtitle-cue-item"
+                data-cue-index={cueIndex}
+                // Virtual list: only part of the set is mounted, so the
+                // assistive-technology position has to be stated explicitly.
+                aria-setsize={cues.length}
+                aria-posinset={cueIndex + 1}
+              >
                 <div
                   className={`entei-subtitle-cue-row${isActive ? ' entei-subtitle-cue-row--active' : ''}`}
                 >
