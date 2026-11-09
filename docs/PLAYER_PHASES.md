@@ -1043,6 +1043,49 @@ Sentence Mining:
 ### 既知の指摘（Known issues / Low findings）
 
 - **実機 E2E 未実施:** 壁紙の復元とホールの開口は browser（Chrome DevTools）でネイティブ状態を模した描画まで確認済み。Tauri 実窓での libmpv 映像・重なりの確認は未実施（E2E 待ち）。
+  - **2026-11-09 更新:** 実機 E2E は実施済み。ただし「デスクトップの貫通」の真因は §25 の想定（壁紙の穴）ではなく、ネイティブ面の `WS_CLIPSIBLINGS` だった。§26 参照。
 - **`path(evenodd, …)` 依存:** ホールの矩形は `clip-path: path()` の even-odd ルールで表現している。ネイティブモードは Windows デスクトップ（Tauri WebView2）専用なので対象環境では対応済み。
 - **`html` / `body` の透明化はネイティブモード限定:** ブラウザ実行や `blob:` 再生では背景は従来どおり `<body>` が持ち、壁紙はそのまま全线画される。
+
+## 26. ネイティブ面の `WS_CLIPSIBLINGS` による映像の欠落（デスクトップ貫通の真因）
+
+> **追加日:** 2026-11-09
+> **対象:** `plugins/tauri-plugin-mpv/src/lib.rs`
+
+### 症状と課題
+
+§25 で壁紙の矩形ホール（`--entei-native-hole`）を入れても、**映像枠には何も映らず、デスクトップ（VS Code 等）がそのまま透けて見えた**。ユーザー報告のスクリーンショットでは映像枠の全面がデスクトップのチャット表示で埋まっていた。
+
+### 真因
+
+`clip-path` のホールではなく、**ネイティブ面のウィンドウスタイル**が原因だった。
+
+- ネイティブ面（`EnteiMpvSurface`）は Tauri ウィンドウの子ウィンドウで、WebView2 より **下** の z-order に置かれる（HTML UI を上に描くため）。
+- `WS_CLIPSIBLINGS` は「自分より上にある兄弟ウィンドウに覆われた領域は描画しない」ことを Windows に指示する。WebView2 はクライアント領域全体を覆う兄弟ウィンドウなので、**ネイティブ面（と、その中の libmpv の映像子ウィンドウ）全体が丸ごとクリップされていた**。
+- 結果: ネイティブ映像は画面に届かず、WebView2 側は「不透明でない」のでページが透明な映像枠には**デスクトップが透けた**。
+
+### 実測の証拠（2026-11-09 / 実機 Windows）
+
+| 確認 | 手段 | 結果 |
+|---|---|---|
+| 映像ウィンドウは生成済み | 子ウィンドウ列挙 | `EnteiMpvSurface`（= メディア枠と一致、visible）→ 子 `mpv`（同サイズ、visible、タイトル=ファイル名） |
+| スタイル | `GetWindowLongPtr(GWL_STYLE)` | `0x56000000` = `WS_CHILD｜WS_VISIBLE｜WS_CLIPSIBLINGS｜WS_CLIPCHILDREN` |
+| 切り分け | 実行中プロセスへ `SetWindowLongPtr` で `WS_CLIPSIBLINGS` だけ除去 → 再描画取得 | **映像が現れ、HTML UI（操作系・字幕パネル）はその上に残存**。原因がスタイルで確定 |
+| 対照 | `SetWindowPos(HWND_TOP)` で WebView2 より上へ | 映像は出るが HTML UI（操作系）が隠れる → z-order ではなく clip が原因であることも裏付け |
+| 修正後 | 再ビルドした `entei.exe` で実機再生 | `EnteiMpvSurface` style = `0x52000000`（`WS_CLIPSIBLINGS` なし）／映像枠に映像が再生／デスクトップの貫通ゼロ |
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| ネイティブ面のスタイル | `WS_CHILD｜WS_CLIPCHILDREN｜WS_VISIBLE`。**`WS_CLIPSIBLINGS` は付けない**（WebView2 兄弟にクリップされる） |
+| z-order | ネイティブ面は `HWND_BOTTOM`（WebView2 の下）。HTML UI はそのまま上に描かれる |
+| 壁紙のホール | **撤去しない**。WebView2 が透明である必要があります：不透明だと壁紙の不透明レイヤー（`z-index: -1`）がネイティブ映像を覆い隠れる。ホールは「ネイティブ映像を通すための唯一の手段」であり、**穴の下がデスクトップではなく映像になること**が正解 |
+| 回帰テスト | `surface_does_not_clip_against_the_webview_sibling`（`plugins/tauri-plugin-mpv/src/lib.rs`）が `WS_CLIPSIBLINGS` 不在を固定 |
+
+### 既知の指摘（Known issues / Low findings）
+
+- **実機 E2E は実施済み:** 2026-11-09 に再ビルドバイナリで mpv ネイティブ再生を確認し、映像枠への映像表示とデスクトップ貫通ゼロをスクリーンショットで確認した。
+- **`WS_CLIPSIBLINGS` は libmpv 側の子ウィンドウには残る:** libmpv が作る `mpv` 子ウィンドウは `WS_CLIPSIBLINGS` を持つが、その兄弟は同一 surface 内の子和のみなので WebView2 には影響しない（実測で映像表示を確認）。
+- **1px 未満の段差:** 壁紙のホールは CSS ピクセル、ネイティブ面は物理ピクセル丸めのため、極端な devicePixelRatio で 1 物理ピクセル未満の隙間が生じうる。現状は目視できない مستوى、恒久対応は未実施。
 

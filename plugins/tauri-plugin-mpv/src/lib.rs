@@ -46,6 +46,15 @@
 //! between that WebView2 surface and mpv's child is a separate composition
 //! concern that must be verified on a real desktop build.
 //!
+//! Verified on a real desktop build (2026-11-09): the surface sits BELOW the
+//! WebView2 in the z-order and the picture shows through exactly where the
+//! page paints nothing — but only if the surface does NOT carry
+//! `WS_CLIPSIBLINGS`. With that style the surface (and libmpv's video child
+//! inside it) is clipped away by the WebView2 sibling that covers the whole
+//! client area, the native picture never reaches the screen, and the page's
+//! transparent media frame shows the desktop behind the transparent Tauri
+//! window instead of the video.
+//!
 //! Note: the mpv instance is created lazily on the first command and kept for
 //! the lifetime of the process. A failed lookup is not cached, so dropping the
 //! library next to the executable and retrying works without a restart.
@@ -219,8 +228,11 @@ mod win {
 
     // Win32 constants (winuser.h / wingdi.h).
     const WS_CHILD: u32 = 0x4000_0000;
-    const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
-    const WS_CLIPCHILDREN: u32 = 0x0200_0000;
+    /// `WS_CLIPSIBLINGS`. The surface must NOT carry it (see `create`), so
+    /// only the regression test needs the value.
+    #[cfg(test)]
+    pub const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
+    pub const WS_CLIPCHILDREN: u32 = 0x0200_0000;
     const WS_VISIBLE: u32 = 0x1000_0000;
     const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
     const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
@@ -236,6 +248,9 @@ mod win {
     const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
     /// `GetStockObject(BLACK_BRUSH)`.
     const BLACK_BRUSH: isize = 4;
+    /// `GWL_STYLE`.
+    #[cfg(test)]
+    const GWL_STYLE: i32 = -16;
 
     unsafe extern "system" {
         fn RegisterClassW(class: *const WndClassW) -> u16;
@@ -264,6 +279,8 @@ mod win {
             flags: u32,
         ) -> i32;
         fn GetClientRect(hwnd: Hwnd, rect: *mut Rect) -> i32;
+        #[cfg(test)]
+        fn GetWindowLongW(hwnd: Hwnd, index: i32) -> i32;
         fn FindWindowExW(
             parent: Hwnd,
             after: Hwnd,
@@ -338,7 +355,20 @@ mod win {
                 WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
                 class_name.as_ptr(),
                 std::ptr::null(),
-                WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_VISIBLE,
+                // `WS_CLIPSIBLINGS` is deliberately absent.
+                //
+                // The surface is a child of the Tauri window and lives BELOW
+                // the WebView2 in the z-order; the WebView2 covers the whole
+                // client area. `WS_CLIPSIBLINGS` tells Windows to clip a
+                // window against the siblings that sit above it, so the
+                // surface (and libmpv's video child inside it) was clipped
+                // away entirely and the native picture never reached the
+                // screen: the page's transparent media frame showed the
+                // desktop behind the transparent Tauri window instead.
+                //
+                // Without it the picture composites under the WebView2 and
+                // shows through exactly where the page paints nothing.
+                WS_CHILD | WS_CLIPCHILDREN | WS_VISIBLE,
                 bounds.x,
                 bounds.y,
                 bounds.width,
@@ -354,7 +384,9 @@ mod win {
         }
         // The surface must stay at the bottom of the z-order: the WebView2
         // paints the HTML UI on top of it, and only the transparent part of
-        // the page lets the native picture through.
+        // the page lets the native picture through. The z-order alone keeps
+        // the UI above the picture — the surface must not clip itself
+        // against that sibling (see the `WS_CLIPSIBLINGS` note above).
         set_bounds(hwnd, bounds);
         Ok(hwnd)
     }
@@ -421,6 +453,13 @@ mod win {
             return None;
         }
         Some((rect.right - rect.left, rect.bottom - rect.top))
+    }
+
+    /// The window style (`GWL_STYLE`) of a window.
+    #[cfg(test)]
+    pub fn window_style(hwnd: Hwnd) -> u32 {
+        // Safety: a valid handle; `GWL_STYLE` is a plain LONG.
+        unsafe { GetWindowLongW(hwnd, GWL_STYLE) as u32 }
     }
 
     /// True when the calling thread owns `hwnd` — and therefore pumps its
@@ -1433,6 +1472,41 @@ mod tests {
         assert!(win::set_bounds(surface, moved));
         assert_eq!(win::client_size(surface), Some((640, 360)));
 
+        win::destroy(surface);
+        win::destroy(parent);
+    }
+
+    /// The surface must not clip itself against the WebView2 sibling.
+    ///
+    /// The WebView2 is a sibling that covers the whole client area and sits
+    /// ABOVE the surface in the z-order. `WS_CLIPSIBLINGS` would clip the
+    /// surface — and libmpv's video child inside it — away wherever that
+    /// sibling covers it, so the native picture never reached the screen:
+    /// the page's transparent media frame showed the desktop behind the
+    /// transparent Tauri window instead of the video.
+    #[cfg(windows)]
+    #[test]
+    fn surface_does_not_clip_against_the_webview_sibling() {
+        let Some(parent) = win::create_test_parent() else {
+            panic!("could not create the test parent window");
+        };
+        let bounds = SurfaceBounds {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 180,
+        };
+        let surface = win::create(parent, bounds).expect("the surface window must be creatable");
+        let style = win::window_style(surface);
+        assert_eq!(
+            style & win::WS_CLIPSIBLINGS,
+            0,
+            "the surface must not carry WS_CLIPSIBLINGS: the WebView2 sibling covers the \
+             whole client area and would clip the native picture away",
+        );
+        // The children (libmpv's video window) stay clipped to the surface's
+        // own client area.
+        assert_ne!(style & win::WS_CLIPCHILDREN, 0);
         win::destroy(surface);
         win::destroy(parent);
     }

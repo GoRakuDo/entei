@@ -1052,6 +1052,21 @@ export default function PlayerApp() {
     setIsMpvNative(false);
   }, []);
 
+  // Stop native playback and release mpv whenever PlayerApp unmounts
+  // (e.g. navigating back to Home/Timeline or switching routes).
+  useEffect(() => {
+    const handleLeave = () => {
+      releaseMpv();
+    };
+    window.addEventListener('pagehide', handleLeave);
+    window.addEventListener('beforeunload', handleLeave);
+    return () => {
+      window.removeEventListener('pagehide', handleLeave);
+      window.removeEventListener('beforeunload', handleLeave);
+      releaseMpv();
+    };
+  }, [releaseMpv]);
+
   // Shared subtitle-text pipeline: parse + replace cues (used by the P3
   // auto-load hook AND the P4 search modal).
   const handleSubtitleText = useCallback((text: string) => {
