@@ -265,6 +265,17 @@ describe('selectSupportedMimeType', () => {
     expect(selectSupportedMimeType()).toBeNull();
   });
 
+  it('treats a throwing native MIME probe as unsupported', () => {
+    stubMediaRecorder(true);
+    const cls = window.MediaRecorder as unknown as {
+      isTypeSupported: (mime: string) => boolean;
+    };
+    cls.isTypeSupported = vi.fn(() => {
+      throw new Error('MediaRecorder unavailable');
+    });
+    expect(selectSupportedMimeType()).toBeNull();
+  });
+
   it('prefers audio/webm;codecs=opus when supported', () => {
     stubMediaRecorder(true);
     const cls = window.MediaRecorder as unknown as {
@@ -492,6 +503,25 @@ describe('recordAudioClip', () => {
     // Audio should be paused and src removed
     expect(audioPauseSpy).toHaveBeenCalled();
     expect(mockAudio.getAttribute('src')).toBeNull();
+  });
+
+  it('returns AUDIO_LOAD_ERROR when audio element creation throws', async () => {
+    stubMediaRecorder(true);
+    const result = await recordAudioClip(
+      { mediaUrl: 'asset://media.mkv', start: 0, end: 0.1 },
+      {
+        audioFactory: {
+          createAudio() {
+            throw new Error('native source unavailable to webview');
+          },
+        },
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('AUDIO_LOAD_ERROR');
+      expect(result.error.message).toContain('native source unavailable');
+    }
   });
 
   it('returns RECORDER_ERROR when recorder throws on creation', async () => {

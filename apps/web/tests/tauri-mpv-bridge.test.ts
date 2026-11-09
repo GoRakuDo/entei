@@ -14,8 +14,10 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'bun:test';
+import { captureVideoFrame } from '@/features/player/screenshot-capture';
 import {
   DROP_PATH_TTL_MS,
+  captureVideoFrameDirect,
   installTauriDragDropPaths,
   isMpvResolvableSource,
   isTauri,
@@ -24,8 +26,11 @@ import {
   mpvPause,
   mpvPlay,
   mpvSeek,
+  mpvScreenshot,
   mpvSetBounds,
   mpvSetSubDelay,
+  setMpvNativeActive,
+  setMpvNativeLoading,
   mpvSetTracks,
   resolvePhysicalPath,
 } from '@/features/player/tauri-bridge';
@@ -83,10 +88,17 @@ describe('tauri-bridge mpv wrappers — outside Tauri', () => {
     // off the missing object must not throw.
     expect(isTauri()).toBe(false);
 
-    await expect(mpvLoad('http://127.0.0.1:5000/stream/a')).resolves.toBeUndefined();
+    await expect(
+      mpvLoad('http://127.0.0.1:5000/stream/a'),
+    ).resolves.toBeUndefined();
     await expect(mpvPlay()).resolves.toBeUndefined();
     await expect(mpvPause()).resolves.toBeUndefined();
     await expect(mpvSeek(12.5)).resolves.toBeUndefined();
+    await expect(mpvScreenshot()).rejects.toThrow('tauri runtime unavailable');
+    await expect(captureVideoFrameDirect(null)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'VIDEO_UNAVAILABLE' },
+    });
     await expect(mpvSetSubDelay(-0.25)).resolves.toBeUndefined();
     await expect(mpvSetTracks('2', '1')).resolves.toBeUndefined();
     await expect(mpvSetBounds(0, 0, 320, 180)).resolves.toBeUndefined();
@@ -96,12 +108,206 @@ describe('tauri-bridge mpv wrappers — outside Tauri', () => {
 
   it('does not invoke anything when the runtime object exists without invoke', async () => {
     // Defensive shape: a partially injected runtime must still be a no-op.
-    internals().__TAURI_INTERNALS__ = {} as InternalsWindow['__TAURI_INTERNALS__'];
+    internals().__TAURI_INTERNALS__ =
+      {} as InternalsWindow['__TAURI_INTERNALS__'];
     await expect(mpvPlay()).resolves.toBeUndefined();
+    await expect(mpvScreenshot()).rejects.toThrow('tauri runtime unavailable');
   });
 });
 
 describe('tauri-bridge mpv wrappers — inside Tauri', () => {
+  it('captures native screenshots with the selected mode', async () => {
+    const calls = installTauri(() => 'data:image/jpeg;base64,/9j/2Q==');
+    setMpvNativeActive(true);
+    try {
+      await expect(mpvScreenshot('subtitles')).resolves.toBe(
+        'data:image/jpeg;base64,/9j/2Q==',
+      );
+      expect(calls).toEqual([
+        { cmd: 'plugin:mpv|mpv_screenshot', args: { mode: 'subtitles' } },
+      ]);
+    } finally {
+      setMpvNativeActive(false);
+    }
+  });
+
+  it('falls back cleanly when native screenshot capture fails', async () => {
+    const calls = installTauri(() => {
+      throw new Error('mpv has no loaded media');
+    });
+    setMpvNativeActive(true);
+    try {
+      await expect(captureVideoFrameDirect(null)).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'VIDEO_UNAVAILABLE' },
+      });
+      expect(calls).toEqual([
+        { cmd: 'plugin:mpv|mpv_screenshot', args: { mode: 'video' } },
+      ]);
+    } finally {
+      setMpvNativeActive(false);
+    }
+  });
+
+  it('routes default screenshot capture through native mpv while active', async () => {
+    const blob = new Blob(['native-jpeg'], { type: 'image/jpeg' });
+    const calls = installTauri(() => 'data:image/jpeg;base64,/9j/2Q==');
+    const originalFetch = globalThis.fetch;
+    const originalCreateImageBitmap = globalThis.createImageBitmap;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      blob: async () => blob,
+    })) as unknown as typeof fetch;
+    globalThis.createImageBitmap = vi.fn(async () => ({
+      width: 1280,
+      height: 720,
+      close: vi.fn(),
+    })) as unknown as typeof createImageBitmap;
+    setMpvNativeActive(true);
+    try {
+      const result = await captureVideoFrame({} as HTMLVideoElement);
+      expect(result).toEqual({ ok: true, blob });
+      expect(calls).toEqual([
+        { cmd: 'plugin:mpv|mpv_screenshot', args: { mode: 'video' } },
+      ]);
+    } finally {
+      setMpvNativeActive(false);
+      globalThis.fetch = originalFetch;
+      globalThis.createImageBitmap = originalCreateImageBitmap;
+    }
+  });
+
+  it('resizes oversized native mpv screenshots before returning the Blob', async () => {
+    const nativeBlob = new Blob(['native-jpeg'], { type: 'image/jpeg' });
+    const resizedBlob = new Blob(['resized-jpeg'], { type: 'image/jpeg' });
+    const calls = installTauri(() => 'data:image/jpeg;base64,/9j/2Q==');
+    const originalFetch = globalThis.fetch;
+    const originalCreateImageBitmap = globalThis.createImageBitmap;
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    const drawImage = vi.fn();
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      blob: async () => nativeBlob,
+    })) as unknown as typeof fetch;
+    globalThis.createImageBitmap = vi.fn(async () => ({
+      width: 3840,
+      height: 2160,
+      close: vi.fn(),
+    })) as unknown as typeof createImageBitmap;
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+      drawImage,
+    })) as unknown as HTMLCanvasElement['getContext'];
+    HTMLCanvasElement.prototype.toBlob = vi.fn((callback) =>
+      callback?.(resizedBlob),
+    );
+    setMpvNativeActive(true);
+    try {
+      const result = await captureVideoFrameDirect(null);
+      expect(result).toEqual({ ok: true, blob: resizedBlob });
+      expect(drawImage).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 3840, height: 2160 }),
+        0,
+        0,
+        1920,
+        1080,
+      );
+      expect(calls).toEqual([
+        { cmd: 'plugin:mpv|mpv_screenshot', args: { mode: 'video' } },
+      ]);
+    } finally {
+      setMpvNativeActive(false);
+      setMpvNativeLoading(false);
+      globalThis.fetch = originalFetch;
+      globalThis.createImageBitmap = originalCreateImageBitmap;
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+      HTMLCanvasElement.prototype.toBlob = originalToBlob;
+    }
+  });
+
+  it('does not capture a stale HTML frame while native media is loading', async () => {
+    const calls = installTauri(() => 'data:image/jpeg;base64,/9j/2Q==');
+    setMpvNativeLoading(true);
+    setMpvNativeActive(false);
+    try {
+      await expect(captureVideoFrameDirect(null)).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'VIDEO_UNAVAILABLE' },
+      });
+      expect(calls).toEqual([]);
+    } finally {
+      setMpvNativeLoading(false);
+    }
+  });
+
+  it('discards a native screenshot if the media changes during capture', async () => {
+    const blob = new Blob(['native-jpeg'], { type: 'image/jpeg' });
+    const calls = installTauri(() => 'data:image/jpeg;base64,/9j/2Q==');
+    const originalFetch = globalThis.fetch;
+    let resolveFetch!: (response: {
+      ok: boolean;
+      blob: () => Promise<Blob>;
+    }) => void;
+    let markFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
+    });
+    globalThis.fetch = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+          markFetchStarted();
+        }),
+    ) as unknown as typeof fetch;
+    setMpvNativeLoading(false);
+    setMpvNativeActive(true);
+    try {
+      const capture = captureVideoFrameDirect(null);
+      await fetchStarted;
+      setMpvNativeLoading(true);
+      resolveFetch({ ok: true, blob: async () => blob });
+      await expect(capture).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'VIDEO_UNAVAILABLE' },
+      });
+      expect(calls).toEqual([
+        { cmd: 'plugin:mpv|mpv_screenshot', args: { mode: 'video' } },
+      ]);
+    } finally {
+      setMpvNativeLoading(false);
+      setMpvNativeActive(false);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('captures a frame from native mpv and returns the decoded Blob', async () => {
+    const blob = new Blob(['native-jpeg'], { type: 'image/jpeg' });
+    const calls = installTauri(() => 'data:image/jpeg;base64,/9j/2Q==');
+    const originalFetch = globalThis.fetch;
+    const originalCreateImageBitmap = globalThis.createImageBitmap;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      blob: async () => blob,
+    })) as unknown as typeof fetch;
+    globalThis.createImageBitmap = vi.fn(async () => ({
+      width: 1280,
+      height: 720,
+      close: vi.fn(),
+    })) as unknown as typeof createImageBitmap;
+    setMpvNativeActive(true);
+    try {
+      const result = await captureVideoFrameDirect(null);
+      expect(result).toEqual({ ok: true, blob });
+      expect(calls).toEqual([
+        { cmd: 'plugin:mpv|mpv_screenshot', args: { mode: 'video' } },
+      ]);
+    } finally {
+      setMpvNativeActive(false);
+      globalThis.fetch = originalFetch;
+      globalThis.createImageBitmap = originalCreateImageBitmap;
+    }
+  });
+
   it('loads a source with { url }', async () => {
     const calls = installTauri();
     expect(isTauri()).toBe(true);
@@ -132,7 +338,9 @@ describe('tauri-bridge mpv wrappers — inside Tauri', () => {
   });
 
   it('keeps http(s) relay urls and real file paths eligible', () => {
-    expect(isMpvResolvableSource('http://127.0.0.1:51234/stream/s1')).toBe(true);
+    expect(isMpvResolvableSource('http://127.0.0.1:51234/stream/s1')).toBe(
+      true,
+    );
     expect(isMpvResolvableSource('https://example.test/v.mp4')).toBe(true);
     expect(isMpvResolvableSource('D:\\Media\\Show 01.mkv')).toBe(true);
     expect(isMpvResolvableSource('')).toBe(false);
@@ -212,7 +420,9 @@ describe('tauri-bridge mpv wrappers — inside Tauri', () => {
       throw new Error('libmpv unavailable');
     });
 
-    await expect(mpvLoad('http://127.0.0.1:1/stream/x')).resolves.toBeUndefined();
+    await expect(
+      mpvLoad('http://127.0.0.1:1/stream/x'),
+    ).resolves.toBeUndefined();
     await expect(mpvPlay()).resolves.toBeUndefined();
     await expect(mpvPause()).resolves.toBeUndefined();
     await expect(mpvSeek(5)).resolves.toBeUndefined();
@@ -291,10 +501,7 @@ describe('tauri-bridge — absolute local paths', () => {
 
   it('matchPhysicalPath matches a dropped path by basename', () => {
     const file = new File(['x'], 'Kimi no Na wa.mkv');
-    const paths = [
-      'Z:\\Anime\\subs.ja.srt',
-      'Z:\\Anime\\Kimi no Na wa.mkv',
-    ];
+    const paths = ['Z:\\Anime\\subs.ja.srt', 'Z:\\Anime\\Kimi no Na wa.mkv'];
     expect(matchPhysicalPath(file, paths, 1000, 900)).toBe(
       'Z:\\Anime\\Kimi no Na wa.mkv',
     );
@@ -320,12 +527,7 @@ describe('tauri-bridge — absolute local paths', () => {
     expect(matchPhysicalPath(file, paths, 1000, 900)).toBeNull();
     expect(matchPhysicalPath(file, [], 1000, 900)).toBeNull();
     expect(
-      matchPhysicalPath(
-        file,
-        ['Z:\\Anime\\a.mkv'],
-        DROP_PATH_TTL_MS + 1000,
-        0,
-      ),
+      matchPhysicalPath(file, ['Z:\\Anime\\a.mkv'], DROP_PATH_TTL_MS + 1000, 0),
     ).toBeNull();
   });
 });

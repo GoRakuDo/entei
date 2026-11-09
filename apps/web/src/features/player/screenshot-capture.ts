@@ -6,6 +6,8 @@
  * Never upscales; preserves aspect ratio.
  * --------------------------------------------------------------------------- */
 
+import { captureVideoFrameDirect } from '@/features/player/tauri-bridge';
+
 export const MAX_CAPTURE_DIMENSION = 1920;
 export const JPEG_QUALITY = 0.9;
 export const JPEG_MIME_TYPE = 'image/jpeg';
@@ -16,7 +18,8 @@ export type ScreenshotErrorCode =
   | 'CONTEXT_NULL'
   | 'DRAW_IMAGE_FAILED'
   | 'BLOB_NULL'
-  | 'BLOB_ENCODE_FAILED';
+  | 'BLOB_ENCODE_FAILED'
+  | 'VIDEO_UNAVAILABLE';
 
 export interface ScreenshotError {
   code: ScreenshotErrorCode;
@@ -59,6 +62,46 @@ export function computeCaptureDimensions(
   };
 }
 
+/** Apply the shared 1920px screenshot policy to an already encoded image. */
+export async function constrainScreenshotBlob(
+  blob: Blob,
+  factory: CanvasFactory = defaultCanvasFactory,
+): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    if (bitmap.width <= 0 || bitmap.height <= 0) {
+      throw new Error('Screenshot image has zero dimensions.');
+    }
+    const { width, height } = computeCaptureDimensions(
+      bitmap.width,
+      bitmap.height,
+    );
+    if (width === bitmap.width && height === bitmap.height) return blob;
+
+    const canvas = factory.createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not obtain 2D rendering context.');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      try {
+        canvas.toBlob(
+          (resizedBlob) => {
+            if (resizedBlob) resolve(resizedBlob);
+            else reject(new Error('canvas.toBlob returned null.'));
+          },
+          JPEG_MIME_TYPE,
+          JPEG_QUALITY,
+        );
+      } catch (error) {
+        reject(error);
+      }
+    });
+  } finally {
+    bitmap.close();
+  }
+}
+
 /**
  * Capture the current frame of a video element as a JPEG Blob.
  *
@@ -70,6 +113,29 @@ export function captureVideoFrame(
   video: HTMLVideoElement,
   factory: CanvasFactory = defaultCanvasFactory,
 ): Promise<ScreenshotResult> {
+  // In Tauri, prefer mpv's decoded source frame: WebView2 cannot draw some
+  // formats that libmpv renders natively. Injected canvas factories remain a
+  // deterministic, browser-only test seam.
+  if (factory === defaultCanvasFactory) {
+    return captureVideoFrameDirect(video);
+  }
+  return captureVideoFrameCanvas(video, factory);
+}
+
+/** Browser canvas path used as the native screenshot's fail-soft fallback. */
+export function captureVideoFrameCanvas(
+  video: HTMLVideoElement | null | undefined,
+  factory: CanvasFactory = defaultCanvasFactory,
+): Promise<ScreenshotResult> {
+  if (!video) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        code: 'VIDEO_UNAVAILABLE',
+        message: 'No video element is available for screenshot capture.',
+      },
+    });
+  }
   return new Promise((resolve) => {
     const sourceWidth = video.videoWidth;
     const sourceHeight = video.videoHeight;

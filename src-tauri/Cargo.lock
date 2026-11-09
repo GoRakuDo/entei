@@ -5167,6 +5167,8 @@ dependencies = [
 name = "tauri-plugin-mpv"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
+ "getrandom 0.3.4",
  "libloading 0.8.9",
  "serde",
  "serde_json",

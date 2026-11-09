@@ -7,6 +7,7 @@ import {
   JPEG_QUALITY,
   JPEG_MIME_TYPE,
   computeCaptureDimensions,
+  constrainScreenshotBlob,
   captureVideoFrame,
   type CanvasFactory,
 } from '@/features/player/screenshot-capture';
@@ -55,6 +56,74 @@ describe('computeCaptureDimensions', () => {
   it('handles exact max dimension without change', () => {
     const result = computeCaptureDimensions(1920, 1080);
     expect(result).toEqual({ width: 1920, height: 1080 });
+  });
+});
+
+describe('constrainScreenshotBlob', () => {
+  it('resizes oversized images to the shared maximum while preserving aspect ratio', async () => {
+    const close = vi.fn();
+    const drawImage = vi.fn();
+    const resizedBlob = new Blob(['resized'], { type: JPEG_MIME_TYPE });
+    const originalCreateImageBitmap = globalThis.createImageBitmap;
+    globalThis.createImageBitmap = vi.fn(async () => ({
+      width: 3840,
+      height: 2160,
+      close,
+    })) as unknown as typeof createImageBitmap;
+    const factory: CanvasFactory = {
+      createCanvas(width, height) {
+        expect(width).toBe(1920);
+        expect(height).toBe(1080);
+        const canvas = document.createElement('canvas');
+        canvas.getContext = vi.fn(() => ({
+          drawImage,
+        })) as unknown as HTMLCanvasElement['getContext'];
+        canvas.toBlob = vi.fn((callback) => callback?.(resizedBlob));
+        return canvas;
+      },
+    };
+
+    try {
+      const result = await constrainScreenshotBlob(
+        new Blob(['native'], { type: JPEG_MIME_TYPE }),
+        factory,
+      );
+      expect(result).toBe(resizedBlob);
+      expect(drawImage).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 3840, height: 2160 }),
+        0,
+        0,
+        1920,
+        1080,
+      );
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.createImageBitmap = originalCreateImageBitmap;
+    }
+  });
+
+  it('returns already compliant images without re-encoding', async () => {
+    const original = new Blob(['native'], { type: JPEG_MIME_TYPE });
+    const originalCreateImageBitmap = globalThis.createImageBitmap;
+    globalThis.createImageBitmap = vi.fn(async () => ({
+      width: 1920,
+      height: 1080,
+      close: vi.fn(),
+    })) as unknown as typeof createImageBitmap;
+    const factory: CanvasFactory = {
+      createCanvas: vi.fn(() => {
+        throw new Error('must not create a canvas');
+      }),
+    };
+
+    try {
+      await expect(constrainScreenshotBlob(original, factory)).resolves.toBe(
+        original,
+      );
+      expect(factory.createCanvas).not.toHaveBeenCalled();
+    } finally {
+      globalThis.createImageBitmap = originalCreateImageBitmap;
+    }
   });
 });
 

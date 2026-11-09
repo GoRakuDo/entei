@@ -23,6 +23,7 @@
  * --------------------------------------------------------------------------- */
 
 import { tracedInvoke } from '@/features/trace/trace-logger';
+import type { ScreenshotResult } from '@/features/player/screenshot-capture';
 import {
   parseSubtitle,
   type SubtitleCue,
@@ -34,10 +35,7 @@ import {
   type ParsedMediaName,
 } from '@/features/player/filename-parser';
 import { estimateMedianOffset } from '@/features/player/lazy-sync';
-import type {
-  JimakuEntry,
-  JimakuFile,
-} from '@/features/player/jimaku-client';
+import type { JimakuEntry, JimakuFile } from '@/features/player/jimaku-client';
 import type {
   NadeshikoContextOptions,
   NadeshikoSearchOptions,
@@ -240,7 +238,10 @@ function invokePluginCommand<T>(
   command: string,
   args: Record<string, unknown>,
 ): Promise<T> {
-  if (typeof window === 'undefined' || typeof window.__TAURI_INTERNALS__?.invoke !== 'function') {
+  if (
+    typeof window === 'undefined' ||
+    typeof window.__TAURI_INTERNALS__?.invoke !== 'function'
+  ) {
     return Promise.reject(new Error('tauri runtime unavailable'));
   }
   const definedArgs = Object.fromEntries(
@@ -373,7 +374,10 @@ export async function getVideoInfoDirect(url: string): Promise<YtdlpVideoInfo> {
   if (typeof value.uploader === 'string') info.uploader = value.uploader;
   if (typeof value.thumbnail === 'string') info.thumbnail = value.thumbnail;
   if (typeof value.duration === 'number') info.duration = value.duration;
-  if (typeof value.subtitle_vtt_url === 'string' && value.subtitle_vtt_url.length > 0) {
+  if (
+    typeof value.subtitle_vtt_url === 'string' &&
+    value.subtitle_vtt_url.length > 0
+  ) {
     info.subtitle_vtt_url = value.subtitle_vtt_url;
   }
   return info;
@@ -483,7 +487,9 @@ function parseTorrentFiles(raw: unknown): DirectTorrentFile[] {
  * plus the file list. The download starts later, in `selectTorrentFilesDirect`,
  * restricted to the files the user picks.
  */
-export async function addTorrentDirect(magnetUri: string): Promise<DirectTorrentAdded> {
+export async function addTorrentDirect(
+  magnetUri: string,
+): Promise<DirectTorrentAdded> {
   const invoke = tauriInvoke();
   const raw = await invoke('plugin:torrent|add_torrent', { magnetUri });
   if (typeof raw !== 'object' || raw === null) {
@@ -502,7 +508,9 @@ export async function addTorrentDirect(magnetUri: string): Promise<DirectTorrent
 }
 
 /** Poll one torrent's progress, state and file list. */
-export async function getTorrentStatusDirect(id: string): Promise<DirectTorrentStatus> {
+export async function getTorrentStatusDirect(
+  id: string,
+): Promise<DirectTorrentStatus> {
   const invoke = tauriInvoke();
   const raw = await invoke('plugin:torrent|get_torrent_status', { id });
   if (typeof raw !== 'object' || raw === null) {
@@ -517,12 +525,15 @@ export async function getTorrentStatusDirect(id: string): Promise<DirectTorrentS
     info_hash: typeof value.info_hash === 'string' ? value.info_hash : '',
     name: typeof value.name === 'string' ? value.name : '',
     state: value.state,
-    progress_bytes: typeof value.progress_bytes === 'number' ? value.progress_bytes : 0,
+    progress_bytes:
+      typeof value.progress_bytes === 'number' ? value.progress_bytes : 0,
     total_bytes: typeof value.total_bytes === 'number' ? value.total_bytes : 0,
     progress_percent:
       typeof value.progress_percent === 'number' ? value.progress_percent : 0,
     download_speed_mbps:
-      typeof value.download_speed_mbps === 'number' ? value.download_speed_mbps : 0,
+      typeof value.download_speed_mbps === 'number'
+        ? value.download_speed_mbps
+        : 0,
     peers_live: typeof value.peers_live === 'number' ? value.peers_live : 0,
     finished: value.finished === true,
     playable: value.playable === true,
@@ -559,12 +570,14 @@ export async function selectTorrentFilesDirect(
   return {
     video_url: value.video_url,
     video_name: typeof value.video_name === 'string' ? value.video_name : '',
-    video_length: typeof value.video_length === 'number' ? value.video_length : 0,
+    video_length:
+      typeof value.video_length === 'number' ? value.video_length : 0,
     subtitle_url:
       typeof value.subtitle_url === 'string' && value.subtitle_url.length > 0
         ? value.subtitle_url
         : null,
-    subtitle_name: typeof value.subtitle_name === 'string' ? value.subtitle_name : null,
+    subtitle_name:
+      typeof value.subtitle_name === 'string' ? value.subtitle_name : null,
     selected_audio_track:
       typeof value.selected_audio_track === 'number'
         ? value.selected_audio_track
@@ -729,6 +742,134 @@ async function mpvInvokeValue(cmd: string): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+/** The native screenshot command is only trusted for the current local file. */
+let mpvNativeActive = false;
+/** Suppress HTML fallback while a native file is replacing the prior frame. */
+let mpvNativeLoading = false;
+/** Invalidates a capture if the source changes while its native IPC is pending. */
+let mpvCaptureEpoch = 0;
+
+/** Keep screenshot selection aligned with PlayerApp's native-render state. */
+export function setMpvNativeActive(active: boolean): void {
+  const nextActive = active && isTauri();
+  if (nextActive !== mpvNativeActive) mpvCaptureEpoch += 1;
+  mpvNativeActive = nextActive;
+}
+
+/** Mark the interval in which neither old native nor stale HTML frames are valid. */
+export function setMpvNativeLoading(loading: boolean): void {
+  const nextLoading = loading && isTauri();
+  if (nextLoading !== mpvNativeLoading) mpvCaptureEpoch += 1;
+  mpvNativeLoading = nextLoading;
+}
+
+/** Capture a JPEG from mpv, surfacing failures so the caller can use canvas. */
+export async function mpvScreenshot(
+  mode: 'video' | 'subtitles' = 'video',
+): Promise<string> {
+  if (!isTauri()) throw new Error('tauri runtime unavailable');
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (typeof invoke !== 'function')
+    throw new Error('tauri runtime unavailable');
+  const result = await tracedInvoke('plugin:mpv|mpv_screenshot', { mode });
+  if (
+    typeof result !== 'string' ||
+    !result.startsWith('data:image/jpeg;base64,')
+  ) {
+    throw new Error('invalid mpv screenshot reply');
+  }
+  return result;
+}
+
+/**
+ * Capture a video frame, preferring the native renderer only while it owns the
+ * current media. The canvas path remains the fallback for browser playback,
+ * inactive mpv and any native command/decoding failure.
+ */
+export async function captureVideoFrameDirect(
+  video?: HTMLVideoElement | null,
+): Promise<ScreenshotResult> {
+  const captureEpoch = mpvCaptureEpoch;
+  if (isTauri() && mpvNativeLoading) {
+    return {
+      ok: false,
+      error: {
+        code: 'VIDEO_UNAVAILABLE',
+        message: 'The native video frame is still loading.',
+      },
+    };
+  }
+  if (isTauri() && mpvNativeActive) {
+    const captureEpoch = mpvCaptureEpoch;
+    try {
+      const dataUrl = await mpvScreenshot('video');
+      const response = await fetch(dataUrl);
+      if (!response.ok) throw new Error('failed to decode native screenshot');
+      const blob = await response.blob();
+      const { constrainScreenshotBlob } =
+        await import('@/features/player/screenshot-capture');
+      const constrainedBlob = await constrainScreenshotBlob(blob);
+      if (
+        captureEpoch !== mpvCaptureEpoch ||
+        !mpvNativeActive ||
+        mpvNativeLoading
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: 'VIDEO_UNAVAILABLE',
+            message: 'The native video source changed during capture.',
+          },
+        };
+      }
+      return { ok: true, blob: constrainedBlob };
+    } catch {
+      // Native capture is best-effort; keep the existing browser route alive.
+      if (
+        captureEpoch !== mpvCaptureEpoch ||
+        !mpvNativeActive ||
+        mpvNativeLoading
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: 'VIDEO_UNAVAILABLE',
+            message: 'The native video source changed during capture.',
+          },
+        };
+      }
+    }
+  }
+  const { captureVideoFrameCanvas } =
+    await import('@/features/player/screenshot-capture');
+  if (
+    (isTauri() && mpvNativeLoading) ||
+    captureEpoch !== mpvCaptureEpoch
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: 'VIDEO_UNAVAILABLE',
+        message: 'The native video source changed during capture.',
+      },
+    };
+  }
+  const result = await captureVideoFrameCanvas(video);
+  if (
+    (isTauri() && mpvNativeLoading) ||
+    captureEpoch !== mpvCaptureEpoch
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: 'VIDEO_UNAVAILABLE',
+        message: 'The native video source changed during capture.',
+      },
+    };
+  }
+  return result;
 }
 
 /**
@@ -932,7 +1073,12 @@ function normalizeSubtitleParseResult(
   const value = raw as Record<string, unknown>;
   const { cues, errors, format } = value;
   if (!Array.isArray(cues) || !Array.isArray(errors)) return null;
-  if (format !== null && format !== 'srt' && format !== 'vtt' && format !== 'ass') {
+  if (
+    format !== null &&
+    format !== 'srt' &&
+    format !== 'vtt' &&
+    format !== 'ass'
+  ) {
     return null;
   }
   const parsedCues: SubtitleCue[] = [];
@@ -956,7 +1102,11 @@ function normalizeParsedMediaName(raw: unknown): ParsedMediaName | null {
   const value = raw as Record<string, unknown>;
   const { title, episode } = value;
   if (typeof title !== 'string') return null;
-  if (episode !== null && episode !== undefined && typeof episode !== 'number') {
+  if (
+    episode !== null &&
+    episode !== undefined &&
+    typeof episode !== 'number'
+  ) {
     return null;
   }
   return {
@@ -1107,4 +1257,3 @@ export function raceWithAbort<T>(
     );
   });
 }
-

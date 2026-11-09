@@ -5,7 +5,7 @@
 //! a machine without mpv still starts the app and every command reports an
 //! explicit error instead of aborting the process.
 //!
-//! Nine commands are exposed:
+//! Ten commands are exposed:
 //!
 //! - `mpv_load(url)`          -> `loadfile <url> replace`
 //! - `mpv_play()`             -> sets `pause = no`
@@ -15,6 +15,7 @@
 //! - `mpv_set_tracks(aid, sid)` -> sets `aid` / `sid` when provided
 //! - `mpv_set_bounds(x, y, w, h)` -> moves the native picture to the HTML
 //!   media frame (physical pixels, relative to the window's client area)
+//! - `mpv_screenshot(mode)` -> captures a native JPEG frame into a Data URL
 //!
 //! Resolution order for the shared library is `EIZOUDEN_MPV_PATH`, then the
 //! Tauri resource directory (`resources/windows/libmpv-2.dll`, then
@@ -60,9 +61,11 @@
 //! library next to the executable and retrying works without a restart.
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use libloading::Library;
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime};
@@ -626,9 +629,7 @@ fn create_surface(parent: i64, bounds: SurfaceBounds) -> Result<i64, MpvError> {
     let created = receiver
         .recv_timeout(std::time::Duration::from_secs(2))
         .map_err(|err| {
-            MpvError::WindowHandle(format!(
-                "timed out waiting for the window thread: {err}"
-            ))
+            MpvError::WindowHandle(format!("timed out waiting for the window thread: {err}"))
         })?;
     created
         .map(|hwnd| hwnd as i64)
@@ -687,8 +688,7 @@ static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// would create its own detached OS window, which is exactly the extra taskbar
 /// entry this plugin must never produce.
 #[cfg(windows)]
-static WINDOW_HWND_RESOLVER: OnceLock<Box<dyn Fn() -> Option<i64> + Send + Sync>> =
-    OnceLock::new();
+static WINDOW_HWND_RESOLVER: OnceLock<Box<dyn Fn() -> Option<i64> + Send + Sync>> = OnceLock::new();
 
 #[cfg(windows)]
 fn embedded_window_hwnd() -> Result<i64, MpvError> {
@@ -722,6 +722,8 @@ pub enum MpvError {
     Invalid(String),
     #[error("native video window unavailable: {0}")]
     WindowHandle(String),
+    #[error("screenshot failed: {0}")]
+    Screenshot(String),
 }
 
 impl MpvError {
@@ -1056,7 +1058,9 @@ impl MpvInstance {
             return Ok(None);
         }
         // Safety: non-null NUL-terminated string as documented by libmpv.
-        let text = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+        let text = unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned();
         // Safety: ptr came from mpv_get_property_string, which pairs with
         // mpv_free; it is released exactly once here.
         unsafe { (self.free)(ptr.cast()) };
@@ -1091,6 +1095,89 @@ fn require_finite(seconds: f64, what: &str) -> Result<f64, MpvError> {
 fn parse_number_property(text: &str) -> Option<f64> {
     let value = text.trim().parse::<f64>().ok()?;
     value.is_finite().then_some(value)
+}
+
+fn validate_screenshot_mode(mode: Option<String>) -> Result<&'static str, MpvError> {
+    match mode.as_deref().map(str::trim).unwrap_or("video") {
+        "video" => Ok("video"),
+        "subtitles" => Ok("subtitles"),
+        other => Err(MpvError::Invalid(format!(
+            "screenshot mode must be `video` or `subtitles`, got `{other}`"
+        ))),
+    }
+}
+
+fn screenshot_command_args(path: &Path, mode: &str) -> Result<[String; 3], MpvError> {
+    let path = path.to_str().ok_or_else(|| {
+        MpvError::Screenshot("temporary image path is not valid UTF-8".to_string())
+    })?;
+    Ok([
+        "screenshot-to-file".to_string(),
+        path.to_string(),
+        mode.to_string(),
+    ])
+}
+
+fn new_screenshot_path() -> Result<PathBuf, MpvError> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| MpvError::Screenshot(format!("system clock is before Unix epoch: {err}")))?
+        .as_nanos();
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random).map_err(|err| {
+        MpvError::Screenshot(format!("could not generate unique filename: {err}"))
+    })?;
+    let random = random
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Ok(std::env::temp_dir().join(format!("entei-screenshot-{timestamp}-{random}.jpg")))
+}
+
+struct ScreenshotFileCleanup {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl ScreenshotFileCleanup {
+    fn new(path: &Path) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            armed: true,
+        }
+    }
+
+    fn remove_now(&mut self) -> Result<(), MpvError> {
+        std::fs::remove_file(&self.path).map_err(|err| {
+            MpvError::Screenshot(format!("could not remove temporary image: {err}"))
+        })?;
+        self.armed = false;
+        Ok(())
+    }
+}
+
+impl Drop for ScreenshotFileCleanup {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// Keep command execution injectable so the file/read/cleanup contract can be
+/// tested without loading libmpv or opening a native window.
+fn capture_screenshot(
+    path: &Path,
+    mode: &str,
+    capture: impl FnOnce(&Path, &str) -> Result<(), MpvError>,
+) -> Result<String, MpvError> {
+    let mut cleanup = ScreenshotFileCleanup::new(path);
+    capture(path, mode)?;
+    let bytes = std::fs::read(path)
+        .map_err(|err| MpvError::Screenshot(format!("could not read captured image: {err}")))?;
+    cleanup.remove_now()?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:image/jpeg;base64,{encoded}"))
 }
 
 #[tauri::command]
@@ -1155,6 +1242,20 @@ fn mpv_get_time() -> Result<Option<f64>, String> {
 fn mpv_get_duration() -> Result<Option<f64>, String> {
     let instance = instance().map_err(|err| err.message())?;
     instance.get_number("duration").map_err(|err| err.message())
+}
+
+/// Capture an mpv frame to a uniquely named temporary JPEG, return it as a
+/// data URL, and remove the temporary file before returning.
+#[tauri::command]
+fn mpv_screenshot(mode: Option<String>) -> Result<String, String> {
+    let mode = validate_screenshot_mode(mode).map_err(|err| err.message())?;
+    let path = new_screenshot_path().map_err(|err| err.message())?;
+    let instance = instance().map_err(|err| err.message())?;
+    capture_screenshot(&path, mode, |path, mode| {
+        let args = screenshot_command_args(path, mode)?;
+        instance.command(&[&args[0], &args[1], &args[2]])
+    })
+    .map_err(|err| err.message())
 }
 
 #[tauri::command]
@@ -1276,6 +1377,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             mpv_seek,
             mpv_get_time,
             mpv_get_duration,
+            mpv_screenshot,
             mpv_set_sub_delay,
             mpv_set_tracks,
             mpv_set_bounds
@@ -1362,6 +1464,60 @@ mod tests {
         assert_ne!(VIDEO_OUTPUT_FALLBACK, VIDEO_OUTPUT);
         assert_eq!(AUDIO_OUTPUT_FALLBACK, "auto");
         assert_ne!(AUDIO_OUTPUT_FALLBACK, "null");
+    }
+
+    #[test]
+    fn screenshot_mode_defaults_to_video_and_rejects_unknown_values() {
+        assert_eq!(validate_screenshot_mode(None).unwrap(), "video");
+        assert_eq!(
+            validate_screenshot_mode(Some("video".to_string())).unwrap(),
+            "video"
+        );
+        assert_eq!(
+            validate_screenshot_mode(Some("subtitles".to_string())).unwrap(),
+            "subtitles"
+        );
+        assert!(validate_screenshot_mode(Some("window".to_string())).is_err());
+    }
+
+    #[test]
+    fn screenshot_command_uses_mpvs_file_command_and_mode_argument() {
+        let path = std::env::temp_dir().join("entei-test-screenshot.jpg");
+        let args = screenshot_command_args(&path, "subtitles").unwrap();
+        assert_eq!(args[0], "screenshot-to-file");
+        assert_eq!(args[1], path.to_str().unwrap());
+        assert_eq!(args[2], "subtitles");
+    }
+
+    #[test]
+    fn screenshot_command_writes_data_url_and_removes_file() {
+        let path = new_screenshot_path().unwrap();
+        let jpeg = [0xff, 0xd8, 0xff, 0xd9];
+        let result = capture_screenshot(&path, "video", |capture_path, mode| {
+            assert_eq!(mode, "video");
+            assert!(capture_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("entei-screenshot-"));
+            std::fs::write(capture_path, jpeg).map_err(|err| MpvError::Screenshot(err.to_string()))
+        })
+        .unwrap();
+        assert_eq!(result, "data:image/jpeg;base64,/9j/2Q==");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn screenshot_file_is_removed_when_mpv_command_fails() {
+        let path = new_screenshot_path().unwrap();
+        let result = capture_screenshot(&path, "subtitles", |capture_path, mode| {
+            assert_eq!(mode, "subtitles");
+            std::fs::write(capture_path, b"partial")
+                .map_err(|err| MpvError::Screenshot(err.to_string()))?;
+            Err(MpvError::Screenshot("mock command failure".to_string()))
+        });
+        assert!(result.is_err());
+        assert!(!path.exists());
     }
 
     #[test]

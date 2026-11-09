@@ -166,6 +166,8 @@ import type {
 } from '@/features/player/tauri-bridge';
 import {
   installTauriDragDropPaths,
+  setMpvNativeActive,
+  setMpvNativeLoading as setMpvNativeCaptureLoading,
   mpvGetDuration,
   mpvGetTime,
   mpvLoad,
@@ -440,7 +442,11 @@ export default function PlayerApp() {
    * stable media callbacks (play / pause / seek / error) can label a trace
    * entry without being re-created on every render.
    */
-  const traceMediaRef = useRef<{ time: number; name: string; duration: number | null }>({
+  const traceMediaRef = useRef<{
+    time: number;
+    name: string;
+    duration: number | null;
+  }>({
     time: 0,
     name: '',
     duration: null,
@@ -688,11 +694,7 @@ export default function PlayerApp() {
       mobileWidthMql.removeEventListener('change', mobileHandler);
       coarsePointerMql.removeEventListener('change', mobileHandler);
     };
-  }, [
-    isDesktop,
-    isLandscapeImmersive,
-    snapshotLayoutMedia,
-  ]);
+  }, [isDesktop, isLandscapeImmersive, snapshotLayoutMedia]);
 
   // Restore saved panel layout on mount
   useEffect(() => {
@@ -1054,20 +1056,6 @@ export default function PlayerApp() {
     [jobSession, pairing.tokenRef, startWatchSession],
   );
 
-  // Desktop native engine: hand a local file to libmpv and hold it paused.
-  // `loadfile … replace` starts the engine's own clock, so without the explicit
-  // pause the engine would begin playing on its own — audible in parallel with
-  // the HTML element once the user presses Play (the "two engines singing"
-  // symptom).
-  // Only a source with an absolute physical path is ever loaded: relay streams
-  // (torrent / YouTube) stay on the HTML element, and a local `blob:` pick is
-  // not resolvable by mpv at all. Attaching mpv to a relay stream would put a
-  // second, native audio output next to the element's own and double every
-  // sound, so `mpvActiveRef` is false for those and this is never called.
-  const loadMpvPaused = useCallback((url: string) => {
-    void mpvLoad(url).then(() => mpvPause());
-  }, []);
-
   // Desktop native engine: does libmpv hold the *current* media?
   // True only for a local file with an absolute physical path — the one case
   // where mpv is the renderer and the HTML element is a muted shim. Relay
@@ -1076,6 +1064,44 @@ export default function PlayerApp() {
   // them, otherwise mpv would seek/pause a stale file or sing next to the
   // element.
   const mpvActiveRef = useRef(false);
+  // Each local native load owns a generation. A late completion from a media
+  // that has already been replaced must never reactivate native capture.
+  const mpvLoadEpochRef = useRef(0);
+  const mpvNativeLoadPendingRef = useRef(false);
+  // Serialize load/pause IPC pairs so an older native file cannot finish
+  // replacing a newer one after its generation has been superseded.
+  const mpvLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  // Desktop native engine: hand a local file to libmpv and hold it paused.
+  // `loadfile … replace` starts the engine's own clock, so without the explicit
+  // pause the engine would begin playing on its own — audible in parallel with
+  // the HTML element once the user presses Play (the "two engines singing"
+  // symptom). Native rendering and capture are enabled only after both IPC
+  // operations have completed for the still-current media generation.
+  const loadMpvPaused = useCallback((url: string, epoch: number) => {
+    const load = mpvLoadQueueRef.current.then(async () => {
+      if (mpvLoadEpochRef.current !== epoch) return;
+      await mpvLoad(url);
+      if (mpvLoadEpochRef.current !== epoch) return;
+      await mpvPause();
+      if (mpvLoadEpochRef.current !== epoch || !mountedRef.current) return;
+
+      mpvNativeLoadPendingRef.current = false;
+      setMpvNativeCaptureLoading(false);
+      mpvActiveRef.current = true;
+      setMpvNativeActive(true);
+      setIsMpvNative(true);
+      setIsLoading(false);
+    });
+    const settledLoad = load.catch(() => {
+      if (mpvLoadEpochRef.current !== epoch) return;
+      mpvNativeLoadPendingRef.current = false;
+      setMpvNativeCaptureLoading(false);
+      setIsLoading(false);
+    });
+    mpvLoadQueueRef.current = settledLoad;
+    return settledLoad;
+  }, []);
   /** True while mpv owns the picture and sound for the current media. Drives
    *  the HTML element's `muted` and decode-error suppression. */
   const [isMpvNative, setIsMpvNative] = useState(false);
@@ -1098,9 +1124,22 @@ export default function PlayerApp() {
    * took over (double audio), and a stale picture would stay loaded.
    */
   const releaseMpv = useCallback(() => {
-    if (mpvActiveRef.current) void mpvPause();
+    const wasActiveOrLoading =
+      mpvActiveRef.current || mpvNativeLoadPendingRef.current;
+    mpvLoadEpochRef.current += 1;
+    mpvNativeLoadPendingRef.current = false;
+    if (wasActiveOrLoading) {
+      const pause = mpvLoadQueueRef.current.then(() => mpvPause());
+      mpvLoadQueueRef.current = pause.catch(() => {});
+    }
     mpvActiveRef.current = false;
+    setMpvNativeCaptureLoading(false);
+    setMpvNativeActive(false);
     setIsMpvNative(false);
+    setMpvTime(null);
+    mpvTimeRef.current = null;
+    setMpvDuration(null);
+    setNativePictureReady(false);
   }, []);
 
   // Stop native playback and release mpv whenever PlayerApp unmounts
@@ -1269,13 +1308,7 @@ export default function PlayerApp() {
       }
       setIsMagnetDialogOpen(false);
     },
-    [
-      endWatchSession,
-      jobSession,
-      pairing.tokenRef,
-      jimakuAutoLoad,
-      releaseMpv,
-    ],
+    [endWatchSession, jobSession, pairing.tokenRef, jimakuAutoLoad, releaseMpv],
   );
 
   // Attach the actual video element on the complete gate (existing ref).
@@ -1805,7 +1838,17 @@ export default function PlayerApp() {
       activeUrlRef.current = null;
       // Nothing is loaded into the engine any more: stop mirroring transport.
       // State is intentionally not touched here — this is an unmount cleanup.
+      const wasMpvActiveOrLoading =
+        mpvActiveRef.current || mpvNativeLoadPendingRef.current;
+      mpvLoadEpochRef.current += 1;
+      mpvNativeLoadPendingRef.current = false;
+      if (wasMpvActiveOrLoading) {
+        const pause = mpvLoadQueueRef.current.then(() => mpvPause());
+        mpvLoadQueueRef.current = pause.catch(() => {});
+      }
       mpvActiveRef.current = false;
+      setMpvNativeCaptureLoading(false);
+      setMpvNativeActive(false);
       // AM-2: Revoke any lingering screenshot object URL
       if (screenshotUrlRef.current) {
         URL.revokeObjectURL(screenshotUrlRef.current);
@@ -2292,13 +2335,20 @@ export default function PlayerApp() {
       setMediaUrl(newUrl);
       setMediaType(admission.kind);
       if (physicalPath) {
-        mpvActiveRef.current = true;
-        setIsMpvNative(true);
-        // The HTML element cannot decode HEVC 4:4:4 10-bit / FLAC, so its
-        // `loadeddata` never fires. Do not leave the loading overlay (and the
-        // surface-click guard) stuck on for a source mpv already renders.
-        setIsLoading(false);
-        loadMpvPaused(physicalPath);
+        const mpvEpoch = ++mpvLoadEpochRef.current;
+        mpvNativeLoadPendingRef.current = true;
+        mpvActiveRef.current = false;
+        setMpvNativeCaptureLoading(true);
+        setMpvNativeActive(false);
+        setIsMpvNative(false);
+        setMpvTime(null);
+        mpvTimeRef.current = null;
+        setMpvDuration(null);
+        setNativePictureReady(false);
+        // The HTML element may still hold the previous frame while the native
+        // engine opens this source. Keep capture disabled until load + pause
+        // finish for this generation.
+        void loadMpvPaused(physicalPath, mpvEpoch);
       } else {
         // A `blob:` object URL is not resolvable by libmpv: the element owns
         // this source and the engine is released so it cannot keep sounding
@@ -2324,10 +2374,7 @@ export default function PlayerApp() {
         void computeVideoFingerprint(file).then((mediaId) => {
           if (!mediaId || watchSessionRef.current?.sessionId !== sessionId)
             return;
-          attachWatchSessionMediaId(
-            mediaId,
-            parsed.episode,
-          );
+          attachWatchSessionMediaId(mediaId, parsed.episode);
         });
       }
     },
@@ -3067,7 +3114,8 @@ export default function PlayerApp() {
     const onPlayingRVFC = () => {
       // Already cleared (picture on screen / safety bound) — skip the
       // pointless re-registration/API calls on later transitions.
-      if (!bufferingShown || startBufferingExhaustedRef.current.exhausted) return;
+      if (!bufferingShown || startBufferingExhaustedRef.current.exhausted)
+        return;
       // With rVFC the painted frame is authoritative; playing alone must
       // not clear. Re-register the frame callback on each playback
       // transition so a frame painted during that segment is caught.
@@ -3147,7 +3195,13 @@ export default function PlayerApp() {
     // flag after the global error handler cleared the overlay from a
     // different effect. The source-scoped refs above survive those re-runs,
     // so a latched source never re-arms on a phase transition.
-  }, [mediaType, jobSession.active, jobSession.jobMediaUrl, jobSession.phase, displayMediaUrl]);
+  }, [
+    mediaType,
+    jobSession.active,
+    jobSession.jobMediaUrl,
+    jobSession.phase,
+    displayMediaUrl,
+  ]);
 
   const handleVolumeChange = useCallback((val: number) => {
     setVolume(val);

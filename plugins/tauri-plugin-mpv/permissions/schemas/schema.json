@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the mpv_play command without any pre-configured scope."
         },
         {
+          "description": "Enables the mpv_screenshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mpv-screenshot",
+          "markdownDescription": "Enables the mpv_screenshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mpv_screenshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mpv-screenshot",
+          "markdownDescription": "Denies the mpv_screenshot command without any pre-configured scope."
+        },
+        {
           "description": "Enables the mpv_seek command without any pre-configured scope.",
           "type": "string",
           "const": "allow-mpv-seek",
@@ -403,10 +415,10 @@
           "markdownDescription": "Denies the mpv_set_tracks command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, subtitle delay, audio/subtitle track selection and the native surface rectangle.\n#### This default permission set includes:\n\n- `allow-mpv-load`\n- `allow-mpv-play`\n- `allow-mpv-pause`\n- `allow-mpv-seek`\n- `allow-mpv-get-time`\n- `allow-mpv-get-duration`\n- `allow-mpv-set-sub-delay`\n- `allow-mpv-set-tracks`\n- `allow-mpv-set-bounds`",
+          "description": "Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, screenshot capture, subtitle delay, audio/subtitle track selection and the native surface rectangle.\n#### This default permission set includes:\n\n- `allow-mpv-load`\n- `allow-mpv-play`\n- `allow-mpv-pause`\n- `allow-mpv-seek`\n- `allow-mpv-get-time`\n- `allow-mpv-get-duration`\n- `allow-mpv-screenshot`\n- `allow-mpv-set-sub-delay`\n- `allow-mpv-set-tracks`\n- `allow-mpv-set-bounds`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, subtitle delay, audio/subtitle track selection and the native surface rectangle.\n#### This default permission set includes:\n\n- `allow-mpv-load`\n- `allow-mpv-play`\n- `allow-mpv-pause`\n- `allow-mpv-seek`\n- `allow-mpv-get-time`\n- `allow-mpv-get-duration`\n- `allow-mpv-set-sub-delay`\n- `allow-mpv-set-tracks`\n- `allow-mpv-set-bounds`"
+          "markdownDescription": "Default permissions for the mpv plugin: media load, play/pause, absolute seek, native clock reads, screenshot capture, subtitle delay, audio/subtitle track selection and the native surface rectangle.\n#### This default permission set includes:\n\n- `allow-mpv-load`\n- `allow-mpv-play`\n- `allow-mpv-pause`\n- `allow-mpv-seek`\n- `allow-mpv-get-time`\n- `allow-mpv-get-duration`\n- `allow-mpv-screenshot`\n- `allow-mpv-set-sub-delay`\n- `allow-mpv-set-tracks`\n- `allow-mpv-set-bounds`"
         }
       ]
     }

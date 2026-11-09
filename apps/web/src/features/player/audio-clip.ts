@@ -71,9 +71,18 @@ const MIME_CANDIDATES = [
 
 /** Select the best supported MIME type for MediaRecorder. */
 export function selectSupportedMimeType(): string | null {
-  if (typeof MediaRecorder === 'undefined') return null;
-  for (const mime of MIME_CANDIDATES) {
-    if (MediaRecorder.isTypeSupported(mime)) return mime;
+  if (
+    typeof MediaRecorder === 'undefined' ||
+    typeof MediaRecorder.isTypeSupported !== 'function'
+  ) {
+    return null;
+  }
+  try {
+    for (const mime of MIME_CANDIDATES) {
+      if (MediaRecorder.isTypeSupported(mime)) return mime;
+    }
+  } catch {
+    // An incomplete native/webview MediaRecorder implementation is unsupported.
   }
   // Fallback: let browser choose if it supports MediaRecorder at all
   return null;
@@ -90,6 +99,14 @@ export function checkAudioClipCapabilities(): AudioClipCapabilities {
   }
 
   // We need captureStream or mozCaptureStream on HTMLMediaElement
+  if (typeof HTMLMediaElement === 'undefined') {
+    return {
+      supported: false,
+      mimeType: null,
+      reason: 'HTML media elements are not available in this environment.',
+    };
+  }
+
   const proto = HTMLMediaElement.prototype as unknown as {
     captureStream?: unknown;
     mozCaptureStream?: unknown;
@@ -455,11 +472,35 @@ async function recordAudioClipInternal(
     };
   }
 
-  const audio = audioFactory.createAudio();
-  audio.src = mediaUrl;
-  audio.playbackRate = playbackRate;
+  let audio: HTMLAudioElement | null = null;
+  try {
+    audio = audioFactory.createAudio();
+    audio.src = mediaUrl;
+    audio.playbackRate = playbackRate;
+  } catch (e) {
+    if (audio) {
+      try {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      } catch {
+        // Best effort: keep native/browser media failures isolated.
+      }
+    }
+    return {
+      ok: false,
+      error: {
+        code: 'AUDIO_LOAD_ERROR',
+        message:
+          e instanceof Error
+            ? e.message
+            : 'Failed to prepare audio for clipping.',
+      },
+    };
+  }
 
-  const lifecycle = makeRecordingLifecycle(audio);
+  const preparedAudio = audio as HTMLAudioElement;
+  const lifecycle = makeRecordingLifecycle(preparedAudio);
 
   // Register abort listener at the TOP so cancellation works during
   // canplay wait, seek wait, pre-play, and active recording.
@@ -827,12 +868,12 @@ async function recordAudioClipInternal(
       for (const track of sourceStream.getTracks()) track.stop();
 
       try {
-        audio.pause();
+        preparedAudio.pause();
       } catch {
         // ignore
       }
-      audio.removeAttribute('src');
-      audio.load();
+      preparedAudio.removeAttribute('src');
+      preparedAudio.load();
 
       if (lifecycle.removeAbortListener) {
         lifecycle.removeAbortListener();
@@ -841,7 +882,7 @@ async function recordAudioClipInternal(
     }
 
     const session: RecordingSession = {
-      audio,
+      audio: preparedAudio,
       recorder,
       stream,
       sourceStream,

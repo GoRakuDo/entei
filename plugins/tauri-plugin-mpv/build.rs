@@ -5,6 +5,7 @@ const COMMANDS: &[&str] = &[
     "mpv_seek",
     "mpv_get_time",
     "mpv_get_duration",
+    "mpv_screenshot",
     "mpv_set_sub_delay",
     "mpv_set_tracks",
     "mpv_set_bounds",
