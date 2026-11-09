@@ -6,6 +6,10 @@ pub fn run() {
         .plugin(tauri_plugin_ytdlp::init())
         .plugin(tauri_plugin_torrent::init())
         .plugin(tauri_plugin_mpv::init())
+        // Native subtitle parsing / media filename parsing / LazySync offset
+        // estimation. The commands run their CPU-bound work on the blocking
+        // thread pool, so the webview never waits for a 3 000-cue parse.
+        .plugin(tauri_plugin_subtitles::init())
         // Native file dialog: the only way to obtain an absolute path for a
         // "choose media" click, because WebView2 never exposes `File.path`.
         .plugin(tauri_plugin_dialog::init())

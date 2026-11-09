@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-subtitles-estimate-lazy-sync"
+description = "Enables the subtitles_estimate_lazy_sync command without any pre-configured scope."
+commands.allow = ["subtitles_estimate_lazy_sync"]
+
+[[permission]]
+identifier = "deny-subtitles-estimate-lazy-sync"
+description = "Denies the subtitles_estimate_lazy_sync command without any pre-configured scope."
+commands.deny = ["subtitles_estimate_lazy_sync"]

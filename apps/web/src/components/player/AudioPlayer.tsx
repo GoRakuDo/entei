@@ -35,7 +35,7 @@ import {
   type PlayerPreferences,
 } from '@/features/player/preferences';
 import type { SubtitleCue } from '@/features/player/subtitle-reader';
-import { parseSubtitle } from '@/features/player/subtitle-reader';
+import { parseSubtitleDirect } from '@/features/player/tauri-bridge';
 import {
   LOCALE_CHANGE_EVENT,
   type LocaleChangeDetail,
@@ -747,7 +747,7 @@ export default function AudioPlayer({
       if (!file) return;
       try {
         const text = await file.text();
-        setSubtitleCues(parseSubtitle(text).cues);
+        setSubtitleCues((await parseSubtitleDirect(text)).cues);
       } catch {
         setSubtitleCues([]);
       }

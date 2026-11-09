@@ -262,18 +262,15 @@ describe('useJimakuAutoLoad', () => {
   });
 
   it('stays silent when superseded by a newer trigger (media switch)', async () => {
-    // Media A's search resolves, but runB starts before A can proceed — A is
-    // aborted at its first checkpoint and must produce no side effects.
-    client.search.mockResolvedValueOnce({
-      ok: true,
-      data: [{ id: 1, name: 'Media A', flags: { anime: true } }],
-    });
-    // Media B: no JP files → search modal fallback. These mocks are consumed
-    // by runB (runA aborts before reaching the files/download stages).
-    client.search.mockResolvedValueOnce({
-      ok: true,
-      data: [{ id: 2, name: 'Media B', flags: { anime: true } }],
-    });
+    // Media A's run is superseded while its media name is still being
+    // parsed, so it never reaches the search. The fixture therefore answers
+    // with the queried title — it must not depend on how many searches the
+    // superseded run issues.
+    client.search.mockImplementationOnce(
+      (_key: string, query: string) =>
+        Promise.resolve({ ok: true, data: [entry(2, query)] }),
+    );
+    // Media B: no JP files → search modal fallback.
     client.files.mockResolvedValueOnce({ ok: true, data: [] });
 
     const { result } = render();
@@ -292,15 +289,14 @@ describe('useJimakuAutoLoad', () => {
   });
 
   it('aborts the previous run\'s requests when a newer trigger starts', async () => {
-    // Media A: search resolves (captures the signal). A is aborted at its
-    // search checkpoint before reaching the files stage.
+    // Media A: the search stays in flight and captures the signal.
     let firstSignal: AbortSignal | undefined;
+    let resolveFirstSearch!: (value: unknown) => void;
     client.search.mockImplementationOnce(
       (_key: string, _query: string, _anime: boolean, signal?: AbortSignal) => {
         firstSignal = signal;
-        return Promise.resolve({
-          ok: true,
-          data: [{ id: 1, name: 'Media A', flags: { anime: true } }],
+        return new Promise((res) => {
+          resolveFirstSearch = res;
         });
       },
     );
@@ -312,17 +308,31 @@ describe('useJimakuAutoLoad', () => {
     client.files.mockResolvedValueOnce({ ok: true, data: [] });
 
     const { result } = render();
-    const runA = result.current.runAutoLoad('Media A EP01.mkv', 'kA');
-    const runB = result.current.runAutoLoad('Media B EP01.mkv', 'kB');
+    let runA!: Promise<void>;
+    // A's media name is parsed first, then its search goes in flight.
     await act(async () => {
-      await runB;
-      await runA; // A aborts at its search checkpoint — resolves silently
+      runA = result.current.runAutoLoad('Media A EP01.mkv', 'kA');
     });
+    expect(firstSignal).toBeDefined();
 
-    // B's start must abort A's in-flight controller…
+    // B starts → B's start aborts A's in-flight request…
+    await act(async () => {
+      await result.current.runAutoLoad('Media B EP01.mkv', 'kB');
+    });
     expect(firstSignal?.aborted).toBe(true);
     // …while B's own flow still completes (fallback to the search modal).
     expect(onOpenSearch).toHaveBeenCalledWith('Media B', true);
+
+    // A's pending search settles afterwards: the aborted run stays silent.
+    await act(async () => {
+      resolveFirstSearch({
+        ok: true,
+        data: [{ id: 1, name: 'Media A', flags: { anime: true } }],
+      });
+      await runA;
+    });
+    expect(onSubtitleLoaded).not.toHaveBeenCalled();
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
   });
 
   it('keeps isLoading true while the search is in flight, then clears it', async () => {
@@ -335,7 +345,9 @@ describe('useJimakuAutoLoad', () => {
     );
     const { result } = render();
     let runPromise!: Promise<void>;
-    act(() => {
+    // The native filename parse resolves in a microtask, so the search (and
+    // the spinner) start one tick after the call.
+    await act(async () => {
       runPromise = result.current.runAutoLoad('Sousou no Frieren EP01.mkv', 'k1');
     });
     // P4-1: spinner is on while the search is pending (no subtitles yet).
@@ -360,7 +372,9 @@ describe('useJimakuAutoLoad', () => {
 
     const { result } = render();
     let runPromise!: Promise<void>;
-    act(() => {
+    // The native filename parse resolves in a microtask, so the search (and
+    // the spinner) start one tick after the call.
+    await act(async () => {
       runPromise = result.current.runAutoLoad('Sousou no Frieren EP01.mkv', 'k1');
     });
     // Auto-load is in flight (spinner on)…

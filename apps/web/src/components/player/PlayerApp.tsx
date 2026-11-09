@@ -29,7 +29,6 @@ import {
 import { usePanelRef } from 'react-resizable-panels';
 import {
   type SubtitleCue,
-  parseSubtitle,
   findActiveCue,
 } from '@/features/player/subtitle-reader';
 import {
@@ -134,7 +133,6 @@ import {
   notifyLazySyncInfo,
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
-import { parseMediaFileName } from '@/features/player/filename-parser';
 import { recordWatchHistory } from '@/features/player/watch-history';
 import {
   appendMinedSentence,
@@ -150,7 +148,6 @@ import {
   LAZY_SYNC_MIN_REF_CUES,
   LAZY_SYNC_MIN_OFFSET_MS,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
-  estimateMedianOffset,
   shiftCuesByOffset,
 } from '@/features/player/lazy-sync';
 
@@ -178,6 +175,9 @@ import {
   mpvSetBounds,
   mpvSetSubDelay,
   resolvePhysicalPath,
+  parseSubtitleDirect,
+  parseMediaFilenameDirect,
+  estimateLazySyncOffsetDirect,
 } from '@/features/player/tauri-bridge';
 import {
   computeNativePictureRect,
@@ -456,6 +456,13 @@ export default function PlayerApp() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Stage 2a: Track local file for tracker fingerprint computation
   const mediaFileRef = useRef<File | null>(null);
+  // Media-pick epoch: the native filename parse is one IPC round-trip, so a
+  // newer pick can resolve first. A stale pick must not start a watch
+  // session for the media that was replaced in the meantime.
+  const mediaSelectEpochRef = useRef(0);
+  // Subtitle epoch: the native parse is async, so two subtitle loads can
+  // resolve out of order. Only the newest load may replace the cues.
+  const subtitleEpochRef = useRef(0);
   // Stage 2a: Track subtitle text content for tracker digest computation
   const subtitleTextRef = useRef<string | null>(null);
   const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
@@ -1113,8 +1120,16 @@ export default function PlayerApp() {
 
   // Shared subtitle-text pipeline: parse + replace cues (used by the P3
   // auto-load hook AND the P4 search modal).
-  const handleSubtitleText = useCallback((text: string) => {
-    const result = parseSubtitle(text);
+  //
+  // Desktop (Tauri): the parse runs in the native plugin, so a 3 000-cue
+  // file no longer blocks the browser main thread. The browser build keeps
+  // the TypeScript parser (the wrapper falls back to it).
+  const handleSubtitleText = useCallback(async (text: string) => {
+    const epoch = ++subtitleEpochRef.current;
+    const result = await parseSubtitleDirect(text);
+    // A newer subtitle load started while this one was parsing (manual pick
+    // vs. auto-load) — the newer load wins, the stale one is dropped.
+    if (epoch !== subtitleEpochRef.current) return;
     // Re-anchor the sub-delay base to the freshly loaded cues (the current
     // offset is kept) so a later native offset still shifts the originals.
     subDelayStateRef.current = rebaseSubDelay(
@@ -1174,11 +1189,11 @@ export default function PlayerApp() {
   const jimakuLoading = jimakuAutoLoad.isLoading;
 
   // P4: RightPanel search button — pre-fill with the current media name.
-  const handleOpenJimakuSearch = useCallback(() => {
+  const handleOpenJimakuSearch = useCallback(async () => {
     // Parse the media filename so the search box is pre-filled with the
     // clean title (e.g. "Meitantei no Mama de Ite" from the raw .mkv name)
     // instead of the raw filename — raw names never match jimaku.
-    const parsed = parseMediaFileName(mediaName);
+    const parsed = await parseMediaFilenameDirect(mediaName);
     setJimakuSearchPrefill(parsed.title || mediaName);
     setIsJimakuSearchOpen(true);
   }, [mediaName]);
@@ -1433,7 +1448,11 @@ export default function PlayerApp() {
         }
         const text = await res.text();
         if (cancelled) return;
-        const result = parseSubtitle(text);
+        const result = await parseSubtitleDirect(text);
+        // The parse is async (native plugin), so the effect may have been
+        // cleaned up while it ran — a stale subtitle must not replace the
+        // cues of the current media.
+        if (cancelled) return;
         // Re-anchor the sub-delay base to these cues (offset preserved).
         subDelayStateRef.current = rebaseSubDelay(
           subDelayStateRef.current,
@@ -2183,7 +2202,7 @@ export default function PlayerApp() {
    * path itself still goes straight to libmpv.
    */
   const selectLocalMedia = useCallback(
-    (input: {
+    async (input: {
       name: string;
       mime: string;
       bytes: number;
@@ -2292,7 +2311,14 @@ export default function PlayerApp() {
       setIsYouTubeStream(false);
       // Stage 2a: Store local file reference for tracker fingerprint computation.
       mediaFileRef.current = file;
-      startWatchSession(null, parseMediaFileName(name).episode);
+      // Desktop (Tauri): the episode number comes from the native filename
+      // parser. That parse is one IPC round-trip, so a newer pick can land
+      // in between — the epoch guard drops a stale result instead of
+      // starting a watch session for the wrong media.
+      const selectEpoch = ++mediaSelectEpochRef.current;
+      const parsed = await parseMediaFilenameDirect(name);
+      if (selectEpoch !== mediaSelectEpochRef.current) return;
+      startWatchSession(null, parsed.episode);
       if (file) {
         const sessionId = watchSessionRef.current?.sessionId;
         void computeVideoFingerprint(file).then((mediaId) => {
@@ -2300,7 +2326,7 @@ export default function PlayerApp() {
             return;
           attachWatchSessionMediaId(
             mediaId,
-            parseMediaFileName(name).episode,
+            parsed.episode,
           );
         });
       }
@@ -2320,7 +2346,7 @@ export default function PlayerApp() {
   /** Browser pick, or a Tauri drop that also produced a `File`. */
   const handleMediaSelect = useCallback(
     (file: File) => {
-      selectLocalMedia({
+      void selectLocalMedia({
         name: file.name,
         mime: file.type,
         bytes: file.size,
@@ -2334,7 +2360,7 @@ export default function PlayerApp() {
   /** Tauri native dialog pick: an absolute path with no `File` object. */
   const handleMediaSelectPath = useCallback(
     (path: string, name: string) => {
-      selectLocalMedia({
+      void selectLocalMedia({
         name,
         mime: '',
         bytes: 0,
@@ -2386,7 +2412,7 @@ export default function PlayerApp() {
         // Route through the shared pipeline so the LazySync base refresh
         // (BLOCKER 2 fix) applies to manual picks too — otherwise the next
         // poll resurrects the stale base over this fresh pick.
-        handleSubtitleText(content);
+        void handleSubtitleText(content);
       };
       reader.onerror = () => {
         setSubtitleErrors([
@@ -2602,7 +2628,7 @@ export default function PlayerApp() {
       }
 
       if (!trackerRuntime.mediaId || !mediaFileRef.current) return;
-      const parsed = parseMediaFileName(mediaName);
+      const parsed = await parseMediaFilenameDirect(mediaName);
       const title = parsed.title || sanitizeDisplayName(mediaName);
       if (!title) return;
       watchHistoryRecordedRef.current = true;
@@ -3492,8 +3518,8 @@ export default function PlayerApp() {
    *  the current active cue at whatever time the media is at. */
   /** Apply the detected subtitle text (parsed cues + raw text) after sync. */
   const applySyncedSubtitle = useCallback(
-    (syncedText: string) => {
-      const result = parseSubtitle(syncedText);
+    async (syncedText: string) => {
+      const result = await parseSubtitleDirect(syncedText);
       subDelayStateRef.current = rebaseSubDelay(
         subDelayStateRef.current,
         result.cues,
@@ -3560,7 +3586,7 @@ export default function PlayerApp() {
         );
         return;
       }
-      const detected = parseSubtitle(text);
+      const detected = await parseSubtitleDirect(text);
       const inFormat = detected.format ?? 'vtt';
       // Local audio sync — shared by the sub-to-audio-local plan and the
       // auto fallback when the embedded-subtitle reference is missing.
@@ -3578,7 +3604,7 @@ export default function PlayerApp() {
         const synced = await syncSubtitleToAudio(t, f, samples, sampleRate, {
           onProgress: () => {},
         });
-        applySyncedSubtitle(synced);
+        await applySyncedSubtitle(synced);
       };
       if (plan.kind === 'sub-to-sub') {
         // Reference subtitle source: Magnet (torrent subtitle file).
@@ -3607,7 +3633,7 @@ export default function PlayerApp() {
           );
           return;
         }
-        const refDetected = parseSubtitle(ref.text);
+        const refDetected = await parseSubtitleDirect(ref.text);
         const synced = await syncSubtitleToReference(
           text,
           inFormat,
@@ -3615,7 +3641,7 @@ export default function PlayerApp() {
           refDetected.format ?? 'vtt',
           { onProgress: () => {} },
         );
-        applySyncedSubtitle(synced);
+        await applySyncedSubtitle(synced);
         return;
       }
       if (plan.kind === 'sub-to-sub-auto-ref') {
@@ -3666,7 +3692,7 @@ export default function PlayerApp() {
             if (!subTrack) throw new Error('no embedded subtitle');
             refText = await mkvgo.extractSubtitleVTT(file, subTrack.id);
           }
-          const refDetected = parseSubtitle(refText);
+          const refDetected = await parseSubtitleDirect(refText);
           const synced = await syncSubtitleToReference(
             text,
             inFormat,
@@ -3674,7 +3700,7 @@ export default function PlayerApp() {
             refDetected.format ?? 'vtt',
             { onProgress: () => {} },
           );
-          applySyncedSubtitle(synced);
+          await applySyncedSubtitle(synced);
         } catch (err) {
           // No embedded subtitle in the source (404 from the companion /
           // missing track), or the mkvgo extraction failed.
@@ -3732,7 +3758,7 @@ export default function PlayerApp() {
    *  - Audio sync mode on Magnet is unavailable (§10.4): clicking the
    *    toggle in audio mode only explains why (no state change).
    */
-  const handleToggleLazySync = useCallback(() => {
+  const handleToggleLazySync = useCallback(async () => {
     if (jobSessionRef.current.kind !== 'torrent') return;
     const ui = dictRef.current.playerUI;
     if (isLazySyncOn) {
@@ -3754,7 +3780,7 @@ export default function PlayerApp() {
       notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
       return;
     }
-    const baseCues = parseSubtitle(text).cues;
+    const baseCues = (await parseSubtitleDirect(text)).cues;
     if (baseCues.length === 0) {
       notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
       return;
@@ -3855,7 +3881,7 @@ export default function PlayerApp() {
           continue;
         }
         const ref = result;
-        const refCues = parseSubtitle(ref.text).cues;
+        const refCues = (await parseSubtitleDirect(ref.text)).cues;
         if (refCues.length < LAZY_SYNC_MIN_REF_CUES) {
           // Downloaded prefix has too few cues yet to trust an estimate
           // (docs §10: first sync waits for a usable cue count). Bounded
@@ -3864,15 +3890,20 @@ export default function PlayerApp() {
           continue;
         }
 
-        const est = estimateMedianOffset(state.baseCues, refCues);
-        if (!est) {
-          // Median estimator returned null (no cues, a bimodal split refused
-          // by the concentration check, or an offset beyond 1 h).
+        // The native estimator takes (reference, drift); the base cues are
+        // the drift track (the user's subtitle), the polled track is the
+        // embedded reference.
+        const offsetMs = await estimateLazySyncOffsetDirect(
+          refCues,
+          state.baseCues,
+        );
+        if (offsetMs === null) {
+          // The estimator refused (no cues, a bimodal split refused by the
+          // concentration check, or an offset beyond 1 h).
           if (!(await boundedWait())) return;
           continue;
         }
 
-        const offsetMs = est.offsetMs;
         if (Math.abs(offsetMs) < LAZY_SYNC_MIN_OFFSET_MS) {
           // Already in sync (ffsubsync --suppress-output-if-offset-less-
           // than): an offset under 100 ms is sub-frame noise — leave the
@@ -3952,7 +3983,7 @@ export default function PlayerApp() {
     async (audio: { samples: Float32Array; sampleRate: number }) => {
       const text = subtitleTextRef.current;
       if (!text) return;
-      const detected = parseSubtitle(text);
+      const detected = await parseSubtitleDirect(text);
       const inFormat = detected.format ?? 'vtt';
       await runSync(async () => {
         const synced = await syncSubtitleToAudio(
@@ -3962,7 +3993,7 @@ export default function PlayerApp() {
           audio.sampleRate,
           { onProgress: () => {} },
         );
-        applySyncedSubtitle(synced);
+        await applySyncedSubtitle(synced);
       });
     },
     [applySyncedSubtitle, runSync],

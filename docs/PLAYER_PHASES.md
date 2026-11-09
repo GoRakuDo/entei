@@ -1166,3 +1166,45 @@ Sentence Mining:
 - **実機 E2E 未実施:** コードと単体/統合テストは完了したが、**実ブラウザ（Chrome / Tauri）でのフreeze解消・スクロール追従の見た目は未確認**（E2E 待ち）。dev サーバーは Executor が起動しない運用のため、ブラウザ実表示の確認は保留。
 - **スクロールバー全長の誤差は残る:** 未実測行の高さは推定値なので、スクロールバーの全長は実寸と数 % ずれる。マウント済み行の実測値が増えるほど収束する。
 - **`jsdom` ではスクロールできない:** テスト環境では `window.scrollBy` が no-op のため、補正パスが収束せず強制ウィンドウが維持されたままになる（テストは「cue がマウントされること」で担保）。実ブラウザでは収束して通常ウィンドウへ戻る。
+
+## 29. ネイティブ字幕エンジン（`tauri-plugin-subtitles`）の Web 配線
+
+> **追加日:** 2026-11-10
+> **対象:** `plugins/tauri-plugin-subtitles/`（新規 crate）, `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`, `apps/web/src/features/player/tauri-bridge.ts`, `apps/web/src/components/player/PlayerApp.tsx`, `apps/web/src/components/player/AudioPlayer.tsx`, `apps/web/src/features/player/use-jimaku-auto-load.ts`, `apps/web/tests/tauri-subtitles-bridge.test.ts`（新規）
+
+### 症状と課題
+
+字幕パース（SRT / VTT / ASS）・メディアファイル名解析・LazySync オフセット推定は、ブラウザのメインスレッドで動く素の TS 実装だった。3 000 cue の字幕をパースする間メインスレッドが塞がれ、字幕パネル・オーバーレイ・トラッカーが固まる。ネイティブ mpv で映像をネイティブ描画するビルドでも、重い JS 計算は WebView2 側のメインスレッドで走ることになる。
+
+`plugins/tauri-plugin-subtitles` は上記 3 関数の Rust 実装（TS からの 1 行ずつ移植。JS と Rust の正規表現差異は明示的に補償済み）で、CPU バウンドな処理を `spawn_blocking` でブロッキングスレッドプールへ逃がす。本節はその**Web フロントエンドからの配線**である。
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| 入口 | `tauri-bridge.ts` の 3 ラッパーのみが IPC する。`parseSubtitleDirect` / `parseMediaFilenameDirect` / `estimateLazySyncOffsetDirect` |
+| フォールバック | **Tauri 外（ブラウザ版）・プラグイン欠落・コマンド拒否・不正応答**の 4 ケースすべてで既存の TS 実装へフォールバックする。プラグインが壊れても「遅いが正しい」であり、「字幕が無い」ではない |
+| 応答の検証 | cue / error / filename / offset の各フィールドを型検査してから UI へ通す。壊れた応答は TS 実装へ退避し、不正な cue を描画しない |
+| 単位 | `subtitles_estimate_lazy_sync` は **秒**（`SubtitleCue.start` と同単位）で返す。Web 層は **ミリ秒**（`LAZY_SYNC_MIN_OFFSET_MS` / `shiftCuesByOffset`）で動くので、bridge で `秒 × 1000` に変換する |
+| 引数の順序 | ネイティブ command は `(ref_cues, drift_cues)`、TS 実装は `(driftCues, refCues)`。bridge 内で順序を吸収し、呼び出し側は `estimateLazySyncOffsetDirect(refCues, driftCues)` の 1 系統に統一する |
+| format ヒント | `parseSubtitleDirect(content, format)` の `format` はネイティブ経路でのみ効く。TS フォールバックは常に自動判定（差分は既知の指摘） |
+| 呼び出し側 | PlayerApp の字幕適用・字幕ファイル読み込み・字幕同期・LazySync ポーリング、jimaku 自動ロードのタイトル抽出、音声プレイヤーの字幕ファイル読み込みを直接版へ接続 |
+
+### 非同期化で発生する競合への対処
+
+- **メディア選択**: ネイティブのファイル名解析は IPC 1 往復なので、選択が 2 回続けて走ると古い結果が後から返り得る。`mediaSelectEpochRef` の世代ガードで、古い選択は watch session を起動しないようにした。
+- **jimaku 自動ロード**: 解析中に実行が中断・置換されうるため、解析直後に `signal.aborted` を確認してから検索を開始する。中断済みの実行は検索にもスピナーにも到達しない（スピナーが取り残される穴を塞ぐ）。
+- **字幕適用**: 適用の入口は 2 つ（jimaku 自動ロード / 手動 pick）で、非同期化により逆順に解決しうるため、`subtitleEpochRef` の世代ガードで新しい字幕だけが cue を置き換える。
+
+### 検証
+
+- `bun run check`（apps/web）: **0 errors**
+- `bun test --isolate`: **2326 pass / 0 fail**（新規 `tests/tauri-subtitles-bridge.test.ts` 13 件を含む）
+- `cargo check --manifest-path src-tauri/Cargo.toml`: **OK**
+
+### 既知の指摘（Known issues / Low findings）
+
+- **実機 E2E 未実施:** コードと単体テスト・型チェックは完了したが、**Tauri 実窓でのネイティブ字幕パース（3 000 cue の 1.7 ms 相当）と LazySync 実動作は未確認**（E2E 待ち）。ブラウザ版のフォールバック経路は既存テストで担保している。
+- **ファイル名解析はホットパスではない:** 短い名前の正規表現は TS 数十 µs に対し、ネイティブ呼び出しは IPC 往復 1〜2 ms。ファイル名解析をネイティブへ寄せたのは「メインスレッドを完全に空ける」方針の統一であって速度改善ではない（実害は無いが、速度を期待して持たないこと）。
+- **LazySync の 100 ms 未満の扱い:** ネイティブ経路は 100 ms 未満を厳密に 0 ms（= 既に同期）として返す。TS 経路は生の median（例: 40 ms）を返す。どちらも `LAZY_SYNC_MIN_OFFSET_MS` 未満なので Player の分岐は同一。
+- **jimaku スピナーの開始が 1 マイクロタスク遅れる:** ネイティブ解析が 1 往復のため、検索開始（= スピナー点灯）が 1 tick 遅れる。描画上は同一フレーム内で完了する。

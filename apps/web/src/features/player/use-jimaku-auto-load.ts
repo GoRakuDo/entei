@@ -4,7 +4,7 @@ import {
   shouldShowJimakuToast,
   incrementJimakuToastCount,
 } from '@/features/player/jimaku-preferences';
-import { parseMediaFileName } from '@/features/player/filename-parser';
+import { parseMediaFilenameDirect } from '@/features/player/tauri-bridge';
 import {
   searchJimakuEntries,
   getJimakuEntryFiles,
@@ -203,7 +203,13 @@ export function useJimakuAutoLoad({
           }
           return;
         }
-        const parsed = parseMediaFileName(mediaName);
+        // Desktop (Tauri): the media name is parsed by the native plugin.
+        // That parse is one IPC round-trip, so the run can be superseded or
+        // cancelled while it is in flight — the abort check below keeps a
+        // stale run from starting a search (and from leaving the spinner
+        // on) after a newer run took over.
+        const parsed = await parseMediaFilenameDirect(mediaName);
+        if (signal.aborted) return;
         if (!parsed.title) return; // nothing to search — stay quiet
         const title = parsed.title;
         // An actual search is starting — surface the subtitle-panel spinner.

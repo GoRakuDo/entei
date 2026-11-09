@@ -1,0 +1,9 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """Default permissions for the subtitles plugin: native subtitle parsing, media filename parsing and LazySync offset estimation."""
+permissions = [
+  "allow-subtitles-parse",
+  "allow-subtitles-parse-filename",
+  "allow-subtitles-estimate-lazy-sync",
+]

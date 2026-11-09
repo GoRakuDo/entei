@@ -23,6 +23,17 @@
  * --------------------------------------------------------------------------- */
 
 import { tracedInvoke } from '@/features/trace/trace-logger';
+import {
+  parseSubtitle,
+  type SubtitleCue,
+  type SubtitleError,
+  type SubtitleParseResult,
+} from '@/features/player/subtitle-reader';
+import {
+  parseMediaFileName,
+  type ParsedMediaName,
+} from '@/features/player/filename-parser';
+import { estimateMedianOffset } from '@/features/player/lazy-sync';
 
 /** Subset of Tauri v2's injected runtime internals that this module uses. */
 interface TauriInternals {
@@ -651,4 +662,222 @@ export async function mpvSetBounds(
     width: Math.round(width),
     height: Math.round(height),
   });
+}
+
+/* ---------------------------------------------------------------------------
+ * Native subtitle engine (`plugin:subtitles`)
+ * ---------------------------------------------------------------------------
+ * The desktop build ships `plugins/tauri-plugin-subtitles`, a line-by-line
+ * Rust port of the three TypeScript helpers that used to run on the browser
+ * main thread:
+ *
+ * - `subtitles_parse(content, format)` — SRT / VTT / ASS parsing.
+ * - `subtitles_parse_filename(name)` — media file name → `{ title, episode }`.
+ * - `subtitles_estimate_lazy_sync(ref_cues, drift_cues)` — LazySync offset.
+ *
+ * Inside Tauri the work runs on Rust's blocking thread pool (1–2 ms for a
+ * 3 000-cue file) instead of the webview's JavaScript thread; outside Tauri
+ * (the standalone browser build) the wrappers fall back to the TypeScript
+ * implementation, so both builds keep the same behaviour.
+ *
+ * Every wrapper is fail-soft: a missing plugin, a rejected command or a
+ * malformed reply falls back to the TypeScript path instead of breaking the
+ * player. The plugin's replies are validated before they reach the UI, so a
+ * broken native build degrades to "slow but correct" rather than to wrong
+ * cues.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Run one `plugin:subtitles` command.
+ *
+ * Unlike the mpv wrappers this REJECTS on failure: the caller has to see the
+ * error to fall back to the TypeScript implementation.
+ */
+async function invokeSubtitlesPlugin(
+  cmd: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (typeof invoke !== 'function') {
+    throw new Error('tauri runtime unavailable');
+  }
+  // Traced: the journal records the command, its duration and its outcome.
+  return tracedInvoke(cmd, args);
+}
+
+/** Shape check for one cue of a native parse result. */
+function normalizeSubtitleCue(raw: unknown): SubtitleCue | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const value = raw as Record<string, unknown>;
+  const { id, start, end, text } = value;
+  if (typeof id !== 'number' || !Number.isFinite(id)) return null;
+  if (typeof start !== 'number' || !Number.isFinite(start)) return null;
+  if (typeof end !== 'number' || !Number.isFinite(end)) return null;
+  if (typeof text !== 'string') return null;
+  return { id, start, end, text };
+}
+
+/** Shape check for one validation error of a native parse result. */
+function normalizeSubtitleError(raw: unknown): SubtitleError | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const value = raw as Record<string, unknown>;
+  const { line, message } = value;
+  if (typeof line !== 'number' || !Number.isFinite(line)) return null;
+  if (typeof message !== 'string') return null;
+  return { line, message };
+}
+
+/**
+ * Shape check for the whole native parse result.
+ *
+ * Returns null when the reply does not match the contract — the caller then
+ * uses the TypeScript parser instead of rendering half-parsed cues.
+ */
+function normalizeSubtitleParseResult(
+  raw: unknown,
+): SubtitleParseResult | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const value = raw as Record<string, unknown>;
+  const { cues, errors, format } = value;
+  if (!Array.isArray(cues) || !Array.isArray(errors)) return null;
+  if (format !== null && format !== 'srt' && format !== 'vtt' && format !== 'ass') {
+    return null;
+  }
+  const parsedCues: SubtitleCue[] = [];
+  for (const entry of cues) {
+    const cue = normalizeSubtitleCue(entry);
+    if (!cue) return null;
+    parsedCues.push(cue);
+  }
+  const parsedErrors: SubtitleError[] = [];
+  for (const entry of errors) {
+    const error = normalizeSubtitleError(entry);
+    if (!error) return null;
+    parsedErrors.push(error);
+  }
+  return { cues: parsedCues, errors: parsedErrors, format };
+}
+
+/** Shape check for the native `{ title, episode }` reply. */
+function normalizeParsedMediaName(raw: unknown): ParsedMediaName | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const value = raw as Record<string, unknown>;
+  const { title, episode } = value;
+  if (typeof title !== 'string') return null;
+  if (episode !== null && episode !== undefined && typeof episode !== 'number') {
+    return null;
+  }
+  return {
+    title,
+    episode:
+      typeof episode === 'number' && Number.isFinite(episode) ? episode : null,
+  };
+}
+
+/**
+ * Parse a subtitle file (SRT / VTT / ASS) through the native plugin.
+ *
+ * Inside Tauri the parse runs on Rust's blocking pool; outside Tauri — or
+ * when the plugin is missing / rejects / answers with a malformed reply — the
+ * TypeScript parser takes over and produces the same cues.
+ *
+ * `format` is an optional hint (`srt` / `vtt` / `ass`) that overrides the
+ * auto-detection. Note: the TypeScript fallback always auto-detects, so a
+ * hint only takes effect on the native path.
+ */
+export async function parseSubtitleDirect(
+  content: string,
+  format?: string | null,
+): Promise<SubtitleParseResult> {
+  if (isTauri()) {
+    try {
+      const raw = await invokeSubtitlesPlugin(
+        'plugin:subtitles|subtitles_parse',
+        { content, format: format ?? null },
+      );
+      const parsed = normalizeSubtitleParseResult(raw);
+      if (parsed) return parsed;
+    } catch {
+      // Native parser unavailable — the TypeScript parser takes over.
+    }
+  }
+  return parseSubtitle(content);
+}
+
+/**
+ * Extract `{ title, episode }` from a media file name through the native
+ * plugin, falling back to the TypeScript parser outside Tauri.
+ */
+export async function parseMediaFilenameDirect(
+  filename: string,
+): Promise<ParsedMediaName> {
+  if (isTauri()) {
+    try {
+      const raw = await invokeSubtitlesPlugin(
+        'plugin:subtitles|subtitles_parse_filename',
+        { name: filename },
+      );
+      const parsed = normalizeParsedMediaName(raw);
+      if (parsed) return parsed;
+    } catch {
+      // Native parser unavailable — the TypeScript parser takes over.
+    }
+  }
+  return parseMediaFileName(filename);
+}
+
+/**
+ * Estimate the LazySync offset (reference − drift) between two subtitle
+ * tracks, in **milliseconds**.
+ *
+ * The plugin reports the offset in seconds (the same unit as
+ * `SubtitleCue.start`), so the value is converted here: the web layer works
+ * in milliseconds (`LAZY_SYNC_MIN_OFFSET_MS`, `shiftCuesByOffset`).
+ *
+ * `null` means "no trustworthy estimate" (fail-closed) — the native estimator
+ * refuses in the same situations as the TypeScript one (empty track, bimodal
+ * split, offset beyond one hour).
+ *
+ * Note: the native path reports an offset below 100 ms as exactly 0 ms
+ * ("already in sync"), while the TypeScript path reports the raw median.
+ * Both stay below `LAZY_SYNC_MIN_OFFSET_MS`, so the Player treats them the
+ * same way.
+ */
+export async function estimateLazySyncOffsetDirect(
+  refCues: readonly SubtitleCue[],
+  driftCues: readonly SubtitleCue[],
+): Promise<number | null> {
+  if (isTauri()) {
+    try {
+      const raw = await invokeSubtitlesPlugin(
+        'plugin:subtitles|subtitles_estimate_lazy_sync',
+        {
+          refCues: refCues.map((cue) => ({
+            id: cue.id,
+            start: cue.start,
+            end: cue.end,
+            text: cue.text,
+          })),
+          driftCues: driftCues.map((cue) => ({
+            id: cue.id,
+            start: cue.start,
+            end: cue.end,
+            text: cue.text,
+          })),
+        },
+      );
+      // `null` is the plugin's fail-closed answer: no estimate at all.
+      if (raw === null || raw === undefined) return null;
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        // Seconds → milliseconds (the web layer's unit).
+        return Math.round(raw * 1000);
+      }
+      // Unexpected reply shape → the TypeScript estimator takes over.
+    } catch {
+      // Native estimator unavailable — the TypeScript estimator takes over.
+    }
+  }
+  // The TypeScript estimator takes (drift, ref) — the opposite order of the
+  // native command, which takes (ref, drift).
+  return estimateMedianOffset(driftCues, refCues)?.offsetMs ?? null;
 }
