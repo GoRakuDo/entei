@@ -1,7 +1,6 @@
 /**
- * eizouden-settings.css — Shared styles for the EIZOU Settings dialog
- * (NAVIGATION_BAR.md "設定ボタンの追加", EIZOU_DENDENSHI.md
- * "YouTube 再生モード設定").
+ * settings-shared.css — Shared styles for the global and player settings dialogs
+ * (NAVIGATION_BAR.md "設定ボタンの追加").
  *
  * Imported by global.css so the TopBar settings button works on EVERY page
  * (Home / Tracker / Player), not just inside the Player where player.css
@@ -14,11 +13,9 @@
  * --------------------------------------------------------------------------- */
 
 /* Explicit layer order BEFORE the utility imports (Tailwind v4's own
-   index.css does this first). Without it, global.css's later `@layer base`
-   reset (e.g. button{background:none}) is declared after `@layer utilities`
-   and wins over utility classes like bg-destructive — shipping a red
-   "Reset pairing" button as transparent and killing the OTP slot borders.
-   Ordering base BEFORE utilities restores Tailwind's intended cascade. */
+   index.css does this first). This keeps global.css's later base reset from
+   overriding utility classes. Ordering base BEFORE utilities restores
+   Tailwind's intended cascade. */
 @layer theme, base, components, utilities;
 
 @import 'tailwindcss/theme.css' layer(theme);
@@ -212,113 +209,6 @@
   color: var(--entei-text);
   margin: 0;
   line-height: 1.3;
-}
-
-/* --- EizouDen tab: YouTube download mode (Quality / Speed) --- */
-.entei-eizouden-mode-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-}
-
-.entei-eizouden-mode-option {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--entei-space-12);
-  min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) 0;
-}
-
-.entei-eizouden-mode-radio {
-  margin-top: calc(var(--entei-space-4) + 2px);
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  border: 1px solid var(--entei-text-muted);
-  border-radius: 50%;
-  background-color: transparent;
-}
-
-.entei-eizouden-mode-radio[data-state='checked'] {
-  border-color: var(--entei-accent);
-  background-color: var(--entei-accent);
-  box-shadow: inset 0 0 0 3px var(--entei-surface);
-}
-
-.entei-eizouden-mode-radio:focus-visible {
-  outline: 3px solid var(--entei-focus-ring);
-  outline-offset: 2px;
-}
-
-.entei-eizouden-mode-label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-4);
-  cursor: pointer;
-  font-family: var(--entei-font-body);
-}
-
-.entei-eizouden-mode-name {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--entei-text);
-  line-height: 1.4;
-}
-
-.entei-eizouden-mode-desc {
-  font-size: 0.8125rem;
-  color: var(--entei-text-secondary);
-  line-height: 1.5;
-}
-
-/* --- EizouDen tab: explicit pairing reset (destructive, ED-3) --- */
-.entei-eizouden-reset-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-  padding-top: var(--entei-space-16);
-  border-top: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-eizouden-reset-btn {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-md);
-}
-
-/* --- EizouDen tab: pairing entry point (unpaired browsers only) ---
-   Phase 2 transition: EizouDendenshiSetup was retired from the Player empty
-   state, so pairing lives here instead. */
-.entei-eizouden-pair-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-  padding-bottom: var(--entei-space-16);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-eizouden-pair-btn {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-md);
-}
-
-/* Pairing reset confirm dialog (shared with the EizouDen tab) */
-.entei-eizou-reset-desc {
-  margin: 0;
-  padding: var(--entei-space-16) var(--entei-space-24);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--entei-text-secondary);
-}
-
-.entei-eizou-reset-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 /* TopBar settings trigger (desktop pill + mobile dock).
@@ -595,7 +485,7 @@
 
 /* ==============================================================================
  * MIRRORED from player.css — Settings modal presentation (shared components:
- * SettingsTabs / EizouDen / subtitle / Anki). Loaded on EVERY page via global.css
+ * SettingsTabs / subtitle / Anki). Loaded on EVERY page via global.css
  * so the nav settings dialog renders correctly on Home/Tracker too. Values are
  * identical to player.css; keep both in sync when editing (drift guard).
  * ============================================================================== */
@@ -623,7 +513,7 @@
  * that sits on the shared divider — no background fill.
  * NOTE: player.css carries the same selector WITH the mobile swipe-scroll
  * additions (overflow-x). This file must NOT redeclare the selector without
- * them — eizouden-settings.css loads before tailwind/player and would win
+ * them — the shared settings stylesheet loads before player.css and would win
  * the cascade on equal specificity. */
 .entei-settings-tabs-list {
   display: flex;
@@ -768,58 +658,6 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-}
-
-/* --- EizouDen tab: explicit pairing reset (destructive, ED-3) ---
-   Mirrors eizouden-settings.css (identical values; layering both is
-   harmless — matches the settings-section / settings-label convention). */
-.entei-eizouden-reset-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-  padding-top: var(--entei-space-16);
-  border-top: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-eizouden-reset-btn {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-md);
-}
-
-/* --- EizouDen tab: pairing entry point (unpaired browsers only) ---
-   Phase 2 transition: EizouDendenshiSetup was retired from the Player empty
-   state, so pairing lives here instead. */
-.entei-eizouden-pair-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-  padding-bottom: var(--entei-space-16);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-eizouden-pair-btn {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-md);
-}
-
-/* Pairing reset confirm dialog (shared with the EizouDen tab) */
-.entei-eizou-reset-desc {
-  margin: 0;
-  padding: var(--entei-space-16) var(--entei-space-24);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--entei-text-secondary);
-}
-
-.entei-eizou-reset-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-settings-shortcuts-list {

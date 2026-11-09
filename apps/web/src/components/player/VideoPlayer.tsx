@@ -13,11 +13,8 @@ interface VideoPlayerProps {
   error: string | null;
   errorLabel?: string;
   decodeErrorLabel?: string;
-  /** Keep the video element mounted when an error fires. Off by default
-   *  (the standalone error state replaces the element, as before); on for
-   *  companion buffering, where the bridge recovers with an explicit
-   *  src/load — the element must survive the error to receive the
-   *  loadeddata event that clears the overlay. */
+  /** Keep the video element mounted while the native torrent relay retries
+   *  with an explicit src/load so loadeddata can clear the error overlay. */
   keepElementOnError?: boolean;
   /** mpv owns the picture and sound for this source. The HTML element stays
    *  mounted as the timing/transport shim, but WebView2's decode failure on
@@ -96,7 +93,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         // the decoder/buffers so a failed (auto)play never leaves buffered
         // audio running — otherwise the next user-initiated play overlaps
         // with the old stream (double audio). The element itself survives
-        // (keepElementOnError keeps the bridge's src/load recovery path).
+        // (keepElementOnError keeps the relay retry path mounted).
         const el = e.currentTarget;
         el.pause();
         el.removeAttribute('src');
@@ -128,9 +125,9 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     );
 
     /* The element is shared by the standalone and overlay error paths: with
-       keepElementOnError the exact same element stays mounted so the
-       companion bridge's error recovery (explicit src/load) can drive
-       loadeddata and clear the error. crossOrigin="anonymous" makes the
+       keepElementOnError the exact same element stays mounted so the native
+       torrent session's recovery (explicit src/load) can drive loadeddata
+       and clear the error. crossOrigin="anonymous" makes the
        element fetch its source with CORS instead of no-cors — without it
        the browser issues an opaque no-cors request that ORB (Opaque
        Response Blocking) rejects for a cross-origin media response. */
@@ -155,8 +152,8 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
     if (error && !nativeRender) {
       if (keepElementOnError) {
-        // Overlay error state: keep the element mounted (the companion
-        // bridge's src/load recovery needs it) and cover it with the error.
+        // Overlay error state: keep the element mounted (torrent recovery
+        // needs it) and cover it with the error.
         return (
           <div className="entei-player-video-wrapper">
             {videoElement}

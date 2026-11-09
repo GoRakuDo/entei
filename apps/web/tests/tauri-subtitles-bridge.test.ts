@@ -92,6 +92,22 @@ describe('tauri-bridge subtitles wrappers — outside Tauri', () => {
     expect(internals().__TAURI_INTERNALS__).toBeUndefined();
   });
 
+  it('keeps ASS parsing available through the TypeScript fallback', async () => {
+    const ass = [
+      '[Script Info]',
+      '[Events]',
+      'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\b1}Hello\\Nworld{\\b0}',
+    ].join('\n');
+
+    await expect(parseSubtitleDirect(ass)).resolves.toMatchObject({
+      format: 'ass',
+      errors: [],
+      cues: [{ start: 1, end: 4, text: 'Hello world' }],
+    });
+    expect(internals().__TAURI_INTERNALS__).toBeUndefined();
+  });
+
   it('parses the media file name with the TypeScript parser', async () => {
     const parsed = await parseMediaFilenameDirect(
       'Meitantei no Mama de Ite [1080p][B5CC76C9].mkv',

@@ -8,7 +8,7 @@
  * - NO sticky black TopBar strip (removed per spec).
  * - Home: SNS-style pinned LEFT SIDEBAR (brand, Home, Profile,
  *   Immersion Tools drawer, Settings). The timeline keeps the centered
- *   column, giving a modern 2-column layout. See `eizouden-settings.css`
+ *   column, giving a modern 2-column layout. See `settings-shared.css`
  *   for the sidebar rules.
  * - Profile: always-visible pill in normal document flow (scrolls out).
  *   Pill = [HubEmblem + "Entei" (Home link) | Profile | Immersion Tools].
@@ -175,7 +175,7 @@ const settingsUIProps = dictionary.playerUI;
   Hidden on mobile via CSS (display:none <768px).
   Brand → Home → Profile → Immersion Tools → Settings.
   The fixed sidebar reserves its width on the left edge of #entei-main
-  (see eizouden-settings.css), so the timeline stays in the center column.
+  (see settings-shared.css), so the timeline stays in the center column.
   ============================================================
 -->
 {
@@ -320,7 +320,7 @@ const settingsUIProps = dictionary.playerUI;
         }
         {
           (
-            /* Settings button — opens the EizouDen settings modal from any page
+            /* Settings button — opens the shared settings modal from any page
              (NAVIGATION_BAR.md 2026-08-07). Not a route. */
             <EizouSettingsDialog
               client:load

@@ -58,7 +58,7 @@ function baseProps(overrides?: Record<string, unknown>) {
 }
 
 /** Like baseProps but with no mine wiring (matches the panel props used by
- *  RightPanel for the companion loading state). */
+ *  RightPanel for the subtitle-loading state). */
 function basePropsForLoading() {
   return {
     cues,
@@ -194,7 +194,7 @@ describe('SubtitlePanel row mining', () => {
   });
 });
 
-describe('SubtitlePanel loading state (companion subtitles pending)', () => {
+describe('SubtitlePanel loading state (torrent subtitles pending)', () => {
   it('shows centered loading indicator while subtitles are being fetched', () => {
     render(
       <SubtitlePanel

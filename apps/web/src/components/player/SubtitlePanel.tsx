@@ -35,8 +35,8 @@ interface SubtitlePanelProps {
   noSubtitlesLabel?: string;
   seekToLabel?: string;
   chooseSubtitleLabel?: string;
-  /** While true (companion job subtitles still being fetched) the empty
-   *  state is replaced with a centered loading indicator. */
+  /** While true (native torrent subtitle relay is loading) the empty state
+   *  is replaced with a centered loading indicator. */
   isLoadingSubtitles?: boolean;
   /** Localized label for the loading state. */
   preparingSubtitlesLabel?: string;
@@ -107,8 +107,8 @@ export function SubtitlePanel({
   }, [activeCueId, scrollToCue]);
 
   if (cues.length === 0 && isLoadingSubtitles) {
-    // Companion job (YouTube/Magnet): subtitles are still being fetched
-    // (bounded retry in PlayerApp). Replace the otherwise empty state
+    // Native torrent subtitle relay is still being fetched. Replace the
+    // otherwise empty state
     // with a centered loading indicator so the panel does not look broken
     // during the multi-second gap.
     return (

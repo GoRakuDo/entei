@@ -1,79 +1,19 @@
 /**
- * eizouden-toast — Sonner toast foundation for EizouDen notifications.
- * ---------------------------------------------------------------------------
- * EIZOU_DENDENSHI.md "画質通知 (2026-08-07)": when yt-dlp finishes and the
- * media is handed to the Player, show an info toast with the selected quality
- * and mode (e.g. "スピードモード - 360p をすぐに再生します"). Quality metadata
- * arrives from the companion in a later integration; this module provides the
- * UI function and the Toaster host so wiring it up requires no further UI
- * work.
- *
- * The message template is a localized string (`playerUI.ytModeToastFormat`)
- * that the caller resolves from the active dictionary; the quality and mode
- * are substituted into the `{quality}` and `{mode}` placeholders.
- * ---------------------------------------------------------------------------
+ * Player toasts — localized source, subtitle-sync, mining, and browser
+ * notifications. Toast copy never exposes native plugin error details.
  */
 
 'use client';
 
 import { toast } from 'sonner';
-import { CircleAlert, CircleCheck, Info } from 'lucide-react';
+import { CircleAlert, CircleCheck } from 'lucide-react';
 
-export const QUALITY_TOAST_KEY = 'eizouden-quality';
+export const PLAYER_INPUT_ERROR_TOAST_KEY = 'entei-player-input-error';
 
-/**
- * Substitute {quality} / {mode} into a localized template.
- * e.g. "{mode} Mode - {quality} will start playing"
- *      → "Speed Mode - 360p will start playing".
- */
-export function formatQualityToast(
-  template: string,
-  quality: string,
-  modeLabel: string,
-): string {
-  return template.replaceAll('{quality}', quality).replaceAll('{mode}', modeLabel);
-}
-
-/**
- * Emit the quality-notification info toast.
- *
- * The icon is a Lucide Info (no default Sonner blue circle);
- * centered with the text via the Entei toast CSS ([data-icon] flex + gap,
- * same treatment as notifyCompanionError).
- *
- * @param template - localized format string (playerUI.ytModeToastFormat).
- * @param quality  - text like "360p", "720p" or "1080p".
- * @param modeLabel - localized download-mode label ("Quality"/"Speed"/…).
- */
-export function notifyQuality(
-  template: string,
-  quality: string,
-  modeLabel: string,
-): void {
-  toast.info(formatQualityToast(template, quality, modeLabel), {
-    id: QUALITY_TOAST_KEY + quality + modeLabel,
-    icon: <Info aria-hidden="true" />,
-  });
-}
-
-export const COMPANION_ERROR_TOAST_KEY = 'eizouden-companion-error';
-
-/**
- * Emit the companion-job failure toast ("An error occurred. Please try
- * again."). One toast per job failure: the id is fixed so a repeated
- * error re-render cannot stack multiple toasts on top of each other.
- *
- * The icon is a Lucide CircleAlert (no default Sonner circle) centered
- * with the text via the Entei toast CSS (flex + gap).
- *
- * @param label - localized message (playerUI.companionJobError).
- * @param id - toast id; defaults to the generic companion-job key. Media-input
- *   dialogs pass their own id so their validation errors do not replace (or get
- *   replaced by) a generic companion job error toast.
- */
-export function notifyCompanionError(
+/** Emit a localized native player input error without exposing IPC details. */
+export function notifyPlayerInputError(
   label: string,
-  id: string = COMPANION_ERROR_TOAST_KEY,
+  id: string = PLAYER_INPUT_ERROR_TOAST_KEY,
 ): void {
   toast.error(label, {
     id,
@@ -84,74 +24,45 @@ export function notifyCompanionError(
 /** Generic subtitle-sync error toast (no base subtitle, sync failure…). */
 export function notifySubtitleSyncError(label: string): void {
   toast.error(label, {
-    id: 'eizouden-subtitle-sync-error',
+    id: 'player-subtitle-sync-error',
     icon: <CircleAlert aria-hidden="true" />,
   });
 }
 
-/** jimaku auto-load toast (rate-limit / auth / key-missing) — info level. */
+/** Jimaku auto-load toast (rate-limit / auth / key-missing) — info level. */
 export function notifyJimakuToast(label: string): void {
   toast.info(label, {
-    id: 'eizouden-jimaku-toast',
+    id: 'player-jimaku-toast',
   });
 }
 
-/** LazySync toggle notice ("LazySync enabled"/"disabled"). Neutral info
- *  toast with a fixed id so toggling cannot stack duplicates. */
-export function notifyLazySyncInfo(label: string): void {
-  toast.info(label, {
-    id: 'eizouden-lazy-sync',
-    icon: <Info aria-hidden="true" />,
-  });
-}
-
-/**
- * Subtitle-sync success toast (sub-to-sub / sub-to-audio completed and the
- * synced cues were applied). One toast per completion: the id is fixed so a
- * repeated success cannot stack multiple toasts on top of each other.
- *
- * The icon is a Lucide CircleCheck (no default Sonner circle) centered with
- * the text via the Entei toast CSS (flex + gap).
- *
- * @param label - localized message (playerUI.subtitleSyncSuccess).
- */
+/** Subtitle-sync success toast. One toast per completion. */
 export function notifySubtitleSyncSuccess(label: string): void {
   toast.success(label, {
-    id: 'eizouden-subtitle-sync-success',
+    id: 'player-subtitle-sync-success',
     icon: <CircleCheck aria-hidden="true" />,
   });
 }
 
-/** Mining export success toast (new card added or card updated).
- *  One toast per completion: the id is fixed so repeated success cannot
- *  stack multiple toasts. */
+/** Mining export success toast (new card added or card updated). */
 export function notifyMiningExportSuccess(label: string): void {
   toast.success(label, {
-    id: 'eizouden-mining-export-success',
+    id: 'player-mining-export-success',
     icon: <CircleCheck aria-hidden="true" />,
   });
 }
 
-/** Mining export error toast (displays raw Anki / AnkiConnect error message).
- *  Uses toast.error with an alert icon and fixed id to prevent stacking duplicates. */
+/** Mining export error toast. */
 export function notifyMiningExportError(label: string): void {
   toast.error(label, {
-    id: 'eizouden-mining-export-error',
+    id: 'player-mining-export-error',
     icon: <CircleAlert aria-hidden="true" />,
   });
 }
 
 export const FIREFOX_UNSUPPORTED_TOAST_KEY = 'firefox-unsupported';
 
-/**
- * Emit the Firefox-unsupported warning toast.
- *
- * Shown when the user clicks a media-selection button (local file / YouTube /
- * Magnet) while running Firefox, which does not yet support the player.
- * Directs the user to Chrome or a Chromium-based browser.
- *
- * @param label - localized message (playerUI.firefoxUnsupported).
- */
+/** Emit the Firefox-unsupported warning toast. */
 export function notifyFirefoxUnsupported(label: string): void {
   toast.warning(label, {
     id: FIREFOX_UNSUPPORTED_TOAST_KEY,

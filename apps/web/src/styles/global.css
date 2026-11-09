@@ -7,7 +7,7 @@
 
 @import './tokens.css';
 @import './fonts.css';
-@import './eizouden-settings.css';
+@import './settings-shared.css';
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
@@ -542,7 +542,7 @@ svg {
 }
 
 /* ===== SONNER TOASTS (Entei theming) =====
- * EizouToaster renders <Toaster theme="dark" richColors …/>; these rules
+ * EnteiToaster renders <Toaster theme="dark" richColors …/>; these rules
  * replace Sonner's default light/dark palette with the Entei OKLCH tokens:
  * card surface background, card radius, system font, token-based text and a
  * 1px OKLCH border (no new hex/rgb values). Type accents (error) keep
@@ -572,9 +572,8 @@ svg {
   justify-content: center;
 }
 
-/* Error toasts (notifyCompanionError): surface background with a stronger
- * OKLCH border — the rich-colors red stays on the icon for the error
- * signal, instead of flushing the whole card red. */
+/* Error toasts: surface background with a stronger OKLCH border — the
+ * rich-colors red stays on the icon for the error signal. */
 [data-sonner-toaster]
   [data-rich-colors='true']
   [data-sonner-toast][data-styled='true'][data-type='error'] {
@@ -591,7 +590,7 @@ svg {
 /* Centered Lucide icon + message: keep the flex row Sonner ships,
    realign the custom icon cell so the SVG and the text sit on one
    center line (no default-Sonner circle; icon comes from the caller,
-   e.g. notifyCompanionError's CircleAlert). */
+   e.g. an alert icon). */
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-content] {
   /* The text column inside the content row: center the column items
      and the wrapped text itself (multi-line messages stay centered). */

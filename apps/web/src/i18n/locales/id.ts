@@ -218,38 +218,18 @@ export const id: Dictionary = {
     playModeCondensed: 'Disingkat',
     playModeFastForward: 'Percepat',
     playModeLabel: 'Mode pemutaran',
-    // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
+    // Native torrent and yt-dlp source dialogs.
     magnetInputLabel: 'Magnet URI untuk Streaming:',
     magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
     magnetInputLabelTitle: 'Streaming Torrent',
-    magnetErrorInvalid:
-      'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
+    magnetErrorInvalid: 'URI magnet tidak valid. Masukkan tautan magnet yang valid.',
     magnetInputSubmit: 'Muat torrent',
-    magnetInputUnpairedBody:
-      'Pasangkan EizouDendenshi terlebih dahulu untuk mengunduh torrent.',
-    magnetConsentLabel:
-      'Saya paham: pelacak dan sesama pengguna torrent dapat melihat alamat IP saya saat mengunduh.',
-    magnetInputErrorRepair:
-      'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',
-    magnetInputErrorConflict:
-      'Satu unduhan sudah berjalan. Batalkan unduhan sebelumnya terlebih dahulu.',
-    magnetInputErrorNetwork:
-      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     magnetInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
-    magnetInputErrorMetadataTimeout:
-      'Metadata tidak dapat diambil. Torrent mungkin belum memiliki peer — coba lagi nanti.',
-    magnetInputErrorEvicted:
-      'Pemutaran dihentikan karena batas torrent simultan sebanyak 2 terlampaui.',
-    magnetInputErrorV2Unsupported:
-      'Torrent v2 belum didukung. Gunakan tautan torrent v1 atau hibrida (v1+v2).',
-    magnetInputSubmitting: 'Menyiapkan…',
+    magnetInputErrorMetadataTimeout: 'Metadata tidak dapat diambil. Torrent mungkin belum memiliki peer — coba lagi nanti.',
     magnetCheckMetadata: 'Memeriksa metadata…',
-    magnetFilesTitle: 'Pilih file',
-    magnetFilesBody: 'Pilih satu video dan, opsional, satu subtitle.',
     magnetNoVideoError: 'Tidak ada video yang dapat dipilih dalam torrent ini.',
     magnetSelectSubmit: 'Streaming Sekarang',
     magnetCancel: 'Batal',
-    // ED-2G: File browser table
     magnetTableFileName: 'Nama file',
     magnetTableSize: 'Ukuran',
     magnetFileKindVideo: 'video',
@@ -260,73 +240,18 @@ export const id: Dictionary = {
     magnetNoVideosInFolder: 'Tidak ada video di folder ini',
     magnetBreadcrumbLabel: 'Folder saat ini',
     magnetBreadcrumbRoot: 'Torrent',
-    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
-    eizouSetupLabel: 'Pengaturan OTP',
-    eizouSetupTitle: 'EizouDendenshi',
-    eizouSetupImageAlt: 'Ilustrasi EizouDendenshi',
-    eizouConnected: 'Terhubung',
-    eizouDisconnected: 'Terputus',
-    eizouChecking: 'Memeriksa…',
-    eizouResetButton: 'Reset pasangan',
-    eizouResetTitle: 'Reset pasangan?',
-    eizouResetDesc:
-      'Ini menghapus koneksi tersimpan dari browser ini dan dari aplikasi pendamping. Anda memerlukan kode pasangan baru untuk terhubung lagi. Unduhan dan media tidak terpengaruh.',
-    eizouResetConfirm: 'Reset pasangan',
-    eizouResetCancel: 'Batal',
-    eizouPairingTitle: 'EizouDendenshi OTP',
-    eizouPairingOpenButton: 'Pairing EizouDendenshi',
-    eizouPairingOtpLabel: 'Kode pasangan 6 digit',
-    eizouPairingOtpInvalid: 'Masukkan kode 6 digit.',
-    eizouPairingSubmit: 'Pasangkan',
-    eizouPairingConnecting: 'Menghubungkan…',
-    eizouPairingErrorNetwork:
-      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
-    eizouPairingErrorInvalidCode:
-      'Kode tidak valid. Periksa kode yang ditampilkan di aplikasi.',
-    companionStreamNotReady: 'Aliran belum siap. Menunggu data selanjutnya…',
-    companionPreparingVideo: 'Menyiapkan video…',
-    companionJobError: 'Terjadi kesalahan. Silakan coba lagi.',
-    companionJobFailed: 'Unduhan gagal. Silakan coba URL baru atau pilih file.',
-    eizouPairingErrorGeneric: 'Gagal terhubung. Coba lagi.',
-    // Stage label for the failed pairing step (POST /v1/pair).
-    pairingStagePost: '(POST /v1/pair)',
-    eizouPairingTutorialPrefix: '* Petunjuk penyiapan dapat dilihat di ',
-    eizouPairingTutorialLink: 'sini',
-    eizouPairingTutorialSuffix: '.',
-    firefoxUnsupported:
-      'Firefox belum didukung. Gunakan Google Chrome atau browser berbasis Chromium.',
-    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+    torrentPreparingVideo: 'Menyiapkan video…',
     youtubeInputLabel: 'URL YouTube',
     youtubeInputTitle: 'Streaming YouTube',
     youtubeInputFieldLabel: 'Link Video YouTube untuk Streaming:',
-    youtubeInputQuality: 'Kualitas',
     youtubeInputCancel: 'Batal',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'Streaming Sekarang',
     youtubeInputErrorInvalid: 'URL YouTube tidak valid.',
-    youtubeInputErrorRepair:
-      'Koneksi perlu di-pair ulang. Buka Pengaturan dan hubungkan lagi.',
-    youtubeInputErrorConflict:
-      'Satu unduhan sudah berjalan. Batalkan unduhan sebelumnya terlebih dahulu.',
-    youtubeInputErrorNetwork:
-      'Tidak dapat terhubung ke EizouDendenshi. Pastikan aplikasi pendamping berjalan.',
     youtubeInputErrorGeneric: 'Terjadi kesalahan. Coba lagi.',
-    youtubeInputSubmitting: 'Menyiapkan…',
-    // P2.1: Subtitle Appearance Settings
+    firefoxUnsupported: 'Firefox belum didukung. Gunakan Google Chrome atau browser berbasis Chromium.',
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Tampilan Subtitle',
-    // EizouDen: YouTube download mode
-    settingsTabEizouDen: 'EizouDen',
-    settingsEizouDenContentHeading: 'Mode Pemutaran YouTube',
-    ytModeQuality: 'Quality (prioritas kualitas)',
-    ytModeSpeed: 'Speed (putar instan)',
-    ytModeQualityDesc:
-      'Unduh DASH 1080p (maks), diputar setelah penggabungan selesai.',
-    ytModeSpeedDesc:
-      'Prioritaskan format progresif (360p-1080p) — langsung diputar sambil unduh.',
-    ytModeToastFormat: '{mode} Mode - {quality} segera diputar',
-    ytModeLabelSpeed: 'Speed',
-    ytModeLabelQuality: 'Quality',
     subtitleFontSize: 'Ukuran font',
     subtitleTextColor: 'Warna teks',
     subtitleBackgroundColor: 'Warna latar',
@@ -397,18 +322,8 @@ export const id: Dictionary = {
     subtitleSyncNoReference:
       'Tidak ada subtitle dasar di video ini, tidak dapat disinkronkan',
     subtitleSyncNoSubtitle: 'Tidak ada subtitle yang dimuat',
-    subtitleSyncLazyOn: 'LazySync aktif',
-    subtitleSyncLazyOff: 'LazySync nonaktif',
-    subtitleSyncLazyActive: 'LazySync aktif',
     subtitleSyncAudioUnavailable:
-      'Sinkronisasi berbasis suara tidak tersedia untuk Magnet. Gunakan mode subtitle',
-    subtitleSyncWaitTitle: 'Sinkron suara tak tersedia',
-    subtitleSyncWaitDesc:
-      'Video streaming memerlukan unduhan penuh untuk sinkronisasi suara. Tunggu sedikit lebih lama?',
-    subtitleSyncWaitCancel: 'Batal',
-    subtitleSyncWaitConfirm: 'Ya, tidak apa-apa',
-    subtitleSyncProgress: 'Mengunduh… {pct}%',
-    // Tracker (IMMERSION_TRACKER Stage 2b)
+      'Sinkronisasi berbasis suara tidak tersedia untuk torrent. Gunakan mode subtitle.',
     trackerLabel: 'Tracker',
     trackerOn: 'HIDUP',
     trackerOff: 'MATI',

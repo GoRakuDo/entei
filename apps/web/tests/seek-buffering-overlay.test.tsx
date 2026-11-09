@@ -105,14 +105,13 @@ describe('Seek buffering overlay logic', () => {
   });
 
   it('overlay has the correct CSS classes', () => {
-    // Verify the overlay element structure matches the existing
-    // companion loading overlay pattern
+    // Verify the non-blocking player buffering overlay structure.
     const { container } = render(
-      <div className="entei-companion-loading" role="status">
+      <div className="entei-player-buffering-overlay" role="status">
         <div className="entei-spin" />
       </div>,
     );
-    expect(container.querySelector('.entei-companion-loading')).not.toBeNull();
+    expect(container.querySelector('.entei-player-buffering-overlay')).not.toBeNull();
     expect(container.querySelector('.entei-spin')).not.toBeNull();
   });
 });

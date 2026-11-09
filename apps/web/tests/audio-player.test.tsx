@@ -1,47 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-const audioPlayerMocks = vi.hoisted(() => ({
-  beginJobSession: vi.fn(),
-  cancelActiveJob: vi.fn(() => Promise.resolve()),
-  attachMediaElement: vi.fn(),
-  pairingConnected: true,
-}));
-
-vi.mock('@/features/player/use-companion-pairing', () => ({
-  useCompanionPairing: () => ({
-    connected: audioPlayerMocks.pairingConnected,
-    tokenRef: { current: 'test-token' },
-  }),
-}));
-
-vi.mock('@/features/player/companion-media', () => ({
-  waitForPlayable: vi.fn(() => Promise.resolve({ ok: true, reason: 'playable' })),
-}));
-
-vi.mock('@/features/player/use-companion-job-session', () => ({
-  useCompanionJobSession: () => ({
-    active: false,
-    kind: null,
-    jobId: null,
-    jobQuality: 0,
-    jobMode: null,
-    phase: 'idle',
-    progress: null,
-    reason: null,
-    errorCode: null,
-    token: null,
-    subtitleFileId: null,
-    subtitleUrl: null,
-    jobTitle: null,
-    beginJobSession: audioPlayerMocks.beginJobSession,
-    cancelActiveJob: audioPlayerMocks.cancelActiveJob,
-    endJobSession: vi.fn(),
-    attachMediaElement: audioPlayerMocks.attachMediaElement,
-    setPlayIntent: vi.fn(),
-    requestSeek: vi.fn(),
-  }),
-}));
 vi.mock('@/features/player/watch-history/audio', () => ({
   clearAudioProgress: vi.fn(),
   computeAudioMediaId: vi.fn(),
@@ -70,7 +29,6 @@ import type { WatchHistoryRecord } from '@/features/player/watch-history/types';
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
-  audioPlayerMocks.pairingConnected = true;
 });
 
 const cues = [
@@ -117,15 +75,6 @@ describe('AudioPlayer', () => {
     expect(screen.queryByRole('slider', { name: 'Seek through audio' })).toBeNull();
   });
 
-  it('disables YouTube audio entry when the companion is not paired', () => {
-    audioPlayerMocks.pairingConnected = false;
-    render(<AudioPlayer />);
-
-    expect(
-      screen.getByRole('button', { name: 'Open YouTube audio' }),
-    ).toBeDisabled();
-  });
-
   it('hides every YouTube entry when the yt-dlp module is disabled', () => {
     // MODULE_ARCHITECTURE.md §5.3 — module toggles gate the source entries.
     localStorage.setItem(
@@ -155,13 +104,25 @@ describe('AudioPlayer', () => {
     }
   });
 
-  it('opens YouTube audio entry and loads the accepted job into the player', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ id: 'audio-job', title: 'YouTube lesson' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+  it('streams YouTube audio through the direct Tauri yt-dlp plugin', async () => {
+    const stream = {
+      url: 'http://127.0.0.1:41234/stream/audio',
+      urls: ['http://127.0.0.1:41234/stream/audio'],
+      mode: 'audio',
+      format_selector: 'bestaudio',
+      relayed: true,
+    };
+    const info = {
+      id: 'abcdefghijk',
+      title: 'YouTube lesson',
+      is_live: false,
+      subtitles: ['ja'],
+    };
+    const invoke = vi.fn((command: string) =>
+      Promise.resolve(command === 'plugin:ytdlp|stream_youtube' ? stream : info),
     );
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke };
+    const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AudioPlayer />);
@@ -172,21 +133,15 @@ describe('AudioPlayer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stream Now' }));
 
     await waitFor(() => {
-      expect(audioPlayerMocks.beginJobSession).toHaveBeenCalledWith({
-        baseUrl: 'http://127.0.0.1:4322',
-        token: 'test-token',
-        jobId: 'audio-job',
-        kind: 'youtube',
-      });
+      expect(screen.getByRole('heading', { name: 'YouTube lesson' })).toHaveClass(
+        'entei-sr-only',
+      );
     });
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    expect(invoke).toHaveBeenCalledWith('plugin:ytdlp|stream_youtube', {
       url: 'https://www.youtube.com/watch?v=abcdefghijk',
       mode: 'audio',
     });
-    const heading = screen.getByRole('heading', { name: 'YouTube lesson' });
-    expect(heading).toHaveClass('entei-sr-only');
-    expect(document.querySelector('.audio-player__header')).toBeNull();
-    expect(document.querySelector('.audio-player__eyebrow')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Play' })).not.toBeNull();
   });
 

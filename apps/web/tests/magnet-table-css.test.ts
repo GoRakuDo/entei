@@ -1,7 +1,7 @@
 /**
  * Static CSS-contract tests for the magnet dialog's file list and shell.
  * ---------------------------------------------------------------------------
- * The ED-2G dialog was redesigned to the mockup: a joined magnet input group,
+ * The native torrent dialog uses a joined magnet input group,
  * a breadcrumb strip, plain file/folder rows (no <table>) and a Cancel |
  * Stream Now action pair. These tests read player.css as text and pin the
  * layout contract that the component relies on:
@@ -71,9 +71,9 @@ function mobileBlocks(): string[] {
 
 /** Text of the magnet shell section (from its banner to the YouTube section). */
 function magnetSection(): string {
-  const start = css.indexOf('/* --- ED-2G magnet source dialog');
+  const start = css.indexOf('/* --- Magnet dialog shell --- */');
   expect(start).toBeGreaterThanOrEqual(0);
-  const end = css.indexOf('/* --- ED-2F YouTube source dialog --- */', start);
+  const end = css.indexOf('/* Icon-only YouTube opener:', start);
   expect(end).toBeGreaterThan(start);
   return css.slice(start, end);
 }
@@ -107,18 +107,13 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     const input = ruleBlock('.entei-magnet-input-row .entei-magnet-input');
     expect(input).toContain('background-color: transparent');
     expect(input).toContain('border: none');
-    // The inset focus ring lives on the focus-visible rule of the group.
-    const focus = /(\.entei-magnet-input-row [^{]*:focus-visible[^{]*)\{([^}]*)\}/.exec(
-      magnetSection(),
-    );
-    expect(focus).not.toBeNull();
-    expect(focus![1]).toContain('.entei-magnet-input-row .entei-magnet-input:focus-visible');
-    expect(focus![2]).toContain('outline-offset: -2px');
+    const focus = ruleBlock('.entei-magnet-input-row .entei-magnet-input:focus-visible,\n.entei-magnet-input-row .entei-magnet-add-btn:focus-visible');
+    expect(focus).toContain('outline-offset: -2px');
   });
 
   it('joins Cancel | Stream Now with a single divider on desktop', () => {
-    const section = magnetSection();
-    const desktop = section.slice(section.indexOf('@media (min-width: 768px) {'));
+    const start = css.indexOf('/* Desktop: right-aligned joined pair.');
+    const desktop = css.slice(start, css.indexOf('/* Mobile: stacked 100%-width buttons', start));
     expect(desktop).toContain('.entei-magnet-actions > .entei-magnet-cancel');
     expect(desktop).toContain('.entei-magnet-actions > .entei-magnet-select-play');
     expect(desktop).toContain('flex-direction: row-reverse');
@@ -136,8 +131,8 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     // The label swaps to the typewriter loading text while submitting; a
     // content-sized button would animate its own shrink. Fixed `width` keeps
     // the button (and its Cancel neighbour) pixel-stable.
-    const section = magnetSection();
-    const desktop = section.slice(section.indexOf('@media (min-width: 768px) {'));
+    const start = css.indexOf('/* Desktop: right-aligned joined pair.');
+    const desktop = css.slice(start, css.indexOf('/* Mobile: stacked 100%-width buttons', start));
     const play = /(\.entei-magnet-actions > \.entei-magnet-select-play)\s*\{([^}]*)\}/.exec(
       desktop,
     );
@@ -296,7 +291,7 @@ describe('Magnet dialog CSS contract (mockup shell)', () => {
     expect(section).toContain('.entei-magnet-skeleton-name');
     // Reuses the player's shared shimmer keyframes instead of a new one.
     expect(section).toContain('animation: entei-skeleton-shimmer 1.6s');
-    expect(section).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css.slice(css.indexOf('.entei-magnet-skeleton-crumb::after')).toLowerCase()).toContain('prefers-reduced-motion');
     // The status copy no longer owns the wait state; the bones do.
     const checking = ruleBlock('.entei-magnet-checking');
     expect(checking).toContain('flex-direction: column');

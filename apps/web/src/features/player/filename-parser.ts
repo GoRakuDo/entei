@@ -114,19 +114,9 @@ function findEpisodeMatch(name: string): EpisodeMatch | null {
   return null;
 }
 
-function findEpisode(name: string): number | null {
-  return findEpisodeMatch(name)?.episode ?? null;
-}
-
 /** Extract the title portion before the episode marker. */
-function extractTitle(name: string, episode: number | null): string {
-  if (episode !== null) {
-    // Cut before the matched episode marker (EP/E/第n話/SxxExx/1xnn/bare
-    // number). Using the same match as findEpisode keeps title + episode
-    // consistent (e.g. "Frieren Season 2 - 05" → title keeps "Season 2 -").
-    const match = findEpisodeMatch(name);
-    if (match && match.index > 0) name = name.slice(0, match.index);
-  }
+function extractTitle(name: string, match: EpisodeMatch | null): string {
+  if (match && match.index > 0) name = name.slice(0, match.index);
   // Trim trailing separators (dashes etc.) left by the episode cut.
   return name.replace(/[\s-–]+$/g, '').trim();
 }
@@ -144,8 +134,9 @@ export function parseMediaFileName(filename: string): ParsedMediaName {
   const rawName = pathParts[pathParts.length - 1] ?? filename;
   const name = normalizeMediaName(rawName);
   if (name === '') return { title: '', episode: null };
-  const episode = findEpisode(name);
-  let title = extractTitle(name, episode);
+  const episodeMatch = findEpisodeMatch(name);
+  const episode = episodeMatch?.episode ?? null;
+  let title = extractTitle(name, episodeMatch);
 
   // For paths such as K-ON!/Season 2/01.mkv, the episode-only basename has
   // no title. Use the nearest meaningful parent folder, but do not turn

@@ -7,9 +7,7 @@
  * - Compute/update local-file media fingerprint (SHA-256 of sample)
  * - Compute/update subtitle digest when subtitle changes
  * - Maintain current learning set identity (mediaId + subtitleId)
- * - Exclude torrent-source sessions from tracker runtime records (browser
- *   WebTorrent removed in ED-1 — isTorrentSource is always false until
- *   EizouDendenshi / non-local sources land after ED-2)
+ * - Exclude all non-local media sources from local-file tracker records
  * - Exclude background/hidden playback from runtime state
  * - End prior context and start new context on subtitle change
  * - Flush on visibility change, media change, pagehide
@@ -78,11 +76,7 @@ export type OnTrackerFlush = (
 ) => Promise<void>;
 
 export interface UseTrackerRuntimeOptions {
-  /**
-   * Always false since ED-1: browser WebTorrent was removed and PlayerApp
-   * passes a constant `false`. Reserved for EizouDendenshi / non-local
-   * source work after ED-2, where it will gate tracker exclusion.
-   */
+  /** Whether current playback is a native torrent source (excluded from local-file tracking). */
   isTorrentSource: boolean;
   /** Whether the current media is a local file. */
   isLocalFile: boolean;
@@ -123,7 +117,7 @@ export interface UseTrackerRuntimeOptions {
  * - Learning set identity maintenance
  * - Segment boundary detection (play/pause/seek/visibility/subtitle change)
  * - Background/hidden exclusion
- * - Torrent-source exclusion (isTorrentSource — always false post-ED-1)
+ * - Non-local source exclusion (`isTorrentSource`)
  * - Flush on various lifecycle events
  *
  * Returns a stable state object that can be read by other hooks/effects.

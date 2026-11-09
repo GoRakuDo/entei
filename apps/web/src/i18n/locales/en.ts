@@ -216,36 +216,20 @@ export const en: Dictionary = {
     playModeCondensed: 'Condensed',
     playModeFastForward: 'Fast-forward',
     playModeLabel: 'Playback mode',
-    // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
+    // Native torrent URI dialog.
     magnetInputLabel: 'Magnet URI for streaming:',
     magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
     magnetInputLabelTitle: 'Streaming Torrent',
     magnetErrorInvalid: 'Invalid magnet URI. Please enter a valid magnet link.',
     magnetInputSubmit: 'Load torrent',
-    magnetInputUnpairedBody: 'Pair EizouDendenshi first to download a torrent.',
-    magnetConsentLabel:
-      'I understand: torrent trackers and peers can see my IP address while downloading.',
-    magnetInputErrorRepair:
-      'The connection needs re-pairing. Open Setup and connect again.',
-    magnetInputErrorConflict:
-      'A download is already active. Cancel the previous download first.',
-    magnetInputErrorNetwork:
-      'Could not reach EizouDendenshi. Make sure the companion app is running.',
     magnetInputErrorGeneric: 'Something went wrong. Try again.',
     magnetInputErrorMetadataTimeout:
       'Metadata could not be retrieved. The torrent may have no peers yet — try again later.',
-    magnetInputErrorEvicted:
-      'Playback stopped because the concurrent torrent limit of 2 was exceeded.',
-    magnetInputErrorV2Unsupported:
-      'v2-only torrents are not supported. Use a v1 or hybrid (v1+v2) torrent link.',
-    magnetInputSubmitting: 'Starting…',
     magnetCheckMetadata: 'Checking metadata…',
-    magnetFilesTitle: 'Select files',
-    magnetFilesBody: 'Pick one video and, optionally, one subtitle.',
     magnetNoVideoError: 'No selectable video in this torrent.',
     magnetSelectSubmit: 'Stream Now',
     magnetCancel: 'Cancel',
-    // ED-2G: File browser table
+    // Torrent file browser table.
     magnetTableFileName: 'File name',
     magnetTableSize: 'Size',
     magnetFileKindVideo: 'video',
@@ -256,73 +240,21 @@ export const en: Dictionary = {
     magnetNoVideosInFolder: 'No videos in this folder',
     magnetBreadcrumbLabel: 'Current folder',
     magnetBreadcrumbRoot: 'Torrent',
-    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
-    eizouSetupLabel: 'OTP Setup',
-    eizouSetupTitle: 'EizouDendenshi',
-    eizouSetupImageAlt: 'EizouDendenshi illustration',
-    eizouConnected: 'Connected',
-    eizouDisconnected: 'Disconnected',
-    eizouChecking: 'Checking…',
-    eizouResetButton: 'Reset pairing',
-    eizouResetTitle: 'Reset pairing?',
-    eizouResetDesc:
-      'This removes the saved connection from this browser and from the companion app. You will need a new pairing code to connect again. Downloads and media are not affected.',
-    eizouResetConfirm: 'Reset pairing',
-    eizouResetCancel: 'Cancel',
-    eizouPairingTitle: 'EizouDendenshi OTP',
-    eizouPairingOpenButton: 'EizouDendenshi Pairing',
-    eizouPairingOtpLabel: '6-digit pairing code',
-    eizouPairingOtpInvalid: 'Enter the 6-digit code.',
-    eizouPairingSubmit: 'Pair',
-    eizouPairingConnecting: 'Pairing…',
-    eizouPairingErrorNetwork:
-      'Could not reach EizouDendenshi. Make sure the companion app is running.',
-    eizouPairingErrorInvalidCode:
-      'Invalid code. Check the code shown in the companion app.',
-    companionStreamNotReady: 'Stream is not ready yet. Waiting for more data…',
-    companionPreparingVideo: 'Preparing video…',
-    companionJobError: 'An error occurred. Please try again.',
-    companionJobFailed:
-      'The download failed. Please try a new URL or choose a file.',
-    eizouPairingErrorGeneric: 'Pairing failed. Please try again.',
-    // Stage label for the failed pairing step (POST /v1/pair).
-    pairingStagePost: '(POST /v1/pair)',
-    eizouPairingTutorialPrefix: '* See the setup guide ',
-    eizouPairingTutorialLink: 'here',
-    eizouPairingTutorialSuffix: '.',
+    torrentPreparingVideo: 'Preparing video…',
     firefoxUnsupported:
       'Firefox is not yet supported. Please use Google Chrome or a Chromium-based browser.',
-    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+    // Native yt-dlp YouTube URL entry.
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTube streaming',
     youtubeInputFieldLabel: 'Link the YouTube video to stream:',
-    youtubeInputQuality: 'Quality',
     youtubeInputCancel: 'Cancel',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'Stream Now',
     youtubeInputErrorInvalid: 'Invalid YouTube URL.',
-    youtubeInputErrorRepair:
-      'The connection needs re-pairing. Open Setup and connect again.',
-    youtubeInputErrorConflict:
-      'A download is already active. Cancel the previous download first.',
-    youtubeInputErrorNetwork:
-      'Could not reach EizouDendenshi. Make sure the companion app is running.',
     youtubeInputErrorGeneric: 'Something went wrong. Try again.',
-    youtubeInputSubmitting: 'Starting…',
     // P2.1: Subtitle Appearance Settings
     settingsTabSubtitle: 'Subtitle',
     subtitleAppearance: 'Subtitle Appearance',
-    // EizouDen: YouTube download mode
-    settingsTabEizouDen: 'EizouDen',
-    settingsEizouDenContentHeading: 'YouTube Playback Mode',
-    ytModeQuality: 'Quality (quality first)',
-    ytModeSpeed: 'Speed (instant playback)',
-    ytModeQualityDesc: 'Download DASH 1080p (max), plays after mux completes.',
-    ytModeSpeedDesc:
-      'Prefer progressive formats (360p-1080p) — plays while downloading.',
-    ytModeToastFormat: '{mode} Mode - {quality} will start playing',
-    ytModeLabelSpeed: 'Speed',
-    ytModeLabelQuality: 'Quality',
     subtitleFontSize: 'Font size',
     subtitleTextColor: 'Text color',
     subtitleBackgroundColor: 'Background color',
@@ -392,17 +324,8 @@ export const en: Dictionary = {
     subtitleSyncSuccess: 'Subtitle sync successful!',
     subtitleSyncNoReference: 'No base subtitle in this video, cannot sync',
     subtitleSyncNoSubtitle: 'No subtitle loaded',
-    subtitleSyncLazyOn: 'LazySync enabled',
-    subtitleSyncLazyOff: 'LazySync disabled',
-    subtitleSyncLazyActive: "LazySync-Sub's Activated",
     subtitleSyncAudioUnavailable:
-      'Audio-based sync is unavailable for Magnet. Use subtitle mode',
-    subtitleSyncWaitTitle: 'Voice sync unavailable',
-    subtitleSyncWaitDesc:
-      'Streaming video requires full download for voice sync. Wait a bit longer?',
-    subtitleSyncWaitCancel: 'Cancel',
-    subtitleSyncWaitConfirm: 'Yes, OK',
-    subtitleSyncProgress: 'Downloading… {pct}%',
+      'Audio-based sync is unavailable for torrents. Use subtitle mode.',
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: 'Tracker',
     trackerOn: 'ON',

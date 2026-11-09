@@ -1,7 +1,7 @@
 /**
- * Companion start-buffering overlay — "black screen wait" (B).
+ * Native torrent start-buffering overlay — "black screen wait".
  * ---------------------------------------------------------------------------
- * When the companion job media URL is surfaced (video element mounted) but
+ * When the torrent relay URL is mounted but
  * no current frame is available yet (readyState < HAVE_CURRENT_DATA or a
  * `waiting` event) for more than 2 s, PlayerApp shows the "Preparing video…" overlay
  * — the same copy as the pre-URL loading overlay, at a larger responsive
@@ -15,13 +15,13 @@
  * frame callback; a 0x0 black frame keeps the overlay up. Without rVFC the
  * re-check uses HAVE_FUTURE_DATA (3) or active playback, and loadeddata /
  * canplay / PLAYING clear immediately. Once cleared the source is latched
- * in a ref, so a later 'waiting' — or a jobSession.phase effect re-run —
+ * in a ref, so a later 'waiting' or a session re-render
  * cannot resurrect the start overlay. The 3 s safety bound remains the
  * last resort for stalled/autoplay-blocked downloads: it is armed once at
  * the first arm (2 s debounce + 3 s = 5 s absolute), so fragmented
  * `waiting` events cannot postpone it.
  *
- * Drives the real PlayerApp with a mocked (controllable) job session and a
+ * Drives the real PlayerApp with a mocked (controllable) torrent session and a
  * real <video> element (jsdom readyState = 0), advancing fake timers.
  * ---------------------------------------------------------------------------
  */
@@ -30,28 +30,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import PlayerApp from '@/components/player/PlayerApp';
 
-// --- Controllable companion job session (companion-loading-overlay pattern) ---
+// --- Controllable native torrent session ---
 let mockSession: {
   active: boolean;
-  kind: string | null;
-  phase: string;
-  progress: { available: number; total: number } | null;
-  reason: string | null;
-  errorCode: string | null;
-  jobMediaUrl: string | null;
-  beginJobSession: ReturnType<typeof vi.fn>;
-  cancelActiveJob: ReturnType<typeof vi.fn>;
-  endJobSession: ReturnType<typeof vi.fn>;
+  id: string | null;
+  mediaUrl: string | null;
+  beginSession: ReturnType<typeof vi.fn>;
+  cancelActiveSession: ReturnType<typeof vi.fn>;
+  endSession: ReturnType<typeof vi.fn>;
   attachMediaElement: ReturnType<typeof vi.fn>;
-  setPlayIntent: ReturnType<typeof vi.fn>;
-  requestSeek: ReturnType<typeof vi.fn>;
 };
 
-vi.mock('@/features/player/use-companion-job-session', () => ({
-  useCompanionJobSession: () => mockSession,
+vi.mock('@/features/player/use-torrent-session', () => ({
+  useTorrentSession: () => mockSession,
 }));
 
-const MEDIA_URL = 'http://127.0.0.1:4322/v1/media/fixture?token=tok123';
+const MEDIA_URL = 'http://127.0.0.1:45678/stream/torrent-1';
 
 /** Debounce before the start-buffering overlay appears (PlayerApp). */
 const START_BUFFERING_DELAY_MS = 2000;
@@ -61,18 +55,12 @@ const START_BUFFERING_SAFETY_MS = START_BUFFERING_DELAY_MS + 3000;
 function freshSession() {
   return {
     active: false,
-    kind: null as string | null,
-    phase: 'idle' as string,
-    progress: null as { available: number; total: number } | null,
-    reason: null as string | null,
-    errorCode: null as string | null,
-    jobMediaUrl: null as string | null,
-    beginJobSession: vi.fn(),
-    cancelActiveJob: vi.fn(() => Promise.resolve()),
-    endJobSession: vi.fn(),
+    id: null as string | null,
+    mediaUrl: null as string | null,
+    beginSession: vi.fn(),
+    cancelActiveSession: vi.fn(() => Promise.resolve()),
+    endSession: vi.fn(),
     attachMediaElement: vi.fn(),
-    setPlayIntent: vi.fn(),
-    requestSeek: vi.fn(),
   };
 }
 
@@ -158,12 +146,11 @@ function installRVFCPrototype() {
   };
 }
 
-describe('companion start-buffering overlay (black-screen wait)', () => {
+describe('native torrent start-buffering overlay (black-screen wait)', () => {
   it('shows the overlay when readyState < 2 persists for over 2 s', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     const video = container.querySelector('video');
@@ -185,15 +172,14 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(overlay).not.toBeNull();
     expect(overlay!.querySelector('.entei-typewriter--start')).not.toBeNull();
     expect(
-      overlay!.querySelector('.entei-companion-loading-text--start'),
+      overlay!.querySelector('.entei-start-buffering-text'),
     ).not.toBeNull();
   });
 
   it('stays visible on canplay without current-frame data (playing clears it on non-rVFC browsers)', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     const video = container.querySelector('video');
@@ -222,9 +208,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('hides the overlay once playing fires (non-rVFC fallback)', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     // Overlay appears after 2 s of no data.
@@ -242,11 +227,10 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('does NOT show when the job media URL is not surfaced', async () => {
-    mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'buffering';
-    mockSession.jobMediaUrl = null;
+  it('does NOT show when no torrent relay URL is active', async () => {
+    mockSession.active = false;
+    mockSession.id = null;
+    mockSession.mediaUrl = null;
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
@@ -255,9 +239,10 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('does NOT show when the job session is inactive', async () => {
+  it('does NOT show when the torrent session is inactive', async () => {
     mockSession.active = false;
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = null;
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
@@ -268,9 +253,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('hides the overlay when the element errors', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     // Overlay appears after 2 s of no data.
@@ -290,9 +274,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('hides the overlay after the 3 s safety bound (no playing)', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
@@ -315,9 +298,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('stays hidden after the 3 s safety bound — a later waiting event does NOT re-arm it', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     // Overlay appears after 2 s of no data…
@@ -345,9 +327,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('fragmented waiting every 500 ms cannot postpone the 2 s + 3 s bound', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
@@ -394,9 +375,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('renders only ONE overlay when both start- and seek-buffering are armed', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     // Start buffering arms on mount (readyState 0): overlay after 2 s.
@@ -413,7 +393,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    const loaders = container.querySelectorAll('.entei-companion-loading');
+    const loaders = container.querySelectorAll('.entei-player-buffering-overlay');
     expect(loaders.length).toBe(1);
     // The visible loader is the seek-buffering one — the start overlay
     // is suppressed by the mutual exclusion.
@@ -423,9 +403,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   it('rVFC browser: playing alone does NOT clear — the first painted frame does', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     // Overlay appears after 2 s of no data.
@@ -456,9 +435,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   it('rVFC browser: a black frame (0x0 metadata) does NOT clear — the next real frame does', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
@@ -495,9 +473,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   it('rVFC browser: loadeddata with a current frame waits for a real painted frame, even while paused', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
@@ -508,7 +485,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
     // HAVE_CURRENT_DATA arrives while the element is STILL PAUSED (the
-    // companion's src/load recovery path). Clearing here would bypass the
+    // torrent src/load recovery path). Clearing here would bypass the
     // black-frame guard: rVFC browsers must only REQUEST the frame.
     Object.defineProperty(video, 'readyState', {
       configurable: true,
@@ -551,9 +528,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   it('rVFC browser: canplay with a current frame also defers to the painted frame', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
@@ -582,9 +558,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   it('rVFC browser: re-registers on each playing transition (later frames caught)', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
 
     await act(async () => {
@@ -614,9 +589,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   it('rVFC browser: switching jobs cancels the pending frame callback (cleanup)', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { rerender } = render(<PlayerApp />);
 
     await act(async () => {
@@ -634,7 +608,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
     // New job media URL → effect cleanup must cancel the stale rVFC
     // handle (the old source is being torn down).
-    mockSession.jobMediaUrl = 'http://127.0.0.1:4322/v1/media/fixture?token=other';
+    mockSession.mediaUrl = 'http://127.0.0.1:45678/stream/torrent-other';
     rerender(<PlayerApp />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -647,9 +621,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   // rVFC browsers defer the clear to a painted frame (see the tests above).
   it('hides the overlay immediately on loadeddata with a current frame, even while paused', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
@@ -659,7 +632,7 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     expect(container.querySelector('.entei-start-buffering')).not.toBeNull();
 
-    // The companion's src/load lands the first frame. jsdom has no media
+    // The torrent relay src/load lands the first frame. jsdom has no media
     // pipeline, so mirror HAVE_CURRENT_DATA explicitly; the element stays
     // paused (no 'playing' event is fired at all).
     Object.defineProperty(video, 'readyState', {
@@ -683,9 +656,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('hides on canplay with a current frame and does not re-arm on effect re-run', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container, rerender } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
@@ -703,10 +675,10 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
 
-    // A phase transition re-runs the effect (cleanup + re-attach). With a
+    // A session re-render re-runs the effect (cleanup + re-attach). With a
     // current frame present the fresh effect must not arm the 2 s timer —
     // previously the paused element re-armed and the overlay came back.
-    mockSession.phase = 'buffering';
+    mockSession.active = false;
     rerender(<PlayerApp />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
@@ -714,12 +686,11 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
   });
 
-  it('keeps the source latch across jobSession.phase re-runs — a later waiting never resurrects the overlay', async () => {
+  it('keeps the source latch across session re-renders — a later waiting never resurrects the overlay', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container, rerender } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
@@ -739,14 +710,14 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
     });
     expect(container.querySelector('.entei-start-buffering')).toBeNull();
 
-    // ready -> playing re-runs the effect (cleanup + re-attach). The old
+    // active session re-render re-runs the effect (cleanup + re-attach). The old
     // in-effect `let` latch reset to false here; drop readyState back to 0
     // so ONLY a source-scoped latch can suppress re-arming.
     Object.defineProperty(video, 'readyState', {
       configurable: true,
       value: 0,
     });
-    mockSession.phase = 'playing';
+    mockSession.active = true;
     rerender(<PlayerApp />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -762,9 +733,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
   it('rVFC browser: loadeddata BEFORE the 2 s debounce still guards the black frame until real pixels', async () => {
     const rvfc = installRVFCPrototype();
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 
@@ -806,9 +776,8 @@ describe('companion start-buffering overlay (black-screen wait)', () => {
 
   it('non-rVFC: a silent HAVE_CURRENT_DATA jump does not suppress the 2 s debounce', async () => {
     mockSession.active = true;
-    mockSession.kind = 'youtube';
-    mockSession.phase = 'ready';
-    mockSession.jobMediaUrl = MEDIA_URL;
+    mockSession.id = 'torrent-1';
+    mockSession.mediaUrl = MEDIA_URL;
     const { container } = render(<PlayerApp />);
     const video = container.querySelector('video') as HTMLVideoElement;
 

@@ -5,16 +5,15 @@
  * Before this fix, `handleCueClick` ran `media.play().catch(() => {})` after
  * setting `media.currentTime`, which forced playback even when the user had
  * paused the video. The desired behavior:
- *   - Seek to `cue.start` (clamped to companion's verified byte range when
- *     streaming).
+ *   - Seek to `cue.start` on the active media element.
  *   - Leave the media's playback state untouched (stays paused if paused,
  *     continues playing if it was already playing). `currentTime = N`
  *     naturally preserves playback state; no explicit `play()` is needed.
  *   - Reveal the controls overlay (P2) when the user clicks a cue while the
  *     controls are hidden.
  *
- * This test drives the real PlayerApp with the heavy subsystems mocked the
- * same way `player-local-embedded-subtitle.test.tsx` does. The key wiring
+ * This test drives the real PlayerApp with the heavy subsystems mocked. The
+ * key wiring
  * differences:
  *   - `VideoPlayer` is rendered for real so the callback ref populates
  *     `sharedMediaRef.current` with a real `<video>` element.
@@ -48,7 +47,6 @@ const mocks = vi.hoisted(() => ({
   ankiExportClientCtor: vi.fn(),
   notifySubtitleSyncError: vi.fn(),
   notifySubtitleSyncSuccess: vi.fn(),
-  loadMkvGo: vi.fn(),
   mediaPickerProps: null as { onSelect: (f: File) => void } | null,
   rightPanelProps: null as {
     cues: SubtitleCue[];
@@ -183,20 +181,14 @@ vi.mock('@/features/player/video-clip', () => ({
   checkVideoClipSupport: vi.fn(() => ({ supported: false })),
 }));
 
-vi.mock('@/features/player/eizouden-toast', () => ({
-  notifyQuality: vi.fn(),
-  notifyCompanionError: vi.fn(),
+vi.mock('@/features/player/eizouden-toast.tsx', () => ({
+  notifyPlayerInputError: vi.fn(),
   notifySubtitleSyncError: mocks.notifySubtitleSyncError,
   notifySubtitleSyncSuccess: mocks.notifySubtitleSyncSuccess,
   notifyJimakuToast: vi.fn(),
   notifyMiningExportSuccess: vi.fn(),
   notifyMiningExportError: vi.fn(),
-  notifyLazySyncInfo: vi.fn(),
   notifyFirefoxUnsupported: vi.fn(),
-}));
-
-vi.mock('@/features/player/mkvgo', () => ({
-  loadMkvGo: mocks.loadMkvGo,
 }));
 
 // Dialogs / overlays are not exercised here.
@@ -275,34 +267,8 @@ vi.mock('@i18n/locale-events', () => ({
 }));
 
 // The real PlayerApp is what we want to test — it owns sharedMediaRef and
-// handleCueClick. Companion wiring is mocked out (no streaming in this test).
+// handleCueClick. Native source flows are mocked out (no streaming in this test).
 import Player from '@/components/player/PlayerApp';
-
-// --- Controllable companion job session ---
-let mockSession: any;
-
-vi.mock('@/features/player/use-companion-job-session', () => ({
-  useCompanionJobSession: () => mockSession,
-}));
-
-function freshSession() {
-  return {
-    active: false,
-    kind: null as string | null,
-    phase: 'idle' as string,
-    progress: null as { available: number; total: number } | null,
-    reason: null as string | null,
-    errorCode: null as string | null,
-    jobMediaUrl: null as string | null,
-    subtitleUrl: null as string | null,
-    beginJobSession: vi.fn(),
-    cancelActiveJob: vi.fn(() => Promise.resolve()),
-    endJobSession: vi.fn(),
-    attachMediaElement: vi.fn(),
-    setPlayIntent: vi.fn(),
-    requestSeek: vi.fn(),
-  };
-}
 
 /** Play any pending microtasks + timers so React's commit phase runs and the
  *  VideoPlayer callback ref populates sharedMediaRef.current before we
@@ -315,7 +281,6 @@ async function settle() {
 }
 
 beforeEach(() => {
-  mockSession = freshSession();
   mocks.mediaPickerProps = null;
   mocks.rightPanelProps = null;
   mocks.controlsHandle.show.mockClear();

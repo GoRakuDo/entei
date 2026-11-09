@@ -1,10 +1,10 @@
 /**
- * VideoPlayer — Component Tests (P1.1 + ED-2H companion buffering)
+ * VideoPlayer — Component Tests (P1.1 + native torrent relay recovery)
  * ---------------------------------------------------------------------------
  * Covers the crossOrigin="anonymous" attribute (ORB avoidance for the
- * loopback companion's cross-origin media fetch), the keepElementOnError
- * overlay behavior (the element survives errors during companion buffering
- * so the bridge's explicit src/load recovery can drive loadeddata and clear
+ * loopback relay's cross-origin media fetch), the keepElementOnError
+ * overlay behavior (the element survives errors during torrent recovery
+ * so the session's explicit src/load retry can drive loadeddata and clear
  * the error), and the legacy standalone error state (element unmounted, as
  * before).
  * --------------------------------------------------------------------------- */
@@ -20,7 +20,7 @@ import { VideoPlayer } from '@/components/player/VideoPlayer';
 
 type VideoPlayerProps = ComponentProps<typeof VideoPlayer>;
 
-const SRC = 'http://127.0.0.1:4322/v1/media/fixture?token=abc';
+const SRC = 'http://127.0.0.1:41234/stream/session';
 
 function makeProps(
   overrides: Partial<VideoPlayerProps> = {},
@@ -135,7 +135,7 @@ describe('VideoPlayer', () => {
   });
 
   it('still forwards loadeddata while the overlay error is shown — the bridge recovery path clears loadError upstream', () => {
-    // With keepElementOnError the element stays mounted, so the bridge's
+    // With keepElementOnError the element stays mounted, so torrent recovery's
     // explicit src/load after completion fires loadeddata → onLoaded →
     // handleLoaded (setLoadError(null)) in PlayerApp, dropping the
     // "Aliran belum siap" overlay.

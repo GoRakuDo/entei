@@ -10,7 +10,7 @@
  * - `installTraceInstrumentation()` — installs the automatic layers once:
  *   - `ui`:  every click / key press on a control, with a readable label;
  *   - `ipc`: every Tauri command with duration and outcome;
- *   - `companion`: every HTTP call (method, path, status, duration);
+ *   - `http`: every fetch call (method, path, status, duration);
  *   - `app`: boot, route, visibility, uncaught errors.
  *
  * Delivery:
@@ -23,8 +23,8 @@
  *   echoed to the console. Nothing here ever throws: a broken trace must
  *   never break playback.
  *
- * Privacy: every payload goes through `sanitize()`, which drops token-ish keys
- * (companion capability token, API keys, cookies) and rewrites `token=` inside
+ * Privacy: every payload goes through `sanitize()`, which drops secret-like
+ * keys (API keys, cookies, credentials) and rewrites `token=` inside
  * URLs. Trace files are local-only and never uploaded.
  * ---------------------------------------------------------------------------
  */
@@ -39,7 +39,7 @@ export type TraceArea =
   | 'audio'
   | 'ui'
   | 'ipc'
-  | 'companion';
+  | 'http';
 
 /** Structured payload attached to an entry (sanitized before it is sent). */
 export type TraceData = Record<string, unknown>;
@@ -492,8 +492,8 @@ function describeUrl(raw: string): string {
 }
 
 /**
- * Companion polling cadence (`waitForPlayable`, torrent status) fires the same
- * request every second for minutes. Re-logging each one would bury the real
+ * Polling a local relay status can fire the same request repeatedly. Re-logging
+ * each one would bury the real
  * events, so an unchanged (method, path, status) is recorded at most once per
  * this interval — while a status change is always recorded.
  */
@@ -524,7 +524,7 @@ export function shouldTraceHttp(
   return true;
 }
 
-/** Wrap `window.fetch` so every companion/local request is journalled. */
+/** Wrap `window.fetch` so every HTTP request is journalled. */
 function installFetchTracing(): void {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
   const original = window.fetch;
@@ -546,7 +546,7 @@ function installFetchTracing(): void {
     return original.call(window, input as RequestInfo, init).then(
       (response) => {
         if (shouldTraceHttp(`${method} ${path}`, response.status, Date.now())) {
-          trace('companion', 'http', {
+          trace('http', 'request', {
             method,
             path,
             status: response.status,
@@ -558,7 +558,7 @@ function installFetchTracing(): void {
       },
       (error: unknown) => {
         // A failed request is never routine: always recorded.
-        traceError('companion', 'http_failed', error, {
+        traceError('http', 'request_failed', error, {
           method,
           path,
           ms: Date.now() - startedAt,

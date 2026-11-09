@@ -2,8 +2,8 @@
  * tauri-bridge — desktop (Tauri) runtime detection + direct source plugins.
  * ---------------------------------------------------------------------------
  * The Entei desktop app ships `plugins/tauri-plugin-ytdlp` and
- * `plugins/tauri-plugin-torrent` in-process, so it needs neither the Go
- * companion nor a capability token to play a YouTube or magnet source:
+ * `plugins/tauri-plugin-torrent` in-process; those plugins resolve and relay
+ * YouTube and magnet sources locally:
  *
  * - `plugin:ytdlp|stream_youtube` resolves the stream and hands back a
  *   loopback relay URL (`http://127.0.0.1:<port>/stream/<session>`) that the
@@ -13,9 +13,9 @@
  *   kind of loopback relay URL for the chosen video/subtitle file.
  *
  * The standalone browser build has no Tauri runtime, so every entry point here
- * is guarded by `isTauri()` and callers keep their companion path untouched.
- * Nothing in this module touches storage, and the upstream (tokenised) URLs
- * never reach this layer — only the relay URLs do.
+ * is guarded by `isTauri()` and fails without contacting an external service.
+ * Nothing in this module touches storage; upstream URLs are not logged, and
+ * only the relay URLs are handed to the media element.
  *
  * Every IPC call goes through `tracedInvoke`, so the trace journal records
  * each command with its duration and outcome instead of every wrapper
@@ -247,9 +247,6 @@ function invokePluginCommand<T>(
   const definedArgs = Object.fromEntries(
     Object.entries(args).filter(([, value]) => value !== undefined),
   );
-  if (command.startsWith('plugin:anki|')) {
-    return tracedInvoke(command, definedArgs) as Promise<T>;
-  }
   return tracedInvoke(command, definedArgs) as Promise<T>;
 }
 
@@ -291,7 +288,7 @@ export interface YtdlpVideoInfo {
    * Direct Japanese WebVTT URL published by YouTube, when one exists.
    *
    * The player fetches this itself to restore the YouTube subtitle pipeline on
-   * the desktop path (no companion involvement). Absent when the video has no
+   * the desktop path. Absent when the video has no
    * Japanese track, which is not an error.
    */
   subtitle_vtt_url?: string | null;

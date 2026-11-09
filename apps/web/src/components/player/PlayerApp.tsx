@@ -31,18 +31,8 @@ import {
   type SubtitleCue,
   findActiveCue,
 } from '@/features/player/subtitle-reader';
-import {
-  detectSourceKind,
-  planSync,
-} from '@/features/player/subtitle-sync-planner';
-import {
-  syncSubtitleToAudio,
-  syncSubtitleToReference,
-} from '@/features/player/subtitle-sync';
+import { syncSubtitleToAudio, syncSubtitleToReference } from '@/features/player/subtitle-sync';
 import { decodeToMono16k } from '@/features/player/audio-decoder';
-import { fetchMagnetSubtitle } from '@/features/player/companion-media';
-import { loadMkvGo } from '@/features/player/mkvgo';
-import { SubtitleSyncDialog } from '@/components/player/SubtitleSyncDialog';
 import {
   createMediaUrl,
   revokeUrl,
@@ -116,21 +106,16 @@ import {
 import { AudioClipPreviewDialog } from '@/components/player/AudioClipPreviewDialog';
 import type { DirectTorrentHandoff } from '@/components/player/MagnetInput';
 import { MagnetInput } from '@/components/player/MagnetInput';
-import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
-import type { CompanionBridgePhase } from '@/features/player/companion-bridge';
-import { clampCompanionSeek } from '@/features/player/seek-limiter';
+import { useTorrentSession } from '@/features/player/use-torrent-session';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { trace, traceError } from '@/features/trace/trace-logger';
 import { isFirefox } from '@/features/player/browser-detect';
 import {
-  notifyQuality,
-  notifyCompanionError,
   notifySubtitleSyncError,
   notifyJimakuToast,
   notifySubtitleSyncSuccess,
   notifyMiningExportSuccess,
   notifyMiningExportError,
-  notifyLazySyncInfo,
   notifyFirefoxUnsupported,
 } from '@/features/player/eizouden-toast.tsx';
 import { recordWatchHistory } from '@/features/player/watch-history';
@@ -143,15 +128,6 @@ import {
 } from '@/features/player/watch-sessions';
 import { useJimakuAutoLoad } from '@/features/player/use-jimaku-auto-load';
 import {
-  LAZY_SYNC_POLL_INTERVAL_MS,
-  LAZY_SYNC_MAX_WAIT_POLLS,
-  LAZY_SYNC_MIN_REF_CUES,
-  LAZY_SYNC_MIN_OFFSET_MS,
-  LAZY_SYNC_STABLE_THRESHOLD_MS,
-  shiftCuesByOffset,
-} from '@/features/player/lazy-sync';
-
-import {
   createSubDelayState,
   listenForSubDelay,
   rebaseSubDelay,
@@ -159,13 +135,11 @@ import {
   subDelayCues,
 } from '@/features/player/sub-delay';
 
-import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import type {
   YtdlpStreamSource,
   YtdlpVideoInfo,
 } from '@/features/player/tauri-bridge';
 import {
-  installTauriDragDropPaths,
   setMpvNativeActive,
   setMpvNativeLoading as setMpvNativeCaptureLoading,
   mpvGetDuration,
@@ -179,7 +153,7 @@ import {
   resolvePhysicalPath,
   parseSubtitleDirect,
   parseMediaFilenameDirect,
-  estimateLazySyncOffsetDirect,
+  installTauriDragDropPaths,
 } from '@/features/player/tauri-bridge';
 import {
   computeNativePictureRect,
@@ -191,7 +165,7 @@ import {
 import { YouTubeMark } from '@/components/player/YouTubeMark';
 import { YouTubeInput } from '@/components/player/YouTubeInput';
 import { TypewriterLoading } from '@/components/player/TypewriterLoading';
-import { Music, AlertTriangle, Magnet } from 'lucide-react';
+import { Music, Magnet } from 'lucide-react';
 import { formatTime } from '@/features/player/control-helpers';
 import { MiningPreviewDialog } from '@/components/player/MiningPreviewDialog';
 import {
@@ -220,7 +194,6 @@ import {
 } from '@/features/player/anki-connect';
 import {
   listenForAnkiSessionCredentials,
-  listenForCompanionPaired,
   listenForSubtitleSettingsChange,
   type SubtitleSettings,
 } from '@/features/player/settings-bridge';
@@ -240,40 +213,24 @@ function getDictionaryFor(locale: 'id' | 'ja' | 'en'): Dictionary {
  *  playing — always pauses after seek. */
 const SEEK_TIMEOUT_MS = 5000;
 
-/** Companion YouTube subtitle fetch retry (ED-2G): while the job is still
- *  downloading in speed mode, the media is playable before the subtitle
- *  file exists — the first fetch then 404s with "subtitle not available".
- *  Retry every 5 seconds until the content appears, the component
- *  unmounts, or the bounded 3-minute window passes. Failures are silent
- *  (the panel simply fills in once the file exists). Exported for the
- *  subtitle-fetch retry tests (companion-subtitle-retry.test.tsx). */
-export const SUBTITLE_RETRY_INTERVAL_MS = 5000;
-
-/** Upper bound for the subtitle retry window (3 minutes). Exported for
- *  the subtitle-fetch retry tests. */
-export const SUBTITLE_RETRY_WINDOW_MS = 3 * 60 * 1000;
-
 /**
  * Whether the "subtitle sync" button in the right panel should be hidden.
  *
  * Spec: docs/SUBTITLE_SYNC.md §2.11-12.
  *   - YouTube: hidden (subs are already accurate).
- *   - Anything else: shown only for local .mkv/.mp4; hidden for other files.
+ *   - Local and torrent video files: shown for .mkv/.mp4; hidden otherwise.
  *
  * Exported so apps/web/tests/player-app-hide-sync-subtitle.test.ts can
  * pin the predicate independently of the React tree.
  */
 export function shouldHideSubtitleSync(args: {
   jobKind: 'youtube' | 'torrent' | null;
-  isMagnet: boolean;
   mediaName: string;
 }): boolean {
   const lowerMediaName = args.mediaName.toLowerCase();
   const isLocalVideo =
     lowerMediaName.endsWith('.mkv') || lowerMediaName.endsWith('.mp4');
-  // SUBTITLE_SYNC.md §2.11-12: YouTube → hidden; else gate on local .mkv/.mp4.
-  // `null` jobKind is "no active job" — fall through to the file-extension
-  // gate (with an empty mediaName that's `true`, i.e. hidden).
+  // Hide for YouTube; only .mkv/.mp4 local or torrent sources can sync.
   return args.jobKind === 'youtube' || !isLocalVideo;
 }
 
@@ -291,26 +248,18 @@ export function shouldHideJimakuSearch(
 /**
  * Resolve the effective media source kind used for YouTube-only UI gating.
  *
- * YouTube media reaches the player through two different paths:
- *   1. Companion job session (`jobKind === 'youtube'`) — ED-2F browser path.
- *   2. Tauri desktop direct stream (ED-2F desktop path): the in-process
- *      yt-dlp plugin resolves a loopback relay URL and it is mounted as the
- *      media URL directly — there is no companion job session at all.
- *
- * Without (2) the YouTube-only predicates (`shouldHideSubtitleSync`,
- * `shouldHideJimakuSearch`) evaluate as "no active job" and wrongly show the
- * subtitle-sync and Jimaku search buttons for a YouTube video.
+ * YouTube streams are produced by the in-process Tauri yt-dlp plugin; torrent
+ * streams are tracked separately by the native torrent session hook.
  */
 export function resolveMediaSourceKind(args: {
-  jobActive: boolean;
-  jobKind: 'youtube' | 'torrent' | null;
+  torrentActive: boolean;
   youtubeStreamActive: boolean;
 }): 'youtube' | 'torrent' | null {
-  if (args.jobActive && args.jobKind) return args.jobKind;
-  return args.youtubeStreamActive ? 'youtube' : null;
+  if (args.youtubeStreamActive) return 'youtube';
+  return args.torrentActive ? 'torrent' : null;
 }
 
-/** Debounce before the companion start-buffering overlay appears. */
+/** Debounce before the in-process torrent start-buffering overlay appears. */
 const START_BUFFERING_DELAY_MS = 2000;
 
 /** Absolute upper bound for the start-buffering overlay, measured from the
@@ -320,17 +269,15 @@ const START_BUFFERING_DELAY_MS = 2000;
  *  by later `waiting` events, so fragmented stalls cannot push the deadline
  *  forward (or keep the overlay from ever showing). Deliberately shorter
  *  than the 5 s seek buffer bound: playback and the controls stay usable,
- *  so a lingering start overlay is only noise.
- *  Note: a jobSession.phase transition re-runs the effect and re-arms both
- *  timers for a not-yet-exhausted source; that path is unchanged here. */
+ *  so a lingering start overlay is only noise. */
 const START_BUFFERING_SAFETY_MS = START_BUFFERING_DELAY_MS + 3000;
 
 /** Maximum length of a displayed media name (defense in depth). */
 const MAX_MEDIA_NAME_LENGTH = 255;
 
 /** sanitizeDisplayName — safe display text for the top-left controls and
- *  history. The companion already serves sanitized basenames (no paths),
- *  but the browser never trusts that alone: control characters are
+ *  history. Control characters are removed, whitespace is normalized, and
+ *  the length is capped so a hostile filename cannot break layout, logs,
  *  stripped, whitespace trimmed, and the length is capped so a hostile
  *  basename cannot break layout, logs, or Anki export fields. */
 function sanitizeDisplayName(name: string): string {
@@ -472,25 +419,10 @@ export default function PlayerApp() {
   // Stage 2a: Track subtitle text content for tracker digest computation
   const subtitleTextRef = useRef<string | null>(null);
   const [isSyncingSubtitle, setIsSyncingSubtitle] = useState(false);
-  const [isSubtitleSyncDialogOpen, setIsSubtitleSyncDialogOpen] =
+  const torrentSubtitleTextRef = useRef<string | null>(null);
+  const activeTorrentUrlRef = useRef<string | null>(null);
+  const [hasTorrentReferenceSubtitle, setHasTorrentReferenceSubtitle] =
     useState(false);
-  // --- LazySync (Magnet-only, docs SUBTITLE_SYNC.md §10) ---
-  // Session-memory toggle state: ON runs the DL-prefix cue polling that
-  // estimates and applies a constant offset to the loaded subtitle.
-  const [isLazySyncOn, setIsLazySyncOn] = useState(false);
-  /** Mutable LazySync loop state (no re-renders between polls). */
-  const lazySyncStateRef = useRef<{
-    /** Original user-loaded cues — the base every offset is applied to. */
-    baseCues: SubtitleCue[];
-    /** Whether at least one offset has been applied (typewriter off). */
-    appliedOnce: boolean;
-    /** Last applied offset (ms) — stability is measured against this. */
-    lastOffsetMs: number | null;
-    /** Consecutive polls in a waiting state (too few ref cues / an estimate
-     *  refused by the concentration check). Bounded by
-     *  LAZY_SYNC_MAX_WAIT_POLLS. */
-    waitPollCount: number;
-  } | null>(null);
   // --- Sub-delay (docs MODULE_ARCHITECTURE.md §9.3) ---
   // The native engine reads the audio waveform timing itself and pushes a
   // plain offset in seconds (libmpv `--sub-delay=<sec>`). Kept as immutable
@@ -527,7 +459,7 @@ export default function PlayerApp() {
   // After a seek, if the video element's readyState drops below
   // HAVE_FUTURE_DATA (2), show a spinner overlay. The overlay clears
   // when readyState recovers (data arrives) or the element errors.
-  // This is separate from the companion loading overlay (which shows
+  // This is separate from the torrent start-buffering overlay (which shows
   // while waiting for the job media URL to surface).
   const [isSeekBuffering, setIsSeekBuffering] = useState(false);
   const seekBufferingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -537,10 +469,10 @@ export default function PlayerApp() {
     null,
   );
 
-  // --- Companion start buffering overlay ---
-  // The companion job media URL is surfaced (video element mounted) but no
+  // --- Torrent start buffering overlay ---
+  // The native relay URL is mounted but no
   // current frame is available yet (readyState < HAVE_CURRENT_DATA or a
-  // `waiting` event while the growing .part yields no playable data). After
+  // `waiting` event while the torrent relay waits for pieces). After
   // 2 s of that state the larger "Preparing video…" overlay shows (same 2 s
   // debounce pattern as isSeekBuffering, so fast starts never flash); the
   // first PAINTED frame clears it via rVFC, or via loadeddata/canplay/
@@ -555,10 +487,8 @@ export default function PlayerApp() {
   const startBufferingSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  // Source-scoped one-shot latch: once a real frame (or the 3 s safety
-  // bound) has ended start buffering, a later 'waiting' must never bring
-  // the overlay back for the SAME media. A ref (not an in-effect let) is
-  // required because jobSession.phase transitions re-run the effect.
+  // Source-scoped one-shot latch: once a real frame or the safety bound has
+  // ended start buffering, a later 'waiting' must not revive the overlay.
   const startBufferingExhaustedRef = useRef<{
     source: string;
     exhausted: boolean;
@@ -880,7 +810,7 @@ export default function PlayerApp() {
   const torrentEnabled = moduleState.torrent;
   const ytdlpEnabled = moduleState.ytdlp;
 
-  // ED-1: Magnet URI dialog visibility — visual shell only, no torrent runtime.
+  // Native source dialogs are scoped to the enabled modules.
   const [isMagnetDialogOpen, setIsMagnetDialogOpen] = useState(false);
   const [isYouTubeDialogOpen, setIsYouTubeDialogOpen] = useState(false);
 
@@ -892,57 +822,25 @@ export default function PlayerApp() {
   useEffect(() => {
     if (!ytdlpEnabled) setIsYouTubeDialogOpen(false);
   }, [ytdlpEnabled]);
-  // ED-3: EizouDendenshi local-companion pairing — persistent credential.
-  // The opaque token is persisted (browser localStorage envelope) after a
-  // successful pair and re-validated on mount, so pairing survives F5 /
-  // companion restarts until the user explicitly resets it.
-  const pairing = useCompanionPairing();
-
-  // --- EizouDendenshi ED-2F YouTube job bridge ---
-  const jobSession = useCompanionJobSession();
-  const displayMediaUrl = jobSession.jobMediaUrl ?? mediaUrl;
-  const displayMediaType = jobSession.jobMediaUrl ? 'video' : mediaType;
+  const torrentSession = useTorrentSession();
+  const displayMediaUrl = torrentSession.mediaUrl ?? mediaUrl;
+  const displayMediaType = torrentSession.mediaUrl ? 'video' : mediaType;
 
   // Clear a stale snapshot when the media identity changes.
   useEffect(() => {
     layoutMediaEpochRef.current += 1;
     layoutMediaSnapshotRef.current = null;
   }, [displayMediaUrl, displayMediaType]);
-  // LazySync polling loop reads the session through this ref so the loop
-  // closure never goes stale across renders (token/jobId may arrive after
-  // the loop starts).
-  const jobSessionRef = useRef(jobSession);
-  jobSessionRef.current = jobSession;
-  /** Magnet (torrent) source — drives the LazySync toggle rendering. */
-  const isMagnet = jobSession.kind === 'torrent';
-  /** ED-2F desktop path: YouTube played directly from the in-process yt-dlp
-   *  relay (no companion job session). Keeps the YouTube-only UI gating
-   *  (`hideSyncSubtitle` / `hideJimakuSearch`) correct on that path. */
+  /** Native yt-dlp relay source, used for YouTube-only UI gating. */
   const [isYouTubeStream, setIsYouTubeStream] = useState(false);
   /** Effective source kind for YouTube-only UI gating (see
    *  `resolveMediaSourceKind`). */
   const mediaSourceKind = resolveMediaSourceKind({
-    jobActive: jobSession.active,
-    jobKind: jobSession.kind,
+    torrentActive: torrentSession.active,
     youtubeStreamActive: isYouTubeStream,
   });
 
-  // ED-2H: Seek clamp — when streaming from a companion, clamp seek targets
-  // to the verified byte range (available) to prevent the player from seeking
-  // beyond what's been downloaded (which would stall on ServeContent Read).
-  const clampSeekTime = useCallback(
-    (seconds: number): number => {
-      const p = jobSession.progress;
-      if (!p || p.total <= 0) return seconds;
-      const media = mediaType === 'video' ? videoRef.current : audioRef.current;
-      const duration = media?.duration ?? 0;
-      return clampCompanionSeek(seconds, p.available, p.total, duration);
-    },
-    [jobSession.progress, mediaType],
-  );
-
-  // ED-2F: a real YouTube job accepted by the companion starts the bridge
-  // session (polling the job's status; media loads only on complete).
+  // Persist watch sessions independently of the active native media source.
   const persistWatchSession = useCallback(
     (session: NonNullable<typeof watchSessionRef.current>, endedAt: number) => {
       if (!session.mediaId) return;
@@ -1036,25 +934,6 @@ export default function PlayerApp() {
   const handleYouTubeVideoIdParsed = useCallback((videoId: string) => {
     youtubeVideoIdRef.current = videoId;
   }, []);
-
-  const handleYouTubeJobAccepted = useCallback(
-    (jobId: string) => {
-      const token = pairing.tokenRef.current;
-      if (!token) return;
-      watchHistoryRecordedRef.current = false;
-      mediaFileRef.current = null;
-      const videoId = youtubeVideoIdRef.current;
-      startWatchSession(videoId ? `youtube:${videoId}` : null, null);
-      jobSession.beginJobSession({
-        baseUrl: 'http://127.0.0.1:4322',
-        token,
-        jobId,
-        kind: 'youtube',
-      });
-      setIsYouTubeDialogOpen(false);
-    },
-    [jobSession, pairing.tokenRef, startWatchSession],
-  );
 
   // Desktop native engine: does libmpv hold the *current* media?
   // True only for a local file with an absolute physical path — the one case
@@ -1179,19 +1058,6 @@ export default function PlayerApp() {
     setSubtitleErrors(result.errors);
     setActiveCueId(null);
     subtitleTextRef.current = text;
-    // BLOCKER 2: if LazySync is ON, the poll loop re-applies the SHIFTED
-    // ORIGINAL base cues every tick. An external cue replacement (jimaku
-    // auto-load success, search-dialog load) must refresh that base, or the
-    // next poll resurrects the stale old cues. lazySyncStateRef is non-null
-    // exactly when LazySync is active.
-    if (lazySyncStateRef.current) {
-      lazySyncStateRef.current.baseCues = result.cues;
-      // A swapped base invalidates the previous offset estimate: without this
-      // reset, a new estimate within STABLE_THRESHOLD of the stale lastOffsetMs
-      // is treated as "unchanged" and the fresh cues never get shifted.
-      lazySyncStateRef.current.lastOffsetMs = null;
-      lazySyncStateRef.current.appliedOnce = false;
-    }
   }, []);
 
   // Localized jimaku toast (rate-limit / auth / key-missing) — shared by the
@@ -1239,305 +1105,61 @@ export default function PlayerApp() {
 
   const handleMagnetJobAccepted = useCallback(
     (
-      jobId: string,
+      torrentId: string,
       selectedName: string,
-      subtitleFileId: string,
-      direct?: DirectTorrentHandoff,
+      _subtitleFileId: string,
+      direct: DirectTorrentHandoff,
     ) => {
-      // Session leak guard: an accepted magnet must first cancel whatever job
-      // session is still running (previous torrent job / companion job), the
-      // same way handleMediaSelect does. Without this the old in-process
-      // torrent keeps downloading and holds a relay slot.
-      void jobSession.cancelActiveJob();
+      const previousTorrentUrl = activeTorrentUrlRef.current;
+      activeTorrentUrlRef.current = direct.videoUrl;
+      if (previousTorrentUrl) void torrentSession.cancelActiveSession();
       trace('player', 'magnet_job_accepted', {
-        jobId,
+        torrentId,
         name: selectedName,
-        subtitle: subtitleFileId.length > 0,
-        direct: direct !== undefined,
-        selectedAudioTrack: direct?.selectedAudioTrack ?? null,
-        selectedSubtitleTrack: direct?.selectedSubtitleTrack ?? null,
+        subtitle: Boolean(direct.subtitleUrl),
+        selectedAudioTrack: direct.selectedAudioTrack ?? null,
+        selectedSubtitleTrack: direct.selectedSubtitleTrack ?? null,
       });
-      // Torrent basename handoff (C): the companion's sanitized file list
-      // provides the selected video's basename; mirror it into mediaName
-      // for the top-left controls / history, sanitized for safe display.
       endWatchSession();
       setIsYouTubeStream(false);
       setMediaName(sanitizeDisplayName(selectedName));
       mediaFileRef.current = null;
-
-      // Desktop (Tauri) direct mode: the in-process torrent plugin already
-      // produced loopback relay URLs, so there is no companion job, no
-      // capability token and no `/v1/*` polling — mount the relay URL as the
-      // media source directly.
-      if (direct) {
-        jobSession.beginDirectTorrentSession({
-          torrentId: jobId,
-          videoUrl: direct.videoUrl,
-          subtitleUrl: direct.subtitleUrl,
-        });
-        // Desktop native engine: relay playback stays on the HTML element.
-        // mpv is only attached to a local file with an absolute path — loading
-        // a relay stream as well would add a second, native audio output next
-        // to the element's own and double every sound. The plugin's Matroska
-        // track numbers therefore stay informational: Chromium does not expose
-        // MKV audio tracks to JavaScript, so the container's own default track
-        // plays.
-        // Note: per-file audio/subtitle track selection for torrents is a
-        // known limitation of keeping mpv out of relay playback.
-        releaseMpv();
-        // P3 auto-load: only when the torrent carried no subtitle file.
-        if (!direct.subtitleUrl) {
-          void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${jobId}`);
-        }
-        setIsMagnetDialogOpen(false);
-        return;
-      }
-
-      const token = pairing.tokenRef.current;
-      if (!token) return;
-      jobSession.beginJobSession({
-        baseUrl: 'http://127.0.0.1:4322',
-        token,
-        jobId,
-        kind: 'torrent',
-        subtitleFileId: subtitleFileId || undefined,
+      torrentSubtitleTextRef.current = null;
+      setHasTorrentReferenceSubtitle(false);
+      setMediaUrl(null);
+      setMediaType('video');
+      torrentSession.beginSession({
+        torrentId,
+        videoUrl: direct.videoUrl,
+        subtitleUrl: direct.subtitleUrl,
       });
-      // P3 auto-load: only when no subtitle was picked in the Magnet modal.
-      if (!subtitleFileId) {
-        void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${jobId}`);
-      }
+      releaseMpv();
       setIsMagnetDialogOpen(false);
+      if (direct.subtitleUrl) {
+        const subtitleUrl = direct.subtitleUrl;
+        void fetch(subtitleUrl)
+          .then((response) => (response.ok ? response.text() : ''))
+          .then((text) => {
+            if (!text || activeTorrentUrlRef.current !== direct.videoUrl) return;
+            torrentSubtitleTextRef.current = text;
+            setHasTorrentReferenceSubtitle(true);
+            return handleSubtitleText(text);
+          })
+          .catch(() => {
+            // Subtitle is optional; the source remains playable without it.
+          });
+      } else {
+        void jimakuAutoLoad.runAutoLoad(selectedName, `magnet:${torrentId}`);
+      }
     },
-    [endWatchSession, jobSession, pairing.tokenRef, jimakuAutoLoad, releaseMpv],
+    [endWatchSession, handleSubtitleText, jimakuAutoLoad, releaseMpv, torrentSession],
   );
 
-  // Attach the actual video element on the complete gate (existing ref).
-  // Companion source fix: the job session's media is a video, but the local
-  // `mediaType` state is only set by the local-file/audio flows. Without
-  // this mirror, videoCallbackRef gates sharedMediaRef to null for
-  // companion playback, which freezes the custom timestamp (00:00 / 00:00)
-  // and makes Play/Pause a no-op. Mirror the type the moment the companion
-  // media URL surfaces (before the callback ref / PlayerControls effect).
-  useEffect(() => {
-    if (jobSession.jobMediaUrl) setMediaType('video');
-  }, [jobSession.jobMediaUrl]);
-
-  // ED-2F: mirror the companion's YouTube video title into mediaName (the
-  // tracker / controls display name). Torrents already set the selected file
-  // basename in handleMagnetJobAccepted; YouTube's title arrives async from
-  // the job-status poll once yt-dlp starts.
-  useEffect(() => {
-    if (jobSession.jobTitle) {
-      setMediaName(sanitizeDisplayName(jobSession.jobTitle));
-    }
-  }, [jobSession.jobTitle]);
-
-  // Companion job failure (state=error → bridge phase 'error'):
-  // (a) clear every loading surface immediately — the companion loading
-  // overlay (active && !jobMediaUrl) would otherwise spin forever, and
-  // the start-buffering overlay must not linger on a failed job;
-  // (b) surface the failure via the EizouToaster once per error (the
-  // fixed toast id already prevents stacking; the phase guard prevents
-  // a re-render from re-firing). No duplicate UI: the video element is
-  // unmounted during 'error' (jobMediaUrl null), so VideoPlayer's own
-  // errorLabel never renders for job errors — the toast is the single
-  // error surface. 2026-08-09 (WARP failure: spinner with no error).
-  const prevJobPhaseRef = useRef<CompanionBridgePhase | null>(null);
-  useEffect(() => {
-    const phase = jobSession.phase;
-    if (phase === 'error' && prevJobPhaseRef.current !== 'error') {
-      setIsStartBuffering(false);
-      setIsLoading(false);
-      notifyCompanionError(dictRef.current.playerUI.companionJobError);
-    }
-    if (phase === 'error' || phase === 'idle') {
-      // A failed/ended job also releases the buffering overlays.
-      setIsStartBuffering(false);
-    }
-    prevJobPhaseRef.current = phase;
-  }, [jobSession.phase]);
-
-  // Quality toast wiring (2026-08-09): notifyQuality has existed since
-  // rc.46 but had ZERO call sites — the wiring was never done, which is
-  // why no quality toast appeared in any mode (not a speed-vs-quality
-  // bug). Fire once per job at the moment the media URL first surfaces,
-  // which is the same "handed to the player" moment for both modes:
-  // speed reports playable early, quality reports playable only at
-  // complete — the URL surfacing is the handoff in both cases.
-  const notifiedQualityJobRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!jobSession.jobMediaUrl) return;
-    // The quality toast is a YouTube-job surface: without a known mode
-    // (torrent sessions / idle) there is no "Speed/Quality" label to
-    // show — bail instead of falling back to Speed implicitly.
-    if (!jobSession.jobMode) return;
-    const quality = jobSession.jobQuality;
-    const jobId = jobSession.jobId;
-    // 0/NA/absent → no toast (a partial mock session without these
-    // fields must stay silent too).
-    if (!quality || quality <= 0 || !jobId) return;
-    if (notifiedQualityJobRef.current === jobId) return; // once per job
-    notifiedQualityJobRef.current = jobId;
-    const ui = dictRef.current.playerUI;
-    const modeLabel =
-      jobSession.jobMode === 'quality'
-        ? ui.ytModeLabelQuality
-        : ui.ytModeLabelSpeed;
-    notifyQuality(ui.ytModeToastFormat, `${quality}p`, modeLabel);
-  }, [
-    jobSession.jobMediaUrl,
-    jobSession.jobQuality,
-    jobSession.jobId,
-    jobSession.jobMode,
-  ]);
-
-  // Whether the companion-subtitle bounded retry has actually given up
-  // (SUBTITLE_RETRY_WINDOW_MS elapsed with no 200). While false, the
-  // subtitle panel shows "Preparing subtitles…"; once true it falls back
-  // to the ordinary empty/subtitle-less state so a video without
-  // subtitles does not show a spinner forever (2026-08-09, Mimo BLOCKER).
-  const [subtitleFetchFailed, setSubtitleFetchFailed] = useState(false);
-
-  // Companion job with a subtitle fetch still running (or not yet
-  // attempted) and no content parsed yet — drives the "Preparing
-  // subtitles…" panel state. Cleared once the bounded retry gives up
-  // (subtitleFetchFailed), content arrives, or the job errors (the
-  // error toast takes over; a spinner must never linger on a failed
-  // job). Single source of truth so the desktop and mobile RightPanel
-  // receive the same computed value. The SubtitlePanel keeps no
-  // deadline knowledge: PlayerApp owns the retry window and the
-  // fallback.
+  // Torrent relay subtitles are read directly when selected; local and
+  // YouTube subtitles use the same shared parse pipeline.
   const isLoadingSubtitles =
-    (jobSession.active &&
-      !!jobSession.subtitleUrl &&
-      cues.length === 0 &&
-      !subtitleFetchFailed &&
-      jobSession.phase !== 'error') ||
-    // P4-1: jimaku auto-load in flight with no subtitles yet — shows the
-    // same "Preparing subtitles…" spinner until the load settles.
+    (torrentSession.active && hasTorrentReferenceSubtitle && cues.length === 0) ||
     (jimakuLoading && cues.length === 0);
-
-  // ED-2G: Auto-fetch subtitle content from companion when a torrent job
-  // selected a subtitle file, or from a YouTube job that has Japanese
-  // subtitles. Fetches the text, parses it with the same subtitle-reader
-  // used for local files, and populates the subtitle panel.
-  //
-  // Torrent: subtitle file is prioritized on selection so content is
-  // available immediately — no need to wait for bridge 'ready'.
-  // YouTube: the companion serves the subtitle as soon as the file is on
-  // disk, which happens in parallel with the media download (yt-dlp
-  // writes it while downloading; speed mode streams the .part early, so
-  // the bridge can report 'ready' before the VTT exists). The first
-  // fetch can therefore legitimately return 404 ("subtitle not
-  // available") — rather than giving up, retry in a bounded loop (every
-  // SUBTITLE_RETRY_INTERVAL_MS, until SUBTITLE_RETRY_WINDOW_MS or
-  // unmount/cancel). Failures stay silent: no toast, no error state;
-  // the panel simply fills in once the file appears.
-  //
-  // Mimo BLOCKER (2026-08-09): when the retry deadline passes without a
-  // 200, there is no reason to keep showing "Preparing subtitles…"
-  // forever (a video may simply have no Japanese subtitle). On the
-  // deadline, mark subtitleFetchFailed so the loading state clears and
-  // the panel falls back to the ordinary empty state. The SubtitlePanel
-  // itself owns NO deadline knowledge — PlayerApp owns the retry window
-  // and the fallback, which keeps the panel a pure presentation layer.
-  useEffect(() => {
-    const url = jobSession.subtitleUrl;
-    if (!url || !jobSession.active) return;
-    // A new job/source resets the retry state.
-    setSubtitleFetchFailed(false);
-    // YouTube subtitles are only fetchable once the bridge reports the
-    // media playable (the file can still be mid-write — the bounded
-    // retry below absorbs the gap); torrents fetch immediately.
-    // Note: the retry window starts here, so a phase gate that opens
-    // after SUBTITLE_RETRY_WINDOW_MS has elapsed (unlikely: ready/playing
-    // arrives within seconds of the media URL) would leave the subtitle
-    // unfetched until a re-render re-runs this effect. This is a known
-    // limit, not a regression — the gate exists to avoid fetching before
-    // any media is servable.
-    if (
-      jobSession.kind === 'youtube' &&
-      jobSession.phase !== 'ready' &&
-      jobSession.phase !== 'playing'
-    )
-      return;
-    let cancelled = false;
-    const ac = new AbortController();
-    const retryDeadline = Date.now() + SUBTITLE_RETRY_WINDOW_MS;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const fetchOnce = async (): Promise<void> => {
-      try {
-        const res = await fetch(url, {
-          cache: 'no-store',
-          signal: ac.signal,
-        });
-        if (cancelled) return;
-        if (!res.ok) {
-          // 404 / 4xx / 5xx — not available yet; retry until the file
-          // is written (bounded), unless the component unmounted.
-          scheduleRetry();
-          return;
-        }
-        const text = await res.text();
-        if (cancelled) return;
-        const result = await parseSubtitleDirect(text);
-        // The parse is async (native plugin), so the effect may have been
-        // cleaned up while it ran — a stale subtitle must not replace the
-        // cues of the current media.
-        if (cancelled) return;
-        // Re-anchor the sub-delay base to these cues (offset preserved).
-        subDelayStateRef.current = rebaseSubDelay(
-          subDelayStateRef.current,
-          result.cues,
-        );
-        setCues(subDelayCues(subDelayStateRef.current));
-        setSubtitleErrors(result.errors);
-        setActiveCueId(null);
-        subtitleTextRef.current = text;
-      } catch {
-        // Network error or abort — stay silent and retry while bounded.
-        scheduleRetry();
-      }
-    };
-
-    const scheduleRetry = () => {
-      if (cancelled) return;
-      if (Date.now() >= retryDeadline) {
-        // Bounded retry exhausted without a 200: give up silently and
-        // let the panel fall back to the empty state (no "Preparing…
-        //" forever). A later phase/source change re-runs this effect
-        // and resets the flag.
-        setSubtitleFetchFailed(true);
-        return;
-      }
-      if (retryTimer !== null) return; // one pending retry at a time
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        void fetchOnce();
-      }, SUBTITLE_RETRY_INTERVAL_MS);
-    };
-
-    void fetchOnce();
-
-    return () => {
-      cancelled = true;
-      ac.abort();
-      if (retryTimer !== null) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-    };
-  }, [
-    jobSession.subtitleUrl,
-    jobSession.active,
-    jobSession.kind,
-    jobSession.phase,
-  ]);
-
-  useEffect(() => {
-    jobSession.attachMediaElement(videoRef.current);
-  }, [jobSession, jobSession.jobMediaUrl, jobSession.phase]);
 
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1784,7 +1406,7 @@ export default function PlayerApp() {
   );
 
   const trackerRuntime = useTrackerRuntime({
-    // Browser torrent source was removed in ED-1; tracker stays local-file only.
+    // Tracker currently records local-file media only.
     isTorrentSource: false,
     isLocalFile: !!mediaFileRef.current,
     mediaFile: mediaFileRef.current,
@@ -1910,12 +1532,13 @@ export default function PlayerApp() {
   const videoCallbackRef = useCallback(
     (el: HTMLVideoElement | null) => {
       videoRef.current = el;
+      if (el) torrentSession.attachMediaElement(el);
       sharedMediaRef.current = displayMediaType === 'video' ? el : null;
       if (displayMediaType === 'video') {
         layoutMediaElementRef.current = el;
       }
     },
-    [displayMediaType],
+    [displayMediaType, torrentSession.attachMediaElement],
   );
 
   const audioCallbackRef = useCallback(
@@ -2132,19 +1755,16 @@ export default function PlayerApp() {
     [],
   );
 
-  // ED-2F desktop path: the Tauri yt-dlp plugin resolves the stream in-process,
-  // so its loopback relay URL is mounted as the media URL directly. There is no
-  // companion job session and no capability token on this path.
+  // The Tauri yt-dlp plugin resolves and relays the stream in-process. Never
+  // mount an unrelayed upstream URL on the media element.
   const handleYouTubeStreamAccepted = useCallback(
     (source: YtdlpStreamSource, info: YtdlpVideoInfo | null) => {
       const p = dictRef.current.playerUI;
-      // Relay guard: `relayed === false` means the loopback relay could not bind
-      // and the plugin fell back to the raw upstream URLs, which are tokenised
-      // and expire within minutes. Never mount one (it would die mid-playback
-      // and leak the tokenised URL into the media element). Generic toast only.
+      // Fail closed when the loopback relay could not bind: upstream URLs
+      // expire and must never be mounted directly on the media element.
       if (!source.relayed) {
         setIsYouTubeDialogOpen(false);
-        notifyCompanionError(p.youtubeInputErrorGeneric);
+        notifySubtitleSyncError(p.youtubeInputErrorGeneric);
         trace('player', 'youtube_stream_rejected', {
           reason: 'relay_unavailable',
           videoId: youtubeVideoIdRef.current,
@@ -2160,7 +1780,7 @@ export default function PlayerApp() {
       // media element plus drift correction inside VideoPlayer).
       if (source.urls.length > 1) {
         setIsYouTubeDialogOpen(false);
-        notifyCompanionError(p.youtubeInputErrorGeneric);
+        notifySubtitleSyncError(p.youtubeInputErrorGeneric);
         trace('player', 'youtube_stream_rejected', {
           reason: 'dual_stream',
           videoId: youtubeVideoIdRef.current,
@@ -2177,6 +1797,8 @@ export default function PlayerApp() {
       });
       watchHistoryRecordedRef.current = false;
       mediaFileRef.current = null;
+      void torrentSession.cancelActiveSession();
+      activeTorrentUrlRef.current = null;
       setIsYouTubeStream(true);
       const videoId = youtubeVideoIdRef.current;
       startWatchSession(videoId ? `youtube:${videoId}` : null, null);
@@ -2196,7 +1818,7 @@ export default function PlayerApp() {
       activeUrlRef.current = source.url;
       setMediaUrl(source.url);
       setMediaType('video');
-      // Desktop native engine: the resolved relay stream stays on the HTML
+      // Native engine: the resolved relay stream stays on the HTML
       // element. mpv is only attached to a local file with an absolute path,
       // so YouTube playback never produces a second audio output.
       releaseMpv();
@@ -2204,11 +1826,8 @@ export default function PlayerApp() {
       setMediaName(info ? sanitizeDisplayName(info.title) : (videoId ?? ''));
       setIsYouTubeDialogOpen(false);
 
-      // YouTube subtitles: the plugin resolves the Japanese WebVTT URL for us
-      // (already relayed through its loopback proxy, so the tokenised upstream
-      // URL never reaches the webview and CORS is satisfied). Fetch it and run
-      // it through the shared subtitle pipeline — this is the desktop path's
-      // replacement for the companion's subtitle step.
+      // YouTube subtitles: the plugin resolves an optional Japanese WebVTT URL
+      // via the loopback relay. Fetch it through the shared parser pipeline.
       const subtitleUrl = info?.subtitle_vtt_url;
       if (subtitleUrl) {
         const requestedMediaUrl = source.url;
@@ -2232,6 +1851,7 @@ export default function PlayerApp() {
       clearMiningPreview,
       handleSubtitleText,
       releaseMpv,
+      torrentSession,
     ],
   );
 
@@ -2253,8 +1873,9 @@ export default function PlayerApp() {
       physicalPath: string | null;
     }) => {
       const { name, mime, bytes, file, physicalPath } = input;
-      // ED-2E: media switch ends any active companion fixture session.
-      void jobSession.cancelActiveJob();
+      // A local media selection ends any active in-process torrent session.
+      void torrentSession.cancelActiveSession();
+      activeTorrentUrlRef.current = null;
 
       const admission = file
         ? classifyMediaFile(file)
@@ -2356,6 +1977,8 @@ export default function PlayerApp() {
         releaseMpv();
       }
       setMediaName(name);
+      torrentSubtitleTextRef.current = null;
+      setHasTorrentReferenceSubtitle(false);
       watchHistoryRecordedRef.current = false;
       youtubeVideoIdRef.current = null;
       setIsYouTubeStream(false);
@@ -2382,7 +2005,7 @@ export default function PlayerApp() {
       clearScreenshot,
       clearAudioClip,
       clearMiningPreview,
-      jobSession,
+      torrentSession,
       jimakuAutoLoad,
       startWatchSession,
       loadMpvPaused,
@@ -2487,12 +2110,8 @@ export default function PlayerApp() {
     (cue: SubtitleCue) => {
       const media = sharedMediaRef.current;
       if (!media) return;
-      // ED-2H: Clamp seek to companion's verified byte range when streaming.
-      // Without this, clicking a cue beyond the available prefix stalls the
-      // player (seeking=true, readyState=1, GPU 100%).
-      const targetTime = jobSession.active
-        ? clampSeekTime(cue.start)
-        : cue.start;
+      // Seek directly on the current HTML media element.
+      const targetTime = cue.start;
       media.currentTime = targetTime;
       // Native engine: mirror the seek directly. An element that cannot decode
       // the source may never fire `seeking`, and mpv is the renderer that
@@ -2502,8 +2121,7 @@ export default function PlayerApp() {
         cueId: cue.id,
         start: Math.round(cue.start * 100) / 100,
         end: Math.round(cue.end * 100) / 100,
-        clamped: targetTime !== cue.start,
-        streaming: jobSession.active,
+        streaming: torrentSession.active,
       });
       // Note: do NOT call media.play() here. Setting currentTime preserves
       // the media's current playback state (stays paused if paused, continues
@@ -2511,7 +2129,7 @@ export default function PlayerApp() {
       // P2: Reveal controls when clicking a cue while they are hidden
       controlsHandleRef.current?.show();
     },
-    [jobSession.active, clampSeekTime],
+    [torrentSession.active],
   );
 
   // --- P1.3a.2: Caption display mode handlers ---
@@ -2655,9 +2273,9 @@ export default function PlayerApp() {
           : 60;
       if (!Number.isFinite(time) || time < threshold) return;
 
-      if (jobSession.active && jobSession.kind === 'youtube') {
+      if (isYouTubeStream) {
         const videoId = youtubeVideoIdRef.current;
-        const title = sanitizeDisplayName(jobSession.jobTitle ?? '');
+        const title = sanitizeDisplayName(mediaName);
         if (!videoId || !title) return;
         watchHistoryRecordedRef.current = true;
         await recordWatchHistory({
@@ -2689,13 +2307,7 @@ export default function PlayerApp() {
         titleNative: jimakuMatchRef.current.titleNative,
       });
     },
-    [
-      jobSession.active,
-      jobSession.kind,
-      jobSession.jobTitle,
-      mediaName,
-      trackerRuntime.mediaId,
-    ],
+    [isYouTubeStream, mediaName, trackerRuntime.mediaId],
   );
 
   const handleTimeUpdate = useCallback(
@@ -2821,8 +2433,8 @@ export default function PlayerApp() {
     // Clear seek buffering on error — the overlay is meaningless if the
     // element has errored.
     setIsSeekBuffering(false);
-    // Symmetric for the companion start-buffering overlay: an errored
-    // element never becomes playable, so the overlay must not linger.
+    // An errored element never becomes playable, so the torrent start overlay
+    // must not linger.
     setIsStartBuffering(false);
   }, []);
 
@@ -2837,7 +2449,7 @@ export default function PlayerApp() {
   // 3. A safety timeout fires (5s — prevents stuck overlay if canplay
   //    never fires for some reason)
   useEffect(() => {
-    const media = mediaType === 'video' ? videoRef.current : null;
+    const media = displayMediaType === 'video' ? videoRef.current : null;
     if (!media) return;
 
     const HAVE_FUTURE_DATA = 2;
@@ -2884,7 +2496,7 @@ export default function PlayerApp() {
       clearSeekBufferingTimers();
       setIsSeekBuffering(false);
     };
-  }, [mediaType, mediaUrl]);
+  }, [displayMediaType, mediaUrl]);
 
   // --- Desktop native engine: mirror transport into libmpv ---
   // Every seek path that touches the element (controls slider, scrub, condensed
@@ -2938,9 +2550,9 @@ export default function PlayerApp() {
     };
   }, [mediaType, mediaUrl, isMpvNative]);
 
-  // --- Companion start buffering: monitor the initial playability ---
-  // The companion surfaces jobMediaUrl while the .part is still being
-  // written; the video element can mount but has no current frame yet.
+  // --- Torrent start buffering: monitor the initial playable frame ---
+  // The native relay can wait for torrent pieces after the video element
+  // mounts, before its first frame is available.
   // After 2 s of that state show the "Preparing video…" overlay (the delay
   // avoids flashing for fast starts).
   //
@@ -2950,31 +2562,25 @@ export default function PlayerApp() {
   // the overlay itself requests rVFC. Non-rVFC browsers have no frame
   // metadata: the re-check uses HAVE_FUTURE_DATA (3) or active playback,
   // while loadeddata/canplay/playing keep the immediate fallback. The
-  // companion's recovery assigns src + calls load() on the DOM node without
-  // changing React state, so those media events are the only signals while
+  // torrent relay recovery assigns src + calls load() without React state,
+  // so those media events are the only signals while
   // the element is still PAUSED. Once cleared, a source-scoped ref latch
   // stops a later 'waiting' (or a phase re-run) from re-arming the overlay.
   // Both the 2 s debounce and the 3 s safety bound are armed once, at the
   // first arm; later `waiting` bursts never postpone them.
   // Seek buffering deliberately keeps its own canplay-based clearing.
   useEffect(() => {
-    // Source-scoped flags live in refs: jobSession.phase transitions re-run
-    // this effect, and an in-effect let would silently reset the latch (or
-    // the presented-frame flag) on the very same media. Both reset ONLY
-    // when the actual video source changes.
-    // Note: identity is the URL, not the job/session id — reusing the exact
-    // same URL for a new job intentionally keeps the latch. If a session
-    // boundary ever needs a fresh overlay, key source on the job id too.
-    const source = jobSession.jobMediaUrl || displayMediaUrl || '';
+    // Source-scoped flags live in refs and reset only when the actual source
+    // changes.
+    // A new torrent relay URL resets the source-scoped latch.
+    const source = displayMediaUrl || '';
     if (startBufferingExhaustedRef.current.source !== source) {
       startBufferingExhaustedRef.current = { source, exhausted: false };
       realFramePresentedRef.current = { source, presented: false };
     }
-    const media = mediaType === 'video' ? videoRef.current : null;
+    const media = displayMediaType === 'video' ? videoRef.current : null;
     if (!media) return;
-    // Only companion job sessions with a surfaced media URL qualify;
-    // the pre-URL loading overlay covers the earlier phase.
-    if (!jobSession.active || !jobSession.jobMediaUrl) return;
+    if (!torrentSession.active || !torrentSession.mediaUrl) return;
 
     // 2 = HAVE_CURRENT_DATA, 3 = HAVE_FUTURE_DATA per the HTMLMediaElement
     // spec. rVFC browsers never trust readyState for the start overlay:
@@ -3127,8 +2733,8 @@ export default function PlayerApp() {
       clearStartBuffering();
     };
 
-    // The companion's recovery assigns src + calls load() directly on the
-    // DOM node without changing React state, so this effect does NOT re-run
+    // Torrent recovery assigns src + calls load() without React state, so
+    // this effect does NOT re-run
     // when the first frame lands. loadeddata / canplay are the signals that
     // frame data exists while the element is still PAUSED (autoplay blocked
     // or user-paused). readyState >= HAVE_CURRENT_DATA only guarantees the
@@ -3189,17 +2795,12 @@ export default function PlayerApp() {
       bufferingShown = false;
       setIsStartBuffering(false);
     };
-    // jobSession.phase is a dependency so an error/idle transition re-runs
-    // this effect: the cleanup above cancels the pending rVFC handle and
-    // resets bufferingShown, so the closure never keeps a stale "shown"
-    // flag after the global error handler cleared the overlay from a
-    // different effect. The source-scoped refs above survive those re-runs,
-    // so a latched source never re-arms on a phase transition.
+    // Torrent URL changes re-run this effect; cleanup cancels pending frame
+    // callbacks and timers before observing the next relay source.
   }, [
-    mediaType,
-    jobSession.active,
-    jobSession.jobMediaUrl,
-    jobSession.phase,
+    displayMediaType,
+    torrentSession.active,
+    torrentSession.mediaUrl,
     displayMediaUrl,
   ]);
 
@@ -3294,17 +2895,8 @@ export default function PlayerApp() {
       ) {
         const next = cues.find((c) => c.start > media.currentTime);
         if (next) {
-          // If clampSeekTime would move the position, the next cue is beyond the
-          // verified range — skip auto-seek to avoid a loop (will retry on next tick).
-          if (jobSession.active && clampSeekTime) {
-            const clamped = clampSeekTime(next.start);
-            if (clamped !== next.start) return;
-          }
           isCondensedSeekingRef.current = true;
-          // ED-2H: Clamp condensed-mode seek to companion's verified range.
-          const condensedTarget = jobSession.active
-            ? clampSeekTime(next.start)
-            : next.start;
+          const condensedTarget = next.start;
           media.currentTime = condensedTarget;
           // Native engine: the element is a passive shim there — its `seeking`
           // event no longer reaches libmpv, so the engine is seeked directly.
@@ -3582,29 +3174,12 @@ export default function PlayerApp() {
       setSubtitleErrors(result.errors);
       setActiveCueId(null);
       subtitleTextRef.current = syncedText;
-      // Every sync path (sub-to-sub / sub-to-audio-local / sub-to-audio-magnet)
-      // converges here — a single success toast for all of them.
+      // Both supported sync paths converge here — one success toast.
       notifySubtitleSyncSuccess(dictRef.current.playerUI.subtitleSyncSuccess);
     },
     [setCues, setSubtitleErrors, setActiveCueId],
   );
 
-  /**
-   * Stage 4b: wire the sync button to the planner + subomatic engine.
-   *  - skip-youtube          → no-op (button disabled for youtube)
-   *  - sub-to-sub            → sync to a picked reference subtitle
-   *  - sub-to-sub-auto-ref   → the embedded subtitle is auto-detected and
-   *                            used as the reference: Magnet via the
-   *                            companion (empty file id), local files via
-   *                            mkvgo (first embedded subtitle track). In
-   *                            auto mode (fallbackToAudio) a missing
-   *                            embedded subtitle falls back to sub-to-audio
-   *                            (magnet → dialog, local → direct decode).
-   *  - sub-to-audio-local    → decode local media → sync to audio
-   *  - sub-to-audio-magnet   → SubtitleSyncDialog (wait for DL → PCM)
-   *  - no-reference-subtitle → retired: no plan produces it anymore; the
-   *                            branch remains for defensive narrowing.
-   */
   /** Shared try/catch/finally for sync tasks (subtitle + audio paths). */
   const runSync = useCallback(async (task: () => Promise<void>) => {
     setIsSyncingSubtitle(true);
@@ -3625,385 +3200,67 @@ export default function PlayerApp() {
       notifySubtitleSyncError(dictRef.current.playerUI.subtitleSyncNoSubtitle);
       return;
     }
-    const prefs = readPlayerPreferences();
-    const mode = prefs.subtitleSyncMode ?? 'auto';
-    const source = detectSourceKind(jobSession.kind, !!mediaUrl);
-    // Reference subtitle only for Magnet with a selected subtitle file
-    // (local reference picker UI lands in a later stage → false here).
-    const hasRef = source === 'magnet' ? !!jobSession.subtitleFileId : false;
-    const plan = planSync(mode, source, hasRef);
+    const mode = readPlayerPreferences().subtitleSyncMode ?? 'auto';
+    const referenceText = torrentSubtitleTextRef.current;
+    if (isYouTubeStream) return;
+
     void runSync(async () => {
-      if (plan.kind === 'skip-youtube') return;
-      if (plan.kind === 'no-reference-subtitle') {
+      if (torrentSession.active && mode === 'audio') {
         notifySubtitleSyncError(
-          dictRef.current.playerUI.subtitleSyncNoReference,
+          dictRef.current.playerUI.subtitleSyncAudioUnavailable,
         );
         return;
       }
-      const detected = await parseSubtitleDirect(text);
-      const inFormat = detected.format ?? 'vtt';
-      // Local audio sync — shared by the sub-to-audio-local plan and the
-      // auto fallback when the embedded-subtitle reference is missing.
-      // SubtitleSyncDialog is magnet-only, so local media decodes directly.
-      const runSubToAudioLocal = async (t: string, f: string) => {
-        if (!mediaUrl) {
+      if (torrentSession.active || mode === 'subtitle') {
+        if (!referenceText) {
           notifySubtitleSyncError(
             dictRef.current.playerUI.subtitleSyncNoReference,
           );
           return;
         }
-        const res = await fetch(mediaUrl);
-        const buffer = await res.arrayBuffer();
-        const { samples, sampleRate } = await decodeToMono16k(buffer);
-        const synced = await syncSubtitleToAudio(t, f, samples, sampleRate, {
-          onProgress: () => {},
-        });
-        await applySyncedSubtitle(synced);
-      };
-      if (plan.kind === 'sub-to-sub') {
-        // Reference subtitle source: Magnet (torrent subtitle file).
-        if (
-          jobSession.kind !== 'torrent' ||
-          !jobSession.jobId ||
-          !jobSession.token ||
-          !jobSession.subtitleFileId
-        ) {
-          notifySubtitleSyncError(
-            dictRef.current.playerUI.subtitleSyncNoReference,
-          );
-          return;
-        }
-        const ref = await fetchMagnetSubtitle(
-          jobSession.token,
-          jobSession.jobId,
-          jobSession.subtitleFileId,
-        );
-        if (ref.kind !== 'ok') {
-          // Explicit selection yet the companion cannot serve it (no
-          // embedded track / still preparing) — surface the reference
-          // error instead of parsing a non-existent body.
-          notifySubtitleSyncError(
-            dictRef.current.playerUI.subtitleSyncNoReference,
-          );
-          return;
-        }
-        const refDetected = await parseSubtitleDirect(ref.text);
+        const [parsed, reference] = await Promise.all([
+          parseSubtitleDirect(text),
+          parseSubtitleDirect(referenceText),
+        ]);
         const synced = await syncSubtitleToReference(
           text,
-          inFormat,
-          ref.text,
-          refDetected.format ?? 'vtt',
+          parsed.format ?? 'vtt',
+          referenceText,
+          reference.format ?? 'vtt',
           { onProgress: () => {} },
         );
         await applySyncedSubtitle(synced);
         return;
       }
-      if (plan.kind === 'sub-to-sub-auto-ref') {
-        // No manual subtitle selection — the embedded subtitle is
-        // auto-detected and used as the sub-to-sub reference: Magnet via
-        // the companion (empty file id), local files via mkvgo (first
-        // embedded subtitle track).
-        if (jobSession.kind !== 'torrent' && !mediaFileRef.current) {
-          notifySubtitleSyncError(
-            dictRef.current.playerUI.subtitleSyncNoReference,
-          );
-          return;
-        }
-        try {
-          let refText: string;
-          if (jobSession.kind === 'torrent') {
-            if (!jobSession.jobId || !jobSession.token) {
-              notifySubtitleSyncError(
-                dictRef.current.playerUI.subtitleSyncNoReference,
-              );
-              return;
-            }
-            const ref = await fetchMagnetSubtitle(
-              jobSession.token,
-              jobSession.jobId,
-              '',
-            );
-            // Any non-ok result (no embedded track / cues still pending /
-            // timeout) means the reference is unavailable right now — the
-            // shared catch below routes it to the auto fallback or the
-            // reference error, as before.
-            if (ref.kind !== 'ok') throw new Error('no embedded subtitle');
-            refText = ref.text;
-          } else {
-            // Local embedded subtitle via mkvgo.
-            const file = mediaFileRef.current;
-            if (!file) throw new Error('no embedded subtitle');
-            // extractSubtitleVTT accepts a Blob/File and reads it through
-            // ranged slices (memory-bounded, like probe()), so even a
-            // 13.4 GiB MKV extracts without loading the whole file into
-            // memory — no size ceiling needed. probe() is also ranged.
-            const mkvgo = await loadMkvGo({
-              wasmUrl: '/wasm/mkvgo.wasm',
-              wasmExecUrl: '/wasm/wasm_exec.js',
-            });
-            const probe = await mkvgo.probe(file);
-            const subTrack = probe.tracks.find((t) => t.type === 'subtitle');
-            if (!subTrack) throw new Error('no embedded subtitle');
-            refText = await mkvgo.extractSubtitleVTT(file, subTrack.id);
-          }
-          const refDetected = await parseSubtitleDirect(refText);
-          const synced = await syncSubtitleToReference(
-            text,
-            inFormat,
-            refText,
-            refDetected.format ?? 'vtt',
-            { onProgress: () => {} },
-          );
-          await applySyncedSubtitle(synced);
-        } catch (err) {
-          // No embedded subtitle in the source (404 from the companion /
-          // missing track), or the mkvgo extraction failed.
-          console.error('[entei] embedded subtitle extraction failed', err);
-          if (plan.fallbackToAudio) {
-            // auto mode: sub-to-sub failed → fall back to sub-to-audio.
-            // Magnet audio is disabled (docs SUBTITLE_SYNC.md §10.4): the
-            // user is told to use subtitle mode instead. Local files
-            // decode directly.
-            if (jobSession.kind === 'torrent') {
-              notifySubtitleSyncError(
-                dictRef.current.playerUI.subtitleSyncAudioUnavailable,
-              );
-            } else {
-              await runSubToAudioLocal(text, inFormat);
-            }
-          } else {
-            notifySubtitleSyncError(
-              dictRef.current.playerUI.subtitleSyncNoReference,
-            );
-          }
-        }
-        return;
-      }
-      if (plan.kind === 'sub-to-audio-local') {
-        await runSubToAudioLocal(text, inFormat);
-        return;
-      }
-      if (plan.kind === 'sub-to-audio-magnet') {
-        // Magnet audio sync is disabled (docs SUBTITLE_SYNC.md §10.4):
-        // full-DL + PCM conversion is not viable while streaming. The
-        // sync button is a LazySync toggle for Magnet anyway — this branch
-        // is defense-in-depth for any residual call path.
+      const parsed = await parseSubtitleDirect(text);
+      const inputFormat = parsed.format ?? 'vtt';
+      if (!mediaUrl) {
         notifySubtitleSyncError(
-          dictRef.current.playerUI.subtitleSyncAudioUnavailable,
+          dictRef.current.playerUI.subtitleSyncNoReference,
         );
+        return;
       }
+      const response = await fetch(mediaUrl);
+      if (!response.ok) throw new Error('media could not be read for subtitle sync');
+      const { samples, sampleRate } = await decodeToMono16k(
+        await response.arrayBuffer(),
+      );
+      const synced = await syncSubtitleToAudio(
+        text,
+        inputFormat,
+        samples,
+        sampleRate,
+        { onProgress: () => {} },
+      );
+      await applySyncedSubtitle(synced);
     });
   }, [
-    jobSession.kind,
-    jobSession.jobId,
-    jobSession.token,
-    jobSession.subtitleFileId,
-    mediaUrl,
     applySyncedSubtitle,
+    isYouTubeStream,
+    mediaUrl,
     runSync,
+    torrentSession.active,
   ]);
-
-  /**
-   * LazySync toggle (Magnet only, docs SUBTITLE_SYNC.md §10).
-   *  - OFF → ON: validate a loaded subtitle, snapshot its cues as the base,
-   *    start the polling loop, toast "LazySync enabled".
-   *  - ON → OFF: stop the loop (the polling effect aborts), keep the
-   *    already-shifted display as-is, toast "LazySync disabled".
-   *  - Audio sync mode on Magnet is unavailable (§10.4): clicking the
-   *    toggle in audio mode only explains why (no state change).
-   */
-  const handleToggleLazySync = useCallback(async () => {
-    if (jobSessionRef.current.kind !== 'torrent') return;
-    const ui = dictRef.current.playerUI;
-    if (isLazySyncOn) {
-      setIsLazySyncOn(false);
-      lazySyncStateRef.current = null;
-      notifyLazySyncInfo(ui.subtitleSyncLazyOff);
-      return;
-    }
-    // Audio-based sync is disabled for Magnet (docs §10.4): the toggle
-    // would only ever run the subtitle-based LazySync, so a user in audio
-    // mode gets the guidance toast instead of a dead toggle.
-    const mode = readPlayerPreferences().subtitleSyncMode ?? 'auto';
-    if (mode === 'audio') {
-      notifySubtitleSyncError(ui.subtitleSyncAudioUnavailable);
-      return;
-    }
-    const text = subtitleTextRef.current;
-    if (!text) {
-      notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
-      return;
-    }
-    const baseCues = (await parseSubtitleDirect(text)).cues;
-    if (baseCues.length === 0) {
-      notifySubtitleSyncError(ui.subtitleSyncNoSubtitle);
-      return;
-    }
-    lazySyncStateRef.current = {
-      baseCues,
-      appliedOnce: false,
-      lastOffsetMs: null,
-      waitPollCount: 0,
-    };
-    setIsLazySyncOn(true);
-    notifyLazySyncInfo(ui.subtitleSyncLazyOn);
-  }, [isLazySyncOn]);
-
-  /**
-   * LazySync polling loop (docs §10.2-10.3): every poll interval, fetch the
-   * embedded subtitle's downloaded-prefix cues and estimate the constant
-   * offset by rank-pairing median. The concentration check refuses bimodal
-   * splits (fail-closed); |offset| < LAZY_SYNC_MIN_OFFSET_MS (including a
-   * 0 median) converges silently. Waiting states share one bounded counter
-   * (LAZY_SYNC_MAX_WAIT_POLLS ≈ 12 min); abort / stale session / exhausted
-   * bound stop the loop. Mutable data flows through lazySyncStateRef so the
-   * loop never depends on a render's closure.
-   */
-  const runLazySyncPolling = useCallback(async (signal: AbortSignal) => {
-    const sleep = (ms: number) =>
-      new Promise<void>((resolve) => {
-        const onAbort = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        const timer = setTimeout(() => {
-          signal.removeEventListener('abort', onAbort);
-          resolve();
-        }, ms);
-        signal.addEventListener('abort', onAbort, { once: true });
-      });
-
-    const stop = () => {
-      setIsLazySyncOn(false);
-      lazySyncStateRef.current = null;
-    };
-
-    while (!signal.aborted) {
-      const session = jobSessionRef.current;
-      if (session.kind !== 'torrent' || !session.token || !session.jobId) {
-        // The Magnet session ended or changed while the loop ran — reset
-        // the toggle so it cannot linger on a stale session.
-        stop();
-        return;
-      }
-      const state = lazySyncStateRef.current;
-      if (!state) return;
-
-      /** One bounded waiting round: bump the wait counter, sleep a poll
-       *  interval, and give up (no-subtitle toast) once the ~12-min bound
-       *  is exceeded. Returns false when the loop must stop. */
-      const boundedWait = async (): Promise<boolean> => {
-        state.waitPollCount += 1;
-        if (state.waitPollCount > LAZY_SYNC_MAX_WAIT_POLLS) {
-          stop();
-          notifySubtitleSyncError(
-            dictRef.current.playerUI.subtitleSyncNoSubtitle,
-          );
-          return false;
-        }
-        await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
-        return true;
-      };
-
-      try {
-        const result = await fetchMagnetSubtitle(
-          session.token,
-          session.jobId,
-          session.subtitleFileId ?? '',
-        );
-        if (result.kind === 'no-track') {
-          // The torrent has NO embedded subtitle track (404, permanent):
-          // a reference can never appear, so stop immediately instead of
-          // waiting out the bounded wait.
-          stop();
-          notifySubtitleSyncError(
-            dictRef.current.playerUI.subtitleSyncNoReference,
-          );
-          return;
-        }
-        if (result.kind === 'cues-pending') {
-          // The embedded track exists but the DL'd prefix has no cues yet
-          // (503, temporary — Growing Media contract). Same waiting state
-          // as a short ref-cue prefix, bounded so it cannot run forever.
-          if (!(await boundedWait())) return;
-          continue;
-        }
-        if (result.kind === 'error') {
-          // Transient failure (timeout / companion hiccup) — keep the
-          // waiting state and try again on the next poll.
-          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
-          continue;
-        }
-        const ref = result;
-        const refCues = (await parseSubtitleDirect(ref.text)).cues;
-        if (refCues.length < LAZY_SYNC_MIN_REF_CUES) {
-          // Downloaded prefix has too few cues yet to trust an estimate
-          // (docs §10: first sync waits for a usable cue count). Bounded
-          // so the waiting state cannot run forever.
-          if (!(await boundedWait())) return;
-          continue;
-        }
-
-        // The native estimator takes (reference, drift); the base cues are
-        // the drift track (the user's subtitle), the polled track is the
-        // embedded reference.
-        const offsetMs = await estimateLazySyncOffsetDirect(
-          refCues,
-          state.baseCues,
-        );
-        if (offsetMs === null) {
-          // The estimator refused (no cues, a bimodal split refused by the
-          // concentration check, or an offset beyond 1 h).
-          if (!(await boundedWait())) return;
-          continue;
-        }
-
-        if (Math.abs(offsetMs) < LAZY_SYNC_MIN_OFFSET_MS) {
-          // Already in sync (ffsubsync --suppress-output-if-offset-less-
-          // than): an offset under 100 ms is sub-frame noise — leave the
-          // cues untouched and treat the sync as converged. No success
-          // toast for Magnet; polling continues to re-check as the DL
-          // grows.
-          state.lastOffsetMs = offsetMs;
-          state.waitPollCount = 0;
-          if (!state.appliedOnce) state.appliedOnce = true;
-          await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
-          continue;
-        }
-
-        const prev = state.lastOffsetMs;
-        const changed =
-          prev === null ||
-          Math.abs(offsetMs - prev) > LAZY_SYNC_STABLE_THRESHOLD_MS;
-        state.lastOffsetMs = offsetMs;
-        state.waitPollCount = 0;
-
-        if (changed) {
-          // Apply to the ORIGINAL base cues every time — never to the
-          // previously shifted display — so refinement cannot drift.
-          setCues(shiftCuesByOffset(state.baseCues, offsetMs));
-          setSubtitleErrors([]);
-          setActiveCueId(null);
-        }
-        if (!state.appliedOnce) {
-          state.appliedOnce = true;
-        }
-      } catch {
-        // Transient fetch failure (subtitle still preparing) — keep the
-        // waiting state and try again on the next poll.
-      }
-      await sleep(LAZY_SYNC_POLL_INTERVAL_MS);
-    }
-  }, []);
-
-  // Start / stop the LazySync loop with the toggle. The cleanup abort also
-  // covers unmount.
-  useEffect(() => {
-    if (!isLazySyncOn) return;
-    const ac = new AbortController();
-    void runLazySyncPolling(ac.signal);
-    return () => ac.abort();
-  }, [isLazySyncOn, runLazySyncPolling]);
 
   /**
    * Apply a sub-delay offset in seconds (docs §9.3). The native engine hands
@@ -4033,26 +3290,6 @@ export default function PlayerApp() {
   );
 
   /** Magnet audio sync: dialog handed us decoded PCM — run sub-to-audio. */
-  const handleAudioSyncComplete = useCallback(
-    async (audio: { samples: Float32Array; sampleRate: number }) => {
-      const text = subtitleTextRef.current;
-      if (!text) return;
-      const detected = await parseSubtitleDirect(text);
-      const inFormat = detected.format ?? 'vtt';
-      await runSync(async () => {
-        const synced = await syncSubtitleToAudio(
-          text,
-          inFormat,
-          audio.samples,
-          audio.sampleRate,
-          { onProgress: () => {} },
-        );
-        await applySyncedSubtitle(synced);
-      });
-    },
-    [applySyncedSubtitle, runSync],
-  );
-
   const handleMine = useCallback(
     async (overrideCue?: SubtitleCue) => {
       if (!displayMediaUrl) return;
@@ -4752,16 +3989,6 @@ export default function PlayerApp() {
       setSubtitleSettings((previous) => ({ ...previous, ...settings }));
     });
   }, []);
-
-  // Pairing handoff bridge. The EizouDen settings tab (its former UI entry
-  // point) was retired, so nothing dispatches this event right now; the
-  // listener is kept because the pairing hook still owns token validation
-  // (fail closed) and the planned Modules page will dispatch it again.
-  useEffect(() => {
-    return listenForCompanionPaired((token) => {
-      pairing.handlePairSuccess(token);
-    });
-  }, [pairing.handlePairSuccess]);
 
   // Anki credentials are page-lifetime memory only. A Settings session
   // supersedes background work; disconnect resumes the existing keyless
@@ -5738,10 +4965,8 @@ export default function PlayerApp() {
       // P1.3a.1: Ignore overlay clicks — let Yomitan/content-script document
       // listeners and text selection work without interference.
       if (target.closest('[data-entei-subtitle-overlay]')) return;
-      // Companion fix: gate on displayMediaUrl (jobSession.jobMediaUrl ??
-      // mediaUrl), not the local mediaUrl — companion playback only sets
-      // jobMediaUrl, so the local URL stays null and would make surface
-      // clicks a no-op for every companion session.
+      // Use the effective media URL, which may be a torrent relay rather than
+      // the local File URL.
       const media = sharedMediaRef.current;
       if (!media || isLoading || loadError || !displayMediaUrl) return;
 
@@ -5842,7 +5067,7 @@ export default function PlayerApp() {
   // mark <html> so player.css hides the mobile top bar on <768px. The marker
   // is removed on unmount and whenever the media is cleared, so the entry
   // state (no media) keeps its chrome. The DOM stays mounted (SEO/app shell).
-  const hasLoadedMedia = hasMedia || jobSession.active;
+  const hasLoadedMedia = hasMedia || torrentSession.active;
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle('entei-video-loaded', hasLoadedMedia);
@@ -5901,23 +5126,10 @@ export default function PlayerApp() {
           src={displayMediaUrl!}
           isLoading={isLoading}
           error={loadError}
-          // ED-2H: keep the video element mounted while an active
-          // companion session has an uncleared loadError (e.g. the initial
-          // 503 during buffering). The condition keys on loadError, NOT on
-          // the bridge phase: the bridge's recovery transition
-          // (buffering → ready) re-renders React, and a phase-based
-          // condition would unmount the element right before the bridge's
-          // explicit src/load — the loadeddata that clears loadError (via
-          // handleLoaded) then never fires and "Aliran belum siap" sticks.
-          // loadError is cleared by loadeddata, so the condition flips
-          // back to false automatically once playback resumes. Outside an
-          // active session the element unmounts on error exactly as before.
-          keepElementOnError={jobSession.active && loadError !== null}
-          errorLabel={
-            jobSession.active && jobSession.phase !== 'error'
-              ? dict.companionStreamNotReady
-              : dict.failedToLoadVideo
-          }
+          // Keep the torrent video element mounted while a relay error is
+          // recovering; the session owns a bounded explicit src/load retry.
+          keepElementOnError={torrentSession.active && loadError !== null}
+          errorLabel={dict.failedToLoadVideo}
           decodeErrorLabel={dict.videoDecodeError}
           nativeRender={isMpvNative}
           onTimeUpdate={handleTimeUpdate}
@@ -5971,18 +5183,18 @@ export default function PlayerApp() {
       {/* Seek buffering overlay: shows a spinner after a seek when the
           video element's readyState is below HAVE_FUTURE_DATA. Clears
           when canplay fires (data arrived) or on error/timeout.
-          Separate from the companion loading overlay above. */}
+          Separate from the torrent start-buffering overlay above. */}
       {isSeekBuffering && !isLoading && !loadError && (
         <div
-          className="entei-companion-loading"
+          className="entei-player-buffering-overlay"
           role="status"
           aria-label="Loading"
         >
           <TypewriterLoading aria-hidden="true" />
         </div>
       )}
-      {/* Companion start buffering overlay: the job media URL surfaced
-          but no current frame yet (readyState below HAVE_CURRENT_DATA /
+      {/* Torrent start buffering overlay: the relay URL is mounted but
+          no current frame yet (readyState below HAVE_CURRENT_DATA /
           'waiting' for over 2 s). Shows the same "preparing video" copy
           as the pre-URL loading overlay, at a larger size, in gold with
           a black drop shadow so it reads on bright frames. Clears the
@@ -5995,12 +5207,9 @@ export default function PlayerApp() {
         !isSeekBuffering &&
         !isLoading &&
         !loadError &&
-        jobSession.phase !== 'error' &&
-        // Pairing 復旧中はオーバーレイを出さない（前フレームを維持し、
-        // 再ペアリング UI が最前面で操作できるようにする意図）。
-        jobSession.phase !== 'rePairRequired' && (
+        torrentSession.active && (
           <div
-            className="entei-companion-loading entei-start-buffering"
+            className="entei-player-buffering-overlay entei-start-buffering"
             role="status"
             aria-label="Loading"
           >
@@ -6008,8 +5217,8 @@ export default function PlayerApp() {
               aria-hidden="true"
               className="entei-typewriter--start"
             />
-            <p className="entei-companion-loading-text entei-companion-loading-text--start">
-              {dict.companionPreparingVideo}
+            <p className="entei-player-buffering-text entei-start-buffering-text">
+              {dict.torrentPreparingVideo}
             </p>
           </div>
         )}
@@ -6050,7 +5259,6 @@ export default function PlayerApp() {
         onFileOpen={handleFileOpen}
         fileAccept={`${MEDIA_ACCEPT},${SUBTITLE_ACCEPT}`}
         fileOpenLabel={dict.fileOpenLabel}
-        clampSeekTime={jobSession.active ? clampSeekTime : undefined}
         externalTime={mpvTime}
         externalDuration={mpvDuration}
         nativeRender={isMpvNative}
@@ -6075,13 +5283,6 @@ export default function PlayerApp() {
         onClose={handleAudioClipDialogClose}
         isRecording={isRecordingAudio}
         dict={dict}
-      />
-      <SubtitleSyncDialog
-        open={isSubtitleSyncDialogOpen}
-        onOpenChange={setIsSubtitleSyncDialogOpen}
-        dict={dict}
-        token={jobSession.token ?? ''}
-        onComplete={handleAudioSyncComplete}
       />
       {/* P4: jimaku search modal — opened from the RightPanel button
           or the P3 auto-load fallback (title pre-filled either way). */}
@@ -6154,18 +5355,12 @@ export default function PlayerApp() {
   const subtitleErrorsBlock = null;
 
   // SUBTITLE_SYNC.md §2.11-12: hide for YouTube; show for .mkv/.mp4.
-  // `mediaSourceKind` (not raw `jobSession.kind`) so the Tauri direct yt-dlp
-  // stream — which has no companion job session — is gated as YouTube too.
   const hideSyncSubtitle = shouldHideSubtitleSync({
     jobKind: mediaSourceKind,
-    isMagnet,
     mediaName,
   });
 
   // docs/JIMAKU_SUBS.md §2.2.1: Jimaku search button hidden for YouTube.
-  // Defense-in-depth: a stale `kind` on an inactive session must not hide
-  // the button (endJobSession clears kind, but never trust stale state) —
-  // `resolveMediaSourceKind` already requires `jobActive` for the job kind.
   const hideJimakuSearch = shouldHideJimakuSearch(mediaSourceKind);
 
   // MODULE_ARCHITECTURE.md §5.3: the empty-state picker row is the core
@@ -6215,7 +5410,7 @@ export default function PlayerApp() {
       data-entei-player-root=""
     >
       {/* --- Empty state --- */}
-      {!hasMedia && !jobSession.active && (
+      {!hasMedia && !torrentSession.active && (
         <div className="entei-player-empty">
           <div className="entei-player-empty-cta">
             <div className="entei-player-empty-inner">
@@ -6239,56 +5434,11 @@ export default function PlayerApp() {
         </div>
       )}
 
-      {/* --- Companion job error fallback --- */}
-      {/* While the companion job has failed (phase='error'), the loading
-          overlays above are suppressed; without this block the player
-          area would be a full black void. Show a calm, centered failure
-          message instead of a spinner (2026-08-09: second-URL job error
-          left a black player frame). New URL / local file entry points
-          remain accessible via the dialogs and pickers. */}
-      {jobSession.active && jobSession.phase === 'error' && (
-        <div
-          className="entei-player-job-error"
-          role="alert"
-          aria-label={dict.companionJobFailed}
-        >
-          <AlertTriangle
-            size={28}
-            aria-hidden="true"
-            className="entei-player-job-error-icon"
-          />
-          <p className="entei-player-job-error-text">
-            {dict.companionJobFailed}
-          </p>
-        </div>
-      )}
-
-      {/* --- Companion loading overlay --- */}
-      {jobSession.active &&
-        !jobSession.jobMediaUrl &&
-        jobSession.phase !== 'error' &&
-        jobSession.phase !== 'rePairRequired' && (
-          <div
-            className="entei-companion-loading"
-            role="status"
-            aria-label="Loading"
-          >
-            <TypewriterLoading aria-hidden="true" />
-            <p className="entei-companion-loading-text">
-              {dict.companionPreparingVideo}
-            </p>
-          </div>
-        )}
-
-      {/* ED-2G: Magnet source dialog — real companion torrent flow (pairing
-           gate → create → poll → file selection → select). The
-           selected video's sanitized basename travels with the job id. */}
+      {/* Native torrent source flow: inspect metadata, then start only selected files. */}
       {torrentEnabled && (
         <MagnetInput
           open={isMagnetDialogOpen}
           onOpenChange={setIsMagnetDialogOpen}
-          isPaired={pairing.connected}
-          token={pairing.tokenRef.current}
           onJobAccepted={handleMagnetJobAccepted}
           dict={{
             magnetInputLabel: dict.magnetInputLabel,
@@ -6296,20 +5446,9 @@ export default function PlayerApp() {
             magnetInputLabelTitle: dict.magnetInputLabelTitle,
             magnetErrorInvalid: dict.magnetErrorInvalid,
             magnetInputSubmit: dict.magnetInputSubmit,
-            magnetInputUnpairedBody: dict.magnetInputUnpairedBody,
-            magnetConsentLabel: dict.magnetConsentLabel,
-            magnetInputErrorRepair: dict.magnetInputErrorRepair,
-            magnetInputErrorConflict: dict.magnetInputErrorConflict,
-            magnetInputErrorNetwork: dict.magnetInputErrorNetwork,
             magnetInputErrorGeneric: dict.magnetInputErrorGeneric,
-            magnetInputErrorMetadataTimeout:
-              dict.magnetInputErrorMetadataTimeout,
-            magnetInputErrorEvicted: dict.magnetInputErrorEvicted,
-            magnetInputErrorV2Unsupported: dict.magnetInputErrorV2Unsupported,
-            magnetInputSubmitting: dict.magnetInputSubmitting,
+            magnetInputErrorMetadataTimeout: dict.magnetInputErrorMetadataTimeout,
             magnetCheckMetadata: dict.magnetCheckMetadata,
-            magnetFilesTitle: dict.magnetFilesTitle,
-            magnetFilesBody: dict.magnetFilesBody,
             magnetNoVideoError: dict.magnetNoVideoError,
             magnetSelectSubmit: dict.magnetSelectSubmit,
             magnetCancel: dict.magnetCancel,
@@ -6329,32 +5468,22 @@ export default function PlayerApp() {
         />
       )}
 
-      {/* ED-2F: YouTube source dialog — real URL input, job create on the
-          paired companion; media switch / End button cancels the job. */}
+      {/* YouTube source flow: resolve and relay through the native yt-dlp plugin. */}
       {ytdlpEnabled && (
         <YouTubeInput
           open={isYouTubeDialogOpen}
           onOpenChange={setIsYouTubeDialogOpen}
-          isPaired={pairing.connected}
-          token={pairing.tokenRef.current}
-          onJobAccepted={handleYouTubeJobAccepted}
           onStreamAccepted={handleYouTubeStreamAccepted}
           onVideoIdParsed={handleYouTubeVideoIdParsed}
-          cancelActiveJob={jobSession.cancelActiveJob}
           dict={{
             youtubeInputLabel: dict.youtubeInputLabel,
             youtubeInputTitle: dict.youtubeInputTitle,
             youtubeInputFieldLabel: dict.youtubeInputFieldLabel,
-            youtubeInputQuality: dict.youtubeInputQuality,
             youtubeInputCancel: dict.youtubeInputCancel,
             youtubeInputPlaceholder: dict.youtubeInputPlaceholder,
             youtubeInputSubmit: dict.youtubeInputSubmit,
             youtubeInputErrorInvalid: dict.youtubeInputErrorInvalid,
-            youtubeInputErrorRepair: dict.youtubeInputErrorRepair,
-            youtubeInputErrorConflict: dict.youtubeInputErrorConflict,
-            youtubeInputErrorNetwork: dict.youtubeInputErrorNetwork,
             youtubeInputErrorGeneric: dict.youtubeInputErrorGeneric,
-            youtubeInputSubmitting: dict.youtubeInputSubmitting,
             dialogClose: dict.dialogClose,
             firefoxUnsupported: dict.firefoxUnsupported,
           }}
@@ -6436,9 +5565,6 @@ export default function PlayerApp() {
               isSyncingSubtitle={isSyncingSubtitle}
               syncMode={prefsRef.current.subtitleSyncMode ?? 'auto'}
               hideSyncSubtitle={hideSyncSubtitle}
-              isMagnet={isMagnet}
-              lazySyncOn={isLazySyncOn}
-              onToggleLazySync={handleToggleLazySync}
               onOpenJimakuSearch={
                 hideJimakuSearch ? undefined : handleOpenJimakuSearch
               }
@@ -6466,9 +5592,6 @@ export default function PlayerApp() {
               isSyncingSubtitle={isSyncingSubtitle}
               syncMode={prefsRef.current.subtitleSyncMode ?? 'auto'}
               hideSyncSubtitle={hideSyncSubtitle}
-              isMagnet={isMagnet}
-              lazySyncOn={isLazySyncOn}
-              onToggleLazySync={handleToggleLazySync}
               onOpenJimakuSearch={
                 hideJimakuSearch ? undefined : handleOpenJimakuSearch
               }

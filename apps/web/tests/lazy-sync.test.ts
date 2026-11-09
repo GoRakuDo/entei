@@ -8,9 +8,6 @@ import {
   estimateMedianOffset,
   shiftCuesByOffset,
   LAZY_SYNC_MAX_OFFSET_MS,
-  LAZY_SYNC_MAX_PAIRS,
-  LAZY_SYNC_CONCENTRATION_BAND_MS,
-  LAZY_SYNC_CONCENTRATION_BAND_MAX_MS,
   LAZY_SYNC_MIN_CONCENTRATION,
   LAZY_SYNC_STABLE_THRESHOLD_MS,
   LAZY_SYNC_MAX_WAIT_POLLS,
@@ -220,11 +217,8 @@ describe('estimateMedianOffset', () => {
     // into 3× 8700 + 3× 11700. The new prefix consensus algorithm picks
     // the candidate with the most inliers; both c=+8.7 s and c=+11.7 s
     // score 5/6 inliers, and the first encountered (c=+8.7 s) wins.
-    // The previous rank-pairing algorithm used a band cap
-    // (LAZY_SYNC_CONCENTRATION_BAND_MAX_MS=2500) to fail-close this case;
-    // the new algorithm expresses the same safety guarantee differently
-    // (smallest-prefix candidate first, safer default). The band cap
-    // constant is retained for historical reference but unused.
+    // Prefix consensus expresses the safety guarantee via inlier voting and
+    // candidate ordering, rather than a concentration-band cap.
     const drift = Array.from({ length: 6 }, (_, i) =>
       cue(i, i * 3, `ja-${i}`),
     );
@@ -385,7 +379,7 @@ describe('LazySync constants', () => {
     );
   });
 
-  it('first sync waits for ≥ 5 downloaded cues (docs §10 trigger)', () => {
+  it('first sync waits for at least five reference cues', () => {
     expect(LAZY_SYNC_MIN_REF_CUES).toBe(5);
   });
 
@@ -397,16 +391,10 @@ describe('LazySync constants', () => {
     expect(LAZY_SYNC_MAX_OFFSET_MS).toBe(3600000);
   });
 
-  it('max pair cap is 100', () => {
-    expect(LAZY_SYNC_MAX_PAIRS).toBe(100);
-  });
-
-  it('concentration band baseline is 2000 ms (docs §10.3)', () => {
-    expect(LAZY_SYNC_CONCENTRATION_BAND_MS).toBe(2000);
-  });
-
-  it('concentration band cap is 2500 ms (3 s mid-track gaps stay fail-closed at large offsets)', () => {
-    expect(LAZY_SYNC_CONCENTRATION_BAND_MAX_MS).toBe(2500);
+  it('maximum wait and first-sync thresholds are bounded', () => {
+    expect(LAZY_SYNC_MAX_WAIT_POLLS).toBe(240);
+    expect(LAZY_SYNC_MIN_REF_CUES).toBe(5);
+    expect(LAZY_SYNC_MIN_OFFSET_MS).toBe(100);
   });
 
   it('concentration requires > 50% of diffs inside the band (fail-closed)', () => {

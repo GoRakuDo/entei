@@ -5,22 +5,13 @@
  * empty-state button disappears and its dialog cannot be opened. The local-file
  * picker is a built-in capability and must stay available in every case.
  *
- * Only the pairing/status fetch is stubbed — everything else is the real
- * component so the test fails if the gate is removed from PlayerApp.
+ * Native module IPC is stubbed only when required — the real component must
+ * prove enabled/disabled module visibility without a pairing dependency.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { act } from 'react';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-
-vi.mock('@/features/player/use-companion-pairing', () => ({
-  useCompanionPairing: () => ({
-    connected: true,
-    validating: false,
-    tokenRef: { current: 'test-token' },
-    handlePairSuccess: vi.fn(),
-  }),
-}));
 
 import PlayerApp from '@/components/player/PlayerApp';
 import { MODULES_KEY } from '@/features/modules/modules-store';
@@ -96,7 +87,7 @@ describe('PlayerApp module gate', () => {
     expect(document.querySelector('.entei-player-empty-cta')).not.toBeNull();
   });
 
-  it('renders the empty state as the local picker only — no companion setup section', () => {
+  it('renders the empty state as the local picker only with source modules disabled', () => {
     setModuleState({ ytdlp: false, torrent: false });
     render(<PlayerApp />);
 

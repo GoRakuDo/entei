@@ -205,43 +205,6 @@ export function listenForAnkiSessionCredentials(
 /** CustomEvent name for live jimaku API-key presence changes. */
 export const JIMAKU_KEY_CHANGED_EVENT = 'entei:player-jimaku-key-changed';
 
-/**
- * CustomEvent name for a pairing handoff from the global nav settings island
- * to the PlayerApp island. The nav island owns its own pairing dialog (the
- * EizouDen settings tab is the only pairing entry point since the Player empty
- * state dropped EizouDendenshiSetup), but the Player's `useCompanionPairing`
- * state lives in the other island — this event carries the freshly issued
- * capability token across that boundary so Magnet / YouTube work immediately
- * instead of after a page reload.
- *
- * Payload: the opaque token string. It is validated by the receiver's pairing
- * hook (`isValidPairingToken`, fail closed) and never persisted or logged by
- * this module.
- */
-export const COMPANION_PAIRED_EVENT = 'entei:player-companion-paired';
-
-/** Dispatch a freshly issued pairing token to the Player island (browser only). */
-export function dispatchCompanionPaired(token: string): void {
-  if (!isBrowser()) return;
-  if (typeof token !== 'string' || token.length === 0) return;
-  window.dispatchEvent(
-    new CustomEvent<string>(COMPANION_PAIRED_EVENT, { detail: token }),
-  );
-}
-
-/** Listen for pairing handoffs; returns an idempotent-style cleanup. */
-export function listenForCompanionPaired(
-  listener: (token: string) => void,
-): () => void {
-  if (!isBrowser()) return () => {};
-  const handler = (event: Event) => {
-    const detail = (event as CustomEvent<unknown>).detail;
-    if (typeof detail === 'string' && detail.length > 0) listener(detail);
-  };
-  window.addEventListener(COMPANION_PAIRED_EVENT, handler);
-  return () => window.removeEventListener(COMPANION_PAIRED_EVENT, handler);
-}
-
 /** Dispatch a jimaku API-key presence change (browser only). */
 export function dispatchJimakuKeyChanged(hasKey: boolean): void {
   if (!isBrowser()) return;

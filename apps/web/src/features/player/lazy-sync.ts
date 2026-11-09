@@ -42,25 +42,6 @@ export const LAZY_SYNC_MIN_OFFSET_MS = 100;
 /** Maximum offset: values beyond this are treated as broken estimates. */
 export const LAZY_SYNC_MAX_OFFSET_MS = 3600000;
 
-/** Maximum number of rank pairs to sample (rank-pairing era): min(drift,
- *  ref) above this was thinned with a stride, capping both the work and the
- *  influence of a long download prefix. The current algorithm uses fixed
- *  prefix sizes (N_DRIFT_MAX / N_REF_MAX) and does not stride-sample, but
- *  the constant is retained for historical reference (docs §10.3). */
-export const LAZY_SYNC_MAX_PAIRS = 100;
-
-/** Baseline half-width of the median-concentration band (docs §10.3, rank-
- *  pairing era): a diff counted as concentrated when |d − median| ≤
- *  max(this, |median| / 2). Retained for historical reference — the
- *  current prefix consensus algorithm uses an inlier-vote gate
- *  (maxInliers / N_DRIFT) instead. */
-export const LAZY_SYNC_CONCENTRATION_BAND_MS = 2000;
-
-/** Upper bound for the concentration band. Retained for historical reference
- *  (docs §10.3, rank-pairing era). The current algorithm does not use this
- *  constant. */
-export const LAZY_SYNC_CONCENTRATION_BAND_MAX_MS = 2500;
-
 /** Minimum fraction of cues (denominator: min(N_DRIFT, N_REF)) that must
  *  be inliers for the winning candidate (prefix consensus, docs §10.3 —
  *  2026-09 update): below this fraction no single offset is representative

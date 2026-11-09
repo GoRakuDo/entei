@@ -124,10 +124,6 @@ interface PlayerControlsProps {
   fileAccept?: string;
   /** Localized aria-label for the file-open button. */
   fileOpenLabel?: string;
-  /** ED-2H: Optional seek time clamp for companion streaming. When provided,
-   *  seek targets are clamped to the companion's verified byte range to
-   *  prevent stalls from seeking beyond available data. */
-  clampSeekTime?: (seconds: number) => number;
   /** Native mpv clock (seconds). While mpv renders, the HTML element may
    *  never report a position (WebView2 cannot decode HEVC 4:4:4 10-bit /
    *  FLAC), so the parent supplies `time-pos` and it wins over the element. */
@@ -186,7 +182,6 @@ export const PlayerControls = forwardRef<
     onFileOpen,
     fileAccept,
     fileOpenLabel,
-    clampSeekTime,
     externalTime = null,
     externalDuration = null,
     nativeRender = false,
@@ -522,9 +517,7 @@ export const PlayerControls = forwardRef<
         Math.max(0, (clientX - rect.left) / rect.width),
       );
       const raw = ratio * duration;
-      const target = clampSeekTime
-        ? clampSeekTime(clampSeek(raw, duration))
-        : clampSeek(raw, duration);
+      const target = clampSeek(raw, duration);
       // Immediate seek — click-to-seek must never wait for pointerup.
       // The element is kept in sync on purpose: it is the frame source for
       // mining captures and the play-mode effects read its position.
@@ -537,7 +530,7 @@ export const PlayerControls = forwardRef<
       setCurrentTime(target);
       return target;
     },
-    [mediaRef, duration, clampSeekTime, nativeRender],
+    [mediaRef, duration, nativeRender],
   );
 
   const handleSeekPointerDown = useCallback(
@@ -630,15 +623,13 @@ export const PlayerControls = forwardRef<
     (value: number[]) => {
       const t = value[0];
       if (t !== undefined) {
-        const clamped = clampSeekTime
-          ? clampSeekTime(clampSeek(t, duration))
-          : clampSeek(t, duration);
+        const clamped = clampSeek(t, duration);
         seekValueRef.current = clamped;
         setCurrentTime(clamped);
         handleSeekStart();
       }
     },
-    [duration, handleSeekStart, clampSeekTime],
+    [duration, handleSeekStart],
   );
 
   const handleSeekEnd = useCallback(
@@ -646,9 +637,7 @@ export const PlayerControls = forwardRef<
       const media = mediaRef.current;
       const seekTime = value[0];
       if (media && seekTime !== undefined) {
-        const clamped = clampSeekTime
-          ? clampSeekTime(clampSeek(seekTime, duration))
-          : clampSeek(seekTime, duration);
+        const clamped = clampSeek(seekTime, duration);
         media.currentTime = clamped;
         // Native engine: the engine is the renderer, so it needs the seek.
         if (nativeRender) void mpvSeek(clamped);
@@ -661,7 +650,7 @@ export const PlayerControls = forwardRef<
       setIsSeeking(false);
       showControls({ type: 'seek-end' });
     },
-    [mediaRef, duration, showControls, clampSeekTime, nativeRender],
+    [mediaRef, duration, showControls, nativeRender],
   );
 
   // Compute seek slider value: during drag use seekValueRef, otherwise media currentTime

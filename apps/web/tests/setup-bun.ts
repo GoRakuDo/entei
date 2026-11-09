@@ -91,4 +91,18 @@ if (typeof window !== 'undefined') {
     writable: true,
     value: matchMedia,
   });
+
+  if (!('ResizeObserver' in window)) {
+    class MockResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    Object.defineProperty(window, 'ResizeObserver', {
+      configurable: true,
+      writable: true,
+      value: MockResizeObserver,
+    });
+    (globalThis as unknown as Record<string, unknown>).ResizeObserver = MockResizeObserver;
+  }
 }

@@ -7,14 +7,11 @@
  * Design:
  * - Returns validation errors instead of throwing to UI.
  * - Strips VTT headers, notes, and style blocks safely.
- * - Strips ASS override tags ({\\...}) from dialogue text.
- * - Converts ASS \\N and \\n linebreaks to spaces (single-line convention).
  * - Normalizes and sorts cues by start time.
  * - Handles malformed timing gracefully.
  * - Single shared tag-stripping helper (merged from duplicates).
  * --------------------------------------------------------------------------- */
 
-import { compile as compileASS } from 'ass-compiler';
 export interface SubtitleCue {
   /** Unique identifier (index-based after normalization). */
   id: number;
@@ -297,113 +294,108 @@ function parseVTT(content: string): SubtitleParseResult {
 }
 
 // ---------------------------------------------------------------------------
-// ASS Parser (P1.3a — uses ass-compiler)
+// ASS Parser (P1.3a)
 // ---------------------------------------------------------------------------
 
-/**
- * Strip ASS override tags ({\...}) from text.
- * These are inline styling directives like {\b1}, {\i1}, {\pos(x,y)} etc.
- * Only strips brace-enclosed tags, not the text content.
- */
-function stripASSTags(text: string): string {
-  return text.replace(/\{[^}]*\}/g, '');
-}
+/** Read the visible text of an ASS dialogue, omitting styling and drawings. */
+function extractASSText(rawText: string): string {
+  const parts = rawText.split(/\{([^{}]*?)\}/g);
+  let drawing = false;
+  let text = '';
 
-/**
- * Normalize ASS linebreaks (\N and \n) to spaces.
- * ASS uses \N for hard line breaks and \n for soft breaks.
- * Entei's panel convention is single-line (whitespace normalized).
- */
-function normalizeASSLinebreaks(text: string): string {
-  return text.replace(/\\N/g, ' ').replace(/\\n/g, ' ');
-}
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i]!;
+    if (i % 2 === 0) {
+      if (!drawing) text += part;
+      continue;
+    }
 
-/**
- * Compile ASS content using ass-compiler, returning cues or errors.
- * Wraps the compiler call to catch any thrown exceptions.
- */
-function compileASSContent(
-  content: string,
-): { compiled: ReturnType<typeof compileASS> } | { error: string } {
-  try {
-    const compiled = compileASS(content, {}); // empty options — default behavior
-    return { compiled };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { error: `ASS compiler error: ${msg}` };
+    let depth = 0;
+    let tag = '';
+    const applyTag = () => {
+      const match = /^p(-?\d+)/.exec(tag);
+      if (match) drawing = Number(match[1]) !== 0;
+      tag = '';
+    };
+    for (const char of part) {
+      if (char === '(') depth += 1;
+      else if (char === ')') depth = Math.max(0, depth - 1);
+      if (char === '\\' && depth === 0) applyTag();
+      else if (tag || char !== '\\') tag += char;
+    }
+    applyTag();
   }
+  return text.replace(/\\[Nn]/g, ' ');
 }
 
 function parseASS(content: string): SubtitleParseResult {
   const errors: SubtitleError[] = [];
-  const cues: SubtitleCue[] = [];
+  const dialogues: Array<{ start: number; end: number; text: string }> = [];
+  let eventFields: string[] = [];
+  let section = '';
 
-  const result = compileASSContent(content);
-  if ('error' in result) {
-    errors.push({ line: 0, message: result.error });
-    return { cues, errors, format: 'ass' };
-  }
-
-  const dialogues = result.compiled.dialogues;
-  if (!Array.isArray(dialogues) || dialogues.length === 0) {
-    errors.push({ line: 0, message: 'No dialogue events found in ASS file' });
-    return { cues, errors, format: 'ass' };
-  }
-
-  for (let i = 0; i < dialogues.length; i++) {
-    const d = dialogues[i];
-    if (!d) continue;
-
-    const start = typeof d.start === 'number' ? d.start : NaN;
-    const end = typeof d.end === 'number' ? d.end : NaN;
-
-    if (isNaN(start) || isNaN(end)) {
-      errors.push({
-        line: 0,
-        message: `Dialogue #${i + 1}: invalid timing (start=${String(start)}, end=${String(end)})`,
-      });
+  for (const rawLine of content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
+    const line = rawLine.trim();
+    if (line.startsWith(';')) continue;
+    if (line.startsWith('[') && line.includes(']')) {
+      section = line.slice(1, line.indexOf(']')).toLowerCase();
       continue;
     }
+    if (section !== 'events') continue;
 
-    // Extract text from all slices/fragments
-    const textParts: string[] = [];
-    if (Array.isArray(d.slices)) {
-      for (const slice of d.slices) {
-        if (!slice || !Array.isArray(slice.fragments)) continue;
-        for (const frag of slice.fragments) {
-          if (frag && typeof frag.text === 'string') {
-            textParts.push(frag.text);
-          }
-        }
-      }
-    }
-
-    let text = textParts.join('');
-    // Strip ASS override tags and normalize linebreaks
-    text = stripASSTags(text);
-    text = normalizeASSLinebreaks(text);
-    // Apply shared whitespace normalization
-    text = stripTags(text);
-
-    if (text.length === 0) {
-      // Empty dialogue text (music/silence gaps) — skip silently.
+    const format = /^Format\s*:\s*(.*)$/i.exec(line);
+    if (format) {
+      eventFields = format[1]!.split(/\s*,\s*/);
       continue;
     }
+    const dialogue = /^Dialogue\s*:\s*(.*)$/i.exec(line);
+    if (!dialogue) continue;
+    if (eventFields.length === 0) {
+      errors.push({ line: 0, message: 'ASS compiler error: missing Events Format line' });
+      return { cues: [], errors, format: 'ass' };
+    }
 
-    // Zero/negative-length cues are silently dropped (see SRT above).
-    if (end <= start) continue;
-    cues.push({
-      id: cues.length,
-      start,
-      end,
-      text,
+    const fields = dialogue[1]!.split(',');
+    if (fields.length > eventFields.length) {
+      fields.splice(eventFields.length - 1, fields.length, fields.slice(eventFields.length - 1).join(','));
+    }
+    const textIndex = eventFields.indexOf('Text');
+    if (textIndex < 0 || fields[textIndex] === undefined) {
+      errors.push({ line: 0, message: 'ASS compiler error: missing Text field' });
+      return { cues: [], errors, format: 'ass' };
+    }
+    const parseTime = (value: string | undefined): number => {
+      const parts = (value ?? '').split(':');
+      return Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2]);
+    };
+    dialogues.push({
+      start: parseTime(fields[eventFields.indexOf('Start')]?.trim()),
+      end: parseTime(fields[eventFields.indexOf('End')]?.trim()),
+      text: fields[textIndex]!,
     });
   }
 
-  cues.sort((a, b) => a.start - b.start);
-  const normalized = normalizeCues(cues);
+  const compiled = dialogues
+    .filter((dialogue) => !(dialogue.start >= dialogue.end))
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  if (compiled.length === 0) {
+    errors.push({ line: 0, message: 'No dialogue events found in ASS file' });
+  }
 
-  return { cues: normalized, errors, format: 'ass' };
+  const cues: SubtitleCue[] = [];
+  for (const [index, dialogue] of compiled.entries()) {
+    if (isNaN(dialogue.start) || isNaN(dialogue.end)) {
+      errors.push({
+        line: 0,
+        message: `Dialogue #${index + 1}: invalid timing (start=${String(dialogue.start)}, end=${String(dialogue.end)})`,
+      });
+      continue;
+    }
+    const text = stripTags(extractASSText(dialogue.text));
+    if (!text || dialogue.end <= dialogue.start) continue;
+    cues.push({ id: cues.length, start: dialogue.start, end: dialogue.end, text });
+  }
+  return { cues: normalizeCues(cues), errors, format: 'ass' };
 }
 
 // ---------------------------------------------------------------------------

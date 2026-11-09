@@ -58,7 +58,7 @@
   --color-card: var(--entei-surface);
   --color-card-foreground: var(--entei-text);
 
-  /* InputOTP fake caret (ED-3, input-otp.tsx) */
+  /* InputOTP fake caret. */
   --animate-caret-blink: caret-blink 1s ease-out infinite;
 
   @keyframes caret-blink {
@@ -427,75 +427,6 @@ html.entei-native-video .entei-player-video {
   opacity: 0.5;
   cursor: not-allowed;
 }
-/* Magnet LazySync toggle ON state: colored active fill + accent border
-   (docs SUBTITLE_SYNC.md §10 — オン=色付きのアクティブ表示). */
-.entei-subtitle-sync-button--active,
-.entei-subtitle-sync-button--active:hover:not(:disabled) {
-  background-color: var(--entei-btn-color);
-  border-color: var(--entei-accent);
-  color: var(--entei-accent-hover);
-}
-
-/* --- SubtitleSyncDialog (sub-to-audio DL wait, SubtitleSyncDialog.tsx) --- */
-.entei-subtitle-sync-dialog {
-  max-width: 28rem;
-}
-
-.entei-subtitle-sync-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-16) var(--entei-space-24);
-  border-top: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-subtitle-sync-dialog-cancel,
-.entei-subtitle-sync-dialog-confirm {
-  min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-16);
-  border-radius: var(--entei-radius-md);
-  font-family: var(--entei-font-body);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    border-color var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-.entei-subtitle-sync-dialog-cancel {
-  background-color: transparent;
-  border: none;
-  color: var(--entei-text);
-}
-
-.entei-subtitle-sync-dialog-cancel:hover:not(:disabled) {
-  background-color: var(--entei-btn-color);
-}
-
-.entei-subtitle-sync-dialog-confirm {
-  background-color: var(--entei-accent);
-  border: 1px solid transparent;
-  color: var(--entei-text);
-}
-
-.entei-subtitle-sync-dialog-confirm:hover:not(:disabled) {
-  background-color: var(--entei-accent-hover);
-}
-
-.entei-subtitle-sync-dialog-progress {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--entei-touch-min);
-  font-family: var(--entei-font-body);
-  color: var(--entei-text-secondary);
-}
-
-.entei-subtitle-sync-dialog-error {
-  margin-top: var(--entei-space-12);
-  color: var(--color-destructive);
-}
-
 /* --- Subtitle Row --- */
 .entei-player-subtitle-row {
   display: flex;
@@ -666,9 +597,9 @@ html.entei-native-video .entei-player-video {
   color: var(--entei-text-muted);
 }
 
-/* Subtitle panel loading state (companion jobs while subtitle content is
-   still being fetched): centered TypewriterLoading + label, slightly
-   larger than the empty-state copy so the "preparing" state reads. */
+/* Subtitle panel loading state while a native torrent subtitle relay is
+   still being fetched: centered TypewriterLoading + label, slightly larger
+   than the empty-state copy so the "preparing" state reads. */
 .entei-subtitle-preparing {
   display: flex;
   flex: 1;
@@ -878,14 +809,10 @@ html.entei-native-video .entei-player-video {
   }
 }
 
-/* --- Companion Loading Overlay --- */
-/* Shown inside the surface while the companion bridge is buffering but
-   the job media URL has not yet been surfaced (playable not detected).
-   pointer-events: none so the overlay never swallows clicks — the
-   control layer (z-index 10) stays fully usable even while the spinner
-   is up (2026-08-09: an autoplay-blocked load left the controls
-   unreachable until the overlay vanished). */
-.entei-companion-loading {
+/* --- Player Buffering Overlay --- */
+/* Non-blocking loading state over the player surface; controls remain
+   usable while a native torrent relay waits for its first frame. */
+.entei-player-buffering-overlay {
   position: absolute;
   inset: 0;
   display: flex;
@@ -912,23 +839,23 @@ html.entei-native-video .entei-player-video {
 /* The caret is a 2px border, not text, so text-shadow never reaches it.
    Mirror the copy's hard black edge with a filter: the blinking bar stays
    visible over bright video frames in both loading overlays. */
-.entei-companion-loading .entei-typewriter-caret {
+.entei-player-buffering-overlay .entei-typewriter-caret {
   filter: drop-shadow(0 1px 2px oklch(0% 0 0deg / 0.9));
 }
 
-.entei-companion-loading-text {
+.entei-player-buffering-text {
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   line-height: 1.4;
 }
 
-/* Companion START buffering (black-screen wait): the job media URL is up
-   but the .part has not yielded playable data yet. Larger, responsive
+/* Torrent START buffering (black-screen wait): the relay URL is up but the
+   stream has not yielded playable data yet. Larger, responsive
    type (scale 1rem → 1.5rem, clamped by viewport) so the waiting state
    reads on phones; same layout pattern as the loading overlay. Colour and
-   weight come from the shared .entei-companion-loading parent. */
+   weight come from the shared .entei-player-buffering-overlay parent. */
 .entei-start-buffering .entei-typewriter--start,
-.entei-companion-loading-text--start {
+.entei-start-buffering-text {
   font-size: clamp(1rem, 3vw, 1.5rem);
   line-height: 1.4;
 }
@@ -944,8 +871,8 @@ html.entei-native-video .entei-player-video {
   border: 1px solid oklch(55% 0.2 25deg / 0.3);
 }
 
-/* Overlay error state: when shown over a KEPT video element (companion
-   buffering — the bridge recovers with an explicit src/load, so the
+/* Overlay error state: when shown over a KEPT video element (torrent
+   buffering — the session recovers with an explicit src/load, so the
    element must stay mounted), cover the wrapper instead of replacing the
    element. The standalone error state above is untouched. */
 .entei-player-video-wrapper .entei-player-error-state {
@@ -954,30 +881,7 @@ html.entei-native-video .entei-player-video {
   background-color: color-mix(in oklch, var(--entei-surface) 92%, transparent);
 }
 
-/* Companion job error fallback: centered, calm failure copy filling the
-   player frame (no spinner). Uses the existing OKLCH error tint for the
    border/icon; the red text color matches the error-state border above. */
-.entei-player-job-error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-48) var(--entei-space-16);
-  text-align: center;
-}
-
-.entei-player-job-error-icon {
-  color: oklch(60% 0.22 25deg);
-}
-
-.entei-player-job-error-text {
-  font-family: var(--entei-font-body);
-  font-size: 1rem;
-  color: var(--entei-text);
-  max-width: 30rem;
-}
-
 /* Inline icon in error warnings title (replaces inline style). */
 .entei-player-errors-icon {
   display: inline;
@@ -1908,7 +1812,7 @@ html.entei-native-video .entei-player-video {
   min-width: 0;
   /* Explicit min-height:0 — do not rely on flex min-size collapse alone
      (spec 4.5); makes the panel a robust scroll container. Mirrors
-     eizouden-settings.css. */
+     settings-shared.css. */
   min-height: 0;
   overflow-y: auto;
   /* W1: mobile 24px inline/block */
@@ -1935,7 +1839,7 @@ html.entei-native-video .entei-player-video {
    `min-height:0 + overflow-y:auto` is defense-in-depth for the same effect
    on the inner flex item. Header + tab strip stay fixed; only content
    scrolls (measured fix for bottom:-144px overflow).
-   Mirrors eizouden-settings.css (identical values — drift guard). */
+   Mirrors settings-shared.css (identical values — drift guard). */
 .entei-settings-dialog [data-slot='tabs-content'][role='tabpanel'],
 .entei-settings-dialog .entei-settings-tab-content {
   flex: 1 1 auto;
@@ -1958,58 +1862,6 @@ html.entei-native-video .entei-player-video {
   color: var(--entei-text);
   margin: 0;
   line-height: 1.3;
-}
-
-/* --- EizouDen tab: explicit pairing reset (destructive, ED-3) ---
-   Mirrors eizouden-settings.css (identical values; layering both is
-   harmless — matches the settings-section / settings-label convention). */
-.entei-eizouden-reset-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-  padding-top: var(--entei-space-16);
-  border-top: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-eizouden-reset-btn {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-md);
-}
-
-/* --- EizouDen tab: pairing entry point (unpaired browsers only) ---
-   Phase 2 transition: EizouDendenshiSetup was retired from the Player empty
-   state, so pairing lives here instead. */
-.entei-eizouden-pair-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-12);
-  padding-bottom: var(--entei-space-16);
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-.entei-eizouden-pair-btn {
-  align-self: flex-start;
-  min-height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-md);
-}
-
-/* Pairing reset confirm dialog (shared with the EizouDen tab) */
-.entei-eizou-reset-desc {
-  margin: 0;
-  padding: var(--entei-space-16) var(--entei-space-24);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--entei-text-secondary);
-}
-
-.entei-eizou-reset-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
 .entei-settings-shortcuts-list {
@@ -2093,7 +1945,7 @@ html.entei-native-video .entei-player-video {
 }
 
 /* Deck + Note Type pair: stacked on mobile, two equal columns on
-   desktop (mirror: eizouden-settings.css). */
+   desktop. */
 .entei-anki-pair-row {
   display: flex;
   flex-direction: column;
@@ -4695,7 +4547,7 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 /* ---------------------------------------------------------------------------
- * ED-1: Magnet URI dialog — visual shell only (no torrent runtime)
+ * Native torrent source dialog
  * --------------------------------------------------------------------------- */
 
 /* Icon-only magnet opener: extends shadcn Button variant="outline" size="icon"
@@ -4781,7 +4633,7 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-/* --- ED-2G File Browser (table-based) --- */
+/* --- Torrent file browser --- */
 
 /* Empty state (no files listed yet / empty folder) */
 .entei-magnet-empty {
@@ -4851,7 +4703,7 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-/* --- ED-2G magnet source dialog — mockup shell (2026-09) --- */
+/* --- Magnet dialog shell --- */
 
 /* Single padding owner (DESIGN.md 8.8): the title lives inside this box, so
    there is no separate header band padding to stack on top. */
@@ -5392,7 +5244,7 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-/* --- ED-2F YouTube source dialog --- */
+/* --- YouTube source dialog --- */
 .entei-youtube-form {
   display: flex;
   flex-direction: column;
@@ -5467,8 +5319,7 @@ html.entei-player-immersive .entei-player-audio-area {
   color: var(--entei-text);
 }
 
-/* --- ED-2F YouTube dialog — mockup layout (gold pixel title, URL + quality
- * ButtonGroup, Cancel/Stream Now ButtonGroup) --- */
+/* --- YouTube dialog layout --- */
 
 /* Gold pixel heading — matches the mockup title treatment. The form's
    shared gap is 16px, so the title adds the remaining 8px to make the
@@ -5487,10 +5338,7 @@ html.entei-player-immersive .entei-player-audio-area {
   line-height: 1.4;
 }
 
-/* URL input + quality Select share one joined ButtonGroup on desktop and
- * stack (URL on top, quality below) below 768px. The wrapper owns the single
- * visible border/surface so the children never draw a second outline
- * (DESIGN.md 8.9). */
+/* URL input shares the single ButtonGroup surface. */
 /* Quiet dark field surface — `--entei-surface-2` reads as a saturated
    blue block inside the dialog, so the group sits on `--entei-surface`
    with a hairline border instead. */
@@ -5505,8 +5353,7 @@ html.entei-player-immersive .entei-player-audio-area {
 
 /* Both children share the exact same box: same min-height, same typography,
    no border, no ring — a single flat surface. */
-.entei-youtube-input-group .entei-youtube-url-input,
-.entei-youtube-input-group .entei-youtube-quality {
+.entei-youtube-input-group .entei-youtube-url-input {
   height: auto;
   min-height: calc(var(--entei-touch-min) - 2px);
   background-color: transparent;
@@ -5530,53 +5377,10 @@ html.entei-player-immersive .entei-player-audio-area {
 
 /* Focus stays visible but inset, so it never reads as a thick double outline
    around the joined group. */
-.entei-youtube-input-group .entei-youtube-url-input:focus-visible,
-.entei-youtube-input-group .entei-youtube-quality:focus-visible {
+.entei-youtube-input-group .entei-youtube-url-input:focus-visible {
   outline: 2px solid var(--entei-focus-ring);
   outline-offset: -2px;
   box-shadow: none;
-}
-
-/* Quality trigger keeps the ButtonGroup's flat, joined surface and is
-   separated from the input by a single hairline rule. */
-.entei-youtube-input-group .entei-youtube-quality {
-  flex-shrink: 0;
-  padding-inline: var(--entei-space-12);
-  border-left: 1px solid oklch(100% 0 0deg / 0.1);
-}
-
-.entei-youtube-input-group .entei-youtube-quality:hover {
-  background-color: var(--entei-btn-hover-bg);
-  color: var(--entei-status-locked);
-}
-
-/* Quality popover: exactly the trigger's width (never overflows the trigger)
-   and re-skinned off the shadcn `bg-popover`/`bg-accent` defaults — the
-   selected row uses Entei's gold-on-muted-fill treatment instead of a
-   saturated periwinkle block. Portaled to <body>, so the classes are global. */
-.entei-youtube-quality-content {
-  width: var(--radix-select-trigger-width);
-  min-width: var(--radix-select-trigger-width);
-  background-color: var(--entei-surface);
-  border: 1px solid oklch(100% 0 0deg / 0.1);
-  color: var(--entei-text);
-  font-family: var(--entei-font-system);
-}
-
-.entei-youtube-quality-item:focus {
-  background-color: var(--entei-btn-color);
-  color: var(--entei-text);
-}
-
-/* Checked wins over focus (declared after it) so the selected row keeps the
-   gold treatment while the pointer is over it. */
-.entei-youtube-quality-item[data-state='checked'] {
-  background-color: var(--entei-btn-color);
-  color: var(--entei-status-locked);
-}
-
-.entei-youtube-quality-item[data-state='checked'] svg {
-  color: var(--entei-status-locked);
 }
 
 /* Actions row: right-aligned joined pair on desktop; separate stacked
@@ -5602,22 +5406,8 @@ html.entei-player-immersive .entei-player-audio-area {
     justify-content: flex-start;
   }
 
-  /* Shared right rail: the quality trigger and the Stream Now button occupy
-     the exact same column, so their vertical hairlines land on one pixel
-     column (a 3.8px seam showed when Stream Now was content-sized).
-     The trigger lives inside `.entei-youtube-input-group`, which draws its
-     own 1px outer border and therefore insets its content box by 1px; the
-     trigger's width is reduced by that border so its LEFT hairline sits at
-     the same x as Stream Now's (12rem rail measured from the dialog's right
-     edge). Stream Now is fixed rather than min-width for the same reason:
-     its intrinsic width (label + 40px padding) drifts with the locale. The
-     longest label (id `Streaming Sekarang` = 154.8px at 15px/600) still fits
-     inside the 150px content box without clipping, so keep the rail wide
-     enough if a longer locale label is ever added. */
-  .entei-youtube-input-group .entei-youtube-quality {
-    width: calc(12rem - 1px);
-  }
-
+  /* A fixed Stream Now width keeps the actions rail aligned across locales;
+     widen it if a future translation needs more room. */
   .entei-youtube-actions > .entei-youtube-form-submit {
     width: 12rem;
   }
@@ -5640,8 +5430,7 @@ html.entei-player-immersive .entei-player-audio-area {
 }
 
 /* Mobile (<768px): the joined groups split into separate, fully rounded
- * controls (mockup): URL input, then quality Select, then Stream Now, then
- * Cancel. ButtonGroup's vertical join rules are overridden here — this
+ * controls (mockup). ButtonGroup's vertical join rules are overridden here — this
  * block is emitted after the Tailwind utilities, so equal-specificity
  * declarations win. */
 @media (max-width: 767px) {
@@ -5664,7 +5453,6 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 
   .entei-youtube-input-group > .entei-youtube-url-input,
-  .entei-youtube-input-group > .entei-youtube-quality,
   .entei-youtube-actions > .entei-youtube-cancel,
   .entei-youtube-actions > .entei-youtube-form-submit {
     width: 100%;
@@ -5672,258 +5460,10 @@ html.entei-player-immersive .entei-player-audio-area {
     border-radius: var(--entei-radius-md);
   }
 
-  .entei-youtube-input-group > .entei-youtube-url-input,
-  .entei-youtube-input-group > .entei-youtube-quality {
+  .entei-youtube-input-group > .entei-youtube-url-input {
     border: 1px solid oklch(100% 0 0deg / 0.1);
     background-color: var(--entei-surface);
   }
-}
-
-/* ===========================================================================
- * ED-3 — EizouDendenshi setup section + pairing dialog
- * ---------------------------------------------------------------------------
- * Local-companion pairing UI (no yt-dlp/aria2/downloads). OKLCH tokens only.
- * Mocks: desktop = image left (200x140-ish) / content right (48px heading,
- * 18px desc, 132x40 Setup left-aligned); mobile = image above, Setup button
- * overlapping the image lower edge halfway, centered 36px heading + 18px
- * desc below; pairing modal = 320x200 density, 6-slot OTP (260x52), centered
- * 132x40 pair button.
- * =========================================================================== */
-
-.entei-eizou-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  max-width: 32rem;
-  margin-top: var(--entei-space-32);
-  padding-top: var(--entei-space-24);
-  border-top: 1px solid oklch(100% 0 0deg / 0.08);
-}
-
-/* 1:1 art box (eizou-dendenshi.webp). Frameless: the transparent artwork
-   floats directly on the page background — no surface, border, or radius. */
-.entei-eizou-visual {
-  position: relative;
-  width: 10rem; /* 160px mobile — 1:1; desktop 12.5rem via media query */
-}
-
-.entei-eizou-image {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.entei-eizou-art {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.entei-eizou-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--entei-space-12);
-  width: 100%;
-  /* Mobile: pull the Setup button up so it overlaps the visual's lower edge
-     halfway (44px touch target -> 22px overlap), matching the mock. */
-  margin-top: calc(-1 * 1.375rem); /* -22px */
-}
-
-.entei-eizou-setup-btn {
-  min-width: 144px;
-  min-height: var(--entei-touch-min); /* 44px touch, 40px visual grid */
-  position: relative; /* paints above the visual on mobile */
-  border-radius: var(--entei-radius-md);
-  font-size: 0.875rem;
-  gap: var(--entei-space-8); /* icon + label spacing */
-}
-
-.entei-eizou-title {
-  /* Pixel/brand font (Pixelify Sans) — matches the dialog titles and
-     the site's display language for short labels.
-     Usage: font-system = Pixelify Sans (short labels / brand / UI);
-     font-display = Gen JP Display serif (section headings, wordmark).
-     Both defined in tokens.css. */
-  font-family: var(--entei-font-system);
-  font-size: 2.25rem; /* 36px — mobile mock */
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--entei-text);
-  text-align: center;
-}
-
-.entei-eizou-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center; /* pair centered within the body column */
-  gap: var(--entei-space-16);
-  width: 100%;
-  flex-wrap: wrap; /* stack only below feasible widths */
-}
-
-/* Non-interactive connection state: same outer control language as the
-   Setup button (132px wide, 44px min-height, surface/radius — no border
-   for a cleaner pill shape) but not an actionable element —
-   role="status" carries the live semantics. */
-.entei-eizou-status-control {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--entei-space-8);
-  width: 132px;
-  min-height: var(--entei-touch-min); /* 44px touch */
-  background-color: var(--entei-bg);
-  border-radius: var(--entei-radius-md);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  white-space: nowrap;
-}
-
-/* Matches the existing Player connection-status colors (Anki panel):
-   connected green / disconnected red — legible on the dark background. */
-.entei-eizou-status-control--connected {
-  width: 160px; /* 160px: accommodates connected-state label without
-     truncation while keeping Setup + Status pair on one line at
-    ≥ 320px viewport (144 setup + 16 gap + 160 = 320px). */
-  color: oklch(65% 0.17 145deg);
-}
-
-.entei-eizou-status-control--disconnected {
-  color: oklch(60% 0.22 25deg);
-}
-
-@media (max-width: 767px) {
-  /* The Setup + status pair needs 280px (132 + 16 gap + 132). The
-     empty-state gutter would squeeze the section's content box to 256px at
-     a 320px viewport, forcing an early wrap. Span the full content width so
-     the pair stays side-by-side at 320px; below ~312px the controls'
-     flex-wrap takes over (sensible stacking). */
-  .entei-eizou-section {
-    width: calc(100% + 2 * var(--entei-gutter));
-    margin-inline: calc(-1 * var(--entei-gutter));
-  }
-}
-
-@media (min-width: 768px) {
-  .entei-eizou-section {
-    flex-direction: row;
-    /* Vertically center the right body (title + controls) against the art. */
-    align-items: center;
-    justify-content: center;
-    gap: var(--entei-space-32);
-    max-width: 42rem;
-    /* Clear vertical gap beneath the local-media empty state (row 1). */
-    margin-top: var(--entei-space-48);
-  }
-
-  .entei-eizou-visual {
-    width: 12.5rem; /* 200px desktop square (1:1), optically balanced against
-                       the title/controls column; mobile keeps 10rem. */
-  }
-
-  .entei-eizou-body {
-    align-items: flex-start;
-    margin-top: 0;
-    gap: var(--entei-space-16);
-    max-width: 24rem;
-  }
-
-  .entei-eizou-title {
-    font-size: 3rem; /* 48px — desktop mock */
-    width: 100%; /* body is align flex-start; full width lets text-align center work */
-  }
-}
-
-/* --- Pairing dialog --- */
-.entei-eizou-pair-dialog {
-  max-width: 25rem; /* 400px — wider desktop breathing room for tutorial link */
-}
-
-/* Mobile: raise the pairing dialog toward the top (~30% from the top,
-   ~70% from the bottom). The OTP keyboard slides up from the bottom and
-   would otherwise cover a center-positioned modal's lower half; a
-   top-anchored dialog stays visible above the keyboard. Desktop (>=768px)
-   keeps the centered placement from .entei-dialog-content. */
-@media (max-width: 767px) {
-  .entei-eizou-pair-dialog {
-    max-width: 340px;
-    top: 30%;
-    bottom: auto;
-    transform: translateX(-50%);
-  }
-}
-
-.entei-eizou-pair-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--entei-space-16);
-  padding: var(--entei-space-16) var(--entei-space-24) var(--entei-space-24);
-}
-
-/* 6 slots, 36px each + 8px gaps = 256px within the 320px dialog (mock 260x52) */
-.entei-eizou-pair-otp-slot {
-  width: 36px;
-  height: 52px; /* >= 44px touch, mock visual grid */
-  font-size: 1.25rem;
-  border-radius: var(--entei-radius-sm);
-}
-
-.entei-eizou-pair-error {
-  color: oklch(55% 0.2 25deg);
-  font-size: 0.75rem;
-  line-height: 1.4;
-  text-align: center;
-}
-
-.entei-eizou-pair-submit {
-  /* Match the OTP container width: 6 slots × 36px + 5 gaps × 8px = 256px,
-     so the Pair button aligns with the code input above it. */
-  width: 256px;
-  min-height: var(--entei-touch-min);
-  border-radius: var(--entei-radius-md);
-  font-size: 0.875rem;
-}
-
-.entei-eizou-pair-divider {
-  width: 100%;
-  height: 1px;
-  border: none;
-  background-color: oklch(100% 0 0deg / 0.08);
-  margin: var(--entei-space-12) 0 0;
-}
-
-.entei-eizou-pair-tutorial-note {
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  color: var(--entei-text-secondary);
-  text-align: center;
-  margin: 0;
-  width: 100%;
-  text-wrap: balance;
-}
-
-.entei-eizou-pair-tutorial-link {
-  color: var(--entei-accent-hover);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  font-weight: 500;
-  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-.entei-eizou-pair-tutorial-link:hover {
-  color: var(--entei-accent);
-}
-
-.entei-eizou-pair-tutorial-link:focus-visible {
-  outline: 2px solid var(--entei-focus-ring);
-  outline-offset: 2px;
-  border-radius: var(--entei-radius-sm);
 }
 
 /* Icon-only YouTube opener: same 44px hit-target treatment as the magnet
@@ -7577,7 +7117,7 @@ html.entei-player-immersive .entei-player-audio-area {
    settings key form now uses the same ButtonGroup pattern as the
    key-missing inline form (.entei-nadeshiko-key-form).
    (Checked 2026-09-03: no TSX references them; plain .entei-input
-   orphan rules were removed, the focus-visible companion removed too.) */
+   orphan rules were removed, the related focus-visible rule was removed.) */
 
 /* Saved-key header row: label + inline clear action on one line. */
 .entei-settings-key-row {

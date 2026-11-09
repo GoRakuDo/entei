@@ -59,7 +59,7 @@ export interface Dictionary {
     changeSubtitle: string;
     subtitles: string;
     noSubtitlesLoaded: string;
-    /** Shown while companion subtitles are still being fetched. */
+    /** Shown while a native torrent subtitle relay is being fetched. */
     preparingSubtitles: string;
     shortcuts: string;
     shortcutsTitle: string;
@@ -141,21 +141,8 @@ export interface Dictionary {
     subtitleSyncSuccess: string;
     subtitleSyncNoReference: string;
     subtitleSyncNoSubtitle: string;
-    /** LazySync toggle ON state (Magnet only, docs SUBTITLE_SYNC.md §10). */
-    subtitleSyncLazyOn: string;
-    /** LazySync toggle OFF state (Magnet only). */
-    subtitleSyncLazyOff: string;
-    /** LazySync active button label shown while Magnet sync is on (docs
-     *  §10.3): the static "activated" text replaces the PROCESSING
-     *  typewriter. */
-    subtitleSyncLazyActive: string;
-    /** Magnet + audio mode: audio-based sync is unavailable (§10.4). */
+    /** Audio-based subtitle sync is unavailable for torrents. */
     subtitleSyncAudioUnavailable: string;
-    subtitleSyncWaitTitle: string;
-    subtitleSyncWaitDesc: string;
-    subtitleSyncWaitCancel: string;
-    subtitleSyncWaitConfirm: string;
-    subtitleSyncProgress: string;
     // P1: jimaku.cc subtitle integration
     jimakuHeading: string;
     jimakuDesc: string;
@@ -209,18 +196,6 @@ export interface Dictionary {
     jimakuSearchNoKey: string;
     jimakuOpenSettings: string;
     jimakuSearchBack: string;
-    // EizouDen (2026-08-07): YouTube download mode settings tab
-    settingsTabEizouDen: string;
-    settingsEizouDenContentHeading: string;
-    ytModeQuality: string;
-    ytModeSpeed: string;
-    ytModeQualityDesc: string;
-    ytModeSpeedDesc: string;
-    ytModeToastFormat: string;
-    /** Short mode name for the quality toast's {mode} placeholder
-     *  (localized: "Speed"/"スピード"/"Quality"/「画質」 etc.). */
-    ytModeLabelSpeed: string;
-    ytModeLabelQuality: string;
     // AM-5: Anki Fields tab
     ankiConnect: string;
     ankiConnectDesc: string;
@@ -342,29 +317,19 @@ export interface Dictionary {
     playModeCondensed: string;
     playModeFastForward: string;
     playModeLabel: string;
-    // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
+    // Native torrent URI dialog.
     magnetInputLabel: string;
     magnetInputPlaceholder: string;
     magnetInputLabelTitle: string;
     magnetErrorInvalid: string;
     magnetInputSubmit: string;
-    magnetInputUnpairedBody: string;
-    magnetConsentLabel: string;
-    magnetInputErrorRepair: string;
-    magnetInputErrorConflict: string;
-    magnetInputErrorNetwork: string;
     magnetInputErrorGeneric: string;
     magnetInputErrorMetadataTimeout: string;
-    magnetInputErrorEvicted: string;
-    magnetInputErrorV2Unsupported: string;
-    magnetInputSubmitting: string;
     magnetCheckMetadata: string;
-    magnetFilesTitle: string;
-    magnetFilesBody: string;
     magnetNoVideoError: string;
     magnetSelectSubmit: string;
     magnetCancel: string;
-    // ED-2G: File browser table headers and labels
+    // Torrent file browser table headers and labels.
     magnetTableFileName: string;
     magnetTableSize: string;
     magnetFileKindVideo: string;
@@ -375,60 +340,21 @@ export interface Dictionary {
     magnetNoVideosInFolder: string;
     magnetBreadcrumbLabel: string;
     magnetBreadcrumbRoot: string;
-    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
-    eizouSetupLabel: string;
-    eizouSetupTitle: string;
-    eizouDisconnected: string;
-    eizouSetupImageAlt: string;
-    eizouConnected: string;
-    eizouChecking: string;
-    eizouResetButton: string;
-    eizouResetTitle: string;
-    eizouResetDesc: string;
-    eizouResetConfirm: string;
-    eizouResetCancel: string;
-    eizouPairingTitle: string;
-    /** Button label that opens the pairing (OTP) dialog from the EizouDen
-     *  settings tab while this browser is unpaired. */
-    eizouPairingOpenButton: string;
-    eizouPairingOtpLabel: string;
-    eizouPairingOtpInvalid: string;
-    eizouPairingSubmit: string;
-    eizouPairingConnecting: string;
-    eizouPairingErrorNetwork: string;
-    eizouPairingErrorInvalidCode: string;
-    eizouPairingErrorGeneric: string;
-    // Stage label for the pairing step that failed (prefixes the dialog
-    // error line so users/support can see where the flow broke).
-    pairingStagePost: string;
-    eizouPairingTutorialPrefix: string;
-    eizouPairingTutorialLink: string;
-    eizouPairingTutorialSuffix: string;
-    companionStreamNotReady: string;
-    companionPreparingVideo: string;
-    /** Toast shown when a companion job fails (state=error). */
-    companionJobError: string;
-    /** Player-area fallback shown when a companion job errors. */
-    companionJobFailed: string;
-    // ED-2F: real YouTube URL source dialog (paired companion only)
+    /** Localized copy shown while the torrent relay waits for its first frame. */
+    torrentPreparingVideo: string;
+    // Native YouTube URL source dialog.
     /** Firefox-unsupported toast (player blocks Firefox for video playback). */
     firefoxUnsupported: string;
     youtubeInputLabel: string;
     youtubeInputTitle: string;
     /** Visible field label above the URL row. */
     youtubeInputFieldLabel: string;
-    /** Accessible name for the quality Select in the URL row. */
-    youtubeInputQuality: string;
     /** Dialog cancel button. */
     youtubeInputCancel: string;
     youtubeInputPlaceholder: string;
     youtubeInputSubmit: string;
     youtubeInputErrorInvalid: string;
-    youtubeInputErrorRepair: string;
-    youtubeInputErrorConflict: string;
-    youtubeInputErrorNetwork: string;
     youtubeInputErrorGeneric: string;
-    youtubeInputSubmitting: string;
     // Tracker (IMMERSION_TRACKER Stage 2b)
     trackerLabel: string;
     trackerOn: string;

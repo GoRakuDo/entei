@@ -9,7 +9,7 @@
  * The trigger buttons are client-rendered, so Astro's scoped
  * `.entei-desktop-pill-link` / `.entei-mobile-dock-link` rules cannot match
  * them; the pill and dock metrics are mirrored here (the sidebar variant is
- * already global in eizouden-settings.css). All colors use OKLCH or
+ * already global in settings-shared.css). All colors use OKLCH or
  * `var(--entei-*)` tokens (project rule #1621).
  */
 

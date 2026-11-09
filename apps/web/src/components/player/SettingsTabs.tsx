@@ -12,11 +12,7 @@
  *   3. Nadeshiko — Nadeshiko dictionary API key (only when supplied)
  *   4. Anki      — AnkiConnect setup + field mapping
  *
- * Note: the EizouDen tab (YouTube download mode + companion pairing /
- * reset) was retired from the Settings modal. The YouTube playback quality
- * now lives in the YouTube source dialog itself. The EizouDenSettingsTab
- * component is intentionally kept in the tree (unwired) for the planned
- * Modules page move; see docs/EIZOU_DENDENSHI.md.
+ * Source selection is provided by the native player and module registry.
  *
  * The dialog shell (overlay/content/header/title) is owned by each caller;
  * only the tabbed body lives here.

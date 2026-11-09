@@ -33,7 +33,7 @@ interface RightPanelProps {
   dict: Dictionary['playerUI'];
   /** Subtitle panel props */
   cues: SubtitleCue[];
-  /** Companion job (YouTube/Magnet): subtitles still being fetched. */
+  /** Torrent subtitle relay is still being read into the caption panel. */
   isLoadingSubtitles?: boolean;
   activeCueId: number | null;
   onCueClick: (cue: SubtitleCue) => void;
@@ -43,17 +43,8 @@ interface RightPanelProps {
   onSyncSubtitle?: () => void;
   canSyncSubtitle?: boolean;
   isSyncingSubtitle?: boolean;
-  /** Subtitle sync mode (subtitle / audio / auto). The button shows the
-   *  TypewriterLoading while syncing only for non-audio modes — audio sync
-   *  keeps the icon + label because the DL-wait dialog reports progress. */
+  /** Subtitle sync mode (subtitle / audio / auto). */
   syncMode?: 'subtitle' | 'audio' | 'auto';
-  /** Magnet source: the sync button becomes a LazySync toggle (docs
-   *  SUBTITLE_SYNC.md §10) instead of the classic click-to-sync button. */
-  isMagnet?: boolean;
-  /** LazySync toggle state (Magnet only): true = active / colored. */
-  lazySyncOn?: boolean;
-  /** LazySync toggle click handler (Magnet only). */
-  onToggleLazySync?: () => void;
   /** Hide the sync button entirely (YouTube source — design §2-11). */
   hideSyncSubtitle?: boolean;
   /** P4 jimaku: opens the search modal (title pre-filled from media name). */
@@ -79,9 +70,6 @@ export function RightPanel({
   canSyncSubtitle = false,
   isSyncingSubtitle = false,
   syncMode = 'auto',
-  isMagnet = false,
-  lazySyncOn = false,
-  onToggleLazySync,
   hideSyncSubtitle = false,
   onOpenJimakuSearch,
   onMineCue,
@@ -152,63 +140,29 @@ export function RightPanel({
           className="entei-right-panel-content"
         >
           <div className="entei-right-panel-actions">
-            {!hideSyncSubtitle &&
-              (isMagnet ? (
-                /* Magnet: LazySync toggle — colored while on, click toggles.
-                 * The on-state shows the static "activated" label instead of
-                 * a typewriter (docs §10.3). */
-                <button
-                  type="button"
-                  className={
-                    lazySyncOn
-                      ? 'entei-subtitle-sync-button entei-subtitle-sync-button--active'
-                      : 'entei-subtitle-sync-button'
-                  }
-                  onClick={onToggleLazySync}
-                  aria-label={
-                    lazySyncOn
-                      ? dict.subtitleSyncLazyOn
-                      : dict.subtitleSyncLazyOff
-                  }
-                  aria-pressed={lazySyncOn}
-                  title={
-                    lazySyncOn
-                      ? dict.subtitleSyncLazyOn
-                      : dict.subtitleSyncLazyOff
-                  }
-                  disabled={!canSyncSubtitle}
-                >
-                  <RotateCwFadingClock size={16} aria-hidden="true" />
-                  <span>
-                    {lazySyncOn
-                      ? dict.subtitleSyncLazyActive
-                      : dict.subtitleSyncLazyOff}
-                  </span>
-                </button>
-              ) : (
-                /* Local media: classic click-to-sync button (unchanged). */
-                <button
-                  type="button"
-                  className="entei-subtitle-sync-button"
-                  onClick={onSyncSubtitle}
-                  aria-label={dict.subtitleSyncButtonLabel}
-                  title={dict.subtitleSyncButton}
-                  disabled={!canSyncSubtitle || isSyncingSubtitle}
-                >
-                  {isSyncingSubtitle && syncMode !== 'audio' ? (
-                    <TypewriterLoading
-                      text="PROCESSING"
-                      className="entei-typewriter--btn"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <>
-                      <RotateCwFadingClock size={16} aria-hidden="true" />
-                      <span>{dict.subtitleSyncButton}</span>
-                    </>
-                  )}
-                </button>
-              ))}
+            {!hideSyncSubtitle && (
+              <button
+                type="button"
+                className="entei-subtitle-sync-button"
+                onClick={onSyncSubtitle}
+                aria-label={dict.subtitleSyncButtonLabel}
+                title={dict.subtitleSyncButton}
+                disabled={!canSyncSubtitle || isSyncingSubtitle}
+              >
+                {isSyncingSubtitle && syncMode !== 'audio' ? (
+                  <TypewriterLoading
+                    text="PROCESSING"
+                    className="entei-typewriter--btn"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <>
+                    <RotateCwFadingClock size={16} aria-hidden="true" />
+                    <span>{dict.subtitleSyncButton}</span>
+                  </>
+                )}
+              </button>
+            )}
             {onOpenJimakuSearch && (
               <button
                 type="button"

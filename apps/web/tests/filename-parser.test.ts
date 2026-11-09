@@ -38,6 +38,13 @@ describe('parseMediaFileName', () => {
     });
   });
 
+  it('uses the selected marker consistently for the title and episode', () => {
+    expect(parseMediaFileName('Show EP12 - 01.mkv')).toEqual({
+      title: 'Show',
+      episode: 12,
+    });
+  });
+
   it('handles 第n話 (Japanese episode marker)', () => {
     expect(parseMediaFileName('葬送のフリーレン 第2話.mkv')).toEqual({
       title: '葬送のフリーレン',

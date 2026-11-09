@@ -1,5 +1,5 @@
 /**
- * EizouSettingsDialog — global settings dialog opened from the TopBar nav
+ * Global settings dialog opened from the TopBar navigation
  * settings button (desktop pill) and the mobile Dock's Settings entry.
  * ---------------------------------------------------------------------------
  * NAVIGATION_BAR.md "設定ボタンの追加 (2026-08-07)": the Settings modal can

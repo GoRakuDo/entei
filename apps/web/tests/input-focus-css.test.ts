@@ -149,7 +149,7 @@ describe('text input focus (DESIGN.md 8.13)', () => {
       ".entei-mining-input[aria-invalid='true']:focus-visible",
       '.entei-profile-textarea:focus-visible',
     ];
-    for (const name of ['player.css', 'eizouden-settings.css', 'profile.css']) {
+    for (const name of ['player.css', 'settings-shared.css', 'profile.css']) {
       const css = readStyles(name);
       for (const selector of selectors) {
         if (!css.includes(`${selector} {`)) continue;

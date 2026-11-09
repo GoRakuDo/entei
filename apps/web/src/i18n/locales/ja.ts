@@ -219,38 +219,18 @@ export const ja: Dictionary = {
     playModeCondensed: '短縮',
     playModeFastForward: '早送り',
     playModeLabel: '再生モード',
-    // ED-1: Magnet URI dialog — visual shell (no torrent runtime)
+    // Native torrent and yt-dlp source dialogs.
     magnetInputLabel: 'ストリーミング用マグネットURI:',
     magnetInputPlaceholder: 'magnet:?xt=urn:btih:...',
     magnetInputLabelTitle: 'ストリーミングトレント',
-    magnetErrorInvalid:
-      '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
+    magnetErrorInvalid: '無効なマグネットURIです。有効なマグネットリンクを入力してください。',
     magnetInputSubmit: 'トレントを読み込む',
-    magnetInputUnpairedBody:
-      'Torrentをダウンロードするには、先に映像伝電子をペアリングしてください。',
-    magnetConsentLabel:
-      '同意します: ダウンロード中、トラッカーとピアは私のIPアドレスを見ることができます。',
-    magnetInputErrorRepair:
-      '再接続が必要です。「セットアップ」から接続し直してください。',
-    magnetInputErrorConflict:
-      'すでにダウンロードが進行中です。先に前のダウンロードをキャンセルしてください。',
-    magnetInputErrorNetwork:
-      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     magnetInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
-    magnetInputErrorMetadataTimeout:
-      'メタデータを取得できませんでした。ピアが見つからない可能性があります。しばらくしてからもう一度お試しください。',
-    magnetInputErrorEvicted:
-      '同時 torrent 数が2つの上限に達したため、再生を停止しました。',
-    magnetInputErrorV2Unsupported:
-      'v2専用torrentは未対応です。v1またはハイブリッド(v1+v2)のtorrentリンクを使ってください。',
-    magnetInputSubmitting: '準備中…',
+    magnetInputErrorMetadataTimeout: 'メタデータを取得できませんでした。ピアが見つからない可能性があります。しばらくしてからもう一度お試しください。',
     magnetCheckMetadata: 'メタデータ確認中…',
-    magnetFilesTitle: 'ファイルを選択',
-    magnetFilesBody: '動画を1つ、任意で字幕を1つ選択してください。',
     magnetNoVideoError: 'このtorrentには選択できる動画がありません。',
     magnetSelectSubmit: 'ストリーム再生',
     magnetCancel: 'キャンセル',
-    // ED-2G: File browser table
     magnetTableFileName: 'ファイル名',
     magnetTableSize: 'サイズ',
     magnetFileKindVideo: '動画',
@@ -261,74 +241,18 @@ export const ja: Dictionary = {
     magnetNoVideosInFolder: 'このフォルダーに動画がありません',
     magnetBreadcrumbLabel: '現在のフォルダー',
     magnetBreadcrumbRoot: 'トレント',
-    // ED-3: EizouDendenshi setup section + pairing (no yt-dlp/downloads)
-    eizouSetupLabel: 'OTP セットアップ',
-    eizouSetupTitle: '映像伝電子',
-    eizouSetupImageAlt: '映像伝電子のイメージ',
-    eizouConnected: '接続済み',
-    eizouDisconnected: '未接続',
-    eizouChecking: '確認中…',
-    eizouResetButton: 'ペアリングをリセット',
-    eizouResetTitle: 'ペアリングをリセットしますか？',
-    eizouResetDesc:
-      'このブラウザとコンパニオンアプリから保存済みの接続を削除します。再度接続するには新しいペアリングコードが必要です。ダウンロードやメディアには影響しません。',
-    eizouResetConfirm: 'リセットする',
-    eizouResetCancel: 'キャンセル',
-    eizouPairingTitle: 'EizouDendenshi OTP',
-    eizouPairingOpenButton: '映像伝電子とペアリング',
-    eizouPairingOtpLabel: '6桁のペアリングコード',
-    eizouPairingOtpInvalid: '6桁のコードを入力してください。',
-    eizouPairingSubmit: 'ペアリングする',
-    eizouPairingConnecting: '接続中…',
-    eizouPairingErrorNetwork:
-      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
-    eizouPairingErrorInvalidCode:
-      'コードが正しくありません。アプリの表示コードを確認してください。',
-    companionStreamNotReady:
-      'ストリームの準備ができていません。データを待っています…',
-    companionPreparingVideo: 'ビデオを準備中…',
-    companionJobError: 'エラーが発生しました。もう一度お試しください。',
-    companionJobFailed:
-      'ダウンロードに失敗しました。新しいURLまたはファイルを選択してください。',
-    eizouPairingErrorGeneric: '接続に失敗しました。もう一度お試しください。',
-    // Stage label for the failed pairing step (POST /v1/pair).
-    pairingStagePost: '(POST /v1/pair)',
-    eizouPairingTutorialPrefix: '※セットアップ方法は',
-    eizouPairingTutorialLink: 'こちら',
-    eizouPairingTutorialSuffix: 'から参照してください。',
-    firefoxUnsupported:
-      'Firefoxはまだサポートされてません。Google ChromeかChromiumブラウザで開いてください。',
-    // ED-3: YouTube URL entrance — honest unimplemented state (no URL capture)
+    torrentPreparingVideo: 'ビデオを準備中…',
     youtubeInputLabel: 'YouTube URL',
     youtubeInputTitle: 'YouTubeストリーミング',
     youtubeInputFieldLabel: 'ストリーミングするYouTubeリンク:',
-    youtubeInputQuality: '画質',
     youtubeInputCancel: 'キャンセル',
     youtubeInputPlaceholder: 'https://www.youtube.com/watch?v=…',
     youtubeInputSubmit: 'ストリーミング開始',
     youtubeInputErrorInvalid: 'YouTubeのURLが無効です。',
-    youtubeInputErrorRepair:
-      '再接続が必要です。「セットアップ」から接続し直してください。',
-    youtubeInputErrorConflict:
-      'すでにダウンロードが進行中です。先に前のダウンロードをキャンセルしてください。',
-    youtubeInputErrorNetwork:
-      'EizouDendenshiに接続できません。アプリが起動しているか確認してください。',
     youtubeInputErrorGeneric: 'エラーが発生しました。もう一度お試しください。',
-    youtubeInputSubmitting: '準備中…',
-    // P2.1: Subtitle Appearance Settings
+    firefoxUnsupported: 'Firefoxはまだサポートされてません。Google ChromeかChromiumブラウザで開いてください。',
     settingsTabSubtitle: '字幕',
     subtitleAppearance: '字幕の見た目',
-    // EizouDen: YouTube download mode
-    settingsTabEizouDen: 'EizouDen',
-    settingsEizouDenContentHeading: 'YouTubeの再生モード',
-    ytModeQuality: 'Quality（画質優先）',
-    ytModeSpeed: 'Speed（即再生優先）',
-    ytModeQualityDesc: 'DASH 1080p（最大）をダウンロードし、結合完了後に再生。',
-    ytModeSpeedDesc:
-      'プログレッシブ形式（360p〜1080p）を優先し、DL中から再生。',
-    ytModeToastFormat: '{mode}モード - {quality} をすぐに再生します',
-    ytModeLabelSpeed: 'スピード',
-    ytModeLabelQuality: '画質',
     subtitleFontSize: 'フォントサイズ',
     subtitleTextColor: '文字色',
     subtitleBackgroundColor: '背景色',
@@ -398,18 +322,8 @@ export const ja: Dictionary = {
     subtitleSyncSuccess: '字幕同期成功!',
     subtitleSyncNoReference: 'この動画のベース字幕はないため同期されない',
     subtitleSyncNoSubtitle: '字幕が読み込まれていません',
-    subtitleSyncLazyOn: 'LazySync 有効',
-    subtitleSyncLazyOff: 'LazySync 無効',
-    subtitleSyncLazyActive: 'LazySync 有効中',
     subtitleSyncAudioUnavailable:
-      'Magnet では音声ベースの同期は利用できません。字幕モードを使用してください',
-    subtitleSyncWaitTitle: '音声同期が使えません',
-    subtitleSyncWaitDesc:
-      'ストリーミング動画のため音声ベースの字幕同期は不可能です。もう少しデータ取得完了まで待ってもらえます？',
-    subtitleSyncWaitCancel: 'キャンセル',
-    subtitleSyncWaitConfirm: 'はい、大丈夫です',
-    subtitleSyncProgress: 'ダウンロード中… {pct}%',
-    // Tracker (IMMERSION_TRACKER Stage 2b)
+      'Torrent では音声ベースの同期は利用できません。字幕モードを使用してください。',
     trackerLabel: 'トラッカー',
     trackerOn: 'オン',
     trackerOff: 'オフ',

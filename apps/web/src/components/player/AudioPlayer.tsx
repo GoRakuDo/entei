@@ -72,12 +72,12 @@ import {
 } from '@/components/player/YouTubeInput';
 import { isFirefox } from '@/features/player/browser-detect';
 import { notifyFirefoxUnsupported } from '@/features/player/eizouden-toast';
+import {
+  getVideoInfoDirect,
+  streamYouTubeDirect,
+} from '@/features/player/tauri-bridge';
 import { toast } from 'sonner';
-import { waitForPlayable } from '@/features/player/companion-media';
-import { useCompanionJobSession } from '@/features/player/use-companion-job-session';
-import { useCompanionPairing } from '@/features/player/use-companion-pairing';
 import { useModuleState } from '@/features/modules/use-module-state';
-import { COMPANION_PAIRING_BASE_URL } from '@/features/player/companion-pairing-store';
 import './AudioPlayer.css';
 
 function getInitialLocale(): Locale {
@@ -96,7 +96,7 @@ const AUDIO_RESUME_END_MARGIN_SECONDS = 5;
 const AUDIO_PROGRESS_THROTTLE_SECONDS = 3;
 
 export interface AudioPlayerProps {
-  /** Optional source supplied by a future local/companion integration. */
+  /** Optional media source supplied by the shared audio-player route. */
   src?: string | null;
   /** Display title for a supplied source or YouTube audio job. */
   title?: string;
@@ -131,13 +131,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   );
 }
 
-type YouTubeAudioError =
-  | 'invalid'
-  | 'repair'
-  | 'conflict'
-  | 'network'
-  | 'generic'
-  | null;
+type YouTubeAudioError = 'invalid' | 'generic' | null;
 
 export default function AudioPlayer({
   src = null,
@@ -152,14 +146,11 @@ export default function AudioPlayer({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const ownedAudioUrlRef = useRef<string | null>(null);
-  const youtubeWaitAbortRef = useRef<AbortController | null>(null);
   const youtubeDialogOpenRef = useRef(false);
   const mountedRef = useRef(true);
-  const pairing = useCompanionPairing();
   // MODULE_ARCHITECTURE.md §5.3: the yt-dlp module toggle gates every YouTube
   // entry point on this screen (empty-state button + in-player source button).
   const ytdlpEnabled = useModuleState().ytdlp;
-  const jobSession = useCompanionJobSession();
   const coverUrlRef = useRef<string | null>(null);
   const coverRequestRef = useRef(0);
   // Subtitle epoch: the native parse is async, so two subtitle loads can
@@ -233,13 +224,7 @@ export default function AudioPlayer({
       ? null
       : youtubeError === 'invalid'
         ? youtubeDict.youtubeInputErrorInvalid
-        : youtubeError === 'repair'
-          ? youtubeDict.youtubeInputErrorRepair
-          : youtubeError === 'conflict'
-            ? youtubeDict.youtubeInputErrorConflict
-            : youtubeError === 'network'
-              ? youtubeDict.youtubeInputErrorNetwork
-              : youtubeDict.youtubeInputErrorGeneric;
+        : youtubeDict.youtubeInputErrorGeneric;
 
   // Errors are surfaced as a Toast, never as inline text inside the dialog
   // (DESIGN.md 8.6/8.8) — same contract as the `error` toast above.
@@ -507,8 +492,6 @@ export default function AudioPlayer({
   }, []);
 
   const handleYouTubeSubmit = useCallback(async () => {
-    const token = pairing.tokenRef.current;
-    if (!pairing.connected || !token) return;
     if (isFirefox()) {
       notifyFirefoxUnsupported(youtubeDict.firefoxUnsupported);
       return;
@@ -523,49 +506,15 @@ export default function AudioPlayer({
     }
     trace('audio', 'youtube_submit', { valid: true, videoId });
 
-    void jobSession.cancelActiveJob();
     setYouTubeSubmitting(true);
     setYouTubeError(null);
-    youtubeWaitAbortRef.current?.abort();
-    const waitAbort = new AbortController();
-    youtubeWaitAbortRef.current = waitAbort;
-
     try {
-      const response = await fetch(
-        `${COMPANION_PAIRING_BASE_URL}/v1/source/jobs?token=${encodeURIComponent(token)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: sanitizedUrl, mode: 'audio' }),
-          cache: 'no-store',
-        },
-      );
-      if (response.status !== 201) {
-        setYouTubeError(
-          response.status === 400
-            ? 'invalid'
-            : response.status === 401 || response.status === 403
-              ? 'repair'
-              : response.status === 409
-                ? 'conflict'
-                : 'generic',
-        );
-        return;
-      }
-
-      const body = (await response.json()) as {
-        id?: unknown;
-        title?: unknown;
-      };
-      if (typeof body.id !== 'string' || body.id.length === 0) {
+      const [stream, info] = await Promise.all([
+        streamYouTubeDirect(sanitizedUrl, 'audio'),
+        getVideoInfoDirect(sanitizedUrl).catch(() => null),
+      ]);
+      if (!stream.relayed || stream.urls.length !== 1) {
         setYouTubeError('generic');
-        return;
-      }
-
-      const playable = await waitForPlayable(token, { signal: waitAbort.signal });
-      if (!playable.ok) {
-        if (playable.reason === 'aborted') return;
-        setYouTubeError(playable.reason === 'network' ? 'network' : 'generic');
         return;
       }
       if (!mountedRef.current || !youtubeDialogOpenRef.current) return;
@@ -591,33 +540,20 @@ export default function AudioPlayer({
       // in flight for the previous media cannot apply its cues here.
       subtitleEpochRef.current += 1;
       setSubtitleCues(null);
-      setTitle(typeof body.title === 'string' ? body.title : t.defaultTitle);
+      setTitle(info?.title ?? t.defaultTitle);
       releaseCover();
       revokeUrl(ownedAudioUrlRef.current);
       ownedAudioUrlRef.current = null;
-      // waitForPlayable has confirmed that the fixture has playable bytes;
-      // the companion session then keeps the URL/status bridge alive.
-      setAudioSrc(
-        `${COMPANION_PAIRING_BASE_URL}/v1/media/fixture?token=${encodeURIComponent(token)}`,
-      );
-      jobSession.beginJobSession({
-        baseUrl: COMPANION_PAIRING_BASE_URL,
-        token,
-        jobId: body.id,
-        kind: 'youtube',
-      });
+      setAudioSrc(stream.url);
       setYouTubeUrl('');
       setYouTubeError(null);
       setIsYouTubeDialogOpen(false);
     } catch {
-      if (!waitAbort.signal.aborted) setYouTubeError('network');
+      setYouTubeError('generic');
     } finally {
       if (mountedRef.current) setYouTubeSubmitting(false);
     }
   }, [
-    jobSession,
-    pairing.connected,
-    pairing.tokenRef,
     persistProgress,
     releaseCover,
     t.defaultTitle,
@@ -627,29 +563,14 @@ export default function AudioPlayer({
 
   useEffect(() => {
     youtubeDialogOpenRef.current = isYouTubeDialogOpen;
-    if (!isYouTubeDialogOpen) youtubeWaitAbortRef.current?.abort();
   }, [isYouTubeDialogOpen]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      youtubeWaitAbortRef.current?.abort();
     };
   }, []);
-
-  useEffect(() => {
-    if (jobSession.jobTitle) setTitle(jobSession.jobTitle);
-  }, [jobSession.jobTitle]);
-
-  // The shared session hook still exposes a video-typed callback for
-  // PlayerApp, but its bridge adapter consumes any HTMLMediaElement. Invoke
-  // that runtime contract without falsely asserting that audio is video.
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    Reflect.apply(jobSession.attachMediaElement, undefined, [audio]);
-  }, [audioSrc, jobSession.attachMediaElement, jobSession.phase]);
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -678,7 +599,6 @@ export default function AudioPlayer({
       setIsPlaying(false);
       setCurrentTime(0);
       setDuration(0);
-      void jobSession.cancelActiveJob();
       setError(null);
       setIsLocalSource(true);
       setYoutubeVideoId(null);
@@ -747,7 +667,7 @@ export default function AudioPlayer({
         });
       }
     },
-    [applyResumeTarget, jobSession, persistProgress, releaseCover],
+    [applyResumeTarget, persistProgress, releaseCover],
   );
 
   const subtitleInputRef = useRef<HTMLInputElement | null>(null);
@@ -860,7 +780,6 @@ export default function AudioPlayer({
           className="audio-player__youtube-button"
           type="button"
           onClick={() => setIsYouTubeDialogOpen(true)}
-          disabled={!pairing.connected}
           aria-label={t.youtube}
           title={t.youtube}
         >
@@ -884,64 +803,59 @@ export default function AudioPlayer({
       <DialogContent
         className="entei-youtube-dialog"
         closeLabel={youtubeDict.dialogClose}
-        /* DESIGN.md 8.8: the form already has a Cancel action, so the
-           corner X is omitted (never duplicate the affordance). */
         hideClose
       >
-        <div className="entei-youtube-form">
+        <form
+          className="entei-youtube-form"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!youtubeSubmitting) void handleYouTubeSubmit();
+          }}
+        >
           <DialogTitle className="entei-magnet-dialog-title entei-youtube-dialog-title">
             <YouTubeMark width={16} height={16} aria-hidden="true" />
             {youtubeDict.youtubeInputTitle}
           </DialogTitle>
-          {pairing.connected ? (
-            <>
-              <Input
-                type="url"
-                inputMode="url"
-                autoComplete="off"
-                placeholder={youtubeDict.youtubeInputPlaceholder}
-                aria-label={youtubeDict.youtubeInputLabel}
-                aria-invalid={youtubeError !== null}
-                value={youtubeUrl}
-                onChange={(event) => setYouTubeUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !youtubeSubmitting) {
-                    void handleYouTubeSubmit();
-                  }
-                }}
-              />
-              <ButtonGroup
-                orientation="horizontal"
-                className="entei-youtube-actions"
-              >
-                <Button
-                  type="submit"
-                  className="entei-youtube-form-submit"
-                  onClick={() => void handleYouTubeSubmit()}
-                  disabled={youtubeSubmitting || youtubeUrl.trim() === ''}
-                  aria-label={youtubeDict.youtubeInputSubmit}
-                >
-                  {youtubeSubmitting ? (
-                    <TypewriterLoading
-                      aria-hidden="true"
-                      className="entei-typewriter--btn"
-                    />
-                  ) : (
-                    youtubeDict.youtubeInputSubmit
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="entei-youtube-cancel"
-                  onClick={() => setIsYouTubeDialogOpen(false)}
-                >
-                  {youtubeDict.youtubeInputCancel}
-                </Button>
-              </ButtonGroup>
-            </>
-          ) : null}
-        </div>
+          <Input
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            placeholder={youtubeDict.youtubeInputPlaceholder}
+            aria-label={youtubeDict.youtubeInputLabel}
+            aria-invalid={youtubeError !== null}
+            value={youtubeUrl}
+            onChange={(event) => setYouTubeUrl(event.target.value)}
+          />
+          <ButtonGroup
+            orientation="horizontal"
+            className="entei-youtube-actions"
+          >
+            <Button
+              type="submit"
+              className="entei-youtube-form-submit"
+              disabled={youtubeSubmitting || youtubeUrl.trim() === ''}
+              aria-label={youtubeDict.youtubeInputSubmit}
+            >
+              {youtubeSubmitting ? (
+                <TypewriterLoading
+                  aria-hidden="true"
+                  className="entei-typewriter--btn"
+                />
+              ) : (
+                youtubeDict.youtubeInputSubmit
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="entei-youtube-cancel"
+              onClick={() => setIsYouTubeDialogOpen(false)}
+            >
+              {youtubeDict.youtubeInputCancel}
+            </Button>
+          </ButtonGroup>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -1000,7 +914,6 @@ export default function AudioPlayer({
                   className="audio-player__source-button"
                   type="button"
                   onClick={() => setIsYouTubeDialogOpen(true)}
-                  disabled={!pairing.connected}
                   aria-label={t.youtube}
                   title={t.youtube}
                 >
