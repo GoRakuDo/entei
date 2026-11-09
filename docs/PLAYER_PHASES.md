@@ -1208,3 +1208,43 @@ Sentence Mining:
 - **ファイル名解析はホットパスではない:** 短い名前の正規表現は TS 数十 µs に対し、ネイティブ呼び出しは IPC 往復 1〜2 ms。ファイル名解析をネイティブへ寄せたのは「メインスレッドを完全に空ける」方針の統一であって速度改善ではない（実害は無いが、速度を期待して持たないこと）。
 - **LazySync の 100 ms 未満の扱い:** ネイティブ経路は 100 ms 未満を厳密に 0 ms（= 既に同期）として返す。TS 経路は生の median（例: 40 ms）を返す。どちらも `LAZY_SYNC_MIN_OFFSET_MS` 未満なので Player の分岐は同一。
 - **jimaku スピナーの開始が 1 マイクロタスク遅れる:** ネイティブ解析が 1 往復のため、検索開始（= スピナー点灯）が 1 tick 遅れる。描画上は同一フレーム内で完了する。
+
+## 30. ネイティブ字幕パーサのバイト境界スライスパニックと音声プレイヤーの字幕世代ガード
+
+> **追加日:** 2026-11-10
+> **対象:** `plugins/tauri-plugin-subtitles/src/parser.rs`, `plugins/tauri-plugin-subtitles/tests/subtitle_parser.rs`, `apps/web/src/components/player/AudioPlayer.tsx`, `apps/web/tests/audio-player.test.tsx`
+
+### 症状と課題
+
+ネイティブ字幕パーサ（`plugins/tauri-plugin-subtitles`）は JS 実装からの 1 行ずつ移植で、型式判定と ASS のセクション走査が「先頭 N バイト vs ASCII ヘッダー」を Rust の生スライス `text[..N]` で比較していた。N はヘッダーのバイト長なので、テキストの先頭が日本語などのマルチバイト文字だと**文字の途中でスライスして panic する**（`end byte index is not a char boundary`）。再現条件は 2 つ:
+
+- 自動判定が `trimmed[..13]`（`[script info]` のバイト長）で比較するため、**先頭がマルチバイト文字のファイル**で落ちる
+- ASS のセクション走査が全行を `starts_with_ci(line, "[Script Info]")` で判定するため、**行頭がマルチバイト文字の行**（日本語コメント行など）で落ちる
+
+`Title: 日本語タイトル` はバイト位置の都合で落ちないが、同じファイル内の日本語コメント行で落ちる。
+
+音声プレイヤー（`AudioPlayer.tsx`）の字幕ファイル読み込みは、ネイティブ解析が非同期になったことで **2 枚目の字幕を先に選び、直前の解析が後から返ると古い cue が新しい cue を上書きする**競合を抱えていた（`PlayerApp.tsx` には `subtitleEpochRef` の世代ガードがあるが、音声側には無い）。
+
+### 修正契約
+
+| 項目 | 契約 |
+|---|---|
+| バイト境界 | ヘッダー比較は `str::get(..prefix.len())` の `Option` 経由で行い、文字境界でない場合は「一致しない」（JS の `startsWith` と同じ結果）として扱う。panic しない |
+| 判定の単一化 | 自動判定・format ヒント解決・ASS セクション走査の 3 箇所が `starts_with_ci` と `SCRIPT_INFO_HEADER` 定数 1 本を共有する（重複した生スライスを残さない） |
+| 世代ガード | 音声プレイヤーの字幕読み込みは `subtitleEpochRef` で世代を採番し、**最新世代の結果だけ**を cue に適用する。失敗（catch）経路も同じ世代チェックを通す（古い失敗が新しい cue を空で潰さない） |
+| メディア切替 | 音声プレイヤーの**メディア切替（YouTube ジョブ開始・ローカルファイル選択）**も `subtitleEpochRef` を 1 進める。字幕を破棄するだけでなく**世代を先に進めてから破棄**するため、**前のメディアの字幕パースが後から解決しても新メディアの cue には乗らない** |
+
+### 検証
+
+- `cargo test --manifest-path plugins/tauri-plugin-subtitles/Cargo.toml`: **121 pass / 0 fail**（新規回帰テスト 5 件を含む）
+- `bun run check`（apps/web）: **0 errors**
+- `bun test --isolate`: **2328 pass / 0 fail**（`tests/audio-player.test.tsx` の世代ガード回帰 1 件＋「メディア切替で飛行中の字幕パースを捨てる」回帰 1 件を含む）
+- 旧実装へ一時差し戻して確認: 新規 Rust 回帰テスト 4 件が `end byte index is not a char boundary` で panic し、TS 側は「古い cue が新しい cue を上書き」で失敗する
+- 世代ガードの世代進行を外して確認: `subtitleEpochRef.current += 1` の 2 箇所を一時差し戻すと新規回帰テストが「`stale line` の cue ボタンが新メディアに残る」で失敗する（復元後は pass）
+- 定数共有: ASS セクション走査に残っていたリテラル `"[Script Info]"` を `SCRIPT_INFO_HEADER` に置換（大小文字無視の比較なので判定結果は同一で、挙動は不変）
+
+### 既知の指摘（Known issues / Low findings）
+
+- **実機 E2E 未実施:** ネイティブパースの Tauri 実窓動作は未確認（ブラウザ版のフォールバック経路と Rust 単体テストで担保している）
+- **`starts_with_ci` はバイト比較:** JS の `startsWith` は文字単位だが、比較対象が ASCII ヘッダーのため結果は一致する。ヘッダーに非 ASCII を含める場合は文字単位の比較へ変える必要がある
+- **`PlayerApp.tsx` 側はメディア切替で世代が進まない:** `selectLocalMedia` と YouTube ストリーム受諾は `setCues([])` で字幕を破棄するが `subtitleEpochRef` を進めないため、**手動字幕選択や jimaku 自動取得の応答がメディア切替より後に解決すると旧メディアの cue が新メディアへ入る**同型の競合が残る。今回の修正対象は `AudioPlayer.tsx` のみで、PlayerApp 側は要判断

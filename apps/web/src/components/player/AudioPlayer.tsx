@@ -162,6 +162,11 @@ export default function AudioPlayer({
   const jobSession = useCompanionJobSession();
   const coverUrlRef = useRef<string | null>(null);
   const coverRequestRef = useRef(0);
+  // Subtitle epoch: the native parse is async, so two subtitle loads can
+  // resolve out of order. Only the newest load may replace the cues. A media
+  // switch advances the epoch too, so a parse that is still in flight for the
+  // previous media can never land on the new one.
+  const subtitleEpochRef = useRef(0);
   /** Tracker fingerprint of the loaded local file; null for YouTube jobs. */
   const mediaIdRef = useRef<string | null>(null);
   /** Saved position waiting for `loadedmetadata` before it can be applied. */
@@ -582,6 +587,9 @@ export default function AudioPlayer({
       resumeTargetRef.current = null;
       lastProgressRef.current = null;
       setYoutubeVideoId(videoId);
+      // Media switch: advance the subtitle generation so a parse that is still
+      // in flight for the previous media cannot apply its cues here.
+      subtitleEpochRef.current += 1;
       setSubtitleCues(null);
       setTitle(typeof body.title === 'string' ? body.title : t.defaultTitle);
       releaseCover();
@@ -674,6 +682,9 @@ export default function AudioPlayer({
       setError(null);
       setIsLocalSource(true);
       setYoutubeVideoId(null);
+      // Media switch: advance the subtitle generation so a parse that is still
+      // in flight for the previous media cannot apply its cues here.
+      subtitleEpochRef.current += 1;
       setSubtitleCues(null);
       setTitle(file.name || '');
       releaseCover();
@@ -745,10 +756,16 @@ export default function AudioPlayer({
       const file = event.target.files?.[0];
       event.target.value = '';
       if (!file) return;
+      const epoch = ++subtitleEpochRef.current;
       try {
         const text = await file.text();
-        setSubtitleCues((await parseSubtitleDirect(text)).cues);
+        const result = await parseSubtitleDirect(text);
+        // A newer subtitle load started while this one was parsing — the
+        // newer load wins, the stale one is dropped.
+        if (epoch !== subtitleEpochRef.current) return;
+        setSubtitleCues(result.cues);
       } catch {
+        if (epoch !== subtitleEpochRef.current) return;
         setSubtitleCues([]);
       }
     },

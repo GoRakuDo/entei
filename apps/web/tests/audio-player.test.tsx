@@ -306,6 +306,89 @@ describe('AudioPlayer', () => {
     });
   });
 
+  it('keeps the newest subtitle parse when an older file finishes later', async () => {
+    render(<AudioPlayer src="/book.m4b" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Subtitle' }));
+
+    // A deferred `text()` keeps both loads in flight, so the stale one can
+    // finish after the newer one.
+    const deferred = () => {
+      let resolve: (text: string) => void = () => {};
+      const promise = new Promise<string>((res) => {
+        resolve = res;
+      });
+      return { file: { text: () => promise }, resolve };
+    };
+    const first = deferred();
+    const second = deferred();
+
+    const input = screen.getByLabelText('Choose a subtitle file');
+    fireEvent.change(input, {
+      target: { files: [first.file as unknown as File] },
+    });
+    fireEvent.change(input, {
+      target: { files: [second.file as unknown as File] },
+    });
+
+    await act(async () => {
+      second.resolve('WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nsecond line');
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /second line/ })).not.toBeNull();
+    });
+
+    // The stale load resolves last — it must not replace the newer cues.
+    await act(async () => {
+      first.resolve('WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nfirst line');
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /first line/ })).toBeNull();
+    });
+    expect(screen.getByRole('button', { name: /second line/ })).not.toBeNull();
+  });
+
+  it('drops an in-flight subtitle parse when the media is replaced', async () => {
+    vi.mocked(audioHistory.computeAudioMediaId).mockResolvedValue(null);
+    vi.mocked(audioHistory.getAudioWatchHistoryRecord).mockResolvedValue(null);
+    vi.mocked(audioCover.extractAudioCover).mockResolvedValue({
+      title: 'Parsed book title',
+      coverUrl: 'blob:extracted-cover',
+    });
+
+    render(<AudioPlayer src="/book.m4b" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Subtitle' }));
+
+    // A deferred `text()` keeps the parse in flight while the media changes.
+    let resolve: (text: string) => void = () => {};
+    const pending = new Promise<string>((res) => {
+      resolve = res;
+    });
+    fireEvent.change(screen.getByLabelText('Choose a subtitle file'), {
+      target: { files: [{ text: () => pending } as unknown as File] },
+    });
+
+    // Media switch: a local audio file replaces the current track.
+    fireEvent.change(screen.getByLabelText('Choose an audio file'), {
+      target: {
+        files: [
+          new File([new Uint8Array([1, 2, 3, 4])], 'book.m4b', {
+            type: 'audio/mp4',
+          }),
+        ],
+      },
+    });
+
+    // The parse of the previous media resolves after the switch — its cues
+    // must never land on the new track.
+    await act(async () => {
+      resolve('WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nstale line');
+    });
+    await act(async () => {
+      await new Promise((tick) => setTimeout(tick, 0));
+    });
+    expect(screen.queryByRole('button', { name: /stale line/ })).toBeNull();
+  });
+
   it('centers the active cue in the subtitle list', () => {
     const listHeight = Object.getOwnPropertyDescriptor(
       window.HTMLElement.prototype,

@@ -30,6 +30,9 @@ pub const FORMAT_SRT: &str = "srt";
 pub const FORMAT_VTT: &str = "vtt";
 pub const FORMAT_ASS: &str = "ass";
 
+/// The ASS header section, compared case-insensitively.
+const SCRIPT_INFO_HEADER: &str = "[script info]";
+
 /// One subtitle cue.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SubtitleCue {
@@ -101,9 +104,7 @@ pub fn detect_format(content: &str) -> Option<&'static str> {
     if trimmed.starts_with("WEBVTT") {
         return Some(FORMAT_VTT);
     }
-    if trimmed.len() >= "[script info]".len()
-        && trimmed[.."[script info]".len()].eq_ignore_ascii_case("[script info]")
-    {
+    if starts_with_ci(trimmed, SCRIPT_INFO_HEADER) {
         return Some(FORMAT_ASS);
     }
     if starts_with_cue_index(trimmed) {
@@ -153,9 +154,7 @@ fn resolve_format(trimmed: &str, format_hint: Option<&str>) -> Format {
         return Format::Vtt;
     }
     // `/^\[Script Info\]/i` — the TypeScript check is case-insensitive.
-    if trimmed.len() >= "[script info]".len()
-        && trimmed[.."[script info]".len()].eq_ignore_ascii_case("[script info]")
-    {
+    if starts_with_ci(trimmed, SCRIPT_INFO_HEADER) {
         return Format::Ass;
     }
     Format::Srt
@@ -389,7 +388,7 @@ fn parse_ass(content: &str) -> SubtitleParseResult {
             continue;
         }
 
-        if starts_with_ci(line, "[Script Info]") {
+        if starts_with_ci(line, SCRIPT_INFO_HEADER) {
             state = 1;
         } else if starts_with_ci(line, "[V4+ Styles]") || starts_with_ci(line, "[V4 Styles]") {
             state = 2;
@@ -1361,8 +1360,14 @@ fn split_csv(value: &str) -> Vec<String> {
 }
 
 /// `String.prototype.startsWith`, case-insensitive.
+///
+/// The prefix is compared byte-wise, like the JavaScript original, but the
+/// slice is taken with `str::get`: a multi-byte character at the start of
+/// the text would otherwise slice the string in the middle of a character
+/// and panic.
 fn starts_with_ci(text: &str, prefix: &str) -> bool {
-    text.len() >= prefix.len() && text[..prefix.len()].eq_ignore_ascii_case(prefix)
+    text.get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
 /// JavaScript `Number(text)` semantics for the inputs used here.

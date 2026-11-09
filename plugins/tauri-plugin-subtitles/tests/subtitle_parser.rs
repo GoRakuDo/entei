@@ -902,3 +902,79 @@ fn parses_a_three_thousand_cue_track() {
     assert_eq!(result.cues[0].text, "Line 0");
     assert_eq!(result.cues[2999].text, "Line 2999");
 }
+
+// ---------------------------------------------------------------------------
+// Multi-byte input — char boundary regression
+//
+// The format detection and the ASS section scan compared the head of the
+// text against an ASCII header by slicing it at a fixed byte offset. A
+// multi-byte character at that offset sliced the string in the middle of a
+// character, which panicked with "byte index is not a char boundary".
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parses_an_ass_file_with_a_multibyte_comment_line_without_panicking() {
+    // The section scan compares every line against the `[Script Info]`
+    // header, so a line that starts with a multi-byte character used to
+    // panic.
+    let ass = concat!(
+        "[Script Info]\n",
+        "Title: 日本語タイトル\n",
+        "日本語のコメント\n",
+        "\n",
+        "[Events]\n",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+        "Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,こんにちは\n",
+    );
+
+    let result = parse(ass);
+    assert_eq!(result.format.as_deref(), Some("ass"));
+    assert_eq!(result.cues.len(), 1);
+    assert_eq!(result.cues[0].text, "こんにちは");
+}
+
+#[test]
+fn parses_an_ass_file_with_a_multibyte_first_line_without_panicking() {
+    // With a format hint the auto-detection is skipped, so the section scan
+    // is the only place that can hit the multi-byte line.
+    let ass = concat!(
+        "日本語のコメント\n",
+        "[Events]\n",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+        "Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello\n",
+    );
+
+    let result = parse_subtitles(ass, Some("ass"));
+    assert_eq!(result.format.as_deref(), Some("ass"));
+    assert_eq!(result.cues.len(), 1);
+    assert_eq!(result.cues[0].text, "Hello");
+}
+
+#[test]
+fn parses_content_that_starts_with_a_multibyte_character_without_panicking() {
+    // The auto-detection compared the first 13 bytes against
+    // `[script info]`; a multi-byte first character used to panic.
+    let result = parse("日本語のテキストです\n");
+    assert_eq!(result.format.as_deref(), Some("srt"));
+    assert_eq!(result.cues.len(), 0);
+    assert!(!result.errors.is_empty());
+}
+
+#[test]
+fn detects_no_format_for_multibyte_content_without_panicking() {
+    assert_eq!(detect_format("日本語のテキストです"), None);
+}
+
+#[test]
+fn detects_the_ass_format_for_a_multibyte_title_without_panicking() {
+    let ass = concat!(
+        "[Script Info]\n",
+        "Title: 日本語タイトル\n",
+        "\n",
+        "[Events]\n",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+        "Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello\n",
+    );
+
+    assert_eq!(detect_format(ass), Some("ass"));
+}
