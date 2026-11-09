@@ -25,5 +25,6 @@ tauri-plugin-mpv = { path = "../plugins/tauri-plugin-mpv" }
 # Native subtitle parsing, media filename parsing and LazySync offset
 # estimation: the CPU-bound work that used to run on the browser main thread.
 tauri-plugin-subtitles = { path = "../plugins/tauri-plugin-subtitles" }
+tauri-plugin-anki = { path = "../plugins/tauri-plugin-anki" }
 tauri-plugin-mcp-bridge = "0.13.2"
 tauri-plugin-dialog = "2"

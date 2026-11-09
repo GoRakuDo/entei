@@ -406,8 +406,68 @@ MKV の内蔵トラックが `video.textTracks` に公開されない（CONSTRAI
 
 ### 9.4 実装状況と境界
 
-- **状態**: 本節は設計確定（方針決定）。ネイティブエンジンの実装は未着手。
+- **状態**: 第1弾（字幕パーサー・ファイル名解析・LazySyncのRust化、およびmpv基礎バックエンド）は実装・検証完了済み。
+
+---
+
+## 10. 全 .ts → Rust 移行 第2弾アーキテクチャ（AnkiConnect コア直結 ＆ Entei Modules 統合プラグイン）
+
+第2弾では、外部通信・API連携・モジュール管理の全 TypeScript ロジックを Rust バックエンドへ完全移行する。
+
+### 10.1 システム構成図
+
+```text
+[ 園庭（Entei フロントエンド / React） ]
+              │
+              ├───────【コア直結（モジュール外）】───────┐
+              │                                          ▼
+              │                               [ AnkiConnect（Rust直結） ]
+              │                                 ・127.0.0.1:8765 直接通信
+              │                                 ・CORS / PNA 完全撤廃
+              │                                 ・カード採掘・更新・メディア保存
+              ▼
+    [ Tauri Plugin ]
+              │
+              ▼
+   [ Entei Modules プラグイン (tauri-plugin-modules) ]
+              ├── 🎬 ytdlp (YouTube ストリーミング・解像度選択)
+              ├── 🧲 torrent (Magnet/Torrent レンジストリーミング)
+              ├── 💬 jimaku (JIMAKU.CC アニメ/ドラマ並列字幕検索)
+              ├── 🧠 nadeshiko (Nadeshiko 例文・文脈検索)
+              ├── 📖 yomitan (Yomitan 辞書・語形変化エンジン)
+              ├── 📱 AnkiDroid (Android専用 FlashCardsContract 直結)
+              └── 🧩 コミュニティ製モジュール (将来の外部拡張スロット)
+```
+
+### 10.2 設計原則と責務の分離
+
+1. **`anki-connect` は Entei Modules を通さず「Rust コア直結」**:
+   * **理由**: PC での Anki 採掘・カード更新は、語学学習者にとって最も重要な生命線である。
+   * モジュールの ON/OFF スイッチの対象外とし、コア機能として独立して稼働させる。
+   * Rust ネイティブから `127.0.0.1:8765` へ直接 HTTP POST することで、Chromium の Private Network Access（PNA）警告や CORS ブロックを完全に無力化し、1〜2ms で爆速採掘を完了させる。
+2. **`Entei Modules` プラグイン (`tauri-plugin-modules`) の統合**:
+   * その他の外部通信・機能モジュールは、すべて「Entei Modules プラグイン」の傘下に集約する。
+   * `/modules/` 管理画面のスイッチ（`localStorage: entei.modules.v1`）と連動し、モジュールが無効化されている時は該当機能のボタンやメニューが自動的に非表示・無効化される。
+3. **`jimaku` ＆ `nadeshiko` の Rust ネイティブ化**:
+   * **`jimaku`**: `api.jimaku.cc` へのアニメ・ドラマ並列検索を Rust の `reqwest` で実行。CORS プリフライトの往復遅延をなくし、結果の A〜Z 統合ソートまで Rust 側で一括処理する。
+   * **`nadeshiko`**: `api.nadeshiko.co/v1` への検索・文脈取得を Rust 化。API キー認証、429 レート制限の適切なマッピング、リトライ処理をネイティブ側で堅牢に実行する。
+
 - **境界**: 取得層（`module-ytdlp` / `module-torrent` / Yomitan）は第2章のとおり独立モジュールの
   ままで、本節の変更はコア Player 内部に閉じる。
 - **未確認**: `libmpv` / `Media3` の実機での再生・シーク・トラック選択・`sub-delay` 反映は
   実環境 E2E 未検証。
+
+### 10.3 AnkiConnect コア直結プラグイン (`tauri-plugin-anki`)
+
+- **実装**: `plugins/tauri-plugin-anki`
+- **接続先セキュリティ境界**:
+  - `127.0.0.1` / `localhost` / `::1`（ループバック）、RFC1918（`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`）、Link-Local（`169.254.0.0/16`, `fe80::/10`）のみ許可。
+  - クラウドメタデータエンドポイント `169.254.169.254` は明示的に即時拒否。
+  - 非同期名前解決で全IPを事前検証し、検証済みSocketAddrへ直接接続（DNS rebinding / TOCTOU 排除）。
+  - HTTP リダイレクトおよびシステムプロキシは完全無効化。
+  - Action allowlist（`version`, `requestPermission`, `deckNames`, `modelNames`, `modelFieldNames`, `findNotes`, `notesInfo`, `cardsInfo`, `canAddNotes`, `addNote`, `updateNoteFields`, `storeMediaFile`, `guiBrowse`）。
+  - `addNote` / `updateNoteFields` の `note` パラメータ内の `url` および `path` は全面拒否（Anki側でのSSRF / ローカルファイル読込迂回を完全防止）。メディア保存は `storeMediaFile` の base64 形式のみ許可。
+- **既知の指摘 (Known issues / Low findings)**:
+  1. DNS検証済みクライアントのキャッシュ（`DnsCache`）は最大60秒保持される。短時間でのIP変更時はキャッシュ期限切れまで旧IPへの接続を試みる。
+  2. `storeMediaFile` の base64 検証時、メディアデータ全体をメモリ上でデコード検査するため、メディアサイズ相当の一時メモリを追加で消費する。
+

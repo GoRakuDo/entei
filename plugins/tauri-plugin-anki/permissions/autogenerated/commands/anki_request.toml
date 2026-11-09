@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-anki-request"
+description = "Enables the anki_request command without any pre-configured scope."
+commands.allow = ["anki_request"]
+
+[[permission]]
+identifier = "deny-anki-request"
+description = "Denies the anki_request command without any pre-configured scope."
+commands.deny = ["anki_request"]

@@ -9,6 +9,7 @@
     "torrent:default",
     "mpv:default",
     "subtitles:default",
+    "anki:default",
     "dialog:default",
     "mcp-bridge:default"
   ]
