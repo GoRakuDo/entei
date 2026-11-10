@@ -9,6 +9,7 @@ use url::Host;
 
 const API_BASE: &str = "https://jimaku.cc/api/";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JimakuEntry {
@@ -192,7 +193,8 @@ impl JimakuClient {
             return Err(JimakuError::new(JimakuErrorKind::Network));
         }
         let client = Client::builder()
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(DOWNLOAD_TIMEOUT)
+            .user_agent("Entei/0.1")
             .no_proxy()
             .redirect(Policy::custom(|attempt| {
                 if attempt.previous().len() >= 10 || !is_public_https_url(attempt.url()) {
@@ -205,6 +207,7 @@ impl JimakuClient {
             .map_err(|_| JimakuError::new(JimakuErrorKind::Network))?;
         let response = client
             .get(url)
+            .header("User-Agent", "Entei/0.1")
             .send()
             .await
             .map_err(|_| JimakuError::new(JimakuErrorKind::Network))?;

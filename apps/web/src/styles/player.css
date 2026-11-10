@@ -148,6 +148,7 @@
    anything, or the picture behind the webview would be covered. This is
    not the app background — the wallpaper layer (global.css) stays painted
    in every state. */
+html.entei-native-video,
 html.entei-native-video .entei-player-container,
 html.entei-native-video .entei-player-layout,
 html.entei-native-video .entei-player-media-area,

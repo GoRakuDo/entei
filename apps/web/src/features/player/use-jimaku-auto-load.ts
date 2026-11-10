@@ -323,15 +323,13 @@ export function useJimakuAutoLoad({
         onSubtitleLoaded(dl.data);
         lastTriggerRef.current = triggerKey;
       } finally {
-        // Only the latest run may clear its own controller: a superseded
+        // Only the latest run clears its own controller: a superseded
         // (older) run must not null the NEWER run's controller, or >=3 rapid
         // switches leak parallel requests (BUG 3).
-        if (lastTriggerRef.current === triggerKey) {
+        if (abortRef.current === controller) {
           abortRef.current = null;
+          setIsLoading(false);
         }
-        // Only the latest run clears the spinner: a superseded run's finally
-        // must not switch it off while a newer run is still loading.
-        if (lastTriggerRef.current === triggerKey) setIsLoading(false);
       }
     },
     [onSubtitleLoaded, onMatchResolved, onOpenSearch, onToast],
