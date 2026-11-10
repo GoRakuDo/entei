@@ -4,7 +4,7 @@
 use tauri_plugin_database::store;
 use tauri_plugin_database::{
     MigrationPayloadV1, MiningArchiveInput, TimelinePostInput, UserProfileInput,
-    WatchHistoryInput, WatchSessionInput,
+    WatchHistoryInput, WatchSessionInput, WatchSessionItem,
 };
 
 fn conn() -> rusqlite::Connection {
@@ -501,4 +501,39 @@ fn cascade_delete_removes_sessions_with_history() {
     c.execute("DELETE FROM watch_history WHERE media_id='m1'", []).unwrap();
     let n: i64 = c.query_row("SELECT COUNT(*) FROM watch_sessions", [], |r| r.get(0)).unwrap();
     assert_eq!(n, 0, "session should be cascade-deleted with its history");
+}
+
+#[test]
+fn migrate_v1_orphaned_sessions_do_not_abort() {
+    let mut c = conn();
+    // Payload contains watch_sessions with a media_id that is NOT in watch_history.
+    let payload = MigrationPayloadV1 {
+        posts: vec![],
+        watch_history: vec![],
+        watch_sessions: vec![WatchSessionItem {
+            id: "orphan-sess-1".into(),
+            media_id: "never-seen-media".into(),
+            title: "Orphaned Movie".into(),
+            start_time: 1000,
+            end_time: 2000,
+            duration: 1000,
+            cues_mined: 0,
+            mined_sentences: vec![],
+        }],
+        mining_archive: vec![],
+        profile: None,
+        kv: vec![],
+    };
+
+    // Must succeed without foreign key constraint failure.
+    store::migrate_v1(&mut c, payload).unwrap();
+
+    let sessions = store::get_watch_sessions(&mut c, Some("never-seen-media".into())).unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].id, "orphan-sess-1");
+
+    let history = store::get_watch_history(&mut c, None, None).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].media_id, "never-seen-media");
+    assert_eq!(history[0].title, "Orphaned Movie");
 }

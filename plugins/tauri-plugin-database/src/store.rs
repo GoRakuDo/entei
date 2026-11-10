@@ -566,6 +566,16 @@ pub fn migrate_v1(conn: &mut Connection, payload: MigrationPayloadV1) -> rusqlit
         })?;
     }
     for s in payload.watch_sessions {
+        // Guarantee parent watch_history row exists so browser-era orphaned sessions
+        // (which originated in an older or separate store) do not abort the migration
+        // with a FOREIGN KEY constraint failure.
+        tx.execute(
+            "INSERT INTO watch_history (media_id, title, source, watched_at) \
+             VALUES (?1, ?2, 'local', ?3) \
+             ON CONFLICT(media_id) DO NOTHING",
+            params![s.media_id, s.title, s.end_time],
+        )?;
+
         let mined = serde_json::to_string(&s.mined_sentences)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         tx.execute(
