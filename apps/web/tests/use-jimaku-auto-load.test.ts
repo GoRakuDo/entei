@@ -4,6 +4,7 @@ import { act } from 'react';
 import {
   normalizeTitle,
   pickJimakuEntry,
+  pickJimakuSubtitle,
   useJimakuAutoLoad,
 } from '../src/features/player/use-jimaku-auto-load';
 import type { JimakuEntry } from '../src/features/player/jimaku-client';
@@ -38,6 +39,43 @@ const entry = (id: number, name: string, anime = true): JimakuEntry => ({
   english_name: name,
   japanese_name: name,
   flags: { anime, movie: /movie/i.test(name), adult: false, external: false },
+});
+
+describe('pickJimakuSubtitle', () => {
+  it('prefers a clean dialogue SRT over a huge font-embedded ASS', () => {
+    // Regression: the reported Kimi no Na wa entry. The 4.15 MB ASS used to
+    // win on a largest-first sort and took ~16s to download.
+    const best = pickJimakuSubtitle([
+      { url: 'a', name: 'Your Name[AnimeKaizoku].ja-en.ass', size: 4_149_630, last_modified: '' },
+      { url: 'b', name: '君の名は。.WEBRip.Amazon.ja-jp[sdh].srt', size: 136_000, last_modified: '' },
+      { url: 'c', name: '君の名は。Resinc.srt', size: 141_000, last_modified: '' },
+    ]);
+    expect(best?.url).not.toBe('a');
+  });
+
+  it('prefers a Japanese-native filename over a romaji one', () => {
+    const best = pickJimakuSubtitle([
+      { url: 'romaji', name: 'Kimi.no.Na.wa.2016.srt', size: 140_000, last_modified: '' },
+      { url: 'jp', name: '君の名は。.srt', size: 140_000, last_modified: '' },
+    ]);
+    expect(best?.url).toBe('jp');
+  });
+
+  it('falls back to the largest file when every candidate is tiny', () => {
+    const best = pickJimakuSubtitle([
+      { url: 'small', name: 'movie.small.srt', size: 200, last_modified: '' },
+      { url: 'big', name: 'movie.b.srt', size: 100, last_modified: '' },
+    ]);
+    expect(best?.url).toBe('small');
+  });
+
+  it('prefers .srt over an equal-sized .ass', () => {
+    const best = pickJimakuSubtitle([
+      { url: 'ass', name: 'track.ass', size: 140_000, last_modified: '' },
+      { url: 'srt', name: 'track.srt', size: 140_000, last_modified: '' },
+    ]);
+    expect(best?.url).toBe('srt');
+  });
 });
 
 describe('pickJimakuEntry', () => {

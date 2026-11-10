@@ -141,6 +141,73 @@ export function isUncompressed(name: string): boolean {
   return /\.(?:srt|ass|ssa|vtt)$/i.test(name);
 }
 
+/**
+ * Size band used to pick a clean, fast-downloading Japanese subtitle.
+ * Language-learning playback wants dialogue-centric text: a normal
+ * dialogue track lands in the tens-to-hundreds of KB, while a
+ * font-embedded / heavily-styled ASS can balloon past 1 MB and take
+ * many seconds to download over a slow connection.
+ */
+const SUBTITLE_MIN_SIZE = 10_000;
+const SUBTITLE_IDEAL_MIN = 30_000;
+const SUBTITLE_IDEAL_MAX = 500_000;
+const SUBTITLE_HUGE = 1_000_000;
+
+/** Japanese kana / kanji anywhere in the filename (e.g. `君の名は。.srt`). */
+const JP_FILENAME_RE = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/;
+
+/** Format preference: `.srt` beats `.ass`/`.ssa` beats `.vtt`. */
+function formatRank(name: string): number {
+  if (/\.srt$/i.test(name)) return 3;
+  if (/\.(?:ass|ssa)$/i.test(name)) return 2;
+  return 1; // .vtt
+}
+
+/**
+ * Higher is better. Tie-break stays server order (stable), so the score is
+ * deliberately coarse — it only needs to separate clean dialogue tracks from
+ * oversized decorated ones, not rank every byte difference.
+ */
+function subtitleScore(file: JimakuFile): number {
+  const { name, size } = file;
+  let score = 0;
+  // Format: clean, dialogue-centric .srt is the safest default.
+  score += formatRank(name) * 10;
+  // Japanese-native filename is a strong signal it is the intended track.
+  if (JP_FILENAME_RE.test(name)) score += 20;
+  // Reward the ideal dialogue-sized band.
+  if (size >= SUBTITLE_IDEAL_MIN && size <= SUBTITLE_IDEAL_MAX) score += 30;
+  // Penalize a font-embedded / decorated file that downloads slowly.
+  if (size > SUBTITLE_HUGE) score -= 100;
+  return score;
+}
+
+/**
+ * Pick the best Japanese subtitle file to auto-load without downloading it.
+ *
+ * Prefers a clean, right-sized dialogue track (30KB–500KB .srt) over a huge
+ * decorated ASS: on a movie entry both are valid Japanese, but the huge one
+ * can take 10x longer to download for no learning benefit. Files smaller
+ * than {@link SUBTITLE_MIN_SIZE} are treated as junk, but if nothing else
+ * remains we still return the largest of them rather than failing the
+ * auto-load (keeps single-file entries working).
+ */
+export function pickJimakuSubtitle(files: readonly JimakuFile[]): JimakuFile | null {
+  const healthy = files.filter((f) => f.size >= SUBTITLE_MIN_SIZE);
+  const pool = healthy.length > 0 ? healthy : files;
+  // Stable order-preserving max: equal scores keep the server's order.
+  let best: JimakuFile | null = null;
+  let bestScore = -Infinity;
+  for (const file of pool) {
+    const score = subtitleScore(file);
+    if (score > bestScore) {
+      best = file;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 export interface JimakuAutoLoadMatch {
   anilistId: number | null;
   tmdbId: string | null;
@@ -287,14 +354,9 @@ export function useJimakuAutoLoad({
           onOpenSearch(title, animeLastTried);
           return;
         }
-        // Prefer .srt / .ass over .vtt, then largest file (§2.2-4 pick).
-        jp.sort(
-          (a, b) =>
-            Number(/\.(?:srt|ass)$/i.test(b.name)) -
-              Number(/\.(?:srt|ass)$/i.test(a.name)) ||
-            b.size - a.size,
-        );
-        const best = jp[0];
+        // Prefer a clean, right-sized dialogue track over a huge decorated ASS
+        // (§2.2-4 pick). See pickJimakuSubtitle.
+        const best = pickJimakuSubtitle(jp);
         if (!best) return; // unreachable: jp.length > 0 checked above
         const dl = await downloadJimakuSubtitle(best.url, signal);
         if (signal.aborted) return; // silent — newer run took over
