@@ -32,16 +32,18 @@
   /* --- 2. Typography (文字テキスト) --- */
   /* Strong text and prominent headings. */
   --entei-text-primary: oklch(95% 0.005 285deg);
-  /* Secondary text & icons — unified with accent-hover (--entei-purple-400). */
-  --entei-text-secondary: var(--entei-purple-400);
+  /* Secondary text & icons — off-white so sidebar/drawer labels read as
+     neutral body text; purple stays reserved for accent-only use. */
+  --entei-text-secondary: oklch(85.99% 0.071 282.16deg);
   /* Footer, supplementary text. */
   --entei-text-muted: oklch(70% 0.01 270deg);
 
   /* --- 3. Interactive / Controls (ボタン・アクセント) --- */
   /* Primary accent, focus ring, active border (Discord Blurple). */
   --entei-accent-primary: oklch(68% 0.21 273.85deg);
-  /* Hover state, lighter accent for prominent dark-surface headings. */
-  --entei-accent-hover: var(--entei-purple-400);
+  /* Hover state, lighter accent for prominent dark-surface headings.
+     Independent of --entei-text-secondary; accent/hover use only. */
+  --entei-accent-hover: oklch(76% 0.22 273.85deg);
   /* Solid fill reserved for hover, active, and primary actions. */
   --entei-btn-bg: oklch(31.5% 0.08 275);
   /* Subtle surface used by outline/default controls at rest. */
@@ -54,7 +56,7 @@
   /* --- Palette Primitives & Backward Compatibility Aliases ---
      Legacy names preserved so existing styles and custom themes do not break.
      Each maps onto exactly one core group token above — no new color values. */
-  --entei-purple-400: oklch(76% 0.22 273.85deg);
+  --entei-purple-400: var(--entei-accent-hover);
   --entei-white-base: var(--entei-text-primary);
   --entei-black-950: var(--entei-bg);
   --entei-text: var(--entei-text-primary);

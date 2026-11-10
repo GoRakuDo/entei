@@ -96,7 +96,7 @@
   border: none;
   border-radius: var(--entei-radius-md);
   background: var(--entei-btn-color);
-  color: var(--entei-purple-400);
+  color: var(--entei-text-secondary);
   cursor: pointer;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
@@ -106,7 +106,7 @@
 
 .audio-player__youtube-button:hover {
   background: var(--entei-btn-color);
-  color: var(--entei-purple-400);
+  color: var(--entei-accent-hover);
 }
 
 .audio-player__youtube-button:disabled {
@@ -116,7 +116,7 @@
 
 .audio-player__open-button:hover {
   background: var(--entei-btn-color);
-  color: var(--entei-purple-400);
+  color: var(--entei-accent-hover);
 }
 
 .audio-player__control:hover,
