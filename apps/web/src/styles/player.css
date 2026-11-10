@@ -665,23 +665,26 @@ html.entei-native-video .entei-player-video {
   display: flex;
   align-items: stretch;
   background: transparent;
-  border-left: 3px solid transparent;
+  border-radius: var(--entei-radius-md);
+  margin: var(--entei-space-2) var(--entei-space-4);
   transition:
-    background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-subtitle-cue-row:hover {
-  background-color: var(--entei-surface-2);
+  background-color: var(--entei-btn-color);
 }
 
 .entei-subtitle-cue-row:hover .entei-subtitle-cue {
   color: var(--entei-text);
 }
 
+.entei-subtitle-cue-row:hover .entei-subtitle-cue-time {
+  color: var(--entei-text-secondary);
+}
+
 .entei-subtitle-cue-row--active {
   background-color: var(--entei-btn-color);
-  border-left-color: var(--entei-accent);
 }
 
 .entei-subtitle-cue-row--active:hover {
@@ -691,6 +694,12 @@ html.entei-native-video .entei-player-video {
 .entei-subtitle-cue-row--active .entei-subtitle-cue,
 .entei-subtitle-cue-row--active:hover .entei-subtitle-cue {
   color: var(--entei-status-locked);
+}
+
+.entei-subtitle-cue-row--active .entei-subtitle-cue-time,
+.entei-subtitle-cue-row--active:hover .entei-subtitle-cue-time {
+  color: var(--entei-status-locked);
+  opacity: 0.85;
 }
 
 /* Seek button fills remaining space */
@@ -1323,7 +1332,7 @@ html.entei-native-video .entei-player-video {
   background: none;
   border: none;
   border-radius: var(--entei-radius-sm);
-  color: oklch(100% 0 0deg / 0.9);
+  color: var(--entei-text-secondary);
   cursor: pointer;
   transition:
     color var(--entei-duration-fast) var(--entei-ease-productive),
@@ -1332,7 +1341,7 @@ html.entei-native-video .entei-player-video {
 }
 
 .entei-controls-btn:hover {
-  color: oklch(100% 0 0deg / 1);
+  color: var(--entei-status-locked);
   background-color: var(--entei-btn-color);
 }
 
@@ -1372,13 +1381,17 @@ html.entei-native-video .entei-player-video {
 }
 
 .entei-controls-play-btn {
-  color: oklch(100% 0 0deg / 1);
+  color: var(--entei-text-secondary);
+}
+
+.entei-controls-play-btn:hover {
+  color: var(--entei-status-locked);
 }
 
 .entei-controls-time {
   font-family: var(--entei-font-system);
   font-size: 0.75rem;
-  color: oklch(100% 0 0deg / 0.85);
+  color: var(--entei-text-secondary);
   white-space: nowrap;
   text-shadow: 0 1px 2px oklch(0% 0 0deg / 0.5);
   user-select: none;
@@ -2531,7 +2544,7 @@ html.entei-native-video .entei-player-video {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--entei-text-muted);
+  color: var(--entei-text-secondary);
   margin-bottom: var(--entei-space-4);
 }
 
@@ -2572,11 +2585,12 @@ html.entei-native-video .entei-player-video {
 
 .entei-rate-option--active {
   background-color: var(--entei-btn-color);
-  color: oklch(100% 0 0deg / 1);
+  color: var(--entei-status-locked);
 }
 
 .entei-rate-option--active:hover {
   background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
 }
 
 /* P2.1: Playback mode radio group inside rate popover
@@ -4247,7 +4261,7 @@ html.entei-player-immersive .entei-player-audio-area {
   border-right: 1px solid oklch(1 0 0deg / 0.1);
   border-radius: 0;
   background: transparent;
-  color: oklch(0.7 0.02 265deg);
+  color: var(--entei-text-secondary);
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
@@ -4271,17 +4285,18 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-right-panel-tab:hover {
   background-color: var(--entei-btn-color);
-  color: oklch(0.94 0.015 265deg);
+  color: var(--entei-text);
 }
 
 .entei-right-panel-tab[aria-pressed='true'] {
   background-color: var(--entei-btn-color);
-  color: oklch(0.97 0.01 265deg);
+  color: var(--entei-status-locked);
   font-weight: 600;
 }
 
 .entei-right-panel-tab[aria-pressed='true']:hover {
   background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
 }
 
 .entei-right-panel-tab:focus-visible {
