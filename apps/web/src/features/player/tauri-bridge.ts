@@ -1471,6 +1471,23 @@ export function dbMigrateV1(payload: DbMigrationPayloadV1): Promise<void> {
 }
 
 /**
+ * Open an external URL in the user's default system browser.
+ * Outside Tauri, falls back to `window.open(url, '_blank', 'noopener,noreferrer')`.
+ */
+export async function openExternalUrlDirect(url: string): Promise<void> {
+  if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+    return;
+  }
+  if (!isTauri()) {
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    return;
+  }
+  await tracedInvoke('open_external_url', { url });
+}
+
+/**
  * Race a promise with an AbortSignal so desktop Tauri IPC calls abort
  * consistently with web fetch callers when a request is cancelled.
  */

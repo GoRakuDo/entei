@@ -13,8 +13,38 @@
  */
 import { installTraceInstrumentation } from '@/features/trace/trace-logger';
 import { ensureDatabaseMigrated } from '@/features/database/migration';
+import { isTauri, openExternalUrlDirect } from '@/features/player/tauri-bridge';
 
 installTraceInstrumentation();
+
+// Desktop only: intercept any external link click globally and hand it
+// over to the operating system's default browser, keeping the app webview
+// from navigating away to external websites.
+if (typeof window !== 'undefined' && isTauri()) {
+  window.addEventListener(
+    'click',
+    (e) => {
+      const target = (e.target as HTMLElement | null)?.closest('a');
+      if (!target || !target.href) return;
+      try {
+        const url = new URL(target.href);
+        if (
+          (url.protocol === 'http:' || url.protocol === 'https:') &&
+          url.hostname !== 'tauri.localhost' &&
+          url.hostname !== 'localhost' &&
+          url.hostname !== '127.0.0.1'
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          void openExternalUrlDirect(target.href);
+        }
+      } catch {
+        // invalid URL — ignore
+      }
+    },
+    true, // capture phase to intercept before React or native navigation
+  );
+}
 
 // Desktop only: import the browser-era localStorage / IndexedDB data into the
 // embedded SQLite database once (idempotent, gated by a completion flag).

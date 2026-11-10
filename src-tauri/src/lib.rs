@@ -1,5 +1,14 @@
 mod trace;
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        open::that(&url).map_err(|e| e.to_string())
+    } else {
+        Err("invalid url scheme".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -19,12 +28,35 @@ pub fn run() {
         // Native file dialog: the only way to obtain an absolute path for a
         // "choose media" click, because WebView2 never exposes `File.path`.
         .plugin(tauri_plugin_dialog::init())
+        // External link guard: intercept any navigation to an external HTTP(S)
+        // URL and open it in the user's default system browser, keeping the
+        // internal WebView2 shell strictly inside the Entei app.
+        .plugin(
+            tauri::plugin::Builder::new("external-link-guard")
+                .on_navigation(|_webview, url| {
+                    let scheme = url.scheme();
+                    if scheme == "http" || scheme == "https" {
+                        let host = url.host_str().unwrap_or("");
+                        if host != "tauri.localhost"
+                            && host != "localhost"
+                            && host != "127.0.0.1"
+                            && host != "ipc.localhost"
+                        {
+                            let _ = open::that(url.as_str());
+                            return false; // prevent navigating the app webview away
+                        }
+                    }
+                    true
+                })
+                .build(),
+        )
         // Trace log: the web layer's only way to write the action journal.
         // `trace_log` appends a batch, `trace_dir_path` reports where the
         // files live. Both are app commands (no plugin capability needed).
         .invoke_handler(tauri::generate_handler![
             trace::trace_log,
-            trace::trace_dir_path
+            trace::trace_dir_path,
+            open_external_url
         ])
         // Retention runs at startup too, so a stale day file is removed even
         // if the session never writes a trace entry.

@@ -33,3 +33,4 @@ tauri-plugin-anki = { path = "../plugins/tauri-plugin-anki" }
 tauri-plugin-database = { path = "../plugins/tauri-plugin-database" }
 tauri-plugin-mcp-bridge = "0.13.2"
 tauri-plugin-dialog = "2"
+open = "5.4"
