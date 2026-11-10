@@ -406,7 +406,11 @@ MKV の内蔵トラックが `video.textTracks` に公開されない（CONSTRAI
 
 ### 9.4 実装状況と境界
 
-- **状態**: 第1弾（字幕パーサー・ファイル名解析・LazySyncのRust化、およびmpv基礎バックエンド）は実装・検証完了済み。
+- **実装状況**:
+  - 第1弾（字幕・ファイル名・LazySync の Rust 化）: 完了済み
+  - 第2弾（AnkiConnect コア直結 ＆ JIMAKU/Nadeshiko Rust モジュール）: 完了済み
+  - 第3弾（mpv ネイティブスクリーンショット）: 完了済み
+  - 第4弾（脱 IndexedDB / localStorage ＆ SQLite データベース統合）: 設計完了・実装中
 
 ---
 
@@ -470,4 +474,118 @@ MKV の内蔵トラックが `video.textTracks` に公開されない（CONSTRAI
 - **既知の指摘 (Known issues / Low findings)**:
   1. DNS検証済みクライアントのキャッシュ（`DnsCache`）は最大60秒保持される。短時間でのIP変更時はキャッシュ期限切れまで旧IPへの接続を試みる。
   2. `storeMediaFile` の base64 検証時、メディアデータ全体をメモリ上でデコード検査するため、メディアサイズ相当の一時メモリを追加で消費する。
+
+---
+
+## 11. 全 .ts → Rust 移行 第4弾アーキテクチャ（脱 IndexedDB / localStorage ＆ SQLite データベース統合）
+
+第4弾では、ブラウザ側の IndexedDB および localStorage に分散していたユーザーデータ（タイムライン、視聴履歴、セッション、採掘履歴、プロフィール）を、Rust ネイティブの組み込み SQLite データベース（`entei.db`）へ完全統合する。
+
+### 11.1 背景と動機
+
+1. **ブラウザストレージの限界**:
+   * localStorage は 5MB〜10MB の容量制限があり、SNS タイムラインの投稿や画像が増えると即座に `QuotaExceededError` で破綻する。
+   * IndexedDB はブラウザキャッシュのクリア操作や OS のストレージ不足時に勝手にパージされる危険性（揮発性リスク）が常にある。
+   * 複雑な集計クエリ（日別・月別の視聴統計やセッション分析）が JS メインスレッド上で行われ、データ量に比例して画面が重くなる。
+2. **SQLite（`entei.db`）への一本化**:
+   * 単一のローカルファイル（`app_data_dir/entei.db`）として永続化。何万件の投稿や履歴があっても数ミリ秒でインデックス検索・集計が可能。
+   * WAL モード（`PRAGMA journal_mode=WAL`）を採用し、UI 表示とバックグラウンド書き込みの競合をゼロにする。
+   * **データ主権とバックアップ**: 将来の GitHub / Discord ログイン（Device Flow）によるリモートバックアップや、単一 DB ファイルのコピーによる移行・復元が容易になる。
+
+### 11.2 システム構成
+
+- **プラグイン**: `plugins/tauri-plugin-database`
+- **エンジン**: `rusqlite`（`bundled` feature、CGO 不要、Android/Windows クロスコンパイル対応）
+- **保存先**: `app.path().app_data_dir()/entei.db`
+  - Windows: `%APPDATA%\org.gorakudo.entei\entei.db`
+  - Android: `/data/user/0/org.gorakudo.entei/files/entei.db`
+
+### 11.3 テーブルスキーマ
+
+```sql
+-- 1. タイムライン投稿テーブル
+CREATE TABLE IF NOT EXISTS timeline_posts (
+    id TEXT PRIMARY KEY,
+    author_handle TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    author_avatar TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    likes INTEGER NOT NULL DEFAULT 0,
+    liked_by_me INTEGER NOT NULL DEFAULT 0,
+    reply_count INTEGER NOT NULL DEFAULT 0,
+    parent_id TEXT,
+    FOREIGN KEY(parent_id) REFERENCES timeline_posts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_timeline_created ON timeline_posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_timeline_parent ON timeline_posts(parent_id);
+
+-- 2. 視聴履歴テーブル
+CREATE TABLE IF NOT EXISTS watch_history (
+    media_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    title_native TEXT,
+    episode INTEGER,
+    source TEXT NOT NULL, -- 'local' | 'youtube' | 'torrent'
+    watched_at INTEGER NOT NULL,
+    duration REAL,
+    position REAL,
+    poster_url TEXT,
+    poster_status TEXT,
+    anilist_id INTEGER,
+    tmdb_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_watch_history_time ON watch_history(watched_at DESC);
+
+-- 3. 視聴セッションテーブル
+CREATE TABLE IF NOT EXISTS watch_sessions (
+    id TEXT PRIMARY KEY,
+    media_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    start_time INTEGER NOT NULL,
+    end_time INTEGER NOT NULL,
+    duration INTEGER NOT NULL,
+    cues_mined INTEGER NOT NULL DEFAULT 0,
+    mined_sentences TEXT, -- JSON array of strings
+    FOREIGN KEY(media_id) REFERENCES watch_history(media_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_watch_sessions_media ON watch_sessions(media_id, start_time DESC);
+
+-- 4. 採掘アーカイブテーブル
+CREATE TABLE IF NOT EXISTS mining_archive (
+    id TEXT PRIMARY KEY,
+    media_filename TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    sentence TEXT NOT NULL,
+    word TEXT,
+    range_start REAL,
+    range_end REAL
+);
+CREATE INDEX IF NOT EXISTS idx_mining_archive_time ON mining_archive(created_at DESC);
+
+-- 5. プロフィールテーブル
+CREATE TABLE IF NOT EXISTS user_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1), -- 単一ユーザーレコード
+    handle TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    bio TEXT,
+    avatar_url TEXT,
+    updated_at INTEGER NOT NULL
+);
+
+-- 6. 汎用キーバリューストア（設定・フラグ等）
+CREATE TABLE IF NOT EXISTS kv_store (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL, -- JSON
+    updated_at INTEGER NOT NULL
+);
+```
+
+### 11.4 既存データからの自動移行（マイグレーション）
+
+初回起動時、Web フロントエンド側は以下の移行チェックを実施する：
+1. `kv_store` に `migration:v1:completed` フラグが存在するか確認。
+2. 未移行の場合、ブラウザの IndexedDB（`immersion-tracker`, `mining-history`）および localStorage（`entei.timeline.v1`, `entei.profile.v1`）から全レコードを抽出。
+3. `tauri-plugin-database` のバッチインポート API（`db_migrate_v1`）を呼び出し、一括トランザクションで SQLite に格納。
+4. 成功後、`kv_store` に完了フラグを記録し、以降は SQLite を単一の真実の源として稼働する。
 

@@ -1221,6 +1221,255 @@ export async function estimateLazySyncOffsetDirect(
   return estimateMedianOffset(driftCues, refCues)?.offsetMs ?? null;
 }
 
+/* ---------------------------------------------------------------------------
+ * Embedded SQLite database (`plugin:database`)
+ * ---------------------------------------------------------------------------
+ * The desktop build ships `plugins/tauri-plugin-database`: a single embedded
+ * SQLite file (`entei.db`) that is the source of truth for user data (timeline
+ * posts + replies, watch history + sessions, mining archive, profile, and a
+ * generic key/value store) on desktop. The standalone browser build has no
+ * Tauri runtime and keeps its existing IndexedDB / localStorage stores; the
+ * callers branch on `isTauri()` and every wrapper here REJECTS outside Tauri
+ * (never a silent no-op) so the caller's fallback runs unchanged.
+ *
+ * All commands go through `tracedInvoke`. Database args carry user content
+ * (post text, mined sentences, titles) — not credentials, tokens or URLs — so
+ * the trace sanitizer's default clipping is the right treatment and none of the
+ * magnet/URL redaction the torrent / yt-dlp wrappers rely on is needed here.
+ * ------------------------------------------------------------------------- */
+
+/** Mirror of the plugin's `TimelinePost` (serde camelCase). */
+export interface DbTimelinePost {
+  id: string;
+  authorHandle: string;
+  authorName: string;
+  authorAvatar: string;
+  content: string;
+  /** Epoch milliseconds. */
+  createdAt: number;
+  likes: number;
+  likedByMe: boolean;
+  replyCount: number;
+  parentId: string | null;
+}
+
+/** Input for `dbCreateTimelinePost` (the Rust side owns `id` / counters). */
+export interface DbTimelinePostInput {
+  authorHandle: string;
+  authorName: string;
+  authorAvatar: string;
+  content: string;
+  createdAt: number;
+  parentId: string | null;
+}
+
+/** Mirror of the plugin's `WatchHistoryItem` / `WatchHistoryInput`. */
+export interface DbWatchHistoryItem {
+  mediaId: string;
+  title: string;
+  titleNative: string | null;
+  episode: number | null;
+  source: string;
+  watchedAt: number;
+  duration: number | null;
+  position: number | null;
+  posterUrl: string | null;
+  posterStatus: string | null;
+  anilistId: number | null;
+  /** TMDB ids are numeric; SQLite stores the integer (the web layer keeps a string). */
+  tmdbId: number | null;
+}
+
+/** Input for `dbUpsertWatchHistory`, keyed by `mediaId`. */
+export type DbWatchHistoryInput = DbWatchHistoryItem;
+
+/** Mirror of the plugin's `WatchSessionItem`. */
+export interface DbWatchSessionItem {
+  id: string;
+  mediaId: string;
+  title: string;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  cuesMined: number;
+  minedSentences: string[];
+}
+
+/** Input for `dbSaveWatchSession`. `id` pins a stable per-sit-down identity. */
+export interface DbWatchSessionInput {
+  id?: string | null;
+  mediaId: string;
+  title: string;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  cuesMined: number;
+  minedSentences: string[];
+}
+
+/** Mirror of the plugin's `MiningArchiveItem`. */
+export interface DbMiningArchiveItem {
+  id: string;
+  mediaFilename: string;
+  createdAt: number;
+  sentence: string;
+  word: string | null;
+  rangeStart: number | null;
+  rangeEnd: number | null;
+}
+
+/** Input for `dbSaveMiningCard` (the Rust side owns `id`). */
+export interface DbMiningArchiveInput {
+  mediaFilename: string;
+  createdAt: number;
+  sentence: string;
+  word: string | null;
+  rangeStart: number | null;
+  rangeEnd: number | null;
+}
+
+/** Mirror of the plugin's `UserProfile` / `UserProfileInput`. */
+export interface DbUserProfile {
+  handle: string;
+  displayName: string;
+  bio: string | null;
+  avatarUrl: string | null;
+  updatedAt: number;
+}
+
+/** Input for `dbUpsertProfile`. */
+export type DbUserProfileInput = DbUserProfile;
+
+/** One key/value pair of the generic settings store. */
+export interface DbKvEntry {
+  key: string;
+  value: string;
+}
+
+/** Batch payload for the one-shot `dbMigrateV1` import. */
+export interface DbMigrationPayloadV1 {
+  posts: DbTimelinePost[];
+  watchHistory: DbWatchHistoryItem[];
+  watchSessions: DbWatchSessionItem[];
+  miningArchive: DbMiningArchiveItem[];
+  profile: DbUserProfile | null;
+  kv: DbKvEntry[];
+}
+
+/** Run one `plugin:database` command; rejects outside Tauri. */
+async function invokeDatabaseCommand<T>(
+  command: string,
+  args: Record<string, unknown> = {},
+): Promise<T> {
+  if (!isTauri()) throw new Error('tauri runtime unavailable');
+  return (await tracedInvoke(`plugin:database|${command}`, args)) as T;
+}
+
+/** List top-level posts (newest first) or, with `parentId`, that post's replies. */
+export function dbGetTimelinePosts(
+  opts: { limit?: number; offset?: number; parentId?: string | null } = {},
+): Promise<DbTimelinePost[]> {
+  const args: Record<string, unknown> = {};
+  if (opts.limit !== undefined) args.limit = opts.limit;
+  if (opts.offset !== undefined) args.offset = opts.offset;
+  if (opts.parentId != null) args.parentId = opts.parentId;
+  return invokeDatabaseCommand<DbTimelinePost[]>('db_get_timeline_posts', args);
+}
+
+/** Create a post or reply; the plugin generates and returns the row with its id. */
+export function dbCreateTimelinePost(
+  post: DbTimelinePostInput,
+): Promise<DbTimelinePost> {
+  return invokeDatabaseCommand<DbTimelinePost>('db_create_timeline_post', {
+    post,
+  });
+}
+
+/** Toggle the caller's like on one post and return the updated row. */
+export function dbToggleLikePost(id: string): Promise<DbTimelinePost> {
+  return invokeDatabaseCommand<DbTimelinePost>('db_toggle_like_post', { id });
+}
+
+/** Read watch history newest-first. */
+export function dbGetWatchHistory(
+  opts: { limit?: number; offset?: number } = {},
+): Promise<DbWatchHistoryItem[]> {
+  const args: Record<string, unknown> = {};
+  if (opts.limit !== undefined) args.limit = opts.limit;
+  if (opts.offset !== undefined) args.offset = opts.offset;
+  return invokeDatabaseCommand<DbWatchHistoryItem[]>(
+    'db_get_watch_history',
+    args,
+  );
+}
+
+/** Insert or update one watch-history entry keyed by `mediaId`. */
+export function dbUpsertWatchHistory(
+  item: DbWatchHistoryInput,
+): Promise<void> {
+  return invokeDatabaseCommand<void>('db_upsert_watch_history', { item });
+}
+
+/** Read watch sessions, optionally filtered to one media, newest first. */
+export function dbGetWatchSessions(
+  mediaId?: string | null,
+): Promise<DbWatchSessionItem[]> {
+  return invokeDatabaseCommand<DbWatchSessionItem[]>(
+    'db_get_watch_sessions',
+    mediaId ? { mediaId } : {},
+  );
+}
+
+/** Persist or update a viewing session (upserts on a stable `id` when given). */
+export function dbSaveWatchSession(session: DbWatchSessionInput): Promise<void> {
+  return invokeDatabaseCommand<void>('db_save_watch_session', { session });
+}
+
+/** Read the mining archive newest-first. */
+export function dbGetMiningArchive(
+  opts: { limit?: number; offset?: number } = {},
+): Promise<DbMiningArchiveItem[]> {
+  const args: Record<string, unknown> = {};
+  if (opts.limit !== undefined) args.limit = opts.limit;
+  if (opts.offset !== undefined) args.offset = opts.offset;
+  return invokeDatabaseCommand<DbMiningArchiveItem[]>(
+    'db_get_mining_archive',
+    args,
+  );
+}
+
+/** Append one mined card to the archive. */
+export function dbSaveMiningCard(card: DbMiningArchiveInput): Promise<void> {
+  return invokeDatabaseCommand<void>('db_save_mining_card', { card });
+}
+
+/** Read the single-user profile row, or null when none exists yet. */
+export function dbGetProfile(): Promise<DbUserProfile | null> {
+  return invokeDatabaseCommand<DbUserProfile | null>('db_get_profile', {});
+}
+
+/** Upsert the single-user profile row. */
+export function dbUpsertProfile(
+  profile: DbUserProfileInput,
+): Promise<DbUserProfile> {
+  return invokeDatabaseCommand<DbUserProfile>('db_upsert_profile', { profile });
+}
+
+/** Read one key from the generic key/value store (null when absent). */
+export function dbKvGet(key: string): Promise<string | null> {
+  return invokeDatabaseCommand<string | null>('db_kv_get', { key });
+}
+
+/** Write one key to the generic key/value store. */
+export function dbKvSet(key: string, value: string): Promise<void> {
+  return invokeDatabaseCommand<void>('db_kv_set', { key, value });
+}
+
+/** One-shot batch import of the browser-exported data (single transaction). */
+export function dbMigrateV1(payload: DbMigrationPayloadV1): Promise<void> {
+  return invokeDatabaseCommand<void>('db_migrate_v1', { payload });
+}
+
 /**
  * Race a promise with an AbortSignal so desktop Tauri IPC calls abort
  * consistently with web fetch callers when a request is cancelled.

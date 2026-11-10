@@ -6,6 +6,16 @@
  * the other Entei preference stores.
  */
 
+import {
+  isTauri,
+  dbGetProfile,
+  dbUpsertProfile,
+  type DbUserProfile,
+  type DbUserProfileInput,
+} from '@/features/player/tauri-bridge';
+import { deriveHandle } from '@/features/timeline/timeline-store';
+import { ensureDatabaseMigrated } from '@/features/database/migration';
+
 export const PROFILE_STORAGE_KEY = 'entei.profile.v1';
 export const PROFILE_SCHEMA_VERSION = 1 as const;
 export const PROFILE_BIO_MAX_LENGTH = 360;
@@ -140,6 +150,69 @@ export function writeLocalProfile(profile: LocalProfile): void {
   } catch {
     // Storage may be unavailable or full; keep the in-memory profile usable.
   }
+  // Desktop: the embedded SQLite `user_profile` row is the durable store, and
+  // the localStorage copy above is the synchronous cache the UI reads directly.
+  // Both are written together so they never diverge on desktop. Profile data is
+  // non-secret and non-blocking, so the DB write is fire-and-forget.
+  if (isTauri()) {
+    void dbUpsertProfile(profileToDb(profile)).catch(() => {});
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* SQLite mapping (desktop Tauri)                                           */
+/* ------------------------------------------------------------------------ */
+
+/** Local profile → SQLite `user_profile` row. */
+function profileToDb(profile: LocalProfile): DbUserProfileInput {
+  return {
+    handle: deriveHandle(profile.name),
+    displayName: profile.name,
+    bio: profile.bio.length > 0 ? profile.bio : null,
+    avatarUrl: profile.avatar,
+    updatedAt: Date.now(),
+  };
+}
+
+/** SQLite `user_profile` row → local profile (falls back to a bundled avatar). */
+function dbToProfile(row: DbUserProfile): LocalProfile {
+  const avatar = row.avatarUrl !== null && isProfileAvatar(row.avatarUrl)
+    ? row.avatarUrl
+    : createInitialProfile().avatar;
+  return {
+    schemaVersion: PROFILE_SCHEMA_VERSION,
+    name: row.displayName,
+    bio: row.bio ?? '',
+    avatar,
+  };
+}
+
+/**
+ * Read the profile with SQLite preferred on desktop.
+ *
+ * On desktop the DB row wins (it is the durable store); it is mirrored into the
+ * synchronous localStorage cache so the rest of the UI — which reads the cache
+ * directly — stays consistent. Outside Tauri (or on any DB error) this is the
+ * plain localStorage read.
+ */
+export async function loadLocalProfile(): Promise<LocalProfile> {
+  if (!isTauri()) return readLocalProfile();
+  try {
+    await ensureDatabaseMigrated();
+    const row = await dbGetProfile();
+    if (row) {
+      const profile = dbToProfile(row);
+      try {
+        localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+      } catch {
+        // Cache refresh is best-effort; the DB value is still authoritative.
+      }
+      return profile;
+    }
+  } catch {
+    // DB unavailable — fall back to the synchronous cache below.
+  }
+  return readLocalProfile();
 }
 
 /**

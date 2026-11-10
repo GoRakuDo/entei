@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-db-kv-get"
+description = "Enables the db_kv_get command without any pre-configured scope."
+commands.allow = ["db_kv_get"]
+
+[[permission]]
+identifier = "deny-db-kv-get"
+description = "Denies the db_kv_get command without any pre-configured scope."
+commands.deny = ["db_kv_get"]

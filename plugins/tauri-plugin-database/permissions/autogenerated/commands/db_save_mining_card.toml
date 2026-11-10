@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-db-save-mining-card"
+description = "Enables the db_save_mining_card command without any pre-configured scope."
+commands.allow = ["db_save_mining_card"]
+
+[[permission]]
+identifier = "deny-db-save-mining-card"
+description = "Denies the db_save_mining_card command without any pre-configured scope."
+commands.deny = ["db_save_mining_card"]

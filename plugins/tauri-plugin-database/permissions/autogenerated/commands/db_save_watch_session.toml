@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-db-save-watch-session"
+description = "Enables the db_save_watch_session command without any pre-configured scope."
+commands.allow = ["db_save_watch_session"]
+
+[[permission]]
+identifier = "deny-db-save-watch-session"
+description = "Denies the db_save_watch_session command without any pre-configured scope."
+commands.deny = ["db_save_watch_session"]

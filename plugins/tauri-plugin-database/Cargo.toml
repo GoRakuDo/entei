@@ -1,0 +1,26 @@
+[package]
+name = "tauri-plugin-database"
+links = "tauri-plugin-database"
+version = "0.1.0"
+description = "Embedded SQLite persistence for Entei: timeline, watch history/sessions, mining archive, profile and KV settings"
+authors = ["GoRakuDo"]
+edition = "2021"
+
+[lib]
+name = "tauri_plugin_database"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# `bundled` compiles SQLite from source (no system libsqlite3, no CGO), so the
+# same crate builds for Windows and for the Android/Termux cross target.
+rusqlite = { version = "0.33", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0"
+# Kept for parity with the requested plugin manifest; the connection guard is a
+# `std::sync::Mutex` moved into `tauri::async_runtime::spawn_blocking`, so no
+# async-aware lock is currently required.
+tokio = { version = "1", features = ["sync"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

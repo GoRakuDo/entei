@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-db-upsert-profile"
+description = "Enables the db_upsert_profile command without any pre-configured scope."
+commands.allow = ["db_upsert_profile"]
+
+[[permission]]
+identifier = "deny-db-upsert-profile"
+description = "Denies the db_upsert_profile command without any pre-configured scope."
+commands.deny = ["db_upsert_profile"]

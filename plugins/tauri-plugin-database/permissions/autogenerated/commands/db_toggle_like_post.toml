@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-db-toggle-like-post"
+description = "Enables the db_toggle_like_post command without any pre-configured scope."
+commands.allow = ["db_toggle_like_post"]
+
+[[permission]]
+identifier = "deny-db-toggle-like-post"
+description = "Denies the db_toggle_like_post command without any pre-configured scope."
+commands.deny = ["db_toggle_like_post"]

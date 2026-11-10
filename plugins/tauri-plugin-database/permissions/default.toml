@@ -1,0 +1,20 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """Default permissions for the database plugin: embedded SQLite persistence for timeline, watch history/sessions, mining archive, profile and KV settings."""
+permissions = [
+  "allow-db-get-timeline-posts",
+  "allow-db-create-timeline-post",
+  "allow-db-toggle-like-post",
+  "allow-db-get-watch-history",
+  "allow-db-upsert-watch-history",
+  "allow-db-get-watch-sessions",
+  "allow-db-save-watch-session",
+  "allow-db-get-mining-archive",
+  "allow-db-save-mining-card",
+  "allow-db-get-profile",
+  "allow-db-upsert-profile",
+  "allow-db-kv-get",
+  "allow-db-kv-set",
+  "allow-db-migrate-v1",
+]

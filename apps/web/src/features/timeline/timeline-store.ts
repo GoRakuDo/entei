@@ -15,6 +15,16 @@
  * ---------------------------------------------------------------------------
  */
 
+import {
+  isTauri,
+  dbGetTimelinePosts,
+  dbCreateTimelinePost,
+  dbKvGet,
+  dbKvSet,
+  type DbTimelinePost,
+} from '@/features/player/tauri-bridge';
+import { ensureDatabaseMigrated } from '@/features/database/migration';
+
 /** localStorage key (versioned, matches the other Entei preference stores). */
 export const TIMELINE_STORAGE_KEY = 'entei.timeline.v1';
 
@@ -444,4 +454,174 @@ export function formatRelativeTime(
   if (abs < HOUR) return formatter.format(Math.round(diff / MINUTE), 'minute');
   if (abs < DAY) return formatter.format(Math.round(diff / HOUR), 'hour');
   return formatter.format(Math.round(diff / DAY), 'day');
+}
+
+/* ------------------------------------------------------------------------ */
+/* SQLite backend (desktop Tauri)                                           */
+/* ------------------------------------------------------------------------ */
+/*
+ * On desktop the embedded SQLite database is the source of truth for the
+ * *user-created* timeline. The split, decided in design review, is:
+ * - user posts and replies live in `timeline_posts` (a reply is a post with a
+ *   `parentId`; the plugin bumps the parent's `reply_count`);
+ * - the set of liked post ids lives in the key/value store under
+ *   `timeline:likedIds` (a single JSON array), because likes also cover the
+ *   code-resident seed posts which have no row to hang a per-post flag on;
+ * - seed posts and seed replies stay in code (see the constants above) and are
+ *   merged into the feed at render, exactly as they always were, so their
+ *   relative "time ago" labels keep refreshing on every page load.
+ *
+ * The browser build (no Tauri runtime) keeps the localStorage path unchanged.
+ */
+
+/** Key/value store key holding the JSON array of liked post ids. */
+const LIKED_IDS_KV_KEY = 'timeline:likedIds';
+
+/** SQLite post row → the web feed's post shape. */
+function dbRowToWebPost(row: DbTimelinePost): TimelinePost {
+  return {
+    id: row.id,
+    authorName: row.authorName,
+    authorHandle: row.authorHandle,
+    avatar: row.authorAvatar,
+    message: row.content,
+    createdAt: row.createdAt,
+  };
+}
+
+/** SQLite reply row → the web feed's comment shape. */
+function dbRowToWebComment(row: DbTimelinePost): TimelineComment {
+  return {
+    id: row.id,
+    postId: row.parentId ?? '',
+    author: {
+      name: row.authorName,
+      handle: row.authorHandle,
+      avatar: row.authorAvatar,
+    },
+    text: row.content,
+    createdAt: row.createdAt,
+  };
+}
+
+/** Read the liked-id array from the key/value store. */
+async function loadLikedIds(): Promise<string[]> {
+  try {
+    const raw = await dbKvGet(LIKED_IDS_KV_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Load the full timeline state. On desktop this reads user posts and replies
+ * from SQLite and the liked ids from the key/value store; seeds are merged in
+ * later by the feed. Falls back to the localStorage read on any DB error.
+ *
+ * Replies are fetched per parent (one query each). There is no "all replies"
+ * command, and a local SQLite round-trip is sub-millisecond, so the N+1 is
+ * acceptable for a personal timeline; revisit if a future command batches it.
+ */
+export async function loadTimelineState(): Promise<TimelineState> {
+  if (!isTauri()) return readTimelineState();
+  try {
+    // Ensure the one-shot browser→SQLite import has landed before the first
+    // read, so a freshly migrated database is visible immediately.
+    await ensureDatabaseMigrated();
+    const topRows = await dbGetTimelinePosts({ limit: 200 });
+    const posts: TimelinePost[] = [];
+    const comments: TimelineComment[] = [];
+    for (const row of topRows) {
+      posts.push(dbRowToWebPost(row));
+      const replies = await dbGetTimelinePosts({
+        parentId: row.id,
+        limit: 200,
+      });
+      for (const reply of replies) comments.push(dbRowToWebComment(reply));
+    }
+    const likedIds = await loadLikedIds();
+    return {
+      schemaVersion: TIMELINE_SCHEMA_VERSION,
+      posts,
+      likedIds,
+      comments,
+    };
+  } catch {
+    return readTimelineState();
+  }
+}
+
+/**
+ * Create a user post on desktop and return it with its DB-assigned id. The
+ * caller adopts this id (not a locally generated one) so likes and the detail
+ * view stay keyed to the persisted row.
+ */
+export async function createPostDb(
+  message: string,
+  author: { name: string; handle: string; avatar: string },
+  now: number = Date.now(),
+): Promise<TimelinePost | null> {
+  const text = clampTimelineMessage(message);
+  if (text.length === 0 || !isTauri()) return null;
+  try {
+    const row = await dbCreateTimelinePost({
+      authorHandle: author.handle,
+      authorName: author.name,
+      authorAvatar: author.avatar,
+      content: text,
+      createdAt: now,
+      parentId: null,
+    });
+    return dbRowToWebPost(row);
+  } catch {
+    return null;
+  }
+}
+
+/** Create a reply on desktop, returned with its DB-assigned id. */
+export async function createReplyDb(
+  postId: string,
+  text: string,
+  author: { name: string; handle: string; avatar: string },
+  now: number = Date.now(),
+): Promise<TimelineComment | null> {
+  const body = clampTimelineComment(text);
+  if (body.length === 0 || !isTauri()) return null;
+  try {
+    const row = await dbCreateTimelinePost({
+      authorHandle: author.handle,
+      authorName: author.name,
+      authorAvatar: author.avatar,
+      content: body,
+      createdAt: now,
+      parentId: postId,
+    });
+    return dbRowToWebComment(row);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Toggle a like on desktop. Likes are the key/value liked-id array (covering
+ * seed posts too), so this never touches `timeline_posts`' own like columns —
+ * the displayed count stays derived via `countTimelineLikes`.
+ */
+export async function toggleLikeDb(postId: string): Promise<string[] | null> {
+  if (!isTauri()) return null;
+  try {
+    const current = await loadLikedIds();
+    const next = current.includes(postId)
+      ? current.filter((id) => id !== postId)
+      : [...current, postId];
+    await dbKvSet(LIKED_IDS_KV_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return null;
+  }
 }

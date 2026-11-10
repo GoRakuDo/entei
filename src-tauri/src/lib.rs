@@ -14,6 +14,8 @@ pub fn run() {
         .plugin(tauri_plugin_modules::init())
         // Native AnkiConnect transport: outside the webview PNA/CORS boundary.
         .plugin(tauri_plugin_anki::init())
+        // Embedded SQLite (`entei.db`): single source of truth for user data.
+        .plugin(tauri_plugin_database::init())
         // Native file dialog: the only way to obtain an absolute path for a
         // "choose media" click, because WebView2 never exposes `File.path`.
         .plugin(tauri_plugin_dialog::init())

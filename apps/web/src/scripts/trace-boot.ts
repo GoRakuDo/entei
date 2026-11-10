@@ -12,5 +12,14 @@
  * ---------------------------------------------------------------------------
  */
 import { installTraceInstrumentation } from '@/features/trace/trace-logger';
+import { ensureDatabaseMigrated } from '@/features/database/migration';
 
 installTraceInstrumentation();
+
+// Desktop only: import the browser-era localStorage / IndexedDB data into the
+// embedded SQLite database once (idempotent, gated by a completion flag).
+// Kicking it off here — before the React islands read any store — lets the
+// import run while the shell boots; the store readers also await the same
+// memoized promise, so the first render after a migration already sees the
+// imported rows. Outside Tauri this resolves immediately as a no-op.
+void ensureDatabaseMigrated();

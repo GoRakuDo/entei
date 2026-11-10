@@ -40,6 +40,7 @@ import {
   PROFILE_AVATAR_MAX_BYTES,
   PROFILE_BIO_MAX_LENGTH,
   getProfileAvatarDataUrlBytes,
+  loadLocalProfile,
   readLocalProfile,
   setLocalProfileAvatar,
   setLocalProfileBio,
@@ -746,6 +747,19 @@ export default function ProfileDashboard() {
   const [profile, setProfile] = useState<LocalProfile>(() => readLocalProfile());
   const [selectedHistoryRecord, setSelectedHistoryRecord] =
     useState<WatchHistoryRecord | null>(null);
+
+  // Desktop: prefer the SQLite-backed profile row on mount. The synchronous
+  // initializer above reads the localStorage cache so the first paint is
+  // instant; this hydration then reconciles to the DB value once it lands.
+  useEffect(() => {
+    let cancelled = false;
+    void loadLocalProfile().then((hydrated) => {
+      if (!cancelled) setProfile(hydrated);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (event: Event) => {

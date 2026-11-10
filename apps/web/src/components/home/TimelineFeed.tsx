@@ -54,6 +54,7 @@ import {
 } from '@i18n/locale-events';
 import type { Locale } from '@i18n/types';
 import { readLocalProfile } from '@/features/player/profile/profile-store';
+import { isTauri } from '@/features/player/tauri-bridge';
 import { trace, traceError } from '@/features/trace/trace-logger';
 import {
   TIMELINE_POST_MAX_LENGTH,
@@ -61,14 +62,18 @@ import {
   clampTimelineMessage,
   countTimelineComments,
   countTimelineLikes,
+  createPostDb,
+  createReplyDb,
   createTimelineComment,
   createTimelinePost,
   deriveHandle,
   formatMetricCount,
   formatRelativeTime,
+  loadTimelineState,
   mergeTimelineComments,
   mergeTimelinePosts,
   readTimelineState,
+  toggleLikeDb,
   writeTimelineState,
   TIMELINE_STORAGE_KEY,
   type TimelineComment,
@@ -216,8 +221,10 @@ export default function TimelineFeed() {
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Re-sync the feed from storage and reset the clock behind the time labels. */
-  const syncFromStorage = useCallback(() => {
-    const state = readTimelineState();
+  const syncFromStorage = useCallback(async () => {
+    // Desktop reads SQLite (user posts/replies + kv likedIds); browser reads
+    // localStorage. Both return the same TimelineState shape, seeds excluded.
+    const state = await loadTimelineState();
     setLocalPosts(state.posts);
     setLikedIds(state.likedIds);
     setComments(state.comments);
@@ -231,20 +238,33 @@ export default function TimelineFeed() {
     const lang = document.documentElement.lang;
     if (lang === 'ja' || lang === 'en') setLocale(lang);
 
+    // The composer author is read synchronously from the profile cache so it is
+    // ready the instant the feed mounts — awaiting a desktop DB read here would
+    // leave the composer authorless through the first paint. On desktop the
+    // cache mirrors the SQLite profile (write-through + the profile dashboard's
+    // DB hydration), so the synchronous read is consistent with the DB.
     const profile = readLocalProfile();
     setAuthor({
       name: profile.name,
       handle: deriveHandle(profile.name),
       avatar: profile.avatar,
     });
-    syncFromStorage();
-    const state = readTimelineState();
-    trace('home', 'feed_ready', {
-      posts: state.posts.length,
-      likes: state.likedIds.length,
-      comments: state.comments.length,
-      hasProfileName: profile.name.trim().length > 0,
-    });
+
+    let cancelled = false;
+    void (async () => {
+      await syncFromStorage();
+      const state = await loadTimelineState();
+      if (cancelled) return;
+      trace('home', 'feed_ready', {
+        posts: state.posts.length,
+        likes: state.likedIds.length,
+        comments: state.comments.length,
+        hasProfileName: profile.name.trim().length > 0,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [syncFromStorage]);
 
   useEffect(() => {
@@ -390,7 +410,7 @@ export default function TimelineFeed() {
   const triggerRefresh = useCallback(() => {
     refreshingRef.current = true;
     setIsRefreshing(true);
-    syncFromStorage();
+    void syncFromStorage();
     trace('home', 'refresh', { posts: localPostsRef.current.length });
     if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(() => {
@@ -495,6 +515,28 @@ export default function TimelineFeed() {
     (event: React.SyntheticEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (author === null) return;
+      if (isTauri()) {
+        // Desktop: persist to SQLite and adopt the DB-assigned id so likes and
+        // the detail view stay keyed to the persisted row. No cross-tab merge
+        // is needed (a single desktop window has no second tab writing).
+        void (async () => {
+          const post = await createPostDb(draft, author);
+          if (post === null) return;
+          setLocalPosts((current) => mergePostsById([post], current));
+          pendingSnapshotRef.current = null;
+          pendingLikesRef.current = [];
+          setPendingCount(0);
+          setDraft('');
+          setVisibleCount((count) => count + 1);
+          trace('home', 'post_publish', {
+            postId: post.id,
+            length: post.message.length,
+            author: post.authorName,
+            totalPosts: localPostsRef.current.length + 1,
+          });
+        })();
+        return;
+      }
       const post = createTimelinePost(draft, author);
       if (post === null) return;
       // Fold in whatever the store holds (a cross-tab write parked behind the
@@ -528,6 +570,24 @@ export default function TimelineFeed() {
 
   const toggleLike = useCallback(
     (postId: string) => {
+      if (isTauri()) {
+        // Desktop: the liked-id array lives in the key/value store (it covers
+        // seed posts too, which have no row for a per-post flag).
+        void (async () => {
+          const next = await toggleLikeDb(postId);
+          if (next === null) return;
+          setLikedIds(next);
+          pendingSnapshotRef.current = null;
+          pendingLikesRef.current = [];
+          setPendingCount(0);
+          trace('home', 'like_toggle', {
+            postId,
+            liked: next.includes(postId),
+            likes: next.length,
+          });
+        })();
+        return;
+      }
       const state = readTimelineState();
       const merged = mergeLikedIds(likedIds, state.likedIds);
       const next = merged.includes(postId)
@@ -599,6 +659,25 @@ export default function TimelineFeed() {
     (event: React.SyntheticEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (author === null || selectedPostId === null) return;
+      if (isTauri()) {
+        // Desktop: persist the reply (a post with a parentId) and adopt the
+        // DB-assigned id.
+        void (async () => {
+          const comment = await createReplyDb(selectedPostId, replyDraft, author);
+          if (comment === null) return;
+          setComments((current) => mergeCommentsById(current, [], comment));
+          setReplyDraft('');
+          setNow(Date.now());
+          trace('home', 'comment_publish', {
+            postId: selectedPostId,
+            commentId: comment.id,
+            length: comment.text.length,
+            replies:
+              comments.filter((item) => item.postId === selectedPostId).length + 1,
+          });
+        })();
+        return;
+      }
       const comment = createTimelineComment(selectedPostId, replyDraft, author);
       if (comment === null) return;
       // Fold in whatever the store holds so a cross-tab reply is never dropped.

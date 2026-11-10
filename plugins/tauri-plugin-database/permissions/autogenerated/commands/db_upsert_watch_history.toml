@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-db-upsert-watch-history"
+description = "Enables the db_upsert_watch_history command without any pre-configured scope."
+commands.allow = ["db_upsert_watch_history"]
+
+[[permission]]
+identifier = "deny-db-upsert-watch-history"
+description = "Denies the db_upsert_watch_history command without any pre-configured scope."
+commands.deny = ["db_upsert_watch_history"]

@@ -11,6 +11,7 @@
     "subtitles:default",
     "modules:default",
     "anki:default",
+    "database:default",
     "dialog:default",
     "mcp-bridge:default"
   ]

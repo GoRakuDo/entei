@@ -17,6 +17,13 @@
  * ---------------------------------------------------------------------------
  */
 
+import {
+  isTauri,
+  dbGetMiningArchive,
+  dbSaveMiningCard,
+  type DbMiningArchiveItem,
+} from '@/features/player/tauri-bridge';
+
 const DB_NAME = 'entei-mining-history';
 // Keep the original v1 store intact. It sorted by random IDs, so v2 uses a
 // separate auto-increment store rather than deleting a user's local records.
@@ -227,19 +234,83 @@ function isValidPublicEntry(e: unknown): e is MiningHistoryEntry {
 }
 
 /* ------------------------------------------------------------------------ */
+/* SQLite adapter (desktop Tauri)                                           */
+/* ------------------------------------------------------------------------ */
+
+/** Convert a SQLite mining row to the public entry shape. */
+function dbRowToEntry(row: DbMiningArchiveItem): MiningHistoryEntry {
+  return {
+    id: row.id,
+    filename: row.mediaFilename,
+    // Our writes always supply a range; coalesce defensively for any row
+    // written without one so the public validator still accepts the entry.
+    rangeStart: row.rangeStart ?? 0,
+    rangeEnd: row.rangeEnd ?? 0,
+    sentence: row.sentence,
+  };
+}
+
+/**
+ * Desktop backend: the embedded SQLite `mining_archive` table. The plugin owns
+ * row ids, so `add` maps the public entry onto `db_save_mining_card` and lets
+ * Rust stamp the id and `created_at` ordering.
+ *
+ * Note: there is no delete/clear command on the database plugin yet, so `clear`
+ * reports unsupported (returns false) rather than pretending to succeed. No UI
+ * calls `clearHistoryEntries` today, so this is a documented non-feature, not a
+ * regression.
+ */
+const sqliteAdapter: HistoryAdapter = {
+  async add(entry) {
+    try {
+      await dbSaveMiningCard({
+        mediaFilename: entry.filename,
+        createdAt: Date.now(),
+        sentence: entry.sentence,
+        word: null,
+        rangeStart: entry.rangeStart,
+        rangeEnd: entry.rangeEnd,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  async getAll() {
+    try {
+      const rows = await dbGetMiningArchive({ limit: 500 });
+      return { ok: true, entries: rows.map(dbRowToEntry) };
+    } catch {
+      return { ok: false, reason: 'error' as const };
+    }
+  },
+
+  async clear() {
+    // Unsupported: the database plugin exposes no mining-archive delete yet.
+    return false;
+  },
+};
+
+/* ------------------------------------------------------------------------ */
 /* Active adapter management                                                */
 /* ------------------------------------------------------------------------ */
 
-let activeAdapter: HistoryAdapter = idbAdapter;
+/** The production backend: SQLite on desktop Tauri, IndexedDB in the browser. */
+function defaultAdapter(): HistoryAdapter {
+  return isTauri() ? sqliteAdapter : idbAdapter;
+}
+
+let activeAdapter: HistoryAdapter = defaultAdapter();
 
 /** Switch the active adapter. For tests only. */
 export function _setAdapter(adapter: HistoryAdapter): void {
   activeAdapter = adapter;
 }
 
-/** Reset to production adapter. */
+/** Reset to the production adapter for this runtime. */
 export function _resetAdapter(): void {
-  activeAdapter = idbAdapter;
+  activeAdapter = defaultAdapter();
 }
 
 /* ------------------------------------------------------------------------ */

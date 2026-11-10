@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-db-get-profile"
+description = "Enables the db_get_profile command without any pre-configured scope."
+commands.allow = ["db_get_profile"]
+
+[[permission]]
+identifier = "deny-db-get-profile"
+description = "Denies the db_get_profile command without any pre-configured scope."
+commands.deny = ["db_get_profile"]

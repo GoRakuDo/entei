@@ -152,6 +152,9 @@ describe('TimelineFeed', () => {
 
   it('publishes a post to the top of the feed and persists it', async () => {
     renderFeed();
+    // The feed now loads its store asynchronously (desktop reads SQLite), so
+    // wait for the initial render before interacting, as the other tests do.
+    await screen.findAllByRole('listitem');
     const textarea = screen.getByPlaceholderText('Tulis di sini untuk membuat pos!');
     fireEvent.change(textarea, { target: { value: '  はじめてのポスト  ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Terbitkan pos' }));
@@ -808,6 +811,7 @@ describe('TimelineFeed — block-end InputGroup composer', () => {
 
   it('updates the counter live and keeps publishing inside the joined box', async () => {
     const { container } = renderFeed();
+    await screen.findAllByRole('listitem');
     const { control, text, button } = expectJoinedGroup(
       container,
       '.entei-timeline-composer',

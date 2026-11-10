@@ -27,5 +27,9 @@ tauri-plugin-mpv = { path = "../plugins/tauri-plugin-mpv" }
 # estimation: the CPU-bound work that used to run on the browser main thread.
 tauri-plugin-subtitles = { path = "../plugins/tauri-plugin-subtitles" }
 tauri-plugin-anki = { path = "../plugins/tauri-plugin-anki" }
+# Embedded SQLite persistence: single `entei.db` replacing the browser
+# IndexedDB / localStorage stores (timeline, history, sessions, archive,
+# profile, KV settings).
+tauri-plugin-database = { path = "../plugins/tauri-plugin-database" }
 tauri-plugin-mcp-bridge = "0.13.2"
 tauri-plugin-dialog = "2"
