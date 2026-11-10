@@ -90,12 +90,13 @@ const activePath = normalisePath(currentPath);
 /** The real /player/ route: player.css hides its mobile chrome once media
  *  loads, so the entry screen still shows the TopBar. */
 const isVideoPlayer = activePath === '/player';
+const isAudioPlayer = activePath === '/audio-player';
 /**
  * Player-style chrome (the hover-reveal desktop pill zone). True for the
  * video player route and for any route that opts in via `isPlayer` — the
  * audio player does, but keeps its mobile top bar until a track loads.
  */
-const isPlayer = isVideoPlayer || playerLike;
+const isPlayer = isVideoPlayer || isAudioPlayer || playerLike;
 /**
  * Home (`/`) uses the desktop left sidebar instead of the floating pill, and
  * hides the mobile sticky header entirely (the dock is the only mobile chrome).
@@ -105,13 +106,13 @@ const isHome = activePath === '/';
  * Leaf surfaces opened from the Immersion Tools drawer swap the mobile TopBar
  * brand + language selector for a single "← Kembali" back control: going back
  * is the only useful action there and language lives in the Settings modal.
- * `/player/` joins `/modules/` (and its subpages): on a phone the video
- * player entry screen needs the same back affordance instead of the wordmark.
+ * `/player/` and `/audio-player/` join `/modules/`: on a phone the player
+ * entry screens need the same back affordance instead of the wordmark.
  * Both reuse modulesPage.back, present in id/ja/en as Kembali / 戻る / Back
  * and resolved by the locale switcher through data-i18n.
  */
 const isModules = activePath === '/modules' || activePath.startsWith('/modules/');
-const isMobileBack = isModules || isVideoPlayer;
+const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
 
 /**
  * Full serializable playerUI dictionary for the global settings dialog
