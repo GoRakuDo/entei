@@ -23,9 +23,17 @@
   text-align: center;
 }
 
+/* Mirror the video player's `.entei-player-empty-title` (styles/player.css):
+   gold Pixelify Sans headline so both empty states read as one system. */
 .audio-player__empty-state .audio-player__title {
   max-width: 32rem;
   margin-block: 0.25rem;
+  font-family: var(--entei-font-system);
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--entei-status-locked);
 }
 
 .audio-player__formats {
@@ -75,6 +83,7 @@
   padding-inline: 0.9rem;
   border: none;
   background: var(--entei-btn-color);
+  color: var(--entei-text-secondary);
 }
 
 .audio-player__youtube-button {
@@ -87,7 +96,7 @@
   border: none;
   border-radius: var(--entei-radius-md);
   background: var(--entei-btn-color);
-  color: var(--entei-accent-hover);
+  color: var(--entei-text-secondary);
   cursor: pointer;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
@@ -97,7 +106,7 @@
 
 .audio-player__youtube-button:hover {
   background: var(--entei-btn-color);
-  color: var(--entei-accent-hover);
+  color: var(--entei-status-locked);
 }
 
 .audio-player__youtube-button:disabled {
@@ -107,6 +116,7 @@
 
 .audio-player__open-button:hover {
   background: var(--entei-btn-color);
+  color: var(--entei-status-locked);
 }
 
 .audio-player__control:hover,

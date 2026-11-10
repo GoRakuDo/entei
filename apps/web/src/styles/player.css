@@ -241,14 +241,38 @@ html.entei-native-video .entei-player-video {
   gap: var(--entei-space-8);
 }
 
+/* Picker buttons reuse the audio player's entry-button contract
+   (AudioPlayer.css `.audio-player__open-button`): solid `--entei-btn-color`
+   fill, no border, fast bg/color/transform transition, and a `scale(0.96)`
+   press so the empty-state entry points (local media, Magnet, YouTube) feel
+   identical to the audio entry buttons. Hover turns label + SVG icon gold
+   (see `.entei-player-pickers ... :hover` below) while the surface stays put. */
+.entei-picker {
+  --entei-player-picker-radius: var(--entei-radius-md);
+  --entei-player-picker-border: 1px solid oklch(100% 0 0deg / 0.12);
+  --entei-player-picker-transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
 .entei-picker-btn {
   min-height: var(--entei-touch-min);
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   cursor: pointer;
-  background-color: var(--entei-btn-hover-bg);
-  border-color: transparent;
+  background: var(--entei-btn-color);
+  border: var(--entei-player-picker-border);
+  border-radius: var(--entei-player-picker-radius);
+  color: var(--entei-text-secondary);
+  transition: var(--entei-player-picker-transition);
+}
+
+.entei-picker-btn:active,
+.entei-player-magnet-icon-btn:active,
+.entei-player-youtube-icon-btn:active {
+  transform: scale(0.96);
 }
 
 /* Picker button hover — text and SVG icon only turn gold; the button

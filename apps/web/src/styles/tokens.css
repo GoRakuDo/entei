@@ -14,59 +14,61 @@
  * ---------------------------------------------------------------------------*/
 
 :root {
-  /* ===== COLOR TOKENS (snapshot from GoRakuDo global.css) ===== */
+  /* ===== COLOR TOKENS ===== */
+  /* 4 core groups below are the single source of truth for Entei's palette.
+     The "Backward Compatibility Aliases" block keeps every legacy token name
+     (GoRakuDo snapshot names, early Entei names) resolving to a core group so
+     existing components and community custom themes keep working. Add new
+     component styles against the core names; treat the aliases as read-only. */
 
-  /* Strong text and prominent headings — global.css:15 */
-  --entei-white-base: oklch(95% 0.005 285deg);
-
-  /* Page background — global.css:27. NOT pure black (PHASE0.md 10.272). */
-  --entei-black-950: oklch(5% 0.005 270deg);
-
-  /* Top Bar, normal panels — global.css:29 (Discord Midnight Navy) */
+  /* --- 1. Base / Canvas (背景・サーフェス) --- */
+  /* Page background — NOT pure black (PHASE0.md 10.272). */
+  --entei-bg: oklch(5% 0.005 270deg);
+  /* Top Bar, normal panels (Discord Midnight Navy). */
   --entei-surface: oklch(17.8% 0.058 275.81deg);
+  /* Player tile, elevated surfaces (Discord Indigo Surface). */
+  --entei-surface-elevated: oklch(30.96% 0.15 271.29deg);
 
-  /* Player tile, elevated surfaces — global.css:30 (Discord Indigo Surface) */
-  --entei-surface-2: oklch(30.96% 0.15 271.29deg);
+  /* --- 2. Typography (文字テキスト) --- */
+  /* Strong text and prominent headings. */
+  --entei-text-primary: oklch(95% 0.005 285deg);
+  /* Secondary text (Discord Muted Lavender). Small-text contrast: PHASE0.md 10.268. */
+  --entei-text-secondary: oklch(85.99% 0.071 282.16deg);
+  /* Footer, supplementary text. */
+  --entei-text-muted: oklch(70% 0.01 270deg);
 
-  /* Primary accent, focus ring, active border — global.css:18 (Discord Blurple) */
-  --entei-purple-500: oklch(68% 0.21 273.85deg);
-
-  /* Hover state, lighter accent — global.css:17 */
-  --entei-purple-400: oklch(76% 0.22 273.85deg);
-
-  /* Light accent for prominent dark-surface headings (Luminance 76%, saturated) */
-  --entei-purple-300: oklch(76% 0.22 273.85deg);
-
-  /* System label, locked status accent — global.css:22 */
-  --entei-gold-base: oklch(85% 0.15 85deg);
-
-  /* Secondary text — global.css:37 (Discord Muted Lavender) */
-  --entei-muted: oklch(85.99% 0.071 282.16deg);
-
-  /* Footer, supplementary text — global.css:41.
-     Small-text contrast must be re-verified at implementation (PHASE0.md 10.268). */
-  --entei-text-global-muted: oklch(70% 0.01 270deg);
-
-  /* ===== DERIVED SEMANTIC ROLES ===== */
-  /* These do not introduce new color values — they map the 9 snapshot tokens
-     to semantic roles used by Entei components. */
-
-  --entei-bg: var(--entei-black-950);
-  --entei-text: var(--entei-white-base);
-  --entei-text-secondary: var(--entei-muted);
-  --entei-text-muted: var(--entei-text-global-muted);
-  --entei-accent: var(--entei-purple-500);
-  --entei-accent-hover: var(--entei-purple-400);
-  --entei-accent-light: var(--entei-purple-300);
+  /* --- 3. Interactive / Controls (ボタン・アクセント) --- */
+  /* Primary accent, focus ring, active border (Discord Blurple). */
+  --entei-accent-primary: oklch(68% 0.21 273.85deg);
+  /* Hover state, lighter accent for prominent dark-surface headings. */
+  --entei-accent-hover: oklch(76% 0.22 273.85deg);
+  /* Solid fill reserved for hover, active, and primary actions. */
+  --entei-btn-bg: oklch(31.5% 0.08 275);
   /* Subtle surface used by outline/default controls at rest. */
   --entei-btn-hover-bg: oklch(0.62 0.19 275deg / 0.34);
-  /* Solid fill reserved for hover, active, and primary actions. */
-  --entei-btn-color: oklch(31.5% 0.08 275);
-  --entei-status-locked: var(--entei-gold-base);
 
-  /* Focus ring — derived from --entei-purple-500 with alpha for AA 3:1 boundary.
-     Solid purple-500 is also acceptable for focus-visible. */
-  --entei-focus-ring: var(--entei-purple-500);
+  /* --- 4. Gold / System Highlight (ゴールド・システム強調) --- */
+  /* System label, locked status accent. */
+  --entei-gold: oklch(85% 0.15 85deg);
+
+  /* --- Backward Compatibility Aliases ---
+     Legacy names preserved so existing styles and custom themes do not break.
+     Each maps onto exactly one core group token above — no new color values. */
+  --entei-white-base: var(--entei-text-primary);
+  --entei-black-950: var(--entei-bg);
+  --entei-text: var(--entei-text-primary);
+  --entei-accent: var(--entei-accent-primary);
+  --entei-accent-light: var(--entei-accent-hover);
+  --entei-purple-500: var(--entei-accent-primary);
+  --entei-purple-400: var(--entei-accent-hover);
+  --entei-purple-300: var(--entei-accent-hover);
+  --entei-btn-color: var(--entei-btn-bg);
+  --entei-status-locked: var(--entei-gold);
+  --entei-gold-base: var(--entei-gold);
+  --entei-surface-2: var(--entei-surface-elevated);
+  --entei-focus-ring: var(--entei-accent-primary);
+  --entei-muted: var(--entei-text-secondary);
+  --entei-text-global-muted: var(--entei-text-muted);
 
   /* ===== FONT ROLES (snapshot from GoRakuDo global.css:244-273) ===== */
 
