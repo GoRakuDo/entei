@@ -425,7 +425,7 @@ export const id: Dictionary = {
     playbackError: 'File audio ini tidak dapat diputar.',
     audioElement: 'Pemutaran audio',
     defaultTitle: 'Trek audio',
-    noTrack: 'Pilih file audio untuk mulai mendengarkan.',
+    noTrack: 'Pilih audio untuk listening',
     acceptedFormats: 'Format yang diterima: MP3, WAV, FLAC, AAC, M4A, M4B, dan OPUS.',
     displayMode: 'Mode tampilan audio',
   },

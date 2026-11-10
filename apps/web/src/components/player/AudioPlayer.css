@@ -190,7 +190,9 @@ mirroring the video player's `.entei-player-empty-title` desktop rule. */
 .audio-player__cover {
   display: grid;
   position: relative;
-  width: min(100%, 27rem);
+  /* Cap by vh so the cover (and the controls below it) never overflow the
+     viewport on short windows. aspect-ratio:1 keeps it square. */
+  width: min(100%, 27rem, 46vh);
   aspect-ratio: 1;
   place-items: center;
   overflow: hidden;
@@ -760,7 +762,7 @@ mirroring the video player's `.entei-player-empty-title` desktop rule. */
   }
 
   .audio-player__cover {
-    width: min(100%, 23rem);
+    width: min(100%, 23rem, 46vh);
     aspect-ratio: 1;
     margin-block: auto;
     margin-inline: auto;

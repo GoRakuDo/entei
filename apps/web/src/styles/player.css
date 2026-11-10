@@ -5277,6 +5277,13 @@ html.entei-player-immersive .entei-player-audio-area {
   border-radius: var(--entei-radius-lg);
 }
 
+/* AudioPlayer.tsx renders a bare shadcn <Input> (no .entei-youtube-url-input
+   class), so it misses the gold colour from the grouped URL field. Apply the
+   same gold text colour to any input inside the dialog for consistency. */
+.entei-youtube-dialog input[type='url'] {
+  color: var(--entei-status-locked);
+}
+
 /* Primary action — solid Entei fill, never the shadcn `bg-primary` accent
    wash (DESIGN.md 8.1: primary = strongest fill). Disabled stays readable
    instead of fading into the dialog surface. */
