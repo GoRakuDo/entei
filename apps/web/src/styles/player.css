@@ -881,7 +881,6 @@ html.entei-native-video .entei-player-video {
   background-color: color-mix(in oklch, var(--entei-surface) 92%, transparent);
 }
 
-   border/icon; the red text color matches the error-state border above. */
 /* Inline icon in error warnings title (replaces inline style). */
 .entei-player-errors-icon {
   display: inline;
