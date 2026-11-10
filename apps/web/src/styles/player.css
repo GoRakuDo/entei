@@ -675,14 +675,6 @@ html.entei-native-video .entei-player-video {
   background-color: var(--entei-btn-color);
 }
 
-.entei-subtitle-cue-row:hover .entei-subtitle-cue {
-  color: var(--entei-text);
-}
-
-.entei-subtitle-cue-row:hover .entei-subtitle-cue-time {
-  color: var(--entei-text-secondary);
-}
-
 .entei-subtitle-cue-row--active {
   background-color: var(--entei-btn-color);
 }
@@ -2575,7 +2567,6 @@ html.entei-native-video .entei-player-video {
 
 .entei-rate-option:hover {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
 }
 
 .entei-rate-option:focus-visible {
@@ -2637,7 +2628,6 @@ html.entei-native-video .entei-player-video {
 
 .entei-play-mode-option:hover {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
 }
 
 /* Desktop only: compact layout — no full-row focus outline.
@@ -2657,30 +2647,10 @@ html.entei-native-video .entei-player-video {
   }
 }
 
-/* --- Radio item: unchecked state --- */
-.entei-play-mode-option [data-slot='radio-group-item'] {
-  border-color: oklch(100% 0 0deg / 0.25);
-  background-color: oklch(100% 0 0deg / 0.05);
-}
-
-/* Hover: accent-tinted border for visible distinction */
-.entei-play-mode-option [data-slot='radio-group-item']:hover {
-  border-color: color-mix(in oklch, var(--entei-accent) 40%, transparent);
-  background-color: oklch(100% 0 0deg / 0.08);
-}
-
-/* --- Radio item: checked state — accent border, NO solid background fill --- */
-.entei-play-mode-option [data-slot='radio-group-item'][data-state='checked'] {
-  border-width: 2.5px;
-  border-color: var(--entei-accent);
-  background-color: transparent;
-}
-
-/* Checked state uses the item's accent outline only — no center mark or fill. */
-.entei-play-mode-option
-  [data-slot='radio-group-item'][data-state='checked']
-  [data-slot='radio-group-indicator'] {
-  display: none;
+/* --- Play mode selection: unified Checkbox style --- */
+.entei-play-mode-label--active {
+  color: var(--entei-status-locked);
+  font-weight: 600;
 }
 
 /* P2.1: Reduced motion — freeze hover/checked transitions */
@@ -4285,7 +4255,6 @@ html.entei-player-immersive .entei-player-audio-area {
 
 .entei-right-panel-tab:hover {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
 }
 
 .entei-right-panel-tab[aria-pressed='true'] {

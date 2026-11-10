@@ -46,7 +46,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/player/ui/popover';
-import { RadioGroup, RadioGroupItem } from '@/components/player/ui/radio-group';
+import { Checkbox } from '@/components/player/ui/checkbox';
 import {
   formatTime,
   clampSeek,
@@ -974,38 +974,63 @@ export const PlayerControls = forwardRef<
                     </button>
                   ))}
                 </div>
-                {/* P2.1: Playback mode radio group */}
+                {/* P2.1: Playback mode selection group (unified checkbox style) */}
                 <div className="entei-rate-popover-divider" />
                 <p className="entei-rate-popover-title">{dict.playModeLabel}</p>
-                <RadioGroup
-                  value={playMode}
-                  onValueChange={(value) => {
-                    onPlayModeChange(value as PlayMode);
-                  }}
+                <div
                   className="entei-play-mode-group"
+                  role="radiogroup"
+                  aria-label={dict.playModeLabel}
                 >
                   <label className="entei-play-mode-option">
-                    <RadioGroupItem
-                      value="normal"
+                    <Checkbox
+                      checked={playMode === 'normal'}
+                      onCheckedChange={() => onPlayModeChange('normal')}
                       aria-label={dict.playModeNormal}
                     />
-                    <span>{dict.playModeNormal}</span>
+                    <span
+                      className={
+                        playMode === 'normal'
+                          ? 'entei-play-mode-label--active'
+                          : ''
+                      }
+                    >
+                      {dict.playModeNormal}
+                    </span>
                   </label>
                   <label className="entei-play-mode-option">
-                    <RadioGroupItem
-                      value="condensed"
+                    <Checkbox
+                      checked={playMode === 'condensed'}
+                      onCheckedChange={() => onPlayModeChange('condensed')}
                       aria-label={dict.playModeCondensed}
                     />
-                    <span>{dict.playModeCondensed}</span>
+                    <span
+                      className={
+                        playMode === 'condensed'
+                          ? 'entei-play-mode-label--active'
+                          : ''
+                      }
+                    >
+                      {dict.playModeCondensed}
+                    </span>
                   </label>
                   <label className="entei-play-mode-option">
-                    <RadioGroupItem
-                      value="fast-forward"
+                    <Checkbox
+                      checked={playMode === 'fast-forward'}
+                      onCheckedChange={() => onPlayModeChange('fast-forward')}
                       aria-label={dict.playModeFastForward}
                     />
-                    <span>{dict.playModeFastForward}</span>
+                    <span
+                      className={
+                        playMode === 'fast-forward'
+                          ? 'entei-play-mode-label--active'
+                          : ''
+                      }
+                    >
+                      {dict.playModeFastForward}
+                    </span>
                   </label>
-                </RadioGroup>
+                </div>
               </PopoverContent>
             </Popover>
 
