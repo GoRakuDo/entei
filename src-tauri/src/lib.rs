@@ -32,7 +32,7 @@ pub fn run() {
         // URL and open it in the user's default system browser, keeping the
         // internal WebView2 shell strictly inside the Entei app.
         .plugin(
-            tauri::plugin::Builder::new("external-link-guard")
+            tauri::plugin::Builder::<tauri::Wry>::new("external-link-guard")
                 .on_navigation(|_webview, url| {
                     let scheme = url.scheme();
                     if scheme == "http" || scheme == "https" {
