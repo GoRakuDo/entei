@@ -249,7 +249,6 @@ html.entei-native-video .entei-player-video {
    (see `.entei-player-pickers ... :hover` below) while the surface stays put. */
 .entei-picker {
   --entei-player-picker-radius: var(--entei-radius-md);
-  --entei-player-picker-border: 1px solid oklch(100% 0 0deg / 0.12);
   --entei-player-picker-transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
     color var(--entei-duration-fast) var(--entei-ease-productive),
@@ -263,7 +262,7 @@ html.entei-native-video .entei-player-video {
   overflow: hidden;
   cursor: pointer;
   background: var(--entei-btn-color);
-  border: var(--entei-player-picker-border);
+  border: none;
   border-radius: var(--entei-player-picker-radius);
   color: var(--entei-text-secondary);
   transition: var(--entei-player-picker-transition);
@@ -278,15 +277,16 @@ html.entei-native-video .entei-player-video {
 /* Picker button hover — text and SVG icon only turn gold; the button
    background is intentionally left untouched (no background-color here)
    so hover/focus reads as a color accent, not a surface change.
-   Hovered/active source pickers (local media, Magnet, YouTube) turn gold
-   so the empty-state entry points read as one interactive group. */
+   Hovered/active source pickers (local media, Magnet, YouTube) turn the same
+   accent as the audio player entry buttons so the empty-state entry points
+   read as one interactive group. */
 .entei-player-pickers .entei-picker-btn:hover,
 .entei-player-pickers .entei-player-magnet-icon-btn:hover,
 .entei-player-pickers .entei-player-youtube-icon-btn:hover,
 .entei-player-pickers .entei-picker-btn:focus-visible,
 .entei-player-pickers .entei-player-magnet-icon-btn:focus-visible,
 .entei-player-pickers .entei-player-youtube-icon-btn:focus-visible {
-  color: var(--entei-status-locked);
+  color: var(--entei-accent-hover);
 }
 
 .entei-picker-label {
@@ -4559,10 +4559,16 @@ html.entei-player-immersive .entei-player-audio-area {
  * --------------------------------------------------------------------------- */
 
 /* Icon-only magnet opener: extends shadcn Button variant="outline" size="icon"
-   with 44px hit target to match picker buttons' min-height. */
+   with 44px hit target and the audio player entry-button surface (solid
+   `--entei-btn-color`, no outline border, rounded) so Magnet reads as a
+   sibling of the local-media picker. */
 .entei-player-magnet-icon-btn {
   min-height: var(--entei-touch-min);
   min-width: var(--entei-touch-min);
+  background: var(--entei-btn-color);
+  border: none;
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text-secondary);
 }
 
 .entei-player-magnet-icon-btn:focus-visible {
@@ -5474,11 +5480,15 @@ html.entei-player-immersive .entei-player-audio-area {
   }
 }
 
-/* Icon-only YouTube opener: same 44px hit-target treatment as the magnet
-   icon button, same outline style. */
+/* Icon-only YouTube opener: same treatment as the magnet icon button so
+   Magnet and YouTube read as one entry-button group. */
 .entei-player-youtube-icon-btn {
   min-height: var(--entei-touch-min);
   min-width: var(--entei-touch-min);
+  background: var(--entei-btn-color);
+  border: none;
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text-secondary);
 }
 
 .entei-player-youtube-icon-btn:focus-visible {
