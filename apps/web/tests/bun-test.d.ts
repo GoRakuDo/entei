@@ -92,8 +92,39 @@ declare module 'bun:test' {
     toMatchSnapshot(hint?: string): void;
     toMatchInlineSnapshot(snapshot?: string): void;
     not: Matchers<T>;
-    resolves: Matchers<Awaited<T>>;
-    rejects: Matchers<Awaited<T>>;
+    resolves: AsyncMatchers<Awaited<T>>;
+    rejects: AsyncMatchers<Awaited<T>>;
+  }
+
+  /**
+   * Match returned by `expect(promise).resolves` / `.rejects`. Every matcher
+   * returns a `Promise` (not `void`), so `await expect(...).rejects.toThrow()`
+   * is a genuinely awaited assertion rather than a no-op `await` on `void`.
+   */
+  interface AsyncMatchers<T = any> extends TLMatchers<ReturnType<Expect['stringContaining']>, Promise<void>> {
+    toBe(expected: any): Promise<void>;
+    toEqual(expected: any): Promise<void>;
+    toStrictEqual(expected: any): Promise<void>;
+    toBeTruthy(): Promise<void>;
+    toBeFalsy(): Promise<void>;
+    toBeNull(): Promise<void>;
+    toBeUndefined(): Promise<void>;
+    toBeDefined(): Promise<void>;
+    toBeNaN(): Promise<void>;
+    toBeInstanceOf(expected: any): Promise<void>;
+    toBeGreaterThan(expected: number | bigint): Promise<void>;
+    toBeGreaterThanOrEqual(expected: number | bigint): Promise<void>;
+    toBeLessThan(expected: number | bigint): Promise<void>;
+    toBeLessThanOrEqual(expected: number | bigint): Promise<void>;
+    toBeCloseTo(expected: number, precision?: number): Promise<void>;
+    toContain(expected: any): Promise<void>;
+    toContainEqual(expected: any): Promise<void>;
+    toHaveLength(expected: number): Promise<void>;
+    toHaveProperty(keyPath: string | string[], value?: any): Promise<void>;
+    toMatch(expected: string | RegExp): Promise<void>;
+    toMatchObject(expected: object): Promise<void>;
+    toThrow(expected?: any): Promise<void>;
+    not: AsyncMatchers<T>;
   }
 
   interface AsymmetricMatchers {

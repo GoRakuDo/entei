@@ -83,7 +83,7 @@
   padding-inline: 0.9rem;
   border: none;
   background: var(--entei-btn-color);
-  color: var(--entei-text-secondary);
+  color: var(--entei-text);
 }
 
 .audio-player__youtube-button {
@@ -96,7 +96,7 @@
   border: none;
   border-radius: var(--entei-radius-md);
   background: var(--entei-btn-color);
-  color: var(--entei-text-secondary);
+  color: var(--entei-purple-400);
   cursor: pointer;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
@@ -106,7 +106,7 @@
 
 .audio-player__youtube-button:hover {
   background: var(--entei-btn-color);
-  color: var(--entei-status-locked);
+  color: var(--entei-purple-400);
 }
 
 .audio-player__youtube-button:disabled {
@@ -116,7 +116,7 @@
 
 .audio-player__open-button:hover {
   background: var(--entei-btn-color);
-  color: var(--entei-status-locked);
+  color: var(--entei-purple-400);
 }
 
 .audio-player__control:hover,

@@ -32,8 +32,8 @@
   /* --- 2. Typography (文字テキスト) --- */
   /* Strong text and prominent headings. */
   --entei-text-primary: oklch(95% 0.005 285deg);
-  /* Secondary text (Discord Muted Lavender). Small-text contrast: PHASE0.md 10.268. */
-  --entei-text-secondary: oklch(85.99% 0.071 282.16deg);
+  /* Secondary text & icons — unified with accent-hover (--entei-purple-400). */
+  --entei-text-secondary: var(--entei-purple-400);
   /* Footer, supplementary text. */
   --entei-text-muted: oklch(70% 0.01 270deg);
 
@@ -41,7 +41,7 @@
   /* Primary accent, focus ring, active border (Discord Blurple). */
   --entei-accent-primary: oklch(68% 0.21 273.85deg);
   /* Hover state, lighter accent for prominent dark-surface headings. */
-  --entei-accent-hover: oklch(76% 0.22 273.85deg);
+  --entei-accent-hover: var(--entei-purple-400);
   /* Solid fill reserved for hover, active, and primary actions. */
   --entei-btn-bg: oklch(31.5% 0.08 275);
   /* Subtle surface used by outline/default controls at rest. */
@@ -51,16 +51,16 @@
   /* System label, locked status accent. */
   --entei-gold: oklch(85% 0.15 85deg);
 
-  /* --- Backward Compatibility Aliases ---
+  /* --- Palette Primitives & Backward Compatibility Aliases ---
      Legacy names preserved so existing styles and custom themes do not break.
      Each maps onto exactly one core group token above — no new color values. */
+  --entei-purple-400: oklch(76% 0.22 273.85deg);
   --entei-white-base: var(--entei-text-primary);
   --entei-black-950: var(--entei-bg);
   --entei-text: var(--entei-text-primary);
   --entei-accent: var(--entei-accent-primary);
   --entei-accent-light: var(--entei-accent-hover);
   --entei-purple-500: var(--entei-accent-primary);
-  --entei-purple-400: var(--entei-accent-hover);
   --entei-purple-300: var(--entei-accent-hover);
   --entei-btn-color: var(--entei-btn-bg);
   --entei-status-locked: var(--entei-gold);
