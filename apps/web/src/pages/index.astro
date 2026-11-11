@@ -21,14 +21,13 @@ import TimelineFeed from '@components/home/TimelineFeed';
 import '@styles/timeline.css';
 ---
 
-<BaseLayout locale="id" path="/" showFooter={false}>
+<BaseLayout locale="id" path="/">
   <TimelineFeed client:load />
 </BaseLayout>
 
 <style>
   /*
-   * Home has no footer, so the shared 32px top / 64px (desktop) bottom padding
-   * from BaseLayout + global.css leaves dead space above and below the feed.
+   * The shared 32px top / 64px (desktop) bottom padding from BaseLayout + global.css leaves dead space above and below the feed.
    * Zero both on desktop so the timeline starts right under the Top Bar; on
    * mobile still clear the fixed dock so it never covers the last post's
    * actions. The `#entei-main` prefix outranks the single-class rule in

@@ -35,10 +35,10 @@ const dictionary = getDictionary('id');
 
   @media (min-width: 768px) {
     .entei-thanks-page {
-      /* Subtract TopBar (64px), main-inner padding (32px + 64px), and SiteFooter (~141px: 48px top + 48px bottom + 44px link + 1px border) */
+      /* Subtract TopBar (64px) and main-inner padding (32px + 64px) */
       min-height: calc(
         100dvh - var(--entei-topbar-height) - var(--entei-space-32) -
-          var(--entei-space-64) - 141px
+          var(--entei-space-64)
       );
     }
   }

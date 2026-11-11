@@ -65,8 +65,10 @@ export interface ImmersionToolsDialogProps {
 }
 
 /** Routes owned by the tools shelf — the trigger reads as "current" here.
- *  Module management lives under the settings page's Modules group. */
-const TOOL_ROUTES = ['/player', '/audio-player', '/settings'] as const;
+ *  The settings page (/settings/) is NOT a tool surface: it owns its own
+ *  nav entry (Pengaturan), so the Immersion Tools trigger must stay resting
+ *  there. Only the player routes are marked active. */
+const TOOL_ROUTES = ['/player', '/audio-player'] as const;
 
 function isToolRoute(path: string | undefined): boolean {
   if (!path) return false;

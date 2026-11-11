@@ -19,18 +19,56 @@
  * ---------------------------------------------------------------------------
  */
 
-/* The settings page is a full-height app shell, not a centered article:
-   drop the BaseLayout ceiling + padding so the two panes can span the page. */
-.entei-settings-page .entei-main-inner {
+/* The settings page is a full-height app shell, not a centered article.
+   Scoped via `body[data-page='settings']` (pageId="settings" on BaseLayout)
+   so the rules reach past the shared layout without leaking to other routes.
+
+   BaseLayout's `.entei-main-inner` is a centered `max-width:
+   var(--entei-content-max)` column. If the settings shell stayed inside it,
+   the whole sidebar+content shell would be boxed into that centered column —
+   the sidebar would float mid-page instead of docking to the left edge, and
+   the content pane would sit left-of-center inside the boxed column leaving a
+   dead void to its right. So we drop the ceiling/padding and make `.entei-main`
+   a plain block so the shell spans the full page width below the TopBar. */
+body[data-page='settings'] .entei-main-inner {
   max-width: none;
   padding: 0;
+  width: 100%;
+}
+
+body[data-page='settings'] .entei-main {
+  display: block;
+}
+
+/* Floating TopBar pill (desktop only). In normal flow the pill zone's
+   `padding: var(--entei-space-16) 0 var(--entei-space-4)` occupies a real
+   height block and pushes the shell down. Anchoring it `position: fixed`
+   turns it into a floating overlay that follows the viewport ("sticky"
+   without ever eating vertical space), so the shell starts at the very top
+   edge under it. Pointer events stay scoped to the pill itself so the
+   transparent zone never blocks clicks on the sidebar / cards beneath. */
+@media (min-width: 768px) {
+  body[data-page='settings'] .entei-desktop-pill-zone {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: var(--entei-z-topbar);
+    justify-content: center;
+    padding: var(--entei-space-16) 0 var(--entei-space-4);
+    pointer-events: none;
+  }
+
+  body[data-page='settings'] .entei-desktop-pill-zone .entei-desktop-pill {
+    pointer-events: auto;
+  }
 }
 
 .entei-settings-shell {
   display: flex;
   flex-direction: column;
   width: 100%;
-  min-height: calc(100dvh - var(--entei-topbar-height));
+  min-height: 100dvh;
 }
 
 /* ==========================================================================
@@ -55,14 +93,18 @@
   align-items: center;
   gap: var(--entei-space-16);
   width: 100%;
+  /* Fixed 44px tap target: vertical padding removed so the box is exactly
+     `--entei-touch-min` tall (content is a single centered flex row). */
+  height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-12) var(--entei-space-16);
+  padding: 0 var(--entei-space-16);
   background: none;
   border: none;
   border-radius: var(--entei-radius-pill);
   color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
   font-size: 1rem;
+  line-height: 1;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -89,24 +131,23 @@
 }
 
 .entei-settings-nav-icon {
-  width: 20px;
-  height: 20px;
+  /* 18px icon against 1rem text sits closer to the cap-height than 20px,
+     avoiding the icon-overhanging-the-baseline look. */
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   stroke-width: 2.25;
 }
 
-/* Chevron marking a group that opens a submenu (Module). */
+/* Chevron marking a group that opens a submenu (Module). Rotates via the
+   swap between ChevronRight (collapsed) and ChevronDown (expanded) rather
+   than a transform, so collapsed/expanded glyphs are always correct. */
 .entei-settings-nav-chevron {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   margin-inline-start: auto;
   color: var(--entei-text-muted);
-  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-.entei-settings-nav-item[aria-expanded='true'] .entei-settings-nav-chevron {
-  transform: rotate(90deg);
 }
 
 /* Child rows (Yomitan / Jimaku.cc / Nadeshiko) indent under their group. */
@@ -119,7 +160,6 @@
 
 .entei-settings-nav-item--child {
   font-size: 0.9375rem;
-  min-height: calc(var(--entei-touch-min) - 4px);
 }
 
 /* ==========================================================================
@@ -139,6 +179,60 @@
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-8);
+  margin-inline: auto;
+  width: 100%;
+}
+
+/* Desktop header row: the sidebar toggle sits beside the title, mirroring
+   Shadcn-Sidebar where the trigger lives in the content header. The toggle
+   itself is hidden on mobile (CSS below) — the drill-down owns the nav. */
+@media (min-width: 768px) {
+  .entei-settings-content-header {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--entei-space-16);
+  }
+
+  .entei-settings-content-title {
+    margin: 0;
+  }
+}
+
+/* Sidebar open/close toggle (Shadcn-Sidebar parity). Desktop only — hidden on
+   mobile, where the drill-down owns the left nav and there is no sidebar to
+   collapse. Sits at the top-left of the content pane. */
+.entei-settings-sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  background: none;
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text-secondary);
+  cursor: pointer;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-settings-sidebar-toggle:hover {
+  color: var(--entei-text);
+  background-color: var(--entei-btn-color);
+}
+
+.entei-settings-sidebar-toggle:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  color: var(--entei-text);
+}
+
+.entei-settings-sidebar-toggle-icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2;
 }
 
 .entei-settings-content-title {
@@ -162,12 +256,15 @@
   text-wrap: pretty;
 }
 
-/* Sections stack inside a group page with the shared 24px rhythm. */
+/* Sections stack inside a group page with the shared 24px rhythm, centered
+   inside the content pane so wide viewports never leave a one-sided void. */
 .entei-settings-section-stack {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-24);
   max-width: 56rem;
+  margin-inline: auto;
+  width: 100%;
 }
 
 .entei-settings-section-card {
@@ -280,23 +377,62 @@
     flex-direction: row;
     align-items: stretch;
     gap: var(--entei-space-48);
-    min-height: calc(100dvh - var(--entei-topbar-height));
+    min-height: 100dvh;
   }
 
   .entei-settings-mobile-header {
     display: none;
   }
 
+  /* Desktop-only sidebar toggle lives above the content header. */
+  .entei-settings-sidebar-toggle {
+    display: inline-flex;
+  }
+
   .entei-settings-nav {
     flex: 0 0 auto;
     width: 16rem;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100dvh;
+    overflow-y: auto;
     padding: var(--entei-space-32) 0 var(--entei-space-32) var(--entei-gutter);
+    transition: width var(--entei-duration-normal) var(--entei-ease-productive);
   }
 
   .entei-settings-content {
     flex: 1 1 auto;
     min-width: 0;
+    /* Full-width pane (flexes to fill the space right of the docked
+       sidebar). The header + card column center themselves inside it via
+       their own `margin-inline: auto`, so wide viewports keep a balanced
+       layout with no one-sided void. */
     padding: var(--entei-space-32) var(--entei-gutter) var(--entei-space-64);
+  }
+
+  /* Collapsed state: icon-only rail. Labels and the module chevron hide so
+     the group icons remain tappable; width animates via the nav transition
+     above (respects prefers-reduced-motion below). */
+  .entei-settings-shell[data-collapsed='true'] {
+    gap: var(--entei-space-24);
+  }
+
+  .entei-settings-shell[data-collapsed='true'] .entei-settings-nav {
+    width: 4.5rem;
+    padding-inline: var(--entei-space-8);
+  }
+
+  .entei-settings-shell[data-collapsed='true'] .entei-settings-nav-item {
+    justify-content: center;
+    padding-inline: 0;
+    gap: 0;
+  }
+
+  .entei-settings-shell[data-collapsed='true'] .entei-settings-nav-item > span,
+  .entei-settings-shell[data-collapsed='true'] .entei-settings-nav-chevron,
+  .entei-settings-shell[data-collapsed='true'] .entei-settings-nav-children {
+    display: none;
   }
 }
 
@@ -304,12 +440,17 @@
   .entei-settings-nav {
     width: 18rem;
   }
+
+  .entei-settings-shell[data-collapsed='true'] .entei-settings-nav {
+    width: 4.5rem;
+  }
 }
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
+  .entei-settings-nav,
   .entei-settings-nav-item,
-  .entei-settings-nav-chevron {
+  .entei-settings-sidebar-toggle {
     transition: none;
   }
 }

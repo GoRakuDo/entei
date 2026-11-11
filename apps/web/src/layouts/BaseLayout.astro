@@ -9,7 +9,7 @@
  *   class ONLY when saved locale is non-id, so body is hidden until the
  *   module script finishes updating copy.
  * - Skip link is first in DOM (PHASE0.md 6.139, 14.365).
- * - Landmarks: header / main / footer (PHASE0.md 14.363).
+ * - Landmarks: header / main (PHASE0.md 14.363; footer removed 2026-11).
  * - Security: no external scripts, no remote fonts, no tracking (16.403-411).
  *
  * IMPORTANT: this layout is used by both Home and /player/. (The former 404
@@ -19,7 +19,6 @@
 import '@styles/global.css';
 import SeoHead from '@components/SeoHead.astro';
 import TopBar from '@components/home/TopBar.astro';
-import SiteFooter from '@components/home/SiteFooter.astro';
 import { EnteiToaster } from '@components/EizouToaster';
 import { getDictionary } from '@i18n/index';
 import type { Dictionary, Locale } from '@i18n/types';
@@ -35,14 +34,16 @@ interface Props {
   description?: string;
   /** Set true for /player/ (noindex). */
   noindex?: boolean;
-  /** Whether to render the full Top Bar + Footer. Default true. */
+  /** Whether to render the full Top Bar. Default true. */
   showChrome?: boolean;
-  /** Whether to render the site Footer (requires showChrome). Default true. */
-  showFooter?: boolean;
   /** Optional language alternates for hreflang tags (2026-08-26 DOCUMENTATION-PAGE.md). */
   alternates?: { lang: string; url: string }[];
   /** Whether this page is a static-locale route whose locale is fixed at build time. Default false. */
   staticLocale?: boolean;
+  /** Page identifier emitted as `data-page` on <body>, letting page-scoped CSS
+   *  (e.g. `body[data-page='settings']`) reach past the shared layout without
+   *  leaking styles to other routes. Omit on pages that need no body scope. */
+  pageId?: string;
 }
 
 const {
@@ -52,9 +53,9 @@ const {
   description,
   noindex = false,
   showChrome = true,
-  showFooter = true,
   alternates,
   staticLocale = false,
+  pageId,
 } = Astro.props;
 
 const dictionary: Dictionary = getDictionary(locale);
@@ -113,7 +114,7 @@ const dictionary: Dictionary = getDictionary(locale);
       })();
     </script>
   </head>
-  <body>
+  <body data-page={pageId}>
     <a class="entei-skip-link" href="#entei-main" data-i18n="nav.skipToMain">
       {dictionary.nav.skipToMain}
     </a>
@@ -123,7 +124,6 @@ const dictionary: Dictionary = getDictionary(locale);
         <slot />
       </div>
     </main>
-    {showChrome && showFooter && <SiteFooter dictionary={dictionary} />}
     <EnteiToaster client:load />
 
     {

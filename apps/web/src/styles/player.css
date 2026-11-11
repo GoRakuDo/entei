@@ -1188,9 +1188,8 @@ html.entei-native-video .entei-player-video {
 
 /* --- Landscape immersive: hide chrome, video fills viewport --- */
 @media (orientation: landscape) and (max-height: 500px) {
-  /* Hide TopBar, footer, pickers, subtitle panel, subtitle row, warnings, timeline button, AND mobile dock. */
+  /* Hide TopBar, pickers, subtitle panel, subtitle row, warnings, timeline button, AND mobile dock. */
   .entei-topbar-mobile,
-  .entei-footer,
   .entei-player-empty,
   .entei-player-subtitle-row,
   .entei-right-panel-inner,

@@ -33,11 +33,13 @@ import {
   Blocks,
   BookOpen,
   BrainCircuit,
+  ChevronDown,
   ChevronRight,
   Globe,
   Keyboard,
   MessageSquareText,
   Palette,
+  PanelLeft,
   Plug,
 } from 'lucide-react';
 import { AnkiFieldsTab } from '@/components/player/AnkiFieldsTab';
@@ -96,6 +98,19 @@ interface SettingsSelection {
 const VALID_GROUPS: readonly SettingsGroup[] = ['general', 'appearance', 'module'];
 const VALID_ITEMS: readonly ModuleChild[] = ['yomitan', 'jimaku', 'nadeshiko'];
 
+/** localStorage key persisting the desktop sidebar's collapsed state. */
+const SIDEBAR_COLLAPSED_KEY = 'entei.settings.sidebarCollapsed';
+
+/** Read the persisted sidebar-collapsed flag (desktop only consumer). */
+function readSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 /** Parse `?group=&item=` into a validated selection (defaults to General). */
 function readSelectionFromUrl(): SettingsSelection {
   if (typeof window === 'undefined') return { group: 'general', item: null };
@@ -132,6 +147,30 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   const [moduleState, setModuleState] = useState<ModuleEnabledState>(() =>
     readModuleState(),
   );
+  /* Desktop sidebar collapsed state (icon-only rail) — persisted so the
+     choice survives reloads. Mobile ignores it (drill-down owns the nav). */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
+    readSidebarCollapsed(),
+  );
+  /* Modules group accordion (desktop sidebar). true = children visible.
+     Toggling the Modules row collapses/expands Yomitan · Jimaku · Nadeshiko. */
+  const [moduleExpanded, setModuleExpanded] = useState(true);
+
+  const toggleModuleExpanded = useCallback(() => {
+    setModuleExpanded((prev) => !prev);
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      } catch {
+        /* localStorage unavailable — in-memory only, still works this session */
+      }
+      return next;
+    });
+  }, []);
 
   /* Activate hybrid persistence (localStorage + desktop SQLite) and follow
      locale changes so the React-rendered labels switch live. */
@@ -256,6 +295,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
     <div
       className="entei-settings-shell"
       data-depth={isMobileMenu(selection) ? 'menu' : 'detail'}
+      data-collapsed={sidebarCollapsed ? 'true' : undefined}
     >
       {/* Mobile drill-down back control (hidden on desktop via CSS). */}
       <div className="entei-settings-mobile-header">
@@ -273,29 +313,45 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
           const isModule = id === 'module';
           const isActive =
             selection.group === id && (!isModule || selection.item === null);
+          const Chevron = isModule && moduleExpanded ? ChevronDown : ChevronRight;
           return (
             <div className="entei-settings-nav-group" key={id}>
               <button
                 type="button"
                 className="entei-settings-nav-item"
                 aria-current={isActive ? 'page' : undefined}
-                aria-expanded={isModule ? true : undefined}
+                aria-expanded={isModule ? moduleExpanded : undefined}
                 aria-label={isModule ? `${label} — ${settings.opensSubmenu}` : undefined}
-                onClick={() => navigate(id, null)}
+                onClick={() => {
+                  if (isModule) {
+                    if (selection.group === 'module') {
+                      // Already on the Modules group — just toggle the accordion.
+                      // Avoid a duplicate pushState (review fix 2026-11-08).
+                      toggleModuleExpanded();
+                    } else {
+                      // Entering Modules from another group — expand + navigate.
+                      setModuleExpanded(true);
+                      navigate(id, null);
+                    }
+                  } else {
+                    navigate(id, null);
+                  }
+                }}
               >
                 <Icon className="entei-settings-nav-icon" aria-hidden="true" />
                 <span>{label}</span>
                 {isModule && (
-                  <ChevronRight
+                  <Chevron
                     className="entei-settings-nav-chevron"
                     aria-hidden="true"
                   />
                 )}
               </button>
 
-              {/* Desktop: children inline. Mobile: hidden — the submenu screen
-                  renders them at top level (CSS `display:none`). */}
-              {isModule && (
+              {/* Desktop: children inline, collapsible via the group toggle.
+                  Mobile: hidden — the submenu screen renders them at top level
+                  (CSS `display:none`). */}
+              {isModule && moduleExpanded && (
                 <div className="entei-settings-nav-children">
                   {moduleChildren.map(
                     ({ id: childId, label: childLabel, Icon: ChildIcon }) => {
@@ -330,6 +386,18 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
        * CONTENT PANE
        * --------------------------------------------------------------- */}
       <div className="entei-settings-content">
+        {/* Desktop sidebar toggle (Shadcn-Sidebar parity). Mobile hides it
+            via CSS — the drill-down owns the left nav there. */}
+        <button
+          type="button"
+          className="entei-settings-sidebar-toggle"
+          aria-label={settings.title}
+          aria-pressed={sidebarCollapsed}
+          onClick={toggleSidebar}
+        >
+          <PanelLeft className="entei-settings-sidebar-toggle-icon" aria-hidden="true" />
+        </button>
+
         <ContentHeader selection={selection} settings={settings} />
 
         {selection.group === 'general' && (
@@ -427,32 +495,6 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                   );
                 })}
               </ul>
-            </section>
-
-            {/* Module sub-pages (mirror the sidebar children). */}
-            <section className="entei-settings-section-card">
-              <div className="entei-settings-nav-children">
-                {moduleChildren.map(
-                  ({ id: childId, label: childLabel, Icon: ChildIcon }) => (
-                    <button
-                      key={childId}
-                      type="button"
-                      className="entei-settings-nav-item"
-                      onClick={() => navigate('module', childId)}
-                    >
-                      <ChildIcon
-                        className="entei-settings-nav-icon"
-                        aria-hidden="true"
-                      />
-                      <span>{childLabel}</span>
-                      <ChevronRight
-                        className="entei-settings-nav-chevron"
-                        aria-hidden="true"
-                      />
-                    </button>
-                  ),
-                )}
-              </div>
             </section>
           </div>
         )}

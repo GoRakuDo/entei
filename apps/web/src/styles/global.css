@@ -368,11 +368,6 @@ svg {
   .entei-main-inner {
     padding-bottom: calc(var(--entei-space-64) + var(--entei-dock-height));
   }
-
-  /* Footer also needs space above the dock if it's near the bottom */
-  .entei-footer {
-    padding-bottom: calc(var(--entei-space-32) + var(--entei-dock-height));
-  }
 }
 
 /* ===== DESKTOP LANGUAGE COMBOBOX (NAVIGATION_BAR.md §3) =====

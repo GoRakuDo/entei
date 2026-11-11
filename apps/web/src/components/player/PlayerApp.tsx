@@ -5042,7 +5042,7 @@ export default function PlayerApp() {
 
   // --- Desktop immersive layout ---
   // When media is loaded on desktop (≥1024px), apply immersive class to <html>
-  // to hide TopBar/SiteFooter and make the player fill 100dvh.
+  // to hide TopBar and make the player fill 100dvh.
   useEffect(() => {
     if (!hasMedia) return;
     const mq = window.matchMedia('(min-width: 1024px)');
