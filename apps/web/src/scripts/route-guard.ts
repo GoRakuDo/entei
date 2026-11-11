@@ -27,6 +27,7 @@ export const VALID_APP_ROUTES: readonly string[] = [
   '/player',
   '/audio-player',
   '/profile',
+  '/settings',
   '/modules',
   '/thanks-to',
   '/tracker', // noindex redirect to /profile/ — still a real served page
