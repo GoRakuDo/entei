@@ -353,14 +353,14 @@
     font-weight: 700;
     letter-spacing: 0.04em;
     text-decoration: none;
-    border-radius: var(--entei-radius-pill);
-    transition: background-color var(--entei-duration-fast)
-      var(--entei-ease-productive);
+    background: transparent;
   }
 
+  /* brand hover: no visual change (no button pill background).
+     Matches the desktop pill brand behavior. */
   .entei-desktop-sidebar-brand:hover {
     color: var(--entei-text);
-    background-color: var(--entei-btn-color);
+    background-color: transparent;
   }
 
   .entei-desktop-sidebar-brand:focus-visible {
