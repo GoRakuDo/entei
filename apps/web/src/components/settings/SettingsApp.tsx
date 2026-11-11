@@ -309,6 +309,22 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
        * LEFT NAV — sidebar tree (desktop) / menu + submenu (mobile).
        * --------------------------------------------------------------- */}
       <nav className="entei-settings-nav" aria-label={settings.title}>
+        {/* Sidebar header row: the collapse toggle (desktop only, hidden on
+            mobile via CSS). Lives at the very top of the sidebar — docks to
+            the top-right when expanded and centers into the icon rail when
+            collapsed (Shadcn-Sidebar parity). */}
+        <div className="entei-settings-nav-header">
+          <button
+            type="button"
+            className="entei-settings-sidebar-toggle"
+            aria-label={settings.title}
+            aria-pressed={sidebarCollapsed}
+            onClick={toggleSidebar}
+          >
+            <PanelLeft className="entei-settings-sidebar-toggle-icon" aria-hidden="true" />
+          </button>
+        </div>
+
         {navGroups.map(({ id, label, Icon }) => {
           const isModule = id === 'module';
           const isActive =
@@ -386,18 +402,6 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
        * CONTENT PANE
        * --------------------------------------------------------------- */}
       <div className="entei-settings-content">
-        {/* Desktop sidebar toggle (Shadcn-Sidebar parity). Mobile hides it
-            via CSS — the drill-down owns the left nav there. */}
-        <button
-          type="button"
-          className="entei-settings-sidebar-toggle"
-          aria-label={settings.title}
-          aria-pressed={sidebarCollapsed}
-          onClick={toggleSidebar}
-        >
-          <PanelLeft className="entei-settings-sidebar-toggle-icon" aria-hidden="true" />
-        </button>
-
         <ContentHeader selection={selection} settings={settings} />
 
         {selection.group === 'general' && (

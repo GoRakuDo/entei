@@ -32,7 +32,10 @@
    a plain block so the shell spans the full page width below the TopBar. */
 body[data-page='settings'] .entei-main-inner {
   max-width: none;
-  padding: 0;
+  /* `!important` — beats the BaseLayout-scoped `.entei-main-inner` padding
+     (32px top / gutter / 64px bottom) and the mobile-only bottom padding in
+     global.css, both of which otherwise win by source order on this route. */
+  padding: 0 !important;
   width: 100%;
 }
 
@@ -40,22 +43,22 @@ body[data-page='settings'] .entei-main {
   display: block;
 }
 
-/* Floating TopBar pill (desktop only). In normal flow the pill zone's
-   `padding: var(--entei-space-16) 0 var(--entei-space-4)` occupies a real
-   height block and pushes the shell down. Anchoring it `position: fixed`
-   turns it into a floating overlay that follows the viewport ("sticky"
-   without ever eating vertical space), so the shell starts at the very top
-   edge under it. Pointer events stay scoped to the pill itself so the
-   transparent zone never blocks clicks on the sidebar / cards beneath. */
+/* Floating TopBar pill (desktop only). Anchored `position: fixed` so it is a
+   floating overlay that reserves no vertical space — the shell starts at the
+   very top edge beneath it. The TopBar owns its own top margin via
+   `top: var(--entei-space-16)` (no top padding, so it is exactly 16px from the
+   viewport top), which is what lets the sidebar and content panes drop their
+   own top spacing entirely. Pointer events stay scoped to the pill itself so
+   the transparent zone never blocks clicks on the sidebar / cards beneath. */
 @media (min-width: 768px) {
   body[data-page='settings'] .entei-desktop-pill-zone {
     position: fixed;
-    top: 0;
+    top: var(--entei-space-16);
     left: 0;
     right: 0;
     z-index: var(--entei-z-topbar);
     justify-content: center;
-    padding: var(--entei-space-16) 0 var(--entei-space-4);
+    padding: 0 0 var(--entei-space-4);
     pointer-events: none;
   }
 
@@ -80,6 +83,14 @@ body[data-page='settings'] .entei-main {
   flex-direction: column;
   gap: var(--entei-space-8);
   padding: var(--entei-space-24) var(--entei-gutter);
+}
+
+/* Sidebar header row holding the collapse toggle (desktop only). Sits at the
+   very top of the sidebar; the toggle docks to the right edge when expanded
+   and centers into the icon rail when collapsed (rule below). Hidden on
+   mobile, where the drill-down owns the nav and there is no collapse. */
+.entei-settings-nav-header {
+  display: none;
 }
 
 .entei-settings-nav-group {
@@ -376,7 +387,7 @@ body[data-page='settings'] .entei-main {
   .entei-settings-shell {
     flex-direction: row;
     align-items: stretch;
-    gap: var(--entei-space-48);
+    gap: 0;
     min-height: 100dvh;
   }
 
@@ -384,7 +395,14 @@ body[data-page='settings'] .entei-main {
     display: none;
   }
 
-  /* Desktop-only sidebar toggle lives above the content header. */
+  /* Sidebar header (toggle) docks to the top-right of the sidebar. */
+  .entei-settings-nav-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  /* Desktop-only sidebar toggle lives at the top of the sidebar. */
   .entei-settings-sidebar-toggle {
     display: inline-flex;
   }
@@ -397,7 +415,12 @@ body[data-page='settings'] .entei-main {
     align-self: flex-start;
     height: 100dvh;
     overflow-y: auto;
-    padding: var(--entei-space-32) 0 var(--entei-space-32) var(--entei-gutter);
+    /* Top padding removed — the sidebar starts flush at the very top edge;
+       the TopBar pill floats above it with its own `top` margin. */
+    padding: 0 0 var(--entei-space-32) var(--entei-gutter);
+    /* Thin right boundary (Shadcn-Sidebar parity) — docks the content pane
+       flush against the sidebar with no dead gap between them. */
+    border-right: 1px solid oklch(100% 0 0deg / 0.08);
     transition: width var(--entei-duration-normal) var(--entei-ease-productive);
   }
 
@@ -407,15 +430,23 @@ body[data-page='settings'] .entei-main {
     /* Full-width pane (flexes to fill the space right of the docked
        sidebar). The header + card column center themselves inside it via
        their own `margin-inline: auto`, so wide viewports keep a balanced
-       layout with no one-sided void. */
-    padding: var(--entei-space-32) var(--entei-gutter) var(--entei-space-64);
+       layout with no one-sided void. The top padding clears the floating
+       TopBar pill (`position: fixed`, reserves no vertical space) so the
+       H1 title surfaces cleanly just below it instead of hiding behind it. */
+    padding: calc(var(--entei-topbar-height) + var(--entei-space-24))
+      var(--entei-gutter) var(--entei-space-64);
   }
 
   /* Collapsed state: icon-only rail. Labels and the module chevron hide so
      the group icons remain tappable; width animates via the nav transition
      above (respects prefers-reduced-motion below). */
   .entei-settings-shell[data-collapsed='true'] {
-    gap: var(--entei-space-24);
+    gap: 0;
+  }
+
+  /* Collapsed: the toggle centers into the top of the icon rail. */
+  .entei-settings-shell[data-collapsed='true'] .entei-settings-nav-header {
+    justify-content: center;
   }
 
   .entei-settings-shell[data-collapsed='true'] .entei-settings-nav {
