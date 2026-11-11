@@ -390,7 +390,7 @@
   .entei-desktop-sidebar-link {
     display: inline-flex;
     align-items: center;
-    gap: var(--entei-space-16);
+    gap: var(--entei-space-12);
     width: 100%;
     min-height: var(--entei-touch-min);
     padding: var(--entei-space-12) var(--entei-space-16);
@@ -430,8 +430,8 @@
 
   .entei-desktop-sidebar-icon,
   .entei-desktop-sidebar-link .entei-nav-settings-icon {
-    width: 20px;
-    height: 20px;
+    width: 1rem;
+    height: 1rem;
     flex-shrink: 0;
     stroke-width: 2.25;
   }

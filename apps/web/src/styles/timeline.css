@@ -372,13 +372,10 @@
      here + 8px inside the surface below, so the highlight never looks glued
      to the neighbouring card. */
   padding-block: var(--entei-space-8);
-  /* The hover band covers the whole card — head, body *and* the action row —
-     so Like/Share sit inside the same highlight instead of hanging below it.
-     The 8px inline padding + matching negative margin make the band grow
-     outward without moving the content. They are declared on the base rule
-     (not on :hover) so hovering never shifts the text. */
-  padding-inline: var(--entei-space-8);
-  margin-inline: calc(var(--entei-space-8) * -1);
+  /* Rule #2471: no negative-margin hacks. The card stays inside the reading
+     column so its left/right edges align flush with the composer's InputGroup
+     above, and the hover band covers the whole card (head, body and the
+     action row) without spilling past the column on either side. */
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
   border-radius: var(--entei-radius-lg);
   /* The whole card opens the thread, including the padding and the action row
@@ -475,12 +472,10 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--entei-space-8);
-  /* Align the first pill's *icon* with the body text: the pill's own 16px
-     inline padding is cancelled by the 8px card inset + this 8px pull-out,
-     so the Comment icon shares the text's left edge. The trailing edge is
-     never pulled out, so the Share pill can never spill past the card's
-     right boundary. */
-  margin-inline-start: calc(var(--entei-space-8) * -1);
+  /* Rule #2471: no pull-out margin. The first pill's box aligns flush with
+     the card's left edge (and the composer above); its own symmetric inline
+     padding optically centres the icon inside the pill. The trailing pill is
+     bounded by the card's right edge, so Share can never spill out. */
 }
 
 .entei-timeline-action {
@@ -591,10 +586,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-12);
-  /* Same 8px inline inset the feed card gets, so the action row's -8px
-     pull-out lands the Comment icon on the body text's left edge. Symmetric
-     16px block padding replaces the old 16/24 imbalance. */
-  padding: var(--entei-space-16) var(--entei-space-8);
+  /* Symmetric 16px block padding; the action row no longer pulls out with a
+     negative margin (Rule #2471), so its pills align flush with the body's
+     left edge. */
+  padding: var(--entei-space-16);
   border-bottom: 1px solid oklch(1 0 0 / 0.1);
 }
 
@@ -680,12 +675,10 @@
 /* ===== MOBILE ===== */
 
 @media (max-width: 767px) {
-  /* The mobile pill is narrower (12px inline padding instead of 16px), so the
-     pull-out is -4px: the Comment icon left edge (12px - 4px = 8px) matches the
-     post body text's 8px inline inset perfectly. */
+  /* The mobile pill keeps the same tighter inline padding; the action row no
+     longer pulls out (Rule #2471), so it stays flush with the card edge. */
   .entei-timeline-post-actions {
     gap: var(--entei-space-4);
-    margin-inline-start: calc(var(--entei-space-4) * -1);
   }
 
   .entei-timeline-action {

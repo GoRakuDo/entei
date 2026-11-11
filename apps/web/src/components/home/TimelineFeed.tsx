@@ -811,7 +811,7 @@ export default function TimelineFeed() {
                 )}
                 onClick={() => toggleLike(selectedPost.id)}
               >
-                <Sparkles size={16} aria-hidden="true" />
+                <Sparkles size={14} aria-hidden="true" />
                 <span>{detailLiked ? t.actionUnlike : t.actionLike}</span>
                 {detailLikeCountLabel !== '' && (
                   <span className="entei-timeline-action-count">
@@ -826,7 +826,7 @@ export default function TimelineFeed() {
                   void sharePost(selectedPost);
                 }}
               >
-                <Share2 size={16} aria-hidden="true" />
+                <Share2 size={14} aria-hidden="true" />
                 <span>{t.actionShare}</span>
               </button>
             </div>
@@ -871,7 +871,7 @@ export default function TimelineFeed() {
                   aria-label={t.replySubmitAriaLabel}
                   disabled={!canReply}
                 >
-                  <Send size={16} aria-hidden="true" />
+                  <Send size={15} aria-hidden="true" />
                   <span>{t.replySubmit}</span>
                 </button>
               </div>
@@ -991,7 +991,7 @@ export default function TimelineFeed() {
                     aria-label={t.composerSubmitAriaLabel}
                     disabled={!canPublish}
                   >
-                    <Send size={16} aria-hidden="true" />
+                    <Send size={15} aria-hidden="true" />
                     <span>{t.composerSubmit}</span>
                   </button>
                 </div>
@@ -1095,7 +1095,7 @@ export default function TimelineFeed() {
                         openPost(post.id);
                       }}
                     >
-                      <MessageSquare size={16} aria-hidden="true" />
+                      <MessageSquare size={14} aria-hidden="true" />
                       <span>{t.actionComment}</span>
                       {commentCountLabel !== '' && (
                         <span className="entei-timeline-action-count">
@@ -1116,7 +1116,7 @@ export default function TimelineFeed() {
                         toggleLike(post.id);
                       }}
                     >
-                      <Sparkles size={16} aria-hidden="true" />
+                      <Sparkles size={14} aria-hidden="true" />
                       <span>{liked ? t.actionUnlike : t.actionLike}</span>
                       {likeCountLabel !== '' && (
                         <span className="entei-timeline-action-count">
@@ -1132,7 +1132,7 @@ export default function TimelineFeed() {
                         void sharePost(post);
                       }}
                     >
-                      <Share2 size={16} aria-hidden="true" />
+                      <Share2 size={14} aria-hidden="true" />
                       <span>{t.actionShare}</span>
                     </button>
                   </div>
