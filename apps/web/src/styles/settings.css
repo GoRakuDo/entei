@@ -372,8 +372,9 @@ body[data-page='settings'] .entei-main {
     height: 100dvh;
     overflow-y: auto;
     /* Top padding gives the sidebar toggle breathing room below the floating
-       TopBar pill (which is `position: fixed` and reserves no vertical space). */
-    padding: var(--entei-space-24) 0 var(--entei-space-32) var(--entei-gutter);
+       TopBar pill (which is `position: fixed` and reserves no vertical space).
+       Right padding (16px) gives items breathing room against the right border. */
+    padding: var(--entei-space-24) var(--entei-space-16) var(--entei-space-32) var(--entei-gutter);
     /* Thin right boundary (Shadcn-Sidebar parity) — docks the content pane
        flush against the sidebar with no dead gap between them. */
     border-right: 1px solid oklch(100% 0 0deg / 0.08);
