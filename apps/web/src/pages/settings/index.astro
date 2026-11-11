@@ -1,0 +1,41 @@
+---
+/**
+ * Settings page — `/settings/`.
+ *
+ * The dedicated, full-page settings surface that replaces the former settings
+ * MODALS (NAVIGATION_BAR.md "設定ボタンの追加" 2026-08-07). Every settings
+ * entry point (desktop sidebar / pill, mobile dock, player gear) now routes
+ * here instead of opening a dialog.
+ *
+ * Layout (SettingsApp island):
+ * - Desktop (≥768px): Shadcn-Sidebar-style two-pane — left nav tree
+ *   (General / Appearance / Modules ▸ Yomitan · Jimaku.cc · Nadeshiko) + a
+ *   wide content pane.
+ * - Mobile (<768px): hierarchical drill-down with a "← Back" header.
+ *
+ * Persistence is hybrid and automatic (no Save button): every change writes
+ * through the existing per-feature store and is mirrored to the embedded
+ * SQLite `kv_store` on desktop via `features/settings/settings-store.ts`.
+ *
+ * Static HTML ships the Indonesian copy (PHASE0.md 5.129); the React island
+ * follows the in-app language switcher via `entei:locale-change`.
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import '@styles/settings.css';
+import '@styles/modules.css';
+import { SettingsApp } from '@/components/settings/SettingsApp';
+import { getDictionary } from '@i18n/index';
+
+const dictionary = getDictionary('id');
+---
+
+<BaseLayout
+  locale="id"
+  path="/settings/"
+  title={dictionary.settingsPage.title}
+  description={dictionary.settingsPage.general}
+  noindex={true}
+  showChrome={true}
+>
+  <SettingsApp client:only="react" dict={dictionary} locale="id" />
+</BaseLayout>

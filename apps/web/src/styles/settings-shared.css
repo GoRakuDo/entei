@@ -484,10 +484,10 @@
 }
 
 /* ==============================================================================
- * MIRRORED from player.css — Settings modal presentation (shared components:
- * SettingsTabs / subtitle / Anki). Loaded on EVERY page via global.css
- * so the nav settings dialog renders correctly on Home/Tracker too. Values are
- * identical to player.css; keep both in sync when editing (drift guard).
+ * MIRRORED from player.css — Settings page presentation (shared components:
+ * SubtitleAppearanceTab / Anki / sliders / selects). Loaded on EVERY page via
+ * global.css so the /settings/ page controls render correctly everywhere.
+ * Values are identical to player.css; keep both in sync when editing (drift guard).
  * ============================================================================== */
 
 .entei-settings-tabs {

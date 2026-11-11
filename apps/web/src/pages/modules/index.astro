@@ -1,29 +1,30 @@
 ---
 /**
- * Modules management page — `/modules/`.
+ * Legacy Modules route redirect.
  *
- * MODULE_ARCHITECTURE.md §5: lists the official core modules (yt-dlp,
- * Torrent, Yomitan) with enable switches persisted in `entei.modules.v1`,
- * plus a placeholder import entry for future community modules.
- *
- * Static HTML ships the Indonesian copy (PHASE0.md 5.129); the React island
- * follows the in-app language switcher via `entei:locale-change`.
+ * Module management now lives under the settings page's Modules group
+ * (`/settings/?group=module`). Keep this static, noindex page for old
+ * bookmarks and direct links (same pattern as /tracker/ → /profile/).
  */
-import BaseLayout from '@layouts/BaseLayout.astro';
-import '@styles/modules.css';
-import { ModulesDashboard } from '@/components/modules/ModulesDashboard';
-import { getDictionary } from '@i18n/index';
-
-const dictionary = getDictionary('id');
 ---
 
-<BaseLayout
-  locale="id"
-  path="/modules/"
-  title="Modul — Entei"
-  description={dictionary.modulesPage.description}
-  noindex={true}
-  showChrome={true}
->
-  <ModulesDashboard client:only="react" dict={dictionary.modulesPage} />
-</BaseLayout>
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta http-equiv="refresh" content="0;url=/settings/?group=module" />
+    <link rel="canonical" href="/settings/?group=module" />
+    <title>Modul → Pengaturan</title>
+  </head>
+  <body>
+    <p>
+      This page has moved to
+      <a href="/settings/?group=module">Settings › Modules</a>.
+    </p>
+    <script is:inline>
+      window.location.replace('/settings/?group=module');
+    </script>
+  </body>
+</html>

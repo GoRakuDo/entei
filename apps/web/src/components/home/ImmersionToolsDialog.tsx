@@ -6,7 +6,7 @@
  *
  *   - 動画プレイヤー      → /player/
  *   - 音声プレイヤー      → /audio-player/
- *   - モジュール管理      → /modules/
+ *   - モジュール管理      → /settings/?group=module
  *
  * Geometry (MODULE_ARCHITECTURE.md §4.1):
  *   - Desktop (≥768px): side sheet sliding in from the LEFT.
@@ -64,8 +64,9 @@ export interface ImmersionToolsDialogProps {
   currentPath?: string;
 }
 
-/** Routes owned by the tools shelf — the trigger reads as "current" here. */
-const TOOL_ROUTES = ['/player', '/audio-player', '/modules'] as const;
+/** Routes owned by the tools shelf — the trigger reads as "current" here.
+ *  Module management lives under the settings page's Modules group. */
+const TOOL_ROUTES = ['/player', '/audio-player', '/settings'] as const;
 
 function isToolRoute(path: string | undefined): boolean {
   if (!path) return false;
@@ -97,7 +98,7 @@ function buildCards(dict: Dictionary['toolsDrawer']): ToolsCard[] {
       description: dict.audioDescription,
     },
     {
-      href: '/modules/',
+      href: '/settings/?group=module',
       Icon: Blocks,
       title: dict.modulesTitle,
       description: dict.modulesDescription,

@@ -1,0 +1,329 @@
+/**
+ * settings.css — `/settings/` dedicated settings page.
+ * ---------------------------------------------------------------------------
+ * Layout only — form controls (slider / select / switch / input / Anki tab /
+ * subtitle appearance / module cards) are reused verbatim from
+ * `settings-shared.css` + `modules.css`, so the controls look identical to the
+ * former modal. This file owns the page shell:
+ *
+ * - Desktop (≥768px): Shadcn-Sidebar-style TWO-PANE layout — a fixed left nav
+ *   tree (General / Appearance / Modules ▸ Yomitan · Jimaku.cc · Nadeshiko)
+ *   and a wide content pane.
+ * - Mobile (<768px): hierarchical DRILL-DOWN — a top-level menu, then a
+ *   "← Back" header + detail pane per section. Menu ⇄ detail is CSS-toggled
+ *   from React state, so resizing never needs a re-render.
+ *
+ * All colors use `var(--entei-*)` tokens / OKLCH (rule #1621). Spacing uses the
+ * shared scale and never goes below `--entei-space-8` (rule #1804). No negative
+ * margins and no z-index (rule #2471).
+ * ---------------------------------------------------------------------------
+ */
+
+/* The settings page is a full-height app shell, not a centered article:
+   drop the BaseLayout ceiling + padding so the two panes can span the page. */
+.entei-settings-page .entei-main-inner {
+  max-width: none;
+  padding: 0;
+}
+
+.entei-settings-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: calc(100dvh - var(--entei-topbar-height));
+}
+
+/* ==========================================================================
+   LEFT NAV TREE
+   ========================================================================== */
+
+.entei-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding: var(--entei-space-24) var(--entei-gutter);
+}
+
+.entei-settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-16);
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-12) var(--entei-space-16);
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-pill);
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 1rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-settings-nav-item:hover {
+  color: var(--entei-status-locked);
+  background-color: var(--entei-btn-color);
+}
+
+.entei-settings-nav-item:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  color: var(--entei-text);
+}
+
+.entei-settings-nav-item[aria-current='page'] {
+  color: var(--entei-status-locked);
+  background-color: var(--entei-btn-color);
+  font-weight: 600;
+}
+
+.entei-settings-nav-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  stroke-width: 2.25;
+}
+
+/* Chevron marking a group that opens a submenu (Module). */
+.entei-settings-nav-chevron {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  color: var(--entei-text-muted);
+  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-settings-nav-item[aria-expanded='true'] .entei-settings-nav-chevron {
+  transform: rotate(90deg);
+}
+
+/* Child rows (Yomitan / Jimaku.cc / Nadeshiko) indent under their group. */
+.entei-settings-nav-children {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  padding-inline-start: var(--entei-space-16);
+}
+
+.entei-settings-nav-item--child {
+  font-size: 0.9375rem;
+  min-height: calc(var(--entei-touch-min) - 4px);
+}
+
+/* ==========================================================================
+   CONTENT PANE
+   ========================================================================== */
+
+.entei-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+  flex: 1;
+  width: 100%;
+  padding: var(--entei-space-24) var(--entei-gutter) var(--entei-space-64);
+}
+
+.entei-settings-content-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-settings-content-title {
+  font-family: var(--entei-font-system);
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--entei-status-locked);
+  margin: 0;
+  text-wrap: balance;
+}
+
+.entei-settings-content-description {
+  font-family: var(--entei-font-body);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--entei-text-secondary);
+  margin: 0;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+
+/* Sections stack inside a group page with the shared 24px rhythm. */
+.entei-settings-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-24);
+  max-width: 56rem;
+}
+
+.entei-settings-section-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-24);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+}
+
+/* ==========================================================================
+   MOBILE DRILL-DOWN HEADER (back to menu) — hidden on desktop
+   ========================================================================== */
+
+.entei-settings-mobile-header {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-gutter);
+}
+
+.entei-settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) var(--entei-space-12) var(--entei-space-8) 0;
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-pill);
+  color: var(--entei-text);
+  font-family: var(--entei-font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.entei-settings-back:hover {
+  color: var(--entei-accent-hover);
+}
+
+.entei-settings-back:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-settings-back-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* ==========================================================================
+   MOBILE (<768px): menu ⇄ detail drill-down
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .entei-settings-shell {
+    min-height: none;
+  }
+
+  /* The left nav IS the mobile menu / submenu list. */
+  .entei-settings-nav {
+    padding: var(--entei-space-16) var(--entei-gutter);
+  }
+
+  /* On mobile the children live in their own submenu screen, so the inline
+     child list is suppressed (the submenu renders them at top level). */
+  .entei-settings-nav-children {
+    display: none;
+  }
+
+  .entei-settings-nav-chevron {
+    display: none;
+  }
+
+  .entei-settings-nav-item--child {
+    padding-inline-start: var(--entei-space-16);
+  }
+
+  /* Menu (nav) is hidden once a group is selected; detail is hidden at the
+     top-level menu. React sets data-depth on the shell. */
+  .entei-settings-shell[data-depth='menu'] .entei-settings-content {
+    display: none;
+  }
+
+  .entei-settings-shell[data-depth='detail'] .entei-settings-nav {
+    display: none;
+  }
+
+  .entei-settings-mobile-header {
+    padding-block-start: var(--entei-space-8);
+  }
+
+  .entei-settings-content {
+    padding: var(--entei-space-16) var(--entei-gutter)
+      calc(var(--entei-space-32) + var(--entei-dock-height));
+  }
+}
+
+/* ==========================================================================
+   DESKTOP (≥768px): two-pane sidebar layout
+   ========================================================================== */
+
+@media (min-width: 768px) {
+  .entei-settings-shell {
+    flex-direction: row;
+    align-items: stretch;
+    gap: var(--entei-space-48);
+    min-height: calc(100dvh - var(--entei-topbar-height));
+  }
+
+  .entei-settings-mobile-header {
+    display: none;
+  }
+
+  .entei-settings-nav {
+    flex: 0 0 auto;
+    width: 16rem;
+    padding: var(--entei-space-32) 0 var(--entei-space-32) var(--entei-gutter);
+  }
+
+  .entei-settings-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--entei-space-32) var(--entei-gutter) var(--entei-space-64);
+  }
+}
+
+@media (min-width: 1024px) {
+  .entei-settings-nav {
+    width: 18rem;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .entei-settings-nav-item,
+  .entei-settings-nav-chevron {
+    transition: none;
+  }
+}
+
+/* Forced colors */
+@media (forced-colors: active) {
+  .entei-settings-nav-item {
+    color: LinkText;
+  }
+
+  .entei-settings-nav-item:hover,
+  .entei-settings-nav-item:focus-visible,
+  .entei-settings-nav-item[aria-current='page'] {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}

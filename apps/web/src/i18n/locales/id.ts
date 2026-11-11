@@ -388,6 +388,17 @@ export const id: Dictionary = {
     yomitanDescription:
       'Analisis infleksi Jepang dan mesin pencarian kamus berkecepatan tinggi',
   },
+  settingsPage: {
+    title: 'Pengaturan',
+    back: 'Kembali',
+    opensSubmenu: 'Buka submenu',
+    general: 'Umum',
+    appearance: 'Tampilan',
+    module: 'Modul',
+    yomitan: 'Yomitan',
+    jimaku: 'Jimaku.cc',
+    nadeshiko: 'Nadeshiko',
+  },
   language: {
     selectLabel: 'Bahasa',
     comboboxLabel: 'Pilih bahasa',

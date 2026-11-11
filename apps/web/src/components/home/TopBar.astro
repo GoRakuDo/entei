@@ -33,9 +33,8 @@
  */
 import HubEmblem from '@components/icons/HubEmblem.astro';
 import LanguageSelector from '@components/LanguageSelector.astro';
-import { EizouSettingsDialog } from '@components/home/EizouSettingsDialog';
 import { ImmersionToolsDialog } from '@components/home/ImmersionToolsDialog';
-import { ArrowLeft, House, User } from '@lucide/astro';
+import { ArrowLeft, House, Settings, User } from '@lucide/astro';
 
 /** Destination definitions — desktop pill and mobile dock each read from their own array. */
 const DESKTOP_DESTINATIONS = [
@@ -113,16 +112,6 @@ const isHome = activePath === '/';
  */
 const isModules = activePath === '/modules' || activePath.startsWith('/modules/');
 const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
-
-/**
- * Full serializable playerUI dictionary for the global settings dialog
- * (both the desktop pill entry and the mobile Dock entry share this —
- * DRY). playerUI is all strings, so it crosses the island boundary as
- * JSON. The dialog uses settingsTitleGlobal ("Settings") rather than the
- * player-scoped settingsTitle ("Player Settings"), since it opens from
- * any page.
- */
-const settingsUIProps = dictionary.playerUI;
 ---
 
 <!--
@@ -225,17 +214,21 @@ const settingsUIProps = dictionary.playerUI;
             />
           </li>
           <li class="entei-desktop-sidebar-item">
-            <EizouSettingsDialog
-              client:load
-              label={dictionary.nav.destinationSettings}
-              triggerLabel={dictionary.playerUI.settingsLabel}
-              variant="sidebar"
-              playerUI={settingsUIProps}
-              showShortcuts={isPlayer}
-              nadeshikoDict={dictionary.nadeshiko}
-              locale={locale}
-              languageLabel={dictionary.language.selectLabel}
-            />
+            <a
+              class="entei-desktop-sidebar-link entei-nav-settings-trigger"
+              href="/settings/"
+              data-entei-nav-settings
+              aria-label={dictionary.playerUI.settingsLabel}
+              data-i18n-aria-label="playerUI.settingsLabel"
+            >
+              <Settings
+                class="entei-nav-settings-icon"
+                aria-hidden="true"
+              />
+              <span data-i18n="nav.destinationSettings">
+                {dictionary.nav.destinationSettings}
+              </span>
+            </a>
           </li>
         </ul>
       </nav>
@@ -256,8 +249,8 @@ const settingsUIProps = dictionary.playerUI;
     Revealed on hover (fine pointer) and keyboard focus-within.
     Shared containment, 200ms dismiss delay.
 
-  The desktop language combobox was removed: language now lives in the
-  Settings modal (EizouSettingsDialog → language row).
+  The desktop language combobox was removed: language now lives on the
+  /settings/ page (SettingsApp → General → Language).
   ============================================================
 -->
 {
@@ -320,21 +313,18 @@ const settingsUIProps = dictionary.playerUI;
           )
         }
         {
-          (
-            /* Settings button — opens the shared settings modal from any page
-             (NAVIGATION_BAR.md 2026-08-07). Not a route. */
-            <EizouSettingsDialog
-              client:load
-              label={dictionary.nav.destinationSettings}
-              triggerLabel={dictionary.playerUI.settingsLabel}
-              variant="pill"
-              playerUI={settingsUIProps}
-              showShortcuts={isPlayer}
-              nadeshikoDict={dictionary.nadeshiko}
-              locale={locale}
-              languageLabel={dictionary.language.selectLabel}
-            />
-          )
+          /* Settings — routes to the dedicated /settings/ page (the former
+             settings modal was removed). A real link, styled identically to
+             the neighbouring pill links via .entei-nav-settings-trigger. */
+          <a
+            class="entei-desktop-pill-link entei-nav-settings-trigger"
+            href="/settings/"
+            data-entei-nav-settings
+            aria-label={dictionary.playerUI.settingsLabel}
+            data-i18n-aria-label="playerUI.settingsLabel"
+          >
+            <Settings class="entei-nav-settings-icon" aria-hidden="true" />
+          </a>
         }
       </nav>
     </div>
@@ -388,20 +378,17 @@ const settingsUIProps = dictionary.playerUI;
     )
   }
   {
-    (
-      /* Settings — mobile Dock entry (NAVIGATION_BAR.md 2026-08-07). */
-      <EizouSettingsDialog
-        client:load
-        label={dictionary.nav.destinationSettings}
-        triggerLabel={dictionary.playerUI.settingsLabel}
-        variant="dock"
-        playerUI={settingsUIProps}
-        showShortcuts={isPlayer}
-        nadeshikoDict={dictionary.nadeshiko}
-        locale={locale}
-        languageLabel={dictionary.language.selectLabel}
-      />
-    )
+    /* Settings — mobile Dock entry. Routes to the dedicated /settings/
+       page (the former settings modal was removed). */
+    <a
+      class="entei-mobile-dock-link entei-nav-settings-trigger"
+      href="/settings/"
+      data-entei-nav-settings
+      aria-label={dictionary.playerUI.settingsLabel}
+      data-i18n-aria-label="playerUI.settingsLabel"
+    >
+      <Settings class="entei-nav-settings-icon" aria-hidden="true" />
+    </a>
   }
 </nav>
 

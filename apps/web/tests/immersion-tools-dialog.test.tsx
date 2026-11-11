@@ -69,7 +69,7 @@ describe('ImmersionToolsDialog', () => {
     ).toBeTruthy();
     expect(screen.getByText(en.toolsDrawer.description)).toBeTruthy();
 
-    const hrefs = ['/player/', '/audio-player/', '/modules/'];
+    const hrefs = ['/player/', '/audio-player/', '/settings/?group=module'];
     for (const href of hrefs) {
       const card = document.querySelector(`[data-entei-tools-card="${href}"]`);
       expect(card, `missing tools card for ${href}`).not.toBeNull();

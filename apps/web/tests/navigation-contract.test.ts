@@ -362,15 +362,14 @@ describe('Desktop language combobox removal', () => {
     });
   }
 
-  it('language switching is wired into the Settings modal (EizouSettingsDialog)', async () => {
+  it('language switching is wired into the settings page (SettingsApp)', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const src = fs.readFileSync(
-      path.resolve(__dirname, '../src/components/home/EizouSettingsDialog.tsx'),
+      path.resolve(__dirname, '../src/components/settings/SettingsApp.tsx'),
       'utf-8',
     );
     expect(src).toContain('LanguageCombobox');
-    expect(src).toContain('entei-settings-language-row');
   });
 
   it('TopBar no longer imports the desktop LanguageCombobox', async () => {
@@ -1051,7 +1050,7 @@ describe('Immersion Tools drawer contract', () => {
     );
     expect(src).toContain("href: '/player/'");
     expect(src).toContain("href: '/audio-player/'");
-    expect(src).toContain("href: '/modules/'");
+    expect(src).toContain("href: '/settings/?group=module'");
     // Both geometry modifiers are rendered; CSS media queries pick one.
     expect(src).toContain('entei-tools-drawer--desktop');
     expect(src).toContain('entei-tools-drawer--mobile');
@@ -1101,10 +1100,18 @@ describe('Immersion Tools drawer contract', () => {
     }
   });
 
-  it('/modules/ page mounts the ModulesDashboard island', async () => {
+  it('/modules/ is a noindex redirect to the settings Modules group', async () => {
     const src = await readSource('../src/pages/modules/index.astro');
-    expect(src).toContain('path="/modules/"');
-    expect(src).toContain('showChrome={true}');
-    expect(src).toContain('ModulesDashboard client:only="react"');
+    expect(src).toContain('name="robots" content="noindex, nofollow"');
+    expect(src).toContain(
+      'http-equiv="refresh" content="0;url=/settings/?group=module"',
+    );
+    expect(src).toContain("window.location.replace('/settings/?group=module')");
+  });
+
+  it('/settings/ page mounts the SettingsApp island', async () => {
+    const src = await readSource('../src/pages/settings/index.astro');
+    expect(src).toContain('path="/settings/"');
+    expect(src).toContain('SettingsApp client:only="react"');
   });
 });

@@ -391,6 +391,17 @@ export const en: Dictionary = {
     yomitanDescription:
       'Fast Japanese inflection analysis and dictionary search engine',
   },
+  settingsPage: {
+    title: 'Settings',
+    back: 'Back',
+    opensSubmenu: 'Opens submenu',
+    general: 'General',
+    appearance: 'Appearance',
+    module: 'Modules',
+    yomitan: 'Yomitan',
+    jimaku: 'Jimaku.cc',
+    nadeshiko: 'Nadeshiko',
+  },
   language: {
     selectLabel: 'Language',
     comboboxLabel: 'Select language',

@@ -1,13 +1,11 @@
 /**
  * player-shortcuts — single source of truth for the Player keyboard
- * shortcut reference shown in the settings "Player" tab.
+ * shortcut reference shown in the settings page's General group.
  * ---------------------------------------------------------------------------
- * Both the Player settings modal (PlayerSettingsDialog via PlayerApp) and
- * the global navigation settings modal (EizouSettingsDialog) render the
- * same six shortcuts; extracting them here prevents drift when one is
- * added. Descriptions come from the localized playerUI dictionary
- * (descKey), so the reference is identical on every page and in every
- * language.
+ * The settings page (/settings/) renders these six shortcuts; extracting
+ * them here prevents drift when one is added. Descriptions come from the
+ * localized playerUI dictionary (descKey), so the reference is identical
+ * on every page and in every language.
  * ---------------------------------------------------------------------------
  */
 

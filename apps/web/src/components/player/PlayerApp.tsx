@@ -3981,9 +3981,9 @@ export default function PlayerApp() {
     }, 10_000);
   }, []);
 
-  // Global navigation settings live in a separate React island. SettingsTabs
-  // persists subtitle changes; this listener only updates the in-memory
-  // overlay so the player reacts immediately.
+  // The settings page (/settings/) persists subtitle changes via the shared
+  // player-prefs store. This listener only updates the in-memory overlay so an
+  // already-mounted player reacts immediately to a settings-bridge event.
   useEffect(() => {
     return listenForSubtitleSettingsChange((settings) => {
       setSubtitleSettings((previous) => ({ ...previous, ...settings }));

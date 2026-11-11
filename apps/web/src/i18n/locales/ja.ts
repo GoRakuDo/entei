@@ -386,6 +386,17 @@ export const ja: Dictionary = {
     yomitanName: 'Yomitan (@gorakudo/yomitan-headless)',
     yomitanDescription: '高速な日本語語形変化解析と辞書検索エンジン',
   },
+  settingsPage: {
+    title: '設定',
+    back: '戻る',
+    opensSubmenu: 'サブメニューを開く',
+    general: '一般',
+    appearance: '外観',
+    module: 'モジュール',
+    yomitan: 'Yomitan',
+    jimaku: 'Jimaku.cc',
+    nadeshiko: 'Nadeshiko',
+  },
   language: {
     selectLabel: '言語',
     comboboxLabel: '言語を選択',

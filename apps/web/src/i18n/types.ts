@@ -425,6 +425,23 @@ export interface Dictionary {
     yomitanName: string;
     yomitanDescription: string;
   };
+  /** Dedicated /settings/ page (sidebar nav + drill-down). */
+  settingsPage: {
+    /** Page <title> and header. */
+    title: string;
+    /** Mobile drill-down back-to-menu control. */
+    back: string;
+    /** Mobile drill-down: a group with children (Module) announces "opens submenu". */
+    opensSubmenu: string;
+    /** Sidebar group + content headings. */
+    general: string;
+    appearance: string;
+    module: string;
+    /** Module sub-items (sidebar children + mobile submenu rows). */
+    yomitan: string;
+    jimaku: string;
+    nadeshiko: string;
+  };
   language: {
     selectLabel: string;
     /** Label for the desktop Language Combobox trigger */
@@ -570,7 +587,7 @@ export interface Dictionary {
     historyRange: string;
   };
   nadeshiko: {
-    /** Tab label in SettingsTabs. */
+    /** Settings page nav label for Nadeshiko (settingsPage.nadeshiko). */
     settingsTabLabel: string;
     heading: string;
     description: string;
