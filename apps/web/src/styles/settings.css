@@ -101,7 +101,7 @@ body[data-page='settings'] .entei-main {
 
 .entei-settings-nav-item {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--entei-space-16);
   width: 100%;
   /* Fixed 44px tap target: vertical padding removed so the box is exactly
@@ -142,10 +142,13 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-settings-nav-icon {
-  /* 18px icon against 1rem text sits closer to the cap-height than 20px,
-     avoiding the icon-overhanging-the-baseline look. */
-  width: 18px;
-  height: 18px;
+  /* Nexvyn CSS Tip: stop hardcoding icon sizes in px, set block-size: 1cap instead!
+     1cap automatically matches the capital letter height of the font at any size,
+     align-items: baseline locks the icon and text to the exact same top/bottom bounds. */
+  block-size: 1cap;
+  inline-size: 1cap;
+  width: 1cap;
+  height: 1cap;
   flex-shrink: 0;
   stroke-width: 2.25;
 }
