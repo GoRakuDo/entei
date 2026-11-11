@@ -37,7 +37,9 @@
 }
 
 .entei-desktop-pill .entei-nav-tools-trigger:hover {
-  color: var(--entei-text);
+  /* hover tints the background only — text + SVG stay at the resting
+     secondary color instead of brightening to white */
+  color: var(--entei-text-secondary);
   background-color: var(--entei-btn-color);
   border-radius: var(--entei-radius-pill);
 }

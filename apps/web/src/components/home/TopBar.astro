@@ -588,7 +588,9 @@ const settingsUIProps = dictionary.playerUI;
     }
 
     .entei-desktop-pill-link:hover {
-      color: inherit; /* keep text + SVG color on hover (no global a:hover tint) */
+      /* keep text + SVG at the resting secondary color on hover — only the
+         background tints (an inherited color would pick up the pill's white) */
+      color: var(--entei-text-secondary);
       background-color: var(--entei-btn-color);
       border-radius: var(--entei-radius-pill);
     }
