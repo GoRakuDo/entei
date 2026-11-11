@@ -114,9 +114,9 @@ body[data-page='settings'] .entei-main {
   border-radius: var(--entei-radius-pill);
   color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
-  font-size: 1.5rem; /* 24px - larger and bolder font with matching 1cap icon */
+  font-size: 1rem;
   line-height: 1;
-  font-weight: 500;
+  font-weight: 400; /* Regular font weight — no bold */
   text-align: left;
   cursor: pointer;
   transition:
@@ -138,15 +138,12 @@ body[data-page='settings'] .entei-main {
 .entei-settings-nav-item[aria-current='page'] {
   color: var(--entei-status-locked);
   background-color: var(--entei-btn-color);
-  font-weight: 600;
+  font-weight: 400; /* Keep regular font weight when active — no bold */
 }
 
 .entei-settings-nav-icon {
-  /* 1cap automatically matches the capital letter height of the font at any size */
-  block-size: 1cap;
-  inline-size: 1cap;
-  width: 1cap;
-  height: 1cap;
+  width: 1rem; /* 16px - exactly matches font-size: 1rem */
+  height: 1rem;
   flex-shrink: 0;
   stroke-width: 2.25;
 }
@@ -171,7 +168,8 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-settings-nav-item--child {
-  font-size: 0.9375rem;
+  font-size: 1rem; /* Same 1rem font size */
+  font-weight: 400; /* Regular font weight — no bold */
 }
 
 /* ==========================================================================
