@@ -396,6 +396,7 @@ Minimum visual checks:
 - Disabled state remains readable and does not rely only on reduced opacity.
 - Full-width reset or destructive actions must be visibly separate from content and keep clear wording.
 - A button whose label changes at runtime (loading/typewriter text, status swap) must declare an explicit fixed size (`width`, and `height`/`min-height` where the row depends on it) instead of sizing to content. Label changes must never resize the button or shift its neighbours; mobile keeps `width: 100%`. Size the fixed rail for the longest locale label so localization still fits.
+- **Button Icon-Text Sizing & Gap Ratio Rule**: When a button/nav-item pairs an SVG icon with text, match the icon's dimensions exactly to the font size (1:1 scale, e.g. `font-size: 1rem` and icon `width: 1rem; height: 1rem;`). The gap between icon and text must be 25% smaller than the font size using the matching token (e.g. at `1rem`, `gap: var(--entei-space-12)` which is `0.75rem` / `12px`). This proportional ratio guarantees visually natural optical harmony across all button scales.
 
 ### 8.2 Icon-Only Buttons
 
