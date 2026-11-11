@@ -14,8 +14,14 @@
 import { installTraceInstrumentation } from '@/features/trace/trace-logger';
 import { ensureDatabaseMigrated } from '@/features/database/migration';
 import { isTauri, openExternalUrlDirect } from '@/features/player/tauri-bridge';
+import { installRouteGuard } from '@/scripts/route-guard';
 
 installTraceInstrumentation();
+
+// Block navigation to routes the app no longer serves (removed pages). Runs on
+// every page because both layouts load this module. External URLs are handled
+// by the Tauri listener below; this only guards same-origin paths.
+installRouteGuard();
 
 // Desktop only: intercept any external link click globally and hand it
 // over to the operating system's default browser, keeping the app webview

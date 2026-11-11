@@ -12,9 +12,9 @@
  * - Landmarks: header / main / footer (PHASE0.md 14.363).
  * - Security: no external scripts, no remote fonts, no tracking (16.403-411).
  *
- * IMPORTANT: this layout is used by both Home and /player/. The 404 page
- * uses a simpler inline layout because it is always Indonesian + noindex
- * and does not need the locale switcher.
+ * IMPORTANT: this layout is used by both Home and /player/. (The former 404
+ * page was removed in the 2026-11 DEBLOAT; unknown routes are guarded against
+ * by scripts/route-guard.ts, which cancels clicks to unserved paths.)
  */
 import '@styles/global.css';
 import SeoHead from '@components/SeoHead.astro';
