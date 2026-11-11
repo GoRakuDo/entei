@@ -186,32 +186,9 @@ body[data-page='settings'] .entei-main {
   padding: var(--entei-space-24) var(--entei-gutter) var(--entei-space-64);
 }
 
-.entei-settings-content-header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
-  margin-inline: auto;
-  width: 100%;
-}
-
-/* Desktop header row: the sidebar toggle sits beside the title, mirroring
-   Shadcn-Sidebar where the trigger lives in the content header. The toggle
-   itself is hidden on mobile (CSS below) — the drill-down owns the nav. */
-@media (min-width: 768px) {
-  .entei-settings-content-header {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--entei-space-16);
-  }
-
-  .entei-settings-content-title {
-    margin: 0;
-  }
-}
-
 /* Sidebar open/close toggle (Shadcn-Sidebar parity). Desktop only — hidden on
    mobile, where the drill-down owns the left nav and there is no sidebar to
-   collapse. Sits at the top-left of the content pane. */
+   collapse. Sits at the top of the sidebar. */
 .entei-settings-sidebar-toggle {
   display: none;
   align-items: center;
@@ -244,27 +221,6 @@ body[data-page='settings'] .entei-main {
   width: 20px;
   height: 20px;
   stroke-width: 2;
-}
-
-.entei-settings-content-title {
-  font-family: var(--entei-font-system);
-  font-size: clamp(1.75rem, 4vw, 2.25rem);
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: 0.04em;
-  color: var(--entei-status-locked);
-  margin: 0;
-  text-wrap: balance;
-}
-
-.entei-settings-content-description {
-  font-family: var(--entei-font-body);
-  font-size: 0.9375rem;
-  line-height: 1.6;
-  color: var(--entei-text-secondary);
-  margin: 0;
-  max-width: 60ch;
-  text-wrap: pretty;
 }
 
 /* Sections stack inside a group page with the shared 24px rhythm, centered
@@ -415,9 +371,9 @@ body[data-page='settings'] .entei-main {
     align-self: flex-start;
     height: 100dvh;
     overflow-y: auto;
-    /* Top padding removed — the sidebar starts flush at the very top edge;
-       the TopBar pill floats above it with its own `top` margin. */
-    padding: 0 0 var(--entei-space-32) var(--entei-gutter);
+    /* Top padding gives the sidebar toggle breathing room below the floating
+       TopBar pill (which is `position: fixed` and reserves no vertical space). */
+    padding: var(--entei-space-24) 0 var(--entei-space-32) var(--entei-gutter);
     /* Thin right boundary (Shadcn-Sidebar parity) — docks the content pane
        flush against the sidebar with no dead gap between them. */
     border-right: 1px solid oklch(100% 0 0deg / 0.08);

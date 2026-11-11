@@ -402,8 +402,6 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
        * CONTENT PANE
        * --------------------------------------------------------------- */}
       <div className="entei-settings-content">
-        <ContentHeader selection={selection} settings={settings} />
-
         {selection.group === 'general' && (
           <div className="entei-settings-section-stack">
             {/* Language */}
@@ -560,23 +558,4 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
       navigate('general', null);
     }
   }
-}
-
-/** Content pane heading (title) per selection. */
-function ContentHeader({
-  selection,
-  settings,
-}: {
-  selection: SettingsSelection;
-  settings: Dictionary['settingsPage'];
-}) {
-  const title =
-    selection.group === 'module' && selection.item
-      ? settings[selection.item]
-      : settings[selection.group];
-  return (
-    <header className="entei-settings-content-header">
-      <h1 className="entei-settings-content-title">{title}</h1>
-    </header>
-  );
 }
