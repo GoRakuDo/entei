@@ -2057,7 +2057,7 @@ html.entei-native-video .entei-player-video {
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-24);
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   border: none;
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
@@ -2367,6 +2367,17 @@ html.entei-native-video .entei-player-video {
   min-width: 120px;
 }
 
+/* Slider body line — uses --entei-btn-color while preserving the solid accent thumb */
+.entei-subtitle-slider [data-entei-slider-track] {
+  background-color: oklch(100% 0 0deg / 0.08);
+}
+
+.entei-subtitle-slider [data-entei-slider-track] > span,
+.entei-subtitle-slider [data-slot='slider-range'],
+.entei-subtitle-slider span[class*='bg-primary'] {
+  background-color: var(--entei-btn-color) !important;
+}
+
 /* Settings slider thumb: same solid 18px accent circle as the player
    seek/volume thumbs (not the shadcn hollow ring). 44px hit area via
    the same transparent pseudo-element pattern. */
@@ -2431,7 +2442,7 @@ html.entei-native-video .entei-player-video {
 .oklch-display {
   font-family: var(--entei-font-system);
   font-size: 0.6875rem;
-  color: var(--entei-text-muted);
+  color: var(--entei-text-secondary);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
