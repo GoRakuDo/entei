@@ -256,6 +256,16 @@ export function AnkiFieldsTab({
       setConnectionState('connected');
       setLastError(null); // Clear error only on successful connection
 
+      // Reset selection if deck/model does not exist in the active Anki profile (profile switch support)
+      setSelectedDeck((prev) => (result.decks.includes(prev) ? prev : ''));
+      setSelectedModel((prev) => {
+        if (result.models.includes(prev)) return prev;
+        selectedModelRef.current = '';
+        resolvedModelRef.current = '';
+        setModelFields([]);
+        return '';
+      });
+
       // Stage 2: Export session credentials to PlayerApp
       onSessionCredentials?.({ endpoint, apiKey });
 
@@ -324,6 +334,17 @@ export function AnkiFieldsTab({
       attemptConnect();
     }, RETRY_INTERVAL_MS);
   }, [attemptConnect]);
+
+  // --- Auto-refresh on window focus (detects profile switch in Anki desktop) ---
+  useEffect(() => {
+    const onFocus = () => {
+      if (prefsReady && !isConnecting) {
+        attemptConnect();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [prefsReady, isConnecting, attemptConnect]);
 
   // --- Auto-connect after preferences are loaded ---
   useEffect(() => {
@@ -573,12 +594,15 @@ export function AnkiFieldsTab({
             />
           </div>
 
-          {/* Status badge: icon only (non-clickable, accessible via tooltip/aria-label) */}
-          <div
+          {/* Status badge: icon only (clickable to refresh on profile switch) */}
+          <button
+            type="button"
             className="entei-anki-status-badge"
             aria-live="polite"
-            title={statusBadgeText}
-            aria-label={statusBadgeText}
+            title={`${statusBadgeText} (Klik untuk menyegarkan / Click to refresh)`}
+            aria-label={`${statusBadgeText} (Klik untuk menyegarkan)`}
+            onClick={() => attemptConnect()}
+            disabled={isConnecting}
           >
             {connectionState === 'connected' ? (
               <Plug
@@ -593,7 +617,7 @@ export function AnkiFieldsTab({
                 aria-hidden="true"
               />
             )}
-          </div>
+          </button>
         </div>
       </div>
 

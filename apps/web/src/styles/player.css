@@ -2120,7 +2120,7 @@ html.entei-native-video .entei-player-video {
   font-size: 0.75rem;
 }
 
-/* W14: Status badge — non-clickable, accessible, icon-only */
+/* W14: Status badge — accessible, icon-only, clickable to refresh */
 .entei-anki-status-badge {
   display: inline-flex;
   align-items: center;
@@ -2130,7 +2130,16 @@ html.entei-native-video .entei-player-video {
   height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding: 0;
+  background: none;
+  border: none;
   border-radius: var(--entei-radius-md);
+  cursor: pointer;
+  transition: opacity var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-anki-status-badge:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .entei-anki-status-icon {
@@ -2530,11 +2539,13 @@ html.entei-native-video .entei-player-video {
 }
 
 /* Popover surface: subtle muted border + matching radius (DESIGN.md 8.9).
-   Portaled content sits outside [data-entei-player-root], so the border is
-   declared explicitly instead of inheriting the player base layer. */
+   Portaled content sits outside [data-entei-player-root], so the border and
+   opaque elevated surface are declared explicitly. */
 [data-slot='select-content'] {
-  border: 1px solid oklch(100% 0 0deg / 0.08);
+  background-color: var(--entei-surface-elevated);
+  border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
+  box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.5);
 }
 
 /* W14: Remove white border from Player Select popup — keep Entei dark surface */
