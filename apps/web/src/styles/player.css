@@ -2473,23 +2473,27 @@ html.entei-native-video .entei-player-video {
   gap: var(--entei-space-8);
   width: 100%;
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-16);
-  background: none;
-  border: 1px solid oklch(100% 0 0deg / 0.12);
+  padding: var(--entei-space-8) var(--entei-space-24);
+  background-color: var(--entei-btn-color);
+  border: none;
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
-  color: var(--entei-text-secondary);
+  color: var(--entei-text);
   cursor: pointer;
   transition:
     background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    border-color var(--entei-duration-fast) var(--entei-ease-productive),
-    color var(--entei-duration-fast) var(--entei-ease-productive);
+    opacity var(--entei-duration-fast) var(--entei-ease-productive),
+    transform var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-subtitle-reset-btn:hover {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  opacity: 0.92;
+}
+
+.entei-subtitle-reset-btn:active {
+  transform: scale(0.98);
 }
 
 /* JIMAKU.CC settings (P2) — API key input + auto-load switch */
