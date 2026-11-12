@@ -2044,7 +2044,10 @@ html.entei-native-video .entei-player-video {
   cursor: not-allowed;
 }
 
-/* Scoped primary button accent styling */
+/* Standardized Action Button component (.entei-action-btn / .entei-anki-connect-btn)
+   Canonical Entei primary button surface: borderless, --entei-btn-color,
+   purple glow hover highlight, and tactile scale(0.98) press feedback. */
+.entei-action-btn,
 .entei-anki-connect-btn {
   display: inline-flex;
   align-items: center;
@@ -2068,17 +2071,25 @@ html.entei-native-video .entei-player-video {
     box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
+.entei-action-btn--full {
+  width: 100%;
+  align-self: stretch;
+}
+
+.entei-action-btn:hover,
 .entei-anki-connect-btn:hover {
   opacity: 0.92;
   box-shadow: 0 4px 12px
     color-mix(in oklch, var(--entei-accent) 20%, transparent);
 }
 
+.entei-action-btn:active,
 .entei-anki-connect-btn:active {
   transform: scale(0.98);
   opacity: 0.95;
 }
 
+.entei-action-btn:disabled,
 .entei-anki-connect-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -2086,6 +2097,7 @@ html.entei-native-video .entei-player-video {
   transform: none;
 }
 
+.entei-action-btn:focus-visible,
 .entei-anki-connect-btn:focus-visible {
   outline: 3px solid color-mix(in oklch, var(--entei-accent) 40%, transparent);
   outline-offset: 2px;

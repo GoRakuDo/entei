@@ -39,6 +39,7 @@ import {
 } from '@/components/player/ui/select';
 import { Plug, PlugZap } from 'lucide-react';
 import type { Dictionary } from '@i18n/types';
+import { SettingsButton } from '@/components/settings/SettingsButton';
 
 /** Retry interval in milliseconds. */
 const RETRY_INTERVAL_MS = 10_000;
@@ -816,13 +817,11 @@ export function AnkiFieldsTab({
               </h4>
               <p className="entei-settings-hint">{dict.ankiDenChouPresetDesc}</p>
             </div>
-            <button
-              type="button"
-              className="entei-anki-connect-btn"
+            <SettingsButton
               onClick={handleApplyDenChouPreset}
             >
               {dict.ankiDenChouPresetApply}
-            </button>
+            </SettingsButton>
           </div>
         </div>
       )}

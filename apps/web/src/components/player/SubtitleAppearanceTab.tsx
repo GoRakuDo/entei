@@ -21,6 +21,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '@/components/player/ui/toggle-group';
+import { SettingsButton } from '@/components/settings/SettingsButton';
 import type { SubtitleSyncMode } from '@/features/player/preferences';
 import {
   RotateCcw,
@@ -469,14 +470,13 @@ export function SubtitleAppearanceTab({
 
         {/* Reset Button */}
         <div className="entei-subtitle-reset-section">
-          <button
-            type="button"
-            className="entei-anki-connect-btn"
+          <SettingsButton
+            icon={RotateCcw}
+            fullWidth
             onClick={onReset}
           >
-            <RotateCcw size={14} aria-hidden="true" />
-            <span>{dict.subtitleReset}</span>
-          </button>
+            {dict.subtitleReset}
+          </SettingsButton>
         </div>
       </section>
 
