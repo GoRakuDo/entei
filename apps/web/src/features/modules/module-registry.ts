@@ -70,7 +70,7 @@ export interface EnteiModuleManifest {
     | 'BrainCircuit'
     | 'Blocks'
     | (string & {});
-  /** Path to the module icon asset (e.g. '/icons/modules/ytdlp.svg'). */
+  /** Path to the module icon asset (e.g. '/icons/modules/ytdlp.png'). */
   iconPath?: string;
   /** Whether the module exposes a settings panel or custom settings. */
   hasSettings?: boolean;
@@ -114,57 +114,94 @@ const CORE_ORDER: readonly string[] = [
   'nadeshiko',
 ];
 
+/** `import.meta` extras that only exist outside the browser bundle. */
+interface NodeImportMeta extends ImportMeta {
+  /** Bun/Node CJS shim — absent in browsers. */
+  require?: (id: string) => unknown;
+  /** Bun: absolute path of the directory holding this module. */
+  dir?: string;
+}
+
+/**
+ * Read every `*.module.json` under `<web root>/src/modules` straight from disk.
+ *
+ * Belt-and-braces only: BOTH runtimes this project uses already provide the
+ * glob rewrite (Vite for the app, Bun 1.4.4 for `bun test`), so this path is
+ * not reached today — and in a plain Node ESM process it cannot work at all
+ * (`import.meta.require` does not exist there). It stays as the safety net for
+ * a runner that has neither, where an empty registry is worse than a slow one.
+ */
+function loadManifestsFromDisk(): EnteiModuleManifest[] {
+  const meta = import.meta as NodeImportMeta;
+  if (typeof meta.require !== 'function') return [];
+  try {
+    const fs = meta.require('node:fs') as typeof import('node:fs');
+    const path = meta.require('node:path') as typeof import('node:path');
+    // This file lives in `<web root>/src/features/modules`, so the manifests sit
+    // two directories up. The `cwd()` candidate covers a runner started from
+    // the workspace root instead of `apps/web`.
+    const candidates = [
+      path.resolve(meta.dir ?? process.cwd(), '../../modules'),
+      path.resolve(process.cwd(), 'src/modules'),
+    ];
+    const targetDir = candidates.find((candidate) => fs.existsSync(candidate));
+    if (targetDir === undefined) return [];
+
+    const manifests: EnteiModuleManifest[] = [];
+    const scan = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scan(full);
+        } else if (entry.isFile() && entry.name.endsWith('.module.json')) {
+          const content = fs.readFileSync(full, 'utf-8');
+          manifests.push(JSON.parse(content) as EnteiModuleManifest);
+        }
+      }
+    };
+    scan(targetDir);
+    return manifests;
+  } catch {
+    // Unreadable directory / malformed JSON: the registry stays empty rather
+    // than half-populated, and the caller surfaces the failure as no modules.
+    return [];
+  }
+}
+
 /**
  * Dynamically discover and load all `*.module.json` manifests located under
  * `/src/modules/` (MODULE_ARCHITECTURE.md §5.2).
  *
  * In Vite (dev & production build), `import.meta.glob` aggregates every
- * manifest without manual registry entries.
- * In Bun test runner, a safe fallback reads the files directly from disk.
+ * manifest without manual registry entries. The call is NOT feature-detected:
+ * Vite statically replaces the CALL SITE with the aggregated module map, so
+ * `typeof import.meta.glob` is `undefined` at runtime — guarding on it would
+ * silently empty the registry in the shipped bundle.
+ *
+ * Bun's transpiler does the same replacement for `bun test` (Bun 1.4.4
+ * implements `import.meta.glob` with Vite-compatible options), so both runtimes
+ * take this branch; the catch is a safety net for anything that does not.
  */
 function loadCoreManifests(): readonly EnteiModuleManifest[] {
   let manifests: EnteiModuleManifest[] = [];
 
-  if (typeof import.meta.glob === 'function') {
+  try {
     const globbed = import.meta.glob<EnteiModuleManifest>(
       '/src/modules/**/*.module.json',
       { eager: true, import: 'default' },
     );
     manifests = Object.values(globbed);
-  } else if (typeof (import.meta as any).require === 'function') {
-    // Bun / Node test runner fallback (Vite is not active during `bun test`)
-    try {
-      const fs = (import.meta as any).require('node:fs') as typeof import('node:fs');
-      const path = (import.meta as any).require('node:path') as typeof import('node:path');
-      const candidatePaths = [
-        path.resolve(process.cwd(), 'src/modules'),
-        path.resolve(process.cwd(), 'entei/apps/web/src/modules'),
-      ];
-      const targetDir = candidatePaths.find((p) => fs.existsSync(p));
-      if (targetDir) {
-        const scan = (dir: string) => {
-          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              scan(full);
-            } else if (entry.isFile() && entry.name.endsWith('.module.json')) {
-              const content = fs.readFileSync(full, 'utf-8');
-              manifests.push(JSON.parse(content) as EnteiModuleManifest);
-            }
-          }
-        };
-        scan(targetDir);
-      }
-    } catch {
-      // Ignore filesystem read failure in non-node/non-bun runtimes
-    }
+  } catch {
+    manifests = loadManifestsFromDisk();
   }
 
   return manifests
     .map((manifest) => ({
       ...manifest,
       manifestVersion: manifest.manifestVersion ?? MODULE_MANIFEST_VERSION,
-      builtIn: true,
+      // The manifest owns these: a JSON document may legitimately mark a
+      // module off by default, and overriding it here would hide that.
+      builtIn: manifest.builtIn ?? true,
       defaultEnabled: manifest.defaultEnabled ?? true,
       icon: manifest.icon ?? 'Blocks',
       ...(manifest.id === 'yomitan'

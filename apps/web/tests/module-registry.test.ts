@@ -10,6 +10,9 @@
  */
 
 import { beforeEach, describe, expect, it } from 'bun:test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CORE_MODULES,
   MODULE_IMPORTS_KEY,
@@ -114,6 +117,40 @@ describe('module-registry — core manifests', () => {
 
     const nadeshiko = CORE_MODULES.find((m) => m.id === 'nadeshiko');
     expect(nadeshiko?.iconPath).toBe('/icons/modules/nadeshiko.webp');
+  });
+
+  it('reflects builtIn / defaultEnabled exactly as written in each *.module.json', () => {
+    // The registry must not override the manifest's own flags: a document may
+    // legitimately ship a module disabled, and a hard-coded `builtIn: true`
+    // would hide that. Every iconPath must also resolve to a real asset, so a
+    // manifest can never point at a file that was deleted.
+    const modulesDir = fileURLToPath(new URL('../src/modules', import.meta.url));
+    const publicDir = fileURLToPath(new URL('../public', import.meta.url));
+    const documents: Record<string, unknown>[] = [];
+
+    for (const entry of fs.readdirSync(modulesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = path.join(modulesDir, entry.name);
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith('.module.json')) continue;
+        const content = fs.readFileSync(path.join(dir, name), 'utf-8');
+        documents.push(JSON.parse(content) as Record<string, unknown>);
+      }
+    }
+
+    expect(documents).toHaveLength(CORE_MODULES.length);
+
+    for (const document of documents) {
+      const id = typeof document.id === 'string' ? document.id : '';
+      const iconPath =
+        typeof document.iconPath === 'string' ? document.iconPath : '';
+      const manifest = CORE_MODULES.find((module) => module.id === id);
+
+      expect(manifest?.builtIn).toBe(document.builtIn ?? true);
+      expect(manifest?.defaultEnabled).toBe(document.defaultEnabled ?? true);
+      expect(manifest?.iconPath).toBe(iconPath);
+      expect(fs.existsSync(path.join(publicDir, iconPath))).toBe(true);
+    }
   });
 });
 
