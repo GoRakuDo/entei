@@ -17,7 +17,6 @@
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from './ui/slider';
-import { Button } from './ui/button';
 import {
   ToggleGroup,
   ToggleGroupItem,
@@ -470,15 +469,14 @@ export function SubtitleAppearanceTab({
 
         {/* Reset Button */}
         <div className="entei-subtitle-reset-section">
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
+            className="entei-anki-connect-btn"
             onClick={onReset}
-            className="entei-subtitle-reset-btn"
           >
-            <RotateCcw size={14} />
+            <RotateCcw size={14} aria-hidden="true" />
             <span>{dict.subtitleReset}</span>
-          </Button>
+          </button>
         </div>
       </section>
 

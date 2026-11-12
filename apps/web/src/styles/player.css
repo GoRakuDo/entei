@@ -2046,6 +2046,10 @@ html.entei-native-video .entei-player-video {
 
 /* Scoped primary button accent styling */
 .entei-anki-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
   align-self: flex-start;
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-24);
@@ -2463,37 +2467,12 @@ html.entei-native-video .entei-player-video {
 /* --- Reset Section --- */
 .entei-subtitle-reset-section {
   display: flex;
-  justify-content: flex-start;
-}
-
-.entei-subtitle-reset-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--entei-space-8);
+  justify-content: flex-end;
   width: 100%;
-  min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) var(--entei-space-24);
-  background-color: var(--entei-btn-color);
-  border: none;
-  border-radius: var(--entei-radius-md);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  color: var(--entei-text);
-  cursor: pointer;
-  transition:
-    background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    opacity var(--entei-duration-fast) var(--entei-ease-productive),
-    transform var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-subtitle-reset-btn:hover {
-  background-color: var(--entei-btn-color);
-  opacity: 0.92;
-}
-
-.entei-subtitle-reset-btn:active {
-  transform: scale(0.98);
+.entei-subtitle-reset-section .entei-anki-connect-btn {
+  align-self: flex-end;
 }
 
 /* JIMAKU.CC settings (P2) — API key input + auto-load switch */
