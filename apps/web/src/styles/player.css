@@ -2075,8 +2075,8 @@ html.entei-native-video .entei-player-video {
 }
 
 .entei-anki-connect-btn:active {
-  transform: translateY(0);
-  opacity: 1;
+  transform: scale(0.98);
+  opacity: 0.95;
 }
 
 .entei-anki-connect-btn:disabled {
@@ -2467,12 +2467,12 @@ html.entei-native-video .entei-player-video {
 /* --- Reset Section --- */
 .entei-subtitle-reset-section {
   display: flex;
-  justify-content: flex-end;
   width: 100%;
 }
 
 .entei-subtitle-reset-section .entei-anki-connect-btn {
-  align-self: flex-end;
+  width: 100%;
+  justify-content: center;
 }
 
 /* JIMAKU.CC settings (P2) — API key input + auto-load switch */

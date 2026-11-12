@@ -854,8 +854,8 @@
 }
 
 .entei-anki-connect-btn:active {
-  transform: translateY(0);
-  opacity: 1;
+  transform: scale(0.98);
+  opacity: 0.95;
 }
 
 .entei-anki-connect-btn:disabled {
@@ -1233,12 +1233,12 @@
 /* --- Reset Section --- */
 .entei-subtitle-reset-section {
   display: flex;
-  justify-content: flex-end;
   width: 100%;
 }
 
 .entei-subtitle-reset-section .entei-anki-connect-btn {
-  align-self: flex-end;
+  width: 100%;
+  justify-content: center;
 }
 
 /* JIMAKU.CC settings (P2) — mirror of player.css */
