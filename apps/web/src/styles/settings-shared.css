@@ -899,18 +899,17 @@
   font-size: 0.75rem;
 }
 
-/* W14: Status badge — non-clickable, accessible */
+/* W14: Status badge — non-clickable, accessible, icon-only */
 .entei-anki-status-badge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--entei-space-8);
+  justify-content: center;
   align-self: end;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-4) var(--entei-space-12);
-  border-radius: var(--entei-radius-sm);
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
-  white-space: nowrap;
+  padding: 0;
+  border-radius: var(--entei-radius-md);
 }
 
 .entei-anki-status-icon {

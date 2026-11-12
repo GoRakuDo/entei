@@ -142,6 +142,10 @@ export function AnkiFieldsTab({
   const [connectionState, setConnectionState] =
     useState<AnkiConnectionState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<{
+    state: AnkiConnectionState;
+    message: string | null;
+  } | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
 
   // --- Data from Anki ---
@@ -251,6 +255,7 @@ export function AnkiFieldsTab({
       setDecks(result.decks);
       setModels(result.models);
       setConnectionState('connected');
+      setLastError(null); // Clear error only on successful connection
 
       // Stage 2: Export session credentials to PlayerApp
       onSessionCredentials?.({ endpoint, apiKey });
@@ -300,6 +305,7 @@ export function AnkiFieldsTab({
       }
       setConnectionState(state);
       setErrorMessage(message);
+      setLastError({ state, message });
       // Clear session credentials on connection failure
       onSessionCredentials?.(null);
     } finally {
@@ -505,16 +511,23 @@ export function AnkiFieldsTab({
     saveValidPreset();
   }, [modelFields, saveValidPreset]);
 
-  // --- Determine error display text ---
-  const errorDisplay = getLocalizedError(connectionState, errorMessage, dict);
+  // --- Determine error display text (persistent until connected so it doesn't flicker during retries) ---
+  const activeError =
+    connectionState === 'connected'
+      ? null
+      : (lastError ??
+        (connectionState !== 'idle' && connectionState !== 'connecting'
+          ? { state: connectionState, message: errorMessage }
+          : null));
 
-  // --- Is there a non-connected error state? ---
-  const isError =
-    connectionState !== 'idle' &&
-    connectionState !== 'connecting' &&
-    connectionState !== 'connected';
+  const errorDisplay = activeError
+    ? getLocalizedError(activeError.state, activeError.message, dict)
+    : null;
 
-  // --- Determine status badge text ---
+  // --- Is there an active error state? ---
+  const isError = activeError !== null;
+
+  // --- Determine status badge text (used for aria-label and tooltip) ---
   const statusBadgeText =
     connectionState === 'connected'
       ? dict.ankiStatusConnected
@@ -568,8 +581,13 @@ export function AnkiFieldsTab({
             />
           </div>
 
-          {/* Status badge (non-clickable, accessible) */}
-          <div className="entei-anki-status-badge" aria-live="polite">
+          {/* Status badge: icon only (non-clickable, accessible via tooltip/aria-label) */}
+          <div
+            className="entei-anki-status-badge"
+            aria-live="polite"
+            title={statusBadgeText}
+            aria-label={statusBadgeText}
+          >
             {connectionState === 'connected' ? (
               <Plug
                 size={18}
@@ -583,11 +601,6 @@ export function AnkiFieldsTab({
                 aria-hidden="true"
               />
             )}
-            <span
-              className={`entei-anki-status-text${connectionState === 'connected' ? ' entei-anki-status-text--connected' : ' entei-anki-status-text--disconnected'}`}
-            >
-              {statusBadgeText}
-            </span>
           </div>
         </div>
       </div>
