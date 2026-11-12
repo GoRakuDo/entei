@@ -207,7 +207,8 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-settings-sidebar-toggle:hover {
-  color: var(--entei-text);
+  /* Keep text/icon color at resting secondary — no white brightening on hover */
+  color: var(--entei-text-secondary);
 }
 
 .entei-settings-sidebar-toggle:focus-visible {
@@ -350,11 +351,16 @@ body[data-page='settings'] .entei-main {
     display: none;
   }
 
-  /* Sidebar header (toggle) docks to the top-right of the sidebar. */
+  /* Sidebar header (toggle) docks to the top-right of the sidebar.
+     Margin bottom bridges the distance to keep the first nav item ("Umum")
+     flush with the content card at Y=88px while lifting the toggle up to Y=16px
+     (aligned with the TopBar floating pill):
+     padding-top (16px) + touch-min (44px) + margin-bottom (20px) + gap (8px) = 88px. */
   .entei-settings-nav-header {
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    margin-block-end: var(--entei-space-20);
   }
 
   /* Desktop-only sidebar toggle lives at the top of the sidebar. */
@@ -370,13 +376,10 @@ body[data-page='settings'] .entei-main {
     align-self: flex-start;
     height: 100dvh;
     overflow-y: auto;
-    /* Top padding aligns the first nav item ("Umum") flush with the first
-       content card ("Bahasa"). The content pane starts at
-       `topbar-height + space-24` (88px); the nav's first item sits below the
-       toggle row, so we subtract the toggle height and the nav gap to land the
-       item's top edge on the same line: 88 - 44 (touch-min) - 8 (gap) = 36px.
+    /* Top padding lifts the toggle button up to Y=16px, aligning flush
+       with the floating TopBar pill top edge (which sits at top: 16px).
        Right padding (16px) gives items breathing room against the right border. */
-    padding: calc(var(--entei-topbar-height) + var(--entei-space-24) - var(--entei-touch-min) - var(--entei-space-8)) var(--entei-space-16) var(--entei-space-32) var(--entei-gutter);
+    padding: var(--entei-space-16) var(--entei-space-16) var(--entei-space-32) var(--entei-gutter);
     /* Thin right boundary (Shadcn-Sidebar parity) — docks the content pane
        flush against the sidebar with no dead gap between them. */
     border-right: 1px solid oklch(100% 0 0deg / 0.08);
