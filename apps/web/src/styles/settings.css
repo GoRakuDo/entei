@@ -399,6 +399,14 @@ body[data-page='settings'] .entei-main {
       var(--entei-gutter) var(--entei-space-64);
   }
 
+  /* Desktop language card: title on left, select on right */
+  .entei-settings-section-card--language {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--entei-space-24);
+  }
+
   /* Collapsed state: icon-only rail. Labels and the module chevron hide so
      the group icons remain tappable; width animates via the nav transition
      above (respects prefers-reduced-motion below). */

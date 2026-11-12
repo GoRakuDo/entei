@@ -37,6 +37,7 @@ import {
   ChevronRight,
   Globe,
   Keyboard,
+  Languages,
   MessageSquareText,
   Palette,
   PanelLeft,
@@ -405,8 +406,11 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         {selection.group === 'general' && (
           <div className="entei-settings-section-stack">
             {/* Language */}
-            <section className="entei-settings-section-card">
-              <h3 className="entei-settings-label">{dict.language.selectLabel}</h3>
+            <section className="entei-settings-section-card entei-settings-section-card--language">
+              <h3 className="entei-settings-label">
+                <Languages aria-hidden="true" />
+                <span>{dict.language.selectLabel}</span>
+              </h3>
               <LanguageCombobox
                 currentLocale={locale}
                 selectLabel={dict.language.selectLabel}
