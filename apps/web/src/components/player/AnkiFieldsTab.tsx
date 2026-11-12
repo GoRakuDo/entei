@@ -127,7 +127,6 @@ export function AnkiFieldsTab({
   onSessionCredentials,
 }: AnkiFieldsTabProps) {
   // --- Accessibility IDs ---
-  const endpointLabelId = useId();
   const apiKeyLabelId = useId();
   const deckLabelId = useId();
   const noteTypeLabelId = useId();
@@ -553,23 +552,16 @@ export function AnkiFieldsTab({
 
   return (
     <div className="entei-anki-fields-tab">
-      {/* Connection section: heading + endpoint + status badge */}
+      {/* Connection section: endpoint + status badge */}
       <div className="entei-anki-section">
-        <h3 className="entei-anki-heading">{dict.ankiConnect}</h3>
         <p className="entei-settings-hint">{dict.ankiConnectDesc}</p>
 
         <div className="entei-anki-connect-row">
           <div className="entei-anki-section">
-            <label
-              id={endpointLabelId}
-              className="entei-anki-label"
-              htmlFor="anki-endpoint"
-            >
-              {dict.ankiEndpointLabel}
-            </label>
             <input
               id="anki-endpoint"
               type="text"
+              aria-label={dict.ankiEndpointLabel}
               className="entei-anki-input"
               value={endpoint}
               onChange={(e) => {
