@@ -101,6 +101,10 @@ const isPlayer = isVideoPlayer || isAudioPlayer || playerLike;
  * hides the mobile sticky header entirely (the dock is the only mobile chrome).
  */
 const isHome = activePath === '/';
+/** Settings page: the settings gear link carries aria-current here too, so
+ *  the shared `[aria-current='page']` rules light it gold with the active
+ *  background just like Home/Profile. */
+const isSettings = activePath === '/settings';
 /**
  * Leaf surfaces opened from the Immersion Tools drawer swap the mobile TopBar
  * brand + language selector for a single "← Kembali" back control: going back
@@ -218,6 +222,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
               class="entei-desktop-sidebar-link entei-nav-settings-trigger"
               href="/settings/"
               data-entei-nav-settings
+              aria-current={isSettings ? 'page' : undefined}
               aria-label={dictionary.playerUI.settingsLabel}
               data-i18n-aria-label="playerUI.settingsLabel"
             >
@@ -320,6 +325,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
             class="entei-desktop-pill-link entei-nav-settings-trigger"
             href="/settings/"
             data-entei-nav-settings
+            aria-current={isSettings ? 'page' : undefined}
             aria-label={dictionary.playerUI.settingsLabel}
             data-i18n-aria-label="playerUI.settingsLabel"
           >
@@ -384,6 +390,7 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
       class="entei-mobile-dock-link entei-nav-settings-trigger"
       href="/settings/"
       data-entei-nav-settings
+      aria-current={isSettings ? 'page' : undefined}
       aria-label={dictionary.playerUI.settingsLabel}
       data-i18n-aria-label="playerUI.settingsLabel"
     >
@@ -575,9 +582,9 @@ const isMobileBack = isModules || isVideoPlayer || isAudioPlayer;
     }
 
     .entei-desktop-pill-link:hover {
-      /* keep text + SVG at the resting secondary color on hover — only the
-         background tints (an inherited color would pick up the pill's white) */
-      color: var(--entei-text-secondary);
+      /* gold text + SVG on hover (SVG uses currentColor, so it follows);
+         only the background also tints */
+      color: var(--entei-status-locked);
       background-color: var(--entei-btn-color);
       border-radius: var(--entei-radius-pill);
     }
