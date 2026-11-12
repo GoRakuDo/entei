@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Yomitan origami-style bird silhouette -->
+  <path d="M12 2L4 10L12 18L10 22L17 17L21 9L12 2Z" fill="oklch(0.72 0.18 145)" />
+  <path d="M12 2L15 8L21 9L17 17L12 18V2Z" fill="oklch(0.65 0.18 140)" />
+  <path d="M4 10L12 18L7 19L4 10Z" fill="oklch(0.78 0.16 75)" />
+  <circle cx="15.5" cy="6.5" r="1" fill="oklch(0.98 0 0)" />
+</svg>

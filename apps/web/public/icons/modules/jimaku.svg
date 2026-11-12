@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <rect x="2" y="4" width="20" height="15" rx="3" fill="oklch(0.28 0.04 250)" stroke="oklch(0.8 0.15 85)" stroke-width="1.75" />
+  <!-- CC symbols -->
+  <path d="M8.5 9.5C8 9.5 7 10 7 11.5C7 13 8 13.5 8.5 13.5" stroke="oklch(0.8 0.15 85)" stroke-width="1.75" stroke-linecap="round" />
+  <path d="M14.5 9.5C14 9.5 13 10 13 11.5C13 13 14 13.5 14.5 13.5" stroke="oklch(0.8 0.15 85)" stroke-width="1.75" stroke-linecap="round" />
+  <!-- Speech tail -->
+  <path d="M7 19L5 22L10 19" fill="oklch(0.28 0.04 250)" stroke="oklch(0.8 0.15 85)" stroke-width="1.75" stroke-linejoin="round" />
+</svg>

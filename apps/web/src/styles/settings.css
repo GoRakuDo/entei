@@ -118,10 +118,20 @@ body[data-page='settings'] .entei-main {
   line-height: 1;
   font-weight: 400; /* Regular font weight — no bold */
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition:
     color var(--entei-duration-fast) var(--entei-ease-productive),
     background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-settings-nav-item span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .entei-settings-nav-item:hover {
@@ -148,6 +158,13 @@ body[data-page='settings'] .entei-main {
   stroke-width: 2.25;
 }
 
+.entei-settings-nav-icon--img {
+  width: 1rem;
+  height: 1rem;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 /* Chevron marking a group that opens a submenu (Module). Rotates via the
    swap between ChevronRight (collapsed) and ChevronDown (expanded) rather
    than a transform, so collapsed/expanded glyphs are always correct. */
@@ -170,6 +187,9 @@ body[data-page='settings'] .entei-main {
 .entei-settings-nav-item--child {
   font-size: 1rem; /* Same 1rem font size */
   font-weight: 400; /* Regular font weight — no bold */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ==========================================================================
@@ -273,17 +293,17 @@ body[data-page='settings'] .entei-main {
 .entei-yomitan-settings {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-24);
   width: 100%;
 }
 
-/* Section card — a hair darker than the page card so the nesting reads. */
+/* Section card — independent card per manifest section */
 .entei-yomitan-section {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-12);
-  padding: var(--entei-space-16) var(--entei-space-20);
-  background-color: var(--entei-surface-2);
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-24);
+  background-color: var(--entei-surface);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-card);
 }

@@ -63,6 +63,8 @@ export interface EnteiModuleManifest {
   defaultEnabled: boolean;
   /** Lucide icon name rendered by the grid card (falls back to Blocks). */
   icon?: 'Download' | 'Magnet' | 'BookOpen' | 'MessageSquareText' | 'BrainCircuit';
+  /** Path to the module icon asset (e.g. '/icons/modules/ytdlp.svg'). */
+  iconPath?: string;
   /** Dictionary key for the localized display name (built-in modules). */
   nameKey?: ModuleCopyKey;
   /** Dictionary key for the localized description (built-in modules). */
@@ -104,6 +106,7 @@ export const CORE_MODULES: readonly EnteiModuleManifest[] = [
     version: '2026.07.04',
     author: 'Entei',
     icon: 'Download',
+    iconPath: '/icons/modules/ytdlp.svg',
     category: 'source',
     builtIn: true,
     defaultEnabled: true,
@@ -116,6 +119,7 @@ export const CORE_MODULES: readonly EnteiModuleManifest[] = [
     version: '9.1.0',
     author: 'Entei',
     icon: 'Magnet',
+    iconPath: '/icons/modules/torrent.svg',
     category: 'source',
     builtIn: true,
     defaultEnabled: true,
@@ -128,6 +132,7 @@ export const CORE_MODULES: readonly EnteiModuleManifest[] = [
     version: '0.1.1',
     author: 'GoRakuDo',
     icon: 'BookOpen',
+    iconPath: '/icons/modules/yomitan.svg',
     category: 'dictionary',
     builtIn: true,
     defaultEnabled: true,
@@ -141,6 +146,7 @@ export const CORE_MODULES: readonly EnteiModuleManifest[] = [
     version: '2026.07.04',
     author: 'Entei',
     icon: 'MessageSquareText',
+    iconPath: '/icons/modules/jimaku.svg',
     category: 'source',
     builtIn: true,
     defaultEnabled: true,
@@ -153,6 +159,7 @@ export const CORE_MODULES: readonly EnteiModuleManifest[] = [
     version: '2026.07.04',
     author: 'Entei',
     icon: 'BrainCircuit',
+    iconPath: '/icons/modules/nadeshiko.svg',
     category: 'dictionary',
     builtIn: true,
     defaultEnabled: true,
@@ -211,6 +218,9 @@ export function parseModuleManifest(
       // Imported modules default OFF: nothing runs until the user enables it.
       defaultEnabled: false,
       icon: 'BookOpen',
+      ...(typeof raw.iconPath === 'string' && raw.iconPath.trim() !== ''
+        ? { iconPath: raw.iconPath.trim() }
+        : {}),
       name,
       description:
         typeof raw.description === 'string' ? raw.description.trim() : '',

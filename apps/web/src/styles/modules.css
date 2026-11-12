@@ -112,6 +112,12 @@
   border-radius: var(--entei-radius-md);
 }
 
+.entei-module-icon-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
 /* Name row stacks: line 1 = full-width single-line name, line 2 = badge.
  * A horizontal name+badge row truncated long names ("yt-dlp (Y..."). */
 .entei-module-head {

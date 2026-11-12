@@ -201,7 +201,15 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
           return (
             <li className="entei-module-card" key={module.id}>
               <span className="entei-module-icon" aria-hidden="true">
-                <Icon size={20} />
+                {module.iconPath ? (
+                  <img
+                    src={module.iconPath}
+                    alt=""
+                    className="entei-module-icon-img"
+                  />
+                ) : (
+                  <Icon size={20} />
+                )}
               </span>
               <div className="entei-module-head">
                 <h3 className="entei-module-name" title={name}>

@@ -34,10 +34,12 @@ import {
   BrainCircuit,
   ChevronDown,
   ChevronRight,
+  Download,
   FolderDown,
   Globe,
   Keyboard,
   Languages,
+  Magnet,
   MessageSquareText,
   Palette,
   PanelLeft,
@@ -121,10 +123,19 @@ const BUILT_IN_SETTINGS_PAGES: readonly string[] = [
   'nadeshiko',
 ];
 
+/** Whether a module owns settings (either a bespoke component or a `settingsSchema`). */
+function moduleHasSettings(module: EnteiModuleManifest): boolean {
+  if (BUILT_IN_SETTINGS_PAGES.includes(module.id)) return true;
+  return (
+    module.settingsSchema !== undefined &&
+    module.settingsSchema.length > 0
+  );
+}
+
 /** Lucide icon per manifest `icon` name (manifests stay serializable). */
 const MODULE_ICONS: Record<string, LucideIcon> = {
-  Download: Plug,
-  Magnet: Globe,
+  Download: Download,
+  Magnet: Magnet,
   BookOpen: Puzzle,
   MessageSquareText: MessageSquareText,
   BrainCircuit: BrainCircuit,
@@ -354,6 +365,17 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  /* Guard: if URL addresses a module without settings (or unknown module),
+     redirect cleanly to the Modules landing grid. */
+  useEffect(() => {
+    if (selection.group === 'module' && selection.item !== null) {
+      const target = modules.find((m) => m.id === selection.item);
+      if (!target || !moduleHasSettings(target)) {
+        navigate('module', null);
+      }
+    }
+  }, [selection, modules, navigate]);
+
   const settings = dict.settingsPage;
   const playerUI = dict.playerUI;
 
@@ -367,20 +389,24 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
     [settings.general, settings.appearance, settings.module],
   );
 
-  /* Sidebar submenu rows — one per REGISTERED module, so an imported manifest
-     shows up under Modul automatically (requirement: appears below Nadeshiko). */
+  /* Sidebar submenu rows — one per REGISTERED module WITH SETTINGS, so an
+     imported manifest with settings shows up under Modul automatically, while
+     modules without settings (yt-dlp, torrent) stay off the sidebar. */
   const moduleChildren = useMemo(
     () =>
-      modules.map((module) => {
-        const Icon =
-          (module.icon !== undefined ? MODULE_ICONS[module.icon] : undefined) ??
-          Blocks;
-        return {
-          id: module.id,
-          label: moduleName(module, dict.modulesPage),
-          Icon,
-        };
-      }),
+      modules
+        .filter(moduleHasSettings)
+        .map((module) => {
+          const Icon =
+            (module.icon !== undefined ? MODULE_ICONS[module.icon] : undefined) ??
+            Blocks;
+          return {
+            id: module.id,
+            label: moduleName(module, dict.modulesPage),
+            Icon,
+            iconPath: module.iconPath,
+          };
+        }),
     [modules, dict.modulesPage],
   );
 
@@ -477,7 +503,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
               {isModule && moduleExpanded && (
                 <div className="entei-settings-nav-children">
                   {moduleChildren.map(
-                    ({ id: childId, label: childLabel, Icon: ChildIcon }) => {
+                    ({ id: childId, label: childLabel, Icon: ChildIcon, iconPath }) => {
                       const childActive =
                         selection.group === 'module' &&
                         selection.item === childId;
@@ -489,10 +515,19 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                           aria-current={childActive ? 'page' : undefined}
                           onClick={() => navigate('module', childId)}
                         >
-                          <ChildIcon
-                            className="entei-settings-nav-icon"
-                            aria-hidden="true"
-                          />
+                          {iconPath ? (
+                            <img
+                              src={iconPath}
+                              alt=""
+                              className="entei-settings-nav-icon entei-settings-nav-icon--img"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <ChildIcon
+                              className="entei-settings-nav-icon"
+                              aria-hidden="true"
+                            />
+                          )}
                           <span>{childLabel}</span>
                         </button>
                       );
@@ -589,7 +624,15 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 return (
                   <li className="entei-module-card" key={module.id}>
                     <span className="entei-module-icon" aria-hidden="true">
-                      <Icon size={20} />
+                      {module.iconPath ? (
+                        <img
+                          src={module.iconPath}
+                          alt=""
+                          className="entei-module-icon-img"
+                        />
+                      ) : (
+                        <Icon size={20} />
+                      )}
                     </span>
                     <div className="entei-module-head">
                       <h3 className="entei-module-name" title={name}>
@@ -618,51 +661,26 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         {/* ----------------------------------------------------------------
          * MODULE DETAIL PANE
          *
-         * Any registered module id resolves here. The header (icon / name /
-         * version / enable switch / description) is shared; the body is the
-         * module's own settings: a bespoke component for the built-ins, the
-         * generic `settingsSchema` renderer for everything else.
+         * Only modules with settings resolve here. The duplicate ModuleHeader
+         * card is removed (the switch lives on the landing grid); the body is
+         * the module's own settings directly.
          * ------------------------------------------------------------- */}
         {selection.group === 'module' &&
           selection.item !== null &&
-          selectedModule !== undefined && (
+          selectedModule !== undefined &&
+          moduleHasSettings(selectedModule) && (
             <div className="entei-settings-section-stack">
-              <section className="entei-settings-section-card">
-                <ModuleHeader
-                  module={selectedModule}
-                  dict={dict.modulesPage}
-                  enabled={moduleState[selectedModule.id] === true}
-                  onToggle={() => handleModuleToggle(selectedModule.id)}
-                />
-              </section>
-
               {selectedModule.id === 'yomitan' &&
                 hasSettingsSchema(selectedModule) && (
-                  <section className="entei-settings-section-card entei-settings-section-card--yomitan">
-                    <h3 className="entei-settings-label">
-                      <Puzzle size={18} aria-hidden="true" />{' '}
-                      {dict.yomitanSettings.heading}
-                    </h3>
-                    <p className="entei-settings-hint">
-                      {dict.yomitanSettings.description}
-                    </p>
-                    <YomitanSettingsRenderer
-                      sections={selectedModule.settingsSchema}
-                      options={yomitanOptions}
-                      onChange={setYomitanOptions}
-                      labels={{
-                        notEditable: dict.yomitanSettings.notEditable,
-                        toggleSection: dict.yomitanSettings.toggleSection,
-                      }}
-                    />
-                  </section>
-                )}
-
-              {selectedModule.id === 'yomitan' &&
-                !hasSettingsSchema(selectedModule) && (
-                  <p className="entei-settings-hint">
-                    {dict.yomitanSettings.unavailable}
-                  </p>
+                  <YomitanSettingsRenderer
+                    sections={selectedModule.settingsSchema}
+                    options={yomitanOptions}
+                    onChange={setYomitanOptions}
+                    labels={{
+                      notEditable: dict.yomitanSettings.notEditable,
+                      toggleSection: dict.yomitanSettings.toggleSection,
+                    }}
+                  />
                 )}
 
               {selectedModule.id === 'jimaku' && (
@@ -681,24 +699,15 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                   ship its own descriptor tree — render it the same way. */}
               {!isBuiltInPage(selectedModule.id) &&
                 hasSettingsSchema(selectedModule) && (
-                  <section className="entei-settings-section-card">
-                    <YomitanSettingsRenderer
-                      sections={selectedModule.settingsSchema}
-                      options={yomitanOptions}
-                      onChange={setYomitanOptions}
-                      labels={{
-                        notEditable: dict.yomitanSettings.notEditable,
-                        toggleSection: dict.yomitanSettings.toggleSection,
-                      }}
-                    />
-                  </section>
-                )}
-
-              {!isBuiltInPage(selectedModule.id) &&
-                !hasSettingsSchema(selectedModule) && (
-                  <p className="entei-settings-hint">
-                    {dict.modulesPage.noSettings}
-                  </p>
+                  <YomitanSettingsRenderer
+                    sections={selectedModule.settingsSchema}
+                    options={yomitanOptions}
+                    onChange={setYomitanOptions}
+                    labels={{
+                      notEditable: dict.yomitanSettings.notEditable,
+                      toggleSection: dict.yomitanSettings.toggleSection,
+                    }}
+                  />
                 )}
             </div>
           )}
@@ -713,48 +722,4 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
       navigate('general', null);
     }
   }
-}
-
-/**
- * Shared module detail header — icon, name, version badge, enable switch and
- * description. Identical for built-in and imported manifests (the switch is the
- * module kill-switch; the body below carries its settings).
- */
-function ModuleHeader({
-  module,
-  dict,
-  enabled,
-  onToggle,
-}: {
-  module: EnteiModuleManifest;
-  dict: Dictionary['modulesPage'];
-  enabled: boolean;
-  onToggle: () => void;
-}) {
-  const Icon =
-    (module.icon !== undefined ? MODULE_ICONS[module.icon] : undefined) ?? Blocks;
-  const name = moduleName(module, dict);
-  return (
-    <div className="entei-module-card">
-      <span className="entei-module-icon" aria-hidden="true">
-        <Icon size={20} />
-      </span>
-      <div className="entei-module-head">
-        <h3 className="entei-module-name">{name}</h3>
-        <span className="entei-module-badge">
-          {dict.builtIn} ・ {module.author} ・ v{module.version}
-        </span>
-      </div>
-      <div className="entei-module-toggle">
-        <Switch
-          checked={enabled}
-          onCheckedChange={onToggle}
-          aria-label={name}
-        />
-      </div>
-      <p className="entei-module-description">
-        {moduleDescription(module, dict)}
-      </p>
-    </div>
-  );
 }

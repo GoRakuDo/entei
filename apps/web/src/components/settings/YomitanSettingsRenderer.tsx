@@ -138,7 +138,7 @@ function YomitanSection({
   const panelId = useId();
 
   return (
-    <section className="entei-yomitan-section">
+    <section className="entei-settings-section-card entei-yomitan-section">
       <h3 className="entei-yomitan-section-heading">
         <button
           type="button"
