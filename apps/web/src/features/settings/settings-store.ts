@@ -17,6 +17,7 @@
  * WHY interception (not per-feature rewrites): settings values are written by
  * several independent, already-persisted feature modules (`preferences`,
  * `jimaku-preferences`, `nadeshiko/api-key`, `modules-store`,
+ * `module-registry` (imported manifests), `yomitan-preferences`,
  * `anki-miner-preferences`, locale preference). Each writes its own JSON under
  * a stable localStorage key. Rather than touch every call site — and risk
  * missing one — we observe writes to the registered keys at the localStorage
@@ -44,6 +45,8 @@ export const SETTINGS_STORAGE_KEYS: readonly string[] = [
   'entei.jimaku.v1', // jimaku.cc API key + auto-load (jimaku-preferences.ts)
   'entei.nadeshiko.api-key.v1', // Nadeshiko API key (nadeshiko/api-key.ts)
   'entei.modules.v1', // module enable switches (modules-store.ts)
+  'entei.modules.imported.v1', // imported *.module.json manifests (module-registry.ts)
+  'entei.yomitan.options.v1', // full Yomitan options tree (yomitan-preferences.ts)
   'entei.player.anki-miner.v1', // AnkiConnect deck/note/field mapping
   'entei.preferences.v1', // UI language (i18n/preferences.ts PREFERENCES_KEY)
 ] as const;

@@ -385,6 +385,19 @@ export const ja: Dictionary = {
       'P2P MagnetリンクおよびTorrentファイルのRangeストリーミング',
     yomitanName: 'Yomitan (@gorakudo/yomitan-headless)',
     yomitanDescription: '高速な日本語語形変化解析と辞書検索エンジン',
+    jimakuName: 'Jimaku.cc (Subtitle Source)',
+    jimakuDescription: '日本語字幕の自動検索とロード',
+    nadeshikoName: 'Nadeshiko (Context Search)',
+    nadeshikoDescription: 'ニュアンス検索と言葉の前後文脈の取得',
+    noSettings: 'このモジュールには設定項目がありません。',
+  },
+  yomitanSettings: {
+    heading: 'Yomitan 設定',
+    description:
+      'Chrome 拡張機能と同じ設定項目です。変更はすぐに保存されます。',
+    unavailable: 'Yomitan の設定を読み込めませんでした。',
+    notEditable: 'この項目は現在編集できません',
+    toggleSection: 'セクションを開閉',
   },
   settingsPage: {
     title: '設定',

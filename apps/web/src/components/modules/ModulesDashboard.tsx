@@ -20,17 +20,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BookOpen, Download, Magnet, type LucideIcon } from 'lucide-react';
+import {
+  Blocks,
+  BrainCircuit,
+  Download,
+  Magnet,
+  MessageSquareText,
+  Puzzle,
+  type LucideIcon,
+} from 'lucide-react';
 import { Switch } from '@/components/player/ui/switch';
 import {
-  CORE_MODULES,
+  getRegisteredModules,
   type EnteiModuleCategory,
   type EnteiModuleId,
+  type EnteiModuleManifest,
   type ModuleEnabledState,
   readModuleState,
   toggleModuleState,
   writeModuleState,
 } from '@/features/modules/modules-store';
+import { MODULES_CHANGED_EVENT } from '@/features/modules/use-module-registry';
 import {
   LOCALE_CHANGE_EVENT,
   type LocaleChangeDetail,
@@ -43,14 +53,49 @@ export interface ModulesDashboardProps {
   dict: Dictionary['modulesPage'];
 }
 
+/** Lucide icon per manifest `icon` name (manifests stay serializable). */
 const ICONS: Record<string, LucideIcon> = {
   Download,
   Magnet,
-  BookOpen,
+  Puzzle,
+  MessageSquareText,
+  BrainCircuit,
 };
+
+/** Resolve a manifest's localized name (dictionary key or literal). */
+function moduleName(
+  module: EnteiModuleManifest,
+  dict: Dictionary['modulesPage'],
+): string {
+  if (module.nameKey !== undefined) {
+    const localized = (dict as unknown as Record<string, unknown>)[
+      module.nameKey
+    ];
+    if (typeof localized === 'string' && localized !== '') return localized;
+  }
+  return module.name ?? module.id;
+}
+
+/** Resolve a manifest's localized description. */
+function moduleDescription(
+  module: EnteiModuleManifest,
+  dict: Dictionary['modulesPage'],
+): string {
+  if (module.descriptionKey !== undefined) {
+    const localized = (dict as unknown as Record<string, unknown>)[
+      module.descriptionKey
+    ];
+    if (typeof localized === 'string' && localized !== '') return localized;
+  }
+  return module.description ?? '';
+}
 
 export function ModulesDashboard({ dict }: ModulesDashboardProps) {
   const [copy, setCopy] = useState(dict);
+  /* The merged registry (built-in + imported `*.module.json`). */
+  const [modules, setModules] = useState<EnteiModuleManifest[]>(() =>
+    getRegisteredModules(),
+  );
   const [enabled, setEnabled] = useState<ModuleEnabledState>(() =>
     readModuleState(),
   );
@@ -64,6 +109,20 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
     };
     window.addEventListener(LOCALE_CHANGE_EVENT, handler);
     return () => window.removeEventListener(LOCALE_CHANGE_EVENT, handler);
+  }, []);
+
+  /* Re-read when the registry changes (same-tab import or cross-tab toggle). */
+  useEffect(() => {
+    const sync = () => {
+      setModules(getRegisteredModules());
+      setEnabled(readModuleState());
+    };
+    window.addEventListener(MODULES_CHANGED_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(MODULES_CHANGED_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
   }, []);
 
   // The dashboard is the only place a module can be switched off, so record
@@ -133,10 +192,12 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
       </header>
 
       <ul className="entei-modules-list">
-        {CORE_MODULES.map((module) => {
-          const Icon = ICONS[module.icon] ?? BookOpen;
-          const isOn = enabled[module.id];
-          const name = copy[module.nameKey];
+        {modules.map((module) => {
+          const Icon =
+            (module.icon !== undefined ? ICONS[module.icon] : undefined) ??
+            Blocks;
+          const isOn = enabled[module.id] === true;
+          const name = moduleName(module, copy);
           return (
             <li className="entei-module-card" key={module.id}>
               <span className="entei-module-icon" aria-hidden="true">
@@ -159,7 +220,7 @@ export function ModulesDashboard({ dict }: ModulesDashboardProps) {
                 />
               </div>
               <p className="entei-module-description">
-                {copy[module.descriptionKey]}
+                {moduleDescription(module, copy)}
               </p>
               <p className="entei-module-meta">
                 <span>{categoryLabel(module.category)}</span>

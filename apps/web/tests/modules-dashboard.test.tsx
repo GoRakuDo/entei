@@ -46,12 +46,14 @@ describe('ModulesDashboard', () => {
     expect(screen.getByText(en.modulesPage.description)).toBeTruthy();
   });
 
-  it('lists the three official core modules', () => {
+  it('lists the five official core modules', () => {
     renderDashboard();
     expect(screen.getByText(en.modulesPage.ytdlpName)).toBeTruthy();
     expect(screen.getByText(en.modulesPage.torrentName)).toBeTruthy();
     expect(screen.getByText(en.modulesPage.yomitanName)).toBeTruthy();
-    expect(screen.getAllByRole('switch')).toHaveLength(3);
+    expect(screen.getByText(en.modulesPage.jimakuName)).toBeTruthy();
+    expect(screen.getByText(en.modulesPage.nadeshikoName)).toBeTruthy();
+    expect(screen.getAllByRole('switch')).toHaveLength(5);
   });
 
   it('starts with every module enabled', () => {
@@ -73,7 +75,13 @@ describe('ModulesDashboard', () => {
     expect(raw).not.toBeNull();
     expect(JSON.parse(raw!)).toEqual({
       version: MODULES_SCHEMA_VERSION,
-      enabled: { ytdlp: true, torrent: false, yomitan: true },
+      enabled: {
+        ytdlp: true,
+        torrent: false,
+        yomitan: true,
+        jimaku: true,
+        nadeshiko: true,
+      },
     });
   });
 

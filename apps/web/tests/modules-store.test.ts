@@ -21,23 +21,27 @@ import {
 } from '@/features/modules/modules-store';
 
 describe('modules-store — manifests', () => {
-  it('ships the three official core modules', () => {
+  it('ships the five official core modules', () => {
     expect(CORE_MODULES.map((module) => module.id)).toEqual([
       'ytdlp',
       'torrent',
       'yomitan',
+      'jimaku',
+      'nadeshiko',
     ]);
     expect(CORE_MODULES.every((module) => module.builtIn)).toBe(true);
     expect(CORE_MODULES.every((module) => module.defaultEnabled)).toBe(true);
   });
 
-  it('categorises source modules and the dictionary module', () => {
+  it('categorises source modules and the dictionary modules', () => {
     const byId = Object.fromEntries(
       CORE_MODULES.map((module) => [module.id, module.category]),
     );
     expect(byId.ytdlp).toBe('source');
     expect(byId.torrent).toBe('source');
+    expect(byId.jimaku).toBe('source');
     expect(byId.yomitan).toBe('dictionary');
+    expect(byId.nadeshiko).toBe('dictionary');
   });
 
   it('defaults to every module enabled', () => {
@@ -45,6 +49,8 @@ describe('modules-store — manifests', () => {
       ytdlp: true,
       torrent: true,
       yomitan: true,
+      jimaku: true,
+      nadeshiko: true,
     });
   });
 });
@@ -59,11 +65,19 @@ describe('modules-store — persistence', () => {
   });
 
   it('round-trips the enabled state', () => {
-    writeModuleState({ ytdlp: false, torrent: true, yomitan: false });
+    writeModuleState({
+      ytdlp: false,
+      torrent: true,
+      yomitan: false,
+      jimaku: true,
+      nadeshiko: false,
+    });
     expect(readModuleState()).toEqual({
       ytdlp: false,
       torrent: true,
       yomitan: false,
+      jimaku: true,
+      nadeshiko: false,
     });
   });
 
@@ -87,7 +101,7 @@ describe('modules-store — persistence', () => {
     expect(readModuleState()).toEqual(DEFAULT_MODULE_STATE);
   });
 
-  it('drops unknown ids and non-boolean values', () => {
+  it('drops non-boolean values but keeps unknown ids', () => {
     localStorage.setItem(
       MODULES_KEY,
       JSON.stringify({
@@ -95,10 +109,14 @@ describe('modules-store — persistence', () => {
         enabled: { ytdlp: false, removed: true, torrent: 'nope' },
       }),
     );
-    expect(readModuleState()).toEqual({
+    const state = readModuleState();
+    expect(state).toEqual({
+      ...DEFAULT_MODULE_STATE,
       ytdlp: false,
       torrent: true, // invalid value → default
-      yomitan: true, // missing → default
+      // Unknown ids are KEPT: an imported manifest may legitimately appear
+      // between sessions (modules-store.ts header contract).
+      removed: true,
     });
   });
 });
@@ -107,7 +125,7 @@ describe('modules-store — toggle', () => {
   it('returns a new state without mutating the input', () => {
     const before = { ...DEFAULT_MODULE_STATE };
     const after = toggleModuleState(before, 'torrent');
-    expect(after).toEqual({ ytdlp: true, torrent: false, yomitan: true });
+    expect(after).toEqual({ ...DEFAULT_MODULE_STATE, torrent: false });
     expect(before).toEqual(DEFAULT_MODULE_STATE);
     expect(after).not.toBe(before);
   });

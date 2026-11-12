@@ -424,6 +424,23 @@ export interface Dictionary {
     torrentDescription: string;
     yomitanName: string;
     yomitanDescription: string;
+    jimakuName: string;
+    jimakuDescription: string;
+    nadeshikoName: string;
+    nadeshikoDescription: string;
+    /** Shown on a module page whose manifest carries no `settingsSchema`. */
+    noSettings: string;
+  };
+  /** Generic descriptor-tree settings renderer (module `settingsSchema`). */
+  yomitanSettings: {
+    heading: string;
+    description: string;
+    /** Fallback when a manifest ships no settings tree at all. */
+    unavailable: string;
+    /** Shown instead of a control the host cannot edit generically. */
+    notEditable: string;
+    /** Accessible name prefix for a section collapse toggle. */
+    toggleSection: string;
   };
   /** Dedicated /settings/ page (sidebar nav + drill-down). */
   settingsPage: {

@@ -263,6 +263,280 @@ body[data-page='settings'] .entei-main {
 }
 
 /* ==========================================================================
+   MODULE SETTINGS (generic descriptor-tree renderer)
+   ----------------------------------------------------------------------------
+   One collapsible card per manifest SECTION, one labelled stack per GROUP,
+   one label+control row per FIELD. Rows are a two-column grid that collapses
+   to a single column below 768px so a phone never squeezes a select.
+   ========================================================================== */
+
+.entei-yomitan-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  width: 100%;
+}
+
+/* Section card — a hair darker than the page card so the nesting reads. */
+.entei-yomitan-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  padding: var(--entei-space-16) var(--entei-space-20);
+  background-color: var(--entei-surface-2);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-card);
+}
+
+.entei-yomitan-section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+  margin: 0;
+}
+
+/* Full-width toggle row: the chevron rotates with aria-expanded, the label
+   carries the hierarchy (44px tap target, rule #1628). */
+.entei-yomitan-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-12);
+  width: 100%;
+  min-height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-8);
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text);
+  font-family: var(--entei-font-system);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-yomitan-section-toggle:hover {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+}
+
+.entei-yomitan-section-toggle:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  color: var(--entei-text);
+}
+
+.entei-yomitan-section-chevron {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: var(--entei-text-muted);
+  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-yomitan-section-toggle[aria-expanded='false']
+  .entei-yomitan-section-chevron {
+  transform: rotate(-90deg);
+}
+
+.entei-yomitan-section-label {
+  min-width: 0;
+}
+
+.entei-yomitan-section-description {
+  margin: 0;
+  padding-inline-start: var(--entei-space-8);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--entei-text-secondary);
+  text-wrap: pretty;
+}
+
+.entei-yomitan-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-20);
+  padding-block-start: var(--entei-space-4);
+}
+
+/* Group — a labelled block of field rows inside a section. */
+.entei-yomitan-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+.entei-yomitan-group-label {
+  margin: 0;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--entei-status-locked);
+}
+
+.entei-yomitan-group-description {
+  margin: 0;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  text-wrap: pretty;
+}
+
+.entei-yomitan-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-8);
+}
+
+/* Field row: text block left, control right. A hairline divider keeps a long
+   list scannable without boxing every row into its own card. */
+.entei-yomitan-field {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--entei-space-8);
+  padding-block: var(--entei-space-12);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
+}
+
+.entei-yomitan-field:first-child {
+  border-top: none;
+  padding-block-start: 0;
+}
+
+.entei-yomitan-field-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  min-width: 0;
+}
+
+.entei-yomitan-field-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--entei-text);
+  text-wrap: pretty;
+  cursor: pointer;
+}
+
+.entei-yomitan-field-description {
+  margin: 0;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  text-wrap: pretty;
+}
+
+.entei-yomitan-field-control {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Switch rows keep the toggle on the row's trailing edge instead of under
+   the label (the label itself is clickable via htmlFor). */
+.entei-yomitan-field--switch .entei-yomitan-field-control {
+  justify-content: flex-start;
+}
+
+.entei-yomitan-input,
+.entei-yomitan-select {
+  width: 100%;
+  max-width: 26rem;
+  background-color: var(--entei-surface);
+}
+
+.entei-yomitan-input--number {
+  max-width: 10rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.entei-yomitan-textarea {
+  width: 100%;
+  max-width: 34rem;
+  min-height: 6rem;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--entei-text);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  resize: vertical;
+  transition: border-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-yomitan-textarea:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+  border-color: var(--entei-focus-ring);
+}
+
+/* Not generically editable (array / section-header placeholders in the tree). */
+.entei-yomitan-field--readonly .entei-yomitan-field-label {
+  color: var(--entei-text-secondary);
+  cursor: default;
+}
+
+.entei-yomitan-field-note {
+  justify-self: start;
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--entei-text-muted);
+}
+
+/* Desktop: label left, control right on one line. */
+@media (min-width: 768px) {
+  .entei-yomitan-field {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem);
+    align-items: center;
+    column-gap: var(--entei-space-24);
+    row-gap: var(--entei-space-4);
+  }
+
+  .entei-yomitan-field-control,
+  .entei-yomitan-field-note {
+    justify-self: end;
+  }
+
+  .entei-yomitan-field--switch .entei-yomitan-field-control {
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entei-yomitan-section-toggle,
+  .entei-yomitan-section-chevron,
+  .entei-yomitan-textarea {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .entei-yomitan-section {
+    border-color: ButtonText;
+  }
+
+  .entei-yomitan-section-toggle:hover,
+  .entei-yomitan-section-toggle:focus-visible {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}
+
+/* ==========================================================================
    MOBILE DRILL-DOWN HEADER (back to menu) — hidden on desktop
    ========================================================================== */
 

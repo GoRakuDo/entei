@@ -390,6 +390,19 @@ export const en: Dictionary = {
     yomitanName: 'Yomitan (@gorakudo/yomitan-headless)',
     yomitanDescription:
       'Fast Japanese inflection analysis and dictionary search engine',
+    jimakuName: 'Jimaku.cc (Subtitle Source)',
+    jimakuDescription: 'Automatic Japanese subtitle search and loading',
+    nadeshikoName: 'Nadeshiko (Context Search)',
+    nadeshikoDescription: 'Nuance search and surrounding word context',
+    noSettings: 'This module has no settings.',
+  },
+  yomitanSettings: {
+    heading: 'Yomitan settings',
+    description:
+      'The same options as the Chrome extension. Changes save immediately.',
+    unavailable: 'Yomitan settings could not be loaded.',
+    notEditable: 'Not editable yet',
+    toggleSection: 'Toggle section',
   },
   settingsPage: {
     title: 'Settings',

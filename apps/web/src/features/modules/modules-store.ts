@@ -1,53 +1,39 @@
 /**
- * modules-store — platform module registry + enabled-state persistence.
+ * modules-store — enabled-state persistence for the platform modules.
  * ---------------------------------------------------------------------------
  * MODULE_ARCHITECTURE.md §5: every capability of the platform is a module
- * (official core modules today, imported community modules later). The
- * enabled/disabled state of each module lives in localStorage under
- * `entei.modules.v1` so the player can honour it without a server.
+ * (official core modules today, imported community modules later). Manifests
+ * live in `module-registry` (the `*.module.json` spec + the merged registry);
+ * THIS file owns only what the user changes about them: enabled / disabled.
  *
  * The stored payload is intentionally minimal — a schema version plus an
- * `enabled` map keyed by module id. Manifests themselves are code (built-in
- * modules ship with the app), so they are never persisted: renaming or
- * adding a built-in module must not depend on user storage.
+ * `enabled` map keyed by module id. Manifests themselves are never persisted
+ * here: renaming or versioning a built-in module must not depend on user
+ * storage.
  *
- * Name/description are dictionary KEYS, not literals, so the dashboard
- * renders localized copy (id / ja / en) from the same manifest.
+ * Because the registry is dynamic, an unknown id in the stored map is KEPT
+ * (an imported manifest may legitimately appear between sessions) while the
+ * enabled state of a module the registry no longer knows is simply unused.
  * ---------------------------------------------------------------------------
  */
 
-/** Module categories (MODULE_ARCHITECTURE.md §5.1). */
-export type EnteiModuleCategory = 'source' | 'dictionary' | 'mining' | 'tool';
+import { CORE_MODULES } from '@/features/modules/module-registry';
 
-/** Built-in module identifiers. */
-export type EnteiModuleId = 'ytdlp' | 'torrent' | 'yomitan';
-
-/** Dictionary keys of `Dictionary['modulesPage']` used for module copy. */
-export type ModuleCopyKey =
-  | 'ytdlpName'
-  | 'ytdlpDescription'
-  | 'torrentName'
-  | 'torrentDescription'
-  | 'yomitanName'
-  | 'yomitanDescription';
-
-/** One module entry (MODULE_ARCHITECTURE.md §5.1). */
-export interface EnteiModuleManifest {
-  id: EnteiModuleId;
-  /** Dictionary key for the localized display name. */
-  nameKey: ModuleCopyKey;
-  /** Dictionary key for the localized description. */
-  descriptionKey: ModuleCopyKey;
-  version: string;
-  author: string;
-  /** Lucide icon name rendered by the dashboard (falls back to Blocks). */
-  icon: 'Download' | 'Magnet' | 'BookOpen';
-  category: EnteiModuleCategory;
-  /** Official built-in module (vs. a future imported community module). */
-  builtIn: boolean;
-  /** Enabled state when the user has never toggled it. */
-  defaultEnabled: boolean;
-}
+export type {
+  EnteiModuleCategory,
+  EnteiModuleId,
+  EnteiModuleManifest,
+  ModuleCopyKey,
+} from '@/features/modules/module-registry';
+export {
+  CORE_MODULES,
+  MODULE_IMPORTS_KEY,
+  MODULE_MANIFEST_VERSION,
+  getRegisteredModules,
+  hasSettingsSchema,
+  parseModuleManifest,
+  readImportedModules,
+} from '@/features/modules/module-registry';
 
 /** localStorage key (versioned). */
 export const MODULES_KEY = 'entei.modules.v1';
@@ -55,47 +41,10 @@ export const MODULES_KEY = 'entei.modules.v1';
 /** Persisted schema version. */
 export const MODULES_SCHEMA_VERSION = 1;
 
-/** Official core modules — MODULE_ARCHITECTURE.md §2 + §5.2. */
-export const CORE_MODULES: readonly EnteiModuleManifest[] = [
-  {
-    id: 'ytdlp',
-    nameKey: 'ytdlpName',
-    descriptionKey: 'ytdlpDescription',
-    version: '2026.07.04',
-    author: 'Entei',
-    icon: 'Download',
-    category: 'source',
-    builtIn: true,
-    defaultEnabled: true,
-  },
-  {
-    id: 'torrent',
-    nameKey: 'torrentName',
-    descriptionKey: 'torrentDescription',
-    version: '9.1.0',
-    author: 'Entei',
-    icon: 'Magnet',
-    category: 'source',
-    builtIn: true,
-    defaultEnabled: true,
-  },
-  {
-    id: 'yomitan',
-    nameKey: 'yomitanName',
-    descriptionKey: 'yomitanDescription',
-    version: '0.1.1',
-    author: 'GoRakuDo',
-    icon: 'BookOpen',
-    category: 'dictionary',
-    builtIn: true,
-    defaultEnabled: true,
-  },
-] as const;
-
 /** Enabled state per module id. */
-export type ModuleEnabledState = Record<EnteiModuleId, boolean>;
+export type ModuleEnabledState = Record<string, boolean>;
 
-/** Default state derived from the manifests (all core modules ON). */
+/** Default state derived from the built-in manifests (all core modules ON). */
 export const DEFAULT_MODULE_STATE: ModuleEnabledState = CORE_MODULES.reduce(
   (acc, module) => {
     acc[module.id] = module.defaultEnabled;
@@ -103,10 +52,6 @@ export const DEFAULT_MODULE_STATE: ModuleEnabledState = CORE_MODULES.reduce(
   },
   {} as ModuleEnabledState,
 );
-
-function isModuleId(value: string): value is EnteiModuleId {
-  return CORE_MODULES.some((module) => module.id === value);
-}
 
 /** Read the persisted enabled state; falls back to defaults on any failure. */
 export function readModuleState(): ModuleEnabledState {
@@ -121,8 +66,9 @@ export function readModuleState(): ModuleEnabledState {
     for (const [id, value] of Object.entries(
       enabled as Record<string, unknown>,
     )) {
-      // Unknown ids (removed modules) and non-boolean values are dropped.
-      if (isModuleId(id) && typeof value === 'boolean') state[id] = value;
+      // Non-boolean values are dropped; unknown ids are kept for imported
+      // manifests that are not installed (yet).
+      if (typeof value === 'boolean') state[id] = value;
     }
     return state;
   } catch {
@@ -145,7 +91,7 @@ export function writeModuleState(state: ModuleEnabledState): void {
 /** Pure toggle — returns the next state (does not persist). */
 export function toggleModuleState(
   state: ModuleEnabledState,
-  id: EnteiModuleId,
+  id: string,
 ): ModuleEnabledState {
   return { ...state, [id]: !state[id] };
 }

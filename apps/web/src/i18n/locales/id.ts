@@ -387,6 +387,19 @@ export const id: Dictionary = {
     yomitanName: 'Yomitan (@gorakudo/yomitan-headless)',
     yomitanDescription:
       'Analisis infleksi Jepang dan mesin pencarian kamus berkecepatan tinggi',
+    jimakuName: 'Jimaku.cc (Sumber Subtitle)',
+    jimakuDescription: 'Pencarian dan pemuatan subtitle Jepang otomatis',
+    nadeshikoName: 'Nadeshiko (Pencarian Konteks)',
+    nadeshikoDescription: 'Pencarian nuansa dan konteks kata',
+    noSettings: 'Modul ini tidak memiliki pengaturan.',
+  },
+  yomitanSettings: {
+    heading: 'Pengaturan Yomitan',
+    description:
+      'Opsi yang sama seperti ekstensi Chrome. Perubahan langsung disimpan.',
+    unavailable: 'Pengaturan Yomitan tidak dapat dimuat.',
+    notEditable: 'Item ini belum dapat diubah',
+    toggleSection: 'Buka/tutup bagian',
   },
   settingsPage: {
     title: 'Pengaturan',
