@@ -24,11 +24,7 @@ import {
 } from '@/components/player/ui/toggle-group';
 import type { SubtitleSyncMode } from '@/features/player/preferences';
 import {
-  Palette,
   RotateCcw,
-  Type,
-  Square,
-  MoveVertical,
   Captions,
   AudioLines,
   Wand2,
@@ -325,185 +321,181 @@ export function SubtitleAppearanceTab({
   const previewStyle = useMemo(() => getPreviewStyle(settings), [settings]);
 
   return (
-    <div className="entei-subtitle-appearance-tab">
-      {/* Live Preview */}
-      <div className="entei-subtitle-preview-section">
-        <div className="entei-subtitle-preview-container">
+    <div className="entei-subtitle-appearance-tab entei-settings-section-stack">
+      {/* 1. Subtitle Appearance Card */}
+      <section className="entei-settings-section-card">
+        {/* Live Preview (2-layer design: full-width surface directly inside card) */}
+        <div className="entei-subtitle-preview-section">
           <div className="entei-subtitle-preview-surface">
             <p style={previewStyle} className="entei-subtitle-preview-text">
               サンプル字幕テキスト / Sample subtitle text / Contoh teks subtitle
             </p>
           </div>
         </div>
-      </div>
 
-      <div className="entei-subtitle-appearance-section">
-        <h3 className="entei-settings-label">{dict.subtitleAppearance}</h3>
+        <div className="entei-subtitle-appearance-section">
+          <h3 className="entei-settings-label">
+            <Captions aria-hidden="true" />
+            <span>{dict.subtitleAppearance}</span>
+          </h3>
 
-        {/* Font Size */}
-        <div className="entei-subtitle-control-row">
-          <div className="entei-subtitle-control-label">
-            <Type size={16} />
-            <span>{dict.subtitleFontSize}</span>
+          {/* Font Size */}
+          <div className="entei-subtitle-control-row">
+            <div className="entei-subtitle-control-label">
+              <span>{dict.subtitleFontSize}</span>
+            </div>
+            <div className="entei-subtitle-control-input">
+              <Slider
+                className="entei-subtitle-slider"
+                value={[settings.fontSize]}
+                min={16}
+                max={48}
+                step={1}
+                onValueChange={handleFontSizeChange}
+                aria-label={dict.subtitleFontSize}
+              />
+              <span className="entei-subtitle-value-display">
+                {settings.fontSize}px
+              </span>
+            </div>
           </div>
-          <div className="entei-subtitle-control-input">
-            <Slider
-              className="entei-subtitle-slider"
-              value={[settings.fontSize]}
-              min={16}
-              max={48}
-              step={1}
-              onValueChange={handleFontSizeChange}
-              aria-label={dict.subtitleFontSize}
-            />
-            <span className="entei-subtitle-value-display">
-              {settings.fontSize}px
-            </span>
+
+          {/* Text Color */}
+          <div className="entei-subtitle-control-row">
+            <div className="entei-subtitle-control-label">
+              <span>{dict.subtitleTextColor}</span>
+            </div>
+            <div className="entei-subtitle-control-input">
+              <input
+                type="color"
+                value={textColorHex}
+                onChange={(e) => handleTextColorChange(e.target.value)}
+                className="entei-subtitle-color-input"
+                aria-label={dict.subtitleTextColor}
+              />
+              <span
+                className="entei-subtitle-value-display oklch-display"
+                title={settings.textColor}
+              >
+                {settings.textColor}
+              </span>
+            </div>
+          </div>
+
+          {/* Background Color */}
+          <div className="entei-subtitle-control-row">
+            <div className="entei-subtitle-control-label">
+              <span>{dict.subtitleBackgroundColor}</span>
+            </div>
+            <div className="entei-subtitle-control-input">
+              <input
+                type="color"
+                value={bgColorHex}
+                onChange={(e) => handleBgColorChange(e.target.value)}
+                className="entei-subtitle-color-input"
+                aria-label={dict.subtitleBackgroundColor}
+              />
+              <span
+                className="entei-subtitle-value-display oklch-display"
+                title={settings.backgroundColor}
+              >
+                {settings.backgroundColor}
+              </span>
+            </div>
+          </div>
+
+          {/* Background Opacity */}
+          <div className="entei-subtitle-control-row">
+            <div className="entei-subtitle-control-label">
+              <span>{dict.subtitleBackgroundOpacity}</span>
+            </div>
+            <div className="entei-subtitle-control-input">
+              <Slider
+                className="entei-subtitle-slider"
+                value={[bgOpacityPercent]}
+                min={0}
+                max={100}
+                step={1}
+                onValueChange={handleBgOpacityChange}
+                aria-label={dict.subtitleBackgroundOpacity}
+              />
+              <span className="entei-subtitle-value-display">
+                {bgOpacityPercent}%
+              </span>
+            </div>
+          </div>
+
+          {/* Background Padding */}
+          <div className="entei-subtitle-control-row">
+            <div className="entei-subtitle-control-label">
+              <span>{dict.subtitleBackgroundPadding}</span>
+            </div>
+            <div className="entei-subtitle-control-input">
+              <Slider
+                className="entei-subtitle-slider"
+                value={[settings.backgroundPadding]}
+                min={0}
+                max={32}
+                step={1}
+                onValueChange={handlePaddingChange}
+                aria-label={dict.subtitleBackgroundPadding}
+              />
+              <span className="entei-subtitle-value-display">
+                {settings.backgroundPadding}px
+              </span>
+            </div>
+          </div>
+
+          {/* Vertical Position */}
+          <div className="entei-subtitle-control-row">
+            <div className="entei-subtitle-control-label">
+              <span>{dict.subtitleVerticalPosition}</span>
+            </div>
+            <div className="entei-subtitle-control-input">
+              <Slider
+                className="entei-subtitle-slider"
+                value={[settings.verticalPosition]}
+                min={0}
+                max={200}
+                step={4}
+                onValueChange={handleVerticalPositionChange}
+                aria-label={dict.subtitleVerticalPosition}
+              />
+              <span className="entei-subtitle-value-display">
+                {settings.verticalPosition}px
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Text Color */}
-        <div className="entei-subtitle-control-row">
-          <div className="entei-subtitle-control-label">
-            <Palette size={16} />
-            <span>{dict.subtitleTextColor}</span>
-          </div>
-          <div className="entei-subtitle-control-input">
-            <input
-              type="color"
-              value={textColorHex}
-              onChange={(e) => handleTextColorChange(e.target.value)}
-              className="entei-subtitle-color-input"
-              aria-label={dict.subtitleTextColor}
-            />
-            <span
-              className="entei-subtitle-value-display oklch-display"
-              title={settings.textColor}
-            >
-              {settings.textColor}
-            </span>
-          </div>
+        {/* Reset Button */}
+        <div className="entei-subtitle-reset-section">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onReset}
+            className="entei-subtitle-reset-btn"
+          >
+            <RotateCcw size={14} />
+            <span>{dict.subtitleReset}</span>
+          </Button>
         </div>
+      </section>
 
-        {/* Background Color */}
-        <div className="entei-subtitle-control-row">
-          <div className="entei-subtitle-control-label">
-            <Square size={16} />
-            <span>{dict.subtitleBackgroundColor}</span>
-          </div>
-          <div className="entei-subtitle-control-input">
-            <input
-              type="color"
-              value={bgColorHex}
-              onChange={(e) => handleBgColorChange(e.target.value)}
-              className="entei-subtitle-color-input"
-              aria-label={dict.subtitleBackgroundColor}
-            />
-            <span
-              className="entei-subtitle-value-display oklch-display"
-              title={settings.backgroundColor}
-            >
-              {settings.backgroundColor}
-            </span>
-          </div>
+      {/* 2. Subtitle Sync Mode Card (separate card) */}
+      <section className="entei-settings-section-card entei-settings-section-card--sync">
+        <div className="entei-subtitle-sync-header">
+          <h3 className="entei-settings-label">
+            <span>{dict.subtitleSyncMode}</span>
+          </h3>
+          <p className="entei-settings-hint entei-subtitle-sync-desc">
+            {settings.syncMode === 'audio'
+              ? dict.subtitleSyncAudioDesc
+              : settings.syncMode === 'auto'
+                ? dict.subtitleSyncAutoDesc
+                : dict.subtitleSyncSubtitleDesc}
+          </p>
         </div>
-
-        {/* Background Opacity */}
-        <div className="entei-subtitle-control-row">
-          <div className="entei-subtitle-control-label">
-            <Square size={16} style={{ opacity: 0.6 }} />
-            <span>{dict.subtitleBackgroundOpacity}</span>
-          </div>
-          <div className="entei-subtitle-control-input">
-            <Slider
-              className="entei-subtitle-slider"
-              value={[bgOpacityPercent]}
-              min={0}
-              max={100}
-              step={1}
-              onValueChange={handleBgOpacityChange}
-              aria-label={dict.subtitleBackgroundOpacity}
-            />
-            <span className="entei-subtitle-value-display">
-              {bgOpacityPercent}%
-            </span>
-          </div>
-        </div>
-
-        {/* Background Padding */}
-        <div className="entei-subtitle-control-row">
-          <div className="entei-subtitle-control-label">
-            <Square size={16} style={{ opacity: 0.5 }} />
-            <span>{dict.subtitleBackgroundPadding}</span>
-          </div>
-          <div className="entei-subtitle-control-input">
-            <Slider
-              className="entei-subtitle-slider"
-              value={[settings.backgroundPadding]}
-              min={0}
-              max={32}
-              step={1}
-              onValueChange={handlePaddingChange}
-              aria-label={dict.subtitleBackgroundPadding}
-            />
-            <span className="entei-subtitle-value-display">
-              {settings.backgroundPadding}px
-            </span>
-          </div>
-        </div>
-
-        {/* Vertical Position */}
-        <div className="entei-subtitle-control-row">
-          <div className="entei-subtitle-control-label">
-            <MoveVertical size={16} />
-            <span>{dict.subtitleVerticalPosition}</span>
-          </div>
-          <div className="entei-subtitle-control-input">
-            <Slider
-              className="entei-subtitle-slider"
-              value={[settings.verticalPosition]}
-              min={0}
-              max={200}
-              step={4}
-              onValueChange={handleVerticalPositionChange}
-              aria-label={dict.subtitleVerticalPosition}
-            />
-            <span className="entei-subtitle-value-display">
-              {settings.verticalPosition}px
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Reset Button — scoped to subtitle appearance only (font, colors,
-          padding, position). Lives inside the appearance section so it
-          never reads as part of sync mode below the divider. */}
-      <div className="entei-subtitle-reset-section">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onReset}
-          className="entei-subtitle-reset-btn"
-        >
-          <RotateCcw size={14} />
-          <span>{dict.subtitleReset}</span>
-        </Button>
-      </div>
-
-      <hr className="entei-subtitle-section-divider" aria-hidden="true" />
-
-      {/* Subtitle Sync Mode (stage ③ — value persisted, engine wired later) */}
-      <div className="entei-subtitle-sync-section">
-        <h3 className="entei-settings-label">{dict.subtitleSyncMode}</h3>
-        {/* Description above the toggle row, styled like the Anki desc. */}
-        <p className="entei-settings-hint entei-subtitle-sync-desc">
-          {settings.syncMode === 'audio'
-            ? dict.subtitleSyncAudioDesc
-            : settings.syncMode === 'auto'
-              ? dict.subtitleSyncAutoDesc
-              : dict.subtitleSyncSubtitleDesc}
-        </p>
-        {/* ToggleGroup with the same mining-controls-row style as export mode picker */}
         <div className="entei-mining-controls-row">
           <ToggleGroup
             type="single"
@@ -532,7 +524,7 @@ export function SubtitleAppearanceTab({
             })}
           </ToggleGroup>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

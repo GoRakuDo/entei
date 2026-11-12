@@ -448,14 +448,12 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
 
         {selection.group === 'appearance' && (
           <div className="entei-settings-section-stack">
-            <section className="entei-settings-section-card">
-              <SubtitleAppearanceTab
-                dict={playerUI}
-                settings={subtitleSettings}
-                onChange={handleSubtitleChange}
-                onReset={handleSubtitleReset}
-              />
-            </section>
+            <SubtitleAppearanceTab
+              dict={playerUI}
+              settings={subtitleSettings}
+              onChange={handleSubtitleChange}
+              onReset={handleSubtitleReset}
+            />
           </div>
         )}
 

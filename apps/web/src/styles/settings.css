@@ -407,6 +407,25 @@ body[data-page='settings'] .entei-main {
     gap: var(--entei-space-24);
   }
 
+  /* Desktop sync mode card: title + desc on left, toggle group on right */
+  .entei-settings-section-card--sync {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--entei-space-24);
+  }
+
+  .entei-settings-section-card--sync .entei-subtitle-sync-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-4);
+  }
+
+  .entei-settings-section-card--sync .entei-mining-controls-row {
+    flex-shrink: 0;
+    margin-top: 0;
+  }
+
   /* Collapsed state: icon-only rail. Labels and the module chevron hide so
      the group icons remain tappable; width animates via the nav transition
      above (respects prefers-reduced-motion below). */
