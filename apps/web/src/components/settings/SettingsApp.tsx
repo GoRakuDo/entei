@@ -343,12 +343,12 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 aria-label={isModule ? `${label} — ${settings.opensSubmenu}` : undefined}
                 onClick={() => {
                   if (isModule) {
-                    if (selection.group === 'module') {
-                      // Already on the Modules group — just toggle the accordion.
-                      // Avoid a duplicate pushState (review fix 2026-11-08).
+                    if (selection.group === 'module' && selection.item === null) {
+                      // Already on the Modules landing — toggle the accordion collapse
                       toggleModuleExpanded();
                     } else {
-                      // Entering Modules from another group — expand + navigate.
+                      // On a child page (Yomitan/Jimaku/Nadeshiko) or entering from another group —
+                      // ensure expanded and navigate to the Modules landing page
                       setModuleExpanded(true);
                       navigate(id, null);
                     }
