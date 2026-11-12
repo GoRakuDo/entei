@@ -196,7 +196,8 @@ body[data-page='settings'] .entei-main {
   height: var(--entei-touch-min);
   padding: 0;
   background: none;
-  border: 1px solid oklch(100% 0 0deg / 0.08);
+  background-color: transparent;
+  border: none;
   border-radius: var(--entei-radius-md);
   color: var(--entei-text-secondary);
   cursor: pointer;
@@ -207,7 +208,6 @@ body[data-page='settings'] .entei-main {
 
 .entei-settings-sidebar-toggle:hover {
   color: var(--entei-text);
-  background-color: var(--entei-btn-color);
 }
 
 .entei-settings-sidebar-toggle:focus-visible {
@@ -370,10 +370,13 @@ body[data-page='settings'] .entei-main {
     align-self: flex-start;
     height: 100dvh;
     overflow-y: auto;
-    /* Top padding gives the sidebar toggle breathing room below the floating
-       TopBar pill (which is `position: fixed` and reserves no vertical space).
+    /* Top padding aligns the first nav item ("Umum") flush with the first
+       content card ("Bahasa"). The content pane starts at
+       `topbar-height + space-24` (88px); the nav's first item sits below the
+       toggle row, so we subtract the toggle height and the nav gap to land the
+       item's top edge on the same line: 88 - 44 (touch-min) - 8 (gap) = 36px.
        Right padding (16px) gives items breathing room against the right border. */
-    padding: var(--entei-space-24) var(--entei-space-16) var(--entei-space-32) var(--entei-gutter);
+    padding: calc(var(--entei-topbar-height) + var(--entei-space-24) - var(--entei-touch-min) - var(--entei-space-8)) var(--entei-space-16) var(--entei-space-32) var(--entei-gutter);
     /* Thin right boundary (Shadcn-Sidebar parity) — docks the content pane
        flush against the sidebar with no dead gap between them. */
     border-right: 1px solid oklch(100% 0 0deg / 0.08);
