@@ -1337,18 +1337,18 @@
   box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.5);
 }
 
-/* ToggleGroup in settings — hover and active background use --entei-btn-color */
+/* ToggleGroup in settings — hover and active background use --entei-btn-color, text uses --entei-text-secondary */
 [data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 [data-slot='toggle-group'] button[data-state='on'] {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 [data-slot='toggle-group'] button[data-state='on']:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }

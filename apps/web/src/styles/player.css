@@ -3812,17 +3812,17 @@ html.entei-player-immersive .entei-player-audio-area {
    and high-contrast text for inactive items. */
 [data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 [data-slot='toggle-group'] button[data-state='on']:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 [data-slot='toggle-group'] button[data-state='on'] {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 [data-slot='toggle-group'] button:disabled {

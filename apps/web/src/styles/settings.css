@@ -244,6 +244,24 @@ body[data-page='settings'] .entei-main {
   border-radius: var(--entei-radius-card);
 }
 
+/* Modules landing: 2-column grid on desktop, 1-column on mobile.
+   Each module is an independent .entei-module-card (not stacked inside a giant card). */
+.entei-modules-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.entei-modules-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--entei-space-16);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+}
+
 /* ==========================================================================
    MOBILE DRILL-DOWN HEADER (back to menu) — hidden on desktop
    ========================================================================== */
@@ -424,6 +442,12 @@ body[data-page='settings'] .entei-main {
   .entei-settings-section-card--sync .entei-mining-controls-row {
     flex-shrink: 0;
     margin-top: 0;
+  }
+
+  /* Desktop modules landing: 2 columns grid */
+  .entei-modules-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--entei-space-20);
   }
 
   /* Collapsed state: icon-only rail. Labels and the module chevron hide so

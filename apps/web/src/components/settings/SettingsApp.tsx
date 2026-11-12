@@ -35,6 +35,7 @@ import {
   BrainCircuit,
   ChevronDown,
   ChevronRight,
+  FolderDown,
   Globe,
   Keyboard,
   Languages,
@@ -66,6 +67,7 @@ import {
   writeModuleState,
 } from '@/features/modules/modules-store';
 import { initSettingsSync } from '@/features/settings/settings-store';
+import { SettingsButton } from '@/components/settings/SettingsButton';
 import {
   dispatchAnkiSessionCredentials,
 } from '@/features/player/settings-bridge';
@@ -457,49 +459,51 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
           </div>
         )}
 
-        {/* Modules landing: core-module switches + children quick-entries. */}
+        {/* Modules landing: core-module switches in 2-column grid. */}
         {selection.group === 'module' && selection.item === null && (
           <div className="entei-settings-section-stack">
-            <section className="entei-settings-section-card">
-              <ul className="entei-modules-list">
-                {CORE_MODULES.map((module) => {
-                  const isOn = moduleState[module.id];
-                  const name = dict.modulesPage[module.nameKey];
-                  return (
-                    <li className="entei-module-card" key={module.id}>
-                      <span className="entei-module-icon" aria-hidden="true">
-                        <Blocks size={20} />
-                      </span>
-                      <div className="entei-module-head">
-                        <h3 className="entei-module-name" title={name}>
-                          {name}
-                        </h3>
-                        {module.builtIn && (
-                          <span className="entei-module-badge">
-                            {dict.modulesPage.builtIn}
-                          </span>
-                        )}
-                      </div>
-                      <div className="entei-module-toggle">
-                        <Switch
-                          id={`entei-module-switch-${module.id}`}
-                          checked={isOn}
-                          onCheckedChange={() => handleModuleToggle(module.id)}
-                          aria-label={name}
-                        />
-                      </div>
-                      <p className="entei-module-description">
-                        {dict.modulesPage[module.descriptionKey]}
-                      </p>
-                      <p className="entei-module-meta">
-                        <span>v{module.version}</span>
-                        <span>{module.author}</span>
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
+            <div className="entei-modules-toolbar">
+              <SettingsButton
+                icon={FolderDown}
+                disabled
+                title={dict.modulesPage.importHint}
+              >
+                {dict.modulesPage.importLabel}
+              </SettingsButton>
+            </div>
+            <ul className="entei-modules-grid">
+              {CORE_MODULES.map((module) => {
+                const isOn = moduleState[module.id];
+                const name = dict.modulesPage[module.nameKey];
+                const badgeText = module.builtIn
+                  ? `${dict.modulesPage.builtIn} ・ ${module.author} ・ v${module.version}`
+                  : `${module.author} ・ v${module.version}`;
+                return (
+                  <li className="entei-module-card" key={module.id}>
+                    <span className="entei-module-icon" aria-hidden="true">
+                      <Blocks size={20} />
+                    </span>
+                    <div className="entei-module-head">
+                      <h3 className="entei-module-name" title={name}>
+                        {name}
+                      </h3>
+                      <span className="entei-module-badge">{badgeText}</span>
+                    </div>
+                    <div className="entei-module-toggle">
+                      <Switch
+                        id={`entei-module-switch-${module.id}`}
+                        checked={isOn}
+                        onCheckedChange={() => handleModuleToggle(module.id)}
+                        aria-label={name}
+                      />
+                    </div>
+                    <p className="entei-module-description">
+                      {dict.modulesPage[module.descriptionKey]}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
 
