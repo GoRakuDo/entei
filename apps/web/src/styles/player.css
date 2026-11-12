@@ -2051,7 +2051,7 @@ html.entei-native-video .entei-player-video {
   padding: var(--entei-space-8) var(--entei-space-24);
   background-color: var(--entei-btn-color);
   color: var(--entei-text);
-  border: 1px solid var(--entei-accent);
+  border: none;
   border-radius: var(--entei-radius-md);
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
@@ -2219,6 +2219,25 @@ html.entei-native-video .entei-player-video {
   /* Sentence is full-width and prominent */
   .entei-anki-mapping-grid > .entei-anki-field-row:first-child {
     grid-column: 1 / -1;
+  }
+
+  /* DenChou Preset desktop row: header left, action button right */
+  .entei-anki-denchou-preset {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--entei-space-24);
+  }
+
+  .entei-anki-denchou-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--entei-space-4);
+  }
+
+  .entei-anki-denchou-preset .entei-anki-connect-btn {
+    align-self: center;
+    flex-shrink: 0;
   }
 }
 

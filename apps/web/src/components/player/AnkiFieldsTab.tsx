@@ -810,10 +810,12 @@ export function AnkiFieldsTab({
               physical field exists in the loaded model and the model is
               fully resolved. Never forces a deck/note-type change. */}
           <div className="entei-anki-section entei-anki-denchou-preset">
-            <h4 className="entei-anki-heading">
-              {dict.ankiDenChouPresetTitle}
-            </h4>
-            <p className="entei-settings-hint">{dict.ankiDenChouPresetDesc}</p>
+            <div className="entei-anki-denchou-header">
+              <h4 className="entei-anki-heading">
+                {dict.ankiDenChouPresetTitle}
+              </h4>
+              <p className="entei-settings-hint">{dict.ankiDenChouPresetDesc}</p>
+            </div>
             <button
               type="button"
               className="entei-anki-connect-btn"
