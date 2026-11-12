@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "torrent",
+  "nameKey": "torrentName",
+  "descriptionKey": "torrentDescription",
+  "version": "9.1.0",
+  "author": "Entei",
+  "iconPath": "/icons/modules/torrent.svg",
+  "category": "source",
+  "builtIn": true,
+  "defaultEnabled": true
+}

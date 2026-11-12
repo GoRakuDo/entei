@@ -62,9 +62,18 @@ export interface EnteiModuleManifest {
   /** Enabled state when the user has never toggled it. */
   defaultEnabled: boolean;
   /** Lucide icon name rendered by the grid card (falls back to Blocks). */
-  icon?: 'Download' | 'Magnet' | 'BookOpen' | 'MessageSquareText' | 'BrainCircuit';
+  icon?:
+    | 'Download'
+    | 'Magnet'
+    | 'BookOpen'
+    | 'MessageSquareText'
+    | 'BrainCircuit'
+    | 'Blocks'
+    | (string & {});
   /** Path to the module icon asset (e.g. '/icons/modules/ytdlp.svg'). */
   iconPath?: string;
+  /** Whether the module exposes a settings panel or custom settings. */
+  hasSettings?: boolean;
   /** Dictionary key for the localized display name (built-in modules). */
   nameKey?: ModuleCopyKey;
   /** Dictionary key for the localized description (built-in modules). */
@@ -96,75 +105,84 @@ export const MODULE_IMPORTS_KEY = 'entei.modules.imported.v1';
 const YOMITAN_SETTINGS_SCHEMA: readonly SettingSectionDescriptor[] =
   yomitanSettingsTree;
 
-/** Official core modules — MODULE_ARCHITECTURE.md §2 + §5.2. */
-export const CORE_MODULES: readonly EnteiModuleManifest[] = [
-  {
-    id: 'ytdlp',
-    nameKey: 'ytdlpName',
-    descriptionKey: 'ytdlpDescription',
-    manifestVersion: MODULE_MANIFEST_VERSION,
-    version: '2026.07.04',
-    author: 'Entei',
-    icon: 'Download',
-    iconPath: '/icons/modules/ytdlp.svg',
-    category: 'source',
-    builtIn: true,
-    defaultEnabled: true,
-  },
-  {
-    id: 'torrent',
-    nameKey: 'torrentName',
-    descriptionKey: 'torrentDescription',
-    manifestVersion: MODULE_MANIFEST_VERSION,
-    version: '9.1.0',
-    author: 'Entei',
-    icon: 'Magnet',
-    iconPath: '/icons/modules/torrent.svg',
-    category: 'source',
-    builtIn: true,
-    defaultEnabled: true,
-  },
-  {
-    id: 'yomitan',
-    nameKey: 'yomitanName',
-    descriptionKey: 'yomitanDescription',
-    manifestVersion: MODULE_MANIFEST_VERSION,
-    version: '0.1.1',
-    author: 'GoRakuDo',
-    icon: 'BookOpen',
-    iconPath: '/icons/modules/yomitan.svg',
-    category: 'dictionary',
-    builtIn: true,
-    defaultEnabled: true,
-    settingsSchema: YOMITAN_SETTINGS_SCHEMA,
-  },
-  {
-    id: 'jimaku',
-    nameKey: 'jimakuName',
-    descriptionKey: 'jimakuDescription',
-    manifestVersion: MODULE_MANIFEST_VERSION,
-    version: '2026.07.04',
-    author: 'Entei',
-    icon: 'MessageSquareText',
-    iconPath: '/icons/modules/jimaku.svg',
-    category: 'source',
-    builtIn: true,
-    defaultEnabled: true,
-  },
-  {
-    id: 'nadeshiko',
-    nameKey: 'nadeshikoName',
-    descriptionKey: 'nadeshikoDescription',
-    manifestVersion: MODULE_MANIFEST_VERSION,
-    version: '2026.07.04',
-    author: 'Entei',
-    icon: 'BrainCircuit',
-    iconPath: '/icons/modules/nadeshiko.svg',
-    category: 'dictionary',
-    builtIn: true,
-    defaultEnabled: true,
-  },
-] as const;
+/** Canonical registration order for built-in modules. */
+const CORE_ORDER: readonly string[] = [
+  'ytdlp',
+  'torrent',
+  'yomitan',
+  'jimaku',
+  'nadeshiko',
+];
+
+/**
+ * Dynamically discover and load all `*.module.json` manifests located under
+ * `/src/modules/` (MODULE_ARCHITECTURE.md §5.2).
+ *
+ * In Vite (dev & production build), `import.meta.glob` aggregates every
+ * manifest without manual registry entries.
+ * In Bun test runner, a safe fallback reads the files directly from disk.
+ */
+function loadCoreManifests(): readonly EnteiModuleManifest[] {
+  let manifests: EnteiModuleManifest[] = [];
+
+  if (typeof import.meta.glob === 'function') {
+    const globbed = import.meta.glob<EnteiModuleManifest>(
+      '/src/modules/**/*.module.json',
+      { eager: true, import: 'default' },
+    );
+    manifests = Object.values(globbed);
+  } else if (typeof (import.meta as any).require === 'function') {
+    // Bun / Node test runner fallback (Vite is not active during `bun test`)
+    try {
+      const fs = (import.meta as any).require('node:fs') as typeof import('node:fs');
+      const path = (import.meta as any).require('node:path') as typeof import('node:path');
+      const candidatePaths = [
+        path.resolve(process.cwd(), 'src/modules'),
+        path.resolve(process.cwd(), 'entei/apps/web/src/modules'),
+      ];
+      const targetDir = candidatePaths.find((p) => fs.existsSync(p));
+      if (targetDir) {
+        const scan = (dir: string) => {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              scan(full);
+            } else if (entry.isFile() && entry.name.endsWith('.module.json')) {
+              const content = fs.readFileSync(full, 'utf-8');
+              manifests.push(JSON.parse(content) as EnteiModuleManifest);
+            }
+          }
+        };
+        scan(targetDir);
+      }
+    } catch {
+      // Ignore filesystem read failure in non-node/non-bun runtimes
+    }
+  }
+
+  return manifests
+    .map((manifest) => ({
+      ...manifest,
+      manifestVersion: manifest.manifestVersion ?? MODULE_MANIFEST_VERSION,
+      builtIn: true,
+      defaultEnabled: manifest.defaultEnabled ?? true,
+      icon: manifest.icon ?? 'Blocks',
+      ...(manifest.id === 'yomitan'
+        ? { settingsSchema: YOMITAN_SETTINGS_SCHEMA }
+        : {}),
+    }))
+    .sort((a, b) => {
+      const indexA = CORE_ORDER.indexOf(a.id);
+      const indexB = CORE_ORDER.indexOf(b.id);
+      if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      return a.id.localeCompare(b.id);
+    });
+}
+
+/** Official core modules — dynamically loaded from `*.module.json` manifests. */
+export const CORE_MODULES: readonly EnteiModuleManifest[] = loadCoreManifests();
 
 const CATEGORIES: readonly EnteiModuleCategory[] = [
   'source',
@@ -217,7 +235,7 @@ export function parseModuleManifest(
       builtIn: false,
       // Imported modules default OFF: nothing runs until the user enables it.
       defaultEnabled: false,
-      icon: 'BookOpen',
+      icon: (raw.icon as EnteiModuleManifest['icon']) ?? 'Blocks',
       ...(typeof raw.iconPath === 'string' && raw.iconPath.trim() !== ''
         ? { iconPath: raw.iconPath.trim() }
         : {}),

@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "jimaku",
+  "nameKey": "jimakuName",
+  "descriptionKey": "jimakuDescription",
+  "version": "2026.07.04",
+  "author": "Entei",
+  "iconPath": "/icons/modules/jimaku.png",
+  "category": "source",
+  "builtIn": true,
+  "defaultEnabled": true
+}

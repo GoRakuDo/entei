@@ -682,7 +682,7 @@ body[data-page='settings'] .entei-main {
 
   .entei-settings-nav {
     flex: 0 0 auto;
-    width: 16rem;
+    width: 18rem;
     position: sticky;
     top: 0;
     align-self: flex-start;

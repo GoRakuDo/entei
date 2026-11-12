@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "nadeshiko",
+  "nameKey": "nadeshikoName",
+  "descriptionKey": "nadeshikoDescription",
+  "version": "2026.07.04",
+  "author": "Entei",
+  "iconPath": "/icons/modules/nadeshiko.webp",
+  "category": "dictionary",
+  "builtIn": true,
+  "defaultEnabled": true
+}

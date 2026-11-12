@@ -126,6 +126,7 @@ const BUILT_IN_SETTINGS_PAGES: readonly string[] = [
 /** Whether a module owns settings (either a bespoke component or a `settingsSchema`). */
 function moduleHasSettings(module: EnteiModuleManifest): boolean {
   if (BUILT_IN_SETTINGS_PAGES.includes(module.id)) return true;
+  if (module.hasSettings === true) return true;
   return (
     module.settingsSchema !== undefined &&
     module.settingsSchema.length > 0
@@ -139,6 +140,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   BookOpen: Puzzle,
   MessageSquareText: MessageSquareText,
   BrainCircuit: BrainCircuit,
+  Blocks: Blocks,
 };
 
 /** localStorage key persisting the desktop sidebar's collapsed state. */

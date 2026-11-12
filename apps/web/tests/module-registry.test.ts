@@ -95,6 +95,26 @@ describe('module-registry — core manifests', () => {
       expect('default' in field).toBe(true);
     }
   });
+
+  it('loads iconPath from individual *.module.json files and falls back icon to Blocks', () => {
+    const ytdlp = CORE_MODULES.find((m) => m.id === 'ytdlp');
+    expect(ytdlp?.iconPath).toBe('/icons/modules/ytdlp.png');
+    expect(ytdlp?.icon).toBe('Blocks');
+
+    const torrent = CORE_MODULES.find((m) => m.id === 'torrent');
+    expect(torrent?.iconPath).toBe('/icons/modules/torrent.svg');
+    expect(torrent?.icon).toBe('Blocks');
+
+    const yomitan = CORE_MODULES.find((m) => m.id === 'yomitan');
+    expect(yomitan?.iconPath).toBe('/icons/modules/yomitan.png');
+    expect(yomitan?.hasSettings).toBe(true);
+
+    const jimaku = CORE_MODULES.find((m) => m.id === 'jimaku');
+    expect(jimaku?.iconPath).toBe('/icons/modules/jimaku.png');
+
+    const nadeshiko = CORE_MODULES.find((m) => m.id === 'nadeshiko');
+    expect(nadeshiko?.iconPath).toBe('/icons/modules/nadeshiko.webp');
+  });
 });
 
 describe('module-registry — manifest validation', () => {

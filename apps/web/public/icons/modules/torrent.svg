@@ -1,7 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="oklch(0.72 0.16 170)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M4 11V5a3 3 0 0 1 3-3h0a3 3 0 0 1 3 3v6" />
-  <path d="M14 11V5a3 3 0 0 1 3-3h0a3 3 0 0 1 3 3v6" />
-  <path d="M4 11a8 8 0 0 0 16 0" />
-  <line x1="4" y1="7" x2="10" y2="7" stroke="oklch(0.65 0.2 25)" stroke-width="2.5" />
-  <line x1="14" y1="7" x2="20" y2="7" stroke="oklch(0.65 0.2 25)" stroke-width="2.5" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none">
+  <defs>
+    <linearGradient id="torrent-body" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="oklch(0.63 0.25 25)" />
+      <stop offset="47%" stop-color="oklch(0.63 0.25 25)" />
+      <stop offset="53%" stop-color="oklch(0.60 0.22 250)" />
+      <stop offset="100%" stop-color="oklch(0.60 0.22 250)" />
+    </linearGradient>
+  </defs>
+  <!-- Horseshoe magnet body -->
+  <path d="M4 8.5v5c0 4.4 3.6 8 8 8s8-3.6 8-8v-5h-4.5v5c0 1.9-1.6 3.5-3.5 3.5s-3.5-1.6-3.5-3.5v-5H4z" fill="url(#torrent-body)" />
+  <!-- Left pole cap (N) -->
+  <rect x="4" y="3.5" width="4.5" height="5" rx="1" fill="oklch(0.92 0.02 240)" />
+  <!-- Right pole cap (S) -->
+  <rect x="15.5" y="3.5" width="4.5" height="5" rx="1" fill="oklch(0.92 0.02 240)" />
+  <!-- Magnetic field arc -->
+  <path d="M6.25 1.5c3-1 8.5-1 11.5 0" stroke="oklch(0.82 0.16 85)" stroke-width="1.5" stroke-linecap="round" />
 </svg>

@@ -1,0 +1,13 @@
+{
+  "manifestVersion": 1,
+  "id": "yomitan",
+  "nameKey": "yomitanName",
+  "descriptionKey": "yomitanDescription",
+  "version": "0.1.1",
+  "author": "GoRakuDo",
+  "iconPath": "/icons/modules/yomitan.png",
+  "category": "dictionary",
+  "builtIn": true,
+  "defaultEnabled": true,
+  "hasSettings": true
+}

@@ -60,6 +60,7 @@ const ICONS: Record<string, LucideIcon> = {
   Puzzle,
   MessageSquareText,
   BrainCircuit,
+  Blocks,
 };
 
 /** Resolve a manifest's localized name (dictionary key or literal). */
