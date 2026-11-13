@@ -413,6 +413,9 @@ body[data-page='settings'] .entei-main {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-20);
+  margin-top: var(--entei-space-16);
+  padding-top: var(--entei-space-20);
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
 /* Group — a labelled block of field rows inside a section. */
@@ -452,15 +455,19 @@ body[data-page='settings'] .entei-main {
 .entei-module-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-16);
+  gap: var(--entei-space-24);
 }
 
 /* Field row: text block left, control right. Rows are separated by the stack
-   gap alone — per-row hairlines only added noise to a long list. */
+   gap alone — per-row hairlines only added noise to a long list.
+   Every row keeps the same minimum height (touch target) so switch rows and
+   input rows line up horizontally; rows with a description still grow. */
 .entei-module-field {
   display: grid;
   grid-template-columns: 1fr;
+  align-items: center;
   gap: var(--entei-space-8);
+  min-height: var(--entei-touch-min);
 }
 
 .entei-module-field-text {
