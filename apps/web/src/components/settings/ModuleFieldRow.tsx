@@ -114,8 +114,13 @@ export function ModuleFieldRow({
     noneLabel !== undefined && current === '' ? NONE_VALUE : String(current);
   /* A host-supplied option list makes the row a select even when the descriptor
      calls the field a plain string (Yomitan's dictionary-name settings are
-     stored as strings but only ever chosen from what is installed). */
-  const asSelect = field.type === 'select' || options !== undefined;
+     stored as strings but only ever chosen from what is installed).
+     A boolean row is never a select: the switch is its only control, so a host
+     that hands every row of a section the same option list cannot conjure a
+     stray empty combobox beside the toggle. */
+  const asSelect =
+    field.type !== 'boolean' &&
+    (field.type === 'select' || options !== undefined);
 
   return (
     <div

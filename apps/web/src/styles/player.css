@@ -2565,12 +2565,26 @@ html.entei-native-video .entei-player-video {
 
 /* Popover surface: subtle muted border + matching radius (DESIGN.md 8.9).
    Portaled content sits outside [data-entei-player-root], so the border and
-   opaque elevated surface are declared explicitly. */
+   opaque surface are declared explicitly.
+   Hover / checked highlight is shared with the settings page (mirror:
+   settings-shared.css) — --entei-btn-color surface, --entei-status-locked text. */
 [data-slot='select-content'] {
-  background-color: var(--entei-surface-elevated);
+  background-color: var(--entei-surface) !important;
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
   box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.5);
+}
+
+[data-slot='select-item'] {
+  color: var(--entei-text);
+}
+
+[data-slot='select-item']:hover,
+[data-slot='select-item']:focus,
+[data-slot='select-item'][data-highlighted],
+[data-slot='select-item'][data-state='checked'] {
+  background-color: var(--entei-btn-color) !important;
+  color: var(--entei-status-locked) !important;
 }
 
 /* W14: Remove white border from Player Select popup — keep Entei dark surface */

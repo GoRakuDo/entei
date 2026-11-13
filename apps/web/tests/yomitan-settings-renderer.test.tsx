@@ -198,13 +198,31 @@ describe('YomitanSettingsRenderer — manifest-laid-out Dictionaries section', (
       screen.getByText(COPY.dictionaries.sortFrequencyDescription),
     ).toBeTruthy();
 
+    /* The wildcard row is a switch and nothing else: the section-wide option
+       list must not draw a combobox beside the toggle. */
+    const wildcardRow = screen
+      .getByText(COPY.dictionaries.prefixWildcards)
+      .closest('.entei-module-field');
+    expect(
+      wildcardRow?.querySelector('[data-slot="switch"]'),
+    ).not.toBeNull();
+    expect(wildcardRow?.querySelector('.entei-module-select')).toBeNull();
+    // ...so the frequency dictionary is the section's only combobox.
+    expect(container.querySelectorAll('.entei-module-select')).toHaveLength(1);
+
     // The select's leading option is the host-resolved `None` (no frequency
     // dictionary chosen); no dictionary is installed in a test run, so it is
     // the only choice. Radix mounts the items when the trigger opens.
     const trigger = container.querySelector('.entei-module-select');
     expect(trigger).not.toBeNull();
     fireEvent.click(trigger as Element);
-    expect(await screen.findByText(COPY.dictionaries.sortFrequencyNone)).toBeTruthy();
+    /* The open popup repeats the trigger's own value, so the option is matched
+       by role instead of by text. */
+    expect(
+      await screen.findByRole('option', {
+        name: COPY.dictionaries.sortFrequencyNone,
+      }),
+    ).toBeTruthy();
   });
 
   it('measures storage through the host source and refreshes on demand', async () => {

@@ -1329,12 +1329,26 @@
   overflow-y: auto;
 }
 
-/* Popover surface: opaque dark surface so content beneath never bleeds through */
+/* Popover surface: opaque dark surface so content beneath never bleeds through.
+   Every select popup in the app shares this surface, its hover highlight and its
+   checked highlight — no platform-blue leaks from the shadcn defaults. */
 [data-slot='select-content'] {
-  background-color: var(--entei-surface-elevated);
+  background-color: var(--entei-surface) !important;
   border: 1px solid oklch(100% 0 0deg / 0.12);
   border-radius: var(--entei-radius-md);
   box-shadow: 0 10px 25px oklch(0% 0 0deg / 0.5);
+}
+
+[data-slot='select-item'] {
+  color: var(--entei-text);
+}
+
+[data-slot='select-item']:hover,
+[data-slot='select-item']:focus,
+[data-slot='select-item'][data-highlighted],
+[data-slot='select-item'][data-state='checked'] {
+  background-color: var(--entei-btn-color) !important;
+  color: var(--entei-status-locked) !important;
 }
 
 /* ToggleGroup in settings — hover and active background use --entei-btn-color, text uses --entei-text-secondary */

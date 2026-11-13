@@ -515,6 +515,14 @@ body[data-page='settings'] .entei-main {
   background-color: var(--entei-surface);
 }
 
+/* The control column of a field row is content-sized, so a select trigger
+   collapses onto its own label. A declared floor keeps the trigger — and the
+   option text inside it — comfortably wide at every viewport. */
+.entei-module-select {
+  min-width: 14rem;
+  max-width: 22rem;
+}
+
 .entei-module-input--number {
   max-width: 10rem;
   font-variant-numeric: tabular-nums;
