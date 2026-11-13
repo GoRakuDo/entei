@@ -398,6 +398,18 @@ export const ja: Dictionary = {
     unavailable: 'Yomitan の設定を読み込めませんでした。',
     notEditable: 'この項目は現在編集できません',
     toggleSection: 'セクションを開閉',
+    dictionaries: {
+      import: '辞書をインポート (.zip)',
+      importing: 'インポート中…',
+      drop: 'または .zip ファイルをここにドロップ',
+      empty:
+        'インポートされた辞書はありません。辞書ファイル（.zip）をインポートして検索を開始してください。',
+      revision: 'バージョン',
+      entries: 'エントリ',
+      enable: '辞書を有効化',
+      remove: '辞書を削除',
+      importFailed: '辞書のインポートに失敗しました',
+    },
   },
   settingsPage: {
     title: '設定',

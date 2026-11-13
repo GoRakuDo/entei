@@ -682,6 +682,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                     labels={{
                       notEditable: dict.yomitanSettings.notEditable,
                       toggleSection: dict.yomitanSettings.toggleSection,
+                      dictionaries: dict.yomitanSettings.dictionaries,
                     }}
                   />
                 )}
@@ -710,6 +711,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                     labels={{
                       notEditable: dict.yomitanSettings.notEditable,
                       toggleSection: dict.yomitanSettings.toggleSection,
+                      dictionaries: dict.yomitanSettings.dictionaries,
                     }}
                   />
                 )}

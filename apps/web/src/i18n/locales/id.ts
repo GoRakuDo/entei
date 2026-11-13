@@ -400,6 +400,18 @@ export const id: Dictionary = {
     unavailable: 'Pengaturan Yomitan tidak dapat dimuat.',
     notEditable: 'Item ini belum dapat diubah',
     toggleSection: 'Buka/tutup bagian',
+    dictionaries: {
+      import: 'Impor Kamus (.zip)',
+      importing: 'Mengimpor…',
+      drop: 'atau tarik & letakkan file .zip di sini',
+      empty:
+        'Belum ada kamus yang diimpor. Silakan impor file kamus (.zip) untuk memulai pencarian.',
+      revision: 'Versi',
+      entries: 'entri',
+      enable: 'Aktifkan kamus',
+      remove: 'Hapus kamus',
+      importFailed: 'Impor kamus gagal',
+    },
   },
   settingsPage: {
     title: 'Pengaturan',

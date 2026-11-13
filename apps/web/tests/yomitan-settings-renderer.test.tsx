@@ -23,6 +23,7 @@ import { en } from '@/i18n/locales/en';
 const LABELS = {
   notEditable: en.yomitanSettings.notEditable,
   toggleSection: en.yomitanSettings.toggleSection,
+  dictionaries: en.yomitanSettings.dictionaries,
 };
 
 beforeEach(() => {
@@ -130,5 +131,23 @@ describe('YomitanSettingsRenderer — locked fields', () => {
     const switches = container.querySelectorAll('[data-slot="switch"]');
     expect(switches.length).toBeGreaterThan(0);
     expect(screen.queryByLabelText('Enable Yomitan')).toBeNull();
+  });
+});
+
+describe('YomitanSettingsRenderer — dictionary manager', () => {
+  it('replaces the Dictionaries “not editable” note with the dictionary manager', async () => {
+    renderSettings();
+    fireEvent.click(
+      screen.getByRole('button', { name: new RegExp('Dictionaries', 'i') }),
+    );
+
+    // The generic read-only note is gone for this field...
+    expect(screen.queryByText(en.yomitanSettings.notEditable)).toBeNull();
+    // ...replaced by the import control and its empty state (no dictionaries
+    // are installed in a test run: `bun test` has no IndexedDB).
+    expect(
+      await screen.findByText(en.yomitanSettings.dictionaries.empty),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: /import dictionary/i })).toBeTruthy();
   });
 });

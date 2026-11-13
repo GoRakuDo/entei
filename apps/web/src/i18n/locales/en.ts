@@ -403,6 +403,18 @@ export const en: Dictionary = {
     unavailable: 'Yomitan settings could not be loaded.',
     notEditable: 'Not editable yet',
     toggleSection: 'Toggle section',
+    dictionaries: {
+      import: 'Import dictionary (.zip)',
+      importing: 'Importing…',
+      drop: 'or drop a .zip file here',
+      empty:
+        'No dictionaries imported yet. Import a dictionary (.zip) to start looking up words.',
+      revision: 'Revision',
+      entries: 'entries',
+      enable: 'Enable dictionary',
+      remove: 'Delete dictionary',
+      importFailed: 'Dictionary import failed',
+    },
   },
   settingsPage: {
     title: 'Settings',

@@ -17,9 +17,11 @@
  * desktop SQLite `kv_store` debounced). There is no Save button.
  *
  * `array` / `section-header` fields are not editable here: they are structural
- * placeholders in the tree (dictionary lists, Anki card formats, profile
- * management) whose editors need their own CRUD surface. They render as a
- * read-only note instead of a fake control.
+ * placeholders in the tree (Anki card formats, profile management) whose editors
+ * need their own CRUD surface, so they render as a read-only note. The one
+ * exception is `dictionaries`, which the host owns end to end (import / enable /
+ * delete against IndexedDB `yomitan-dictionaries`) and renders through
+ * `components/settings/DictionaryManager`.
  *
  * Each section header carries the label, and — when the manifest asks for it
  * (`showSectionIcons`) — the icon named by the manifest's `icon` id, the same
@@ -63,6 +65,10 @@ import type {
   SettingGroupDescriptor,
   SettingSectionDescriptor,
 } from '@gorakudo/yomitan-headless/settings';
+import {
+  DictionaryManager,
+  type DictionaryManagerLabels,
+} from '@/components/settings/DictionaryManager';
 import { Input } from '@/components/player/ui/input';
 import { Switch } from '@/components/player/ui/switch';
 import {
@@ -125,6 +131,8 @@ export interface YomitanSettingsRendererProps {
     notEditable: string;
     /** Accessible name for a section's collapse toggle. */
     toggleSection: string;
+    /** Dictionary CRUD surface (the `dictionaries` array field). */
+    dictionaries: DictionaryManagerLabels;
   };
 }
 
@@ -179,6 +187,7 @@ export function YomitanSettingsRenderer({
             }))
           }
           onChange={update}
+          onOptionsChange={onChange}
         />
       ))}
     </div>
@@ -194,6 +203,8 @@ interface YomitanSectionProps {
   showIcon: boolean;
   onToggle: () => void;
   onChange: (path: string, value: unknown) => void;
+  /** Whole-tree setter, for fields whose editor owns an array (dictionaries). */
+  onOptionsChange: (next: Options) => void;
 }
 
 function YomitanSection({
@@ -204,6 +215,7 @@ function YomitanSection({
   showIcon,
   onToggle,
   onChange,
+  onOptionsChange,
 }: YomitanSectionProps) {
   const panelId = useId();
   const descriptionId = `${panelId}-description`;
@@ -260,6 +272,7 @@ function YomitanSection({
               options={options}
               labels={labels}
               onChange={onChange}
+              onOptionsChange={onOptionsChange}
             />
           ))}
         </div>
@@ -273,9 +286,16 @@ interface YomitanGroupProps {
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
   onChange: (path: string, value: unknown) => void;
+  onOptionsChange: (next: Options) => void;
 }
 
-function YomitanGroup({ group, options, labels, onChange }: YomitanGroupProps) {
+function YomitanGroup({
+  group,
+  options,
+  labels,
+  onChange,
+  onOptionsChange,
+}: YomitanGroupProps) {
   /* Host-locked fields have no editor; a group they emptied is not rendered. */
   const fields = group.fields.filter((field) => !isLockedOptionPath(field.key));
   if (fields.length === 0) return null;
@@ -294,6 +314,7 @@ function YomitanGroup({ group, options, labels, onChange }: YomitanGroupProps) {
             options={options}
             labels={labels}
             onChange={onChange}
+            onOptionsChange={onOptionsChange}
           />
         ))}
       </div>
@@ -306,11 +327,40 @@ interface YomitanFieldProps {
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
   onChange: (path: string, value: unknown) => void;
+  onOptionsChange: (next: Options) => void;
 }
 
-function YomitanField({ field, options, labels, onChange }: YomitanFieldProps) {
+function YomitanField({
+  field,
+  options,
+  labels,
+  onChange,
+  onOptionsChange,
+}: YomitanFieldProps) {
   const inputId = useId();
   const value = readOptionPath(options, field.key);
+
+  /* The dictionary list is a host-owned CRUD surface (import / enable / delete
+     against IndexedDB), not a generic array field. */
+  if (field.key === 'dictionaries') {
+    return (
+      <div className="entei-module-field entei-module-field--dictionary">
+        <div className="entei-module-field-text">
+          <span className="entei-module-field-label">{field.label}</span>
+          {field.description !== undefined && (
+            <p className="entei-module-field-description">
+              {field.description}
+            </p>
+          )}
+        </div>
+        <DictionaryManager
+          options={options}
+          onChange={onOptionsChange}
+          labels={labels.dictionaries}
+        />
+      </div>
+    );
+  }
 
   /* Structural / not generically editable (array, section-header). */
   if (!isEditable(field)) {

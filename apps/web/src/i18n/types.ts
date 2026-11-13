@@ -441,6 +441,18 @@ export interface Dictionary {
     notEditable: string;
     /** Accessible name prefix for a section collapse toggle. */
     toggleSection: string;
+    /** Dictionary manager (import / enable / delete) inside the Dictionaries section. */
+    dictionaries: {
+      import: string;
+      importing: string;
+      drop: string;
+      empty: string;
+      revision: string;
+      entries: string;
+      enable: string;
+      remove: string;
+      importFailed: string;
+    };
   };
   /** Dedicated /settings/ page (sidebar nav + drill-down). */
   settingsPage: {
