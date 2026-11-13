@@ -411,6 +411,7 @@ export const id: Dictionary = {
       enable: 'Aktifkan kamus',
       remove: 'Hapus kamus',
       importFailed: 'Impor kamus gagal',
+      loadFailed: 'Daftar kamus terpasang tidak dapat dibaca',
       reorder: 'Atur ulang urutan kamus',
       reorderHint:
         'Seret untuk mengubah prioritas, atau tekan tombol panah atas dan bawah.',

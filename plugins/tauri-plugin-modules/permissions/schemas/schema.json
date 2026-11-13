@@ -379,10 +379,82 @@
           "markdownDescription": "Denies the modules_nadeshiko_user_me command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for native Jimaku and Nadeshiko API requests.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`",
+          "description": "Enables the yomitan_delete_dictionary command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-yomitan-delete-dictionary",
+          "markdownDescription": "Enables the yomitan_delete_dictionary command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the yomitan_delete_dictionary command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-yomitan-delete-dictionary",
+          "markdownDescription": "Denies the yomitan_delete_dictionary command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the yomitan_find_kanji command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-yomitan-find-kanji",
+          "markdownDescription": "Enables the yomitan_find_kanji command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the yomitan_find_kanji command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-yomitan-find-kanji",
+          "markdownDescription": "Denies the yomitan_find_kanji command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the yomitan_find_terms command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-yomitan-find-terms",
+          "markdownDescription": "Enables the yomitan_find_terms command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the yomitan_find_terms command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-yomitan-find-terms",
+          "markdownDescription": "Denies the yomitan_find_terms command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the yomitan_import_dictionary command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-yomitan-import-dictionary",
+          "markdownDescription": "Enables the yomitan_import_dictionary command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the yomitan_import_dictionary command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-yomitan-import-dictionary",
+          "markdownDescription": "Denies the yomitan_import_dictionary command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the yomitan_list_dictionaries command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-yomitan-list-dictionaries",
+          "markdownDescription": "Enables the yomitan_list_dictionaries command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the yomitan_list_dictionaries command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-yomitan-list-dictionaries",
+          "markdownDescription": "Denies the yomitan_list_dictionaries command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the yomitan_toggle_dictionary command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-yomitan-toggle-dictionary",
+          "markdownDescription": "Enables the yomitan_toggle_dictionary command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the yomitan_toggle_dictionary command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-yomitan-toggle-dictionary",
+          "markdownDescription": "Denies the yomitan_toggle_dictionary command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dictionary storage.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for native Jimaku and Nadeshiko API requests.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`"
+          "markdownDescription": "Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dictionary storage.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`"
         }
       ]
     }

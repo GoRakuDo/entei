@@ -460,6 +460,8 @@ export interface Dictionary {
       enable: string;
       remove: string;
       importFailed: string;
+      /** Toast title when the installed list cannot be read from the engine. */
+      loadFailed: string;
       /** `list` layout — accessible name prefix of a row's drag handle. */
       reorder: string;
       /** `list` layout — how-to-reorder sentence (the handle's description). */

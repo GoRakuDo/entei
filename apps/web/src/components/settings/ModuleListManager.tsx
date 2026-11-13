@@ -19,13 +19,19 @@
  *
  * Copy contract (keys the renderer resolves from the module's copy table):
  * `import`, `importing`, `empty`, `enable`, `remove`, `importFailed`,
- * `reorder`, `reorderHint`. The block title/description arrive already
- * resolved (`title` / `description`): this layout owns no strings.
+ * `loadFailed`, `reorder`, `reorderHint`. The block title/description arrive
+ * already resolved (`title` / `description`): this layout owns no strings.
  *
  * Layout: header row — title + description on the left, the import button on
  * the right where every other settings control sits — above the rows, which
  * take the full width. Each row: drag handle (when the source supports
  * reordering), name + metadata, enable switch, delete.
+ *
+ * TWO IMPORT ROUTES, because a desktop import needs an absolute path the browser
+ * cannot produce: `onImportPath` (given) opens the native dialog and hands the
+ * picked path to the source, while `onImport` (given) keeps the HTML file input
+ * and hands over the `File`. With neither, no import button is drawn — a source
+ * that cannot store what the picker returns must not offer it.
  * ---------------------------------------------------------------------------
  */
 
@@ -34,6 +40,8 @@ import { FileArchive, GripVertical, Trash2, type LucideIcon } from 'lucide-react
 import { toast } from 'sonner';
 import { SettingsButton } from '@/components/settings/SettingsButton';
 import { Switch } from '@/components/player/ui/switch';
+import { isTauri } from '@/features/player/tauri-bridge';
+import { acceptToExtensions } from '@/components/player/MediaPicker';
 
 /** One rendered row of the list. */
 export interface ModuleListManagerRow {
@@ -61,6 +69,11 @@ export interface ModuleListManagerCopy {
   remove: string;
   /** Toast title when an import fails. */
   importFailed: string;
+  /**
+   * Toast title when the source's own data cannot be READ (the layout never
+   * draws it: a list that fails to load is the source's failure to report).
+   */
+  loadFailed: string;
   /** Accessible name prefix for a row's drag handle. */
   reorder: string;
   /** How-to-reorder sentence, the handle's accessible description. */
@@ -83,10 +96,16 @@ export interface ModuleListManagerProps {
   /** Leading toolbar icon (defaults to an archive mark). */
   importIcon?: LucideIcon;
   /**
-   * Import one item. A rejection is surfaced as a toast and never escapes:
-   * the caller throws with a message, the layout owns the presentation.
+   * Import one item from a browser `File` (HTML picker route). A rejection is
+   * surfaced as a toast and never escapes: the caller throws with a message,
+   * the layout owns the presentation. Omit when the source needs a native path.
    */
-  onImport: (file: File) => void | Promise<void>;
+  onImport?: (file: File) => void | Promise<void>;
+  /**
+   * Import one item from an absolute path (native dialog route, desktop only).
+   * Takes precedence over `onImport`, which stays as the browser fallback.
+   */
+  onImportPath?: (path: string) => void | Promise<void>;
   /** Enable/disable a row. Omit for a read-only list (no switches drawn). */
   onToggle?: (key: string, enabled: boolean) => void;
   /** Delete a row. Omit for a list whose items cannot be removed. */
@@ -107,6 +126,7 @@ export function ModuleListManager({
   accept = '.zip,application/zip',
   importIcon = FileArchive,
   onImport,
+  onImportPath,
   onToggle,
   onRemove,
   onReorder,
@@ -114,6 +134,7 @@ export function ModuleListManager({
   const inputId = useId();
   const hintId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const canImport = onImport !== undefined || onImportPath !== undefined;
   const [importing, setImporting] = useState(false);
   /* Reordering is pointer-driven (mouse, pen AND touch — HTML5 drag & drop
      never fires on touch) with the keyboard as the equivalent path. */
@@ -123,11 +144,11 @@ export function ModuleListManager({
   const pointerId = useRef<number | null>(null);
 
   const runImport = useCallback(
-    async (file: File) => {
+    async (work: () => void | Promise<void>) => {
       if (importing) return;
       setImporting(true);
       try {
-        await onImport(file);
+        await work();
       } catch (error) {
         toast.error(copy.importFailed, {
           description: error instanceof Error ? error.message : String(error),
@@ -136,8 +157,48 @@ export function ModuleListManager({
         setImporting(false);
       }
     },
-    [importing, onImport, copy],
+    [importing, copy],
   );
+
+  /**
+   * Import through the native dialog — the only way to obtain an absolute path
+   * in a desktop webview. A cancelled pick imports nothing; a dialog that cannot
+   * open falls back to the HTML picker.
+   */
+  const pickPath = useCallback(async () => {
+    if (onImportPath === undefined) return;
+    const label = title ?? copy.import;
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const extensions = acceptToExtensions(accept);
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        title: label,
+        ...(extensions.length > 0
+          ? { filters: [{ name: label, extensions }] }
+          : {}),
+      });
+      if (typeof picked === 'string' && picked.length > 0) {
+        const path = picked;
+        await runImport(() => onImportPath(path));
+        return;
+      }
+      // A cancelled native dialog must not fall through to the HTML input.
+      if (picked === null) return;
+    } catch {
+      // Dialog plugin unavailable — fall back to the HTML picker.
+    }
+    inputRef.current?.click();
+  }, [accept, copy.import, onImportPath, runImport, title]);
+
+  const handleClick = useCallback(() => {
+    if (onImportPath !== undefined && isTauri()) {
+      void pickPath();
+      return;
+    }
+    inputRef.current?.click();
+  }, [onImportPath, pickPath]);
 
   const move = useCallback(
     (from: number, to: number) => {
@@ -162,30 +223,36 @@ export function ModuleListManager({
             )}
           </div>
           <div className="entei-module-list-toolbar" aria-busy={importing}>
-            <SettingsButton
-              icon={importIcon}
-              disabled={importing}
-              onClick={() => inputRef.current?.click()}
-            >
-              {importing ? copy.importing : copy.import}
-            </SettingsButton>
-            {/* Opened by the button only; kept out of the tab order and the
-                a11y tree because the button is the labelled control. */}
-            <input
-              ref={inputRef}
-              id={inputId}
-              className="entei-module-list-file-input"
-              type="file"
-              accept={accept}
-              tabIndex={-1}
-              aria-hidden="true"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file !== undefined) void runImport(file);
-                // Allow re-picking the same file after a failure.
-                event.target.value = '';
-              }}
-            />
+            {canImport && (
+              <>
+                <SettingsButton
+                  icon={importIcon}
+                  disabled={importing}
+                  onClick={handleClick}
+                >
+                  {importing ? copy.importing : copy.import}
+                </SettingsButton>
+                {/* Opened by the button only; kept out of the tab order and
+                    the a11y tree because the button is the labelled control. */}
+                <input
+                  ref={inputRef}
+                  id={inputId}
+                  className="entei-module-list-file-input"
+                  type="file"
+                  accept={accept}
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file !== undefined && onImport !== undefined) {
+                      void runImport(() => onImport(file));
+                    }
+                    // Allow re-picking the same file after a failure.
+                    event.target.value = '';
+                  }}
+                />
+              </>
+            )}
           </div>
         </div>
       )}

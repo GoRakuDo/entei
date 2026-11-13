@@ -4,26 +4,34 @@
  * DictionaryManager — the `yomitan-dictionaries` list source.
  * ---------------------------------------------------------------------------
  * Yomitan's "Dictionaries" field is not a scalar option: it is CRUD over the
- * dictionary database. This module is the ADAPTER between that store and the
- * platform's standard list layout (`components/settings/ModuleListManager`),
- * which a manifest declares for the field:
+ * installed dictionaries. This module is the ADAPTER between the NATIVE
+ * dictionary engine and the platform's standard list layout
+ * (`components/settings/ModuleListManager`), which a manifest declares:
  *
  *   { "layout": "list", "field": "dictionaries",
  *     "source": "yomitan-dictionaries" }
  *
- * It owns only what is genuinely Yomitan's: which file to accept, the metadata
- * line wording, and where the state lives. The look, the header, the reorder
- * mechanics and the row markup belong to the shared layout.
+ * It owns only what is genuinely Yomitan's: which archive to accept, the
+ * metadata line wording, and where each half of the state lives. The look, the
+ * header, the reorder mechanics and the row markup belong to the shared layout.
  *
- * Two storages stay separate here, the same split as the store module: the DATA
- * is written to IndexedDB `yomitan-dictionaries` (never `entei.db`), while the
- * enable flags AND the priority order live in `options.dictionaries` of the
- * persisted settings tree — so the UI writes them through the normal
- * `onChange(nextOptions)` path and talks to the store only for data.
+ * TWO HALVES, still separate on purpose:
+ *
+ * - DATA (import, enable, delete) is `plugins/tauri-plugin-modules` — a SQLite
+ *   dictionary database reached through `features/player/tauri-bridge`. The
+ *   engine holds the banks and answers lookups; the browser build has no engine,
+ *   so nothing here can import or list without it.
+ * - SETTINGS (`options.dictionaries`) keep the per-dictionary flags AND the
+ *   priority order, written through the normal `onChange(nextOptions)` path,
+ *   because the native engine has no order column and Yomitan merges results in
+ *   this array's order. The enable flag is written to both in the same handler,
+ *   so the engine (which skips disabled dictionaries on lookup) and the settings
+ *   tree never disagree.
  * ---------------------------------------------------------------------------
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
   ModuleListManager,
@@ -34,14 +42,16 @@ import {
   readOptionPath,
   writeOptionPath,
 } from '@/features/yomitan/yomitan-preferences';
+import { isTauri } from '@/features/player/tauri-bridge';
 import {
   createDictionaryOptionEntry,
   deleteDictionary,
-  importDictionaryArchive,
+  importDictionaryFromPath,
   listInstalledDictionaries,
   orderDictionaryOptions,
   removeDictionaryOption,
   setDictionaryEnabled,
+  toggleDictionary,
   type DictionaryOptionEntry,
   type InstalledDictionary,
 } from '@/features/yomitan/dictionary-store';
@@ -57,8 +67,10 @@ export interface DictionaryManagerProps {
   copy: ModuleListManagerCopy;
 }
 
-/** One rendered row: the stored dictionary plus its persisted toggle state. */
+/** One rendered row: the installed dictionary plus its persisted option entry. */
 interface DictionaryRow {
+  /** Native engine id — what toggle/delete address. */
+  id: string;
   name: string;
   version: string;
   enabled: boolean;
@@ -77,22 +89,30 @@ export function DictionaryManager({
   const optionEntries = readDictionaryOptions(options);
 
   const refresh = useCallback(async () => {
-    const rows = await listInstalledDictionaries();
-    setInstalled(rows);
-  }, []);
+    try {
+      setInstalled(await listInstalledDictionaries());
+    } catch (error) {
+      // No engine (browser build) or the database is unreachable: report it as
+      // an empty list rather than leaving a permanent skeleton on screen.
+      setInstalled([]);
+      toast.error(copy.loadFailed, {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [copy.loadFailed]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  /** Import the picked archive, then mirror it into `options.dictionaries`. */
   const runImport = useCallback(
-    async (file: File) => {
-      const bytes = await file.arrayBuffer();
-      const record = await importDictionaryArchive(bytes);
+    async (path: string) => {
+      const record = await importDictionaryFromPath(path);
       onChange(
         writeOptionPath(options, 'dictionaries', [
-          ...optionEntries.filter((entry) => entry.name !== record.title),
-          createDictionaryOptionEntry(record.title),
+          ...optionEntries.filter((entry) => entry.name !== record.name),
+          createDictionaryOptionEntry(record.name),
         ]),
       );
       await refresh();
@@ -100,23 +120,24 @@ export function DictionaryManager({
     [onChange, optionEntries, options, refresh],
   );
 
-  function handleToggle(name: string, enabled: boolean) {
+  async function handleToggle(row: DictionaryRow, enabled: boolean) {
+    await toggleDictionary(row.id, enabled);
     onChange(
       writeOptionPath(
         options,
         'dictionaries',
-        setDictionaryEnabled(optionEntries, name, enabled),
+        setDictionaryEnabled(optionEntries, row.name, enabled),
       ),
     );
   }
 
-  async function handleDelete(name: string) {
-    await deleteDictionary(name);
+  async function handleDelete(row: DictionaryRow) {
+    await deleteDictionary(row.id);
     onChange(
       writeOptionPath(
         options,
         'dictionaries',
-        removeDictionaryOption(optionEntries, name),
+        removeDictionaryOption(optionEntries, row.name),
       ),
     );
     await refresh();
@@ -142,7 +163,7 @@ export function DictionaryManager({
   return (
     <ModuleListManager
       rows={rows.map<ModuleListManagerRow>((row) => ({
-        key: row.name,
+        key: row.id,
         name: row.name,
         // Yomitan's own metadata line: the dictionary revision, nothing else.
         meta: row.version === '' ? '' : `rev.${row.version}`,
@@ -152,9 +173,19 @@ export function DictionaryManager({
       title={title}
       description={description}
       loading={installed === null}
-      onImport={runImport}
-      onToggle={handleToggle}
-      onRemove={handleDelete}
+      // The engine imports from a PATH, which only the native dialog can produce;
+      // a browser has no engine to import into, so it offers no import at all.
+      onImportPath={isTauri() ? runImport : undefined}
+      onToggle={(key, enabled) => {
+        const row = rows.find((candidate) => candidate.id === key);
+        if (row === undefined) return;
+        void handleToggle(row, enabled);
+      }}
+      onRemove={(key) => {
+        const row = rows.find((candidate) => candidate.id === key);
+        if (row === undefined) return;
+        return handleDelete(row);
+      }}
       onReorder={handleReorder}
     />
   );
@@ -174,11 +205,12 @@ function readDictionaryOptions(options: Options): DictionaryOptionEntry[] {
  * Merge the two halves into the displayed order.
  *
  * `options.dictionaries` leads, because that array is the priority the user
- * arranged. A dictionary present in the database but absent from it (an import
- * interrupted before the settings write) still lists — appended, switched off —
- * so it can be enabled or removed instead of occupying space invisibly, and a
- * dictionary whose data is gone (the database was cleared under us) keeps its
- * place with no metadata rather than vanishing from the order.
+ * arranged. A dictionary present in the engine but absent from it (an import
+ * interrupted before the settings write) still lists — with the engine's own
+ * enable state — so it can be enabled or removed instead of occupying space
+ * invisibly, and a dictionary whose data is gone (the engine database was
+ * replaced under us) keeps its place with no metadata rather than vanishing
+ * from the order.
  */
 function buildRows(
   installed: readonly InstalledDictionary[] | null,
@@ -192,10 +224,16 @@ function buildRows(
     if (seen.has(entry.name)) continue;
     seen.add(entry.name);
     const record = stored.get(entry.name);
+    if (record === undefined) {
+      // Option entry without engine data: not actionable (no id to toggle or
+      // delete), so it is not drawn.
+      continue;
+    }
     stored.delete(entry.name);
     rows.push({
+      id: record.id,
       name: entry.name,
-      version: record?.version ?? '',
+      version: record.version,
       enabled: entry.enabled,
     });
   }
@@ -203,9 +241,10 @@ function buildRows(
   for (const record of stored.values()) {
     if (seen.has(record.name)) continue;
     rows.push({
+      id: record.id,
       name: record.name,
       version: record.version,
-      enabled: false,
+      enabled: record.enabled,
     });
   }
   return rows;

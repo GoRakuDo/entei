@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-yomitan-toggle-dictionary"
+description = "Enables the yomitan_toggle_dictionary command without any pre-configured scope."
+commands.allow = ["yomitan_toggle_dictionary"]
+
+[[permission]]
+identifier = "deny-yomitan-toggle-dictionary"
+description = "Denies the yomitan_toggle_dictionary command without any pre-configured scope."
+commands.deny = ["yomitan_toggle_dictionary"]

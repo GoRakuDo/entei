@@ -10,7 +10,8 @@
  * - expanding a section shows only the editable, non-locked fields
  * - a section the manifest lays out (`sectionLayouts`) draws the declared rows
  *   through the app's standard layouts: the installed-item list with its own
- *   header and import action, plain field rows, and the host-measured usage row
+ *   header (its import action belongs to the desktop dictionary engine), plain
+ *   field rows, and the host-measured usage row
  * - a field laid out that way is claimed: it is not drawn twice in its own tree
  *   group
  * - nothing is hard-coded per module: a `list` row with an unknown `source`
@@ -161,11 +162,13 @@ describe('YomitanSettingsRenderer — manifest-laid-out Dictionaries section', (
     openSection(/Dictionaries/i);
   }
 
-  it('draws the installed-item list with its header and import action', async () => {
+  it('draws the installed-item list with its header, and no import outside the desktop engine', async () => {
     const { container } = renderSettings();
     openDictionaries();
 
-    // Block header: title + description on the left, import on the right.
+    // Block header: title + description on the left, import on the right — the
+    // import action belongs to the desktop engine (a native path picker), so a
+    // browser pass draws the header without it.
     expect(screen.getByText(COPY.dictionaries.installedTitle)).toBeTruthy();
     expect(
       screen.getByText(COPY.dictionaries.installedDescription),
@@ -174,11 +177,11 @@ describe('YomitanSettingsRenderer — manifest-laid-out Dictionaries section', (
     expect(header).not.toBeNull();
     expect(
       header?.querySelector('.entei-module-list-toolbar button'),
-    ).not.toBeNull();
+    ).toBeNull();
 
     // The generic read-only note is gone for this field, replaced by the empty
-    // state (no dictionaries are installed in a test run: `bun test` has no
-    // IndexedDB) and its reorderable rows.
+    // state: `bun test` has no Tauri runtime, so the engine reports nothing and
+    // there are no reorderable rows to draw.
     expect(screen.queryByText(COPY.notEditable)).toBeNull();
     expect(await screen.findByText(COPY.dictionaries.empty)).toBeTruthy();
     expect(container.querySelectorAll('.entei-module-list-rows')).toHaveLength(

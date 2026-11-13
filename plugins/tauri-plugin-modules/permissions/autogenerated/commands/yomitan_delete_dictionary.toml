@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-yomitan-delete-dictionary"
+description = "Enables the yomitan_delete_dictionary command without any pre-configured scope."
+commands.allow = ["yomitan_delete_dictionary"]
+
+[[permission]]
+identifier = "deny-yomitan-delete-dictionary"
+description = "Denies the yomitan_delete_dictionary command without any pre-configured scope."
+commands.deny = ["yomitan_delete_dictionary"]

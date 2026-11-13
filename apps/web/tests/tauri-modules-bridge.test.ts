@@ -7,6 +7,12 @@ import {
   nadeshikoSearchDirect,
   nadeshikoSegmentContextDirect,
   nadeshikoUserMeDirect,
+  yomitanDeleteDictionaryDirect,
+  yomitanFindKanjiDirect,
+  yomitanFindTermsDirect,
+  yomitanImportDictionaryDirect,
+  yomitanListDictionariesDirect,
+  yomitanToggleDictionaryDirect,
 } from '../src/features/player/tauri-bridge';
 import type { NadeshikoSearchPage } from '../src/features/nadeshiko/nadeshiko-client';
 
@@ -131,11 +137,82 @@ describe('tauri-bridge modules commands', () => {
     ]);
   });
 
+  it('uses typed Yomitan dictionary commands with exact payload names', async () => {
+    const summary = {
+      id: 'a1b2c3',
+      title: 'JMdict',
+      format: 3,
+      revision: 'jmdict-3.5.0',
+      sequenced: true,
+      author: null,
+      url: null,
+      description: null,
+      createdAt: 1_700_000_000_000,
+      enabled: true,
+    };
+    const term = {
+      id: 1,
+      dictionaryId: 'a1b2c3',
+      expression: '食べる',
+      reading: 'たべる',
+      definitionTags: 'v1',
+      rules: 'v1 vt',
+      score: 100,
+      sequence: 1,
+      termTags: null,
+      glossary: ['to eat'],
+    };
+    const calls = installTauri((command) => {
+      if (command.endsWith('yomitan_list_dictionaries')) return [summary];
+      if (command.endsWith('yomitan_import_dictionary')) return summary;
+      if (command.endsWith('yomitan_find_terms')) return [term];
+      if (command.endsWith('yomitan_find_kanji')) return null;
+      return null;
+    });
+
+    await expect(yomitanImportDictionaryDirect({ zipPath: 'Z:\\d\\jmdict.zip' })).resolves.toEqual(summary);
+    await expect(yomitanListDictionariesDirect()).resolves.toEqual([summary]);
+    await expect(yomitanToggleDictionaryDirect({ id: 'a1b2c3', enabled: false })).resolves.toBeNull();
+    await expect(yomitanDeleteDictionaryDirect({ id: 'a1b2c3' })).resolves.toBeNull();
+    await expect(yomitanFindTermsDirect({ term: '食べる' })).resolves.toEqual([term]);
+    await expect(yomitanFindKanjiDirect({ character: '日' })).resolves.toBeNull();
+
+    expect(calls).toEqual([
+      {
+        command: 'plugin:modules|yomitan_import_dictionary',
+        args: { zipPath: 'Z:\\d\\jmdict.zip' },
+      },
+      { command: 'plugin:modules|yomitan_list_dictionaries', args: {} },
+      {
+        command: 'plugin:modules|yomitan_toggle_dictionary',
+        args: { id: 'a1b2c3', enabled: false },
+      },
+      { command: 'plugin:modules|yomitan_delete_dictionary', args: { id: 'a1b2c3' } },
+      { command: 'plugin:modules|yomitan_find_terms', args: { term: '食べる' } },
+      { command: 'plugin:modules|yomitan_find_kanji', args: { character: '日' } },
+    ]);
+  });
+
+  it('omits an undefined term limit instead of sending it as null', async () => {
+    const calls = installTauri(() => []);
+
+    await yomitanFindTermsDirect({ term: '食べる' });
+    await yomitanFindTermsDirect({ term: '食べる', limit: 5 });
+
+    expect(calls).toEqual([
+      { command: 'plugin:modules|yomitan_find_terms', args: { term: '食べる' } },
+      { command: 'plugin:modules|yomitan_find_terms', args: { term: '食べる', limit: 5 } },
+    ]);
+  });
+
   it('does not call native modules commands without a Tauri runtime', async () => {
     await expect(jimakuSearchEntriesDirect('key', 'Title', true)).rejects.toThrow(
       'tauri runtime unavailable',
     );
     await expect(nadeshikoUserMeDirect('key')).rejects.toThrow(
+      'tauri runtime unavailable',
+    );
+    await expect(yomitanListDictionariesDirect()).rejects.toThrow(
       'tauri runtime unavailable',
     );
   });

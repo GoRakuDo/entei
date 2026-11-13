@@ -514,6 +514,7 @@ function resolveListCopy(
     enable: pick('enable'),
     remove: pick('remove'),
     importFailed: pick('importFailed'),
+    loadFailed: pick('loadFailed'),
     reorder: pick('reorder'),
     reorderHint: pick('reorderHint'),
   };

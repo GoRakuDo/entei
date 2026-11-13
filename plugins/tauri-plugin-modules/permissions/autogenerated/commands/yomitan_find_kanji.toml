@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-yomitan-find-kanji"
+description = "Enables the yomitan_find_kanji command without any pre-configured scope."
+commands.allow = ["yomitan_find_kanji"]
+
+[[permission]]
+identifier = "deny-yomitan-find-kanji"
+description = "Denies the yomitan_find_kanji command without any pre-configured scope."
+commands.deny = ["yomitan_find_kanji"]

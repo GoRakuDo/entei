@@ -409,6 +409,7 @@ export const ja: Dictionary = {
       enable: '辞書を有効化',
       remove: '辞書を削除',
       importFailed: '辞書のインポートに失敗しました',
+      loadFailed: 'インストール済みの辞書を読み込めませんでした',
       reorder: '辞書の順序を変更',
       reorderHint: 'ドラッグ、または上下の矢印キーで優先度を変更できます。',
       prefixWildcards: '前方一致ワイルドカード検索を有効にする',

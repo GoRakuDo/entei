@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-yomitan-list-dictionaries"
+description = "Enables the yomitan_list_dictionaries command without any pre-configured scope."
+commands.allow = ["yomitan_list_dictionaries"]
+
+[[permission]]
+identifier = "deny-yomitan-list-dictionaries"
+description = "Denies the yomitan_list_dictionaries command without any pre-configured scope."
+commands.deny = ["yomitan_list_dictionaries"]

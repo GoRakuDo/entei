@@ -414,6 +414,7 @@ export const en: Dictionary = {
       enable: 'Enable dictionary',
       remove: 'Delete dictionary',
       importFailed: 'Dictionary import failed',
+      loadFailed: 'Installed dictionaries could not be read',
       reorder: 'Reorder dictionary',
       reorderHint:
         'Drag to change the priority, or press the up and down arrow keys.',

@@ -55,10 +55,20 @@ export interface ModuleDataSource {
   usage?: () => Promise<StorageUsageSnapshot | null>;
 }
 
-/** Installed dictionary titles — the host's own answer, in stored order. */
+/**
+ * Installed dictionary titles — the host's own answer, in stored order.
+ *
+ * Fails soft to "none installed": the engine lives in the desktop plugin, so a
+ * browser pass has no answer, and a combobox with no options is a better result
+ * there than a settings section that throws.
+ */
 async function readInstalledDictionaryOptions(): Promise<readonly SelectOption[]> {
-  const installed = await listInstalledDictionaries();
-  return installed.map((entry) => ({ value: entry.name, label: entry.name }));
+  try {
+    const installed = await listInstalledDictionaries();
+    return installed.map((entry) => ({ value: entry.name, label: entry.name }));
+  } catch {
+    return [];
+  }
 }
 
 /** Every data source the app implements, keyed by manifest `source` id. */

@@ -233,6 +233,131 @@ export function nadeshikoUserMeDirect(
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * Yomitan dictionaries (native engine)
+ * --------------------------------------------------------------------------
+ * The dictionary database is Rust: `plugins/tauri-plugin-modules`
+ * (SQLite at `app_data_dir/yomitan-dictionaries.db`) parses the ZIP, stores
+ * every bank and answers the lookups. The web layer holds NO dictionary data —
+ * no IndexedDB, no decompression, no bank conversion.
+ *
+ * Import takes a PATH, not bytes: the Rust importer streams the archive off
+ * disk, so a multi-gigabyte dictionary costs no renderer memory, and a ZIP as a
+ * JS number array over IPC would be both huge and slow. A WebView2 `File` has
+ * no filesystem path, so the path comes from the native dialog plugin (the same
+ * route `MediaPicker` uses for media).
+ * ------------------------------------------------------------------------- */
+
+/** One imported dictionary, as reported by the native engine (camelCase serde). */
+export interface YomitanDictionarySummary {
+  /** Stable FNV-1a identity of format+revision+title — what toggle/delete take. */
+  id: string;
+  title: string;
+  /** Dictionary data format the archive declared (1 or 3). */
+  format: number;
+  revision: string;
+  sequenced: boolean;
+  author: string | null;
+  url: string | null;
+  description: string | null;
+  /** First-import timestamp in epoch milliseconds. */
+  createdAt: number;
+  /** False → lookups skip this dictionary. */
+  enabled: boolean;
+}
+
+/** One headword from the native engine (glossary is already-parsed JSON). */
+export interface YomitanTermEntry {
+  id: number;
+  dictionaryId: string;
+  expression: string;
+  reading: string | null;
+  definitionTags: string | null;
+  rules: string | null;
+  score: number;
+  sequence: number;
+  termTags: string | null;
+  glossary: unknown;
+}
+
+/** One kanji entry from the native engine. */
+export interface YomitanKanjiEntry {
+  character: string;
+  dictionaryId: string;
+  onyomi: string | null;
+  kunyomi: string | null;
+  tags: string | null;
+  meanings: string[];
+  stats: Record<string, unknown> | null;
+}
+
+/**
+ * Import one dictionary archive from an absolute path the user picked.
+ *
+ * Re-importing the same archive replaces that dictionary's banks in one
+ * transaction and leaves it enabled. Rejects outside Tauri — the browser has no
+ * dictionary engine to import into.
+ */
+export function yomitanImportDictionaryDirect(args: {
+  zipPath: string;
+}): Promise<YomitanDictionarySummary> {
+  return invokePluginCommand<YomitanDictionarySummary>(
+    'plugin:modules|yomitan_import_dictionary',
+    { zipPath: args.zipPath },
+  );
+}
+
+/** Every imported dictionary, newest import first. */
+export function yomitanListDictionariesDirect(): Promise<
+  YomitanDictionarySummary[]
+> {
+  return invokePluginCommand<YomitanDictionarySummary[]>(
+    'plugin:modules|yomitan_list_dictionaries',
+    {},
+  );
+}
+
+/** Enable/disable one dictionary by id; lookups skip a disabled one. */
+export function yomitanToggleDictionaryDirect(args: {
+  id: string;
+  enabled: boolean;
+}): Promise<void> {
+  return invokePluginCommand<void>('plugin:modules|yomitan_toggle_dictionary', {
+    id: args.id,
+    enabled: args.enabled,
+  });
+}
+
+/** Delete one dictionary by id, together with every bank row it owns. */
+export function yomitanDeleteDictionaryDirect(args: {
+  id: string;
+}): Promise<void> {
+  return invokePluginCommand<void>('plugin:modules|yomitan_delete_dictionary', {
+    id: args.id,
+  });
+}
+
+/** Headwords matching `term` exactly, from enabled dictionaries, best first. */
+export function yomitanFindTermsDirect(args: {
+  term: string;
+  limit?: number;
+}): Promise<YomitanTermEntry[]> {
+  return invokePluginCommand<YomitanTermEntry[]>(
+    'plugin:modules|yomitan_find_terms',
+    args.limit === undefined ? { term: args.term } : { term: args.term, limit: args.limit },
+  );
+}
+
+/** The kanji entry for one character, or null when nothing has it. */
+export function yomitanFindKanjiDirect(args: {
+  character: string;
+}): Promise<YomitanKanjiEntry | null> {
+  return invokePluginCommand<YomitanKanjiEntry | null>(
+    'plugin:modules|yomitan_find_kanji',
+    { character: args.character },
+  );
+}
+
 /** Shared traced IPC gateway for the Anki and module plugins. */
 function invokePluginCommand<T>(
   command: string,

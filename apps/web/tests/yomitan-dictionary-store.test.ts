@@ -1,260 +1,131 @@
 /**
- * Dictionary store tests — the pure half (no IndexedDB needed).
+ * Dictionary store tests — what the web side still owns.
  * ---------------------------------------------------------------------------
- * Covers what a dictionary import decides BEFORE anything is written:
+ * - the native engine adapter: exact IPC commands and payload names, and the
+ *   summary → settings-row reshaping (no engine → the browser rejection path);
+ * - the `options.dictionaries` list transforms that back the enable, delete and
+ *   reorder controls.
  *
- * - `index.json` validation (missing fields, unsupported format)
- * - bank row conversion for both dictionary formats (V1 / V3)
- * - glossary node formatting (text collapses, images become resolvable targets,
- *   structured content is walked)
- * - the `options.dictionaries` helpers that back the enable/delete toggles
+ * ZIP parsing, bank conversion and glossary media are Rust now
+ * (`plugins/tauri-plugin-modules`); their behaviour is covered by
+ * `plugins/tauri-plugin-modules/tests/yomitan_dictionary_test.rs`.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
-  convertKanjiBankEntry,
-  convertKanjiMetaBankEntry,
-  convertTagBankEntry,
-  convertTermBankEntry,
-  convertTermMetaBankEntry,
   createDictionaryOptionEntry,
-  formatGlossaryNode,
-  getDictionaryRecord,
-  getImageMediaTypeFromFileName,
+  deleteDictionary,
+  importDictionaryFromPath,
   listInstalledDictionaries,
-  parseDictionaryIndex,
+  orderDictionaryOptions,
   removeDictionaryOption,
   setDictionaryEnabled,
-  orderDictionaryOptions,
+  toggleDictionary,
   type DictionaryOptionEntry,
 } from '@/features/yomitan/dictionary-store';
 
-describe('parseDictionaryIndex', () => {
-  it('reads a format-3 index', () => {
-    const index = parseDictionaryIndex(
-      JSON.stringify({
-        title: 'JMdict',
-        revision: 'jmdict-3.5.0',
-        version: 3,
-        sequenced: true,
-        author: 'Electronic Dictionary Research',
-        frequencyMode: 'merge-split',
-      }),
-    );
-    expect(index.title).toBe('JMdict');
-    expect(index.revision).toBe('jmdict-3.5.0');
-    expect(index.version).toBe(3);
-    expect(index.sequenced).toBe(true);
-    expect(index.author).toBe('Electronic Dictionary Research');
-    expect(index.frequencyMode).toBe('merge-split');
-  });
+interface InvokeArgs {
+  command: string;
+  args: Record<string, unknown> | undefined;
+}
 
-  it('accepts a format-1 index and keeps its inline tag metadata', () => {
-    const index = parseDictionaryIndex(
-      JSON.stringify({
-        title: 'Kanjium',
-        revision: '1.0',
-        version: 1,
-        tagMeta: {
-          n: { category: 'frequency', order: 0, notes: 'notes', score: 0 },
-        },
-      }),
-    );
-    expect(index.version).toBe(1);
-    expect(index.tagMeta?.n?.category).toBe('frequency');
-  });
+interface InternalsWindow {
+  __TAURI_INTERNALS__?: {
+    invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+  };
+}
 
-  it('rejects an index with no title', () => {
-    expect(() => parseDictionaryIndex('{"revision":"1","version":3}')).toThrow(
-      /missing 'title'/i,
-    );
-  });
+function internals(): InternalsWindow {
+  return globalThis as unknown as InternalsWindow;
+}
 
-  it('rejects an unsupported dictionary format', () => {
-    expect(() =>
-      parseDictionaryIndex('{"title":"X","revision":"1","version":2}'),
-    ).toThrow(/not supported/i);
-  });
+function installTauri(impl: (command: string) => unknown): InvokeArgs[] {
+  const calls: InvokeArgs[] = [];
+  internals().__TAURI_INTERNALS__ = {
+    invoke: vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      calls.push({ command, args });
+      return impl(command);
+    }),
+  };
+  return calls;
+}
 
-  it('rejects a file that is not JSON', () => {
-    expect(() => parseDictionaryIndex('nope')).toThrow(/invalid index\.json/i);
-  });
+const SUMMARY = {
+  id: 'a1b2c3',
+  title: 'JMdict',
+  format: 3,
+  revision: 'jmdict-3.5.0',
+  sequenced: true,
+  author: 'EDRDG',
+  url: null,
+  description: null,
+  createdAt: 1_700_000_000_000,
+  enabled: true,
+};
+
+beforeEach(() => {
+  installTauri(() => undefined);
 });
 
-describe('convertTermBankEntry', () => {
-  it('converts a format-3 row (expression, reading, tags, rules, score, glossary, sequence, termTags)', () => {
-    const entry = convertTermBankEntry(
-      ['彼', 'かれ', 'pn', 'n', 100, ['he; him'], 2501, 'common'],
-      'dict',
-      3,
-    );
-    expect(entry.expression).toBe('彼');
-    expect(entry.reading).toBe('かれ');
-    expect(entry.definitionTags).toEqual(['pn']);
-    expect(entry.rules).toEqual(['n']);
-    expect(entry.score).toBe(100);
-    expect(entry.glossary).toEqual(['he; him']);
-    expect(entry.sequence).toBe(2501);
-    expect(entry.termTags).toEqual(['common']);
-    expect(entry.dictionary).toBe('dict');
-    // Suffix-search indices hold the reversed strings (code-point safe).
-    expect(entry.expressionReverse).toBe([...'彼'].reverse().join(''));
-  });
-
-  it('falls back to the expression when a format-3 row leaves the reading empty', () => {
-    const entry = convertTermBankEntry(
-      ['東京', '', 'n', 'n', 0, ['Tokyo'], -1, ''],
-      'dict',
-      3,
-    );
-    expect(entry.reading).toBe('東京');
-    expect(entry.readingReverse).toBe([...'東京'].reverse().join(''));
-  });
-
-  it('converts a format-1 row (glossary entries spread after the score)', () => {
-    const entry = convertTermBankEntry(
-      ['食べる', 'たべる', 'v1', 'v1 vt', 50, 'to eat', 'consume'],
-      'dict',
-      1,
-    );
-    expect(entry.definitionTags).toEqual(['v1']);
-    expect(entry.glossary).toEqual(['to eat', 'consume']);
-    // Format-1 banks carry no sequence / term tags.
-    expect(entry.sequence).toBe(-1);
-    expect(entry.termTags).toEqual([]);
-  });
-
-  it('splits multi-word tag strings', () => {
-    const entry = convertTermBankEntry(
-      ['x', 'y', 'v1 ichidan', 'n', 0, ['g'], 1, 'ichi1 common'],
-      'dict',
-      3,
-    );
-    expect(entry.definitionTags).toEqual(['v1', 'ichidan']);
-    expect(entry.termTags).toEqual(['ichi1', 'common']);
-  });
+afterEach(() => {
+  delete internals().__TAURI_INTERNALS__;
 });
 
-describe('convertKanjiBankEntry', () => {
-  it('converts a format-3 row with stats', () => {
-    const entry = convertKanjiBankEntry(
-      ['日', ['ニチ'], ['ひ'], ['nature'], ['day', 'sun'], { codepoint: 26085 }],
-      'dict',
-      3,
-    );
-    expect(entry.character).toBe('日');
-    expect(entry.onyomi).toEqual(['ニチ']);
-    expect(entry.meanings).toEqual(['day', 'sun']);
-    expect(entry.stats).toEqual({ codepoint: 26085 });
-  });
+describe('native dictionary engine adapter', () => {
+  it('lists dictionaries through the typed command and reshapes each summary', async () => {
+    const calls = installTauri(() => [SUMMARY]);
 
-  it('converts a format-1 row (meanings spread as loose arguments, no stats)', () => {
-    const entry = convertKanjiBankEntry(
-      ['日', ['ニチ'], ['ひ'], ['nature'], 'day', 'sun'],
-      'dict',
-      1,
-    );
-    expect(entry.meanings).toEqual([]);
-    expect(entry.stats).toBeUndefined();
-  });
-});
+    const installed = await listInstalledDictionaries();
 
-describe('convertTermMetaBankEntry / convertKanjiMetaBankEntry', () => {
-  it('reads a frequency row', () => {
-    const meta = convertTermMetaBankEntry(['食べる', 'freq', 1234], 'dict');
-    expect(meta.mode).toBe('freq');
-    expect(meta.data).toBe(1234);
-    expect(meta.dictionary).toBe('dict');
-  });
-
-  it('reads a pitch-accent row', () => {
-    const meta = convertTermMetaBankEntry(
-      ['食べる', 'pitch', { pitches: [{ reading: 'たべる', devoice: [], nasal: [] }] }],
-      'dict',
-    );
-    expect(meta.mode).toBe('pitch');
-    expect(typeof meta.data).toBe('object');
-  });
-
-  it('reads a kanji code-point row', () => {
-    const meta = convertKanjiMetaBankEntry(['日', 'freq', 26085], 'dict');
-    expect(meta.character).toBe('日');
-    expect(meta.mode).toBe('freq');
-  });
-});
-
-describe('convertTagBankEntry', () => {
-  it('reads a tag row', () => {
-    const tag = convertTagBankEntry(
-      ['v1', 'part-of-speech', 0, 'Ichidan verb', 0],
-      'dict',
-    );
-    expect(tag.name).toBe('v1');
-    expect(tag.category).toBe('part-of-speech');
-    expect(tag.order).toBe(0);
-    expect(tag.notes).toBe('Ichidan verb');
-  });
-});
-
-describe('formatGlossaryNode', () => {
-  it('collapses a text node to its string', () => {
-    const requirements: Parameters<typeof formatGlossaryNode>[1] = [];
-    expect(formatGlossaryNode({ type: 'text', text: 'hello' }, requirements)).toBe(
-      'hello',
-    );
-    expect(requirements).toHaveLength(0);
-  });
-
-  it('turns an image node into a resolvable target', () => {
-    const requirements: Parameters<typeof formatGlossaryNode>[1] = [];
-    const node = formatGlossaryNode(
-      { type: 'image', path: 'images/pic.png', height: 100, alt: 'pic' },
-      requirements,
-    );
-    expect(node).toMatchObject({ type: 'image', path: '' });
-    expect(requirements).toHaveLength(1);
-    expect(requirements[0]?.source.path).toBe('images/pic.png');
-  });
-
-  it('walks structured content and collects its images', () => {
-    const requirements: Parameters<typeof formatGlossaryNode>[1] = [];
-    const node = formatGlossaryNode(
+    expect(calls).toEqual([
+      { command: 'plugin:modules|yomitan_list_dictionaries', args: {} },
+    ]);
+    expect(installed).toEqual([
       {
-        type: 'structured-content',
-        content: [
-          'plain ',
-          { tag: 'img', path: 'a.png' },
-          { tag: 'span', content: [{ tag: 'img', path: 'b.png' }] },
-        ],
+        id: 'a1b2c3',
+        name: 'JMdict',
+        version: 'jmdict-3.5.0',
+        author: 'EDRDG',
+        enabled: true,
+        importedAt: new Date(1_700_000_000_000).toISOString(),
       },
-      requirements,
-    );
-    expect(node).toMatchObject({ type: 'structured-content' });
-    expect(requirements.map((item) => item.source.path)).toEqual([
-      'a.png',
-      'b.png',
     ]);
   });
 
-  it('passes an unknown node type through untouched', () => {
-    const requirements: Parameters<typeof formatGlossaryNode>[1] = [];
-    const node = formatGlossaryNode({ type: 'future-thing', data: 1 }, requirements);
-    expect(node).toEqual({ type: 'future-thing', data: 1 });
-    expect(requirements).toHaveLength(0);
-  });
-});
+  it('imports from an absolute path (never from bytes)', async () => {
+    const calls = installTauri(() => SUMMARY);
 
-describe('getImageMediaTypeFromFileName', () => {
-  it('maps the common glossary image extensions', () => {
-    expect(getImageMediaTypeFromFileName('a/b/c.png')).toBe('image/png');
-    expect(getImageMediaTypeFromFileName('c.JPG')).toBe('image/jpeg');
-    expect(getImageMediaTypeFromFileName('c.svg')).toBe('image/svg+xml');
-    expect(getImageMediaTypeFromFileName('c.webp')).toBe('image/webp');
+    const installed = await importDictionaryFromPath('Z:\\dicts\\jmdict.zip');
+
+    expect(calls).toEqual([
+      {
+        command: 'plugin:modules|yomitan_import_dictionary',
+        args: { zipPath: 'Z:\\dicts\\jmdict.zip' },
+      },
+    ]);
+    expect(installed.name).toBe('JMdict');
   });
 
-  it('returns null for a file that is not an image', () => {
-    expect(getImageMediaTypeFromFileName('a.json')).toBeNull();
-    expect(getImageMediaTypeFromFileName('no-extension')).toBeNull();
+  it('toggles and deletes by engine id', async () => {
+    const calls = installTauri(() => null);
+
+    await toggleDictionary('a1b2c3', false);
+    await deleteDictionary('a1b2c3');
+
+    expect(calls).toEqual([
+      {
+        command: 'plugin:modules|yomitan_toggle_dictionary',
+        args: { id: 'a1b2c3', enabled: false },
+      },
+      { command: 'plugin:modules|yomitan_delete_dictionary', args: { id: 'a1b2c3' } },
+    ]);
+  });
+
+  it('rejects outside the desktop runtime (no engine in a browser)', async () => {
+    delete internals().__TAURI_INTERNALS__;
+    await expect(listInstalledDictionaries()).rejects.toThrow(
+      /tauri runtime unavailable/i,
+    );
   });
 });
 
@@ -313,15 +184,5 @@ describe('options.dictionaries helpers', () => {
       'Dict B',
     ]);
     expect(next[0]?.enabled).toBe(false);
-  });
-});
-
-describe('store read APIs without IndexedDB', () => {
-  it('report "no dictionaries" instead of throwing', async () => {
-    // `bun test` runs in Bun's runtime, which has no `indexedDB` global — the
-    // same shape as an SSR pass or a locked-down browser.
-    expect(typeof indexedDB).toBe('undefined');
-    expect(await listInstalledDictionaries()).toEqual([]);
-    expect(await getDictionaryRecord('Dict A')).toBeNull();
   });
 });

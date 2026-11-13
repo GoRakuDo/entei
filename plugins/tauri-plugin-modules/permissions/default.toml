@@ -1,7 +1,7 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = """Default permissions for native Jimaku and Nadeshiko API requests."""
+description = """Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dictionary storage."""
 permissions = [
   "allow-modules-jimaku-search-entries",
   "allow-modules-jimaku-search-entries-combined",
@@ -10,4 +10,10 @@ permissions = [
   "allow-modules-nadeshiko-search",
   "allow-modules-nadeshiko-segment-context",
   "allow-modules-nadeshiko-user-me",
+  "allow-yomitan-import-dictionary",
+  "allow-yomitan-list-dictionaries",
+  "allow-yomitan-toggle-dictionary",
+  "allow-yomitan-delete-dictionary",
+  "allow-yomitan-find-terms",
+  "allow-yomitan-find-kanji",
 ]
