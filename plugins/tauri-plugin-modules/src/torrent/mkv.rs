@@ -126,11 +126,12 @@ pub fn is_japanese_tag(value: &str) -> bool {
         return false;
     }
     let lowered = trimmed.to_ascii_lowercase();
+    const PRIMARY_TAGS: &[&str] = &["ja", "jpn", "japanese", "nihongo"];
     let primary = lowered
         .split(['-', '_', ' ', '/', '('])
         .next()
         .unwrap_or(lowered.as_str());
-    if matches!(primary, "ja" | "jpn" | "japanese" | "nihongo") {
+    if PRIMARY_TAGS.contains(&primary) {
         return true;
     }
     // Titles such as "Japanese Dub" / "日本語音声" only match on the full string.

@@ -1,14 +1,14 @@
 /**
- * tauri-bridge — desktop (Tauri) runtime detection + direct source plugins.
+ * tauri-bridge — desktop (Tauri) runtime detection + unified `tauri-plugin-modules` bridge.
  * ---------------------------------------------------------------------------
- * The Entei desktop app ships `plugins/tauri-plugin-ytdlp` and
- * `plugins/tauri-plugin-torrent` in-process; those plugins resolve and relay
- * YouTube and magnet sources locally:
+ * The Entei desktop app ships `plugins/tauri-plugin-modules` in-process; all
+ * native modules (`ytdlp`, `torrent`, `jimaku`, `nadeshiko`, `yomitan`) resolve
+ * and relay through `plugin:modules|*`:
  *
- * - `plugin:ytdlp|stream_youtube` resolves the stream and hands back a
+ * - `plugin:modules|stream_youtube` resolves the stream and hands back a
  *   loopback relay URL (`http://127.0.0.1:<port>/stream/<session>`) that the
  *   `<video>` element can play directly.
- * - `plugin:torrent|add_torrent` / `get_torrent_status` / `select_torrent_files`
+ * - `plugin:modules|add_torrent` / `get_torrent_status` / `select_torrent_files`
  *   drive the torrent session, and `select_torrent_files` returns the same
  *   kind of loopback relay URL for the chosen video/subtitle file.
  *
@@ -450,11 +450,10 @@ export async function streamYouTubeDirect(
   url: string,
   mode: YtdlpStreamMode = 'video',
 ): Promise<YtdlpStreamSource> {
-  const invoke = window.__TAURI_INTERNALS__?.invoke;
-  if (typeof invoke !== 'function') {
-    throw new Error('tauri runtime unavailable');
-  }
-  const raw = await tracedInvoke('plugin:ytdlp|stream_youtube', { url, mode });
+  const raw = await invokePluginCommand<unknown>('plugin:modules|stream_youtube', {
+    url,
+    mode,
+  });
   const source = parseStreamSource(raw);
   if (!source) throw new Error('invalid stream source reply');
   return source;
@@ -470,11 +469,9 @@ export async function streamYouTubeDirect(
  * must not surface it.
  */
 export async function getVideoInfoDirect(url: string): Promise<YtdlpVideoInfo> {
-  const invoke = window.__TAURI_INTERNALS__?.invoke;
-  if (typeof invoke !== 'function') {
-    throw new Error('tauri runtime unavailable');
-  }
-  const raw = await tracedInvoke('plugin:ytdlp|get_video_info', { url });
+  const raw = await invokePluginCommand<unknown>('plugin:modules|get_video_info', {
+    url,
+  });
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('invalid video info reply');
   }
@@ -514,7 +511,7 @@ export interface DirectTorrentFile {
   length: number;
 }
 
-/** Reply of `plugin:torrent|add_torrent`. */
+/** Reply of `plugin:modules|add_torrent`. */
 export interface DirectTorrentAdded {
   /** Plugin-level handle used by the status/select/cancel commands. */
   id: string;
@@ -524,7 +521,7 @@ export interface DirectTorrentAdded {
   files: DirectTorrentFile[];
 }
 
-/** Reply of `plugin:torrent|get_torrent_status`. */
+/** Reply of `plugin:modules|get_torrent_status`. */
 export interface DirectTorrentStatus {
   id: string;
   info_hash: string;
@@ -543,7 +540,7 @@ export interface DirectTorrentStatus {
   files: DirectTorrentFile[];
 }
 
-/** Reply of `plugin:torrent|select_torrent_files`. */
+/** Reply of `plugin:modules|select_torrent_files`. */
 export interface DirectTorrentSelection {
   /** Loopback relay URL for the selected video. */
   video_url: string;
@@ -566,19 +563,6 @@ export interface DirectTorrentSelection {
   selected_audio_track: number | null;
   /** Same for the subtitle track (`--slang=ja,jpn`); informational, see above. */
   selected_subtitle_track: number | null;
-}
-
-/** Read the injected `invoke`, or throw when the runtime is not Tauri. */
-function tauriInvoke(): (
-  cmd: string,
-  args?: Record<string, unknown>,
-) => Promise<unknown> {
-  const invoke = window.__TAURI_INTERNALS__?.invoke;
-  if (typeof invoke !== 'function') {
-    throw new Error('tauri runtime unavailable');
-  }
-  // Traced: the journal records the command, its duration and its outcome.
-  return tracedInvoke;
 }
 
 /** Shape check for a torrent file list so malformed replies never reach the UI. */
@@ -612,8 +596,9 @@ function parseTorrentFiles(raw: unknown): DirectTorrentFile[] {
 export async function addTorrentDirect(
   magnetUri: string,
 ): Promise<DirectTorrentAdded> {
-  const invoke = tauriInvoke();
-  const raw = await invoke('plugin:torrent|add_torrent', { magnetUri });
+  const raw = await invokePluginCommand<unknown>('plugin:modules|add_torrent', {
+    magnetUri,
+  });
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('invalid add torrent reply');
   }
@@ -633,8 +618,9 @@ export async function addTorrentDirect(
 export async function getTorrentStatusDirect(
   id: string,
 ): Promise<DirectTorrentStatus> {
-  const invoke = tauriInvoke();
-  const raw = await invoke('plugin:torrent|get_torrent_status', { id });
+  const raw = await invokePluginCommand<unknown>('plugin:modules|get_torrent_status', {
+    id,
+  });
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('invalid torrent status reply');
   }
@@ -678,10 +664,12 @@ export async function selectTorrentFilesDirect(
   videoIndex: number,
   subtitleIndex?: number | null,
 ): Promise<DirectTorrentSelection> {
-  const invoke = tauriInvoke();
   const args: Record<string, unknown> = { id, videoIndex };
   if (typeof subtitleIndex === 'number') args.subtitleIndex = subtitleIndex;
-  const raw = await invoke('plugin:torrent|select_torrent_files', args);
+  const raw = await invokePluginCommand<unknown>(
+    'plugin:modules|select_torrent_files',
+    args,
+  );
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('invalid torrent selection reply');
   }
@@ -719,8 +707,7 @@ export async function selectTorrentFilesDirect(
  * cancelled torrent leaves no partial data behind.
  */
 export async function cancelTorrentDirect(id: string): Promise<void> {
-  const invoke = tauriInvoke();
-  await invoke('plugin:torrent|cancel_torrent', { id });
+  await invokePluginCommand<void>('plugin:modules|cancel_torrent', { id });
 }
 
 /* ---------------------------------------------------------------------------

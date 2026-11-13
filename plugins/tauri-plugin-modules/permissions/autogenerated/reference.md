@@ -1,6 +1,6 @@
 ## Default Permission
 
-Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dictionary storage.
+Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.
 
 #### This default permission set includes the following:
 
@@ -17,6 +17,13 @@ Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dic
 - `allow-yomitan-delete-dictionary`
 - `allow-yomitan-find-terms`
 - `allow-yomitan-find-kanji`
+- `allow-add-torrent`
+- `allow-get-torrent-status`
+- `allow-select-torrent-files`
+- `allow-inspect-torrent-tracks`
+- `allow-cancel-torrent`
+- `allow-get-video-info`
+- `allow-stream-youtube`
 
 ## Permission Table
 
@@ -26,6 +33,136 @@ Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dic
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`modules:allow-add-torrent`
+
+</td>
+<td>
+
+Enables the add_torrent command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-add-torrent`
+
+</td>
+<td>
+
+Denies the add_torrent command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-cancel-torrent`
+
+</td>
+<td>
+
+Enables the cancel_torrent command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-cancel-torrent`
+
+</td>
+<td>
+
+Denies the cancel_torrent command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-get-torrent-status`
+
+</td>
+<td>
+
+Enables the get_torrent_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-get-torrent-status`
+
+</td>
+<td>
+
+Denies the get_torrent_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-get-video-info`
+
+</td>
+<td>
+
+Enables the get_video_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-get-video-info`
+
+</td>
+<td>
+
+Denies the get_video_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-inspect-torrent-tracks`
+
+</td>
+<td>
+
+Enables the inspect_torrent_tracks command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-inspect-torrent-tracks`
+
+</td>
+<td>
+
+Denies the inspect_torrent_tracks command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
@@ -205,6 +342,58 @@ Enables the modules_nadeshiko_user_me command without any pre-configured scope.
 <td>
 
 Denies the modules_nadeshiko_user_me command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-select-torrent-files`
+
+</td>
+<td>
+
+Enables the select_torrent_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-select-torrent-files`
+
+</td>
+<td>
+
+Denies the select_torrent_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-stream-youtube`
+
+</td>
+<td>
+
+Enables the stream_youtube command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-stream-youtube`
+
+</td>
+<td>
+
+Denies the stream_youtube command without any pre-configured scope.
 
 </td>
 </tr>

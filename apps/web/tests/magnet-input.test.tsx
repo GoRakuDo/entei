@@ -84,7 +84,7 @@ afterEach(() => {
 describe('MagnetInput — direct Tauri torrent flow', () => {
   it('keeps the dialog local until submit, then requests torrent metadata without HTTP', async () => {
     const { calls } = installTauri({
-      'plugin:torrent|add_torrent': () => ({ id: 'torrent-1', name: 'Movie', files: FILES }),
+      'plugin:modules|add_torrent': () => ({ id: 'torrent-1', name: 'Movie', files: FILES }),
     });
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
@@ -95,7 +95,7 @@ describe('MagnetInput — direct Tauri torrent flow', () => {
     await createTorrent();
 
     expect(calls).toEqual([{
-      command: 'plugin:torrent|add_torrent',
+      command: 'plugin:modules|add_torrent',
       args: { magnetUri: VALID_URI },
     }]);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -104,8 +104,8 @@ describe('MagnetInput — direct Tauri torrent flow', () => {
 
   it('sends selected plugin file indices and hands relay URLs to the player', async () => {
     const { calls } = installTauri({
-      'plugin:torrent|add_torrent': () => ({ id: 'torrent-2', name: 'Movie', files: FILES }),
-      'plugin:torrent|select_torrent_files': () => ({
+      'plugin:modules|add_torrent': () => ({ id: 'torrent-2', name: 'Movie', files: FILES }),
+      'plugin:modules|select_torrent_files': () => ({
         video_url: 'http://127.0.0.1:5555/stream/video',
         video_name: 'movie.mkv',
         video_length: 2_000_000,
@@ -132,14 +132,14 @@ describe('MagnetInput — direct Tauri torrent flow', () => {
         subtitleUrl: 'http://127.0.0.1:5555/stream/subtitle',
       },
     ));
-    expect(calls.find((call) => call.command === 'plugin:torrent|select_torrent_files')?.args)
+    expect(calls.find((call) => call.command === 'plugin:modules|select_torrent_files')?.args)
       .toEqual({ id: 'torrent-2', videoIndex: 0, subtitleIndex: 1 });
   });
 
   it('cancels an unselected torrent when the dialog is dismissed', async () => {
     const { calls } = installTauri({
-      'plugin:torrent|add_torrent': () => ({ id: 'torrent-3', name: 'Movie', files: FILES }),
-      'plugin:torrent|cancel_torrent': () => null,
+      'plugin:modules|add_torrent': () => ({ id: 'torrent-3', name: 'Movie', files: FILES }),
+      'plugin:modules|cancel_torrent': () => null,
     });
     const onOpenChange = vi.fn();
     render(<MagnetInput {...defaultProps} onOpenChange={onOpenChange} />);
@@ -147,7 +147,7 @@ describe('MagnetInput — direct Tauri torrent flow', () => {
     fireEvent.click(screen.getByRole('button', { name: dict.magnetCancel }));
 
     await waitFor(() => expect(calls.some((call) =>
-      call.command === 'plugin:torrent|cancel_torrent' && call.args.id === 'torrent-3',
+      call.command === 'plugin:modules|cancel_torrent' && call.args.id === 'torrent-3',
     )).toBe(true));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -156,8 +156,8 @@ describe('MagnetInput — direct Tauri torrent flow', () => {
     vi.useFakeTimers();
     let files: DirectTorrentFile[] = [];
     const { calls } = installTauri({
-      'plugin:torrent|add_torrent': () => ({ id: 'torrent-4', name: 'Movie', files: [] }),
-      'plugin:torrent|get_torrent_status': () => ({
+      'plugin:modules|add_torrent': () => ({ id: 'torrent-4', name: 'Movie', files: [] }),
+      'plugin:modules|get_torrent_status': () => ({
         id: 'torrent-4',
         name: 'Movie',
         state: 'metadata',
@@ -175,12 +175,12 @@ describe('MagnetInput — direct Tauri torrent flow', () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(screen.getByText('movie.mkv')).toBeInTheDocument();
-    expect(calls.filter((call) => call.command === 'plugin:torrent|get_torrent_status')).toHaveLength(1);
+    expect(calls.filter((call) => call.command === 'plugin:modules|get_torrent_status')).toHaveLength(1);
   });
 
   it('maps invalid plugin input to a safe localized toast', async () => {
     installTauri({
-      'plugin:torrent|add_torrent': () => { throw new Error('invalid magnet uri: secret'); },
+      'plugin:modules|add_torrent': () => { throw new Error('invalid magnet uri: secret'); },
     });
     render(<MagnetInput {...defaultProps} />);
     await createTorrent().catch(() => undefined);

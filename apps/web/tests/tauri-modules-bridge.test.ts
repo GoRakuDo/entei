@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'bun:test';
 import {
+  addTorrentDirect,
+  cancelTorrentDirect,
+  getTorrentStatusDirect,
+  getVideoInfoDirect,
   jimakuDownloadSubtitleDirect,
   jimakuEntryFilesDirect,
   jimakuSearchEntriesCombinedDirect,
@@ -7,6 +11,8 @@ import {
   nadeshikoSearchDirect,
   nadeshikoSegmentContextDirect,
   nadeshikoUserMeDirect,
+  selectTorrentFilesDirect,
+  streamYouTubeDirect,
   yomitanDeleteDictionaryDirect,
   yomitanFindKanjiDirect,
   yomitanFindTermsDirect,
@@ -205,6 +211,99 @@ describe('tauri-bridge modules commands', () => {
     ]);
   });
 
+  it('routes yt-dlp stream and video info commands through plugin:modules', async () => {
+    const stream = {
+      url: 'http://127.0.0.1:41234/stream/s1',
+      urls: ['http://127.0.0.1:41234/stream/s1'],
+      mode: 'video',
+      format_selector: 'best',
+      relayed: true,
+    };
+    const info = {
+      id: 'vid1',
+      title: 'Video',
+      is_live: false,
+      subtitles: ['ja'],
+    };
+    const calls = installTauri((command) => {
+      if (command === 'plugin:modules|stream_youtube') return stream;
+      if (command === 'plugin:modules|get_video_info') return info;
+      return null;
+    });
+
+    await expect(streamYouTubeDirect('https://youtu.be/vid1', 'video')).resolves.toEqual(stream);
+    await expect(getVideoInfoDirect('https://youtu.be/vid1')).resolves.toEqual(info);
+    expect(calls).toEqual([
+      {
+        command: 'plugin:modules|stream_youtube',
+        args: { url: 'https://youtu.be/vid1', mode: 'video' },
+      },
+      {
+        command: 'plugin:modules|get_video_info',
+        args: { url: 'https://youtu.be/vid1' },
+      },
+    ]);
+  });
+
+  it('routes torrent lifecycle commands through plugin:modules', async () => {
+    const files = [{ index: 0, path: 'ep.mkv', length: 1024 }];
+    const calls = installTauri((command) => {
+      if (command === 'plugin:modules|add_torrent') {
+        return { id: 't-1', info_hash: 'hash', name: 'Show', files };
+      }
+      if (command === 'plugin:modules|get_torrent_status') {
+        return {
+          id: 't-1',
+          info_hash: 'hash',
+          name: 'Show',
+          state: 'metadata',
+          progress_bytes: 0,
+          total_bytes: 0,
+          progress_percent: 0,
+          download_speed_mbps: 0,
+          peers_live: 0,
+          finished: false,
+          playable: false,
+          error: null,
+          files,
+        };
+      }
+      if (command === 'plugin:modules|select_torrent_files') {
+        return {
+          video_url: 'http://127.0.0.1:5555/stream/v',
+          video_name: 'ep.mkv',
+          video_length: 1024,
+          subtitle_url: null,
+          subtitle_name: null,
+          selected_audio_track: null,
+          selected_subtitle_track: null,
+        };
+      }
+      return null;
+    });
+
+    await expect(addTorrentDirect('magnet:?xt=urn:btih:abc')).resolves.toMatchObject({
+      id: 't-1',
+      files,
+    });
+    await expect(getTorrentStatusDirect('t-1')).resolves.toMatchObject({
+      id: 't-1',
+      state: 'metadata',
+      files,
+    });
+    await expect(selectTorrentFilesDirect('t-1', 0)).resolves.toMatchObject({
+      video_url: 'http://127.0.0.1:5555/stream/v',
+      video_name: 'ep.mkv',
+    });
+    await expect(cancelTorrentDirect('t-1')).resolves.toBeUndefined();
+    expect(calls).toEqual([
+      { command: 'plugin:modules|add_torrent', args: { magnetUri: 'magnet:?xt=urn:btih:abc' } },
+      { command: 'plugin:modules|get_torrent_status', args: { id: 't-1' } },
+      { command: 'plugin:modules|select_torrent_files', args: { id: 't-1', videoIndex: 0 } },
+      { command: 'plugin:modules|cancel_torrent', args: { id: 't-1' } },
+    ]);
+  });
+
   it('does not call native modules commands without a Tauri runtime', async () => {
     await expect(jimakuSearchEntriesDirect('key', 'Title', true)).rejects.toThrow(
       'tauri runtime unavailable',
@@ -213,6 +312,12 @@ describe('tauri-bridge modules commands', () => {
       'tauri runtime unavailable',
     );
     await expect(yomitanListDictionariesDirect()).rejects.toThrow(
+      'tauri runtime unavailable',
+    );
+    await expect(streamYouTubeDirect('https://youtu.be/vid1')).rejects.toThrow(
+      'tauri runtime unavailable',
+    );
+    await expect(addTorrentDirect('magnet:?xt=urn:btih:abc')).rejects.toThrow(
       'tauri runtime unavailable',
     );
   });

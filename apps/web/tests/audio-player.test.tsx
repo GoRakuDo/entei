@@ -119,7 +119,7 @@ describe('AudioPlayer', () => {
       subtitles: ['ja'],
     };
     const invoke = vi.fn((command: string) =>
-      Promise.resolve(command === 'plugin:ytdlp|stream_youtube' ? stream : info),
+      Promise.resolve(command === 'plugin:modules|stream_youtube' ? stream : info),
     );
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke };
     const fetchMock = vi.fn<typeof fetch>();
@@ -137,7 +137,7 @@ describe('AudioPlayer', () => {
         'entei-sr-only',
       );
     });
-    expect(invoke).toHaveBeenCalledWith('plugin:ytdlp|stream_youtube', {
+    expect(invoke).toHaveBeenCalledWith('plugin:modules|stream_youtube', {
       url: 'https://www.youtube.com/watch?v=abcdefghijk',
       mode: 'audio',
     });

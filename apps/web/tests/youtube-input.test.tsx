@@ -99,7 +99,7 @@ describe('YouTube URL helpers', () => {
 describe('YouTubeInput — direct Tauri yt-dlp flow', () => {
   it('renders the URL form and starts the stream with its parsed video id', async () => {
     const invoke = vi.fn<Invoke>((command) =>
-      Promise.resolve(command === 'plugin:ytdlp|stream_youtube' ? STREAM : INFO),
+      Promise.resolve(command === 'plugin:modules|stream_youtube' ? STREAM : INFO),
     );
     installTauri(invoke);
     const onOpenChange = vi.fn();
@@ -125,7 +125,7 @@ describe('YouTubeInput — direct Tauri yt-dlp flow', () => {
     await waitFor(() => expect(onStreamAccepted).toHaveBeenCalledWith(STREAM, INFO));
     expect(onVideoIdParsed).toHaveBeenCalledWith('abcdefghijk');
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(invoke).toHaveBeenCalledWith('plugin:ytdlp|stream_youtube', {
+    expect(invoke).toHaveBeenCalledWith('plugin:modules|stream_youtube', {
       url: 'https://youtu.be/abcdefghijk',
       mode: 'video',
     });
@@ -135,7 +135,7 @@ describe('YouTubeInput — direct Tauri yt-dlp flow', () => {
 
   it('uses the requested stream mode and treats metadata as optional', async () => {
     const invoke = vi.fn<Invoke>((command) =>
-      command === 'plugin:ytdlp|stream_youtube'
+      command === 'plugin:modules|stream_youtube'
         ? Promise.resolve(STREAM)
         : Promise.reject(new Error('metadata unavailable')),
     );
@@ -155,7 +155,7 @@ describe('YouTubeInput — direct Tauri yt-dlp flow', () => {
     fireEvent.click(screen.getByRole('button', { name: dict.youtubeInputSubmit }));
 
     await waitFor(() => expect(onStreamAccepted).toHaveBeenCalledWith(STREAM, null));
-    expect(invoke).toHaveBeenCalledWith('plugin:ytdlp|stream_youtube', {
+    expect(invoke).toHaveBeenCalledWith('plugin:modules|stream_youtube', {
       url: VALID_URL,
       mode: 'audio',
     });
@@ -183,7 +183,7 @@ describe('YouTubeInput — direct Tauri yt-dlp flow', () => {
   it('hides native error details and rejects a late result after the dialog closes', async () => {
     let resolveStream: (value: unknown) => void = () => {};
     const invoke = vi.fn<Invoke>((command) =>
-      command === 'plugin:ytdlp|stream_youtube'
+      command === 'plugin:modules|stream_youtube'
         ? new Promise((resolve) => { resolveStream = resolve; })
         : Promise.reject(new Error('metadata unavailable')),
     );

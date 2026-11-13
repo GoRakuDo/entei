@@ -1,4 +1,4 @@
-//! `tauri-plugin-ytdlp`
+//! `ytdlp` module inside `tauri-plugin-modules`.
 //!
 //! Decoupled yt-dlp bridge for Entei. Exposes two commands:
 //!
@@ -8,28 +8,12 @@
 //!   registers every resolved URL with the loopback relay (see [`relay`]) and
 //!   returns the local `http://127.0.0.1:<port>/stream/<id>` URL(s) that the
 //!   webview can feed into a `<video>` element.
-//!   `mode == "video"` prefers a progressive muxed stream at 720p or better;
-//!   when yt-dlp has to fall back to separate streams, `urls` carries
-//!   `[video, audio]` in that order and `url` is the video URL.
 //!
 //! Note: yt-dlp must be reachable. Resolution order is
 //! `EIZOUDEN_YTDLP_PATH` env var, then the binary embedded in the Windows Entei
 //! bundle via `bundle.resources` (see [`bundled_candidates`]), then the verified
 //! helper EizouDendenshi installed under its companion install root (see
 //! [`helper_candidates`]), then the platform default binary name on `PATH`.
-//! The bundled step is what makes a fresh install self-contained: no Python, no
-//! EizouDendenshi, no `PATH` entry required. The helper step remains as a
-//! fallback for machines that already ran the companion. No downloads are
-//! performed here; the caller owns the source URL.
-//! The upstream `googlevideo.com` URLs carry short-lived tokens and stay inside
-//! the process — only the local relay URLs are returned to the webview.
-//!
-//! Disk footprint: both commands are metadata-only (`--dump-json`, `-g`), and
-//! every invocation is pinned with `--no-cache-dir` plus `--paths temp:<dir>`
-//! to the plugin's own scratch dir (`app_cache_dir()/ytdlp`, falling back to
-//! `app_local_data_dir()/ytdlp`, so Android lands in `<app data>/cache`). That
-//! dir is emptied on startup, on app exit and on plugin teardown, so no
-//! streaming artifact survives a session.
 
 mod relay;
 
@@ -39,25 +23,16 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime};
 use tokio::process::Command;
 
-/// Maximum bytes of yt-dlp stdout we accept before parsing. `--dump-json` on a
-/// long video can be a few hundred KB; anything above this is treated as a
-/// malformed invocation.
+/// Maximum bytes of yt-dlp stdout we accept before parsing.
 const MAX_STDOUT_BYTES: usize = 32 * 1024 * 1024;
 
-/// Hard upper bound for a single yt-dlp invocation. A hung process must not
-/// block a Tauri command forever, so every run is wrapped in this timeout.
+/// Hard upper bound for a single yt-dlp invocation.
 const SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// YouTube client fallback chain handed to yt-dlp.
-///
-/// `web` alone intermittently yields signed URLs that answer `403 Forbidden` on
-/// the first range request (the "confirm you're not a bot" throttling path).
-/// Listing `mweb` and `android` first makes yt-dlp try the clients whose
-/// formats are not throttled, and keeps `web` as the final fallback.
 const YOUTUBE_EXTRACTOR_ARGS: &str = "youtube:player_client=mweb,android,web";
 
 #[derive(Debug, thiserror::Error)]
@@ -117,14 +92,6 @@ pub struct VideoInfo {
     /// Available subtitle languages (manual + automatic).
     pub subtitles: Vec<String>,
     /// Direct WebVTT URL for the Japanese track, when YouTube published one.
-    ///
-    /// `parse_video_info` fills this with the upstream timedtext URL; the
-    /// `get_video_info` command then swaps it for a loopback relay URL, so the
-    /// webview never sees the tokenised upstream address. The webview fetches it
-    /// to restore the YouTube subtitle pipeline on the desktop path, which is why
-    /// it is resolved here instead of forcing a second yt-dlp invocation.
-    /// `None` means "no Japanese track", never an error: playback must work
-    /// without subtitles.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle_vtt_url: Option<String>,
     pub formats: Vec<FormatInfo>,
@@ -136,11 +103,6 @@ pub struct StreamSource {
     /// available, otherwise the video-only stream (see `urls`).
     pub url: String,
     /// Every URL yt-dlp printed, in output order.
-    ///
-    /// - length 1 -> single stream (muxed for video, audio-only for audio)
-    /// - length 2 -> `[video, audio]`; the caller must attach the audio URL
-    ///   separately because a `<video>` element pointed at `urls[0]` has no
-    ///   audio track.
     pub urls: Vec<String>,
     /// `"audio"` or `"video"`.
     pub mode: String,
@@ -148,8 +110,6 @@ pub struct StreamSource {
     pub format_selector: String,
     /// `true` when `url`/`urls` point at the loopback relay, `false` when the
     /// relay could not start and the raw upstream URLs were returned instead.
-    /// The player should treat both the same; this only exists so a degraded
-    /// relay can be diagnosed instead of failing silently.
     #[serde(default)]
     pub relayed: bool,
 }
@@ -158,26 +118,12 @@ pub struct StreamSource {
 const YTDLP_EXE_NAME: &str = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
 
 /// Bundle resource directory resolved by Tauri while the plugin initializes.
-///
-/// This is the `resources/` sub-directory of the bundle resource root (i.e.
-/// `app.path().resolve("resources", BaseDirectory::Resource)`), matching the
-/// `resources/windows/*` entry in `tauri.windows.conf.json`.
-/// Stored once because [`ytdlp_binary`] runs per command and must stay
-/// synchronous; the path is fixed for the lifetime of the process.
 static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// Scratch directory owned by this plugin.
-///
-/// Resolved once at startup from Tauri's `PathResolver` (cache dir first, local
-/// data dir as a fallback), so it lands in an app-private, writable location on
-/// every platform — including Android, where `<app data>/cache` is the only
-/// place the app may freely write. Every yt-dlp invocation is pinned to this
-/// directory with `--paths temp:` and `--no-cache-dir`, and the directory is
-/// emptied on startup, on exit and on app teardown, so no streaming artifact
-/// survives a session.
+/// Scratch directory owned by this module.
 static WORK_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// The plugin's scratch directory, when it could be resolved.
+/// The module's scratch directory, when it could be resolved.
 fn work_dir() -> Option<&'static PathBuf> {
     WORK_DIR.get()
 }
@@ -193,12 +139,8 @@ fn resolve_work_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<PathBuf> {
     None
 }
 
-/// Delete everything inside the plugin's scratch directory, keeping the
+/// Delete everything inside the module's scratch directory, keeping the
 /// directory itself.
-///
-/// The directory only ever holds yt-dlp scratch data written by this plugin, so
-/// wiping it is always safe. Symlinks are unlinked, not followed, and a single
-/// locked entry does not abort the sweep.
 fn purge_dir_contents(dir: &std::path::Path) {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -217,18 +159,6 @@ fn purge_dir_contents(dir: &std::path::Path) {
 }
 
 /// yt-dlp shipped inside the Entei bundle, most likely location first.
-///
-/// Only Windows bundles an executable: `tauri.windows.conf.json` lists
-/// `resources/windows/*` under `bundle.resources`, so the installer carries the
-/// binary at `<resource dir>/resources/windows/`. The base `tauri.conf.json`
-/// declares **no** resources at all, which is what keeps the 18MB Windows
-/// `yt-dlp.exe` out of every other bundle (Android APK in particular).
-///
-/// `tauri dev` has no bundle yet, which is why the checked-in
-/// `src-tauri/resources/windows/yt-dlp.exe` is probed by relative path — those
-/// probes are debug-only so a stray `yt-dlp.exe` in the launch directory of a
-/// shipped build can never win. The flat `resources/yt-dlp.exe` location is
-/// kept as a second probe for bundles produced before the platform split.
 fn bundled_candidates() -> Vec<PathBuf> {
     #[cfg(windows)]
     {
@@ -246,7 +176,6 @@ fn bundled_candidates() -> Vec<PathBuf> {
         }
         #[cfg(debug_assertions)]
         {
-            // `tauri dev` runs with the working directory set to `src-tauri`.
             candidates.push(
                 PathBuf::from("src-tauri")
                     .join("resources")
@@ -261,10 +190,6 @@ fn bundled_candidates() -> Vec<PathBuf> {
         }
         candidates
     }
-    // Android (APK) and every other non-Windows target bundle no executable:
-    // Android 10+ app-private storage is W^X (`noexec`), so a spawned binary is
-    // not an option there, and Termux manages yt-dlp through `pkg` on `PATH`.
-    // Returning an empty list guarantees no Windows `.exe` is ever probed.
     #[cfg(not(windows))]
     {
         Vec::new()
@@ -272,12 +197,6 @@ fn bundled_candidates() -> Vec<PathBuf> {
 }
 
 /// Verified yt-dlp helpers installed by EizouDendenshi, most specific first.
-///
-/// Windows install root is `%LOCALAPPDATA%\GoRakuDo\EizouDendenshi` and its
-/// update plan drops the yt-dlp artifact under `helpers/` keeping the release
-/// asset name (`yt-dlp-windows-amd64.exe`). `yt-dlp.exe` is listed as well so a
-/// manually renamed helper keeps working. Termux manages yt-dlp through `pkg`
-/// (it lives on `PATH`), so there are no candidates there.
 fn helper_candidates() -> Vec<PathBuf> {
     #[cfg(windows)]
     {
@@ -301,10 +220,6 @@ fn helper_candidates() -> Vec<PathBuf> {
 }
 
 /// Resolve the yt-dlp executable to spawn.
-///
-/// A path is only taken from the candidate lists when the file actually exists,
-/// so a missing bundle resource or helper silently falls through to the next
-/// step instead of failing to spawn.
 fn ytdlp_binary() -> String {
     if let Ok(path) = std::env::var("EIZOUDEN_YTDLP_PATH") {
         let trimmed = path.trim();
@@ -335,12 +250,6 @@ fn validate_url(url: &str) -> Result<&str, YtdlpError> {
 
 async fn run_ytdlp(args: &[&str]) -> Result<String, YtdlpError> {
     let binary = ytdlp_binary();
-    // Nothing this plugin runs may write outside the plugin's own work dir:
-    // `--no-cache-dir` disables yt-dlp's filesystem cache (its default cache
-    // lives in a user-wide location the app must not own) and `--paths temp:`
-    // points any temporary artifact at the dir that is wiped on startup and on
-    // exit. Both invocations (`--dump-json`, `-g`) are metadata-only today, so
-    // this is the guarantee that stays true if a download path is added later.
     let mut command = Command::new(&binary);
     command.args(["--no-cache-dir"]);
     let temp_paths = work_dir().map(|dir| format!("temp:{}", dir.display()));
@@ -435,24 +344,9 @@ fn collect_subtitle_languages(root: &serde_json::Value) -> Vec<String> {
 }
 
 /// Japanese track keys in preference order, per yt-dlp's source map.
-///
-/// `ja` is the plain Japanese track, `ja-orig` the original Japanese audio on
-/// auto-dubbed uploads, and `ja-JP` the regional spelling some extractors emit.
-/// Manual `subtitles` are always tried before `automatic_captions`.
 const JAPANESE_SUBTITLE_KEYS: [&str; 3] = ["ja", "ja-orig", "ja-JP"];
 
-/// Pick the first WebVTT entry from a yt-dlp subtitle language list.
-///
-/// yt-dlp publishes every requested format under one language key (json3,
-/// ttml, vtt, ...), so the `ext` filter is what keeps the returned URL a plain
-/// text track the webview can parse with `parseSubtitle`.
 /// Pick the first usable WebVTT URL from a subtitle-track entry list.
-///
-/// YouTube lists auto-translated tracks (`lang=en-US&tlang=ja`) next to the
-/// native track (`lang=ja&kind=asr`). The `tlang=` variants answer HTTP 429 on
-/// the timedtext endpoint, so taking them first silently discards subtitles for
-/// every video whose only Japanese track is a machine translation source. Only
-/// native tracks (`no tlang=` query parameter) are eligible here.
 fn vtt_entry_url(entries: Option<&serde_json::Value>) -> Option<String> {
     entries?
         .as_array()?
@@ -496,22 +390,6 @@ fn parse_format(value: &serde_json::Value) -> Option<FormatInfo> {
 }
 
 /// Format selectors.
-///
-/// `video` is built from three rules, in priority order:
-///
-/// 1. `best[height>=720][height<=1080]` — a progressive muxed stream (video and
-///    audio in one file). This is what makes playback start instantly: the
-///    `<video>` element needs a single URL and no client-side muxing.
-/// 2. `best[height<=1080]` — any muxed stream, accepting sub-720p rather than
-///    dropping to separate streams. YouTube only publishes muxed formats up to
-///    720p (or 360p on newer uploads), so this is the common case.
-/// 3. `bestvideo[height>=720][height<=1080]+bestaudio` — separate streams, which
-///    yields two URLs. Video quality wins over instant start here because a
-///    muxed stream simply does not exist for that video.
-///
-/// The 720p floor is deliberately only enforced where a muxed stream exists:
-/// demanding 720p unconditionally would force the separate-stream fallback on
-/// videos whose only muxed format is 360p, trading playback startup for pixels.
 fn format_selector_for(mode: &str) -> Result<&'static str, YtdlpError> {
     match mode {
         "audio" => Ok("bestaudio/best"),
@@ -524,10 +402,6 @@ fn format_selector_for(mode: &str) -> Result<&'static str, YtdlpError> {
 }
 
 /// Collect the non-empty lines yt-dlp printed for `-g`.
-///
-/// yt-dlp prints one URL per selected stream, so a muxed selection yields a
-/// single line and a `video+audio` selection yields two. The order is
-/// preserved: video first, audio second.
 fn parse_stream_urls(raw: &str) -> Result<Vec<String>, YtdlpError> {
     let urls: Vec<String> = raw
         .lines()
@@ -546,7 +420,7 @@ fn parse_stream_urls(raw: &str) -> Result<Vec<String>, YtdlpError> {
 }
 
 #[tauri::command]
-async fn get_video_info(url: String) -> Result<VideoInfo, String> {
+pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
     let url = validate_url(&url).map_err(|err| err.message())?;
     let raw = run_ytdlp(&[
         "--dump-json",
@@ -562,13 +436,6 @@ async fn get_video_info(url: String) -> Result<VideoInfo, String> {
 
     let mut info = parse_video_info(&raw).map_err(|err| err.message())?;
 
-    // Hand the webview a loopback URL instead of the raw YouTube one. Two
-    // reasons: the timedtext URL carries a token that the plugin keeps inside
-    // the process, and `youtube.com/api/timedtext` answers without CORS headers
-    // so a direct webview fetch would be blocked. The relay adds
-    // `Access-Control-Allow-Origin: *` and forwards `text/vtt` unchanged.
-    // When the relay cannot bind, the raw URL is returned and the webview fetch
-    // fails silently — subtitles are optional, playback is not.
     if let Some(upstream) = info.subtitle_vtt_url.clone() {
         if let Ok(relay) = relay::ensure().await {
             info.subtitle_vtt_url = Some(relay.register(&upstream));
@@ -579,7 +446,7 @@ async fn get_video_info(url: String) -> Result<VideoInfo, String> {
 }
 
 #[tauri::command]
-async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, String> {
+pub async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, String> {
     let url = validate_url(&url).map_err(|err| err.message())?;
     let selector = format_selector_for(mode.trim()).map_err(|err| err.message())?;
 
@@ -596,15 +463,8 @@ async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, Strin
     .await
     .map_err(|err| err.message())?;
 
-    // `-g` prints one URL per selected stream. The primary URL is always the
-    // first line: a muxed stream for video, or the only stream for audio.
-    // Never take the last line — for separate streams that is the audio-only
-    // URL and the player would show a black screen.
     let upstream_urls = parse_stream_urls(&raw).map_err(|err| err.message())?;
 
-    // Hand the webview loopback URLs instead of the upstream ones. The relay
-    // answers `Range` requests from a single persistent session, so seeking does
-    // not re-hit YouTube with a fresh (and throttled) request.
     let (urls, relayed) = match relay::ensure().await {
         Ok(relay) => (
             upstream_urls
@@ -613,8 +473,6 @@ async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, Strin
                 .collect::<Vec<_>>(),
             true,
         ),
-        // Falling back keeps playback working when the listener cannot bind;
-        // `relayed: false` tells the caller the proxy is unavailable.
         Err(_) => (upstream_urls, false),
     };
 
@@ -632,41 +490,31 @@ async fn stream_youtube(url: String, mode: String) -> Result<StreamSource, Strin
     })
 }
 
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    Builder::new("ytdlp")
-        .setup(|app, _api| {
-            // Resolve the bundle resource directory once so `ytdlp_binary` can
-            // stay synchronous. Failure is not fatal: the dev-relative and
-            // `PATH` fallbacks still apply.
-            if let Ok(dir) = app.path().resolve("resources", tauri::path::BaseDirectory::Resource) {
-                let _ = RESOURCE_DIR.set(dir);
-            }
-            // Startup sweep: drop whatever a crash, a force quit or an OS kill
-            // left in the plugin's scratch dir before any new run can start.
-            if let Some(dir) = resolve_work_dir(app) {
-                let _ = std::fs::create_dir_all(&dir);
-                purge_dir_contents(&dir);
-                let _ = WORK_DIR.set(dir);
-            }
-            Ok(())
-        })
-        .on_event(|_app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                // Exit sweep: nothing yt-dlp wrote is needed after the app ends.
-                if let Some(dir) = work_dir() {
-                    purge_dir_contents(dir);
-                }
-            }
-        })
-        .invoke_handler(tauri::generate_handler![get_video_info, stream_youtube])
-        .build()
+pub(crate) fn setup<R: Runtime>(app: &tauri::AppHandle<R>) {
+    if let Ok(dir) = app
+        .path()
+        .resolve("resources", tauri::path::BaseDirectory::Resource)
+    {
+        let _ = RESOURCE_DIR.set(dir);
+    }
+    if let Some(dir) = resolve_work_dir(app) {
+        let _ = std::fs::create_dir_all(&dir);
+        purge_dir_contents(&dir);
+        let _ = WORK_DIR.set(dir);
+    }
+}
+
+pub(crate) fn on_exit() {
+    if let Some(dir) = work_dir() {
+        purge_dir_contents(dir);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The startup/exit sweep must empty the plugin's scratch dir and keep the
+    /// The startup/exit sweep must empty the module's scratch dir and keep the
     /// dir itself, so a killed session leaves nothing behind.
     #[test]
     fn purges_work_dir_contents_and_keeps_the_directory() {
@@ -700,8 +548,6 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn helper_candidates_target_the_companion_helpers_dir() {
-        // The install root is only known at runtime; assert the shape of every
-        // candidate so a renamed helper directory cannot pass unnoticed.
         for candidate in helper_candidates() {
             assert!(candidate.ends_with("GoRakuDo\\EizouDendenshi\\helpers\\yt-dlp-windows-amd64.exe")
                 || candidate.ends_with("GoRakuDo\\EizouDendenshi\\helpers\\yt-dlp.exe"),
@@ -903,8 +749,6 @@ mod tests {
 
     #[test]
     fn falls_back_to_ja_orig_and_ja_jp() {
-        // `ja` is checked first per the documented preference order; `ja-orig`
-        // only wins when no plain `ja` vtt entry exists.
         let both = r#"{"title":"t","automatic_captions":{"ja-orig":[{"ext":"vtt","url":"https://tt.example/orig.vtt"}],"ja":[{"ext":"vtt","url":"https://tt.example/ja.vtt"}]}}"#;
         assert_eq!(
             parse_video_info(both).expect("parses").subtitle_vtt_url.as_deref(),
@@ -932,7 +776,7 @@ mod tests {
 
     #[test]
     fn omits_subtitle_url_without_japanese_track() {
-        let raw = r#"{"title":"t","subtitles":{"en":[{"ext":"vtt","url":"https://tt.example/en.vtt"}]}}"#;
+        let raw = r#"{"title":"t","subtitles":{"en":[{"ext":"vtt",  "url":"https://tt.example/en.vtt"}]}}"#;
         assert!(parse_video_info(raw)
             .expect("parses")
             .subtitle_vtt_url

@@ -295,6 +295,66 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the add_torrent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-add-torrent",
+          "markdownDescription": "Enables the add_torrent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the add_torrent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-add-torrent",
+          "markdownDescription": "Denies the add_torrent command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cancel_torrent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-torrent",
+          "markdownDescription": "Enables the cancel_torrent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_torrent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-torrent",
+          "markdownDescription": "Denies the cancel_torrent command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_torrent_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-torrent-status",
+          "markdownDescription": "Enables the get_torrent_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_torrent_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-torrent-status",
+          "markdownDescription": "Denies the get_torrent_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_video_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-video-info",
+          "markdownDescription": "Enables the get_video_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_video_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-video-info",
+          "markdownDescription": "Denies the get_video_info command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the inspect_torrent_tracks command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-inspect-torrent-tracks",
+          "markdownDescription": "Enables the inspect_torrent_tracks command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the inspect_torrent_tracks command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-inspect-torrent-tracks",
+          "markdownDescription": "Denies the inspect_torrent_tracks command without any pre-configured scope."
+        },
+        {
           "description": "Enables the modules_jimaku_download_subtitle command without any pre-configured scope.",
           "type": "string",
           "const": "allow-modules-jimaku-download-subtitle",
@@ -379,6 +439,30 @@
           "markdownDescription": "Denies the modules_nadeshiko_user_me command without any pre-configured scope."
         },
         {
+          "description": "Enables the select_torrent_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-select-torrent-files",
+          "markdownDescription": "Enables the select_torrent_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the select_torrent_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-select-torrent-files",
+          "markdownDescription": "Denies the select_torrent_files command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the stream_youtube command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stream-youtube",
+          "markdownDescription": "Enables the stream_youtube command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stream_youtube command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stream-youtube",
+          "markdownDescription": "Denies the stream_youtube command without any pre-configured scope."
+        },
+        {
           "description": "Enables the yomitan_delete_dictionary command without any pre-configured scope.",
           "type": "string",
           "const": "allow-yomitan-delete-dictionary",
@@ -451,10 +535,10 @@
           "markdownDescription": "Denies the yomitan_toggle_dictionary command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dictionary storage.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`",
+          "description": "Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-inspect-torrent-tracks`\n- `allow-cancel-torrent`\n- `allow-get-video-info`\n- `allow-stream-youtube`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dictionary storage.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`"
+          "markdownDescription": "Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-inspect-torrent-tracks`\n- `allow-cancel-torrent`\n- `allow-get-video-info`\n- `allow-stream-youtube`"
         }
       ]
     }

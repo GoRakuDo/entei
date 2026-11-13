@@ -42,9 +42,6 @@ const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 static RELAY: OnceCell<Arc<Relay>> = OnceCell::const_new();
 
 /// Get the process-wide relay, starting the listener on first use.
-///
-/// Binding happens exactly once; later calls reuse the same port so previously
-/// handed-out local URLs stay valid for the lifetime of the process.
 pub(crate) async fn ensure() -> Result<Arc<Relay>, String> {
     RELAY
         .get_or_try_init(Relay::start)
@@ -133,9 +130,6 @@ impl Relay {
     }
 
     fn lock_sessions(&self) -> std::sync::MutexGuard<'_, HashMap<String, Session>> {
-        // A poisoned lock means another task panicked while holding it; the map
-        // itself is still structurally sound, so recover instead of panicking
-        // the whole playback path.
         self.sessions
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -173,10 +167,6 @@ impl ByteRange {
 }
 
 /// Parse a single-range `Range: bytes=...` header value.
-///
-/// Multi-range requests (`bytes=0-1,4-5`) and anything malformed return `None`.
-/// Browsers only ever send a single range to media elements, so rejecting the
-/// rest keeps the forwarding logic honest instead of guessing.
 pub(crate) fn parse_range_header(value: &str) -> Option<ByteRange> {
     let value = value.trim();
     let (unit, spec) = value.split_once('=')?;
@@ -214,14 +204,6 @@ pub(crate) fn parse_range_header(value: &str) -> Option<ByteRange> {
 }
 
 // --- CORS -----------------------------------------------------------------
-//
-// The webview origin (`http://tauri.localhost` on Windows, `https://localhost`
-// on Android) differs from the relay's `http://127.0.0.1:<port>`, so every
-// request the `<video>` element makes is cross-origin. A missing
-// `Access-Control-Allow-Origin` on *any* status — preflight, 404, 416, 500,
-// 502 — makes the browser reject the response and the media pipeline dies with
-// a CORS error before a single byte is decoded. Keep this identical to the
-// torrent relay so both plugins behave the same.
 
 const CORS_ORIGIN: &str = "*";
 const CORS_METHODS: &str = "GET, HEAD, OPTIONS";
@@ -230,9 +212,6 @@ const CORS_EXPOSE_HEADERS: &str = "Content-Length, Content-Range, Accept-Ranges"
 const CORS_MAX_AGE: &str = "86400";
 
 /// Attach the full CORS header set to a response.
-///
-/// Applied at the single exit point of every handler so success, error and
-/// preflight responses are indistinguishable to the browser's CORS check.
 fn with_cors(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(
@@ -259,17 +238,11 @@ fn with_cors(mut response: Response) -> Response {
 }
 
 /// Answer the CORS preflight for a stream URL.
-///
-/// `OPTIONS` never touches YouTube: the browser only wants permission to send
-/// the real ranged `GET`, so the answer is an empty `204` plus headers.
 async fn handle_options() -> Response {
     with_cors(StatusCode::NO_CONTENT.into_response())
 }
 
 /// Proxy `GET`/`HEAD /stream/<id>` to the registered upstream URL.
-///
-/// Wraps [`stream_response`] so that every possible status leaves with the CORS
-/// header set — there is no error path that can slip past the browser check.
 async fn handle_stream(
     State(relay): State<Arc<Relay>>,
     Path(id): Path<String>,
@@ -278,15 +251,7 @@ async fn handle_stream(
     with_cors(stream_response(relay, id, headers).await)
 }
 
-/// The client's `Range` header is forwarded verbatim (after validation), so the
-/// upstream decides the exact byte window and returns `206 Partial Content`
-/// with its own `Content-Range`. That header and `Content-Length` are relayed
-/// unchanged, which is what lets the `<video>` element seek natively.
-///
-/// Note: if an upstream ever ignores the forwarded range and answers `200` with
-/// the full body, that response is passed through untouched rather than sliced
-/// here. Media elements tolerate it (they fall back to a plain full download),
-/// and every YouTube CDN host honours `Range`.
+/// Forward the validated `Range` header upstream and stream the response back.
 async fn stream_response(relay: Arc<Relay>, id: String, headers: HeaderMap) -> Response {
     let Some(upstream) = relay.lookup(&id) else {
         return (StatusCode::NOT_FOUND, "unknown stream session").into_response();
@@ -305,9 +270,6 @@ async fn stream_response(relay: Arc<Relay>, id: String, headers: HeaderMap) -> R
     let upstream_response = match request.send().await {
         Ok(response) => response,
         Err(err) => {
-            // Never interpolate `err` here: reqwest's Display renders
-            // ` for url (<signed GoogleVideo URL>)`, which would leak the
-            // tokenised upstream URL into the client-visible body.
             let reason = if err.is_timeout() {
                 "upstream request timed out"
             } else if err.is_connect() {
@@ -355,9 +317,6 @@ mod tests {
 
     #[test]
     fn cors_headers_survive_every_status() {
-        // The webview rejects a response with no `Access-Control-Allow-Origin`
-        // even when the status is an error, so every relay exit path must
-        // carry the same header set.
         for status in [
             StatusCode::OK,
             StatusCode::PARTIAL_CONTENT,
@@ -388,7 +347,6 @@ mod tests {
                 .and_then(|value| value.to_str().ok())
                 .unwrap_or_default()
                 .to_ascii_lowercase();
-            // `Range` is what the `<video>` element needs to seek at all.
             assert!(allow_headers.contains("range"));
             assert!(headers.contains_key(header::ACCESS_CONTROL_MAX_AGE));
         }

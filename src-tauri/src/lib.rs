@@ -12,14 +12,13 @@ fn open_external_url(url: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_ytdlp::init())
-        .plugin(tauri_plugin_torrent::init())
         .plugin(tauri_plugin_mpv::init())
         // Native subtitle parsing / media filename parsing / LazySync offset
         // estimation. The commands run their CPU-bound work on the blocking
         // thread pool, so the webview never waits for a 3 000-cue parse.
         .plugin(tauri_plugin_subtitles::init())
-        // Native external API clients for Jimaku and Nadeshiko.
+        // Unified native external modules: yt-dlp, torrent, Jimaku, Nadeshiko,
+        // and Yomitan dictionary engine.
         .plugin(tauri_plugin_modules::init())
         // Native AnkiConnect transport: outside the webview PNA/CORS boundary.
         .plugin(tauri_plugin_anki::init())

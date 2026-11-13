@@ -1,11 +1,19 @@
-//! Native clients for the Jimaku and Nadeshiko APIs.
+//! Unified native Entei Modules plugin.
 //!
-//! API keys are supplied per request and are never persisted or included in
-//! diagnostics. AnkiDroid remains outside this plugin's scope.
+//! Consolidates all external communication and media/dictionary modules under
+//! a single Tauri plugin (`tauri-plugin-modules`):
+//!
+//! - `jimaku` (`modules_jimaku_*`)
+//! - `nadeshiko` (`modules_nadeshiko_*`)
+//! - `yomitan` (`yomitan_*`)
+//! - `torrent` (`add_torrent`, `get_torrent_status`, `select_torrent_files`, `inspect_torrent_tracks`, `cancel_torrent`)
+//! - `ytdlp` (`get_video_info`, `stream_youtube`)
 
 pub mod jimaku;
 pub mod nadeshiko;
+pub mod torrent;
 pub mod yomitan;
+pub mod ytdlp;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -19,7 +27,9 @@ pub use nadeshiko::{
     NadeshikoSearchOptions, NadeshikoSearchPage, NadeshikoSegment, NadeshikoSegmentContextResponse,
     NadeshikoSegmentUrls, NadeshikoUser, NadeshikoUserMe,
 };
+pub use torrent::{AddTorrentResult, SelectedTorrentFiles, TorrentFile, TorrentStatus};
 pub use yomitan::{DictionarySummary, KanjiEntry, TermEntry};
+pub use ytdlp::{StreamSource, VideoInfo};
 
 #[tauri::command]
 async fn modules_jimaku_search_entries(
@@ -193,12 +203,27 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             yomitan_toggle_dictionary,
             yomitan_delete_dictionary,
             yomitan_find_terms,
-            yomitan_find_kanji
+            yomitan_find_kanji,
+            torrent::add_torrent,
+            torrent::get_torrent_status,
+            torrent::select_torrent_files,
+            torrent::inspect_torrent_tracks,
+            torrent::cancel_torrent,
+            ytdlp::get_video_info,
+            ytdlp::stream_youtube
         ])
         .setup(|app, _api| {
             let path = resolve_dictionary_db_path(app)?;
             app.manage(YomitanDbState::open(&path)?);
+            ytdlp::setup(app);
+            torrent::setup(app)?;
             Ok(())
+        })
+        .on_event(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                ytdlp::on_exit();
+                torrent::on_exit(app);
+            }
         })
         .build()
 }

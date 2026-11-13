@@ -12,6 +12,13 @@ const COMMANDS: &[&str] = &[
     "yomitan_delete_dictionary",
     "yomitan_find_terms",
     "yomitan_find_kanji",
+    "add_torrent",
+    "get_torrent_status",
+    "select_torrent_files",
+    "inspect_torrent_tracks",
+    "cancel_torrent",
+    "get_video_info",
+    "stream_youtube",
 ];
 
 fn main() {

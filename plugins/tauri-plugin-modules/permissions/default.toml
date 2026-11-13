@@ -1,7 +1,7 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = """Default permissions for native Jimaku and Nadeshiko API requests and Yomitan dictionary storage."""
+description = """Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan."""
 permissions = [
   "allow-modules-jimaku-search-entries",
   "allow-modules-jimaku-search-entries-combined",
@@ -16,4 +16,11 @@ permissions = [
   "allow-yomitan-delete-dictionary",
   "allow-yomitan-find-terms",
   "allow-yomitan-find-kanji",
+  "allow-add-torrent",
+  "allow-get-torrent-status",
+  "allow-select-torrent-files",
+  "allow-inspect-torrent-tracks",
+  "allow-cancel-torrent",
+  "allow-get-video-info",
+  "allow-stream-youtube",
 ]

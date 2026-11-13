@@ -2,7 +2,7 @@
 name = "tauri-plugin-modules"
 links = "tauri-plugin-modules"
 version = "0.1.0"
-description = "Native Jimaku and Nadeshiko API clients plus the Yomitan dictionary engine for Entei"
+description = "Unified native Entei Modules plugin for yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan"
 authors = ["GoRakuDo"]
 edition = "2021"
 
@@ -27,8 +27,33 @@ flate2 = { version = "1", features = ["rust_backend"] }
 rusqlite = { version = "0.33", features = ["bundled"] }
 httpdate = "1"
 url = "2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["macros", "rt", "time"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+    "stream",
+] }
+# `AddTorrent::TorrentFileBytes` takes `bytes::Bytes`: the magnet metadata is
+# resolved once (list_only) and re-added from those bytes when the user picks
+# files, so the info dictionary never has to be fetched twice.
+bytes = "1"
+# Loopback Range relay + async runtime for torrent and yt-dlp.
+axum = "0.8"
+tokio = { version = "1", features = [
+    "sync",
+    "rt",
+    "rt-multi-thread",
+    "fs",
+    "macros",
+    "time",
+    "net",
+    "io-util",
+    "process",
+] }
+tokio-util = { version = "0.7", features = ["io"] }
+librqbit = { version = "9.1", default-features = false, features = [
+    "default-tls",
+] }
+thiserror = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "net", "io-util", "rt-multi-thread", "time"] }

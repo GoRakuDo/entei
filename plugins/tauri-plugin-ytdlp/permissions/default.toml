@@ -1,8 +1,0 @@
-"$schema" = "schemas/schema.json"
-
-[default]
-description = """Default permissions for the yt-dlp plugin: metadata lookup and stream URL extraction."""
-permissions = [
-  "allow-get-video-info",
-  "allow-stream-youtube",
-]

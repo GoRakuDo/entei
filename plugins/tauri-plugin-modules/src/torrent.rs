@@ -1,4 +1,4 @@
-//! `tauri-plugin-torrent`
+//! `torrent` module inside `tauri-plugin-modules`.
 //!
 //! Decoupled BitTorrent bridge for Entei, backed by an in-process
 //! [`librqbit::Session`]. Five commands are exposed:
@@ -8,46 +8,17 @@
 //!   list. **Nothing is written to disk and nothing is downloaded** except the
 //!   info dictionary itself (a few KB): the torrent is never added to the
 //!   session at this point, so a 67 GB multi-file torrent costs only its
-//!   metadata while the user browses the file table. The fetch itself runs in
-//!   its own task (see [`resolve_metadata`]), so a cold DHT that needs minutes
-//!   to find the swarm cannot fail the command: `add_torrent` waits
-//!   [`METADATA_INITIAL_WAIT`] for a warm swarm and otherwise answers with an
-//!   empty file list, which `get_torrent_status` fills in once the info
-//!   dictionary lands.
+//!   metadata while the user browses the file table.
 //! - `get_torrent_status(id)` -> progress, download speed, peer count and a
-//!   `playable` flag. A metadata-only entry reports state `metadata` (with the
-//!   file list once resolved), and a resolution that gave up reports state
-//!   `error` with the reason.
-//! - `select_torrent_files(id, video_index, subtitle_index)` -> *this* is where
-//!   the download starts: the torrent is added to the session from the stored
-//!   torrent bytes with `only_files` set to the chosen video (and subtitle), so
-//!   every other file stays untouched. It then returns loopback relay URLs for
-//!   playback (see [`relay`]) **without** gating on the file being streamable
-//!   yet: a torrent stays `Initializing` for as long as librqbit's initial piece
-//!   check runs, and the relay holds the browser's first range request until
-//!   then. The response also carries the Matroska track list and the
-//!   auto-selected Japanese audio/subtitle track numbers when the header could
-//!   be read inside the scan budget.
+//!   `playable` flag.
+//! - `select_torrent_files(id, video_index, subtitle_index)` -> starts the
+//!   download for the selected files and returns loopback relay URLs.
 //! - `inspect_torrent_tracks(id, file_index)` -> re-reads the container header
-//!   on demand and returns the same track report on its own.
+//!   on demand and returns the Matroska track report.
 //! - `cancel_torrent(id)` -> removes the torrent from the session and deletes
-//!   the files it wrote (they are streaming cache inside the app's own download
-//!   folder, never user media), so a cancelled or finished session leaves no
-//!   partial data behind.
-//!
-//! The session is created lazily on the first `add_torrent` call and lives for
-//! the lifetime of the app. One session is shared by every torrent so the DHT
-//! node, TCP listener and peer cache are reused.
-//!
-//! Cache lifecycle: the download folder (`app_cache_dir()/torrent`, i.e.
-//! `<app data>/cache/torrent` on Android and `%LOCALAPPDATA%\<identifier>\torrent`
-//! on Windows) only ever holds pieces this plugin wrote. It is emptied on app
-//! startup, on app exit and on `cancel_torrent`, so no streaming artifact
-//! survives a session. The startup sweep also reclaims the older
-//! `app_local_data_dir()/torrent` location once, so an upgrade from a build that
-//! cached there does not leave its partial pieces behind forever.
+//!   the files it wrote.
 
-mod mkv;
+pub mod mkv;
 mod relay;
 
 pub use mkv::{MkvTrackInfo, MkvTrackReport};
@@ -65,60 +36,28 @@ use librqbit::{
     ValidatedTorrentMetaV1Info,
 };
 use serde::{Deserialize, Serialize};
-use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime};
 use tokio::io::AsyncReadExt;
 use tokio::sync::{watch, Mutex};
 
 /// Upper bound on one magnet's metadata resolution (peer discovery + info
 /// dictionary fetch), enforced inside the background task.
-///
-/// A cold DHT routinely needs 30-60 s to find the swarm for a rare torrent, and
-/// the previous 30 s ceiling turned those healthy magnets into a hard failure
-/// (`metadata resolution timed out`, measured at 30009 ms in the trace log).
-/// The fetch now outlives the command that started it, so this budget is the
-/// real patience of the feature and the UI polls while it runs.
 const METADATA_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How long `add_torrent` itself waits for the info dictionary before replying.
-///
-/// A warm swarm answers in well under a second, so the common case still gets
-/// the file table in the same reply. Anything slower is handed to
-/// `get_torrent_status`: the dialog keeps its metadata skeleton and stays
-/// cancellable instead of blocking one IPC call for the whole two minutes.
 const METADATA_INITIAL_WAIT: Duration = Duration::from_secs(20);
 
 /// Wall-clock budget for the *best-effort* container-header scan that follows
 /// the add in `select_torrent_files`.
-///
-/// This is no longer a playback gate. It used to be one, and that was the bug:
-/// a large torrent (130 GB over 1372 files) spends minutes in librqbit's
-/// `Initializing` state while the initial piece check runs, `stream()` refuses
-/// every file in that window ("invalid state: initializing"), the bounded wait
-/// expired, and the command failed — the Magnet modal then showed a generic
-/// "Terjadi kesalahan" toast for a torrent that streams fine 28 ms after
-/// initialization lands.
-///
-/// The readiness gate now lives in [`relay`]: it parks the browser's first range
-/// request until the file can be streamed and answers `206` then, so a `503`
-/// (which Chrome never retries) can no longer reach the media element. This
-/// budget therefore only decides whether the reply can *also* carry the Matroska
-/// track list: a torrent that is still initializing gets its URL immediately and
-/// the engine keeps its own track auto-selection.
 const TRACK_SCAN_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Bytes of the container header read for track inspection.
-///
-/// Matroska puts `Tracks` before the first `Cluster`, so a few hundred KiB is
-/// normally enough; the cap keeps the read bounded even on a malformed file.
 const HEADER_READ_LIMIT: usize = 2 * 1024 * 1024;
 
-/// Read granularity while pulling the header. Each chunk is parsed again, so a
-/// short header costs one read instead of a full 2 MiB.
+/// Read granularity while pulling the header.
 const HEADER_READ_CHUNK: usize = 64 * 1024;
 
-/// Upper bound on the whole header inspection. Pieces that have not arrived yet
-/// park the read, so the wait is capped instead of blocking the command.
+/// Upper bound on the whole header inspection.
 const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `librqbit` does not re-export its `ManagedTorrentHandle` alias, so the same
@@ -168,7 +107,7 @@ pub struct TorrentStatus {
     pub id: String,
     pub info_hash: String,
     pub name: String,
-    /// `initializing` | `live` | `paused` | `error`.
+    /// `metadata` | `initializing` | `live` | `paused` | `error`.
     pub state: String,
     pub progress_bytes: u64,
     pub total_bytes: u64,
@@ -178,9 +117,6 @@ pub struct TorrentStatus {
     pub download_speed_mbps: f64,
     pub peers_live: usize,
     pub finished: bool,
-    /// `true` once the torrent finished, or once it is live with at least some
-    /// bytes on disk. Note: this is a coarse signal — it does not guarantee the
-    /// first video file's header is present yet.
     pub playable: bool,
     pub error: Option<String>,
     pub files: Vec<TorrentFile>,
@@ -212,17 +148,11 @@ struct PendingTorrent {
     info_hash: String,
     name: String,
     files: Vec<TorrentFile>,
-    /// The `.torrent` bytes rebuilt from the resolved info dictionary. Adding
-    /// from these bytes starts the download without a second metadata fetch.
+    /// The `.torrent` bytes rebuilt from the resolved info dictionary.
     torrent_bytes: Bytes,
 }
 
 /// Resolution state of one magnet's info dictionary.
-///
-/// Published through a `watch` channel so the fetch task can hand its outcome
-/// to whoever asks next: the command that started it, a later
-/// `get_torrent_status` poll, or `select_torrent_files`. The value is read
-/// without a lock, and a resolved entry costs one clone.
 #[derive(Clone)]
 enum Metadata {
     /// Peer discovery / info dictionary fetch is still running.
@@ -236,9 +166,7 @@ enum Metadata {
 /// What the plugin knows about one `add_torrent` call.
 #[derive(Clone)]
 enum Entry {
-    /// Metadata only: the torrent was never added to the session, so no file,
-    /// folder or piece exists on disk yet. `info_hash` comes from the magnet so
-    /// the status reply is useful before the engine reports its own.
+    /// Metadata only: the torrent was never added to the session.
     Metadata {
         info_hash: String,
         state: watch::Receiver<Metadata>,
@@ -254,8 +182,7 @@ pub struct TorrentState {
     download_dir: PathBuf,
     session: Mutex<Option<Arc<Session>>>,
     entries: StdMutex<HashMap<String, Entry>>,
-    /// Monotonic plugin-level id source. Kept separate from librqbit's torrent
-    /// id because a metadata-only entry has no torrent id yet.
+    /// Monotonic plugin-level id source.
     next_id: AtomicU64,
 }
 
@@ -314,8 +241,7 @@ impl TorrentState {
             .ok_or_else(|| TorrentError::UnknownTorrent(id.to_string()))
     }
 
-    /// Register a metadata entry before its fetch task starts, so the id is
-    /// usable (pollable, cancellable) from the first millisecond.
+    /// Register a metadata entry before its fetch task starts.
     fn insert_metadata(
         &self,
         id: String,
@@ -328,10 +254,6 @@ impl TorrentState {
     }
 
     /// Promote a metadata-only entry to a live one after the download started.
-    ///
-    /// Any other plugin id that already pointed at the same librqbit torrent is
-    /// dropped: one torrent must have exactly one owning entry, otherwise
-    /// cancelling the stale id would delete the files the live one is streaming.
     fn set_active(
         &self,
         id: &str,
@@ -355,10 +277,6 @@ impl TorrentState {
 }
 
 /// Infohash carried by the magnet URI itself.
-///
-/// Used until the engine reports its own spelling, so a torrent that is still
-/// resolving already has a stable identity in the status reply and the trace
-/// log. Lowercased to match the hex form librqbit returns.
 fn magnet_info_hash(uri: &str) -> String {
     uri.split(['?', '&'])
         .find_map(|part| part.strip_prefix("xt=urn:btih:"))
@@ -400,19 +318,9 @@ fn collect_files(handle: &TorrentHandle) -> Vec<TorrentFile> {
 }
 
 /// Flatten a resolved info dictionary into the file list the UI shows.
-///
-/// The enumeration order matches librqbit's own file indices, which is exactly
-/// what `only_files` expects later, so the indices stay valid from the
-/// metadata-only reply through `select_torrent_files`.
-///
-/// librqbit 9 hands back an already validated info dictionary, so the file
-/// iterator is infallible here: the paths were checked for traversal and empty
-/// components when the torrent was parsed.
 fn files_from_info(info: &ValidatedTorrentMetaV1Info<ByteBufOwned>) -> Vec<TorrentFile> {
     let mut files = Vec::new();
     for (index, detail) in info.iter_file_details().enumerate() {
-        // Components are joined with `/` so the path shape is identical on
-        // every platform; the UI normalizes both separators anyway.
         let path = detail.filename.to_vec().join("/");
         files.push(TorrentFile {
             index,
@@ -437,13 +345,7 @@ fn find_file(files: &[TorrentFile], index: usize) -> Result<TorrentFile, Torrent
         .ok_or_else(|| TorrentError::Operation("unknown file index".into()))
 }
 
-/// Status of a torrent that has not started downloading: still resolving its
-/// metadata, resolved but not scheduled, or given up on.
-///
-/// `total_bytes` stays 0 on purpose: nothing is scheduled for download yet, so
-/// any progress figure would be a lie until the user picks files. `error` is
-/// the only non-empty field of a `Failed` entry, which is how the UI learns
-/// that a magnet never found its swarm instead of polling forever.
+/// Status of a torrent that has not started downloading.
 fn metadata_status(id: &str, magnet_info_hash: &str, metadata: &Metadata) -> TorrentStatus {
     let (info_hash, state, name, files, error) = match metadata {
         Metadata::Resolving => (
@@ -518,19 +420,11 @@ fn mime_for_path(path: &str) -> &'static str {
 }
 
 /// Time left before `deadline` (zero once it has passed).
-///
-/// Every wait in the selection path is bounded by a shared deadline instead of
-/// its own timeout, so a slow step cannot stack onto the next one.
 fn remaining(deadline: tokio::time::Instant) -> Duration {
     deadline.saturating_duration_since(tokio::time::Instant::now())
 }
 
 /// Wait (bounded) until the file's first byte is on disk.
-///
-/// A `FileStream` read on a missing piece parks until the piece arrives, so a
-/// one-byte read is the cheapest exact "container header is here" probe. A
-/// timeout is not an error: the relay URL stays valid and the relay parks the
-/// browser's first range request until the piece arrives.
 async fn wait_first_byte(handle: &TorrentHandle, file_id: usize, deadline: tokio::time::Instant) {
     let Ok(mut stream) = handle.clone().stream(file_id).await else {
         return;
@@ -556,11 +450,6 @@ fn is_matroska_path(path: &str) -> bool {
 }
 
 /// Read just enough of the file header to list its tracks.
-///
-/// Every read is bounded twice: by [`HEADER_READ_LIMIT`] bytes and by
-/// [`HEADER_READ_TIMEOUT`] wall clock, because a read on a missing piece parks
-/// the task. Returns `None` when no `Tracks` element could be parsed in time;
-/// playback then simply keeps the engine default track.
 async fn read_mkv_track_report(
     handle: &TorrentHandle,
     file_id: usize,
@@ -575,8 +464,6 @@ async fn read_mkv_track_report(
         return None;
     }
 
-    // Never outlive the caller's budget, and never spend more than
-    // [`HEADER_READ_TIMEOUT`] on the header itself.
     let deadline = deadline.min(tokio::time::Instant::now() + HEADER_READ_TIMEOUT);
     let mut buffer: Vec<u8> = Vec::with_capacity(HEADER_READ_CHUNK);
     let mut chunk = vec![0u8; HEADER_READ_CHUNK];
@@ -595,8 +482,6 @@ async fn read_mkv_track_report(
         }
         buffer.extend_from_slice(&chunk[..read]);
 
-        // `Truncated` just means the Tracks payload is not complete yet: keep
-        // reading until the limit or the deadline is hit.
         if let Ok(tracks) = mkv::parse_tracks(&buffer) {
             if !tracks.is_empty() {
                 return Some(MkvTrackReport::from_tracks(tracks));
@@ -653,15 +538,13 @@ fn status_of(id: &str, handle: &TorrentHandle) -> TorrentStatus {
 }
 
 #[tauri::command]
-async fn add_torrent(
+pub async fn add_torrent(
     state: tauri::State<'_, TorrentState>,
     magnet_uri: String,
 ) -> Result<AddTorrentResult, String> {
     let uri = validate_magnet(&magnet_uri).map_err(|err| err.message())?;
     let session = state.session().await.map_err(|err| err.message())?;
 
-    // The id exists before the fetch starts, so the entry is pollable and
-    // cancellable from the first millisecond.
     let id = state.next_id();
     let info_hash = magnet_info_hash(uri);
     let (sender, receiver) = watch::channel(Metadata::Resolving);
@@ -669,24 +552,12 @@ async fn add_torrent(
         .insert_metadata(id.clone(), info_hash.clone(), receiver.clone())
         .map_err(|err| err.message())?;
 
-    // `list_only` resolves the info dictionary and stops there: the torrent is
-    // never added to the session, so no file, folder or piece is created on
-    // disk. Only the few KB of metadata cross the wire here — a magnet pointing
-    // at a 67 GB season must not start downloading while the user is still
-    // reading the file table.
-    //
-    // The fetch owns the session handle in its own task, so a cold DHT that
-    // needs a minute of peer discovery keeps going after this command returns
-    // instead of being cancelled with the future that started it.
     let uri_owned = uri.to_string();
     tauri::async_runtime::spawn(async move {
         let outcome = resolve_metadata(&session, &uri_owned).await;
-        // A dropped receiver means the dialog was cancelled; nothing was
-        // written to disk, so there is nothing else to undo.
         let _ = sender.send(outcome);
     });
 
-    // Short wait so a warm swarm still answers with the file table inline.
     let mut receiver = receiver;
     let _ = tokio::time::timeout(METADATA_INITIAL_WAIT, async {
         loop {
@@ -709,14 +580,10 @@ async fn add_torrent(
             name: pending.name,
             files: pending.files,
         }),
-        // A failure that arrived inside the wait is still reported as a
-        // rejection: the UI shows the reason instead of a polling skeleton.
         Metadata::Failed(error) => {
             let _ = state.take_entry(&id);
             Err(TorrentError::Operation(error).message())
         }
-        // Still resolving: hand the id back and let `get_torrent_status` carry
-        // the file list when the info dictionary lands.
         Metadata::Resolving => Ok(AddTorrentResult {
             id,
             info_hash,
@@ -727,11 +594,6 @@ async fn add_torrent(
 }
 
 /// Resolve one magnet's info dictionary without starting a download.
-///
-/// `list_only` keeps the torrent out of the session, so nothing is written to
-/// disk while the user is still reading the file table. The whole fetch is
-/// bounded by [`METADATA_TIMEOUT`]; exceeding it reports `Failed` so the UI can
-/// stop its skeleton instead of polling a torrent that will never resolve.
 async fn resolve_metadata(session: &Arc<Session>, uri: &str) -> Metadata {
     let response = tokio::time::timeout(
         METADATA_TIMEOUT,
@@ -754,9 +616,6 @@ async fn resolve_metadata(session: &Arc<Session>, uri: &str) -> Metadata {
         }
         Ok(Err(err)) => return Metadata::Failed(format!("{err:#}")),
         Ok(Ok(AddTorrentResponse::ListOnly(listed))) => listed,
-        // `list_only` returns before the session registers anything, so any
-        // other variant means the download started — refuse instead of leaving
-        // a running torrent the UI never asked for.
         Ok(Ok(AddTorrentResponse::Added(_, _) | AddTorrentResponse::AlreadyManaged(_, _))) => {
             return Metadata::Failed("torrent was started instead of listed".into())
         }
@@ -771,7 +630,7 @@ async fn resolve_metadata(session: &Arc<Session>, uri: &str) -> Metadata {
 }
 
 #[tauri::command]
-async fn get_torrent_status(
+pub async fn get_torrent_status(
     state: tauri::State<'_, TorrentState>,
     id: String,
 ) -> Result<TorrentStatus, String> {
@@ -786,13 +645,9 @@ async fn get_torrent_status(
 }
 
 #[tauri::command]
-async fn cancel_torrent(state: tauri::State<'_, TorrentState>, id: String) -> Result<(), String> {
-    // Take the entry first: whatever happens below, the plugin must not keep
-    // pointing at a torrent it can no longer control.
+pub async fn cancel_torrent(state: tauri::State<'_, TorrentState>, id: String) -> Result<(), String> {
     let entry = state.take_entry(&id).map_err(|err| err.message())?;
 
-    // Drop the torrent's relay URLs too: the handles are going away, so they
-    // would only answer 503 while still occupying a relay session slot.
     if let Some(relay) = relay::existing() {
         relay.unregister_torrent(&id);
     }
@@ -812,10 +667,6 @@ async fn cancel_torrent(state: tauri::State<'_, TorrentState>, id: String) -> Re
 
     // Pause first so no new pieces are written while the torrent is removed.
     let _ = session.pause(&handle).await;
-    // `delete_files: true` removes the streaming cache the plugin itself wrote
-    // (inside the app's own download folder) and any folder it left empty. The
-    // files are never user media — keeping them would leak tens of GB of
-    // partial episodes after every cancel.
     session
         .delete(TorrentIdOrHash::Id(torrent_id), true)
         .await
@@ -832,9 +683,6 @@ enum SelectionSource {
 }
 
 /// Read the entry as a selection source.
-///
-/// A torrent whose metadata is still resolving has no file list, so selecting a
-/// file for it is a caller bug; a failed resolution carries the reason.
 fn selection_source(entry: &Entry) -> Result<SelectionSource, TorrentError> {
     match entry {
         Entry::Metadata { state, .. } => match state.borrow().clone() {
@@ -849,23 +697,8 @@ fn selection_source(entry: &Entry) -> Result<SelectionSource, TorrentError> {
 }
 
 /// Start downloading the chosen files and hand back loopback URLs.
-///
-/// This is the only place a download begins. `video_index`/`subtitle_index` are
-/// the `TorrentFile.index` values from `add_torrent` (the metadata file index,
-/// which is what librqbit's `only_files` expects). Everything else in the
-/// torrent — other episodes, extras, soundtracks — is excluded from the start,
-/// so a 67 GB multi-file torrent only ever fetches the selected episode.
-///
-/// The command never fails because the torrent is still `Initializing`. librqbit
-/// opens the storage only after its initial piece check, which on a 130 GB /
-/// 1372-file torrent runs for minutes; waiting for that here is what used to
-/// abort the modal with a generic error. The relay sessions are registered first
-/// — the URLs are final as soon as the handle exists — and every long
-/// initialization wait is left to the relay's `wait_streamable`, which parks the
-/// browser's first range request instead of refusing it. Only the best-effort
-/// Matroska header scan below stays bounded here, by [`TRACK_SCAN_TIMEOUT`].
 #[tauri::command]
-async fn select_torrent_files(
+pub async fn select_torrent_files(
     state: tauri::State<'_, TorrentState>,
     id: String,
     video_index: usize,
@@ -873,9 +706,6 @@ async fn select_torrent_files(
 ) -> Result<SelectedTorrentFiles, String> {
     let entry = state.entry(&id).map_err(|err| err.message())?;
 
-    // Metadata-only entries carry the file list in memory; a live entry reads
-    // it back from librqbit. Both enumerate in the same order, so the indices
-    // the UI holds stay valid across the transition.
     let source = selection_source(&entry).map_err(|err| err.message())?;
     let files = match &source {
         SelectionSource::Metadata(pending) => pending.files.clone(),
@@ -917,38 +747,22 @@ async fn select_torrent_files(
                 .map_err(|err| err.message())?;
             handle
         }
-        // Re-selecting files for a torrent that is already live keeps the same
-        // handle; the restriction below is what changes.
         SelectionSource::Active(handle) => handle.clone(),
     };
 
-    // Register the relay sessions before anything can wait: the URLs are
-    // deterministic once the handle exists, so the reply's playback surface is
-    // final immediately and no initialization delay can hold it back.
     let relay = relay::ensure().await?;
-    // Re-selecting a file in the same torrent replaces its streams: drop the
-    // previous relay sessions first, otherwise dead URLs keep occupying slots
-    // and can trigger oldest-first eviction of the stream we are about to
-    // hand back.
     relay.unregister_torrent(&id);
     let video_url = relay.register(&id, handle.clone(), video.index, mime_for_path(&video.path));
     let subtitle_url = subtitle
         .as_ref()
         .map(|file| relay.register(&id, handle.clone(), file.index, mime_for_path(&file.path)));
 
-    // Best effort: a fresh add already honours `only_files`, and an already
-    // live torrent needs the restriction applied now. Neither call blocks on
-    // initialization — on a torrent that is still `Initializing` librqbit
-    // rejects them and the add above already carries the file restriction.
     let _ = session.update_only_files(&handle, &only_files).await;
     if handle.is_paused() {
         let _ = session.unpause(&handle).await;
     }
 
     let scan_deadline = tokio::time::Instant::now() + TRACK_SCAN_TIMEOUT;
-    // Both probes below are opportunistic: they warm the first piece and let the
-    // reply carry the track list. When the torrent is still initializing they
-    // return at once and the relay keeps the browser parked instead.
     wait_first_byte(&handle, video.index, scan_deadline).await;
     let track_report =
         read_mkv_track_report(&handle, video.index, &video.path, scan_deadline).await;
@@ -971,14 +785,8 @@ async fn select_torrent_files(
 
 /// List the Matroska tracks of a torrent file and the auto-selected Japanese
 /// audio/subtitle track numbers.
-///
-/// Returns an empty report (no tracks, no selections) when the file is not a
-/// Matroska container, its header did not arrive within the bounded read, or
-/// the torrent is still metadata-only (nothing is on disk to inspect yet) —
-/// the caller then keeps the engine default track. Only an unknown torrent id
-/// or file index is an error.
 #[tauri::command]
-async fn inspect_torrent_tracks(
+pub async fn inspect_torrent_tracks(
     state: tauri::State<'_, TorrentState>,
     id: String,
     file_index: usize,
@@ -987,8 +795,6 @@ async fn inspect_torrent_tracks(
     let (files, handle) = match &entry {
         Entry::Metadata { state, .. } => match state.borrow().clone() {
             Metadata::Ready(pending) => (pending.files.clone(), None),
-            // Still resolving or already failed: no bytes on disk, so there is
-            // no header to parse.
             Metadata::Resolving | Metadata::Failed(_) => return Ok(MkvTrackReport::default()),
         },
         Entry::Active { handle, .. } => (collect_files(handle), Some(handle.clone())),
@@ -996,7 +802,6 @@ async fn inspect_torrent_tracks(
     let file = find_file(&files, file_index).map_err(|err| err.message())?;
 
     let Some(handle) = handle else {
-        // Metadata-only: no bytes on disk, so there is no header to parse.
         return Ok(MkvTrackReport::default());
     };
 
@@ -1011,18 +816,6 @@ async fn inspect_torrent_tracks(
 }
 
 /// Resolve the on-disk directory torrents are written to.
-///
-/// This is pure streaming cache: every file in it is written by this plugin and
-/// every file in it is deleted again (on cancel, on exit, and on the next
-/// startup), so it belongs in the platform cache dir. The resolution stays on
-/// Tauri's `PathResolver` so Android (`<app data>/cache`), Windows
-/// (`%LOCALAPPDATA%\<identifier>\cache`) and macOS all land in an app-private,
-/// writable location instead of a hard-coded Windows path.
-///
-/// `librqbit` keeps a bbolt database next to the pieces and mmap on a Ramdisk
-/// fails, which stalls the download completely, so the OS temp dir must never
-/// be used as a fallback. `app_local_data_dir` (and finally the Entei-namespaced
-/// Windows directory) are only used when the cache dir cannot be resolved.
 fn resolve_download_dir<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -1052,10 +845,6 @@ fn resolve_download_dir<R: Runtime>(
 
 /// Delete everything inside the plugin's own download folder, keeping the
 /// folder itself.
-///
-/// The folder never contains user media — only pieces this plugin wrote while
-/// streaming — so wiping it is always safe. Symlinks are unlinked, not followed,
-/// and per-entry errors are reported so one locked file cannot abort the sweep.
 fn purge_download_dir(dir: &std::path::Path) -> std::io::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -1071,51 +860,31 @@ fn purge_download_dir(dir: &std::path::Path) -> std::io::Result<()> {
         } else {
             std::fs::remove_file(&path)
         };
-        // A file still held open by the engine (or a delete-pending entry from
-        // a previous pass) must not stop the rest of the cleanup.
         let _ = removed;
     }
     Ok(())
 }
 
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    Builder::new("torrent")
-        .invoke_handler(tauri::generate_handler![
-            add_torrent,
-            get_torrent_status,
-            select_torrent_files,
-            inspect_torrent_tracks,
-            cancel_torrent
-        ])
-        .setup(|app, _api| {
-            let download_dir = resolve_download_dir(app)?;
-            std::fs::create_dir_all(&download_dir)?;
-            // Startup sweep: whatever a crash, a force quit or an OS kill left
-            // behind is reclaimed before the first torrent can run. The
-            // session is lazy, so no storage handle is open at this point.
-            let _ = purge_download_dir(&download_dir);
-            // Older builds kept the streaming cache under the local data dir.
-            // Reclaim that folder once too, otherwise an upgrade leaves tens of
-            // GB of partial pieces behind forever.
-            if let Ok(legacy_root) = app.path().app_local_data_dir() {
-                let legacy_dir = legacy_root.join("torrent");
-                if legacy_dir != download_dir {
-                    let _ = purge_download_dir(&legacy_dir);
-                }
-            }
-            app.manage(TorrentState::new(download_dir));
-            Ok(())
-        })
-        .on_event(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                // Exit sweep: the app is closing, so the streaming cache has no
-                // further use. Best effort — the next startup sweeps again.
-                if let Some(state) = app.try_state::<TorrentState>() {
-                    let _ = purge_download_dir(&state.download_dir);
-                }
-            }
-        })
-        .build()
+pub(crate) fn setup<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let download_dir = resolve_download_dir(app)?;
+    std::fs::create_dir_all(&download_dir)?;
+    let _ = purge_download_dir(&download_dir);
+    if let Ok(legacy_root) = app.path().app_local_data_dir() {
+        let legacy_dir = legacy_root.join("torrent");
+        if legacy_dir != download_dir {
+            let _ = purge_download_dir(&legacy_dir);
+        }
+    }
+    app.manage(TorrentState::new(download_dir));
+    Ok(())
+}
+
+pub(crate) fn on_exit<R: Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(state) = app.try_state::<TorrentState>() {
+        let _ = purge_download_dir(&state.download_dir);
+    }
 }
 
 #[cfg(test)]
@@ -1187,9 +956,6 @@ mod tests {
         .expect("validated info")
     }
 
-    /// The metadata-only file list must carry the same indices librqbit will
-    /// later expect in `only_files`, so `select_torrent_files` can address the
-    /// chosen file without ever starting the rest of the torrent.
     #[test]
     fn lists_metadata_files_with_librqbit_indices() {
         let info = multi_file_info();
@@ -1210,8 +976,6 @@ mod tests {
         assert!(find_file(&files, 2).is_err());
     }
 
-    /// A metadata-only entry must never look like it is downloading: the whole
-    /// point of the deferred add is that nothing is scheduled yet.
     #[test]
     fn pending_status_reports_no_download() {
         let pending = PendingTorrent {
@@ -1232,9 +996,6 @@ mod tests {
         assert_eq!(status.files.len(), 2);
     }
 
-    /// While the info dictionary is still in flight the poll must keep the
-    /// skeleton alive: no files, no error, and the magnet's own infohash so the
-    /// entry has an identity before the engine answers.
     #[test]
     fn resolving_status_has_no_files_and_no_error() {
         let status = metadata_status("torrent-1", "abcdef", &Metadata::Resolving);
@@ -1244,8 +1005,6 @@ mod tests {
         assert!(status.error.is_none());
     }
 
-    /// A resolution that gave up must reach the UI as an error, otherwise the
-    /// dialog would poll a torrent that will never resolve.
     #[test]
     fn failed_resolution_reports_the_reason() {
         let status = metadata_status(
@@ -1261,8 +1020,6 @@ mod tests {
         assert!(status.files.is_empty());
     }
 
-    /// The magnet already names the infohash; the status reply must not be
-    /// blank while the engine is still resolving it.
     #[test]
     fn reads_the_infohash_from_the_magnet() {
         assert_eq!(
@@ -1275,8 +1032,6 @@ mod tests {
         );
     }
 
-    /// A torrent that is still resolving has no file list, so selecting a file
-    /// for it must fail instead of silently picking index 0.
     #[test]
     fn selection_requires_resolved_metadata() {
         let (_sender, receiver) = watch::channel(Metadata::Resolving);
@@ -1290,8 +1045,6 @@ mod tests {
         ));
     }
 
-    /// The startup/exit sweep must empty the plugin's cache dir and keep the dir
-    /// itself, so the next session starts from a clean disk.
     #[test]
     fn purges_cache_contents_and_keeps_the_directory() {
         let root = std::env::temp_dir().join(format!(
@@ -1314,8 +1067,6 @@ mod tests {
             "every leftover entry must be gone"
         );
 
-        // A missing directory is not an error: cleanup runs before the first
-        // torrent and on exit, where the dir may already be gone.
         let _ = std::fs::remove_dir_all(&root);
         assert!(purge_download_dir(&root).is_ok());
     }
