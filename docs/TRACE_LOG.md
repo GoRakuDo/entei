@@ -59,6 +59,19 @@ await traceSpan('ipc', 'stream_youtube', () => streamYouTubeDirect(url));
 - `traceError(area, event, error, data?)` — 失敗を Error ごと記録する。
 - `traceSpan(area, event, fn)` — Promise を包み、成功/失敗と所要msを記録する。
 - `tracedInvoke(cmd, args)` — Tauri コマンドを実行しつつ IPC を記録する。
+- `traceModule(moduleId, event, data?)` — モジュール自身のイベントを記録する
+  （`area: 'module'` + `data.module: moduleId`）。書き込むかどうかはモジュール側の
+  判断で、Yomitan は `general.debugInfo`（設定の「Show debug information」）が
+  ON のときだけ書く（`features/yomitan/yomitan-preferences.ts` の `traceYomitan()`）。
+  `general.showAdvanced` / `general.showDebug` はホストが常に ON に固定し、
+  設定UIからは非表示（`LOCKED_OPTION_PATHS`）。
+
+area の対応（`modules` と `module` は別物なので混同しない）:
+
+| area | 誰が書くか |
+| --- | --- |
+| `modules` | Modules ページのUI操作（トグル、ダッシュボード表示） |
+| `module` | モジュール本体が自分自身について書く（`data.module` で判別） |
 
 送信は 0.8 秒ごとのバッチ（最大64件）で `trace_log` コマンドへ。キューは500件で
 頭から捨てる（`getTraceDroppedCount()` で件数を確認できる）。書き込み失敗時は
@@ -177,6 +190,16 @@ IPC は `__TAURI_INTERNALS__.invoke` を差し替えず、`tauri-bridge.ts` 経�
 | `dashboard_ready` | 起動時の有効状態、インポート可否（現状は常に false） |
 | `module_toggle` | moduleId、切替後、有効件数 |
 
+### Module（`area: 'module'`、`general.debugInfo` が ON のときだけ）
+
+| event | 主な data |
+| --- | --- |
+| `settings_hydrated` | source（`db` / `cache`）、profile 数 |
+| `settings_hydrate_failed` | Error（DB を読めずキャッシュで継続） |
+| `settings_read_failed` | Error（localStorage が壊れている／使えない） |
+| `settings_cache_failed` | Error（localStorage に書けない） |
+| `settings_mirror_failed` | Error（SQLite へのミラー失敗、localStorage は正） |
+
 ---
 
 ## 4. 拡張するとき
@@ -197,4 +220,8 @@ IPC は `__TAURI_INTERNALS__.invoke` を差し替えず、`tauri-bridge.ts` 経�
   - **24時間超過ファイルだけを消す**（当日ファイルと無関係ファイルは残る）。
 - `apps/web/tests/trace-logger.test.ts`
   - `sanitize()` の秘匿キー/URL/長さ/Error 処理、
-  - キューの上限と破棄件数、`routeArea()` のルート対応。
+  - キューの上限と破棄件数、`routeArea()` のルート対応、
+  - `traceModule()` の area / `data.module` タグと sanitize。
+- `apps/web/tests/yomitan-preferences.test.ts`
+  - `general.debugInfo` OFF では 1 行も書かない、ON で `area: 'module'` を書き、
+    API キーは `[redacted]` になること。

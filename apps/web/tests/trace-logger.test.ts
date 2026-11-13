@@ -21,6 +21,7 @@ import {
   sanitize,
   shouldTraceHttp,
   trace,
+  traceModule,
 } from '@/features/trace/trace-logger';
 
 beforeEach(() => {
@@ -125,6 +126,27 @@ describe('trace queue', () => {
     for (let i = 0; i < 900; i += 1) trace('ui', 'click', { i });
     expect(getTracePendingCount()).toBeLessThanOrEqual(500);
     expect(getTraceDroppedCount()).toBeGreaterThan(0);
+  });
+});
+
+describe('traceModule', () => {
+  it('writes module events under the module area, tagged with the module id', () => {
+    traceModule('yomitan', 'scan', { found: 3 });
+    const [record] = getTraceRecent();
+    expect(record?.area).toBe('module');
+    expect(record?.event).toBe('scan');
+    expect(record?.data.module).toBe('yomitan');
+    expect(record?.data.found).toBe(3);
+  });
+
+  it('sanitizes the payload and lets the caller override the module tag', () => {
+    traceModule('nadeshiko', 'request', { apiKey: 'k', url: 'https://x/y?token=t' });
+    const record = getTraceRecent().at(-1);
+    expect(record?.data.apiKey).toBe('[redacted]');
+    expect(String(record?.data.url)).toContain('token=[redacted]');
+
+    traceModule('yomitan', 'scan', { module: 'dictionary/yomitan' });
+    expect(getTraceRecent().at(-1)?.data.module).toBe('dictionary/yomitan');
   });
 });
 

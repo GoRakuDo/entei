@@ -6,23 +6,31 @@
  * - every edit persists (localStorage write, the DB mirror is fire-and-forget)
  * - a corrupted / partial payload falls back to defaults without throwing
  * - an unaddressable path is a no-op that returns the SAME reference
- * - host-locked paths (master switch / lookup language / welcome guide) ignore
- *   any foreign stored value and refuse writes
+ * - host-locked paths (master switch / lookup language / welcome guide /
+ *   advanced+debug toggles) ignore any foreign stored value and refuse writes
  * - integer fields round (no fractional values reach the store)
+ * - the module → trace pipeline is gated on `general.debugInfo`
  */
 
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   YOMITAN_OPTIONS_KEY,
   YOMITAN_OPTIONS_SCHEMA_VERSION,
   activeProfileOptions,
   getPathValue,
+  isLockedOptionPath,
+  isYomitanDebugInfoEnabled,
   readOptionPath,
   readYomitanOptions,
   setPathValue,
+  traceYomitan,
   writeOptionPath,
   writeYomitanOptions,
 } from '@/features/yomitan/yomitan-preferences';
+import {
+  getTraceRecent,
+  resetTraceState,
+} from '@/features/trace/trace-logger';
 import {
   createDefaultOptions,
   createDefaultProfileOptions,
@@ -169,6 +177,17 @@ describe('yomitan-preferences — host-locked options', () => {
     expect(general.showGuide).toBe(false);
   });
 
+  it('pins showAdvanced / showDebug on and keeps them out of the UI', () => {
+    const general = activeProfileOptions(readYomitanOptions()).general;
+    expect(general.showAdvanced).toBe(true);
+    expect(general.showDebug).toBe(true);
+    // Locked = the renderer skips the toggle, so there is no way back to off.
+    expect(isLockedOptionPath('general.showAdvanced')).toBe(true);
+    expect(isLockedOptionPath('general.showDebug')).toBe(true);
+    // "Show debug information" stays a user decision (it gates module tracing).
+    expect(isLockedOptionPath('general.debugInfo')).toBe(false);
+  });
+
   it('overrides a stored payload that carries foreign locked values', () => {
     const defaults = createDefaultProfileOptions();
     const stored = {
@@ -186,6 +205,8 @@ describe('yomitan-preferences — host-locked options', () => {
                 enable: false,
                 language: 'en',
                 showGuide: true,
+                showAdvanced: false,
+                showDebug: false,
               },
             },
           },
@@ -198,6 +219,8 @@ describe('yomitan-preferences — host-locked options', () => {
     expect(general.enable).toBe(true);
     expect(general.language).toBe('ja');
     expect(general.showGuide).toBe(false);
+    expect(general.showAdvanced).toBe(true);
+    expect(general.showDebug).toBe(true);
   });
 
   it('refuses a write to a locked path (same reference, nothing stored)', () => {
@@ -205,6 +228,82 @@ describe('yomitan-preferences — host-locked options', () => {
     expect(writeOptionPath(options, 'general.enable', false)).toBe(options);
     expect(writeOptionPath(options, 'general.language', 'en')).toBe(options);
     expect(writeOptionPath(options, 'general.showGuide', true)).toBe(options);
+    expect(writeOptionPath(options, 'general.showAdvanced', false)).toBe(options);
+    expect(writeOptionPath(options, 'general.showDebug', false)).toBe(options);
     expect(localStorage.getItem(YOMITAN_OPTIONS_KEY)).toBeNull();
+  });
+});
+
+describe('yomitan-preferences — module trace pipeline', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetTraceState();
+    readYomitanOptions(); // gate back to false for a clean case
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    resetTraceState();
+    readYomitanOptions();
+  });
+
+  /** Persist an options tree whose `general.debugInfo` is `value`. */
+  function storeDebugInfo(value: boolean): void {
+    const defaults = createDefaultProfileOptions();
+    localStorage.setItem(
+      YOMITAN_OPTIONS_KEY,
+      JSON.stringify({
+        version: YOMITAN_OPTIONS_SCHEMA_VERSION,
+        options: {
+          ...createDefaultOptions(),
+          profiles: [
+            {
+              name: 'Default',
+              conditionGroups: [],
+              options: {
+                ...defaults,
+                general: { ...defaults.general, debugInfo: value },
+              },
+            },
+          ],
+        },
+      }),
+    );
+  }
+
+  it('stays silent while general.debugInfo is off', () => {
+    storeDebugInfo(false);
+    expect(isYomitanDebugInfoEnabled()).toBe(false); // stale cache…
+    readYomitanOptions();
+    expect(isYomitanDebugInfoEnabled()).toBe(false);
+    traceYomitan('scan', { found: 3 });
+    expect(getTraceRecent()).toHaveLength(0);
+  });
+
+  it('appends to the trace journal once debug info is on', () => {
+    storeDebugInfo(true);
+    readYomitanOptions();
+    expect(isYomitanDebugInfoEnabled()).toBe(true);
+
+    traceYomitan('scan', { found: 3, apiKey: 'super-secret' });
+    const record = getTraceRecent().at(-1);
+    expect(record?.area).toBe('module');
+    expect(record?.event).toBe('scan');
+    expect(record?.data.module).toBe('yomitan');
+    expect(record?.data.found).toBe(3);
+    // Rule #2453: an API key never reaches the file.
+    expect(record?.data.apiKey).toBe('[redacted]');
+  });
+
+  it('follows a live toggle written through writeOptionPath', () => {
+    const options = readYomitanOptions();
+    expect(isYomitanDebugInfoEnabled()).toBe(false);
+
+    const next = writeOptionPath(options, 'general.debugInfo', true);
+    expect(next).not.toBe(options);
+    expect(isYomitanDebugInfoEnabled()).toBe(true);
+
+    traceYomitan('scan', { found: 1 });
+    expect(getTraceRecent()).toHaveLength(1);
   });
 });

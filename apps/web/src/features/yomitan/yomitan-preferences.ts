@@ -29,26 +29,68 @@ import {
   type ProfileOptions,
 } from '@gorakudo/yomitan-headless/settings';
 import { dbKvGet, dbKvSet, isTauri } from '@/features/player/tauri-bridge';
+import { traceModule, type TraceData } from '@/features/trace/trace-logger';
 
 /**
  * Host-locked option paths — never rendered, never user-editable.
  *
  * Yomitan lives as an Entei module: the switch on the Modules page is its
  * master switch (so `general.enable` is always on), dictionary lookups are
- * Japanese-only in this host (`general.language` is pinned to `ja`), and the
+ * Japanese-only in this host (`general.language` is pinned to `ja`), the
  * Chrome-extension onboarding guide does not exist here (`general.showGuide`
- * stays off). Every read forces these values, so even a hand-edited payload
- * cannot smuggle a different one in.
+ * stays off), and this host always runs with the advanced + debug surfaces
+ * enabled (`general.showAdvanced` / `general.showDebug` are pinned on) while
+ * their toggles are removed from the settings UI — there is nothing for the
+ * user to decide there. Every read forces these values, so even a hand-edited
+ * payload cannot smuggle a different one in.
  */
 export const LOCKED_OPTION_PATHS: Readonly<Record<string, unknown>> = {
   'general.enable': true,
   'general.language': 'ja',
   'general.showGuide': false,
+  'general.showAdvanced': true,
+  'general.showDebug': true,
 };
 
 /** True for a path the host owns (renderer skips it, writes are refused). */
 export function isLockedOptionPath(path: string): boolean {
   return Object.hasOwn(LOCKED_OPTION_PATHS, path);
+}
+
+/* ---------------------------------------------------------------------------
+ * Module → 24h trace pipeline
+ * ---------------------------------------------------------------------------
+ * Yomitan's own diagnostics used to stop at the console, which is exactly where
+ * nobody can read them after the fact. They now go through the same journal as
+ * the UI events they belong to (features/trace/trace-logger.ts → the 24h
+ * rolling JSONL file), tagged `area: 'module'` and `data.module: 'yomitan'`.
+ *
+ * The gate is `general.debugInfo` ("Show debug information", still a user
+ * toggle — unlike showAdvanced/showDebug, which are pinned on and hidden).
+ * Tracing off costs one boolean read, so a hot path stays free.
+ * ------------------------------------------------------------------------- */
+
+/** Cached `general.debugInfo`, re-read whenever options are read or written. */
+let debugInfoEnabled = false;
+
+/** Re-read the trace gate from an options tree (never parses storage). */
+function syncDebugInfoCache(options: Options): void {
+  debugInfoEnabled = readOptionPath(options, 'general.debugInfo') === true;
+}
+
+/** True while the user has Yomitan's "Show debug information" turned on. */
+export function isYomitanDebugInfoEnabled(): boolean {
+  return debugInfoEnabled;
+}
+
+/**
+ * Append one Yomitan event to Entei's trace journal (no-op while the gate is
+ * off). Payload goes through the journal's `sanitize()`, so an API key or a
+ * tokenised URL passed in by mistake is redacted before it reaches the file.
+ */
+export function traceYomitan(event: string, data?: TraceData): void {
+  if (!debugInfoEnabled) return;
+  traceModule('yomitan', event, data);
 }
 
 /** localStorage key (versioned) — also the SQLite key suffix. */
@@ -140,7 +182,7 @@ export function normalizeOptions(input: unknown): Options {
 }
 
 /** Read from the localStorage cache, falling back to defaults. */
-export function readYomitanOptions(): Options {
+function readPersistedOptions(): Options {
   if (typeof window === 'undefined') {
     return withLockedOptions(createDefaultOptions());
   }
@@ -153,26 +195,56 @@ export function readYomitanOptions(): Options {
       return normalizeOptions(parsed);
     }
     return normalizeOptions(parsed.options);
-  } catch {
+  } catch (error) {
     // storage unavailable or corrupted
+    traceYomitan('settings_read_failed', { error });
     return withLockedOptions(createDefaultOptions());
   }
+}
+
+/**
+ * Read the persisted options (cache first) and refresh the trace gate.
+ *
+ * Every read path funnels through here, so the gate always describes the tree
+ * the caller is about to use.
+ */
+export function readYomitanOptions(): Options {
+  const options = readPersistedOptions();
+  syncDebugInfoCache(options);
+  return options;
 }
 
 /** Seed the localStorage cache from the desktop DB (call once on mount). */
 export async function hydrateYomitanOptions(): Promise<Options> {
   const cached = readYomitanOptions();
-  if (!isTauri()) return cached;
+  const fromCache = { source: 'cache', profiles: cached.profiles.length };
+  if (!isTauri()) {
+    traceYomitan('settings_hydrated', fromCache);
+    return cached;
+  }
   try {
     const stored = await dbKvGet(YOMITAN_OPTIONS_KEY);
-    if (stored === null || stored === undefined || stored === '') return cached;
-    const parsed = JSON.parse(stored) as unknown;
-    if (!isRecord(parsed) || !('options' in parsed)) return cached;
+    const parsed =
+      stored === null || stored === undefined || stored === ''
+        ? null
+        : (JSON.parse(stored) as unknown);
+    if (!isRecord(parsed) || !('options' in parsed)) {
+      traceYomitan('settings_hydrated', fromCache);
+      return cached;
+    }
     const options = normalizeOptions(parsed.options);
+    // The DB is the durable source of truth: its gate wins over the cache's.
+    syncDebugInfoCache(options);
     writeCache(options);
+    traceYomitan('settings_hydrated', {
+      source: 'db',
+      profiles: options.profiles.length,
+    });
     return options;
-  } catch {
-    return cached; // DB unavailable — keep the cache value
+  } catch (error) {
+    // DB unavailable — keep the cache value.
+    traceYomitan('settings_hydrate_failed', { error });
+    return cached;
   }
 }
 
@@ -185,8 +257,9 @@ function writeCache(options: Options): void {
       options,
     };
     window.localStorage.setItem(YOMITAN_OPTIONS_KEY, JSON.stringify(payload));
-  } catch {
+  } catch (error) {
     // storage unavailable — the in-memory value still drives this session
+    traceYomitan('settings_cache_failed', { error });
   }
 }
 
@@ -198,6 +271,8 @@ function writeCache(options: Options): void {
  * write. Fire-and-forget, never throws to the caller.
  */
 export function writeYomitanOptions(options: Options): void {
+  // The tree being persisted is now the live one, gate included.
+  syncDebugInfoCache(options);
   writeCache(options);
   if (!isTauri()) return;
   if (saveTimer !== null) clearTimeout(saveTimer);
@@ -207,9 +282,12 @@ export function writeYomitanOptions(options: Options): void {
       version: YOMITAN_OPTIONS_SCHEMA_VERSION,
       options,
     };
-    void dbKvSet(YOMITAN_OPTIONS_KEY, JSON.stringify(payload)).catch(() => {
-      // Mirroring is best-effort; localStorage stays authoritative.
-    });
+    void dbKvSet(YOMITAN_OPTIONS_KEY, JSON.stringify(payload)).catch(
+      (error: unknown) => {
+        // Mirroring is best-effort; localStorage stays authoritative.
+        traceYomitan('settings_mirror_failed', { error });
+      },
+    );
   }, SAVE_DEBOUNCE_MS);
 }
 

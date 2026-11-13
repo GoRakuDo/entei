@@ -26,8 +26,8 @@
  * mark the Chrome extension shows (see the section-icon map below). Whether the
  * icon appears is manifest data, never a page-side decision. Fields
  * the HOST owns (`LOCKED_OPTION_PATHS` — master switch, lookup language, the
- * Chrome onboarding guide) are skipped entirely, and a group left empty by that
- * skip disappears with them.
+ * Chrome onboarding guide, the advanced/debug toggles) are skipped entirely, and
+ * a group left empty by that skip disappears with them.
  * ---------------------------------------------------------------------------
  */
 

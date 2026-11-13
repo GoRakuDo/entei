@@ -6,7 +6,11 @@
  * the single front door for that journal:
  *
  * - `trace(area, event, data?)` — explicit semantic events at the places that
- *   matter (`home` post published, `player` seek, `modules` toggle, …).
+ *   matter (`home` post published, `player` seek, `modules` toggle, …);
+ * - `traceModule(moduleId, event, data?)` — the same journal, opened to the
+ *   modules themselves, so a module's own diagnostics (`yomitan` scan events,
+ *   API calls, settings hydration) land in the one 24h file next to the UI
+ *   events they belong to instead of dying in the console.
  * - `installTraceInstrumentation()` — installs the automatic layers once:
  *   - `ui`:  every click / key press on a control, with a readable label;
  *   - `ipc`: every Tauri command with duration and outcome;
@@ -35,6 +39,12 @@ export type TraceArea =
   | 'home'
   | 'profile'
   | 'modules'
+  /**
+   * Emitted BY a module about itself (`data.module` names which one), as
+   * opposed to `modules`, which is the Modules page UI. Separate areas so a
+   * reader can filter "what did the modules do" without the page's own clicks.
+   */
+  | 'module'
   | 'player'
   | 'audio'
   | 'ui'
@@ -295,6 +305,25 @@ export function trace(area: TraceArea, event: string, data?: TraceData): void {
   } catch {
     // Tracing must never break the caller.
   }
+}
+
+/**
+ * Record one event emitted by a module about itself.
+ *
+ * `traceModule('yomitan', 'scan', { found: 3 })`
+ *
+ * The module id is part of the payload (`data.module`) rather than the event
+ * name, so every line a module writes is filterable by module and still reads
+ * as a normal entry in the file. Whether a module traces at all is the
+ * module's own decision (Yomitan gates this on `general.debugInfo`); the
+ * pipeline itself is unconditional and, like every entry, sanitized.
+ */
+export function traceModule(
+  moduleId: string,
+  event: string,
+  data?: TraceData,
+): void {
+  trace('module', event, { module: moduleId, ...data });
 }
 
 /** Record a failure with its error object (message is sanitized). */

@@ -4,8 +4,9 @@
  * - every manifest section renders with its leading section icon when the
  *   manifest sets `showSectionIcons`, and with none when it does not
  * - the description lives inside the toggle button (one clean target)
- * - host-locked fields (master switch / lookup language / welcome guide) are
- *   never rendered, and a group they empty disappears with them
+ * - host-locked fields (master switch / lookup language / welcome guide /
+ *   advanced+debug toggles) are never rendered, and a group they empty
+ *   disappears with them
  * - expanding a section shows only the editable, non-locked fields
  */
 
@@ -112,6 +113,11 @@ describe('YomitanSettingsRenderer — locked fields', () => {
     expect(groupLabels).not.toContain('Language');
     expect(groupLabels).not.toContain('Welcome');
     expect(groupLabels).toContain('Results');
+    // Pinned-on host options have no toggle; the trace gate keeps its own.
+    expect(screen.queryByText('Show advanced settings')).toBeNull();
+    expect(screen.queryByText('Show debug settings')).toBeNull();
+    expect(screen.getByText('Show debug information')).toBeTruthy();
+    expect(groupLabels).toContain('Debug');
   });
 
   it('renders no control bound to a locked path', () => {
