@@ -74,6 +74,12 @@ export interface EnteiModuleManifest {
   iconPath?: string;
   /** Whether the module exposes a settings panel or custom settings. */
   hasSettings?: boolean;
+  /**
+   * Whether a rendered `settingsSchema` shows a leading icon on every section
+   * header. The manifest decides; the renderer only draws what it is told to
+   * (absent = off, so an imported module opts in explicitly).
+   */
+  showSectionIcons?: boolean;
   /** Dictionary key for the localized display name (built-in modules). */
   nameKey?: ModuleCopyKey;
   /** Dictionary key for the localized description (built-in modules). */
@@ -204,6 +210,7 @@ function loadCoreManifests(): readonly EnteiModuleManifest[] {
       builtIn: manifest.builtIn ?? true,
       defaultEnabled: manifest.defaultEnabled ?? true,
       icon: manifest.icon ?? 'Blocks',
+      showSectionIcons: manifest.showSectionIcons ?? false,
       ...(manifest.id === 'yomitan'
         ? { settingsSchema: YOMITAN_SETTINGS_SCHEMA }
         : {}),
@@ -273,6 +280,7 @@ export function parseModuleManifest(
       // Imported modules default OFF: nothing runs until the user enables it.
       defaultEnabled: false,
       icon: (raw.icon as EnteiModuleManifest['icon']) ?? 'Blocks',
+      showSectionIcons: raw.showSectionIcons === true,
       ...(typeof raw.iconPath === 'string' && raw.iconPath.trim() !== ''
         ? { iconPath: raw.iconPath.trim() }
         : {}),

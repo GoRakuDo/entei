@@ -1,7 +1,9 @@
 /**
  * YomitanSettingsRenderer tests — descriptor-tree settings page.
  * ---------------------------------------------------------------------------
- * - every manifest section renders with its leading section icon
+ * - every manifest section renders with its leading section icon when the
+ *   manifest sets `showSectionIcons`, and with none when it does not
+ * - the description lives inside the toggle button (one clean target)
  * - host-locked fields (master switch / lookup language / welcome guide) are
  *   never rendered, and a group they empty disappears with them
  * - expanding a section shows only the editable, non-locked fields
@@ -35,11 +37,12 @@ afterEach(() => {
   localStorage.clear();
 });
 
-function renderSettings() {
+function renderSettings(showSectionIcons = false) {
   const options = readYomitanOptions();
   return render(
     <YomitanSettingsRenderer
       sections={yomitanSettingsTree}
+      showSectionIcons={showSectionIcons}
       options={options}
       onChange={writeYomitanOptions}
       labels={LABELS}
@@ -54,8 +57,8 @@ describe('YomitanSettingsRenderer — sections', () => {
     expect(toggles).toHaveLength(yomitanSettingsTree.length);
   });
 
-  it('gives every section header a leading icon', () => {
-    const { container } = renderSettings();
+  it('gives every section header a leading icon when the manifest asks for it', () => {
+    const { container } = renderSettings(true);
     const headers = container.querySelectorAll('.entei-module-section-toggle');
     expect(headers.length).toBe(yomitanSettingsTree.length);
     for (const header of headers) {
@@ -63,6 +66,28 @@ describe('YomitanSettingsRenderer — sections', () => {
       expect(icon).not.toBeNull();
       expect(icon?.getAttribute('aria-hidden')).toBe('true');
     }
+  });
+
+  it('renders no section icon when the manifest leaves it off', () => {
+    const { container } = renderSettings(false);
+    expect(container.querySelectorAll('.entei-module-section-icon')).toHaveLength(
+      0,
+    );
+  });
+
+  it('keeps the description inside the toggle target', () => {
+    const { container } = renderSettings(true);
+    const toggle = container.querySelector('.entei-module-section-toggle');
+    expect(toggle).not.toBeNull();
+    const description = toggle?.querySelector(
+      '.entei-module-section-description',
+    );
+    expect(description).not.toBeNull();
+    expect(description?.tagName).toBe('SPAN');
+    // The description is the toggle's accessible description, not its name.
+    expect(toggle?.getAttribute('aria-describedby')).toBe(
+      description?.getAttribute('id'),
+    );
   });
 });
 

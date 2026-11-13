@@ -303,25 +303,21 @@ body[data-page='settings'] .entei-main {
    stack, 24px padding, surface, hairline, radius) comes from the shared
    .entei-settings-section-card; this class only adds the accordion behaviour. */
 .entei-module-section-heading {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-8);
   margin: 0;
 }
 
-/* Full-width toggle row: icon + label on the left, chevron docked on the
-   right. The row is exactly as tall as its 17px label (a 44px min-height left
-   the text floating in dead space); the 44px touch target is kept as a
-   transparent hit area below instead of inflating the row. */
+/* Full-width toggle row: title + description stacked on the left, chevron docked
+   on the right. The whole card header is one target — the 44px touch height
+   comes from real padding in normal flow, never from an invisible ::before
+   overlay sitting on top of the description (DESIGN.md §14). */
 .entei-module-section-toggle {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-12);
   width: 100%;
-  min-height: auto;
-  padding: 0;
+  min-height: var(--entei-touch-min);
+  padding: var(--entei-space-8) 0;
   background: none;
   border: none;
   color: var(--entei-text);
@@ -335,16 +331,6 @@ body[data-page='settings'] .entei-main {
   transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-/* Touch target only — no visual box (DESIGN.md 8.1 / 8.12 hit-area pattern). */
-.entei-module-section-toggle::before {
-  content: '';
-  position: absolute;
-  inset-inline: 0;
-  top: 50%;
-  height: var(--entei-touch-min);
-  transform: translateY(-50%);
-}
-
 .entei-module-section-toggle:hover {
   color: var(--entei-status-locked);
 }
@@ -356,8 +342,17 @@ body[data-page='settings'] .entei-main {
   color: var(--entei-status-locked);
 }
 
-/* Icon + label group. The row is space-between, so the chevron stays docked
-   right while this group takes the leading edge. */
+/* Header stack: title row on top, description under it. Both live inside the
+   toggle, so the whole block is one target. */
+.entei-module-section-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  min-width: 0;
+}
+
+/* Icon + label row. The toggle is space-between, so the chevron stays docked
+   right while this row takes the leading edge. */
 .entei-module-section-title {
   display: flex;
   align-items: center;
@@ -399,11 +394,15 @@ body[data-page='settings'] .entei-main {
   min-width: 0;
 }
 
+/* Inside the toggle: reads as part of the target, not a separate paragraph. */
 .entei-module-section-description {
+  display: block;
   margin: 0;
   padding: 0;
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
+  font-weight: 400;
+  letter-spacing: normal;
   line-height: 1.55;
   color: var(--entei-text-secondary);
   text-wrap: pretty;
@@ -413,7 +412,6 @@ body[data-page='settings'] .entei-main {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-20);
-  padding-block-start: var(--entei-space-4);
 }
 
 /* Group — a labelled block of field rows inside a section. */

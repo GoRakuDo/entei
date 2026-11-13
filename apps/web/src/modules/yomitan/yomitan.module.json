@@ -9,5 +9,6 @@
   "category": "dictionary",
   "builtIn": true,
   "defaultEnabled": true,
-  "hasSettings": true
+  "hasSettings": true,
+  "showSectionIcons": true
 }

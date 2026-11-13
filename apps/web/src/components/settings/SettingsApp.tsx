@@ -676,6 +676,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 hasSettingsSchema(selectedModule) && (
                   <YomitanSettingsRenderer
                     sections={selectedModule.settingsSchema}
+                    showSectionIcons={selectedModule.showSectionIcons === true}
                     options={yomitanOptions}
                     onChange={setYomitanOptions}
                     labels={{
@@ -703,6 +704,7 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 hasSettingsSchema(selectedModule) && (
                   <YomitanSettingsRenderer
                     sections={selectedModule.settingsSchema}
+                    showSectionIcons={selectedModule.showSectionIcons === true}
                     options={yomitanOptions}
                     onChange={setYomitanOptions}
                     labels={{

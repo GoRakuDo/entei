@@ -21,8 +21,10 @@
  * management) whose editors need their own CRUD surface. They render as a
  * read-only note instead of a fake control.
  *
- * Each section header carries the icon named by the manifest's `icon` id, the
- * same mark the Chrome extension shows (see the section-icon map below). Fields
+ * Each section header carries the label, and — when the manifest asks for it
+ * (`showSectionIcons`) — the icon named by the manifest's `icon` id, the same
+ * mark the Chrome extension shows (see the section-icon map below). Whether the
+ * icon appears is manifest data, never a page-side decision. Fields
  * the HOST owns (`LOCKED_OPTION_PATHS` — master switch, lookup language, the
  * Chrome onboarding guide) are skipped entirely, and a group left empty by that
  * skip disappears with them.
@@ -112,6 +114,11 @@ export interface YomitanSettingsRendererProps {
   options: Options;
   /** Called with the next options after every edit (autosave lives upstream). */
   onChange: (next: Options) => void;
+  /**
+   * Manifest flag (`showSectionIcons`): render the leading section icon. The
+   * renderer never decides this on its own — absent/false means no icons.
+   */
+  showSectionIcons?: boolean;
   /** Unlocalised strings from the settings dictionary. */
   labels: {
     /** Shown in place of a control the host cannot edit generically. */
@@ -139,6 +146,7 @@ export function YomitanSettingsRenderer({
   options,
   onChange,
   labels,
+  showSectionIcons = false,
 }: YomitanSettingsRendererProps) {
   /* Section keys open on first render. Opening every one of 18 sections would
      make the page a wall of controls; the user opens what they came for. */
@@ -163,6 +171,7 @@ export function YomitanSettingsRenderer({
           options={options}
           expanded={open[section.key] === true}
           labels={labels}
+          showIcon={showSectionIcons}
           onToggle={() =>
             setOpen((prev) => ({
               ...prev,
@@ -181,6 +190,8 @@ interface YomitanSectionProps {
   options: Options;
   expanded: boolean;
   labels: YomitanSettingsRendererProps['labels'];
+  /** Manifest-driven: draw the leading icon on this section header. */
+  showIcon: boolean;
   onToggle: () => void;
   onChange: (path: string, value: unknown) => void;
 }
@@ -190,10 +201,12 @@ function YomitanSection({
   options,
   expanded,
   labels,
+  showIcon,
   onToggle,
   onChange,
 }: YomitanSectionProps) {
   const panelId = useId();
+  const descriptionId = `${panelId}-description`;
   const SectionIcon = SECTION_ICONS[section.icon ?? ''] ?? Settings;
 
   return (
@@ -205,25 +218,37 @@ function YomitanSection({
           aria-expanded={expanded}
           aria-controls={panelId}
           aria-label={`${labels.toggleSection}: ${section.label}`}
+          aria-describedby={
+            section.description !== undefined ? descriptionId : undefined
+          }
           onClick={onToggle}
         >
-          <span className="entei-module-section-title">
-            <SectionIcon
-              className="entei-module-section-icon"
-              aria-hidden="true"
-            />
-            <span className="entei-module-section-label">{section.label}</span>
+          <span className="entei-module-section-header-text">
+            <span className="entei-module-section-title">
+              {showIcon && (
+                <SectionIcon
+                  className="entei-module-section-icon"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="entei-module-section-label">{section.label}</span>
+            </span>
+            {section.description !== undefined && (
+              /* A span, not a <p>: <button> only accepts phrasing content, and
+                 the class carries the block layout. */
+              <span
+                className="entei-module-section-description"
+                id={descriptionId}
+              >
+                {section.description}
+              </span>
+            )}
           </span>
           <ChevronDown
             className="entei-module-section-chevron"
             aria-hidden="true"
           />
         </button>
-        {section.description !== undefined && (
-          <p className="entei-module-section-description">
-            {section.description}
-          </p>
-        )}
       </h3>
 
       {expanded && (

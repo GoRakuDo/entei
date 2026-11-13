@@ -737,6 +737,7 @@ the wrapper border must be accounted for explicitly:
 - A `SelectContent` popover that is not width-locked to its trigger
 - Unstyled default accent fill on a selected dropdown item
 - Negative margin hacks to forcibly pull elements out of parent padding or cancel unrelated gaps (e.g. `margin-bottom: -24px` to pull lists under breadcrumbs, `margin-right: -8px` to force checkboxes outside row padding); container layout (flex/grid gap and proper DOM nesting) must own the rhythm naturally
+- Invisible `::before` / `::after` overlays used to force a 44px touch target over neighbouring content (e.g. a transparent `height: 44px` pseudo-element centred on a shorter row so it covers the text above or below it); secure the tap target with real padding in normal layout flow instead, and make the whole intended area the interactive element
 - Hacky `z-index` band-aids to fix hit-testing or click-target loss caused by overlapping negative margins
 - White or unstyled native OS scrollbars leaking into dark themed dialogs or root pages; use the standardized 6px thin transparent scrollbar tokens
 
