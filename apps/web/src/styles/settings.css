@@ -308,8 +308,9 @@ body[data-page='settings'] .entei-main {
 
 /* Full-width toggle row: title + description stacked on the left, chevron docked
    on the right. The whole card header is one target — the 44px touch height
-   comes from real padding in normal flow, never from an invisible ::before
-   overlay sitting on top of the description (DESIGN.md §14). */
+   comes from min-height in normal flow, never from an invisible ::before
+   overlay sitting on top of the description (DESIGN.md §14). Vertical padding
+   stays 0 so the label sits flush with the card's own padding. */
 .entei-module-section-toggle {
   display: flex;
   align-items: center;
@@ -317,7 +318,7 @@ body[data-page='settings'] .entei-main {
   gap: var(--entei-space-12);
   width: 100%;
   min-height: var(--entei-touch-min);
-  padding: var(--entei-space-8) 0;
+  padding: 0;
   background: none;
   border: none;
   color: var(--entei-text);
@@ -421,6 +422,14 @@ body[data-page='settings'] .entei-main {
   gap: var(--entei-space-8);
 }
 
+/* Hairline between groups so each labelled block reads as its own band. The
+   section body's 20px gap is the space above the line; padding-top mirrors it
+   below so the divider stays optically centered. */
+.entei-module-group + .entei-module-group {
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+  padding-top: var(--entei-space-20);
+}
+
 .entei-module-group-label {
   margin: 0;
   font-family: var(--entei-font-body);
@@ -428,7 +437,7 @@ body[data-page='settings'] .entei-main {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--entei-status-locked);
+  color: var(--entei-text);
 }
 
 .entei-module-group-description {
@@ -443,22 +452,15 @@ body[data-page='settings'] .entei-main {
 .entei-module-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-16);
 }
 
-/* Field row: text block left, control right. A hairline divider keeps a long
-   list scannable without boxing every row into its own card. */
+/* Field row: text block left, control right. Rows are separated by the stack
+   gap alone — per-row hairlines only added noise to a long list. */
 .entei-module-field {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--entei-space-8);
-  padding-block: var(--entei-space-12);
-  border-top: 1px solid oklch(100% 0 0deg / 0.06);
-}
-
-.entei-module-field:first-child {
-  border-top: none;
-  padding-block-start: 0;
 }
 
 .entei-module-field-text {
@@ -471,9 +473,9 @@ body[data-page='settings'] .entei-main {
 .entei-module-field-label {
   font-family: var(--entei-font-body);
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.4;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   text-wrap: pretty;
   cursor: pointer;
 }
@@ -534,9 +536,9 @@ body[data-page='settings'] .entei-main {
   border-color: var(--entei-focus-ring);
 }
 
-/* Not generically editable (array / section-header placeholders in the tree). */
+/* Not generically editable (array / section-header placeholders in the tree).
+   Colour already matches the base label, so only the cursor differs. */
 .entei-module-field--readonly .entei-module-field-label {
-  color: var(--entei-text-secondary);
   cursor: default;
 }
 
