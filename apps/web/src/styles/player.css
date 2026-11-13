@@ -2577,6 +2577,9 @@ html.entei-native-video .entei-player-video {
 
 [data-slot='select-item'] {
   color: var(--entei-text);
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 [data-slot='select-item']:hover,
@@ -2585,6 +2588,9 @@ html.entei-native-video .entei-player-video {
 [data-slot='select-item'][data-state='checked'] {
   background-color: var(--entei-btn-color) !important;
   color: var(--entei-status-locked) !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* W14: Remove white border from Player Select popup — keep Entei dark surface */

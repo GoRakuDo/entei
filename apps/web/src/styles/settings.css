@@ -660,14 +660,12 @@ body[data-page='settings'] .entei-main {
 
 .entei-module-list-empty {
   margin: 0;
-  padding: var(--entei-space-12);
+  padding: 0;
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
   line-height: 1.55;
   color: var(--entei-text-muted);
   text-wrap: pretty;
-  border: 1px solid oklch(100% 0 0deg / 0.08);
-  border-radius: var(--entei-radius-md);
 }
 
 .entei-module-list-rows {
