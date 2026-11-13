@@ -97,7 +97,7 @@ export function YomitanSettingsRenderer({
   }
 
   return (
-    <div className="entei-yomitan-settings">
+    <div className="entei-module-settings">
       {sections.map((section) => (
         <YomitanSection
           key={section.key}
@@ -138,28 +138,31 @@ function YomitanSection({
   const panelId = useId();
 
   return (
-    <section className="entei-settings-section-card entei-yomitan-section">
-      <h3 className="entei-yomitan-section-heading">
+    <section className="entei-settings-section-card entei-module-section">
+      <h3 className="entei-module-section-heading">
         <button
           type="button"
-          className="entei-yomitan-section-toggle"
+          className="entei-module-section-toggle"
           aria-expanded={expanded}
           aria-controls={panelId}
           aria-label={`${labels.toggleSection}: ${section.label}`}
           onClick={onToggle}
         >
-          <ChevronDown className="entei-yomitan-section-chevron" aria-hidden="true" />
-          <span className="entei-yomitan-section-label">{section.label}</span>
+          <ChevronDown
+            className="entei-module-section-chevron"
+            aria-hidden="true"
+          />
+          <span className="entei-module-section-label">{section.label}</span>
         </button>
         {section.description !== undefined && expanded && (
-          <p className="entei-yomitan-section-description">
+          <p className="entei-module-section-description">
             {section.description}
           </p>
         )}
       </h3>
 
       {expanded && (
-        <div className="entei-yomitan-section-body" id={panelId}>
+        <div className="entei-module-section-body" id={panelId}>
           {section.groups.map((group) => (
             <YomitanGroup
               key={group.key}
@@ -184,12 +187,12 @@ interface YomitanGroupProps {
 
 function YomitanGroup({ group, options, labels, onChange }: YomitanGroupProps) {
   return (
-    <div className="entei-yomitan-group">
-      <h4 className="entei-yomitan-group-label">{group.label}</h4>
+    <div className="entei-module-group">
+      <h4 className="entei-module-group-label">{group.label}</h4>
       {group.description !== undefined && (
-        <p className="entei-yomitan-group-description">{group.description}</p>
+        <p className="entei-module-group-description">{group.description}</p>
       )}
-      <div className="entei-yomitan-fields">
+      <div className="entei-module-fields">
         {group.fields.map((field) => (
           <YomitanField
             key={field.key}
@@ -223,23 +226,23 @@ function YomitanField({
   /* Structural / not generically editable (array, section-header). */
   if (!isEditable(field)) {
     return (
-      <div className="entei-yomitan-field entei-yomitan-field--readonly">
-        <div className="entei-yomitan-field-text">
-          <span className="entei-yomitan-field-label">{field.label}</span>
+      <div className="entei-module-field entei-module-field--readonly">
+        <div className="entei-module-field-text">
+          <span className="entei-module-field-label">{field.label}</span>
           {field.description !== undefined && (
-            <p className="entei-yomitan-field-description">
+            <p className="entei-module-field-description">
               {field.description}
             </p>
           )}
         </div>
-        <span className="entei-yomitan-field-note">{labels.notEditable}</span>
+        <span className="entei-module-field-note">{labels.notEditable}</span>
       </div>
     );
   }
 
   const hint =
     field.description !== undefined ? (
-      <p className="entei-yomitan-field-description" id={`${inputId}-hint`}>
+      <p className="entei-module-field-description" id={`${inputId}-hint`}>
         {field.description}
       </p>
     ) : null;
@@ -248,18 +251,18 @@ function YomitanField({
     <div
       className={
         field.type === 'boolean'
-          ? 'entei-yomitan-field entei-yomitan-field--switch'
-          : 'entei-yomitan-field'
+          ? 'entei-module-field entei-module-field--switch'
+          : 'entei-module-field'
       }
     >
-      <div className="entei-yomitan-field-text">
-        <label className="entei-yomitan-field-label" htmlFor={inputId}>
+      <div className="entei-module-field-text">
+        <label className="entei-module-field-label" htmlFor={inputId}>
           {field.label}
         </label>
         {hint}
       </div>
 
-      <div className="entei-yomitan-field-control">
+      <div className="entei-module-field-control">
         {field.type === 'boolean' && (
           <Switch
             id={inputId}
@@ -277,7 +280,7 @@ function YomitanField({
           (field.type === 'text' ? (
             <textarea
               id={inputId}
-              className="entei-yomitan-textarea"
+              className="entei-module-textarea"
               value={typeof value === 'string' ? value : ''}
               placeholder={field.placeholder}
               rows={4}
@@ -291,7 +294,7 @@ function YomitanField({
             <Input
               id={inputId}
               type={field.type === 'password' ? 'password' : 'text'}
-              className="entei-yomitan-input"
+              className="entei-module-input"
               value={typeof value === 'string' ? value : ''}
               placeholder={field.placeholder}
               autoComplete="off"
@@ -306,7 +309,7 @@ function YomitanField({
           <Input
             id={inputId}
             type="number"
-            className="entei-yomitan-input entei-yomitan-input--number"
+            className="entei-module-input entei-module-input--number"
             value={typeof value === 'number' ? value : ''}
             min={field.min}
             max={field.max}
@@ -335,7 +338,7 @@ function YomitanField({
             <SelectTrigger
               id={inputId}
               size="sm"
-              className="entei-yomitan-select"
+              className="entei-module-select"
               aria-describedby={
                 field.description !== undefined ? `${inputId}-hint` : undefined
               }

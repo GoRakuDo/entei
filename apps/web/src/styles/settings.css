@@ -290,25 +290,30 @@ body[data-page='settings'] .entei-main {
    to a single column below 768px so a phone never squeezes a select.
    ========================================================================== */
 
-.entei-yomitan-settings {
+.entei-module-settings {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-24);
   width: 100%;
 }
 
-/* Section card — independent card per manifest section */
-.entei-yomitan-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--entei-space-16);
-  padding: var(--entei-space-24);
-  background-color: var(--entei-surface);
-  border: 1px solid oklch(100% 0 0deg / 0.08);
-  border-radius: var(--entei-radius-card);
+/* Section card — one collapsible card per manifest section. The shell (flex
+   stack, 24px padding, surface, hairline, radius) comes from the shared
+   .entei-settings-section-card; this class only adds the accordion behaviour. */
+.entei-module-section {
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
 }
 
-.entei-yomitan-section-heading {
+/* The toggle row is the card's only click target, so the hover reaction belongs
+   to the WHOLE card: :has() lifts the fill out of the 24px padding, where a
+   button-sized bar used to sit stranded inside the frame. */
+.entei-module-section:has(.entei-module-section-toggle:hover),
+.entei-module-section:has(.entei-module-section-toggle:focus-visible) {
+  background-color: var(--entei-btn-color);
+}
+
+.entei-module-section-heading {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-8);
@@ -316,8 +321,9 @@ body[data-page='settings'] .entei-main {
 }
 
 /* Full-width toggle row: the chevron rotates with aria-expanded, the label
-   carries the hierarchy (44px tap target, rule #1628). */
-.entei-yomitan-section-toggle {
+   carries the hierarchy (44px tap target, rule #1628). It paints no background
+   of its own — the card above owns the hover fill. */
+.entei-module-section-toggle {
   display: flex;
   align-items: center;
   gap: var(--entei-space-12);
@@ -326,7 +332,6 @@ body[data-page='settings'] .entei-main {
   padding: 0 var(--entei-space-8);
   background: none;
   border: none;
-  border-radius: var(--entei-radius-md);
   color: var(--entei-text);
   font-family: var(--entei-font-system);
   font-size: 1.0625rem;
@@ -334,39 +339,43 @@ body[data-page='settings'] .entei-main {
   letter-spacing: 0.02em;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--entei-duration-fast)
-    var(--entei-ease-productive);
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-yomitan-section-toggle:hover {
-  background-color: var(--entei-btn-color);
+.entei-module-section-toggle:hover {
   color: var(--entei-status-locked);
 }
 
-.entei-yomitan-section-toggle:focus-visible {
+/* Chevron follows the label to gold on card hover (muted at rest). */
+.entei-module-section-toggle:hover .entei-module-section-chevron {
+  color: var(--entei-status-locked);
+}
+
+.entei-module-section-toggle:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
   color: var(--entei-text);
 }
 
-.entei-yomitan-section-chevron {
+.entei-module-section-chevron {
   width: 1rem;
   height: 1rem;
   flex-shrink: 0;
   color: var(--entei-text-muted);
-  transition: transform var(--entei-duration-fast) var(--entei-ease-productive);
+  transition: transform var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-yomitan-section-toggle[aria-expanded='false']
-  .entei-yomitan-section-chevron {
+.entei-module-section-toggle[aria-expanded='false']
+  .entei-module-section-chevron {
   transform: rotate(-90deg);
 }
 
-.entei-yomitan-section-label {
+.entei-module-section-label {
   min-width: 0;
 }
 
-.entei-yomitan-section-description {
+.entei-module-section-description {
   margin: 0;
   padding-inline-start: var(--entei-space-8);
   font-family: var(--entei-font-body);
@@ -376,7 +385,7 @@ body[data-page='settings'] .entei-main {
   text-wrap: pretty;
 }
 
-.entei-yomitan-section-body {
+.entei-module-section-body {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-20);
@@ -384,13 +393,13 @@ body[data-page='settings'] .entei-main {
 }
 
 /* Group — a labelled block of field rows inside a section. */
-.entei-yomitan-group {
+.entei-module-group {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-8);
 }
 
-.entei-yomitan-group-label {
+.entei-module-group-label {
   margin: 0;
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
@@ -400,7 +409,7 @@ body[data-page='settings'] .entei-main {
   color: var(--entei-status-locked);
 }
 
-.entei-yomitan-group-description {
+.entei-module-group-description {
   margin: 0;
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
@@ -409,7 +418,7 @@ body[data-page='settings'] .entei-main {
   text-wrap: pretty;
 }
 
-.entei-yomitan-fields {
+.entei-module-fields {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-8);
@@ -417,7 +426,7 @@ body[data-page='settings'] .entei-main {
 
 /* Field row: text block left, control right. A hairline divider keeps a long
    list scannable without boxing every row into its own card. */
-.entei-yomitan-field {
+.entei-module-field {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--entei-space-8);
@@ -425,19 +434,19 @@ body[data-page='settings'] .entei-main {
   border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
-.entei-yomitan-field:first-child {
+.entei-module-field:first-child {
   border-top: none;
   padding-block-start: 0;
 }
 
-.entei-yomitan-field-text {
+.entei-module-field-text {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-4);
   min-width: 0;
 }
 
-.entei-yomitan-field-label {
+.entei-module-field-label {
   font-family: var(--entei-font-body);
   font-size: 0.9375rem;
   font-weight: 600;
@@ -447,7 +456,7 @@ body[data-page='settings'] .entei-main {
   cursor: pointer;
 }
 
-.entei-yomitan-field-description {
+.entei-module-field-description {
   margin: 0;
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
@@ -456,7 +465,7 @@ body[data-page='settings'] .entei-main {
   text-wrap: pretty;
 }
 
-.entei-yomitan-field-control {
+.entei-module-field-control {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -464,23 +473,23 @@ body[data-page='settings'] .entei-main {
 
 /* Switch rows keep the toggle on the row's trailing edge instead of under
    the label (the label itself is clickable via htmlFor). */
-.entei-yomitan-field--switch .entei-yomitan-field-control {
+.entei-module-field--switch .entei-module-field-control {
   justify-content: flex-start;
 }
 
-.entei-yomitan-input,
-.entei-yomitan-select {
+.entei-module-input,
+.entei-module-select {
   width: 100%;
   max-width: 26rem;
   background-color: var(--entei-surface);
 }
 
-.entei-yomitan-input--number {
+.entei-module-input--number {
   max-width: 10rem;
   font-variant-numeric: tabular-nums;
 }
 
-.entei-yomitan-textarea {
+.entei-module-textarea {
   width: 100%;
   max-width: 34rem;
   min-height: 6rem;
@@ -497,19 +506,19 @@ body[data-page='settings'] .entei-main {
     var(--entei-ease-productive);
 }
 
-.entei-yomitan-textarea:focus-visible {
+.entei-module-textarea:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
   border-color: var(--entei-focus-ring);
 }
 
 /* Not generically editable (array / section-header placeholders in the tree). */
-.entei-yomitan-field--readonly .entei-yomitan-field-label {
+.entei-module-field--readonly .entei-module-field-label {
   color: var(--entei-text-secondary);
   cursor: default;
 }
 
-.entei-yomitan-field-note {
+.entei-module-field-note {
   justify-self: start;
   font-family: var(--entei-font-body);
   font-size: 0.75rem;
@@ -519,39 +528,44 @@ body[data-page='settings'] .entei-main {
 
 /* Desktop: label left, control right on one line. */
 @media (min-width: 768px) {
-  .entei-yomitan-field {
+  .entei-module-field {
     grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem);
     align-items: center;
     column-gap: var(--entei-space-24);
     row-gap: var(--entei-space-4);
   }
 
-  .entei-yomitan-field-control,
-  .entei-yomitan-field-note {
+  .entei-module-field-control,
+  .entei-module-field-note {
     justify-self: end;
   }
 
-  .entei-yomitan-field--switch .entei-yomitan-field-control {
+  .entei-module-field--switch .entei-module-field-control {
     justify-content: flex-end;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .entei-yomitan-section-toggle,
-  .entei-yomitan-section-chevron,
-  .entei-yomitan-textarea {
+  .entei-module-section,
+  .entei-module-section-toggle,
+  .entei-module-section-chevron,
+  .entei-module-textarea {
     transition: none;
   }
 }
 
 @media (forced-colors: active) {
-  .entei-yomitan-section {
+  .entei-module-section {
     border-color: ButtonText;
   }
 
-  .entei-yomitan-section-toggle:hover,
-  .entei-yomitan-section-toggle:focus-visible {
+  .entei-module-section:has(.entei-module-section-toggle:hover),
+  .entei-module-section:has(.entei-module-section-toggle:focus-visible) {
     background-color: Highlight;
+  }
+
+  .entei-module-section-toggle:hover,
+  .entei-module-section-toggle:focus-visible {
     color: HighlightText;
   }
 }
