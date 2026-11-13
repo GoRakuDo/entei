@@ -562,9 +562,10 @@ body[data-page='settings'] .entei-main {
    ----------------------------------------------------------------------------
    Drawn for any field a manifest binds through `listFields` (field + `layout:
    list-manager` + host `source`). Generic by contract: no module name appears
-   here. Toolbar (one import button) above the rows, and the block spans the
-   field row instead of sitting in the desktop control column — a list needs the
-   full width.
+   here. Toolbar (one import button) sits above the rows on mobile, and on
+   desktop it rises to the field label's row (right column) while the rows take
+   the full width underneath — the block spans the field row instead of sitting
+   in the desktop control column, because a list needs the full width.
    ========================================================================== */
 
 .entei-module-field--list {
@@ -734,6 +735,32 @@ body[data-page='settings'] .entei-main {
 
   .entei-module-field--switch .entei-module-field-control {
     justify-content: flex-end;
+  }
+
+  /* List-valued fields (manifest `layout: list-manager`): the text block keeps
+     the left column and the toolbar's single import button rises to the label's
+     row on the right, instead of dropping a full row below the description.
+     `display: contents` dissolves the list wrapper (a plain div, so no semantics
+     are lost) so its children become rows of this grid: toolbar next to the
+     label, empty state / rows across the full width underneath.
+     Scoped with `:has()` so a future list editor with a different root keeps the
+     stacked mobile-first layout instead of being squeezed into the control
+     column. */
+  .entei-module-field--list:has(> .entei-module-list) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem);
+    align-items: center;
+    column-gap: var(--entei-space-24);
+    row-gap: var(--entei-space-12);
+  }
+
+  .entei-module-field--list > .entei-module-list {
+    display: contents;
+  }
+
+  .entei-module-field--list .entei-module-list-empty,
+  .entei-module-field--list .entei-module-list-rows {
+    grid-column: 1 / -1;
   }
 }
 
