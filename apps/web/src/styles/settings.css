@@ -102,7 +102,9 @@ body[data-page='settings'] .entei-main {
 .entei-settings-nav-item {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-12); /* 0.75rem (12px): 25% smaller than 1rem font/icon (DESIGN.md §8.1 ratio rule) */
+  gap: var(
+    --entei-space-12
+  ); /* 0.75rem (12px): 25% smaller than 1rem font/icon (DESIGN.md §8.1 ratio rule) */
   width: 100%;
   /* Fixed 44px tap target: vertical padding removed so the box is exactly
      `--entei-touch-min` tall (content is a single centered flex row). */
@@ -307,14 +309,18 @@ body[data-page='settings'] .entei-main {
   margin: 0;
 }
 
-/* Full-width toggle row: label on the left, chevron docked on the right
-   (44px tap target, rule #1628). Clean look with no background hover fill. */
+/* Full-width toggle row: icon + label on the left, chevron docked on the
+   right. The row is exactly as tall as its 17px label (a 44px min-height left
+   the text floating in dead space); the 44px touch target is kept as a
+   transparent hit area below instead of inflating the row. */
 .entei-module-section-toggle {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--entei-space-8);
   width: 100%;
-  min-height: var(--entei-touch-min);
+  min-height: auto;
   padding: 0;
   background: none;
   border: none;
@@ -322,19 +328,50 @@ body[data-page='settings'] .entei-main {
   font-family: var(--entei-font-system);
   font-size: 1.0625rem;
   font-weight: 700;
+  line-height: 1.2;
   letter-spacing: 0.02em;
   text-align: left;
   cursor: pointer;
   transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
+/* Touch target only — no visual box (DESIGN.md 8.1 / 8.12 hit-area pattern). */
+.entei-module-section-toggle::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  height: var(--entei-touch-min);
+  transform: translateY(-50%);
+}
+
 .entei-module-section-toggle:hover {
   color: var(--entei-status-locked);
 }
 
-/* Chevron follows the label to gold on card hover (muted at rest). */
-.entei-module-section-toggle:hover .entei-module-section-chevron {
+/* Chevron and section icon follow the label to gold on card hover (muted at
+   rest) so the row reads as one unit. */
+.entei-module-section-toggle:hover .entei-module-section-chevron,
+.entei-module-section-toggle:hover .entei-module-section-icon {
   color: var(--entei-status-locked);
+}
+
+/* Icon + label group. The row is space-between, so the chevron stays docked
+   right while this group takes the leading edge. */
+.entei-module-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-width: 0;
+}
+
+/* 1:1 with the 1.0625rem label (17px). */
+.entei-module-section-icon {
+  width: 1.0625rem;
+  height: 1.0625rem;
+  flex-shrink: 0;
+  color: var(--entei-text-muted);
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-module-section-toggle:focus-visible {
@@ -348,7 +385,8 @@ body[data-page='settings'] .entei-main {
   height: 1rem;
   flex-shrink: 0;
   color: var(--entei-text-muted);
-  transition: transform var(--entei-duration-fast) var(--entei-ease-productive),
+  transition:
+    transform var(--entei-duration-fast) var(--entei-ease-productive),
     color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
@@ -535,6 +573,7 @@ body[data-page='settings'] .entei-main {
   .entei-module-section,
   .entei-module-section-toggle,
   .entei-module-section-chevron,
+  .entei-module-section-icon,
   .entei-module-textarea {
     transition: none;
   }
@@ -691,7 +730,8 @@ body[data-page='settings'] .entei-main {
     /* Top padding lifts the toggle button up to Y=16px, aligning flush
        with the floating TopBar pill top edge (which sits at top: 16px).
        Right padding (16px) gives items breathing room against the right border. */
-    padding: var(--entei-space-16) var(--entei-space-16) var(--entei-space-32) var(--entei-gutter);
+    padding: var(--entei-space-16) var(--entei-space-16) var(--entei-space-32)
+      var(--entei-gutter);
     /* Thin right boundary (Shadcn-Sidebar parity) — docks the content pane
        flush against the sidebar with no dead gap between them. */
     border-right: 1px solid oklch(100% 0 0deg / 0.08);

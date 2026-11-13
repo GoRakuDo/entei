@@ -20,13 +20,41 @@
  * placeholders in the tree (dictionary lists, Anki card formats, profile
  * management) whose editors need their own CRUD surface. They render as a
  * read-only note instead of a fake control.
+ *
+ * Each section header carries the icon named by the manifest's `icon` id, the
+ * same mark the Chrome extension shows (see the section-icon map below). Fields
+ * the HOST owns (`LOCKED_OPTION_PATHS` — master switch, lookup language, the
+ * Chrome onboarding guide) are skipped entirely, and a group left empty by that
+ * skip disappears with them.
  * ---------------------------------------------------------------------------
  */
 
 'use client';
 
 import { useId, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import {
+  Accessibility,
+  AppWindow,
+  BookOpen,
+  Bug,
+  ChevronDown,
+  Clipboard,
+  FileText,
+  Keyboard,
+  Languages,
+  Layers,
+  LayoutPanelLeft,
+  List,
+  Maximize2,
+  Palette,
+  Puzzle,
+  Save,
+  Scan,
+  Settings,
+  User,
+  Volume2,
+  type LucideIcon,
+} from 'lucide-react';
 import type {
   Options,
   SettingFieldDescriptor,
@@ -43,9 +71,39 @@ import {
   SelectValue,
 } from '@/components/player/ui/select';
 import {
+  isLockedOptionPath,
   readOptionPath,
   writeOptionPath,
 } from '@/features/yomitan/yomitan-preferences';
+
+/**
+ * Manifest section `icon` id → Lucide icon.
+ *
+ * Ids come from the descriptor tree (`@gorakudo/yomitan-headless/settings`).
+ * An unknown id (imported module) falls back to `Settings` so a header is
+ * never bare.
+ */
+const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
+  settings: Settings,
+  book: BookOpen,
+  scan: Scan,
+  panel: LayoutPanelLeft,
+  palette: Palette,
+  list: List,
+  resize: Maximize2,
+  window: AppWindow,
+  volume: Volume2,
+  layers: Layers,
+  keyboard: Keyboard,
+  translate: Languages,
+  puzzle: Puzzle,
+  text: FileText,
+  clipboard: Clipboard,
+  accessibility: Accessibility,
+  save: Save,
+  bug: Bug,
+  user: User,
+};
 
 export interface YomitanSettingsRendererProps {
   /** Ordered section descriptors (from the manifest's `settingsSchema`). */
@@ -136,6 +194,7 @@ function YomitanSection({
   onChange,
 }: YomitanSectionProps) {
   const panelId = useId();
+  const SectionIcon = SECTION_ICONS[section.icon ?? ''] ?? Settings;
 
   return (
     <section className="entei-settings-section-card entei-module-section">
@@ -148,7 +207,13 @@ function YomitanSection({
           aria-label={`${labels.toggleSection}: ${section.label}`}
           onClick={onToggle}
         >
-          <span className="entei-module-section-label">{section.label}</span>
+          <span className="entei-module-section-title">
+            <SectionIcon
+              className="entei-module-section-icon"
+              aria-hidden="true"
+            />
+            <span className="entei-module-section-label">{section.label}</span>
+          </span>
           <ChevronDown
             className="entei-module-section-chevron"
             aria-hidden="true"
@@ -186,6 +251,10 @@ interface YomitanGroupProps {
 }
 
 function YomitanGroup({ group, options, labels, onChange }: YomitanGroupProps) {
+  /* Host-locked fields have no editor; a group they emptied is not rendered. */
+  const fields = group.fields.filter((field) => !isLockedOptionPath(field.key));
+  if (fields.length === 0) return null;
+
   return (
     <div className="entei-module-group">
       <h4 className="entei-module-group-label">{group.label}</h4>
@@ -193,7 +262,7 @@ function YomitanGroup({ group, options, labels, onChange }: YomitanGroupProps) {
         <p className="entei-module-group-description">{group.description}</p>
       )}
       <div className="entei-module-fields">
-        {group.fields.map((field) => (
+        {fields.map((field) => (
           <YomitanField
             key={field.key}
             field={field}
@@ -214,12 +283,7 @@ interface YomitanFieldProps {
   onChange: (path: string, value: unknown) => void;
 }
 
-function YomitanField({
-  field,
-  options,
-  labels,
-  onChange,
-}: YomitanFieldProps) {
+function YomitanField({ field, options, labels, onChange }: YomitanFieldProps) {
   const inputId = useId();
   const value = readOptionPath(options, field.key);
 

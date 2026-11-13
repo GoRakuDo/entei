@@ -6,6 +6,8 @@
  * - every edit persists (localStorage write, the DB mirror is fire-and-forget)
  * - a corrupted / partial payload falls back to defaults without throwing
  * - an unaddressable path is a no-op that returns the SAME reference
+ * - host-locked paths (master switch / lookup language / welcome guide) ignore
+ *   any foreign stored value and refuse writes
  * - integer fields round (no fractional values reach the store)
  */
 
@@ -21,7 +23,10 @@ import {
   writeOptionPath,
   writeYomitanOptions,
 } from '@/features/yomitan/yomitan-preferences';
-import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
+import {
+  createDefaultOptions,
+  createDefaultProfileOptions,
+} from '@gorakudo/yomitan-headless/settings';
 
 describe('yomitan-preferences — defaults', () => {
   beforeEach(() => {
@@ -83,22 +88,26 @@ describe('yomitan-preferences — dot-path resolution', () => {
 
   it('writes a profile field and persists it', () => {
     const options = createDefaultOptions();
-    const next = writeOptionPath(options, 'general.enable', false);
-    expect(readOptionPath(next, 'general.enable')).toBe(false);
+    const next = writeOptionPath(
+      options,
+      'anki.server',
+      'http://127.0.0.1:8766',
+    );
+    expect(readOptionPath(next, 'anki.server')).toBe('http://127.0.0.1:8766');
     // Other fields keep their defaults.
-    expect(readOptionPath(next, 'general.language')).toBe(
-      readOptionPath(options, 'general.language'),
+    expect(readOptionPath(next, 'general.maxResults')).toBe(
+      readOptionPath(options, 'general.maxResults'),
     );
     // Persisted.
     const raw = localStorage.getItem(YOMITAN_OPTIONS_KEY);
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!) as {
       version: number;
-      options: { profiles: { options: { general: { enable: boolean } } }[] };
+      options: { profiles: { options: { anki: { server: string } } }[] };
     };
     expect(parsed.version).toBe(YOMITAN_OPTIONS_SCHEMA_VERSION);
     const profile = parsed.options.profiles[0];
-    expect(profile?.options.general.enable).toBe(false);
+    expect(profile?.options.anki.server).toBe('http://127.0.0.1:8766');
   });
 
   it('writes an integer field as an integer', () => {
@@ -145,5 +154,57 @@ describe('yomitan-preferences — dot-path resolution', () => {
     expect(readOptionPath(stored, 'general.enable')).toBe(
       readOptionPath(options, 'general.enable'),
     );
+  });
+});
+
+describe('yomitan-preferences — host-locked options', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('pins enable=true, language=ja, showGuide=false on a default read', () => {
+    const general = activeProfileOptions(readYomitanOptions()).general;
+    expect(general.enable).toBe(true);
+    expect(general.language).toBe('ja');
+    expect(general.showGuide).toBe(false);
+  });
+
+  it('overrides a stored payload that carries foreign locked values', () => {
+    const defaults = createDefaultProfileOptions();
+    const stored = {
+      version: 1,
+      options: {
+        ...createDefaultOptions(),
+        profiles: [
+          {
+            name: 'Default',
+            conditionGroups: [],
+            options: {
+              ...defaults,
+              general: {
+                ...defaults.general,
+                enable: false,
+                language: 'en',
+                showGuide: true,
+              },
+            },
+          },
+        ],
+      },
+    };
+    localStorage.setItem(YOMITAN_OPTIONS_KEY, JSON.stringify(stored));
+
+    const general = activeProfileOptions(readYomitanOptions()).general;
+    expect(general.enable).toBe(true);
+    expect(general.language).toBe('ja');
+    expect(general.showGuide).toBe(false);
+  });
+
+  it('refuses a write to a locked path (same reference, nothing stored)', () => {
+    const options = createDefaultOptions();
+    expect(writeOptionPath(options, 'general.enable', false)).toBe(options);
+    expect(writeOptionPath(options, 'general.language', 'en')).toBe(options);
+    expect(writeOptionPath(options, 'general.showGuide', true)).toBe(options);
+    expect(localStorage.getItem(YOMITAN_OPTIONS_KEY)).toBeNull();
   });
 });

@@ -30,6 +30,27 @@ import {
 } from '@gorakudo/yomitan-headless/settings';
 import { dbKvGet, dbKvSet, isTauri } from '@/features/player/tauri-bridge';
 
+/**
+ * Host-locked option paths — never rendered, never user-editable.
+ *
+ * Yomitan lives as an Entei module: the switch on the Modules page is its
+ * master switch (so `general.enable` is always on), dictionary lookups are
+ * Japanese-only in this host (`general.language` is pinned to `ja`), and the
+ * Chrome-extension onboarding guide does not exist here (`general.showGuide`
+ * stays off). Every read forces these values, so even a hand-edited payload
+ * cannot smuggle a different one in.
+ */
+export const LOCKED_OPTION_PATHS: Readonly<Record<string, unknown>> = {
+  'general.enable': true,
+  'general.language': 'ja',
+  'general.showGuide': false,
+};
+
+/** True for a path the host owns (renderer skips it, writes are refused). */
+export function isLockedOptionPath(path: string): boolean {
+  return Object.hasOwn(LOCKED_OPTION_PATHS, path);
+}
+
 /** localStorage key (versioned) — also the SQLite key suffix. */
 export const YOMITAN_OPTIONS_KEY = 'entei.yomitan.options.v1';
 
@@ -48,16 +69,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+/** Re-impose the host-locked values on one profile's options. */
+function lockProfileOptions(options: ProfileOptions): ProfileOptions {
+  let next: unknown = options;
+  for (const [path, value] of Object.entries(LOCKED_OPTION_PATHS)) {
+    if (getPathValue(next, path) === value) continue;
+    next = setPathValue(next, path, value);
+  }
+  return next as ProfileOptions;
+}
+
+/** Re-impose the host-locked values on every profile of an options tree. */
+function withLockedOptions(options: Options): Options {
+  return {
+    ...options,
+    profiles: options.profiles.map((profile) => ({
+      ...profile,
+      options: lockProfileOptions(profile.options),
+    })),
+  } as Options;
+}
+
 /**
  * Coerce an untrusted stored payload into a valid `Options`.
  *
  * Fail-closed and non-throwing: a corrupted / partial / older payload falls
  * back to the defaults for every field it does not supply, so the settings page
- * always renders a complete tree.
+ * always renders a complete tree. Host-locked paths are re-imposed on the way
+ * out, so a stored value can never override them.
  */
 export function normalizeOptions(input: unknown): Options {
   const defaults = createDefaultOptions();
-  if (!isRecord(input)) return defaults;
+  if (!isRecord(input)) return withLockedOptions(defaults);
 
   const profiles = Array.isArray(input.profiles)
     ? input.profiles
@@ -81,7 +124,7 @@ export function normalizeOptions(input: unknown): Options {
     };
   });
 
-  return {
+  return withLockedOptions({
     version:
       typeof input.version === 'number' ? input.version : defaults.version,
     profiles:
@@ -93,15 +136,17 @@ export function normalizeOptions(input: unknown): Options {
     global: isRecord(input.global)
       ? (input.global as Options['global'])
       : defaults.global,
-  } as Options;
+  } as Options);
 }
 
 /** Read from the localStorage cache, falling back to defaults. */
 export function readYomitanOptions(): Options {
-  if (typeof window === 'undefined') return createDefaultOptions();
+  if (typeof window === 'undefined') {
+    return withLockedOptions(createDefaultOptions());
+  }
   try {
     const raw = window.localStorage.getItem(YOMITAN_OPTIONS_KEY);
-    if (raw === null) return createDefaultOptions();
+    if (raw === null) return withLockedOptions(createDefaultOptions());
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed) || !('options' in parsed)) {
       // Tolerate a bare Options object (older/hand-edited payloads).
@@ -109,7 +154,8 @@ export function readYomitanOptions(): Options {
     }
     return normalizeOptions(parsed.options);
   } catch {
-    return createDefaultOptions(); // storage unavailable or corrupted
+    // storage unavailable or corrupted
+    return withLockedOptions(createDefaultOptions());
   }
 }
 
@@ -268,6 +314,8 @@ export function writeOptionPath(
   path: string,
   value: unknown,
 ): Options {
+  // Host-locked paths have no editor; a write to one is a no-op.
+  if (isLockedOptionPath(path)) return options;
   const slot = resolveSlot(options, path);
   if (slot === null) return options;
   // A stale descriptor must not invent a brand-new key in the settings tree,
