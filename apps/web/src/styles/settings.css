@@ -300,19 +300,6 @@ body[data-page='settings'] .entei-main {
 /* Section card — one collapsible card per manifest section. The shell (flex
    stack, 24px padding, surface, hairline, radius) comes from the shared
    .entei-settings-section-card; this class only adds the accordion behaviour. */
-.entei-module-section {
-  transition: background-color var(--entei-duration-fast)
-    var(--entei-ease-productive);
-}
-
-/* The toggle row is the card's only click target, so the hover reaction belongs
-   to the WHOLE card: :has() lifts the fill out of the 24px padding, where a
-   button-sized bar used to sit stranded inside the frame. */
-.entei-module-section:has(.entei-module-section-toggle:hover),
-.entei-module-section:has(.entei-module-section-toggle:focus-visible) {
-  background-color: var(--entei-btn-color);
-}
-
 .entei-module-section-heading {
   display: flex;
   flex-direction: column;
@@ -320,16 +307,15 @@ body[data-page='settings'] .entei-main {
   margin: 0;
 }
 
-/* Full-width toggle row: the chevron rotates with aria-expanded, the label
-   carries the hierarchy (44px tap target, rule #1628). It paints no background
-   of its own — the card above owns the hover fill. */
+/* Full-width toggle row: label on the left, chevron docked on the right
+   (44px tap target, rule #1628). Clean look with no background hover fill. */
 .entei-module-section-toggle {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-12);
+  justify-content: space-between;
   width: 100%;
   min-height: var(--entei-touch-min);
-  padding: 0 var(--entei-space-8);
+  padding: 0;
   background: none;
   border: none;
   color: var(--entei-text);
@@ -377,7 +363,7 @@ body[data-page='settings'] .entei-main {
 
 .entei-module-section-description {
   margin: 0;
-  padding-inline-start: var(--entei-space-8);
+  padding: 0;
   font-family: var(--entei-font-body);
   font-size: 0.8125rem;
   line-height: 1.55;

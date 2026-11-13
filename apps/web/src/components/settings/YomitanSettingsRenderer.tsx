@@ -148,13 +148,13 @@ function YomitanSection({
           aria-label={`${labels.toggleSection}: ${section.label}`}
           onClick={onToggle}
         >
+          <span className="entei-module-section-label">{section.label}</span>
           <ChevronDown
             className="entei-module-section-chevron"
             aria-hidden="true"
           />
-          <span className="entei-module-section-label">{section.label}</span>
         </button>
-        {section.description !== undefined && expanded && (
+        {section.description !== undefined && (
           <p className="entei-module-section-description">
             {section.description}
           </p>
