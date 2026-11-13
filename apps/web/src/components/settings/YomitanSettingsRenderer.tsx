@@ -16,27 +16,31 @@
  * through `features/yomitan/yomitan-preferences` (localStorage immediately,
  * desktop SQLite `kv_store` debounced). There is no Save button.
  *
+ * MANIFEST-DECLARED SECTIONS: a section whose real editor is not a plain field
+ * list (Yomitan's Dictionaries: an installed-item list plus host-only rows) is
+ * declared by the manifest as a `sectionLayouts` entry — an ordered list of ROWS,
+ * each naming one of the app's standard layouts (`list`, `field`, `usage`), the
+ * field it edits, the host-owned DATA SOURCE behind it, and the copy keys of its
+ * labels. This renderer resolves those rows against the descriptor tree and the
+ * host source registry (`components/settings/module-data-sources`); it never
+ * names a module or a field itself. A field laid out this way is claimed: it is
+ * not drawn a second time in its tree group.
+ *
  * `array` / `section-header` fields are not editable here: they are structural
  * placeholders in the tree (Anki card formats, profile management) whose editors
- * need their own CRUD surface, so they render as a read-only note. A field whose
- * editor IS a list of installed items is declared by the manifest instead
- * (`listFields`: field + `layout` + host `source`) and drawn with the app's
- * standard layout set — see `components/settings/ModuleListManager` and
- * `components/settings/module-list-sources`. Nothing here names a module.
+ * need their own CRUD surface, so they render as a read-only note — unless a
+ * manifest declares a layout for them, which is exactly how the dictionary list
+ * gets its editor.
  *
- * Each section header carries the label, and — when the manifest asks for it
- * (`showSectionIcons`) — the icon named by the manifest's `icon` id, the same
- * mark the Chrome extension shows (see the section-icon map below). Whether the
- * icon appears is manifest data, never a page-side decision. Fields
- * the HOST owns (`LOCKED_OPTION_PATHS` — master switch, lookup language, the
- * Chrome onboarding guide, the advanced/debug toggles) are skipped entirely, and
- * a group left empty by that skip disappears with them.
+ * Fields the HOST owns (`LOCKED_OPTION_PATHS` — master switch, lookup language,
+ * the Chrome onboarding guide, the advanced/debug toggles) are skipped entirely,
+ * and a group left empty by that skip disappears with them.
  * ---------------------------------------------------------------------------
  */
 
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import {
   Accessibility,
   AppWindow,
@@ -62,24 +66,18 @@ import {
 } from 'lucide-react';
 import type {
   Options,
+  SelectOption,
   SettingFieldDescriptor,
   SettingGroupDescriptor,
   SettingSectionDescriptor,
 } from '@gorakudo/yomitan-headless/settings';
-import type { EnteiModuleListBinding } from '@/features/modules/module-registry';
-import {
-  resolveModuleListSource,
-  type ModuleListSourceLabels,
-} from '@/components/settings/module-list-sources';
-import { Input } from '@/components/player/ui/input';
-import { Switch } from '@/components/player/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/player/ui/select';
+import type {
+  EnteiModuleRowBinding,
+  EnteiModuleSectionLayout,
+} from '@/features/modules/module-registry';
+import { ModuleFieldRow } from '@/components/settings/ModuleFieldRow';
+import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
+import { resolveModuleDataSource } from '@/components/settings/module-data-sources';
 import {
   isLockedOptionPath,
   readOptionPath,
@@ -115,14 +113,19 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   user: User,
 };
 
+/** A module's copy table: the dictionary keys a manifest may reference. */
+export type ModuleCopyTable = {
+  readonly [key: string]: string | ModuleCopyTable | undefined;
+};
+
 export interface YomitanSettingsRendererProps {
   /** Ordered section descriptors (from the manifest's `settingsSchema`). */
   sections: readonly SettingSectionDescriptor[];
   /**
-   * Manifest `listFields`: fields drawn through a standard list layout. Absent
-   * (or naming an unknown source) leaves the field on the generic path.
+   * Manifest `sectionLayouts`: sections whose rows the manifest lays out
+   * itself. Absent leaves every section on the generic group walk.
    */
-  listFields?: readonly EnteiModuleListBinding[];
+  sectionLayouts?: readonly EnteiModuleSectionLayout[];
   /** Current persisted options. */
   options: Options;
   /** Called with the next options after every edit (autosave lives upstream). */
@@ -132,37 +135,64 @@ export interface YomitanSettingsRendererProps {
    * renderer never decides this on its own — absent/false means no icons.
    */
   showSectionIcons?: boolean;
-  /** Unlocalised strings from the settings dictionary. */
+  /** Localised strings from the settings dictionary. */
   labels: {
     /** Shown in place of a control the host cannot edit generically. */
     notEditable: string;
     /** Accessible name for a section's collapse toggle. */
     toggleSection: string;
-    /** Copy for the list layout set (forwarded to the resolved source). */
-    list: ModuleListSourceLabels;
   };
+  /** The module's copy table — where manifest `labelKey` / `*Key` resolve. */
+  copy: ModuleCopyTable;
 }
 
-/** Renderable (editable) descriptor types. */
-function isEditable(field: SettingFieldDescriptor): boolean {
-  return (
-    field.type === 'boolean' ||
-    field.type === 'number' ||
-    field.type === 'integer' ||
-    field.type === 'select' ||
-    field.type === 'string' ||
-    field.type === 'text' ||
-    field.type === 'password'
-  );
+/** Resolve one key of a copy table's group (e.g. `dictionaries` → `import`). */
+function resolveCopy(
+  table: ModuleCopyTable,
+  group: string | undefined,
+  key: string | undefined,
+): string | undefined {
+  if (key === undefined || key === '') return undefined;
+  const scope = group === undefined || group === '' ? table : table[group];
+  if (typeof scope !== 'object' || scope === null) return undefined;
+  const value = (scope as ModuleCopyTable)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Every field of the tree, by dot-path — how a declared row finds its field. */
+function indexFields(
+  sections: readonly SettingSectionDescriptor[],
+): Map<string, SettingFieldDescriptor> {
+  const index = new Map<string, SettingFieldDescriptor>();
+  for (const section of sections) {
+    for (const group of section.groups) {
+      for (const field of group.fields) index.set(field.key, field);
+    }
+  }
+  return index;
+}
+
+/** Paths a manifest lays out itself — never drawn again in a tree group. */
+function claimedPaths(
+  layouts: readonly EnteiModuleSectionLayout[] | undefined,
+): ReadonlySet<string> {
+  const claimed = new Set<string>();
+  for (const layout of layouts ?? []) {
+    for (const row of layout.rows) {
+      if (row.field !== undefined) claimed.add(row.field);
+    }
+  }
+  return claimed;
 }
 
 export function YomitanSettingsRenderer({
   sections,
-  listFields,
+  sectionLayouts,
   options,
   onChange,
-  labels,
   showSectionIcons = false,
+  labels,
+  copy,
 }: YomitanSettingsRendererProps) {
   /* Section keys open on first render. Opening every one of 18 sections would
      make the page a wall of controls; the user opens what they came for. */
@@ -171,6 +201,9 @@ export function YomitanSettingsRenderer({
     for (const section of sections) initial[section.key] = false;
     return initial;
   });
+
+  const fields = useMemo(() => indexFields(sections), [sections]);
+  const claimed = useMemo(() => claimedPaths(sectionLayouts), [sectionLayouts]);
 
   function update(path: string, value: unknown) {
     const next = writeOptionPath(options, path, value);
@@ -184,10 +217,13 @@ export function YomitanSettingsRenderer({
         <YomitanSection
           key={section.key}
           section={section}
-          listFields={listFields}
+          sectionLayouts={sectionLayouts}
+          fields={fields}
+          claimed={claimed}
           options={options}
           expanded={open[section.key] === true}
           labels={labels}
+          copy={copy}
           showIcon={showSectionIcons}
           onToggle={() =>
             setOpen((prev) => ({
@@ -205,10 +241,13 @@ export function YomitanSettingsRenderer({
 
 interface YomitanSectionProps {
   section: SettingSectionDescriptor;
-  listFields: readonly EnteiModuleListBinding[] | undefined;
+  sectionLayouts: readonly EnteiModuleSectionLayout[] | undefined;
+  fields: Map<string, SettingFieldDescriptor>;
+  claimed: ReadonlySet<string>;
   options: Options;
   expanded: boolean;
   labels: YomitanSettingsRendererProps['labels'];
+  copy: ModuleCopyTable;
   /** Manifest-driven: draw the leading icon on this section header. */
   showIcon: boolean;
   onToggle: () => void;
@@ -219,10 +258,13 @@ interface YomitanSectionProps {
 
 function YomitanSection({
   section,
-  listFields,
+  sectionLayouts,
+  fields,
+  claimed,
   options,
   expanded,
   labels,
+  copy,
   showIcon,
   onToggle,
   onChange,
@@ -231,6 +273,9 @@ function YomitanSection({
   const panelId = useId();
   const descriptionId = `${panelId}-description`;
   const SectionIcon = SECTION_ICONS[section.icon ?? ''] ?? Settings;
+  const layout = sectionLayouts?.find(
+    (candidate) => candidate.section === section.key,
+  );
 
   return (
     <section className="entei-settings-section-card entei-module-section">
@@ -276,17 +321,38 @@ function YomitanSection({
 
       {expanded && (
         <div className="entei-module-section-body" id={panelId}>
-          {section.groups.map((group) => (
-            <YomitanGroup
-              key={group.key}
-              group={group}
-              listFields={listFields}
-              options={options}
-              labels={labels}
-              onChange={onChange}
-              onOptionsChange={onOptionsChange}
-            />
-          ))}
+          {layout !== undefined ? (
+            /* Manifest-laid-out section: the declared rows replace the group
+               walk entirely — the manifest owns what this section shows. */
+            <div className="entei-module-rows">
+              {layout.rows.map((row, index) => (
+                <ModuleLayoutRow
+                  /* Rows are positional declarations, not data: a manifest may
+                     legitimately declare the same field twice. */
+                  key={`${layout.section}-${index}`}
+                  row={row}
+                  copyPath={layout.copy}
+                  fields={fields}
+                  options={options}
+                  labels={labels}
+                  copy={copy}
+                  onChange={onChange}
+                  onOptionsChange={onOptionsChange}
+                />
+              ))}
+            </div>
+          ) : (
+            section.groups.map((group) => (
+              <YomitanGroup
+                key={group.key}
+                group={group}
+                claimed={claimed}
+                options={options}
+                labels={labels}
+                onChange={onChange}
+              />
+            ))
+          )}
         </div>
       )}
     </section>
@@ -295,24 +361,25 @@ function YomitanSection({
 
 interface YomitanGroupProps {
   group: SettingGroupDescriptor;
-  listFields: readonly EnteiModuleListBinding[] | undefined;
+  claimed: ReadonlySet<string>;
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
   onChange: (path: string, value: unknown) => void;
-  onOptionsChange: (next: Options) => void;
 }
 
 function YomitanGroup({
   group,
-  listFields,
+  claimed,
   options,
   labels,
   onChange,
-  onOptionsChange,
 }: YomitanGroupProps) {
-  /* Host-locked fields have no editor; a group they emptied is not rendered. */
-  const fields = group.fields.filter((field) => !isLockedOptionPath(field.key));
-  if (fields.length === 0) return null;
+  /* Host-locked fields have no editor and manifest-claimed fields are drawn in
+     their declared section; a group either emptied is not rendered. */
+  const visible = group.fields.filter(
+    (field) => !isLockedOptionPath(field.key) && !claimed.has(field.key),
+  );
+  if (visible.length === 0) return null;
 
   return (
     <div className="entei-module-group">
@@ -321,15 +388,15 @@ function YomitanGroup({
         <p className="entei-module-group-description">{group.description}</p>
       )}
       <div className="entei-module-fields">
-        {fields.map((field) => (
-          <YomitanField
+        {visible.map((field) => (
+          <ModuleFieldRow
             key={field.key}
             field={field}
-            listFields={listFields}
-            options={options}
-            labels={labels}
-            onChange={onChange}
-            onOptionsChange={onOptionsChange}
+            label={field.label}
+            description={field.description}
+            value={readOptionPath(options, field.key)}
+            onChange={(value) => onChange(field.key, value)}
+            notEditable={labels.notEditable}
           />
         ))}
       </div>
@@ -337,187 +404,187 @@ function YomitanGroup({
   );
 }
 
-interface YomitanFieldProps {
-  field: SettingFieldDescriptor;
-  listFields: readonly EnteiModuleListBinding[] | undefined;
+interface ModuleLayoutRowProps {
+  row: EnteiModuleRowBinding;
+  /** Section's copy group (manifest `copy`), the rows' key scope. */
+  copyPath: string | undefined;
+  fields: Map<string, SettingFieldDescriptor>;
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
+  copy: ModuleCopyTable;
   onChange: (path: string, value: unknown) => void;
   onOptionsChange: (next: Options) => void;
 }
 
-function YomitanField({
-  field,
-  listFields,
+/** One manifest-declared row: resolve its layout, then draw it. */
+function ModuleLayoutRow({
+  row,
+  copyPath,
+  fields,
   options,
   labels,
+  copy,
   onChange,
   onOptionsChange,
-}: YomitanFieldProps) {
-  const inputId = useId();
-  const value = readOptionPath(options, field.key);
+}: ModuleLayoutRowProps) {
+  const source = resolveModuleDataSource(row.source);
+  const field = row.field === undefined ? undefined : fields.get(row.field);
 
-  /* Manifest-bound list field: the layout is generic, the data source is
-     host-owned, and an unknown source falls through to the read-only note. */
-  const listSource = resolveModuleListSource(
-    listFields?.find(
-      (binding) => binding.field === field.key && binding.layout === 'list-manager',
-    )?.source,
-  );
-
-  if (listSource !== undefined) {
-    const ListEditor = listSource;
+  if (row.layout === 'usage') {
+    if (source?.usage === undefined) return null;
+    const template = resolveCopy(copy, copyPath, row.usageKey) ?? '';
+    if (template === '') return null;
+    const label = resolveCopy(copy, copyPath, row.labelKey);
+    const actionLabel = resolveCopy(copy, copyPath, row.actionKey);
+    if (label === undefined || actionLabel === undefined) return null;
     return (
-      <div className="entei-module-field entei-module-field--list">
-        <div className="entei-module-field-text">
-          <span className="entei-module-field-label">{field.label}</span>
-          {field.description !== undefined && (
-            <p className="entei-module-field-description">
-              {field.description}
-            </p>
-          )}
-        </div>
-        <ListEditor
-          options={options}
-          onChange={onOptionsChange}
-          labels={labels.list}
+      <ModuleUsageMeter
+        label={label}
+        template={template}
+        read={source.usage}
+        actionLabel={actionLabel}
+      />
+    );
+  }
+
+  /* A row naming a field the tree does not have cannot be drawn — fail closed
+     instead of inventing a control for an unknown path. */
+  if (field === undefined) return null;
+
+  const label = resolveCopy(copy, copyPath, row.labelKey) ?? field.label;
+  const description =
+    resolveCopy(copy, copyPath, row.descriptionKey) ?? field.description;
+
+  if (row.layout === 'list') {
+    const ListEditor = source?.list;
+    if (ListEditor === undefined) {
+      /* Unknown source id: the generic read-only note, same as an undeclared
+         array field — a manifest cannot conjure an editor the app lacks. */
+      return (
+        <ModuleFieldRow
+          field={field}
+          label={label}
+          description={description}
+          value={undefined}
+          onChange={() => {}}
+          notEditable={labels.notEditable}
         />
-      </div>
-    );
-  }
-
-  /* Structural / not generically editable (array, section-header). */
-  if (!isEditable(field)) {
+      );
+    }
     return (
-      <div className="entei-module-field entei-module-field--readonly">
-        <div className="entei-module-field-text">
-          <span className="entei-module-field-label">{field.label}</span>
-          {field.description !== undefined && (
-            <p className="entei-module-field-description">
-              {field.description}
-            </p>
-          )}
-        </div>
-        <span className="entei-module-field-note">{labels.notEditable}</span>
-      </div>
+      <ListEditor
+        options={options}
+        onChange={onOptionsChange}
+        title={label}
+        description={description}
+        copy={resolveListCopy(copy, copyPath)}
+      />
     );
   }
-
-  const hint =
-    field.description !== undefined ? (
-      <p className="entei-module-field-description" id={`${inputId}-hint`}>
-        {field.description}
-      </p>
-    ) : null;
 
   return (
-    <div
-      className={
-        field.type === 'boolean'
-          ? 'entei-module-field entei-module-field--switch'
-          : 'entei-module-field'
+    <BoundFieldRow
+      row={row}
+      field={field}
+      label={label}
+      description={description}
+      options={options}
+      labels={labels}
+      copy={copy}
+      copyPath={copyPath}
+      onChange={onChange}
+    />
+  );
+}
+
+/**
+ * The `list` layout's fixed copy contract — the keys it always reads, so a
+ * manifest declares the layout once and the strings stay in the locales.
+ */
+function resolveListCopy(
+  copy: ModuleCopyTable,
+  copyPath: string | undefined,
+): ModuleListManagerCopy {
+  const pick = (key: string): string =>
+    resolveCopy(copy, copyPath, key) ?? '';
+  return {
+    import: pick('import'),
+    importing: pick('importing'),
+    empty: pick('empty'),
+    enable: pick('enable'),
+    remove: pick('remove'),
+    importFailed: pick('importFailed'),
+    reorder: pick('reorder'),
+    reorderHint: pick('reorderHint'),
+  };
+}
+
+interface BoundFieldRowProps {
+  row: EnteiModuleRowBinding;
+  field: SettingFieldDescriptor;
+  label: string;
+  description: string | undefined;
+  options: Options;
+  labels: YomitanSettingsRendererProps['labels'];
+  copy: ModuleCopyTable;
+  copyPath: string | undefined;
+  onChange: (path: string, value: unknown) => void;
+}
+
+/**
+ * A `field` row: the standard row, with host-supplied options when the manifest
+ * names an `optionsSource` (a select whose choices are the module's own data —
+ * Yomitan's frequency dictionary list, which only the host can enumerate).
+ */
+function BoundFieldRow({
+  row,
+  field,
+  label,
+  description,
+  options,
+  labels,
+  copy,
+  copyPath,
+  onChange,
+}: BoundFieldRowProps) {
+  const read = resolveModuleDataSource(row.optionsSource)?.options;
+  /* `[]` before the read resolves, not `undefined`: a row that declares an
+     `optionsSource` is a select from its first render, so it never flickers
+     through a text input while the source is still being read. */
+  const [choices, setChoices] = useState<readonly SelectOption[]>([]);
+
+  useEffect(() => {
+    if (read === undefined) return;
+    let current = true;
+    void read()
+      .then((next) => {
+        if (current) setChoices(next);
+      })
+      .catch(() => {
+        // Unreadable source: the row still draws, with its `none` option only.
+        if (current) setChoices([]);
+      });
+    return () => {
+      current = false;
+    };
+    /* Re-read whenever the tree changes: installing or deleting the item this
+       list enumerates has to show up without a reload. */
+  }, [read, options]);
+
+  return (
+    <ModuleFieldRow
+      field={field}
+      label={label}
+      description={description}
+      value={readOptionPath(options, field.key)}
+      options={choices}
+      noneLabel={
+        row.noneKey === undefined
+          ? undefined
+          : resolveCopy(copy, copyPath, row.noneKey)
       }
-    >
-      <div className="entei-module-field-text">
-        <label className="entei-module-field-label" htmlFor={inputId}>
-          {field.label}
-        </label>
-        {hint}
-      </div>
-
-      <div className="entei-module-field-control">
-        {field.type === 'boolean' && (
-          <Switch
-            id={inputId}
-            checked={value === true}
-            onCheckedChange={(checked) => onChange(field.key, checked)}
-            aria-describedby={
-              field.description !== undefined ? `${inputId}-hint` : undefined
-            }
-          />
-        )}
-
-        {(field.type === 'string' ||
-          field.type === 'text' ||
-          field.type === 'password') &&
-          (field.type === 'text' ? (
-            <textarea
-              id={inputId}
-              className="entei-module-textarea"
-              value={typeof value === 'string' ? value : ''}
-              placeholder={field.placeholder}
-              rows={4}
-              spellCheck={false}
-              aria-describedby={
-                field.description !== undefined ? `${inputId}-hint` : undefined
-              }
-              onChange={(event) => onChange(field.key, event.target.value)}
-            />
-          ) : (
-            <Input
-              id={inputId}
-              type={field.type === 'password' ? 'password' : 'text'}
-              className="entei-module-input"
-              value={typeof value === 'string' ? value : ''}
-              placeholder={field.placeholder}
-              autoComplete="off"
-              aria-describedby={
-                field.description !== undefined ? `${inputId}-hint` : undefined
-              }
-              onChange={(event) => onChange(field.key, event.target.value)}
-            />
-          ))}
-
-        {(field.type === 'number' || field.type === 'integer') && (
-          <Input
-            id={inputId}
-            type="number"
-            className="entei-module-input entei-module-input--number"
-            value={typeof value === 'number' ? value : ''}
-            min={field.min}
-            max={field.max}
-            step={field.step ?? (field.type === 'integer' ? 1 : undefined)}
-            aria-describedby={
-              field.description !== undefined ? `${inputId}-hint` : undefined
-            }
-            onChange={(event) => {
-              const raw = event.target.value;
-              if (raw === '') return; // keep the last valid number mid-edit
-              const parsed = Number(raw);
-              if (!Number.isFinite(parsed)) return;
-              onChange(
-                field.key,
-                field.type === 'integer' ? Math.round(parsed) : parsed,
-              );
-            }}
-          />
-        )}
-
-        {field.type === 'select' && (
-          <Select
-            value={typeof value === 'string' ? value : undefined}
-            onValueChange={(next) => onChange(field.key, next)}
-          >
-            <SelectTrigger
-              id={inputId}
-              size="sm"
-              className="entei-module-select"
-              aria-describedby={
-                field.description !== undefined ? `${inputId}-hint` : undefined
-              }
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(field.options ?? []).map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-    </div>
+      onChange={(value) => onChange(field.key, value)}
+      notEditable={labels.notEditable}
+    />
   );
 }

@@ -676,15 +676,15 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 hasSettingsSchema(selectedModule) && (
                   <YomitanSettingsRenderer
                     sections={selectedModule.settingsSchema}
-                    listFields={selectedModule.listFields}
+                    sectionLayouts={selectedModule.sectionLayouts}
                     showSectionIcons={selectedModule.showSectionIcons === true}
                     options={yomitanOptions}
                     onChange={setYomitanOptions}
                     labels={{
                       notEditable: dict.yomitanSettings.notEditable,
                       toggleSection: dict.yomitanSettings.toggleSection,
-                      list: dict.yomitanSettings.dictionaries,
                     }}
+                    copy={dict.yomitanSettings}
                   />
                 )}
 
@@ -706,15 +706,15 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                 hasSettingsSchema(selectedModule) && (
                   <YomitanSettingsRenderer
                     sections={selectedModule.settingsSchema}
-                    listFields={selectedModule.listFields}
+                    sectionLayouts={selectedModule.sectionLayouts}
                     showSectionIcons={selectedModule.showSectionIcons === true}
                     options={yomitanOptions}
                     onChange={setYomitanOptions}
                     labels={{
                       notEditable: dict.yomitanSettings.notEditable,
                       toggleSection: dict.yomitanSettings.toggleSection,
-                      list: dict.yomitanSettings.dictionaries,
                     }}
+                    copy={dict.yomitanSettings}
                   />
                 )}
             </div>

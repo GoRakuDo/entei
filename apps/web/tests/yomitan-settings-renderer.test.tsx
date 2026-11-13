@@ -8,16 +8,20 @@
  *   advanced+debug toggles) are never rendered, and a group they empty
  *   disappears with them
  * - expanding a section shows only the editable, non-locked fields
- * - a field the manifest binds through `listFields` is drawn with the app's
- *   standard list layout; the same field without the binding (or with an
- *   unknown `source`) stays on the generic read-only note — nothing is
- *   hard-coded per module
+ * - a section the manifest lays out (`sectionLayouts`) draws the declared rows
+ *   through the app's standard layouts: the installed-item list with its own
+ *   header and import action, plain field rows, and the host-measured usage row
+ * - a field laid out that way is claimed: it is not drawn twice in its own tree
+ *   group
+ * - nothing is hard-coded per module: a `list` row with an unknown `source`
+ *   stays on the generic read-only note
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { yomitanSettingsTree } from '@gorakudo/yomitan-headless/settings';
 import { YomitanSettingsRenderer } from '@/components/settings/YomitanSettingsRenderer';
+import { CORE_MODULES } from '@/features/modules/module-registry';
 import {
   readYomitanOptions,
   writeYomitanOptions,
@@ -27,23 +31,22 @@ import { en } from '@/i18n/locales/en';
 const LABELS = {
   notEditable: en.yomitanSettings.notEditable,
   toggleSection: en.yomitanSettings.toggleSection,
-  list: en.yomitanSettings.dictionaries,
 };
 
-/** Yomitan's own manifest declaration for its installed-item list. */
-const DICTIONARY_LIST_BINDING = [
-  {
-    field: 'dictionaries',
-    layout: 'list-manager' as const,
-    source: 'yomitan-dictionaries',
-  },
-];
+const COPY = en.yomitanSettings;
+
+/** Yomitan's own manifest declaration of its Dictionaries section. */
+const SECTION_LAYOUTS =
+  CORE_MODULES.find((module) => module.id === 'yomitan')?.sectionLayouts ?? [];
 
 beforeEach(() => {
   localStorage.clear();
   global.ResizeObserver = vi.fn(function () {
     return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
   });
+  // Radix scrolls the selected option into view when a Select opens; this DOM
+  // implementation has no `scrollIntoView`.
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(() => {
@@ -54,23 +57,25 @@ afterEach(() => {
 
 function renderSettings(
   showSectionIcons = false,
-  listFields?: readonly {
-    field: string;
-    layout: 'list-manager';
-    source: string;
-  }[],
+  sectionLayouts = SECTION_LAYOUTS,
 ) {
   const options = readYomitanOptions();
   return render(
     <YomitanSettingsRenderer
       sections={yomitanSettingsTree}
-      listFields={listFields}
+      sectionLayouts={sectionLayouts}
       showSectionIcons={showSectionIcons}
       options={options}
       onChange={writeYomitanOptions}
       labels={LABELS}
+      copy={COPY}
     />,
   );
+}
+
+/** Open one section card by its visible label. */
+function openSection(name: RegExp) {
+  fireEvent.click(screen.getByRole('button', { name }));
 }
 
 describe('YomitanSettingsRenderer — sections', () => {
@@ -125,9 +130,7 @@ describe('YomitanSettingsRenderer — locked fields', () => {
 
   it('drops the groups the locked fields emptied', () => {
     const { container } = renderSettings();
-    fireEvent.click(
-      screen.getByRole('button', { name: new RegExp('General', 'i') }),
-    );
+    openSection(/General/i);
     const groupLabels = Array.from(
       container.querySelectorAll('.entei-module-group-label'),
     ).map((node) => node.textContent);
@@ -144,9 +147,7 @@ describe('YomitanSettingsRenderer — locked fields', () => {
 
   it('renders no control bound to a locked path', () => {
     const { container } = renderSettings();
-    fireEvent.click(
-      screen.getByRole('button', { name: new RegExp('General', 'i') }),
-    );
+    openSection(/General/i);
     // Every remaining switch is an editable general field (context menu,
     // API, debug) — the master switch is gone.
     const switches = container.querySelectorAll('[data-slot="switch"]');
@@ -155,52 +156,127 @@ describe('YomitanSettingsRenderer — locked fields', () => {
   });
 });
 
-describe('YomitanSettingsRenderer — manifest-bound list layout', () => {
+describe('YomitanSettingsRenderer — manifest-laid-out Dictionaries section', () => {
   function openDictionaries() {
-    fireEvent.click(
-      screen.getByRole('button', { name: new RegExp('Dictionaries', 'i') }),
-    );
+    openSection(/Dictionaries/i);
   }
 
-  it('draws the standard list layout for a field the manifest binds', async () => {
-    const { container } = renderSettings(false, DICTIONARY_LIST_BINDING);
-    openDictionaries();
-
-    // The generic read-only note is gone for this field...
-    expect(screen.queryByText(en.yomitanSettings.notEditable)).toBeNull();
-    // ...replaced by the import control and its empty state (no dictionaries
-    // are installed in a test run: `bun test` has no IndexedDB).
-    expect(
-      await screen.findByText(en.yomitanSettings.dictionaries.empty),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole('button', { name: /import dictionary/i }),
-    ).toBeTruthy();
-    // The layout set is the generic one, and drag & drop is gone with it.
-    expect(
-      container.querySelectorAll('.entei-module-field--list .entei-module-list')
-        .length,
-    ).toBe(1);
-    expect(container.querySelectorAll('.entei-module-list-toolbar')).toHaveLength(
-      1,
-    );
-  });
-
-  it('keeps the read-only note when the manifest declares no binding', () => {
+  it('draws the installed-item list with its header and import action', async () => {
     const { container } = renderSettings();
     openDictionaries();
 
-    expect(screen.getByText(en.yomitanSettings.notEditable)).toBeTruthy();
-    expect(container.querySelectorAll('.entei-module-list')).toHaveLength(0);
+    // Block header: title + description on the left, import on the right.
+    expect(screen.getByText(COPY.dictionaries.installedTitle)).toBeTruthy();
+    expect(
+      screen.getByText(COPY.dictionaries.installedDescription),
+    ).toBeTruthy();
+    const header = container.querySelector('.entei-module-list-header');
+    expect(header).not.toBeNull();
+    expect(
+      header?.querySelector('.entei-module-list-toolbar button'),
+    ).not.toBeNull();
+
+    // The generic read-only note is gone for this field, replaced by the empty
+    // state (no dictionaries are installed in a test run: `bun test` has no
+    // IndexedDB) and its reorderable rows.
+    expect(screen.queryByText(COPY.notEditable)).toBeNull();
+    expect(await screen.findByText(COPY.dictionaries.empty)).toBeTruthy();
+    expect(container.querySelectorAll('.entei-module-list-rows')).toHaveLength(
+      0,
+    );
+  });
+
+  it('draws the prefix-wildcard switch and the frequency select', async () => {
+    const { container } = renderSettings();
+    openDictionaries();
+
+    expect(screen.getByText(COPY.dictionaries.prefixWildcards)).toBeTruthy();
+    expect(
+      screen.getByText(COPY.dictionaries.sortFrequency),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(COPY.dictionaries.sortFrequencyDescription),
+    ).toBeTruthy();
+
+    // The select's leading option is the host-resolved `None` (no frequency
+    // dictionary chosen); no dictionary is installed in a test run, so it is
+    // the only choice. Radix mounts the items when the trigger opens.
+    const trigger = container.querySelector('.entei-module-select');
+    expect(trigger).not.toBeNull();
+    fireEvent.click(trigger as Element);
+    expect(await screen.findByText(COPY.dictionaries.sortFrequencyNone)).toBeTruthy();
+  });
+
+  it('measures storage through the host source and refreshes on demand', async () => {
+    const estimate = vi.fn(async () => ({ usage: 1_700_000_000, quota: 117_200_000_000 }));
+    Object.defineProperty(globalThis.navigator, 'storage', {
+      value: { estimate },
+      configurable: true,
+    });
+
+    renderSettings();
+    openDictionaries();
+
+    expect(screen.getByText(COPY.dictionaries.storage)).toBeTruthy();
+    // "Yomitan is using approximately 1.7GB of 117.2GB."
+    const usage = await screen.findByText(
+      COPY.dictionaries.storageUsage.replace('{used}', '1.7GB').replace(
+        '{total}',
+        '117.2GB',
+      ),
+    );
+    expect(usage).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: COPY.dictionaries.refresh }),
+    );
+    expect(estimate.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('never draws a claimed field twice (tree group + declared row)', () => {
+    const { container } = renderSettings();
+    // `general.sortFrequencyDictionary` is a row of the Dictionaries section...
+    openSection(/Dictionaries/i);
+    expect(
+      screen.getAllByText(COPY.dictionaries.sortFrequency),
+    ).toHaveLength(1);
+
+    // ...so its own tree group ("Frequency Sorting") loses that field.
+    openSection(/Result Display/i);
+    expect(screen.queryByText('Sort frequency dictionary')).toBeNull();
+    expect(screen.queryByText('Sort order')).toBeTruthy();
+    expect(container.querySelectorAll('.entei-module-rows')).toHaveLength(1);
   });
 
   it('falls back to the read-only note for an unknown data source', () => {
-    const { container } = renderSettings(false, [
-      { field: 'dictionaries', layout: 'list-manager', source: 'nope' },
+    renderSettings(false, [
+      {
+        section: 'dictionaries',
+        rows: [
+          {
+            layout: 'list',
+            field: 'dictionaries',
+            source: 'nope',
+          },
+        ],
+      },
     ]);
     openDictionaries();
 
-    expect(screen.getByText(en.yomitanSettings.notEditable)).toBeTruthy();
-    expect(container.querySelectorAll('.entei-module-list')).toHaveLength(0);
+    expect(screen.getByText(COPY.notEditable)).toBeTruthy();
+    expect(screen.queryByText(COPY.dictionaries.empty)).toBeNull();
+  });
+
+  it('draws nothing for a row naming a field the tree does not have', () => {
+    renderSettings(false, [
+      {
+        section: 'dictionaries',
+        rows: [{ layout: 'field', field: 'general.doesNotExist' }],
+      },
+    ]);
+    openDictionaries();
+
+    expect(screen.queryByText(COPY.notEditable)).toBeNull();
+    expect(screen.queryByLabelText('Show debug information')).toBeNull();
   });
 });

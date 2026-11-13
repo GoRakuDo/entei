@@ -25,6 +25,7 @@ import {
   parseDictionaryIndex,
   removeDictionaryOption,
   setDictionaryEnabled,
+  orderDictionaryOptions,
   type DictionaryOptionEntry,
 } from '@/features/yomitan/dictionary-store';
 
@@ -292,6 +293,26 @@ describe('options.dictionaries helpers', () => {
   it('removes exactly one entry', () => {
     const next = removeDictionaryOption(list, 'Dict A');
     expect(next.map((entry) => entry.name)).toEqual(['Dict B']);
+  });
+
+  it('reorders by display order, keeping every entry and its flags', () => {
+    // Row order IS dictionary priority, so a reorder writes this array.
+    const next = orderDictionaryOptions(list, ['Dict B', 'Dict A']);
+    expect(next.map((entry) => entry.name)).toEqual(['Dict B', 'Dict A']);
+    expect(next[1]?.enabled).toBe(true);
+    expect(next[0]?.enabled).toBe(false);
+    // The input list is not mutated.
+    expect(list.map((entry) => entry.name)).toEqual(['Dict A', 'Dict B']);
+  });
+
+  it('creates a disabled entry for a name with no entry yet', () => {
+    const next = orderDictionaryOptions(list, ['Dict C', 'Dict A']);
+    expect(next.map((entry) => entry.name)).toEqual([
+      'Dict C',
+      'Dict A',
+      'Dict B',
+    ]);
+    expect(next[0]?.enabled).toBe(false);
   });
 });
 

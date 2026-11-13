@@ -401,15 +401,26 @@ export const id: Dictionary = {
     notEditable: 'Item ini belum dapat diubah',
     toggleSection: 'Buka/tutup bagian',
     dictionaries: {
+      installedTitle: 'Kamus Terpasang',
+      installedDescription:
+        'Entri kamus dikelola saat runtime. Setelan ini menampilkan opsi per kamus setelah ada kamus yang dipasang.',
       import: 'Impor Kamus (.zip)',
       importing: 'Mengimpor…',
       empty:
         'Belum ada kamus yang diimpor. Silakan impor file kamus (.zip) untuk memulai pencarian.',
-      revision: 'Versi',
-      entries: 'entri',
       enable: 'Aktifkan kamus',
       remove: 'Hapus kamus',
       importFailed: 'Impor kamus gagal',
+      reorder: 'Atur ulang urutan kamus',
+      reorderHint:
+        'Seret untuk mengubah prioritas, atau tekan tombol panah atas dan bawah.',
+      prefixWildcards: 'Aktifkan dukungan pencarian wildcard prefiks',
+      storage: 'Penyimpanan',
+      storageUsage: 'Yomitan menggunakan sekitar {used} dari {total}.',
+      refresh: 'Segarkan',
+      sortFrequency: 'Kamus pengurutan frekuensi',
+      sortFrequencyDescription: 'Urutkan hasil menggunakan kamus frekuensi.',
+      sortFrequencyNone: 'Tidak ada',
     },
   },
   settingsPage: {

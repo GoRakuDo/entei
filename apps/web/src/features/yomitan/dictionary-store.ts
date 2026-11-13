@@ -898,6 +898,35 @@ export function removeDictionaryOption(
   return list.filter((entry) => entry.name !== name);
 }
 
+/**
+ * Rebuild `options.dictionaries[]` in the order the list shows.
+ *
+ * The array IS the dictionary priority order (Yomitan reads it top-down when
+ * merging results), so reordering rows is a real setting write, not a view
+ * state. `names` is the full displayed order: a name with no entry yet (an
+ * import interrupted before the settings write) gets a fresh DISABLED one, so
+ * the order the user arranged is exactly what persists. Names absent from
+ * `names` keep their entry at the end rather than being dropped.
+ */
+export function orderDictionaryOptions(
+  list: readonly DictionaryOptionEntry[],
+  names: readonly string[],
+): DictionaryOptionEntry[] {
+  const byName = new Map(list.map((entry) => [entry.name, entry]));
+  const ordered: DictionaryOptionEntry[] = [];
+  for (const name of names) {
+    const existing = byName.get(name);
+    if (existing === undefined) {
+      ordered.push({ ...createDictionaryOptionEntry(name), enabled: false });
+      continue;
+    }
+    byName.delete(name);
+    ordered.push(existing);
+  }
+  for (const entry of byName.values()) ordered.push(entry);
+  return ordered;
+}
+
 /* ---------------------------------------------------------------------------
  * Import
  * ------------------------------------------------------------------------ */

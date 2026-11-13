@@ -19,7 +19,7 @@ import {
   MODULE_MANIFEST_VERSION,
   getRegisteredModules,
   hasSettingsSchema,
-  normalizeListFields,
+  normalizeSectionLayouts,
   parseModuleManifest,
   readImportedModules,
 } from '@/features/modules/module-registry';
@@ -100,15 +100,43 @@ describe('module-registry — core manifests', () => {
     }
   });
 
-  it('declares its installed-item list in yomitan.module.json, not in code', () => {
-    // The manifest decides which field draws through the standard list layout;
-    // the page resolves the layout + the host-owned data source from this.
+  it('declares its Dictionaries section layout in yomitan.module.json, not in code', () => {
+    // The manifest decides which section draws itself and with which standard
+    // layouts; the page resolves each row's layout + host-owned data source.
     const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
-    expect(yomitan?.listFields).toEqual([
+    expect(yomitan?.sectionLayouts).toEqual([
       {
-        field: 'dictionaries',
-        layout: 'list-manager',
-        source: 'yomitan-dictionaries',
+        section: 'dictionaries',
+        copy: 'dictionaries',
+        rows: [
+          {
+            layout: 'list',
+            field: 'dictionaries',
+            source: 'yomitan-dictionaries',
+            labelKey: 'installedTitle',
+            descriptionKey: 'installedDescription',
+          },
+          {
+            layout: 'field',
+            field: 'global.database.prefixWildcardsSupported',
+            labelKey: 'prefixWildcards',
+          },
+          {
+            layout: 'usage',
+            source: 'browser-storage',
+            labelKey: 'storage',
+            usageKey: 'storageUsage',
+            actionKey: 'refresh',
+          },
+          {
+            layout: 'field',
+            field: 'general.sortFrequencyDictionary',
+            optionsSource: 'yomitan-dictionaries',
+            labelKey: 'sortFrequency',
+            descriptionKey: 'sortFrequencyDescription',
+            noneKey: 'sortFrequencyNone',
+          },
+        ],
       },
     ]);
 
@@ -120,13 +148,13 @@ describe('module-registry — core manifests', () => {
         ),
         'utf-8',
       ),
-    ) as { listFields?: unknown };
-    expect(document.listFields).toEqual(yomitan?.listFields);
+    ) as { sectionLayouts?: unknown };
+    expect(document.sectionLayouts).toEqual(yomitan?.sectionLayouts);
   });
 
-  it('leaves listFields empty for modules that declare none', () => {
+  it('leaves sectionLayouts empty for modules that declare none', () => {
     const jimaku = CORE_MODULES.find((module) => module.id === 'jimaku');
-    expect(jimaku?.listFields).toEqual([]);
+    expect(jimaku?.sectionLayouts).toEqual([]);
   });
 
   it('loads iconPath from individual *.module.json files and falls back icon to Blocks', () => {
@@ -228,46 +256,98 @@ describe('module-registry — manifest validation', () => {
     );
   });
 
-  it('keeps a well-formed imported list binding', () => {
+  it('keeps a well-formed imported section layout', () => {
     const result = parseModuleManifest(
       validImport({
-        listFields: [
-          { field: 'items', layout: 'list-manager', source: 'host-items' },
+        sectionLayouts: [
+          {
+            section: 'items',
+            copy: 'items',
+            rows: [
+              { layout: 'list', field: 'items', source: 'host-items' },
+            ],
+          },
         ],
       }),
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.manifest.listFields).toEqual([
-      { field: 'items', layout: 'list-manager', source: 'host-items' },
+    expect(result.manifest.sectionLayouts).toEqual([
+      {
+        section: 'items',
+        copy: 'items',
+        rows: [{ layout: 'list', field: 'items', source: 'host-items' }],
+      },
     ]);
   });
 });
 
-describe('module-registry — listFields normalisation', () => {
-  it('drops malformed bindings instead of half-applying them', () => {
-    expect(normalizeListFields(undefined)).toEqual([]);
-    expect(normalizeListFields('nope')).toEqual([]);
+describe('module-registry — sectionLayouts normalisation', () => {
+  it('drops malformed rows instead of half-applying them', () => {
+    expect(normalizeSectionLayouts(undefined)).toEqual([]);
+    expect(normalizeSectionLayouts('nope')).toEqual([]);
     expect(
-      normalizeListFields([
+      normalizeSectionLayouts([
         null,
         42,
         {},
-        { field: '  ', layout: 'list-manager', source: 'host' },
-        { field: 'items', layout: '', source: 'host' },
-        { field: 'items', layout: 'carousel', source: 'host' },
-        { field: 'items', layout: 'list-manager', source: '   ' },
-        { field: 'items', layout: 'list-manager' },
+        { section: '  ', rows: [{ layout: 'field', field: 'general.api' }] },
+        { section: 'items', rows: 'nope' },
+        { section: 'items', rows: [] },
       ]),
     ).toEqual([]);
   });
 
-  it('trims field and source ids', () => {
+  it('drops a section whose rows are all unusable', () => {
     expect(
-      normalizeListFields([
-        { field: '  items  ', layout: 'list-manager', source: ' host-items ' },
+      normalizeSectionLayouts([
+        {
+          section: 'items',
+          rows: [
+            null,
+            42,
+            {},
+            { layout: 'carousel', field: 'items' },
+            { layout: 'field' },
+            { layout: 'list', field: 'items' },
+            { layout: 'usage' },
+          ],
+        },
       ]),
-    ).toEqual([{ field: 'items', layout: 'list-manager', source: 'host-items' }]);
+    ).toEqual([]);
+  });
+
+  it('trims ids and keeps only the copy keys a row carries', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: '  items  ',
+          copy: '  items  ',
+          rows: [
+            {
+              layout: ' list ',
+              field: '  items  ',
+              source: ' host-items ',
+              labelKey: '  title  ',
+              descriptionKey: '   ',
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'items',
+        copy: 'items',
+        rows: [
+          {
+            layout: 'list',
+            field: 'items',
+            source: 'host-items',
+            labelKey: 'title',
+          },
+        ],
+      },
+    ]);
   });
 });
 

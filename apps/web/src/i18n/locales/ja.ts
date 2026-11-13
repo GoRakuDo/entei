@@ -399,15 +399,25 @@ export const ja: Dictionary = {
     notEditable: 'この項目は現在編集できません',
     toggleSection: 'セクションを開閉',
     dictionaries: {
+      installedTitle: 'インストール済みの辞書',
+      installedDescription:
+        '辞書エントリは実行時に管理されます。辞書をインポートすると、この設定ツリーに辞書ごとの項目が表示されます。',
       import: '辞書をインポート (.zip)',
       importing: 'インポート中…',
       empty:
         'インポートされた辞書はありません。辞書ファイル（.zip）をインポートして検索を開始してください。',
-      revision: 'バージョン',
-      entries: 'エントリ',
       enable: '辞書を有効化',
       remove: '辞書を削除',
       importFailed: '辞書のインポートに失敗しました',
+      reorder: '辞書の順序を変更',
+      reorderHint: 'ドラッグ、または上下の矢印キーで優先度を変更できます。',
+      prefixWildcards: '前方一致ワイルドカード検索を有効にする',
+      storage: 'ストレージ',
+      storageUsage: 'Yomitan は {total} のうち約 {used} を使用しています。',
+      refresh: '更新',
+      sortFrequency: '並べ替えに使う頻度辞書',
+      sortFrequencyDescription: '頻度辞書を使って結果を並べ替えます。',
+      sortFrequencyNone: 'なし',
     },
   },
   settingsPage: {

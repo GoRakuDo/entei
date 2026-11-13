@@ -3,7 +3,7 @@
   "id": "yomitan",
   "nameKey": "yomitanName",
   "descriptionKey": "yomitanDescription",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "GoRakuDo",
   "iconPath": "/icons/modules/yomitan.png",
   "category": "dictionary",
@@ -11,11 +11,39 @@
   "defaultEnabled": true,
   "hasSettings": true,
   "showSectionIcons": true,
-  "listFields": [
+  "sectionLayouts": [
     {
-      "field": "dictionaries",
-      "layout": "list-manager",
-      "source": "yomitan-dictionaries"
+      "section": "dictionaries",
+      "copy": "dictionaries",
+      "rows": [
+        {
+          "layout": "list",
+          "field": "dictionaries",
+          "source": "yomitan-dictionaries",
+          "labelKey": "installedTitle",
+          "descriptionKey": "installedDescription"
+        },
+        {
+          "layout": "field",
+          "field": "global.database.prefixWildcardsSupported",
+          "labelKey": "prefixWildcards"
+        },
+        {
+          "layout": "usage",
+          "source": "browser-storage",
+          "labelKey": "storage",
+          "usageKey": "storageUsage",
+          "actionKey": "refresh"
+        },
+        {
+          "layout": "field",
+          "field": "general.sortFrequencyDictionary",
+          "optionsSource": "yomitan-dictionaries",
+          "labelKey": "sortFrequency",
+          "descriptionKey": "sortFrequencyDescription",
+          "noneKey": "sortFrequencyNone"
+        }
+      ]
     }
   ]
 }

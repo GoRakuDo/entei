@@ -404,15 +404,26 @@ export const en: Dictionary = {
     notEditable: 'Not editable yet',
     toggleSection: 'Toggle section',
     dictionaries: {
+      installedTitle: 'Installed Dictionaries',
+      installedDescription:
+        'Dictionary entries are managed at runtime. The settings tree exposes per-dictionary fields once a dictionary is installed.',
       import: 'Import dictionary (.zip)',
       importing: 'Importing…',
       empty:
         'No dictionaries imported yet. Import a dictionary (.zip) to start looking up words.',
-      revision: 'Revision',
-      entries: 'entries',
       enable: 'Enable dictionary',
       remove: 'Delete dictionary',
       importFailed: 'Dictionary import failed',
+      reorder: 'Reorder dictionary',
+      reorderHint:
+        'Drag to change the priority, or press the up and down arrow keys.',
+      prefixWildcards: 'Enable support for prefix wildcard searches',
+      storage: 'Storage',
+      storageUsage: 'Yomitan is using approximately {used} of {total}.',
+      refresh: 'Refresh',
+      sortFrequency: 'Frequency sorting dictionary',
+      sortFrequencyDescription: 'Sort results using a frequency dictionary.',
+      sortFrequencyNone: 'None',
     },
   },
   settingsPage: {

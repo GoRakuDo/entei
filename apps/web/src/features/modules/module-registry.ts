@@ -20,11 +20,14 @@
  * hand its 18 Chrome-compatible sections to the renderer instead of hard-coding
  * them in the page — the same code path a community module will use.
  *
- * LAYOUTS ARE MANIFEST DATA TOO: a field whose editor is a list of installed
- * items is declared with `listFields` (field + `layout` + host `source`). The
- * app owns one such layout (`components/settings/ModuleListManager`) and the
- * host-owned data sources (`components/settings/module-list-sources`); which
- * field gets which layout is never written in the page.
+ * LAYOUTS ARE MANIFEST DATA TOO: a section whose editor is not a plain field
+ * list is declared with `sectionLayouts` — an ordered row list, each row naming
+ * one of the app's standard layouts (`list` / `field` / `usage`), the field it
+ * edits, the host-owned data `source` behind it and the copy keys of its labels.
+ * The app owns the layouts (`components/settings/ModuleListManager`,
+ * `ModuleFieldRow`, `ModuleUsageMeter`) and the host-owned data sources
+ * (`components/settings/module-data-sources`); which field gets which layout is
+ * never written in the page.
  *
  * Copy: `nameKey` / `descriptionKey` are DICTIONARY KEYS for built-ins (the
  * three locales own the strings). An imported manifest has no dictionary entry,
@@ -54,20 +57,55 @@ export type ModuleCopyKey =
   | 'nadeshikoName'
   | 'nadeshikoDescription';
 
-/** Standard layout sets the app can draw a field with. */
-export type EnteiModuleListLayout = 'list-manager';
+/**
+ * Layout ids a manifest may name for one row of a section layout.
+ *
+ * - `list`  — CRUD over installed items (`ModuleListManager`)
+ * - `field` — one standard settings row (`ModuleFieldRow`)
+ * - `usage` — a measured-usage row (`ModuleUsageMeter`)
+ */
+export type EnteiModuleRowLayout = 'list' | 'field' | 'usage';
 
 /**
- * One `listFields` entry: bind a field of the module's options tree to one of
- * the app's standard list layouts, backed by a host-owned data source.
+ * One row of a manifest-declared section layout.
+ *
+ * `field` addresses a dot-path of the module's `settingsSchema` (the descriptor
+ * decides the control); `source` names a host-owned data source; the `*Key`
+ * fields name copy entries inside the section's `copy` group, resolved by the
+ * host against its locales. Unknown keys degrade to the descriptor's own text.
  */
-export interface EnteiModuleListBinding {
-  /** Dot-path of the field (e.g. `'dictionaries'`). */
-  field: string;
-  /** Which standard layout set draws it. */
-  layout: EnteiModuleListLayout;
-  /** Host-owned source id that supplies the rows. */
-  source: string;
+export interface EnteiModuleRowBinding {
+  /** Which standard layout draws this row. */
+  layout: EnteiModuleRowLayout;
+  /** Dot-path of the field this row edits (`list` / `field` rows). */
+  field?: string;
+  /** Host-owned source id (`list` and `usage` rows). */
+  source?: string;
+  /** Host-owned source id supplying a `field` row's select options. */
+  optionsSource?: string;
+  /** Copy key of the row's label (falls back to the descriptor's label). */
+  labelKey?: string;
+  /** Copy key of the row's description (falls back to the descriptor's). */
+  descriptionKey?: string;
+  /** Copy key of a `usage` row's action label. */
+  actionKey?: string;
+  /** Copy key of a `usage` row's `{used}`/`{total}` sentence template. */
+  usageKey?: string;
+  /** Copy key of a `field` row's leading "none" option. */
+  noneKey?: string;
+}
+
+/**
+ * Manifest-declared layout of one settings section: its rows, in draw order,
+ * replacing the generic group walk for that section.
+ */
+export interface EnteiModuleSectionLayout {
+  /** `key` of the section in the module's `settingsSchema`. */
+  section: string;
+  /** Group of the module's copy table the rows' keys resolve against. */
+  copy?: string;
+  /** Rows to draw, top to bottom. */
+  rows: readonly EnteiModuleRowBinding[];
 }
 
 /** One `*.module.json` document (the platform manifest spec). */
@@ -111,11 +149,11 @@ export interface EnteiModuleManifest {
   /** Literal description (imported modules). */
   description?: string;
   /**
-   * Fields that draw through one of the app's standard list layouts instead of
-   * a generic control. The renderer resolves `source` against the host
-   * registry; an unknown source degrades to the read-only note.
+   * Sections whose rows the manifest lays out itself, in place of the generic
+   * group walk. The renderer resolves every row against the descriptor tree and
+   * the host source registry; an unknown source degrades to the read-only note.
    */
-  listFields?: readonly EnteiModuleListBinding[];
+  sectionLayouts?: readonly EnteiModuleSectionLayout[];
   /**
    * Self-describing settings tree. When present, the module's settings page
    * renders straight from it — no page-side knowledge of the module at all.
@@ -126,29 +164,71 @@ export interface EnteiModuleManifest {
 /** Current `*.module.json` spec version. */
 export const MODULE_MANIFEST_VERSION = 1;
 
-/** Layout ids a manifest may name in `listFields`. */
-const LIST_LAYOUTS: readonly EnteiModuleListLayout[] = ['list-manager'];
+/** Layout ids a manifest may name for a section-layout row. */
+const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = ['list', 'field', 'usage'];
+
+/** A non-empty trimmed string, or `undefined` (manifest fields are optional). */
+function optionalId(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
 
 /**
- * Validate the `listFields` array of a manifest.
+ * Validate the `sectionLayouts` array of a manifest.
  *
- * Fail-closed per entry: a malformed binding is dropped rather than half
- * applied, so the renderer can trust that every binding it receives is
- * addressable (non-empty field + source) and names a layout the app has.
+ * Fail-closed per ROW: a malformed row is dropped rather than half applied, so
+ * the renderer can trust that every row it receives is addressable — it names a
+ * layout the app has and carries whatever that layout needs (`field` for a
+ * `field` row, `field` + `source` for a `list` row, `source` for a `usage` row).
+ * A section left with no rows is dropped with it.
  */
-export function normalizeListFields(input: unknown): EnteiModuleListBinding[] {
+export function normalizeSectionLayouts(
+  input: unknown,
+): EnteiModuleSectionLayout[] {
   if (!Array.isArray(input)) return [];
-  const bindings: EnteiModuleListBinding[] = [];
+  const layouts: EnteiModuleSectionLayout[] = [];
   for (const entry of input) {
     if (typeof entry !== 'object' || entry === null) continue;
     const raw = entry as Record<string, unknown>;
-    const field = typeof raw.field === 'string' ? raw.field.trim() : '';
-    const source = typeof raw.source === 'string' ? raw.source.trim() : '';
-    const layout = LIST_LAYOUTS.find((value) => value === raw.layout);
-    if (field === '' || source === '' || layout === undefined) continue;
-    bindings.push({ field, layout, source });
+    const section = optionalId(raw.section);
+    if (section === undefined) continue;
+    const copy = optionalId(raw.copy);
+    const rows: EnteiModuleRowBinding[] = [];
+    for (const item of Array.isArray(raw.rows) ? raw.rows : []) {
+      if (typeof item !== 'object' || item === null) continue;
+      const row = item as Record<string, unknown>;
+      const layout = ROW_LAYOUTS.find(
+        (value) => value === optionalId(row.layout),
+      );
+      const field = optionalId(row.field);
+      const source = optionalId(row.source);
+      const optionsSource = optionalId(row.optionsSource);
+      if (layout === undefined) continue;
+      if (layout !== 'usage' && field === undefined) continue;
+      if (layout !== 'field' && source === undefined) continue;
+      const binding: EnteiModuleRowBinding = { layout };
+      if (field !== undefined) binding.field = field;
+      if (source !== undefined) binding.source = source;
+      if (optionsSource !== undefined) binding.optionsSource = optionsSource;
+      for (const key of [
+        'labelKey',
+        'descriptionKey',
+        'actionKey',
+        'usageKey',
+        'noneKey',
+      ] as const) {
+        const value = optionalId(row[key]);
+        if (value !== undefined) binding[key] = value;
+      }
+      rows.push(binding);
+    }
+    if (rows.length === 0) continue;
+    const sectionLayout: EnteiModuleSectionLayout = { section, rows };
+    if (copy !== undefined) sectionLayout.copy = copy;
+    layouts.push(sectionLayout);
   }
-  return bindings;
+  return layouts;
 }
 
 /** localStorage key holding imported `*.module.json` documents. */
@@ -264,7 +344,7 @@ function loadCoreManifests(): readonly EnteiModuleManifest[] {
       defaultEnabled: manifest.defaultEnabled ?? true,
       icon: manifest.icon ?? 'Blocks',
       showSectionIcons: manifest.showSectionIcons ?? false,
-      listFields: normalizeListFields(manifest.listFields),
+      sectionLayouts: normalizeSectionLayouts(manifest.sectionLayouts),
       ...(manifest.id === 'yomitan'
         ? { settingsSchema: YOMITAN_SETTINGS_SCHEMA }
         : {}),
@@ -341,7 +421,7 @@ export function parseModuleManifest(
       name,
       description:
         typeof raw.description === 'string' ? raw.description.trim() : '',
-      listFields: normalizeListFields(raw.listFields),
+      sectionLayouts: normalizeSectionLayouts(raw.sectionLayouts),
     },
   };
 }

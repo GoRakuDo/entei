@@ -6,20 +6,20 @@
  * Yomitan's "Dictionaries" field is not a scalar option: it is CRUD over the
  * dictionary database. This module is the ADAPTER between that store and the
  * platform's standard list layout (`components/settings/ModuleListManager`),
- * which the manifest binds to the field:
+ * which a manifest declares for the field:
  *
- *   { "field": "dictionaries", "layout": "list-manager",
+ *   { "layout": "list", "field": "dictionaries",
  *     "source": "yomitan-dictionaries" }
  *
  * It owns only what is genuinely Yomitan's: which file to accept, the metadata
- * line wording, and where the state lives. The look, the toolbar and the row
- * markup belong to the shared layout.
+ * line wording, and where the state lives. The look, the header, the reorder
+ * mechanics and the row markup belong to the shared layout.
  *
  * Two storages stay separate here, the same split as the store module: the DATA
  * is written to IndexedDB `yomitan-dictionaries` (never `entei.db`), while the
- * enable/disable flags are `options.dictionaries` in the persisted settings
- * tree — so the UI writes toggles through the normal `onChange(nextOptions)`
- * path and talks to the store only for data.
+ * enable flags AND the priority order live in `options.dictionaries` of the
+ * persisted settings tree — so the UI writes them through the normal
+ * `onChange(nextOptions)` path and talks to the store only for data.
  * ---------------------------------------------------------------------------
  */
 
@@ -27,7 +27,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
   ModuleListManager,
-  type ModuleListManagerLabels,
+  type ModuleListManagerCopy,
   type ModuleListManagerRow,
 } from '@/components/settings/ModuleListManager';
 import {
@@ -39,38 +39,37 @@ import {
   deleteDictionary,
   importDictionaryArchive,
   listInstalledDictionaries,
+  orderDictionaryOptions,
   removeDictionaryOption,
   setDictionaryEnabled,
   type DictionaryOptionEntry,
   type InstalledDictionary,
 } from '@/features/yomitan/dictionary-store';
 
-/** Copy for this source: the standard layout labels plus its metadata line. */
-export interface YomitanDictionaryListLabels extends ModuleListManagerLabels {
-  /** Prefix of an installed dictionary's metadata line. */
-  revision: string;
-  /** Entry-count unit. */
-  entries: string;
-}
-
 export interface DictionaryManagerProps {
   options: Options;
   onChange: (next: Options) => void;
-  labels: YomitanDictionaryListLabels;
+  /** Block title, resolved by the renderer from the manifest's `labelKey`. */
+  title?: string;
+  /** Block description, resolved from `descriptionKey`. */
+  description?: string;
+  /** Localized copy of the list layout. */
+  copy: ModuleListManagerCopy;
 }
 
 /** One rendered row: the stored dictionary plus its persisted toggle state. */
 interface DictionaryRow {
   name: string;
   version: string;
-  entries: number;
   enabled: boolean;
 }
 
 export function DictionaryManager({
   options,
   onChange,
-  labels,
+  title,
+  description,
+  copy,
 }: DictionaryManagerProps) {
   const [installed, setInstalled] = useState<InstalledDictionary[] | null>(null);
 
@@ -123,23 +122,40 @@ export function DictionaryManager({
     await refresh();
   }
 
-  const rows: ModuleListManagerRow[] = buildRows(installed, optionEntries).map(
-    (row) => ({
-      key: row.name,
-      name: row.name,
-      meta: `${labels.revision} ${row.version || '—'} · ${row.entries.toLocaleString()} ${labels.entries}`,
-      enabled: row.enabled,
-    }),
-  );
+  const rows = buildRows(installed, optionEntries);
+
+  /** Row order IS priority: write it back as the new `options.dictionaries`. */
+  function handleReorder(from: number, to: number) {
+    const names = rows.map((row) => row.name);
+    const [moved] = names.splice(from, 1);
+    if (moved === undefined) return;
+    names.splice(Math.max(0, Math.min(to, names.length)), 0, moved);
+    onChange(
+      writeOptionPath(
+        options,
+        'dictionaries',
+        orderDictionaryOptions(optionEntries, names),
+      ),
+    );
+  }
 
   return (
     <ModuleListManager
-      rows={rows}
-      labels={labels}
+      rows={rows.map<ModuleListManagerRow>((row) => ({
+        key: row.name,
+        name: row.name,
+        // Yomitan's own metadata line: the dictionary revision, nothing else.
+        meta: row.version === '' ? '' : `rev.${row.version}`,
+        enabled: row.enabled,
+      }))}
+      copy={copy}
+      title={title}
+      description={description}
       loading={installed === null}
       onImport={runImport}
       onToggle={handleToggle}
       onRemove={handleDelete}
+      onReorder={handleReorder}
     />
   );
 }
@@ -155,32 +171,41 @@ function readDictionaryOptions(options: Options): DictionaryOptionEntry[] {
 }
 
 /**
- * Merge the two halves into what the list shows.
+ * Merge the two halves into the displayed order.
  *
- * A dictionary present in the database but absent from `options.dictionaries`
- * (an import interrupted before the settings write) still lists, switched off,
- * so it can be enabled or removed instead of occupying space invisibly.
+ * `options.dictionaries` leads, because that array is the priority the user
+ * arranged. A dictionary present in the database but absent from it (an import
+ * interrupted before the settings write) still lists — appended, switched off —
+ * so it can be enabled or removed instead of occupying space invisibly, and a
+ * dictionary whose data is gone (the database was cleared under us) keeps its
+ * place with no metadata rather than vanishing from the order.
  */
 function buildRows(
   installed: readonly InstalledDictionary[] | null,
   optionEntries: readonly DictionaryOptionEntry[],
 ): DictionaryRow[] {
-  const stored = installed ?? [];
-  const known = new Set(stored.map((entry) => entry.name));
-  const rows: DictionaryRow[] = stored.map((entry) => ({
-    name: entry.name,
-    version: entry.version,
-    entries: entry.entries,
-    enabled:
-      optionEntries.find((option) => option.name === entry.name)?.enabled === true,
-  }));
+  const stored = new Map((installed ?? []).map((entry) => [entry.name, entry]));
+  const rows: DictionaryRow[] = [];
+  const seen = new Set<string>();
+
   for (const entry of optionEntries) {
-    if (known.has(entry.name)) continue;
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    const record = stored.get(entry.name);
+    stored.delete(entry.name);
     rows.push({
       name: entry.name,
-      version: '',
-      entries: 0,
+      version: record?.version ?? '',
       enabled: entry.enabled,
+    });
+  }
+
+  for (const record of stored.values()) {
+    if (seen.has(record.name)) continue;
+    rows.push({
+      name: record.name,
+      version: record.version,
+      enabled: false,
     });
   }
   return rows;

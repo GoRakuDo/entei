@@ -558,22 +558,34 @@ body[data-page='settings'] .entei-main {
 }
 
 /* ==========================================================================
-   MODULE LIST MANAGER (standard layout set for list-valued fields)
+   MANIFEST-LAID-OUT SECTION ROWS (standard layouts: list / field / usage)
    ----------------------------------------------------------------------------
-   Drawn for any field a manifest binds through `listFields` (field + `layout:
-   list-manager` + host `source`). Generic by contract: no module name appears
-   here. Toolbar (one import button) sits above the rows on mobile, and on
-   desktop it rises to the field label's row (right column) while the rows take
-   the full width underneath — the block spans the field row instead of sitting
-   in the desktop control column, because a list needs the full width.
+   A section a manifest lays out itself (`sectionLayouts`) draws its rows here
+   instead of the group walk: same field rows, one column, full width — a list
+   needs the whole width, so it does not sit in the desktop control column.
+   Generic by contract: no module name appears in this file.
    ========================================================================== */
 
-.entei-module-field--list {
+.entei-module-rows {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-24);
 }
+
+/* One hairline where the installed-item list ends and the plain settings rows
+   begin — the adjacent sibling of the list, not every row after it. */
+.entei-module-rows > .entei-module-list + * {
+  padding-top: var(--entei-space-20);
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+/* ==========================================================================
+   MODULE LIST MANAGER (the standard installed-item layout)
+   ==========================================================================
+   Header row — block title + description on the left, the import button on the
+   right where every other settings control sits — above the rows, which take
+   the full width.
+   ========================================================================== */
 
 .entei-module-list {
   display: flex;
@@ -582,15 +594,48 @@ body[data-page='settings'] .entei-main {
   width: 100%;
 }
 
+.entei-module-list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--entei-space-8) var(--entei-space-24);
+}
+
+.entei-module-list-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  min-width: 0;
+}
+
+.entei-module-list-title {
+  font-family: var(--entei-font-body);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  color: var(--entei-text);
+  text-wrap: pretty;
+}
+
+.entei-module-list-description {
+  margin: 0;
+  max-width: 62ch;
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  text-wrap: pretty;
+}
+
 /* Toolbar: the import button alone (the picker is opened by it, there is no
-   drop target). Desktop aligns it with the right control column, where every
-   other settings control sits. */
+   drop target), docked to the header's trailing edge. */
 .entei-module-list-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: var(--entei-space-8) var(--entei-space-12);
+  margin-left: auto;
 }
 
 .entei-module-list-file-input {
@@ -626,17 +671,54 @@ body[data-page='settings'] .entei-main {
   list-style: none;
 }
 
-/* One item per row: name + metadata on the left, switch + delete on the right.
-   Stacks on mobile so the name never gets squeezed. */
+/* One item per row: drag handle (when the source orders the list), name +
+   metadata, switch + delete. The leading column collapses when a list has no
+   meaningful order, so both shapes share one grid. */
 .entei-module-list-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--entei-space-8);
   min-height: var(--entei-touch-min);
   padding: var(--entei-space-8) var(--entei-space-12);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-md);
+}
+
+/* The row being dragged — the only visual cue that the pointer owns it. */
+.entei-module-list-row--dragging {
+  border-color: var(--entei-status-locked);
+}
+
+/* Drag handle: touch target with a grab cursor. `touch-action: none` keeps a
+   touch drag from scrolling the page instead of moving the row. */
+.entei-module-list-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  padding: 0;
+  color: var(--entei-text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--entei-radius-md);
+  cursor: grab;
+  touch-action: none;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-module-list-handle:hover {
+  color: var(--entei-status-locked);
+}
+
+.entei-module-list-handle:active {
+  cursor: grabbing;
+}
+
+.entei-module-list-handle:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
 }
 
 .entei-module-list-row-text {
@@ -699,13 +781,8 @@ body[data-page='settings'] .entei-main {
 }
 
 @media (min-width: 768px) {
-  .entei-module-list-toolbar {
-    justify-content: flex-end;
-  }
-
   .entei-module-list-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: var(--entei-space-24);
+    column-gap: var(--entei-space-16);
   }
 
   .entei-module-list-row-actions {
@@ -714,6 +791,7 @@ body[data-page='settings'] .entei-main {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .entei-module-list-handle,
   .entei-module-list-remove {
     transition: none;
   }
@@ -735,32 +813,6 @@ body[data-page='settings'] .entei-main {
 
   .entei-module-field--switch .entei-module-field-control {
     justify-content: flex-end;
-  }
-
-  /* List-valued fields (manifest `layout: list-manager`): the text block keeps
-     the left column and the toolbar's single import button rises to the label's
-     row on the right, instead of dropping a full row below the description.
-     `display: contents` dissolves the list wrapper (a plain div, so no semantics
-     are lost) so its children become rows of this grid: toolbar next to the
-     label, empty state / rows across the full width underneath.
-     Scoped with `:has()` so a future list editor with a different root keeps the
-     stacked mobile-first layout instead of being squeezed into the control
-     column. */
-  .entei-module-field--list:has(> .entei-module-list) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem);
-    align-items: center;
-    column-gap: var(--entei-space-24);
-    row-gap: var(--entei-space-12);
-  }
-
-  .entei-module-field--list > .entei-module-list {
-    display: contents;
-  }
-
-  .entei-module-field--list .entei-module-list-empty,
-  .entei-module-field--list .entei-module-list-rows {
-    grid-column: 1 / -1;
   }
 }
 

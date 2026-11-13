@@ -442,18 +442,37 @@ export interface Dictionary {
     /** Accessible name prefix for a section collapse toggle. */
     toggleSection: string;
     /**
-     * Copy for the standard list layout set (`list-manager`): Yomitan's
-     * dictionary list today, any module's installed-item list tomorrow.
+     * Copy of the `dictionaries` group — where the manifest's
+     * `sectionLayouts[].copy` rows resolve their `*Key` references.
+     *
+     * The first eight entries are the `list` layout's fixed copy contract
+     * (installed-item lists of any module); the rest are the Yomitan
+     * dictionaries section's own rows.
      */
     dictionaries: {
+      /** `list` layout — block title. */
+      installedTitle: string;
+      /** `list` layout — sentence under the block title. */
+      installedDescription: string;
       import: string;
       importing: string;
       empty: string;
-      revision: string;
-      entries: string;
       enable: string;
       remove: string;
       importFailed: string;
+      /** `list` layout — accessible name prefix of a row's drag handle. */
+      reorder: string;
+      /** `list` layout — how-to-reorder sentence (the handle's description). */
+      reorderHint: string;
+      prefixWildcards: string;
+      storage: string;
+      /** `usage` layout — `{used}` / `{total}` sentence template. */
+      storageUsage: string;
+      refresh: string;
+      sortFrequency: string;
+      sortFrequencyDescription: string;
+      /** The select's leading "no dictionary" option. */
+      sortFrequencyNone: string;
     };
   };
   /** Dedicated /settings/ page (sidebar nav + drill-down). */
