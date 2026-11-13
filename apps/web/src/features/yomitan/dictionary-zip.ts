@@ -39,7 +39,7 @@ export interface ZipArchive {
   readonly entries: ReadonlyMap<string, ZipEntry>;
 }
 
-const EOCD_SIGNATURE = 0x06054b54;
+const EOCD_SIGNATURE = 0x06054b50;
 const ZIP64_EOCD_SIGNATURE = 0x06064b64;
 const ZIP64_LOCATOR_SIGNATURE = 0x07064b64;
 const CENTRAL_HEADER_SIGNATURE = 0x02014b50;

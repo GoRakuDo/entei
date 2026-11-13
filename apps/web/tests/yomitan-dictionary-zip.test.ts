@@ -17,7 +17,7 @@ const utf8 = new TextEncoder();
 
 const LOCAL_HEADER = 0x04034b50;
 const CENTRAL_HEADER = 0x02014b50;
-const EOCD = 0x06054b54;
+const EOCD = 0x06054b50;
 
 interface TestEntry {
   name: string;
