@@ -403,7 +403,6 @@ export const id: Dictionary = {
     dictionaries: {
       import: 'Impor Kamus (.zip)',
       importing: 'Mengimpor…',
-      drop: 'atau tarik & letakkan file .zip di sini',
       empty:
         'Belum ada kamus yang diimpor. Silakan impor file kamus (.zip) untuk memulai pencarian.',
       revision: 'Versi',

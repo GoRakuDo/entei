@@ -10,5 +10,12 @@
   "builtIn": true,
   "defaultEnabled": true,
   "hasSettings": true,
-  "showSectionIcons": true
+  "showSectionIcons": true,
+  "listFields": [
+    {
+      "field": "dictionaries",
+      "layout": "list-manager",
+      "source": "yomitan-dictionaries"
+    }
+  ]
 }

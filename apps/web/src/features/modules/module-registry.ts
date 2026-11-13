@@ -20,6 +20,12 @@
  * hand its 18 Chrome-compatible sections to the renderer instead of hard-coding
  * them in the page — the same code path a community module will use.
  *
+ * LAYOUTS ARE MANIFEST DATA TOO: a field whose editor is a list of installed
+ * items is declared with `listFields` (field + `layout` + host `source`). The
+ * app owns one such layout (`components/settings/ModuleListManager`) and the
+ * host-owned data sources (`components/settings/module-list-sources`); which
+ * field gets which layout is never written in the page.
+ *
  * Copy: `nameKey` / `descriptionKey` are DICTIONARY KEYS for built-ins (the
  * three locales own the strings). An imported manifest has no dictionary entry,
  * so it carries literal `name` / `description` and `nameKey` is absent.
@@ -47,6 +53,22 @@ export type ModuleCopyKey =
   | 'jimakuDescription'
   | 'nadeshikoName'
   | 'nadeshikoDescription';
+
+/** Standard layout sets the app can draw a field with. */
+export type EnteiModuleListLayout = 'list-manager';
+
+/**
+ * One `listFields` entry: bind a field of the module's options tree to one of
+ * the app's standard list layouts, backed by a host-owned data source.
+ */
+export interface EnteiModuleListBinding {
+  /** Dot-path of the field (e.g. `'dictionaries'`). */
+  field: string;
+  /** Which standard layout set draws it. */
+  layout: EnteiModuleListLayout;
+  /** Host-owned source id that supplies the rows. */
+  source: string;
+}
 
 /** One `*.module.json` document (the platform manifest spec). */
 export interface EnteiModuleManifest {
@@ -89,6 +111,12 @@ export interface EnteiModuleManifest {
   /** Literal description (imported modules). */
   description?: string;
   /**
+   * Fields that draw through one of the app's standard list layouts instead of
+   * a generic control. The renderer resolves `source` against the host
+   * registry; an unknown source degrades to the read-only note.
+   */
+  listFields?: readonly EnteiModuleListBinding[];
+  /**
    * Self-describing settings tree. When present, the module's settings page
    * renders straight from it — no page-side knowledge of the module at all.
    */
@@ -97,6 +125,31 @@ export interface EnteiModuleManifest {
 
 /** Current `*.module.json` spec version. */
 export const MODULE_MANIFEST_VERSION = 1;
+
+/** Layout ids a manifest may name in `listFields`. */
+const LIST_LAYOUTS: readonly EnteiModuleListLayout[] = ['list-manager'];
+
+/**
+ * Validate the `listFields` array of a manifest.
+ *
+ * Fail-closed per entry: a malformed binding is dropped rather than half
+ * applied, so the renderer can trust that every binding it receives is
+ * addressable (non-empty field + source) and names a layout the app has.
+ */
+export function normalizeListFields(input: unknown): EnteiModuleListBinding[] {
+  if (!Array.isArray(input)) return [];
+  const bindings: EnteiModuleListBinding[] = [];
+  for (const entry of input) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const raw = entry as Record<string, unknown>;
+    const field = typeof raw.field === 'string' ? raw.field.trim() : '';
+    const source = typeof raw.source === 'string' ? raw.source.trim() : '';
+    const layout = LIST_LAYOUTS.find((value) => value === raw.layout);
+    if (field === '' || source === '' || layout === undefined) continue;
+    bindings.push({ field, layout, source });
+  }
+  return bindings;
+}
 
 /** localStorage key holding imported `*.module.json` documents. */
 export const MODULE_IMPORTS_KEY = 'entei.modules.imported.v1';
@@ -211,6 +264,7 @@ function loadCoreManifests(): readonly EnteiModuleManifest[] {
       defaultEnabled: manifest.defaultEnabled ?? true,
       icon: manifest.icon ?? 'Blocks',
       showSectionIcons: manifest.showSectionIcons ?? false,
+      listFields: normalizeListFields(manifest.listFields),
       ...(manifest.id === 'yomitan'
         ? { settingsSchema: YOMITAN_SETTINGS_SCHEMA }
         : {}),
@@ -287,6 +341,7 @@ export function parseModuleManifest(
       name,
       description:
         typeof raw.description === 'string' ? raw.description.trim() : '',
+      listFields: normalizeListFields(raw.listFields),
     },
   };
 }

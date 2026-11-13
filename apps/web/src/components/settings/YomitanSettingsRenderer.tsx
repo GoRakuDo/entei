@@ -18,10 +18,11 @@
  *
  * `array` / `section-header` fields are not editable here: they are structural
  * placeholders in the tree (Anki card formats, profile management) whose editors
- * need their own CRUD surface, so they render as a read-only note. The one
- * exception is `dictionaries`, which the host owns end to end (import / enable /
- * delete against IndexedDB `yomitan-dictionaries`) and renders through
- * `components/settings/DictionaryManager`.
+ * need their own CRUD surface, so they render as a read-only note. A field whose
+ * editor IS a list of installed items is declared by the manifest instead
+ * (`listFields`: field + `layout` + host `source`) and drawn with the app's
+ * standard layout set — see `components/settings/ModuleListManager` and
+ * `components/settings/module-list-sources`. Nothing here names a module.
  *
  * Each section header carries the label, and — when the manifest asks for it
  * (`showSectionIcons`) — the icon named by the manifest's `icon` id, the same
@@ -65,10 +66,11 @@ import type {
   SettingGroupDescriptor,
   SettingSectionDescriptor,
 } from '@gorakudo/yomitan-headless/settings';
+import type { EnteiModuleListBinding } from '@/features/modules/module-registry';
 import {
-  DictionaryManager,
-  type DictionaryManagerLabels,
-} from '@/components/settings/DictionaryManager';
+  resolveModuleListSource,
+  type ModuleListSourceLabels,
+} from '@/components/settings/module-list-sources';
 import { Input } from '@/components/player/ui/input';
 import { Switch } from '@/components/player/ui/switch';
 import {
@@ -116,6 +118,11 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
 export interface YomitanSettingsRendererProps {
   /** Ordered section descriptors (from the manifest's `settingsSchema`). */
   sections: readonly SettingSectionDescriptor[];
+  /**
+   * Manifest `listFields`: fields drawn through a standard list layout. Absent
+   * (or naming an unknown source) leaves the field on the generic path.
+   */
+  listFields?: readonly EnteiModuleListBinding[];
   /** Current persisted options. */
   options: Options;
   /** Called with the next options after every edit (autosave lives upstream). */
@@ -131,8 +138,8 @@ export interface YomitanSettingsRendererProps {
     notEditable: string;
     /** Accessible name for a section's collapse toggle. */
     toggleSection: string;
-    /** Dictionary CRUD surface (the `dictionaries` array field). */
-    dictionaries: DictionaryManagerLabels;
+    /** Copy for the list layout set (forwarded to the resolved source). */
+    list: ModuleListSourceLabels;
   };
 }
 
@@ -151,6 +158,7 @@ function isEditable(field: SettingFieldDescriptor): boolean {
 
 export function YomitanSettingsRenderer({
   sections,
+  listFields,
   options,
   onChange,
   labels,
@@ -176,6 +184,7 @@ export function YomitanSettingsRenderer({
         <YomitanSection
           key={section.key}
           section={section}
+          listFields={listFields}
           options={options}
           expanded={open[section.key] === true}
           labels={labels}
@@ -196,6 +205,7 @@ export function YomitanSettingsRenderer({
 
 interface YomitanSectionProps {
   section: SettingSectionDescriptor;
+  listFields: readonly EnteiModuleListBinding[] | undefined;
   options: Options;
   expanded: boolean;
   labels: YomitanSettingsRendererProps['labels'];
@@ -209,6 +219,7 @@ interface YomitanSectionProps {
 
 function YomitanSection({
   section,
+  listFields,
   options,
   expanded,
   labels,
@@ -269,6 +280,7 @@ function YomitanSection({
             <YomitanGroup
               key={group.key}
               group={group}
+              listFields={listFields}
               options={options}
               labels={labels}
               onChange={onChange}
@@ -283,6 +295,7 @@ function YomitanSection({
 
 interface YomitanGroupProps {
   group: SettingGroupDescriptor;
+  listFields: readonly EnteiModuleListBinding[] | undefined;
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
   onChange: (path: string, value: unknown) => void;
@@ -291,6 +304,7 @@ interface YomitanGroupProps {
 
 function YomitanGroup({
   group,
+  listFields,
   options,
   labels,
   onChange,
@@ -311,6 +325,7 @@ function YomitanGroup({
           <YomitanField
             key={field.key}
             field={field}
+            listFields={listFields}
             options={options}
             labels={labels}
             onChange={onChange}
@@ -324,6 +339,7 @@ function YomitanGroup({
 
 interface YomitanFieldProps {
   field: SettingFieldDescriptor;
+  listFields: readonly EnteiModuleListBinding[] | undefined;
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
   onChange: (path: string, value: unknown) => void;
@@ -332,6 +348,7 @@ interface YomitanFieldProps {
 
 function YomitanField({
   field,
+  listFields,
   options,
   labels,
   onChange,
@@ -340,11 +357,18 @@ function YomitanField({
   const inputId = useId();
   const value = readOptionPath(options, field.key);
 
-  /* The dictionary list is a host-owned CRUD surface (import / enable / delete
-     against IndexedDB), not a generic array field. */
-  if (field.key === 'dictionaries') {
+  /* Manifest-bound list field: the layout is generic, the data source is
+     host-owned, and an unknown source falls through to the read-only note. */
+  const listSource = resolveModuleListSource(
+    listFields?.find(
+      (binding) => binding.field === field.key && binding.layout === 'list-manager',
+    )?.source,
+  );
+
+  if (listSource !== undefined) {
+    const ListEditor = listSource;
     return (
-      <div className="entei-module-field entei-module-field--dictionary">
+      <div className="entei-module-field entei-module-field--list">
         <div className="entei-module-field-text">
           <span className="entei-module-field-label">{field.label}</span>
           {field.description !== undefined && (
@@ -353,10 +377,10 @@ function YomitanField({
             </p>
           )}
         </div>
-        <DictionaryManager
+        <ListEditor
           options={options}
           onChange={onOptionsChange}
-          labels={labels.dictionaries}
+          labels={labels.list}
         />
       </div>
     );

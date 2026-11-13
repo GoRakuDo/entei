@@ -401,7 +401,6 @@ export const ja: Dictionary = {
     dictionaries: {
       import: '辞書をインポート (.zip)',
       importing: 'インポート中…',
-      drop: 'または .zip ファイルをここにドロップ',
       empty:
         'インポートされた辞書はありません。辞書ファイル（.zip）をインポートして検索を開始してください。',
       revision: 'バージョン',

@@ -8,6 +8,10 @@
  *   advanced+debug toggles) are never rendered, and a group they empty
  *   disappears with them
  * - expanding a section shows only the editable, non-locked fields
+ * - a field the manifest binds through `listFields` is drawn with the app's
+ *   standard list layout; the same field without the binding (or with an
+ *   unknown `source`) stays on the generic read-only note — nothing is
+ *   hard-coded per module
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
@@ -23,8 +27,17 @@ import { en } from '@/i18n/locales/en';
 const LABELS = {
   notEditable: en.yomitanSettings.notEditable,
   toggleSection: en.yomitanSettings.toggleSection,
-  dictionaries: en.yomitanSettings.dictionaries,
+  list: en.yomitanSettings.dictionaries,
 };
+
+/** Yomitan's own manifest declaration for its installed-item list. */
+const DICTIONARY_LIST_BINDING = [
+  {
+    field: 'dictionaries',
+    layout: 'list-manager' as const,
+    source: 'yomitan-dictionaries',
+  },
+];
 
 beforeEach(() => {
   localStorage.clear();
@@ -39,11 +52,19 @@ afterEach(() => {
   localStorage.clear();
 });
 
-function renderSettings(showSectionIcons = false) {
+function renderSettings(
+  showSectionIcons = false,
+  listFields?: readonly {
+    field: string;
+    layout: 'list-manager';
+    source: string;
+  }[],
+) {
   const options = readYomitanOptions();
   return render(
     <YomitanSettingsRenderer
       sections={yomitanSettingsTree}
+      listFields={listFields}
       showSectionIcons={showSectionIcons}
       options={options}
       onChange={writeYomitanOptions}
@@ -134,12 +155,16 @@ describe('YomitanSettingsRenderer — locked fields', () => {
   });
 });
 
-describe('YomitanSettingsRenderer — dictionary manager', () => {
-  it('replaces the Dictionaries “not editable” note with the dictionary manager', async () => {
-    renderSettings();
+describe('YomitanSettingsRenderer — manifest-bound list layout', () => {
+  function openDictionaries() {
     fireEvent.click(
       screen.getByRole('button', { name: new RegExp('Dictionaries', 'i') }),
     );
+  }
+
+  it('draws the standard list layout for a field the manifest binds', async () => {
+    const { container } = renderSettings(false, DICTIONARY_LIST_BINDING);
+    openDictionaries();
 
     // The generic read-only note is gone for this field...
     expect(screen.queryByText(en.yomitanSettings.notEditable)).toBeNull();
@@ -148,6 +173,34 @@ describe('YomitanSettingsRenderer — dictionary manager', () => {
     expect(
       await screen.findByText(en.yomitanSettings.dictionaries.empty),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: /import dictionary/i })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: /import dictionary/i }),
+    ).toBeTruthy();
+    // The layout set is the generic one, and drag & drop is gone with it.
+    expect(
+      container.querySelectorAll('.entei-module-field--list .entei-module-list')
+        .length,
+    ).toBe(1);
+    expect(container.querySelectorAll('.entei-module-list-toolbar')).toHaveLength(
+      1,
+    );
+  });
+
+  it('keeps the read-only note when the manifest declares no binding', () => {
+    const { container } = renderSettings();
+    openDictionaries();
+
+    expect(screen.getByText(en.yomitanSettings.notEditable)).toBeTruthy();
+    expect(container.querySelectorAll('.entei-module-list')).toHaveLength(0);
+  });
+
+  it('falls back to the read-only note for an unknown data source', () => {
+    const { container } = renderSettings(false, [
+      { field: 'dictionaries', layout: 'list-manager', source: 'nope' },
+    ]);
+    openDictionaries();
+
+    expect(screen.getByText(en.yomitanSettings.notEditable)).toBeTruthy();
+    expect(container.querySelectorAll('.entei-module-list')).toHaveLength(0);
   });
 });

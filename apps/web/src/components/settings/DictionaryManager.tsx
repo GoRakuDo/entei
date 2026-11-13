@@ -1,16 +1,19 @@
 'use client';
 
 /**
- * DictionaryManager — the Yomitan "Dictionaries" section's real editor.
+ * DictionaryManager — the `yomitan-dictionaries` list source.
  * ---------------------------------------------------------------------------
- * The settings tree only describes `dictionaries` as an ARRAY (`Dictionary list`
- * with a "not editable" note), because a dictionary list is CRUD, not a field.
- * This is that CRUD surface:
+ * Yomitan's "Dictionaries" field is not a scalar option: it is CRUD over the
+ * dictionary database. This module is the ADAPTER between that store and the
+ * platform's standard list layout (`components/settings/ModuleListManager`),
+ * which the manifest binds to the field:
  *
- * - import: a button + drag & drop, both taking one `.zip`
- * - list: every dictionary in the dictionary database, with its revision and
- *   row count, an enable Switch and a delete button
- * - empty state: what to do when nothing is imported yet
+ *   { "field": "dictionaries", "layout": "list-manager",
+ *     "source": "yomitan-dictionaries" }
+ *
+ * It owns only what is genuinely Yomitan's: which file to accept, the metadata
+ * line wording, and where the state lives. The look, the toolbar and the row
+ * markup belong to the shared layout.
  *
  * Two storages stay separate here, the same split as the store module: the DATA
  * is written to IndexedDB `yomitan-dictionaries` (never `entei.db`), while the
@@ -20,13 +23,17 @@
  * ---------------------------------------------------------------------------
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { FileArchive, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { useCallback, useEffect, useState } from 'react';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
-import { SettingsButton } from '@/components/settings/SettingsButton';
-import { Switch } from '@/components/player/ui/switch';
-import { readOptionPath, writeOptionPath } from '@/features/yomitan/yomitan-preferences';
+import {
+  ModuleListManager,
+  type ModuleListManagerLabels,
+  type ModuleListManagerRow,
+} from '@/components/settings/ModuleListManager';
+import {
+  readOptionPath,
+  writeOptionPath,
+} from '@/features/yomitan/yomitan-preferences';
 import {
   createDictionaryOptionEntry,
   deleteDictionary,
@@ -38,31 +45,18 @@ import {
   type InstalledDictionary,
 } from '@/features/yomitan/dictionary-store';
 
-export interface DictionaryManagerLabels {
-  /** Import button label. */
-  import: string;
-  /** Import button label while an import runs. */
-  importing: string;
-  /** Drop-zone hint under the button. */
-  drop: string;
-  /** Empty-state sentence. */
-  empty: string;
+/** Copy for this source: the standard layout labels plus its metadata line. */
+export interface YomitanDictionaryListLabels extends ModuleListManagerLabels {
   /** Prefix of an installed dictionary's metadata line. */
   revision: string;
   /** Entry-count unit. */
   entries: string;
-  /** Accessible name prefix for a dictionary's enable switch. */
-  enable: string;
-  /** Accessible name prefix for a dictionary's delete button. */
-  remove: string;
-  /** Toast title when an import fails. */
-  importFailed: string;
 }
 
 export interface DictionaryManagerProps {
   options: Options;
   onChange: (next: Options) => void;
-  labels: DictionaryManagerLabels;
+  labels: YomitanDictionaryListLabels;
 }
 
 /** One rendered row: the stored dictionary plus its persisted toggle state. */
@@ -78,11 +72,7 @@ export function DictionaryManager({
   onChange,
   labels,
 }: DictionaryManagerProps) {
-  const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [installed, setInstalled] = useState<InstalledDictionary[] | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [dragging, setDragging] = useState(false);
 
   /** `options.dictionaries` — the persisted half of the list. */
   const optionEntries = readDictionaryOptions(options);
@@ -98,34 +88,18 @@ export function DictionaryManager({
 
   const runImport = useCallback(
     async (file: File) => {
-      if (importing) return;
-      setImporting(true);
-      try {
-        const bytes = await file.arrayBuffer();
-        const record = await importDictionaryArchive(bytes);
-        onChange(
-          writeOptionPath(options, 'dictionaries', [
-            ...optionEntries.filter((entry) => entry.name !== record.title),
-            createDictionaryOptionEntry(record.title),
-          ]),
-        );
-        await refresh();
-      } catch (error) {
-        toast.error(labels.importFailed, {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        setImporting(false);
-      }
+      const bytes = await file.arrayBuffer();
+      const record = await importDictionaryArchive(bytes);
+      onChange(
+        writeOptionPath(options, 'dictionaries', [
+          ...optionEntries.filter((entry) => entry.name !== record.title),
+          createDictionaryOptionEntry(record.title),
+        ]),
+      );
+      await refresh();
     },
-    [importing, onChange, optionEntries, options, refresh, labels],
+    [onChange, optionEntries, options, refresh],
   );
-
-  async function handleFiles(files: FileList | null) {
-    const file = files?.[0];
-    if (file === undefined) return;
-    await runImport(file);
-  }
 
   function handleToggle(name: string, enabled: boolean) {
     onChange(
@@ -149,87 +123,24 @@ export function DictionaryManager({
     await refresh();
   }
 
-  const rows: DictionaryRow[] = buildRows(installed, optionEntries);
+  const rows: ModuleListManagerRow[] = buildRows(installed, optionEntries).map(
+    (row) => ({
+      key: row.name,
+      name: row.name,
+      meta: `${labels.revision} ${row.version || '—'} · ${row.entries.toLocaleString()} ${labels.entries}`,
+      enabled: row.enabled,
+    }),
+  );
 
   return (
-    <div className="entei-dictionary-manager">
-      <div
-        className={
-          dragging
-            ? 'entei-dictionary-import entei-dictionary-import--dragging'
-            : 'entei-dictionary-import'
-        }
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragging(false);
-          void handleFiles(event.dataTransfer.files);
-        }}
-      >
-        <SettingsButton
-          icon={FileArchive}
-          disabled={importing}
-          onClick={() => inputRef.current?.click()}
-        >
-          {importing ? labels.importing : labels.import}
-        </SettingsButton>
-        <p className="entei-dictionary-drop-hint">{labels.drop}</p>
-        <input
-          ref={inputRef}
-          id={inputId}
-          className="entei-dictionary-file-input"
-          type="file"
-          accept=".zip,application/zip"
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={(event) => {
-            void handleFiles(event.target.files);
-            // Allow re-picking the same file after a failure.
-            event.target.value = '';
-          }}
-        />
-      </div>
-
-      {rows.length === 0 ? (
-        <p className="entei-dictionary-empty">{labels.empty}</p>
-      ) : (
-        <ul className="entei-dictionary-list">
-          {rows.map((row) => (
-            <li className="entei-dictionary-row" key={row.name}>
-              <div className="entei-dictionary-row-text">
-                <span className="entei-dictionary-row-name" title={row.name}>
-                  {row.name}
-                </span>
-                <span className="entei-dictionary-row-meta">
-                  {labels.revision} {row.version || '—'} ·{' '}
-                  {row.entries.toLocaleString()} {labels.entries}
-                </span>
-              </div>
-              <div className="entei-dictionary-row-actions">
-                <Switch
-                  checked={row.enabled}
-                  onCheckedChange={(checked) => handleToggle(row.name, checked)}
-                  aria-label={`${labels.enable}: ${row.name}`}
-                />
-                <button
-                  type="button"
-                  className="entei-dictionary-delete"
-                  aria-label={`${labels.remove}: ${row.name}`}
-                  title={labels.remove}
-                  onClick={() => void handleDelete(row.name)}
-                >
-                  <Trash2 size={16} aria-hidden="true" />
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <ModuleListManager
+      rows={rows}
+      labels={labels}
+      loading={installed === null}
+      onImport={runImport}
+      onToggle={handleToggle}
+      onRemove={handleDelete}
+    />
   );
 }
 
@@ -260,7 +171,8 @@ function buildRows(
     name: entry.name,
     version: entry.version,
     entries: entry.entries,
-    enabled: optionEntries.find((option) => option.name === entry.name)?.enabled === true,
+    enabled:
+      optionEntries.find((option) => option.name === entry.name)?.enabled === true,
   }));
   for (const entry of optionEntries) {
     if (known.has(entry.name)) continue;

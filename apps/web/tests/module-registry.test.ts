@@ -19,6 +19,7 @@ import {
   MODULE_MANIFEST_VERSION,
   getRegisteredModules,
   hasSettingsSchema,
+  normalizeListFields,
   parseModuleManifest,
   readImportedModules,
 } from '@/features/modules/module-registry';
@@ -97,6 +98,35 @@ describe('module-registry — core manifests', () => {
       expect(field.key.length).toBeGreaterThan(0);
       expect('default' in field).toBe(true);
     }
+  });
+
+  it('declares its installed-item list in yomitan.module.json, not in code', () => {
+    // The manifest decides which field draws through the standard list layout;
+    // the page resolves the layout + the host-owned data source from this.
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    expect(yomitan?.listFields).toEqual([
+      {
+        field: 'dictionaries',
+        layout: 'list-manager',
+        source: 'yomitan-dictionaries',
+      },
+    ]);
+
+    // And the declaration really lives in the JSON document.
+    const document = JSON.parse(
+      fs.readFileSync(
+        fileURLToPath(
+          new URL('../src/modules/yomitan/yomitan.module.json', import.meta.url),
+        ),
+        'utf-8',
+      ),
+    ) as { listFields?: unknown };
+    expect(document.listFields).toEqual(yomitan?.listFields);
+  });
+
+  it('leaves listFields empty for modules that declare none', () => {
+    const jimaku = CORE_MODULES.find((module) => module.id === 'jimaku');
+    expect(jimaku?.listFields).toEqual([]);
   });
 
   it('loads iconPath from individual *.module.json files and falls back icon to Blocks', () => {
@@ -196,6 +226,48 @@ describe('module-registry — manifest validation', () => {
     expect(parseModuleManifest(validImport({ category: 'plugin' })).ok).toBe(
       false,
     );
+  });
+
+  it('keeps a well-formed imported list binding', () => {
+    const result = parseModuleManifest(
+      validImport({
+        listFields: [
+          { field: 'items', layout: 'list-manager', source: 'host-items' },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.manifest.listFields).toEqual([
+      { field: 'items', layout: 'list-manager', source: 'host-items' },
+    ]);
+  });
+});
+
+describe('module-registry — listFields normalisation', () => {
+  it('drops malformed bindings instead of half-applying them', () => {
+    expect(normalizeListFields(undefined)).toEqual([]);
+    expect(normalizeListFields('nope')).toEqual([]);
+    expect(
+      normalizeListFields([
+        null,
+        42,
+        {},
+        { field: '  ', layout: 'list-manager', source: 'host' },
+        { field: 'items', layout: '', source: 'host' },
+        { field: 'items', layout: 'carousel', source: 'host' },
+        { field: 'items', layout: 'list-manager', source: '   ' },
+        { field: 'items', layout: 'list-manager' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('trims field and source ids', () => {
+    expect(
+      normalizeListFields([
+        { field: '  items  ', layout: 'list-manager', source: ' host-items ' },
+      ]),
+    ).toEqual([{ field: 'items', layout: 'list-manager', source: 'host-items' }]);
   });
 });
 

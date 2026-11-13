@@ -441,11 +441,13 @@ export interface Dictionary {
     notEditable: string;
     /** Accessible name prefix for a section collapse toggle. */
     toggleSection: string;
-    /** Dictionary manager (import / enable / delete) inside the Dictionaries section. */
+    /**
+     * Copy for the standard list layout set (`list-manager`): Yomitan's
+     * dictionary list today, any module's installed-item list tomorrow.
+     */
     dictionaries: {
       import: string;
       importing: string;
-      drop: string;
       empty: string;
       revision: string;
       entries: string;

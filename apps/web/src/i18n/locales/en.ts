@@ -406,7 +406,6 @@ export const en: Dictionary = {
     dictionaries: {
       import: 'Import dictionary (.zip)',
       importing: 'Importing…',
-      drop: 'or drop a .zip file here',
       empty:
         'No dictionaries imported yet. Import a dictionary (.zip) to start looking up words.',
       revision: 'Revision',
