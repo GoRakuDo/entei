@@ -46,7 +46,7 @@ import {
   frequencyDictionaryNames,
   listInstalledDictionaries,
   readDictionaryStorageUsage,
-} from '@/features/yomitan/dictionary-store';
+} from '@/modules/yomitan/dictionary-store';
 import type { StorageUsageSnapshot } from '@/features/settings/storage-usage';
 import {
   readJimakuPreferences,
@@ -62,7 +62,7 @@ import {
   clearNadeshikoApiKey,
   readNadeshikoApiKey,
   writeNadeshikoApiKey,
-} from '@/features/nadeshiko/api-key';
+} from '@/modules/nadeshiko/api-key';
 
 /** What a `list` layout's host source receives. */
 export interface ModuleListSourceProps {
@@ -147,7 +147,7 @@ async function readInstalledDictionaryOptions(): Promise<readonly SelectOption[]
  * `none` is first and is a real choice, not an empty state: scanning on plain
  * hover (no modifier held) is what a reading aid wants while the pointer rests on
  * subtitles. Values are the tokens the app writes into the first scan input's
- * `include` (`features/yomitan/yomitan-preferences`).
+ * `include` (`modules/yomitan/yomitan-preferences`).
  *
  * Yomitan's own labels, like the rest of that settings surface: the key names are
  * the extension's, so they read the same in every Entei locale.

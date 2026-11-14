@@ -16,7 +16,7 @@
  *   only reachable when `scanning.deepDomScan` is on (the browser's hit test
  *   answers with the shadow HOST, so without it a web component's own text looks
  *   covered).
- * - LOOK UP: `features/yomitan/yomitan-engine` (deinflection + dictionary
+ * - LOOK UP: `modules/yomitan/yomitan-engine` (deinflection + dictionary
  *   merge), with the scanning section's own match type
  *   (`scanning.matchTypePrefix`) and resolution (`scanning.scanResolution`).
  *   The engine is imported LAZILY, on the first lookup that gets that far: it
@@ -43,14 +43,14 @@
 import type {
   KanjiSummary,
   TermSummary,
-} from '@/features/yomitan/yomitan-engine';
+} from '@/modules/yomitan/yomitan-engine';
 import {
   isScanModifierKey,
   readOptionPath,
   readYomitanOptions,
   traceYomitan,
   type ScanModifierKey,
-} from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/yomitan-preferences';
 import { isTauri } from '@/features/player/tauri-bridge';
 import { readModuleState } from '@/features/modules/modules-store';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
@@ -433,7 +433,7 @@ export function isTopmostTextAt(
  * ------------------------------------------------------------------------- */
 
 /** The engine module's shape, without importing it (see the header note). */
-type YomitanEngine = typeof import('@/features/yomitan/yomitan-engine');
+type YomitanEngine = typeof import('@/modules/yomitan/yomitan-engine');
 
 let engineLoad: Promise<YomitanEngine> | null = null;
 
@@ -446,7 +446,7 @@ let engineLoad: Promise<YomitanEngine> | null = null;
  */
 function loadEngine(): Promise<YomitanEngine> {
   if (engineLoad === null) {
-    engineLoad = import('@/features/yomitan/yomitan-engine').catch((error) => {
+    engineLoad = import('@/modules/yomitan/yomitan-engine').catch((error) => {
       engineLoad = null;
       throw error;
     });

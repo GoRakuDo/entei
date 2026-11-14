@@ -34,7 +34,7 @@ import {
 import {
   readOptionPath,
   readYomitanOptions,
-} from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/yomitan-preferences';
 import { readJimakuPreferences } from '@/features/player/jimaku-preferences';
 import { en } from '@/i18n/locales/en';
 import {

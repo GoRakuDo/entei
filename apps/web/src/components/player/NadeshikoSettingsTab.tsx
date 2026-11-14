@@ -21,7 +21,7 @@ import {
   readNadeshikoApiKey,
   writeNadeshikoApiKey,
   clearNadeshikoApiKey,
-} from '@/features/nadeshiko/api-key';
+} from '@/modules/nadeshiko/api-key';
 import type { Dictionary } from '@i18n/types';
 
 interface NadeshikoSettingsTabProps {

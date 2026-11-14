@@ -28,7 +28,7 @@ import {
 import {
   readOptionPath,
   writeOptionPath,
-} from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/yomitan-preferences';
 import { isTauri, onYomitanImportProgress } from '@/features/player/tauri-bridge';
 import {
   createDictionaryOptionEntry,
@@ -41,7 +41,7 @@ import {
   toggleDictionary,
   type DictionaryOptionEntry,
   type InstalledDictionary,
-} from '@/features/yomitan/dictionary-store';
+} from '@/modules/yomitan/dictionary-store';
 
 export interface ModuleItemManagerProps {
   options: Options;

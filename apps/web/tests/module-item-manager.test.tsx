@@ -21,7 +21,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { act } from 'react';
 import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
 import { ModuleItemManager } from '@/components/settings/ModuleItemManager';
-import { readYomitanOptions } from '@/features/yomitan/yomitan-preferences';
+import { readYomitanOptions } from '@/modules/yomitan/yomitan-preferences';
 
 interface InvokeArgs {
   command: string;

@@ -25,7 +25,7 @@ import {
   withScanInputTrigger,
   writeScanInputs,
 } from '@/components/settings/ScanningInputManager';
-import { readOptionPath } from '@/features/yomitan/yomitan-preferences';
+import { readOptionPath } from '@/modules/yomitan/yomitan-preferences';
 
 beforeEach(() => {
   localStorage.clear();

@@ -14,7 +14,7 @@ import {
   writeNadeshikoApiKey,
   clearNadeshikoApiKey,
   NADESHIKO_API_KEY_STORAGE_KEY_NAME,
-} from '../src/features/nadeshiko/api-key';
+} from '../src/modules/nadeshiko/api-key';
 
 describe('nadeshiko api-key storage', () => {
   beforeEach(() => {

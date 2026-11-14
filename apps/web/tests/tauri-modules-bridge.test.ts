@@ -20,7 +20,7 @@ import {
   yomitanListDictionariesDirect,
   yomitanToggleDictionaryDirect,
 } from '../src/features/player/tauri-bridge';
-import type { NadeshikoSearchPage } from '../src/features/nadeshiko/nadeshiko-client';
+import type { NadeshikoSearchPage } from '../src/modules/nadeshiko/nadeshiko-client';
 
 interface InvokeArgs {
   command: string;

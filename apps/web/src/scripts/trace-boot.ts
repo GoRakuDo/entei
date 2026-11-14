@@ -15,7 +15,7 @@ import { installTraceInstrumentation } from '@/features/trace/trace-logger';
 import { ensureDatabaseMigrated } from '@/features/database/migration';
 import { isTauri, openExternalUrlDirect } from '@/features/player/tauri-bridge';
 import { installRouteGuard } from '@/scripts/route-guard';
-import { initTextScanner } from '@/features/yomitan/text-scanner';
+import { initTextScanner } from '@/modules/yomitan/text-scanner';
 
 installTraceInstrumentation();
 

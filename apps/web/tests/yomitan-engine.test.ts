@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
   createDictionaryOptionEntry,
   invalidateInstalledDictionaries,
-} from '@/features/yomitan/dictionary-store';
+} from '@/modules/yomitan/dictionary-store';
 import {
   createDefaultOptions,
 } from '@gorakudo/yomitan-headless/settings';
@@ -35,7 +35,7 @@ import {
   summarizeTermEntry,
   type EnabledDictionary,
   type EnabledDictionaryMap,
-} from '@/features/yomitan/yomitan-engine';
+} from '@/modules/yomitan/yomitan-engine';
 
 interface InvokeArgs {
   command: string;

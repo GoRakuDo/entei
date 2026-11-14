@@ -15,7 +15,7 @@ import { describe, expect, it, vi, beforeEach } from 'bun:test';
 import {
   searchNadeshikoSegments,
   getNadeshikoSegmentContext,
-} from '../src/features/nadeshiko/nadeshiko-client';
+} from '../src/modules/nadeshiko/nadeshiko-client';
 
 function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {

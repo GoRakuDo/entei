@@ -66,11 +66,11 @@ import {
   type NadeshikoSegmentContextResponse,
   type NadeshikoError,
   type NadeshikoSearchPage,
-} from '@/features/nadeshiko/nadeshiko-client';
+} from '@/modules/nadeshiko/nadeshiko-client';
 import {
   readNadeshikoApiKey,
   writeNadeshikoApiKey,
-} from '@/features/nadeshiko/api-key';
+} from '@/modules/nadeshiko/api-key';
 import type { Dictionary } from '@i18n/types';
 
 interface NadeshikoPanelProps {

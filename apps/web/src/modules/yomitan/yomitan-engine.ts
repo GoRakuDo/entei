@@ -21,7 +21,7 @@
  *    fields a popup or a trace line shows.
  *
  * What is deliberately NOT here: rendering. The scan pipeline emits
- * `yomitan:scan-result` (see `features/yomitan/text-scanner.ts`) and the UI that
+ * `yomitan:scan-result` (see `modules/yomitan/text-scanner.ts`) and the UI that
  * draws it is a later step.
  * ---------------------------------------------------------------------------
  */
@@ -45,8 +45,8 @@ import {
   invalidateInstalledDictionaries,
   listInstalledDictionariesCached,
   type InstalledDictionary,
-} from '@/features/yomitan/dictionary-store';
-import { readYomitanOptions } from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/dictionary-store';
+import { readYomitanOptions } from '@/modules/yomitan/yomitan-preferences';
 import {
   yomitanFindKanjiBulkDirect,
   yomitanFindTagsBulkDirect,

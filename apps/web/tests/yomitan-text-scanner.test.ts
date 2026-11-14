@@ -20,11 +20,11 @@ import {
   scanWindowAt,
   shouldScanInput,
   type ScanSettings,
-} from '@/features/yomitan/text-scanner';
+} from '@/modules/yomitan/text-scanner';
 import {
   readOptionPath,
   writeOptionPath,
-} from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/yomitan-preferences';
 import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
 
 /** A text node stand-in: the window only ever reads `.data`. */

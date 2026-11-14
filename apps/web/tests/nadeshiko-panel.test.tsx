@@ -23,12 +23,12 @@ import {
   act,
 } from '@testing-library/react';
 import { RightPanel } from '@/components/player/RightPanel';
-import * as nadeshikoClient from '@/features/nadeshiko/nadeshiko-client';
-import * as apiKey from '@/features/nadeshiko/api-key';
+import * as nadeshikoClient from '@/modules/nadeshiko/nadeshiko-client';
+import * as apiKey from '@/modules/nadeshiko/api-key';
 import type {
   NadeshikoSearchPage,
   NadeshikoSegment,
-} from '@/features/nadeshiko/nadeshiko-client';
+} from '@/modules/nadeshiko/nadeshiko-client';
 
 function baseDict(): Record<string, unknown> {
   return {

@@ -59,7 +59,7 @@ import { SettingsButton } from '@/components/settings/SettingsButton';
 import {
   readOptionPath,
   writeOptionPath,
-} from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/yomitan-preferences';
 
 /** Dot-path of the array this editor owns. */
 const SCAN_INPUTS_PATH = 'scanning.inputs';

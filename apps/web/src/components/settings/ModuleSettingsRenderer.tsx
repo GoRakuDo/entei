@@ -18,7 +18,7 @@
  *
  * Persistence: this component OWNS the options tree (localStorage immediately,
  * desktop SQLite `kv_store` seeded on mount and debounced on write — see
- * `features/yomitan/yomitan-preferences`). Every edit writes through it, so
+ * `modules/yomitan/yomitan-preferences`). Every edit writes through it, so
  * there is no Save button and the page holds no settings state of its own.
  *
  * MANIFEST-DECLARED SECTIONS: a section whose real editor is not a plain field
@@ -107,7 +107,7 @@ import {
   readOptionPath,
   readYomitanOptions,
   writeOptionPath,
-} from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/yomitan-preferences';
 import type { Dictionary } from '@i18n/types';
 
 /**

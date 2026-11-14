@@ -26,7 +26,7 @@ import {
   traceYomitan,
   writeOptionPath,
   writeYomitanOptions,
-} from '@/features/yomitan/yomitan-preferences';
+} from '@/modules/yomitan/yomitan-preferences';
 import {
   getTraceRecent,
   resetTraceState,

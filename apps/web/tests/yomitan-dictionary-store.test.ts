@@ -27,7 +27,7 @@ import {
   toggleDictionary,
   type DictionaryOptionEntry,
   type InstalledDictionary,
-} from '@/features/yomitan/dictionary-store';
+} from '@/modules/yomitan/dictionary-store';
 
 interface InvokeArgs {
   command: string;

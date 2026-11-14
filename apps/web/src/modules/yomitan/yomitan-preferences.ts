@@ -52,7 +52,7 @@ import { traceModule, type TraceData } from '@/features/trace/trace-logger';
  * `scanning.deepDomScan` used to be locked with them. It is a real option now:
  * the host's text scanner pierces open shadow roots when it is on, because
  * `document.elementFromPoint` answers with the shadow HOST and would otherwise
- * report text inside a component as "covered" (see features/yomitan/
+ * report text inside a component as "covered" (see modules/yomitan/
  * text-scanner.ts). `scanning.normalizeCssZoom` is persisted for tree fidelity
  * only — the host locates text with the browser's own caret API, which already
  * resolves CSS `zoom`, so there is no second coordinate space to normalise here.

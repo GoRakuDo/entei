@@ -12,7 +12,7 @@
  *
  * What the host still owns is the SETTINGS half, like every other Yomitan
  * option: `options.dictionaries` in the persisted options tree
- * (`features/yomitan/yomitan-preferences.ts`). That array is
+ * (`modules/yomitan/yomitan-preferences.ts`). That array is
  *
  * - the per-dictionary flags the translator reads (secondary searches,
  *   deinflections, collapsible definitions, …), and

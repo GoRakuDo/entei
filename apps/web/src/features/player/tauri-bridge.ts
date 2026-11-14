@@ -43,7 +43,7 @@ import type {
   NadeshikoSearchPage,
   NadeshikoSegmentContextResponse,
   NadeshikoUserMe as NadeshikoUserMeContract,
-} from '@/features/nadeshiko/nadeshiko-client';
+} from '@/modules/nadeshiko/nadeshiko-client';
 
 /** Subset of Tauri v2's injected runtime internals that this module uses. */
 interface TauriInternals {

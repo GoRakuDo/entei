@@ -7,7 +7,7 @@ import {
   getNadeshikoSegmentContext,
   getNadeshikoUserMe,
   searchNadeshikoSegments,
-} from '../src/features/nadeshiko/nadeshiko-client';
+} from '../src/modules/nadeshiko/nadeshiko-client';
 import {
   downloadJimakuSubtitle,
   getJimakuEntryFiles,
