@@ -19,6 +19,12 @@
  * - LOOK UP: `features/yomitan/yomitan-engine` (deinflection + dictionary
  *   merge), with the scanning section's own match type
  *   (`scanning.matchTypePrefix`) and resolution (`scanning.scanResolution`).
+ *   The engine is imported LAZILY, on the first lookup that gets that far: it
+ *   pulls in `@gorakudo/yomitan-headless`, and both layouts load this module, so
+ *   a static import would inline the whole dictionary engine into the boot
+ *   chunk of every page (that was a 575 kB `trace-boot` chunk). Splitting it
+ *   keeps boot in the kilobytes and hands the engine its own chunk, fetched only
+ *   once a user actually scans Japanese text on the desktop app.
  * - ANNOUNCE: one `yomitan:scan-result` CustomEvent on `window`, plus a trace
  *   line, and the scanned text selected when `scanning.selectText` is on.
  *   Drawing the result is a separate concern (a popup component), so this module
@@ -34,13 +40,9 @@
  * ---------------------------------------------------------------------------
  */
 
-import {
-  lookupKanji,
-  lookupTerms,
-  summarizeKanjiEntry,
-  summarizeTermEntry,
-  type KanjiSummary,
-  type TermSummary,
+import type {
+  KanjiSummary,
+  TermSummary,
 } from '@/features/yomitan/yomitan-engine';
 import {
   isScanModifierKey,
@@ -427,6 +429,32 @@ export function isTopmostTextAt(
 }
 
 /* ---------------------------------------------------------------------------
+ * Engine chunk (loaded on demand)
+ * ------------------------------------------------------------------------- */
+
+/** The engine module's shape, without importing it (see the header note). */
+type YomitanEngine = typeof import('@/features/yomitan/yomitan-engine');
+
+let engineLoad: Promise<YomitanEngine> | null = null;
+
+/**
+ * The lookup engine, imported the first time a scan needs it.
+ *
+ * Memoised so concurrent scans share one fetch, and CLEARED on failure so a
+ * transient error does not leave the scanner permanently dead — the next scan
+ * tries the import again.
+ */
+function loadEngine(): Promise<YomitanEngine> {
+  if (engineLoad === null) {
+    engineLoad = import('@/features/yomitan/yomitan-engine').catch((error) => {
+      engineLoad = null;
+      throw error;
+    });
+  }
+  return engineLoad;
+}
+
+/* ---------------------------------------------------------------------------
  * Installation
  * ------------------------------------------------------------------------- */
 
@@ -551,6 +579,11 @@ export async function scanAt(
 
   const current = ++epoch;
   try {
+    const { lookupKanji, lookupTerms, summarizeKanjiEntry, summarizeTermEntry } =
+      await loadEngine();
+    // A newer scan started while the engine chunk was in flight: it supersedes.
+    if (current !== epoch) return null;
+
     const [terms, kanji] = await Promise.all([
       lookupTerms(windowed.text, {
         matchType: settings.matchTypePrefix ? 'prefix' : 'exact',

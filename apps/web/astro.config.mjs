@@ -122,6 +122,15 @@ export default defineConfig({
       target: 'es2022',
       cssCodeSplit: true,
       sourcemap: false,
+      // The ONLY chunk above Vite's default 500 kB warning line is the lazily
+      // loaded dictionary engine (`yomitan-engine.*.js`, ~570 kB / ~85 kB
+      // brotli): `features/yomitan/text-scanner` dynamic-imports it on the first
+      // scan, so it is off the boot path of every page (boot is ~6 kB) and is
+      // fetched only when a user scans Japanese text in the desktop app. Splitting
+      // a single vendor library further to satisfy the heuristic would only move
+      // bytes between two chunks that always load together, so the limit is
+      // raised instead — with the engine deliberately kept out of the entry graph.
+      chunkSizeWarningLimit: 650,
     },
   },
 });
