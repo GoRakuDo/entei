@@ -2078,9 +2078,15 @@ html.entei-native-video .entei-player-video {
 
 .entei-action-btn:hover,
 .entei-anki-connect-btn:hover {
+  color: var(--entei-status-locked);
   opacity: 0.92;
   box-shadow: 0 4px 12px
     color-mix(in oklch, var(--entei-accent) 20%, transparent);
+}
+
+.entei-action-btn:hover svg,
+.entei-anki-connect-btn:hover svg {
+  color: var(--entei-status-locked);
 }
 
 .entei-action-btn:active,
