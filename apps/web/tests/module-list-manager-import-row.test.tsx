@@ -10,7 +10,7 @@
  * and a button that looks dead for as long as the first bank takes is what the
  * user reports as "nothing happened when I opened the file". The source's own
  * percent wins whenever it is higher than that floor; staying monotonic inside
- * one import is the source's contract (`DictionaryManager` keeps the higher of
+ * one import is the source's contract (`ModuleItemManager` keeps the higher of
  * two deliveries, which is what the engine's two emit routes make normal).
  */
 

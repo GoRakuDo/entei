@@ -22,7 +22,7 @@ import type {
   Options,
   SelectOption,
 } from '@gorakudo/yomitan-headless/settings';
-import { DictionaryManager } from '@/components/settings/DictionaryManager';
+import { ModuleItemManager } from '@/components/settings/ModuleItemManager';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
 import {
   frequencyDictionaryNames,
@@ -81,7 +81,7 @@ async function readInstalledDictionaryOptions(): Promise<readonly SelectOption[]
 /** Every data source the app implements, keyed by manifest `source` id. */
 const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   'yomitan-dictionaries': {
-    list: DictionaryManager,
+    list: ModuleItemManager,
     options: readInstalledDictionaryOptions,
     usage: readDictionaryStorageUsage,
   },

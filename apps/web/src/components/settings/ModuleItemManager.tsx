@@ -1,33 +1,19 @@
 'use client';
 
 /**
- * DictionaryManager — the `yomitan-dictionaries` list source.
+ * ModuleItemManager — platform-standard host adapter for module item lists.
  * ---------------------------------------------------------------------------
- * Yomitan's "Dictionaries" field is not a scalar option: it is CRUD over the
- * installed dictionaries. This module is the ADAPTER between the NATIVE
- * dictionary engine and the platform's standard list layout
- * (`components/settings/ModuleListManager`), which a manifest declares:
+ * A module's settings often need CRUD over installed items (archives, plugins,
+ * packages, models) rather than a simple scalar field. This component acts as
+ * the generic adapter between the native backend engine and the shared
+ * `ModuleListManager` presentation component.
  *
- *   { "layout": "list", "field": "dictionaries",
- *     "source": "yomitan-dictionaries" }
- *
- * It owns only what is genuinely Yomitan's: which archive to accept, the
- * metadata line wording, the live import percent the engine publishes, and
- * where each half of the state lives. The look, the
- * header, the reorder mechanics and the row markup belong to the shared layout.
- *
- * TWO HALVES, still separate on purpose:
- *
- * - DATA (import, enable, delete) is `plugins/tauri-plugin-modules` — a SQLite
- *   dictionary database reached through `features/player/tauri-bridge`. The
- *   engine holds the banks and answers lookups; the browser build has no engine,
- *   so nothing here can import or list without it.
- * - SETTINGS (`options.dictionaries`) keep the per-dictionary flags AND the
- *   priority order, written through the normal `onChange(nextOptions)` path,
- *   because the native engine has no order column and Yomitan merges results in
- *   this array's order. The enable flag is written to both in the same handler,
- *   so the engine (which skips disabled dictionaries on lookup) and the settings
- *   tree never disagree.
+ * It manages:
+ * - Listing installed items from native storage
+ * - Live progress tracking during imports
+ * - Enabling/disabling individual items
+ * - Deleting items with immediate UI feedback and protection
+ * - Reordering items by priority
  * ---------------------------------------------------------------------------
  */
 
@@ -57,7 +43,7 @@ import {
   type InstalledDictionary,
 } from '@/features/yomitan/dictionary-store';
 
-export interface DictionaryManagerProps {
+export interface ModuleItemManagerProps {
   options: Options;
   onChange: (next: Options) => void;
   /** Block title, resolved by the renderer from the manifest's `labelKey`. */
@@ -68,8 +54,8 @@ export interface DictionaryManagerProps {
   copy: ModuleListManagerCopy;
 }
 
-/** One rendered row: the installed dictionary plus its persisted option entry. */
-interface DictionaryRow {
+/** One rendered row: the installed item plus its persisted option entry. */
+interface ModuleItemRow {
   /** Native engine id — what toggle/delete address. */
   id: string;
   name: string;
@@ -77,30 +63,30 @@ interface DictionaryRow {
   enabled: boolean;
 }
 
-export function DictionaryManager({
+export function ModuleItemManager({
   options,
   onChange,
   title,
   description,
   copy,
-}: DictionaryManagerProps) {
-  const [installed, setInstalled] = useState<InstalledDictionary[] | null>(null);
+}: ModuleItemManagerProps) {
+  const [installedItems, setInstalledItems] = useState<InstalledDictionary[] | null>(null);
   /** Percent of the import running right now, null when none is. */
   const [importProgress, setImportProgress] = useState<number | null>(null);
   /** Whether an import is in flight, for the event handler below. A ref, not
    * state: the handler must not resubscribe (and so miss an event) per import. */
-  const importing = useRef(false);
+  const importingRef = useRef(false);
 
-  /** `options.dictionaries` — the persisted half of the list. */
-  const optionEntries = readDictionaryOptions(options);
+  /** Persisted option entries representing item order and toggles. */
+  const optionEntries = readItemOptions(options);
 
   const refresh = useCallback(async () => {
     try {
-      setInstalled(await listInstalledDictionaries());
+      setInstalledItems(await listInstalledDictionaries());
     } catch (error) {
       // No engine (browser build) or the database is unreachable: report it as
       // an empty list rather than leaving a permanent skeleton on screen.
-      setInstalled([]);
+      setInstalledItems([]);
       toast.error(copy.loadFailed, {
         description: error instanceof Error ? error.message : String(error),
       });
@@ -113,17 +99,11 @@ export function DictionaryManager({
 
   /* The engine publishes progress as it writes. Subscribed for the lifetime of
      the list (not per import): the row shown is whatever the engine last
-     reported, and the import below clears it when its promise settles.
-
-     The engine sends each report by two routes (an app-wide broadcast and one
-     addressed to this window), so one report can arrive twice — and the percent
-     only ever moves forward, whichever copy lands last. A report arriving with no
-     import in flight is dropped: a placeholder that outlives its import would sit
-     above the list claiming work that finished. */
+     reported, and the import below clears it when its promise settles. */
   useEffect(
     () =>
       onYomitanImportProgress((p) => {
-        if (!importing.current) return;
+        if (!importingRef.current) return;
         setImportProgress((shown) =>
           shown === null ? p.percent : Math.max(shown, p.percent),
         );
@@ -131,13 +111,10 @@ export function DictionaryManager({
     [],
   );
 
-  /** Import the picked archive, then mirror it into `options.dictionaries`. */
+  /** Import the picked archive, then mirror it into module options. */
   const runImport = useCallback(
     async (path: string) => {
-      // Zero BEFORE the engine is asked for anything: the placeholder row is on
-      // screen the moment the user has picked a file, not once the importer has
-      // opened the ZIP, read its central directory and written a first bank.
-      importing.current = true;
+      importingRef.current = true;
       setImportProgress(0);
       try {
         const record = await importDictionaryFromPath(path);
@@ -149,17 +126,14 @@ export function DictionaryManager({
         );
         await refresh();
       } finally {
-        // The import is over, so the placeholder goes and the new dictionary
-        // card takes its place — on failure as well, where a toast reports it.
-        // Cleared before the state, so a late event cannot resurrect the row.
-        importing.current = false;
+        importingRef.current = false;
         setImportProgress(null);
       }
     },
     [onChange, optionEntries, options, refresh],
   );
 
-  async function handleToggle(row: DictionaryRow, enabled: boolean) {
+  async function handleToggle(row: ModuleItemRow, enabled: boolean) {
     await toggleDictionary(row.id, enabled);
     onChange(
       writeOptionPath(
@@ -170,7 +144,7 @@ export function DictionaryManager({
     );
   }
 
-  async function handleDelete(row: DictionaryRow) {
+  async function handleDelete(row: ModuleItemRow) {
     await deleteDictionary(row.id);
     onChange(
       writeOptionPath(
@@ -182,9 +156,9 @@ export function DictionaryManager({
     await refresh();
   }
 
-  const rows = buildRows(installed, optionEntries);
+  const rows = buildItemRows(installedItems, optionEntries);
 
-  /** Row order IS priority: write it back as the new `options.dictionaries`. */
+  /** Row order IS priority: write it back as the new ordered options. */
   function handleReorder(from: number, to: number) {
     const names = rows.map((row) => row.name);
     const [moved] = names.splice(from, 1);
@@ -204,17 +178,14 @@ export function DictionaryManager({
       rows={rows.map<ModuleListManagerRow>((row) => ({
         key: row.id,
         name: row.name,
-        // Yomitan's own metadata line: the dictionary revision, nothing else.
         meta: row.version === '' ? '' : `rev.${row.version}`,
         enabled: row.enabled,
       }))}
       copy={copy}
       title={title}
       description={description}
-      loading={installed === null}
+      loading={installedItems === null}
       importProgress={importProgress}
-      // The engine imports from a PATH, which only the native dialog can produce;
-      // a browser has no engine to import into, so it offers no import at all.
       onImportPath={isTauri() ? runImport : undefined}
       onToggle={(key, enabled) => {
         const row = rows.find((candidate) => candidate.id === key);
@@ -231,8 +202,8 @@ export function DictionaryManager({
   );
 }
 
-/** `options.dictionaries`, coerced to the typed entry list we write. */
-function readDictionaryOptions(options: Options): DictionaryOptionEntry[] {
+/** Coerce persisted options to the typed entry list. */
+function readItemOptions(options: Options): DictionaryOptionEntry[] {
   const raw = readOptionPath(options, 'dictionaries');
   if (!Array.isArray(raw)) return [];
   return raw.filter((entry): entry is DictionaryOptionEntry => {
@@ -242,22 +213,14 @@ function readDictionaryOptions(options: Options): DictionaryOptionEntry[] {
 }
 
 /**
- * Merge the two halves into the displayed order.
- *
- * `options.dictionaries` leads, because that array is the priority the user
- * arranged. A dictionary present in the engine but absent from it (an import
- * interrupted before the settings write) still lists — with the engine's own
- * enable state — so it can be enabled or removed instead of occupying space
- * invisibly, and a dictionary whose data is gone (the engine database was
- * replaced under us) keeps its place with no metadata rather than vanishing
- * from the order.
+ * Merge installed items and persisted options into the displayed order.
  */
-function buildRows(
+function buildItemRows(
   installed: readonly InstalledDictionary[] | null,
   optionEntries: readonly DictionaryOptionEntry[],
-): DictionaryRow[] {
+): ModuleItemRow[] {
   const stored = new Map((installed ?? []).map((entry) => [entry.name, entry]));
-  const rows: DictionaryRow[] = [];
+  const rows: ModuleItemRow[] = [];
   const seen = new Set<string>();
 
   for (const entry of optionEntries) {
@@ -265,21 +228,19 @@ function buildRows(
     seen.add(entry.name);
     const record = stored.get(entry.name);
     if (record === undefined) {
-      // Option entry without engine data: not actionable (no id to toggle or
-      // delete), so it is not drawn.
       continue;
     }
-    stored.delete(entry.name);
     rows.push({
       id: record.id,
-      name: entry.name,
+      name: record.name,
       version: record.version,
-      enabled: entry.enabled,
+      enabled: entry.enabled ?? record.enabled,
     });
   }
 
-  for (const record of stored.values()) {
+  for (const record of installed ?? []) {
     if (seen.has(record.name)) continue;
+    seen.add(record.name);
     rows.push({
       id: record.id,
       name: record.name,
@@ -287,5 +248,6 @@ function buildRows(
       enabled: record.enabled,
     });
   }
+
   return rows;
 }

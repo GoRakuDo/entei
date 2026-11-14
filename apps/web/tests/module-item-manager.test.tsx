@@ -1,5 +1,5 @@
 /**
- * DictionaryManager tests — the settings list wired to the native engine.
+ * ModuleItemManager tests — the settings list wired to the native engine.
  * ---------------------------------------------------------------------------
  * The dictionary data is Rust (`plugins/tauri-plugin-modules`); this covers the
  * adapter's contract with it, which is the part a regression would break
@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
-import { DictionaryManager } from '@/components/settings/DictionaryManager';
+import { ModuleItemManager } from '@/components/settings/ModuleItemManager';
 import { readYomitanOptions } from '@/features/yomitan/yomitan-preferences';
 
 interface InvokeArgs {
@@ -128,7 +128,7 @@ function renderManager(
   onChange: (next: ReturnType<typeof createDefaultOptions>) => void,
 ) {
   return render(
-    <DictionaryManager
+    <ModuleItemManager
       options={options}
       onChange={onChange}
       title="Installed dictionaries"
@@ -153,7 +153,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('DictionaryManager — native engine wiring', () => {
+describe('ModuleItemManager — native engine wiring', () => {
   it('draws the engine list, not a browser store', async () => {
     const { calls } = installTauri([summary()]);
     renderManager(createDefaultOptions(), () => {});
