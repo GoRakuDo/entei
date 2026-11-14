@@ -406,6 +406,7 @@ export const id: Dictionary = {
         'Entri kamus dikelola saat runtime. Setelan ini menampilkan opsi per kamus setelah ada kamus yang dipasang.',
       import: 'Impor Kamus (.zip)',
       importing: 'Mengimpor…',
+      importingProgress: 'Mengimpor',
       empty:
         'Belum ada kamus yang diimpor. Silakan impor file kamus (.zip) untuk memulai pencarian.',
       enable: 'Aktifkan kamus',

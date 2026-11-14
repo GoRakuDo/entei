@@ -790,6 +790,64 @@ body[data-page='settings'] .entei-main {
   outline-offset: 2px;
 }
 
+/* ---------------------------------------------------------------------------
+   The import in flight — a PLACEHOLDER row, not an item.
+   ------------------------------------------------------------------------ *
+   Pinned above the list for as long as the engine writes, so importing a
+   multi-hundred-megabyte dictionary is never a silent button. It reuses the
+   real row's grid: the imported dictionary replaces it in place, and nothing
+   in the list shifts when it does. Gold, like every other "system is busy"
+   accent, and nothing here is interactive — the switch and the delete button
+   only echo a real row's silhouette.
+   ========================================================================== */
+
+.entei-module-list-row--importing {
+  border-color: color-mix(in oklch, var(--entei-status-locked) 40%, transparent);
+}
+
+/* The handle is a span here (nothing to drag): same column, no grab cursor. */
+.entei-module-list-row--importing .entei-module-list-handle,
+.entei-module-list-row--importing .entei-module-list-handle:hover {
+  color: var(--entei-text-muted);
+  cursor: default;
+}
+
+/* System font, uppercase: a status flag ("IMPORTING 27%"), not a dictionary
+   name — the pixel face is reserved for exactly these short labels. */
+.entei-module-list-row-import-label {
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--entei-status-locked);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quiet track under the label: it shows how much of the archive is written,
+   never competes with the percent spelled out above it. */
+.entei-module-list-progress {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  max-width: 16rem;
+  height: var(--entei-space-4);
+  background-color: color-mix(in oklch, var(--entei-text-muted) 22%, transparent);
+  border-radius: var(--entei-radius-pill);
+}
+
+.entei-module-list-progress-fill {
+  display: block;
+  height: 100%;
+  background-color: var(--entei-status-locked);
+  border-radius: inherit;
+  transition: width var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-module-list-row--importing .entei-module-list-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 @media (min-width: 768px) {
   .entei-module-list-row {
     column-gap: var(--entei-space-16);
@@ -802,7 +860,8 @@ body[data-page='settings'] .entei-main {
 
 @media (prefers-reduced-motion: reduce) {
   .entei-module-list-handle,
-  .entei-module-list-remove {
+  .entei-module-list-remove,
+  .entei-module-list-progress-fill {
     transition: none;
   }
 }

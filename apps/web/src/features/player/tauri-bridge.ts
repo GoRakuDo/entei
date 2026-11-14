@@ -307,6 +307,81 @@ export function yomitanImportDictionaryDirect(args: {
   );
 }
 
+/**
+ * Progress of a running dictionary import, as published by the native engine.
+ *
+ * The engine reports per BANK (the only whole-file boundaries a streamed ZIP
+ * has): `percent` is the share of the archive's banks already written.
+ */
+export interface YomitanImportProgress {
+  percent: number;
+  current: number;
+  total: number;
+}
+
+/** Event name the Rust importer publishes its progress on. */
+export const YOMITAN_IMPORT_PROGRESS_EVENT =
+  'modules://yomitan-import-progress';
+
+/**
+ * Coerce one raw event payload into progress, or null when it is not one.
+ *
+ * The payload crosses the IPC boundary untyped, and the percent is rendered as a
+ * number and drives a bar width: a malformed one is dropped, not shown.
+ */
+export function parseYomitanImportProgress(
+  raw: unknown,
+): YomitanImportProgress | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { percent, current, total } = raw as Record<string, unknown>;
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) return null;
+  return {
+    percent: Math.min(100, Math.max(0, Math.round(percent))),
+    current: typeof current === 'number' ? current : 0,
+    total: typeof total === 'number' ? total : 0,
+  };
+}
+
+/**
+ * Subscribe to the native dictionary import's progress.
+ *
+ * Returns the unsubscribe function, always — a browser (no engine, no events)
+ * gets a no-op instead of a throw, so callers need no runtime check. The
+ * subscription is lazy (`@tauri-apps/api/event` is imported on demand), and
+ * unsubscribing before it resolves unlistens as soon as it does, so a settings
+ * page opened and closed quickly leaves no live handler behind.
+ */
+export function onYomitanImportProgress(
+  callback: (progress: YomitanImportProgress) => void,
+): () => void {
+  if (!isTauri()) return () => {};
+  let unlisten: (() => void) | null = null;
+  let cancelled = false;
+  void import('@tauri-apps/api/event')
+    .then(({ listen }) =>
+      listen<unknown>(YOMITAN_IMPORT_PROGRESS_EVENT, (event) => {
+        const progress = parseYomitanImportProgress(event.payload);
+        if (progress !== null) callback(progress);
+      }),
+    )
+    .then((stop) => {
+      if (cancelled) {
+        stop();
+        return;
+      }
+      unlisten = stop;
+    })
+    .catch(() => {
+      // No event bridge (or a webview that blocks it): the list still works,
+      // it just has no live percent to show.
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+    unlisten = null;
+  };
+}
+
 /** Every imported dictionary, newest import first. */
 export function yomitanListDictionariesDirect(): Promise<
   YomitanDictionarySummary[]

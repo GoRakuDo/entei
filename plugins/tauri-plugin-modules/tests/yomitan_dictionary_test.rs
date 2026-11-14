@@ -121,6 +121,42 @@ fn import(conn: &rusqlite::Connection, bytes: Vec<u8>) -> yomitan::DictionarySum
     yomitan::import_dictionary(conn, Cursor::new(bytes)).expect("import dictionary")
 }
 
+#[test]
+fn import_reports_progress_for_every_bank() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    let mut seen: Vec<yomitan::ImportProgress> = Vec::new();
+
+    let summary = yomitan::import_dictionary_with_progress(
+        &conn,
+        Cursor::new(build_dictionary_zip()),
+        &mut |progress| seen.push(progress),
+    )
+    .expect("import dictionary");
+
+    assert_eq!(summary.title, "Test Dictionary");
+    // The fixture holds five banks, so the importer reports the start (0/5) and
+    // then one tick per bank written, ending on the only 100%.
+    let total = seen.last().map(|progress| progress.total);
+    assert_eq!(total, Some(5), "progress reports the bank count");
+    assert_eq!(
+        seen.windows(2)
+            .map(|pair| (pair[0].current, pair[1].current))
+            .collect::<Vec<_>>(),
+        [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)],
+        "one report per bank, starting at zero: {seen:?}"
+    );
+    assert_eq!(
+        seen.iter().map(|progress| progress.percent).collect::<Vec<_>>(),
+        [0, 20, 40, 60, 80, 100],
+        "percent is the written share of all banks"
+    );
+    assert!(
+        seen.windows(2).all(|pair| pair[0].percent <= pair[1].percent),
+        "percent never goes backwards"
+    );
+    assert_eq!(term_count(&conn), 5, "the import itself is unaffected");
+}
+
 fn term_count(conn: &rusqlite::Connection) -> i64 {
     conn.query_row("SELECT COUNT(*) FROM terms", [], |row| row.get(0))
         .expect("count terms")

@@ -18,14 +18,21 @@
  * can reach the storage) — never the markup.
  *
  * Copy contract (keys the renderer resolves from the module's copy table):
- * `import`, `importing`, `empty`, `enable`, `remove`, `importFailed`,
- * `loadFailed`, `reorder`, `reorderHint`. The block title/description arrive
- * already resolved (`title` / `description`): this layout owns no strings.
+ * `import`, `importing`, `importingProgress`, `empty`, `enable`, `remove`,
+ * `importFailed`, `loadFailed`, `reorder`, `reorderHint`. The block
+ * title/description arrive already resolved (`title` / `description`): this
+ * layout owns no strings.
  *
  * Layout: header row — title + description on the left, the import button on
  * the right where every other settings control sits — above the rows, which
  * take the full width. Each row: drag handle (when the source supports
  * reordering), name + metadata, enable switch, delete.
+ *
+ * AN IMPORT IN FLIGHT is a row of its own, pinned above the list while
+ * `importProgress` is given: same grid as a real row, with the percent and a
+ * quiet bar where the metadata line goes, and its switch/delete drawn disabled.
+ * It is a placeholder, not an item — nothing in it is actionable, and it is what
+ * the user sees instead of an empty list while the first import runs.
  *
  * TWO IMPORT ROUTES, because a desktop import needs an absolute path the browser
  * cannot produce: `onImportPath` (given) opens the native dialog and hands the
@@ -55,12 +62,17 @@ export interface ModuleListManagerRow {
   enabled: boolean;
 }
 
-/** Localized copy for the layout. Every string comes from the caller. */
-export interface ModuleListManagerCopy {
+/** Localized copy for the layout. Every string comes from the caller. */export interface ModuleListManagerCopy {
   /** Import button label. */
   import: string;
   /** Import button label while an import runs. */
   importing: string;
+  /**
+   * Label of the in-flight import's placeholder row, followed by the percent
+   * (`Importing 27%`). Separate from `importing` because that one is the
+   * button's own label, ellipsis and all.
+   */
+  importingProgress: string;
   /** Empty-state sentence. */
   empty: string;
   /** Accessible name prefix for an item's enable switch. */
@@ -80,6 +92,12 @@ export interface ModuleListManagerCopy {
   reorderHint: string;
 }
 
+/** A reported percent as the whole 0–100 number a bar width can take. */
+function toPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
 export interface ModuleListManagerProps {
   /** Rows to draw, in display order (= the list's own priority order). */
   rows: readonly ModuleListManagerRow[];
@@ -91,6 +109,12 @@ export interface ModuleListManagerProps {
   description?: string;
   /** True while the source is still being read (no empty state yet). */
   loading?: boolean;
+  /**
+   * Percent (0–100) of an import running right now, or null/omitted when none
+   * is. Given, it draws the placeholder row above the list — and in place of
+   * the empty state, which would otherwise claim there is nothing happening.
+   */
+  importProgress?: number | null;
   /** File-picker filter for the import button. */
   accept?: string;
   /** Leading toolbar icon (defaults to an archive mark). */
@@ -123,6 +147,7 @@ export function ModuleListManager({
   title,
   description,
   loading = false,
+  importProgress = null,
   accept = '.zip,application/zip',
   importIcon = FileArchive,
   onImport,
@@ -210,6 +235,11 @@ export function ModuleListManager({
     [onReorder, rows],
   );
 
+  /* A number for as long as an import is running, null otherwise. The engine
+     already clamps its percent; the bar width is the reason this one clamps too
+     — `NaN%` or `140%` must never reach a style attribute. */
+  const percent = importProgress === null ? null : toPercent(importProgress);
+
   return (
     <div className="entei-module-list">
       {(title !== undefined || description !== undefined) && (
@@ -266,10 +296,56 @@ export function ModuleListManager({
         {moved}
       </p>
 
-      {loading ? null : rows.length === 0 ? (
+      {loading && percent === null ? null : rows.length === 0 && percent === null ? (
         <p className="entei-module-list-empty">{copy.empty}</p>
       ) : (
         <ul className="entei-module-list-rows">
+          {/* The import in flight: pinned above the list for as long as it runs,
+              so a multi-minute import of a large dictionary is never a silent
+              button. Nothing in it is actionable (the engine owns the import),
+              and the trailing switch/delete only echo a real row's shape —
+              hidden from assistive tech, which gets the labelled bar instead. */}
+          {percent !== null && (
+            <li className="entei-module-list-row entei-module-list-row--importing">
+              {onReorder !== undefined && (
+                <span className="entei-module-list-handle" aria-hidden="true">
+                  <GripVertical size={16} />
+                </span>
+              )}
+              <div className="entei-module-list-row-text">
+                <span className="entei-module-list-row-name entei-module-list-row-import-label">
+                  {copy.importingProgress} {percent}%
+                </span>
+                <span
+                  className="entei-module-list-progress"
+                  role="progressbar"
+                  aria-label={copy.importingProgress}
+                  aria-valuenow={percent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <span
+                    className="entei-module-list-progress-fill"
+                    style={{ width: `${percent}%` }}
+                  />
+                </span>
+              </div>
+              <div
+                className="entei-module-list-row-actions"
+                aria-hidden="true"
+              >
+                <Switch checked disabled />
+                <button
+                  type="button"
+                  className="entei-module-list-remove"
+                  disabled
+                  tabIndex={-1}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </li>
+          )}
           {rows.map((row, index) => (
             <li
               className={

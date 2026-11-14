@@ -409,6 +409,7 @@ export const en: Dictionary = {
         'Dictionary entries are managed at runtime. The settings tree exposes per-dictionary fields once a dictionary is installed.',
       import: 'Import dictionary (.zip)',
       importing: 'Importing…',
+      importingProgress: 'Importing',
       empty:
         'No dictionaries imported yet. Import a dictionary (.zip) to start looking up words.',
       enable: 'Enable dictionary',

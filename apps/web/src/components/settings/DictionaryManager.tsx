@@ -12,7 +12,8 @@
  *     "source": "yomitan-dictionaries" }
  *
  * It owns only what is genuinely Yomitan's: which archive to accept, the
- * metadata line wording, and where each half of the state lives. The look, the
+ * metadata line wording, the live import percent the engine publishes, and
+ * where each half of the state lives. The look, the
  * header, the reorder mechanics and the row markup belong to the shared layout.
  *
  * TWO HALVES, still separate on purpose:
@@ -42,7 +43,7 @@ import {
   readOptionPath,
   writeOptionPath,
 } from '@/features/yomitan/yomitan-preferences';
-import { isTauri } from '@/features/player/tauri-bridge';
+import { isTauri, onYomitanImportProgress } from '@/features/player/tauri-bridge';
 import {
   createDictionaryOptionEntry,
   deleteDictionary,
@@ -84,6 +85,8 @@ export function DictionaryManager({
   copy,
 }: DictionaryManagerProps) {
   const [installed, setInstalled] = useState<InstalledDictionary[] | null>(null);
+  /** Percent of the import running right now, null when none is. */
+  const [importProgress, setImportProgress] = useState<number | null>(null);
 
   /** `options.dictionaries` — the persisted half of the list. */
   const optionEntries = readDictionaryOptions(options);
@@ -105,17 +108,31 @@ export function DictionaryManager({
     void refresh();
   }, [refresh]);
 
+  /* The engine publishes progress per bank while it writes. Subscribed for the
+     lifetime of the list (not per import): the row shown is whatever the engine
+     last reported, and the import below clears it when its promise settles. */
+  useEffect(() => onYomitanImportProgress((p) => setImportProgress(p.percent)), []);
+
   /** Import the picked archive, then mirror it into `options.dictionaries`. */
   const runImport = useCallback(
     async (path: string) => {
-      const record = await importDictionaryFromPath(path);
-      onChange(
-        writeOptionPath(options, 'dictionaries', [
-          ...optionEntries.filter((entry) => entry.name !== record.name),
-          createDictionaryOptionEntry(record.name),
-        ]),
-      );
-      await refresh();
+      // Zero before the first bank is written: the placeholder row appears on
+      // the click, not once the engine has finished reading the ZIP index.
+      setImportProgress(0);
+      try {
+        const record = await importDictionaryFromPath(path);
+        onChange(
+          writeOptionPath(options, 'dictionaries', [
+            ...optionEntries.filter((entry) => entry.name !== record.name),
+            createDictionaryOptionEntry(record.name),
+          ]),
+        );
+        await refresh();
+      } finally {
+        // The import is over, so the placeholder goes and the new dictionary
+        // card takes its place — on failure as well, where a toast reports it.
+        setImportProgress(null);
+      }
     },
     [onChange, optionEntries, options, refresh],
   );
@@ -173,6 +190,7 @@ export function DictionaryManager({
       title={title}
       description={description}
       loading={installed === null}
+      importProgress={importProgress}
       // The engine imports from a PATH, which only the native dialog can produce;
       // a browser has no engine to import into, so it offers no import at all.
       onImportPath={isTauri() ? runImport : undefined}

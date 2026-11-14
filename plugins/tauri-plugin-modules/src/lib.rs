@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{Manager, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 pub use jimaku::{JimakuEntry, JimakuError, JimakuErrorKind, JimakuFile, JimakuResult};
 pub use nadeshiko::{
@@ -28,7 +28,7 @@ pub use nadeshiko::{
     NadeshikoSegmentUrls, NadeshikoUser, NadeshikoUserMe,
 };
 pub use torrent::{AddTorrentResult, SelectedTorrentFiles, TorrentFile, TorrentStatus};
-pub use yomitan::{DictionarySummary, KanjiEntry, TermEntry};
+pub use yomitan::{DictionarySummary, ImportProgress, KanjiEntry, TermEntry};
 pub use ytdlp::{StreamSource, VideoInfo};
 
 #[tauri::command]
@@ -124,15 +124,31 @@ macro_rules! with_yomitan_db {
 
 // --- Yomitan dictionaries --------------------------------------------------
 
-/// Import a Yomitan dictionary ZIP from a path the user picked. The ZIP is
+/// Event the dictionary import publishes its progress on, as an
+/// [`ImportProgress`] payload (`{ percent, current, total }`).
+///
+/// A Tauri event, not the command's return value: the import is one long
+/// blocking call whose only result is the finished dictionary, and the UI has to
+/// show what is happening while it runs.
+pub const YOMITAN_IMPORT_PROGRESS_EVENT: &str = "modules://yomitan-import-progress";
+
+/// Import a Yomitan dictionary ZIP from a path the user picked, publishing
+/// [`YOMITAN_IMPORT_PROGRESS_EVENT`] after every bank it writes. The ZIP is
 /// streamed straight off disk, so a large dictionary is never held in memory.
 #[tauri::command]
-async fn yomitan_import_dictionary(
+async fn yomitan_import_dictionary<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, YomitanDbState>,
     zip_path: String,
 ) -> Result<DictionarySummary, String> {
-    with_yomitan_db!(state, |conn| yomitan::import_dictionary_from_path(
-        conn, &zip_path
+    with_yomitan_db!(state, |conn| yomitan::import_dictionary_from_path_with_progress(
+        conn,
+        &zip_path,
+        // Emitted from the blocking pool. A renderer that closed mid-import
+        // makes the emit fail, which must not fail the import itself.
+        &mut |progress: ImportProgress| {
+            let _ = app.emit(YOMITAN_IMPORT_PROGRESS_EVENT, progress);
+        },
     ))
 }
 

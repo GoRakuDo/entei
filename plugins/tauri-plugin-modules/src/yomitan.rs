@@ -124,6 +124,41 @@ pub struct DictionarySummary {
     pub enabled: bool,
 }
 
+/// Progress of one dictionary import, reported after each bank is written.
+///
+/// Banks are the unit because they are the only whole-file boundaries the
+/// importer has: it streams elements off a `BufRead` and cannot know an entry
+/// count without a first pass over a file that may be hundreds of megabytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProgress {
+    /// Whole-percent share of the banks written so far (0–100).
+    pub percent: u32,
+    /// Banks written so far.
+    pub current: u32,
+    /// Banks the archive holds (never 0: an archive with no bank is rejected).
+    pub total: u32,
+}
+
+impl ImportProgress {
+    fn new(current: u32, total: u32) -> Self {
+        Self {
+            percent: percent_of(current, total),
+            current,
+            total,
+        }
+    }
+}
+
+/// `current / total` as a whole percent. An archive with no bank reports 0
+/// rather than dividing by zero (the import itself fails on that archive).
+fn percent_of(current: u32, total: u32) -> u32 {
+    if total == 0 {
+        return 0;
+    }
+    ((u64::from(current) * 100) / u64::from(total)).min(100) as u32
+}
+
 /// A dictionary headword plus its glossary payload (already parsed, so the web
 /// layer does not re-decode JSON per row).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -422,9 +457,25 @@ impl BankKind {
 /// The import replaces that dictionary's previous content in one transaction:
 /// a failed import leaves the earlier state intact. Re-importing always ends
 /// with the dictionary enabled.
+///
+/// Callers that have to report progress (the Tauri command) use
+/// [`import_dictionary_with_progress`]; this is that import with no reporter.
 pub fn import_dictionary<R: Read + Seek>(
     conn: &Connection,
     reader: R,
+) -> Result<DictionarySummary, String> {
+    import_dictionary_with_progress(conn, reader, &mut |_| {})
+}
+
+/// The same import, reporting [`ImportProgress`] to `on_progress`: once before
+/// the first bank, then after every bank that was written.
+///
+/// The callback runs on the caller's thread (the Tauri command emits from the
+/// blocking pool) and only observes — it cannot abort or alter the import.
+pub fn import_dictionary_with_progress<R: Read + Seek>(
+    conn: &Connection,
+    reader: R,
+    on_progress: &mut dyn FnMut(ImportProgress),
 ) -> Result<DictionarySummary, String> {
     let mut archive =
         ZipArchive::new(reader).map_err(|e| format!("not a readable dictionary zip: {e}"))?;
@@ -486,7 +537,9 @@ pub fn import_dictionary<R: Read + Seek>(
     // but stable ordering keeps the same ZIP producing byte-identical rows.
     banks.sort_by(|a, b| a.2.cmp(&b.2));
 
-    write_banks(conn, &mut archive, &summary, &banks)?;
+    let total = banks.len() as u32;
+    on_progress(ImportProgress::new(0, total));
+    write_banks(conn, &mut archive, &summary, &banks, on_progress)?;
     Ok(summary)
 }
 
@@ -495,9 +548,19 @@ pub fn import_dictionary_from_path(
     conn: &Connection,
     path: impl AsRef<Path>,
 ) -> Result<DictionarySummary, String> {
+    import_dictionary_from_path_with_progress(conn, path, &mut |_| {})
+}
+
+/// The same path-based import, reporting progress per bank (the Tauri command
+/// path: the ZIP is streamed off disk, never buffered whole).
+pub fn import_dictionary_from_path_with_progress(
+    conn: &Connection,
+    path: impl AsRef<Path>,
+    on_progress: &mut dyn FnMut(ImportProgress),
+) -> Result<DictionarySummary, String> {
     let path = path.as_ref();
     let file = File::open(path).map_err(|e| format!("failed to open {}: {e}", path.display()))?;
-    import_dictionary(conn, BufReader::new(file))
+    import_dictionary_with_progress(conn, BufReader::new(file), on_progress)
 }
 
 fn read_index<R: Read + Seek>(
@@ -519,6 +582,7 @@ fn write_banks<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     summary: &DictionarySummary,
     banks: &[(BankKind, usize, String)],
+    on_progress: &mut dyn FnMut(ImportProgress),
 ) -> Result<(), String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for table in ["terms", "kanjis", "term_meta", "tags"] {
@@ -575,7 +639,8 @@ fn write_banks<R: Read + Seek>(
         )
         .map_err(|e| e.to_string())?;
 
-    for (kind, position, name) in banks {
+    let total = banks.len() as u32;
+    for (index, (kind, position, name)) in banks.iter().enumerate() {
         let file = archive
             .by_index(*position)
             .map_err(|e| format!("failed to read {name}: {e}"))?;
@@ -595,6 +660,9 @@ fn write_banks<R: Read + Seek>(
             }),
         };
         result.map_err(|e| format!("{name}: {e}"))?;
+        // After the bank is in: the percent the UI shows is real work done,
+        // not time spent reading the ZIP's central directory.
+        on_progress(ImportProgress::new(index as u32 + 1, total));
     }
 
     // The statements borrow the transaction, so they must be gone before it is

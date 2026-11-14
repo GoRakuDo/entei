@@ -510,6 +510,7 @@ function resolveListCopy(
   return {
     import: pick('import'),
     importing: pick('importing'),
+    importingProgress: pick('importingProgress'),
     empty: pick('empty'),
     enable: pick('enable'),
     remove: pick('remove'),

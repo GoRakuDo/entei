@@ -456,6 +456,8 @@ export interface Dictionary {
       installedDescription: string;
       import: string;
       importing: string;
+      /** `list` layout — in-flight import row's label, before its percent. */
+      importingProgress: string;
       empty: string;
       enable: string;
       remove: string;
