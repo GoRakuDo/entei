@@ -19,8 +19,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
+  createDictionaryOptionEntry,
+  invalidateInstalledDictionaries,
+} from '@/features/yomitan/dictionary-store';
+import {
+  createDefaultOptions,
+} from '@gorakudo/yomitan-headless/settings';
+import {
   createDictionaryDatabase,
+  invalidateYomitanEngineCaches,
   lookupTerms,
+  readEnabledDictionaryMap,
   summarizeKanjiEntry,
   summarizeTermEntry,
 } from '@/features/yomitan/yomitan-engine';
@@ -90,6 +99,11 @@ const INSTALLED = [
 
 beforeEach(() => {
   localStorage.clear();
+  /* The store caches the installed list for the hot scan path, so a test that
+     fakes a different engine reply has to drop it — exactly what the app's own
+     import / toggle / delete handlers do. */
+  invalidateInstalledDictionaries();
+  invalidateYomitanEngineCaches();
 });
 
 afterEach(() => {
@@ -398,5 +412,148 @@ describe('summaries — what leaves the feature', () => {
       dictionary: 'KANJIDIC',
     });
     expect(summarizeKanjiEntry({})).toBeNull();
+  });
+});
+describe('dictionary set — the caller decides what a row may come from', () => {
+  it('drops rows from a dictionary the caller did not enable', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_find_terms_bulk' ? [termRow()] : [],
+    );
+    // The engine answered with a JMdict row; the translator asked with only
+    // KANJIDIC enabled. Returning it would make the translator read a dictionary
+    // that is absent from its own map (and crash destructuring it).
+    const entries = await createDictionaryDatabase().findTermsBulk(
+      ['食べる'],
+      new Set(['KANJIDIC']),
+      'exact',
+    );
+    expect(entries).toEqual([]);
+  });
+
+  it('keeps rows from every dictionary the caller did enable', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_find_terms_bulk'
+        ? [termRow({ id: 1 }), termRow({ id: 2, dictionary: 'JMdict Extra' })]
+        : [],
+    );
+    const entries = await createDictionaryDatabase().findTermsBulk(
+      ['食べる'],
+      new Set(['JMdict', 'JMdict Extra']),
+      'exact',
+    );
+    expect(entries.map((entry) => entry.dictionary)).toEqual([
+      'JMdict',
+      'JMdict Extra',
+    ]);
+  });
+
+  it('applies the same rule to meta and kanji rows', async () => {
+    installTauri((command) => {
+      switch (command) {
+        case 'plugin:modules|yomitan_find_term_meta_bulk':
+          return [
+            { index: 0, expression: '食べる', mode: 'freq', data: 3, dictionary: 'JMdict' },
+          ];
+        case 'plugin:modules|yomitan_find_kanji_bulk':
+          return [
+            {
+              index: 0,
+              dictionary: 'KANJIDIC',
+              character: '食',
+              onyomi: null,
+              kunyomi: null,
+              tags: null,
+              meanings: [],
+              stats: null,
+            },
+          ];
+        default:
+          return [];
+      }
+    });
+    const database = createDictionaryDatabase();
+    expect(await database.findTermMetaBulk(['食べる'], new Set())).toEqual([]);
+    expect(await database.findKanjiBulk(['食'], new Set())).toEqual([]);
+
+    const meta = await database.findTermMetaBulk(['食べる'], new Set(['JMdict']));
+    expect(meta.map((entry) => entry.term)).toEqual(['食べる']);
+    const kanji = await database.findKanjiBulk(['食'], new Set(['KANJIDIC']));
+    expect(kanji.map((entry) => entry.character)).toEqual(['食']);
+  });
+});
+
+describe('dictionary priority — the settings order wins', () => {
+  const INSTALLED_TWO = [
+    { ...INSTALLED[0]!, id: 'a1', title: 'Alpha' },
+    { ...INSTALLED[0]!, id: 'b2', title: 'Beta' },
+  ];
+
+  it('numbers the dictionaries in options.dictionaries order, not import order', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_list_dictionaries' ? INSTALLED_TWO : [],
+    );
+    const options = createDefaultOptions();
+    const profileIndex = options.profileCurrent;
+    // Import order is Alpha, Beta; the user dragged Beta to the top.
+    options.profiles[profileIndex]!.options.dictionaries = [
+      { ...createDictionaryOptionEntry('Beta') },
+      { ...createDictionaryOptionEntry('Alpha') },
+    ];
+
+    const map = await readEnabledDictionaryMap(options);
+    expect([...map.keys()]).toEqual(['Beta', 'Alpha']);
+    expect(map.get('Beta')?.index).toBe(0);
+    expect(map.get('Alpha')?.index).toBe(1);
+  });
+
+  it('keeps the engine as the source of truth for what exists', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_list_dictionaries' ? INSTALLED_TWO : [],
+    );
+    const options = createDefaultOptions();
+    const profileIndex = options.profileCurrent;
+    options.profiles[profileIndex]!.options.dictionaries = [
+      // A dictionary the engine does not have (a stale settings entry) must not
+      // reach the translator's map.
+      { ...createDictionaryOptionEntry('Ghost') },
+      { ...createDictionaryOptionEntry('Alpha'), enabled: false },
+      { ...createDictionaryOptionEntry('Beta') },
+    ];
+    const map = await readEnabledDictionaryMap(options);
+    expect([...map.keys()]).toEqual(['Beta']);
+  });
+
+  it('appends a freshly imported dictionary the settings list has not seen', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_list_dictionaries' ? INSTALLED_TWO : [],
+    );
+    const options = createDefaultOptions();
+    options.profiles[options.profileCurrent]!.options.dictionaries = [
+      { ...createDictionaryOptionEntry('Beta') },
+    ];
+    const map = await readEnabledDictionaryMap(options);
+    expect([...map.keys()]).toEqual(['Beta', 'Alpha']);
+    expect(map.get('Alpha')?.useDeinflections).toBe(true);
+  });
+});
+
+describe('lookup — the scan knobs reach the engine', () => {
+  it('asks for a prefix match when the scanning option is on', async () => {
+    const calls = installTauri((command, args) => {
+      if (command === 'plugin:modules|yomitan_list_dictionaries') return INSTALLED;
+      if (command === 'plugin:modules|yomitan_find_terms_bulk') {
+        const terms = (args?.terms as string[]) ?? [];
+        return terms
+          .map((term, index) => (term.startsWith('食') ? termRow({ index, id: index + 1 }) : null))
+          .filter((row): row is Record<string, unknown> => row !== null);
+      }
+      return [];
+    });
+
+    await lookupTerms('食べ', { matchType: 'prefix' });
+    const sent = calls.find(
+      (call) => call.command === 'plugin:modules|yomitan_find_terms_bulk',
+    );
+    expect(sent?.args?.matchType).toBe('prefix');
   });
 });

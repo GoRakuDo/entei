@@ -11,15 +11,23 @@
  *   Japanese costs nothing until the user asks for it.
  * - LOCATE: `caretRangeFromPoint` turns the pointer position into a text node +
  *   offset, and up to `scanning.length` characters are taken from there — the
- *   same forward-only window Yomitan scans.
- * - LOOK UP: `features/yomitan/yomitan-engine` (deinflection + dictionary merge).
+ *   same forward-only window Yomitan scans. Text covered by something else is
+ *   skipped (`scanning.layoutAwareScan`).
+ * - LOOK UP: `features/yomitan/yomitan-engine` (deinflection + dictionary
+ *   merge), with the scanning section's own match type
+ *   (`scanning.matchTypePrefix`) and resolution (`scanning.scanResolution`).
  * - ANNOUNCE: one `yomitan:scan-result` CustomEvent on `window`, plus a trace
- *   line. Drawing the result is a separate concern (a popup component), so this
- *   module has no UI and can run on every page.
+ *   line, and the scanned text selected when `scanning.selectText` is on.
+ *   Drawing the result is a separate concern (a popup component), so this module
+ *   has no UI and can run on every page.
  *
- * Two guards keep it cheap: a debounce (`scanning.delay`) and a repeat guard —
+ * Three guards keep it cheap: a debounce (`scanning.delay`), a repeat guard —
  * moving within the same word re-uses the last answer instead of asking the
- * engine again.
+ * engine again — and a short-lived snapshot of the settings, so a pointer move
+ * does not re-parse the persisted options.
+ *
+ * The whole module is a no-op while the YOMITAN MODULE ITSELF is off: the master
+ * switch on the Modules page is what decides whether this listens at all.
  * ---------------------------------------------------------------------------
  */
 
@@ -39,6 +47,7 @@ import {
   type ScanModifierKey,
 } from '@/features/yomitan/yomitan-preferences';
 import { isTauri } from '@/features/player/tauri-bridge';
+import { readModuleState } from '@/features/modules/modules-store';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 
 /* The knob's own type and guard live with the option paths that persist them
@@ -68,6 +77,16 @@ export interface ScanSettings {
   delay: number;
   /** How many characters to take from the caret (`scanning.length`). */
   length: number;
+  /** Match headwords that START with the text instead of matching it whole. */
+  matchTypePrefix: boolean;
+  /** Look up one character at a time, or whole words. */
+  scanResolution: 'character' | 'word';
+  /** Re-scan while the pointer rests and the text under it changes. */
+  scanWithoutMousemove: boolean;
+  /** Highlight the scanned text (Yomitan's "Select text when scanning"). */
+  selectText: boolean;
+  /** Skip text that is covered by something else at that point. */
+  layoutAwareScan: boolean;
 }
 
 /**
@@ -83,11 +102,17 @@ export function readScanSettings(
   const modifier = read('scanning.modifierKey');
   const delay = read('scanning.delay');
   const length = read('scanning.length');
+  const resolution = read('scanning.scanResolution');
   return {
     modifierKey: isScanModifierKey(modifier) ? modifier : 'shift',
     middleMouse: read('scanning.middleMouse') === true,
     delay: typeof delay === 'number' ? delay : 20,
     length: typeof length === 'number' ? length : 16,
+    matchTypePrefix: read('scanning.matchTypePrefix') === true,
+    scanResolution: resolution === 'word' ? 'word' : 'character',
+    scanWithoutMousemove: read('scanning.scanWithoutMousemove') === true,
+    selectText: read('scanning.selectText') === true,
+    layoutAwareScan: read('scanning.layoutAwareScan') !== false,
   };
 }
 
@@ -206,7 +231,7 @@ export function scanWindowAt(
   node: Text,
   offset: number,
   length: number,
-): { text: string; offset: number } | null {
+): { text: string; offset: number; end: number } | null {
   const full = node.data;
   const start = Math.max(0, Math.min(offset, full.length));
   let end = start;
@@ -218,7 +243,8 @@ export function scanWindowAt(
     taken += 1;
   }
   if (end === start) return null;
-  return { text: full.slice(start, end), offset: start };
+  // `end` is exclusive: it is what the selection covers.
+  return { text: full.slice(start, end), offset: start, end };
 }
 
 /** Characters a Japanese dictionary can be asked about. */
@@ -249,28 +275,100 @@ export function isScannableCharacter(character: string): boolean {
  * Settings read (short-lived cache)
  * ------------------------------------------------------------------------- */
 
+/** One snapshot of everything the pointer gate needs. */
+interface ScanSnapshot {
+  settings: ScanSettings;
+  /** False while the Yomitan module itself is switched off. */
+  moduleEnabled: boolean;
+}
+
 /**
- * How long one settings read answers the pointer for.
+ * How long one snapshot answers the pointer for.
  *
- * The gate is checked on EVERY pointer move, and the persisted options are a
- * JSON blob: re-parsing it per event is pure waste on the one path this module
- * has to keep cheap. A quarter second is below the time it takes to press a
- * modifier and move onto a word, so a settings edit still applies immediately in
- * practice.
+ * The gate is checked on EVERY pointer move, and the persisted options plus the
+ * module state are JSON blobs: re-parsing them per event is pure waste on the one
+ * path this module has to keep cheap. A quarter second is below the time it takes
+ * to press a modifier and move onto a word, so an edit still applies in practice.
  */
 const SETTINGS_CACHE_MS = 250;
 
-let settingsCache: { at: number; settings: ScanSettings } | null = null;
+let snapshotCache: { at: number; snapshot: ScanSnapshot } | null = null;
 
-/** Scanning settings for a pointer event (cached, see `SETTINGS_CACHE_MS`). */
-function readScanSettingsCached(): ScanSettings {
+/**
+ * True while the Yomitan module is enabled (the Modules page master switch).
+ *
+ * The scanner runs on every page, so it must obey the same switch as the rest of
+ * the module: a user who turned Yomitan off must not have their pointer listened
+ * to or their dictionaries queried.
+ */
+export function isYomitanModuleEnabled(): boolean {
+  return readModuleState().yomitan !== false;
+}
+
+/** Settings + module state for a pointer event (cached, see above). */
+function readScanSnapshot(): ScanSnapshot {
   const now = Date.now();
-  if (settingsCache !== null && now - settingsCache.at < SETTINGS_CACHE_MS) {
-    return settingsCache.settings;
+  if (snapshotCache !== null && now - snapshotCache.at < SETTINGS_CACHE_MS) {
+    return snapshotCache.snapshot;
   }
-  const settings = readScanSettings();
-  settingsCache = { at: now, settings };
-  return settings;
+  const snapshot: ScanSnapshot = {
+    settings: readScanSettings(),
+    moduleEnabled: isYomitanModuleEnabled(),
+  };
+  snapshotCache = { at: now, snapshot };
+  return snapshot;
+}
+
+/* ---------------------------------------------------------------------------
+ * Selection (the scanning option that highlights what it read)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Highlight the scanned window in the page, Yomitan's `scanning.selectText`.
+ *
+ * The window's own offsets are used rather than a fresh caret lookup, so what is
+ * selected is exactly what was looked up. The existing selection is REPLACED: a
+ * scan is one gesture and the previous highlight belongs to an older one.
+ */
+export function selectScanWindow(
+  node: Text,
+  offset: number,
+  end: number,
+): void {
+  const document = globalThis.document;
+  const selection = document?.getSelection();
+  if (document === undefined || selection === null) return;
+  const range = document.createRange();
+  range.setStart(node, Math.max(0, Math.min(offset, node.data.length)));
+  range.setEnd(node, Math.max(0, Math.min(end, node.data.length)));
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+/* ---------------------------------------------------------------------------
+ * Layout-aware scan (skip text that is covered)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Whether the scanned text is actually the topmost thing at that point.
+ *
+ * `scanning.layoutAwareScan`: a subtitle drawn under a modal, a label behind a
+ * sticky header or a line hidden by an overlay is not what the user is pointing
+ * at, and looking it up produces a result for text they cannot see. The check is
+ * the browser's own hit test — `elementFromPoint` returns the deepest element
+ * that would receive the click, so a text node outside it is covered.
+ *
+ * Fails OPEN: a hit test that answers nothing (a detached node, a test DOM) is not
+ * evidence of covering.
+ */
+export function isTopmostTextAt(node: Text, x: number, y: number): boolean {
+  const document = globalThis.document;
+  if (typeof document?.elementFromPoint !== 'function') return true;
+  const hit = document.elementFromPoint(x, y);
+  if (hit === null) return true;
+  const owner = node.parentElement;
+  if (owner === null) return true;
+  return owner === hit || owner.contains(hit);
 }
 
 /* ---------------------------------------------------------------------------
@@ -282,6 +380,19 @@ let lastKey = '';
 let lastAt = 0;
 let debounce: ReturnType<typeof setTimeout> | null = null;
 let epoch = 0;
+/** Where the pointer last was — a resting-pointer re-scan reads from here. */
+let lastPointer: { x: number; y: number } | null = null;
+/** Pending animation frame of a resting-pointer re-scan. */
+let stillFrame = 0;
+
+/** Run one scan after the user's own debounce window. */
+function scheduleScan(x: number, y: number, settings: ScanSettings): void {
+  if (debounce !== null) clearTimeout(debounce);
+  debounce = setTimeout(() => {
+    debounce = null;
+    void scanAt(x, y, settings);
+  }, Math.max(0, settings.delay));
+}
 
 /**
  * Install the pointer scanner. Returns a disposer.
@@ -296,34 +407,58 @@ export function initTextScanner(): () => void {
   if (document === undefined) return () => {};
 
   const onPointerMove = (event: PointerEvent): void => {
-    const settings = readScanSettingsCached();
-    if (!shouldScanInput(event, settings)) return;
-    if (debounce !== null) clearTimeout(debounce);
-    // The position is captured now: the debounced run must scan where the
-    // pointer WAS, and `event` is not safe to read later.
-    const { clientX: x, clientY: y } = event;
-    debounce = setTimeout(() => {
-      debounce = null;
-      void scanAt(x, y, settings);
-    }, Math.max(0, settings.delay));
+    const snapshot = readScanSnapshot();
+    lastPointer = { x: event.clientX, y: event.clientY };
+    // Module off: the pointer is not ours to listen to.
+    if (!snapshot.moduleEnabled) return;
+    if (!shouldScanInput(event, snapshot.settings)) return;
+    // The position is captured now: the debounced run must scan where the pointer
+    // WAS, and `event` is not safe to read later.
+    scheduleScan(event.clientX, event.clientY, snapshot.settings);
   };
 
   const onPointerDown = (event: PointerEvent): void => {
     // Middle mouse is a scan trigger only when the user asked for it: with the
     // option off the button belongs to the browser (autoscroll) and to the page.
     if (event.button !== 1) return;
-    const settings = readScanSettingsCached();
-    if (!settings.middleMouse) return;
-    void scanAt(event.clientX, event.clientY, settings);
+    const snapshot = readScanSnapshot();
+    if (!snapshot.moduleEnabled || !snapshot.settings.middleMouse) return;
+    void scanAt(event.clientX, event.clientY, snapshot.settings);
+  };
+
+  /**
+   * `scanning.scanWithoutMousemove`: the pointer rests and the page moves under
+   * it (a subtitle list scrolls, a dialog opens). The text worth scanning is then
+   * still under the LAST pointer position, so a scroll or a resize re-runs the
+   * scan there — at most once per frame, because a scroll fires in bursts.
+   */
+  const onViewportChange = (): void => {
+    if (stillFrame !== 0) return;
+    const snapshot = readScanSnapshot();
+    if (!snapshot.moduleEnabled || !snapshot.settings.scanWithoutMousemove) return;
+    stillFrame = requestAnimationFrame(() => {
+      stillFrame = 0;
+      if (lastPointer === null) return;
+      void scanAt(lastPointer.x, lastPointer.y);
+    });
   };
 
   document.addEventListener('pointermove', onPointerMove, { passive: true });
   document.addEventListener('pointerdown', onPointerDown, { passive: true });
+  window.addEventListener('scroll', onViewportChange, {
+    passive: true,
+    capture: true,
+  });
+  window.addEventListener('resize', onViewportChange, { passive: true });
   return () => {
     document.removeEventListener('pointermove', onPointerMove);
     document.removeEventListener('pointerdown', onPointerDown);
+    window.removeEventListener('scroll', onViewportChange, { capture: true });
+    window.removeEventListener('resize', onViewportChange);
     if (debounce !== null) clearTimeout(debounce);
     debounce = null;
+    if (stillFrame !== 0) cancelAnimationFrame(stillFrame);
+    stillFrame = 0;
   };
 }
 
@@ -338,8 +473,11 @@ export async function scanAt(
   y: number,
   settings: ScanSettings = readScanSettings(),
 ): Promise<YomitanScanResultDetail | null> {
+  if (!readScanSnapshot().moduleEnabled) return null;
   const point = caretPointAt(x, y);
   if (point === null) return null;
+  // Layout-aware: text that is covered is not what the pointer is on.
+  if (settings.layoutAwareScan && !isTopmostTextAt(point.node, x, y)) return null;
   const windowed = scanWindowAt(point.node, point.offset, settings.length);
   if (windowed === null) return null;
 
@@ -354,7 +492,10 @@ export async function scanAt(
   const current = ++epoch;
   try {
     const [terms, kanji] = await Promise.all([
-      lookupTerms(windowed.text, { matchType: 'exact' }),
+      lookupTerms(windowed.text, {
+        matchType: settings.matchTypePrefix ? 'prefix' : 'exact',
+        searchResolution: settings.scanResolution === 'word' ? 'word' : 'letter',
+      }),
       lookupKanji(windowed.text),
     ]);
     // A newer scan started while these were in flight: its answer supersedes.
@@ -371,8 +512,16 @@ export async function scanAt(
         .filter((entry): entry is KanjiSummary => entry !== null),
     };
     if (detail.terms.length === 0 && detail.kanji.length === 0) {
-      traceYomitan('scan_miss', { text: detail.text });
+      traceYomitan('scan_miss', {
+        text: detail.text,
+        matchType: settings.matchTypePrefix ? 'prefix' : 'exact',
+      });
       return detail;
+    }
+    // The highlight belongs with the answer: text that produced nothing must not
+    // stay selected.
+    if (settings.selectText) {
+      selectScanWindow(point.node, windowed.offset, windowed.end);
     }
     traceYomitan('scan_hit', {
       text: detail.text,

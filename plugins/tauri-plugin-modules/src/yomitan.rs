@@ -103,6 +103,10 @@ CREATE TABLE IF NOT EXISTS tags (
     dictionary_id TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tags_dictionary ON tags(dictionary_id);
+-- Tag lookups are BY NAME within one dictionary (`find_tags_bulk`), which the
+-- dictionary_id index above cannot serve: without this one SQLite reads the
+-- whole (potentially 100k-row) tag table per lookup batch.
+CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
 "#;
 
 // ---------------------------------------------------------------------------

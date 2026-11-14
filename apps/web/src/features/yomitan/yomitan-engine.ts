@@ -42,7 +42,8 @@ import type {
 import { createTranslator } from '@gorakudo/yomitan-headless';
 import type { Options, ProfileOptions } from '@gorakudo/yomitan-headless/settings';
 import {
-  listInstalledDictionaries,
+  invalidateInstalledDictionaries,
+  listInstalledDictionariesCached,
   type InstalledDictionary,
 } from '@/features/yomitan/dictionary-store';
 import { readYomitanOptions } from '@/features/yomitan/yomitan-preferences';
@@ -200,89 +201,83 @@ export interface EnabledDictionary {
 export type EnabledDictionaryMap = Map<string, EnabledDictionary>;
 
 /**
- * How long the installed-dictionary list is reused before it is re-read.
- *
- * A scan is a pointer gesture: without this the list would be fetched once and
- * then never again, so an import or a toggle would not reach a lookup until a
- * reload. With it, the engine notices a changed dictionary set within a few
- * seconds without paying an IPC per scan. `invalidateYomitanEngineCaches` is
- * the immediate path for a caller that knows it just changed the engine.
- */
-const INSTALLED_DICTIONARY_CACHE_MS = 5000;
-
-/** Installed dictionaries, cached (see `INSTALLED_DICTIONARY_CACHE_MS`). */
-let installedCache: readonly InstalledDictionary[] | null = null;
-let installedAt = 0;
-let installedLoad: Promise<readonly InstalledDictionary[]> | null = null;
-
-/**
  * Drop every cached engine-side value.
  *
- * Call after an import, a delete or an enable/disable: the dictionary set, the
- * translator's tag cache and its frequency-mode map are all derived from what is
- * installed, and a stale copy answers lookups from a dictionary the user just
- * switched off.
+ * The installed-dictionary list is cached by the store that owns it
+ * (`dictionary-store`), whose write paths drop it themselves; this drops the
+ * translator alongside it, because the translator's tag cache and frequency-mode
+ * map are keyed to the dictionaries that were installed when it was prepared.
+ *
+ * Call it after anything that changes what the engine holds from OUTSIDE that
+ * store: a delete, an import or an enable/disable that the settings page performed
+ * leaves lookups answering from a dictionary the user just switched off otherwise.
  */
 export function invalidateYomitanEngineCaches(): void {
-  installedCache = null;
-  installedAt = 0;
-  installedLoad = null;
+  invalidateInstalledDictionaries();
   translator = null;
   dictionarySignature = '';
 }
 
-/** Installed dictionaries, read once per change (see the invalidator above). */
-async function readInstalled(): Promise<readonly InstalledDictionary[]> {
-  const fresh = Date.now() - installedAt < INSTALLED_DICTIONARY_CACHE_MS;
-  if (installedCache !== null && fresh) return installedCache;
-  // A read already in flight answers every caller that arrives during it, so a
-  // burst of scans costs one IPC however many lookups it turns into.
-  if (installedLoad === null) {
-    installedLoad = listInstalledDictionaries()
-      .then((list) => {
-        installedCache = list;
-        installedAt = Date.now();
-        return list;
-      })
-      .finally(() => {
-        installedLoad = null;
-      });
-  }
-  return installedLoad;
-}
-
 /**
- * The dictionaries a lookup may answer from, in priority order.
+ * The dictionaries a lookup may answer from, in PRIORITY order.
  *
- * The ENGINE decides what exists and whether it is on (`dictionaries.enabled` —
- * the switch the Modules page writes). The OPTIONS tree decides the per-dictionary
- * behaviour and its order (Yomitan merges top-down in `options.dictionaries`
- * order). A dictionary the engine has enabled but the options tree does not list
- * yet still answers, with defaults: a settings list that lags an import must not
- * silently mute every lookup.
+ * Two sources, and which one decides what:
+ *
+ * - the ENGINE decides what EXISTS and whether it is switched on
+ *   (`dictionaries.enabled` — the switch the Modules page writes),
+ * - the OPTIONS TREE decides the ORDER and the per-dictionary behaviour. Yomitan
+ *   merges definitions top-down in `options.dictionaries` order, so that array —
+ *   the one the settings list reorders — IS the dictionary priority, and the
+ *   `index` handed to the translator is this map's insertion order.
+ *
+ * A dictionary the engine has enabled but the options tree does not list yet (an
+ * import whose settings write has not happened) is appended after the configured
+ * ones with defaults, so a lagging settings list cannot mute a lookup. A stale
+ * options entry for a dictionary the engine no longer has is skipped: the
+ * translator would otherwise be told about a dictionary the database cannot
+ * answer for.
  */
 export async function readEnabledDictionaryMap(
   options: Options = readYomitanOptions(),
 ): Promise<EnabledDictionaryMap> {
   const profile = activeProfile(options);
-  const byName = new Map(
-    (profile.dictionaries ?? []).map((entry) => [entry.name, entry]),
+  const installed = await listInstalledDictionariesCached();
+  const enabledNames = new Set(
+    installed.filter((entry) => entry.enabled).map((entry) => entry.name),
   );
+
   const map: EnabledDictionaryMap = new Map();
-  for (const installed of await readInstalled()) {
-    if (!installed.enabled) continue;
-    const configured = byName.get(installed.name);
-    // An explicit off in the settings tree is a second, independent off switch.
-    if (configured?.enabled === false) continue;
-    map.set(installed.name, {
+  /** Switched off in the settings tree: the append pass below must respect it. */
+  const disabledNames = new Set<string>();
+  for (const configured of profile.dictionaries ?? []) {
+    if (configured.enabled === false) {
+      disabledNames.add(configured.name);
+      continue;
+    }
+    if (!enabledNames.has(configured.name)) continue;
+    map.set(configured.name, {
       index: map.size,
       alias:
-        configured?.alias !== undefined && configured.alias !== ''
+        configured.alias !== undefined && configured.alias !== ''
           ? configured.alias
-          : installed.name,
-      allowSecondarySearches: configured?.allowSecondarySearches === true,
-      partsOfSpeechFilter: configured?.partsOfSpeechFilter !== false,
-      useDeinflections: configured?.useDeinflections !== false,
+          : configured.name,
+      allowSecondarySearches: configured.allowSecondarySearches === true,
+      partsOfSpeechFilter: configured.partsOfSpeechFilter !== false,
+      useDeinflections: configured.useDeinflections !== false,
+    });
+  }
+
+  for (const entry of installed) {
+    if (!entry.enabled || map.has(entry.name)) continue;
+    // Explicitly switched off in the settings tree: appending it here would undo
+    // the user's own off switch.
+    if (disabledNames.has(entry.name)) continue;
+    map.set(entry.name, {
+      index: map.size,
+      alias: entry.name,
+      allowSecondarySearches: false,
+      partsOfSpeechFilter: true,
+      useDeinflections: true,
     });
   }
   return map;
@@ -325,6 +320,26 @@ function toDictionarySummaries(list: readonly InstalledDictionary[]): Dictionary
 }
 
 /**
+ * Keep only the rows the caller may see.
+ *
+ * The engine already filters on its own `enabled` flag, but the translator asks
+ * with the dictionary set `options.dictionaries` resolved to — and it then reads each
+ * returned row's dictionary STRAIGHT out of that map
+ * (`enabledDictionaryMap.get(entry.dictionary)`, whose `partsOfSpeechFilter` it destructures).
+ * A row from a dictionary that is not in the map is therefore not merely unwanted,
+ * it is a crash inside the translator, which is exactly what Yomitan's own
+ * `dictionary-database.js` guards against with the same filter. Two views can disagree for
+ * a moment (a toggle mid-lookup, a stale cached list), so this is the host's
+ * half of that defence.
+ */
+function onlyFrom<T extends { dictionary: string }>(
+  rows: readonly T[],
+  dictionaries: DictionarySet,
+): T[] {
+  return rows.filter((row) => dictionaries.has(row.dictionary));
+}
+
+/**
  * Build the `DictionaryDatabase` the headless translator drives.
  *
  * Stateless: every call goes straight through the bulk IPC, so there is no
@@ -333,7 +348,11 @@ function toDictionarySummaries(list: readonly InstalledDictionary[]): Dictionary
  */
 export function createDictionaryDatabase(): DictionaryDatabase {
   return {
-    findTermsBulk: async (termList: string[], _dictionaries: DictionarySet, matchType: MatchType) => {
+    findTermsBulk: async (
+      termList: string[],
+      dictionaries: DictionarySet,
+      matchType: MatchType,
+    ) => {
       if (termList.length === 0) return [];
       const rows = await yomitanFindTermsBulkDirect({
         terms: termList,
@@ -341,7 +360,9 @@ export function createDictionaryDatabase(): DictionaryDatabase {
       });
       // A bulk match comes from the headword itself, never from a reading-only
       // or sequence match: those are separate queries.
-      return rows.map((row) => toTermEntry(row, matchType, 'term'));
+      return onlyFrom(rows, dictionaries).map((row) =>
+        toTermEntry(row, matchType, 'term'),
+      );
     },
 
     /**
@@ -349,13 +370,16 @@ export function createDictionaryDatabase(): DictionaryDatabase {
      * reading, so the reading half of the pair is applied here — one crossing,
      * then the rows whose reading does not match the requested pair are dropped.
      */
-    findTermsExactBulk: async (termList: TermExactRequest[], _dictionaries: DictionarySet) => {
+    findTermsExactBulk: async (
+      termList: TermExactRequest[],
+      dictionaries: DictionarySet,
+    ) => {
       if (termList.length === 0) return [];
       const rows = await yomitanFindTermsBulkDirect({
         terms: termList.map((item) => item.term),
         matchType: 'exact',
       });
-      return rows
+      return onlyFrom(rows, dictionaries)
         .map((row) => toTermEntry(row, 'exact', 'term'))
         .filter((entry) => {
           const requested = termList[entry.index];
@@ -370,16 +394,22 @@ export function createDictionaryDatabase(): DictionaryDatabase {
      */
     findTermsBySequenceBulk: async () => [],
 
-    findTermMetaBulk: async (termList: string[], _dictionaries: DictionarySet) => {
+    findTermMetaBulk: async (
+      termList: string[],
+      dictionaries: DictionarySet,
+    ) => {
       if (termList.length === 0) return [];
       const rows = await yomitanFindTermMetaBulkDirect({ terms: termList });
-      return rows.map(toTermMeta);
+      return onlyFrom(rows, dictionaries).map(toTermMeta);
     },
 
-    findKanjiBulk: async (kanjiList: string[], _dictionaries: DictionarySet) => {
+    findKanjiBulk: async (
+      kanjiList: string[],
+      dictionaries: DictionarySet,
+    ) => {
       if (kanjiList.length === 0) return [];
       const rows = await yomitanFindKanjiBulkDirect({ characters: kanjiList });
-      return rows.map(toKanjiEntry);
+      return onlyFrom(rows, dictionaries).map(toKanjiEntry);
     },
 
     /**
@@ -409,7 +439,8 @@ export function createDictionaryDatabase(): DictionaryDatabase {
       return tags;
     },
 
-    getDictionaryInfo: async () => toDictionarySummaries(await readInstalled()),
+    getDictionaryInfo: async () =>
+      toDictionarySummaries(await listInstalledDictionariesCached()),
   };
 }
 
@@ -480,8 +511,22 @@ function textReplacementsFor(
 
 /** What a lookup is asked for, beyond the text itself. */
 export interface LookupOptions {
-  /** Whole-word (default) or letter-by-letter resolution. */
+  /**
+   * How a stored headword is compared to the query.
+   *
+   * `exact` (the default) is a whole-word match; `prefix` answers headwords that
+   * START with the scanned text (Yomitan's "Match type prefix" scanning option).
+   * Note: `suffix` is not answered by the engine yet — see `find_terms_bulk`.
+   */
   matchType?: MatchType;
+  /**
+   * How much of the text is looked up at once: one character at a time
+   * (`letter`, the default) or whole words (`word`).
+   *
+   * The scanner passes the scanning section's own resolution here, so the knob the
+   * user sees is the one the translator obeys.
+   */
+  searchResolution?: 'letter' | 'word';
   /** Cap on returned entries (defaults to `general.maxResults`). */
   maxResults?: number;
 }
@@ -513,7 +558,8 @@ export async function lookupTerms(
       sortFrequencyDictionary: profile.general.sortFrequencyDictionary,
       sortFrequencyDictionaryOrder: profile.general.sortFrequencyDictionaryOrder,
       removeNonJapaneseCharacters: !profile.scanning.alphanumeric,
-      searchResolution: profile.translation.searchResolution,
+      searchResolution:
+        options.searchResolution ?? profile.translation.searchResolution,
       textReplacements: textReplacementsFor(profile),
       enabledDictionaryMap: map,
       excludeDictionaryDefinitions: null,

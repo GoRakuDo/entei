@@ -441,9 +441,6 @@ export const id: Dictionary = {
         'Berapa lama penunjuk berhenti sebelum pencarian dijalankan.',
       length: 'Panjang pemindaian (karakter)',
       lengthDescription: 'Berapa karakter dari penunjuk yang dicari.',
-      autoHideResults: 'Sembunyikan hasil otomatis',
-      autoHideResultsDescription:
-        'Sembunyikan hasil saat penunjuk meninggalkan teks.',
       scanResolution: 'Resolusi pemindaian',
       scanResolutionDescription: 'Cari per karakter, atau per kata.',
       alphanumeric: 'Pindai karakter alfanumerik',

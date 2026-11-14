@@ -498,8 +498,6 @@ export interface Dictionary {
       delayDescription: string;
       length: string;
       lengthDescription: string;
-      autoHideResults: string;
-      autoHideResultsDescription: string;
       scanResolution: string;
       scanResolutionDescription: string;
       alphanumeric: string;

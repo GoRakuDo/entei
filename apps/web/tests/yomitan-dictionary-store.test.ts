@@ -17,7 +17,9 @@ import {
   deleteDictionary,
   frequencyDictionaryNames,
   importDictionaryFromPath,
+  invalidateInstalledDictionaries,
   listInstalledDictionaries,
+  listInstalledDictionariesCached,
   orderDictionaryOptions,
   readDictionaryStorageUsage,
   removeDictionaryOption,
@@ -260,5 +262,63 @@ describe('storage measurement outside the desktop app', () => {
       quota: 8192,
     });
     expect(estimate).toHaveBeenCalled();
+  });
+});
+
+describe('dictionary store — the lookup-side cache', () => {
+  /* The cache is module state shared with the rest of the file, so each of these
+     tests starts from a cold read — exactly what a fresh app start does. */
+  beforeEach(() => {
+    invalidateInstalledDictionaries();
+  });
+
+  function countListCalls(calls: InvokeArgs[]): number {
+    return calls.filter(
+      (call) => call.command === 'plugin:modules|yomitan_list_dictionaries',
+    ).length;
+  }
+
+  it('answers a burst of reads with one IPC, until the window lapses', async () => {
+    const calls = installTauri((command) =>
+      command === 'plugin:modules|yomitan_list_dictionaries' ? [SUMMARY] : undefined,
+    );
+    const first = await listInstalledDictionariesCached();
+    const second = await listInstalledDictionariesCached();
+    expect(first.map((entry) => entry.name)).toEqual(['JMdict']);
+    expect(second.map((entry) => entry.name)).toEqual(['JMdict']);
+    expect(countListCalls(calls)).toBe(1);
+
+    invalidateInstalledDictionaries();
+    await listInstalledDictionariesCached();
+    expect(countListCalls(calls)).toBe(2);
+  });
+
+  it('re-reads the engine after a toggle, an import or a delete', async () => {
+    const calls = installTauri((command) =>
+      command === 'plugin:modules|yomitan_list_dictionaries' ? [SUMMARY] : SUMMARY,
+    );
+
+    await listInstalledDictionariesCached();
+    expect(countListCalls(calls)).toBe(1);
+
+    await toggleDictionary(SUMMARY.id, false);
+    await listInstalledDictionariesCached();
+    expect(countListCalls(calls)).toBe(2);
+
+    await importDictionaryFromPath('C:/dicts/jmdict.zip');
+    await listInstalledDictionariesCached();
+    expect(countListCalls(calls)).toBe(3);
+
+    await deleteDictionary(SUMMARY.id);
+    await listInstalledDictionariesCached();
+    expect(countListCalls(calls)).toBe(4);
+  });
+
+  it('still reports an unavailable engine as a rejection, not as an empty list', async () => {
+    // A browser pass has no engine: the read must fail loudly so the settings
+    // page can say so, instead of drawing "no dictionaries installed".
+    installTauri(() => undefined);
+    invalidateInstalledDictionaries();
+    await expect(listInstalledDictionariesCached()).rejects.toThrow();
   });
 });

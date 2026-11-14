@@ -436,8 +436,6 @@ export const ja: Dictionary = {
       delayDescription: 'ポインターが止まってから検索するまでの待ち時間です。',
       length: 'スキャン文字数',
       lengthDescription: 'ポインター位置から何文字まで検索するか指定します。',
-      autoHideResults: '結果を自動的に隠す',
-      autoHideResultsDescription: 'ポインターがテキストから離れたら結果を隠します。',
       scanResolution: 'スキャン単位',
       scanResolutionDescription: '文字単位で検索するか、単語単位で検索するかを選びます。',
       alphanumeric: '英数字もスキャンする',

@@ -76,12 +76,7 @@
               "labelKey": "length",
               "descriptionKey": "lengthDescription"
             },
-            {
-              "layout": "field",
-              "field": "scanning.autoHideResults",
-              "labelKey": "autoHideResults",
-              "descriptionKey": "autoHideResultsDescription"
-            },
+
             {
               "layout": "field",
               "field": "scanning.scanResolution",

@@ -444,8 +444,6 @@ export const en: Dictionary = {
         'How long the pointer rests before the lookup runs.',
       length: 'Scan length (characters)',
       lengthDescription: 'How many characters from the pointer are looked up.',
-      autoHideResults: 'Auto-hide results',
-      autoHideResultsDescription: 'Hide the result when the pointer leaves the text.',
       scanResolution: 'Scan resolution',
       scanResolutionDescription: 'Look up single characters, or whole words.',
       alphanumeric: 'Scan alphanumeric characters',

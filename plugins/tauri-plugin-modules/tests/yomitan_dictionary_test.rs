@@ -826,3 +826,44 @@ fn bulk_tag_lookup_is_positional_and_scoped_to_one_dictionary() {
     assert_eq!(tags[1].category, "frequency");
     assert_eq!(tags[1].score, 100);
 }
+
+#[test]
+fn tag_lookup_is_answered_through_an_index_not_a_table_scan() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    import(&conn, build_dictionary_zip());
+
+    // `find_tags_bulk` filters on `tags.name`, which the dictionary_id index
+    // cannot serve: without an index of its own SQLite reads the whole (in a real
+    // tag bank, 100k-row) table per lookup batch.
+    let mut statement = conn
+        .prepare("EXPLAIN QUERY PLAN SELECT tags.name FROM tags WHERE tags.name = 'v1'")
+        .expect("explain tag lookup");
+    let plan: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(3))
+        .expect("plan rows")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("plan rows");
+    assert!(
+        plan.iter().all(|detail| !detail.contains("SCAN tags")),
+        "the tag lookup must not scan the table: {plan:?}"
+    );
+    assert!(
+        plan.iter().any(|detail| detail.contains("idx_tags_name")),
+        "the name index is the one used: {plan:?}"
+    );
+
+    // And the lookup itself still answers positionally, by name and dictionary.
+    let tags = yomitan::find_tags_bulk(
+        &conn,
+        &[
+            yomitan::TagQuery {
+                query: "v1".to_string(),
+                dictionary: "Test Dictionary".to_string(),
+            },
+        ],
+    )
+    .expect("bulk tag lookup");
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, "v1");
+    assert_eq!(tags[0].index, 0);
+}

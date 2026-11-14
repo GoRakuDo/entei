@@ -37,6 +37,11 @@ const SHIFT_HOVER: ScanSettings = {
   middleMouse: false,
   delay: 0,
   length: 16,
+  matchTypePrefix: false,
+  scanResolution: 'character',
+  scanWithoutMousemove: false,
+  selectText: false,
+  layoutAwareScan: false,
 };
 
 const RESTING = {
@@ -175,5 +180,29 @@ describe('readScanSettings — persisted scanning values', () => {
     expect(
       (readOptionPath(off, 'scanning.inputs') as { include: string }[])[0]?.include,
     ).toBe('shift');
+  });
+});
+describe('readScanSettings — the behaviour knobs', () => {
+  it('reads the match type, resolution and highlight flags', () => {
+    const base = createDefaultOptions();
+    expect(readScanSettings(base).matchTypePrefix).toBe(false);
+    expect(readScanSettings(base).scanResolution).toBe('character');
+    expect(readScanSettings(base).selectText).toBe(true);
+    expect(readScanSettings(base).layoutAwareScan).toBe(true);
+    expect(readScanSettings(base).scanWithoutMousemove).toBe(true);
+
+    const changed = writeOptionPath(
+      writeOptionPath(
+        writeOptionPath(base, 'scanning.matchTypePrefix', true),
+        'scanning.scanResolution',
+        'word',
+      ),
+      'scanning.selectText',
+      false,
+    );
+    const settings = readScanSettings(changed);
+    expect(settings.matchTypePrefix).toBe(true);
+    expect(settings.scanResolution).toBe('word');
+    expect(settings.selectText).toBe(false);
   });
 });

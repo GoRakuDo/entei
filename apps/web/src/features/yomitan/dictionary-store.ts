@@ -95,6 +95,60 @@ export async function listInstalledDictionaries(): Promise<InstalledDictionary[]
 }
 
 /**
+ * How long one cached read answers before the engine is asked again.
+ *
+ * Lookups are a pointer gesture: without a cache the settings page and every
+ * scan would each cross the IPC boundary, and with an unbounded one an import or
+ * a toggle would not reach a lookup until a reload. Every WRITE path below drops
+ * the cache, so a change is visible to the very next read; this window only
+ * covers a change made by someone else (another window, the engine itself).
+ */
+const INSTALLED_CACHE_MS = 5000;
+
+let installedCache: readonly InstalledDictionary[] | null = null;
+let installedAt = 0;
+let installedLoad: Promise<readonly InstalledDictionary[]> | null = null;
+
+/**
+ * Every imported dictionary, briefly cached — the read a lookup performs.
+ *
+ * Concurrent callers share one in-flight read, so a burst of scans costs a single
+ * IPC however many lookups it turns into.
+ */
+export async function listInstalledDictionariesCached(): Promise<
+  readonly InstalledDictionary[]
+> {
+  const fresh = Date.now() - installedAt < INSTALLED_CACHE_MS;
+  if (installedCache !== null && fresh) return installedCache;
+  if (installedLoad === null) {
+    installedLoad = listInstalledDictionaries()
+      .then((list) => {
+        installedCache = list;
+        installedAt = Date.now();
+        return list;
+      })
+      .finally(() => {
+        installedLoad = null;
+      });
+  }
+  return installedLoad;
+}
+
+/**
+ * Drop the cached dictionary list.
+ *
+ * Called by every write below (import, enable/disable, delete) and by anything
+ * else that changes what the engine holds: the cached list decides which
+ * dictionaries a lookup may answer from, so a stale copy is a lookup that
+ * ignores what the user just did.
+ */
+export function invalidateInstalledDictionaries(): void {
+  installedCache = null;
+  installedAt = 0;
+  installedLoad = null;
+}
+
+/**
  * Import one dictionary archive from an absolute path.
  *
  * A path, not bytes: the engine streams the ZIP off disk, so a huge dictionary
@@ -104,17 +158,26 @@ export async function listInstalledDictionaries(): Promise<InstalledDictionary[]
 export async function importDictionaryFromPath(
   zipPath: string,
 ): Promise<InstalledDictionary> {
-  return toInstalledDictionary(await yomitanImportDictionaryDirect({ zipPath }));
+  const imported = toInstalledDictionary(
+    await yomitanImportDictionaryDirect({ zipPath }),
+  );
+  invalidateInstalledDictionaries();
+  return imported;
 }
 
 /** Enable/disable one dictionary for lookups (engine side of the toggle). */
-export function toggleDictionary(id: string, enabled: boolean): Promise<void> {
-  return yomitanToggleDictionaryDirect({ id, enabled });
+export async function toggleDictionary(
+  id: string,
+  enabled: boolean,
+): Promise<void> {
+  await yomitanToggleDictionaryDirect({ id, enabled });
+  invalidateInstalledDictionaries();
 }
 
 /** Delete one dictionary and every bank row it owns (engine side). */
-export function deleteDictionary(id: string): Promise<void> {
-  return yomitanDeleteDictionaryDirect({ id });
+export async function deleteDictionary(id: string): Promise<void> {
+  await yomitanDeleteDictionaryDirect({ id });
+  invalidateInstalledDictionaries();
 }
 
 /**
