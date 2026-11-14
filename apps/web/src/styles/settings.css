@@ -693,6 +693,30 @@ body[data-page='settings'] .entei-main {
   padding: var(--entei-space-8) var(--entei-space-12);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-md);
+  transition:
+    opacity var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* The row being deleted — immediate visual feedback so the user never double-clicks */
+.entei-module-list-row--removing {
+  opacity: 0.45;
+  pointer-events: none;
+  border-color: var(--entei-status-locked);
+}
+
+.entei-module-list-spinner {
+  animation: entei-spin 1s linear infinite;
+  color: var(--entei-status-locked);
+}
+
+@keyframes entei-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* The row being dragged — the only visual cue that the pointer owns it. */

@@ -49,7 +49,7 @@
  */
 
 import { useCallback, useId, useRef, useState } from 'react';
-import { FileArchive, GripVertical, Trash2, type LucideIcon } from 'lucide-react';
+import { FileArchive, GripVertical, Loader2, Trash2, type LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { SettingsButton } from '@/components/settings/SettingsButton';
 import { Switch } from '@/components/player/ui/switch';
@@ -180,7 +180,27 @@ export function ModuleListManager({
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [moved, setMoved] = useState('');
+  const [removingKeys, setRemovingKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const pointerId = useRef<number | null>(null);
+
+  const handleRemove = useCallback(
+    async (key: string) => {
+      if (removingKeys.has(key) || onRemove === undefined) return;
+      setRemovingKeys((prev) => new Set([...prev, key]));
+      try {
+        await onRemove(key);
+      } finally {
+        setRemovingKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [removingKeys, onRemove],
+  );
 
   const runImport = useCallback(
     async (work: () => void | Promise<void>) => {
@@ -369,101 +389,117 @@ export function ModuleListManager({
               </div>
             </li>
           )}
-          {rows.map((row, index) => (
-            <li
-              className={
-                dragFrom === index
-                  ? 'entei-module-list-row entei-module-list-row--dragging'
-                  : 'entei-module-list-row'
-              }
-              key={row.key}
-              data-list-row={index}
-            >
-              {onReorder !== undefined && (
-                <button
-                  type="button"
-                  className="entei-module-list-handle"
-                  aria-label={`${copy.reorder}: ${row.name} (${index + 1}/${rows.length})`}
-                  aria-describedby={hintId}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    pointerId.current = event.pointerId;
-                    setDragFrom(index);
-                    setDragOver(index);
-                  }}
-                  onPointerMove={(event) => {
-                    if (pointerId.current !== event.pointerId) return;
-                    if (dragFrom === null || dragOver === null) return;
-                    const target =
-                      document
-                        .elementFromPoint(event.clientX, event.clientY)
-                        ?.closest('[data-list-row]')
-                        ?.getAttribute('data-list-row') ?? null;
-                    const to = target === null ? NaN : Number(target);
-                    if (!Number.isInteger(to) || to === dragFrom) return;
-                    move(dragFrom, to);
-                    setDragFrom(to);
-                    setDragOver(to);
-                  }}
-                  onPointerUp={(event) => {
-                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                      event.currentTarget.releasePointerCapture(event.pointerId);
-                    }
-                    pointerId.current = null;
-                    setDragFrom(null);
-                    setDragOver(null);
-                  }}
-                  onPointerCancel={() => {
-                    pointerId.current = null;
-                    setDragFrom(null);
-                    setDragOver(null);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'ArrowUp') {
-                      event.preventDefault();
-                      move(index, index - 1);
-                      return;
-                    }
-                    if (event.key === 'ArrowDown') {
-                      event.preventDefault();
-                      move(index, index + 1);
-                    }
-                  }}
-                >
-                  <GripVertical size={16} aria-hidden="true" />
-                </button>
-              )}
-              <div className="entei-module-list-row-text">
-                <span className="entei-module-list-row-name" title={row.name}>
-                  {row.name}
-                </span>
-                {row.meta !== undefined && row.meta !== '' && (
-                  <span className="entei-module-list-row-meta">{row.meta}</span>
-                )}
-              </div>
-              <div className="entei-module-list-row-actions">
-                {onToggle !== undefined && (
-                  <Switch
-                    checked={row.enabled}
-                    onCheckedChange={(checked) => onToggle(row.key, checked)}
-                    aria-label={`${copy.enable}: ${row.name}`}
-                  />
-                )}
-                {onRemove !== undefined && (
+          {rows.map((row, index) => {
+            const isRemoving = removingKeys.has(row.key);
+            return (
+              <li
+                className={
+                  isRemoving
+                    ? 'entei-module-list-row entei-module-list-row--removing'
+                    : dragFrom === index
+                      ? 'entei-module-list-row entei-module-list-row--dragging'
+                      : 'entei-module-list-row'
+                }
+                key={row.key}
+                data-list-row={index}
+              >
+                {onReorder !== undefined && (
                   <button
                     type="button"
-                    className="entei-module-list-remove"
-                    aria-label={`${copy.remove}: ${row.name}`}
-                    title={copy.remove}
-                    onClick={() => void onRemove(row.key)}
+                    className="entei-module-list-handle"
+                    aria-label={`${copy.reorder}: ${row.name} (${index + 1}/${rows.length})`}
+                    aria-describedby={hintId}
+                    disabled={isRemoving}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      pointerId.current = event.pointerId;
+                      setDragFrom(index);
+                      setDragOver(index);
+                    }}
+                    onPointerMove={(event) => {
+                      if (pointerId.current !== event.pointerId) return;
+                      if (dragFrom === null || dragOver === null) return;
+                      const target =
+                        document
+                          .elementFromPoint(event.clientX, event.clientY)
+                          ?.closest('[data-list-row]')
+                          ?.getAttribute('data-list-row') ?? null;
+                      const to = target === null ? NaN : Number(target);
+                      if (!Number.isInteger(to) || to === dragFrom) return;
+                      move(dragFrom, to);
+                      setDragFrom(to);
+                      setDragOver(to);
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }
+                      pointerId.current = null;
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
+                    onPointerCancel={() => {
+                      pointerId.current = null;
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        move(index, index - 1);
+                        return;
+                      }
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        move(index, index + 1);
+                      }
+                    }}
                   >
-                    <Trash2 size={16} aria-hidden="true" />
+                    <GripVertical size={16} aria-hidden="true" />
                   </button>
                 )}
-              </div>
-            </li>
-          ))}
+                <div className="entei-module-list-row-text">
+                  <span className="entei-module-list-row-name" title={row.name}>
+                    {row.name}
+                  </span>
+                  {row.meta !== undefined && row.meta !== '' && (
+                    <span className="entei-module-list-row-meta">{row.meta}</span>
+                  )}
+                </div>
+                <div className="entei-module-list-row-actions">
+                  {onToggle !== undefined && (
+                    <Switch
+                      checked={row.enabled}
+                      disabled={isRemoving}
+                      onCheckedChange={(checked) => onToggle(row.key, checked)}
+                      aria-label={`${copy.enable}: ${row.name}`}
+                    />
+                  )}
+                  {onRemove !== undefined && (
+                    <button
+                      type="button"
+                      className="entei-module-list-remove"
+                      aria-label={`${copy.remove}: ${row.name}`}
+                      title={copy.remove}
+                      disabled={isRemoving}
+                      onClick={() => void handleRemove(row.key)}
+                    >
+                      {isRemoving ? (
+                        <Loader2
+                          size={16}
+                          className="entei-module-list-spinner"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Trash2 size={16} aria-hidden="true" />
+                      )}
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
