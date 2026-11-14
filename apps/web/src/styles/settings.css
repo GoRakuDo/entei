@@ -890,6 +890,84 @@ body[data-page='settings'] .entei-main {
   }
 }
 
+/* ==========================================================================
+   SCAN INPUT CARDS (the `inputs` layout)
+   ===========================================================================
+   The other array layout: CRUD over a list of INPUT DEFINITIONS instead of
+   installed items. The block shell (header row + toolbar, empty sentence) is
+   .entei-module-list's — it is the standard full-width block, not a dictionary
+   list — and each entry is a bordered CARD of the platform's own field rows, so
+   a card reads exactly like the settings above and below it. Generic by
+   contract: no module name appears here.
+   ========================================================================== */
+
+.entei-scan-input-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One card per input definition: a hairline frame, like a list row but tall
+   enough to hold rows of its own. The 16px padding is the card's inner gutter
+   and the 16px gap separates its rows, so nothing inside needs a margin. */
+.entei-scan-input-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-16);
+  padding: var(--entei-space-16);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+}
+
+/* Card head: which input this is, and the delete that belongs to it (top right,
+   where every other block puts its row action). */
+.entei-scan-input-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+}
+
+/* System font, like every other short status label (the pixel face is reserved
+   for those); tabular so 1 and 10 do not shift the row. */
+.entei-scan-input-card-index {
+  font-family: var(--entei-font-system);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  color: var(--entei-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A required/excluded row: the token field plus the record button beside it. The
+   row itself is the standard field row (label left, control right), so only the
+   pairing is new. */
+.entei-scan-input-field {
+  align-items: center;
+  gap: var(--entei-space-8);
+  width: 100%;
+}
+
+/* The record button waits for input: gold, like every other "the system is
+   armed" accent, so the row it belongs to is unmistakable while it listens.
+   It never shrinks — the field beside it is the flexible one — so it keeps its
+   full touch width at every viewport. */
+.entei-scan-input-record {
+  flex: 0 0 var(--entei-touch-min);
+}
+
+.entei-scan-input-record[aria-pressed='true'] {
+  color: var(--entei-status-locked);
+}
+
+/* A card's choices are controls, not toolbar chrome: same touch height as the
+   switches, selects and inputs around them. */
+.entei-scan-input-card [data-slot='toggle-group-item'] {
+  min-height: var(--entei-touch-min);
+}
+
 /* Desktop: label left, control right on one line. */
 @media (min-width: 768px) {
   .entei-module-field {

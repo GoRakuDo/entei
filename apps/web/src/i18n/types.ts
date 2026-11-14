@@ -480,8 +480,8 @@ export interface Dictionary {
     };
     /**
      * Copy of the `scanning` group — the rows the manifest lays out for the
-     * Scanning section, including the two host-declared virtual fields (the scan
-     * modifier and the middle-mouse trigger) and the modifier choice labels.
+     * Scanning section: the host-declared virtual scan modifier, the `inputs`
+     * layout's cards, and the section's own behaviour rows.
      */
     scanning: {
       modifierKey: string;
@@ -492,24 +492,56 @@ export interface Dictionary {
       modifierAlt: string;
       modifierCtrl: string;
       modifierMeta: string;
-      middleMouse: string;
-      middleMouseDescription: string;
+      /** `inputs` layout — block title. */
+      advancedInputs: string;
+      /** `inputs` layout — sentence under the block title. */
+      advancedInputsDescription: string;
+      /** `inputs` layout — card count, as `{count} defined`. */
+      advancedInputsCount: string;
+      /** `inputs` layout — add-a-card button label. */
+      addKey: string;
+      /** `inputs` layout — required-inputs row label. */
+      requiredInputs: string;
+      /** `inputs` layout — excluded-inputs row label. */
+      excludedInputs: string;
+      /** `inputs` layout — placeholder of an empty required/excluded field. */
+      noInputs: string;
+      /** `inputs` layout — pointer-type row label. */
+      inputTypes: string;
+      /** `inputs` layout — pointer-type choices (mouse / touch / pen). */
+      mouse: string;
+      touch: string;
+      pen: string;
+      /** `inputs` layout — trigger row label (touch and pen cards only). */
+      scanOn: string;
+      press: string;
+      release: string;
+      /** `inputs` layout — prevent-scrolling switch (touch and pen only). */
+      preventScrolling: string;
+      /** `inputs` layout — minimum-touch-time row (touch and pen only). */
+      minimumTouchTime: string;
+      /** `inputs` layout — accessible name of a token field's record button. */
+      captureInput: string;
+      /** `inputs` layout — record button label while it waits for input. */
+      captureListening: string;
+      /** `inputs` layout — accessible name prefix of a card's delete button. */
+      removeInput: string;
+      /** `inputs` layout — sentence shown while no card exists. */
+      inputsEmpty: string;
       delay: string;
       delayDescription: string;
       length: string;
       lengthDescription: string;
-      scanResolution: string;
-      scanResolutionDescription: string;
-      alphanumeric: string;
-      alphanumericDescription: string;
-      selectText: string;
-      selectTextDescription: string;
-      layoutAwareScan: string;
-      layoutAwareScanDescription: string;
       scanWithoutMousemove: string;
       scanWithoutMousemoveDescription: string;
-      matchTypePrefix: string;
-      matchTypePrefixDescription: string;
+      selectText: string;
+      selectTextDescription: string;
+      deepDomScan: string;
+      deepDomScanDescription: string;
+      normalizeCssZoom: string;
+      normalizeCssZoomDescription: string;
+      wildcardScanning: string;
+      wildcardScanningDescription: string;
     };
   };
   /** Dedicated /settings/ page (sidebar nav + drill-down). */

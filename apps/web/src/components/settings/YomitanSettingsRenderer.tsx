@@ -19,18 +19,19 @@
  * MANIFEST-DECLARED SECTIONS: a section whose real editor is not a plain field
  * list (Yomitan's Dictionaries: an installed-item list plus host-only rows) is
  * declared by the manifest as a `sectionLayouts` entry — an ordered list of ROWS,
- * each naming one of the app's standard layouts (`list`, `field`, `usage`), the
- * field it edits, the host-owned DATA SOURCE behind it, and the copy keys of its
- * labels. This renderer resolves those rows against the descriptor tree and the
- * host source registry (`components/settings/module-data-sources`); it never
- * names a module or a field itself. A field laid out this way is claimed: it is
- * not drawn a second time in its tree group.
+ * each naming one of the app's standard layouts (`list`, `field`, `usage`,
+ * `inputs`), the field it edits, the host-owned DATA SOURCE behind it, and the
+ * copy keys of its labels. This renderer resolves those rows against the
+ * descriptor tree and the host source registry
+ * (`components/settings/module-data-sources`); it never names a module or a
+ * field itself. A field laid out this way is claimed: it is not drawn a second
+ * time in its tree group.
  *
- * `array` / `section-header` fields are not editable here: they are structural
- * placeholders in the tree (Anki card formats, profile management) whose editors
- * need their own CRUD surface, so they render as a read-only note — unless a
- * manifest declares a layout for them, which is exactly how the dictionary list
- * gets its editor.
+ * `array` / `section-header` fields are not editable as a plain row: they are
+ * structural placeholders in the tree (Anki card formats, profile management)
+ * whose editors need their own CRUD surface, so they render as a read-only note
+ * — unless a manifest declares a `list` or `inputs` layout for them, which is
+ * exactly how the dictionary list and the scan-input cards get their editors.
  *
  * Fields the HOST owns (`LOCKED_OPTION_PATHS` — master switch, lookup language,
  * the Chrome onboarding guide, the advanced/debug toggles) are skipped entirely,
@@ -82,7 +83,9 @@ import type {
   EnteiModuleSectionLayout,
 } from '@/features/modules/module-registry';
 import { ModuleFieldRow } from '@/components/settings/ModuleFieldRow';
-import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
+import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
+import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
+import type { ScanningInputManagerCopy } from '@/components/settings/ScanningInputManager';
 import { resolveModuleDataSource } from '@/components/settings/module-data-sources';
 import {
   isLockedOptionPath,
@@ -549,6 +552,35 @@ function ModuleLayoutRow({
     );
   }
 
+  /* `inputs` — the other array layout: CRUD over a list of input DEFINITIONS,
+     each drawn as a card of standard rows. Same contract as `list` (the host
+     source owns the editor, the manifest names its data and copy), because the
+     array's item shape is the module's own. */
+  if (row.layout === 'inputs') {
+    const InputsEditor = source?.inputs;
+    if (InputsEditor === undefined) {
+      return (
+        <ModuleFieldRow
+          field={field}
+          label={rowLabel}
+          description={rowDescription}
+          value={undefined}
+          onChange={() => {}}
+          notEditable={labels.notEditable}
+        />
+      );
+    }
+    return (
+      <InputsEditor
+        options={options}
+        onChange={onOptionsChange}
+        title={rowLabel}
+        description={rowDescription}
+        copy={resolveInputsCopy(copy, copyPath)}
+      />
+    );
+  }
+
   return (
     <BoundFieldRow
       row={row}
@@ -585,6 +617,39 @@ function resolveListCopy(
     loadFailed: pick('loadFailed'),
     reorder: pick('reorder'),
     reorderHint: pick('reorderHint'),
+  };
+}
+
+/**
+ * The `inputs` layout's fixed copy contract — resolved once, like the `list`
+ * layout's, so a manifest declares the layout and the strings stay in the
+ * locales.
+ */
+function resolveInputsCopy(
+  copy: ModuleCopyTable,
+  copyPath: string | undefined,
+): ScanningInputManagerCopy {
+  const pick = (key: string): string =>
+    resolveCopy(copy, copyPath, key) ?? '';
+  return {
+    add: pick('addKey'),
+    count: pick('advancedInputsCount'),
+    required: pick('requiredInputs'),
+    excluded: pick('excludedInputs'),
+    noInputs: pick('noInputs'),
+    inputTypes: pick('inputTypes'),
+    mouse: pick('mouse'),
+    touch: pick('touch'),
+    pen: pick('pen'),
+    scanOn: pick('scanOn'),
+    press: pick('press'),
+    release: pick('release'),
+    preventScrolling: pick('preventScrolling'),
+    minimumTouchTime: pick('minimumTouchTime'),
+    capture: pick('captureInput'),
+    listening: pick('captureListening'),
+    remove: pick('removeInput'),
+    empty: pick('inputsEmpty'),
   };
 }
 

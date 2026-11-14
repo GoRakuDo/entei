@@ -12,7 +12,10 @@
  * - LOCATE: `caretRangeFromPoint` turns the pointer position into a text node +
  *   offset, and up to `scanning.length` characters are taken from there — the
  *   same forward-only window Yomitan scans. Text covered by something else is
- *   skipped (`scanning.layoutAwareScan`).
+ *   skipped (`scanning.layoutAwareScan`), and text inside an open shadow root is
+ *   only reachable when `scanning.deepDomScan` is on (the browser's hit test
+ *   answers with the shadow HOST, so without it a web component's own text looks
+ *   covered).
  * - LOOK UP: `features/yomitan/yomitan-engine` (deinflection + dictionary
  *   merge), with the scanning section's own match type
  *   (`scanning.matchTypePrefix`) and resolution (`scanning.scanResolution`).
@@ -87,6 +90,18 @@ export interface ScanSettings {
   selectText: boolean;
   /** Skip text that is covered by something else at that point. */
   layoutAwareScan: boolean;
+  /**
+   * Look through open shadow roots: Yomitan's `scanning.deepDomScan`.
+   *
+   * The host's meaning of the option is exactly that, and no more: a component's
+   * text is drawn by the page but hit-tested as its HOST, so with the option off
+   * the layout-aware gate above rejects it. Same-origin iframes are a separate
+   * tree with a separate document and stay out of scope.
+   * Note: `scanning.normalizeCssZoom` has no counterpart here — the host asks the
+   * browser for the caret at viewport coordinates, so there is no second,
+   * zoom-drifted space to correct.
+   */
+  deepContentScan: boolean;
 }
 
 /**
@@ -113,6 +128,7 @@ export function readScanSettings(
     scanWithoutMousemove: read('scanning.scanWithoutMousemove') === true,
     selectText: read('scanning.selectText') === true,
     layoutAwareScan: read('scanning.layoutAwareScan') !== false,
+    deepContentScan: read('scanning.deepDomScan') === true,
   };
 }
 
@@ -349,6 +365,37 @@ export function selectScanWindow(
  * Layout-aware scan (skip text that is covered)
  * ------------------------------------------------------------------------- */
 
+/** Anything the browser can hit-test at a point (a document or a shadow root). */
+interface PointHitTester {
+  elementFromPoint(x: number, y: number): Element | null;
+}
+
+/**
+ * The element that would receive the click at `(x, y)`.
+ *
+ * `elementFromPoint` stops at a shadow HOST: asked about a point inside an open
+ * shadow tree it answers with the host element, never with the text's own
+ * element. A deep scan therefore asks the ROOT as well, walking down for as long
+ * as the answer keeps carrying a shadow root — which is the only way to see
+ * through nested components.
+ */
+function topmostElementAt(
+  root: PointHitTester,
+  x: number,
+  y: number,
+  deep: boolean,
+): Element | null {
+  let hit = root.elementFromPoint(x, y);
+  while (deep && hit !== null) {
+    const inner = hit.shadowRoot;
+    if (inner === null || inner === undefined) break;
+    const nested = inner.elementFromPoint(x, y);
+    if (nested === null || nested === hit) break;
+    hit = nested;
+  }
+  return hit;
+}
+
 /**
  * Whether the scanned text is actually the topmost thing at that point.
  *
@@ -358,13 +405,21 @@ export function selectScanWindow(
  * the browser's own hit test — `elementFromPoint` returns the deepest element
  * that would receive the click, so a text node outside it is covered.
  *
+ * `deep` is `scanning.deepDomScan`: with it off, text inside an open shadow root
+ * is reported as covered, because the hit test can only name the host.
+ *
  * Fails OPEN: a hit test that answers nothing (a detached node, a test DOM) is not
  * evidence of covering.
  */
-export function isTopmostTextAt(node: Text, x: number, y: number): boolean {
+export function isTopmostTextAt(
+  node: Text,
+  x: number,
+  y: number,
+  deep = false,
+): boolean {
   const document = globalThis.document;
   if (typeof document?.elementFromPoint !== 'function') return true;
-  const hit = document.elementFromPoint(x, y);
+  const hit = topmostElementAt(document, x, y, deep);
   if (hit === null) return true;
   const owner = node.parentElement;
   if (owner === null) return true;
@@ -477,7 +532,12 @@ export async function scanAt(
   const point = caretPointAt(x, y);
   if (point === null) return null;
   // Layout-aware: text that is covered is not what the pointer is on.
-  if (settings.layoutAwareScan && !isTopmostTextAt(point.node, x, y)) return null;
+  if (
+    settings.layoutAwareScan &&
+    !isTopmostTextAt(point.node, x, y, settings.deepContentScan)
+  ) {
+    return null;
+  }
   const windowed = scanWindowAt(point.node, point.offset, settings.length);
   if (windowed === null) return null;
 

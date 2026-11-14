@@ -140,30 +140,29 @@ describe('module-registry — core manifests', () => {
       },
     );
 
-    /* The Scanning section is laid out too. Its first two rows are the
-       HOST-DECLARED VIRTUAL FIELDS: a scan modifier lives inside Yomitan's
-       `scanning.inputs[]` array, so neither it nor the middle-mouse trigger is a
-       tree field of its own — the row declares its control instead. */
+    /* The Scanning section is laid out too. Its first row is a HOST-DECLARED
+       VIRTUAL FIELD (a scan modifier lives inside Yomitan's `scanning.inputs[]`
+       array, so it is not a tree field of its own — the row declares its
+       control), and its second is the `inputs` layout that edits that very
+       array, one card per definition. */
     const scanning = yomitan?.sectionLayouts?.[1];
     expect(scanning?.section).toBe('scanning');
     expect(scanning?.copy).toBe('scanning');
-    expect(scanning?.rows.slice(0, 2)).toEqual([
-      {
-        layout: 'field',
-        field: 'scanning.modifierKey',
-        type: 'select',
-        optionsSource: 'yomitan-scan-modifier-keys',
-        labelKey: 'modifierKey',
-        descriptionKey: 'modifierKeyDescription',
-      },
-      {
-        layout: 'field',
-        field: 'scanning.middleMouse',
-        type: 'boolean',
-        labelKey: 'middleMouse',
-        descriptionKey: 'middleMouseDescription',
-      },
-    ]);
+    expect(scanning?.rows[0]).toEqual({
+      layout: 'field',
+      field: 'scanning.modifierKey',
+      type: 'select',
+      optionsSource: 'yomitan-scan-modifier-keys',
+      labelKey: 'modifierKey',
+      descriptionKey: 'modifierKeyDescription',
+    });
+    expect(scanning?.rows[1]).toEqual({
+      layout: 'inputs',
+      field: 'scanning.inputs',
+      source: 'yomitan-scan-inputs',
+      labelKey: 'advancedInputs',
+      descriptionKey: 'advancedInputsDescription',
+    });
     // Every other row is a plain field row with copy of its own.
     for (const row of scanning?.rows.slice(2) ?? []) {
       expect(row.layout).toBe('field');

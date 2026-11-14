@@ -10,8 +10,9 @@
  * - expanding a section shows only the editable, non-locked fields
  * - a section the manifest lays out (`sectionLayouts`) draws the declared rows
  *   through the app's standard layouts: the installed-item list with its own
- *   header (its import action belongs to the desktop dictionary engine), plain
- *   field rows, and the host-measured usage row
+ *   header (its import action belongs to the desktop dictionary engine), the
+ *   scan-input cards of the `inputs` layout, plain field rows, and the
+ *   host-measured usage row
  * - a field laid out that way is claimed: it is not drawn twice in its own tree
  *   group
  * - nothing is hard-coded per module: a `list` row with an unknown `source`
@@ -19,7 +20,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { yomitanSettingsTree } from '@gorakudo/yomitan-headless/settings';
 import { YomitanSettingsRenderer } from '@/components/settings/YomitanSettingsRenderer';
 import { CORE_MODULES } from '@/features/modules/module-registry';
@@ -61,18 +63,36 @@ function renderSettings(
   showSectionIcons = false,
   sectionLayouts = SECTION_LAYOUTS,
 ) {
-  const options = readYomitanOptions();
-  return render(
-    <YomitanSettingsRenderer
-      sections={yomitanSettingsTree}
-      sectionLayouts={sectionLayouts}
-      showSectionIcons={showSectionIcons}
-      options={options}
-      onChange={writeYomitanOptions}
-      labels={LABELS}
-      copy={COPY}
-    />,
-  );
+  /**
+   * The page's own wiring (SettingsApp): the persisted tree in state, every edit
+   * written through the preferences store AND fed back into the render. Without
+   * the state the cards would write and never move.
+   */
+  function Harness() {
+    const [options, setOptions] = useState(readYomitanOptions);
+    return (
+      <YomitanSettingsRenderer
+        sections={yomitanSettingsTree}
+        sectionLayouts={sectionLayouts}
+        showSectionIcons={showSectionIcons}
+        options={options}
+        onChange={(next) => {
+          writeYomitanOptions(next);
+          setOptions(next);
+        }}
+        labels={LABELS}
+        copy={COPY}
+      />
+    );
+  }
+  return render(<Harness />);
+}
+
+/** The scan-input card at one position (cards are positional, not data). */
+function scanInputCard(container: HTMLElement, index: number): HTMLElement {
+  const card = container.querySelectorAll('.entei-scan-input-card')[index];
+  if (card === undefined) throw new Error(`no scan-input card at ${index}`);
+  return card as HTMLElement;
 }
 
 /** Open one section card by its visible label. */
@@ -308,17 +328,23 @@ describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () =>
     openSection(/Scanning/i);
   }
 
-  it('draws the declared scanning rows, including the two virtual knobs', () => {
+  it('draws the declared scanning rows, including the virtual scan modifier', () => {
     renderSettings();
     openScanning();
 
-    // Host-declared virtual fields: a path the app derives (Yomitan stores a scan
+    // Host-declared virtual field: a path the app derives (Yomitan stores a scan
     // modifier inside `scanning.inputs[]`), so the tree has no descriptor for it.
     expect(screen.getByText(COPY.scanning.modifierKey)).toBeTruthy();
-    expect(screen.getByText(COPY.scanning.middleMouse)).toBeTruthy();
     // Real tree fields the manifest lays out keep their own descriptors.
     expect(screen.getByText(COPY.scanning.delay)).toBeTruthy();
     expect(screen.getByText(COPY.scanning.length)).toBeTruthy();
+    expect(screen.getByText(COPY.scanning.scanWithoutMousemove)).toBeTruthy();
+    expect(screen.getByText(COPY.scanning.selectText)).toBeTruthy();
+    // The two that used to be host-locked are rows of their own now.
+    expect(screen.getByText(COPY.scanning.deepDomScan)).toBeTruthy();
+    expect(screen.getByText(COPY.scanning.normalizeCssZoom)).toBeTruthy();
+    // "Wildcard scanning" is Yomitan's own label for the prefix match type.
+    expect(screen.getByText(COPY.scanning.wildcardScanning)).toBeTruthy();
     // Neither virtual path falls back to the read-only note.
     expect(screen.queryByText(COPY.notEditable)).toBeNull();
   });
@@ -344,12 +370,145 @@ describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () =>
     );
   });
 
-  it('never offers the DOM-scan detail this host does not implement', () => {
+  it('never offers the rows the blueprint drops, nor the prevent families', () => {
     renderSettings();
     openScanning();
 
-    expect(screen.queryByText('Deep DOM scan')).toBeNull();
-    expect(screen.queryByText('Normalize CSS zoom')).toBeNull();
+    // Yomitan rows this host does not expose: the middle-button trigger (it is a
+    // token in a scan-input card now), the scan resolution, the alphanumeric
+    // search, the layout-aware toggle.
+    expect(screen.queryByText(COPY.scanning.modifierShift)).toBeNull();
+    expect(screen.queryByText('Scan resolution')).toBeNull();
+    expect(screen.queryByText('Scan alphanumeric characters')).toBeNull();
+    expect(screen.queryByText('Layout-aware scan')).toBeNull();
+    // Host-locked, so no editor exists for them at all.
     expect(screen.queryByText('Prevent middle mouse')).toBeNull();
+    expect(screen.queryByText('Prevent back/forward')).toBeNull();
+  });
+
+  it('draws one card per persisted scan input, with the count in its heading', () => {
+    const { container } = renderSettings();
+    openScanning();
+
+    const heading = `${COPY.scanning.advancedInputs} (${COPY.scanning.advancedInputsCount.replace('{count}', '2')})`;
+    expect(screen.getByText(heading)).toBeTruthy();
+    expect(
+      screen.getByText(COPY.scanning.advancedInputsDescription),
+    ).toBeTruthy();
+    // Yomitan ships two definitions: a mouse one and a touch/pen one.
+    expect(container.querySelectorAll('.entei-scan-input-card')).toHaveLength(
+      2,
+    );
+    expect(screen.getAllByText(COPY.scanning.requiredInputs)).toHaveLength(2);
+    expect(screen.getAllByText(COPY.scanning.excludedInputs)).toHaveLength(2);
+  });
+
+  it('adds a key on demand and persists it', () => {
+    const { container } = renderSettings();
+    openScanning();
+
+    fireEvent.click(screen.getByRole('button', { name: COPY.scanning.addKey }));
+
+    const inputs = readOptionPath(readYomitanOptions(), 'scanning.inputs') as {
+      include: string;
+      types: { mouse: boolean };
+    }[];
+    expect(inputs).toHaveLength(3);
+    // A new card starts as a mouse card with no required input.
+    expect(inputs[2]?.include).toBe('');
+    expect(inputs[2]?.types.mouse).toBe(true);
+    expect(container.querySelectorAll('.entei-scan-input-card')).toHaveLength(
+      3,
+    );
+    expect(
+      screen.getByText(
+        `${COPY.scanning.advancedInputs} (${COPY.scanning.advancedInputsCount.replace('{count}', '3')})`,
+      ),
+    ).toBeTruthy();
+  });
+
+  it('deletes a card and persists the shorter list', () => {
+    const { container } = renderSettings();
+    openScanning();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `${COPY.scanning.removeInput} 1`,
+      }),
+    );
+
+    expect(
+      readOptionPath(readYomitanOptions(), 'scanning.inputs'),
+    ).toHaveLength(1);
+    expect(container.querySelectorAll('.entei-scan-input-card')).toHaveLength(
+      1,
+    );
+  });
+
+  it('keeps one pointer type per card and shows the touch rows for it only', () => {
+    const { container } = renderSettings();
+    openScanning();
+
+    /* The first default card is a mouse card: Yomitan's mouse trigger is
+       "hold the required inputs and move", so it has no press or release. The
+       second one serves touch, so its own card does show them. */
+    const mouseCard = scanInputCard(container, 0);
+    expect(within(mouseCard).queryByText(COPY.scanning.scanOn)).toBeNull();
+    expect(
+      within(mouseCard).queryByText(COPY.scanning.minimumTouchTime),
+    ).toBeNull();
+    expect(
+      within(scanInputCard(container, 1)).getByText(COPY.scanning.scanOn),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      within(mouseCard).getByRole('radio', { name: COPY.scanning.touch }),
+    );
+
+    const touched = scanInputCard(container, 0);
+    expect(within(touched).getByText(COPY.scanning.scanOn)).toBeTruthy();
+    expect(
+      within(touched).getByText(COPY.scanning.preventScrolling),
+    ).toBeTruthy();
+    expect(
+      within(touched).getByText(COPY.scanning.minimumTouchTime),
+    ).toBeTruthy();
+    // Exactly one type is persisted — the single-select rule.
+    const inputs = readOptionPath(readYomitanOptions(), 'scanning.inputs') as {
+      types: { mouse: boolean; touch: boolean; pen: boolean };
+    }[];
+    expect(inputs[0]?.types).toEqual({
+      mouse: false,
+      touch: true,
+      pen: false,
+    });
+  });
+
+  it('makes the trigger choice authoritative for the flags it replaces', () => {
+    const { container } = renderSettings();
+    openScanning();
+
+    const mouseCard = scanInputCard(container, 0);
+    fireEvent.click(
+      within(mouseCard).getByRole('radio', { name: COPY.scanning.touch }),
+    );
+    fireEvent.click(
+      within(scanInputCard(container, 0)).getByRole('radio', {
+        name: COPY.scanning.release,
+      }),
+    );
+
+    // Touch tap/move are not in this UI, so picking a trigger writes them off:
+    // what the card says is what the scanner does.
+    const inputs = readOptionPath(readYomitanOptions(), 'scanning.inputs') as {
+      options: Record<string, boolean>;
+    }[];
+    expect(inputs[0]?.options.scanOnTouchRelease).toBe(true);
+    expect(inputs[0]?.options.scanOnTouchPress).toBe(false);
+    expect(inputs[0]?.options.scanOnTouchTap).toBe(false);
+    expect(inputs[0]?.options.scanOnTouchMove).toBe(false);
+    // Term and kanji are always both searched.
+    expect(inputs[0]?.options.searchTerms).toBe(true);
+    expect(inputs[0]?.options.searchKanji).toBe(true);
   });
 });

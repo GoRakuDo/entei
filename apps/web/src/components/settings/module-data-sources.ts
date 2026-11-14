@@ -11,8 +11,8 @@
  * sorting dictionary" select, measures the module's storage, and knows nothing
  * about any of those callers.
  *
- * An unknown id resolves to `undefined`. The renderer then degrades: a `list`
- * row falls back to its generic read-only note, a `field` row keeps its
+ * An unknown id resolves to `undefined`. The renderer then degrades: a `list` or
+ * `inputs` row falls back to its generic read-only note, a `field` row keeps its
  * descriptor options, and a `usage` row is skipped — a manifest can never make
  * the page draw an editor the app does not implement.
  */
@@ -24,6 +24,10 @@ import type {
 } from '@gorakudo/yomitan-headless/settings';
 import { ModuleItemManager } from '@/components/settings/ModuleItemManager';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
+import {
+  ScanningInputManager,
+  type ScanningInputManagerCopy,
+} from '@/components/settings/ScanningInputManager';
 import {
   frequencyDictionaryNames,
   listInstalledDictionaries,
@@ -49,10 +53,28 @@ export interface ModuleListSourceProps {
 
 export type ModuleListSource = ComponentType<ModuleListSourceProps>;
 
+/** What an `inputs` layout's host source receives. */
+export interface ModuleInputsSourceProps {
+  /** The module's whole options tree (sources write through `onChange`). */
+  options: Options;
+  /** Persist the next options tree. */
+  onChange: (next: Options) => void;
+  /** Block title the renderer resolved from the manifest's `labelKey`. */
+  title?: string;
+  /** Block description the renderer resolved from `descriptionKey`. */
+  description?: string;
+  /** Already-localized copy for the inputs layout. */
+  copy: ScanningInputManagerCopy;
+}
+
+export type ModuleInputsSource = ComponentType<ModuleInputsSourceProps>;
+
 /** Every layout a host source can back, keyed by nothing — presence is the flag. */
 export interface ModuleDataSource {
   /** Draws the `list` layout for this source. */
   list?: ModuleListSource;
+  /** Draws the `inputs` layout for this source (a list of input definitions). */
+  inputs?: ModuleInputsSource;
   /** Options of a `field` row that named this source as `optionsSource`. */
   options?: () => Promise<readonly SelectOption[]>;
   /** Measurement of a `usage` row that named this source. */
@@ -112,6 +134,7 @@ const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
     usage: readDictionaryStorageUsage,
   },
   'yomitan-scan-modifier-keys': { options: readScanModifierOptions },
+  'yomitan-scan-inputs': { inputs: ScanningInputManager },
 };
 
 /** The capabilities a manifest-declared source id resolves to. */

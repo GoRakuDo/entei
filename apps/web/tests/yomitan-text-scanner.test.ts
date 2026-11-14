@@ -42,6 +42,7 @@ const SHIFT_HOVER: ScanSettings = {
   scanWithoutMousemove: false,
   selectText: false,
   layoutAwareScan: false,
+  deepContentScan: false,
 };
 
 const RESTING = {
@@ -190,6 +191,8 @@ describe('readScanSettings — the behaviour knobs', () => {
     expect(readScanSettings(base).selectText).toBe(true);
     expect(readScanSettings(base).layoutAwareScan).toBe(true);
     expect(readScanSettings(base).scanWithoutMousemove).toBe(true);
+    // Yomitan ships the deep scan off; the settings switch is what turns it on.
+    expect(readScanSettings(base).deepContentScan).toBe(false);
 
     const changed = writeOptionPath(
       writeOptionPath(
@@ -204,5 +207,11 @@ describe('readScanSettings — the behaviour knobs', () => {
     expect(settings.matchTypePrefix).toBe(true);
     expect(settings.scanResolution).toBe('word');
     expect(settings.selectText).toBe(false);
+  });
+
+  it('follows the deep content scan the settings page now offers', () => {
+    const base = createDefaultOptions();
+    const deep = writeOptionPath(base, 'scanning.deepDomScan', true);
+    expect(readScanSettings(deep).deepContentScan).toBe(true);
   });
 });

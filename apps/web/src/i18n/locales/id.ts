@@ -427,35 +427,54 @@ export const id: Dictionary = {
     scanning: {
       modifierKey: 'Tombol modifier pemindaian',
       modifierKeyDescription:
-        'Tahan tombol ini lalu arahkan penunjuk ke teks Jepang untuk mencarinya.',
-      modifierNone: 'Tidak ada (pindai saat hover)',
+        'Tahan tombol sambil menggerakkan kursor untuk memindai teks.',
+      modifierNone: 'Tanpa tombol',
       modifierShift: 'Shift',
       modifierAlt: 'Alt',
       modifierCtrl: 'Ctrl',
-      modifierMeta: 'Command',
-      middleMouse: 'Tombol tengah memindai',
-      middleMouseDescription:
-        'Cari teks juga saat tombol tengah ditekan atau ditahan.',
-      delay: 'Jeda pemindaian (ms)',
+      modifierMeta: 'Meta',
+      advancedInputs: 'Konfigurasi input pemindaian lanjutan...',
+      advancedInputsDescription:
+        'Input pemindaian digunakan untuk menentukan kapan pemindaian teks terjadi.',
+      advancedInputsCount: '{count} ditetapkan',
+      addKey: 'Tambah Tombol Baru',
+      requiredInputs: 'Input wajib:',
+      excludedInputs: 'Input dikecualikan:',
+      noInputs: 'Tidak ada input',
+      inputTypes: 'Jenis input:',
+      mouse: 'Mouse',
+      touch: 'Sentuh',
+      pen: 'Pena',
+      scanOn: 'Pindai pada:',
+      press: 'Tekan',
+      release: 'Lepas',
+      preventScrolling: 'Cegah pemindaian saat menggulir:',
+      minimumTouchTime: 'Waktu Sentuh Minimum (dalam ms):',
+      captureInput: 'Rekam tombol atau tombol mouse',
+      captureListening: 'Tekan tombol atau tombol mouse (Esc membatalkan)',
+      removeInput: 'Hapus input ini',
+      inputsEmpty:
+        'Belum ada input pemindaian. Tambahkan tombol untuk menentukan kapan pemindaian terjadi.',
+      delay: 'Jeda pemindaian (dalam ms)',
       delayDescription:
-        'Berapa lama penunjuk berhenti sebelum pencarian dijalankan.',
-      length: 'Panjang pemindaian (karakter)',
-      lengthDescription: 'Berapa karakter dari penunjuk yang dicari.',
-      scanResolution: 'Resolusi pemindaian',
-      scanResolutionDescription: 'Cari per karakter, atau per kata.',
-      alphanumeric: 'Pindai karakter alfanumerik',
-      alphanumericDescription: 'Sertakan huruf Latin dan angka dalam pencarian.',
-      selectText: 'Pilih teks saat memindai',
-      selectTextDescription: 'Sorot teks yang dipindai.',
-      layoutAwareScan: 'Pindai sesuai tata letak',
-      layoutAwareScanDescription:
-        'Lewati teks yang tersembunyi atau tertutup.',
-      scanWithoutMousemove: 'Pindai tanpa gerakan penunjuk',
+        'Ubah jeda sebelum pemindaian terjadi saat tidak ada tombol modifier yang diperlukan.',
+      length: 'Panjang pindai teks',
+      lengthDescription:
+        'Ubah berapa karakter yang dibaca saat memindai istilah.',
+      scanWithoutMousemove: 'Pindai tanpa gerakan mouse',
       scanWithoutMousemoveDescription:
-        'Cari lagi saat teks di bawah penunjuk yang diam berubah.',
-      matchTypePrefix: 'Kecocokan awalan',
-      matchTypePrefixDescription:
-        'Cocokkan kata yang DIMULAI dengan teks pindai, bukan yang sama persis.',
+        'Izinkan pemindaian kata di bawah penunjuk tanpa penunjuk harus bergerak.',
+      selectText: 'Pilih teks yang cocok',
+      selectTextDescription: 'Sorot teks yang berhasil dicari.',
+      deepDomScan: 'Pemindaian konten mendalam',
+      deepDomScanDescription:
+        'Aktifkan pemindaian teks yang tertutup lapisan lain.',
+      normalizeCssZoom: 'Normalkan zoom CSS',
+      normalizeCssZoomDescription:
+        'Koreksi lokasi penunjuk pada halaman yang memakai CSS zoom.',
+      wildcardScanning: 'Pemindaian wildcard',
+      wildcardScanningDescription:
+        'Aktifkan wildcard akhiran saat mencari teks halaman yang dipindai.',
     },
   },
   settingsPage: {

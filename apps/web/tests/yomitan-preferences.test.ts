@@ -377,18 +377,32 @@ describe('yomitan-preferences — locked scanning detail', () => {
     localStorage.clear();
   });
 
-  it('locks the DOM-scan and prevent families this host does not implement', () => {
+  it('locks the prevent families this host does not implement', () => {
     for (const path of [
-      'scanning.deepDomScan',
-      'scanning.normalizeCssZoom',
       'scanning.preventMiddleMouse.onWebPages',
+      'scanning.preventMiddleMouse.onTextHover',
       'scanning.preventBackForward.onTextHover',
     ]) {
       expect(isLockedOptionPath(path)).toBe(true);
     }
   });
 
-  it('refuses a write to a locked path and keeps the stored value out', () => {
+  it('leaves the deep scan editable (the scanner pierces shadow roots with it)', () => {
+    // Both used to be locked. The scanning section offers them now, so a write
+    // has to reach the tree instead of being refused.
+    expect(isLockedOptionPath('scanning.deepDomScan')).toBe(false);
+    const next = writeOptionPath(
+      readYomitanOptions(),
+      'scanning.deepDomScan',
+      true,
+    );
+    expect(readOptionPath(next, 'scanning.deepDomScan')).toBe(true);
+    expect(readOptionPath(readYomitanOptions(), 'scanning.deepDomScan')).toBe(
+      true,
+    );
+  });
+
+  it('keeps a stored deep scan instead of forcing the default back in', () => {
     localStorage.setItem(
       YOMITAN_OPTIONS_KEY,
       JSON.stringify({
@@ -412,13 +426,46 @@ describe('yomitan-preferences — locked scanning detail', () => {
       }),
     );
     expect(readOptionPath(readYomitanOptions(), 'scanning.deepDomScan')).toBe(
-      false,
-    );
-    const next = writeOptionPath(
-      readYomitanOptions(),
-      'scanning.deepDomScan',
       true,
     );
-    expect(readOptionPath(next, 'scanning.deepDomScan')).toBe(false);
+  });
+
+  it('refuses a write to a locked path and keeps the stored value out', () => {
+    localStorage.setItem(
+      YOMITAN_OPTIONS_KEY,
+      JSON.stringify({
+        version: YOMITAN_OPTIONS_SCHEMA_VERSION,
+        options: {
+          ...readYomitanOptions(),
+          profiles: [
+            {
+              name: 'Default',
+              conditionGroups: [],
+              options: {
+                ...createDefaultProfileOptions(),
+                scanning: {
+                  ...createDefaultProfileOptions().scanning,
+                  preventMiddleMouse: {
+                    ...createDefaultProfileOptions().scanning.preventMiddleMouse,
+                    onWebPages: true,
+                  },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+    expect(
+      readOptionPath(readYomitanOptions(), 'scanning.preventMiddleMouse.onWebPages'),
+    ).toBe(false);
+    const next = writeOptionPath(
+      readYomitanOptions(),
+      'scanning.preventMiddleMouse.onWebPages',
+      true,
+    );
+    expect(
+      readOptionPath(next, 'scanning.preventMiddleMouse.onWebPages'),
+    ).toBe(false);
   });
 });

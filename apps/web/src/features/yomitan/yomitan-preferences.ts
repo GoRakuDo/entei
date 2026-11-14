@@ -44,12 +44,18 @@ import { traceModule, type TraceData } from '@/features/trace/trace-logger';
  * user to decide there. Every read forces these values, so even a hand-edited
  * payload cannot smuggle a different one in.
  *
- * The last block is DOM-scan detail this host does not implement: deep scan
- * (shadow DOM / iframe boundaries), CSS-zoom normalisation, and the two
- * prevent families (Yomitan's middle-click autoscroll and back/forward gesture
- * suppression, which belong to a browser toolbar, not to this app). They stay in
- * the persisted tree — Yomitan's own shape — but the scanning section never
- * offers them.
+ * The last block is the two prevent families (Yomitan's middle-click autoscroll
+ * and back/forward gesture suppression, which belong to a browser toolbar, not to
+ * this app): they stay locked in the persisted tree — Yomitan's own shape — and
+ * the scanning section never offers them.
+ *
+ * `scanning.deepDomScan` used to be locked with them. It is a real option now:
+ * the host's text scanner pierces open shadow roots when it is on, because
+ * `document.elementFromPoint` answers with the shadow HOST and would otherwise
+ * report text inside a component as "covered" (see features/yomitan/
+ * text-scanner.ts). `scanning.normalizeCssZoom` is persisted for tree fidelity
+ * only — the host locates text with the browser's own caret API, which already
+ * resolves CSS `zoom`, so there is no second coordinate space to normalise here.
  */
 export const LOCKED_OPTION_PATHS: Readonly<Record<string, unknown>> = {
   'general.enable': true,
@@ -57,8 +63,6 @@ export const LOCKED_OPTION_PATHS: Readonly<Record<string, unknown>> = {
   'general.showGuide': false,
   'general.showAdvanced': true,
   'general.showDebug': true,
-  'scanning.deepDomScan': false,
-  'scanning.normalizeCssZoom': true,
   'scanning.preventMiddleMouse.onTextHover': false,
   'scanning.preventMiddleMouse.onWebPages': false,
   'scanning.preventMiddleMouse.onPopupPages': false,
@@ -90,6 +94,11 @@ export function isLockedOptionPath(path: string): boolean {
  * into that one entry's `include` on the way in and out. Nothing else in the
  * input list is touched, and the persisted tree stays exactly what Yomitan's own
  * shape says, so a hand-edited `inputs` array still reads back correctly.
+ *
+ * Only the MODIFIER is a settings row (the Scanning section's simple one). The
+ * middle-button path stays as the scanner's own read of `mouse1` in that same
+ * `include` — the advanced scan-input cards are what writes it now, alongside
+ * every other token, so the knob keeps working without a switch of its own.
  * ------------------------------------------------------------------------- */
 
 /** The scan-modifier knob's values (also what the settings select offers). */

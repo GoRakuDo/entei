@@ -60,11 +60,16 @@ export type ModuleCopyKey =
 /**
  * Layout ids a manifest may name for one row of a section layout.
  *
- * - `list`  — CRUD over installed items (`ModuleListManager`)
- * - `field` — one standard settings row (`ModuleFieldRow`)
- * - `usage` — a measured-usage row (`ModuleUsageMeter`)
+ * - `list`   — CRUD over installed items (`ModuleListManager`)
+ * - `field`  — one standard settings row (`ModuleFieldRow`)
+ * - `usage`  — a measured-usage row (`ModuleUsageMeter`)
+ * - `inputs` — CRUD over an array of structured INPUT DEFINITIONS, each drawn as
+ *   its own bordered card of standard rows. Where `list` edits installed ITEMS
+ *   (a name, an enable switch, a delete), `inputs` edits BEHAVIOUR objects whose
+ *   every card carries fields of its own — Yomitan's `scanning.inputs[]`, one
+ *   card per trigger definition.
  */
-export type EnteiModuleRowLayout = 'list' | 'field' | 'usage';
+export type EnteiModuleRowLayout = 'list' | 'field' | 'usage' | 'inputs';
 
 /**
  * One row of a manifest-declared section layout.
@@ -77,9 +82,9 @@ export type EnteiModuleRowLayout = 'list' | 'field' | 'usage';
 export interface EnteiModuleRowBinding {
   /** Which standard layout draws this row. */
   layout: EnteiModuleRowLayout;
-  /** Dot-path of the field this row edits (`list` / `field` rows). */
+  /** Dot-path of the field this row edits (`list` / `field` / `inputs` rows). */
   field?: string;
-  /** Host-owned source id (`list` and `usage` rows). */
+  /** Host-owned source id (`list`, `inputs` and `usage` rows). */
   source?: string;
   /** Host-owned source id supplying a `field` row's select options. */
   optionsSource?: string;
@@ -179,7 +184,12 @@ export interface EnteiModuleManifest {
 export const MODULE_MANIFEST_VERSION = 1;
 
 /** Layout ids a manifest may name for a section-layout row. */
-const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = ['list', 'field', 'usage'];
+const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = [
+  'list',
+  'field',
+  'usage',
+  'inputs',
+];
 
 /** A non-empty trimmed string, or `undefined` (manifest fields are optional). */
 function optionalId(value: unknown): string | undefined {
@@ -194,8 +204,8 @@ function optionalId(value: unknown): string | undefined {
  * Fail-closed per ROW: a malformed row is dropped rather than half applied, so
  * the renderer can trust that every row it receives is addressable — it names a
  * layout the app has and carries whatever that layout needs (`field` for a
- * `field` row, `field` + `source` for a `list` row, `source` for a `usage` row).
- * A section left with no rows is dropped with it.
+ * `field` row, `field` + `source` for a `list` / `inputs` row, `source` for a
+ * `usage` row). A section left with no rows is dropped with it.
  *
  * A `field` row may also declare the CONTROL of a path the descriptor tree has
  * no field for (a host-declared virtual field). Only the two types the renderer
