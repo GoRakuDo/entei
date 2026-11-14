@@ -583,6 +583,7 @@ describe('translator cache key — what forces a rebuild', () => {
 
     for (const changed of [
       dictionaryEntry({ alias: 'JM' }),
+      dictionaryEntry({ version: 'rev.2' }),
       dictionaryEntry({ partsOfSpeechFilter: false }),
       dictionaryEntry({ useDeinflections: false }),
       dictionaryEntry({ allowSecondarySearches: true }),

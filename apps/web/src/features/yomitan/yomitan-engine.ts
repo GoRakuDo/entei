@@ -196,6 +196,7 @@ export interface EnabledDictionary {
   allowSecondarySearches: boolean;
   partsOfSpeechFilter: boolean;
   useDeinflections: boolean;
+  version?: string;
 }
 
 export type EnabledDictionaryMap = Map<string, EnabledDictionary>;
@@ -242,6 +243,7 @@ export async function readEnabledDictionaryMap(
 ): Promise<EnabledDictionaryMap> {
   const profile = activeProfile(options);
   const installed = await listInstalledDictionariesCached();
+  const installedMap = new Map(installed.map((entry) => [entry.name, entry]));
   const enabledNames = new Set(
     installed.filter((entry) => entry.enabled).map((entry) => entry.name),
   );
@@ -264,6 +266,7 @@ export async function readEnabledDictionaryMap(
       allowSecondarySearches: configured.allowSecondarySearches === true,
       partsOfSpeechFilter: configured.partsOfSpeechFilter !== false,
       useDeinflections: configured.useDeinflections !== false,
+      version: installedMap.get(configured.name)?.version,
     });
   }
 
@@ -278,6 +281,7 @@ export async function readEnabledDictionaryMap(
       allowSecondarySearches: false,
       partsOfSpeechFilter: true,
       useDeinflections: true,
+      version: entry.version,
     });
   }
   return map;
@@ -460,12 +464,10 @@ let dictionarySignature = '';
 /**
  * Identity of what a cached translator was prepared against.
  *
- * Every field of the dictionary set that the translator READS goes in here, not
- * just the names: an alias, a parts-of-speech filter, a deinflection switch or a
- * secondary-search switch is read while it builds an entry, so a translator kept
- * across a change of any of them keeps answering with the old value. Order matters
- * too — it IS the dictionary priority — which is why this walks the map entries
- * instead of sorting them.
+ * Rebuilt when the dictionary set, their priority order, their revisions, or any
+ * per-dictionary options change (alias, filters, secondary search), ensuring the
+ * translator's internal caches (like `_tagCache` and `_dictionaryFrequencyModeMap`)
+ * cannot outlive the definitions they describe.
  *
  * Exported because it is the cache key: the unit test pins what counts as "the
  * dictionaries changed", which is otherwise only observable as a stale lookup.
@@ -473,13 +475,14 @@ let dictionarySignature = '';
 export function dictionarySignatureOf(map: EnabledDictionaryMap): string {
   return [...map.entries()]
     .map(([name, dictionary]) =>
-      [
+      JSON.stringify([
         name,
+        dictionary.version ?? '',
         dictionary.alias,
         dictionary.partsOfSpeechFilter ? 1 : 0,
         dictionary.useDeinflections ? 1 : 0,
         dictionary.allowSecondarySearches ? 1 : 0,
-      ].join(':'),
+      ]),
     )
     .join('\u0000');
 }
