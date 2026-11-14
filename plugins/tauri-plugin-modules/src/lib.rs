@@ -132,11 +132,21 @@ macro_rules! with_yomitan_db {
 /// A Tauri event, not the command's return value: the import is one long
 /// blocking call whose only result is the finished dictionary, and the UI has to
 /// show what is happening while it runs.
-pub const YOMITAN_IMPORT_PROGRESS_EVENT: &str = "modules://yomitan-import-progress";
+///
+/// Note: the name carries ONE colon. A `scheme://name` shape is a URL, not the
+/// plain event name Tauri's listener table is keyed by, and an event the webview
+/// never subscribes to is an import that looks frozen.
+pub const YOMITAN_IMPORT_PROGRESS_EVENT: &str = "yomitan:import-progress";
+
+/// The window every progress event is addressed to as well as broadcast to.
+///
+/// Entei has exactly one window (`tauri.conf.json`, label `main`), so this is
+/// the webview that draws the import.
+const MAIN_WINDOW_LABEL: &str = "main";
 
 /// Import a Yomitan dictionary ZIP from a path the user picked, publishing
-/// [`YOMITAN_IMPORT_PROGRESS_EVENT`] after every bank it writes. The ZIP is
-/// streamed straight off disk, so a large dictionary is never held in memory.
+/// [`YOMITAN_IMPORT_PROGRESS_EVENT`] as it writes. The ZIP is streamed straight
+/// off disk, so a large dictionary is never held in memory.
 #[tauri::command]
 async fn yomitan_import_dictionary<R: Runtime>(
     app: AppHandle<R>,
@@ -146,10 +156,17 @@ async fn yomitan_import_dictionary<R: Runtime>(
     with_yomitan_db!(state, |conn| yomitan::import_dictionary_from_path_with_progress(
         conn,
         &zip_path,
-        // Emitted from the blocking pool. A renderer that closed mid-import
-        // makes the emit fail, which must not fail the import itself.
-        &mut |progress: ImportProgress| {
-            let _ = app.emit(YOMITAN_IMPORT_PROGRESS_EVENT, progress);
+        // Emitted from the blocking pool, by BOTH routes Tauri offers: the
+        // app-wide broadcast, and one addressed to the window that draws the
+        // import. They are deliberately redundant — an import that appears to
+        // sit at 0% until it jumps to done is what a single, silently undelivered
+        // event stream looks like, and the second route is what makes that not
+        // survivable. Neither may fail the import (a renderer that closed
+        // mid-import makes both fail), and a repeated report is harmless on the
+        // receiving end, which only ever moves its percent forward.
+        &mut |report: ImportProgress| {
+            let _ = app.emit(YOMITAN_IMPORT_PROGRESS_EVENT, report);
+            let _ = app.emit_to(MAIN_WINDOW_LABEL, YOMITAN_IMPORT_PROGRESS_EVENT, report);
         },
     ))
 }

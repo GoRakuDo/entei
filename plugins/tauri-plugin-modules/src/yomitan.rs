@@ -23,9 +23,11 @@
 //! such banks do not exist in the wild, and a bare top-level value is still
 //! imported (parsed whole) rather than rejected.
 
+use std::cell::Cell;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek};
+use std::io::{self, BufRead, BufReader, Read, Seek};
 use std::path::Path;
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection};
@@ -129,7 +131,9 @@ pub struct DictionarySummary {
     pub has_frequency_data: bool,
 }
 
-/// Progress of one dictionary import, reported after each bank is written.
+/// Progress of one dictionary import, reported after each bank is written — and,
+/// for a bank large enough to take noticeable time, while it is being written
+/// (see `INTRA_BANK_PROGRESS_MIN_BYTES`).
 ///
 /// Banks are the unit because they are the only whole-file boundaries the
 /// importer has: it streams elements off a `BufRead` and cannot know an entry
@@ -153,6 +157,25 @@ impl ImportProgress {
             total,
         }
     }
+
+    /// Progress INSIDE the bank at `index` (0-based, not finished yet), where
+    /// `fraction` (0–1) of its uncompressed bytes are written.
+    ///
+    /// `current` still counts only the banks that are DONE, so the counters keep
+    /// their meaning while `percent` moves in steps finer than one bank. The
+    /// fraction is clamped and can never reach the bank's own completion value:
+    /// that is reported by [`ImportProgress::new`] once the bank is in.
+    fn within_bank(index: u32, total: u32, fraction: f64) -> Self {
+        if total == 0 {
+            return Self::new(0, 0);
+        }
+        let share = (index as f64 + fraction.clamp(0.0, 1.0)) / total as f64;
+        Self {
+            percent: ((share * 100.0) as u32).min(100),
+            current: index,
+            total,
+        }
+    }
 }
 
 /// `current / total` as a whole percent. An archive with no bank reports 0
@@ -162,6 +185,85 @@ fn percent_of(current: u32, total: u32) -> u32 {
         return 0;
     }
     ((u64::from(current) * 100) / u64::from(total)).min(100) as u32
+}
+
+/// Uncompressed size a bank must reach before it reports progress *while* it is
+/// being written.
+///
+/// A bank is otherwise the smallest unit the importer can report (it streams
+/// elements off a `BufRead` and cannot know an element count without reading the
+/// file first). Most Yomitan banks are small enough that this is exact, but a
+/// frequency dictionary can ship ONE `term_meta_bank` of several hundred
+/// thousand entries: reporting only at its end would pin the UI to the previous
+/// percent for as long as that bank takes.
+const INTRA_BANK_PROGRESS_MIN_BYTES: u64 = 1024 * 1024;
+
+/// Bytes of one bank's uncompressed stream the JSON reader has taken.
+///
+/// Shared between the counting reader and the entry visitor (the visitor cannot
+/// borrow the reader it is being read from). `Rc<Cell>` rather than an atomic:
+/// an import is one call on one thread.
+type ConsumedBytes = Rc<Cell<u64>>;
+
+/// A `BufRead` that counts the uncompressed bytes taken out of it.
+///
+/// Both halves count, because both are how bytes leave the stream: `read` is
+/// what `serde_json`'s reader takes one element with, `consume` is what the bank
+/// reader skips separators, whitespace and the array brackets with. The two never
+/// overlap — a `BufReader`'s own refill consumes from its *inner* reader, not
+/// through this type.
+struct CountingReader<R> {
+    inner: R,
+    consumed: ConsumedBytes,
+}
+
+impl<R: BufRead> CountingReader<R> {
+    fn new(inner: R, consumed: ConsumedBytes) -> Self {
+        Self { inner, consumed }
+    }
+}
+
+impl<R: BufRead> Read for CountingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.consumed.set(self.consumed.get() + read as u64);
+        Ok(read)
+    }
+}
+
+impl<R: BufRead> BufRead for CountingReader<R> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.inner.fill_buf()
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.consumed.set(self.consumed.get() + amount as u64);
+        self.inner.consume(amount);
+    }
+}
+
+/// Publish the percent of the bank being written, but only when it has moved.
+///
+/// Runs per bank ENTRY, so it stays a comparison plus (at most) one callback:
+/// the importer's hot loop must not pay for the progress it reports.
+fn report_bank_progress(
+    on_progress: &mut dyn FnMut(ImportProgress),
+    reported: &mut u32,
+    index: u32,
+    total: u32,
+    bank_bytes: u64,
+    consumed: u64,
+) {
+    if bank_bytes < INTRA_BANK_PROGRESS_MIN_BYTES {
+        return;
+    }
+    let progress =
+        ImportProgress::within_bank(index, total, consumed as f64 / bank_bytes as f64);
+    if progress.percent <= *reported {
+        return;
+    }
+    *reported = progress.percent;
+    on_progress(progress);
 }
 
 /// A dictionary headword plus its glossary payload (already parsed, so the web
@@ -624,7 +726,8 @@ pub fn import_dictionary<R: Read + Seek>(
 }
 
 /// The same import, reporting [`ImportProgress`] to `on_progress`: once before
-/// the first bank, then after every bank that was written.
+/// the first bank, then after every bank that was written (plus, for a bank over
+/// `INTRA_BANK_PROGRESS_MIN_BYTES`, while that bank streams).
 ///
 /// The callback runs on the caller's thread (the Tauri command emits from the
 /// blocking pool) and only observes — it cannot abort or alter the import.
@@ -713,8 +816,9 @@ pub fn import_dictionary_from_path(
     import_dictionary_from_path_with_progress(conn, path, &mut |_| {})
 }
 
-/// The same path-based import, reporting progress per bank (the Tauri command
-/// path: the ZIP is streamed off disk, never buffered whole).
+/// The same path-based import, reporting progress as it writes: once per bank,
+/// and while a bank over `INTRA_BANK_PROGRESS_MIN_BYTES` streams (the Tauri
+/// command path — the ZIP is read off disk, never buffered whole).
 pub fn import_dictionary_from_path_with_progress(
     conn: &Connection,
     path: impl AsRef<Path>,
@@ -806,20 +910,32 @@ fn write_banks<R: Read + Seek>(
         let file = archive
             .by_index(*position)
             .map_err(|e| format!("failed to read {name}: {e}"))?;
-        let mut reader = BufReader::new(file);
-        let result = match kind {
-            BankKind::Term => stream_bank(&mut reader, &mut |value| {
-                insert_term(&mut term_stmt, &summary.id, &value)
-            }),
-            BankKind::Kanji => stream_bank(&mut reader, &mut |value| {
-                insert_kanji(&mut kanji_stmt, &summary.id, &value)
-            }),
-            BankKind::TermMeta => stream_bank(&mut reader, &mut |value| {
-                insert_term_meta(&mut meta_stmt, &summary.id, &value)
-            }),
-            BankKind::Tag => stream_bank(&mut reader, &mut |value| {
-                insert_tag(&mut tag_stmt, &summary.id, &value)
-            }),
+        let bank_index = index as u32;
+        // The uncompressed size the ZIP's central directory already knows: the
+        // denominator of the in-bank progress a big bank reports.
+        let bank_bytes = file.size();
+        let consumed: ConsumedBytes = Rc::new(Cell::new(0));
+        let mut reader = CountingReader::new(BufReader::new(file), consumed.clone());
+        let mut reported = 0u32;
+        let result = {
+            let mut visit = |value: Value| -> Result<(), String> {
+                match kind {
+                    BankKind::Term => insert_term(&mut term_stmt, &summary.id, &value)?,
+                    BankKind::Kanji => insert_kanji(&mut kanji_stmt, &summary.id, &value)?,
+                    BankKind::TermMeta => insert_term_meta(&mut meta_stmt, &summary.id, &value)?,
+                    BankKind::Tag => insert_tag(&mut tag_stmt, &summary.id, &value)?,
+                }
+                report_bank_progress(
+                    on_progress,
+                    &mut reported,
+                    bank_index,
+                    total,
+                    bank_bytes,
+                    consumed.get(),
+                );
+                Ok(())
+            };
+            stream_bank(&mut reader, &mut visit)
         };
         result.map_err(|e| format!("{name}: {e}"))?;
         // After the bank is in: the percent the UI shows is real work done,

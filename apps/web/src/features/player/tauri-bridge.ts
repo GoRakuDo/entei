@@ -23,6 +23,7 @@
  * --------------------------------------------------------------------------- */
 
 import { tracedInvoke } from '@/features/trace/trace-logger';
+import { listen } from '@tauri-apps/api/event';
 import type { ScreenshotResult } from '@/features/player/screenshot-capture';
 import {
   parseSubtitle,
@@ -327,8 +328,7 @@ export interface YomitanImportProgress {
 }
 
 /** Event name the Rust importer publishes its progress on. */
-export const YOMITAN_IMPORT_PROGRESS_EVENT =
-  'modules://yomitan-import-progress';
+export const YOMITAN_IMPORT_PROGRESS_EVENT = 'yomitan:import-progress';
 
 /**
  * Coerce one raw event payload into progress, or null when it is not one.
@@ -353,10 +353,16 @@ export function parseYomitanImportProgress(
  * Subscribe to the native dictionary import's progress.
  *
  * Returns the unsubscribe function, always — a browser (no engine, no events)
- * gets a no-op instead of a throw, so callers need no runtime check. The
- * subscription is lazy (`@tauri-apps/api/event` is imported on demand), and
- * unsubscribing before it resolves unlistens as soon as it does, so a settings
- * page opened and closed quickly leaves no live handler behind.
+ * gets a no-op instead of a throw, so callers need no runtime check.
+ * Unsubscribing before the registration resolves unlistens as soon as it does,
+ * so a settings page opened and closed quickly leaves no live handler behind.
+ *
+ * `listen` is imported STATICALLY, not on demand: a dynamically imported event
+ * module is one more asynchronous hop between "the list mounted" and "the
+ * webview is listening", and an import started inside that hop has nowhere to
+ * report to. Nothing here runs at module load — `listen` is only called once the
+ * caller has passed a callback — so the static import costs a browser build
+ * nothing and the desktop build no time.
  */
 export function onYomitanImportProgress(
   callback: (progress: YomitanImportProgress) => void,
@@ -364,13 +370,10 @@ export function onYomitanImportProgress(
   if (!isTauri()) return () => {};
   let unlisten: (() => void) | null = null;
   let cancelled = false;
-  void import('@tauri-apps/api/event')
-    .then(({ listen }) =>
-      listen<unknown>(YOMITAN_IMPORT_PROGRESS_EVENT, (event) => {
-        const progress = parseYomitanImportProgress(event.payload);
-        if (progress !== null) callback(progress);
-      }),
-    )
+  void listen<unknown>(YOMITAN_IMPORT_PROGRESS_EVENT, (event) => {
+    const progress = parseYomitanImportProgress(event.payload);
+    if (progress !== null) callback(progress);
+  })
     .then((stop) => {
       if (cancelled) {
         stop();

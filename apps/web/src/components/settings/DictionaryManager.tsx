@@ -31,7 +31,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
@@ -87,6 +87,9 @@ export function DictionaryManager({
   const [installed, setInstalled] = useState<InstalledDictionary[] | null>(null);
   /** Percent of the import running right now, null when none is. */
   const [importProgress, setImportProgress] = useState<number | null>(null);
+  /** Whether an import is in flight, for the event handler below. A ref, not
+   * state: the handler must not resubscribe (and so miss an event) per import. */
+  const importing = useRef(false);
 
   /** `options.dictionaries` — the persisted half of the list. */
   const optionEntries = readDictionaryOptions(options);
@@ -108,16 +111,33 @@ export function DictionaryManager({
     void refresh();
   }, [refresh]);
 
-  /* The engine publishes progress per bank while it writes. Subscribed for the
-     lifetime of the list (not per import): the row shown is whatever the engine
-     last reported, and the import below clears it when its promise settles. */
-  useEffect(() => onYomitanImportProgress((p) => setImportProgress(p.percent)), []);
+  /* The engine publishes progress as it writes. Subscribed for the lifetime of
+     the list (not per import): the row shown is whatever the engine last
+     reported, and the import below clears it when its promise settles.
+
+     The engine sends each report by two routes (an app-wide broadcast and one
+     addressed to this window), so one report can arrive twice — and the percent
+     only ever moves forward, whichever copy lands last. A report arriving with no
+     import in flight is dropped: a placeholder that outlives its import would sit
+     above the list claiming work that finished. */
+  useEffect(
+    () =>
+      onYomitanImportProgress((p) => {
+        if (!importing.current) return;
+        setImportProgress((shown) =>
+          shown === null ? p.percent : Math.max(shown, p.percent),
+        );
+      }),
+    [],
+  );
 
   /** Import the picked archive, then mirror it into `options.dictionaries`. */
   const runImport = useCallback(
     async (path: string) => {
-      // Zero before the first bank is written: the placeholder row appears on
-      // the click, not once the engine has finished reading the ZIP index.
+      // Zero BEFORE the engine is asked for anything: the placeholder row is on
+      // screen the moment the user has picked a file, not once the importer has
+      // opened the ZIP, read its central directory and written a first bank.
+      importing.current = true;
       setImportProgress(0);
       try {
         const record = await importDictionaryFromPath(path);
@@ -131,6 +151,8 @@ export function DictionaryManager({
       } finally {
         // The import is over, so the placeholder goes and the new dictionary
         // card takes its place — on failure as well, where a toast reports it.
+        // Cleared before the state, so a late event cannot resurrect the row.
+        importing.current = false;
         setImportProgress(null);
       }
     },

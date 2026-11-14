@@ -128,11 +128,11 @@ describe('onYomitanImportProgress', () => {
     await until(() => calls.some((c) => c.command === 'plugin:event|listen'), 'listen');
 
     const listen = calls.find((c) => c.command === 'plugin:event|listen');
-    expect(listen?.args?.event).toBe('modules://yomitan-import-progress');
+    expect(listen?.args?.event).toBe('yomitan:import-progress');
 
-    handlers[0]?.({ event: 'modules://yomitan-import-progress', id: 1, payload: { percent: 27, current: 27, total: 100 } });
-    handlers[0]?.({ event: 'modules://yomitan-import-progress', id: 1, payload: { percent: 'nope' } });
-    handlers[0]?.({ event: 'modules://yomitan-import-progress', id: 1, payload: { percent: 60 } });
+    handlers[0]?.({ event: 'yomitan:import-progress', id: 1, payload: { percent: 27, current: 27, total: 100 } });
+    handlers[0]?.({ event: 'yomitan:import-progress', id: 1, payload: { percent: 'nope' } });
+    handlers[0]?.({ event: 'yomitan:import-progress', id: 1, payload: { percent: 60 } });
 
     expect(seen).toEqual([27, 60]);
     stop();
@@ -147,7 +147,7 @@ describe('onYomitanImportProgress', () => {
 
     await until(() => unregistered.length > 0, 'unlisten');
     expect(unregistered).toEqual([
-      { event: 'modules://yomitan-import-progress', eventId: 1 },
+      { event: 'yomitan:import-progress', eventId: 1 },
     ]);
     expect(calls.map((c) => c.command)).toContain('plugin:event|unlisten');
   });

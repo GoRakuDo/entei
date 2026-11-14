@@ -34,6 +34,12 @@
  * It is a placeholder, not an item — nothing in it is actionable, and it is what
  * the user sees instead of an empty list while the first import runs.
  *
+ * The row does not wait for the source's first report: starting an import also
+ * sets this layout's own floor of 0%, so the row is on screen the moment the
+ * picker closes (a source that takes a moment to notice its own import, or whose
+ * engine reports late, can no longer leave the button looking dead). Whichever
+ * of the two numbers is higher is the one drawn, and neither ever goes back.
+ *
  * TWO IMPORT ROUTES, because a desktop import needs an absolute path the browser
  * cannot produce: `onImportPath` (given) opens the native dialog and hands the
  * picked path to the source, while `onImport` (given) keeps the HTML file input
@@ -111,8 +117,10 @@ export interface ModuleListManagerProps {
   loading?: boolean;
   /**
    * Percent (0–100) of an import running right now, or null/omitted when none
-   * is. Given, it draws the placeholder row above the list — and in place of
-   * the empty state, which would otherwise claim there is nothing happening.
+   * is. It is the source's live number and wins whenever it is higher than the
+   * floor this layout set when the import started; while one runs it also stands
+   * in place of the empty state, which would otherwise claim nothing is
+   * happening.
    */
   importProgress?: number | null;
   /** File-picker filter for the import button. */
@@ -161,6 +169,12 @@ export function ModuleListManager({
   const inputRef = useRef<HTMLInputElement>(null);
   const canImport = onImport !== undefined || onImportPath !== undefined;
   const [importing, setImporting] = useState(false);
+  /**
+   * Percent this layout put on screen when the import started, null when none
+   * is running. The floor that makes the placeholder row appear on the click:
+   * the source's own `importProgress` takes over as soon as it reports.
+   */
+  const [startedPercent, setStartedPercent] = useState<number | null>(null);
   /* Reordering is pointer-driven (mouse, pen AND touch — HTML5 drag & drop
      never fires on touch) with the keyboard as the equivalent path. */
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -172,6 +186,10 @@ export function ModuleListManager({
     async (work: () => void | Promise<void>) => {
       if (importing) return;
       setImporting(true);
+      // Before the work, not after its first report: the native dialog closing is
+      // the moment the user is watching, and a placeholder that appears only once
+      // the import has produced something is indistinguishable from a dead button.
+      setStartedPercent(0);
       try {
         await work();
       } catch (error) {
@@ -180,6 +198,7 @@ export function ModuleListManager({
         });
       } finally {
         setImporting(false);
+        setStartedPercent(null);
       }
     },
     [importing, copy],
@@ -235,10 +254,14 @@ export function ModuleListManager({
     [onReorder, rows],
   );
 
-  /* A number for as long as an import is running, null otherwise. The engine
-     already clamps its percent; the bar width is the reason this one clamps too
-     — `NaN%` or `140%` must never reach a style attribute. */
-  const percent = importProgress === null ? null : toPercent(importProgress);
+  /* One number for as long as an import is running, null otherwise: the higher
+     of what the source reports and this layout's own starting floor. Both are
+     clamped — the bar width is the reason, since `NaN%` or `140%` must never
+     reach a style attribute. */
+  const percent =
+    importProgress === null && startedPercent === null
+      ? null
+      : toPercent(Math.max(importProgress ?? 0, startedPercent ?? 0));
 
   return (
     <div className="entei-module-list">

@@ -286,7 +286,7 @@ describe('DictionaryManager — native engine wiring', () => {
     const emit = async (percent: number): Promise<void> => {
       await act(async () => {
         handlers[0]?.({
-          event: 'modules://yomitan-import-progress',
+          event: 'yomitan:import-progress',
           id: 1,
           payload: { percent, current: percent, total: 100 },
         });
@@ -309,6 +309,13 @@ describe('DictionaryManager — native engine wiring', () => {
 
     await emit(80);
     expect(screen.getByText(`${COPY.importingProgress} 80%`)).toBeTruthy();
+    /* The engine sends each report by two routes (a broadcast and one addressed
+       to this window), so the same report — or a late, lower one — arrives more
+       than once: the row only ever moves forward. */
+    await emit(80);
+    expect(screen.getByText(`${COPY.importingProgress} 80%`)).toBeTruthy();
+    await emit(41);
+    expect(screen.getByText(`${COPY.importingProgress} 80%`)).toBeTruthy();
 
     // The import lands: the row becomes the dictionary it was importing.
     rows.push(summary());
@@ -319,5 +326,12 @@ describe('DictionaryManager — native engine wiring', () => {
       expect(screen.queryByText(`${COPY.importingProgress} 80%`)).toBeNull();
     });
     expect(screen.queryByRole('progressbar')).toBeNull();
+
+    /* A report that arrives after its import ended (the engine sends each one by
+       two routes, and the last can land late) must not raise the placeholder from
+       the dead: the dictionary is installed and nothing is running. */
+    await emit(100);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByText(`${COPY.importingProgress} 100%`)).toBeNull();
   });
 });

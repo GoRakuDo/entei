@@ -162,6 +162,79 @@ fn term_count(conn: &rusqlite::Connection) -> i64 {
         .expect("count terms")
 }
 
+/// Entries in the single large bank [`build_single_large_bank_zip`] writes:
+/// enough that the bank's uncompressed size clears
+/// `yomitan::INTRA_BANK_PROGRESS_MIN_BYTES`-scale work (well over 1 MiB).
+const LARGE_BANK_ENTRIES: u32 = 120_000;
+
+/// A dictionary whose ONE bank is big enough to need progress of its own
+/// (`INTRA_BANK_PROGRESS_MIN_BYTES`): the shape a frequency dictionary has, and
+/// the case where reporting only at a bank's end would freeze the UI's percent.
+fn build_single_large_bank_zip() -> Vec<u8> {
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    zip.start_file("freq/index.json", options)
+        .expect("start index");
+    zip.write_all(b"{\"title\":\"Big Freq\",\"format\":3,\"revision\":\"freq-1\"}")
+        .expect("write index");
+
+    // Written out entry by entry rather than built as one `Value`: the point is
+    // the byte size, and a 1 MiB+ bank must not cost the test a giant JSON tree.
+    zip.start_file("freq/term_meta_bank_1.json", options)
+        .expect("start bank");
+    zip.write_all(b"[").expect("write bank head");
+    for index in 0..LARGE_BANK_ENTRIES {
+        if index > 0 {
+            zip.write_all(b",").expect("write separator");
+        }
+        zip.write_all(format!("[\"w{index}\",\"freq\",{index}]").as_bytes())
+            .expect("write bank entry");
+    }
+    zip.write_all(b"]").expect("write bank tail");
+
+    zip.finish().expect("finish zip").into_inner()
+}
+
+#[test]
+fn a_bank_too_large_to_finish_quickly_reports_progress_inside_itself() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    let mut seen: Vec<yomitan::ImportProgress> = Vec::new();
+
+    let summary = yomitan::import_dictionary_with_progress(
+        &conn,
+        Cursor::new(build_single_large_bank_zip()),
+        &mut |progress| seen.push(progress),
+    )
+    .expect("import dictionary");
+
+    assert_eq!(summary.title, "Big Freq");
+    // One bank only, so a per-bank-only report would be exactly [0, 100]: the
+    // percent the UI showed would not move for the whole import.
+    assert_eq!(seen.last().map(|progress| progress.percent), Some(100));
+    assert_eq!(seen.last().map(|progress| progress.current), Some(1));
+    assert!(
+        seen.iter()
+            .any(|progress| progress.percent > 0 && progress.percent < 100),
+        "the bank reports while it streams, not only when it ends"
+    );
+    assert!(
+        seen.windows(2).all(|pair| pair[0].percent <= pair[1].percent),
+        "percent never goes backwards"
+    );
+    // In-bank reports estimate progress from bytes, so `current` still counts
+    // only FINISHED banks: nothing claims a bank is written before it is.
+    assert!(
+        seen.iter().all(|progress| progress.current <= 1),
+        "no bank is reported as written before it is"
+    );
+    // The import itself is unaffected: every streamed entry landed.
+    let meta: i64 = conn
+        .query_row("SELECT COUNT(*) FROM term_meta", [], |row| row.get(0))
+        .expect("count term_meta");
+    assert_eq!(meta, i64::from(LARGE_BANK_ENTRIES));
+}
+
 #[test]
 fn imports_a_dictionary_and_finds_terms_by_expression_and_reading() {
     let conn = yomitan::open_in_memory().expect("open in-memory database");
