@@ -741,18 +741,21 @@ pub fn import_dictionary_with_progress<R: Read + Seek>(
 
     let mut index_entry: Option<usize> = None;
     let mut banks: Vec<(BankKind, usize, String)> = Vec::new();
-    for position in 0..archive.len() {
-        let file = archive.by_index(position).map_err(|e| e.to_string())?;
-        if file.is_dir() {
+    // Fast central directory scan: `file_names()` only iterates in-memory
+    // string slices from the ZIP directory without seeking local file headers
+    // on disk. On large dictionaries with thousands of entries (e.g. Kojien with
+    // 7,688 files), calling `by_index()` here caused a 6-7s blocking freeze.
+    let names: Vec<String> = archive.file_names().map(|s| s.to_string()).collect();
+    for (position, name) in names.iter().enumerate() {
+        if name.ends_with('/') || name.ends_with('\\') {
             continue;
         }
         // Only the base name is classified: dictionaries nest their banks in a
         // folder, and folder names must not affect detection.
-        let name = file.name().to_string();
         let base = name
             .rsplit(['/', '\\'])
             .next()
-            .unwrap_or(&name)
+            .unwrap_or(name)
             .to_ascii_lowercase();
         if base == "index.json" {
             if index_entry.is_some() {

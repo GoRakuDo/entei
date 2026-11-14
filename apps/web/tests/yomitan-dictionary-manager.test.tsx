@@ -294,7 +294,7 @@ describe('DictionaryManager — native engine wiring', () => {
     };
 
     await emit(27);
-    expect(screen.getByText(`${COPY.importingProgress} 27%`)).toBeTruthy();
+    expect(await screen.findByText(`${COPY.importingProgress} 27%`)).toBeTruthy();
     // The empty state stands down while something IS happening.
     expect(screen.queryByText(COPY.empty)).toBeNull();
     const bar = screen.getByRole('progressbar', {
