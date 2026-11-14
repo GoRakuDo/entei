@@ -15,19 +15,29 @@
  * sorting dictionary" select, measures the module's storage, and knows nothing
  * about any of those callers.
  *
+ * A `field` row may name one too. Its editor is host-owned because the value is
+ * not in the row's options tree at all: a module's API key lives in that
+ * module's own store (`jimaku-api-key`, `nadeshiko-api-key`), and the row's text
+ * still comes from the manifest. Without such a source the same row falls back to
+ * the standard masked input, so a missing binding degrades instead of vanishing.
+ *
  * An unknown id resolves to `undefined`. The renderer then degrades: a `list` or
  * `inputs` row falls back to its generic read-only note, a `field` row keeps its
  * descriptor options, and a `usage` row is skipped — a manifest can never make
  * the page draw an editor the app does not implement.
  */
 
-import type { ComponentType } from 'react';
+import { useState, type ComponentType } from 'react';
 import type {
   Options,
   SelectOption,
 } from '@gorakudo/yomitan-headless/settings';
 import { ModuleItemManager } from '@/components/settings/ModuleItemManager';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
+import {
+  createSecretField,
+  type ModuleSecretFieldProps,
+} from '@/components/settings/ModuleSecretField';
 import {
   ScanningInputManager,
   type ScanningInputManagerCopy,
@@ -38,6 +48,21 @@ import {
   readDictionaryStorageUsage,
 } from '@/features/yomitan/dictionary-store';
 import type { StorageUsageSnapshot } from '@/features/settings/storage-usage';
+import {
+  readJimakuPreferences,
+  setJimakuApiKey,
+  setJimakuAutoLoad,
+} from '@/features/player/jimaku-preferences';
+import { Switch } from '@/components/player/ui/switch';
+import {
+  JIMAKU_KEY_CHANGED_EVENT,
+  dispatchJimakuKeyChanged,
+} from '@/features/player/settings-bridge';
+import {
+  clearNadeshikoApiKey,
+  readNadeshikoApiKey,
+  writeNadeshikoApiKey,
+} from '@/features/nadeshiko/api-key';
 
 /** What a `list` layout's host source receives. */
 export interface ModuleListSourceProps {
@@ -71,12 +96,24 @@ export interface ModuleInputsSourceProps {
 
 export type ModuleInputsSource = ComponentType<ModuleInputsSourceProps>;
 
+/** What a `field` row whose editor the host owns receives: the row's own text. */
+export type ModuleFieldSourceProps = ModuleSecretFieldProps;
+
+export type ModuleFieldSource = ComponentType<ModuleFieldSourceProps>;
+
 /** Every layout a host source can back, keyed by nothing — presence is the flag. */
 export interface ModuleDataSource {
   /** Draws the `list` layout for this source. */
   list?: ModuleListSource;
   /** Draws the `inputs` layout for this source (a list of input definitions). */
   inputs?: ModuleInputsSource;
+  /**
+   * Draws a `field` row this source names — an editor for a value the row's
+   * options tree does not hold. Today that is one kind of value, a credential
+   * (see `ModuleSecretField`), so the editor brings its own store; the row still
+   * brings its own text.
+   */
+  field?: ModuleFieldSource;
   /** Options of a `field` row that named this source as `optionsSource`. */
   options?: () => Promise<readonly SelectOption[]>;
   /** Measurement of a `usage` row that named this source. */
@@ -125,6 +162,86 @@ async function readScanModifierOptions(): Promise<readonly SelectOption[]> {
   ];
 }
 
+/**
+ * Nadeshiko's API key (`entei.nadeshiko.api-key.v1`, BYOK).
+ *
+ * Trimming and validation are the store helper's own (`writeNadeshikoApiKey`
+ * refuses an empty key), and an empty field is a CLEAR, exactly like the
+ * hand-written card: what the user sees is what is stored. The announcement is
+ * what `NadeshikoPanel`'s inline form and other tabs already listen for.
+ */
+const NADESHIKO_KEY_CHANGED_EVENT = 'entei:nadeshiko-key-changed';
+
+function announceNadeshikoKeyChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(NADESHIKO_KEY_CHANGED_EVENT));
+}
+
+function JimakuAutoLoadField({
+  label,
+  description,
+}: {
+  label: string;
+  description?: string;
+}) {
+  const [enabled, setEnabled] = useState(() => readJimakuPreferences().autoLoadEnabled);
+  return (
+    <div className="entei-module-field entei-module-field--switch">
+      <div className="entei-module-field-text">
+        <span className="entei-module-field-label">{label}</span>
+        {description !== undefined && (
+          <p className="entei-module-field-description">{description}</p>
+        )}
+      </div>
+      <div className="entei-module-field-control">
+        <Switch
+          checked={enabled}
+          onCheckedChange={(next) => {
+            setEnabled(next);
+            setJimakuAutoLoad(next);
+          }}
+          aria-label={label}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Jimaku.cc's API key (`entei.jimaku.v1`, shared with the search dialog). */
+const JIMAKU_API_KEY_FIELD = createSecretField({
+  read: () => readJimakuPreferences().apiKey,
+  write: (value) => {
+    setJimakuApiKey(value);
+    // An open jimaku search dialog reflects key presence live.
+    dispatchJimakuKeyChanged(
+      readJimakuPreferences().apiKey.trim().length > 0,
+    );
+  },
+  clear: () => {
+    setJimakuApiKey('');
+    dispatchJimakuKeyChanged(false);
+  },
+  syncEvents: [JIMAKU_KEY_CHANGED_EVENT],
+});
+
+const NADESHIKO_API_KEY_FIELD = createSecretField({
+  read: () => readNadeshikoApiKey() ?? '',
+  write: (value) => {
+    const trimmed = value.trim();
+    if (trimmed === '') {
+      clearNadeshikoApiKey();
+    } else {
+      writeNadeshikoApiKey(trimmed);
+    }
+    announceNadeshikoKeyChanged();
+  },
+  clear: () => {
+    clearNadeshikoApiKey();
+    announceNadeshikoKeyChanged();
+  },
+  syncEvents: [NADESHIKO_KEY_CHANGED_EVENT],
+});
+
 /** Every data source the app implements, keyed by manifest `source` id. */
 const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   'yomitan-dictionaries': {
@@ -134,6 +251,9 @@ const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   },
   'yomitan-scan-modifier-keys': { options: readScanModifierOptions },
   'yomitan-scan-inputs': { inputs: ScanningInputManager },
+  'jimaku-api-key': { field: JIMAKU_API_KEY_FIELD },
+  'jimaku-auto-load': { field: JimakuAutoLoadField },
+  'nadeshiko-api-key': { field: NADESHIKO_API_KEY_FIELD },
 };
 
 /** The capabilities a manifest-declared source id resolves to. */

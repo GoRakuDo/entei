@@ -8,5 +8,41 @@
   "iconPath": "/icons/modules/nadeshiko.webp",
   "category": "dictionary",
   "builtIn": true,
-  "defaultEnabled": true
+  "defaultEnabled": true,
+  "hasSettings": true,
+  "settingsSchema": [
+    {
+      "key": "general",
+      "label": "Nadeshiko API",
+      "description": "Nadeshiko searches anime and drama lines with timestamps. Your API key stays on this device only — Entei never sees it.",
+      "groups": [
+        {
+          "key": "api",
+          "label": "API",
+          "fields": [
+            {
+              "key": "apiKey",
+              "type": "password",
+              "label": "API key",
+              "description": "Stored on this device only. Nadeshiko needs it for nuance and context searches.",
+              "default": "",
+              "placeholder": "Enter your Nadeshiko API key"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sectionLayouts": [
+    {
+      "section": "general",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "apiKey",
+          "source": "nadeshiko-api-key"
+        }
+      ]
+    }
+  ]
 }

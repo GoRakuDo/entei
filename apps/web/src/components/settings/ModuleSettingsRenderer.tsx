@@ -1,20 +1,25 @@
 /**
- * YomitanSettingsRenderer — renders a module manifest's `settingsSchema`.
+ * ModuleSettingsRenderer — the ONE settings surface of a module detail page.
  * ---------------------------------------------------------------------------
- * Chrome-extension parity WITHOUT page-side knowledge of the module: every
- * section, group and field comes from the manifest's descriptor tree
- * (`@gorakudo/yomitan-headless/settings` for Yomitan's 18 sections), and this
- * component walks it generically. An imported community module that ships a
- * `settingsSchema` renders through exactly the same code.
+ * Given a module manifest, this draws its settings. The settings page calls it
+ * once and never names a module: there is no per-module branch anywhere in the
+ * page, so an imported `*.module.json` gets a settings page with no host code.
  *
- * Layout: one collapsible card per SECTION (accordion, multiple open at once —
- * a settings page is a reference surface, not a wizard). Inside a section each
- * GROUP is a labelled stack of field rows: label + description on the left,
- * the control on the right (stacks on mobile).
+ * THE MANIFEST IS THE ONLY INPUT: every section, group and field comes from its
+ * descriptor tree (`@gorakudo/yomitan-headless/settings` for Yomitan's 18
+ * sections, the module's own JSON for Jimaku.cc and Nadeshiko) and the components
+ * below walk it generically. A module without a tree has no settings page at all
+ * (`moduleHasSettings`, which is what the nav routes by).
  *
- * Persistence: every edit calls `onChange(nextOptions)`; the owner writes it
- * through `features/yomitan/yomitan-preferences` (localStorage immediately,
- * desktop SQLite `kv_store` debounced). There is no Save button.
+ * Layout (declarative): one collapsible card per SECTION (accordion, multiple
+ * open at once — a settings page is a reference surface, not a wizard). Inside a
+ * section each GROUP is a labelled stack of field rows: label + description on
+ * the left, the control on the right (stacks on mobile).
+ *
+ * Persistence: this component OWNS the options tree (localStorage immediately,
+ * desktop SQLite `kv_store` seeded on mount and debounced on write — see
+ * `features/yomitan/yomitan-preferences`). Every edit writes through it, so
+ * there is no Save button and the page holds no settings state of its own.
  *
  * MANIFEST-DECLARED SECTIONS: a section whose real editor is not a plain field
  * list (Yomitan's Dictionaries: an installed-item list plus host-only rows) is
@@ -26,6 +31,12 @@
  * (`components/settings/module-data-sources`); it never names a module or a
  * field itself. A field laid out this way is claimed: it is not drawn a second
  * time in its tree group.
+ *
+ * A `field` row may also name a source that owns its EDITOR: some values are not
+ * in the module's options tree at all (a credential lives in the module's own
+ * store), so the host binds the editor and the row keeps only its text. Without
+ * such a binding the row stays the standard one, so a module degrades instead of
+ * losing the row.
  *
  * `array` / `section-header` fields are not editable as a plain row: they are
  * structural placeholders in the tree (Anki card formats, profile management)
@@ -78,9 +89,11 @@ import type {
   SettingGroupDescriptor,
   SettingSectionDescriptor,
 } from '@gorakudo/yomitan-headless/settings';
-import type {
-  EnteiModuleRowBinding,
-  EnteiModuleSectionLayout,
+import {
+  hasSettingsSchema,
+  type EnteiModuleRowBinding,
+  type EnteiModuleManifest,
+  type EnteiModuleSectionLayout,
 } from '@/features/modules/module-registry';
 import { ModuleFieldRow } from '@/components/settings/ModuleFieldRow';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
@@ -89,10 +102,13 @@ import type { ScanningInputManagerCopy } from '@/components/settings/ScanningInp
 import { resolveModuleCopyTable } from '@/components/settings/module-copy';
 import { resolveModuleDataSource } from '@/components/settings/module-data-sources';
 import {
+  hydrateYomitanOptions,
   isLockedOptionPath,
   readOptionPath,
+  readYomitanOptions,
   writeOptionPath,
 } from '@/features/yomitan/yomitan-preferences';
+import type { Dictionary } from '@i18n/types';
 
 /**
  * Manifest section `icon` id → Lucide icon.
@@ -123,30 +139,129 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   user: User,
 };
 
-export interface YomitanSettingsRendererProps {
-  /** Ordered section descriptors (from the manifest's `settingsSchema`). */
-  sections: readonly SettingSectionDescriptor[];
-  /**
-   * Manifest `sectionLayouts`: sections whose rows the manifest lays out
-   * itself. Absent leaves every section on the generic group walk.
-   */
-  sectionLayouts?: readonly EnteiModuleSectionLayout[];
-  /** Current persisted options. */
-  options: Options;
-  /** Called with the next options after every edit (autosave lives upstream). */
-  onChange: (next: Options) => void;
-  /**
-   * Manifest flag (`showSectionIcons`): render the leading section icon. The
-   * renderer never decides this on its own — absent/false means no icons.
-   */
-  showSectionIcons?: boolean;
-  /** Localised strings of the renderer's own chrome (the app dictionary's). */
-  labels: {
-    /** Shown in place of a control the host cannot edit generically. */
-    notEditable: string;
-    /** Accessible name for a section's collapse toggle. */
-    toggleSection: string;
+export interface ModuleSettingsRendererProps {
+  /** The module whose settings page is open (manifest-driven, never by id). */
+  module: EnteiModuleManifest;
+  /** The app dictionary — the renderer's own chrome is localised from it. */
+  dict: Dictionary;
+}
+
+/**
+ * Whether a module has a settings page to route to.
+ *
+ * A manifest with a renderable tree is the whole answer: the nav shows a row for
+ * it, the Modules grid links to it, and a URL addressing anything else is sent
+ * back to the landing grid rather than to an empty pane.
+ */
+export function moduleHasSettings(
+  module: EnteiModuleManifest | undefined,
+): boolean {
+  return hasSettingsSchema(module);
+}
+
+/** Draw one module's settings from its manifest (nothing when it has none). */
+export function ModuleSettingsRenderer({
+  module,
+  dict,
+}: ModuleSettingsRendererProps) {
+  if (!hasSettingsSchema(module)) return null;
+  return <SchemaSettings module={module} dict={dict} />;
+}
+
+/** The renderer's own chrome, localised by the app dictionary. */
+interface ModuleSettingsLabels {
+  /** Shown in place of a control the host cannot edit generically. */
+  notEditable: string;
+  /** Accessible name for a section's collapse toggle. */
+  toggleSection: string;
+}
+
+interface SchemaSettingsProps {
+  /** A manifest with a renderable `settingsSchema` (narrowed by the caller). */
+  module: EnteiModuleManifest & {
+    settingsSchema: readonly SettingSectionDescriptor[];
   };
+  dict: Dictionary;
+}
+
+/**
+ * The declarative settings page: the manifest's own descriptor tree, drawn.
+ *
+ * Owns the persisted options tree so the page above stays module-agnostic. The
+ * desktop DB is the durable source of truth, so it is read once on mount and
+ * then answered from state; every write goes straight through the preferences
+ * store (localStorage now, DB debounced).
+ */
+function SchemaSettings({ module, dict }: SchemaSettingsProps) {
+  const [options, setOptions] = useState<Options>(readYomitanOptions);
+
+  useEffect(() => {
+    let current = true;
+    void hydrateYomitanOptions().then((next) => {
+      // Gone before the DB answered: the value is still cached, so dropping it
+      // avoids a write into an unmounted component.
+      if (current) setOptions(next);
+    });
+    return () => {
+      current = false;
+    };
+  }, []);
+
+  const labels = useMemo<ModuleSettingsLabels>(
+    () => ({
+      notEditable: dict.yomitanSettings.notEditable,
+      toggleSection: dict.yomitanSettings.toggleSection,
+    }),
+    [dict],
+  );
+
+  const { settingsSchema: sections } = module;
+
+  /* Section keys open on first render. Opening every one of 18 sections would
+     make the page a wall of controls; the user opens what they came for. */
+  const [open, setOpen] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const section of sections) initial[section.key] = false;
+    return initial;
+  });
+
+  const fields = useMemo(() => indexFields(sections), [sections]);
+  const claimed = useMemo(
+    () => claimedPaths(module.sectionLayouts),
+    [module.sectionLayouts],
+  );
+
+  function update(path: string, value: unknown) {
+    const next = writeOptionPath(options, path, value);
+    // Same reference = the path was not addressable; skip a pointless render.
+    if (next !== options) setOptions(next);
+  }
+
+  return (
+    <div className="entei-module-settings">
+      {sections.map((section) => (
+        <ModuleSection
+          key={section.key}
+          section={section}
+          sectionLayouts={module.sectionLayouts}
+          fields={fields}
+          claimed={claimed}
+          options={options}
+          expanded={open[section.key] === true}
+          labels={labels}
+          showIcon={module.showSectionIcons === true}
+          onToggle={() =>
+            setOpen((prev) => ({
+              ...prev,
+              [section.key]: !prev[section.key],
+            }))
+          }
+          onChange={update}
+          onOptionsChange={setOptions}
+        />
+      ))}
+    </div>
+  );
 }
 
 /** Every field of the tree, by dot-path — how a declared row finds its field. */
@@ -195,66 +310,14 @@ function claimedPaths(
   return claimed;
 }
 
-export function YomitanSettingsRenderer({
-  sections,
-  sectionLayouts,
-  options,
-  onChange,
-  showSectionIcons = false,
-  labels,
-}: YomitanSettingsRendererProps) {
-  /* Section keys open on first render. Opening every one of 18 sections would
-     make the page a wall of controls; the user opens what they came for. */
-  const [open, setOpen] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    for (const section of sections) initial[section.key] = false;
-    return initial;
-  });
-
-  const fields = useMemo(() => indexFields(sections), [sections]);
-  const claimed = useMemo(() => claimedPaths(sectionLayouts), [sectionLayouts]);
-
-  function update(path: string, value: unknown) {
-    const next = writeOptionPath(options, path, value);
-    // Same reference = the path was not addressable; skip a pointless render.
-    if (next !== options) onChange(next);
-  }
-
-  return (
-    <div className="entei-module-settings">
-      {sections.map((section) => (
-        <YomitanSection
-          key={section.key}
-          section={section}
-          sectionLayouts={sectionLayouts}
-          fields={fields}
-          claimed={claimed}
-          options={options}
-          expanded={open[section.key] === true}
-          labels={labels}
-          showIcon={showSectionIcons}
-          onToggle={() =>
-            setOpen((prev) => ({
-              ...prev,
-              [section.key]: !prev[section.key],
-            }))
-          }
-          onChange={update}
-          onOptionsChange={onChange}
-        />
-      ))}
-    </div>
-  );
-}
-
-interface YomitanSectionProps {
+interface ModuleSectionProps {
   section: SettingSectionDescriptor;
   sectionLayouts: readonly EnteiModuleSectionLayout[] | undefined;
   fields: Map<string, SettingFieldDescriptor>;
   claimed: ReadonlySet<string>;
   options: Options;
   expanded: boolean;
-  labels: YomitanSettingsRendererProps['labels'];
+  labels: ModuleSettingsLabels;
   /** Manifest-driven: draw the leading icon on this section header. */
   showIcon: boolean;
   onToggle: () => void;
@@ -263,7 +326,7 @@ interface YomitanSectionProps {
   onOptionsChange: (next: Options) => void;
 }
 
-function YomitanSection({
+function ModuleSection({
   section,
   sectionLayouts,
   fields,
@@ -275,7 +338,7 @@ function YomitanSection({
   onToggle,
   onChange,
   onOptionsChange,
-}: YomitanSectionProps) {
+}: ModuleSectionProps) {
   const panelId = useId();
   const descriptionId = `${panelId}-description`;
   const SectionIcon = SECTION_ICONS[section.icon ?? ''] ?? Settings;
@@ -347,7 +410,7 @@ function YomitanSection({
             </div>
           ) : (
             section.groups.map((group) => (
-              <YomitanGroup
+              <ModuleGroup
                 key={group.key}
                 group={group}
                 claimed={claimed}
@@ -363,21 +426,21 @@ function YomitanSection({
   );
 }
 
-interface YomitanGroupProps {
+interface ModuleGroupProps {
   group: SettingGroupDescriptor;
   claimed: ReadonlySet<string>;
   options: Options;
-  labels: YomitanSettingsRendererProps['labels'];
+  labels: ModuleSettingsLabels;
   onChange: (path: string, value: unknown) => void;
 }
 
-function YomitanGroup({
+function ModuleGroup({
   group,
   claimed,
   options,
   labels,
   onChange,
-}: YomitanGroupProps) {
+}: ModuleGroupProps) {
   /* Host-locked fields have no editor and manifest-claimed fields are drawn in
      their declared section; a group either emptied is not rendered. */
   const visible = group.fields.filter(
@@ -412,7 +475,7 @@ interface ModuleLayoutRowProps {
   row: EnteiModuleRowBinding;
   fields: Map<string, SettingFieldDescriptor>;
   options: Options;
-  labels: YomitanSettingsRendererProps['labels'];
+  labels: ModuleSettingsLabels;
   onChange: (path: string, value: unknown) => void;
   onOptionsChange: (next: Options) => void;
 }
@@ -493,6 +556,25 @@ function ModuleLayoutRow({
      chain above could not prove. */
   const rowLabel = label ?? field.label;
   const rowDescription = description ?? field.description;
+
+  /* HOST-OWNED FIELD EDITOR: a row whose value is not in the options tree at all
+     (a module's credential lives in that module's own store), so the source
+     behind the row brings the editor and the manifest brings only the text. It is
+     resolved before the standard row, which would draw an input bound to a path
+     this tree cannot answer. Without such a source the row stays standard, so a
+     manifest degrades instead of losing the row. */
+  if (row.layout === 'field') {
+    const FieldEditor = source?.field;
+    if (FieldEditor !== undefined && rowLabel !== undefined) {
+      return (
+        <FieldEditor
+          label={rowLabel}
+          description={rowDescription}
+          placeholder={field.placeholder}
+        />
+      );
+    }
+  }
 
   if (row.layout === 'list') {
     const ListEditor = source?.list;
@@ -641,7 +723,7 @@ interface BoundFieldRowProps {
   label: string;
   description: string | undefined;
   options: Options;
-  labels: YomitanSettingsRendererProps['labels'];
+  labels: ModuleSettingsLabels;
   onChange: (path: string, value: unknown) => void;
 }
 

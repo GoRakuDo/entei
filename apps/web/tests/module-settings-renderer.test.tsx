@@ -1,6 +1,9 @@
 /**
- * YomitanSettingsRenderer tests — descriptor-tree settings page.
+ * ModuleSettingsRenderer tests — descriptor-tree settings page.
  * ---------------------------------------------------------------------------
+ * The page is asked for one module's settings and never names it: every case
+ * below drives it with a MANIFEST (Yomitan's own tree, or a synthetic row layout),
+ * which is the only input an imported module gets too.
  * - every manifest section renders with its leading section icon when the
  *   manifest sets `showSectionIcons`, and with none when it does not
  * - the description lives inside the toggle button (one clean target)
@@ -20,16 +23,19 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
-import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { yomitanSettingsTree } from '@gorakudo/yomitan-headless/settings';
-import { YomitanSettingsRenderer } from '@/components/settings/YomitanSettingsRenderer';
-import { CORE_MODULES } from '@/features/modules/module-registry';
+import { ModuleSettingsRenderer, moduleHasSettings } from '@/components/settings/ModuleSettingsRenderer';
+import {
+  CORE_MODULES,
+  type EnteiModuleManifest,
+  type EnteiModuleSectionLayout,
+} from '@/features/modules/module-registry';
 import {
   readOptionPath,
   readYomitanOptions,
-  writeYomitanOptions,
 } from '@/features/yomitan/yomitan-preferences';
+import { readJimakuPreferences } from '@/features/player/jimaku-preferences';
 import { en } from '@/i18n/locales/en';
 import {
   DICTIONARIES_COPY,
@@ -37,9 +43,9 @@ import {
 } from '@/components/settings/module-copy';
 
 /**
- * The renderer's own chrome is still localised (`labels`); everything a ROW draws
- * is the manifest's literal English text plus the app's English layout tables —
- * the dictionary has no entry for those any more.
+ * The renderer's own chrome is localised by the dictionary it is handed;
+ * everything a ROW draws is the manifest's literal English text plus the app's
+ * English layout tables — the dictionary has no entry for those any more.
  */
 const LABELS = {
   notEditable: en.yomitanSettings.notEditable,
@@ -114,30 +120,26 @@ afterEach(() => {
 
 function renderSettings(
   showSectionIcons = false,
-  sectionLayouts = SECTION_LAYOUTS,
+  sectionLayouts: readonly EnteiModuleSectionLayout[] = SECTION_LAYOUTS,
 ) {
   /**
-   * The page's own wiring (SettingsApp): the persisted tree in state, every edit
-   * written through the preferences store AND fed back into the render. Without
-   * the state the cards would write and never move.
+   * The manifest is the renderer's ONLY input: its tree, its row layouts and its
+   * own section-icon flag. The options tree the edits write to is owned by the
+   * renderer itself (localStorage, mirrored to the desktop DB upstream), so the
+   * assertions read it back through `readYomitanOptions()`.
    */
-  function Harness() {
-    const [options, setOptions] = useState(readYomitanOptions);
-    return (
-      <YomitanSettingsRenderer
-        sections={yomitanSettingsTree}
-        sectionLayouts={sectionLayouts}
-        showSectionIcons={showSectionIcons}
-        options={options}
-        onChange={(next) => {
-          writeYomitanOptions(next);
-          setOptions(next);
-        }}
-        labels={LABELS}
-      />
-    );
-  }
-  return render(<Harness />);
+  const manifest: EnteiModuleManifest = {
+    id: 'yomitan',
+    version: 'test',
+    author: 'Entei',
+    category: 'dictionary',
+    builtIn: true,
+    defaultEnabled: true,
+    settingsSchema: yomitanSettingsTree,
+    sectionLayouts,
+    showSectionIcons,
+  };
+  return render(<ModuleSettingsRenderer module={manifest} dict={en} />);
 }
 
 /** The scan-input card at one position (cards are positional, not data). */
@@ -152,7 +154,7 @@ function openSection(name: RegExp) {
   fireEvent.click(screen.getByRole('button', { name }));
 }
 
-describe('YomitanSettingsRenderer — sections', () => {
+describe('ModuleSettingsRenderer — sections', () => {
   it('renders one collapsible section per manifest entry', () => {
     renderSettings();
     const toggles = screen.getAllByRole('button', { expanded: false });
@@ -193,7 +195,7 @@ describe('YomitanSettingsRenderer — sections', () => {
   });
 });
 
-describe('YomitanSettingsRenderer — locked fields', () => {
+describe('ModuleSettingsRenderer — locked fields', () => {
   it('never renders the host-locked general fields', () => {
     renderSettings();
     expect(screen.queryByText('Enable Yomitan')).toBeNull();
@@ -230,7 +232,7 @@ describe('YomitanSettingsRenderer — locked fields', () => {
   });
 });
 
-describe('YomitanSettingsRenderer — manifest-laid-out Dictionaries section', () => {
+describe('ModuleSettingsRenderer — manifest-laid-out Dictionaries section', () => {
   function openDictionaries() {
     openSection(/Dictionaries/i);
   }
@@ -375,7 +377,7 @@ describe('YomitanSettingsRenderer — manifest-laid-out Dictionaries section', (
   });
 });
 
-describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () => {
+describe('ModuleSettingsRenderer — manifest-laid-out Scanning section', () => {
   function openScanning() {
     openSection(/Scanning/i);
   }
@@ -560,5 +562,80 @@ describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () =>
     // Term and kanji are always both searched.
     expect(inputs[0]?.options.searchTerms).toBe(true);
     expect(inputs[0]?.options.searchKanji).toBe(true);
+  });
+});
+
+describe('ModuleSettingsRenderer — host-owned field row', () => {
+  /** Jimaku.cc declares its own two-row tree; nothing here names the module. */
+  const jimaku = CORE_MODULES.find((module) => module.id === 'jimaku');
+  const apiKey = { name: /API key/i };
+
+  function renderJimaku() {
+    if (jimaku === undefined) throw new Error('jimaku is not registered');
+    return render(<ModuleSettingsRenderer module={jimaku} dict={en} />);
+  }
+
+  it('draws a credential row from the manifest, with the host editor its source binds', () => {
+    renderJimaku();
+    openSection(/JIMAKU\.CC/i);
+
+    // The row's text is the manifest's own; the control is the host's, because
+    // the key lives in jimaku's own store rather than in an options tree.
+    expect(screen.getByText('API key')).toBeTruthy();
+    const input = screen.getByLabelText(apiKey.name);
+    expect(input.getAttribute('type')).toBe('password');
+    expect(input.getAttribute('placeholder')).toBe(
+      'Enter your jimaku.cc API key',
+    );
+    expect(screen.getByText('No key saved')).toBeTruthy();
+
+    // Autosave: the keystroke lands in the module's store, and the row says so.
+    fireEvent.change(input, { target: { value: 'secret-key' } });
+    expect(readJimakuPreferences().apiKey).toBe('secret-key');
+    expect(screen.getByText('Key saved')).toBeTruthy();
+  });
+
+  it('renders every registered module that declares settings through this one call', () => {
+    /* The unification itself: the page makes ONE call for every module, so any
+       manifest with a tree has to produce a settings surface here — no module is
+       special-cased in the page any more. */
+    const withSettings = CORE_MODULES.filter(moduleHasSettings);
+    expect(withSettings.map((module) => module.id).sort()).toEqual([
+      'jimaku',
+      'nadeshiko',
+      'yomitan',
+    ]);
+    for (const module of withSettings) {
+      const { container } = render(
+        <ModuleSettingsRenderer module={module} dict={en} />,
+      );
+      expect(
+        container.querySelectorAll('.entei-module-section').length,
+      ).toBeGreaterThan(0);
+      cleanup();
+    }
+  });
+
+  it('falls back to the standard row when no source binds an editor', () => {
+    if (jimaku === undefined) throw new Error('jimaku is not registered');
+    const { settingsSchema: tree, ...rest } = jimaku;
+    const manifest: EnteiModuleManifest = {
+      ...rest,
+      settingsSchema: tree,
+      sectionLayouts: [
+        {
+          section: 'general',
+          rows: [{ layout: 'field', field: 'apiKey' }],
+        },
+      ],
+    };
+    render(<ModuleSettingsRenderer module={manifest} dict={en} />);
+    openSection(/JIMAKU\.CC/i);
+
+    // Same row, no binding: the standard input, and no saved-state line (there
+    // is no store behind it to report on).
+    expect(screen.getByText('API key')).toBeTruthy();
+    expect(screen.queryByText('No key saved')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
   });
 });

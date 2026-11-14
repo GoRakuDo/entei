@@ -8,5 +8,59 @@
   "iconPath": "/icons/modules/jimaku.png",
   "category": "source",
   "builtIn": true,
-  "defaultEnabled": true
+  "defaultEnabled": true,
+  "hasSettings": true,
+  "settingsSchema": [
+    {
+      "key": "general",
+      "label": "JIMAKU.CC",
+      "description": "Auto-load Japanese subtitles from jimaku.cc",
+      "groups": [
+        {
+          "key": "api",
+          "label": "API",
+          "fields": [
+            {
+              "key": "apiKey",
+              "type": "password",
+              "label": "API key",
+              "description": "Stored on this device only. jimaku.cc needs it to search for and download subtitles.",
+              "default": "",
+              "placeholder": "Enter your jimaku.cc API key"
+            }
+          ]
+        },
+        {
+          "key": "loading",
+          "label": "Loading",
+          "fields": [
+            {
+              "key": "autoLoadEnabled",
+              "type": "boolean",
+              "label": "Auto-load",
+              "description": "Load subtitles when media is selected",
+              "default": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sectionLayouts": [
+    {
+      "section": "general",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "apiKey",
+          "source": "jimaku-api-key"
+        },
+        {
+          "layout": "field",
+          "field": "autoLoadEnabled",
+          "source": "jimaku-auto-load"
+        }
+      ]
+    }
+  ]
 }

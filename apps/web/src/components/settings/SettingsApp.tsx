@@ -5,7 +5,8 @@
  * PlayerSettingsDialog + SettingsTabs) with one full-page, two-pane surface:
  *
  * - Desktop (≥768px): Shadcn-Sidebar-style left nav tree + wide content pane.
- *   Groups: General / Appearance / Modules (▸ Yomitan · Jimaku.cc · Nadeshiko).
+ *   Groups: General / Appearance / Modules (every REGISTERED module whose
+ *   manifest declares a settings tree).
  * - Mobile (<768px): hierarchical DRILL-DOWN. The left nav renders as the
  *   top-level menu; picking Modules opens a submenu of its children; every
  *   detail pane carries a "← Back" control. Menu ⇄ detail is CSS-toggled from
@@ -47,15 +48,15 @@ import {
   Puzzle,
   type LucideIcon,
 } from 'lucide-react';
-import type { Options } from '@gorakudo/yomitan-headless/settings';
 import { AnkiFieldsTab } from '@/components/player/AnkiFieldsTab';
 import {
   SubtitleAppearanceTab,
   type SubtitleAppearanceSettings,
 } from '@/components/player/SubtitleAppearanceTab';
-import { NadeshikoSettingsTab } from '@/components/player/NadeshikoSettingsTab';
-import { JimakuSettings } from '@/components/settings/JimakuSettings';
-import { YomitanSettingsRenderer } from '@/components/settings/YomitanSettingsRenderer';
+import {
+  ModuleSettingsRenderer,
+  moduleHasSettings,
+} from '@/components/settings/ModuleSettingsRenderer';
 import { LanguageCombobox } from '@/components/home/LanguageCombobox';
 import { Switch } from '@/components/player/ui/switch';
 import { buildShortcuts } from '@/features/player/player-shortcuts';
@@ -65,7 +66,6 @@ import {
 } from '@/features/player/preferences';
 import {
   getRegisteredModules,
-  hasSettingsSchema,
   type EnteiModuleId,
   type EnteiModuleManifest,
   type ModuleEnabledState,
@@ -73,10 +73,6 @@ import {
   toggleModuleState,
   writeModuleState,
 } from '@/features/modules/modules-store';
-import {
-  hydrateYomitanOptions,
-  readYomitanOptions,
-} from '@/features/yomitan/yomitan-preferences';
 import { MODULES_CHANGED_EVENT } from '@/features/modules/use-module-registry';
 import { initSettingsSync } from '@/features/settings/settings-store';
 import { SettingsButton } from '@/components/settings/SettingsButton';
@@ -106,8 +102,8 @@ type SettingsGroup = 'general' | 'appearance' | 'module';
  *
  * OPEN-ENDED on purpose: the sidebar and the grid are both driven by the
  * registry, so an imported `*.module.json` navigates here without a code
- * change. Built-ins keep their hand-written settings components; anything else
- * renders from its own `settingsSchema`.
+ * change. A module's settings come from its own manifest; modules without one
+ * are not offered a page at all.
  */
 interface SettingsSelection {
   group: SettingsGroup;
@@ -115,23 +111,6 @@ interface SettingsSelection {
 }
 
 const VALID_GROUPS: readonly SettingsGroup[] = ['general', 'appearance', 'module'];
-
-/** Modules that own a bespoke settings component rather than a generic schema. */
-const BUILT_IN_SETTINGS_PAGES: readonly string[] = [
-  'yomitan',
-  'jimaku',
-  'nadeshiko',
-];
-
-/** Whether a module owns settings (either a bespoke component or a `settingsSchema`). */
-function moduleHasSettings(module: EnteiModuleManifest): boolean {
-  if (BUILT_IN_SETTINGS_PAGES.includes(module.id)) return true;
-  if (module.hasSettings === true) return true;
-  return (
-    module.settingsSchema !== undefined &&
-    module.settingsSchema.length > 0
-  );
-}
 
 /** Lucide icon per manifest `icon` name (manifests stay serializable). */
 const MODULE_ICONS: Record<string, LucideIcon> = {
@@ -227,18 +206,13 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
   const [moduleState, setModuleState] = useState<ModuleEnabledState>(() =>
     readModuleState(),
   );
-  /* Yomitan's full Chrome-compatible options tree (persisted separately from
-     the enable switch — this is the module's own settings payload). */
-  const [yomitanOptions, setYomitanOptions] = useState<Options>(() =>
-    readYomitanOptions(),
-  );
   /* Desktop sidebar collapsed state (icon-only rail) — persisted so the
      choice survives reloads. Mobile ignores it (drill-down owns the nav). */
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     readSidebarCollapsed(),
   );
   /* Modules group accordion (desktop sidebar). true = children visible.
-     Toggling the Modules row collapses/expands Yomitan · Jimaku · Nadeshiko. */
+     Toggling the Modules row collapses/expands the registered module list. */
   const [moduleExpanded, setModuleExpanded] = useState(true);
 
   const toggleModuleExpanded = useCallback(() => {
@@ -261,10 +235,9 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
      locale changes so the React-rendered labels switch live. */
   useEffect(() => {
     void initSettingsSync();
-    /* Desktop: the SQLite copy is durable and wins over an empty cache. The
-       renderer only mounts on the Yomitan page, so this is a plain state seed
-       (no need to gate it on the current selection). */
-    void hydrateYomitanOptions().then(setYomitanOptions);
+    /* A module's own settings payload belongs to its renderer (it seeds itself
+       from the desktop DB when its page opens), so this island holds no module
+       settings state of its own. */
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<LocaleChangeDetail>).detail;
       if (!detail) return;
@@ -420,11 +393,6 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
         : modules.find((module) => module.id === selection.item),
     [modules, selection.item],
   );
-
-  /* Modules with a bespoke React settings page. Everything else that ships a
-     `settingsSchema` renders through the generic renderer. */
-  const isBuiltInPage = (id: string): boolean =>
-    BUILT_IN_SETTINGS_PAGES.includes(id);
 
   return (
     <div
@@ -666,55 +634,17 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
          * Only modules with settings resolve here. The duplicate ModuleHeader
          * card is removed (the switch lives on the landing grid); the body is
          * the module's own settings directly.
+         *
+         * ONE call for every module: the manifest decides what is drawn (its own
+         * descriptor tree, plus whatever host-owned editor a row's `source`
+         * binds), so this page never names a module by id.
          * ------------------------------------------------------------- */}
         {selection.group === 'module' &&
           selection.item !== null &&
           selectedModule !== undefined &&
           moduleHasSettings(selectedModule) && (
             <div className="entei-settings-section-stack">
-              {selectedModule.id === 'yomitan' &&
-                hasSettingsSchema(selectedModule) && (
-                  <YomitanSettingsRenderer
-                    sections={selectedModule.settingsSchema}
-                    sectionLayouts={selectedModule.sectionLayouts}
-                    showSectionIcons={selectedModule.showSectionIcons === true}
-                    options={yomitanOptions}
-                    onChange={setYomitanOptions}
-                    labels={{
-                      notEditable: dict.yomitanSettings.notEditable,
-                      toggleSection: dict.yomitanSettings.toggleSection,
-                    }}
-                  />
-                )}
-
-              {selectedModule.id === 'jimaku' && (
-                <section className="entei-settings-section-card">
-                  <JimakuSettings dict={playerUI} />
-                </section>
-              )}
-
-              {selectedModule.id === 'nadeshiko' && (
-                <section className="entei-settings-section-card">
-                  <NadeshikoSettingsTab dict={dict.nadeshiko} />
-                </section>
-              )}
-
-              {/* Imported community module: no bespoke component, but it may
-                  ship its own descriptor tree — render it the same way. */}
-              {!isBuiltInPage(selectedModule.id) &&
-                hasSettingsSchema(selectedModule) && (
-                  <YomitanSettingsRenderer
-                    sections={selectedModule.settingsSchema}
-                    sectionLayouts={selectedModule.sectionLayouts}
-                    showSectionIcons={selectedModule.showSectionIcons === true}
-                    options={yomitanOptions}
-                    onChange={setYomitanOptions}
-                    labels={{
-                      notEditable: dict.yomitanSettings.notEditable,
-                      toggleSection: dict.yomitanSettings.toggleSection,
-                    }}
-                  />
-                )}
+              <ModuleSettingsRenderer module={selectedModule} dict={dict} />
             </div>
           )}
       </div>

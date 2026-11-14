@@ -77,7 +77,7 @@ describe('module-registry — core manifests', () => {
     }
   });
 
-  it('only yomitan ships a settings tree, and it has all 18 sections', () => {
+  it('ships the 18-section Chrome-compatible settings tree in yomitan', () => {
     const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
     expect(hasSettingsSchema(yomitan)).toBe(true);
     expect(yomitan?.settingsSchema).toHaveLength(18);
@@ -188,8 +188,60 @@ describe('module-registry — core manifests', () => {
   });
 
   it('leaves sectionLayouts empty for modules that declare none', () => {
-    const jimaku = CORE_MODULES.find((module) => module.id === 'jimaku');
-    expect(jimaku?.sectionLayouts).toEqual([]);
+    const ytdlp = CORE_MODULES.find((module) => module.id === 'ytdlp');
+    expect(ytdlp?.sectionLayouts).toEqual([]);
+    const torrent = CORE_MODULES.find((module) => module.id === 'torrent');
+    expect(torrent?.sectionLayouts).toEqual([]);
+  });
+
+  it('declares Jimaku and Nadeshiko settings in their own manifests', () => {
+    // Both used to be hand-written React cards on the settings page. The row
+    // text is the manifest's own English and the API-key row names a HOST-owned
+    // data source, because the key lives in that module's own store — nothing
+    // about either module is written in the page any more.
+    const modulesDir = fileURLToPath(
+      new URL('../src/modules', import.meta.url),
+    );
+
+    const cases = [
+      { id: 'jimaku', directory: 'jimaku', file: 'jimaku.module.json', source: 'jimaku-api-key' },
+      {
+        id: 'nadeshiko',
+        directory: 'nadeshiko',
+        file: 'nadeshiko.module.json',
+        source: 'nadeshiko-api-key',
+      },
+    ] as const;
+
+    for (const { id, directory, file, source } of cases) {
+      const manifest = CORE_MODULES.find((module) => module.id === id);
+      expect(manifest?.hasSettings).toBe(true);
+
+      // One section, whose API-key field is drawn by the host-owned editor.
+      const schema = manifest?.settingsSchema ?? [];
+      expect(schema.length).toBeGreaterThan(0);
+      const fields = schema.flatMap((section) =>
+        section.groups.flatMap((group) => group.fields),
+      );
+      const apiKey = fields.find((field) => field.key === 'apiKey');
+      expect(apiKey?.type).toBe('password');
+      expect(apiKey?.label).toBeTruthy();
+
+      const layout = manifest?.sectionLayouts?.[0];
+      expect(layout?.section).toBe(schema[0]?.key);
+      const apiRow = layout?.rows?.find((r) => r.field === 'apiKey');
+      expect(apiRow).toEqual({ layout: 'field', field: 'apiKey', source });
+
+      // And the declaration really lives in the JSON document.
+      const document = JSON.parse(
+        fs.readFileSync(
+          path.join(modulesDir, directory, file),
+          'utf-8',
+        ),
+      ) as { sectionLayouts?: unknown; hasSettings?: unknown };
+      expect(document.hasSettings).toBe(true);
+      expect(document.sectionLayouts).toEqual(manifest?.sectionLayouts);
+    }
   });
 
   it('loads iconPath from individual *.module.json files and falls back icon to Blocks', () => {
