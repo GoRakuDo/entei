@@ -1183,6 +1183,20 @@ body[data-page='settings'] .entei-main {
     gap: var(--entei-space-24);
   }
 
+  .entei-settings-section-card--language .entei-language-combobox,
+  .entei-settings-section-card--language .entei-combobox-trigger {
+    display: inline-flex;
+    width: 10rem;
+    min-width: 10rem;
+    flex-shrink: 0;
+  }
+
+  .entei-anki-denchou-preset .entei-anki-connect-btn {
+    width: 10rem;
+    min-width: 10rem;
+    flex-shrink: 0;
+  }
+
   /* Desktop sync mode card: title + desc on left, toggle group on right */
   .entei-settings-section-card--sync {
     flex-direction: row;

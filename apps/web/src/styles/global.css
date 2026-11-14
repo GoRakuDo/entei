@@ -401,8 +401,13 @@ svg {
 }
 
 .entei-combobox-trigger:hover {
-  border-color: var(--entei-accent);
-  background-color: var(--entei-btn-color);
+  border-color: oklch(100% 0 0deg / 0.08);
+  background-color: var(--entei-surface);
+  color: var(--entei-status-locked);
+}
+
+.entei-combobox-trigger:hover .entei-combobox-trigger-chevron {
+  color: var(--entei-status-locked);
 }
 
 .entei-combobox-trigger:focus-visible {
@@ -478,12 +483,13 @@ svg {
 .entei-command-item:hover,
 .entei-command-item[data-selected="true"] {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text);
+  color: var(--entei-status-locked);
 }
 
 .entei-command-item[data-selected="true"][aria-selected="true"],
 .entei-command-item[aria-selected="true"] {
   background-color: oklch(57.74% 0.209 273.85deg / 0.12);
+  color: var(--entei-status-locked);
   border-radius: var(--entei-radius-card);
 }
 
