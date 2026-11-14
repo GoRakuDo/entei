@@ -319,23 +319,13 @@ select:focus-visible[aria-invalid='true'] {
  * which a bare item selector would only tie with — and lose to on source
  * order. Non-text input types (range/checkbox/radio/colour/file/button) keep
  * their own treatment. OKLCH only — no hex/rgb/hsl/named colours (rule #1621). */
-[data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled),
+[data-slot='toggle-group'] button:hover:not(:disabled),
 [data-slot='toggle-group'] [data-slot='toggle-group-item']:hover:not(:disabled) {
   color: var(--entei-status-locked);
 }
 
-[data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled) svg,
+[data-slot='toggle-group'] button:hover:not(:disabled) svg,
 [data-slot='toggle-group'] [data-slot='toggle-group-item']:hover:not(:disabled) svg {
-  color: var(--entei-status-locked);
-}
-
-[data-slot='toggle-group'] button[data-state='on'],
-[data-slot='toggle-group'] [data-slot='toggle-group-item'][data-state='on'] {
-  color: var(--entei-status-locked);
-}
-
-[data-slot='toggle-group'] button[data-state='on'] svg,
-[data-slot='toggle-group'] [data-slot='toggle-group-item'][data-state='on'] svg {
   color: var(--entei-status-locked);
 }
 

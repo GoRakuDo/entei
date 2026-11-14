@@ -42,13 +42,11 @@ const settingsSharedCss = readStyles('settings-shared.css');
 
 const GOLD = 'color: var(--entei-status-locked)';
 
-const TOGGLE_OFF_HOVER =
-  "[data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled)";
-const TOGGLE_ON = "[data-slot='toggle-group'] button[data-state='on']";
+const TOGGLE_HOVER =
+  "[data-slot='toggle-group'] button:hover:not(:disabled)";
 const TOGGLE_ITEM_HOVER =
   "[data-slot='toggle-group'] [data-slot='toggle-group-item']:hover:not(:disabled)";
-const TOGGLE_ITEM_ON =
-  "[data-slot='toggle-group'] [data-slot='toggle-group-item'][data-state='on']";
+const TOGGLE_ON_RESTING = "[data-slot='toggle-group'] button[data-state='on']";
 const SELECT_TRIGGER_HOVER = "[data-slot='select-trigger']:hover:not(:disabled)";
 const FIELD_HOVER_FOCUS = 'input:is(:hover, :focus, :focus-visible)';
 const TEXTAREA_HOVER_FOCUS = 'textarea:is(:hover, :focus, :focus-visible)';
@@ -71,23 +69,30 @@ function rule(css: string, selector: string): string {
 }
 
 describe('gold hover for buttongroups, comboboxes and text fields', () => {
-  it('every ToggleGroup state paints label and icon gold', () => {
+  it('hovered ToggleGroup items paint label and icon gold', () => {
     const rules = [
-      `${TOGGLE_OFF_HOVER},\n${TOGGLE_ITEM_HOVER}`,
-      `${TOGGLE_OFF_HOVER} svg,\n${TOGGLE_ITEM_HOVER} svg`,
-      `${TOGGLE_ON},\n${TOGGLE_ITEM_ON}`,
-      `${TOGGLE_ON} svg,\n${TOGGLE_ITEM_ON} svg`,
+      `${TOGGLE_HOVER},\n${TOGGLE_ITEM_HOVER}`,
+      `${TOGGLE_HOVER} svg,\n${TOGGLE_ITEM_HOVER} svg`,
     ];
     for (const selector of rules) {
       expect(block(globalCss, selector), selector).toContain(GOLD);
     }
   });
 
-  it('latched ToggleGroup items are gold, not merely hovered', () => {
-    expect(globalCss).toContain(`${TOGGLE_ON},`);
-    expect(globalCss).toContain(`${TOGGLE_ITEM_ON} {`);
-    expect(globalCss).toContain(`${TOGGLE_ON} svg,`);
-    expect(globalCss).toContain(`${TOGGLE_ITEM_ON} svg {`);
+  it('active ToggleGroup items stay text-secondary when resting and go gold only on hover', () => {
+    // Resting active item must NOT be gold: it stays text-secondary
+    expect(globalCss).not.toContain(`${TOGGLE_ON_RESTING},`);
+    for (const [name, css] of [
+      ['player.css', playerCss],
+      ['settings-shared.css', settingsSharedCss],
+    ] as const) {
+      const resting = block(css, `${TOGGLE_ON_RESTING} {`);
+      expect(resting, `${name} resting active`).toContain('--entei-text-secondary');
+      expect(resting, `${name} resting active`).not.toContain('--entei-status-locked');
+
+      const hovered = block(css, `${TOGGLE_ON_RESTING}:hover:not(:disabled) {`);
+      expect(hovered, `${name} hovered active`).toContain('--entei-status-locked');
+    }
   });
 
   it('item selectors stay scoped under the group root to outrank class rules', () => {
@@ -97,9 +102,7 @@ describe('gold hover for buttongroups, comboboxes and text fields', () => {
     // lose on source order, so every item selector carries the group root.
     for (const selector of [
       TOGGLE_ITEM_HOVER,
-      TOGGLE_ITEM_ON,
       `${TOGGLE_ITEM_HOVER} svg`,
-      `${TOGGLE_ITEM_ON} svg`,
     ]) {
       expect(selector.startsWith("[data-slot='toggle-group'] "), selector).toBe(
         true,
@@ -107,15 +110,14 @@ describe('gold hover for buttongroups, comboboxes and text fields', () => {
     }
   });
 
-  it('no later-loaded toggle rule repaints hover/on back to secondary', () => {
+  it('no later-loaded toggle rule repaints hover back to secondary', () => {
     for (const [name, css] of [
       ['player.css', playerCss],
       ['settings-shared.css', settingsSharedCss],
     ] as const) {
       for (const selector of [
-        `${TOGGLE_OFF_HOVER} {`,
-        `${TOGGLE_ON} {`,
-        `${TOGGLE_ON}:hover:not(:disabled) {`,
+        "[data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled) {",
+        `${TOGGLE_ON_RESTING}:hover:not(:disabled) {`,
       ]) {
         if (!css.includes(selector)) continue;
         const rule = block(css, selector);
@@ -157,10 +159,8 @@ describe('gold hover for buttongroups, comboboxes and text fields', () => {
 
   it('the shared rule set stays OKLCH-token only (rule #1621)', () => {
     const rules = [
-      `${TOGGLE_OFF_HOVER},\n${TOGGLE_ITEM_HOVER}`,
-      `${TOGGLE_OFF_HOVER} svg,\n${TOGGLE_ITEM_HOVER} svg`,
-      `${TOGGLE_ON},\n${TOGGLE_ITEM_ON}`,
-      `${TOGGLE_ON} svg,\n${TOGGLE_ITEM_ON} svg`,
+      `${TOGGLE_HOVER},\n${TOGGLE_ITEM_HOVER}`,
+      `${TOGGLE_HOVER} svg,\n${TOGGLE_ITEM_HOVER} svg`,
       `${SELECT_TRIGGER_HOVER} {`,
       FIELD_HOVER_FOCUS,
       TEXTAREA_HOVER_FOCUS,
