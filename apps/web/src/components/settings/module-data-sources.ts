@@ -29,6 +29,8 @@ import {
   listInstalledDictionaries,
   readDictionaryStorageUsage,
 } from '@/features/yomitan/dictionary-store';
+import { getDictionary } from '@/i18n';
+import { getSavedLocale } from '@/i18n/preferences';
 import type { StorageUsageSnapshot } from '@/features/settings/storage-usage';
 
 /** What a `list` layout's host source receives. */
@@ -78,6 +80,30 @@ async function readInstalledDictionaryOptions(): Promise<readonly SelectOption[]
   }
 }
 
+/**
+ * The scan modifiers the Yomitan scanning section offers.
+ *
+ * `none` is first and is a real choice, not an empty state: scanning on plain
+ * hover (no modifier held) is what a reading aid wants while the pointer rests on
+ * subtitles. Values are the tokens the app writes into the first scan input's
+ * `include` (`features/yomitan/yomitan-preferences`).
+ *
+ * Labelled from the ACTIVE LOCALE rather than hard-coded: this module is host
+ * code, and a settings row in a Japanese UI must not read "Shift". The locale is
+ * read at call time and the row re-reads this list when the copy table changes,
+ * so a switch applies without a reload.
+ */
+async function readScanModifierOptions(): Promise<readonly SelectOption[]> {
+  const scanning = getDictionary(getSavedLocale()).yomitanSettings.scanning;
+  return [
+    { value: 'none', label: scanning.modifierNone },
+    { value: 'shift', label: scanning.modifierShift },
+    { value: 'alt', label: scanning.modifierAlt },
+    { value: 'ctrl', label: scanning.modifierCtrl },
+    { value: 'meta', label: scanning.modifierMeta },
+  ];
+}
+
 /** Every data source the app implements, keyed by manifest `source` id. */
 const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   'yomitan-dictionaries': {
@@ -85,6 +111,7 @@ const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
     options: readInstalledDictionaryOptions,
     usage: readDictionaryStorageUsage,
   },
+  'yomitan-scan-modifier-keys': { options: readScanModifierOptions },
 };
 
 /** The capabilities a manifest-declared source id resolves to. */

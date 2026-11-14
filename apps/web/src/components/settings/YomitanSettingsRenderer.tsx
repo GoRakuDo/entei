@@ -35,6 +35,12 @@
  * Fields the HOST owns (`LOCKED_OPTION_PATHS` — master switch, lookup language,
  * the Chrome onboarding guide, the advanced/debug toggles) are skipped entirely,
  * and a group left empty by that skip disappears with them.
+ *
+ * A row may also name a path the tree has NO descriptor for — a host-declared
+ * virtual field (Yomitan's scan modifier is derived from `scanning.inputs[]`, so
+ * it is not a tree field of its own). Such a row declares its own control type, and
+ * only `boolean` and `select` are allowed: they are the two that need no descriptor
+ * beyond their key. Everything else still fails closed.
  * ---------------------------------------------------------------------------
  */
 
@@ -170,6 +176,26 @@ function indexFields(
     }
   }
   return index;
+}
+
+/**
+ * Descriptor for a HOST-DECLARED VIRTUAL FIELD: a path the app answers in its
+ * options store but that has no entry in the module's settings tree.
+ *
+ * Only the descriptor's `key` and `type` are load-bearing (they pick the
+ * control); the label comes from the manifest's copy and the choices from its
+ * `optionsSource`, so both are left empty here.
+ */
+function virtualField(
+  path: string,
+  type: 'boolean' | 'select',
+): SettingFieldDescriptor {
+  return {
+    key: path,
+    type,
+    label: '',
+    default: type === 'boolean' ? false : '',
+  };
 }
 
 /** Paths a manifest lays out itself — never drawn again in a tree group. */
@@ -447,13 +473,54 @@ function ModuleLayoutRow({
     );
   }
 
-  /* A row naming a field the tree does not have cannot be drawn — fail closed
-     instead of inventing a control for an unknown path. */
-  if (field === undefined) return null;
-
-  const label = resolveCopy(copy, copyPath, row.labelKey) ?? field.label;
+  const label = resolveCopy(copy, copyPath, row.labelKey) ?? field?.label;
   const description =
-    resolveCopy(copy, copyPath, row.descriptionKey) ?? field.description;
+    resolveCopy(copy, copyPath, row.descriptionKey) ?? field?.description;
+
+  /* HOST-DECLARED VIRTUAL FIELD: a row whose path the app answers in its options
+     store but that the module's tree has no descriptor for (a Yomitan scan
+     modifier lives inside `scanning.inputs[]`, so "which modifier" is a value the
+     app derives, not a tree field). Only the two controls that need no descriptor
+     are allowed — a boolean, and a select whose choices come from the host source
+     — and both need manifest copy, because there is no descriptor text to fall
+     back to. Anything else still fails closed. */
+  if (field === undefined) {
+    const path = row.field;
+    if (path === undefined || label === undefined) return null;
+    if (row.type === 'boolean') {
+      return (
+        <ModuleFieldRow
+          field={virtualField(path, 'boolean')}
+          label={label}
+          description={description}
+          value={readOptionPath(options, path)}
+          onChange={(value) => onChange(path, value)}
+          notEditable={labels.notEditable}
+        />
+      );
+    }
+    if (row.type === 'select' && row.optionsSource !== undefined) {
+      return (
+        <BoundFieldRow
+          row={row}
+          field={virtualField(path, 'select')}
+          label={label}
+          description={description}
+          options={options}
+          labels={labels}
+          copy={copy}
+          copyPath={copyPath}
+          onChange={onChange}
+        />
+      );
+    }
+    return null;
+  }
+
+  /* The tree HAS this field, so its own text is a real fallback the optional
+     chain above could not prove. */
+  const rowLabel = label ?? field.label;
+  const rowDescription = description ?? field.description;
 
   if (row.layout === 'list') {
     const ListEditor = source?.list;
@@ -463,8 +530,8 @@ function ModuleLayoutRow({
       return (
         <ModuleFieldRow
           field={field}
-          label={label}
-          description={description}
+          label={rowLabel}
+          description={rowDescription}
           value={undefined}
           onChange={() => {}}
           notEditable={labels.notEditable}
@@ -475,8 +542,8 @@ function ModuleLayoutRow({
       <ListEditor
         options={options}
         onChange={onOptionsChange}
-        title={label}
-        description={description}
+        title={rowLabel}
+        description={rowDescription}
         copy={resolveListCopy(copy, copyPath)}
       />
     );
@@ -486,8 +553,8 @@ function ModuleLayoutRow({
     <BoundFieldRow
       row={row}
       field={field}
-      label={label}
-      description={description}
+      label={rowLabel}
+      description={rowDescription}
       options={options}
       labels={labels}
       copy={copy}
@@ -569,9 +636,11 @@ function BoundFieldRow({
     return () => {
       current = false;
     };
-    /* Re-read whenever the tree changes: installing or deleting the item this
-       list enumerates has to show up without a reload. */
-  }, [read, options]);
+    /* Re-read whenever the tree changes (installing or deleting the item this
+       list enumerates has to show up without a reload) and whenever the COPY
+       changes: a host source labels its choices from the locales, and a locale
+       switch replaces the copy table. */
+  }, [read, options, copy]);
 
   return (
     <ModuleFieldRow

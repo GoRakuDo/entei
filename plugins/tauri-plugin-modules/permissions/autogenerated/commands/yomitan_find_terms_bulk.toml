@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-yomitan-find-terms-bulk"
+description = "Enables the yomitan_find_terms_bulk command without any pre-configured scope."
+commands.allow = ["yomitan_find_terms_bulk"]
+
+[[permission]]
+identifier = "deny-yomitan-find-terms-bulk"
+description = "Denies the yomitan_find_terms_bulk command without any pre-configured scope."
+commands.deny = ["yomitan_find_terms_bulk"]

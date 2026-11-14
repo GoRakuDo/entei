@@ -43,6 +43,13 @@ import { traceModule, type TraceData } from '@/features/trace/trace-logger';
  * their toggles are removed from the settings UI — there is nothing for the
  * user to decide there. Every read forces these values, so even a hand-edited
  * payload cannot smuggle a different one in.
+ *
+ * The last block is DOM-scan detail this host does not implement: deep scan
+ * (shadow DOM / iframe boundaries), CSS-zoom normalisation, and the two
+ * prevent families (Yomitan's middle-click autoscroll and back/forward gesture
+ * suppression, which belong to a browser toolbar, not to this app). They stay in
+ * the persisted tree — Yomitan's own shape — but the scanning section never
+ * offers them.
  */
 export const LOCKED_OPTION_PATHS: Readonly<Record<string, unknown>> = {
   'general.enable': true,
@@ -50,11 +57,165 @@ export const LOCKED_OPTION_PATHS: Readonly<Record<string, unknown>> = {
   'general.showGuide': false,
   'general.showAdvanced': true,
   'general.showDebug': true,
+  'scanning.deepDomScan': false,
+  'scanning.normalizeCssZoom': true,
+  'scanning.preventMiddleMouse.onTextHover': false,
+  'scanning.preventMiddleMouse.onWebPages': false,
+  'scanning.preventMiddleMouse.onPopupPages': false,
+  'scanning.preventMiddleMouse.onSearchPages': false,
+  'scanning.preventMiddleMouse.onSearchQuery': false,
+  'scanning.preventBackForward.onTextHover': false,
+  'scanning.preventBackForward.onWebPages': false,
+  'scanning.preventBackForward.onPopupPages': false,
+  'scanning.preventBackForward.onSearchPages': false,
+  'scanning.preventBackForward.onSearchQuery': false,
 };
 
 /** True for a path the host owns (renderer skips it, writes are refused). */
 export function isLockedOptionPath(path: string): boolean {
   return Object.hasOwn(LOCKED_OPTION_PATHS, path);
+}
+
+/* ---------------------------------------------------------------------------
+ * Scanning: the two knobs this host exposes as one value each
+ * ---------------------------------------------------------------------------
+ * Yomitan models a scan trigger as a LIST of inputs: `scanning.inputs[]`, each
+ * an `{include, exclude}` pair of tokens (`shift`, `ctrl`, `mouse1`, …) plus
+ * per-pointer-type flags. That is the right model for an extension that has to
+ * serve mice, pens and touch at once; it is a poor fit for a settings ROW.
+ *
+ * So the host exposes two VIRTUAL paths over the first input —
+ * `scanning.modifierKey` (`none` | `shift` | `ctrl` | `alt` | `meta`) and
+ * `scanning.middleMouse` (is the middle button a trigger) — and translates them
+ * into that one entry's `include` on the way in and out. Nothing else in the
+ * input list is touched, and the persisted tree stays exactly what Yomitan's own
+ * shape says, so a hand-edited `inputs` array still reads back correctly.
+ * ------------------------------------------------------------------------- */
+
+/** The scan-modifier knob's values (also what the settings select offers). */
+export type ScanModifierKey = 'none' | 'shift' | 'ctrl' | 'alt' | 'meta';
+
+/** Type guard for a persisted / rendered modifier value (untrusted input). */
+export function isScanModifierKey(value: unknown): value is ScanModifierKey {
+  return (
+    value === 'none' ||
+    value === 'shift' ||
+    value === 'ctrl' ||
+    value === 'alt' ||
+    value === 'meta'
+  );
+}
+
+/** Dot-path of the real field the two virtual paths write into. */
+const SCAN_INPUTS_PATH = 'scanning.inputs';
+/** Virtual: the scan modifier as one value. */
+export const SCAN_MODIFIER_KEY_PATH = 'scanning.modifierKey';
+/** Virtual: whether the middle mouse button is a scan trigger. */
+export const SCAN_MIDDLE_MOUSE_PATH = 'scanning.middleMouse';
+
+/** Tokens in an `include`/`exclude` list that name a mouse button. */
+const MOUSE_TOKENS: readonly string[] = ['mouse0', 'mouse1', 'mouse2'];
+
+/** The persisted `scanning.inputs` array (empty when the tree has none). */
+function scanInputsOf(options: Options): Record<string, unknown>[] {
+  // Raw read: the virtual paths below sit ON TOP of this path, so going through
+  // `readOptionPath` here would be a cycle.
+  const slot = resolveSlot(options, SCAN_INPUTS_PATH);
+  if (slot === null) return [];
+  const inputs = getPathValue(slot.container, slot.key);
+  if (!Array.isArray(inputs)) return [];
+  return inputs.filter((input): input is Record<string, unknown> =>
+    isPlainObject(input),
+  );
+}
+
+/** Whitespace-separated token list of one input's `include` (or `exclude`). */
+function tokensOf(
+  input: Record<string, unknown> | undefined,
+  key: string,
+): string[] {
+  const raw = input?.[key];
+  if (typeof raw !== 'string') return [];
+  return raw.split(/\s+/).filter((token) => token !== '');
+}
+
+/** The modifier one input's `include` asks for. */
+function modifierOf(tokens: readonly string[]): ScanModifierKey {
+  for (const token of tokens) {
+    if (MOUSE_TOKENS.includes(token)) continue;
+    if (token === 'ctrl' || token === 'control') return 'ctrl';
+    if (token === 'meta' || token === 'os') return 'meta';
+    if (token === 'shift' || token === 'alt') return token;
+  }
+  return 'none';
+}
+
+/**
+ * Read one virtual scanning path out of the persisted input list.
+ *
+ * Note: an `include` token this host does not write (a pen- or touch-only input,
+ * or a future modifier) reads as `shift` — the shipped default — rather than as
+ * `none`, because `none` would silently re-write the list the first time the user
+ * touched the row.
+ */
+function readVirtualScanPath(options: Options, path: string): unknown {
+  const input = scanInputsOf(options)[0];
+  const include = tokensOf(input, 'include');
+  if (path === SCAN_MODIFIER_KEY_PATH) {
+    const modifier = modifierOf(include);
+    return modifier === 'none' && include.length > 0 ? 'shift' : modifier;
+  }
+  return include.includes('mouse1');
+}
+
+/**
+ * Write one virtual scanning path into the first persisted input.
+ *
+ * Returns `null` when `path` is not a virtual one, so the caller falls through to
+ * the normal field write.
+ */
+function writeVirtualScanPath(
+  options: Options,
+  path: string,
+  value: unknown,
+): Options | null {
+  if (path !== SCAN_MODIFIER_KEY_PATH && path !== SCAN_MIDDLE_MOUSE_PATH) {
+    return null;
+  }
+  const inputs = scanInputsOf(options);
+  const input = inputs[0];
+  // No input to write into: the tree cannot hold the value, so this is a no-op
+  // rather than an invented array Yomitan's own scan code would have to accept.
+  if (input === undefined) return options;
+
+  const include = tokensOf(input, 'include');
+  const modifier =
+    path === SCAN_MODIFIER_KEY_PATH && isScanModifierKey(value)
+      ? value
+      : modifierOf(include);
+  const middleMouse =
+    path === SCAN_MIDDLE_MOUSE_PATH
+      ? value === true
+      : include.includes('mouse1');
+
+  const nextInclude = [
+    modifier === 'none' ? '' : modifier,
+    middleMouse ? 'mouse1' : '',
+  ]
+    .filter((token) => token !== '')
+    .join(' ');
+  // The middle button must not stay excluded while it is a trigger; and while it
+  // is not, leaving it excluded would block a hover scan for no visible reason.
+  const nextExclude = tokensOf(input, 'exclude')
+    .filter((token) => middleMouse || token !== 'mouse1')
+    .join(' ');
+
+  const nextInputs = inputs.map((entry, index) =>
+    index === 0
+      ? { ...entry, include: nextInclude, exclude: nextExclude }
+      : entry,
+  );
+  return writeOptionPath(options, SCAN_INPUTS_PATH, nextInputs);
 }
 
 /* ---------------------------------------------------------------------------
@@ -376,6 +537,9 @@ function resolveSlot(
 
 /** Read a settings-tree dot-path from the persisted options. */
 export function readOptionPath(options: Options, path: string): unknown {
+  if (path === SCAN_MODIFIER_KEY_PATH || path === SCAN_MIDDLE_MOUSE_PATH) {
+    return readVirtualScanPath(options, path);
+  }
   const slot = resolveSlot(options, path);
   if (slot === null) return undefined;
   return getPathValue(slot.container, slot.key);
@@ -394,6 +558,9 @@ export function writeOptionPath(
 ): Options {
   // Host-locked paths have no editor; a write to one is a no-op.
   if (isLockedOptionPath(path)) return options;
+  // Virtual scanning knobs write the real input list they stand for.
+  const virtual = writeVirtualScanPath(options, path, value);
+  if (virtual !== null) return virtual;
   const slot = resolveSlot(options, path);
   if (slot === null) return options;
   // A stale descriptor must not invent a brand-new key in the settings tree,

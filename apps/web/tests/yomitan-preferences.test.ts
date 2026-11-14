@@ -307,3 +307,118 @@ describe('yomitan-preferences — module trace pipeline', () => {
     expect(getTraceRecent()).toHaveLength(1);
   });
 });
+
+describe('yomitan-preferences — scanning knobs (virtual paths)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('reads the scan modifier out of Yomitan\'s scan-input list', () => {
+    const defaults = readYomitanOptions();
+    // Yomitan ships one mouse input whose include is the Shift token.
+    expect(readOptionPath(defaults, 'scanning.modifierKey')).toBe('shift');
+    expect(readOptionPath(defaults, 'scanning.middleMouse')).toBe(false);
+  });
+
+  it('writes the real input field, never a foreign key', () => {
+    const next = writeOptionPath(
+      readYomitanOptions(),
+      'scanning.modifierKey',
+      'alt',
+    );
+    const inputs = readOptionPath(next, 'scanning.inputs') as {
+      include: string;
+    }[];
+    expect(inputs[0]?.include).toBe('alt');
+    expect(readOptionPath(next, 'scanning.modifierKey')).toBe('alt');
+    // Persisted through the normal path, so a reload keeps it.
+    expect(readOptionPath(readYomitanOptions(), 'scanning.modifierKey')).toBe(
+      'alt',
+    );
+  });
+
+  it('clears the include token when the modifier is none', () => {
+    const next = writeOptionPath(
+      readYomitanOptions(),
+      'scanning.modifierKey',
+      'none',
+    );
+    expect(readOptionPath(next, 'scanning.modifierKey')).toBe('none');
+    const inputs = readOptionPath(next, 'scanning.inputs') as {
+      include: string;
+    }[];
+    expect(inputs[0]?.include).toBe('');
+  });
+
+  it('keeps the middle-mouse trigger and the modifier independent', () => {
+    const middle = writeOptionPath(
+      readYomitanOptions(),
+      'scanning.middleMouse',
+      true,
+    );
+    const both = writeOptionPath(middle, 'scanning.modifierKey', 'meta');
+    expect(readOptionPath(both, 'scanning.modifierKey')).toBe('meta');
+    expect(readOptionPath(both, 'scanning.middleMouse')).toBe(true);
+  });
+
+  it('ignores a modifier value the host does not offer', () => {
+    const next = writeOptionPath(
+      readYomitanOptions(),
+      'scanning.modifierKey',
+      'hyper',
+    );
+    // An unknown value must not blank the user's existing scan trigger.
+    expect(readOptionPath(next, 'scanning.modifierKey')).toBe('shift');
+  });
+});
+
+describe('yomitan-preferences — locked scanning detail', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('locks the DOM-scan and prevent families this host does not implement', () => {
+    for (const path of [
+      'scanning.deepDomScan',
+      'scanning.normalizeCssZoom',
+      'scanning.preventMiddleMouse.onWebPages',
+      'scanning.preventBackForward.onTextHover',
+    ]) {
+      expect(isLockedOptionPath(path)).toBe(true);
+    }
+  });
+
+  it('refuses a write to a locked path and keeps the stored value out', () => {
+    localStorage.setItem(
+      YOMITAN_OPTIONS_KEY,
+      JSON.stringify({
+        version: YOMITAN_OPTIONS_SCHEMA_VERSION,
+        options: {
+          ...readYomitanOptions(),
+          profiles: [
+            {
+              name: 'Default',
+              conditionGroups: [],
+              options: {
+                ...createDefaultProfileOptions(),
+                scanning: {
+                  ...createDefaultProfileOptions().scanning,
+                  deepDomScan: true,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+    expect(readOptionPath(readYomitanOptions(), 'scanning.deepDomScan')).toBe(
+      false,
+    );
+    const next = writeOptionPath(
+      readYomitanOptions(),
+      'scanning.deepDomScan',
+      true,
+    );
+    expect(readOptionPath(next, 'scanning.deepDomScan')).toBe(false);
+  });
+});

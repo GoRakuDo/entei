@@ -533,6 +533,406 @@ pub fn find_kanji(conn: &Connection, character: &str) -> Result<Option<KanjiEntr
 }
 
 // ---------------------------------------------------------------------------
+// Bulk (deinflection) lookups
+// ---------------------------------------------------------------------------
+//
+// Yomitan's `Translator` deinflects a block of text in ONE pass: scanning
+// `食べた` asks for `[食べた, たべた, 食べる, たべる, …]` at once. The functions below
+// are the bulk counterparts of `find_terms` / `find_kanji`: one IPC crossing per
+// batch instead of one per candidate.
+//
+// Three properties the translator's own contract demands, and where they come
+// from:
+//
+// - every row carries the `index` of the QUERY ITEM it answers — that is how a
+//   deinflection is matched back to the text that produced it,
+// - `dictionary` is the dictionary TITLE, not the id: the translator's enabled
+//   dictionary map is keyed by title (`options.dictionaries[].name`),
+// - a term row carries its `id`: the translator de-duplicates entries BY id, so
+//   a constant id would collapse every distinct headword into one.
+//
+// Each query item is answered by its own indexed statement (prepared per shape,
+// run per item) rather than one `IN (…)` statement: the index of the item that
+// produced a row would otherwise have to be threaded back through a `CASE`
+// expression, and a scan only ever asks for a handful of items.
+
+/// Rows one candidate of a bulk term query may contribute. Matches
+/// `DEFAULT_TERM_LIMIT`, the single-term default, so a scan and a search page
+/// ask for the same depth.
+const BULK_TERM_LIMIT: u32 = DEFAULT_TERM_LIMIT;
+
+/// Hard ceiling on the rows ONE bulk term query returns, across all candidates.
+///
+/// A deinflection batch is a handful of candidates, so this only bites when a
+/// short query (a single kana) matches a great many headwords in a large
+/// dictionary — where an unbounded reply would be thousands of glossary payloads
+/// over IPC for a popup that draws a few entries.
+const MAX_BULK_TERM_ROWS: usize = 2000;
+
+/// How a bulk term query compares a stored headword against the query term.
+///
+/// Note: `Suffix` is accepted but answers nothing (see `find_terms_bulk`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TermMatchType {
+    /// Whole headword (or reading) equals the query term. What a scan uses.
+    #[default]
+    Exact,
+    /// Headword (or reading) starts with the query term.
+    Prefix,
+    /// Headword (or reading) ends with the query term. Not answered yet.
+    Suffix,
+}
+
+/// One bulk term row: a headword plus the index of the query term it answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkTermEntry {
+    /// Index into the request's `terms` array.
+    pub index: usize,
+    /// Dictionary TITLE (the translator keys its dictionary set by title).
+    pub dictionary: String,
+    /// Engine row id — the translator's de-duplication key.
+    pub id: i64,
+    pub expression: String,
+    pub reading: Option<String>,
+    pub definition_tags: Option<String>,
+    pub rules: Option<String>,
+    pub score: i64,
+    pub sequence: i64,
+    pub term_tags: Option<String>,
+    pub glossary: Value,
+}
+
+/// One bulk term-metadata row (frequency / pitch accent / IPA).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TermMetaEntry {
+    /// Index into the request's `terms` array.
+    pub index: usize,
+    pub expression: String,
+    /// `freq`, `pitch` or `ipa`.
+    pub mode: String,
+    pub data: Value,
+    /// Dictionary TITLE.
+    pub dictionary: String,
+}
+
+/// One bulk kanji row: a character entry plus the index it answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkKanjiEntry {
+    /// Index into the request's `characters` array.
+    pub index: usize,
+    /// Dictionary TITLE.
+    pub dictionary: String,
+    pub character: String,
+    pub onyomi: Option<String>,
+    pub kunyomi: Option<String>,
+    pub tags: Option<String>,
+    pub meanings: Vec<String>,
+    pub stats: Option<Value>,
+}
+
+/// One tag lookup request: a tag name within one dictionary (both are the title /
+/// name as the dictionary spells them, which is what the translator asks with).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagQuery {
+    /// Tag name, already stripped of any :category suffix by the caller.
+    pub query: String,
+    /// Dictionary TITLE the tag must belong to.
+    pub dictionary: String,
+}
+
+/// One bulk tag row: a tag definition plus the index of the request it answers.
+///
+/// The translator asks for tags as `{query, dictionary}` pairs and reads the
+/// reply POSITIONALLY, so a tag that does not exist is simply a missing row (its
+/// `index` says which request it was) rather than a placeholder.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkTagEntry {
+    /// Index into the request's `items` array.
+    pub index: usize,
+    /// Tag name as the dictionary spells it.
+    pub name: String,
+    /// `partOfSpeech`, `frequency`, `group`, …
+    pub category: String,
+    /// The bank's `order` (Yomitan's name for it on a tag object).
+    pub order: i64,
+    pub notes: String,
+    pub score: i64,
+    /// Dictionary TITLE.
+    pub dictionary: String,
+}
+
+/// Columns every bulk term query reads: the headword's own columns plus the
+/// dictionary TITLE (joined, never the id).
+const BULK_TERM_COLS: &str = "terms.id, dictionaries.title, terms.expression, terms.reading, \
+     terms.definition_tags, terms.rules, terms.score, terms.sequence, terms.term_tags, terms.glossary_json";
+
+fn bulk_row_to_term(row: &rusqlite::Row<'_>) -> rusqlite::Result<BulkTermEntry> {
+    let glossary_json: String = row.get(9)?;
+    let glossary = serde_json::from_str(&glossary_json).unwrap_or(Value::Null);
+    Ok(BulkTermEntry {
+        // Filled in by the caller: the index of the query term this row answers.
+        index: 0,
+        dictionary: row.get(1)?,
+        id: row.get(0)?,
+        expression: row.get(2)?,
+        reading: row.get(3)?,
+        definition_tags: row.get(4)?,
+        rules: row.get(5)?,
+        score: row.get(6)?,
+        sequence: row.get(7)?,
+        term_tags: row.get(8)?,
+        glossary,
+    })
+}
+
+/// Run one prepared bulk term statement and collect its rows.
+fn collect_bulk_terms(
+    statement: &mut rusqlite::Statement<'_>,
+    args: &[&dyn rusqlite::ToSql],
+) -> Result<Vec<BulkTermEntry>, String> {
+    let rows = statement
+        .query_map(rusqlite::params_from_iter(args), bulk_row_to_term)
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// The smallest string that sorts after every string starting with `prefix`.
+///
+/// SQLite compares text byte-wise and UTF-8 byte order IS code point order, so
+/// the successor of the prefix's LAST CHARACTER is that bound.
+///
+/// `None` means no bound can be expressed: an empty prefix (everything matches)
+/// or a prefix ending on a code point with no successor (U+10FFFF, or U+D7FF
+/// whose successor is a surrogate). Callers treat it as "cannot answer".
+fn prefix_upper_bound(prefix: &str) -> Option<String> {
+    let mut chars: Vec<char> = prefix.chars().collect();
+    loop {
+        let last = chars.pop()?;
+        match char::from_u32(last as u32 + 1) {
+            Some(successor) => {
+                chars.push(successor);
+                return Some(chars.into_iter().collect());
+            }
+            // No successor code point: drop this character and carry the bump
+            // left, exactly as an overflowing increment would.
+            None => continue,
+        }
+    }
+}
+
+/// Headwords matching MANY query terms in one round trip, from enabled
+/// dictionaries only, highest score first.
+///
+/// Answers `Exact` and `Prefix`.
+/// Note: `Suffix` answers nothing yet — SQLite cannot range-scan a suffix through
+/// the `expression` index (only a leading-wildcard scan, which over a 500 MB bank
+/// is seconds of full-table work), and no Entei surface selects suffix matching
+/// today. The follow-up is Yomitan's own reversed-expression index.
+pub fn find_terms_bulk(
+    conn: &Connection,
+    terms: &[String],
+    match_type: TermMatchType,
+    limit: Option<u32>,
+) -> Result<Vec<BulkTermEntry>, String> {
+    let limit = limit.unwrap_or(BULK_TERM_LIMIT).clamp(1, MAX_TERM_LIMIT) as i64;
+    if terms.is_empty() || match_type == TermMatchType::Suffix {
+        return Ok(Vec::new());
+    }
+
+    // Placeholder numbering differs per shape, so each shape is its own prepared
+    // statement rather than one SQL string assembled at run time.
+    let exact_sql = format!(
+        "SELECT {BULK_TERM_COLS} FROM terms \
+         JOIN dictionaries ON dictionaries.id = terms.dictionary_id \
+         WHERE dictionaries.enabled = 1 AND (terms.expression = ?1 OR terms.reading = ?1) \
+         ORDER BY terms.score DESC, terms.id LIMIT ?2"
+    );
+    let prefix_sql = format!(
+        "SELECT {BULK_TERM_COLS} FROM terms \
+         JOIN dictionaries ON dictionaries.id = terms.dictionary_id \
+         WHERE dictionaries.enabled = 1 AND ( \
+           (terms.expression >= ?1 AND terms.expression < ?2) OR \
+           (terms.reading >= ?1 AND terms.reading < ?2) \
+         ) ORDER BY terms.score DESC, terms.id LIMIT ?3"
+    );
+
+    let mut rows: Vec<BulkTermEntry> = Vec::new();
+    for (index, term) in terms.iter().enumerate() {
+        if term.is_empty() {
+            continue;
+        }
+        let mut found = match match_type {
+            TermMatchType::Exact => {
+                let mut statement = conn.prepare(&exact_sql).map_err(|e| e.to_string())?;
+                collect_bulk_terms(&mut statement, &[term, &limit])?
+            }
+            TermMatchType::Prefix => {
+                let Some(upper) = prefix_upper_bound(term) else {
+                    continue;
+                };
+                let mut statement = conn.prepare(&prefix_sql).map_err(|e| e.to_string())?;
+                collect_bulk_terms(&mut statement, &[term, &upper, &limit])?
+            }
+            TermMatchType::Suffix => continue,
+        };
+        for row in &mut found {
+            row.index = index;
+        }
+        rows.append(&mut found);
+    }
+
+    // Candidates are answered independently, so the ceiling applies to the merged
+    // whole: the best-scoring rows win whichever candidate found them, which is
+    // also the order the translator re-sorts them into.
+    rows.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    rows.truncate(MAX_BULK_TERM_ROWS);
+    Ok(rows)
+}
+
+/// Term metadata (frequency / pitch / IPA) for MANY query terms in one round
+/// trip, from enabled dictionaries only.
+pub fn find_term_meta_bulk(
+    conn: &Connection,
+    terms: &[String],
+) -> Result<Vec<TermMetaEntry>, String> {
+    if terms.is_empty() {
+        return Ok(Vec::new());
+    }
+    const SQL: &str = "SELECT term_meta.expression, term_meta.mode, term_meta.data_json, dictionaries.title \
+         FROM term_meta JOIN dictionaries ON dictionaries.id = term_meta.dictionary_id \
+         WHERE dictionaries.enabled = 1 AND term_meta.expression = ?1";
+
+    let mut statement = conn.prepare(SQL).map_err(|e| e.to_string())?;
+    let mut rows: Vec<TermMetaEntry> = Vec::new();
+    for (index, term) in terms.iter().enumerate() {
+        if term.is_empty() {
+            continue;
+        }
+        let found = statement
+            .query_map(params![term], |row| {
+                let data_json: String = row.get(2)?;
+                let data = serde_json::from_str(&data_json).unwrap_or(Value::Null);
+                Ok(TermMetaEntry {
+                    index,
+                    expression: row.get(0)?,
+                    mode: row.get(1)?,
+                    data,
+                    dictionary: row.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        rows.extend(found);
+    }
+    Ok(rows)
+}
+
+/// Kanji entries for MANY characters in one round trip, from enabled
+/// dictionaries only.
+///
+/// The `kanjis` table is keyed by `character` alone (see `find_kanji`), so a
+/// character answers at most one row however often the request repeats it.
+pub fn find_kanji_bulk(
+    conn: &Connection,
+    characters: &[String],
+) -> Result<Vec<BulkKanjiEntry>, String> {
+    if characters.is_empty() {
+        return Ok(Vec::new());
+    }
+    const SQL: &str = "SELECT kanjis.character, kanjis.onyomi, kanjis.kunyomi, kanjis.tags, \
+         kanjis.meanings_json, kanjis.stats_json, \
+         (SELECT title FROM dictionaries WHERE dictionaries.id = kanjis.dictionary_id) \
+         FROM kanjis WHERE character = ?1 \
+           AND dictionary_id IN (SELECT id FROM dictionaries WHERE enabled = 1) LIMIT 1";
+
+    let mut statement = conn.prepare(SQL).map_err(|e| e.to_string())?;
+    let mut rows: Vec<BulkKanjiEntry> = Vec::new();
+    for (index, character) in characters.iter().enumerate() {
+        if character.is_empty() {
+            continue;
+        }
+        let found = statement
+            .query_map(params![character], |row| {
+                let meanings_json: Option<String> = row.get(4)?;
+                let meanings = meanings_json
+                    .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+                    .unwrap_or_default();
+                let stats_json: Option<String> = row.get(5)?;
+                Ok(BulkKanjiEntry {
+                    index,
+                    dictionary: row.get(6)?,
+                    character: row.get(0)?,
+                    onyomi: row.get(1)?,
+                    kunyomi: row.get(2)?,
+                    tags: row.get(3)?,
+                    meanings,
+                    stats: stats_json.and_then(|raw| serde_json::from_str(&raw).ok()),
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        rows.extend(found);
+    }
+    Ok(rows)
+}
+
+/// Tag definitions for MANY `{name, dictionary}` requests, from enabled
+/// dictionaries only.
+///
+/// A request with no matching tag contributes no row (the caller reads the reply
+/// positionally through each row's `index`), and a tag several enabled
+/// dictionaries define contributes one row per dictionary: the translator asks
+/// per dictionary and picks the one it is drawing.
+pub fn find_tags_bulk(conn: &Connection, items: &[TagQuery]) -> Result<Vec<BulkTagEntry>, String> {
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+    const SQL: &str = "SELECT tags.name, tags.category, tags.sorting, tags.notes, tags.score, dictionaries.title \
+         FROM tags JOIN dictionaries ON dictionaries.id = tags.dictionary_id \
+         WHERE dictionaries.enabled = 1 AND tags.name = ?1 AND dictionaries.title = ?2";
+
+    let mut statement = conn.prepare(SQL).map_err(|e| e.to_string())?;
+    let mut rows: Vec<BulkTagEntry> = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        if item.query.is_empty() || item.dictionary.is_empty() {
+            continue;
+        }
+        let found = statement
+            .query_map(params![item.query, item.dictionary], |row| {
+                Ok(BulkTagEntry {
+                    index,
+                    name: row.get(0)?,
+                    category: row.get(1)?,
+                    order: row.get(2)?,
+                    notes: row.get(3)?,
+                    score: row.get(4)?,
+                    dictionary: row.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        rows.extend(found);
+    }
+    Ok(rows)
+}
+
+// ---------------------------------------------------------------------------
 // Storage measurement
 // ---------------------------------------------------------------------------
 

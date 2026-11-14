@@ -16,6 +16,10 @@ Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshik
 - `allow-yomitan-toggle-dictionary`
 - `allow-yomitan-delete-dictionary`
 - `allow-yomitan-find-terms`
+- `allow-yomitan-find-terms-bulk`
+- `allow-yomitan-find-term-meta-bulk`
+- `allow-yomitan-find-kanji-bulk`
+- `allow-yomitan-find-tags-bulk`
 - `allow-yomitan-find-kanji`
 - `allow-yomitan-get-storage-usage`
 - `allow-add-torrent`
@@ -454,6 +458,84 @@ Denies the yomitan_find_kanji command without any pre-configured scope.
 <tr>
 <td>
 
+`modules:allow-yomitan-find-kanji-bulk`
+
+</td>
+<td>
+
+Enables the yomitan_find_kanji_bulk command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-yomitan-find-kanji-bulk`
+
+</td>
+<td>
+
+Denies the yomitan_find_kanji_bulk command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-yomitan-find-tags-bulk`
+
+</td>
+<td>
+
+Enables the yomitan_find_tags_bulk command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-yomitan-find-tags-bulk`
+
+</td>
+<td>
+
+Denies the yomitan_find_tags_bulk command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-yomitan-find-term-meta-bulk`
+
+</td>
+<td>
+
+Enables the yomitan_find_term_meta_bulk command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-yomitan-find-term-meta-bulk`
+
+</td>
+<td>
+
+Denies the yomitan_find_term_meta_bulk command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `modules:allow-yomitan-find-terms`
 
 </td>
@@ -473,6 +555,32 @@ Enables the yomitan_find_terms command without any pre-configured scope.
 <td>
 
 Denies the yomitan_find_terms command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-yomitan-find-terms-bulk`
+
+</td>
+<td>
+
+Enables the yomitan_find_terms_bulk command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-yomitan-find-terms-bulk`
+
+</td>
+<td>
+
+Denies the yomitan_find_terms_bulk command without any pre-configured scope.
 
 </td>
 </tr>

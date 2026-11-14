@@ -24,6 +24,7 @@ import { yomitanSettingsTree } from '@gorakudo/yomitan-headless/settings';
 import { YomitanSettingsRenderer } from '@/components/settings/YomitanSettingsRenderer';
 import { CORE_MODULES } from '@/features/modules/module-registry';
 import {
+  readOptionPath,
   readYomitanOptions,
   writeYomitanOptions,
 } from '@/features/yomitan/yomitan-preferences';
@@ -299,5 +300,56 @@ describe('YomitanSettingsRenderer — manifest-laid-out Dictionaries section', (
 
     expect(screen.queryByText(COPY.notEditable)).toBeNull();
     expect(screen.queryByLabelText('Show debug information')).toBeNull();
+  });
+});
+
+describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () => {
+  function openScanning() {
+    openSection(/Scanning/i);
+  }
+
+  it('draws the declared scanning rows, including the two virtual knobs', () => {
+    renderSettings();
+    openScanning();
+
+    // Host-declared virtual fields: a path the app derives (Yomitan stores a scan
+    // modifier inside `scanning.inputs[]`), so the tree has no descriptor for it.
+    expect(screen.getByText(COPY.scanning.modifierKey)).toBeTruthy();
+    expect(screen.getByText(COPY.scanning.middleMouse)).toBeTruthy();
+    // Real tree fields the manifest lays out keep their own descriptors.
+    expect(screen.getByText(COPY.scanning.delay)).toBeTruthy();
+    expect(screen.getByText(COPY.scanning.length)).toBeTruthy();
+    // Neither virtual path falls back to the read-only note.
+    expect(screen.queryByText(COPY.notEditable)).toBeNull();
+  });
+
+  it('offers the locale-labelled modifiers and writes the scan input', async () => {
+    const { container } = renderSettings();
+    openScanning();
+
+    const trigger = container.querySelector('.entei-module-select');
+    expect(trigger).not.toBeNull();
+    fireEvent.click(trigger as Element);
+    fireEvent.click(
+      await screen.findByRole('option', { name: COPY.scanning.modifierCtrl }),
+    );
+
+    // The knob wrote Yomitan's own field, and the persisted tree reads back.
+    const inputs = readOptionPath(readYomitanOptions(), 'scanning.inputs') as {
+      include: string;
+    }[];
+    expect(inputs[0]?.include).toBe('ctrl');
+    expect(readOptionPath(readYomitanOptions(), 'scanning.modifierKey')).toBe(
+      'ctrl',
+    );
+  });
+
+  it('never offers the DOM-scan detail this host does not implement', () => {
+    renderSettings();
+    openScanning();
+
+    expect(screen.queryByText('Deep DOM scan')).toBeNull();
+    expect(screen.queryByText('Normalize CSS zoom')).toBeNull();
+    expect(screen.queryByText('Prevent middle mouse')).toBeNull();
   });
 });

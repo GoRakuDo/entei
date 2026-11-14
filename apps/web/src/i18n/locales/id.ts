@@ -424,6 +424,42 @@ export const id: Dictionary = {
       sortFrequencyDescription: 'Urutkan hasil menggunakan kamus frekuensi.',
       sortFrequencyNone: 'Tidak ada',
     },
+    scanning: {
+      modifierKey: 'Tombol modifier pemindaian',
+      modifierKeyDescription:
+        'Tahan tombol ini lalu arahkan penunjuk ke teks Jepang untuk mencarinya.',
+      modifierNone: 'Tidak ada (pindai saat hover)',
+      modifierShift: 'Shift',
+      modifierAlt: 'Alt',
+      modifierCtrl: 'Ctrl',
+      modifierMeta: 'Command',
+      middleMouse: 'Tombol tengah memindai',
+      middleMouseDescription:
+        'Cari teks juga saat tombol tengah ditekan atau ditahan.',
+      delay: 'Jeda pemindaian (ms)',
+      delayDescription:
+        'Berapa lama penunjuk berhenti sebelum pencarian dijalankan.',
+      length: 'Panjang pemindaian (karakter)',
+      lengthDescription: 'Berapa karakter dari penunjuk yang dicari.',
+      autoHideResults: 'Sembunyikan hasil otomatis',
+      autoHideResultsDescription:
+        'Sembunyikan hasil saat penunjuk meninggalkan teks.',
+      scanResolution: 'Resolusi pemindaian',
+      scanResolutionDescription: 'Cari per karakter, atau per kata.',
+      alphanumeric: 'Pindai karakter alfanumerik',
+      alphanumericDescription: 'Sertakan huruf Latin dan angka dalam pencarian.',
+      selectText: 'Pilih teks saat memindai',
+      selectTextDescription: 'Sorot teks yang dipindai.',
+      layoutAwareScan: 'Pindai sesuai tata letak',
+      layoutAwareScanDescription:
+        'Lewati teks yang tersembunyi atau tertutup.',
+      scanWithoutMousemove: 'Pindai tanpa gerakan penunjuk',
+      scanWithoutMousemoveDescription:
+        'Cari lagi saat teks di bawah penunjuk yang diam berubah.',
+      matchTypePrefix: 'Kecocokan awalan',
+      matchTypePrefixDescription:
+        'Cocokkan kata yang DIMULAI dengan teks pindai, bukan yang sama persis.',
+    },
   },
   settingsPage: {
     title: 'Pengaturan',

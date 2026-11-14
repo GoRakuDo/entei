@@ -93,6 +93,20 @@ export interface EnteiModuleRowBinding {
   usageKey?: string;
   /** Copy key of a `field` row's leading "none" option. */
   noneKey?: string;
+  /**
+   * Control type of a row whose `field` has NO descriptor in the module's
+   * `settingsSchema` — a HOST-DECLARED VIRTUAL FIELD.
+   *
+   * Yomitan's own tree cannot describe every knob worth exposing: a scan
+   * modifier lives inside an array of scan inputs, so "which modifier" is one
+   * value the app derives rather than a field the tree has. Such a row declares
+   * its control here (`select` also needs an `optionsSource`; `boolean` needs
+   * nothing else), and the app answers the path in its options store.
+   *
+   * Ignored when the tree DOES have the field — the descriptor always wins, so
+   * an imported manifest cannot use this to override a real field's control.
+   */
+  type?: 'boolean' | 'select';
 }
 
 /**
@@ -182,6 +196,11 @@ function optionalId(value: unknown): string | undefined {
  * layout the app has and carries whatever that layout needs (`field` for a
  * `field` row, `field` + `source` for a `list` row, `source` for a `usage` row).
  * A section left with no rows is dropped with it.
+ *
+ * A `field` row may also declare the CONTROL of a path the descriptor tree has
+ * no field for (a host-declared virtual field). Only the two types the renderer
+ * can draw without a descriptor survive here; anything else is dropped, so a
+ * manifest cannot ask for an editor the app does not have.
  */
 export function normalizeSectionLayouts(
   input: unknown,
@@ -209,6 +228,10 @@ export function normalizeSectionLayouts(
       if (layout !== 'field' && source === undefined) continue;
       const binding: EnteiModuleRowBinding = { layout };
       if (field !== undefined) binding.field = field;
+      const type = optionalId(row.type);
+      if (layout === 'field' && (type === 'boolean' || type === 'select')) {
+        binding.type = type;
+      }
       if (source !== undefined) binding.source = source;
       if (optionsSource !== undefined) binding.optionsSource = optionsSource;
       for (const key of [

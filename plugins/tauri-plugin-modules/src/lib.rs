@@ -29,7 +29,8 @@ pub use nadeshiko::{
 };
 pub use torrent::{AddTorrentResult, SelectedTorrentFiles, TorrentFile, TorrentStatus};
 pub use yomitan::{
-    DictionarySummary, ImportProgress, KanjiEntry, StorageUsageSnapshot, TermEntry,
+    BulkKanjiEntry, BulkTagEntry, BulkTermEntry, DictionarySummary, ImportProgress, KanjiEntry,
+    StorageUsageSnapshot, TagQuery, TermEntry, TermMatchType, TermMetaEntry,
 };
 pub use ytdlp::{StreamSource, VideoInfo};
 
@@ -206,6 +207,54 @@ async fn yomitan_find_terms(
     with_yomitan_db!(state, |conn| yomitan::find_terms(conn, &term, limit))
 }
 
+/// Headwords matching MANY terms at once — the deinflection batch a scan produces.
+///
+/// One IPC crossing for the whole batch: a scan of 「食べた」 asks for a dozen
+/// candidates, and one command per candidate would be a dozen crossings per
+/// pointer move.
+///
+/// `matchType` defaults to `exact` (what a scan uses); see
+/// [`yomitan::find_terms_bulk`] for what each mode answers.
+#[tauri::command]
+async fn yomitan_find_terms_bulk(
+    state: State<'_, YomitanDbState>,
+    terms: Vec<String>,
+    match_type: Option<TermMatchType>,
+    limit: Option<u32>,
+) -> Result<Vec<BulkTermEntry>, String> {
+    with_yomitan_db!(state, |conn| {
+        yomitan::find_terms_bulk(conn, &terms, match_type.unwrap_or_default(), limit)
+    })
+}
+
+/// Term metadata (frequency / pitch / IPA) for MANY terms at once.
+#[tauri::command]
+async fn yomitan_find_term_meta_bulk(
+    state: State<'_, YomitanDbState>,
+    terms: Vec<String>,
+) -> Result<Vec<TermMetaEntry>, String> {
+    with_yomitan_db!(state, |conn| yomitan::find_term_meta_bulk(conn, &terms))
+}
+
+/// Kanji entries for MANY characters at once.
+#[tauri::command]
+async fn yomitan_find_kanji_bulk(
+    state: State<'_, YomitanDbState>,
+    characters: Vec<String>,
+) -> Result<Vec<BulkKanjiEntry>, String> {
+    with_yomitan_db!(state, |conn| yomitan::find_kanji_bulk(conn, &characters))
+}
+
+/// Tag definitions for MANY `{query, dictionary}` requests at once (part-of-speech
+/// names, frequency labels, kanji stat names).
+#[tauri::command]
+async fn yomitan_find_tags_bulk(
+    state: State<'_, YomitanDbState>,
+    items: Vec<TagQuery>,
+) -> Result<Vec<BulkTagEntry>, String> {
+    with_yomitan_db!(state, |conn| yomitan::find_tags_bulk(conn, &items))
+}
+
 #[tauri::command]
 async fn yomitan_find_kanji(
     state: State<'_, YomitanDbState>,
@@ -256,6 +305,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             yomitan_toggle_dictionary,
             yomitan_delete_dictionary,
             yomitan_find_terms,
+            yomitan_find_terms_bulk,
+            yomitan_find_term_meta_bulk,
+            yomitan_find_kanji_bulk,
+            yomitan_find_tags_bulk,
             yomitan_find_kanji,
             yomitan_get_storage_usage,
             torrent::add_torrent,

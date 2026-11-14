@@ -44,6 +44,81 @@
           "noneKey": "sortFrequencyNone"
         }
       ]
-    }
+    },
+    {
+          "section": "scanning",
+          "copy": "scanning",
+          "rows": [
+            {
+              "layout": "field",
+              "field": "scanning.modifierKey",
+              "type": "select",
+              "optionsSource": "yomitan-scan-modifier-keys",
+              "labelKey": "modifierKey",
+              "descriptionKey": "modifierKeyDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.middleMouse",
+              "type": "boolean",
+              "labelKey": "middleMouse",
+              "descriptionKey": "middleMouseDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.delay",
+              "labelKey": "delay",
+              "descriptionKey": "delayDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.length",
+              "labelKey": "length",
+              "descriptionKey": "lengthDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.autoHideResults",
+              "labelKey": "autoHideResults",
+              "descriptionKey": "autoHideResultsDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.scanResolution",
+              "labelKey": "scanResolution",
+              "descriptionKey": "scanResolutionDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.alphanumeric",
+              "labelKey": "alphanumeric",
+              "descriptionKey": "alphanumericDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.selectText",
+              "labelKey": "selectText",
+              "descriptionKey": "selectTextDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.layoutAwareScan",
+              "labelKey": "layoutAwareScan",
+              "descriptionKey": "layoutAwareScanDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.scanWithoutMousemove",
+              "labelKey": "scanWithoutMousemove",
+              "descriptionKey": "scanWithoutMousemoveDescription"
+            },
+            {
+              "layout": "field",
+              "field": "scanning.matchTypePrefix",
+              "labelKey": "matchTypePrefix",
+              "descriptionKey": "matchTypePrefixDescription"
+            }
+          ]
+        }
   ]
 }

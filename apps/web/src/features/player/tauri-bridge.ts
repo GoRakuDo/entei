@@ -422,7 +422,9 @@ export function yomitanDeleteDictionaryDirect(args: {
   });
 }
 
-/** Headwords matching `term` exactly, from enabled dictionaries, best first. */
+/**
+ * Headwords matching `term` exactly, from enabled dictionaries, best first.
+ */
 export function yomitanFindTermsDirect(args: {
   term: string;
   limit?: number;
@@ -430,6 +432,146 @@ export function yomitanFindTermsDirect(args: {
   return invokePluginCommand<YomitanTermEntry[]>(
     'plugin:modules|yomitan_find_terms',
     args.limit === undefined ? { term: args.term } : { term: args.term, limit: args.limit },
+  );
+}
+
+/* --- Bulk (deinflection) lookups -------------------------------------------
+ * Yomitan's `Translator` deinflects a block of text in ONE pass: scanning
+ * `食べた` asks for `[食べた, たべた, 食べる, たべる, …]` at once. These bulk
+ * commands answer that whole candidate list in a single IPC crossing, and every
+ * row carries the `index` of the query term that produced it (the
+ * `DictionaryDatabase` contract in `@gorakudo/yomitan-headless`).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * How a bulk term lookup compares a stored headword to the query term.
+ *
+ * Note: `suffix` is accepted by the engine but answers nothing yet (SQLite cannot
+ * range-scan a suffix through the expression index); no Entei surface selects it
+ * today.
+ */
+export type YomitanTermMatchType = 'exact' | 'prefix' | 'suffix';
+
+/** One bulk term row: a headword plus the index of the query term it answers. */
+export interface YomitanBulkTermEntry {
+  /** Index into the request's `terms` array. */
+  index: number;
+  /** Dictionary TITLE (the translator's dictionary set is keyed by title). */
+  dictionary: string;
+  /**
+   * Engine row id. The translator de-duplicates dictionary entries BY id, so
+   * this has to be the real per-row id — a constant would collapse every
+   * distinct headword into one entry.
+   */
+  id: number;
+  expression: string;
+  reading: string | null;
+  definitionTags: string | null;
+  rules: string | null;
+  score: number;
+  sequence: number;
+  termTags: string | null;
+  glossary: unknown;
+}
+
+/** One bulk term-metadata row (frequency / pitch accent / IPA). */
+export interface YomitanTermMetaEntry {
+  /** Index into the request's `terms` array. */
+  index: number;
+  expression: string;
+  /** `freq`, `pitch` or `ipa`. */
+  mode: string;
+  data: unknown;
+  dictionary: string;
+}
+
+/** One bulk kanji row: a character entry plus the index it answers. */
+export interface YomitanBulkKanjiEntry {
+  /** Index into the request's `characters` array. */
+  index: number;
+  dictionary: string;
+  character: string;
+  onyomi: string | null;
+  kunyomi: string | null;
+  tags: string | null;
+  meanings: string[];
+  stats: Record<string, unknown> | null;
+}
+
+/**
+ * Terms matching MANY query terms in one round trip (exact expression or
+ * reading), from enabled dictionaries, highest score first.
+ *
+ * The bulk counterpart of [`yomitanFindTermsDirect`]: it answers the
+ * `Translator`'s deinflection batch without a per-candidate IPC call.
+ */
+export function yomitanFindTermsBulkDirect(args: {
+  terms: string[];
+  /** Defaults to `exact` in the engine (what a scan uses). */
+  matchType?: YomitanTermMatchType;
+  /** Per-candidate row cap; the engine also caps the whole reply. */
+  limit?: number;
+}): Promise<YomitanBulkTermEntry[]> {
+  return invokePluginCommand<YomitanBulkTermEntry[]>(
+    'plugin:modules|yomitan_find_terms_bulk',
+    { terms: args.terms, matchType: args.matchType, limit: args.limit },
+  );
+}
+
+/** Term metadata (frequency / pitch / IPA) for MANY query terms at once. */
+export function yomitanFindTermMetaBulkDirect(args: {
+  terms: string[];
+}): Promise<YomitanTermMetaEntry[]> {
+  return invokePluginCommand<YomitanTermMetaEntry[]>(
+    'plugin:modules|yomitan_find_term_meta_bulk',
+    { terms: args.terms },
+  );
+}
+
+/** One bulk tag row: a tag definition plus the index of the request it answers. */
+export interface YomitanBulkTagEntry {
+  /** Index into the request's `items` array. */
+  index: number;
+  name: string;
+  /** `partOfSpeech`, `frequency`, `group`, … */
+  category: string;
+  /** The dictionary bank's `order`. */
+  order: number;
+  notes: string;
+  score: number;
+  /** Dictionary TITLE. */
+  dictionary: string;
+}
+
+/** One tag lookup request: a tag name within one dictionary (by title). */
+export interface YomitanTagQuery {
+  query: string;
+  dictionary: string;
+}
+
+/**
+ * Tag definitions for MANY `{query, dictionary}` requests in one round trip.
+ *
+ * The translator reads tag replies POSITIONALLY, so a request with no match is
+ * simply absent from the reply — each row's `index` says which request it
+ * answers, and the adapter pads the gaps.
+ */
+export function yomitanFindTagsBulkDirect(args: {
+  items: YomitanTagQuery[];
+}): Promise<YomitanBulkTagEntry[]> {
+  return invokePluginCommand<YomitanBulkTagEntry[]>(
+    'plugin:modules|yomitan_find_tags_bulk',
+    { items: args.items },
+  );
+}
+
+/** Kanji entries for MANY characters in one round trip. */
+export function yomitanFindKanjiBulkDirect(args: {
+  characters: string[];
+}): Promise<YomitanBulkKanjiEntry[]> {
+  return invokePluginCommand<YomitanBulkKanjiEntry[]>(
+    'plugin:modules|yomitan_find_kanji_bulk',
+    { characters: args.characters },
   );
 }
 

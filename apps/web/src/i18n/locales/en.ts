@@ -427,6 +427,40 @@ export const en: Dictionary = {
       sortFrequencyDescription: 'Sort results using a frequency dictionary.',
       sortFrequencyNone: 'None',
     },
+    scanning: {
+      modifierKey: 'Scan modifier key',
+      modifierKeyDescription:
+        'Hold this key and move the pointer over Japanese text to look it up.',
+      modifierNone: 'None (scan on hover)',
+      modifierShift: 'Shift',
+      modifierAlt: 'Alt',
+      modifierCtrl: 'Ctrl',
+      modifierMeta: 'Command',
+      middleMouse: 'Middle mouse scans',
+      middleMouseDescription:
+        'Look up text while the middle button is held or pressed too.',
+      delay: 'Scan delay (ms)',
+      delayDescription:
+        'How long the pointer rests before the lookup runs.',
+      length: 'Scan length (characters)',
+      lengthDescription: 'How many characters from the pointer are looked up.',
+      autoHideResults: 'Auto-hide results',
+      autoHideResultsDescription: 'Hide the result when the pointer leaves the text.',
+      scanResolution: 'Scan resolution',
+      scanResolutionDescription: 'Look up single characters, or whole words.',
+      alphanumeric: 'Scan alphanumeric characters',
+      alphanumericDescription: 'Include Latin letters and digits in a lookup.',
+      selectText: 'Select text when scanning',
+      selectTextDescription: 'Highlight the scanned text.',
+      layoutAwareScan: 'Layout-aware scan',
+      layoutAwareScanDescription: 'Skip text that is hidden or overlapped.',
+      scanWithoutMousemove: 'Scan without pointer movement',
+      scanWithoutMousemoveDescription:
+        'Look up again when the text under a resting pointer changes.',
+      matchTypePrefix: 'Prefix matching',
+      matchTypePrefixDescription:
+        'Match headwords that START with the scanned text instead of matching it exactly.',
+    },
   },
   settingsPage: {
     title: 'Settings',

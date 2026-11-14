@@ -100,11 +100,11 @@ describe('module-registry — core manifests', () => {
     }
   });
 
-  it('declares its Dictionaries section layout in yomitan.module.json, not in code', () => {
-    // The manifest decides which section draws itself and with which standard
+  it('declares its Dictionaries and Scanning section layouts in yomitan.module.json, not in code', () => {
+    // The manifest decides which sections draw themselves and with which standard
     // layouts; the page resolves each row's layout + host-owned data source.
     const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
-    expect(yomitan?.sectionLayouts).toEqual([
+    expect(yomitan?.sectionLayouts?.[0]).toEqual(
       {
         section: 'dictionaries',
         copy: 'dictionaries',
@@ -138,7 +138,38 @@ describe('module-registry — core manifests', () => {
           },
         ],
       },
+    );
+
+    /* The Scanning section is laid out too. Its first two rows are the
+       HOST-DECLARED VIRTUAL FIELDS: a scan modifier lives inside Yomitan's
+       `scanning.inputs[]` array, so neither it nor the middle-mouse trigger is a
+       tree field of its own — the row declares its control instead. */
+    const scanning = yomitan?.sectionLayouts?.[1];
+    expect(scanning?.section).toBe('scanning');
+    expect(scanning?.copy).toBe('scanning');
+    expect(scanning?.rows.slice(0, 2)).toEqual([
+      {
+        layout: 'field',
+        field: 'scanning.modifierKey',
+        type: 'select',
+        optionsSource: 'yomitan-scan-modifier-keys',
+        labelKey: 'modifierKey',
+        descriptionKey: 'modifierKeyDescription',
+      },
+      {
+        layout: 'field',
+        field: 'scanning.middleMouse',
+        type: 'boolean',
+        labelKey: 'middleMouse',
+        descriptionKey: 'middleMouseDescription',
+      },
     ]);
+    // Every other row is a plain field row with copy of its own.
+    for (const row of scanning?.rows.slice(2) ?? []) {
+      expect(row.layout).toBe('field');
+      expect(row.field).toBeTruthy();
+      expect(row.labelKey).toBeTruthy();
+    }
 
     // And the declaration really lives in the JSON document.
     const document = JSON.parse(

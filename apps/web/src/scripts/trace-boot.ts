@@ -15,6 +15,7 @@ import { installTraceInstrumentation } from '@/features/trace/trace-logger';
 import { ensureDatabaseMigrated } from '@/features/database/migration';
 import { isTauri, openExternalUrlDirect } from '@/features/player/tauri-bridge';
 import { installRouteGuard } from '@/scripts/route-guard';
+import { initTextScanner } from '@/features/yomitan/text-scanner';
 
 installTraceInstrumentation();
 
@@ -22,6 +23,13 @@ installTraceInstrumentation();
 // every page because both layouts load this module. External URLs are handled
 // by the Tauri listener below; this only guards same-origin paths.
 installRouteGuard();
+
+// Dictionary scanning on every page: the scanner gates itself on the desktop
+// runtime and on the user's scan modifier, so a page nobody scans at costs one
+// passive pointermove listener. Installed here — not inside a React island —
+// because the text worth scanning is as often in a modal or a plain Astro page
+// as it is in an island.
+initTextScanner();
 
 // Desktop only: intercept any external link click globally and hand it
 // over to the operating system's default browser, keeping the app webview

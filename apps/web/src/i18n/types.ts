@@ -478,6 +478,41 @@ export interface Dictionary {
       /** The select's leading "no dictionary" option. */
       sortFrequencyNone: string;
     };
+    /**
+     * Copy of the `scanning` group — the rows the manifest lays out for the
+     * Scanning section, including the two host-declared virtual fields (the scan
+     * modifier and the middle-mouse trigger) and the modifier choice labels.
+     */
+    scanning: {
+      modifierKey: string;
+      modifierKeyDescription: string;
+      /** Modifier choices (the values are the tokens the app persists). */
+      modifierNone: string;
+      modifierShift: string;
+      modifierAlt: string;
+      modifierCtrl: string;
+      modifierMeta: string;
+      middleMouse: string;
+      middleMouseDescription: string;
+      delay: string;
+      delayDescription: string;
+      length: string;
+      lengthDescription: string;
+      autoHideResults: string;
+      autoHideResultsDescription: string;
+      scanResolution: string;
+      scanResolutionDescription: string;
+      alphanumeric: string;
+      alphanumericDescription: string;
+      selectText: string;
+      selectTextDescription: string;
+      layoutAwareScan: string;
+      layoutAwareScanDescription: string;
+      scanWithoutMousemove: string;
+      scanWithoutMousemoveDescription: string;
+      matchTypePrefix: string;
+      matchTypePrefixDescription: string;
+    };
   };
   /** Dedicated /settings/ page (sidebar nav + drill-down). */
   settingsPage: {

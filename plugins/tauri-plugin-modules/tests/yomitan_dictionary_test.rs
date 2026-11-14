@@ -569,3 +569,260 @@ fn a_zip_without_any_bank_is_rejected() {
         .expect("list dictionaries")
         .is_empty());
 }
+
+/* --- Bulk (deinflection) lookups ------------------------------------------- */
+
+#[test]
+fn bulk_term_lookup_answers_each_candidate_with_its_own_index() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    import(&conn, build_dictionary_zip());
+
+    let rows = yomitan::find_terms_bulk(
+        &conn,
+        &[
+            "食べる".to_string(),
+            "食う".to_string(),
+            "存在しない語".to_string(),
+        ],
+        yomitan::TermMatchType::Exact,
+        None,
+    )
+    .expect("bulk term lookup");
+
+    // `食べる` twice (two banks), `食う` once, and nothing for the absent term.
+    let indexed: Vec<(usize, &str)> = rows
+        .iter()
+        .map(|row| (row.index, row.expression.as_str()))
+        .collect();
+    assert_eq!(
+        indexed,
+        [(0, "食べる"), (0, "食べる"), (1, "食う")],
+        "every row carries the index of the candidate it answers: {rows:?}"
+    );
+    // Highest score first inside a candidate (the fixture's whole point).
+    assert_eq!(rows[0].score, 200, "the higher-scored 食べる comes first");
+    assert_eq!(rows[1].score, 100);
+
+    // The translator keys its dictionary set by TITLE and de-duplicates by id.
+    assert!(
+        rows.iter().all(|row| row.dictionary == "Test Dictionary"),
+        "dictionary is the title, not the id: {rows:?}"
+    );
+    let ids: std::collections::HashSet<i64> = rows.iter().map(|row| row.id).collect();
+    assert_eq!(ids.len(), 3, "every row has its own id: {rows:?}");
+
+    // Payload is decoded, not left as JSON text.
+    assert_eq!(rows[0].glossary[0], json!("to eat (polite)"));
+
+    // A single-candidate query is unaffected by the other candidates.
+    let single = yomitan::find_terms_bulk(
+        &conn,
+        &["行".to_string()],
+        yomitan::TermMatchType::Exact,
+        None,
+    )
+    .expect("bulk term lookup");
+    assert_eq!(single.len(), 1);
+    assert_eq!(single[0].reading, None, "a null reading stays null");
+    assert_eq!(single[0].glossary[0], json!("to go"));
+}
+
+#[test]
+fn bulk_term_lookup_answers_prefix_and_refuses_suffix() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    import(&conn, build_dictionary_zip());
+
+    let prefix = yomitan::find_terms_bulk(
+        &conn,
+        &["食べ".to_string()],
+        yomitan::TermMatchType::Prefix,
+        None,
+    )
+    .expect("prefix lookup");
+    let expressions: Vec<&str> = prefix.iter().map(|row| row.expression.as_str()).collect();
+    assert_eq!(
+        expressions,
+        ["食べる", "食べる", "食べ物"],
+        "prefix matching finds every headword starting with the query: {prefix:?}"
+    );
+
+    // A prefix bound must not spill into the next code point: 食べ < 食え.
+    let bounded = yomitan::find_terms_bulk(
+        &conn,
+        &["食".to_string()],
+        yomitan::TermMatchType::Prefix,
+        None,
+    )
+    .expect("prefix lookup");
+    assert!(
+        bounded
+            .iter()
+            .all(|row| row.expression.starts_with('食')),
+        "the upper bound keeps every row inside the prefix: {bounded:?}"
+    );
+
+    // Suffix is documented as unanswered (a leading-wildcard scan over the whole
+    // bank), so it must be empty rather than a slow or wrong answer.
+    let suffix = yomitan::find_terms_bulk(
+        &conn,
+        &["べる".to_string()],
+        yomitan::TermMatchType::Suffix,
+        None,
+    )
+    .expect("suffix lookup");
+    assert!(suffix.is_empty(), "suffix matching answers nothing yet");
+}
+
+#[test]
+fn bulk_term_lookup_skips_disabled_dictionaries_and_honours_the_limit() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    let summary = import(&conn, build_dictionary_zip());
+
+    let limited = yomitan::find_terms_bulk(
+        &conn,
+        &["食べる".to_string()],
+        yomitan::TermMatchType::Exact,
+        Some(1),
+    )
+    .expect("limited lookup");
+    assert_eq!(limited.len(), 1, "the per-candidate limit applies");
+    assert_eq!(limited[0].score, 200, "and the best row is the one kept");
+
+    yomitan::toggle_dictionary(&conn, &summary.id, false).expect("disable dictionary");
+    let disabled = yomitan::find_terms_bulk(
+        &conn,
+        &["食べる".to_string()],
+        yomitan::TermMatchType::Exact,
+        None,
+    )
+    .expect("lookup with the dictionary off");
+    assert!(
+        disabled.is_empty(),
+        "a disabled dictionary answers no lookup: {disabled:?}"
+    );
+
+    // Empty requests are answered, not rejected: the translator batches whatever
+    // a scan produced, including nothing.
+    assert!(yomitan::find_terms_bulk(
+        &conn,
+        &[],
+        yomitan::TermMatchType::Exact,
+        None
+    )
+    .expect("empty term list")
+    .is_empty());
+    assert!(yomitan::find_term_meta_bulk(&conn, &[])
+        .expect("empty meta list")
+        .is_empty());
+    assert!(yomitan::find_kanji_bulk(&conn, &[])
+        .expect("empty kanji list")
+        .is_empty());
+    assert!(yomitan::find_tags_bulk(&conn, &[])
+        .expect("empty tag list")
+        .is_empty());
+}
+
+#[test]
+fn bulk_term_meta_lookup_returns_mode_and_payload_per_candidate() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    import(&conn, build_dictionary_zip());
+
+    let metas = yomitan::find_term_meta_bulk(
+        &conn,
+        &["食べる".to_string(), "無い語".to_string()],
+    )
+    .expect("bulk term meta lookup");
+
+    assert_eq!(metas.len(), 2, "the fixture ships freq and pitch: {metas:?}");
+    assert!(
+        metas.iter().all(|meta| meta.index == 0),
+        "both belong to the first candidate"
+    );
+    assert!(
+        metas.iter().all(|meta| meta.dictionary == "Test Dictionary"),
+        "dictionary is the title: {metas:?}"
+    );
+    assert_eq!(metas[0].expression, "食べる");
+    assert_eq!(metas[0].mode, "freq");
+    assert_eq!(metas[0].data, json!(12));
+    assert_eq!(metas[1].mode, "pitch");
+    assert_eq!(
+        metas[1].data["pitches"][0]["reading"],
+        json!("たべる"),
+        "a pitch payload stays structured"
+    );
+}
+
+#[test]
+fn bulk_kanji_lookup_returns_one_entry_per_character_with_its_index() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    import(&conn, build_dictionary_zip());
+
+    let entries = yomitan::find_kanji_bulk(
+        &conn,
+        &["食".to_string(), "行".to_string(), "猫".to_string()],
+    )
+    .expect("bulk kanji lookup");
+
+    let indexed: Vec<(usize, &str)> = entries
+        .iter()
+        .map(|entry| (entry.index, entry.character.as_str()))
+        .collect();
+    assert_eq!(
+        indexed,
+        [(0, "食"), (1, "行")],
+        "each row answers the character it was asked for: {entries:?}"
+    );
+    assert!(entries
+        .iter()
+        .all(|entry| entry.dictionary == "Test Dictionary"));
+    assert_eq!(entries[0].onyomi.as_deref(), Some("ショク,ジキ"));
+    assert_eq!(entries[0].meanings, ["eat", "food"]);
+    assert_eq!(entries[0].stats, Some(json!({ "grade": 2 })));
+}
+
+#[test]
+fn bulk_tag_lookup_is_positional_and_scoped_to_one_dictionary() {
+    let conn = yomitan::open_in_memory().expect("open in-memory database");
+    import(&conn, build_dictionary_zip());
+
+    let tags = yomitan::find_tags_bulk(
+        &conn,
+        &[
+            yomitan::TagQuery {
+                query: "v1".to_string(),
+                dictionary: "Test Dictionary".to_string(),
+            },
+            yomitan::TagQuery {
+                query: "common".to_string(),
+                dictionary: "Test Dictionary".to_string(),
+            },
+            // Unknown tag, and a tag in a dictionary that is not imported: both
+            // are simply absent, so the caller's positional read stays aligned.
+            yomitan::TagQuery {
+                query: "vt".to_string(),
+                dictionary: "Test Dictionary".to_string(),
+            },
+            yomitan::TagQuery {
+                query: "v1".to_string(),
+                dictionary: "Other Dictionary".to_string(),
+            },
+        ],
+    )
+    .expect("bulk tag lookup");
+
+    let indexed: Vec<(usize, &str)> = tags
+        .iter()
+        .map(|tag| (tag.index, tag.name.as_str()))
+        .collect();
+    assert_eq!(
+        indexed,
+        [(0, "v1"), (1, "common")],
+        "only the requests that matched contribute a row: {tags:?}"
+    );
+    assert_eq!(tags[0].category, "partOfSpeech");
+    assert_eq!(tags[0].order, 10, "the bank's order is the tag's order");
+    assert_eq!(tags[0].notes, "Ichidan verb");
+    assert_eq!(tags[1].category, "frequency");
+    assert_eq!(tags[1].score, 100);
+}
