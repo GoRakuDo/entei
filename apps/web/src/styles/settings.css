@@ -512,6 +512,8 @@ body[data-page='settings'] .entei-main {
 .entei-module-select {
   width: 100%;
   max-width: 26rem;
+  min-height: var(--entei-touch-min);
+  height: var(--entei-touch-min);
   background-color: var(--entei-surface);
 }
 
@@ -521,6 +523,8 @@ body[data-page='settings'] .entei-main {
 .entei-module-select {
   min-width: 14rem;
   max-width: 22rem;
+  min-height: var(--entei-touch-min);
+  height: var(--entei-touch-min);
 }
 
 .entei-module-input--number {
