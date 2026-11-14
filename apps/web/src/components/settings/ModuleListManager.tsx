@@ -17,11 +17,13 @@
  * What the manifest names is the DATA SOURCE (host-owned, because only the host
  * can reach the storage) — never the markup.
  *
- * Copy contract (keys the renderer resolves from the module's copy table):
- * `import`, `importing`, `importingProgress`, `empty`, `enable`, `remove`,
- * `importFailed`, `loadFailed`, `reorder`, `reorderHint`. The block
- * title/description arrive already resolved (`title` / `description`): this
- * layout owns no strings.
+ * Copy contract (the table a row names in `copy`, resolved by the renderer
+ * against `components/settings/module-copy`): `import`, `importing`,
+ * `importingProgress`, `empty`, `enable`, `remove`, `importFailed`, `loadFailed`,
+ * `reorder`, `reorderHint`. The block title/description are the row's own literal
+ * text (`title` / `description`). Those strings are English, like the settings
+ * surface this layout is drawn in — see `module-copy` for why they are not
+ * dictionary entries.
  *
  * Layout: header row — title + description on the left, the import button on
  * the right where every other settings control sits — above the rows, which
@@ -62,13 +64,14 @@ export interface ModuleListManagerRow {
   key: string;
   /** Primary label (the item's name). */
   name: string;
-  /** Optional metadata line under the name (already localized by the caller). */
+  /** Optional metadata line under the name (built by the caller). */
   meta?: string;
   /** Persisted enable state of this item. */
   enabled: boolean;
 }
 
-/** Localized copy for the layout. Every string comes from the caller. */export interface ModuleListManagerCopy {
+/** English copy of the layout, resolved from the manifest's `copy` table. */
+export interface ModuleListManagerCopy {
   /** Import button label. */
   import: string;
   /** Import button label while an import runs. */
@@ -109,7 +112,7 @@ export interface ModuleListManagerProps {
   rows: readonly ModuleListManagerRow[];
   /** Resolved copy for this layout. */
   copy: ModuleListManagerCopy;
-  /** Block title (the renderer resolves the manifest's `labelKey`). */
+  /** Block title (the row's own literal `label`). */
   title?: string;
   /** Block description under the title. */
   description?: string;

@@ -9,10 +9,10 @@
  * manifest's explicit row list look and behave identically — there is exactly
  * one field row in the app.
  *
- * The caller resolves everything module-specific: the label/description copy
- * (descriptor text, or a manifest `labelKey` override), the options of a select
- * row (descriptor options, or a host-owned `optionsSource`), and what a write
- * means. This component owns no strings and knows no field by name.
+ * The caller resolves everything module-specific: the label/description text
+ * (a manifest row's own literal text, or the descriptor's), the options of a
+ * select row (descriptor options, or a host-owned `optionsSource`), and what a
+ * write means. This component owns no strings and knows no field by name.
  * ---------------------------------------------------------------------------
  */
 

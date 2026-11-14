@@ -397,87 +397,8 @@ export const en: Dictionary = {
     noSettings: 'This module has no settings.',
   },
   yomitanSettings: {
-    heading: 'Yomitan settings',
-    description:
-      'The same options as the Chrome extension. Changes save immediately.',
-    unavailable: 'Yomitan settings could not be loaded.',
     notEditable: 'Not editable yet',
     toggleSection: 'Toggle section',
-    dictionaries: {
-      installedTitle: 'Installed Dictionaries',
-      installedDescription:
-        'Dictionary entries are managed at runtime. The settings tree exposes per-dictionary fields once a dictionary is installed.',
-      import: 'Import dictionary (.zip)',
-      importing: 'Importing…',
-      importingProgress: 'Importing',
-      empty:
-        'No dictionaries imported yet. Import a dictionary (.zip) to start looking up words.',
-      enable: 'Enable dictionary',
-      remove: 'Delete dictionary',
-      importFailed: 'Dictionary import failed',
-      loadFailed: 'Installed dictionaries could not be read',
-      reorder: 'Reorder dictionary',
-      reorderHint:
-        'Drag to change the priority, or press the up and down arrow keys.',
-      prefixWildcards: 'Enable support for prefix wildcard searches',
-      storage: 'Storage',
-      storageUsage: 'Yomitan is using approximately {used} of {total}.',
-      refresh: 'Refresh',
-      sortFrequency: 'Frequency sorting dictionary',
-      sortFrequencyDescription: 'Sort results using a frequency dictionary.',
-      sortFrequencyNone: 'None',
-    },
-    scanning: {
-      modifierKey: 'Scan modifier key',
-      modifierKeyDescription: 'Hold a key while moving the cursor to scan text.',
-      modifierNone: 'No key',
-      modifierShift: 'Shift',
-      modifierAlt: 'Alt',
-      modifierCtrl: 'Ctrl',
-      modifierMeta: 'Meta',
-      advancedInputs: 'Configure advanced scanning inputs...',
-      advancedInputsDescription:
-        'Scanning inputs are used to define when text scanning should occur.',
-      advancedInputsCount: '{count} defined',
-      addKey: 'Add New Key',
-      requiredInputs: 'Required inputs:',
-      excludedInputs: 'Excluded inputs:',
-      noInputs: 'No inputs',
-      inputTypes: 'Input types:',
-      mouse: 'Mouse',
-      touch: 'Touch',
-      pen: 'Pen',
-      scanOn: 'Scan on:',
-      press: 'Press',
-      release: 'Release',
-      preventScrolling: 'Prevent Scan on scrolling:',
-      minimumTouchTime: 'Minimum Touch Time (in ms):',
-      captureInput: 'Record a key or mouse button',
-      captureListening: 'Press a key or mouse button (Esc cancels)',
-      removeInput: 'Delete this input',
-      inputsEmpty:
-        'No scanning inputs defined yet. Add a key to define when scanning happens.',
-      delay: 'Scan delay (in ms)',
-      delayDescription:
-        'Change the delay before scanning occurs when no modifier key is required.',
-      length: 'Text scan length',
-      lengthDescription:
-        'Change how many characters are read when scanning for terms.',
-      scanWithoutMousemove: 'Scan without mouse move',
-      scanWithoutMousemoveDescription:
-        'Allow scanning words under the pointer without the pointer being in motion.',
-      selectText: 'Select matched text',
-      selectTextDescription: 'Highlight the text that was looked up.',
-      deepDomScan: 'Deep content scanning',
-      deepDomScanDescription:
-        'Enable scanning text that is covered by other layers.',
-      normalizeCssZoom: 'Normalize CSS zoom',
-      normalizeCssZoomDescription:
-        'Correct the pointer location on webpages where CSS zoom is used.',
-      wildcardScanning: 'Wildcard scanning',
-      wildcardScanningDescription:
-        'Enable suffix wildcard when looking up scanned webpage text.',
-    },
   },
   settingsPage: {
     title: 'Settings',

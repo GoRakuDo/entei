@@ -431,118 +431,20 @@ export interface Dictionary {
     /** Shown on a module page whose manifest carries no `settingsSchema`. */
     noSettings: string;
   };
-  /** Generic descriptor-tree settings renderer (module `settingsSchema`). */
+  /**
+   * Chrome of the generic descriptor-tree settings renderer (a module's
+   * `settingsSchema`) — nothing else.
+   *
+   * The rows themselves are the module's own literal English text (its manifest),
+   * and a platform layout's own strings are the app's English tables
+   * (`components/settings/module-copy`): that surface reproduces the upstream
+   * tool's UI, whose labels are English in every Entei locale.
+   */
   yomitanSettings: {
-    heading: string;
-    description: string;
-    /** Fallback when a manifest ships no settings tree at all. */
-    unavailable: string;
     /** Shown instead of a control the host cannot edit generically. */
     notEditable: string;
     /** Accessible name prefix for a section collapse toggle. */
     toggleSection: string;
-    /**
-     * Copy of the `dictionaries` group — where the manifest's
-     * `sectionLayouts[].copy` rows resolve their `*Key` references.
-     *
-     * The first eight entries are the `list` layout's fixed copy contract
-     * (installed-item lists of any module); the rest are the Yomitan
-     * dictionaries section's own rows.
-     */
-    dictionaries: {
-      /** `list` layout — block title. */
-      installedTitle: string;
-      /** `list` layout — sentence under the block title. */
-      installedDescription: string;
-      import: string;
-      importing: string;
-      /** `list` layout — in-flight import row's label, before its percent. */
-      importingProgress: string;
-      empty: string;
-      enable: string;
-      remove: string;
-      importFailed: string;
-      /** Toast title when the installed list cannot be read from the engine. */
-      loadFailed: string;
-      /** `list` layout — accessible name prefix of a row's drag handle. */
-      reorder: string;
-      /** `list` layout — how-to-reorder sentence (the handle's description). */
-      reorderHint: string;
-      prefixWildcards: string;
-      storage: string;
-      /** `usage` layout — `{used}` / `{total}` sentence template. */
-      storageUsage: string;
-      refresh: string;
-      sortFrequency: string;
-      sortFrequencyDescription: string;
-      /** The select's leading "no dictionary" option. */
-      sortFrequencyNone: string;
-    };
-    /**
-     * Copy of the `scanning` group — the rows the manifest lays out for the
-     * Scanning section: the host-declared virtual scan modifier, the `inputs`
-     * layout's cards, and the section's own behaviour rows.
-     */
-    scanning: {
-      modifierKey: string;
-      modifierKeyDescription: string;
-      /** Modifier choices (the values are the tokens the app persists). */
-      modifierNone: string;
-      modifierShift: string;
-      modifierAlt: string;
-      modifierCtrl: string;
-      modifierMeta: string;
-      /** `inputs` layout — block title. */
-      advancedInputs: string;
-      /** `inputs` layout — sentence under the block title. */
-      advancedInputsDescription: string;
-      /** `inputs` layout — card count, as `{count} defined`. */
-      advancedInputsCount: string;
-      /** `inputs` layout — add-a-card button label. */
-      addKey: string;
-      /** `inputs` layout — required-inputs row label. */
-      requiredInputs: string;
-      /** `inputs` layout — excluded-inputs row label. */
-      excludedInputs: string;
-      /** `inputs` layout — placeholder of an empty required/excluded field. */
-      noInputs: string;
-      /** `inputs` layout — pointer-type row label. */
-      inputTypes: string;
-      /** `inputs` layout — pointer-type choices (mouse / touch / pen). */
-      mouse: string;
-      touch: string;
-      pen: string;
-      /** `inputs` layout — trigger row label (touch and pen cards only). */
-      scanOn: string;
-      press: string;
-      release: string;
-      /** `inputs` layout — prevent-scrolling switch (touch and pen only). */
-      preventScrolling: string;
-      /** `inputs` layout — minimum-touch-time row (touch and pen only). */
-      minimumTouchTime: string;
-      /** `inputs` layout — accessible name of a token field's record button. */
-      captureInput: string;
-      /** `inputs` layout — record button label while it waits for input. */
-      captureListening: string;
-      /** `inputs` layout — accessible name prefix of a card's delete button. */
-      removeInput: string;
-      /** `inputs` layout — sentence shown while no card exists. */
-      inputsEmpty: string;
-      delay: string;
-      delayDescription: string;
-      length: string;
-      lengthDescription: string;
-      scanWithoutMousemove: string;
-      scanWithoutMousemoveDescription: string;
-      selectText: string;
-      selectTextDescription: string;
-      deepDomScan: string;
-      deepDomScanDescription: string;
-      normalizeCssZoom: string;
-      normalizeCssZoomDescription: string;
-      wildcardScanning: string;
-      wildcardScanningDescription: string;
-    };
   };
   /** Dedicated /settings/ page (sidebar nav + drill-down). */
   settingsPage: {

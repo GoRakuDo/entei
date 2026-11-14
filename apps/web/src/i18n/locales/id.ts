@@ -394,88 +394,8 @@ export const id: Dictionary = {
     noSettings: 'Modul ini tidak memiliki pengaturan.',
   },
   yomitanSettings: {
-    heading: 'Pengaturan Yomitan',
-    description:
-      'Opsi yang sama seperti ekstensi Chrome. Perubahan langsung disimpan.',
-    unavailable: 'Pengaturan Yomitan tidak dapat dimuat.',
     notEditable: 'Item ini belum dapat diubah',
     toggleSection: 'Buka/tutup bagian',
-    dictionaries: {
-      installedTitle: 'Kamus Terpasang',
-      installedDescription:
-        'Entri kamus dikelola saat runtime. Setelan ini menampilkan opsi per kamus setelah ada kamus yang dipasang.',
-      import: 'Impor Kamus (.zip)',
-      importing: 'Mengimpor…',
-      importingProgress: 'Mengimpor',
-      empty:
-        'Belum ada kamus yang diimpor. Silakan impor file kamus (.zip) untuk memulai pencarian.',
-      enable: 'Aktifkan kamus',
-      remove: 'Hapus kamus',
-      importFailed: 'Impor kamus gagal',
-      loadFailed: 'Daftar kamus terpasang tidak dapat dibaca',
-      reorder: 'Atur ulang urutan kamus',
-      reorderHint:
-        'Seret untuk mengubah prioritas, atau tekan tombol panah atas dan bawah.',
-      prefixWildcards: 'Aktifkan dukungan pencarian wildcard prefiks',
-      storage: 'Penyimpanan',
-      storageUsage: 'Yomitan menggunakan sekitar {used} dari {total}.',
-      refresh: 'Segarkan',
-      sortFrequency: 'Kamus pengurutan frekuensi',
-      sortFrequencyDescription: 'Urutkan hasil menggunakan kamus frekuensi.',
-      sortFrequencyNone: 'Tidak ada',
-    },
-    scanning: {
-      modifierKey: 'Tombol modifier pemindaian',
-      modifierKeyDescription:
-        'Tahan tombol sambil menggerakkan kursor untuk memindai teks.',
-      modifierNone: 'Tanpa tombol',
-      modifierShift: 'Shift',
-      modifierAlt: 'Alt',
-      modifierCtrl: 'Ctrl',
-      modifierMeta: 'Meta',
-      advancedInputs: 'Konfigurasi input pemindaian lanjutan...',
-      advancedInputsDescription:
-        'Input pemindaian digunakan untuk menentukan kapan pemindaian teks terjadi.',
-      advancedInputsCount: '{count} ditetapkan',
-      addKey: 'Tambah Tombol Baru',
-      requiredInputs: 'Input wajib:',
-      excludedInputs: 'Input dikecualikan:',
-      noInputs: 'Tidak ada input',
-      inputTypes: 'Jenis input:',
-      mouse: 'Mouse',
-      touch: 'Sentuh',
-      pen: 'Pena',
-      scanOn: 'Pindai pada:',
-      press: 'Tekan',
-      release: 'Lepas',
-      preventScrolling: 'Cegah pemindaian saat menggulir:',
-      minimumTouchTime: 'Waktu Sentuh Minimum (dalam ms):',
-      captureInput: 'Rekam tombol atau tombol mouse',
-      captureListening: 'Tekan tombol atau tombol mouse (Esc membatalkan)',
-      removeInput: 'Hapus input ini',
-      inputsEmpty:
-        'Belum ada input pemindaian. Tambahkan tombol untuk menentukan kapan pemindaian terjadi.',
-      delay: 'Jeda pemindaian (dalam ms)',
-      delayDescription:
-        'Ubah jeda sebelum pemindaian terjadi saat tidak ada tombol modifier yang diperlukan.',
-      length: 'Panjang pindai teks',
-      lengthDescription:
-        'Ubah berapa karakter yang dibaca saat memindai istilah.',
-      scanWithoutMousemove: 'Pindai tanpa gerakan mouse',
-      scanWithoutMousemoveDescription:
-        'Izinkan pemindaian kata di bawah penunjuk tanpa penunjuk harus bergerak.',
-      selectText: 'Pilih teks yang cocok',
-      selectTextDescription: 'Sorot teks yang berhasil dicari.',
-      deepDomScan: 'Pemindaian konten mendalam',
-      deepDomScanDescription:
-        'Aktifkan pemindaian teks yang tertutup lapisan lain.',
-      normalizeCssZoom: 'Normalkan zoom CSS',
-      normalizeCssZoomDescription:
-        'Koreksi lokasi penunjuk pada halaman yang memakai CSS zoom.',
-      wildcardScanning: 'Pemindaian wildcard',
-      wildcardScanningDescription:
-        'Aktifkan wildcard akhiran saat mencari teks halaman yang dipindai.',
-    },
   },
   settingsPage: {
     title: 'Pengaturan',

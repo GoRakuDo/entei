@@ -31,13 +31,66 @@ import {
   writeYomitanOptions,
 } from '@/features/yomitan/yomitan-preferences';
 import { en } from '@/i18n/locales/en';
+import {
+  DICTIONARIES_COPY,
+  SCANNING_INPUTS_COPY,
+} from '@/components/settings/module-copy';
 
+/**
+ * The renderer's own chrome is still localised (`labels`); everything a ROW draws
+ * is the manifest's literal English text plus the app's English layout tables —
+ * the dictionary has no entry for those any more.
+ */
 const LABELS = {
   notEditable: en.yomitanSettings.notEditable,
   toggleSection: en.yomitanSettings.toggleSection,
 };
 
-const COPY = en.yomitanSettings;
+/** The strings under test. */
+const COPY = {
+  notEditable: LABELS.notEditable,
+  dictionaries: {
+    installedTitle: 'Installed Dictionaries',
+    installedDescription:
+      'Dictionary entries are managed at runtime. The settings tree exposes per-dictionary fields once a dictionary is installed.',
+    empty: DICTIONARIES_COPY.empty,
+    prefixWildcards: 'Enable support for prefix wildcard searches',
+    storage: 'Storage',
+    storageUsage: 'Yomitan is using approximately {used} of {total}.',
+    refresh: 'Refresh',
+    sortFrequency: 'Frequency sorting dictionary',
+    sortFrequencyDescription: 'Sort results using a frequency dictionary.',
+    sortFrequencyNone: 'None',
+  },
+  scanning: {
+    modifierKey: 'Scan modifier key',
+    modifierCtrl: 'Ctrl',
+    advancedInputs: 'Configure advanced scanning inputs...',
+    advancedInputsDescription:
+      'Scanning inputs are used to define when text scanning should occur.',
+    addKey: SCANNING_INPUTS_COPY.add,
+    requiredInputs: SCANNING_INPUTS_COPY.required,
+    excludedInputs: SCANNING_INPUTS_COPY.excluded,
+    removeInput: SCANNING_INPUTS_COPY.remove,
+    delay: 'Scan delay (in ms)',
+    length: 'Text scan length',
+    scanWithoutMousemove: 'Scan without mouse move',
+    selectText: 'Select matched text',
+    deepDomScan: 'Deep content scanning',
+    normalizeCssZoom: 'Normalize CSS zoom',
+    wildcardScanning: 'Wildcard scanning',
+    scanOn: SCANNING_INPUTS_COPY.scanOn,
+    touch: SCANNING_INPUTS_COPY.touch,
+    preventScrolling: SCANNING_INPUTS_COPY.preventScrolling,
+    minimumTouchTime: SCANNING_INPUTS_COPY.minimumTouchTime,
+    release: SCANNING_INPUTS_COPY.release,
+  },
+};
+
+/** The inputs layout's card count, as it composes its heading (`{count} defined`). */
+function inputsCount(count: number): string {
+  return SCANNING_INPUTS_COPY.count.replace('{count}', String(count));
+}
 
 /** Yomitan's own manifest declaration of its Dictionaries section. */
 const SECTION_LAYOUTS =
@@ -81,7 +134,6 @@ function renderSettings(
           setOptions(next);
         }}
         labels={LABELS}
-        copy={COPY}
       />
     );
   }
@@ -377,7 +429,7 @@ describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () =>
     // Yomitan rows this host does not expose: the middle-button trigger (it is a
     // token in a scan-input card now), the scan resolution, the alphanumeric
     // search, the layout-aware toggle.
-    expect(screen.queryByText(COPY.scanning.modifierShift)).toBeNull();
+    expect(screen.queryByText('Shift')).toBeNull();
     expect(screen.queryByText('Scan resolution')).toBeNull();
     expect(screen.queryByText('Scan alphanumeric characters')).toBeNull();
     expect(screen.queryByText('Layout-aware scan')).toBeNull();
@@ -390,7 +442,7 @@ describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () =>
     const { container } = renderSettings();
     openScanning();
 
-    const heading = `${COPY.scanning.advancedInputs} (${COPY.scanning.advancedInputsCount.replace('{count}', '2')})`;
+    const heading = `${COPY.scanning.advancedInputs} (${inputsCount(2)})`;
     expect(screen.getByText(heading)).toBeTruthy();
     expect(
       screen.getByText(COPY.scanning.advancedInputsDescription),
@@ -421,9 +473,7 @@ describe('YomitanSettingsRenderer — manifest-laid-out Scanning section', () =>
       3,
     );
     expect(
-      screen.getByText(
-        `${COPY.scanning.advancedInputs} (${COPY.scanning.advancedInputsCount.replace('{count}', '3')})`,
-      ),
+      screen.getByText(`${COPY.scanning.advancedInputs} (${inputsCount(3)})`),
     ).toBeTruthy();
   });
 

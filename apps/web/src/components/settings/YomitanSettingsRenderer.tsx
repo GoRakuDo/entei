@@ -20,9 +20,9 @@
  * list (Yomitan's Dictionaries: an installed-item list plus host-only rows) is
  * declared by the manifest as a `sectionLayouts` entry — an ordered list of ROWS,
  * each naming one of the app's standard layouts (`list`, `field`, `usage`,
- * `inputs`), the field it edits, the host-owned DATA SOURCE behind it, and the
- * copy keys of its labels. This renderer resolves those rows against the
- * descriptor tree and the host source registry
+ * `inputs`), the field it edits, the host-owned DATA SOURCE behind it, and its
+ * own literal text (English, like the upstream UI it reproduces). This renderer
+ * resolves those rows against the descriptor tree and the host source registry
  * (`components/settings/module-data-sources`); it never names a module or a
  * field itself. A field laid out this way is claimed: it is not drawn a second
  * time in its tree group.
@@ -86,6 +86,7 @@ import { ModuleFieldRow } from '@/components/settings/ModuleFieldRow';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
 import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
 import type { ScanningInputManagerCopy } from '@/components/settings/ScanningInputManager';
+import { resolveModuleCopyTable } from '@/components/settings/module-copy';
 import { resolveModuleDataSource } from '@/components/settings/module-data-sources';
 import {
   isLockedOptionPath,
@@ -122,11 +123,6 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   user: User,
 };
 
-/** A module's copy table: the dictionary keys a manifest may reference. */
-export type ModuleCopyTable = {
-  readonly [key: string]: string | ModuleCopyTable | undefined;
-};
-
 export interface YomitanSettingsRendererProps {
   /** Ordered section descriptors (from the manifest's `settingsSchema`). */
   sections: readonly SettingSectionDescriptor[];
@@ -144,28 +140,13 @@ export interface YomitanSettingsRendererProps {
    * renderer never decides this on its own — absent/false means no icons.
    */
   showSectionIcons?: boolean;
-  /** Localised strings from the settings dictionary. */
+  /** Localised strings of the renderer's own chrome (the app dictionary's). */
   labels: {
     /** Shown in place of a control the host cannot edit generically. */
     notEditable: string;
     /** Accessible name for a section's collapse toggle. */
     toggleSection: string;
   };
-  /** The module's copy table — where manifest `labelKey` / `*Key` resolve. */
-  copy: ModuleCopyTable;
-}
-
-/** Resolve one key of a copy table's group (e.g. `dictionaries` → `import`). */
-function resolveCopy(
-  table: ModuleCopyTable,
-  group: string | undefined,
-  key: string | undefined,
-): string | undefined {
-  if (key === undefined || key === '') return undefined;
-  const scope = group === undefined || group === '' ? table : table[group];
-  if (typeof scope !== 'object' || scope === null) return undefined;
-  const value = (scope as ModuleCopyTable)[key];
-  return typeof value === 'string' ? value : undefined;
 }
 
 /** Every field of the tree, by dot-path — how a declared row finds its field. */
@@ -186,7 +167,7 @@ function indexFields(
  * options store but that has no entry in the module's settings tree.
  *
  * Only the descriptor's `key` and `type` are load-bearing (they pick the
- * control); the label comes from the manifest's copy and the choices from its
+ * control); the label is the row's own literal text and the choices come from its
  * `optionsSource`, so both are left empty here.
  */
 function virtualField(
@@ -221,7 +202,6 @@ export function YomitanSettingsRenderer({
   onChange,
   showSectionIcons = false,
   labels,
-  copy,
 }: YomitanSettingsRendererProps) {
   /* Section keys open on first render. Opening every one of 18 sections would
      make the page a wall of controls; the user opens what they came for. */
@@ -252,7 +232,6 @@ export function YomitanSettingsRenderer({
           options={options}
           expanded={open[section.key] === true}
           labels={labels}
-          copy={copy}
           showIcon={showSectionIcons}
           onToggle={() =>
             setOpen((prev) => ({
@@ -276,7 +255,6 @@ interface YomitanSectionProps {
   options: Options;
   expanded: boolean;
   labels: YomitanSettingsRendererProps['labels'];
-  copy: ModuleCopyTable;
   /** Manifest-driven: draw the leading icon on this section header. */
   showIcon: boolean;
   onToggle: () => void;
@@ -293,7 +271,6 @@ function YomitanSection({
   options,
   expanded,
   labels,
-  copy,
   showIcon,
   onToggle,
   onChange,
@@ -360,11 +337,9 @@ function YomitanSection({
                      legitimately declare the same field twice. */
                   key={`${layout.section}-${index}`}
                   row={row}
-                  copyPath={layout.copy}
                   fields={fields}
                   options={options}
                   labels={labels}
-                  copy={copy}
                   onChange={onChange}
                   onOptionsChange={onOptionsChange}
                 />
@@ -435,12 +410,9 @@ function YomitanGroup({
 
 interface ModuleLayoutRowProps {
   row: EnteiModuleRowBinding;
-  /** Section's copy group (manifest `copy`), the rows' key scope. */
-  copyPath: string | undefined;
   fields: Map<string, SettingFieldDescriptor>;
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
-  copy: ModuleCopyTable;
   onChange: (path: string, value: unknown) => void;
   onOptionsChange: (next: Options) => void;
 }
@@ -448,11 +420,9 @@ interface ModuleLayoutRowProps {
 /** One manifest-declared row: resolve its layout, then draw it. */
 function ModuleLayoutRow({
   row,
-  copyPath,
   fields,
   options,
   labels,
-  copy,
   onChange,
   onOptionsChange,
 }: ModuleLayoutRowProps) {
@@ -461,10 +431,10 @@ function ModuleLayoutRow({
 
   if (row.layout === 'usage') {
     if (source?.usage === undefined) return null;
-    const template = resolveCopy(copy, copyPath, row.usageKey) ?? '';
+    const template = row.usage ?? '';
     if (template === '') return null;
-    const label = resolveCopy(copy, copyPath, row.labelKey);
-    const actionLabel = resolveCopy(copy, copyPath, row.actionKey);
+    const label = row.label;
+    const actionLabel = row.action;
     if (label === undefined || actionLabel === undefined) return null;
     return (
       <ModuleUsageMeter
@@ -476,9 +446,10 @@ function ModuleLayoutRow({
     );
   }
 
-  const label = resolveCopy(copy, copyPath, row.labelKey) ?? field?.label;
-  const description =
-    resolveCopy(copy, copyPath, row.descriptionKey) ?? field?.description;
+  /* The row's own literal text wins; the descriptor's English is the fallback a
+     row that declares none keeps. */
+  const label = row.label ?? field?.label;
+  const description = row.description ?? field?.description;
 
   /* HOST-DECLARED VIRTUAL FIELD: a row whose path the app answers in its options
      store but that the module's tree has no descriptor for (a Yomitan scan
@@ -511,8 +482,6 @@ function ModuleLayoutRow({
           description={description}
           options={options}
           labels={labels}
-          copy={copy}
-          copyPath={copyPath}
           onChange={onChange}
         />
       );
@@ -547,7 +516,7 @@ function ModuleLayoutRow({
         onChange={onOptionsChange}
         title={rowLabel}
         description={rowDescription}
-        copy={resolveListCopy(copy, copyPath)}
+        copy={resolveListCopy(row.copy)}
       />
     );
   }
@@ -576,7 +545,7 @@ function ModuleLayoutRow({
         onChange={onOptionsChange}
         title={rowLabel}
         description={rowDescription}
-        copy={resolveInputsCopy(copy, copyPath)}
+        copy={resolveInputsCopy(row.copy)}
       />
     );
   }
@@ -589,68 +558,81 @@ function ModuleLayoutRow({
       description={rowDescription}
       options={options}
       labels={labels}
-      copy={copy}
-      copyPath={copyPath}
       onChange={onChange}
     />
   );
 }
 
 /**
- * The `list` layout's fixed copy contract — the keys it always reads, so a
- * manifest declares the layout once and the strings stay in the locales.
+ * The keys each layout reads out of its copy table.
+ *
+ * A layout's own strings (the import button, the card rows) are English and live
+ * in `components/settings/module-copy`, whatever module the row belongs to; those
+ * two lists are the keys it reads. The lookup is fail-closed: a missing key falls
+ * back to `''`, and a row's own text stands on its own elsewhere.
  */
-function resolveListCopy(
-  copy: ModuleCopyTable,
-  copyPath: string | undefined,
-): ModuleListManagerCopy {
-  const pick = (key: string): string =>
-    resolveCopy(copy, copyPath, key) ?? '';
-  return {
-    import: pick('import'),
-    importing: pick('importing'),
-    importingProgress: pick('importingProgress'),
-    empty: pick('empty'),
-    enable: pick('enable'),
-    remove: pick('remove'),
-    importFailed: pick('importFailed'),
-    loadFailed: pick('loadFailed'),
-    reorder: pick('reorder'),
-    reorderHint: pick('reorderHint'),
-  };
-}
+const LIST_COPY_KEYS = [
+  'import',
+  'importing',
+  'importingProgress',
+  'empty',
+  'enable',
+  'remove',
+  'importFailed',
+  'loadFailed',
+  'reorder',
+  'reorderHint',
+] as const satisfies readonly (keyof ModuleListManagerCopy)[];
+
+const INPUTS_COPY_KEYS = [
+  'add',
+  'count',
+  'required',
+  'excluded',
+  'noInputs',
+  'inputTypes',
+  'mouse',
+  'touch',
+  'pen',
+  'scanOn',
+  'press',
+  'release',
+  'preventScrolling',
+  'minimumTouchTime',
+  'capture',
+  'listening',
+  'remove',
+  'empty',
+] as const satisfies readonly (keyof ScanningInputManagerCopy)[];
 
 /**
- * The `inputs` layout's fixed copy contract — resolved once, like the `list`
- * layout's, so a manifest declares the layout and the strings stay in the
- * locales.
+ * One named table as a full copy contract (never a partial one).
+ *
+ * The strings a LAYOUT owns (`Import`, `Enable dictionary`, `Add New Key`) are
+ * English whatever locale the app is in: they are drawn inside the upstream tool's
+ * own UI. An unknown name resolves to `undefined`, and every key then falls back
+ * to `''` — a typo must never print `undefined` into the page.
  */
-function resolveInputsCopy(
-  copy: ModuleCopyTable,
-  copyPath: string | undefined,
-): ScanningInputManagerCopy {
-  const pick = (key: string): string =>
-    resolveCopy(copy, copyPath, key) ?? '';
-  return {
-    add: pick('addKey'),
-    count: pick('advancedInputsCount'),
-    required: pick('requiredInputs'),
-    excluded: pick('excludedInputs'),
-    noInputs: pick('noInputs'),
-    inputTypes: pick('inputTypes'),
-    mouse: pick('mouse'),
-    touch: pick('touch'),
-    pen: pick('pen'),
-    scanOn: pick('scanOn'),
-    press: pick('press'),
-    release: pick('release'),
-    preventScrolling: pick('preventScrolling'),
-    minimumTouchTime: pick('minimumTouchTime'),
-    capture: pick('captureInput'),
-    listening: pick('captureListening'),
-    remove: pick('removeInput'),
-    empty: pick('inputsEmpty'),
-  };
+function pickCopy<T extends object>(
+  name: string | undefined,
+  keys: readonly (keyof T)[],
+): T {
+  const table = resolveModuleCopyTable(name);
+  const out: Record<string, string> = {};
+  for (const key of keys) {
+    out[key as string] = table?.[key as string] ?? '';
+  }
+  return out as T;
+}
+
+/** The `list` layout's copy contract, resolved from the row's named table. */
+function resolveListCopy(name: string | undefined): ModuleListManagerCopy {
+  return pickCopy<ModuleListManagerCopy>(name, LIST_COPY_KEYS);
+}
+
+/** The `inputs` layout's copy contract, resolved from the named table. */
+function resolveInputsCopy(name: string | undefined): ScanningInputManagerCopy {
+  return pickCopy<ScanningInputManagerCopy>(name, INPUTS_COPY_KEYS);
 }
 
 interface BoundFieldRowProps {
@@ -660,8 +642,6 @@ interface BoundFieldRowProps {
   description: string | undefined;
   options: Options;
   labels: YomitanSettingsRendererProps['labels'];
-  copy: ModuleCopyTable;
-  copyPath: string | undefined;
   onChange: (path: string, value: unknown) => void;
 }
 
@@ -677,8 +657,6 @@ function BoundFieldRow({
   description,
   options,
   labels,
-  copy,
-  copyPath,
   onChange,
 }: BoundFieldRowProps) {
   const read = resolveModuleDataSource(row.optionsSource)?.options;
@@ -701,11 +679,9 @@ function BoundFieldRow({
     return () => {
       current = false;
     };
-    /* Re-read whenever the tree changes (installing or deleting the item this
-       list enumerates has to show up without a reload) and whenever the COPY
-       changes: a host source labels its choices from the locales, and a locale
-       switch replaces the copy table. */
-  }, [read, options, copy]);
+    /* Re-read whenever the tree changes: installing or deleting the item this
+       list enumerates has to show up without a reload. */
+  }, [read, options]);
 
   return (
     <ModuleFieldRow
@@ -714,11 +690,7 @@ function BoundFieldRow({
       description={description}
       value={readOptionPath(options, field.key)}
       options={choices}
-      noneLabel={
-        row.noneKey === undefined
-          ? undefined
-          : resolveCopy(copy, copyPath, row.noneKey)
-      }
+      noneLabel={row.none}
       onChange={(value) => onChange(field.key, value)}
       notEditable={labels.notEditable}
     />

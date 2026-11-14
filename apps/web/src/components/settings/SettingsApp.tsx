@@ -684,7 +684,6 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                       notEditable: dict.yomitanSettings.notEditable,
                       toggleSection: dict.yomitanSettings.toggleSection,
                     }}
-                    copy={dict.yomitanSettings}
                   />
                 )}
 
@@ -714,7 +713,6 @@ export function SettingsApp({ dict, locale: initialLocale }: SettingsAppProps) {
                       notEditable: dict.yomitanSettings.notEditable,
                       toggleSection: dict.yomitanSettings.toggleSection,
                     }}
-                    copy={dict.yomitanSettings}
                   />
                 )}
             </div>

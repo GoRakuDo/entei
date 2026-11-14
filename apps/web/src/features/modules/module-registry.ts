@@ -22,16 +22,24 @@
  *
  * LAYOUTS ARE MANIFEST DATA TOO: a section whose editor is not a plain field
  * list is declared with `sectionLayouts` — an ordered row list, each row naming
- * one of the app's standard layouts (`list` / `field` / `usage`), the field it
- * edits, the host-owned data `source` behind it and the copy keys of its labels.
+ * one of the app's standard layouts (`list` / `field` / `usage` / `inputs`), the
+ * field it edits, the host-owned data `source` behind it and its own text.
  * The app owns the layouts (`components/settings/ModuleListManager`,
  * `ModuleFieldRow`, `ModuleUsageMeter`) and the host-owned data sources
  * (`components/settings/module-data-sources`); which field gets which layout is
  * never written in the page.
  *
  * Copy: `nameKey` / `descriptionKey` are DICTIONARY KEYS for built-ins (the
- * three locales own the strings). An imported manifest has no dictionary entry,
- * so it carries literal `name` / `description` and `nameKey` is absent.
+ * three locales own the module card's own strings). An imported manifest has no
+ * dictionary entry, so it carries literal `name` / `description` and `nameKey`
+ * is absent.
+ *
+ * A section-layout row works the same way: it carries LITERAL text (`label` /
+ * `description` / `action` / `usage` / `none`) and, for the strings a platform
+ * layout owns itself, the NAME of a built-in English table in
+ * `components/settings/module-copy` (`copy: "dictionaries"`). Yomitan's
+ * settings surface is the Chrome extension's own UI, so its rows ship the
+ * upstream English text in the manifest and the app locales stay out of it.
  * ---------------------------------------------------------------------------
  */
 
@@ -72,12 +80,25 @@ export type ModuleCopyKey =
 export type EnteiModuleRowLayout = 'list' | 'field' | 'usage' | 'inputs';
 
 /**
+ * Name of a built-in English copy table a platform layout draws its own strings
+ * from (see `components/settings/module-copy`). Open-ended like every other
+ * manifest id: an unknown name resolves to nothing and the layout falls back to
+ * its own empty string, so a typo can never render `undefined`.
+ */
+export type ModuleCopyTableName = string;
+
+/**
  * One row of a manifest-declared section layout.
  *
  * `field` addresses a dot-path of the module's `settingsSchema` (the descriptor
- * decides the control); `source` names a host-owned data source; the `*Key`
- * fields name copy entries inside the section's `copy` group, resolved by the
- * host against its locales. Unknown keys degrade to the descriptor's own text.
+ * decides the control); `source` names a host-owned data source. The row's TEXT
+ * is literal: `label` / `description` win over the descriptor's own English,
+ * which stays the fallback for a row that declares none.
+ *
+ * A layout the platform implements owns copy of its own (`list`, `inputs`, and
+ * the `{used}`/`{total}` sentence of `usage`). Such a row names one of the
+ * built-in English tables by id (`copy`); the app owns those strings, so no
+ * manifest restates them and no locale translates them.
  */
 export interface EnteiModuleRowBinding {
   /** Which standard layout draws this row. */
@@ -88,16 +109,21 @@ export interface EnteiModuleRowBinding {
   source?: string;
   /** Host-owned source id supplying a `field` row's select options. */
   optionsSource?: string;
-  /** Copy key of the row's label (falls back to the descriptor's label). */
-  labelKey?: string;
-  /** Copy key of the row's description (falls back to the descriptor's). */
-  descriptionKey?: string;
-  /** Copy key of a `usage` row's action label. */
-  actionKey?: string;
-  /** Copy key of a `usage` row's `{used}`/`{total}` sentence template. */
-  usageKey?: string;
-  /** Copy key of a `field` row's leading "none" option. */
-  noneKey?: string;
+  /**
+   * Built-in English copy table of the layout drawing this row — the strings
+   * that layout owns itself (`list` / `inputs`, and a `usage` row's sentence).
+   */
+  copy?: ModuleCopyTableName;
+  /** Row label (wins over the descriptor's own label). */
+  label?: string;
+  /** Row description under the label (wins over the descriptor's). */
+  description?: string;
+  /** Action button label of a `usage` row. */
+  action?: string;
+  /** Sentence template of a `usage` row, with `{used}` / `{total}`. */
+  usage?: string;
+  /** Leading "none" option of a `field` row's select. */
+  none?: string;
   /**
    * Control type of a row whose `field` has NO descriptor in the module's
    * `settingsSchema` — a HOST-DECLARED VIRTUAL FIELD.
@@ -121,8 +147,6 @@ export interface EnteiModuleRowBinding {
 export interface EnteiModuleSectionLayout {
   /** `key` of the section in the module's `settingsSchema`. */
   section: string;
-  /** Group of the module's copy table the rows' keys resolve against. */
-  copy?: string;
   /** Rows to draw, top to bottom. */
   rows: readonly EnteiModuleRowBinding[];
 }
@@ -222,7 +246,6 @@ export function normalizeSectionLayouts(
     const raw = entry as Record<string, unknown>;
     const section = optionalId(raw.section);
     if (section === undefined) continue;
-    const copy = optionalId(raw.copy);
     const rows: EnteiModuleRowBinding[] = [];
     for (const item of Array.isArray(raw.rows) ? raw.rows : []) {
       if (typeof item !== 'object' || item === null) continue;
@@ -244,12 +267,17 @@ export function normalizeSectionLayouts(
       }
       if (source !== undefined) binding.source = source;
       if (optionsSource !== undefined) binding.optionsSource = optionsSource;
+      /* The layout's own English table, then the row's literal text. Both are
+         optional: a row naming neither falls back to the descriptor's English
+         (or to the layout's own fallback for the copy it owns). */
+      const copy = optionalId(row.copy);
+      if (copy !== undefined) binding.copy = copy;
       for (const key of [
-        'labelKey',
-        'descriptionKey',
-        'actionKey',
-        'usageKey',
-        'noneKey',
+        'label',
+        'description',
+        'action',
+        'usage',
+        'none',
       ] as const) {
         const value = optionalId(row[key]);
         if (value !== undefined) binding[key] = value;
@@ -257,9 +285,7 @@ export function normalizeSectionLayouts(
       rows.push(binding);
     }
     if (rows.length === 0) continue;
-    const sectionLayout: EnteiModuleSectionLayout = { section, rows };
-    if (copy !== undefined) sectionLayout.copy = copy;
-    layouts.push(sectionLayout);
+    layouts.push({ section, rows });
   }
   return layouts;
 }

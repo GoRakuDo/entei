@@ -1,10 +1,14 @@
 /**
  * module-data-sources — the host registry behind a manifest's `source` ids.
  * ---------------------------------------------------------------------------
- * A manifest names LAYOUTS (`list`, `field`, `usage`) and DATA SOURCES. The
- * layouts are generic; the sources cannot be, because only the host can reach a
- * module's storage — so the host keeps this id → capability map and the renderer
- * resolves it without knowing any module by name.
+ * A manifest names LAYOUTS (`list`, `field`, `usage`, `inputs`) and DATA
+ * SOURCES. The layouts are generic; the sources cannot be, because only the host
+ * can reach a module's storage — so the host keeps this id → capability map and
+ * the renderer resolves it without knowing any module by name.
+ *
+ * Text on those rows is the manifest's own (and, for the strings a layout owns
+ * itself, the app's English tables in `module-copy`): nothing here localises a
+ * label.
  *
  * One id may serve several layouts, because they are facets of the same data:
  * `yomitan-dictionaries` draws the installed-item list, feeds the "frequency
@@ -33,8 +37,6 @@ import {
   listInstalledDictionaries,
   readDictionaryStorageUsage,
 } from '@/features/yomitan/dictionary-store';
-import { getDictionary } from '@/i18n';
-import { getSavedLocale } from '@/i18n/preferences';
 import type { StorageUsageSnapshot } from '@/features/settings/storage-usage';
 
 /** What a `list` layout's host source receives. */
@@ -43,11 +45,11 @@ export interface ModuleListSourceProps {
   options: Options;
   /** Persist the next options tree. */
   onChange: (next: Options) => void;
-  /** Block title the renderer resolved from the manifest's `labelKey`. */
+  /** Block title: the row's own literal `label`. */
   title?: string;
-  /** Block description the renderer resolved from `descriptionKey`. */
+  /** Block description: the row's own literal `description`. */
   description?: string;
-  /** Already-localized copy for the list layout. */
+  /** English copy of the list layout (`module-copy`). */
   copy: ModuleListManagerCopy;
 }
 
@@ -59,11 +61,11 @@ export interface ModuleInputsSourceProps {
   options: Options;
   /** Persist the next options tree. */
   onChange: (next: Options) => void;
-  /** Block title the renderer resolved from the manifest's `labelKey`. */
+  /** Block title: the row's own literal `label`. */
   title?: string;
-  /** Block description the renderer resolved from `descriptionKey`. */
+  /** Block description: the row's own literal `description`. */
   description?: string;
-  /** Already-localized copy for the inputs layout. */
+  /** English copy of the inputs layout (`module-copy`). */
   copy: ScanningInputManagerCopy;
 }
 
@@ -110,19 +112,16 @@ async function readInstalledDictionaryOptions(): Promise<readonly SelectOption[]
  * subtitles. Values are the tokens the app writes into the first scan input's
  * `include` (`features/yomitan/yomitan-preferences`).
  *
- * Labelled from the ACTIVE LOCALE rather than hard-coded: this module is host
- * code, and a settings row in a Japanese UI must not read "Shift". The locale is
- * read at call time and the row re-reads this list when the copy table changes,
- * so a switch applies without a reload.
+ * Yomitan's own labels, like the rest of that settings surface: the key names are
+ * the extension's, so they read the same in every Entei locale.
  */
 async function readScanModifierOptions(): Promise<readonly SelectOption[]> {
-  const scanning = getDictionary(getSavedLocale()).yomitanSettings.scanning;
   return [
-    { value: 'none', label: scanning.modifierNone },
-    { value: 'shift', label: scanning.modifierShift },
-    { value: 'alt', label: scanning.modifierAlt },
-    { value: 'ctrl', label: scanning.modifierCtrl },
-    { value: 'meta', label: scanning.modifierMeta },
+    { value: 'none', label: 'No key' },
+    { value: 'shift', label: 'Shift' },
+    { value: 'alt', label: 'Alt' },
+    { value: 'ctrl', label: 'Ctrl' },
+    { value: 'meta', label: 'Meta' },
   ];
 }
 

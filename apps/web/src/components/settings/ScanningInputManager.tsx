@@ -11,7 +11,8 @@
  * as a row of the Scanning section:
  *
  *   { "layout": "inputs", "field": "scanning.inputs",
- *     "source": "yomitan-scan-inputs", "labelKey": "advancedInputs", … }
+ *     "source": "yomitan-scan-inputs", "copy": "scanningInputs",
+ *     "label": "Configure advanced scanning inputs...", … }
  *
  * One CARD per entry, each card a stack of the platform's STANDARD field rows
  * (`.entei-module-field`), so a card reads exactly like the settings around it.
@@ -115,7 +116,7 @@ const KIND_DESCRIPTORS: readonly ScanKindDescriptor[] = [
   },
 ];
 
-/** Localized copy of the `inputs` layout (the caller resolves every string). */
+/** English copy of the `inputs` layout (`components/settings/module-copy`). */
 export interface ScanningInputManagerCopy {
   /** Add-a-card button label. */
   add: string;
@@ -157,11 +158,11 @@ export interface ScanningInputManagerProps {
   options: Options;
   /** Persist the next options tree. */
   onChange: (next: Options) => void;
-  /** Block title, resolved by the renderer from the manifest's `labelKey`. */
+  /** Block title: the row's own literal `label`. */
   title?: string;
-  /** Block description, resolved from `descriptionKey`. */
+  /** Block description: the row's own literal `description`. */
   description?: string;
-  /** Already-localized copy for this layout. */
+  /** English copy of the inputs layout (`module-copy`). */
   copy: ScanningInputManagerCopy;
 }
 

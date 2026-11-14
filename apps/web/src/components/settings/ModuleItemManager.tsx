@@ -46,11 +46,11 @@ import {
 export interface ModuleItemManagerProps {
   options: Options;
   onChange: (next: Options) => void;
-  /** Block title, resolved by the renderer from the manifest's `labelKey`. */
+  /** Block title: the row's own literal `label`. */
   title?: string;
-  /** Block description, resolved from `descriptionKey`. */
+  /** Block description: the row's own literal `description`. */
   description?: string;
-  /** Localized copy of the list layout. */
+  /** English copy of the list layout (`module-copy`). */
   copy: ModuleListManagerCopy;
 }
 

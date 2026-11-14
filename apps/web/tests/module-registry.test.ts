@@ -104,41 +104,40 @@ describe('module-registry — core manifests', () => {
     // The manifest decides which sections draw themselves and with which standard
     // layouts; the page resolves each row's layout + host-owned data source.
     const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
-    expect(yomitan?.sectionLayouts?.[0]).toEqual(
-      {
-        section: 'dictionaries',
-        copy: 'dictionaries',
-        rows: [
-          {
-            layout: 'list',
-            field: 'dictionaries',
-            source: 'yomitan-dictionaries',
-            labelKey: 'installedTitle',
-            descriptionKey: 'installedDescription',
-          },
-          {
-            layout: 'field',
-            field: 'global.database.prefixWildcardsSupported',
-            labelKey: 'prefixWildcards',
-          },
-          {
-            layout: 'usage',
-            source: 'yomitan-dictionaries',
-            labelKey: 'storage',
-            usageKey: 'storageUsage',
-            actionKey: 'refresh',
-          },
-          {
-            layout: 'field',
-            field: 'general.sortFrequencyDictionary',
-            optionsSource: 'yomitan-dictionaries',
-            labelKey: 'sortFrequency',
-            descriptionKey: 'sortFrequencyDescription',
-            noneKey: 'sortFrequencyNone',
-          },
-        ],
-      },
-    );
+    expect(yomitan?.sectionLayouts?.[0]).toEqual({
+      section: 'dictionaries',
+      rows: [
+        {
+          layout: 'list',
+          field: 'dictionaries',
+          source: 'yomitan-dictionaries',
+          copy: 'dictionaries',
+          label: 'Installed Dictionaries',
+          description:
+            'Dictionary entries are managed at runtime. The settings tree exposes per-dictionary fields once a dictionary is installed.',
+        },
+        {
+          layout: 'field',
+          field: 'global.database.prefixWildcardsSupported',
+          label: 'Enable support for prefix wildcard searches',
+        },
+        {
+          layout: 'usage',
+          source: 'yomitan-dictionaries',
+          label: 'Storage',
+          usage: 'Yomitan is using approximately {used} of {total}.',
+          action: 'Refresh',
+        },
+        {
+          layout: 'field',
+          field: 'general.sortFrequencyDictionary',
+          optionsSource: 'yomitan-dictionaries',
+          label: 'Frequency sorting dictionary',
+          description: 'Sort results using a frequency dictionary.',
+          none: 'None',
+        },
+      ],
+    });
 
     /* The Scanning section is laid out too. Its first row is a HOST-DECLARED
        VIRTUAL FIELD (a scan modifier lives inside Yomitan's `scanning.inputs[]`
@@ -147,27 +146,33 @@ describe('module-registry — core manifests', () => {
        array, one card per definition. */
     const scanning = yomitan?.sectionLayouts?.[1];
     expect(scanning?.section).toBe('scanning');
-    expect(scanning?.copy).toBe('scanning');
     expect(scanning?.rows[0]).toEqual({
       layout: 'field',
       field: 'scanning.modifierKey',
       type: 'select',
       optionsSource: 'yomitan-scan-modifier-keys',
-      labelKey: 'modifierKey',
-      descriptionKey: 'modifierKeyDescription',
+      label: 'Scan modifier key',
+      description: 'Hold a key while moving the cursor to scan text.',
     });
     expect(scanning?.rows[1]).toEqual({
       layout: 'inputs',
       field: 'scanning.inputs',
       source: 'yomitan-scan-inputs',
-      labelKey: 'advancedInputs',
-      descriptionKey: 'advancedInputsDescription',
+      copy: 'scanningInputs',
+      label: 'Configure advanced scanning inputs...',
+      description:
+        'Scanning inputs are used to define when text scanning should occur.',
     });
-    // Every other row is a plain field row with copy of its own.
-    for (const row of scanning?.rows.slice(2) ?? []) {
-      expect(row.layout).toBe('field');
-      expect(row.field).toBeTruthy();
-      expect(row.labelKey).toBeTruthy();
+    /* Every row of a laid-out section carries its own English text (that surface
+       is the upstream tool's own UI, which the app does not translate). */
+    for (const layout of yomitan?.sectionLayouts ?? []) {
+      for (const row of layout.rows) {
+        if (row.layout === 'usage') {
+          expect(row.action).toBeTruthy();
+          continue;
+        }
+        expect(row.label).toBeTruthy();
+      }
     }
 
     // And the declaration really lives in the JSON document.
@@ -292,9 +297,14 @@ describe('module-registry — manifest validation', () => {
         sectionLayouts: [
           {
             section: 'items',
-            copy: 'items',
             rows: [
-              { layout: 'list', field: 'items', source: 'host-items' },
+              {
+                layout: 'list',
+                field: 'items',
+                source: 'host-items',
+                copy: 'items',
+                label: 'Installed items',
+              },
             ],
           },
         ],
@@ -305,8 +315,15 @@ describe('module-registry — manifest validation', () => {
     expect(result.manifest.sectionLayouts).toEqual([
       {
         section: 'items',
-        copy: 'items',
-        rows: [{ layout: 'list', field: 'items', source: 'host-items' }],
+        rows: [
+          {
+            layout: 'list',
+            field: 'items',
+            source: 'host-items',
+            copy: 'items',
+            label: 'Installed items',
+          },
+        ],
       },
     ]);
   });
@@ -347,19 +364,19 @@ describe('module-registry — sectionLayouts normalisation', () => {
     ).toEqual([]);
   });
 
-  it('trims ids and keeps only the copy keys a row carries', () => {
+  it('trims ids and keeps only the copy/text fields a row carries', () => {
     expect(
       normalizeSectionLayouts([
         {
           section: '  items  ',
-          copy: '  items  ',
           rows: [
             {
               layout: ' list ',
               field: '  items  ',
               source: ' host-items ',
-              labelKey: '  title  ',
-              descriptionKey: '   ',
+              copy: '  items  ',
+              label: '  title  ',
+              description: '   ',
             },
           ],
         },
@@ -367,13 +384,13 @@ describe('module-registry — sectionLayouts normalisation', () => {
     ).toEqual([
       {
         section: 'items',
-        copy: 'items',
         rows: [
           {
             layout: 'list',
             field: 'items',
             source: 'host-items',
-            labelKey: 'title',
+            copy: 'items',
+            label: 'title',
           },
         ],
       },

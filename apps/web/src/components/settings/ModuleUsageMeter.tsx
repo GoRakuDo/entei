@@ -9,13 +9,13 @@
  * template and owns the presentation —
  *
  *   { "layout": "usage", "source": "yomitan-dictionaries",
- *     "labelKey": "storage", "usageKey": "storageUsage",
- *     "actionKey": "refresh" }
+ *     "label": "Storage",
+ *     "usage": "Yomitan is using approximately {used} of {total}.",
+ *     "action": "Refresh" }
  *
- * `template` carries `{used}` / `{total}` placeholders (the row's own sentence,
- * in the module's copy: "Yomitan is using approximately {used} of {total}.").
- * An unavailable measurement reads as `—`: a meter that cannot measure must
- * never print a fabricated `0 bytes`.
+ * `template` carries `{used}` / `{total}` placeholders (the row's own sentence in
+ * the manifest). An unavailable measurement reads as `—`: a meter that cannot
+ * measure must never print a fabricated `0 bytes`.
  * ---------------------------------------------------------------------------
  */
 
@@ -29,13 +29,13 @@ import { formatStorageUsage } from '@/features/settings/storage-usage';
 const PENDING_PLACEHOLDER = '…';
 
 export interface ModuleUsageMeterProps {
-  /** Row label (e.g. "Storage"). */
+  /** Row label (the manifest's own text, e.g. "Storage"). */
   label: string;
   /** Sentence template with `{used}` / `{total}` placeholders. */
   template: string;
   /** Host-owned measurement (e.g. the browser's storage estimate). */
   read: () => Promise<StorageUsageSnapshot | null>;
-  /** Refresh button label. */
+  /** Refresh button label (the manifest's own text). */
   actionLabel: string;
   /** Leading action icon (defaults to a refresh mark). */
   actionIcon?: LucideIcon;

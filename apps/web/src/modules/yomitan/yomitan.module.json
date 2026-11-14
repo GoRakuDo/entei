@@ -14,97 +14,97 @@
   "sectionLayouts": [
     {
       "section": "dictionaries",
-      "copy": "dictionaries",
       "rows": [
         {
           "layout": "list",
           "field": "dictionaries",
           "source": "yomitan-dictionaries",
-          "labelKey": "installedTitle",
-          "descriptionKey": "installedDescription"
+          "copy": "dictionaries",
+          "label": "Installed Dictionaries",
+          "description": "Dictionary entries are managed at runtime. The settings tree exposes per-dictionary fields once a dictionary is installed."
         },
         {
           "layout": "field",
           "field": "global.database.prefixWildcardsSupported",
-          "labelKey": "prefixWildcards"
+          "label": "Enable support for prefix wildcard searches"
         },
         {
           "layout": "usage",
           "source": "yomitan-dictionaries",
-          "labelKey": "storage",
-          "usageKey": "storageUsage",
-          "actionKey": "refresh"
+          "label": "Storage",
+          "usage": "Yomitan is using approximately {used} of {total}.",
+          "action": "Refresh"
         },
         {
           "layout": "field",
           "field": "general.sortFrequencyDictionary",
           "optionsSource": "yomitan-dictionaries",
-          "labelKey": "sortFrequency",
-          "descriptionKey": "sortFrequencyDescription",
-          "noneKey": "sortFrequencyNone"
+          "label": "Frequency sorting dictionary",
+          "description": "Sort results using a frequency dictionary.",
+          "none": "None"
         }
       ]
     },
     {
       "section": "scanning",
-      "copy": "scanning",
       "rows": [
         {
           "layout": "field",
           "field": "scanning.modifierKey",
           "type": "select",
           "optionsSource": "yomitan-scan-modifier-keys",
-          "labelKey": "modifierKey",
-          "descriptionKey": "modifierKeyDescription"
+          "label": "Scan modifier key",
+          "description": "Hold a key while moving the cursor to scan text."
         },
         {
           "layout": "inputs",
           "field": "scanning.inputs",
           "source": "yomitan-scan-inputs",
-          "labelKey": "advancedInputs",
-          "descriptionKey": "advancedInputsDescription"
+          "copy": "scanningInputs",
+          "label": "Configure advanced scanning inputs...",
+          "description": "Scanning inputs are used to define when text scanning should occur."
         },
         {
           "layout": "field",
           "field": "scanning.delay",
-          "labelKey": "delay",
-          "descriptionKey": "delayDescription"
+          "label": "Scan delay (in ms)",
+          "description": "Change the delay before scanning occurs when no modifier key is required."
         },
         {
           "layout": "field",
           "field": "scanning.scanWithoutMousemove",
-          "labelKey": "scanWithoutMousemove",
-          "descriptionKey": "scanWithoutMousemoveDescription"
+          "label": "Scan without mouse move",
+          "description": "Allow scanning words under the pointer without the pointer being in motion."
         },
         {
           "layout": "field",
           "field": "scanning.selectText",
-          "labelKey": "selectText",
-          "descriptionKey": "selectTextDescription"
+          "label": "Select matched text",
+          "description": "Highlight the text that was looked up."
         },
         {
           "layout": "field",
           "field": "scanning.deepDomScan",
-          "labelKey": "deepDomScan",
-          "descriptionKey": "deepDomScanDescription"
+          "label": "Deep content scanning",
+          "description": "Enable scanning text that is covered by other layers."
         },
         {
           "layout": "field",
           "field": "scanning.normalizeCssZoom",
-          "labelKey": "normalizeCssZoom",
-          "descriptionKey": "normalizeCssZoomDescription"
+          "label": "Normalize CSS zoom",
+          "description": "Correct the pointer location on webpages where CSS zoom is used."
         },
         {
           "layout": "field",
           "field": "scanning.matchTypePrefix",
-          "labelKey": "wildcardScanning",
-          "descriptionKey": "wildcardScanningDescription"
+          "label": "Wildcard scanning",
+          "description": "Enable suffix wildcard when looking up scanned webpage text."
         },
         {
           "layout": "field",
           "field": "scanning.length",
-          "labelKey": "length",
-          "descriptionKey": "lengthDescription"
+          "label": "Text scan length",
+          "description": "Change how many characters are read when scanning for terms."
         }
       ]
     }
