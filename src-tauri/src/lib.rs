@@ -9,8 +9,32 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
 }
 
+#[cfg(windows)]
+fn install_console_ctrl_handler() {
+    unsafe {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn SetConsoleCtrlHandler(
+                handler_routine: Option<unsafe extern "system" fn(u32) -> i32>,
+                add: i32,
+            ) -> i32;
+        }
+        unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
+            // CTRL_C_EVENT = 0, CTRL_BREAK_EVENT = 1, CTRL_CLOSE_EVENT = 2
+            if ctrl_type <= 2 {
+                std::process::exit(0);
+            }
+            0
+        }
+        let _ = SetConsoleCtrlHandler(Some(ctrl_handler), 1);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(windows)]
+    install_console_ctrl_handler();
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_mpv::init())
         // Native subtitle parsing / media filename parsing / LazySync offset
@@ -64,7 +88,7 @@ pub fn run() {
             Ok(())
         });
 
-    // Debug-only developer bridge (MCP). Two guards:
+        // Debug-only developer bridge (MCP). Two guards:
     // - `debug_assertions`: the plugin is not compiled/registered in release builds.
     // - bind_address "127.0.0.1": the bridge WebSocket never listens on other interfaces.
     #[cfg(debug_assertions)]
@@ -75,6 +99,15 @@ pub fn run() {
     );
 
     builder
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // When the main window is closed/destroyed, terminate the process immediately
+                // so background listener tasks (MCP server, relays, mpv) do not hang or zombie.
+                if window.label() == "main" {
+                    std::process::exit(0);
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
