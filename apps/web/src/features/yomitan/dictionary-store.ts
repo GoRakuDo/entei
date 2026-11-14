@@ -108,12 +108,26 @@ const INSTALLED_CACHE_MS = 5000;
 let installedCache: readonly InstalledDictionary[] | null = null;
 let installedAt = 0;
 let installedLoad: Promise<readonly InstalledDictionary[]> | null = null;
+/**
+ * Bumped by every invalidation, and by every read that starts a load.
+ *
+ * A load records the generation it belongs to and only writes the cache (or
+ * clears the in-flight slot) while it is still the current one, so a write that
+ * lands mid-read cannot be undone by that read's late reply.
+ */
+let cacheGeneration = 0;
 
 /**
  * Every imported dictionary, briefly cached — the read a lookup performs.
  *
  * Concurrent callers share one in-flight read, so a burst of scans costs a single
  * IPC however many lookups it turns into.
+ *
+ * The generation counter is what makes a WRITE during that read safe: an import,
+ * a toggle or a delete invalidates the cache, and the read that was already in
+ * flight then belongs to the world before the write. Its reply is still handed to
+ * the caller that asked for it, but it is not allowed to refill the cache — that
+ * would resurrect the pre-write dictionary list for the whole TTL window.
  */
 export async function listInstalledDictionariesCached(): Promise<
   readonly InstalledDictionary[]
@@ -121,14 +135,20 @@ export async function listInstalledDictionariesCached(): Promise<
   const fresh = Date.now() - installedAt < INSTALLED_CACHE_MS;
   if (installedCache !== null && fresh) return installedCache;
   if (installedLoad === null) {
+    const generation = ++cacheGeneration;
     installedLoad = listInstalledDictionaries()
       .then((list) => {
-        installedCache = list;
-        installedAt = Date.now();
+        if (generation === cacheGeneration) {
+          installedCache = list;
+          installedAt = Date.now();
+        }
         return list;
       })
       .finally(() => {
-        installedLoad = null;
+        // Only the CURRENT load owns the slot: clearing it unconditionally would
+        // throw away a newer read's promise and let a third caller start a second
+        // IPC for the same data.
+        if (generation === cacheGeneration) installedLoad = null;
       });
   }
   return installedLoad;
@@ -143,6 +163,7 @@ export async function listInstalledDictionariesCached(): Promise<
  * ignores what the user just did.
  */
 export function invalidateInstalledDictionaries(): void {
+  cacheGeneration += 1;
   installedCache = null;
   installedAt = 0;
   installedLoad = null;

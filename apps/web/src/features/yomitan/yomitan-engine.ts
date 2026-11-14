@@ -457,21 +457,44 @@ interface DictionaryAndQuery {
 let translator: ReturnType<typeof createTranslator> | null = null;
 let dictionarySignature = '';
 
-/** Identity of the dictionary set a cached translator was prepared against. */
-function signatureOf(map: EnabledDictionaryMap): string {
-  return [...map.keys()].join(' ');
+/**
+ * Identity of what a cached translator was prepared against.
+ *
+ * Every field of the dictionary set that the translator READS goes in here, not
+ * just the names: an alias, a parts-of-speech filter, a deinflection switch or a
+ * secondary-search switch is read while it builds an entry, so a translator kept
+ * across a change of any of them keeps answering with the old value. Order matters
+ * too — it IS the dictionary priority — which is why this walks the map entries
+ * instead of sorting them.
+ *
+ * Exported because it is the cache key: the unit test pins what counts as "the
+ * dictionaries changed", which is otherwise only observable as a stale lookup.
+ */
+export function dictionarySignatureOf(map: EnabledDictionaryMap): string {
+  return [...map.entries()]
+    .map(([name, dictionary]) =>
+      [
+        name,
+        dictionary.alias,
+        dictionary.partsOfSpeechFilter ? 1 : 0,
+        dictionary.useDeinflections ? 1 : 0,
+        dictionary.allowSecondarySearches ? 1 : 0,
+      ].join(':'),
+    )
+    .join('\u0000');
 }
 
 /**
  * The prepared translator for the current dictionary set.
  *
- * Rebuilt when the set changes (import, delete, enable/disable) so its tag cache
- * and frequency-mode map cannot outlive the dictionaries they describe.
+ * Rebuilt when the set OR any of its per-dictionary settings change (import,
+ * delete, enable/disable, alias, priority, filters), so the translator's tag cache
+ * and frequency-mode map cannot outlive what they describe.
  */
 async function readTranslator(
   map: EnabledDictionaryMap,
 ): Promise<ReturnType<typeof createTranslator>> {
-  const signature = signatureOf(map);
+  const signature = dictionarySignatureOf(map);
   if (translator !== null && dictionarySignature === signature) return translator;
   const database = createDictionaryDatabase();
   const next = createTranslator(database);

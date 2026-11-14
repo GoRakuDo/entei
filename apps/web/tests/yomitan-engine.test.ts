@@ -27,11 +27,14 @@ import {
 } from '@gorakudo/yomitan-headless/settings';
 import {
   createDictionaryDatabase,
+  dictionarySignatureOf,
   invalidateYomitanEngineCaches,
   lookupTerms,
   readEnabledDictionaryMap,
   summarizeKanjiEntry,
   summarizeTermEntry,
+  type EnabledDictionary,
+  type EnabledDictionaryMap,
 } from '@/features/yomitan/yomitan-engine';
 
 interface InvokeArgs {
@@ -555,5 +558,63 @@ describe('lookup — the scan knobs reach the engine', () => {
       (call) => call.command === 'plugin:modules|yomitan_find_terms_bulk',
     );
     expect(sent?.args?.matchType).toBe('prefix');
+  });
+});
+
+describe('translator cache key — what forces a rebuild', () => {
+  function dictionaryEntry(
+    overrides: Partial<EnabledDictionary> = {},
+  ): EnabledDictionary {
+    return {
+      index: 0,
+      alias: 'JMdict',
+      allowSecondarySearches: false,
+      partsOfSpeechFilter: true,
+      useDeinflections: true,
+      ...overrides,
+    };
+  }
+
+  it('changes when a per-dictionary setting changes, not just the name set', () => {
+    const plain = new Map([['JMdict', dictionaryEntry()]]);
+    expect(dictionarySignatureOf(plain)).toBe(dictionarySignatureOf(
+      new Map([['JMdict', dictionaryEntry()]]),
+    ));
+
+    for (const changed of [
+      dictionaryEntry({ alias: 'JM' }),
+      dictionaryEntry({ partsOfSpeechFilter: false }),
+      dictionaryEntry({ useDeinflections: false }),
+      dictionaryEntry({ allowSecondarySearches: true }),
+    ]) {
+      expect(dictionarySignatureOf(new Map([['JMdict', changed]]))).not.toBe(
+        dictionarySignatureOf(plain),
+      );
+    }
+  });
+
+  it('changes when the priority order changes', () => {
+    const alpha = dictionaryEntry({ alias: 'Alpha' });
+    const beta = dictionaryEntry({ alias: 'Beta' });
+    const alphaFirst = new Map([
+      ['Alpha', alpha],
+      ['Beta', beta],
+    ]);
+    const betaFirst = new Map([
+      ['Beta', beta],
+      ['Alpha', alpha],
+    ]);
+    expect(dictionarySignatureOf(alphaFirst)).not.toBe(
+      dictionarySignatureOf(betaFirst),
+    );
+  });
+
+  it('stays equal for maps built in the same order with the same settings', () => {
+    const build = (): EnabledDictionaryMap =>
+      new Map([
+        ['Alpha', dictionaryEntry({ alias: 'Alpha', index: 0 })],
+        ['Beta', dictionaryEntry({ alias: 'Beta', index: 1 })],
+      ]);
+    expect(dictionarySignatureOf(build())).toBe(dictionarySignatureOf(build()));
   });
 });

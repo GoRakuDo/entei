@@ -322,3 +322,40 @@ describe('dictionary store — the lookup-side cache', () => {
     await expect(listInstalledDictionariesCached()).rejects.toThrow();
   });
 });
+
+describe('dictionary store — a write during a read', () => {
+  beforeEach(() => {
+    invalidateInstalledDictionaries();
+  });
+
+  it('never lets a read that started before the write refill the cache', async () => {
+    // Resolved by hand below: the point is to hold the read open across a write.
+    let release!: (value: unknown) => void;
+    const gate = new Promise<unknown>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    installTauri((command) => {
+      if (command !== 'plugin:modules|yomitan_list_dictionaries') return undefined;
+      reads += 1;
+      // The first read is held open: the write lands while it is in flight.
+      return reads === 1 ? gate : [{ ...SUMMARY, title: 'After the write' }];
+    });
+
+    const inFlight = listInstalledDictionariesCached();
+    invalidateInstalledDictionaries();
+    release([{ ...SUMMARY, title: 'Before the write' }]);
+
+    /* The caller that started the read still gets ITS answer (it asked before the
+       write), which is not the dictionary list the engine holds now. */
+    expect((await inFlight).map((entry) => entry.name)).toEqual([
+      'Before the write',
+    ]);
+    /* ... but the cache must hold the post-write world, not that late reply —
+       otherwise the pre-write list would answer every lookup for a whole TTL
+       window. */
+    const cached = await listInstalledDictionariesCached();
+    expect(cached.map((entry) => entry.name)).toEqual(['After the write']);
+    expect(reads).toBe(2);
+  });
+});
