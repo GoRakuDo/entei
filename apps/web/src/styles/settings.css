@@ -511,25 +511,21 @@ body[data-page='settings'] .entei-main {
 .entei-module-input,
 .entei-module-select {
   width: 100%;
-  max-width: 26rem;
+  /* One floor for every trailing control: a desktop field row docks its control
+     to the card's trailing edge, so equal widths are what put the left edge of
+     the control column on a single line down the page. The control column is
+     content-sized, so without a declared floor a select trigger collapses onto
+     its own label. The 22rem ceiling is the desktop control column's own max,
+     so a control never pushes past the column it sits in. */
+  min-width: 15rem;
+  max-width: 22rem;
   min-height: var(--entei-touch-min);
   height: var(--entei-touch-min);
   background-color: var(--entei-surface);
   color: var(--entei-text-secondary);
 }
 
-/* The control column of a field row is content-sized, so a select trigger
-   collapses onto its own label. A declared floor keeps the trigger — and the
-   option text inside it — comfortably wide at every viewport. */
-.entei-module-select {
-  min-width: 14rem;
-  max-width: 22rem;
-  min-height: var(--entei-touch-min);
-  height: var(--entei-touch-min);
-}
-
 .entei-module-input--number {
-  max-width: 10rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -951,6 +947,14 @@ body[data-page='settings'] .entei-main {
   width: 100%;
 }
 
+/* The field here is never a lone control — it shares its row with the
+   fixed-width record button — so it gives up the 15rem floor an input holds on
+   its own and shrinks to its share instead (narrow phones have no room for both
+   at full floor). */
+.entei-scan-input-field .entei-module-input {
+  min-width: 0;
+}
+
 /* The record button waits for input: gold, like every other "the system is
    armed" accent, so the row it belongs to is unmistakable while it listens.
    It never shrinks — the field beside it is the flexible one — so it keeps its
@@ -967,6 +971,10 @@ body[data-page='settings'] .entei-main {
    switches, selects and inputs around them. */
 .entei-scan-input-card [data-slot='toggle-group-item'] {
   min-height: var(--entei-touch-min);
+  /* Tighter inline padding than the 12px default: the card's choices share the
+     15rem control width with every other trailing control, and the 3-item
+     group only fits that width with the narrower gutter. */
+  padding-inline: var(--entei-space-8);
   color: var(--entei-text-secondary);
 }
 
@@ -977,7 +985,9 @@ body[data-page='settings'] .entei-main {
 /* Desktop: label left, control right on one line. */
 @media (min-width: 768px) {
   .entei-module-field {
-    grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem);
+    /* Same 15rem floor the controls themselves declare, so the column is never
+       narrower than the control it has to hold. */
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 22rem);
     align-items: center;
     column-gap: var(--entei-space-24);
     row-gap: var(--entei-space-4);
@@ -990,6 +1000,25 @@ body[data-page='settings'] .entei-main {
 
   .entei-module-field--switch .entei-module-field-control {
     justify-content: flex-end;
+  }
+
+  /* Controls that are not a plain field input take the same 15rem, so their
+     left edges line up with the inputs, selects and toggles above and below. */
+  .entei-module-usage-btn,
+  .entei-module-list-toolbar .entei-action-btn {
+    width: 15rem;
+    min-width: 15rem;
+  }
+
+  /* The token field + record button are ONE 15rem control. */
+  .entei-scan-input-field {
+    width: 15rem;
+    min-width: 15rem;
+  }
+
+  .entei-scan-input-card [data-slot='toggle-group'] {
+    width: 15rem;
+    min-width: 15rem;
   }
 }
 
@@ -1108,6 +1137,20 @@ body[data-page='settings'] .entei-main {
     padding: var(--entei-space-16) var(--entei-gutter)
       calc(var(--entei-space-32) + var(--entei-dock-height));
   }
+}
+
+/* ==========================================================================
+   SUBTITLE SYNC MODE CARD — 44px toggle
+   ========================================================================= */
+
+/* `.entei-mining-controls-row` takes its flex layout from player.css, which the
+   /settings/ route does not load, so the card states the toggle's own size here:
+   the shadcn track and its items both take the shared 44px touch minimum instead
+   of the default 36px. */
+.entei-settings-section-card--sync [data-slot='toggle-group'],
+.entei-settings-section-card--sync [data-slot='toggle-group-item'] {
+  height: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
 }
 
 /* ==========================================================================

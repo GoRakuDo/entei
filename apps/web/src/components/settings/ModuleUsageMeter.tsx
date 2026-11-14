@@ -78,6 +78,7 @@ export function ModuleUsageMeter({
       </div>
       <div className="entei-module-field-control">
         <SettingsButton
+          className="entei-module-usage-btn"
           icon={actionIcon}
           disabled={pending}
           aria-busy={pending}
