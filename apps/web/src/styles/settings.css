@@ -321,7 +321,7 @@ body[data-page='settings'] .entei-main {
   padding: 0;
   background: none;
   border: none;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   font-family: var(--entei-font-system);
   font-size: 1.0625rem;
   font-weight: 700;
@@ -366,14 +366,14 @@ body[data-page='settings'] .entei-main {
   width: 1.0625rem;
   height: 1.0625rem;
   flex-shrink: 0;
-  color: var(--entei-text-muted);
+  color: var(--entei-text-secondary);
   transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 .entei-module-section-toggle:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: 2px;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 .entei-module-section-chevron {
@@ -440,7 +440,7 @@ body[data-page='settings'] .entei-main {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
 }
 
 .entei-module-group-description {
@@ -515,6 +515,7 @@ body[data-page='settings'] .entei-main {
   min-height: var(--entei-touch-min);
   height: var(--entei-touch-min);
   background-color: var(--entei-surface);
+  color: var(--entei-text-secondary);
 }
 
 /* The control column of a field row is content-sized, so a select trigger
@@ -625,7 +626,7 @@ body[data-page='settings'] .entei-main {
   font-family: var(--entei-font-body);
   font-size: 0.9375rem;
   line-height: 1.4;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   text-wrap: pretty;
 }
 
@@ -766,7 +767,7 @@ body[data-page='settings'] .entei-main {
   font-family: var(--entei-font-body);
   font-size: 0.9375rem;
   line-height: 1.4;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -797,7 +798,7 @@ body[data-page='settings'] .entei-main {
   width: var(--entei-touch-min);
   height: var(--entei-touch-min);
   padding: 0;
-  color: var(--entei-text-muted);
+  color: var(--entei-text-secondary);
   background: none;
   border: none;
   border-radius: var(--entei-radius-md);
@@ -966,6 +967,11 @@ body[data-page='settings'] .entei-main {
    switches, selects and inputs around them. */
 .entei-scan-input-card [data-slot='toggle-group-item'] {
   min-height: var(--entei-touch-min);
+  color: var(--entei-text-secondary);
+}
+
+.entei-scan-input-card [data-slot='toggle-group-item'] svg {
+  color: var(--entei-text-secondary);
 }
 
 /* Desktop: label left, control right on one line. */
