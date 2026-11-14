@@ -1370,22 +1370,24 @@
   box-shadow: none !important;
 }
 
-/* ToggleGroup in settings — hover and active background use --entei-btn-color, text uses --entei-text-secondary */
+/* ToggleGroup in settings — background uses --entei-btn-color. The label (and
+   its icons) go gold on hover and while latched on: the shared rule set lives
+   in global.css, so only the fill and the resting tone are stated here. */
 [data-slot='toggle-group'] button {
   color: var(--entei-text-secondary);
 }
 
 [data-slot='toggle-group'] button[data-state='off']:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text-secondary);
+  color: var(--entei-status-locked);
 }
 
 [data-slot='toggle-group'] button[data-state='on'] {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text-secondary);
+  color: var(--entei-status-locked);
 }
 
 [data-slot='toggle-group'] button[data-state='on']:hover:not(:disabled) {
   background-color: var(--entei-btn-color);
-  color: var(--entei-text-secondary);
+  color: var(--entei-status-locked);
 }
