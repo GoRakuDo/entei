@@ -541,7 +541,7 @@ body[data-page='settings'] .entei-main {
   font-family: var(--entei-font-body);
   font-size: 0.875rem;
   line-height: 1.55;
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   background-color: var(--entei-surface);
   border: 1px solid oklch(100% 0 0deg / 0.1);
   border-radius: var(--entei-radius-md);
@@ -1040,7 +1040,7 @@ body[data-page='settings'] .entei-main {
   background: none;
   border: none;
   border-radius: var(--entei-radius-pill);
-  color: var(--entei-text);
+  color: var(--entei-text-secondary);
   font-family: var(--entei-font-body);
   font-size: 0.9375rem;
   font-weight: 600;
