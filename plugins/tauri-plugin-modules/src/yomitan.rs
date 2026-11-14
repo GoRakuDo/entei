@@ -122,6 +122,11 @@ pub struct DictionarySummary {
     pub description: Option<String>,
     pub created_at: i64,
     pub enabled: bool,
+    /// True when this dictionary carries frequency metadata (`term_meta` rows in
+    /// the `freq` mode), which is the only thing the frequency sorter can sort
+    /// by. A plain word dictionary (JMdict) is not a frequency dictionary, and
+    /// Yomitan's own settings list offers only the dictionaries that are.
+    pub has_frequency_data: bool,
 }
 
 /// Progress of one dictionary import, reported after each bank is written.
@@ -253,8 +258,14 @@ fn dictionary_id(format: i64, revision: &str, title: &str) -> String {
 // Dictionary management
 // ---------------------------------------------------------------------------
 
-const DICTIONARY_COLS: &str =
-    "id, title, format, revision, sequenced, author, url, description, created_at, enabled";
+/// Every column [`row_to_summary`] reads: the dictionary's own columns plus the
+/// derived frequency flag, computed as a correlated `EXISTS` so listing stays
+/// one statement and stops at the first frequency row it finds.
+///
+/// `freq` is the only `term_meta` mode the frequency sorter reads — a dictionary
+/// that ships pitch or IPA metadata only is still not a frequency dictionary.
+const DICTIONARY_COLS: &str = "id, title, format, revision, sequenced, author, url, description, created_at, enabled, \
+     EXISTS (SELECT 1 FROM term_meta WHERE term_meta.dictionary_id = dictionaries.id AND term_meta.mode = 'freq')";
 
 fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<DictionarySummary> {
     Ok(DictionarySummary {
@@ -268,6 +279,7 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<DictionarySummary
         description: row.get(7)?,
         created_at: row.get(8)?,
         enabled: row.get::<_, i64>(9)? != 0,
+        has_frequency_data: row.get::<_, i64>(10)? != 0,
     })
 }
 
@@ -281,6 +293,23 @@ pub fn list_dictionaries(conn: &Connection) -> Result<Vec<DictionarySummary>, St
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())?;
     Ok(rows)
+}
+
+/// One dictionary by id, with the same derived fields [`list_dictionaries`]
+/// reports.
+///
+/// A missing id is an error rather than an `Option`: every caller either just
+/// committed the row (the importer) or is acting on a row the user selected.
+pub fn dictionary_by_id(conn: &Connection, id: &str) -> Result<DictionarySummary, String> {
+    let sql = format!("SELECT {DICTIONARY_COLS} FROM dictionaries WHERE id = ?1 LIMIT 1");
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let mut rows = stmt
+        .query_map(params![id], row_to_summary)
+        .map_err(|e| e.to_string())?;
+    match rows.next() {
+        Some(row) => row.map_err(|e| e.to_string()),
+        None => Err(format!("dictionary not found: {id}")),
+    }
 }
 
 /// Enable or disable a dictionary. Lookups skip disabled dictionaries.
@@ -399,6 +428,133 @@ pub fn find_kanji(conn: &Connection, character: &str) -> Result<Option<KanjiEntr
         Some(row) => row.map(Some).map_err(|e| e.to_string()),
         None => Ok(None),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Storage measurement
+// ---------------------------------------------------------------------------
+
+/// How much disk the dictionary database holds, and how much its volume still
+/// has available.
+///
+/// The renderer's own `navigator.storage.estimate()` cannot answer this: every
+/// dictionary byte lives in a Rust-owned SQLite file, so from the browser the
+/// origin holds 0 bytes however many gigabytes were imported.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageUsageSnapshot {
+    /// Bytes held by the database file and its WAL sidecars.
+    pub usage: u64,
+    /// Bytes the volume still offers, or 0 when the platform will not say.
+    pub quota: u64,
+}
+
+/// The database file plus the two WAL sidecars [`configure`] switches on. The WAL
+/// can hold dictionary pages that are not in the main file yet, so measuring the
+/// main file alone would under-report a just-imported dictionary.
+const DATABASE_FILE_SIDECARS: [&str; 3] = ["", "-wal", "-shm"];
+
+/// Measure `yomitan-dictionaries.db*` inside `dir` (the `app_data_dir`).
+///
+/// A file that is not there counts as 0 rather than failing: a database that was
+/// never imported into — or whose WAL was checkpointed away — really is 0 bytes,
+/// and the settings meter must still draw.
+pub fn storage_usage(dir: &Path) -> StorageUsageSnapshot {
+    let usage = DATABASE_FILE_SIDECARS
+        .iter()
+        .filter_map(|suffix| {
+            std::fs::metadata(dir.join(format!("{DATABASE_FILE_NAME}{suffix}"))).ok()
+        })
+        .map(|metadata| metadata.len())
+        .sum();
+    StorageUsageSnapshot {
+        usage,
+        quota: volume_available_bytes(dir),
+    }
+}
+
+/// Bytes the volume holding `path` still has available, or 0 when the platform
+/// cannot be asked.
+///
+/// Note: `std` has no stable free-space call, so each platform's own one is used
+/// (a few lines of FFI rather than a crate for one number). AVAILABLE bytes are
+/// reported because that is what answers "will this volume take another
+/// dictionary?" — the same meaning `estimate().quota` has in a browser.
+fn volume_available_bytes(path: &Path) -> u64 {
+    #[cfg(windows)]
+    {
+        windows_available_bytes(path)
+    }
+    #[cfg(unix)]
+    {
+        unix_available_bytes(path).unwrap_or(0)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = path;
+        0
+    }
+}
+
+/// `GetDiskFreeSpaceExW`'s caller-available byte count for `path`.
+#[cfg(windows)]
+fn windows_available_bytes(path: &Path) -> u64 {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory: *const u16,
+            free_bytes_available_to_caller: *mut u64,
+            total_bytes: *mut u64,
+            total_free_bytes: *mut u64,
+        ) -> i32;
+    }
+
+    // The NUL-terminated wide form every Win32 path function takes. A path with
+    // an interior NUL cannot exist on disk, so this cannot truncate a real one.
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    let mut available: u64 = 0;
+    // SAFETY: `wide` is NUL-terminated and outlives the call; the first out
+    // pointer writes a real `u64`, and the two this function does not need are
+    // documented as optional (null is allowed).
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        0
+    } else {
+        available
+    }
+}
+
+/// `statvfs`'s caller-available byte count for `path` (Linux, Android, macOS).
+#[cfg(unix)]
+fn unix_available_bytes(path: &Path) -> Option<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: `c_path` is NUL-terminated, and `statvfs` only writes into the
+    // zeroed struct this function owns.
+    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats) } != 0 {
+        return None;
+    }
+    // `f_frsize` is the real block size; POSIX allows it to be 0, where the
+    // filesystem block size is the only stride left.
+    let block = if stats.f_frsize > 0 {
+        stats.f_frsize
+    } else {
+        stats.f_bsize
+    };
+    Some(u64::from(stats.f_bavail) * u64::from(block))
 }
 
 // ---------------------------------------------------------------------------
@@ -528,6 +684,9 @@ pub fn import_dictionary_with_progress<R: Read + Seek>(
         description: index.description.clone(),
         created_at: now_ms(),
         enabled: true,
+        // Not read from `index.json`: a bank is not inspected until it is
+        // written, so the stored row (read back below) is what reports it.
+        has_frequency_data: false,
     };
 
     if banks.is_empty() {
@@ -540,7 +699,10 @@ pub fn import_dictionary_with_progress<R: Read + Seek>(
     let total = banks.len() as u32;
     on_progress(ImportProgress::new(0, total));
     write_banks(conn, &mut archive, &summary, &banks, on_progress)?;
-    Ok(summary)
+    // Read the row back instead of returning `summary`: `has_frequency_data` is
+    // counted out of the stored `term_meta` rows, so the committed row is the
+    // only truthful source for it.
+    dictionary_by_id(conn, &summary.id)
 }
 
 /// Stream a dictionary ZIP from disk (the Tauri command path).

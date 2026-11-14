@@ -12,6 +12,7 @@ const COMMANDS: &[&str] = &[
     "yomitan_delete_dictionary",
     "yomitan_find_terms",
     "yomitan_find_kanji",
+    "yomitan_get_storage_usage",
     "add_torrent",
     "get_torrent_status",
     "select_torrent_files",

@@ -4778,6 +4778,7 @@ dependencies = [
  "bytes",
  "flate2",
  "httpdate",
+ "libc",
  "librqbit",
  "reqwest 0.12.28",
  "rusqlite",

@@ -8,7 +8,8 @@
  *
  * One id may serve several layouts, because they are facets of the same data:
  * `yomitan-dictionaries` draws the installed-item list, feeds the "frequency
- * sorting dictionary" select, and knows nothing about either caller.
+ * sorting dictionary" select, measures the module's storage, and knows nothing
+ * about any of those callers.
  *
  * An unknown id resolves to `undefined`. The renderer then degrades: a `list`
  * row falls back to its generic read-only note, a `field` row keeps its
@@ -23,11 +24,12 @@ import type {
 } from '@gorakudo/yomitan-headless/settings';
 import { DictionaryManager } from '@/components/settings/DictionaryManager';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
-import { listInstalledDictionaries } from '@/features/yomitan/dictionary-store';
 import {
-  readStorageUsage,
-  type StorageUsageSnapshot,
-} from '@/features/settings/storage-usage';
+  frequencyDictionaryNames,
+  listInstalledDictionaries,
+  readDictionaryStorageUsage,
+} from '@/features/yomitan/dictionary-store';
+import type { StorageUsageSnapshot } from '@/features/settings/storage-usage';
 
 /** What a `list` layout's host source receives. */
 export interface ModuleListSourceProps {
@@ -56,16 +58,21 @@ export interface ModuleDataSource {
 }
 
 /**
- * Installed dictionary titles — the host's own answer, in stored order.
+ * The dictionaries the "frequency sorting dictionary" select may offer.
  *
- * Fails soft to "none installed": the engine lives in the desktop plugin, so a
- * browser pass has no answer, and a combobox with no options is a better result
- * there than a settings section that throws.
+ * Frequency metadata only, exactly like Yomitan's own settings list: a plain
+ * word dictionary (JMdict) has no counts to sort by. Fails soft to "none
+ * installed": the engine lives in the desktop plugin, so a browser pass has no
+ * answer, and a combobox with only its `none` option is the same thing Yomitan
+ * shows with no frequency dictionary installed.
  */
 async function readInstalledDictionaryOptions(): Promise<readonly SelectOption[]> {
   try {
     const installed = await listInstalledDictionaries();
-    return installed.map((entry) => ({ value: entry.name, label: entry.name }));
+    return frequencyDictionaryNames(installed).map((name) => ({
+      value: name,
+      label: name,
+    }));
   } catch {
     return [];
   }
@@ -76,9 +83,7 @@ const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   'yomitan-dictionaries': {
     list: DictionaryManager,
     options: readInstalledDictionaryOptions,
-  },
-  'browser-storage': {
-    usage: readStorageUsage,
+    usage: readDictionaryStorageUsage,
   },
 };
 

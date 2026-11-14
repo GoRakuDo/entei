@@ -123,7 +123,7 @@ describe('module-registry — core manifests', () => {
           },
           {
             layout: 'usage',
-            source: 'browser-storage',
+            source: 'yomitan-dictionaries',
             labelKey: 'storage',
             usageKey: 'storageUsage',
             actionKey: 'refresh',

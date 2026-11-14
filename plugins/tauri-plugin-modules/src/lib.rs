@@ -28,7 +28,9 @@ pub use nadeshiko::{
     NadeshikoSegmentUrls, NadeshikoUser, NadeshikoUserMe,
 };
 pub use torrent::{AddTorrentResult, SelectedTorrentFiles, TorrentFile, TorrentStatus};
-pub use yomitan::{DictionarySummary, ImportProgress, KanjiEntry, TermEntry};
+pub use yomitan::{
+    DictionarySummary, ImportProgress, KanjiEntry, StorageUsageSnapshot, TermEntry,
+};
 pub use ytdlp::{StreamSource, VideoInfo};
 
 #[tauri::command]
@@ -195,13 +197,31 @@ async fn yomitan_find_kanji(
     with_yomitan_db!(state, |conn| yomitan::find_kanji(conn, &character))
 }
 
+/// Bytes the dictionary database holds on disk, plus what its volume still has
+/// available — the number the settings storage meter shows.
+///
+/// A command rather than something the renderer measures: the banks live in a
+/// Rust-owned SQLite file, invisible to `navigator.storage.estimate()`, which
+/// reports 0 for the origin however many gigabytes were imported.
+#[tauri::command]
+async fn yomitan_get_storage_usage<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<StorageUsageSnapshot, String> {
+    let dir = resolve_dictionary_db_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || yomitan::storage_usage(&dir))
+        .await
+        .map_err(|err| format!("dictionary task failed: {err}"))
+}
+
 /// Resolve `app_data_dir/yomitan-dictionaries.db` and register state at startup.
-fn resolve_dictionary_db_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
+fn resolve_dictionary_db_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    app.path()
         .app_data_dir()
-        .map_err(|e| format!("failed to resolve app_data_dir: {e}"))?;
-    Ok(dir.join(yomitan::DATABASE_FILE_NAME))
+        .map_err(|e| format!("failed to resolve app_data_dir: {e}"))
+}
+
+fn resolve_dictionary_db_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    Ok(resolve_dictionary_db_dir(app)?.join(yomitan::DATABASE_FILE_NAME))
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
@@ -220,6 +240,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             yomitan_delete_dictionary,
             yomitan_find_terms,
             yomitan_find_kanji,
+            yomitan_get_storage_usage,
             torrent::add_torrent,
             torrent::get_torrent_status,
             torrent::select_torrent_files,

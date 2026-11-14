@@ -55,6 +55,12 @@ librqbit = { version = "9.1", default-features = false, features = [
 ] }
 thiserror = "2"
 
+# Free-space query behind the dictionary storage meter (`statvfs`). Windows asks
+# kernel32 directly and needs nothing here; libc is already in every Unix-shaped
+# build (Android/Termux, Linux, macOS) through the runtime crates above.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "net", "io-util", "rt-multi-thread", "time"] }
 

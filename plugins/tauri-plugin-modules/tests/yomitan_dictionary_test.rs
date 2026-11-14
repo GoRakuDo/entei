@@ -172,6 +172,10 @@ fn imports_a_dictionary_and_finds_terms_by_expression_and_reading() {
     assert_eq!(summary.revision, "test-1");
     assert!(summary.sequenced);
     assert!(summary.enabled);
+    // The fixture's term_meta bank carries a `freq` row, so this dictionary is a
+    // valid frequency-sorting choice (the flag the import reads back from the
+    // committed row, not from index.json).
+    assert!(summary.has_frequency_data);
     assert_eq!(summary.author.as_deref(), Some("GoRakuDo"));
     assert!(!summary.id.is_empty());
     // All five term entries (three array-form, one object-form, one null
@@ -273,6 +277,20 @@ fn lists_toggles_and_deletes_dictionaries() {
     assert_eq!(listed.len(), 2, "both dictionaries are listed");
     assert!(listed.iter().any(|dict| dict.id == first.id));
     assert!(listed.iter().any(|dict| dict.id == second.id));
+    // Frequency metadata decides the frequency-sorter's choices, so the fixture
+    // (which ships a `freq` row) is one and the meta-less dictionary is not.
+    let flag = |listed: &[yomitan::DictionarySummary], id: &str| {
+        listed
+            .iter()
+            .find(|dict| dict.id == id)
+            .expect("dictionary listed")
+            .has_frequency_data
+    };
+    assert!(flag(&listed, &first.id), "a freq bank is frequency data");
+    assert!(
+        !flag(&listed, &second.id),
+        "a dictionary with no term_meta bank is not a frequency dictionary"
+    );
 
     // Streaming: every pretty-printed line-terminated entry landed.
     assert_eq!(term_count(&conn), 11);
@@ -333,11 +351,14 @@ fn reimport_replaces_content_and_the_limit_caps_results() {
     let conn = yomitan::open_in_memory().expect("open in-memory database");
     let first = import(&conn, build_pretty_dictionary_zip());
     assert_eq!(term_count(&conn), 6);
+    // No term_meta bank at all -> never offered as a frequency dictionary.
+    assert!(!first.has_frequency_data);
 
     // Same identity (format+revision+title) -> same id, content replaced, and no
     // duplicate rows.
     let again = import(&conn, build_pretty_dictionary_zip());
     assert_eq!(again.id, first.id);
+    assert!(!again.has_frequency_data);
     assert_eq!(term_count(&conn), 6);
     assert_eq!(
         yomitan::list_dictionaries(&conn)
@@ -361,6 +382,45 @@ fn reimport_replaces_content_and_the_limit_caps_results() {
             .len()
             <= 1
     );
+}
+
+#[test]
+fn measures_the_dictionary_database_and_its_wal_on_disk() {
+    let dir = std::env::temp_dir().join(format!("entei-yomitan-usage-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+
+    // Nothing imported yet: 0 bytes, not a failure (the meter still draws).
+    assert_eq!(yomitan::storage_usage(&dir).usage, 0);
+
+    for (suffix, size) in [("", 4096usize), ("-wal", 1024), ("-shm", 512)] {
+        std::fs::write(
+            dir.join(format!("{DATABASE_FILE_NAME}{suffix}")),
+            vec![0u8; size],
+        )
+        .expect("write database file");
+    }
+
+    let usage = yomitan::storage_usage(&dir);
+    assert_eq!(
+        usage.usage, 4096 + 1024 + 512,
+        "the database and both sidecars are summed"
+    );
+    // The quota is the volume's own answer, and a real temp volume has room.
+    assert!(
+        usage.quota > 0,
+        "the volume reports available bytes: {usage:?}"
+    );
+
+    // A foreign file in the same directory is not dictionary storage.
+    std::fs::write(dir.join("entei.db"), vec![0u8; 8192]).expect("write foreign db");
+    assert_eq!(
+        yomitan::storage_usage(&dir).usage,
+        4096 + 1024 + 512,
+        "only the dictionary database is counted"
+    );
+
+    // Cleanup: this test owns the directory it created.
+    std::fs::remove_dir_all(&dir).expect("remove temp dir");
 }
 
 #[test]
@@ -402,7 +462,10 @@ fn imports_from_a_file_path_and_rejects_invalid_archives() {
         .expect_err("missing index.json is rejected");
     assert!(error.contains("index.json"), "unexpected error: {error}");
 
-    // Cleanup: the fixture files this test created must not survive.
+    // Cleanup: the fixture files this test created must not survive. The
+    // connection is closed first — Windows refuses to delete a file SQLite still
+    // holds open, which is how this test used to leave one behind per run.
+    drop(reopened);
     for file in [
         &path,
         &db_path,

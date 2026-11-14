@@ -499,6 +499,18 @@
           "markdownDescription": "Denies the yomitan_find_terms command without any pre-configured scope."
         },
         {
+          "description": "Enables the yomitan_get_storage_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-yomitan-get-storage-usage",
+          "markdownDescription": "Enables the yomitan_get_storage_usage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the yomitan_get_storage_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-yomitan-get-storage-usage",
+          "markdownDescription": "Denies the yomitan_get_storage_usage command without any pre-configured scope."
+        },
+        {
           "description": "Enables the yomitan_import_dictionary command without any pre-configured scope.",
           "type": "string",
           "const": "allow-yomitan-import-dictionary",
@@ -535,10 +547,10 @@
           "markdownDescription": "Denies the yomitan_toggle_dictionary command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-inspect-torrent-tracks`\n- `allow-cancel-torrent`\n- `allow-get-video-info`\n- `allow-stream-youtube`",
+          "description": "Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`\n- `allow-yomitan-get-storage-usage`\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-inspect-torrent-tracks`\n- `allow-cancel-torrent`\n- `allow-get-video-info`\n- `allow-stream-youtube`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-inspect-torrent-tracks`\n- `allow-cancel-torrent`\n- `allow-get-video-info`\n- `allow-stream-youtube`"
+          "markdownDescription": "Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshiko, and Yomitan.\n#### This default permission set includes:\n\n- `allow-modules-jimaku-search-entries`\n- `allow-modules-jimaku-search-entries-combined`\n- `allow-modules-jimaku-entry-files`\n- `allow-modules-jimaku-download-subtitle`\n- `allow-modules-nadeshiko-search`\n- `allow-modules-nadeshiko-segment-context`\n- `allow-modules-nadeshiko-user-me`\n- `allow-yomitan-import-dictionary`\n- `allow-yomitan-list-dictionaries`\n- `allow-yomitan-toggle-dictionary`\n- `allow-yomitan-delete-dictionary`\n- `allow-yomitan-find-terms`\n- `allow-yomitan-find-kanji`\n- `allow-yomitan-get-storage-usage`\n- `allow-add-torrent`\n- `allow-get-torrent-status`\n- `allow-select-torrent-files`\n- `allow-inspect-torrent-tracks`\n- `allow-cancel-torrent`\n- `allow-get-video-info`\n- `allow-stream-youtube`"
         }
       ]
     }

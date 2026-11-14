@@ -8,7 +8,7 @@
  * that. The layout is generic: it takes a host-owned reader plus a copy
  * template and owns the presentation —
  *
- *   { "layout": "usage", "source": "browser-storage",
+ *   { "layout": "usage", "source": "yomitan-dictionaries",
  *     "labelKey": "storage", "usageKey": "storageUsage",
  *     "actionKey": "refresh" }
  *

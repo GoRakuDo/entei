@@ -16,6 +16,7 @@ permissions = [
   "allow-yomitan-delete-dictionary",
   "allow-yomitan-find-terms",
   "allow-yomitan-find-kanji",
+  "allow-yomitan-get-storage-usage",
   "allow-add-torrent",
   "allow-get-torrent-status",
   "allow-select-torrent-files",

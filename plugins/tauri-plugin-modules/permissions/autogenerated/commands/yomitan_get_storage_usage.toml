@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-yomitan-get-storage-usage"
+description = "Enables the yomitan_get_storage_usage command without any pre-configured scope."
+commands.allow = ["yomitan_get_storage_usage"]
+
+[[permission]]
+identifier = "deny-yomitan-get-storage-usage"
+description = "Denies the yomitan_get_storage_usage command without any pre-configured scope."
+commands.deny = ["yomitan_get_storage_usage"]

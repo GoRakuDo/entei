@@ -15,13 +15,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
   createDictionaryOptionEntry,
   deleteDictionary,
+  frequencyDictionaryNames,
   importDictionaryFromPath,
   listInstalledDictionaries,
   orderDictionaryOptions,
+  readDictionaryStorageUsage,
   removeDictionaryOption,
   setDictionaryEnabled,
   toggleDictionary,
   type DictionaryOptionEntry,
+  type InstalledDictionary,
 } from '@/features/yomitan/dictionary-store';
 
 interface InvokeArgs {
@@ -61,6 +64,7 @@ const SUMMARY = {
   description: null,
   createdAt: 1_700_000_000_000,
   enabled: true,
+  hasFrequencyData: false,
 };
 
 beforeEach(() => {
@@ -88,8 +92,31 @@ describe('native dictionary engine adapter', () => {
         author: 'EDRDG',
         enabled: true,
         importedAt: new Date(1_700_000_000_000).toISOString(),
+        hasFrequencyData: false,
       },
     ]);
+  });
+
+  it('reports the engine\u2019s storage measurement as-is', async () => {
+    const calls = installTauri(() => ({ usage: 486_000_000, quota: 117_000_000_000 }));
+
+    await expect(readDictionaryStorageUsage()).resolves.toEqual({
+      usage: 486_000_000,
+      quota: 117_000_000_000,
+    });
+    // The database is a Rust-owned file, so the renderer must ask the engine.
+    expect(calls).toEqual([
+      { command: 'plugin:modules|yomitan_get_storage_usage', args: {} },
+    ]);
+  });
+
+  it('reads no engine storage when the engine cannot be reached', async () => {
+    installTauri(() => {
+      throw new Error('command failed');
+    });
+
+    // Unknown, not zero: the meter shows a dash instead of a fabricated figure.
+    await expect(readDictionaryStorageUsage()).resolves.toBeNull();
   });
 
   it('imports from an absolute path (never from bytes)', async () => {
@@ -184,5 +211,54 @@ describe('options.dictionaries helpers', () => {
       'Dict B',
     ]);
     expect(next[0]?.enabled).toBe(false);
+  });
+});
+describe('frequency sorting dictionary choices', () => {
+  function installed(name: string, hasFrequencyData: boolean): InstalledDictionary {
+    return {
+      id: name.toLowerCase(),
+      name,
+      version: 'rev-1',
+      enabled: true,
+      importedAt: new Date(0).toISOString(),
+      hasFrequencyData,
+    };
+  }
+
+  it('offers only dictionaries that carry frequency metadata', () => {
+    const names = frequencyDictionaryNames([
+      installed('JMdict', false),
+      installed('JPDB Frequency', true),
+      installed('KANJIDIC', false),
+    ]);
+    expect([...names]).toEqual(['JPDB Frequency']);
+  });
+
+  it('offers nothing when only word dictionaries are installed (Yomitan parity)', () => {
+    // The row still draws its `none` option, exactly like Yomitan with no
+    // frequency dictionary installed.
+    expect([...frequencyDictionaryNames([installed('JMdict', false)])]).toEqual(
+      [],
+    );
+    expect([...frequencyDictionaryNames([])]).toEqual([]);
+  });
+});
+
+describe('storage measurement outside the desktop app', () => {
+  it('falls back to the browser origin estimate (no engine to ask)', async () => {
+    // The file-wide stub installs a Tauri runtime for the IPC tests; this one is
+    // the browser path, so the runtime has to go first.
+    delete internals().__TAURI_INTERNALS__;
+    const estimate = vi.fn(async () => ({ usage: 2048, quota: 8192 }));
+    Object.defineProperty(globalThis.navigator, 'storage', {
+      value: { estimate },
+      configurable: true,
+    });
+
+    await expect(readDictionaryStorageUsage()).resolves.toEqual({
+      usage: 2048,
+      quota: 8192,
+    });
+    expect(estimate).toHaveBeenCalled();
   });
 });

@@ -264,6 +264,13 @@ export interface YomitanDictionarySummary {
   createdAt: number;
   /** False → lookups skip this dictionary. */
   enabled: boolean;
+  /**
+   * True when this dictionary carries frequency metadata (`term_meta` rows in
+   * the engine's `freq` mode). Only these are valid choices for the
+   * "frequency sorting dictionary" setting — a plain word dictionary such as
+   * JMdict has nothing to sort by.
+   */
+  hasFrequencyData: boolean;
 }
 
 /** One headword from the native engine (glossary is already-parsed JSON). */
@@ -430,6 +437,28 @@ export function yomitanFindKanjiDirect(args: {
   return invokePluginCommand<YomitanKanjiEntry | null>(
     'plugin:modules|yomitan_find_kanji',
     { character: args.character },
+  );
+}
+
+/** On-disk size of the dictionary database, in bytes, as the engine measures it. */
+export interface YomitanStorageUsage {
+  /** Bytes the database file and its WAL sidecars hold. */
+  usage: number;
+  /** Bytes the volume holding them still has available. */
+  quota: number;
+}
+
+/**
+ * Measure the dictionary database on disk.
+ *
+ * The browser's own storage estimate cannot see it: the banks live in a
+ * Rust-owned SQLite file outside the renderer's origin, so
+ * `navigator.storage.estimate()` reports 0 however many gigabytes were imported.
+ */
+export function yomitanGetStorageUsageDirect(): Promise<YomitanStorageUsage> {
+  return invokePluginCommand<YomitanStorageUsage>(
+    'plugin:modules|yomitan_get_storage_usage',
+    {},
   );
 }
 

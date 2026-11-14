@@ -17,6 +17,7 @@ Default permissions for unified Entei Modules: yt-dlp, torrent, Jimaku, Nadeshik
 - `allow-yomitan-delete-dictionary`
 - `allow-yomitan-find-terms`
 - `allow-yomitan-find-kanji`
+- `allow-yomitan-get-storage-usage`
 - `allow-add-torrent`
 - `allow-get-torrent-status`
 - `allow-select-torrent-files`
@@ -472,6 +473,32 @@ Enables the yomitan_find_terms command without any pre-configured scope.
 <td>
 
 Denies the yomitan_find_terms command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:allow-yomitan-get-storage-usage`
+
+</td>
+<td>
+
+Enables the yomitan_get_storage_usage command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`modules:deny-yomitan-get-storage-usage`
+
+</td>
+<td>
+
+Denies the yomitan_get_storage_usage command without any pre-configured scope.
 
 </td>
 </tr>

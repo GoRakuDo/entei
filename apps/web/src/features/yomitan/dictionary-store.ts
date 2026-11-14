@@ -6,7 +6,9 @@
  * reaches it through `features/player/tauri-bridge`. There is no dictionary
  * IndexedDB, no ZIP decompression and no bank conversion on this side — the
  * functions below are a thin adapter that reshapes the engine's summaries for
- * the settings UI, plus the pure `options.dictionaries` list transforms.
+ * the settings UI, plus the pure `options.dictionaries` list transforms, the
+ * frequency-dictionary filter and the storage measurement the settings meter
+ * shows.
  *
  * What the host still owns is the SETTINGS half, like every other Yomitan
  * option: `options.dictionaries` in the persisted options tree
@@ -25,11 +27,17 @@
 
 import {
   yomitanDeleteDictionaryDirect,
+  yomitanGetStorageUsageDirect,
   yomitanImportDictionaryDirect,
   yomitanListDictionariesDirect,
   yomitanToggleDictionaryDirect,
+  isTauri,
   type YomitanDictionarySummary,
 } from '@/features/player/tauri-bridge';
+import {
+  readStorageUsage,
+  type StorageUsageSnapshot,
+} from '@/features/settings/storage-usage';
 
 /* ---------------------------------------------------------------------------
  * Installed dictionaries (native engine)
@@ -48,6 +56,12 @@ export interface InstalledDictionary {
   enabled: boolean;
   /** ISO date the import first ran. */
   importedAt: string;
+  /**
+   * True when this dictionary ships frequency metadata (`term_meta` in the
+   * engine's `freq` mode) — the only dictionaries Yomitan offers as a frequency
+   * sorting choice. A plain word dictionary (JMdict) has nothing to sort by.
+   */
+  hasFrequencyData: boolean;
 }
 
 /** Reshape one engine summary for the settings UI. */
@@ -63,6 +77,7 @@ function toInstalledDictionary(
       typeof summary.createdAt === 'number'
         ? new Date(summary.createdAt).toISOString()
         : '',
+    hasFrequencyData: summary.hasFrequencyData === true,
   };
   if (summary.author !== null) installed.author = summary.author;
   return installed;
@@ -100,6 +115,43 @@ export function toggleDictionary(id: string, enabled: boolean): Promise<void> {
 /** Delete one dictionary and every bank row it owns (engine side). */
 export function deleteDictionary(id: string): Promise<void> {
   return yomitanDeleteDictionaryDirect({ id });
+}
+
+/**
+ * Names of the dictionaries that may serve as the frequency sorting dictionary.
+ *
+ * Yomitan's own settings list offers only dictionaries that carry frequency
+ * metadata (`counts.termMeta.freq > 0`): a plain word dictionary such as JMdict
+ * has no counts to sort by, so offering it would be a choice that silently does
+ * nothing. Kept pure so the rule is testable without the engine.
+ */
+export function frequencyDictionaryNames(
+  list: readonly InstalledDictionary[],
+): readonly string[] {
+  return list
+    .filter((entry) => entry.hasFrequencyData)
+    .map((entry) => entry.name);
+}
+
+/**
+ * Measure the dictionary database's real size, in bytes.
+ *
+ * On the desktop the engine measures its own files (`yomitan-dictionaries.db`
+ * plus its WAL sidecars): the banks are a Rust-owned SQLite database, not origin
+ * storage, so the browser's estimate would read 0 however much is imported. A
+ * browser has no engine at all, so it falls back to its own origin estimate.
+ *
+ * An unavailable reading resolves to `null` rather than a fabricated 0, so the
+ * meter can show "unknown" instead of "0 bytes used".
+ */
+export async function readDictionaryStorageUsage(): Promise<StorageUsageSnapshot | null> {
+  if (!isTauri()) return readStorageUsage();
+  try {
+    const usage = await yomitanGetStorageUsageDirect();
+    return { usage: usage.usage, quota: usage.quota };
+  } catch {
+    return null;
+  }
 }
 
 /** One `options.dictionaries[]` entry (`DictionaryOptions` in the settings tree). */
