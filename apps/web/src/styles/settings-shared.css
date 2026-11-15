@@ -1170,12 +1170,17 @@
   box-shadow: none;
   outline: 2px solid transparent;
   outline-offset: 4px;
-  transition: outline-color var(--entei-duration-fast)
-    var(--entei-ease-productive);
+  transition:
+    background-color var(--entei-duration-fast) var(--entei-ease-productive),
+    outline-color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
+.entei-subtitle-slider:hover [role='slider'],
+.entei-subtitle-slider [role='slider']:hover,
+.entei-subtitle-slider [role='slider']:active,
 .entei-subtitle-slider [role='slider']:focus-visible {
-  outline-color: var(--entei-accent-hover);
+  background-color: var(--entei-status-locked);
+  outline-color: var(--entei-status-locked);
 }
 
 .entei-subtitle-slider [role='slider']::after {
@@ -1190,6 +1195,18 @@
   color: var(--entei-text-secondary);
   min-width: 50px;
   text-align: right;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* Hovering or interacting with the slider highlights the value display in gold */
+.entei-subtitle-slider:hover ~ .entei-subtitle-value-display,
+.entei-subtitle-control-input:has(.entei-subtitle-slider:hover)
+  .entei-subtitle-value-display,
+.entei-subtitle-control-input:has(
+    .entei-subtitle-slider [role='slider']:focus-visible
+  )
+  .entei-subtitle-value-display {
+  color: var(--entei-status-locked);
 }
 
 .entei-subtitle-color-input {
