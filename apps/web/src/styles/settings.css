@@ -566,6 +566,53 @@ body[data-page='settings'] .entei-main {
   color: var(--entei-text-muted);
 }
 
+/* ----------------------------------------------------------------------------
+   PAIRED SELECTS (the `selects` layout: one row, several mini-labelled controls)
+   ----------------------------------------------------------------------------
+   Upstream Yomitan puts two related knobs on one line — Theme is a Body and a
+   Shadow select, each with its own caption above it. The controls SHARE the row's
+   desktop control column, so each one takes half of it minus the gap; below 768px
+   that column is the whole card, and the pair keeps its own two columns (stacking
+   them would push every value out of sight on a phone).
+   -------------------------------------------------------------------------- */
+
+.entei-module-selects {
+  display: grid;
+  /* Two columns wherever the row is, and `minmax(0, 1fr)` so each control shrinks
+     to its own half instead of forcing the column wider than the card. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--entei-space-8);
+  width: 100%;
+  min-width: 0;
+}
+
+.entei-module-select-pair-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entei-space-4);
+  min-width: 0;
+}
+
+/* The caption above the control — upstream's `settings-item-group-item-label`:
+   secondary text one step down from the row label, not a second row label. */
+.entei-module-select-pair-label {
+  font-family: var(--entei-font-body);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--entei-text-muted);
+  cursor: pointer;
+}
+
+/* The paired trigger IS the standard select (`.entei-module-select`), minus the
+   desktop floor: two 15rem floors side by side would blow past the 22rem control
+   column, so a paired control takes the width its half of the row gives it. */
+.entei-module-select.entei-module-select-pair-trigger {
+  min-width: 0;
+  max-width: none;
+}
+
 /* ==========================================================================
    MANIFEST-LAID-OUT SECTION ROWS (standard layouts: list / field / usage)
    ----------------------------------------------------------------------------

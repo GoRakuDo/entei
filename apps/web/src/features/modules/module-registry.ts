@@ -25,7 +25,8 @@
  * one of the app's standard layouts (`list` / `field` / `usage` / `inputs`), the
  * field it edits, the host-owned data `source` behind it and its own text.
  * The app owns the layouts (`components/settings/ModuleListManager`,
- * `ModuleFieldRow`, `ModuleUsageMeter`) and the host-owned data sources
+ * `ModuleFieldRow`, `ModuleSelectPairRow`, `ModuleUsageMeter`) and the host-owned
+ * data sources
  * (`components/settings/module-data-sources`); which field gets which layout is
  * never written in the page.
  *
@@ -76,8 +77,40 @@ export type ModuleCopyKey =
  *   (a name, an enable switch, a delete), `inputs` edits BEHAVIOUR objects whose
  *   every card carries fields of its own — Yomitan's `scanning.inputs[]`, one
  *   card per trigger definition.
+ * - `selects` — one row holding SEVERAL mini-labelled selects side by side, each
+ *   bound to its own field (`ModuleSelectPairRow`). Upstream Yomitan pairs two
+ *   related knobs under one label this way (Theme: Body + Shadow).
  */
-export type EnteiModuleRowLayout = 'list' | 'field' | 'usage' | 'inputs';
+export type EnteiModuleRowLayout =
+  | 'list'
+  | 'field'
+  | 'usage'
+  | 'inputs'
+  | 'selects';
+
+/**
+ * One choice of a `selects` row's control.
+ *
+ * Declared by the row itself, not read from the descriptor: an upstream pair
+ * ships its own option ORDER and wording (Theme's `site` is `Auto`, and it comes
+ * first), which the tree's own list does not reproduce.
+ */
+export interface EnteiModuleSelectOption {
+  /** Value written into the options tree. */
+  value: string;
+  /** Literal English label (this surface is the upstream tool's own UI). */
+  label: string;
+}
+
+/** One mini-labelled select of a `selects` row. */
+export interface EnteiModuleSelectBinding {
+  /** Mini label above the control (`Body`, `Shadow`, `Visibility`, …). */
+  label: string;
+  /** Dot-path of the field this control edits. */
+  field: string;
+  /** Choices of this control, in draw order. */
+  options: readonly EnteiModuleSelectOption[];
+}
 
 /**
  * Name of a built-in English copy table a platform layout draws its own strings
@@ -128,6 +161,13 @@ export interface EnteiModuleRowBinding {
   usage?: string;
   /** Leading "none" option of a `field` row's select. */
   none?: string;
+  /**
+   * Controls of a `selects` row: two or more mini-labelled selects drawn side by
+   * side in the row's control column, each with its own literal choices. The row's
+   * own `label` / `description` are the text block on the left; the items carry no
+   * text of their own beyond their mini labels.
+   */
+  selects?: readonly EnteiModuleSelectBinding[];
   /**
    * Control type of a row whose `field` has NO descriptor in the module's
    * `settingsSchema` — a HOST-DECLARED VIRTUAL FIELD.
@@ -217,7 +257,41 @@ const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = [
   'field',
   'usage',
   'inputs',
+  'selects',
 ];
+
+/**
+ * The controls of a `selects` row, or `undefined` when none is usable.
+ *
+ * Fail-closed per CONTROL: one needs a label, a field and at least one choice
+ * (a select with no options is a dead control), so a malformed item is dropped
+ * rather than half applied. A row left with nothing is dropped by the caller.
+ */
+function parseSelectBindings(
+  input: unknown,
+): EnteiModuleSelectBinding[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const items: EnteiModuleSelectBinding[] = [];
+  for (const entry of input) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const raw = entry as Record<string, unknown>;
+    const label = optionalId(raw.label);
+    const field = optionalId(raw.field);
+    if (label === undefined || field === undefined) continue;
+    const options: EnteiModuleSelectOption[] = [];
+    for (const choice of Array.isArray(raw.options) ? raw.options : []) {
+      if (typeof choice !== 'object' || choice === null) continue;
+      const option = choice as Record<string, unknown>;
+      const value = optionalId(option.value);
+      const optionLabel = optionalId(option.label);
+      if (value === undefined || optionLabel === undefined) continue;
+      options.push({ value, label: optionLabel });
+    }
+    if (options.length === 0) continue;
+    items.push({ label, field, options });
+  }
+  return items.length === 0 ? undefined : items;
+}
 
 /** A non-empty trimmed string, or `undefined` (manifest fields are optional). */
 function optionalId(value: unknown): string | undefined {
@@ -264,6 +338,22 @@ export function normalizeSectionLayouts(
       const source = optionalId(row.source);
       const optionsSource = optionalId(row.optionsSource);
       if (layout === undefined) continue;
+      if (layout === 'selects') {
+        /* A `selects` row is addressable ONLY through its controls: each one names
+           a field and its own choices, and a row with no usable control would draw
+           an empty box. */
+        const selects = parseSelectBindings(row.selects);
+        if (selects === undefined) continue;
+        const pairRow: EnteiModuleRowBinding = { layout, selects };
+        const pairLabel = optionalId(row.label);
+        if (pairLabel !== undefined) pairRow.label = pairLabel;
+        const pairDescription = optionalId(row.description);
+        if (pairDescription !== undefined) {
+          pairRow.description = pairDescription;
+        }
+        rows.push(pairRow);
+        continue;
+      }
       if (field === undefined && source === undefined) continue;
       if (layout !== 'field' && source === undefined) continue;
       const binding: EnteiModuleRowBinding = { layout };

@@ -25,8 +25,10 @@
  * list (Yomitan's Dictionaries: an installed-item list plus host-only rows) is
  * declared by the manifest as a `sectionLayouts` entry — an ordered list of ROWS,
  * each naming one of the app's standard layouts (`list`, `field`, `usage`,
- * `inputs`), the field it edits, the host-owned DATA SOURCE behind it, and its
- * own literal text (English, like the upstream UI it reproduces). This renderer
+ * `inputs`, `selects`), the field it edits, the host-owned DATA SOURCE behind it,
+ * and its own literal text (English, like the upstream UI it reproduces) — a
+ * `selects` row instead carries several mini-labelled controls, each bound to its
+ * own field with its own choices. This renderer
  * resolves those rows against the descriptor tree and the host source registry
  * (`components/settings/module-data-sources`); it never names a module or a
  * field itself. A field laid out this way is claimed: it is not drawn a second
@@ -97,6 +99,7 @@ import {
   type EnteiModuleSectionLayout,
 } from '@/features/modules/module-registry';
 import { ModuleFieldRow } from '@/components/settings/ModuleFieldRow';
+import { ModuleSelectPairRow } from '@/components/settings/ModuleSelectPairRow';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
 import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
 import type { ScanningInputManagerCopy } from '@/components/settings/ScanningInputManager';
@@ -306,6 +309,9 @@ function claimedPaths(
   for (const layout of layouts ?? []) {
     for (const row of layout.rows) {
       if (row.field !== undefined) claimed.add(row.field);
+      /* A `selects` row edits one path per control, so every one of them is
+         claimed: leaving one out would draw it a second time in its tree group. */
+      for (const item of row.selects ?? []) claimed.add(item.field);
     }
   }
   return claimed;
@@ -492,6 +498,27 @@ function ModuleLayoutRow({
 }: ModuleLayoutRowProps) {
   const source = resolveModuleDataSource(row.source);
   const field = row.field === undefined ? undefined : fields.get(row.field);
+
+  /* SEVERAL SELECTS, ONE ROW: upstream Yomitan's paired controls (Theme is a Body
+     and a Shadow select on one line). Every path is a real field of the tree, but
+     the row ships its OWN choices — upstream's order and wording, which the
+     descriptor's list does not reproduce — so this is resolved before the
+     single-field row, which can only draw one control. */
+  if (row.layout === 'selects') {
+    const items = row.selects;
+    if (items === undefined || items.length === 0 || row.label === undefined) {
+      return null;
+    }
+    return (
+      <ModuleSelectPairRow
+        label={row.label}
+        description={row.description}
+        selects={items}
+        read={(path) => readOptionPath(options, path)}
+        onChange={onChange}
+      />
+    );
+  }
 
   if (row.layout === 'usage') {
     if (source?.usage === undefined) return null;

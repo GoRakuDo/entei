@@ -453,6 +453,156 @@ describe('module-registry — sectionLayouts normalisation', () => {
   });
 });
 
+describe('module-registry — `selects` rows (paired mini-labelled selects)', () => {
+  it('keeps every control of a well-formed row, with its own choices', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'popup-appearance',
+          rows: [
+            {
+              layout: 'selects',
+              label: 'Theme',
+              description: 'Adjust the style of Yomitan.',
+              selects: [
+                {
+                  label: 'Body',
+                  field: 'general.popupTheme',
+                  options: [
+                    { value: 'site', label: 'Auto' },
+                    { value: 'light', label: 'Light' },
+                  ],
+                },
+                {
+                  label: 'Shadow',
+                  field: 'general.popupOuterTheme',
+                  options: [{ value: 'none', label: 'None' }],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'popup-appearance',
+        rows: [
+          {
+            layout: 'selects',
+            label: 'Theme',
+            description: 'Adjust the style of Yomitan.',
+            selects: [
+              {
+                label: 'Body',
+                field: 'general.popupTheme',
+                options: [
+                  { value: 'site', label: 'Auto' },
+                  { value: 'light', label: 'Light' },
+                ],
+              },
+              {
+                label: 'Shadow',
+                field: 'general.popupOuterTheme',
+                options: [{ value: 'none', label: 'None' }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('drops a control with no field, no label or no usable choice, and a row left with none', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'items',
+          rows: [
+            /* No controls at all — the row would draw an empty box. */
+            { layout: 'selects', label: 'Theme' },
+            {
+              layout: 'selects',
+              label: 'Action bar appearance',
+              selects: [
+                {
+                  label: 'Visibility',
+                  options: [{ value: 'auto', label: 'Auto' }],
+                },
+                {
+                  label: 'Location',
+                  field: 'general.popupActionBarLocation',
+                  options: [],
+                },
+                { field: 'general.x', options: [{ value: 'a', label: 'A' }] },
+                {
+                  label: 'Y',
+                  field: 'general.y',
+                  options: [{ value: '', label: '' }],
+                },
+                /* Kept: the one usable control of the row. */
+                {
+                  label: 'Mode',
+                  field: 'general.mode',
+                  options: [{ value: 'a', label: 'A' }],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'items',
+        rows: [
+          {
+            layout: 'selects',
+            label: 'Action bar appearance',
+            selects: [
+              {
+                label: 'Mode',
+                field: 'general.mode',
+                options: [{ value: 'a', label: 'A' }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('replaces Yomitan’s two separate theme rows with the upstream paired ones', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const appearance = yomitan?.sectionLayouts?.find(
+      (layout) => layout.section === 'popup-appearance',
+    );
+    const theme = appearance?.rows.find((row) => row.label === 'Theme');
+    expect(theme?.layout).toBe('selects');
+    expect(theme?.selects?.map((item) => item.field)).toEqual([
+      'general.popupTheme',
+      'general.popupOuterTheme',
+    ]);
+    // Upstream's own wording: `site` reads as `Auto`, and it comes first.
+    expect(theme?.selects?.[0]?.options?.map((option) => option.value)).toEqual(
+      ['site', 'light', 'dark', 'browser'],
+    );
+
+    const actionBar = appearance?.rows.find(
+      (row) => row.label === 'Action bar appearance',
+    );
+    expect(actionBar?.selects?.map((item) => item.field)).toEqual([
+      'general.popupActionBarVisibility',
+      'general.popupActionBarLocation',
+    ]);
+
+    // The old standalone rows are gone: the paired row owns both paths.
+    const paths = (appearance?.rows ?? []).flatMap((row) =>
+      row.field === undefined ? [] : [row.field],
+    );
+    expect(paths).not.toContain('general.popupTheme');
+    expect(paths).not.toContain('general.popupOuterTheme');
+  });
+});
+
 describe('module-registry — merged registry', () => {
   beforeEach(() => {
     localStorage.clear();

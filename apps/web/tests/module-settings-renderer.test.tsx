@@ -707,8 +707,12 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
    * by validation or a field silently left to the generic group walk fails here.
    */
   const APPEARANCE_LABELS = [
-    'Popup theme',
-    'Outer theme',
+    'Theme',
+    'Body',
+    'Shadow',
+    'Action bar appearance',
+    'Visibility',
+    'Location',
     'Font family',
     'Font size (px)',
     'Line height',
@@ -738,8 +742,13 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
 
     const section = container.querySelectorAll('.entei-module-section')[4];
     expect(section?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
-    // 2 theme selects, 1 switch, 2 custom-CSS textareas, 3 text/number inputs.
-    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(2);
+    // 2 paired selects on the Theme row and 2 on Action bar appearance —
+    // upstream groups each pair into ONE row, so this is two rows, four controls.
+    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(4);
+    expect(section?.querySelectorAll('.entei-module-selects')).toHaveLength(2);
+    expect(
+      section?.querySelectorAll('.entei-module-select-pair-item'),
+    ).toHaveLength(4);
     expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(1);
     expect(section?.querySelectorAll('textarea')).toHaveLength(2);
     expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(1);
@@ -770,5 +779,16 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     const section = container.querySelectorAll('.entei-module-section')[4];
     // The declared rows replaced the group walk entirely: no group headings.
     expect(section?.querySelectorAll('.entei-module-group')).toHaveLength(0);
+  });
+
+  it('moves the action bar knobs out of Popup Behavior into the paired Appearance row', () => {
+    renderShipped();
+    openSection(/Popup Behavior/i);
+
+    /* Both paths are claimed by the Appearance row, so Popup Behavior's own
+       "Action Bar" group is left empty and disappears instead of repeating them. */
+    expect(screen.queryByText('Action bar visibility')).toBeNull();
+    expect(screen.queryByText('Action bar location')).toBeNull();
+    expect(screen.queryByText('Action Bar')).toBeNull();
   });
 });

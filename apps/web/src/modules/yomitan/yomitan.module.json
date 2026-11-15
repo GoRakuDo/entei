@@ -178,16 +178,57 @@
           "source": "yomitan-popup-preview"
         },
         {
-          "layout": "field",
-          "field": "general.popupTheme",
-          "type": "select",
-          "label": "Popup theme"
+          "layout": "selects",
+          "label": "Theme",
+          "description": "Adjust the style of Yomitan.",
+          "selects": [
+            {
+              "label": "Body",
+              "field": "general.popupTheme",
+              "options": [
+                { "value": "site", "label": "Auto" },
+                { "value": "light", "label": "Light" },
+                { "value": "dark", "label": "Dark" },
+                { "value": "browser", "label": "Browser" }
+              ]
+            },
+            {
+              "label": "Shadow",
+              "field": "general.popupOuterTheme",
+              "options": [
+                { "value": "none", "label": "None" },
+                { "value": "site", "label": "Auto" },
+                { "value": "light", "label": "Light" },
+                { "value": "dark", "label": "Dark" },
+                { "value": "browser", "label": "Browser" }
+              ]
+            }
+          ]
         },
         {
-          "layout": "field",
-          "field": "general.popupOuterTheme",
-          "type": "select",
-          "label": "Outer theme"
+          "layout": "selects",
+          "label": "Action bar appearance",
+          "description": "Control when and where the action bar is visible.",
+          "selects": [
+            {
+              "label": "Visibility",
+              "field": "general.popupActionBarVisibility",
+              "options": [
+                { "value": "auto", "label": "Auto" },
+                { "value": "always", "label": "Always" }
+              ]
+            },
+            {
+              "label": "Location",
+              "field": "general.popupActionBarLocation",
+              "options": [
+                { "value": "top", "label": "Top" },
+                { "value": "bottom", "label": "Bottom" },
+                { "value": "left", "label": "Left" },
+                { "value": "right", "label": "Right" }
+              ]
+            }
+          ]
         },
         {
           "layout": "field",
