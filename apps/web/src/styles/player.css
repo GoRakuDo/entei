@@ -2384,9 +2384,9 @@ html.entei-native-video .entei-player-video {
   background-color: oklch(100% 0 0deg / 0.08);
 }
 
-/* Played range — uses --entei-btn-color directly without !important */
+/* Played range — uses --entei-surface-elevated directly without !important */
 .entei-subtitle-slider [data-slot='slider-range'] {
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-surface-elevated);
 }
 
 /* Settings slider thumb: solid 18px circle matching --entei-btn-color.
