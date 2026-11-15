@@ -157,6 +157,14 @@ describe('gold hover for buttongroups, comboboxes and text fields', () => {
     expect(globalCss).not.toMatch(/::placeholder\s*\{[^}]*status-locked/s);
   });
 
+  it('switch (toggle) thumb turns gold on hover and focus-visible', () => {
+    const switchHoverRule = block(
+      globalCss,
+      "[data-slot='switch']:hover:not(:disabled) [data-slot='switch-thumb'],\n[data-slot='switch']:focus-visible:not(:disabled) [data-slot='switch-thumb']",
+    );
+    expect(switchHoverRule).toContain('background-color: var(--entei-status-locked)');
+  });
+
   it('the shared rule set stays OKLCH-token only (rule #1621)', () => {
     const rules = [
       `${TOGGLE_HOVER},\n${TOGGLE_ITEM_HOVER}`,

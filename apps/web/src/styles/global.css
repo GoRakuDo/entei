@@ -343,6 +343,18 @@ textarea:is(:hover, :focus, :focus-visible):not(:disabled) {
   color: var(--entei-status-locked);
 }
 
+/* Switch (toggle) thumb: turns gold on hover and focus-visible */
+[data-slot='switch-thumb'] {
+  transition:
+    transform 0.15s ease,
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+[data-slot='switch']:hover:not(:disabled) [data-slot='switch-thumb'],
+[data-slot='switch']:focus-visible:not(:disabled) [data-slot='switch-thumb'] {
+  background-color: var(--entei-status-locked);
+}
+
 /* ===== SKIP LINK (PHASE0.md 6.139, 14.365) ===== */
 .entei-skip-link {
   position: absolute;
