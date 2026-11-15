@@ -191,23 +191,30 @@ export function withScanInputToken(raw: unknown, token: string): string {
 }
 
 /**
- * The token a recorded keyboard event stands for, or `null` when the key has
- * none.
+ * Extract active modifiers from a KeyboardEvent matching Yomitan's getActiveModifiers.
+ */
+export function activeKeyboardModifiers(event: KeyboardEvent): string[] {
+  const modifiers: string[] = [];
+  if (event.ctrlKey || event.key === 'Control') modifiers.push('ctrl');
+  if (event.altKey || event.key === 'Alt') modifiers.push('alt');
+  if (event.shiftKey || event.key === 'Shift') modifiers.push('shift');
+  if (event.metaKey || event.key === 'Meta' || event.key === 'OS') modifiers.push('meta');
+  return Array.from(new Set(modifiers));
+}
+
+/**
+ * The token or tokens a recorded keyboard event stands for.
+ * Returns null if no recognized modifier or action key was pressed.
  */
 export function keyboardInputToken(event: KeyboardEvent): string | null {
-  switch (event.key) {
-    case 'Shift':
-      return 'shift';
-    case 'Control':
-      return 'ctrl';
-    case 'Alt':
-      return 'alt';
-    case 'Meta':
-    case 'OS':
-      return 'meta';
-    default:
-      return null;
+  if (event.key === 'Escape' || event.key === 'Backspace' || event.key === 'Delete') {
+    return '';
   }
+  const mods = activeKeyboardModifiers(event);
+  if (mods.length > 0) {
+    return mods.join(' ');
+  }
+  return null;
 }
 
 /** The token a recorded mouse event stands for (buttons 0–5). */
@@ -689,7 +696,7 @@ function ScanInputTokenRow({
         <ScanInputRecorder
           name={`${label} ${capture}`}
           listeningLabel={listening}
-          onRecord={(token) => onCommit(withScanInputToken(value, token))}
+          onRecord={(token) => onCommit(token)}
         />
       </div>
     </div>
