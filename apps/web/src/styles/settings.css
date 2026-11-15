@@ -640,9 +640,11 @@ body[data-page='settings'] .entei-main {
    ----------------------------------------------------------------------------
    A block, not a label-plus-control row: the card needs the whole width, so the
    row is a single column even when the manifest gives it text to draw above it.
-   The frame's contents are the upstream popup document (see
-   modules/yomitan/popup-preview), so everything here is only the Entei-side
-   window it is shown through — nothing inside it is styled by this file.
+   Two stacked bands, both full width — the term field (the app's standard input)
+   and, under it, the stage the popup is drawn on. The stage's contents are the
+   upstream popup document (see modules/yomitan/popup-preview), so everything
+   here is only the Entei-side window it is shown through — nothing inside it is
+   styled by this file.
    ========================================================================== */
 
 /* The block itself: ONE column, whether or not the manifest gave the row any text.
@@ -654,83 +656,49 @@ body[data-page='settings'] .entei-main {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-16);
   min-height: 0;
 }
 
-.entei-yomitan-popup-preview-frame {
-  display: flex;
-  flex-direction: column;
+/* What was looked up, editable — the same field upstream's own preview page has.
+   It IS the app's standard settings input (shadcn `Input` + `entei-module-input`),
+   at the block's full width: it is the card's search line, not a control docked to
+   a desktop control column, so the shared 15–22rem column bounds are lifted here.
+   An empty field falls back to the example word (see `resolvePreviewTerm`). */
+.entei-module-input.entei-yomitan-popup-preview-term-input {
+  min-width: 0;
+  max-width: none;
   width: 100%;
-  /* The upstream popup's own content measure is 400px plus its frame; this is
-     that box plus room to breathe, and it collapses with the column. */
-  max-width: 34rem;
+  padding: 0 var(--entei-space-12);
+  font-size: 0.9375rem;
+}
+
+/* The stage: the room the popup is drawn in. Full width, and tall enough to hold
+   the default 400×250 card generously rather than clipping it to the frame — the
+   card is centred in it, so a small popup sits in open space instead of being
+   wedged against the field above. */
+.entei-yomitan-popup-preview-stage {
+  /* One cell for both states: the frame fills it, and a loading note sits centred
+     in it instead of clinging to the top edge. */
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 21.25rem; /* 340px */
+  padding: var(--entei-space-24);
   border: 1px solid oklch(100% 0 0deg / 0.1);
   border-radius: var(--entei-radius-md);
   background-color: var(--entei-surface);
   overflow: hidden;
 }
 
-/* What was looked up, editable — the same field upstream's own preview page has.
-   It is the card's search line, not a settings control: no box of its own, just
-   the hairline that separates it from the document, and it takes the frame's
-   width. An empty field falls back to the example word (see `resolvePreviewTerm`). */
-.entei-yomitan-popup-preview-term-input {
-  width: 100%;
-  height: var(--entei-touch-min);
-  padding: 0 var(--entei-space-12);
-  border: 0;
-  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
-  background-color: transparent;
-  font-family: var(--entei-font-body);
-  font-size: 0.9375rem;
-  line-height: 1.4;
-  color: var(--entei-text-secondary);
-  transition:
-    color var(--entei-duration-fast) var(--entei-ease-productive),
-    border-color var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-.entei-yomitan-popup-preview-term-input::placeholder {
-  color: var(--entei-text-muted);
-}
-
-.entei-yomitan-popup-preview-term-input:hover {
-  color: var(--entei-status-locked);
-}
-
-/* The accent stands in for a hard box inside the frame: an inset ring plus the
-   hairline is still a clearly visible focus state, which dropping the default
-   outline alone would not be. */
-.entei-yomitan-popup-preview-term-input:focus-visible {
-  outline: 2px solid var(--entei-status-locked);
-  outline-offset: -2px;
-  border-bottom-color: var(--entei-status-locked);
-  color: var(--entei-status-locked);
-}
-
-.entei-yomitan-popup-preview-viewport {
-  /* Default frame size (upstream's 400×250 popup); the component overwrites both
-     from `general.popupWidth` / `general.popupHeight` × `popupScalingFactor`. */
-  height: 22rem;
-  /* A 2000px popup is a legal setting, but this card lives in a settings column:
-     the frame stops growing at what the page can show, and the frame inside it
-     keeps the ratio (it is clamped to 100% of this box). */
-  max-height: 32rem;
-  /* One cell for both states: the frame fills it, and a loading note sits centred
-     in it instead of clinging to the top edge. */
-  display: grid;
-  place-items: center;
-}
-
-.entei-yomitan-popup-preview-viewport > iframe {
+.entei-yomitan-popup-preview-stage > iframe {
   grid-area: 1 / 1;
   display: block;
-  /* The width comes from the user's own popup width (inline); on a narrow card the
-     frame gives way to the column rather than overflowing it. */
-  width: 100%;
+  /* Both come from the user's own Position & Size numbers (inline); a 2000px
+     popup is a legal setting, but this card lives in a settings column, so the
+     frame gives way to the stage rather than overflowing it. */
   max-width: 100%;
-  height: 100%;
+  max-height: 32rem;
   border: 0;
 }
 
@@ -745,14 +713,8 @@ body[data-page='settings'] .entei-main {
   text-wrap: pretty;
 }
 
-.entei-yomitan-popup-preview-viewport > .entei-yomitan-popup-preview-note {
+.entei-yomitan-popup-preview-stage > .entei-yomitan-popup-preview-note {
   text-align: center;
-}
-
-/* The failure note sits under the frame in the block's own flow, separated by the
-   same hairline as the term caption above it. */
-.entei-yomitan-popup-preview-frame > .entei-yomitan-popup-preview-note {
-  border-top: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
 /* ==========================================================================

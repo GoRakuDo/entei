@@ -16,6 +16,11 @@
  * whose whole value is one stored string, this row visualises a dozen settings and
  * has to follow them live.
  *
+ * TWO STACKED BANDS, both the block's full width: the term field on top (the
+ * app's standard settings input), and under it the stage the real popup card is
+ * drawn on. Neither is squeezed into a side-by-side split — the card is the point
+ * of the section, so it gets the whole width and open space around it.
+ *
  * Two change keys keep that live without being expensive (see `popup-lookup`):
  * the lookup re-runs only when the dictionary set, the lookup knobs or the term
  * field move, while an appearance edit only rebuilds the document string.
@@ -24,6 +29,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
+import { Input } from '@/components/player/ui/input';
 import {
   POPUP_PREVIEW_TERM,
   buildPopupDocument,
@@ -155,48 +161,48 @@ export function YomitanPopupPreview({
         </div>
       )}
 
-      <div className="entei-yomitan-popup-preview-frame">
-        {/* The term, editable — upstream's preview page has the same field. An
-            empty one falls back to the example word (`resolvePreviewTerm`), which
-            is what the placeholder shows. */}
-        <input
-          className="entei-yomitan-popup-preview-term-input"
-          type="text"
-          value={term}
-          lang="ja"
-          placeholder={POPUP_PREVIEW_TERM}
-          autoComplete="off"
-          spellCheck={false}
-          aria-label={PREVIEW_COPY.term}
-          onChange={(event) => setTerm(event.target.value)}
-        />
+      {/* What was looked up, editable — upstream's preview page has the same
+          field. An empty one falls back to the example word (`resolvePreviewTerm`),
+          which is what the placeholder shows. */}
+      <Input
+        className="entei-module-input entei-yomitan-popup-preview-term-input"
+        type="text"
+        value={term}
+        lang="ja"
+        placeholder={POPUP_PREVIEW_TERM}
+        autoComplete="off"
+        spellCheck={false}
+        aria-label={PREVIEW_COPY.term}
+        onChange={(event) => setTerm(event.target.value)}
+      />
+
+      <div className="entei-yomitan-popup-preview-stage">
         {/* The frame carries the user's own Position & Size numbers: the width and
             height are `general.popupWidth` / `general.popupHeight` (scaled), and
-            the stylesheet clamps them to the space this card actually has, so a
-            2000px popup does not widen the settings column. */}
-        <div
-          className="entei-yomitan-popup-preview-viewport"
-          style={{ height: `${appearance.size.height}px` }}
-        >
-          {srcDoc === null ? (
-            <p className="entei-yomitan-popup-preview-note">{PREVIEW_COPY.loading}</p>
-          ) : (
-            <iframe
-              title={label === undefined ? query : `${label}: ${query}`}
-              srcDoc={srcDoc}
-              style={{ width: `${appearance.size.width}px` }}
-              /* Static markup: nothing in the frame needs to run, and the
-                 document carries user CSS and dictionary text. */
-              sandbox=""
-            />
-          )}
-        </div>
-        {failed && (
-          <p className="entei-yomitan-popup-preview-note" role="status">
-            {PREVIEW_COPY.unavailable}
-          </p>
+            the stylesheet clamps them to the stage, so a 2000px popup does not
+            widen the settings column. */}
+        {srcDoc === null ? (
+          <p className="entei-yomitan-popup-preview-note">{PREVIEW_COPY.loading}</p>
+        ) : (
+          <iframe
+            title={label === undefined ? query : `${label}: ${query}`}
+            srcDoc={srcDoc}
+            style={{
+              width: `${appearance.size.width}px`,
+              height: `${appearance.size.height}px`,
+            }}
+            /* Static markup: nothing in the frame needs to run, and the
+               document carries user CSS and dictionary text. */
+            sandbox=""
+          />
         )}
       </div>
+
+      {failed && (
+        <p className="entei-yomitan-popup-preview-note" role="status">
+          {PREVIEW_COPY.unavailable}
+        </p>
+      )}
     </div>
   );
 }

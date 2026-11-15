@@ -100,8 +100,8 @@ describe('YomitanPopupPreview — term field', () => {
   });
 
   /* The card follows the Position & Size section live: the frame is drawn at the
-     popup's own width and height, and the term field's answer is not re-queried
-     for it. */
+     popup's own width and height on the stage, and the term field's answer is
+     not re-queried for it. */
   it('draws the frame at the configured popup size', async () => {
     const { container } = render(
       <YomitanPopupPreview
@@ -111,10 +111,18 @@ describe('YomitanPopupPreview — term field', () => {
     await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
 
     const frame = container.querySelector('iframe') as HTMLElement;
-    const viewport = container.querySelector(
-      '.entei-yomitan-popup-preview-viewport',
-    ) as HTMLElement;
     expect(frame.style.width).toBe('520px');
-    expect(viewport.style.height).toBe('180px');
+    expect(frame.style.height).toBe('180px');
+
+    /* The stage is the full-width band the card is spawned on, and the term field
+       sits above it — the two are siblings, not a side-by-side split. */
+    const stage = container.querySelector(
+      '.entei-yomitan-popup-preview-stage',
+    ) as HTMLElement;
+    expect(stage.querySelector('iframe')).not.toBeNull();
+    expect(
+      container.querySelector('.entei-yomitan-popup-preview-term-input')
+        ?.parentElement,
+    ).toBe(stage.parentElement);
   });
 });
