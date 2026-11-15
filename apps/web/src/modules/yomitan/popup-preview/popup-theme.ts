@@ -14,6 +14,10 @@
  *   document element — upstream's own comment says this is deliberate, because
  *   setting the CSS variables instead does not scale everything correctly.
  * - `customPopupCss` becomes one extra stylesheet appended after the rest.
+ * - `popupWidth` / `popupHeight` are the frame's box (`Popup._setFrameSize`) and
+ *   `popupScalingFactor` is the content scale (`Popup.setContentScale`, which
+ *   writes `frame.style.fontSize = \`${scale}px\``). Neither is a stylesheet rule
+ *   either, so both are resolved here and applied to the preview's frame.
  *
  * The preview document is a string (an iframe `srcdoc`), so all three are
  * resolved here, in the host document, and serialized into it: nothing has to run
@@ -33,6 +37,31 @@ export interface PopupAppearance {
   fontStyle: string;
   /** `general.customPopupCss`, verbatim. */
   customCss: string;
+  /**
+   * The popup frame's box in CSS pixels — `general.popupWidth` /
+   * `general.popupHeight`, multiplied by `general.popupScalingFactor`.
+   *
+   * The factor scales both, because it scales both upstream: the frame's own
+   * font-size (so the content needs more room) and, with it, the box the popup
+   * measures. The caller still clamps the result to the space the card has.
+   */
+  size: { width: number; height: number };
+}
+
+/** Upstream's own defaults for the three Position & Size numbers. */
+const DEFAULT_POPUP_WIDTH = 400;
+const DEFAULT_POPUP_HEIGHT = 250;
+const DEFAULT_POPUP_SCALE = 1;
+
+/**
+ * The value, or the default when the field holds nothing usable.
+ *
+ * The number fields accept `0` and the options parser only rejects non-numbers
+ * (`checkNumber(..., 0)` upstream), so a cleared or zeroed field must not
+ * collapse the preview to a 0×0 box.
+ */
+function positiveOr(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 /**
@@ -91,15 +120,28 @@ export function resolvePopupThemeAttributes(
  *
  * An empty value is skipped rather than written as an empty declaration, which is
  * what assigning `''` to a style property does upstream.
+ *
+ * `contentScale` is `general.popupScalingFactor`: upstream scales the popup by
+ * writing the frame's `font-size`, which every `em`-based rule in Yomitan's own
+ * stylesheets is relative to. The popup document carries its own root font-size
+ * (`general.fontSize`), so the same factor is applied to that value here — one
+ * scale over the same content.
  */
 export function resolvePopupFontStyle(
   fontFamily: string,
   fontSize: number,
   lineHeight: string,
+  contentScale: number = DEFAULT_POPUP_SCALE,
 ): string {
   const declarations: string[] = [];
+  const scale = positiveOr(contentScale, DEFAULT_POPUP_SCALE);
   if (fontFamily !== '') declarations.push(`font-family:${fontFamily}`);
-  if (Number.isFinite(fontSize)) declarations.push(`font-size:${fontSize}px`);
+  if (Number.isFinite(fontSize)) {
+    // Two decimals: a 0.1-step factor times a whole pixel size can land on
+    // 22.000000000000004, which is the same size but a different string.
+    const scaled = Math.round(fontSize * scale * 100) / 100;
+    declarations.push(`font-size:${scaled}px`);
+  }
   if (lineHeight !== '') declarations.push(`line-height:${lineHeight}`);
   return declarations.length > 0 ? declarations.join(';') : '';
 }
@@ -115,17 +157,26 @@ export function resolvePopupFontStyle(
  */
 export function resolvePopupAppearance(options: Options): PopupAppearance {
   const profile = activeProfileOptions(options);
+  const {
+    popupTheme,
+    popupOuterTheme,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    customPopupCss,
+    popupWidth,
+    popupHeight,
+    popupScalingFactor,
+  } = profile.general;
+  const scale = positiveOr(popupScalingFactor, DEFAULT_POPUP_SCALE);
   return {
-    themeAttributes: resolvePopupThemeAttributes(
-      profile.general.popupTheme,
-      profile.general.popupOuterTheme,
-    ),
-    fontStyle: resolvePopupFontStyle(
-      profile.general.fontFamily,
-      profile.general.fontSize,
-      profile.general.lineHeight,
-    ),
-    customCss: profile.general.customPopupCss,
+    themeAttributes: resolvePopupThemeAttributes(popupTheme, popupOuterTheme),
+    fontStyle: resolvePopupFontStyle(fontFamily, fontSize, lineHeight, scale),
+    customCss: customPopupCss,
+    size: {
+      width: Math.round(positiveOr(popupWidth, DEFAULT_POPUP_WIDTH) * scale),
+      height: Math.round(positiveOr(popupHeight, DEFAULT_POPUP_HEIGHT) * scale),
+    },
   };
 }
 
@@ -134,12 +185,23 @@ export function resolvePopupAppearance(options: Options): PopupAppearance {
  *
  * A lookup is a database round trip; a theme change is not. Splitting the two
  * keys is what keeps dragging the font-size number field from re-running the
- * dictionary search on every step.
+ * dictionary search on every step. The Position & Size numbers belong on THIS
+ * key, not the lookup one: they are edited in another section, and dragging them
+ * must redraw the frame without re-querying the dictionary engine.
  */
 export function popupAppearanceKey(options: Options): string {
   const profile = activeProfileOptions(options);
-  const { popupTheme, popupOuterTheme, fontFamily, fontSize, lineHeight, customPopupCss } =
-    profile.general;
+  const {
+    popupTheme,
+    popupOuterTheme,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    customPopupCss,
+    popupWidth,
+    popupHeight,
+    popupScalingFactor,
+  } = profile.general;
   return JSON.stringify([
     popupTheme,
     popupOuterTheme,
@@ -147,5 +209,8 @@ export function popupAppearanceKey(options: Options): string {
     fontSize,
     lineHeight,
     customPopupCss,
+    popupWidth,
+    popupHeight,
+    popupScalingFactor,
   ]);
 }

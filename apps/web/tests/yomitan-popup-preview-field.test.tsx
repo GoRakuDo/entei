@@ -53,6 +53,22 @@ function termField(): HTMLInputElement {
   return screen.getByLabelText(TERM_LABEL) as HTMLInputElement;
 }
 
+/** The user's own Position & Size numbers, onto the active profile. */
+function withGeneral(general: Record<string, unknown>) {
+  const base = createDefaultOptions();
+  return {
+    ...base,
+    profiles: base.profiles.map((profile, index) =>
+      index === base.profileCurrent
+        ? {
+            ...profile,
+            options: { ...profile.options, general: { ...profile.options.general, ...general } },
+          }
+        : profile,
+    ),
+  } as typeof base;
+}
+
 describe('YomitanPopupPreview — term field', () => {
   it('draws the example word, then the typed one once the field settles', async () => {
     const { container } = render(
@@ -81,5 +97,24 @@ describe('YomitanPopupPreview — term field', () => {
     /* An empty field is a half-finished edit, not a request to search for nothing. */
     fireEvent.change(termField(), { target: { value: '   ' } });
     await waitFor(() => expect(drawnTerm(container)).toBe(POPUP_PREVIEW_TERM));
+  });
+
+  /* The card follows the Position & Size section live: the frame is drawn at the
+     popup's own width and height, and the term field's answer is not re-queried
+     for it. */
+  it('draws the frame at the configured popup size', async () => {
+    const { container } = render(
+      <YomitanPopupPreview
+        options={withGeneral({ popupWidth: 520, popupHeight: 180 })}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
+
+    const frame = container.querySelector('iframe') as HTMLElement;
+    const viewport = container.querySelector(
+      '.entei-yomitan-popup-preview-viewport',
+    ) as HTMLElement;
+    expect(frame.style.width).toBe('520px');
+    expect(viewport.style.height).toBe('180px');
   });
 });

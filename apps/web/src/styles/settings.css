@@ -663,9 +663,13 @@ body[data-page='settings'] .entei-main {
 }
 
 .entei-yomitan-popup-preview-viewport {
-  /* The popup's own default height (`general.popupHeight`, 250px) plus the
-     breathing room a card inside a settings page needs. */
+  /* Default frame size (upstream's 400×250 popup); the component overwrites both
+     from `general.popupWidth` / `general.popupHeight` × `popupScalingFactor`. */
   height: 22rem;
+  /* A 2000px popup is a legal setting, but this card lives in a settings column:
+     the frame stops growing at what the page can show, and the frame inside it
+     keeps the ratio (it is clamped to 100% of this box). */
+  max-height: 32rem;
   /* One cell for both states: the frame fills it, and a loading note sits centred
      in it instead of clinging to the top edge. */
   display: grid;
@@ -675,7 +679,10 @@ body[data-page='settings'] .entei-main {
 .entei-yomitan-popup-preview-viewport > iframe {
   grid-area: 1 / 1;
   display: block;
+  /* The width comes from the user's own popup width (inline); on a narrow card the
+     frame gives way to the column rather than overflowing it. */
   width: 100%;
+  max-width: 100%;
   height: 100%;
   border: 0;
 }

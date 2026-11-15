@@ -138,6 +138,20 @@ describe('yomitan popup preview — change keys', () => {
     expect(popupAppearanceKey(themed)).not.toBe(popupAppearanceKey(base));
     expect(popupLookupKey(themed)).toBe(popupLookupKey(base));
   });
+
+  /* Position & Size is another SECTION of the same options tree: the numbers are
+     edited there and the frame lives here, so they belong on this key — without
+     them the card would keep the old box until some other setting moved. */
+  it('redraws the frame when the popup size moves, without re-looking-up', () => {
+    const base = createDefaultOptions();
+    const resized = withGeneral(base, {
+      popupWidth: 520,
+      popupHeight: 180,
+      popupScalingFactor: 1.5,
+    });
+    expect(popupAppearanceKey(resized)).not.toBe(popupAppearanceKey(base));
+    expect(popupLookupKey(resized)).toBe(popupLookupKey(base));
+  });
 });
 
 describe('yomitan popup preview — editable term', () => {
@@ -188,6 +202,44 @@ describe('yomitan popup preview — appearance', () => {
       'font-family:Noto Serif JP;font-size:18px;line-height:1.7',
     );
     expect(appearance.customCss).toBe('.entry { outline: none; }');
+  });
+
+  it('draws the frame at the popup’s own width and height', () => {
+    const defaults = resolvePopupAppearance(createDefaultOptions());
+    // Upstream's defaults: a 400×250 popup at scale 1.
+    expect(defaults.size).toEqual({ width: 400, height: 250 });
+
+    const resized = resolvePopupAppearance(
+      withGeneral(createDefaultOptions(), {
+        popupWidth: 520,
+        popupHeight: 180,
+      }),
+    );
+    expect(resized.size).toEqual({ width: 520, height: 180 });
+  });
+
+  it('scales the frame and the type by the scaling factor', () => {
+    const scaled = resolvePopupAppearance(
+      withGeneral(createDefaultOptions(), { popupScalingFactor: 1.5, fontSize: 20 }),
+    );
+    expect(scaled.size).toEqual({ width: 600, height: 375 });
+    // The factor is applied where upstream applies it: to the type, which is what
+    // the popup's `em`-based rules are relative to.
+    expect(scaled.fontStyle).toContain('font-size:30px');
+  });
+
+  /* The number fields accept 0, and a cleared field parses as 0: the card must
+     fall back to upstream's size rather than to a 0×0 box. */
+  it('falls back to the default size for an unusable field', () => {
+    const cleared = resolvePopupAppearance(
+      withGeneral(createDefaultOptions(), {
+        popupWidth: 0,
+        popupHeight: Number.NaN,
+        popupScalingFactor: 0,
+      }),
+    );
+    expect(cleared.size).toEqual({ width: 400, height: 250 });
+    expect(resolvePopupFontStyle('', 20, '')).toBe('font-size:20px');
   });
 });
 

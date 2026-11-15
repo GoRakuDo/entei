@@ -22,7 +22,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
   POPUP_PREVIEW_TERM,
@@ -88,17 +88,6 @@ export function YomitanPopupPreview({
   const [term, setTerm] = useState(POPUP_PREVIEW_TERM);
   const [query, setQuery] = useState(POPUP_PREVIEW_TERM);
 
-  /**
-   * The options of the last render whose lookup key we started work for.
-   *
-   * A ref, not a dependency: the effect deliberately re-runs on the LOOKUP key
-   * alone, so an appearance edit never re-queries the dictionary engine. Reading
-   * the options through a ref keeps that intentional asymmetry from also freezing
-   * a stale tree.
-   */
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
-
   useEffect(() => {
     const next = resolvePreviewTerm(term);
     if (next === query) return;
@@ -134,9 +123,16 @@ export function YomitanPopupPreview({
     };
   }, [lookupKey, query]);
 
+  /* Resolved on the APPEARANCE key alone, so an appearance edit re-serializes the
+     document without re-querying the dictionary engine (see `popup-lookup`). The
+     box the frame is drawn at comes off the same resolution. */
+  const appearance = useMemo(
+    () => resolvePopupAppearance(options),
+    [appearanceKey],
+  );
+
   const srcDoc = useMemo(() => {
     if (built === null) return null;
-    const appearance = resolvePopupAppearance(optionsRef.current);
     return buildPopupDocument({
       css: built.css,
       themeAttributes: appearance.themeAttributes,
@@ -144,9 +140,7 @@ export function YomitanPopupPreview({
       customCss: appearance.customCss,
       entriesHtml: built.entriesHtml,
     });
-    /* The document depends on the APPEARANCE key only: the markup above is
-       already resolved and must not be rebuilt while a theme select settles. */
-  }, [built, appearanceKey]);
+  }, [built, appearance]);
 
   return (
     <div className="entei-module-field entei-yomitan-popup-preview">
@@ -176,13 +170,21 @@ export function YomitanPopupPreview({
           aria-label={PREVIEW_COPY.term}
           onChange={(event) => setTerm(event.target.value)}
         />
-        <div className="entei-yomitan-popup-preview-viewport">
+        {/* The frame carries the user's own Position & Size numbers: the width and
+            height are `general.popupWidth` / `general.popupHeight` (scaled), and
+            the stylesheet clamps them to the space this card actually has, so a
+            2000px popup does not widen the settings column. */}
+        <div
+          className="entei-yomitan-popup-preview-viewport"
+          style={{ height: `${appearance.size.height}px` }}
+        >
           {srcDoc === null ? (
             <p className="entei-yomitan-popup-preview-note">{PREVIEW_COPY.loading}</p>
           ) : (
             <iframe
               title={label === undefined ? query : `${label}: ${query}`}
               srcDoc={srcDoc}
+              style={{ width: `${appearance.size.width}px` }}
               /* Static markup: nothing in the frame needs to run, and the
                  document carries user CSS and dictionary text. */
               sandbox=""
