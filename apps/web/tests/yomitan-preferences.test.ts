@@ -8,6 +8,8 @@
  * - an unaddressable path is a no-op that returns the SAME reference
  * - host-locked paths (master switch / lookup language / welcome guide /
  *   advanced+debug toggles) ignore any foreign stored value and refuse writes
+ * - the two scan-input cards this host ships with are seeded whenever a profile
+ *   carries none, and a stored list that has cards is left alone
  * - integer fields round (no fractional values reach the store)
  * - the module → trace pipeline is gated on `general.debugInfo`
  */
@@ -17,9 +19,11 @@ import {
   YOMITAN_OPTIONS_KEY,
   YOMITAN_OPTIONS_SCHEMA_VERSION,
   activeProfileOptions,
+  createDefaultScanningInputs,
   getPathValue,
   isLockedOptionPath,
   isYomitanDebugInfoEnabled,
+  normalizeOptions,
   readOptionPath,
   readYomitanOptions,
   setPathValue,
@@ -28,12 +32,20 @@ import {
   writeYomitanOptions,
 } from '@/modules/yomitan/yomitan-preferences';
 import {
+  readScanInputs,
+  scanInputKind,
+  scanInputPreventScrolling,
+  scanInputSearchTargets,
+  scanInputTriggers,
+} from '@/components/settings/ScanningInputManager';
+import {
   getTraceRecent,
   resetTraceState,
 } from '@/features/trace/trace-logger';
 import {
   createDefaultOptions,
   createDefaultProfileOptions,
+  type ScanningInput,
 } from '@gorakudo/yomitan-headless/settings';
 
 describe('yomitan-preferences — defaults', () => {
@@ -60,6 +72,119 @@ describe('yomitan-preferences — defaults', () => {
       JSON.stringify({ profiles: [], profileCurrent: 0 }),
     );
     expect(readYomitanOptions().profiles.length).toBeGreaterThan(0);
+  });
+});
+
+describe('yomitan-preferences — the two shipped scan-input cards', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  /** The active profile's cards, read the way the settings editor reads them. */
+  function cards(): ScanningInput[] {
+    return readScanInputs(readYomitanOptions());
+  }
+
+  /** Store a payload whose only profile carries exactly these `inputs`. */
+  function storeInputs(inputs: unknown): void {
+    const base = createDefaultProfileOptions();
+    localStorage.setItem(
+      YOMITAN_OPTIONS_KEY,
+      JSON.stringify({
+        version: YOMITAN_OPTIONS_SCHEMA_VERSION,
+        options: {
+          ...createDefaultOptions(),
+          profiles: [
+            {
+              name: 'Default',
+              conditionGroups: [],
+              options: {
+                ...base,
+                scanning: { ...base.scanning, inputs },
+              },
+            },
+          ],
+        },
+      }),
+    );
+  }
+
+  it('seeds a desktop card and a touch card when nothing is stored', () => {
+    const inputs = cards();
+    expect(inputs).toHaveLength(2);
+
+    const desktop = inputs[0]!;
+    expect(desktop.include).toBe('shift');
+    expect(desktop.exclude).toBe('mouse0');
+    expect(scanInputKind(desktop)).toBe('mouse');
+    expect(scanInputTriggers(desktop)).toEqual(['move']);
+    expect(desktop.options.minimumTouchTime).toBe(0);
+
+    const touch = inputs[1]!;
+    expect(touch.include).toBe('');
+    expect(touch.exclude).toBe('');
+    expect(scanInputKind(touch)).toBe('touch');
+    expect(scanInputTriggers(touch)).toEqual(['release']);
+    // A scroll gesture lasts longer than this, so it never scans.
+    expect(touch.options.minimumTouchTime).toBe(180);
+  });
+
+  it('searches terms and kanji, and blocks scanning during a scroll, on both', () => {
+    for (const card of cards()) {
+      expect(scanInputSearchTargets(card)).toEqual(['term', 'kanji']);
+      expect(scanInputPreventScrolling(card)).toBe(true);
+    }
+  });
+
+  it('re-seeds a stored profile whose list is empty or not a list', () => {
+    for (const inputs of [[], 'shift', [null], {}]) {
+      storeInputs(inputs);
+      expect(cards()).toHaveLength(2);
+    }
+  });
+
+  it('never touches a stored list that already has a card', () => {
+    const base = createDefaultProfileOptions();
+    storeInputs([
+      {
+        include: 'ctrl',
+        exclude: '',
+        types: { mouse: true, touch: false, pen: false },
+        options: { ...base.scanning.inputs[0]!.options, searchKanji: false },
+      },
+    ]);
+
+    const inputs = cards();
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]?.include).toBe('ctrl');
+    expect(inputs[0]?.options.searchKanji).toBe(false);
+  });
+
+  it('seeds every profile of the tree, not only the active one', () => {
+    const base = createDefaultProfileOptions();
+    const empty = () => ({
+      name: 'Default',
+      conditionGroups: [],
+      options: { ...base, scanning: { ...base.scanning, inputs: [] } },
+    });
+    const options = normalizeOptions({
+      version: YOMITAN_OPTIONS_SCHEMA_VERSION,
+      profiles: [empty(), empty()],
+      profileCurrent: 1,
+    });
+    const lengths = options.profiles.map(
+      (profile) => profile.options.scanning.inputs.length,
+    );
+    expect(lengths).toEqual([2, 2]);
+  });
+
+  it('hands out a fresh copy each time, so profiles never share a card', () => {
+    const first = createDefaultScanningInputs();
+    const second = createDefaultScanningInputs();
+    expect(first).toEqual(second);
+    expect(first[0]).not.toBe(second[0]);
+    expect(first[0]?.types).not.toBe(second[0]?.types);
+    expect(first[0]?.options).not.toBe(second[0]?.options);
   });
 });
 

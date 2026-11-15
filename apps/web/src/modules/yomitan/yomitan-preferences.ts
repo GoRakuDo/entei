@@ -27,6 +27,7 @@ import {
   createDefaultProfileOptions,
   type Options,
   type ProfileOptions,
+  type ScanningInput,
 } from '@gorakudo/yomitan-headless/settings';
 import { dbKvGet, dbKvSet, isTauri } from '@/features/player/tauri-bridge';
 import { traceModule, type TraceData } from '@/features/trace/trace-logger';
@@ -122,6 +123,78 @@ export const SCAN_MODIFIER_KEY_PATH = 'scanning.modifierKey';
 /** Virtual: whether the middle mouse button is a scan trigger. */
 export const SCAN_MIDDLE_MOUSE_PATH = 'scanning.middleMouse';
 
+/**
+ * The scan-input cards this host ships with (its module defaults).
+ *
+ * Yomitan's own pair is one mouse-hover card plus one passive card serving touch
+ * AND pen; this host ships two single-purpose cards instead, because the settings
+ * editor writes exactly one pointer type per card:
+ *
+ * - Desktop: hold `shift`, ignore the left button, scan while the mouse MOVES.
+ * - Android / touch: no modifier, scan when the finger LIFTS, and only after it
+ *   has been down for 180 ms so a scroll gesture never scans.
+ *
+ * Both keep Yomitan's term+kanji search and stop a scan while a scroll gesture is
+ * in flight (`preventTouchScrolling` / `preventPenScrolling`). The pen flags are
+ * off on both: a card serves one pointer type, and the pen's own card is what the
+ * user adds when they want one.
+ *
+ * A factory, not a constant: every profile gets its own copy, so a card edited in
+ * one profile can never be seen through another.
+ *
+ * Note: `preventTouchScrolling` is read on the touch PRESS path only (faithful to
+ * Yomitan), so the touch card above — release-only — does not act on it until the
+ * user also turns on a press/move trigger.
+ */
+export function createDefaultScanningInputs(): ScanningInput[] {
+  return [
+    {
+      include: 'shift',
+      exclude: 'mouse0',
+      types: { mouse: true, touch: false, pen: false },
+      options: {
+        showAdvanced: false,
+        searchTerms: true,
+        searchKanji: true,
+        scanOnTouchTap: false,
+        scanOnTouchMove: true,
+        scanOnTouchPress: false,
+        scanOnTouchRelease: false,
+        scanOnPenMove: false,
+        scanOnPenHover: false,
+        scanOnPenReleaseHover: false,
+        scanOnPenPress: false,
+        scanOnPenRelease: false,
+        preventTouchScrolling: true,
+        preventPenScrolling: true,
+        minimumTouchTime: 0,
+      },
+    },
+    {
+      include: '',
+      exclude: '',
+      types: { mouse: false, touch: true, pen: false },
+      options: {
+        showAdvanced: false,
+        searchTerms: true,
+        searchKanji: true,
+        scanOnTouchTap: false,
+        scanOnTouchMove: false,
+        scanOnTouchPress: false,
+        scanOnTouchRelease: true,
+        scanOnPenMove: false,
+        scanOnPenHover: false,
+        scanOnPenReleaseHover: false,
+        scanOnPenPress: false,
+        scanOnPenRelease: false,
+        preventTouchScrolling: true,
+        preventPenScrolling: true,
+        minimumTouchTime: 180,
+      },
+    },
+  ];
+}
+
 /** Modifier tokens used to identify the dedicated modifier-key virtual card. */
 const MODIFIER_TOKENS: Record<Exclude<ScanModifierKey, 'none'>, string> = {
   shift: 'shift',
@@ -197,21 +270,9 @@ function getOrCreateModifierInputIndex(
     }
   }
   if (inputs.length === 0) {
-    inputs.push({
-      include: 'shift',
-      exclude: '',
-      types: { mouse: true, touch: false, pen: false },
-      options: {
-        searchTerms: true,
-        searchKanji: true,
-        scanOnTouchTap: true,
-        scanOnTouchMove: false,
-        scanOnTouchPress: false,
-        scanOnTouchRelease: false,
-        preventTouchScrolling: false,
-        minimumTouchTime: 0,
-      },
-    });
+    // Nothing persisted yet: start from the host's own pair (see above), so the
+    // knob lands on the desktop card exactly as a seeded tree would.
+    inputs.push(...createDefaultScanningInputs());
     return 0;
   }
   const first = inputs[0] ?? {};
@@ -350,14 +411,63 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-/** Re-impose the host-locked values on one profile's options. */
+/**
+ * Re-impose the host's policy on one profile's options: the locked values, plus
+ * the shipped scan-input cards while the profile carries none.
+ *
+ * Seeding here (the one choke point every read and normalize goes through) is
+ * what makes the two cards the module default rather than one consumer's
+ * fallback: the settings editor, the scanner and a hand-edited payload all see
+ * the same list. A list the user has cards in is never touched — and the editor
+ * cannot empty it, since the first card has no Remove button.
+ */
 function lockProfileOptions(options: ProfileOptions): ProfileOptions {
   let next: unknown = options;
   for (const [path, value] of Object.entries(LOCKED_OPTION_PATHS)) {
     if (getPathValue(next, path) === value) continue;
     next = setPathValue(next, path, value);
   }
+  if (!hasScanInputCards(next)) {
+    next = setPathValue(next, SCAN_INPUTS_PATH, createDefaultScanningInputs());
+  }
   return next as ProfileOptions;
+}
+
+/** True when a profile already carries at least one scan-input card. */
+function hasScanInputCards(options: unknown): boolean {
+  const inputs = getPathValue(options, SCAN_INPUTS_PATH);
+  if (!Array.isArray(inputs)) return false;
+  return inputs.some((input) => isPlainObject(input));
+}
+
+/**
+ * Yomitan's default profile options with this host's own scan-input cards.
+ *
+ * The fallback for every field the host does not supply.
+ */
+function createHostProfileOptions(): ProfileOptions {
+  return setPathValue(
+    createDefaultProfileOptions(),
+    SCAN_INPUTS_PATH,
+    createDefaultScanningInputs(),
+  ) as ProfileOptions;
+}
+
+/**
+ * Yomitan's default tree with this host's own scan-input cards.
+ *
+ * What the host hands out when nothing is stored: a fresh install must start on
+ * THIS host's two cards, not on Yomitan's extension-shaped pair.
+ */
+function createHostDefaultOptions(): Options {
+  const defaults = createDefaultOptions();
+  return {
+    ...defaults,
+    profiles: defaults.profiles.map((profile) => ({
+      ...profile,
+      options: createHostProfileOptions(),
+    })),
+  } as Options;
 }
 
 /** Re-impose the host-locked values on every profile of an options tree. */
@@ -380,7 +490,7 @@ function withLockedOptions(options: Options): Options {
  * out, so a stored value can never override them.
  */
 export function normalizeOptions(input: unknown): Options {
-  const defaults = createDefaultOptions();
+  const defaults = createHostDefaultOptions();
   if (!isRecord(input)) return withLockedOptions(defaults);
 
   const profiles = Array.isArray(input.profiles)
@@ -391,7 +501,7 @@ export function normalizeOptions(input: unknown): Options {
       return {
         name: 'Default',
         conditionGroups: [],
-        options: createDefaultProfileOptions(),
+        options: createHostProfileOptions(),
       };
     }
     return {
@@ -401,7 +511,7 @@ export function normalizeOptions(input: unknown): Options {
         : [],
       options: isRecord(profile.options)
         ? (profile.options as ProfileOptions)
-        : createDefaultProfileOptions(),
+        : createHostProfileOptions(),
     };
   });
 
@@ -423,11 +533,11 @@ export function normalizeOptions(input: unknown): Options {
 /** Read from the localStorage cache, falling back to defaults. */
 function readPersistedOptions(): Options {
   if (typeof window === 'undefined') {
-    return withLockedOptions(createDefaultOptions());
+    return withLockedOptions(createHostDefaultOptions());
   }
   try {
     const raw = window.localStorage.getItem(YOMITAN_OPTIONS_KEY);
-    if (raw === null) return withLockedOptions(createDefaultOptions());
+    if (raw === null) return withLockedOptions(createHostDefaultOptions());
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed) || !('options' in parsed)) {
       // Tolerate a bare Options object (older/hand-edited payloads).
@@ -437,7 +547,7 @@ function readPersistedOptions(): Options {
   } catch (error) {
     // storage unavailable or corrupted
     traceYomitan('settings_read_failed', { error });
-    return withLockedOptions(createDefaultOptions());
+    return withLockedOptions(createHostDefaultOptions());
   }
 }
 
@@ -533,7 +643,7 @@ export function writeYomitanOptions(options: Options): void {
 /** The active profile's options (what descriptor dot-paths address). */
 export function activeProfileOptions(options: Options): ProfileOptions {
   const profile = options.profiles[options.profileCurrent];
-  return profile ? profile.options : createDefaultProfileOptions();
+  return profile ? profile.options : createHostProfileOptions();
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

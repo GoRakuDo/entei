@@ -277,6 +277,21 @@ describe('readScanSettings — persisted scanning values and inputs', () => {
     expect(settings.inputs[0]?.searchKanji).toBe(true);
   });
 
+  it('falls back to the host’s own two cards when the tree carries none', () => {
+    const empty = writeOptionPath(createDefaultOptions(), 'scanning.inputs', []);
+    const settings = readScanSettings(empty);
+
+    expect(settings.inputs).toHaveLength(2);
+    expect(settings.inputs[0]?.include).toEqual(['shift']);
+    expect(settings.inputs[0]?.exclude).toEqual(['mouse0']);
+    expect(settings.inputs[0]?.types.mouse).toBe(true);
+    expect(settings.inputs[1]?.include).toEqual([]);
+    expect(settings.inputs[1]?.types.touch).toBe(true);
+    expect(settings.inputs[1]?.scanOnTouchRelease).toBe(true);
+    // The touch card waits out a scroll gesture before it scans.
+    expect(settings.inputs[1]?.minimumTouchTime).toBe(180);
+  });
+
   it('follows the modifier knob without destroying other input cards', () => {
     const base = createDefaultOptions();
     const customInputs = [

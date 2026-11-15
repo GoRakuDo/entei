@@ -29,6 +29,7 @@ import type {
   TermSummary,
 } from '@/modules/yomitan/yomitan-engine';
 import {
+  createDefaultScanningInputs,
   isScanModifierKey,
   readOptionPath,
   readYomitanOptions,
@@ -280,21 +281,16 @@ export function normalizeScanInputConfig(raw: unknown): ScanInputConfig {
   };
 }
 
-/** Default fallback card when `scanning.inputs` is empty. */
-function defaultScanInputConfig(): ScanInputConfig {
-  return normalizeScanInputConfig({
-    include: 'shift',
-    exclude: 'mouse0',
-    types: { mouse: true, touch: false, pen: false },
-    options: {
-      searchTerms: true,
-      searchKanji: true,
-      scanOnTouchTap: true,
-      scanOnPenMove: true,
-      scanOnPenPress: true,
-      minimumTouchTime: 0,
-    },
-  });
+/**
+ * The cards to scan with when `scanning.inputs` is empty.
+ *
+ * The same pair the settings editor shows on a fresh profile
+ * (`createDefaultScanningInputs` in yomitan-preferences): the host seeds them on
+ * every read, so this is the fallback for a hand-built or hand-edited tree rather
+ * than a second default of its own.
+ */
+function defaultScanInputConfigs(): ScanInputConfig[] {
+  return createDefaultScanningInputs().map(normalizeScanInputConfig);
 }
 
 function setHasAll(set: Set<string>, values: string[]): boolean {
@@ -397,7 +393,7 @@ export function readScanSettings(
     ? rawInputs.map(normalizeScanInputConfig)
     : [];
   if (inputs.length === 0) {
-    inputs.push(defaultScanInputConfig());
+    inputs.push(...defaultScanInputConfigs());
   }
 
   const modifier = read('scanning.modifierKey');
