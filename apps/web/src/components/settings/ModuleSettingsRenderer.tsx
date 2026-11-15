@@ -746,11 +746,17 @@ function BoundFieldRow({
   labels,
   onChange,
 }: BoundFieldRowProps) {
-  const read = resolveModuleDataSource(row.optionsSource)?.options;
-  /* `[]` before the read resolves, not `undefined`: a row that declares an
-     `optionsSource` is a select from its first render, so it never flickers
-     through a text input while the source is still being read. */
-  const [choices, setChoices] = useState<readonly SelectOption[]>([]);
+  const hasOptionsSource = row.optionsSource !== undefined;
+  const read = hasOptionsSource
+    ? resolveModuleDataSource(row.optionsSource)?.options
+    : undefined;
+  /* `[]` before the read resolves, not `undefined`, ONLY when an optionsSource is declared:
+     a row that declares an `optionsSource` is a select from its first render, so it never
+     flickers through a text input while the source is still being read.
+     A row WITHOUT optionsSource must pass undefined so number/string fields are not turned into selects. */
+  const [choices, setChoices] = useState<readonly SelectOption[] | undefined>(
+    hasOptionsSource ? [] : undefined,
+  );
 
   useEffect(() => {
     if (read === undefined) return;
