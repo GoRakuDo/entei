@@ -157,12 +157,13 @@ describe('gold hover for buttongroups, comboboxes and text fields', () => {
     expect(globalCss).not.toMatch(/::placeholder\s*\{[^}]*status-locked/s);
   });
 
-  it('switch (toggle) thumb turns gold on hover and focus-visible with inset ring', () => {
-    const switchHoverRule = block(
+  it('switch (toggle) thumb uses surface-elevated fill with no hover gold and text-secondary checked track', () => {
+    const switchThumbRule = block(
       globalCss,
-      "[data-slot='switch']:hover:not(:disabled) [data-slot='switch-thumb'],\n[data-slot='switch']:focus-visible:not(:disabled) [data-slot='switch-thumb']",
+      "[data-slot='switch-thumb']",
     );
-    expect(switchHoverRule).toContain('box-shadow: inset 0 0 0 2px var(--entei-status-locked)');
+    expect(switchThumbRule).toContain('background-color: var(--entei-surface-elevated)');
+    expect(globalCss).not.toContain("[data-slot='switch-thumb']:hover");
 
     const switchCheckedRule = block(
       globalCss,
