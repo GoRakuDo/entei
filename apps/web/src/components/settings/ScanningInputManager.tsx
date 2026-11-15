@@ -31,10 +31,10 @@
 
 import { useCallback, useEffect, useId, useState } from 'react';
 import {
-  Hand,
   Keyboard,
-  Mouse,
   Pen,
+  Pointer,
+  SquareDashedMousePointer,
   Trash2,
   type LucideIcon,
 } from 'lucide-react';
@@ -92,7 +92,7 @@ interface ScanKindDescriptor {
 const KIND_DESCRIPTORS: readonly ScanKindDescriptor[] = [
   {
     kind: 'mouse',
-    icon: Mouse,
+    icon: SquareDashedMousePointer,
     tapFlag: 'scanOnTouchTap',
     pressFlag: 'scanOnTouchPress',
     releaseFlag: 'scanOnTouchRelease',
@@ -100,7 +100,7 @@ const KIND_DESCRIPTORS: readonly ScanKindDescriptor[] = [
   },
   {
     kind: 'touch',
-    icon: Hand,
+    icon: Pointer,
     tapFlag: 'scanOnTouchTap',
     pressFlag: 'scanOnTouchPress',
     releaseFlag: 'scanOnTouchRelease',
