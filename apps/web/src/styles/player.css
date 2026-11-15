@@ -2401,11 +2401,9 @@ html.entei-native-video .entei-player-video {
   background-color: var(--entei-accent);
   border: none;
   box-shadow: none;
-  outline: 2px solid transparent;
-  outline-offset: 4px;
-  transition:
-    background-color var(--entei-duration-fast) var(--entei-ease-productive),
-    outline-color var(--entei-duration-fast) var(--entei-ease-productive);
+  outline: none;
+  transition: background-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
 }
 
 .entei-subtitle-slider:hover [role='slider'],
@@ -2413,7 +2411,7 @@ html.entei-native-video .entei-player-video {
 .entei-subtitle-slider [role='slider']:active,
 .entei-subtitle-slider [role='slider']:focus-visible {
   background-color: var(--entei-status-locked);
-  outline-color: var(--entei-status-locked);
+  outline: none;
 }
 
 .entei-subtitle-slider [role='slider']::after {
