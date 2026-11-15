@@ -343,16 +343,22 @@ textarea:is(:hover, :focus, :focus-visible):not(:disabled) {
   color: var(--entei-status-locked);
 }
 
-/* Switch (toggle) thumb: turns gold on hover and focus-visible */
+/* Switch (toggle) component:
+ * - Active (checked) track uses --entei-text-secondary instead of --color-primary.
+ * - Thumb gets an elegant inset circular gold ring/border on hover instead of a solid fill. */
+[data-slot='switch'][data-state='checked'] {
+  background-color: var(--entei-text-secondary);
+}
+
 [data-slot='switch-thumb'] {
   transition:
     transform 0.15s ease,
-    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+    box-shadow var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
 [data-slot='switch']:hover:not(:disabled) [data-slot='switch-thumb'],
 [data-slot='switch']:focus-visible:not(:disabled) [data-slot='switch-thumb'] {
-  background-color: var(--entei-status-locked);
+  box-shadow: inset 0 0 0 2px var(--entei-status-locked);
 }
 
 /* ===== SKIP LINK (PHASE0.md 6.139, 14.365) ===== */

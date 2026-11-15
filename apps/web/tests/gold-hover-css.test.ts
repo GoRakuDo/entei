@@ -157,12 +157,18 @@ describe('gold hover for buttongroups, comboboxes and text fields', () => {
     expect(globalCss).not.toMatch(/::placeholder\s*\{[^}]*status-locked/s);
   });
 
-  it('switch (toggle) thumb turns gold on hover and focus-visible', () => {
+  it('switch (toggle) thumb turns gold on hover and focus-visible with inset ring', () => {
     const switchHoverRule = block(
       globalCss,
       "[data-slot='switch']:hover:not(:disabled) [data-slot='switch-thumb'],\n[data-slot='switch']:focus-visible:not(:disabled) [data-slot='switch-thumb']",
     );
-    expect(switchHoverRule).toContain('background-color: var(--entei-status-locked)');
+    expect(switchHoverRule).toContain('box-shadow: inset 0 0 0 2px var(--entei-status-locked)');
+
+    const switchCheckedRule = block(
+      globalCss,
+      "[data-slot='switch'][data-state='checked']",
+    );
+    expect(switchCheckedRule).toContain('background-color: var(--entei-text-secondary)');
   });
 
   it('the shared rule set stays OKLCH-token only (rule #1621)', () => {
