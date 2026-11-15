@@ -549,7 +549,7 @@ body[data-page='settings'] .entei-main {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--entei-space-8);
+  gap: var(--entei-space-12);
   width: 100%;
 }
 
@@ -1241,6 +1241,7 @@ body[data-page='settings'] .entei-main {
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    gap: var(--entei-space-12);
     width: 100%;
     grid-template-columns: none;
   }
