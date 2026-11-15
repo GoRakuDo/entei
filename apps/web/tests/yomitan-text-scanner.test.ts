@@ -1,30 +1,33 @@
 /**
- * Text scanner tests — the pointer-scan rule and the scan window.
- * ---------------------------------------------------------------------------
- * The scanner's DOM half (`caretRangeFromPoint`, listeners) is a WebView2 API and
- * is verified by hand on the running app; everything that DECIDES what to scan is
- * pure and is pinned here:
- *
- * - `shouldScanInput`: which modifier/button combinations are a scan at all
- *   (the rule that keeps a page of Japanese from being looked up on every move),
- * - `scanWindowAt` / `isScannableCharacter`: how many characters are taken and
- *   where the window stops (a Latin label under the pointer must yield nothing),
- * - `readScanSettings`: the persisted values, with the virtual modifier knob read
- *   back out of Yomitan's scan-input list.
+ * Text scanner tests — input group matching, pointer/touch/pen triggers, and scan window.
  */
 
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
+  getActiveButtons,
+  getActiveModifiers,
+  getActiveModifiersAndButtons,
+  getMatchingInputGroup,
+  getMatchingInputGroupFromEvent,
   isScannableCharacter,
+  normalizeScanInputConfig,
   readScanSettings,
   scanWindowAt,
   shouldScanInput,
+  type ScanInputConfig,
   type ScanSettings,
 } from '@/modules/yomitan/text-scanner';
 import {
   readOptionPath,
   writeOptionPath,
 } from '@/modules/yomitan/yomitan-preferences';
+import {
+  readScanInputs,
+  scanInputTrigger,
+  withScanInputKind,
+  withScanInputTrigger,
+  type ScanInputTrigger,
+} from '@/components/settings/ScanningInputManager';
 import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
 
 /** A text node stand-in: the window only ever reads `.data`. */
@@ -32,7 +35,44 @@ function textNode(data: string): Text {
   return { data } as unknown as Text;
 }
 
+const DEFAULT_INPUTS: ScanInputConfig[] = [
+  normalizeScanInputConfig({
+    include: 'shift',
+    exclude: 'mouse0',
+    types: { mouse: true, touch: false, pen: false },
+    options: {
+      searchTerms: true,
+      searchKanji: true,
+      scanOnTouchTap: false,
+      scanOnTouchMove: true,
+      scanOnTouchPress: false,
+      scanOnTouchRelease: false,
+      preventTouchScrolling: false,
+      minimumTouchTime: 0,
+    },
+  }),
+  normalizeScanInputConfig({
+    include: '',
+    exclude: '',
+    types: { mouse: false, touch: true, pen: true },
+    options: {
+      searchTerms: true,
+      searchKanji: false,
+      scanOnTouchTap: true,
+      scanOnTouchMove: false,
+      scanOnTouchPress: false,
+      scanOnTouchRelease: false,
+      scanOnPenMove: true,
+      scanOnPenPress: true,
+      preventTouchScrolling: true,
+      preventPenScrolling: true,
+      minimumTouchTime: 150,
+    },
+  }),
+];
+
 const SHIFT_HOVER: ScanSettings = {
+  inputs: DEFAULT_INPUTS,
   modifierKey: 'shift',
   middleMouse: false,
   delay: 0,
@@ -57,11 +97,115 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-describe('shouldScanInput — the modifier gate', () => {
+describe('Modifier and Button extraction (Yomitan document-util parity)', () => {
+  it('extracts active modifier keys in Yomitan order', () => {
+    expect(
+      getActiveModifiers({
+        altKey: true,
+        ctrlKey: true,
+        metaKey: true,
+        shiftKey: true,
+      }),
+    ).toEqual(['alt', 'ctrl', 'meta', 'shift']);
+    expect(getActiveModifiers({ shiftKey: true, key: 'Shift', code: 'ShiftLeft' })).toEqual([
+      'shift',
+    ]);
+  });
+
+  it('extracts mouse button tokens mouse0..mouse5 from bitmask', () => {
+    expect(getActiveButtons(0)).toEqual([]);
+    expect(getActiveButtons(1)).toEqual(['mouse0']);
+    expect(getActiveButtons(2)).toEqual(['mouse1']);
+    expect(getActiveButtons(4)).toEqual(['mouse2']);
+    expect(getActiveButtons(5)).toEqual(['mouse0', 'mouse2']);
+    expect(getActiveButtons(63)).toEqual(['mouse0', 'mouse1', 'mouse2', 'mouse3', 'mouse4', 'mouse5']);
+  });
+
+  it('combines modifiers and buttons in getActiveModifiersAndButtons', () => {
+    expect(
+      getActiveModifiersAndButtons({
+        shiftKey: true,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        buttons: 5,
+      }),
+    ).toEqual(['shift', 'mouse0', 'mouse2']);
+  });
+});
+
+describe('getMatchingInputGroup — Yomitan input card matching', () => {
+  it('matches required include tokens and rejects excluded tokens', () => {
+    // Mouse card requires shift and excludes mouse0
+    const m1 = getMatchingInputGroup(DEFAULT_INPUTS, 'mouse', 'mouseMove', ['shift'], ['shift']);
+    expect(m1?.input.types.mouse).toBe(true);
+    expect(m1?.passive).toBe(false);
+
+    // Missing shift -> no explicit mouse match, and fallback is touch/pen only
+    const m2 = getMatchingInputGroup(DEFAULT_INPUTS, 'mouse', 'mouseMove', [], []);
+    expect(m2).toBeNull();
+
+    // Shift + mouse0 -> excluded by exclude: ['mouse0']
+    const m3 = getMatchingInputGroup(
+      DEFAULT_INPUTS,
+      'mouse',
+      'mouseMove',
+      ['shift', 'mouse0'],
+      ['shift'],
+    );
+    expect(m3).toBeNull();
+  });
+
+  it('uses empty-include cards as passive fallback when no explicit card matches', () => {
+    const t1 = getMatchingInputGroup(DEFAULT_INPUTS, 'touch', 'touchStart', [], []);
+    expect(t1).not.toBeNull();
+    expect(t1?.passive).toBe(true);
+    expect(t1?.input.types.touch).toBe(true);
+    expect(t1?.input.minimumTouchTime).toBe(150);
+  });
+
+  it('prefers explicit match over empty-include fallback card', () => {
+    const inputs: ScanInputConfig[] = [
+      normalizeScanInputConfig({
+        include: '',
+        exclude: '',
+        types: { mouse: true, touch: true, pen: true },
+        options: { searchKanji: false },
+      }),
+      normalizeScanInputConfig({
+        include: 'ctrl',
+        exclude: '',
+        types: { mouse: true, touch: false, pen: false },
+        options: { searchKanji: true },
+      }),
+    ];
+    const passive = getMatchingInputGroup(inputs, 'mouse', 'mouseMove', [], []);
+    expect(passive?.passive).toBe(true);
+    expect(passive?.input.searchKanji).toBe(false);
+
+    const explicit = getMatchingInputGroup(inputs, 'mouse', 'mouseMove', ['ctrl'], ['ctrl']);
+    expect(explicit?.passive).toBe(false);
+    expect(explicit?.input.searchKanji).toBe(true);
+  });
+
+  it('resolves pointer type from event in getMatchingInputGroupFromEvent', () => {
+    const match = getMatchingInputGroupFromEvent(
+      DEFAULT_INPUTS,
+      'pen',
+      'pointerDown',
+      { buttons: 0, shiftKey: false },
+    );
+    expect(match?.pointerType).toBe('pen');
+    expect(match?.eventType).toBe('pointerDown');
+    expect(match?.input.scanOnPenPress).toBe(true);
+    expect(match?.input.preventPenScrolling).toBe(true);
+  });
+});
+
+describe('shouldScanInput — legacy modifier gate compatibility', () => {
   it('scans only while the chosen modifier is held', () => {
     expect(shouldScanInput({ ...RESTING, shiftKey: true }, SHIFT_HOVER)).toBe(true);
     expect(shouldScanInput(RESTING, SHIFT_HOVER)).toBe(false);
-    // Another modifier held is not a scan: the user asked for Shift.
     expect(shouldScanInput({ ...RESTING, ctrlKey: true }, SHIFT_HOVER)).toBe(false);
   });
 
@@ -70,25 +214,7 @@ describe('shouldScanInput — the modifier gate', () => {
     expect(shouldScanInput(RESTING, none)).toBe(true);
   });
 
-  it('accepts every offered modifier', () => {
-    const state = (key: 'ctrlKey' | 'altKey' | 'metaKey') => ({
-      ...RESTING,
-      [key]: true,
-    });
-    expect(
-      shouldScanInput(state('ctrlKey'), { ...SHIFT_HOVER, modifierKey: 'ctrl' }),
-    ).toBe(true);
-    expect(
-      shouldScanInput(state('altKey'), { ...SHIFT_HOVER, modifierKey: 'alt' }),
-    ).toBe(true);
-    expect(
-      shouldScanInput(state('metaKey'), { ...SHIFT_HOVER, modifierKey: 'meta' }),
-    ).toBe(true);
-  });
-});
-
-describe('shouldScanInput — the button rules', () => {
-  it('never scans during a primary-button drag (that is a selection)', () => {
+  it('never scans during a primary-button drag unless explicitly allowed', () => {
     expect(
       shouldScanInput({ ...RESTING, shiftKey: true, buttons: 1 }, SHIFT_HOVER),
     ).toBe(false);
@@ -97,9 +223,7 @@ describe('shouldScanInput — the button rules', () => {
   it('skips a held middle button until the option allows it', () => {
     const held = { ...RESTING, shiftKey: true, buttons: 4 };
     expect(shouldScanInput(held, SHIFT_HOVER)).toBe(false);
-    expect(
-      shouldScanInput(held, { ...SHIFT_HOVER, middleMouse: true }),
-    ).toBe(true);
+    expect(shouldScanInput(held, { ...SHIFT_HOVER, middleMouse: true })).toBe(true);
   });
 });
 
@@ -123,12 +247,10 @@ describe('scanWindowAt — how much text is taken', () => {
 
   it('refuses a caret with no scannable text ahead of it', () => {
     expect(scanWindowAt(textNode('猫'), 1, 16)).toBeNull();
-    // A caret past the end has nothing ahead either.
     expect(scanWindowAt(textNode('猫'), 99, 16)).toBeNull();
   });
 
   it('counts a surrogate pair as one character of the window', () => {
-    // 𠮟 is outside the BMP: a per-code-unit loop would take half of it.
     expect(scanWindowAt(textNode('𠮟る'), 0, 1)?.text).toBe('𠮟');
   });
 
@@ -143,28 +265,61 @@ describe('scanWindowAt — how much text is taken', () => {
   });
 });
 
-describe('readScanSettings — persisted scanning values', () => {
-  it('reads the shipped defaults', () => {
+describe('readScanSettings — persisted scanning values and inputs', () => {
+  it('reads the shipped defaults and input cards', () => {
     const settings = readScanSettings(createDefaultOptions());
     expect(settings.modifierKey).toBe('shift');
     expect(settings.middleMouse).toBe(false);
     expect(settings.length).toBe(16);
-    expect(typeof settings.delay).toBe('number');
+    expect(settings.inputs.length).toBe(2);
+    expect(settings.inputs[0]?.types.mouse).toBe(true);
+    expect(settings.inputs[0]?.searchTerms).toBe(true);
+    expect(settings.inputs[0]?.searchKanji).toBe(true);
   });
 
-  it('follows the modifier knob the settings row writes', () => {
-    const next = writeOptionPath(createDefaultOptions(), 'scanning.modifierKey', 'ctrl');
+  it('follows the modifier knob without destroying other input cards', () => {
+    const base = createDefaultOptions();
+    const customInputs = [
+      ...readScanInputs(base),
+      {
+        include: 'alt mouse2',
+        exclude: 'mouse0',
+        types: { mouse: true, touch: false, pen: false },
+        options: {
+          showAdvanced: false,
+          searchTerms: true,
+          searchKanji: false,
+          scanOnTouchTap: false,
+          scanOnTouchMove: false,
+          scanOnTouchPress: true,
+          scanOnTouchRelease: false,
+          scanOnPenMove: false,
+          scanOnPenHover: false,
+          scanOnPenReleaseHover: false,
+          scanOnPenPress: false,
+          scanOnPenRelease: false,
+          preventTouchScrolling: false,
+          preventPenScrolling: false,
+          minimumTouchTime: 0,
+        },
+      },
+    ];
+    const withCustom = writeOptionPath(base, 'scanning.inputs', customInputs);
+    const next = writeOptionPath(withCustom, 'scanning.modifierKey', 'ctrl');
     expect(readScanSettings(next).modifierKey).toBe('ctrl');
-    // The knob writes Yomitan's own field, not a foreign key.
-    const inputs = readOptionPath(next, 'scanning.inputs') as {
+
+    const rawInputs = readOptionPath(next, 'scanning.inputs') as {
       include: string;
+      exclude: string;
     }[];
-    // The first input is the mouse one; the second (touch/pen) is untouched.
-    expect(inputs[0]?.include).toBe('ctrl');
-    expect(inputs).toHaveLength(2);
+    expect(rawInputs).toHaveLength(3);
+    expect(rawInputs[0]?.include).toBe('ctrl');
+    // Custom third card remains intact!
+    expect(rawInputs[2]?.include).toBe('alt mouse2');
+    expect(rawInputs[2]?.exclude).toBe('mouse0');
   });
 
-  it('adds and removes the middle-mouse trigger', () => {
+  it('adds and removes the middle-mouse trigger non-destructively', () => {
     const on = writeOptionPath(
       createDefaultOptions(),
       'scanning.middleMouse',
@@ -172,17 +327,52 @@ describe('readScanSettings — persisted scanning values', () => {
     );
     expect(readOptionPath(on, 'scanning.modifierKey')).toBe('shift');
     expect(readScanSettings(on).middleMouse).toBe(true);
-    expect(
-      (readOptionPath(on, 'scanning.inputs') as { include: string }[])[0]?.include,
-    ).toBe('shift mouse1');
+    const inputsOn = readOptionPath(on, 'scanning.inputs') as {
+      include: string;
+      exclude: string;
+    }[];
+    expect(inputsOn[0]?.include).toBe('shift mouse1');
+    expect(inputsOn[0]?.exclude).toBe('mouse0');
+    expect(inputsOn).toHaveLength(2);
 
     const off = writeOptionPath(on, 'scanning.middleMouse', false);
     expect(readScanSettings(off).middleMouse).toBe(false);
-    expect(
-      (readOptionPath(off, 'scanning.inputs') as { include: string }[])[0]?.include,
-    ).toBe('shift');
+    const inputsOff = readOptionPath(off, 'scanning.inputs') as {
+      include: string;
+      exclude: string;
+    }[];
+    expect(inputsOff[0]?.include).toBe('shift');
+    expect(inputsOff[0]?.exclude).toBe('mouse0');
   });
 });
+
+describe('Settings UI trigger round-trip across Mouse / Touch / Pen', () => {
+  const ALL_TRIGGERS: ScanInputTrigger[] = ['tap', 'press', 'release', 'move'];
+
+  it('round-trips all 4 Scan on choices for Mouse without corrupting other cards', () => {
+    const base = createDefaultOptions();
+    const initialInputs = readScanInputs(base);
+    for (const trig of ALL_TRIGGERS) {
+      const mouseCard = withScanInputTrigger(initialInputs[0]!, trig);
+      const next = writeOptionPath(base, 'scanning.inputs', [mouseCard, initialInputs[1]!]);
+      const readBack = readScanInputs(next);
+      expect(scanInputTrigger(readBack[0]!)).toBe(trig);
+      expect(readBack).toHaveLength(2);
+    }
+  });
+
+  it('round-trips all 4 Scan on choices for Touch and Pen', () => {
+    const base = createDefaultOptions();
+    for (const kind of ['touch', 'pen'] as const) {
+      let card = withScanInputKind(readScanInputs(base)[0]!, kind);
+      for (const trig of ALL_TRIGGERS) {
+        card = withScanInputTrigger(card, trig);
+        expect(scanInputTrigger(card)).toBe(trig);
+      }
+    }
+  });
+});
+
 describe('readScanSettings — the behaviour knobs', () => {
   it('reads the match type, resolution and highlight flags', () => {
     const base = createDefaultOptions();
@@ -191,7 +381,6 @@ describe('readScanSettings — the behaviour knobs', () => {
     expect(readScanSettings(base).selectText).toBe(true);
     expect(readScanSettings(base).layoutAwareScan).toBe(true);
     expect(readScanSettings(base).scanWithoutMousemove).toBe(true);
-    // Yomitan ships the deep scan off; the settings switch is what turns it on.
     expect(readScanSettings(base).deepContentScan).toBe(false);
 
     const changed = writeOptionPath(

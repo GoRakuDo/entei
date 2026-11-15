@@ -122,6 +122,15 @@ export const SCAN_MODIFIER_KEY_PATH = 'scanning.modifierKey';
 /** Virtual: whether the middle mouse button is a scan trigger. */
 export const SCAN_MIDDLE_MOUSE_PATH = 'scanning.middleMouse';
 
+/** Modifier tokens used to identify the dedicated modifier-key virtual card. */
+const MODIFIER_TOKENS: Record<Exclude<ScanModifierKey, 'none'>, string> = {
+  shift: 'shift',
+  ctrl: 'ctrl',
+  alt: 'alt',
+  meta: 'meta',
+};
+const ALL_MODIFIER_NAMES = new Set(['shift', 'ctrl', 'control', 'alt', 'meta', 'os']);
+
 /** Tokens in an `include`/`exclude` list that name a mouse button. */
 const MOUSE_TOKENS: readonly string[] = ['mouse0', 'mouse1', 'mouse2'];
 
@@ -160,6 +169,66 @@ function modifierOf(tokens: readonly string[]): ScanModifierKey {
 }
 
 /**
+ * Locate the dedicated modifier-key virtual input card without destroying other cards.
+ */
+function getOrCreateModifierInputIndex(
+  inputs: Record<string, unknown>[],
+): number {
+  // 1. Look for a mouse card that holds a modifier or is empty (and has no non-modifier include tokens like custom mouse buttons)
+  for (let i = 0; i < inputs.length; i++) {
+    const entry = inputs[i];
+    if (entry === undefined) continue;
+    const types = isPlainObject(entry.types) ? entry.types : {};
+    if (types.mouse !== true) continue;
+    const include = tokensOf(entry, 'include');
+    const nonMods = include.filter((t) => !ALL_MODIFIER_NAMES.has(t));
+    if (nonMods.length === 0) {
+      return i;
+    }
+  }
+  // 2. Look for any mouse card whose include only has modifiers (plus mouse1 from middleMouse)
+  for (let i = 0; i < inputs.length; i++) {
+    const entry = inputs[i];
+    if (entry === undefined) continue;
+    const include = tokensOf(entry, 'include');
+    const nonMods = include.filter((t) => !ALL_MODIFIER_NAMES.has(t) && t !== 'mouse1');
+    if (nonMods.length === 0 && modifierOf(include) !== 'none') {
+      return i;
+    }
+  }
+  if (inputs.length === 0) {
+    inputs.push({
+      include: 'shift',
+      exclude: '',
+      types: { mouse: true, touch: false, pen: false },
+      options: {
+        searchTerms: true,
+        searchKanji: true,
+        scanOnTouchTap: true,
+        scanOnTouchMove: false,
+        scanOnTouchPress: false,
+        scanOnTouchRelease: false,
+        preventTouchScrolling: false,
+        minimumTouchTime: 0,
+      },
+    });
+    return 0;
+  }
+  const first = inputs[0] ?? {};
+  const firstInclude = tokensOf(first, 'include');
+  const firstMods = firstInclude.filter((t) => ALL_MODIFIER_NAMES.has(t));
+  inputs.unshift({
+    include: [...firstMods, 'shift'].join(' '),
+    exclude: typeof first.exclude === 'string' ? first.exclude : '',
+    types: { mouse: true, touch: false, pen: false },
+    options: isPlainObject(first.options)
+      ? { ...first.options }
+      : { searchTerms: true, searchKanji: true },
+  });
+  return 0;
+}
+
+/**
  * Read one virtual scanning path out of the persisted input list.
  *
  * Note: an `include` token this host does not write (a pen- or touch-only input,
@@ -168,7 +237,9 @@ function modifierOf(tokens: readonly string[]): ScanModifierKey {
  * touched the row.
  */
 function readVirtualScanPath(options: Options, path: string): unknown {
-  const input = scanInputsOf(options)[0];
+  const inputs = scanInputsOf(options);
+  const idx = getOrCreateModifierInputIndex(inputs);
+  const input = inputs[idx];
   const include = tokensOf(input, 'include');
   if (path === SCAN_MODIFIER_KEY_PATH) {
     const modifier = modifierOf(include);
@@ -178,7 +249,7 @@ function readVirtualScanPath(options: Options, path: string): unknown {
 }
 
 /**
- * Write one virtual scanning path into the first persisted input.
+ * Write one virtual scanning path non-destructively into the dedicated modifier-key input card.
  *
  * Returns `null` when `path` is not a virtual one, so the caller falls through to
  * the normal field write.
@@ -192,37 +263,35 @@ function writeVirtualScanPath(
     return null;
   }
   const inputs = scanInputsOf(options);
-  const input = inputs[0];
-  // No input to write into: the tree cannot hold the value, so this is a no-op
-  // rather than an invented array Yomitan's own scan code would have to accept.
-  if (input === undefined) return options;
-
+  const idx = getOrCreateModifierInputIndex(inputs);
+  const input = inputs[idx] ?? {};
   const include = tokensOf(input, 'include');
-  const modifier =
-    path === SCAN_MODIFIER_KEY_PATH && isScanModifierKey(value)
-      ? value
-      : modifierOf(include);
-  const middleMouse =
+
+  let nextModifier: ScanModifierKey;
+  if (path === SCAN_MODIFIER_KEY_PATH) {
+    nextModifier = isScanModifierKey(value) ? value : modifierOf(include);
+  } else {
+    nextModifier = modifierOf(include);
+  }
+
+  const nextMiddleMouse =
     path === SCAN_MIDDLE_MOUSE_PATH
       ? value === true
       : include.includes('mouse1');
 
+  const nonModifierTokens = include.filter(
+    (t) => !ALL_MODIFIER_NAMES.has(t) && t !== 'mouse1',
+  );
   const nextInclude = [
-    modifier === 'none' ? '' : modifier,
-    middleMouse ? 'mouse1' : '',
+    ...(nextModifier === 'none' ? [] : [MODIFIER_TOKENS[nextModifier]]),
+    ...nonModifierTokens,
+    ...(nextMiddleMouse ? ['mouse1'] : []),
   ]
-    .filter((token) => token !== '')
-    .join(' ');
-  // The middle button must not stay excluded while it is a trigger; and while it
-  // is not, leaving it excluded would block a hover scan for no visible reason.
-  const nextExclude = tokensOf(input, 'exclude')
-    .filter((token) => middleMouse || token !== 'mouse1')
+    .filter((token, index, arr) => arr.indexOf(token) === index)
     .join(' ');
 
-  const nextInputs = inputs.map((entry, index) =>
-    index === 0
-      ? { ...entry, include: nextInclude, exclude: nextExclude }
-      : entry,
+  const nextInputs = inputs.map((entry, i) =>
+    i === idx ? { ...entry, include: nextInclude } : entry,
   );
   return writeOptionPath(options, SCAN_INPUTS_PATH, nextInputs);
 }

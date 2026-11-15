@@ -344,7 +344,14 @@ export function withScanInputSearchTarget(
 
 /** Which trigger the card's pointer type is set to. */
 export function scanInputTrigger(input: ScanningInput): ScanInputTrigger {
-  const descriptor = scanKindDescriptor(scanInputKind(input));
+  const kind = scanInputKind(input);
+  if (kind === 'mouse') {
+    if (input.options.scanOnTouchPress) return 'press';
+    if (input.options.scanOnTouchRelease) return 'release';
+    if (input.options.scanOnTouchTap) return 'tap';
+    return 'move';
+  }
+  const descriptor = scanKindDescriptor(kind);
   if (input.options[descriptor.moveFlag]) return 'move';
   if (input.options[descriptor.releaseFlag]) return 'release';
   if (input.options[descriptor.pressFlag]) return 'press';
@@ -358,7 +365,25 @@ export function withScanInputTrigger(
   input: ScanningInput,
   trigger: ScanInputTrigger,
 ): ScanningInput {
-  const descriptor = scanKindDescriptor(scanInputKind(input));
+  const kind = scanInputKind(input);
+  if (kind === 'mouse') {
+    return {
+      ...input,
+      options: {
+        ...input.options,
+        scanOnTouchPress: trigger === 'press',
+        scanOnTouchRelease: trigger === 'release',
+        scanOnTouchTap: trigger === 'tap',
+        scanOnTouchMove: trigger === 'move',
+        scanOnPenPress: false,
+        scanOnPenRelease: false,
+        scanOnPenHover: false,
+        scanOnPenMove: false,
+        scanOnPenReleaseHover: false,
+      },
+    };
+  }
+  const descriptor = scanKindDescriptor(kind);
   const options = { ...input.options };
   options[descriptor.tapFlag] = trigger === 'tap';
   options[descriptor.pressFlag] = trigger === 'press';
@@ -411,8 +436,8 @@ export function newScanInput(): ScanningInput {
       scanOnPenReleaseHover: false,
       scanOnPenPress: true,
       scanOnPenRelease: false,
-      preventTouchScrolling: false,
-      preventPenScrolling: false,
+      preventTouchScrolling: true,
+      preventPenScrolling: true,
       minimumTouchTime: 0,
     },
   };

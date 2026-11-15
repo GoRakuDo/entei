@@ -1,42 +1,26 @@
 /**
  * text-scanner — app-wide "scan Japanese text under the pointer".
  * ---------------------------------------------------------------------------
- * Yomitan's own `TextScanner` is bound to its extension runtime (popup frames,
- * message passing, its own options store). This is the host's equivalent, and it
- * is deliberately small:
+ * Faithful port of Yomitan's `text-scanner.js` input-group matching and pointer
+ * event evaluation directly wired to `scanning.inputs[]`:
  *
- * - LISTEN: `pointermove` on `document`, gated by the scan modifier the user
- *   picked (`scanning.modifierKey`) and the middle-mouse option
- *   (`scanning.middleMouse`). No modifier held → no work at all, so a page of
- *   Japanese costs nothing until the user asks for it.
+ * - LISTEN: Pointer events (`pointerover`, `pointerdown`, `pointermove`,
+ *   `pointerup`, `pointercancel`, `pointerout`, `touchmove`) on `document`,
+ *   evaluated against the user's configured `scanning.inputs[]` cards via
+ *   `getMatchingInputGroup` / `getMatchingInputGroupFromEvent`.
+ * - EVALUATE: Matches `pointerType` (`mouse` | `touch` | `pen`), active
+ *   modifiers (`ctrl`, `alt`, `shift`, `meta`), and mouse buttons
+ *   (`mouse0`.. `mouse5`) against `include` and `exclude` token lists.
+ *   Evaluates per-pointer-type triggers (`scanOnTouchPress`, `scanOnTouchMove`,
+ *   `scanOnTouchRelease`, `scanOnTouchTap`, `minimumTouchTime`, `scanOnPenPress`,
+ *   `scanOnPenRelease`, `scanOnPenMove`, `scanOnPenHover`,
+ *   `scanOnPenReleaseHover`, and Mouse hover/press/release), `searchTerms` /
+ *   `searchKanji`, and `preventTouchScrolling` / `preventPenScrolling`.
  * - LOCATE: `caretRangeFromPoint` turns the pointer position into a text node +
- *   offset, and up to `scanning.length` characters are taken from there — the
- *   same forward-only window Yomitan scans. Text covered by something else is
- *   skipped (`scanning.layoutAwareScan`), and text inside an open shadow root is
- *   only reachable when `scanning.deepDomScan` is on (the browser's hit test
- *   answers with the shadow HOST, so without it a web component's own text looks
- *   covered).
- * - LOOK UP: `modules/yomitan/yomitan-engine` (deinflection + dictionary
- *   merge), with the scanning section's own match type
- *   (`scanning.matchTypePrefix`) and resolution (`scanning.scanResolution`).
- *   The engine is imported LAZILY, on the first lookup that gets that far: it
- *   pulls in `@gorakudo/yomitan-headless`, and both layouts load this module, so
- *   a static import would inline the whole dictionary engine into the boot
- *   chunk of every page (that was a 575 kB `trace-boot` chunk). Splitting it
- *   keeps boot in the kilobytes and hands the engine its own chunk, fetched only
- *   once a user actually scans Japanese text on the desktop app.
+ *   offset, and up to `scanning.length` characters are taken from there.
+ * - LOOK UP: `modules/yomitan/yomitan-engine` (loaded lazily on first scan).
  * - ANNOUNCE: one `yomitan:scan-result` CustomEvent on `window`, plus a trace
  *   line, and the scanned text selected when `scanning.selectText` is on.
- *   Drawing the result is a separate concern (a popup component), so this module
- *   has no UI and can run on every page.
- *
- * Three guards keep it cheap: a debounce (`scanning.delay`), a repeat guard —
- * moving within the same word re-uses the last answer instead of asking the
- * engine again — and a short-lived snapshot of the settings, so a pointer move
- * does not re-parse the persisted options.
- *
- * The whole module is a no-op while the YOMITAN MODULE ITSELF is off: the master
- * switch on the Modules page is what decides whether this listens at all.
  * ---------------------------------------------------------------------------
  */
 
@@ -68,14 +52,16 @@ export interface YomitanScanResultDetail {
   text: string;
   /** Where `text` starts in the scanned element (caret offset of the window). */
   offset: number;
-  /** Matched term entries, best first. Empty when nothing matched. */
+  /** Matched term entries, best first. Empty when nothing matched or `searchTerms` is off. */
   terms: TermSummary[];
-  /** Kanji entries for the window's characters. */
+  /** Kanji entries for the window's characters. Empty when nothing matched or `searchKanji` is off. */
   kanji: KanjiSummary[];
 }
 
 /** Scanning settings this module reads (all persisted Yomitan options). */
 export interface ScanSettings {
+  /** Raw `scanning.inputs[]` entries from the active profile. */
+  inputs: ScanInputConfig[];
   modifierKey: ScanModifierKey;
   middleMouse: boolean;
   /** Debounce window in milliseconds (`scanning.delay`). */
@@ -94,33 +80,332 @@ export interface ScanSettings {
   layoutAwareScan: boolean;
   /**
    * Look through open shadow roots: Yomitan's `scanning.deepDomScan`.
-   *
-   * The host's meaning of the option is exactly that, and no more: a component's
-   * text is drawn by the page but hit-tested as its HOST, so with the option off
-   * the layout-aware gate above rejects it. Same-origin iframes are a separate
-   * tree with a separate document and stay out of scope.
-   * Note: `scanning.normalizeCssZoom` has no counterpart here — the host asks the
-   * browser for the caret at viewport coordinates, so there is no second,
-   * zoom-drifted space to correct.
    */
   deepContentScan: boolean;
 }
 
+/** Normalized single scanning input card (Yomitan's `InputConfig`). */
+export interface ScanInputConfig {
+  include: string[];
+  exclude: string[];
+  types: {
+    mouse: boolean;
+    touch: boolean;
+    pen: boolean;
+  };
+  searchTerms: boolean;
+  searchKanji: boolean;
+  scanOnTouchTap: boolean;
+  scanOnTouchMove: boolean;
+  scanOnTouchPress: boolean;
+  scanOnTouchRelease: boolean;
+  scanOnPenMove: boolean;
+  scanOnPenHover: boolean;
+  scanOnPenReleaseHover: boolean;
+  scanOnPenPress: boolean;
+  scanOnPenRelease: boolean;
+  preventTouchScrolling: boolean;
+  preventPenScrolling: boolean;
+  minimumTouchTime: number;
+}
+
+/** Resolved input group match result (`InputInfo`). */
+export interface InputInfo {
+  input: ScanInputConfig;
+  pointerType: 'mouse' | 'touch' | 'pen';
+  eventType: string;
+  passive: boolean;
+  modifiers: string[];
+  modifierKeys: string[];
+}
+
+/** The pointer/keyboard state a scan decision is made from. */
+export interface ScanInputState {
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
+  /** Held buttons as a bitmask (`PointerEvent.buttons`). */
+  buttons: number;
+}
+
+
+
+/** Extract active modifier tokens (`ctrl`, `alt`, `shift`, `meta`). */
+export function getActiveModifiers(event: {
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  key?: string;
+  code?: string;
+}): string[] {
+  const modifiers: string[] = [];
+  if (event.altKey) modifiers.push('alt');
+  if (event.ctrlKey) modifiers.push('ctrl');
+  if (event.metaKey) modifiers.push('meta');
+  if (event.shiftKey) modifiers.push('shift');
+
+  if (typeof event.key === 'string' || typeof event.code === 'string') {
+    const key = event.key ?? '';
+    const code = event.code ?? '';
+    if (
+      (code === 'AltLeft' || code === 'AltRight' || key === 'Alt') &&
+      !modifiers.includes('alt')
+    ) {
+      modifiers.push('alt');
+    }
+    if (
+      (code === 'ControlLeft' || code === 'ControlRight' || key === 'Control') &&
+      !modifiers.includes('ctrl')
+    ) {
+      modifiers.push('ctrl');
+    }
+    if (
+      (code === 'MetaLeft' || code === 'MetaRight' || key === 'Meta' || key === 'OS') &&
+      !modifiers.includes('meta')
+    ) {
+      modifiers.push('meta');
+    }
+    if (
+      (code === 'ShiftLeft' || code === 'ShiftRight' || key === 'Shift') &&
+      !modifiers.includes('shift')
+    ) {
+      modifiers.push('shift');
+    }
+  }
+  return modifiers;
+}
+
+/** Extract active buttons from a mouse/pointer bitmask (0..5 -> mouse0..mouse5). */
+export function getActiveButtons(buttons: number): string[] {
+  const result: string[] = [];
+  if (typeof buttons === 'number' && buttons > 0) {
+    for (let i = 0; i < 6; ++i) {
+      const flag = 1 << i;
+      if ((buttons & flag) !== 0) {
+        result.push(`mouse${i}`);
+      }
+    }
+  }
+  return result;
+}
+
+/** Combine active modifier keys and mouse button tokens (Yomitan's `getActiveModifiersAndButtons`). */
+export function getActiveModifiersAndButtons(event: {
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  buttons?: number;
+  key?: string;
+  code?: string;
+}): string[] {
+  const modifiers = getActiveModifiers(event);
+  if (typeof event.buttons === 'number') {
+    modifiers.push(...getActiveButtons(event.buttons));
+  }
+  return modifiers;
+}
+
+/** Split whitespace/comma/semicolon-separated string into lowercase tokens. */
+export function parseInputTokens(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return value
+      .split(/[,;\s]+/)
+      .map((v) => v.trim().toLowerCase())
+      .filter((v) => v.length > 0);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .filter((v): v is string => typeof v === 'string')
+      .map((v) => v.trim().toLowerCase())
+      .filter((v) => v.length > 0);
+  }
+  return [];
+}
+
+/** Coerce one persisted `scanning.inputs[]` entry into `ScanInputConfig`. */
+export function normalizeScanInputConfig(raw: unknown): ScanInputConfig {
+  const obj =
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const rawTypes =
+    typeof obj.types === 'object' && obj.types !== null && !Array.isArray(obj.types)
+      ? (obj.types as Record<string, unknown>)
+      : {};
+  const rawOpts =
+    typeof obj.options === 'object' && obj.options !== null && !Array.isArray(obj.options)
+      ? (obj.options as Record<string, unknown>)
+      : {};
+
+  const mouse = rawTypes.mouse === true;
+  const touch = rawTypes.touch === true;
+  const pen = rawTypes.pen === true;
+
+  const minTouchRaw = rawOpts.minimumTouchTime;
+  const minimumTouchTime =
+    typeof minTouchRaw === 'number' && Number.isFinite(minTouchRaw)
+      ? Math.max(0, minTouchRaw)
+      : -1;
+
+  const scanOnTouchTap = rawOpts.scanOnTouchTap === true;
+  const scanOnTouchPress = rawOpts.scanOnTouchPress === true;
+  const scanOnTouchRelease = rawOpts.scanOnTouchRelease === true;
+  const scanOnTouchMove = rawOpts.scanOnTouchMove === true;
+
+  return {
+    include: parseInputTokens(obj.include),
+    exclude: parseInputTokens(obj.exclude),
+    types: {
+      mouse,
+      touch,
+      pen,
+    },
+    searchTerms: rawOpts.searchTerms === true,
+    searchKanji: rawOpts.searchKanji === true,
+    scanOnTouchTap,
+    scanOnTouchMove,
+    scanOnTouchPress,
+    scanOnTouchRelease,
+    scanOnPenMove: rawOpts.scanOnPenMove === true,
+    scanOnPenHover: rawOpts.scanOnPenHover === true,
+    scanOnPenReleaseHover: rawOpts.scanOnPenReleaseHover === true,
+    scanOnPenPress: rawOpts.scanOnPenPress === true,
+    scanOnPenRelease: rawOpts.scanOnPenRelease === true,
+    preventTouchScrolling: rawOpts.preventTouchScrolling === true,
+    preventPenScrolling: rawOpts.preventPenScrolling === true,
+    minimumTouchTime,
+  };
+}
+
+/** Default fallback card when `scanning.inputs` is empty. */
+function defaultScanInputConfig(): ScanInputConfig {
+  return normalizeScanInputConfig({
+    include: 'shift',
+    exclude: 'mouse0',
+    types: { mouse: true, touch: false, pen: false },
+    options: {
+      searchTerms: true,
+      searchKanji: true,
+      scanOnTouchTap: true,
+      scanOnPenMove: true,
+      scanOnPenPress: true,
+      minimumTouchTime: 0,
+    },
+  });
+}
+
+function setHasAll(set: Set<string>, values: string[]): boolean {
+  for (const v of values) {
+    if (!set.has(v)) return false;
+  }
+  return true;
+}
+
+/**
+ * Port of Yomitan's `_getMatchingInputGroup`.
+ *
+ * Matches `pointerType`, required `include` tokens, and excluded `exclude` tokens.
+ * Explicit `include` matches take precedence; the first card with empty `include`
+ * serves as the passive fallback.
+ */
+export function getMatchingInputGroup(
+  inputs: ScanInputConfig[],
+  pointerType: 'mouse' | 'touch' | 'pen',
+  eventType: string,
+  modifiers: string[],
+  modifierKeys: string[],
+): InputInfo | null {
+  let fallbackIndex = -1;
+  const modifiersSet = new Set(modifiers);
+
+  for (let i = 0; i < inputs.length; ++i) {
+    const input = inputs[i];
+    if (input === undefined) continue;
+    const { include, exclude, types } = input;
+    if (!types[pointerType]) continue;
+
+    if (
+      setHasAll(modifiersSet, include) &&
+      (exclude.length === 0 || !setHasAll(modifiersSet, exclude))
+    ) {
+      if (include.length > 0) {
+        return {
+          input,
+          pointerType,
+          eventType,
+          passive: false,
+          modifiers,
+          modifierKeys,
+        };
+      } else if (fallbackIndex < 0) {
+        fallbackIndex = i;
+      }
+    }
+  }
+
+  if (fallbackIndex >= 0) {
+    const fallbackInput = inputs[fallbackIndex];
+    if (fallbackInput !== undefined) {
+      return {
+        input: fallbackInput,
+        pointerType,
+        eventType,
+        passive: true,
+        modifiers,
+        modifierKeys,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve `InputInfo` from a Pointer/Mouse/Keyboard-like event.
+ */
+export function getMatchingInputGroupFromEvent(
+  inputs: ScanInputConfig[],
+  pointerType: 'mouse' | 'touch' | 'pen',
+  eventType: string,
+  event: {
+    altKey?: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    shiftKey?: boolean;
+    buttons?: number;
+    key?: string;
+    code?: string;
+  },
+): InputInfo | null {
+  const modifiers = getActiveModifiersAndButtons(event);
+  const modifierKeys = getActiveModifiers(event);
+  return getMatchingInputGroup(inputs, pointerType, eventType, modifiers, modifierKeys);
+}
+
 /**
  * Read the scanning settings, defaulting every field independently.
- *
- * The fallbacks are Yomitan's own shipped values, so a hand-built options tree
- * (a test, a caller that has not hydrated yet) scans like a fresh install.
  */
 export function readScanSettings(
   options: Options = readYomitanOptions(),
 ): ScanSettings {
   const read = (path: string): unknown => readOptionPath(options, path);
+  const rawInputs = read('scanning.inputs');
+  const inputs: ScanInputConfig[] = Array.isArray(rawInputs)
+    ? rawInputs.map(normalizeScanInputConfig)
+    : [];
+  if (inputs.length === 0) {
+    inputs.push(defaultScanInputConfig());
+  }
+
   const modifier = read('scanning.modifierKey');
   const delay = read('scanning.delay');
   const length = read('scanning.length');
   const resolution = read('scanning.scanResolution');
   return {
+    inputs,
     modifierKey: isScanModifierKey(modifier) ? modifier : 'shift',
     middleMouse: read('scanning.middleMouse') === true,
     delay: typeof delay === 'number' ? delay : 20,
@@ -134,28 +419,8 @@ export function readScanSettings(
   };
 }
 
-/** The pointer/keyboard state a scan decision is made from. */
-export interface ScanInputState {
-  shiftKey: boolean;
-  ctrlKey: boolean;
-  altKey: boolean;
-  metaKey: boolean;
-  /** Held buttons as a bitmask (`PointerEvent.buttons`). */
-  buttons: number;
-}
-
 /**
- * Whether one pointer event should produce a scan. Pure, so the rule is
- * testable without a DOM.
- *
- * Three conditions, in the order they cost:
- * - the chosen modifier must be held (holding nothing is not a scan unless the
- *   user picked "none"),
- * - the middle button must not be held unless the user allowed it (Yomitan's
- *   `preventMiddleMouse` default),
- * - the PRIMARY button must not be held: a drag is a text selection, and
- *   scanning while the user selects is what Yomitan's default `exclude: 'mouse0'`
- *   exists for.
+ * Legacy modifier-only check (kept for compatibility with any direct callers).
  */
 export function shouldScanInput(
   state: ScanInputState,
@@ -193,10 +458,6 @@ export interface ScanPoint {
 /**
  * The text node and offset under `(x, y)`, or `null` when the pointer is not
  * over text (an image, a gap, a scrollbar).
- *
- * `caretRangeFromPoint` is the Chromium/WebView2 answer; the Firefox-shaped
- * `caretPositionFromPoint` is tried second so the scanner is not silently dead on
- * a non-Chromium webview.
  */
 export function caretPointAt(x: number, y: number): ScanPoint | null {
   const document = globalThis.document;
@@ -240,10 +501,6 @@ export function caretPointAt(x: number, y: number): ScanPoint | null {
 
 /**
  * The Japanese window to look up: up to `length` characters from the caret.
- *
- * Only characters the dictionary can use are taken (kanji, kana, and the
- * iteration/part marks that inflect them), so a Latin UI label under the pointer
- * produces an empty string rather than a pointless lookup.
  */
 export function scanWindowAt(
   node: Text,
@@ -261,7 +518,6 @@ export function scanWindowAt(
     taken += 1;
   }
   if (end === start) return null;
-  // `end` is exclusive: it is what the selection covers.
   return { text: full.slice(start, end), offset: start, end };
 }
 
@@ -270,21 +526,17 @@ export function isScannableCharacter(character: string): boolean {
   const codePoint = character.codePointAt(0);
   if (codePoint === undefined) return false;
   return (
-    // CJK unified ideographs + extensions and compatibility ideographs
     (codePoint >= 0x3400 && codePoint <= 0x4dbf) ||
     (codePoint >= 0x4e00 && codePoint <= 0x9fff) ||
     (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
     (codePoint >= 0x20000 && codePoint <= 0x2fa1f) ||
-    // Hiragana, katakana, katakana phonetic extensions, half-width kana
     (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
     (codePoint >= 0x31f0 && codePoint <= 0x31ff) ||
     (codePoint >= 0xff66 && codePoint <= 0xff9f) ||
-    // 々 (iteration mark) and 〆 ヶ ヵ
     codePoint === 0x3005 ||
     codePoint === 0x3006 ||
     codePoint === 0x3007 ||
     (codePoint >= 0x3021 && codePoint <= 0x3029) ||
-    // ー (prolonged sound mark)
     codePoint === 0x30fc
   );
 }
@@ -293,37 +545,19 @@ export function isScannableCharacter(character: string): boolean {
  * Settings read (short-lived cache)
  * ------------------------------------------------------------------------- */
 
-/** One snapshot of everything the pointer gate needs. */
 interface ScanSnapshot {
   settings: ScanSettings;
-  /** False while the Yomitan module itself is switched off. */
   moduleEnabled: boolean;
 }
 
-/**
- * How long one snapshot answers the pointer for.
- *
- * The gate is checked on EVERY pointer move, and the persisted options plus the
- * module state are JSON blobs: re-parsing them per event is pure waste on the one
- * path this module has to keep cheap. A quarter second is below the time it takes
- * to press a modifier and move onto a word, so an edit still applies in practice.
- */
 const SETTINGS_CACHE_MS = 250;
 
 let snapshotCache: { at: number; snapshot: ScanSnapshot } | null = null;
 
-/**
- * True while the Yomitan module is enabled (the Modules page master switch).
- *
- * The scanner runs on every page, so it must obey the same switch as the rest of
- * the module: a user who turned Yomitan off must not have their pointer listened
- * to or their dictionaries queried.
- */
 export function isYomitanModuleEnabled(): boolean {
   return readModuleState().yomitan !== false;
 }
 
-/** Settings + module state for a pointer event (cached, see above). */
 function readScanSnapshot(): ScanSnapshot {
   const now = Date.now();
   if (snapshotCache !== null && now - snapshotCache.at < SETTINGS_CACHE_MS) {
@@ -341,13 +575,6 @@ function readScanSnapshot(): ScanSnapshot {
  * Selection (the scanning option that highlights what it read)
  * ------------------------------------------------------------------------- */
 
-/**
- * Highlight the scanned window in the page, Yomitan's `scanning.selectText`.
- *
- * The window's own offsets are used rather than a fresh caret lookup, so what is
- * selected is exactly what was looked up. The existing selection is REPLACED: a
- * scan is one gesture and the previous highlight belongs to an older one.
- */
 export function selectScanWindow(
   node: Text,
   offset: number,
@@ -367,20 +594,10 @@ export function selectScanWindow(
  * Layout-aware scan (skip text that is covered)
  * ------------------------------------------------------------------------- */
 
-/** Anything the browser can hit-test at a point (a document or a shadow root). */
 interface PointHitTester {
   elementFromPoint(x: number, y: number): Element | null;
 }
 
-/**
- * The element that would receive the click at `(x, y)`.
- *
- * `elementFromPoint` stops at a shadow HOST: asked about a point inside an open
- * shadow tree it answers with the host element, never with the text's own
- * element. A deep scan therefore asks the ROOT as well, walking down for as long
- * as the answer keeps carrying a shadow root — which is the only way to see
- * through nested components.
- */
 function topmostElementAt(
   root: PointHitTester,
   x: number,
@@ -398,21 +615,6 @@ function topmostElementAt(
   return hit;
 }
 
-/**
- * Whether the scanned text is actually the topmost thing at that point.
- *
- * `scanning.layoutAwareScan`: a subtitle drawn under a modal, a label behind a
- * sticky header or a line hidden by an overlay is not what the user is pointing
- * at, and looking it up produces a result for text they cannot see. The check is
- * the browser's own hit test — `elementFromPoint` returns the deepest element
- * that would receive the click, so a text node outside it is covered.
- *
- * `deep` is `scanning.deepDomScan`: with it off, text inside an open shadow root
- * is reported as covered, because the hit test can only name the host.
- *
- * Fails OPEN: a hit test that answers nothing (a detached node, a test DOM) is not
- * evidence of covering.
- */
 export function isTopmostTextAt(
   node: Text,
   x: number,
@@ -432,18 +634,10 @@ export function isTopmostTextAt(
  * Engine chunk (loaded on demand)
  * ------------------------------------------------------------------------- */
 
-/** The engine module's shape, without importing it (see the header note). */
 type YomitanEngine = typeof import('@/modules/yomitan/yomitan-engine');
 
 let engineLoad: Promise<YomitanEngine> | null = null;
 
-/**
- * The lookup engine, imported the first time a scan needs it.
- *
- * Memoised so concurrent scans share one fetch, and CLEARED on failure so a
- * transient error does not leave the scanner permanently dead — the next scan
- * tries the import again.
- */
 function loadEngine(): Promise<YomitanEngine> {
   if (engineLoad === null) {
     engineLoad = import('@/modules/yomitan/yomitan-engine').catch((error) => {
@@ -458,63 +652,272 @@ function loadEngine(): Promise<YomitanEngine> {
  * Installation
  * ------------------------------------------------------------------------- */
 
-/** How long a scan result stays valid for the repeat guard below. */
 let lastKey = '';
 let lastAt = 0;
 let debounce: ReturnType<typeof setTimeout> | null = null;
 let epoch = 0;
-/** Where the pointer last was — a resting-pointer re-scan reads from here. */
 let lastPointer: { x: number; y: number } | null = null;
-/** Pending animation frame of a resting-pointer re-scan. */
 let stillFrame = 0;
 
-/** Run one scan after the user's own debounce window. */
-function scheduleScan(x: number, y: number, settings: ScanSettings): void {
-  if (debounce !== null) clearTimeout(debounce);
-  debounce = setTimeout(() => {
-    debounce = null;
-    void scanAt(x, y, settings);
-  }, Math.max(0, settings.delay));
+/** Touch / Pen state tracking across pointer events (faithful to Yomitan). */
+let touchTapValid = false;
+let touchPressTime = 0;
+let primaryTouchIdentifier: number | null = null;
+let preventScroll = false;
+let penPointerState: 0 | 1 | 2 | 3 = 0;
+const pointerIdTypeMap = new Map<number, 'mouse' | 'touch' | 'pen'>();
+let scanTimerResolve: ((val: boolean) => void) | null = null;
+let scanTimerTimeout: ReturnType<typeof setTimeout> | null = null;
+let pendingLookup = false;
+
+function scanTimerClear(): void {
+  if (scanTimerResolve !== null) {
+    const resolve = scanTimerResolve;
+    scanTimerResolve = null;
+    if (scanTimerTimeout !== null) {
+      clearTimeout(scanTimerTimeout);
+      scanTimerTimeout = null;
+    }
+    resolve(false);
+  }
+}
+
+async function scanTimerWait(delayMs: number): Promise<boolean> {
+  scanTimerClear();
+  return new Promise<boolean>((resolve) => {
+    const timeout = setTimeout(() => {
+      scanTimerTimeout = null;
+      scanTimerResolve = null;
+      resolve(true);
+    }, Math.max(0, delayMs));
+    scanTimerTimeout = timeout;
+    scanTimerResolve = (val: boolean) => {
+      if (scanTimerTimeout !== null) {
+        clearTimeout(timeout);
+        scanTimerTimeout = null;
+      }
+      scanTimerResolve = null;
+      resolve(val);
+    };
+  });
+}
+
+function getPointerEventType(e: PointerEvent): 'mouse' | 'touch' | 'pen' {
+  const cached = pointerIdTypeMap.get(e.pointerId);
+  if (cached !== undefined) return cached;
+  if (e.pointerType === 'touch' || e.pointerType === 'pen' || e.pointerType === 'mouse') {
+    return e.pointerType;
+  }
+  return 'mouse';
+}
+
+async function runSearchAt(
+  x: number,
+  y: number,
+  inputInfo: InputInfo,
+  settings: ScanSettings,
+): Promise<void> {
+  if (pendingLookup) return;
+  pendingLookup = true;
+  try {
+    await scanAt(x, y, settings, inputInfo);
+  } finally {
+    pendingLookup = false;
+  }
+}
+
+async function runSearchAtFromMouseMove(
+  x: number,
+  y: number,
+  inputInfo: InputInfo,
+  settings: ScanSettings,
+): Promise<void> {
+  if (pendingLookup) return;
+  if (inputInfo.passive && !(await scanTimerWait(settings.delay))) {
+    return;
+  }
+  await runSearchAt(x, y, inputInfo, settings);
+}
+
+function isPenEventSupported(
+  eventType: string,
+  input: ScanInputConfig,
+  currentPenState: 0 | 1 | 2 | 3,
+): boolean {
+  switch (eventType) {
+    case 'pointerDown':
+      return input.scanOnPenPress;
+    case 'pointerUp':
+      return input.scanOnPenRelease;
+  }
+  switch (currentPenState) {
+    case 1:
+      return input.scanOnPenHover;
+    case 2:
+      return input.scanOnPenMove;
+    case 3:
+      return input.scanOnPenReleaseHover;
+    case 0:
+      return false;
+  }
 }
 
 /**
  * Install the pointer scanner. Returns a disposer.
- *
- * A no-op outside the desktop app: the dictionary banks live in the Tauri plugin,
- * so a browser build has nothing to look up and must not attach listeners that
- * can only fail.
  */
 export function initTextScanner(): () => void {
   if (typeof window === 'undefined' || !isTauri()) return () => {};
   const document = globalThis.document;
   if (document === undefined) return () => {};
 
-  const onPointerMove = (event: PointerEvent): void => {
-    const snapshot = readScanSnapshot();
-    lastPointer = { x: event.clientX, y: event.clientY };
-    // Module off: the pointer is not ours to listen to.
-    if (!snapshot.moduleEnabled) return;
-    if (!shouldScanInput(event, snapshot.settings)) return;
-    // The position is captured now: the debounced run must scan where the pointer
-    // WAS, and `event` is not safe to read later.
-    scheduleScan(event.clientX, event.clientY, snapshot.settings);
+  const onPointerOver = (event: PointerEvent): void => {
+    const pType = getPointerEventType(event);
+    if (pType === 'pen') {
+      pointerIdTypeMap.set(event.pointerId, 'pen');
+    }
+    if (!event.isPrimary) return;
+    if (pType === 'pen') {
+      penPointerState = 1;
+      void handlePenEvent(event, 'pointerOver', false);
+    }
   };
 
   const onPointerDown = (event: PointerEvent): void => {
-    // Middle mouse is a scan trigger only when the user asked for it: with the
-    // option off the button belongs to the browser (autoscroll) and to the page.
-    if (event.button !== 1) return;
+    const pType = getPointerEventType(event);
+    if (pType === 'mouse' && event.button === 0) {
+      scanTimerClear();
+    }
+    if (!event.isPrimary) return;
     const snapshot = readScanSnapshot();
-    if (!snapshot.moduleEnabled || !snapshot.settings.middleMouse) return;
-    void scanAt(event.clientX, event.clientY, snapshot.settings);
+    if (!snapshot.moduleEnabled) return;
+
+    if (pType === 'mouse') {
+      const match = getMatchingInputGroupFromEvent(
+        snapshot.settings.inputs,
+        'mouse',
+        'mouseDown',
+        event,
+      );
+      if (match !== null && (match.input.scanOnTouchPress || event.button === 1)) {
+        void runSearchAt(event.clientX, event.clientY, match, snapshot.settings);
+      }
+    } else if (pType === 'touch') {
+      handleTouchStart(event, snapshot.settings);
+    } else if (pType === 'pen') {
+      penPointerState = 2;
+      void handlePenEvent(event, 'pointerDown', true);
+    }
   };
 
-  /**
-   * `scanning.scanWithoutMousemove`: the pointer rests and the page moves under
-   * it (a subtitle list scrolls, a dialog opens). The text worth scanning is then
-   * still under the LAST pointer position, so a scroll or a resize re-runs the
-   * scan there — at most once per frame, because a scroll fires in bursts.
-   */
+  const onPointerMove = (event: PointerEvent): void => {
+    if (!event.isPrimary) return;
+    const pType = getPointerEventType(event);
+    const snapshot = readScanSnapshot();
+    if (!snapshot.moduleEnabled) return;
+
+    if (pType === 'mouse') {
+      scanTimerClear();
+      lastPointer = { x: event.clientX, y: event.clientY };
+      const match = getMatchingInputGroupFromEvent(
+        snapshot.settings.inputs,
+        'mouse',
+        'mouseMove',
+        event,
+      );
+      if (match === null) return;
+      void runSearchAtFromMouseMove(
+        event.clientX,
+        event.clientY,
+        match,
+        snapshot.settings,
+      );
+    } else if (pType === 'touch') {
+      if (!preventScroll || !event.cancelable) {
+        return;
+      }
+      touchTapValid = false;
+      const match = getMatchingInputGroupFromEvent(
+        snapshot.settings.inputs,
+        'touch',
+        'touchMove',
+        event,
+      );
+      if (
+        match === null ||
+        !match.input.scanOnTouchMove
+      ) {
+        return;
+      }
+      void runSearchAt(event.clientX, event.clientY, match, snapshot.settings);
+    } else if (pType === 'pen') {
+      if (penPointerState === 2 && (!preventScroll || !event.cancelable)) {
+        return;
+      }
+      void handlePenEvent(event, 'pointerMove', true);
+    }
+  };
+
+  const onPointerUp = (event: PointerEvent): void => {
+    if (!event.isPrimary) return;
+    const pType = getPointerEventType(event);
+    const snapshot = readScanSnapshot();
+    if (!snapshot.moduleEnabled) return;
+
+    if (pType === 'mouse') {
+      const match = getMatchingInputGroupFromEvent(
+        snapshot.settings.inputs,
+        'mouse',
+        'mouseUp',
+        event,
+      );
+      if (match !== null && match.input.scanOnTouchRelease) {
+        void runSearchAt(event.clientX, event.clientY, match, snapshot.settings);
+      }
+    } else if (pType === 'touch') {
+      handleTouchEnd(event);
+    } else if (pType === 'pen') {
+      penPointerState = 3;
+      preventScroll = false;
+      void handlePenEvent(event, 'pointerUp', false);
+    }
+  };
+
+  const onPointerCancel = (event: PointerEvent): void => {
+    pointerIdTypeMap.delete(event.pointerId);
+    if (!event.isPrimary) return;
+    const pType = getPointerEventType(event);
+    if (pType === 'mouse') {
+      scanTimerClear();
+    } else if (pType === 'touch') {
+      handleTouchEnd(event, false);
+    } else if (pType === 'pen') {
+      penPointerState = 0;
+      preventScroll = false;
+    }
+  };
+
+  const onPointerOut = (event: PointerEvent): void => {
+    pointerIdTypeMap.delete(event.pointerId);
+    if (!event.isPrimary) return;
+    const pType = getPointerEventType(event);
+    if (pType === 'mouse') {
+      scanTimerClear();
+    } else if (pType === 'pen') {
+      penPointerState = 0;
+      preventScroll = false;
+    }
+  };
+
+  const onTouchMove = (event: TouchEvent): void => {
+    touchTapValid = false;
+    if (!preventScroll) return;
+    if (event.cancelable) {
+      event.preventDefault();
+    } else {
+      preventScroll = false;
+    }
+  };
+
   const onViewportChange = (): void => {
     if (stillFrame !== 0) return;
     const snapshot = readScanSnapshot();
@@ -526,51 +929,180 @@ export function initTextScanner(): () => void {
     });
   };
 
-  document.addEventListener('pointermove', onPointerMove, { passive: true });
-  document.addEventListener('pointerdown', onPointerDown, { passive: true });
+  document.addEventListener('pointerover', onPointerOver, { passive: true, capture: true });
+  document.addEventListener('pointerdown', onPointerDown, { passive: true, capture: true });
+  document.addEventListener('pointermove', onPointerMove, { passive: true, capture: true });
+  document.addEventListener('pointerup', onPointerUp, { passive: true, capture: true });
+  document.addEventListener('pointercancel', onPointerCancel, { passive: true, capture: true });
+  document.addEventListener('pointerout', onPointerOut, { passive: true, capture: true });
+  document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
   window.addEventListener('scroll', onViewportChange, {
     passive: true,
     capture: true,
   });
   window.addEventListener('resize', onViewportChange, { passive: true });
+
   return () => {
-    document.removeEventListener('pointermove', onPointerMove);
-    document.removeEventListener('pointerdown', onPointerDown);
+    document.removeEventListener('pointerover', onPointerOver, { capture: true });
+    document.removeEventListener('pointerdown', onPointerDown, { capture: true });
+    document.removeEventListener('pointermove', onPointerMove, { capture: true });
+    document.removeEventListener('pointerup', onPointerUp, { capture: true });
+    document.removeEventListener('pointercancel', onPointerCancel, { capture: true });
+    document.removeEventListener('pointerout', onPointerOut, { capture: true });
+    document.removeEventListener('touchmove', onTouchMove, { capture: true });
     window.removeEventListener('scroll', onViewportChange, { capture: true });
     window.removeEventListener('resize', onViewportChange);
     if (debounce !== null) clearTimeout(debounce);
     debounce = null;
+    scanTimerClear();
     if (stillFrame !== 0) cancelAnimationFrame(stillFrame);
     stillFrame = 0;
   };
 }
 
+function handleTouchStart(
+  event: PointerEvent,
+  settings: ScanSettings,
+): void {
+  preventScroll = false;
+  touchTapValid = true;
+  touchPressTime = Date.now();
+  primaryTouchIdentifier = event.pointerId;
+
+  if (pendingLookup) return;
+
+  const match = getMatchingInputGroupFromEvent(
+    settings.inputs,
+    'touch',
+    'touchStart',
+    event,
+  );
+  if (match === null || !match.input.scanOnTouchPress) return;
+
+  void runSearchAtFromTouchStart(
+    event.clientX,
+    event.clientY,
+    match,
+    settings,
+  );
+}
+
+async function runSearchAtFromTouchStart(
+  x: number,
+  y: number,
+  inputInfo: InputInfo,
+  settings: ScanSettings,
+): Promise<void> {
+  const shouldPrevent = inputInfo.input.preventTouchScrolling;
+  await runSearchAt(x, y, inputInfo, settings);
+  preventScroll = shouldPrevent;
+}
+
+function handleTouchEnd(event: PointerEvent, allowSearch = true): void {
+  if (primaryTouchIdentifier === null) return;
+  primaryTouchIdentifier = null;
+  preventScroll = false;
+  if (!allowSearch) return;
+
+  const releaseTime = Date.now();
+  const snapshot = readScanSnapshot();
+  if (!snapshot.moduleEnabled) return;
+
+  const match = getMatchingInputGroupFromEvent(
+    snapshot.settings.inputs,
+    'touch',
+    'touchEnd',
+    event,
+  );
+  if (match === null) return;
+
+  const minTime = match.input.minimumTouchTime >= 0 ? match.input.minimumTouchTime : 0;
+  if (releaseTime - touchPressTime < minTime) {
+    return;
+  }
+
+  if (
+    match.input.scanOnTouchRelease ||
+    (match.input.scanOnTouchTap && touchTapValid)
+  ) {
+    void runSearchAt(event.clientX, event.clientY, match, snapshot.settings);
+  }
+}
+
+async function handlePenEvent(
+  event: PointerEvent,
+  eventType: string,
+  prevent: boolean,
+): Promise<void> {
+  if (pendingLookup) return;
+  const snapshot = readScanSnapshot();
+  if (!snapshot.moduleEnabled) return;
+
+  const match = getMatchingInputGroupFromEvent(
+    snapshot.settings.inputs,
+    'pen',
+    eventType,
+    event,
+  );
+  if (match === null || !isPenEventSupported(eventType, match.input, penPointerState)) {
+    return;
+  }
+
+  const shouldPrevent = match.input.preventPenScrolling;
+  await runSearchAt(event.clientX, event.clientY, match, snapshot.settings);
+  if (prevent) {
+    preventScroll = shouldPrevent;
+  }
+}
+
 /**
  * Look up whatever Japanese text sits under `(x, y)` and announce it.
- *
- * Exported so an explicit "scan here" gesture (a click, a keyboard cursor) can
- * reuse the same pipeline instead of a second copy of it.
  */
 export async function scanAt(
   x: number,
   y: number,
   settings: ScanSettings = readScanSettings(),
+  explicitInputInfo?: InputInfo,
 ): Promise<YomitanScanResultDetail | null> {
-  if (!readScanSnapshot().moduleEnabled) return null;
+  const snap = readScanSnapshot();
+  if (!snap.moduleEnabled) return null;
+
+  let searchTerms = true;
+  let searchKanji = true;
+
+  if (explicitInputInfo !== undefined) {
+    searchTerms = explicitInputInfo.input.searchTerms;
+    searchKanji = explicitInputInfo.input.searchKanji;
+  } else {
+    const fallbackMatch = getMatchingInputGroupFromEvent(
+      settings.inputs,
+      'mouse',
+      'mouseMove',
+      { buttons: 0 },
+    );
+    if (fallbackMatch !== null) {
+      searchTerms = fallbackMatch.input.searchTerms;
+      searchKanji = fallbackMatch.input.searchKanji;
+    }
+  }
+
+  if (!searchTerms && !searchKanji) {
+    return null;
+  }
+
   const point = caretPointAt(x, y);
   if (point === null) return null;
-  // Layout-aware: text that is covered is not what the pointer is on.
+
   if (
     settings.layoutAwareScan &&
     !isTopmostTextAt(point.node, x, y, settings.deepContentScan)
   ) {
     return null;
   }
+
   const windowed = scanWindowAt(point.node, point.offset, settings.length);
   if (windowed === null) return null;
 
-  // Same window as the last answer: nothing new to ask. `offset` is part of the
-  // key because the same word hit at another caret yields another window.
   const key = `${windowed.offset}:${windowed.text}`;
   const now = Date.now();
   if (key === lastKey && now - lastAt < 1000) return null;
@@ -581,17 +1113,17 @@ export async function scanAt(
   try {
     const { lookupKanji, lookupTerms, summarizeKanjiEntry, summarizeTermEntry } =
       await loadEngine();
-    // A newer scan started while the engine chunk was in flight: it supersedes.
     if (current !== epoch) return null;
 
     const [terms, kanji] = await Promise.all([
-      lookupTerms(windowed.text, {
-        matchType: settings.matchTypePrefix ? 'prefix' : 'exact',
-        searchResolution: settings.scanResolution === 'word' ? 'word' : 'letter',
-      }),
-      lookupKanji(windowed.text),
+      searchTerms
+        ? lookupTerms(windowed.text, {
+            matchType: settings.matchTypePrefix ? 'prefix' : 'exact',
+            searchResolution: settings.scanResolution === 'word' ? 'word' : 'letter',
+          })
+        : Promise.resolve([]),
+      searchKanji ? lookupKanji(windowed.text) : Promise.resolve([]),
     ]);
-    // A newer scan started while these were in flight: its answer supersedes.
     if (current !== epoch) return null;
 
     const detail: YomitanScanResultDetail = {
@@ -611,8 +1143,6 @@ export async function scanAt(
       });
       return detail;
     }
-    // The highlight belongs with the answer: text that produced nothing must not
-    // stay selected.
     if (settings.selectText) {
       selectScanWindow(point.node, windowed.offset, windowed.end);
     }
