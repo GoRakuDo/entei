@@ -1146,15 +1146,15 @@
   min-width: 120px;
 }
 
-/* Slider body line — uses --entei-btn-color while preserving the solid accent thumb */
+/* Slider body (unplayed track) — subtle white overlay behind the range */
 .entei-subtitle-slider [data-entei-slider-track] {
   background-color: oklch(100% 0 0deg / 0.08);
 }
 
-.entei-subtitle-slider [data-entei-slider-track] > span,
-.entei-subtitle-slider [data-slot='slider-range'],
-.entei-subtitle-slider span[class*='bg-primary'] {
-  background-color: var(--entei-btn-color) !important;
+/* Played range — set the color directly instead of overriding `.bg-primary`
+   with `!important`. Unlayered selector wins over the layered utility. */
+.entei-subtitle-slider [data-slot='slider-range'] {
+  background-color: var(--entei-surface-elevated);
 }
 
 /* Settings slider thumb: same solid 18px accent circle as the player

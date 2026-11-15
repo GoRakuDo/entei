@@ -52,7 +52,10 @@ const Slider = React.forwardRef<
             aria-hidden="true"
           />
         )}
-        <SliderPrimitive.Range className="absolute h-full bg-primary" />
+        <SliderPrimitive.Range
+          data-slot="slider-range"
+          className="absolute h-full bg-primary"
+        />
       </SliderPrimitive.Track>
       {Array.from({ length: thumbCount }, (_, i) => (
         <SliderPrimitive.Thumb
