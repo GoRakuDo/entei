@@ -25,6 +25,7 @@ import {
   renderPopupEntriesHtml,
   resolvePopupAppearance,
   resolvePopupFontStyle,
+  resolvePopupOuterTheme,
   resolvePopupThemeAttributes,
   resolvePreviewTerm,
   restoreTextGlosses,
@@ -202,6 +203,28 @@ describe('yomitan popup preview — appearance', () => {
       'font-family:Noto Serif JP;font-size:18px;line-height:1.7',
     );
     expect(appearance.customCss).toBe('.entry { outline: none; }');
+  });
+
+  /* The SHADOW setting is the FRAME's, not the document's: upstream styles
+     `iframe.yomitan-popup[data-outer-theme=…]`, and the appearance resolution is
+     what turns the setting into that attribute (rule: one resolution, both
+     popups). `site` / `browser` must arrive resolved — the test preload pins the
+     browser to light. */
+  it('resolves the outer theme the frame’s shadow is keyed off', () => {
+    const outer = (popupOuterTheme: string) =>
+      resolvePopupAppearance(
+        withGeneral(createDefaultOptions(), { popupOuterTheme }),
+      ).resolvedOuterTheme;
+
+    expect(outer('light')).toBe('light');
+    expect(outer('dark')).toBe('dark');
+    expect(outer('none')).toBe('none');
+    expect(outer('site')).toBe('light');
+    expect(outer('browser')).toBe('light');
+    /* Nothing usable in the field: upstream paints the light halo on the frame
+       itself and only overrides it for dark / none, so light IS the fallback. */
+    expect(resolvePopupOuterTheme(undefined)).toBe('light');
+    expect(resolvePopupOuterTheme('nonsense')).toBe('light');
   });
 
   it('draws the frame at the popup’s own width and height', () => {

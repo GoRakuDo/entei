@@ -29,10 +29,33 @@ import type { Options } from '@gorakudo/yomitan-headless/settings';
 import { ThemeController } from '@/modules/yomitan/vendor/js/app/theme-controller.js';
 import { activeProfileOptions } from '@/modules/yomitan/yomitan-preferences';
 
+/**
+ * The outer theme, resolved to a concrete value.
+ *
+ * `site` / `browser` are already gone by the time this is read: what is left is
+ * what the stylesheets key off, i.e. what `data-outer-theme` holds. `light` is
+ * also the fallback for anything unexpected, because upstream's own
+ * `popup-outer.css` paints the light shadow on `iframe.yomitan-popup` itself and
+ * only overrides it for `dark` / `none`.
+ */
+export type ResolvedPopupOuterTheme = 'light' | 'dark' | 'none';
+
 /** What the popup document needs to look like the user's popup. */
 export interface PopupAppearance {
   /** `data-theme` and friends, to be spread onto the document element. */
   themeAttributes: Readonly<Record<string, string>>;
+  /**
+   * `general.popupOuterTheme`, resolved (`ThemeController`) to `light` / `dark` /
+   * `none`.
+   *
+   * The FRAME's own attribute, not the document's: upstream's `popup-outer.css`
+   * styles the `<iframe>` the extension creates (`iframe.yomitan-popup[
+   * data-outer-theme=…]`), which in this host is the frame ELEMENT, outside the
+   * document. The stylesheets vendored here are the popup's CONTENT only, so the
+   * frame's shadow is applied by the host from this value — one resolution, read
+   * by both popups (the Appearance preview and the floating one).
+   */
+  resolvedOuterTheme: ResolvedPopupOuterTheme;
   /** Inline `style` text for the document element ('' when all defaults). */
   fontStyle: string;
   /** `general.customPopupCss`, verbatim. */
@@ -116,6 +139,23 @@ export function resolvePopupThemeAttributes(
 }
 
 /**
+ * The frame's outer theme, read off the attributes `ThemeController` wrote.
+ *
+ * NOT a second resolution: the controller has already turned `site` / `browser`
+ * into `light` / `dark`, and `none` / `light` / `dark` pass through untouched
+ * (`ThemeController._resolveThemeValue`), so `outerTheme` IS the answer.
+ *
+ * The KEY is the dataset property, not the attribute: `themeAttributes` is the
+ * controller's own `element.dataset` copied out (camelCase — `popup-document`
+ * is what kebab-cases it on the way into the document).
+ */
+export function resolvePopupOuterTheme(
+  value: string | undefined,
+): ResolvedPopupOuterTheme {
+  return value === 'dark' || value === 'none' ? value : 'light';
+}
+
+/**
  * Inline font styles for the document element (upstream `setFontOptions`).
  *
  * An empty value is skipped rather than written as an empty declaration, which is
@@ -169,8 +209,13 @@ export function resolvePopupAppearance(options: Options): PopupAppearance {
     popupScalingFactor,
   } = profile.general;
   const scale = positiveOr(popupScalingFactor, DEFAULT_POPUP_SCALE);
+  const themeAttributes = resolvePopupThemeAttributes(
+    popupTheme,
+    popupOuterTheme,
+  );
   return {
-    themeAttributes: resolvePopupThemeAttributes(popupTheme, popupOuterTheme),
+    themeAttributes,
+    resolvedOuterTheme: resolvePopupOuterTheme(themeAttributes.outerTheme),
     fontStyle: resolvePopupFontStyle(fontFamily, fontSize, lineHeight, scale),
     customCss: customPopupCss,
     size: {

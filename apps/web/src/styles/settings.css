@@ -676,7 +676,11 @@ body[data-page='settings'] .entei-main {
 /* The stage: the room the popup is drawn in. Full width, and tall enough to hold
    the default 400×250 card generously rather than clipping it to the frame — the
    card is centred in it, so a small popup sits in open space instead of being
-   wedged against the field above. */
+   wedged against the field above.
+
+   NOT `overflow: hidden`: the card's own outer-theme shadow (below) is painted
+   OUTSIDE the frame's box, and clipping it here would cut the popup back down to
+   the flat rectangle the setting exists to lift. */
 .entei-yomitan-popup-preview-stage {
   /* One cell for both states: the frame fills it, and a loading note sits centred
      in it instead of clinging to the top edge. */
@@ -688,7 +692,6 @@ body[data-page='settings'] .entei-main {
   border: 1px solid oklch(100% 0 0deg / 0.1);
   border-radius: var(--entei-radius-md);
   background-color: var(--entei-surface);
-  overflow: hidden;
 }
 
 .entei-yomitan-popup-preview-stage > iframe {
@@ -700,6 +703,27 @@ body[data-page='settings'] .entei-main {
   max-width: 100%;
   max-height: 32rem;
   border: 0;
+  /* UPSTREAM `popup-outer.css`: the shadow is the FRAME's, and the frame's outer
+     theme decides it — `iframe.yomitan-popup { box-shadow: 0 0 10em rgba(0,0,0,.5) }`,
+     `[data-outer-theme=dark]` swaps the halo for a white one, `[data-outer-theme=none]`
+     drops it. Two layers here: the app's own elevation (so the card sits OVER the
+     settings panel) and upstream's halo on top of it. OKLCH only (rule #1621). */
+  box-shadow:
+    0 8px 24px oklch(0% 0 0deg / 0.45),
+    0 0 24px oklch(0% 0 0deg / 0.5);
+}
+
+/* Dark: upstream replaces the halo outright rather than adding to it — over a dark
+   page a black shadow is invisible, so the popup glows instead. */
+.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='dark'] {
+  box-shadow:
+    0 8px 24px oklch(0% 0 0deg / 0.45),
+    0 0 24px oklch(100% 0 0deg / 0.5);
+}
+
+/* None: the user asked for no shadow, so the card is flat. */
+.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='none'] {
+  box-shadow: none;
 }
 
 .entei-yomitan-popup-preview-note {

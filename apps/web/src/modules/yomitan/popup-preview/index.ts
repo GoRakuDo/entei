@@ -43,11 +43,13 @@ export {
   popupAppearanceKey,
   resolvePopupAppearance,
   resolvePopupFontStyle,
+  resolvePopupOuterTheme,
   resolvePopupThemeAttributes,
+  type ResolvedPopupOuterTheme,
 } from '@/modules/yomitan/popup-preview/popup-theme';
 export {
   buildScannedPopupDocument,
   hasScannedEntries,
-  resolveScannedPopupSize,
+  resolveScannedPopupFrame,
   type ScannedPopupInput,
 } from '@/modules/yomitan/popup-preview/popup-scanned';

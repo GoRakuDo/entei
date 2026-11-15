@@ -125,4 +125,18 @@ describe('YomitanPopupPreview — term field', () => {
         ?.parentElement,
     ).toBe(stage.parentElement);
   });
+
+  /* The Shadow setting is the FRAME's attribute: it is what the stylesheet keys
+     the card's shadow off, so flipping the setting has to move it. */
+  it('marks the frame with the resolved outer theme', async () => {
+    const { container } = render(
+      <YomitanPopupPreview
+        options={withGeneral({ popupOuterTheme: 'dark' })}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
+    expect(
+      container.querySelector('iframe')?.getAttribute('data-outer-theme'),
+    ).toBe('dark');
+  });
 });

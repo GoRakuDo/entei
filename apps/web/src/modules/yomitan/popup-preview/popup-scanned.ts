@@ -28,6 +28,7 @@ import {
   resolvePopupAppearance,
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
+  type ResolvedPopupOuterTheme,
 } from '@/modules/yomitan/popup-preview';
 import type { YomitanScanResultDetail } from '@/modules/yomitan/text-scanner';
 
@@ -94,16 +95,20 @@ export async function buildScannedPopupDocument(
 }
 
 /**
- * The popup frame's box for the user's Position & Size numbers.
+ * The popup FRAME's box and outer theme for the user's Position & Size +
+ * Shadow settings.
  *
  * Resolved here (not read off `resolvePopupAppearance` by the host) so the frame
- * element and the document inside it are sized from one resolution.
+ * element and the document inside it come from one resolution: the element's box
+ * and its `data-outer-theme` can never disagree with the document's own
+ * `data-outer-theme`.
  */
-export function resolveScannedPopupSize(options: Options): {
-  width: number;
-  height: number;
+export function resolveScannedPopupFrame(options: Options): {
+  size: { width: number; height: number };
+  outerTheme: ResolvedPopupOuterTheme;
 } {
-  return resolvePopupAppearance(options).size;
+  const appearance = resolvePopupAppearance(options);
+  return { size: appearance.size, outerTheme: appearance.resolvedOuterTheme };
 }
 
 /** Re-exported so a popup host needs one import for the generator's inputs. */

@@ -18,7 +18,10 @@
  * unmodified stylesheets, serialized into an iframe `srcdoc` (see
  * `modules/yomitan/popup-preview/`). The theme, font size, custom popup CSS and
  * the Position & Size numbers are the persisted Yomitan options, so the popup
- * looks the way the settings card shows it will.
+ * looks the way the settings card shows it will. The Appearance section's SHADOW
+ * is the frame's own `data-outer-theme` (upstream styles the shadow on the
+ * `<iframe>`, not on the document inside it), so Light / Dark / None lift the
+ * card the same way they do in the extension.
  *
  * WHERE IT SITS. Against the SCANNED WORD's own box, which the scanner measures
  * and publishes with the hit: the frame's left edge on the word's left edge and
@@ -39,9 +42,10 @@ import {
   buildScannedPopupDocument,
   hasScannedEntries,
   loadPopupPreviewAssets,
-  resolveScannedPopupSize,
+  resolveScannedPopupFrame,
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
+  type ResolvedPopupOuterTheme,
 } from '@/modules/yomitan/popup-preview';
 import {
   readOptionPath,
@@ -85,6 +89,14 @@ interface OpenPopup {
   srcDoc: string;
   /** Frame box in CSS pixels (the user's Position & Size numbers). */
   size: { width: number; height: number };
+  /**
+   * The user's Shadow setting, resolved — written on the frame as
+   * `data-outer-theme`, which is what upstream's own `popup-outer.css` keys the
+   * frame's shadow off. It belongs HERE and not in the document: the stylesheet
+   * vendored for the document is the popup's CONTENT, and the shadow is the
+   * frame's.
+   */
+  outerTheme: ResolvedPopupOuterTheme;
   /** The scanned word's rectangle, in viewport coordinates. */
   anchor: PopupRect;
   /** The user's two distance knobs, in pixels. */
@@ -169,6 +181,7 @@ export function YomitanPopup() {
             readDictionaries(),
           ]);
           const options = readYomitanOptions();
+          const frameBox = resolveScannedPopupFrame(options);
           const srcDoc = await buildScannedPopupDocument({
             detail,
             css: assets.css,
@@ -179,7 +192,8 @@ export function YomitanPopup() {
           if (epoch !== epochRef.current) return;
           setOpen({
             srcDoc,
-            size: resolveScannedPopupSize(options),
+            size: frameBox.size,
+            outerTheme: frameBox.outerTheme,
             // The scanner measures the MATCHED WORD, not the window it read, so
             // the card sits under the word the user is looking at.
             anchor: detail.anchor,
@@ -269,6 +283,7 @@ export function YomitanPopup() {
       ref={frameRef}
       className="entei-yomitan-popup"
       data-side={placement?.side ?? 'below'}
+      data-outer-theme={open.outerTheme}
       style={{
         top: `${placement?.top ?? open.anchor.top + open.anchor.height + (open.offsets.verticalOffset ?? POPUP_VERTICAL_OFFSET)}px`,
         left: `${placement?.left ?? open.anchor.left + (open.offsets.horizontalOffset ?? POPUP_HORIZONTAL_OFFSET)}px`,

@@ -145,21 +145,27 @@ function installEngine(): void {
  * lookup answers nothing — which is exactly what a fresh install looks like, so
  * this is the setup a real hit needs.
  */
-function persistDictionaryConfig(): void {
+function persistDictionaryConfig(general: Record<string, unknown> = {}): void {
   const base = createDefaultOptions();
   const options = {
     ...base,
-    profiles: base.profiles.map((profile, index) =>
-      index === base.profileCurrent
-        ? {
-            ...profile,
-            options: setPathValue(profile.options, 'dictionaries', [
-              { name: JMDICT.title, enabled: true },
-              { name: KANJIDIC.title, enabled: true },
-            ]) as typeof profile.options,
-          }
-        : profile,
-    ),
+    profiles: base.profiles.map((profile, index) => {
+      if (index !== base.profileCurrent) return profile;
+      const withDictionaries = setPathValue(profile.options, 'dictionaries', [
+        { name: JMDICT.title, enabled: true },
+        { name: KANJIDIC.title, enabled: true },
+      ]) as typeof profile.options;
+      /* The same tree carries the appearance knobs, so a test can persist the
+         user's Shadow setting the way the settings page does. */
+      return {
+        ...profile,
+        options: Object.entries(general).reduce(
+          (tree, [key, value]) =>
+            setPathValue(tree, `general.${key}`, value) as typeof tree,
+          withDictionaries,
+        ),
+      };
+    }),
   } as typeof base;
   window.localStorage.setItem(
     'entei.yomitan.options.v1',
@@ -236,8 +242,11 @@ function publishScan(
  * the contract is that the scanner's published payload — the translator's own
  * entries, the summaries and the pointer — is what the card is drawn from.
  */
-async function scanResultFor(text: string): Promise<YomitanScanResultDetail> {
-  persistDictionaryConfig();
+async function scanResultFor(
+  text: string,
+  general: Record<string, unknown> = {},
+): Promise<YomitanScanResultDetail> {
+  persistDictionaryConfig(general);
   return {
     text,
     offset: 0,
@@ -345,6 +354,25 @@ describe('YomitanPopup — floating scan popup', () => {
     expect(frame.style.left).toBe('300px');
     expect(frame.style.top).toBe('230px');
     expect(frame.dataset.side).toBe('below');
+  });
+
+  it('carries the user’s Shadow setting on the frame', async () => {
+    /* Upstream's `popup-outer.css` puts the shadow on the extension's own
+       `<iframe>` and keys it off `data-outer-theme`, so the frame ELEMENT carries
+       the resolved setting — the document inside it is the popup's content. */
+    const light = await scanResultFor('食べた');
+    const { container } = render(<YomitanPopup />);
+    publishScan(light);
+    await waitFor(() => expect(popupFrame(container)).not.toBeNull());
+    expect(popupFrame(container)?.dataset.outerTheme).toBe('light');
+    cleanup();
+
+    /* `none` is the setting the user can actually see: no shadow at all. */
+    const flat = await scanResultFor('食べた', { popupOuterTheme: 'none' });
+    const second = render(<YomitanPopup />);
+    publishScan(flat);
+    await waitFor(() => expect(popupFrame(second.container)).not.toBeNull());
+    expect(popupFrame(second.container)?.dataset.outerTheme).toBe('none');
   });
 
   it('stays closed for a scan that found nothing', async () => {

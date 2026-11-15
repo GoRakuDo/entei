@@ -187,6 +187,10 @@ export function YomitanPopupPreview({
           <iframe
             title={label === undefined ? query : `${label}: ${query}`}
             srcDoc={srcDoc}
+            /* The FRAME's outer theme (upstream `popup-outer.css` styles the
+               extension's own `<iframe>`, not the document inside it), so the
+               card's shadow follows the Appearance section's Shadow setting. */
+            data-outer-theme={appearance.resolvedOuterTheme}
             style={{
               width: `${appearance.size.width}px`,
               height: `${appearance.size.height}px`,
