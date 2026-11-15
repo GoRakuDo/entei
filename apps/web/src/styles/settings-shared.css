@@ -1151,20 +1151,19 @@
   background-color: oklch(100% 0 0deg / 0.08);
 }
 
-/* Played range — set the color directly instead of overriding `.bg-primary`
-   with `!important`. Unlayered selector wins over the layered utility. */
+/* Played range — uses --entei-btn-color directly without !important */
 .entei-subtitle-slider [data-slot='slider-range'] {
-  background-color: var(--entei-surface-elevated);
+  background-color: var(--entei-btn-color);
 }
 
-/* Settings slider thumb: solid 18px circle matching the elevated surface.
+/* Settings slider thumb: solid 18px circle matching --entei-btn-color.
    44px hit area via the same transparent pseudo-element pattern. */
 .entei-subtitle-slider [role='slider'] {
   position: relative;
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background-color: var(--entei-surface-elevated);
+  background-color: var(--entei-btn-color);
   border: none;
   box-shadow: none;
   outline: none;
