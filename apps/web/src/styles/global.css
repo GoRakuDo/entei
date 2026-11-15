@@ -384,14 +384,22 @@ textarea:is(:hover, :focus, :focus-visible):not(:disabled) {
      drops it. Two layers: the app's elevation (the card floats over the page) and
      upstream's halo above it. The Appearance section's Shadow setting writes
      `data-outer-theme` here from the same resolution the document inside uses. */
+  /* Dark (default): dark shadow */
   box-shadow:
     0 12px 32px oklch(0% 0 0deg / 0.45),
     0 0 24px oklch(0% 0 0deg / 0.5);
   overflow: hidden;
 }
 
-/* Dark: a glow instead of a shadow — over a dark page a black halo is invisible. */
+/* Dark: dark shadow */
 .entei-yomitan-popup[data-outer-theme='dark'] {
+  box-shadow:
+    0 12px 32px oklch(0% 0 0deg / 0.45),
+    0 0 24px oklch(0% 0 0deg / 0.5);
+}
+
+/* Light: bright white glow halo */
+.entei-yomitan-popup[data-outer-theme='light'] {
   box-shadow:
     0 12px 32px oklch(0% 0 0deg / 0.45),
     0 0 24px oklch(100% 0 0deg / 0.5);
