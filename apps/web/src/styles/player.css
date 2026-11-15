@@ -2398,7 +2398,8 @@ html.entei-native-video .entei-player-video {
   border-radius: 50%;
   background-color: var(--entei-btn-color);
   border: none;
-  box-shadow: none;
+  box-shadow: 0 1px 4px
+    color-mix(in oklch, var(--entei-text-secondary) 18%, transparent);
   outline: none;
 }
 
