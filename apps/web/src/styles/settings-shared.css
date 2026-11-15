@@ -1156,17 +1156,16 @@
   background-color: var(--entei-surface-elevated);
 }
 
-/* Settings slider thumb: solid 18px circle matching --entei-btn-color.
+/* Settings slider thumb: solid 18px circle in surface-elevated with subtle surface shadow.
    44px hit area via the same transparent pseudo-element pattern. */
 .entei-subtitle-slider [role='slider'] {
   position: relative;
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background-color: var(--entei-btn-color);
+  background-color: var(--entei-surface-elevated);
   border: none;
-  box-shadow: 0 1px 4px
-    color-mix(in oklch, var(--entei-text-secondary) 18%, transparent);
+  box-shadow: 0 2px 6px var(--entei-surface);
   outline: none;
 }
 
