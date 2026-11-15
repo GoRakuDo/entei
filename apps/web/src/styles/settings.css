@@ -909,17 +909,20 @@ body[data-page='settings'] .entei-main {
   max-width: 22rem;
   height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
-  gap: var(--entei-space-8);
+  gap: 0;
+  border-radius: var(--entei-radius-md);
   overflow: hidden;
+  border: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
 .entei-choice-group [data-slot='toggle-group-item'] {
   flex: 1 1 0;
   min-width: 0;
   width: auto;
-  height: var(--entei-touch-min);
+  height: 100%;
   min-height: var(--entei-touch-min);
-  padding-inline: var(--entei-space-8);
+  padding-inline: var(--entei-space-16);
+  border-radius: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -931,6 +934,10 @@ body[data-page='settings'] .entei-main {
   transition:
     color var(--entei-duration-fast) var(--entei-ease-productive),
     background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-choice-group [data-slot='toggle-group-item'] + [data-slot='toggle-group-item'] {
+  border-left: 1px solid oklch(100% 0 0deg / 0.08);
 }
 
 .entei-choice-group [data-slot='toggle-group-item'][data-state='on'] {
