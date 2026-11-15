@@ -23,7 +23,7 @@
 
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import { listInstalledDictionariesCached } from '@/modules/yomitan/dictionary-store';
-import { lookupTerms } from '@/modules/yomitan/yomitan-engine';
+import { lookupKanji, lookupTerms } from '@/modules/yomitan/yomitan-engine';
 import {
   activeProfileOptions,
 } from '@/modules/yomitan/yomitan-preferences';
@@ -101,6 +101,41 @@ export async function lookupPopupEntries(
 ): Promise<PopupPreviewEntries> {
   const [entries, installed] = await Promise.all([
     lookupTerms(resolvePreviewTerm(term), { maxResults: 1 }),
+    listInstalledDictionariesCached(),
+  ]);
+  return { entries, dictionaries: toPopupDictionaryInfo(installed) };
+}
+
+/** What one KANJI lookup's card is drawn from. */
+export interface PopupPreviewKanji {
+  /** The translator's own kanji entries (empty when no dictionary has the glyph). */
+  entries: readonly unknown[];
+  /** Per-dictionary summaries the generator prints on its dictionary tags. */
+  dictionaries: readonly PopupDictionaryInfo[];
+}
+
+/**
+ * Look one CHARACTER up in the kanji dictionaries (upstream's `kanjiFind`).
+ *
+ * The popup's own kanji card — the one a headword's kanji opens — is a lookup of
+ * this shape: `lookupKanji` over the active dictionary set, rendered by the same
+ * generator the term card uses (`renderPopupKanjiHtml`).
+ *
+ * An empty `entries` is the NORMAL answer when no installed dictionary carries
+ * kanji data (a JMdict-only setup: KANJIDIC is what supplies onyomi / kunyomi,
+ * meanings, stroke count and the frequency statistics). The caller draws
+ * upstream's own `No results found.` block for it, and the history stack still
+ * steps back to the term the character was clicked in.
+ *
+ * Rejects only when the engine cannot be reached at all.
+ */
+export async function lookupPopupKanji(
+  character: string,
+): Promise<PopupPreviewKanji> {
+  const trimmed = character.trim();
+  if (trimmed === '') return { entries: [], dictionaries: [] };
+  const [entries, installed] = await Promise.all([
+    lookupKanji(trimmed),
     listInstalledDictionariesCached(),
   ]);
   return { entries, dictionaries: toPopupDictionaryInfo(installed) };

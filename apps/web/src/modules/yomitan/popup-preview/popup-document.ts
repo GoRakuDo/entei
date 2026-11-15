@@ -22,6 +22,8 @@
  * ---------------------------------------------------------------------------
  */
 
+import { POPUP_FRAME_CHANNEL } from '@/modules/yomitan/popup-preview/popup-frame';
+
 /** The term every lookup of this preview runs (upstream's own example word). */
 export const POPUP_PREVIEW_TERM = '読め';
 
@@ -81,6 +83,29 @@ export interface PopupDocumentInput {
    * string draws the placeholder instead.
    */
   entriesHtml: string;
+  /**
+   * Whether the history stack can still step BACK (`<`).
+   *
+   * Written on the document element as `data-has-navigation-previous`, which is
+   * what upstream's own `display.css` keys the sidebar's visibility off, and
+   * mirrored on the button's `disabled`. Both, because upstream does both: the
+   * attribute decides whether the bar exists at all under
+   * `data-popup-action-bar-visibility=auto`, the attribute on the button is what
+   * greys the glyph out.
+   */
+  hasNavigationPrevious?: boolean;
+  /** Whether the history stack can still step FORWARD (`>`). */
+  hasNavigationNext?: boolean;
+  /**
+   * What to draw when `entriesHtml` is empty.
+   *
+   * `placeholder` (the default) is the settings preview's "install a dictionary"
+   * sentence — correct when there was nothing to look the text up WITH.
+   * `no-results` is upstream's own `#no-results` block — correct when the
+   * dictionaries answered and had nothing, which is what a kanji lookup outside
+   * KANJIDIC returns.
+   */
+  emptyState?: 'placeholder' | 'no-results';
 }
 
 /**
@@ -137,6 +162,49 @@ function renderPlaceholder(): string {
 }
 
 /**
+ * The bridge script the frame runs.
+ *
+ * The host cannot listen to a sandboxed document (`contentDocument` is `null`),
+ * so every click that means something is forwarded as a `postMessage`. Two
+ * targets only: a kanji in a headword (upstream's `.headword-kanji-link`, which
+ * the generator already emits and `display.js` already binds a lookup to) and the
+ * action bar's three buttons.
+ *
+ * Deliberately dependency-free and evaluated once per document. It reports, it
+ * does not decide: the history stack, the lookups and the re-render all belong to
+ * the host, because only the host can reach the dictionary engine.
+ */
+const FRAME_BRIDGE_SCRIPT = `
+(function () {
+    var CHANNEL = ${JSON.stringify(POPUP_FRAME_CHANNEL)};
+    function send(message) {
+        message.channel = CHANNEL;
+        if (window.parent !== window) {
+            window.parent.postMessage(message, '*');
+        }
+    }
+    document.addEventListener('click', function (event) {
+        var target = event.target;
+        if (target === null || typeof target.closest !== 'function') { return; }
+        var kanji = target.closest('.headword-kanji-link');
+        if (kanji !== null) {
+            event.preventDefault();
+            var character = (kanji.textContent || '').trim();
+            if (character !== '') { send({ type: 'kanji', character: character }); }
+            return;
+        }
+        var button = target.closest('button[data-action]');
+        if (button === null || button.disabled) { return; }
+        switch (button.getAttribute('data-action')) {
+            case 'close': send({ type: 'close' }); break;
+            case 'navigate-previous': send({ type: 'previous' }); break;
+            case 'navigate-next': send({ type: 'next' }); break;
+        }
+    });
+})();
+`.trim();
+
+/**
  * Build the preview document.
  *
  * Structure follows `ext/popup.html`'s body: the scroll container, the content
@@ -153,10 +221,18 @@ export function buildPopupDocument(input: PopupDocumentInput): string {
     entriesHtml,
     popupActionBarLocation = 'top',
     popupActionBarVisibility = 'always',
+    hasNavigationPrevious = false,
+    hasNavigationNext = false,
+    emptyState = 'placeholder',
   } = input;
   const style = fontStyle === '' ? '' : ` style="${escapeAttribute(fontStyle)}"`;
   const hasEntries = entriesHtml !== '';
-  const body = hasEntries ? entriesHtml : renderPlaceholder();
+  const body = hasEntries
+    ? entriesHtml
+    : emptyState === 'no-results'
+      ? ''
+      : renderPlaceholder();
+  const showNoResults = !hasEntries && emptyState === 'no-results';
 
   const sheets = [
     `<style>\n${neutralizeStyleBreakout(css)}\n</style>`,
@@ -167,7 +243,7 @@ export function buildPopupDocument(input: PopupDocumentInput): string {
   }
 
   return `<!DOCTYPE html>
-<html lang="ja" data-page-type="popup" data-popup-action-bar-location="${escapeAttribute(popupActionBarLocation)}" data-popup-action-bar-visibility="${escapeAttribute(popupActionBarVisibility)}"${renderThemeAttributes(themeAttributes)}${style}>
+<html lang="ja" data-page-type="popup" data-popup-action-bar-location="${escapeAttribute(popupActionBarLocation)}" data-popup-action-bar-visibility="${escapeAttribute(popupActionBarVisibility)}" data-has-navigation-previous="${hasNavigationPrevious}" data-has-navigation-next="${hasNavigationNext}"${renderThemeAttributes(themeAttributes)}${style}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -179,8 +255,11 @@ ${sheets.join('\n')}
 <span tabindex="-1" id="content-scroll-focus"></span>
 <div class="search-header"></div>
 <div id="dictionary-entries">${body}</div>
-<div id="no-results"${hasEntries ? ' hidden' : ''}><div class="entry"><p>No results found.</p></div></div>
-</div></div></div></div><div class="content-sidebar scrollbar" id="content-sidebar"><div class="content-sidebar-inner"><div class="content-sidebar-top-pre"><button class="sidebar-button danger" data-action="close" id="close-button" title="Close popup"><span class="sidebar-button-icon icon" data-icon="cross"></span></button></div><div class="content-sidebar-top"><button class="sidebar-button" data-action="navigate-previous" disabled id="navigate-previous-button" title="Previous definition"><span class="sidebar-button-icon icon" data-icon="left-chevron"></span></button><button class="sidebar-button" data-action="navigate-next" disabled id="navigate-next-button" title="Next definition"><span class="sidebar-button-icon icon" data-icon="right-chevron"></span></button></div></div></div></div>
+<div id="no-results"${showNoResults ? '' : ' hidden'}><div class="entry"><p>No results found.</p></div></div>
+</div></div></div></div><div class="content-sidebar scrollbar" id="content-sidebar"><div class="content-sidebar-inner"><div class="content-sidebar-top-pre"><button type="button" class="sidebar-button danger" data-action="close" id="close-button" title="Close popup"><span class="sidebar-button-icon icon" data-icon="cross"></span></button></div><div class="content-sidebar-top"><button type="button" class="sidebar-button" data-action="navigate-previous"${hasNavigationPrevious ? '' : ' disabled'} id="navigate-previous-button" title="Previous definition"><span class="sidebar-button-icon icon" data-icon="left-chevron"></span></button><button type="button" class="sidebar-button" data-action="navigate-next"${hasNavigationNext ? '' : ' disabled'} id="navigate-next-button" title="Next definition"><span class="sidebar-button-icon icon" data-icon="right-chevron"></span></button></div></div></div></div>
+<script>
+${FRAME_BRIDGE_SCRIPT}
+</script>
 </body>
 </html>`;
 }

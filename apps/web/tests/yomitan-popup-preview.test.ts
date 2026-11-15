@@ -20,8 +20,12 @@ import {
   POPUP_PREVIEW_PLACEHOLDER,
   POPUP_PREVIEW_TERM,
   buildPopupDocument,
+  inlinePopupIconUrls,
   popupAppearanceKey,
   popupLookupKey,
+  createPopupHistory,
+  pushPopupHistory,
+  renderPopupCard,
   renderPopupEntriesHtml,
   resolvePopupAppearance,
   resolvePopupFontStyle,
@@ -29,9 +33,11 @@ import {
   resolvePopupThemeAttributes,
   resolvePreviewTerm,
   restoreTextGlosses,
+  stepPopupHistory,
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
 } from '@/modules/yomitan/popup-preview';
+import { POPUP_FRAME_CHANNEL } from '@/modules/yomitan/popup-preview/popup-frame';
 import { createDefaultOptions, type Options } from '@gorakudo/yomitan-headless/settings';
 import type { InstalledDictionary } from '@/modules/yomitan/dictionary-store';
 
@@ -123,6 +129,23 @@ function termEntry(): Record<string, unknown> {
     ],
     frequencies: [],
     pronunciations: [],
+  };
+}
+
+/** One KANJIDIC-shaped translator entry for 読. */
+function kanjiEntry(): Record<string, unknown> {
+  return {
+    index: 0,
+    type: 'kanji',
+    character: '読',
+    dictionary: 'KANJIDIC',
+    dictionaryAlias: 'KANJIDIC',
+    onyomi: ['ドク', 'トク', 'トウ'],
+    kunyomi: ['よ.む'],
+    definitions: ['read'],
+    tags: [],
+    frequencies: [],
+    stats: { misc: [], class: [], code: [], index: [] },
   };
 }
 
@@ -511,5 +534,183 @@ describe('yomitan popup preview — vendored assets', () => {
       'tag-template',
     ];
     expect(required.filter((id) => !ids.has(id))).toEqual([]);
+  });
+});
+
+describe('yomitan popup preview — action bar and history', () => {
+  const theme = { theme: 'dark', outerTheme: 'none' } as const;
+
+  function document_(
+    overrides: Partial<Parameters<typeof buildPopupDocument>[0]> = {},
+  ): string {
+    return buildPopupDocument({
+      css: EMPTY_CSS,
+      themeAttributes: theme,
+      fontStyle: '',
+      customCss: '',
+      entriesHtml: '<div class="entry active"></div>',
+      ...overrides,
+    });
+  }
+
+  it('starts with both history buttons disabled and the bar hidden', () => {
+    const html = document_();
+    // Upstream keys the sidebar's visibility off these two attributes, and greys
+    // each glyph out with `disabled` on its button.
+    expect(html).toContain('data-has-navigation-previous="false"');
+    expect(html).toContain('data-has-navigation-next="false"');
+    expect(html).toContain('data-action="navigate-previous" disabled');
+    expect(html).toContain('data-action="navigate-next" disabled');
+    // The close button is never disabled: there is always something to close.
+    expect(html).toContain('data-action="close" id="close-button"');
+  });
+
+  it('enables only the end of the stack that has somewhere to go', () => {
+    const back = document_({ hasNavigationPrevious: true });
+    expect(back).toContain('data-has-navigation-previous="true"');
+    expect(back).toContain('data-has-navigation-next="false"');
+    expect(back).toContain('data-action="navigate-previous" id=');
+    expect(back).toContain('data-action="navigate-next" disabled');
+
+    const both = document_({ hasNavigationPrevious: true, hasNavigationNext: true });
+    expect(both).toContain('data-has-navigation-next="true"');
+    expect(both).not.toContain('data-action="navigate-next" disabled');
+  });
+
+  it('draws No results found. for a lookup that answered nothing', () => {
+    const html = document_({ entriesHtml: '', emptyState: 'no-results' });
+    // A kanji lookup outside KANJIDIC is an ANSWER, so the "install a dictionary"
+    // placeholder would be the wrong message.
+    expect(html).not.toContain(POPUP_PREVIEW_PLACEHOLDER);
+    expect(html).toContain('id="no-results"><div class="entry"><p>No results found.</p>');
+    expect(html).not.toContain('id="no-results" hidden');
+  });
+
+  it('hides No results found. whenever there is a card to draw', () => {
+    expect(document_()).toContain('id="no-results" hidden');
+  });
+
+  it('bridges the frame’s clicks to its host', () => {
+    const html = document_();
+    // The host cannot read a sandboxed document, so the document announces itself.
+    expect(html).toContain(`var CHANNEL = ${JSON.stringify(POPUP_FRAME_CHANNEL)}`);
+    expect(html).toContain("window.parent.postMessage(message, '*')");
+    expect(html).toContain(".headword-kanji-link");
+    expect(html).toContain("case 'navigate-previous'");
+    expect(html).toContain("case 'navigate-next'");
+    expect(html).toContain("case 'close'");
+    // A disabled button is not a request.
+    expect(html).toContain('button.disabled');
+  });
+});
+
+describe('yomitan popup preview — inlined icons', () => {
+  /**
+   * The document is drawn in a SANDBOXED iframe, so Chrome refuses to load the
+   * stylesheets' `url('/yomitan/images/…')` subresources and every `.icon` span
+   * paints its whole box instead of a glyph — a solid block where the action
+   * bar's `<` `>` `×` should be. Inlining the SVGs is what fixes that without
+   * widening the sandbox.
+   */
+  const sheets = [
+    'material.css',
+    'display.css',
+    'display-pronunciation.css',
+    'structured-content.css',
+  ].map((name) =>
+    readFileSync(resolve(process.cwd(), 'public/yomitan/css', name), 'utf8'),
+  );
+  const allCss = sheets.join('\n');
+
+  it('rewrites every icon url() into a data: URI', () => {
+    const seen: string[] = [];
+    const out = inlinePopupIconUrls(allCss, (name) => {
+      seen.push(name);
+      return new TextEncoder().encode('<svg/>');
+    });
+    expect(out).not.toContain("url('/yomitan/images/");
+    // Every icon the sheets reference is resolved; the resolver is called once per
+    // OCCURRENCE, so a repeated icon is read more than once (cheap — the loader
+    // looks them up in a map).
+    expect(new Set(seen).size).toBeGreaterThan(60);
+    expect(seen).toContain('cross.svg');
+    expect(seen).toContain('left-chevron.svg');
+    expect(seen).toContain('right-chevron.svg');
+    expect(out).toContain('url("data:image/svg+xml;base64,');
+  });
+
+  it('leaves an icon it could not read alone rather than dropping the sheet', () => {
+    const out = inlinePopupIconUrls(
+      ".a{--icon-image:url('/yomitan/images/cross.svg')}.b{--icon-image:url('/yomitan/images/missing.svg')}",
+      (name) => (name === 'cross.svg' ? new TextEncoder().encode('<svg/>') : null),
+    );
+    expect(out).toContain('data:image/svg+xml;base64,');
+    expect(out).toContain("url('/yomitan/images/missing.svg')");
+  });
+
+  it('does not touch a gradient, a relative url() or anything else', () => {
+    const css = [
+      '.g{background-image:linear-gradient(red,blue)}',
+      ".h{background-image:url('data:image/png;base64,AAAA')}",
+      ".i{background-image:url(../images/x.png)}",
+    ].join('\n');
+    expect(inlinePopupIconUrls(css, () => new TextEncoder().encode('<svg/>'))).toBe(css);
+  });
+});
+
+describe('yomitan popup card — one history entry, drawn', () => {
+  const options = createDefaultOptions();
+  const dictionaries: PopupDictionaryInfo[] = [{ title: 'JMdict', revision: '1.0' }];
+
+  function card(
+    history: ReturnType<typeof createPopupHistory>,
+    entries: readonly unknown[],
+    kanjiEntries: readonly unknown[] = [],
+  ) {
+    return renderPopupCard({
+      history,
+      entries,
+      kanjiEntries,
+      css: EMPTY_CSS,
+      templates: DISPLAY_TEMPLATES,
+      dictionaries,
+      options,
+    });
+  }
+
+  it('draws the entry the cursor points at, with the ends of the stack disabled', async () => {
+    const first = createPopupHistory({ mode: 'term', query: POPUP_PREVIEW_TERM });
+    const two = pushPopupHistory(first, { mode: 'kanji', query: '読' });
+
+    const kanjiCard = await card(two, [], [kanjiEntry()]);
+    // The clicked character's own card, with `<` available and `>` not.
+    expect(kanjiCard.srcDoc).toContain('kanji-entry');
+    expect(kanjiCard.srcDoc).toContain('data-has-navigation-previous="true"');
+    expect(kanjiCard.srcDoc).toContain('data-has-navigation-next="false"');
+    expect(kanjiCard.mode).toBe('kanji');
+    expect(kanjiCard.query).toBe('読');
+
+    const backCard = await card(stepPopupHistory(two, -1), [termEntry()]);
+    expect(backCard.srcDoc).toContain('headword-term');
+    expect(backCard.srcDoc).toContain('data-has-navigation-previous="false"');
+    expect(backCard.srcDoc).toContain('data-has-navigation-next="true"');
+  });
+
+  it('draws No results found. for a kanji no dictionary has', async () => {
+    const empty = createPopupHistory({ mode: 'kanji', query: '鬱' });
+    const drawn = await card(empty, [], []);
+    // An ANSWER from the dictionaries, not a missing dictionary.
+    expect(drawn.srcDoc).not.toContain(POPUP_PREVIEW_PLACEHOLDER);
+    expect(drawn.srcDoc).toContain('id="no-results"><div class="entry"><p>No results found.</p>');
+  });
+
+  it('keeps a scan’s term card and its kanji cards on one card', async () => {
+    const scan = createPopupHistory({ mode: 'scan', query: POPUP_PREVIEW_TERM });
+    const drawn = await card(scan, [termEntry()], [kanjiEntry()]);
+    // The scanner runs both lookups on one window of text; its first card is the
+    // word with the kanji under it, exactly as the popup drew it before the
+    // action bar existed.
+    expect(drawn.srcDoc).toContain('data-type="term"');
+    expect(drawn.srcDoc).toContain('kanji-entry');
   });
 });

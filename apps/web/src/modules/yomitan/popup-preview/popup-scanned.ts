@@ -1,49 +1,31 @@
 /**
- * popup-scanned — the floating popup's document, built from a SCAN's own result.
+ * popup-scanned — the floating popup's own inputs: the scan it came from.
  * ---------------------------------------------------------------------------
- * `popup-document` builds the Appearance preview: one term the preview looked up
- * itself, rendered through Yomitan's generator and stylesheets. This is the same
- * pipeline for the OTHER popup — the one that appears next to the word the user
- * just scanned anywhere in the app.
+ * `popup-card` draws one history entry for ANY host. This is the other half: the
+ * bits that are specific to the popup that opens beside a scanned word.
  *
- * Nothing is re-derived and nothing is looked up again. The scanner already holds
- * the translator's own entries (it looked them up to decide whether there was a
- * hit at all) and publishes them with the event, so the two steps here are:
+ * Three of them, and only three:
  *
- * 1. `renderPopupEntriesHtml` / `renderPopupKanjiHtml` run Yomitan's
- *    `DisplayGenerator` over them, exactly as the preview does — the card is
- *    upstream's markup, not a re-implementation.
- * 2. `buildPopupDocument` serializes that markup with the user's theme, font and
- *    custom CSS into the iframe document.
- *
- * Browser-only, like `popup-entries`: the generator builds real DOM nodes.
+ * - `hasScannedEntries` decides whether a frame opens at all. A scan that found
+ *   nothing must not open one — the document's own "no dictionaries" placeholder
+ *   would be the wrong message for a miss.
+ * - `createScannedPopupHistory` is the stack a scan starts: one entry, either the
+ *   term the scanner matched or the single character it scanned. Everything after
+ *   that (a kanji clicked in a headword, `<` and `>`) belongs to `popup-history`
+ *   and is host-independent.
+ * - `resolveScannedPopupFrame` is the frame ELEMENT's box and shadow, resolved from
+ *   the same options tree the document's own appearance comes from, so the two can
+ *   never disagree.
  * ---------------------------------------------------------------------------
  */
 
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
-  buildPopupDocument,
-  renderPopupEntriesHtml,
-  renderPopupKanjiHtml,
   resolvePopupAppearance,
-  toPopupDictionaryInfo,
-  type PopupDictionaryInfo,
   type ResolvedPopupOuterTheme,
 } from '@/modules/yomitan/popup-preview';
+import { createPopupHistory, type PopupHistoryState } from '@/modules/yomitan/popup-preview/popup-history';
 import type { YomitanScanResultDetail } from '@/modules/yomitan/text-scanner';
-
-/** What a scanned popup is drawn from: the scan's own result. */
-export interface ScannedPopupInput {
-  /** The scan result, as published on `yomitan:scan-result`. */
-  detail: YomitanScanResultDetail;
-  /** Yomitan's own stylesheets + templates (`loadPopupPreviewAssets`). */
-  css: string;
-  templates: string;
-  /** Installed dictionaries, for the generator's dictionary tags. */
-  dictionaries: readonly PopupDictionaryInfo[];
-  /** The persisted options (theme, font, custom CSS, popup size). */
-  options: Options;
-}
 
 /**
  * True when the scan found something a popup can draw.
@@ -58,42 +40,20 @@ export function hasScannedEntries(detail: YomitanScanResultDetail): boolean {
 }
 
 /**
- * Build the iframe document for one scan result.
+ * The history a scan starts: the one lookup the scanner already performed.
  *
- * TERMS are what Yomitan's generator draws (`createTermEntry`), and the scan's
- * own translator entries go straight in — nothing is looked up again.
- *
- * A KANJI hit is the same generator's own block: the popup's document is one
- * list, and upstream draws a kanji entry with the same `DisplayGenerator` the
- * preview card uses. Anything hand-written here would be an approximation of a
- * card the user knows from the extension, so the generator draws both.
+ * The scanner runs BOTH lookups on the same window of text, so its first card is
+ * the combined one (`scan`): the term entries with whatever kanji cards came back
+ * underneath. A kanji-ONLY scan starts on the kanji card, because that character IS
+ * what was matched. Nothing is looked up here: the entries travel with the scan.
  */
-export async function buildScannedPopupDocument(
-  input: ScannedPopupInput,
-): Promise<string> {
-  const { detail, css, templates, dictionaries, options } = input;
-  const entries =
-    detail.entries.length === 0
-      ? []
-      : await renderPopupEntriesHtml(templates, detail.entries, [
-          ...dictionaries,
-        ]);
-  const kanjiHtml =
-    detail.kanjiEntries.length === 0
-      ? ''
-      : await renderPopupKanjiHtml(templates, detail.kanjiEntries, [
-          ...dictionaries,
-        ]);
-  const appearance = resolvePopupAppearance(options);
-  return buildPopupDocument({
-    css,
-    themeAttributes: appearance.themeAttributes,
-    fontStyle: appearance.fontStyle,
-    customCss: appearance.customCss,
-    popupActionBarLocation: appearance.popupActionBarLocation,
-    popupActionBarVisibility: appearance.popupActionBarVisibility,
-    entriesHtml: `${entries}${kanjiHtml}`,
-  });
+export function createScannedPopupHistory(
+  detail: YomitanScanResultDetail,
+): PopupHistoryState {
+  const hasTerms = detail.entries.length > 0;
+  const hasKanji = detail.kanjiEntries.length > 0;
+  const mode = hasTerms ? (hasKanji ? 'scan' : 'term') : 'kanji';
+  return createPopupHistory({ mode, query: detail.text.trim() });
 }
 
 /**
@@ -112,6 +72,3 @@ export function resolveScannedPopupFrame(options: Options): {
   const appearance = resolvePopupAppearance(options);
   return { size: appearance.size, outerTheme: appearance.resolvedOuterTheme };
 }
-
-/** Re-exported so a popup host needs one import for the generator's inputs. */
-export { toPopupDictionaryInfo };

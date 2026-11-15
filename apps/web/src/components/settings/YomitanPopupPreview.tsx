@@ -21,25 +21,39 @@
  * drawn on. Neither is squeezed into a side-by-side split — the card is the point
  * of the section, so it gets the whole width and open space around it.
  *
+ * IT BEHAVES LIKE THE POPUP, INCLUDING THE ACTION BAR. Clicking a kanji in the
+ * card's headword opens that character's kanji entry, and the bar's `<` / `>`
+ * step back and forward through what has been looked at — the same stack the
+ * floating popup uses (`popup-history`), so the two cannot drift apart. The bar's
+ * `×` resets the card to the example word, which is what a preview with no popup
+ * to dismiss should do.
+ *
  * Two change keys keep that live without being expensive (see `popup-lookup`):
- * the lookup re-runs only when the dictionary set, the lookup knobs or the term
- * field move, while an appearance edit only rebuilds the document string.
+ * the lookup re-runs only when the dictionary set, the lookup knobs or the entry
+ * being drawn move, while an appearance edit only rebuilds the document string.
  * ---------------------------------------------------------------------------
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import { Input } from '@/components/player/ui/input';
 import {
   POPUP_PREVIEW_TERM,
-  buildPopupDocument,
+  createPopupHistory,
   loadPopupPreviewAssets,
   lookupPopupEntries,
+  lookupPopupKanji,
+  parsePopupFrameRequest,
   popupAppearanceKey,
   popupLookupKey,
-  renderPopupEntriesHtml,
+  pushPopupHistory,
+  renderPopupCard,
   resolvePopupAppearance,
   resolvePreviewTerm,
+  sourceIsPopupFrame,
+  stepPopupHistory,
+  type PopupDictionaryInfo,
+  type PopupHistoryState,
 } from '@/modules/yomitan/popup-preview';
 
 /**
@@ -74,10 +88,19 @@ export interface YomitanPopupPreviewProps {
   options: Options;
 }
 
-/** What the card has been built from, ready to serialize. */
+/**
+ * What one lookup produced, kept so an APPEARANCE edit can redraw without paying
+ * for the dictionary round trip again.
+ *
+ * `key` is the change key the answer belongs to: a mismatch means the dictionary
+ * set moved and the entries on hand belong to the previous one.
+ */
 interface BuiltPreview {
+  key: string;
   css: string;
-  entriesHtml: string;
+  templates: string;
+  entries: readonly unknown[];
+  dictionaries: readonly PopupDictionaryInfo[];
 }
 
 export function YomitanPopupPreview({
@@ -87,47 +110,141 @@ export function YomitanPopupPreview({
 }: YomitanPopupPreviewProps) {
   const lookupKey = popupLookupKey(options);
   const appearanceKey = popupAppearanceKey(options);
-  const [built, setBuilt] = useState<BuiltPreview | null>(null);
+  const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   /* `term` is what the field shows, `query` is what was looked up: the card keeps
      drawing the last answer while the field is being edited. */
   const [term, setTerm] = useState(POPUP_PREVIEW_TERM);
   const [query, setQuery] = useState(POPUP_PREVIEW_TERM);
+  /** The stack the card and the action bar move through. */
+  const [history, setHistory] = useState<PopupHistoryState>(() =>
+    createPopupHistory({ mode: 'term', query: POPUP_PREVIEW_TERM }),
+  );
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const builtRef = useRef<BuiltPreview | null>(null);
+
+  const item = history.items[history.index];
+  const itemKey = item === undefined ? '' : `${item.mode}:${item.query}`;
+  /* The frame is named after the entry it is DRAWING, not after the field: after a
+     kanji is clicked the card is that character, and a screen reader should hear
+     that rather than the word it was reached from. */
+  const drawn = item?.query ?? query;
 
   useEffect(() => {
     const next = resolvePreviewTerm(term);
     if (next === query) return;
-    const timer = setTimeout(() => setQuery(next), TERM_DEBOUNCE_MS);
+    const timer = setTimeout(() => {
+      setQuery(next);
+      // A typed term is a NEW lookup, the way typing into the extension's own
+      // preview field is: it becomes the newest history entry, so `<` walks back
+      // to whatever was on the card before.
+      setHistory((previous) => pushPopupHistory(previous, { mode: 'term', query: next }));
+    }, TERM_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [term, query]);
 
   useEffect(() => {
     let current = true;
-    setFailed(false);
     void (async () => {
+      /* A failed lookup is NOT a failed frame: the document still draws, with no
+         card in it, which is Yomitan's own placeholder — the same "install a
+         dictionary" state a browser pass or a stopped engine produces. */
+      /* A failed LOOKUP is not a failed frame. The vendored stylesheets are read
+         on their own, so the document still draws Yomitan's own "install a
+         dictionary" placeholder — fully styled, the way the extension's own page
+         looks with no dictionary enabled. Only a missing vendored asset leaves
+         the frame with nothing to draw. */
+      let built = builtRef.current;
+      let unavailable = false;
       try {
         const assets = await loadPopupPreviewAssets();
-        const found = await lookupPopupEntries(query);
-        const entriesHtml = await renderPopupEntriesHtml(
-          assets.templates,
-          found.entries,
-          found.dictionaries,
-        );
-        if (!current) return;
-        setBuilt({ css: assets.css, entriesHtml });
+        let entries: readonly unknown[] = [];
+        let dictionaries: readonly PopupDictionaryInfo[] = [];
+        if (built !== null && built.key === lookupKey) {
+          // Nothing moved since the last answer: keep it rather than re-querying.
+          entries = built.entries;
+          dictionaries = built.dictionaries;
+        } else {
+          try {
+            const found =
+              item?.mode === 'kanji'
+                ? await lookupPopupKanji(item.query)
+                : await lookupPopupEntries(item?.query);
+            entries = found.entries;
+            dictionaries = found.dictionaries;
+          } catch {
+            // No engine to answer (a browser pass, the plugin failing to start).
+            unavailable = true;
+          }
+        }
+        built = {
+          key: lookupKey,
+          css: assets.css,
+          templates: assets.templates,
+          entries,
+          dictionaries,
+        };
+        builtRef.current = built;
       } catch {
-        // No engine to answer (a browser pass, the plugin failing to start) or a
-        // vendored asset that did not load: the frame still draws Yomitan's own
-        // placeholder rather than going blank.
+        // No vendored assets: there is nothing to draw the card with at all.
+        built = null;
+        unavailable = true;
+      }
+
+      try {
+        const card = await renderPopupCard({
+          history,
+          entries: built?.entries ?? [],
+          css: built?.css ?? '',
+          templates: built?.templates ?? '',
+          dictionaries: built?.dictionaries ?? [],
+          options,
+        });
         if (!current) return;
-        setBuilt({ css: '', entriesHtml: '' });
+        setSrcDoc(card.srcDoc);
+        setFailed(unavailable);
+      } catch {
+        if (!current) return;
         setFailed(true);
       }
     })();
     return () => {
       current = false;
     };
-  }, [lookupKey, query]);
+    /* `lookupKey` covers the dictionary set and the lookup knobs, `itemKey` the
+       entry being drawn, `appearanceKey` everything the document is styled with —
+       and none of them is a superset of another, which is the point. */
+  }, [lookupKey, itemKey, appearanceKey]);
+
+  /* The card's own three buttons and its kanji links, announced from inside the
+     sandboxed document (see `popup-frame` for why it has to be a message). */
+  useEffect(() => {
+    const onMessage = (event: MessageEvent): void => {
+      if (!sourceIsPopupFrame(event.source, iframeRef.current)) return;
+      const request = parsePopupFrameRequest(event.data);
+      if (request === null) return;
+      if (request.type === 'close') {
+        // There is no popup to dismiss in a settings preview: the close button
+        // puts the example word back on the card.
+        setTerm(POPUP_PREVIEW_TERM);
+        setQuery(POPUP_PREVIEW_TERM);
+        setHistory(createPopupHistory({ mode: 'term', query: POPUP_PREVIEW_TERM }));
+        return;
+      }
+      if (request.type === 'kanji') {
+        setHistory((previous) =>
+          pushPopupHistory(previous, { mode: 'kanji', query: request.character }),
+        );
+        return;
+      }
+      setHistory((previous) =>
+        stepPopupHistory(previous, request.type === 'previous' ? -1 : 1),
+      );
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
 
   /* Resolved on the APPEARANCE key alone, so an appearance edit re-serializes the
      document without re-querying the dictionary engine (see `popup-lookup`). The
@@ -136,19 +253,6 @@ export function YomitanPopupPreview({
     () => resolvePopupAppearance(options),
     [appearanceKey],
   );
-
-  const srcDoc = useMemo(() => {
-    if (built === null) return null;
-    return buildPopupDocument({
-      css: built.css,
-      themeAttributes: appearance.themeAttributes,
-      fontStyle: appearance.fontStyle,
-      customCss: appearance.customCss,
-      popupActionBarLocation: appearance.popupActionBarLocation,
-      popupActionBarVisibility: appearance.popupActionBarVisibility,
-      entriesHtml: built.entriesHtml,
-    });
-  }, [built, appearance]);
 
   return (
     <div className="entei-module-field entei-yomitan-popup-preview">
@@ -187,7 +291,8 @@ export function YomitanPopupPreview({
           <p className="entei-yomitan-popup-preview-note">{PREVIEW_COPY.loading}</p>
         ) : (
           <iframe
-            title={label === undefined ? query : `${label}: ${query}`}
+            ref={iframeRef}
+            title={label === undefined ? drawn : `${label}: ${drawn}`}
             srcDoc={srcDoc}
             /* The FRAME's outer theme (upstream `popup-outer.css` styles the
                extension's own `<iframe>`, not the document inside it), so the
@@ -197,9 +302,10 @@ export function YomitanPopupPreview({
               width: `${appearance.size.width}px`,
               height: `${appearance.size.height}px`,
             }}
-            /* Static markup: nothing in the frame needs to run, and the
-               document carries user CSS and dictionary text. */
-            sandbox=""
+            /* The card's own click bridge, and nothing else: the document is
+               sandboxed to a unique origin, so the three action buttons and the
+               headword's kanji links reach React only as `popup-frame` messages. */
+            sandbox="allow-scripts"
           />
         )}
       </div>
