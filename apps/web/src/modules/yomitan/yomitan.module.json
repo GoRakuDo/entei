@@ -84,6 +84,12 @@
         },
         {
           "layout": "field",
+          "field": "scanning.layoutAwareScan",
+          "label": "Layout-aware scanning",
+          "description": "Use webpage styling information to determine where line breaks are likely to be."
+        },
+        {
+          "layout": "field",
           "field": "scanning.deepDomScan",
           "label": "Deep content scanning",
           "description": "Enable scanning text that is covered by other layers."
