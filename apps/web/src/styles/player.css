@@ -2390,27 +2390,16 @@ html.entei-native-video .entei-player-video {
   background-color: var(--entei-surface-elevated);
 }
 
-/* Settings slider thumb: same solid 18px accent circle as the player
-   seek/volume thumbs (not the shadcn hollow ring). 44px hit area via
-   the same transparent pseudo-element pattern. */
+/* Settings slider thumb: solid 18px circle matching the elevated surface.
+   44px hit area via the same transparent pseudo-element pattern. */
 .entei-subtitle-slider [role='slider'] {
   position: relative;
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background-color: var(--entei-accent);
+  background-color: var(--entei-surface-elevated);
   border: none;
   box-shadow: none;
-  outline: none;
-  transition: background-color var(--entei-duration-fast)
-    var(--entei-ease-productive);
-}
-
-.entei-subtitle-slider:hover [role='slider'],
-.entei-subtitle-slider [role='slider']:hover,
-.entei-subtitle-slider [role='slider']:active,
-.entei-subtitle-slider [role='slider']:focus-visible {
-  background-color: var(--entei-status-locked);
   outline: none;
 }
 
@@ -2433,6 +2422,7 @@ html.entei-native-video .entei-player-video {
 .entei-subtitle-slider:hover ~ .entei-subtitle-value-display,
 .entei-subtitle-control-input:has(.entei-subtitle-slider:hover)
   .entei-subtitle-value-display,
+.entei-subtitle-control-row:hover .entei-subtitle-value-display,
 .entei-subtitle-control-input:has(
     .entei-subtitle-slider [role='slider']:focus-visible
   )
