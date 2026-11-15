@@ -235,7 +235,7 @@ export function SubtitleAppearanceTab({
   const [bgColorHex, setBgColorHex] = useState(() =>
     oklchToHex(settings.backgroundColor),
   );
-// Extract current alpha from the background oklch string
+  // Extract current alpha from the background oklch string
   const bgAlpha = useMemo(
     () => parseOklchAlpha(settings.backgroundColor),
     [settings.backgroundColor],
@@ -493,7 +493,7 @@ export function SubtitleAppearanceTab({
                 : dict.subtitleSyncSubtitleDesc}
           </p>
         </div>
-        <div className="entei-mining-controls-row entei-subtitle-sync-toggle">
+        <div className="entei-subtitle-sync-toggle">
           <SettingsChoiceGroup
             value={settings.syncMode ?? 'auto'}
             onValueChange={(v) => {

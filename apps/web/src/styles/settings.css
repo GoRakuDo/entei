@@ -910,11 +910,13 @@ body[data-page='settings'] .entei-main {
   height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   gap: var(--entei-space-8);
+  overflow: hidden;
 }
 
 .entei-choice-group [data-slot='toggle-group-item'] {
   flex: 1 1 0;
   min-width: 0;
+  width: auto;
   height: var(--entei-touch-min);
   min-height: var(--entei-touch-min);
   padding-inline: var(--entei-space-8);
@@ -1017,15 +1019,17 @@ body[data-page='settings'] .entei-main {
     min-width: 15rem;
   }
 
-  /* The token field + record button are ONE 15rem control. */
+  /* The token field + record button and choice buttongroups fill the 15rem control column. */
   .entei-module-input-card-field {
-    width: 15rem;
+    width: 100%;
     min-width: 15rem;
+    max-width: 22rem;
   }
 
   .entei-module-input-card .entei-choice-group {
-    width: 15rem;
+    width: 100%;
     min-width: 15rem;
+    max-width: 22rem;
   }
 }
 
@@ -1147,19 +1151,6 @@ body[data-page='settings'] .entei-main {
 }
 
 /* ==========================================================================
-   SUBTITLE SYNC MODE CARD — 44px toggle
-   ========================================================================= */
-
-@media (min-width: 768px) {
-  .entei-settings-section-card--sync .entei-subtitle-sync-toggle .entei-choice-group {
-    width: 15rem;
-    min-width: 15rem;
-    max-width: 15rem;
-    flex-shrink: 0;
-  }
-}
-
-/* ==========================================================================
    DESKTOP (≥768px): two-pane sidebar layout
    ========================================================================== */
 
@@ -1260,19 +1251,27 @@ body[data-page='settings'] .entei-main {
     display: flex;
     flex-direction: column;
     gap: var(--entei-space-4);
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .entei-settings-section-card--sync .entei-subtitle-sync-toggle {
+    display: flex;
     flex-shrink: 0;
     padding: 0;
-    margin-top: 0;
-    width: auto;
+    margin: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    width: 15rem;
+    min-width: 15rem;
+    max-width: 22rem;
   }
 
   .entei-settings-section-card--sync .entei-subtitle-sync-toggle .entei-choice-group {
-    width: 15rem;
+    width: 100%;
     min-width: 15rem;
-    max-width: 15rem;
+    max-width: 22rem;
     flex-shrink: 0;
   }
 

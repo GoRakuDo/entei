@@ -1299,8 +1299,14 @@
 }
 
 .entei-subtitle-sync-toggle {
+  display: flex;
   padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
   width: 100%;
+  min-width: 0;
 }
 
 /* Divider between the appearance controls and the sync-mode section:
