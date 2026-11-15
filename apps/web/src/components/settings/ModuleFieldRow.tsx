@@ -128,7 +128,9 @@ export function ModuleFieldRow({
       className={
         field.type === 'boolean'
           ? 'entei-module-field entei-module-field--switch'
-          : 'entei-module-field'
+          : field.type === 'text'
+            ? 'entei-module-field entei-module-field--textarea'
+            : 'entei-module-field'
       }
     >
       <div className="entei-module-field-text">

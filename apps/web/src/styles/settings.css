@@ -531,10 +531,9 @@ body[data-page='settings'] .entei-main {
 
 .entei-module-textarea {
   width: 100%;
-  max-width: 34rem;
-  min-height: 6rem;
+  min-height: 7rem;
   padding: var(--entei-space-8) var(--entei-space-12);
-  font-family: var(--entei-font-body);
+  font-family: var(--entei-font-system);
   font-size: 0.875rem;
   line-height: 1.55;
   color: var(--entei-text-secondary);
@@ -544,6 +543,19 @@ body[data-page='settings'] .entei-main {
   resize: vertical;
   transition: border-color var(--entei-duration-fast)
     var(--entei-ease-productive);
+}
+
+.entei-module-field--textarea {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--entei-space-8);
+  width: 100%;
+}
+
+.entei-module-field--textarea .entei-module-field-control {
+  width: 100%;
+  justify-content: stretch;
 }
 
 .entei-module-textarea:focus-visible {
@@ -1223,6 +1235,19 @@ body[data-page='settings'] .entei-main {
   .entei-module-list-toolbar .entei-action-btn {
     width: 15rem;
     min-width: 15rem;
+  }
+
+  .entei-module-field--textarea {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    grid-template-columns: none;
+  }
+
+  .entei-module-field--textarea .entei-module-field-control {
+    justify-self: stretch;
+    width: 100%;
   }
 
   /* The token field + record button and choice buttongroups fill the 15rem control column. */
