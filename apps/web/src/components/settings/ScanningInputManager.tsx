@@ -318,7 +318,32 @@ export function withScanInputKind(
   };
 }
 
-/** Which target `Search for` is set to. */
+/** Which targets `Search for` is set to (supports multiple selection: term, kanji). */
+export function scanInputSearchTargets(
+  input: ScanningInput,
+): string[] {
+  const targets: string[] = [];
+  if (input.options.searchTerms) targets.push('term');
+  if (input.options.searchKanji) targets.push('kanji');
+  return targets;
+}
+
+/** Write the `Search for` multiple choices (`term` and/or `kanji`). */
+export function withScanInputSearchTargets(
+  input: ScanningInput,
+  targets: readonly string[],
+): ScanningInput {
+  return {
+    ...input,
+    options: {
+      ...input.options,
+      searchTerms: targets.includes('term'),
+      searchKanji: targets.includes('kanji'),
+    },
+  };
+}
+
+/** Legacy single-target reader kept for backward compatibility. */
 export function scanInputSearchTarget(
   input: ScanningInput,
 ): ScanInputSearchTarget {
@@ -327,43 +352,39 @@ export function scanInputSearchTarget(
     : 'term';
 }
 
-/** Write the `Search for` choice (`term` or `kanji`). */
+/** Legacy single-target writer kept for backward compatibility. */
 export function withScanInputSearchTarget(
   input: ScanningInput,
   target: ScanInputSearchTarget,
 ): ScanningInput {
-  return {
-    ...input,
-    options: {
-      ...input.options,
-      searchTerms: target === 'term',
-      searchKanji: target === 'kanji',
-    },
-  };
+  return withScanInputSearchTargets(input, [target]);
 }
 
-/** Which trigger the card's pointer type is set to. */
-export function scanInputTrigger(input: ScanningInput): ScanInputTrigger {
+/** Which triggers the card's pointer type is set to (supports multiple selection). */
+export function scanInputTriggers(input: ScanningInput): string[] {
   const kind = scanInputKind(input);
+  const triggers: string[] = [];
   if (kind === 'mouse') {
-    if (input.options.scanOnTouchPress) return 'press';
-    if (input.options.scanOnTouchRelease) return 'release';
-    if (input.options.scanOnTouchTap) return 'tap';
-    return 'move';
+    if (input.options.scanOnTouchTap) triggers.push('tap');
+    if (input.options.scanOnTouchPress) triggers.push('press');
+    if (input.options.scanOnTouchRelease) triggers.push('release');
+    if (input.options.scanOnTouchMove) triggers.push('move');
+    // If none are set for mouse, default to move
+    if (triggers.length === 0) triggers.push('move');
+    return triggers;
   }
   const descriptor = scanKindDescriptor(kind);
-  if (input.options[descriptor.moveFlag]) return 'move';
-  if (input.options[descriptor.releaseFlag]) return 'release';
-  if (input.options[descriptor.pressFlag]) return 'press';
-  return 'tap';
+  if (input.options[descriptor.tapFlag]) triggers.push('tap');
+  if (input.options[descriptor.pressFlag]) triggers.push('press');
+  if (input.options[descriptor.releaseFlag]) triggers.push('release');
+  if (input.options[descriptor.moveFlag]) triggers.push('move');
+  return triggers;
 }
 
-/**
- * Write the trigger, and clear the sibling flags it replaces.
- */
-export function withScanInputTrigger(
+/** Write multiple triggers for the card's pointer type. */
+export function withScanInputTriggers(
   input: ScanningInput,
-  trigger: ScanInputTrigger,
+  triggers: readonly string[],
 ): ScanningInput {
   const kind = scanInputKind(input);
   if (kind === 'mouse') {
@@ -371,10 +392,10 @@ export function withScanInputTrigger(
       ...input,
       options: {
         ...input.options,
-        scanOnTouchPress: trigger === 'press',
-        scanOnTouchRelease: trigger === 'release',
-        scanOnTouchTap: trigger === 'tap',
-        scanOnTouchMove: trigger === 'move',
+        scanOnTouchTap: triggers.includes('tap'),
+        scanOnTouchPress: triggers.includes('press'),
+        scanOnTouchRelease: triggers.includes('release'),
+        scanOnTouchMove: triggers.includes('move'),
         scanOnPenPress: false,
         scanOnPenRelease: false,
         scanOnPenHover: false,
@@ -385,12 +406,31 @@ export function withScanInputTrigger(
   }
   const descriptor = scanKindDescriptor(kind);
   const options = { ...input.options };
-  options[descriptor.tapFlag] = trigger === 'tap';
-  options[descriptor.pressFlag] = trigger === 'press';
-  options[descriptor.releaseFlag] = trigger === 'release';
-  options[descriptor.moveFlag] = trigger === 'move';
+  options[descriptor.tapFlag] = triggers.includes('tap');
+  options[descriptor.pressFlag] = triggers.includes('press');
+  options[descriptor.releaseFlag] = triggers.includes('release');
+  options[descriptor.moveFlag] = triggers.includes('move');
   options.scanOnPenReleaseHover = false;
   return { ...input, options };
+}
+
+/** Which trigger the card's pointer type is set to. */
+export function scanInputTrigger(input: ScanningInput): ScanInputTrigger {
+  const triggers = scanInputTriggers(input);
+  if (triggers.includes('move')) return 'move';
+  if (triggers.includes('release')) return 'release';
+  if (triggers.includes('press')) return 'press';
+  return 'tap';
+}
+
+/**
+ * Write the trigger, and clear the sibling flags it replaces.
+ */
+export function withScanInputTrigger(
+  input: ScanningInput,
+  trigger: ScanInputTrigger,
+): ScanningInput {
+  return withScanInputTriggers(input, [trigger]);
 }
 
 /** `Prevent Scan on scrolling` of the card. */
@@ -532,8 +572,6 @@ function ScanInputCard({
   onRemove,
 }: ScanInputCardProps) {
   const kind = scanInputKind(input);
-  const searchTarget = scanInputSearchTarget(input);
-  const trigger = scanInputTrigger(input);
   const preventId = useId();
   const minimumId = useId();
 
@@ -583,16 +621,11 @@ function ScanInputCard({
         </div>
         <div className="entei-module-field-control">
           <SettingsChoiceGroup
-            value={searchTarget}
+            type="multiple"
+            value={scanInputSearchTargets(input)}
             ariaLabel={copy.searchFor}
             onValueChange={(next) => {
-              if (next === '') return;
-              onPatch(
-                withScanInputSearchTarget(
-                  input,
-                  next as ScanInputSearchTarget,
-                ),
-              );
+              onPatch(withScanInputSearchTargets(input, next));
             }}
             items={[
               { value: 'term', label: copy.term },
@@ -608,11 +641,11 @@ function ScanInputCard({
         </div>
         <div className="entei-module-field-control">
           <SettingsChoiceGroup
-            value={trigger}
+            type="multiple"
+            value={scanInputTriggers(input)}
             ariaLabel={copy.scanOn}
             onValueChange={(next) => {
-              if (next === '') return;
-              onPatch(withScanInputTrigger(input, next as ScanInputTrigger));
+              onPatch(withScanInputTriggers(input, next));
             }}
             items={[
               { value: 'tap', label: copy.tap },

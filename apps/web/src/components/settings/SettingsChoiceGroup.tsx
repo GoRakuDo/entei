@@ -28,40 +28,75 @@ export interface SettingsChoiceItem {
   disabled?: boolean;
 }
 
-export interface SettingsChoiceGroupProps {
-  /** Currently selected item value. */
+export interface SettingsChoiceSingleProps {
+  type?: 'single';
   value: string;
-  /** Callback fired when an item is selected (ignores empty deselection). */
   onValueChange: (value: string) => void;
-  /** Choice items to render. */
   items: readonly SettingsChoiceItem[];
-  /** Optional extra class name for the root container. */
   className?: string;
-  /** Accessible label for the buttongroup. */
   ariaLabel?: string;
-  /** Whether the entire buttongroup is disabled. */
   disabled?: boolean;
 }
 
-export function SettingsChoiceGroup({
-  value,
-  onValueChange,
-  items,
-  className = '',
-  ariaLabel,
-  disabled = false,
-}: SettingsChoiceGroupProps) {
+export interface SettingsChoiceMultipleProps {
+  type: 'multiple';
+  value: readonly string[];
+  onValueChange: (value: string[]) => void;
+  items: readonly SettingsChoiceItem[];
+  className?: string;
+  ariaLabel?: string;
+  disabled?: boolean;
+}
+
+export type SettingsChoiceGroupProps =
+  | SettingsChoiceSingleProps
+  | SettingsChoiceMultipleProps;
+
+export function SettingsChoiceGroup(props: SettingsChoiceGroupProps) {
+  const {
+    items,
+    className = '',
+    ariaLabel,
+    disabled = false,
+  } = props;
+
+  if (props.type === 'multiple') {
+    return (
+      <ToggleGroup
+        type="multiple"
+        value={[...props.value]}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={`entei-choice-group${className ? ` ${className}` : ''}`}
+        onValueChange={props.onValueChange}
+      >
+        {items.map(({ value: itemValue, label, icon: Icon, disabled: itemDisabled }) => (
+          <ToggleGroupItem
+            key={itemValue}
+            value={itemValue}
+            aria-label={label}
+            disabled={disabled || itemDisabled}
+            className="entei-choice-group-item"
+          >
+            {Icon !== undefined && <Icon size={16} aria-hidden="true" />}
+            <span>{label}</span>
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    );
+  }
+
   return (
     <ToggleGroup
       type="single"
-      value={value}
+      value={props.value}
       disabled={disabled}
       aria-label={ariaLabel}
       className={`entei-choice-group${className ? ` ${className}` : ''}`}
       onValueChange={(next) => {
         /* Clicking the active choice must not clear the selection. */
         if (next === '') return;
-        onValueChange(next);
+        props.onValueChange(next);
       }}
     >
       {items.map(({ value: itemValue, label, icon: Icon, disabled: itemDisabled }) => (

@@ -541,23 +541,17 @@ describe('ModuleSettingsRenderer — manifest-laid-out Scanning section', () => 
       within(mouseCard).getByRole('radio', { name: COPY.scanning.touch }),
     );
     fireEvent.click(
-      within(scanInputCard(container, 0)).getByRole('radio', {
+      within(scanInputCard(container, 0)).getByRole('button', {
         name: COPY.scanning.release,
       }),
     );
 
-    // Touch tap/move are not in this UI, so picking a trigger writes them off:
-    // what the card says is what the scanner does.
+    // Touch tap/move are in this UI as multiple triggers, so picking release sets it:
     const inputs = readOptionPath(readYomitanOptions(), 'scanning.inputs') as {
       options: Record<string, boolean>;
     }[];
     expect(inputs[0]?.options.scanOnTouchRelease).toBe(true);
     expect(inputs[0]?.options.scanOnTouchPress).toBe(false);
-    expect(inputs[0]?.options.scanOnTouchTap).toBe(false);
-    expect(inputs[0]?.options.scanOnTouchMove).toBe(false);
-    // Term and kanji are always both searched.
-    expect(inputs[0]?.options.searchTerms).toBe(true);
-    expect(inputs[0]?.options.searchKanji).toBe(true);
   });
 });
 

@@ -18,13 +18,17 @@ import {
   scanInputKind,
   scanInputPreventScrolling,
   scanInputSearchTarget,
+  scanInputSearchTargets,
   scanInputTokens,
   scanInputTrigger,
+  scanInputTriggers,
   withScanInputKind,
   withScanInputPreventScrolling,
   withScanInputSearchTarget,
+  withScanInputSearchTargets,
   withScanInputToken,
   withScanInputTrigger,
+  withScanInputTriggers,
   writeScanInputs,
 } from '@/components/settings/ScanningInputManager';
 import { readOptionPath } from '@/modules/yomitan/yomitan-preferences';
@@ -105,6 +109,28 @@ describe('normalizeScanInput', () => {
     expect(backToTerm.options.searchTerms).toBe(true);
     expect(backToTerm.options.searchKanji).toBe(false);
     expect(scanInputSearchTarget(backToTerm)).toBe('term');
+  });
+
+  it('reads and updates multiple search targets (term and/or kanji)', () => {
+    const both = normalizeScanInput({
+      options: { searchTerms: true, searchKanji: true },
+    });
+    expect(scanInputSearchTargets(both)).toEqual(['term', 'kanji']);
+
+    const kanjiOnly = withScanInputSearchTargets(both, ['kanji']);
+    expect(kanjiOnly.options.searchTerms).toBe(false);
+    expect(kanjiOnly.options.searchKanji).toBe(true);
+    expect(scanInputSearchTargets(kanjiOnly)).toEqual(['kanji']);
+
+    const neither = withScanInputSearchTargets(kanjiOnly, []);
+    expect(neither.options.searchTerms).toBe(false);
+    expect(neither.options.searchKanji).toBe(false);
+    expect(scanInputSearchTargets(neither)).toEqual([]);
+
+    const termOnly = withScanInputSearchTargets(neither, ['term']);
+    expect(termOnly.options.searchTerms).toBe(true);
+    expect(termOnly.options.searchKanji).toBe(false);
+    expect(scanInputSearchTargets(termOnly)).toEqual(['term']);
   });
 
   it('clamps a nonsense minimum touch time to zero', () => {
@@ -221,6 +247,16 @@ describe('the scan trigger', () => {
     expect(pressed.options.scanOnPenMove).toBe(false);
     expect(pressed.options.scanOnPenHover).toBe(false);
     expect(pressed.options.scanOnPenReleaseHover).toBe(false);
+  });
+
+  it('writes multiple triggers for pointer types', () => {
+    const mouse = newScanInput();
+    const multi = withScanInputTriggers(mouse, ['tap', 'press']);
+    expect(multi.options.scanOnTouchTap).toBe(true);
+    expect(multi.options.scanOnTouchPress).toBe(true);
+    expect(multi.options.scanOnTouchRelease).toBe(false);
+    expect(multi.options.scanOnTouchMove).toBe(false);
+    expect(scanInputTriggers(multi)).toEqual(['tap', 'press']);
   });
 
   it('writes the tap trigger flag on a mouse card', () => {
