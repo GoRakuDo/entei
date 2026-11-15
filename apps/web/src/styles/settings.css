@@ -980,18 +980,57 @@ body[data-page='settings'] .entei-main {
   border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
+/* InputGroup container for tokens: one single rounded box with the record button inside */
 .entei-module-input-card-field {
+  display: flex;
   align-items: center;
-  gap: var(--entei-space-8);
   width: 100%;
+  min-height: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  padding-inline-start: var(--entei-space-12);
+  padding-inline-end: var(--entei-space-4);
+  gap: var(--entei-space-8);
+  transition: border-color var(--entei-duration-fast)
+    var(--entei-ease-productive);
+}
+
+.entei-module-input-card-field:has(.entei-module-input:focus-visible) {
+  outline: 2px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+  border-color: var(--entei-focus-ring);
 }
 
 .entei-module-input-card-field .entei-module-input {
+  flex: 1 1 auto;
   min-width: 0;
+  height: 100%;
+  border: none !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  padding: 0;
 }
 
 .entei-module-input-card-record {
-  flex: 0 0 var(--entei-touch-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-touch-min);
+  height: var(--entei-touch-min);
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--entei-text-secondary);
+  border-radius: var(--entei-radius-sm);
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-module-input-card-record:hover {
+  color: var(--entei-status-locked);
 }
 
 .entei-module-input-card-record[aria-pressed='true'] {
