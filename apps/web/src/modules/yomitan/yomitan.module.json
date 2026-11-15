@@ -149,7 +149,7 @@
         {
           "layout": "field",
           "field": "scanning.hideDelay",
-          "label": "Delay (in milliseconds)"
+          "label": "Auto-hide Delay (in ms)"
         },
         {
           "layout": "field",

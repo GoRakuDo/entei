@@ -562,7 +562,7 @@ describe('ModuleSettingsRenderer — manifest-laid-out Popup Behavior & Position
     'Maximum number of child popups',
     'Allow scanning popup source terms',
     'Auto-hide search popup',
-    'Delay (in milliseconds)',
+    'Auto-hide Delay (in ms)',
     'Hide popup on cursor exit',
     'Reduced motion scrolling',
     'Show iframe popups in the root frame',

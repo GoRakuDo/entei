@@ -446,11 +446,14 @@ function hasScanInputCards(options: unknown): boolean {
  * The fallback for every field the host does not supply.
  */
 function createHostProfileOptions(): ProfileOptions {
-  return setPathValue(
+  let opts = setPathValue(
     createDefaultProfileOptions(),
     SCAN_INPUTS_PATH,
     createDefaultScanningInputs(),
-  ) as ProfileOptions;
+  );
+  opts = setPathValue(opts, 'scanning.autoHideResults', true);
+  opts = setPathValue(opts, 'scanning.hideDelay', 2000);
+  return opts as ProfileOptions;
 }
 
 /**
