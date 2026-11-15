@@ -175,9 +175,7 @@
       "rows": [
         {
           "layout": "field",
-          "source": "yomitan-popup-preview",
-          "label": "Popup preview",
-          "description": "A live preview of the popup, drawn with the dictionaries you have installed and the appearance settings below."
+          "source": "yomitan-popup-preview"
         },
         {
           "layout": "field",

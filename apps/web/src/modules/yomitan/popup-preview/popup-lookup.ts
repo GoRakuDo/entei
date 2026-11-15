@@ -1,9 +1,10 @@
 /**
  * popup-lookup — what the preview card is made of.
  * ---------------------------------------------------------------------------
- * The preview always looks up ONE term (`POPUP_PREVIEW_TERM`): the card is there
- * to show how the user's dictionaries and appearance settings render, not to be a
- * search box. This module is the seam between the settings tree and that lookup.
+ * The preview always looks up ONE term at a time: upstream's own example word
+ * (`POPUP_PREVIEW_TERM`) until the user types another one into the preview's own
+ * field. It is not a dictionary search box — one term, one entry — it is the seam
+ * between the settings tree, the term field and that single lookup.
  *
  * Two exports, because the two costs are wildly different:
  *
@@ -68,6 +69,19 @@ export function popupLookupKey(options: Options): string {
 }
 
 /**
+ * The term a lookup actually runs for what the field currently holds.
+ *
+ * PURE, because both callers need it: the field debounces on it (an unchanged
+ * resolution is not worth a timer) and the lookup runs it. An empty field is a
+ * half-cleared edit, not a request to search for nothing — it falls back to
+ * upstream's example word, which is also what the field shows as its placeholder.
+ */
+export function resolvePreviewTerm(term?: string): string {
+  const trimmed = term?.trim() ?? '';
+  return trimmed === '' ? POPUP_PREVIEW_TERM : trimmed;
+}
+
+/**
  * Look the preview term up in the currently active dictionary set.
  *
  * ONE result, unlike a scan: the card shows a single dictionary entry, which is
@@ -80,9 +94,11 @@ export function popupLookupKey(options: Options): string {
  * plugin failing to start) — distinct from an empty result, which is a normal
  * answer the caller renders as the placeholder.
  */
-export async function lookupPopupEntries(): Promise<PopupPreviewEntries> {
+export async function lookupPopupEntries(
+  term?: string,
+): Promise<PopupPreviewEntries> {
   const [entries, installed] = await Promise.all([
-    lookupTerms(POPUP_PREVIEW_TERM, { maxResults: 1 }),
+    lookupTerms(resolvePreviewTerm(term), { maxResults: 1 }),
     listInstalledDictionariesCached(),
   ]);
   return { entries, dictionaries: toPopupDictionaryInfo(installed) };

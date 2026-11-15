@@ -26,6 +26,7 @@ import {
   resolvePopupAppearance,
   resolvePopupFontStyle,
   resolvePopupThemeAttributes,
+  resolvePreviewTerm,
   restoreTextGlosses,
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
@@ -136,6 +137,22 @@ describe('yomitan popup preview — change keys', () => {
     const themed = withGeneral(base, { popupTheme: 'dark', fontSize: 22 });
     expect(popupAppearanceKey(themed)).not.toBe(popupAppearanceKey(base));
     expect(popupLookupKey(themed)).toBe(popupLookupKey(base));
+  });
+});
+
+describe('yomitan popup preview — editable term', () => {
+  it('looks the typed term up, trimmed', () => {
+    expect(resolvePreviewTerm('食べる')).toBe('食べる');
+    expect(resolvePreviewTerm('  猫  ')).toBe('猫');
+  });
+
+  /* A cleared field is a half-finished edit, not a request to search for
+     nothing: it falls back to upstream's example word, which is also what
+     the field shows as its placeholder. */
+  it('falls back to the example word for an empty field', () => {
+    expect(resolvePreviewTerm('')).toBe(POPUP_PREVIEW_TERM);
+    expect(resolvePreviewTerm('   ')).toBe(POPUP_PREVIEW_TERM);
+    expect(resolvePreviewTerm(undefined)).toBe(POPUP_PREVIEW_TERM);
   });
 });
 

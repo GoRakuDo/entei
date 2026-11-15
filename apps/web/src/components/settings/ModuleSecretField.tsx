@@ -58,8 +58,14 @@ import { Input } from '@/components/player/ui/input';
  * already have, so nothing here is specific to either kind.
  */
 export interface ModuleSecretFieldProps {
-  /** Row label (the manifest's literal English). */
-  label: string;
+  /**
+   * Row label (the manifest's literal English).
+   *
+   * Optional because this is the ONE contract every host-owned `field` editor is
+   * drawn through, and such a row may be a block that is not a value at all and
+   * declares no text (Yomitan's popup preview). A credential row always has one.
+   */
+  label?: string;
   /** Sentence under the label. */
   description?: string;
   /** Input placeholder (the descriptor's, when the tree declares one). */

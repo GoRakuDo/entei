@@ -707,7 +707,6 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
    * by validation or a field silently left to the generic group walk fails here.
    */
   const APPEARANCE_LABELS = [
-    'Popup preview',
     'Popup theme',
     'Outer theme',
     'Font family',
@@ -750,6 +749,15 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
        placeholder document outside the desktop app), so the frame is awaited. */
     const preview = section?.querySelector('.entei-yomitan-popup-preview');
     expect(preview).not.toBeNull();
+    /* A host-owned BLOCK: the manifest gives it no text, so the row draws none —
+       a caption above the card would only repeat what the card shows. */
+    expect(preview?.querySelector('.entei-module-field-text')).toBeNull();
+    /* The card's own term field is the row's one control (upstream's preview page
+       has the same one), and it is the only text input in the section. */
+    expect(
+      preview?.querySelectorAll('.entei-yomitan-popup-preview-term-input'),
+    ).toHaveLength(1);
+    expect(preview?.querySelectorAll('input')).toHaveLength(1);
     await waitFor(() =>
       expect(preview?.querySelectorAll('iframe')).toHaveLength(1),
     );

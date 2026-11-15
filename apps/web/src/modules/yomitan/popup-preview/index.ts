@@ -26,6 +26,7 @@ export { loadPopupPreviewAssets } from '@/modules/yomitan/popup-preview/popup-as
 export {
   lookupPopupEntries,
   popupLookupKey,
+  resolvePreviewTerm,
 } from '@/modules/yomitan/popup-preview/popup-lookup';
 export {
   renderPopupEntriesHtml,

@@ -34,9 +34,10 @@
  *
  * A `field` row may also name a source that owns its EDITOR: some values are not
  * in the module's options tree at all (a credential lives in the module's own
- * store), so the host binds the editor and the row keeps only its text. Without
- * such a binding the row stays the standard one, so a module degrades instead of
- * losing the row.
+ * store), so the host binds the editor and the row keeps only its text — or, for a
+ * block that is not a value at all (Yomitan's popup preview), no text: the editor
+ * is then the whole row. Without such a binding the row stays the standard one, so
+ * a module degrades instead of losing the row.
  *
  * `array` / `section-header` fields are not editable as a plain row: they are
  * structural placeholders in the tree (Anki card formats, profile management)
@@ -524,7 +525,9 @@ function ModuleLayoutRow({
      the row. */
   if (row.layout === 'field') {
     const FieldEditor = source?.field;
-    if (FieldEditor !== undefined && label !== undefined) {
+    /* No label requirement: a host-owned BLOCK (Yomitan's popup preview) declares no
+       text of its own and its editor draws the whole row. */
+    if (FieldEditor !== undefined) {
       return (
         <FieldEditor
           label={label}

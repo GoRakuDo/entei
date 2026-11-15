@@ -10,14 +10,15 @@
  * `modules/yomitan/popup-preview/` for the pipeline.
  *
  * HOST-OWNED FIELD ROW: the row is bound by the manifest as a `field` source, so
- * it brings its own editor and the manifest brings only the text. It also takes
+ * it brings its own editor and declares no text of its own — the card is the
+ * whole block. It also takes
  * the module's OPTIONS TREE, because it draws from it: unlike a credential row,
  * whose whole value is one stored string, this row visualises a dozen settings and
  * has to follow them live.
  *
  * Two change keys keep that live without being expensive (see `popup-lookup`):
- * the lookup re-runs only when the dictionary set or the lookup knobs move, while
- * an appearance edit only rebuilds the document string.
+ * the lookup re-runs only when the dictionary set, the lookup knobs or the term
+ * field move, while an appearance edit only rebuilds the document string.
  * ---------------------------------------------------------------------------
  */
 
@@ -32,6 +33,7 @@ import {
   popupLookupKey,
   renderPopupEntriesHtml,
   resolvePopupAppearance,
+  resolvePreviewTerm,
 } from '@/modules/yomitan/popup-preview';
 
 /**
@@ -44,11 +46,22 @@ const PREVIEW_COPY = {
   loading: 'Loading preview…',
   unavailable:
     'Preview unavailable — the card above shows Yomitan’s own placeholder.',
+  /** Accessible name of the term field: this row declares no text of its own. */
+  term: 'Preview term',
 } as const;
 
+/**
+ * Idle time before a half-typed term is looked up.
+ *
+ * A lookup crosses the Tauri IPC boundary and rebuilds the translator, so it runs
+ * once the field has settled rather than on every keystroke: one lookup per word
+ * typed, not one per letter.
+ */
+const TERM_DEBOUNCE_MS = 300;
+
 export interface YomitanPopupPreviewProps {
-  /** Row label (the manifest's literal English). */
-  label: string;
+  /** Row label (the manifest's literal English); the row may declare none. */
+  label?: string;
   /** Sentence under the label. */
   description?: string;
   /** The module's whole options tree — what the card is drawn from. */
@@ -70,6 +83,10 @@ export function YomitanPopupPreview({
   const appearanceKey = popupAppearanceKey(options);
   const [built, setBuilt] = useState<BuiltPreview | null>(null);
   const [failed, setFailed] = useState(false);
+  /* `term` is what the field shows, `query` is what was looked up: the card keeps
+     drawing the last answer while the field is being edited. */
+  const [term, setTerm] = useState(POPUP_PREVIEW_TERM);
+  const [query, setQuery] = useState(POPUP_PREVIEW_TERM);
 
   /**
    * The options of the last render whose lookup key we started work for.
@@ -83,12 +100,19 @@ export function YomitanPopupPreview({
   optionsRef.current = options;
 
   useEffect(() => {
+    const next = resolvePreviewTerm(term);
+    if (next === query) return;
+    const timer = setTimeout(() => setQuery(next), TERM_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [term, query]);
+
+  useEffect(() => {
     let current = true;
     setFailed(false);
     void (async () => {
       try {
         const assets = await loadPopupPreviewAssets();
-        const found = await lookupPopupEntries();
+        const found = await lookupPopupEntries(query);
         const entriesHtml = await renderPopupEntriesHtml(
           assets.templates,
           found.entries,
@@ -108,7 +132,7 @@ export function YomitanPopupPreview({
     return () => {
       current = false;
     };
-  }, [lookupKey]);
+  }, [lookupKey, query]);
 
   const srcDoc = useMemo(() => {
     if (built === null) return null;
@@ -126,23 +150,38 @@ export function YomitanPopupPreview({
 
   return (
     <div className="entei-module-field entei-yomitan-popup-preview">
-      <div className="entei-module-field-text">
-        <span className="entei-module-field-label">{label}</span>
-        {description !== undefined && (
-          <p className="entei-module-field-description">{description}</p>
-        )}
-      </div>
+      {/* A row the manifest gave no text draws none: the card IS the block, so a
+          caption above it would only repeat what the card already shows. */}
+      {label !== undefined && (
+        <div className="entei-module-field-text">
+          <span className="entei-module-field-label">{label}</span>
+          {description !== undefined && (
+            <p className="entei-module-field-description">{description}</p>
+          )}
+        </div>
+      )}
 
       <div className="entei-yomitan-popup-preview-frame">
-        <p className="entei-yomitan-popup-preview-term" lang="ja">
-          {POPUP_PREVIEW_TERM}
-        </p>
+        {/* The term, editable — upstream's preview page has the same field. An
+            empty one falls back to the example word (`resolvePreviewTerm`), which
+            is what the placeholder shows. */}
+        <input
+          className="entei-yomitan-popup-preview-term-input"
+          type="text"
+          value={term}
+          lang="ja"
+          placeholder={POPUP_PREVIEW_TERM}
+          autoComplete="off"
+          spellCheck={false}
+          aria-label={PREVIEW_COPY.term}
+          onChange={(event) => setTerm(event.target.value)}
+        />
         <div className="entei-yomitan-popup-preview-viewport">
           {srcDoc === null ? (
             <p className="entei-yomitan-popup-preview-note">{PREVIEW_COPY.loading}</p>
           ) : (
             <iframe
-              title={`${label}: ${POPUP_PREVIEW_TERM}`}
+              title={label === undefined ? query : `${label}: ${query}`}
               srcDoc={srcDoc}
               /* Static markup: nothing in the frame needs to run, and the
                  document carries user CSS and dictionary text. */

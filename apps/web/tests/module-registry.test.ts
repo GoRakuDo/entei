@@ -171,6 +171,9 @@ describe('module-registry — core manifests', () => {
           expect(row.action).toBeTruthy();
           continue;
         }
+        if (row.source === 'yomitan-popup-preview') {
+          continue;
+        }
         expect(row.label).toBeTruthy();
       }
     }

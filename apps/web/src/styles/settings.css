@@ -591,17 +591,24 @@ body[data-page='settings'] .entei-main {
 /* ==========================================================================
    YOMITAN POPUP PREVIEW (a host-owned `field` block, not a value row)
    ----------------------------------------------------------------------------
-   A block, not a label-plus-control row: the card needs the whole width, so it
-   stacks under its own text instead of sitting in the desktop control column.
+   A block, not a label-plus-control row: the card needs the whole width, so the
+   row is a single column even when the manifest gives it text to draw above it.
    The frame's contents are the upstream popup document (see
    modules/yomitan/popup-preview), so everything here is only the Entei-side
    window it is shown through — nothing inside it is styled by this file.
    ========================================================================== */
 
-.entei-yomitan-popup-preview {
-  /* The row is a stacked block, so it does not centre its text against a control. */
-  align-items: start;
+/* The block itself: ONE column, whether or not the manifest gave the row any text.
+   It keeps `entei-module-field` (every row is drawn with it), so this is declared
+   at a higher specificity than that row's desktop two-column rule — without that,
+   a row with no text would leave the card in the control column beside an empty
+   one. */
+.entei-module-field.entei-yomitan-popup-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--entei-space-12);
+  min-height: 0;
 }
 
 .entei-yomitan-popup-preview-frame {
@@ -617,16 +624,42 @@ body[data-page='settings'] .entei-main {
   overflow: hidden;
 }
 
-/* What was looked up. The frame itself is the popup document, so the term sits
-   above it as this row's own caption rather than inside the card. */
-.entei-yomitan-popup-preview-term {
-  margin: 0;
-  padding: var(--entei-space-8) var(--entei-space-12);
+/* What was looked up, editable — the same field upstream's own preview page has.
+   It is the card's search line, not a settings control: no box of its own, just
+   the hairline that separates it from the document, and it takes the frame's
+   width. An empty field falls back to the example word (see `resolvePreviewTerm`). */
+.entei-yomitan-popup-preview-term-input {
+  width: 100%;
+  height: var(--entei-touch-min);
+  padding: 0 var(--entei-space-12);
+  border: 0;
   border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
+  background-color: transparent;
   font-family: var(--entei-font-body);
   font-size: 0.9375rem;
   line-height: 1.4;
   color: var(--entei-text-secondary);
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    border-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-yomitan-popup-preview-term-input::placeholder {
+  color: var(--entei-text-muted);
+}
+
+.entei-yomitan-popup-preview-term-input:hover {
+  color: var(--entei-status-locked);
+}
+
+/* The accent stands in for a hard box inside the frame: an inset ring plus the
+   hairline is still a clearly visible focus state, which dropping the default
+   outline alone would not be. */
+.entei-yomitan-popup-preview-term-input:focus-visible {
+  outline: 2px solid var(--entei-status-locked);
+  outline-offset: -2px;
+  border-bottom-color: var(--entei-status-locked);
+  color: var(--entei-status-locked);
 }
 
 .entei-yomitan-popup-preview-viewport {

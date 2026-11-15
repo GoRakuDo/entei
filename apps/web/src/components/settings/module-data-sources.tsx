@@ -185,13 +185,7 @@ function announceNadeshikoKeyChanged(): void {
   window.dispatchEvent(new CustomEvent(NADESHIKO_KEY_CHANGED_EVENT));
 }
 
-function JimakuAutoLoadField({
-  label,
-  description,
-}: {
-  label: string;
-  description?: string;
-}) {
+function JimakuAutoLoadField({ label, description }: ModuleFieldSourceProps) {
   const [enabled, setEnabled] = useState(() => readJimakuPreferences().autoLoadEnabled);
   return (
     <div className="entei-module-field entei-module-field--switch">
