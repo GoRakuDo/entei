@@ -113,6 +113,124 @@
           "description": "Change how many characters are read when scanning for terms."
         }
       ]
+    },
+    {
+      "section": "popup-behavior",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "scanning.enableOnSearchPage",
+          "label": "Allow scanning search page content",
+          "description": "Text on the search page can be scanned for definitions, which will open a popup."
+        },
+        {
+          "layout": "field",
+          "field": "scanning.enablePopupSearch",
+          "label": "Allow scanning popup content",
+          "description": "Text inside of popups can be scanned for definitions, which will open a new popup."
+        },
+        {
+          "layout": "field",
+          "field": "scanning.popupNestingMaxDepth",
+          "label": "Maximum number of child popups",
+          "description": "Change the limit on the number of popups that may be generated."
+        },
+        {
+          "layout": "field",
+          "field": "scanning.enableOnPopupExpressions",
+          "label": "Allow scanning popup source terms"
+        },
+        {
+          "layout": "field",
+          "field": "scanning.autoHideResults",
+          "label": "Auto-hide search popup",
+          "description": "When an existing popup is present, upon scanning again, hide the existing popup even if no definitions are found when scanning again."
+        },
+        {
+          "layout": "field",
+          "field": "scanning.hideDelay",
+          "label": "Delay (in milliseconds)"
+        },
+        {
+          "layout": "field",
+          "field": "scanning.hidePopupOnCursorExit",
+          "label": "Hide popup on cursor exit",
+          "description": "When the cursor exits the popup, the popup will be hidden."
+        },
+        {
+          "layout": "field",
+          "field": "scanning.reducedMotionScrolling",
+          "label": "Reduced motion scrolling",
+          "description": "Scrolls by a configurable height (similar to pagination), reducing animations. Useful on e-readers and e-ink screens."
+        },
+        {
+          "layout": "field",
+          "field": "general.showIframePopupsInRootFrame",
+          "label": "Show iframe popups in the root frame"
+        }
+      ]
+    },
+    {
+      "section": "position-size",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "general.popupDisplayMode",
+          "type": "select",
+          "label": "Display mode",
+          "description": "Change the layout of the popup."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupFullWidthPosition",
+          "type": "select",
+          "label": "Full-width position"
+        },
+        {
+          "layout": "field",
+          "field": "general.popupScalingFactor",
+          "label": "Scale",
+          "description": "Control the scaling factor of the popup."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupWidth",
+          "label": "Width (in pixels)",
+          "description": "Control the width of the popup, in pixels."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupHeight",
+          "label": "Height (in pixels)",
+          "description": "Control the height of the popup, in pixels."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupHorizontalTextPosition",
+          "type": "select",
+          "label": "Horizontal text positioning",
+          "description": "Change where the popup is positioned relative to horizontal text."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupVerticalTextPosition",
+          "type": "select",
+          "label": "Vertical text positioning",
+          "description": "Change where the popup is positioned relative to vertical text."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupHorizontalOffset",
+          "label": "Horizontal text offset (px)",
+          "description": "Change the distance the popup is placed relative to horizontal text."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupVerticalOffset",
+          "label": "Vertical text offset (px)",
+          "description": "Change the distance the popup is placed relative to vertical text."
+        }
+      ]
     }
   ]
 }

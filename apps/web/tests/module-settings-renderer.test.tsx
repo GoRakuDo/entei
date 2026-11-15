@@ -555,6 +555,75 @@ describe('ModuleSettingsRenderer — manifest-laid-out Scanning section', () => 
   });
 });
 
+describe('ModuleSettingsRenderer — manifest-laid-out Popup Behavior & Position & Size sections', () => {
+  const POPUP_BEHAVIOR_LABELS = [
+    'Allow scanning search page content',
+    'Allow scanning popup content',
+    'Maximum number of child popups',
+    'Allow scanning popup source terms',
+    'Auto-hide search popup',
+    'Delay (in milliseconds)',
+    'Hide popup on cursor exit',
+    'Reduced motion scrolling',
+    'Show iframe popups in the root frame',
+  ];
+
+  const POSITION_SIZE_LABELS = [
+    'Display mode',
+    'Full-width position',
+    'Scale',
+    'Width (in pixels)',
+    'Height (in pixels)',
+    'Horizontal text positioning',
+    'Vertical text positioning',
+    'Horizontal text offset (px)',
+    'Vertical text offset (px)',
+  ];
+
+  it('draws only the Yomitan-aligned Popup Behavior rows and removes them from Scanning', () => {
+    const { container } = renderSettings();
+    openSection(/Popup Behavior/i);
+    openSection(/Scanning/i);
+
+    for (const label of POPUP_BEHAVIOR_LABELS) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+
+    const popupSection = container.querySelectorAll('.entei-module-section')[3];
+    expect(popupSection?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
+    // 7 switches + 2 number inputs (Maximum number of child popups, Delay in ms)
+    expect(popupSection?.querySelectorAll('.entei-module-field--switch')).toHaveLength(7);
+    expect(popupSection?.querySelectorAll('input[type="number"]')).toHaveLength(2);
+
+    // Claimed scanning fields no longer appear in the Scanning section
+    expect(screen.queryByText('Scan on search page')).toBeNull();
+    expect(screen.queryByText('Enable popup search')).toBeNull();
+    expect(screen.queryByText('Popup nesting max depth')).toBeNull();
+    expect(screen.queryByText('Hide delay (ms)')).toBeNull();
+    expect(screen.queryByText('Reduced motion scrolling (Scale)')).toBeNull();
+  });
+
+  it('draws only the Yomitan-aligned Position & Size rows with descriptor selects and numbers', async () => {
+    const { container } = renderSettings();
+    openSection(/Position & Size/i);
+
+    for (const label of POSITION_SIZE_LABELS) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+
+    const posSection = container.querySelectorAll('.entei-module-section')[6];
+    expect(posSection?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
+    // 4 selects (Display mode, Full-width position, Horizontal/Vertical text positioning) + 5 number inputs
+    expect(posSection?.querySelectorAll('.entei-module-select')).toHaveLength(4);
+    expect(posSection?.querySelectorAll('input[type="number"]')).toHaveLength(5);
+
+    const displayTrigger = posSection?.querySelector('.entei-module-select');
+    expect(displayTrigger).not.toBeNull();
+    fireEvent.click(displayTrigger as Element);
+    expect(await screen.findByRole('option', { name: 'Full width' })).toBeTruthy();
+  });
+});
+
 describe('ModuleSettingsRenderer — host-owned field row', () => {
   /** Jimaku.cc declares its own two-row tree; nothing here names the module. */
   const jimaku = CORE_MODULES.find((module) => module.id === 'jimaku');
