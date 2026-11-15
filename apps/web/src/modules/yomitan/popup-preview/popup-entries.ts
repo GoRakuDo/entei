@@ -136,18 +136,21 @@ export function restoreTextGlosses(entry: unknown): unknown {
 }
 
 /**
- * Serialize one lookup result set into popup markup.
+ * The generator every card in this directory is drawn with.
  *
- * `entries` is what `lookupTerms` returned — the translator's own dictionary
- * entries, already deinflected and merged. An empty array yields an empty string,
- * which is the caller's signal to draw the placeholder.
+ * It instantiates upstream's own template set and nothing else, so both renderers
+ * build it the same way rather than each carrying its own copy of the setup.
  */
-export async function renderPopupEntriesHtml(
-  templates: string,
-  entries: readonly unknown[],
-  dictionaries: readonly PopupDictionaryInfo[],
-): Promise<string> {
-  if (entries.length === 0) return '';
+async function createPopupGenerator(templates: string): Promise<{
+  createTermEntry: (
+    entry: unknown,
+    dictionaries: PopupDictionaryInfo[],
+  ) => HTMLElement;
+  createKanjiEntry: (
+    entry: unknown,
+    dictionaries: PopupDictionaryInfo[],
+  ) => HTMLElement;
+}> {
   const [{ DisplayGenerator }, { DisplayContentManager }] = await Promise.all([
     import('@/modules/yomitan/vendor/js/display/display-generator.js'),
     import('@/modules/yomitan/vendor/js/display/display-content-manager.js'),
@@ -162,6 +165,32 @@ export async function renderPopupEntriesHtml(
   );
   // This host looks up Japanese only (`general.language` is host-locked to `ja`).
   generator.updateLanguage('ja');
+  return generator as unknown as {
+    createTermEntry: (
+      entry: unknown,
+      dictionaries: PopupDictionaryInfo[],
+    ) => HTMLElement;
+    createKanjiEntry: (
+      entry: unknown,
+      dictionaries: PopupDictionaryInfo[],
+    ) => HTMLElement;
+  };
+}
+
+/**
+ * Serialize one lookup result set into popup markup.
+ *
+ * `entries` is what `lookupTerms` returned — the translator's own dictionary
+ * entries, already deinflected and merged. An empty array yields an empty string,
+ * which is the caller's signal to draw the placeholder.
+ */
+export async function renderPopupEntriesHtml(
+  templates: string,
+  entries: readonly unknown[],
+  dictionaries: readonly PopupDictionaryInfo[],
+): Promise<string> {
+  if (entries.length === 0) return '';
+  const generator = await createPopupGenerator(templates);
 
   return entries
     .map((entry) =>
@@ -169,5 +198,27 @@ export async function renderPopupEntriesHtml(
         .createTermEntry(restoreTextGlosses(entry), [...dictionaries])
         .outerHTML,
     )
+    .join('');
+}
+
+/**
+ * Serialize one lookup's KANJI entries into popup markup.
+ *
+ * The same generator and the same templates as the term list, one method over:
+ * upstream's popup draws a kanji entry with `createKanjiEntry` (onyomi / kunyomi,
+ * meanings, the kanji's own tags and frequencies), so a kanji scan gets the
+ * extension's kanji card rather than a hand-made block. An empty array yields an
+ * empty string, which `buildPopupDocument` draws as the placeholder.
+ */
+export async function renderPopupKanjiHtml(
+  templates: string,
+  entries: readonly unknown[],
+  dictionaries: readonly PopupDictionaryInfo[],
+): Promise<string> {
+  if (entries.length === 0) return '';
+  const generator = await createPopupGenerator(templates);
+
+  return entries
+    .map((entry) => generator.createKanjiEntry(entry, [...dictionaries]).outerHTML)
     .join('');
 }

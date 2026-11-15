@@ -21,8 +21,10 @@
  *    fields a popup or a trace line shows.
  *
  * What is deliberately NOT here: rendering. The scan pipeline emits
- * `yomitan:scan-result` (see `modules/yomitan/text-scanner.ts`) and the UI that
- * draws it is a later step.
+ * `yomitan:scan-result` (see `modules/yomitan/text-scanner.ts`) carrying BOTH the
+ * translator's own entries and the flattened summaries of them, so the floating
+ * popup card (see `modules/yomitan/popup-preview`) draws the scanned word without
+ * running a second lookup of its own.
  * ---------------------------------------------------------------------------
  */
 
@@ -563,6 +565,11 @@ export interface LookupOptions {
  * This is the entry point every scanner calls — a subtitle line, a settings
  * label, a modal heading. An empty result is a normal answer (most UI text is not
  * Japanese), so nothing here throws for "not found".
+ *
+ * The result is the translator's own entry shape, because that is what Yomitan's
+ * card generator needs (`summarizeTermEntry` flattens it for readers that only
+ * print a line of text). No consumer repeats the lookup: the scan publishes these
+ * entries with its result and the popup renders them directly.
  */
 export async function lookupTerms(
   text: string,

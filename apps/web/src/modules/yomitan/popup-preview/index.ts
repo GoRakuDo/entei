@@ -14,6 +14,10 @@
  *
  * Steps 4 and 5 are pure and browser-free; the split is what makes the document
  * (theme resolution, escaping, placeholder) unit-testable without a DOM.
+ *
+ * The FLOATING popup (the one that opens beside a scanned word) is step 2 skipped:
+ * `popup-scanned` feeds the generator the entries the scan already looked up, so
+ * the same steps 3-5 draw the same card from a different source.
  * ---------------------------------------------------------------------------
  */
 
@@ -30,6 +34,7 @@ export {
 } from '@/modules/yomitan/popup-preview/popup-lookup';
 export {
   renderPopupEntriesHtml,
+  renderPopupKanjiHtml,
   restoreTextGlosses,
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
@@ -40,3 +45,9 @@ export {
   resolvePopupFontStyle,
   resolvePopupThemeAttributes,
 } from '@/modules/yomitan/popup-preview/popup-theme';
+export {
+  buildScannedPopupDocument,
+  hasScannedEntries,
+  resolveScannedPopupSize,
+  type ScannedPopupInput,
+} from '@/modules/yomitan/popup-preview/popup-scanned';

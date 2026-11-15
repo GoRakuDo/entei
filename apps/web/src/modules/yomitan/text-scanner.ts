@@ -57,6 +57,24 @@ export interface YomitanScanResultDetail {
   terms: TermSummary[];
   /** Kanji entries for the window's characters. Empty when nothing matched or `searchKanji` is off. */
   kanji: KanjiSummary[];
+  /**
+   * The TRANSLATOR's own term entries the summaries above were flattened from.
+   *
+   * Empty when the scan only had kanji to report, and when `searchTerms` is off.
+   * This is what the floating popup card is drawn from (see
+   * `modules/yomitan/popup-preview/popup-scanned.ts`): a summary carries plain
+   * definition text, while Yomitan's generator needs the real shape — headwords,
+   * pitch accents, frequencies, structured content — for the card to be the
+   * extension's card. Carrying them here is what keeps the popup from looking the
+   * same word up a second time.
+   */
+  entries: unknown[];
+  /** The translator's own kanji entries, for the same reason as `entries`. */
+  kanjiEntries: unknown[];
+  /** Viewport x the scan was made at (`PointerEvent.clientX`). */
+  x: number;
+  /** Viewport y the scan was made at (`PointerEvent.clientY`). */
+  y: number;
 }
 
 /** Scanning settings this module reads (all persisted Yomitan options). */
@@ -1131,6 +1149,12 @@ export async function scanAt(
       kanji: kanji
         .map(summarizeKanjiEntry)
         .filter((entry): entry is KanjiSummary => entry !== null),
+      // The translator's own entries, handed on untouched: the floating popup
+      // draws its card from these rather than looking the word up again.
+      entries: terms,
+      kanjiEntries: kanji,
+      x,
+      y,
     };
     if (detail.terms.length === 0 && detail.kanji.length === 0) {
       traceYomitan('scan_miss', {

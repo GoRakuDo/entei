@@ -20,6 +20,7 @@ import '@styles/global.css';
 import SeoHead from '@components/SeoHead.astro';
 import TopBar from '@components/home/TopBar.astro';
 import { EnteiToaster } from '@components/EizouToaster';
+import { YomitanPopup } from '@components/yomitan/YomitanPopup';
 import { getDictionary } from '@i18n/index';
 import type { Dictionary, Locale } from '@i18n/types';
 
@@ -125,6 +126,13 @@ const dictionary: Dictionary = getDictionary(locale);
       </div>
     </main>
     <EnteiToaster client:load />
+    {
+      /* Floating Yomitan popup — the card that opens next to a scanned word.
+        Mounted by every page for the same reason the scanner is: the text worth
+        scanning is as often in a modal or a plain Astro page as it is in an
+        island. It draws nothing until a scan reports a hit. */
+    }
+    <YomitanPopup client:only="react" />
 
     {
       /* Module script — deferred, runs after DOM parse.

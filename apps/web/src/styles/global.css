@@ -355,6 +355,46 @@ textarea:is(:hover, :focus, :focus-visible):not(:disabled) {
   transition: transform 0.15s ease;
 }
 
+/* ===== FLOATING YOMITAN POPUP (modules/yomitan/floating-popup.ts) =====
+ * The card that opens next to a scanned word, on every page and over every
+ * modal. Its POSITION is computed in JS (next to the word, clamped to the
+ * viewport) and written inline on the element, so nothing here places it —
+ * this block is the frame it is placed into.
+ *
+ * `z-index` sits above every layer the app has (TopBar 100, dialogs 200/201,
+ * skip link 1000): the popup is transient and belongs to whatever the user is
+ * pointing at, including a dialog.
+ *
+ * OKLCH only — no hex/rgb/hsl/named colours (project rule #1621).
+ */
+.entei-yomitan-popup {
+  position: fixed;
+  z-index: 99999;
+  /* The frame is placed from the user's own Position & Size numbers, which the
+     placement clamps to the viewport — this cap is what makes a frame wider than
+     the screen shrink to it instead of being cut in half (the iframe is 100% of
+     this box, so it shrinks with it). */
+  max-width: calc(100vw - var(--entei-space-16));
+  border: 1px solid oklch(100% 0 0deg / 0.12);
+  border-radius: var(--entei-radius-lg);
+  background-color: var(--entei-surface);
+  box-shadow:
+    0 12px 32px oklch(0% 0 0deg / 0.45),
+    0 0 0 1px oklch(0% 0 0deg / 0.35);
+  overflow: hidden;
+}
+
+/* The popup's own document paints its own background (upstream's
+   `popup-outer.css` colours); a transparent frame would show the page through a
+   card the user is reading. */
+.entei-yomitan-popup > iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background-color: var(--entei-surface);
+}
+
 /* ===== SKIP LINK (PHASE0.md 6.139, 14.365) ===== */
 .entei-skip-link {
   position: absolute;
