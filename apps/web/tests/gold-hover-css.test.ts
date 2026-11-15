@@ -96,7 +96,7 @@ describe('gold hover for buttongroups, comboboxes and text fields', () => {
   });
 
   it('item selectors stay scoped under the group root to outrank class rules', () => {
-    // settings.css declares `.entei-scan-input-card
+    // settings.css declares `.entei-module-input-card .entei-choice-group
     // [data-slot='toggle-group-item']` (and its svg) in --entei-text-secondary
     // and loads after global.css: a bare item selector would tie with it and
     // lose on source order, so every item selector carries the group root.

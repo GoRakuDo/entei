@@ -898,7 +898,55 @@ body[data-page='settings'] .entei-main {
    contract: no module name appears here.
    ========================================================================== */
 
-.entei-scan-input-cards {
+/* ==========================================================================
+   SHARED CHOICEGROUP & SCAN INPUT CARDS (the `inputs` layout)
+   =========================================================================== */
+
+.entei-choice-group {
+  display: flex;
+  width: 100%;
+  min-width: 15rem;
+  max-width: 22rem;
+  height: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  gap: var(--entei-space-8);
+}
+
+.entei-choice-group [data-slot='toggle-group-item'] {
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--entei-touch-min);
+  min-height: var(--entei-touch-min);
+  padding-inline: var(--entei-space-8);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--entei-space-8);
+  background-color: var(--entei-surface);
+  color: var(--entei-text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.2;
+  transition:
+    color var(--entei-duration-fast) var(--entei-ease-productive),
+    background-color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-choice-group [data-slot='toggle-group-item'][data-state='on'] {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-text-secondary);
+}
+
+.entei-choice-group [data-slot='toggle-group-item'][data-state='off']:hover:not(:disabled),
+.entei-choice-group [data-slot='toggle-group-item'][data-state='on']:hover:not(:disabled) {
+  background-color: var(--entei-btn-color);
+  color: var(--entei-status-locked);
+}
+
+.entei-choice-group [data-slot='toggle-group-item']:hover:not(:disabled) svg {
+  color: var(--entei-status-locked);
+}
+
+.entei-module-input-cards {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-12);
@@ -907,10 +955,7 @@ body[data-page='settings'] .entei-main {
   list-style: none;
 }
 
-/* One card per input definition: a hairline frame, like a list row but tall
-   enough to hold rows of its own. The 16px padding is the card's inner gutter
-   and the 16px gap separates its rows, so nothing inside needs a margin. */
-.entei-scan-input-card {
+.entei-module-input-card {
   display: flex;
   flex-direction: column;
   gap: var(--entei-space-16);
@@ -919,67 +964,29 @@ body[data-page='settings'] .entei-main {
   border-radius: var(--entei-radius-md);
 }
 
-/* Card head: which input this is, and the delete that belongs to it (top right,
-   where every other block puts its row action). */
-.entei-scan-input-card-head {
+.entei-module-input-card-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--entei-space-8);
+  width: 100%;
+  padding-top: var(--entei-space-8);
+  border-top: 1px solid oklch(100% 0 0deg / 0.06);
 }
 
-/* System font, like every other short status label (the pixel face is reserved
-   for those); tabular so 1 and 10 do not shift the row. */
-.entei-scan-input-card-index {
-  font-family: var(--entei-font-system);
-  font-size: 0.8125rem;
-  letter-spacing: 0.04em;
-  color: var(--entei-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* A required/excluded row: the token field plus the record button beside it. The
-   row itself is the standard field row (label left, control right), so only the
-   pairing is new. */
-.entei-scan-input-field {
+.entei-module-input-card-field {
   align-items: center;
   gap: var(--entei-space-8);
   width: 100%;
 }
 
-/* The field here is never a lone control — it shares its row with the
-   fixed-width record button — so it gives up the 15rem floor an input holds on
-   its own and shrinks to its share instead (narrow phones have no room for both
-   at full floor). */
-.entei-scan-input-field .entei-module-input {
+.entei-module-input-card-field .entei-module-input {
   min-width: 0;
 }
 
-/* The record button waits for input: gold, like every other "the system is
-   armed" accent, so the row it belongs to is unmistakable while it listens.
-   It never shrinks — the field beside it is the flexible one — so it keeps its
-   full touch width at every viewport. */
-.entei-scan-input-record {
+.entei-module-input-card-record {
   flex: 0 0 var(--entei-touch-min);
 }
 
-.entei-scan-input-record[aria-pressed='true'] {
+.entei-module-input-card-record[aria-pressed='true'] {
   color: var(--entei-status-locked);
-}
-
-/* A card's choices are controls, not toolbar chrome: same touch height as the
-   switches, selects and inputs around them. */
-.entei-scan-input-card [data-slot='toggle-group-item'] {
-  min-height: var(--entei-touch-min);
-  /* Tighter inline padding than the 12px default: the card's choices share the
-     15rem control width with every other trailing control, and the 3-item
-     group only fits that width with the narrower gutter. */
-  padding-inline: var(--entei-space-8);
-  color: var(--entei-text-secondary);
-}
-
-.entei-scan-input-card [data-slot='toggle-group-item'] svg {
-  color: var(--entei-text-secondary);
 }
 
 /* Desktop: label left, control right on one line. */
@@ -1011,12 +1018,12 @@ body[data-page='settings'] .entei-main {
   }
 
   /* The token field + record button are ONE 15rem control. */
-  .entei-scan-input-field {
+  .entei-module-input-card-field {
     width: 15rem;
     min-width: 15rem;
   }
 
-  .entei-scan-input-card [data-slot='toggle-group'] {
+  .entei-module-input-card .entei-choice-group {
     width: 15rem;
     min-width: 15rem;
   }
@@ -1143,14 +1150,13 @@ body[data-page='settings'] .entei-main {
    SUBTITLE SYNC MODE CARD — 44px toggle
    ========================================================================= */
 
-/* `.entei-mining-controls-row` takes its flex layout from player.css, which the
-   /settings/ route does not load, so the card states the toggle's own size here:
-   the shadcn track and its items both take the shared 44px touch minimum instead
-   of the default 36px. */
-.entei-settings-section-card--sync [data-slot='toggle-group'],
-.entei-settings-section-card--sync [data-slot='toggle-group-item'] {
-  height: var(--entei-touch-min);
-  min-height: var(--entei-touch-min);
+@media (min-width: 768px) {
+  .entei-settings-section-card--sync .entei-subtitle-sync-toggle .entei-choice-group {
+    width: 15rem;
+    min-width: 15rem;
+    max-width: 15rem;
+    flex-shrink: 0;
+  }
 }
 
 /* ==========================================================================
@@ -1256,9 +1262,18 @@ body[data-page='settings'] .entei-main {
     gap: var(--entei-space-4);
   }
 
-  .entei-settings-section-card--sync .entei-mining-controls-row {
+  .entei-settings-section-card--sync .entei-subtitle-sync-toggle {
     flex-shrink: 0;
+    padding: 0;
     margin-top: 0;
+    width: auto;
+  }
+
+  .entei-settings-section-card--sync .entei-subtitle-sync-toggle .entei-choice-group {
+    width: 15rem;
+    min-width: 15rem;
+    max-width: 15rem;
+    flex-shrink: 0;
   }
 
   /* Desktop modules landing: 2 columns grid */

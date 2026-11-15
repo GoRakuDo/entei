@@ -86,6 +86,7 @@ const COPY = {
     normalizeCssZoom: 'Normalize CSS zoom',
     wildcardScanning: 'Wildcard scanning',
     scanOn: SCANNING_INPUTS_COPY.scanOn,
+    searchFor: SCANNING_INPUTS_COPY.searchFor,
     touch: SCANNING_INPUTS_COPY.touch,
     preventScrolling: SCANNING_INPUTS_COPY.preventScrolling,
     minimumTouchTime: SCANNING_INPUTS_COPY.minimumTouchTime,
@@ -144,7 +145,7 @@ function renderSettings(
 
 /** The scan-input card at one position (cards are positional, not data). */
 function scanInputCard(container: HTMLElement, index: number): HTMLElement {
-  const card = container.querySelectorAll('.entei-scan-input-card')[index];
+  const card = container.querySelectorAll('.entei-module-input-card')[index];
   if (card === undefined) throw new Error(`no scan-input card at ${index}`);
   return card as HTMLElement;
 }
@@ -450,7 +451,7 @@ describe('ModuleSettingsRenderer — manifest-laid-out Scanning section', () => 
       screen.getByText(COPY.scanning.advancedInputsDescription),
     ).toBeTruthy();
     // Yomitan ships two definitions: a mouse one and a touch/pen one.
-    expect(container.querySelectorAll('.entei-scan-input-card')).toHaveLength(
+    expect(container.querySelectorAll('.entei-module-input-card')).toHaveLength(
       2,
     );
     expect(screen.getAllByText(COPY.scanning.requiredInputs)).toHaveLength(2);
@@ -471,7 +472,7 @@ describe('ModuleSettingsRenderer — manifest-laid-out Scanning section', () => 
     // A new card starts as a mouse card with no required input.
     expect(inputs[2]?.include).toBe('');
     expect(inputs[2]?.types.mouse).toBe(true);
-    expect(container.querySelectorAll('.entei-scan-input-card')).toHaveLength(
+    expect(container.querySelectorAll('.entei-module-input-card')).toHaveLength(
       3,
     );
     expect(
@@ -479,36 +480,40 @@ describe('ModuleSettingsRenderer — manifest-laid-out Scanning section', () => 
     ).toBeTruthy();
   });
 
-  it('deletes a card and persists the shorter list', () => {
+  it('never renders a remove button on the first card and deletes additional cards from the bottom button', () => {
     const { container } = renderSettings();
     openScanning();
 
+    const firstCard = scanInputCard(container, 0);
+    const secondCard = scanInputCard(container, 1);
+    expect(within(firstCard).queryByRole('button', { name: COPY.scanning.removeInput })).toBeNull();
+    expect(within(secondCard).getByRole('button', { name: COPY.scanning.removeInput })).toBeTruthy();
+
     fireEvent.click(
       screen.getByRole('button', {
-        name: `${COPY.scanning.removeInput} 1`,
+        name: COPY.scanning.removeInput,
       }),
     );
 
     expect(
       readOptionPath(readYomitanOptions(), 'scanning.inputs'),
     ).toHaveLength(1);
-    expect(container.querySelectorAll('.entei-scan-input-card')).toHaveLength(
+    expect(container.querySelectorAll('.entei-module-input-card')).toHaveLength(
       1,
     );
   });
 
-  it('keeps one pointer type per card and shows the touch rows for it only', () => {
+  it('shows unified option rows across all cards including mouse and persists single pointer type', () => {
     const { container } = renderSettings();
     openScanning();
 
-    /* The first default card is a mouse card: Yomitan's mouse trigger is
-       "hold the required inputs and move", so it has no press or release. The
-       second one serves touch, so its own card does show them. */
     const mouseCard = scanInputCard(container, 0);
-    expect(within(mouseCard).queryByText(COPY.scanning.scanOn)).toBeNull();
+    expect(within(mouseCard).getByText(COPY.scanning.scanOn)).toBeTruthy();
+    expect(within(mouseCard).getByText(COPY.scanning.searchFor)).toBeTruthy();
+    expect(within(mouseCard).getByText(COPY.scanning.preventScrolling)).toBeTruthy();
     expect(
-      within(mouseCard).queryByText(COPY.scanning.minimumTouchTime),
-    ).toBeNull();
+      within(mouseCard).getByText(COPY.scanning.minimumTouchTime),
+    ).toBeTruthy();
     expect(
       within(scanInputCard(container, 1)).getByText(COPY.scanning.scanOn),
     ).toBeTruthy();
@@ -517,15 +522,6 @@ describe('ModuleSettingsRenderer — manifest-laid-out Scanning section', () => 
       within(mouseCard).getByRole('radio', { name: COPY.scanning.touch }),
     );
 
-    const touched = scanInputCard(container, 0);
-    expect(within(touched).getByText(COPY.scanning.scanOn)).toBeTruthy();
-    expect(
-      within(touched).getByText(COPY.scanning.preventScrolling),
-    ).toBeTruthy();
-    expect(
-      within(touched).getByText(COPY.scanning.minimumTouchTime),
-    ).toBeTruthy();
-    // Exactly one type is persisted — the single-select rule.
     const inputs = readOptionPath(readYomitanOptions(), 'scanning.inputs') as {
       types: { mouse: boolean; touch: boolean; pen: boolean };
     }[];

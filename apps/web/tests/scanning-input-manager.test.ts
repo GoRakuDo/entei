@@ -17,10 +17,12 @@ import {
   readScanInputs,
   scanInputKind,
   scanInputPreventScrolling,
+  scanInputSearchTarget,
   scanInputTokens,
   scanInputTrigger,
   withScanInputKind,
   withScanInputPreventScrolling,
+  withScanInputSearchTarget,
   withScanInputToken,
   withScanInputTrigger,
   writeScanInputs,
@@ -90,12 +92,19 @@ describe('normalizeScanInput', () => {
     expect(normalizeScanInput('shift').types.mouse).toBe(false);
   });
 
-  it('re-imposes the always-on term and kanji search', () => {
-    const input = normalizeScanInput({
-      options: { searchTerms: false, searchKanji: false },
+  it('reads and updates the search target (term | kanji)', () => {
+    const termInput = normalizeScanInput({
+      options: { searchTerms: true, searchKanji: false },
     });
-    expect(input.options.searchTerms).toBe(true);
-    expect(input.options.searchKanji).toBe(true);
+    expect(scanInputSearchTarget(termInput)).toBe('term');
+    const kanjiInput = withScanInputSearchTarget(termInput, 'kanji');
+    expect(kanjiInput.options.searchTerms).toBe(false);
+    expect(kanjiInput.options.searchKanji).toBe(true);
+    expect(scanInputSearchTarget(kanjiInput)).toBe('kanji');
+    const backToTerm = withScanInputSearchTarget(kanjiInput, 'term');
+    expect(backToTerm.options.searchTerms).toBe(true);
+    expect(backToTerm.options.searchKanji).toBe(false);
+    expect(scanInputSearchTarget(backToTerm)).toBe('term');
   });
 
   it('clamps a nonsense minimum touch time to zero', () => {
@@ -171,7 +180,7 @@ describe('the scan trigger', () => {
         ...touch,
         options: { ...touch.options, scanOnPenRelease: true },
       }),
-    ).toBe('press');
+    ).toBe('tap');
   });
 
   it('writes the touch trigger off against tap and move', () => {
@@ -214,49 +223,49 @@ describe('the scan trigger', () => {
     expect(pressed.options.scanOnPenReleaseHover).toBe(false);
   });
 
-  it('leaves a mouse card alone (it has no trigger to write)', () => {
+  it('writes the tap trigger flag on a mouse card', () => {
     const mouse = newScanInput();
-    expect(withScanInputTrigger(mouse, 'release')).toEqual(mouse);
+    const released = withScanInputTrigger(mouse, 'release');
+    expect(released.options.scanOnTouchRelease).toBe(true);
+    expect(released.options.scanOnTouchTap).toBe(false);
+    expect(released.options.scanOnTouchPress).toBe(false);
+    expect(released.options.scanOnTouchMove).toBe(false);
   });
 });
 
-describe('the unified touch/pen options', () => {
-  it('reads and writes prevent-scrolling on the card’s own pointer type', () => {
+describe('the unified pointer options', () => {
+  it('reads and writes prevent-scrolling across pointer types', () => {
     const touch = withScanInputKind(newScanInput(), 'touch');
     const blocked = withScanInputPreventScrolling(touch, true);
+    expect(scanInputPreventScrolling(blocked)).toBe(true);
     expect(blocked.options.preventTouchScrolling).toBe(true);
-    // The pen's own flag is untouched, so switching type keeps each side's value.
-    expect(blocked.options.preventPenScrolling).toBe(false);
+    expect(blocked.options.preventPenScrolling).toBe(true);
 
-    const pen = withScanInputPreventScrolling(
-      withScanInputKind(newScanInput(), 'pen'),
-      true,
-    );
-    expect(scanInputPreventScrolling(pen)).toBe(true);
-    expect(pen.options.preventTouchScrolling).toBe(false);
+    const unblocked = withScanInputPreventScrolling(blocked, false);
+    expect(scanInputPreventScrolling(unblocked)).toBe(false);
   });
 
-  it('reports a mouse card as never blocking a scroll', () => {
-    const mouse = {
-      ...newScanInput(),
-      options: { ...newScanInput().options, preventTouchScrolling: true },
-    };
-    expect(scanInputPreventScrolling(mouse)).toBe(false);
-    expect(withScanInputPreventScrolling(mouse, true)).toEqual(mouse);
+  it('reads and writes prevent-scrolling on a mouse card as well', () => {
+    const mouse = newScanInput();
+    const blocked = withScanInputPreventScrolling(mouse, true);
+    expect(scanInputPreventScrolling(blocked)).toBe(true);
+    expect(blocked.options.preventTouchScrolling).toBe(true);
+    expect(blocked.options.preventPenScrolling).toBe(true);
   });
 });
 
 describe('a card added by “Add New Key”', () => {
-  it('starts as an empty mouse card with a press trigger', () => {
+  it('starts as an empty mouse card with tap trigger and term search', () => {
     const input = newScanInput();
     expect(input.include).toBe('');
     expect(input.exclude).toBe('');
     expect(scanInputKind(input)).toBe('mouse');
+    expect(scanInputSearchTarget(input)).toBe('term');
     expect(input.options.searchTerms).toBe(true);
-    expect(input.options.searchKanji).toBe(true);
-    // Switching to touch or pen later lands on a trigger that actually fires.
+    expect(input.options.searchKanji).toBe(false);
+    expect(scanInputTrigger(input)).toBe('tap');
+    expect(scanInputTrigger(withScanInputKind(input, 'touch'))).toBe('tap');
     expect(scanInputTrigger(withScanInputKind(input, 'pen'))).toBe('press');
-    expect(scanInputTrigger(withScanInputKind(input, 'touch'))).toBe('press');
     expect(input.options.minimumTouchTime).toBe(0);
   });
 });

@@ -315,7 +315,7 @@ select:focus-visible[aria-invalid='true'] {
  * settings.css / profile.css declare after global.css (unlayered source order).
  * Items are always scoped under their group root: that extra attribute is what
  * lifts them above later class-scoped rules such as
- * `.entei-scan-input-card [data-slot='toggle-group-item']` in settings.css,
+ * `.entei-module-input-card .entei-choice-group [data-slot='toggle-group-item']` in settings.css,
  * which a bare item selector would only tie with — and lose to on source
  * order. Non-text input types (range/checkbox/radio/colour/file/button) keep
  * their own treatment. OKLCH only — no hex/rgb/hsl/named colours (rule #1621). */

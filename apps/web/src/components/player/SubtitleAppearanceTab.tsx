@@ -17,11 +17,10 @@
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import type { Dictionary } from '@i18n/types';
 import { Slider } from './ui/slider';
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from '@/components/player/ui/toggle-group';
 import { SettingsButton } from '@/components/settings/SettingsButton';
+import {
+  SettingsChoiceGroup,
+} from '@/components/settings/SettingsChoiceGroup';
 import type { SubtitleSyncMode } from '@/features/player/preferences';
 import {
   RotateCcw,
@@ -494,33 +493,25 @@ export function SubtitleAppearanceTab({
                 : dict.subtitleSyncSubtitleDesc}
           </p>
         </div>
-        <div className="entei-mining-controls-row">
-          <ToggleGroup
-            type="single"
+        <div className="entei-mining-controls-row entei-subtitle-sync-toggle">
+          <SettingsChoiceGroup
             value={settings.syncMode ?? 'auto'}
             onValueChange={(v) => {
               if (v === 'subtitle' || v === 'audio' || v === 'auto') {
                 onChange({ syncMode: v });
               }
             }}
-            variant="outline"
-            aria-label={dict.subtitleSyncMode}
-          >
-            {SYNC_MODES.map(({ value, icon: Icon }) => {
+            ariaLabel={dict.subtitleSyncMode}
+            items={SYNC_MODES.map(({ value, icon }) => {
               const label =
                 value === 'subtitle'
                   ? dict.subtitleSyncSubtitle
                   : value === 'audio'
                     ? dict.subtitleSyncAudio
                     : dict.subtitleSyncAuto;
-              return (
-                <ToggleGroupItem key={value} value={value} aria-label={label}>
-                  <Icon size={16} aria-hidden="true" />
-                  <span>{label}</span>
-                </ToggleGroupItem>
-              );
+              return { value, icon, label };
             })}
-          </ToggleGroup>
+          />
         </div>
       </section>
     </div>
