@@ -6,7 +6,7 @@
     "noImplicitOverride": true,
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": true,
-    "allowJs": false,
+    "allowJs": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "moduleResolution": "bundler",

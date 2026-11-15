@@ -40,12 +40,23 @@ import {
   useState,
   type ComponentType,
 } from 'react';
+import type { Options } from '@gorakudo/yomitan-headless/settings';
 import { Eye, EyeOff, Eraser } from 'lucide-react';
 import { Button } from '@/components/player/ui/button';
 import { ButtonGroup } from '@/components/player/ui/button-group';
 import { Input } from '@/components/player/ui/input';
 
-/** What a host-owned field row hands its editor: the row's own text, nothing else. */
+/**
+ * What a host-owned field row hands its editor: the row's own text, plus the
+ * module's whole options tree.
+ *
+ * One contract for every host-owned editor, because the renderer cannot know which
+ * kind it is drawing. A credential editor ignores the tree (its whole value is one
+ * stored string, read through its own binding); an editor that DRAWS from it —
+ * Yomitan's popup preview visualises a dozen settings at once and has to follow
+ * them live — needs it. That is the same access the `list` and `inputs` layouts
+ * already have, so nothing here is specific to either kind.
+ */
 export interface ModuleSecretFieldProps {
   /** Row label (the manifest's literal English). */
   label: string;
@@ -53,6 +64,8 @@ export interface ModuleSecretFieldProps {
   description?: string;
   /** Input placeholder (the descriptor's, when the tree declares one). */
   placeholder?: string;
+  /** The module's whole options tree (the row's own path is already resolved). */
+  options: Options;
 }
 
 /** One credential, as the host binds it. */

@@ -103,9 +103,13 @@ export type ModuleCopyTableName = string;
 export interface EnteiModuleRowBinding {
   /** Which standard layout draws this row. */
   layout: EnteiModuleRowLayout;
-  /** Dot-path of the field this row edits (`list` / `field` / `inputs` rows). */
+  /**
+   * Dot-path of the field this row edits — omitted only by a row the host draws
+   * whole (`list` / `inputs` rows, and a `field` row whose editor is a block the
+   * app composes rather than a value the tree holds).
+   */
   field?: string;
-  /** Host-owned source id (`list`, `inputs` and `usage` rows). */
+  /** Host-owned source id (`list`, `inputs`, `usage` and host-owned `field` rows). */
   source?: string;
   /** Host-owned source id supplying a `field` row's select options. */
   optionsSource?: string;
@@ -227,9 +231,12 @@ function optionalId(value: unknown): string | undefined {
  *
  * Fail-closed per ROW: a malformed row is dropped rather than half applied, so
  * the renderer can trust that every row it receives is addressable — it names a
- * layout the app has and carries whatever that layout needs (`field` for a
- * `field` row, `field` + `source` for a `list` / `inputs` row, `source` for a
- * `usage` row). A section left with no rows is dropped with it.
+ * layout the app has and carries whatever that layout needs. A row is addressable
+ * through its FIELD or through its SOURCE, and `usage` / `list` / `inputs` always
+ * need the source: a `field` row may name a path in the options tree, or no path at
+ * all when the host draws its whole editor (a credential lives in the module's own
+ * store; Yomitan's popup preview is a block the app composes out of the tree). A
+ * section left with no rows is dropped with it.
  *
  * A `field` row may also declare the CONTROL of a path the descriptor tree has
  * no field for (a host-declared virtual field). Only the two types the renderer
@@ -257,7 +264,7 @@ export function normalizeSectionLayouts(
       const source = optionalId(row.source);
       const optionsSource = optionalId(row.optionsSource);
       if (layout === undefined) continue;
-      if (layout !== 'usage' && field === undefined) continue;
+      if (field === undefined && source === undefined) continue;
       if (layout !== 'field' && source === undefined) continue;
       const binding: EnteiModuleRowBinding = { layout };
       if (field !== undefined) binding.field = field;

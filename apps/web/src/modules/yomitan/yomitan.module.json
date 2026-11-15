@@ -171,6 +171,61 @@
       ]
     },
     {
+      "section": "popup-appearance",
+      "rows": [
+        {
+          "layout": "field",
+          "source": "yomitan-popup-preview",
+          "label": "Popup preview",
+          "description": "A live preview of the popup, drawn with the dictionaries you have installed and the appearance settings below."
+        },
+        {
+          "layout": "field",
+          "field": "general.popupTheme",
+          "type": "select",
+          "label": "Popup theme"
+        },
+        {
+          "layout": "field",
+          "field": "general.popupOuterTheme",
+          "type": "select",
+          "label": "Outer theme"
+        },
+        {
+          "layout": "field",
+          "field": "general.fontFamily",
+          "label": "Font family"
+        },
+        {
+          "layout": "field",
+          "field": "general.fontSize",
+          "label": "Font size (px)"
+        },
+        {
+          "layout": "field",
+          "field": "general.lineHeight",
+          "label": "Line height"
+        },
+        {
+          "layout": "field",
+          "field": "general.customPopupCss",
+          "label": "Custom popup CSS",
+          "description": "CSS injected into the popup."
+        },
+        {
+          "layout": "field",
+          "field": "general.customPopupOuterCss",
+          "label": "Custom outer CSS",
+          "description": "CSS injected into the host page around the popup."
+        },
+        {
+          "layout": "field",
+          "field": "general.enableWanakana",
+          "label": "Enable Wanakana (romaji → kana)"
+        }
+      ]
+    },
+    {
       "section": "position-size",
       "rows": [
         {

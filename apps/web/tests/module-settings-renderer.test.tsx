@@ -23,7 +23,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { yomitanSettingsTree } from '@gorakudo/yomitan-headless/settings';
 import { ModuleSettingsRenderer, moduleHasSettings } from '@/components/settings/ModuleSettingsRenderer';
 import {
@@ -696,5 +696,71 @@ describe('ModuleSettingsRenderer — host-owned field row', () => {
     expect(screen.getByText('API key')).toBeTruthy();
     expect(screen.queryByText('No key saved')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
+  });
+});
+
+describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
+  /**
+   * The one section whose first row is not a setting at all: Yomitan's popup
+   * preview. These assertions drive the renderer with the manifest the app
+   * actually ships (`CORE_MODULES`), not a synthetic row list, so a row dropped
+   * by validation or a field silently left to the generic group walk fails here.
+   */
+  const APPEARANCE_LABELS = [
+    'Popup preview',
+    'Popup theme',
+    'Outer theme',
+    'Font family',
+    'Font size (px)',
+    'Line height',
+    'Custom popup CSS',
+    'Custom outer CSS',
+    'Enable Wanakana (romaji → kana)',
+  ];
+
+  function renderShipped() {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    if (yomitan === undefined) throw new Error('yomitan is not registered');
+    return render(
+      <ModuleSettingsRenderer
+        module={{ ...yomitan, showSectionIcons: true }}
+        dict={en}
+      />,
+    );
+  }
+
+  it('leads with the host-owned preview and draws every appearance row once', async () => {
+    const { container } = renderShipped();
+    openSection(/Appearance/i);
+
+    for (const label of APPEARANCE_LABELS) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+
+    const section = container.querySelectorAll('.entei-module-section')[4];
+    expect(section?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
+    // 2 theme selects, 1 switch, 2 custom-CSS textareas, 3 text/number inputs.
+    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(2);
+    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(1);
+    expect(section?.querySelectorAll('textarea')).toHaveLength(2);
+    expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(1);
+
+    /* The preview row is a host-owned block, not a bound control. Its frame is
+       drawn as soon as the vendored assets have been read (they fail soft to the
+       placeholder document outside the desktop app), so the frame is awaited. */
+    const preview = section?.querySelector('.entei-yomitan-popup-preview');
+    expect(preview).not.toBeNull();
+    await waitFor(() =>
+      expect(preview?.querySelectorAll('iframe')).toHaveLength(1),
+    );
+  });
+
+  it('claims every Appearance field, so none is drawn a second time', () => {
+    const { container } = renderShipped();
+    openSection(/Appearance/i);
+
+    const section = container.querySelectorAll('.entei-module-section')[4];
+    // The declared rows replaced the group walk entirely: no group headings.
+    expect(section?.querySelectorAll('.entei-module-group')).toHaveLength(0);
   });
 });

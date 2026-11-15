@@ -589,6 +589,86 @@ body[data-page='settings'] .entei-main {
 }
 
 /* ==========================================================================
+   YOMITAN POPUP PREVIEW (a host-owned `field` block, not a value row)
+   ----------------------------------------------------------------------------
+   A block, not a label-plus-control row: the card needs the whole width, so it
+   stacks under its own text instead of sitting in the desktop control column.
+   The frame's contents are the upstream popup document (see
+   modules/yomitan/popup-preview), so everything here is only the Entei-side
+   window it is shown through — nothing inside it is styled by this file.
+   ========================================================================== */
+
+.entei-yomitan-popup-preview {
+  /* The row is a stacked block, so it does not centre its text against a control. */
+  align-items: start;
+  gap: var(--entei-space-12);
+}
+
+.entei-yomitan-popup-preview-frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* The upstream popup's own content measure is 400px plus its frame; this is
+     that box plus room to breathe, and it collapses with the column. */
+  max-width: 34rem;
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  background-color: var(--entei-surface);
+  overflow: hidden;
+}
+
+/* What was looked up. The frame itself is the popup document, so the term sits
+   above it as this row's own caption rather than inside the card. */
+.entei-yomitan-popup-preview-term {
+  margin: 0;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  border-bottom: 1px solid oklch(100% 0 0deg / 0.08);
+  font-family: var(--entei-font-body);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  color: var(--entei-text-secondary);
+}
+
+.entei-yomitan-popup-preview-viewport {
+  /* The popup's own default height (`general.popupHeight`, 250px) plus the
+     breathing room a card inside a settings page needs. */
+  height: 22rem;
+  /* One cell for both states: the frame fills it, and a loading note sits centred
+     in it instead of clinging to the top edge. */
+  display: grid;
+  place-items: center;
+}
+
+.entei-yomitan-popup-preview-viewport > iframe {
+  grid-area: 1 / 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.entei-yomitan-popup-preview-note {
+  grid-area: 1 / 1;
+  margin: 0;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  text-wrap: pretty;
+}
+
+.entei-yomitan-popup-preview-viewport > .entei-yomitan-popup-preview-note {
+  text-align: center;
+}
+
+/* The failure note sits under the frame in the block's own flow, separated by the
+   same hairline as the term caption above it. */
+.entei-yomitan-popup-preview-frame > .entei-yomitan-popup-preview-note {
+  border-top: 1px solid oklch(100% 0 0deg / 0.08);
+}
+
+/* ==========================================================================
    MODULE LIST MANAGER (the standard installed-item layout)
    ==========================================================================
    Header row — block title + description on the left, the import button on the

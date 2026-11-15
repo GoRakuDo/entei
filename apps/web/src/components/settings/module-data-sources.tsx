@@ -42,6 +42,7 @@ import {
   ScanningInputManager,
   type ScanningInputManagerCopy,
 } from '@/components/settings/ScanningInputManager';
+import { YomitanPopupPreview } from '@/components/settings/YomitanPopupPreview';
 import {
   frequencyDictionaryNames,
   listInstalledDictionaries,
@@ -96,7 +97,14 @@ export interface ModuleInputsSourceProps {
 
 export type ModuleInputsSource = ComponentType<ModuleInputsSourceProps>;
 
-/** What a `field` row whose editor the host owns receives: the row's own text. */
+/**
+ * What a `field` row whose editor the host owns receives: the row's own text plus
+ * the module's options tree.
+ *
+ * An alias, not a narrower type: the renderer draws every host-owned field editor
+ * through ONE contract, because it cannot know which kind of value it is drawing.
+ * A credential editor ignores the tree; Yomitan's popup preview draws from it.
+ */
 export type ModuleFieldSourceProps = ModuleSecretFieldProps;
 
 export type ModuleFieldSource = ComponentType<ModuleFieldSourceProps>;
@@ -251,6 +259,7 @@ const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   },
   'yomitan-scan-modifier-keys': { options: readScanModifierOptions },
   'yomitan-scan-inputs': { inputs: ScanningInputManager },
+  'yomitan-popup-preview': { field: YomitanPopupPreview },
   'jimaku-api-key': { field: JIMAKU_API_KEY_FIELD },
   'jimaku-auto-load': { field: JimakuAutoLoadField },
   'nadeshiko-api-key': { field: NADESHIKO_API_KEY_FIELD },

@@ -23,6 +23,7 @@ import {
   createSecretField,
   type ModuleSecretFieldBinding,
 } from '@/components/settings/ModuleSecretField';
+import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
 
 /** A store the test can read and poke, behind the binding the layout expects. */
 interface MemoryStore {
@@ -65,6 +66,7 @@ function mount(binding: ModuleSecretFieldBinding) {
       label={LABEL}
       description="Stored on this device only."
       placeholder={PLACEHOLDER}
+      options={createDefaultOptions()}
     />,
   );
 }

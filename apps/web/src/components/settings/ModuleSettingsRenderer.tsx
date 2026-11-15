@@ -514,6 +514,28 @@ function ModuleLayoutRow({
   const label = row.label ?? field?.label;
   const description = row.description ?? field?.description;
 
+  /* HOST-OWNED EDITOR: a row the host draws itself, either for a value that is
+     not in the options tree at all (a module's credential lives in that module's
+     own store) or for a row that names NO tree field because it is not a value —
+     Yomitan's popup preview is a block the app composes out of the module's whole
+     options. Both are resolved before the standard row, which would draw a
+     control bound to a path this tree cannot answer, or nothing at all. Without
+     such a source the row falls through, so a manifest degrades instead of losing
+     the row. */
+  if (row.layout === 'field') {
+    const FieldEditor = source?.field;
+    if (FieldEditor !== undefined && label !== undefined) {
+      return (
+        <FieldEditor
+          label={label}
+          description={description}
+          placeholder={field?.placeholder}
+          options={options}
+        />
+      );
+    }
+  }
+
   /* HOST-DECLARED VIRTUAL FIELD: a row whose path the app answers in its options
      store but that the module's tree has no descriptor for (a Yomitan scan
      modifier lives inside `scanning.inputs[]`, so "which modifier" is a value the
@@ -556,25 +578,6 @@ function ModuleLayoutRow({
      chain above could not prove. */
   const rowLabel = label ?? field.label;
   const rowDescription = description ?? field.description;
-
-  /* HOST-OWNED FIELD EDITOR: a row whose value is not in the options tree at all
-     (a module's credential lives in that module's own store), so the source
-     behind the row brings the editor and the manifest brings only the text. It is
-     resolved before the standard row, which would draw an input bound to a path
-     this tree cannot answer. Without such a source the row stays standard, so a
-     manifest degrades instead of losing the row. */
-  if (row.layout === 'field') {
-    const FieldEditor = source?.field;
-    if (FieldEditor !== undefined && rowLabel !== undefined) {
-      return (
-        <FieldEditor
-          label={rowLabel}
-          description={rowDescription}
-          placeholder={field.placeholder}
-        />
-      );
-    }
-  }
 
   if (row.layout === 'list') {
     const ListEditor = source?.list;
