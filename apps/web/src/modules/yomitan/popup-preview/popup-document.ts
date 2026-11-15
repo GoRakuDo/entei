@@ -72,6 +72,10 @@ export interface PopupDocumentInput {
   fontStyle: string;
   /** `general.customPopupCss` (may be empty). */
   customCss: string;
+  /** `data-popup-action-bar-location` value. */
+  popupActionBarLocation?: 'top' | 'bottom' | 'left' | 'right';
+  /** `data-popup-action-bar-visibility` value. */
+  popupActionBarVisibility?: 'always' | 'auto';
   /**
    * Markup of the dictionary entries, from Yomitan's `DisplayGenerator`. An empty
    * string draws the placeholder instead.
@@ -129,22 +133,30 @@ function renderThemeAttributes(
  */
 function renderPlaceholder(): string {
   const text = escapeAttribute(POPUP_PREVIEW_PLACEHOLDER);
-  return `<div class="entry" id="no-dictionaries"><p>${text}</p></div>`;
+  return `<div class="entry active" id="no-dictionaries"><p>${text}</p></div>`;
 }
 
 /**
  * Build the preview document.
  *
  * Structure follows `ext/popup.html`'s body: the scroll container, the content
- * body and the entry list, with the popup's sidebar (close / navigate / profile
- * buttons) and frame resizer left out — they are host-page affordances that would
- * be dead controls inside a settings preview.
+ * body, the entry list, and the content-sidebar (action bar with `<`, `>`, `×`
+ * buttons) configured via `data-popup-action-bar-location` and
+ * `data-popup-action-bar-visibility`.
  */
 export function buildPopupDocument(input: PopupDocumentInput): string {
-  const { css, themeAttributes, fontStyle, customCss, entriesHtml } = input;
+  const {
+    css,
+    themeAttributes,
+    fontStyle,
+    customCss,
+    entriesHtml,
+    popupActionBarLocation = 'top',
+    popupActionBarVisibility = 'always',
+  } = input;
   const style = fontStyle === '' ? '' : ` style="${escapeAttribute(fontStyle)}"`;
-  const body =
-    entriesHtml === '' ? renderPlaceholder() : entriesHtml;
+  const hasEntries = entriesHtml !== '';
+  const body = hasEntries ? entriesHtml : renderPlaceholder();
 
   const sheets = [
     `<style>\n${neutralizeStyleBreakout(css)}\n</style>`,
@@ -155,7 +167,7 @@ export function buildPopupDocument(input: PopupDocumentInput): string {
   }
 
   return `<!DOCTYPE html>
-<html lang="ja" data-page-type="popup"${renderThemeAttributes(themeAttributes)}${style}>
+<html lang="ja" data-page-type="popup" data-popup-action-bar-location="${escapeAttribute(popupActionBarLocation)}" data-popup-action-bar-visibility="${escapeAttribute(popupActionBarVisibility)}"${renderThemeAttributes(themeAttributes)}${style}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -167,7 +179,8 @@ ${sheets.join('\n')}
 <span tabindex="-1" id="content-scroll-focus"></span>
 <div class="search-header"></div>
 <div id="dictionary-entries">${body}</div>
-</div></div></div></div></div>
+<div id="no-results"${hasEntries ? ' hidden' : ''}><div class="entry"><p>No results found.</p></div></div>
+</div></div></div></div><div class="content-sidebar scrollbar" id="content-sidebar"><div class="content-sidebar-inner"><div class="content-sidebar-top-pre"><button class="sidebar-button danger" data-action="close" id="close-button" title="Close popup"><span class="sidebar-button-icon icon" data-icon="cross"></span></button></div><div class="content-sidebar-top"><button class="sidebar-button" data-action="navigate-previous" disabled id="navigate-previous-button" title="Previous definition"><span class="sidebar-button-icon icon" data-icon="left-chevron"></span></button><button class="sidebar-button" data-action="navigate-next" disabled id="navigate-next-button" title="Next definition"><span class="sidebar-button-icon icon" data-icon="right-chevron"></span></button></div></div></div></div>
 </body>
 </html>`;
 }

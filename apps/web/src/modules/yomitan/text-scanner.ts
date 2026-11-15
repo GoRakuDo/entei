@@ -682,6 +682,7 @@ export function selectScanWindow(
   node: Text,
   offset: number,
   end: number,
+  lang: string = 'ja',
 ): void {
   const document = globalThis.document;
   const selection = document?.getSelection();
@@ -692,6 +693,17 @@ export function selectScanWindow(
   selection.removeAllRanges();
   selection.addRange(range);
   scanSelection = range;
+
+  // Sync document lang attribute inside view transition so TTS/IPA dictionaries match the scanned language
+  if (document.documentElement.lang !== lang) {
+    if (typeof document.startViewTransition === 'function') {
+      document.startViewTransition(() => {
+        document.documentElement.lang = lang;
+      });
+    } else {
+      document.documentElement.lang = lang;
+    }
+  }
 }
 
 /**
@@ -1307,7 +1319,16 @@ export async function scanAt(
         point.node,
         windowed.offset,
         windowed.offset + matchLength,
+        'ja',
       );
+    } else if (globalThis.document?.documentElement.lang !== 'ja') {
+      if (typeof globalThis.document.startViewTransition === 'function') {
+        globalThis.document.startViewTransition(() => {
+          if (globalThis.document) globalThis.document.documentElement.lang = 'ja';
+        });
+      } else {
+        globalThis.document.documentElement.lang = 'ja';
+      }
     }
     traceYomitan('scan_hit', {
       text: detail.text,

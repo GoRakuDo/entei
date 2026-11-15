@@ -57,11 +57,13 @@ export function popupLookupKey(options: Options): string {
   return JSON.stringify([
     profile.dictionaries,
     general.mainDictionary,
+    general.language,
     general.resultOutputMode,
     general.sortFrequencyDictionary,
     general.sortFrequencyDictionaryOrder,
     general.maxResults,
     scanning.alphanumeric,
+    scanning.layoutAwareScan,
     translation.searchResolution,
     translation.textReplacements,
     parsing.useAllFrequencyDictionaries,

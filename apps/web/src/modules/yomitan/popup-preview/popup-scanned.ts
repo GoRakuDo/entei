@@ -90,6 +90,8 @@ export async function buildScannedPopupDocument(
     themeAttributes: appearance.themeAttributes,
     fontStyle: appearance.fontStyle,
     customCss: appearance.customCss,
+    popupActionBarLocation: appearance.popupActionBarLocation,
+    popupActionBarVisibility: appearance.popupActionBarVisibility,
     entriesHtml: `${entries}${kanjiHtml}`,
   });
 }

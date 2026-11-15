@@ -56,6 +56,8 @@ export interface PopupAppearance {
    * by both popups (the Appearance preview and the floating one).
    */
   resolvedOuterTheme: ResolvedPopupOuterTheme;
+  popupActionBarLocation: 'top' | 'bottom' | 'left' | 'right';
+  popupActionBarVisibility: 'always' | 'auto';
   /** Inline `style` text for the document element ('' when all defaults). */
   fontStyle: string;
   /** `general.customPopupCss`, verbatim. */
@@ -207,15 +209,27 @@ export function resolvePopupAppearance(options: Options): PopupAppearance {
     popupWidth,
     popupHeight,
     popupScalingFactor,
+    popupActionBarLocation = 'top',
+    popupActionBarVisibility = 'always',
   } = profile.general;
   const scale = positiveOr(popupScalingFactor, DEFAULT_POPUP_SCALE);
   const themeAttributes = resolvePopupThemeAttributes(
     popupTheme,
     popupOuterTheme,
   );
+  const rawLocation = String(popupActionBarLocation).toLowerCase();
+  const validLocation = ['top', 'bottom', 'left', 'right'].includes(rawLocation)
+    ? (rawLocation as 'top' | 'bottom' | 'left' | 'right')
+    : 'top';
+  const rawVisibility = String(popupActionBarVisibility).toLowerCase();
+  const validVisibility = rawVisibility === 'never' || rawVisibility === 'auto'
+    ? (rawVisibility as 'always' | 'auto')
+    : 'always';
   return {
     themeAttributes,
     resolvedOuterTheme: resolvePopupOuterTheme(themeAttributes.outerTheme),
+    popupActionBarLocation: validLocation,
+    popupActionBarVisibility: validVisibility,
     fontStyle: resolvePopupFontStyle(fontFamily, fontSize, lineHeight, scale),
     customCss: customPopupCss,
     size: {
@@ -246,6 +260,8 @@ export function popupAppearanceKey(options: Options): string {
     popupWidth,
     popupHeight,
     popupScalingFactor,
+    popupActionBarLocation,
+    popupActionBarVisibility,
   } = profile.general;
   return JSON.stringify([
     popupTheme,
@@ -257,5 +273,7 @@ export function popupAppearanceKey(options: Options): string {
     popupWidth,
     popupHeight,
     popupScalingFactor,
+    popupActionBarLocation,
+    popupActionBarVisibility,
   ]);
 }

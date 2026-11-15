@@ -289,6 +289,23 @@ describe('yomitan popup preview — document', () => {
     expect(html.match(/<style>/g)?.length).toBe(2);
   });
 
+  it('draws the active sidebar action bar and active indicator by default', () => {
+    const html = buildPopupDocument({
+      css: EMPTY_CSS,
+      themeAttributes: theme,
+      fontStyle: '',
+      customCss: '',
+      entriesHtml: '',
+    });
+    expect(html).toContain('data-popup-action-bar-location="top"');
+    expect(html).toContain('data-popup-action-bar-visibility="always"');
+    expect(html).toContain('id="content-sidebar"');
+    expect(html).toContain('data-action="close"');
+    expect(html).toContain('data-action="navigate-previous"');
+    expect(html).toContain('data-action="navigate-next"');
+    expect(html).toContain('class="entry active"');
+  });
+
   it('carries the generated card, the custom CSS and the frame reset', () => {
     const html = buildPopupDocument({
       css: EMPTY_CSS,

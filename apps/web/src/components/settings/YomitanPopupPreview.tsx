@@ -144,6 +144,8 @@ export function YomitanPopupPreview({
       themeAttributes: appearance.themeAttributes,
       fontStyle: appearance.fontStyle,
       customCss: appearance.customCss,
+      popupActionBarLocation: appearance.popupActionBarLocation,
+      popupActionBarVisibility: appearance.popupActionBarVisibility,
       entriesHtml: built.entriesHtml,
     });
   }, [built, appearance]);

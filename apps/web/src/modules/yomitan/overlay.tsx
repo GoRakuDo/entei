@@ -248,6 +248,17 @@ export function YomitanPopup() {
     setPlacement(null);
   }, []);
 
+  const onFrameLoad = useCallback((event: React.SyntheticEvent<HTMLIFrameElement>) => {
+    const doc = event.currentTarget.contentDocument;
+    if (!doc) return;
+    doc.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-action="close"]')) {
+        close();
+      }
+    });
+  }, [close]);
+
   useEffect(() => {
     if (open === null) return;
     const onEvent = (event: Event): void => {
@@ -294,9 +305,10 @@ export function YomitanPopup() {
       <iframe
         title={`${POPUP_COPY.title}: ${open.text}`}
         srcDoc={open.srcDoc}
+        onLoad={onFrameLoad}
         /* Static markup: nothing in the frame runs, and the document carries
            user CSS and dictionary text. */
-        sandbox=""
+        sandbox="allow-scripts"
       />
     </div>
   );

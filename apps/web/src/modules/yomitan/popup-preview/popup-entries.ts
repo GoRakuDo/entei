@@ -193,11 +193,15 @@ export async function renderPopupEntriesHtml(
   const generator = await createPopupGenerator(templates);
 
   return entries
-    .map((entry) =>
-      generator
+    .map((entry, index) => {
+      const html = generator
         .createTermEntry(restoreTextGlosses(entry), [...dictionaries])
-        .outerHTML,
-    )
+        .outerHTML.replace(/ lang="[^"]*"/g, '');
+      if (index === 0) {
+        return html.replace(/^<div class="entry"/, '<div class="entry active"');
+      }
+      return html;
+    })
     .join('');
 }
 
@@ -219,6 +223,14 @@ export async function renderPopupKanjiHtml(
   const generator = await createPopupGenerator(templates);
 
   return entries
-    .map((entry) => generator.createKanjiEntry(entry, [...dictionaries]).outerHTML)
+    .map((entry, index) => {
+      const html = generator
+        .createKanjiEntry(entry, [...dictionaries])
+        .outerHTML.replace(/ lang="[^"]*"/g, '');
+      if (index === 0) {
+        return html.replace(/^<div class="entry"/, '<div class="entry active"');
+      }
+      return html;
+    })
     .join('');
 }
