@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
-import { YomitanPopup } from '@/components/yomitan/YomitanPopup';
+import { YomitanPopup } from '@/modules/yomitan/overlay';
 import {
   YOMITAN_SCAN_RESULT_EVENT,
   type YomitanScanResultDetail,
@@ -216,6 +216,8 @@ function publishScan(
       detail: {
         text: '食べる',
         offset: 0,
+        matchLength: 3,
+        anchor: { top: 400, left: 120, width: 28, height: 20 },
         terms: [],
         kanji: [],
         kanjiEntries: [],
@@ -239,6 +241,8 @@ async function scanResultFor(text: string): Promise<YomitanScanResultDetail> {
   return {
     text,
     offset: 0,
+    matchLength: 3,
+    anchor: { top: 400, left: 120, width: 28, height: 20 },
     terms: [],
     kanji: [],
     kanjiEntries: [],
@@ -256,6 +260,8 @@ async function kanjiScanResultFor(
   return {
     text,
     offset: 0,
+    matchLength: 1,
+    anchor: { top: 400, left: 120, width: 20, height: 20 },
     terms: [],
     kanji: [],
     kanjiEntries: await lookupKanji(text),
@@ -317,6 +323,28 @@ describe('YomitanPopup — floating scan popup', () => {
     expect(document).toContain('kanji-tag');
     expect(document).toContain('ate1');
     expect(document).toContain('KANJIDIC');
+  });
+
+  it('sits against the matched word, not against the pointer', async () => {
+    const detail = await scanResultFor('食べた');
+    const { container } = render(<YomitanPopup />);
+
+    /* The scanner publishes the MATCHED WORD's own box; the pointer (120, 400) is
+       what the frame must ignore — that is what used to drag it up and to the
+       left of the word. */
+    publishScan({
+      ...detail,
+      anchor: { top: 200, left: 300, width: 28, height: 20 },
+    });
+
+    await waitFor(() => expect(popupFrame(container)).not.toBeNull());
+    const frame = popupFrame(container) as HTMLElement;
+    /* Upstream's own placement: the frame's left edge on the word's left edge,
+       its top edge just under the word, with the user's two distance knobs
+       (general.popupHorizontalOffset 0 / popupVerticalOffset 10) between. */
+    expect(frame.style.left).toBe('300px');
+    expect(frame.style.top).toBe('230px');
+    expect(frame.dataset.side).toBe('below');
   });
 
   it('stays closed for a scan that found nothing', async () => {

@@ -1,8 +1,13 @@
 'use client';
 
 /**
- * YomitanPopup — the floating Yomitan popup, app-wide.
+ * Yomitan's own overlay — the floating popup, drawn anywhere in the app.
  * ---------------------------------------------------------------------------
+ * THIS FILE IS THE MODULE'S OVERLAY ENTRY. The host never imports it by name:
+ * `features/modules/module-overlays` discovers `src/modules/<id>/overlay.tsx` for
+ * every registered module and draws the ones the user has enabled, so adding a
+ * module that floats over the whole app needs no layout edit and no host list.
+ *
  * The scanner (installed once per page by `scripts/trace-boot.ts`) looks up the
  * Japanese text under the pointer and announces what it found on
  * `yomitan:scan-result`. This is the other half: the card that appears next to
@@ -15,21 +20,21 @@
  * the Position & Size numbers are the persisted Yomitan options, so the popup
  * looks the way the settings card shows it will.
  *
- * WHERE IT SITS. Next to the scanned word, below it when there is room and above
- * it when there is not, clamped to the viewport so a 400px popup at the edge of a
+ * WHERE IT SITS. Against the SCANNED WORD's own box, which the scanner measures
+ * and publishes with the hit: the frame's left edge on the word's left edge and
+ * its top edge just under the word (the user's `popupHorizontalOffset` /
+ * `popupVerticalOffset` between them), flipped above the word when there is no
+ * room below and clamped to the viewport so a 400px popup at the edge of a
  * subtitle panel is never clipped (see `modules/yomitan/floating-popup.ts`).
  *
  * WHY IT DOES NOT LOOK THE WORD UP. It already has the answer. The scan ran the
  * lookup, and it publishes the translator's own entries with the event, so a scan
  * costs exactly one dictionary round trip no matter how many popups read it.
- *
- * Mounted by both layouts: the text worth scanning is as often in a modal or a
- * plain Astro page as it is in an island, and a popup can only be announced by a
- * listener that is already mounted when the scan lands.
  * ---------------------------------------------------------------------------
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
   buildScannedPopupDocument,
   hasScannedEntries,
@@ -38,7 +43,10 @@ import {
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
 } from '@/modules/yomitan/popup-preview';
-import { readYomitanOptions } from '@/modules/yomitan/yomitan-preferences';
+import {
+  readOptionPath,
+  readYomitanOptions,
+} from '@/modules/yomitan/yomitan-preferences';
 import { listInstalledDictionariesCached } from '@/modules/yomitan/dictionary-store';
 import {
   YOMITAN_SCAN_RESULT_EVENT,
@@ -47,9 +55,11 @@ import {
 import {
   nextCloseSignal,
   placePopup,
-  POPUP_ANCHOR_GAP,
+  POPUP_HORIZONTAL_OFFSET,
+  POPUP_VERTICAL_OFFSET,
   POPUP_VIEWPORT_MARGIN,
   type PopupPlacement,
+  type PopupPlacementOptions,
   type PopupRect,
 } from '@/modules/yomitan/floating-popup';
 
@@ -75,8 +85,10 @@ interface OpenPopup {
   srcDoc: string;
   /** Frame box in CSS pixels (the user's Position & Size numbers). */
   size: { width: number; height: number };
-  /** The scanned text's rectangle, in viewport coordinates. */
+  /** The scanned word's rectangle, in viewport coordinates. */
   anchor: PopupRect;
+  /** The user's two distance knobs, in pixels. */
+  offsets: PopupPlacementOptions;
   /** What was scanned — carried so a re-placement does not need the event. */
   text: string;
 }
@@ -91,36 +103,21 @@ function readViewport(): { width: number; height: number } {
 }
 
 /**
- * The scanned text's rectangle.
+ * The user's two distance knobs (`general.popupHorizontalOffset` /
+ * `popupVerticalOffset`), in pixels.
  *
- * The scanner selects the window it read only when the user turned on "Select
- * text when scanning" (`scanning.selectText`), so the selection is the preferred
- * anchor and the pointer position is the fallback — which is also the only anchor
- * there is for the default, hover-driven scan.
+ * Non-numbers fall back to upstream's own defaults rather than to `0`: a hand
+ * edited options tree that cleared a knob must not glue the card to the word.
  */
-function readAnchor(detail: YomitanScanResultDetail): PopupRect {
-  if (typeof document !== 'undefined') {
-    const selection = document.getSelection();
-    if (
-      selection !== null &&
-      selection.rangeCount > 0 &&
-      !selection.isCollapsed
-    ) {
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      if (rect.width > 0 || rect.height > 0) {
-        return {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height,
-        };
-      }
-    }
-  }
-  // A caret has no box of its own: a zero-size rectangle at the pointer is the
-  // same anchor for the placement arithmetic.
-  return { top: detail.y, left: detail.x, width: 0, height: 0 };
+function readPlacementOffsets(options: Options): PopupPlacementOptions {
+  const read = (path: string, fallback: number): number => {
+    const value = readOptionPath(options, path);
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  };
+  return {
+    horizontalOffset: read('general.popupHorizontalOffset', POPUP_HORIZONTAL_OFFSET),
+    verticalOffset: read('general.popupVerticalOffset', POPUP_VERTICAL_OFFSET),
+  };
 }
 
 /** The dictionaries the generator prints on its dictionary tags. */
@@ -138,7 +135,7 @@ async function readDictionaries(): Promise<PopupDictionaryInfo[]> {
 function clampFrameHeight(height: number, viewportHeight: number): number {
   if (viewportHeight <= 0) return height;
   const cap = Math.max(
-    POPUP_VIEWPORT_MARGIN * 2 + POPUP_ANCHOR_GAP,
+    POPUP_VIEWPORT_MARGIN * 2,
     Math.floor(viewportHeight * MAX_VIEWPORT_HEIGHT_RATIO),
   );
   return Math.min(height, cap);
@@ -183,7 +180,10 @@ export function YomitanPopup() {
           setOpen({
             srcDoc,
             size: resolveScannedPopupSize(options),
-            anchor: readAnchor(detail),
+            // The scanner measures the MATCHED WORD, not the window it read, so
+            // the card sits under the word the user is looking at.
+            anchor: detail.anchor,
+            offsets: readPlacementOffsets(options),
             text: detail.text,
           });
         } catch {
@@ -214,8 +214,7 @@ export function YomitanPopup() {
           open.size.width,
           clampFrameHeight(open.size.height, viewport.height),
           viewport,
-          POPUP_ANCHOR_GAP,
-          POPUP_VIEWPORT_MARGIN,
+          open.offsets,
         ),
       );
     };
@@ -271,8 +270,8 @@ export function YomitanPopup() {
       className="entei-yomitan-popup"
       data-side={placement?.side ?? 'below'}
       style={{
-        top: `${placement?.top ?? open.anchor.top + open.anchor.height + POPUP_ANCHOR_GAP}px`,
-        left: `${placement?.left ?? open.anchor.left}px`,
+        top: `${placement?.top ?? open.anchor.top + open.anchor.height + (open.offsets.verticalOffset ?? POPUP_VERTICAL_OFFSET)}px`,
+        left: `${placement?.left ?? open.anchor.left + (open.offsets.horizontalOffset ?? POPUP_HORIZONTAL_OFFSET)}px`,
         width: `${open.size.width}px`,
         height: `${clampFrameHeight(open.size.height, viewport.height)}px`,
       }}
@@ -287,3 +286,5 @@ export function YomitanPopup() {
     </div>
   );
 }
+
+export default YomitanPopup;

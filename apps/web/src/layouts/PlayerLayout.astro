@@ -22,7 +22,7 @@ import '@styles/player.css';
 import SeoHead from '@components/SeoHead.astro';
 import TopBar from '@components/home/TopBar.astro';
 import { EnteiToaster } from '@components/EizouToaster';
-import { YomitanPopup } from '@components/yomitan/YomitanPopup';
+import { EnteiModuleOverlays } from '@/features/modules/module-overlays';
 import { getDictionary } from '@i18n/index';
 import type { Dictionary, Locale } from '@i18n/types';
 
@@ -91,12 +91,12 @@ const dictionary: Dictionary = getDictionary(locale);
     </main>
     <EnteiToaster client:load />
     {
-      /* Floating Yomitan popup — the card that opens next to a scanned word.
-        Mounted here for the same reason the scanner is: the subtitles worth
-        scanning are in this layout's own React island, and the popup draws
-        nothing until a scan reports a hit. */
+      /* Module overlays — whatever an ENABLED module draws over the whole app
+        (today: the floating Yomitan popup, the card that opens next to a scanned
+        word). The layout names no module: the registry and the enabled state
+        decide, and nothing draws until a scan reports a hit. */
     }
-    <YomitanPopup client:only="react" />
+    <EnteiModuleOverlays client:only="react" />
 
     <script>
       import '../scripts/locale-switcher.ts';

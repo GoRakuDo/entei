@@ -20,10 +20,16 @@
  *   offset, and up to `scanning.length` characters are taken from there.
  * - LOOK UP: `modules/yomitan/yomitan-engine` (loaded lazily on first scan).
  * - ANNOUNCE: one `yomitan:scan-result` CustomEvent on `window`, plus a trace
- *   line, and the scanned text selected when `scanning.selectText` is on.
+ *   line, and the MATCHED WORD — not the whole window that was read — selected
+ *   when `scanning.selectText` is on. The window has to be longer than the word
+ *   for an inflected or compound word to resolve at all, so the translator's own
+ *   `originalTextLength` is what says where the word ends; the same length is
+ *   what the floating popup anchors to, which is why the word lights up under
+ *   the card instead of a run of trailing characters.
  * ---------------------------------------------------------------------------
  */
 
+import type { PopupRect } from '@/modules/yomitan/floating-popup';
 import type {
   KanjiSummary,
   TermSummary,
@@ -53,6 +59,23 @@ export interface YomitanScanResultDetail {
   text: string;
   /** Where `text` starts in the scanned element (caret offset of the window). */
   offset: number;
+  /**
+   * How much of `text`, counted from `offset`, the lookup actually matched.
+   *
+   * The window is longer than the word on purpose, so this is the only thing that
+   * says where the word ends: `0` for a miss (nothing to light up), the
+   * translator's `originalTextLength` for a term hit, and `1` for a kanji hit
+   * (upstream looks kanji up one character at a time).
+   */
+  matchLength: number;
+  /**
+   * The matched word's box, in viewport coordinates.
+   *
+   * What the floating popup is placed against — the word itself rather than the
+   * pointer or the selection, so the card sits under the word the user is
+   * reading. A zero-size box at the pointer is the fallback for a miss.
+   */
+  anchor: PopupRect;
   /** Matched term entries, best first. Empty when nothing matched or `searchTerms` is off. */
   terms: TermSummary[];
   /** Kanji entries for the window's characters. Empty when nothing matched or `searchKanji` is off. */
@@ -589,6 +612,72 @@ function readScanSnapshot(): ScanSnapshot {
  * Selection (the scanning option that highlights what it read)
  * ------------------------------------------------------------------------- */
 
+/**
+ * The range the scanner selected last, so its own highlight can be taken away
+ * again without touching a selection the user made by hand.
+ */
+let scanSelection: Range | null = null;
+
+/** Clamp one caret offset to the text node it belongs to. */
+function caretClamp(node: Text, offset: number): number {
+  return Math.max(0, Math.min(offset, node.data.length));
+}
+
+/**
+ * How much of the scan window the LOOKUP matched, in UTF-16 code units.
+ *
+ * PURE, because it is the one number both halves of the feature depend on: the
+ * highlight (`selectScanWindow`) and the popup's anchor box. `originalTextLength`
+ * is the translator's own figure — the length of the source text the winning
+ * deinflection was read from, counted from the start of the window — so it is
+ * clamped to the window and never allowed to answer `0` for a hit: a kanji scan
+ * reports no length of its own and still lights up the one character it read.
+ */
+export function matchedScanLength(
+  originalTextLength: number,
+  windowLength: number,
+  hit: boolean,
+): number {
+  if (!hit || windowLength <= 0) return 0;
+  if (!Number.isFinite(originalTextLength) || originalTextLength <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.min(Math.floor(originalTextLength), windowLength));
+}
+
+/**
+ * The matched word's box, in viewport coordinates (`position: fixed` space).
+ *
+ * Measured off a range of its own rather than off the selection: the highlight is
+ * an option (`scanning.selectText`) and the card is not — it has to sit under the
+ * word whether or not the word is lit. A range that draws no box (an unrendered
+ * node) falls back to a zero-size box at the pointer.
+ */
+export function matchAnchorRect(
+  node: Text,
+  offset: number,
+  length: number,
+  x: number,
+  y: number,
+): PopupRect {
+  const document = globalThis.document;
+  if (document !== undefined && length > 0) {
+    const range = document.createRange();
+    range.setStart(node, caretClamp(node, offset));
+    range.setEnd(node, caretClamp(node, offset + length));
+    const rect = range.getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) {
+      return {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+  }
+  return { top: y, left: x, width: 0, height: 0 };
+}
+
 export function selectScanWindow(
   node: Text,
   offset: number,
@@ -598,10 +687,39 @@ export function selectScanWindow(
   const selection = document?.getSelection();
   if (document === undefined || selection === null) return;
   const range = document.createRange();
-  range.setStart(node, Math.max(0, Math.min(offset, node.data.length)));
-  range.setEnd(node, Math.max(0, Math.min(end, node.data.length)));
+  range.setStart(node, caretClamp(node, offset));
+  range.setEnd(node, caretClamp(node, end));
   selection.removeAllRanges();
   selection.addRange(range);
+  scanSelection = range;
+}
+
+/**
+ * Take the scanner's own highlight away, and only that one.
+ *
+ * The highlight exists to show the user what is being read, so it goes when the
+ * answer does — a scan that found nothing must not leave the previous word lit
+ * under a card that is no longer there. A selection the user made by hand is
+ * never the scanner's to remove, so it is left exactly as it is.
+ */
+export function clearScanSelection(): void {
+  const document = globalThis.document;
+  const selection = document?.getSelection();
+  if (document === undefined || selection === null) return;
+  const mine = scanSelection;
+  if (mine === null) return;
+  scanSelection = null;
+  if (selection.rangeCount !== 1) return;
+  const current = selection.getRangeAt(0);
+  if (
+    current.startContainer !== mine.startContainer ||
+    current.startOffset !== mine.startOffset ||
+    current.endContainer !== mine.endContainer ||
+    current.endOffset !== mine.endOffset
+  ) {
+    return;
+  }
+  selection.removeAllRanges();
 }
 
 /* ---------------------------------------------------------------------------
@@ -1125,25 +1243,43 @@ export async function scanAt(
 
   const current = ++epoch;
   try {
-    const { lookupKanji, lookupTerms, summarizeKanjiEntry, summarizeTermEntry } =
-      await loadEngine();
+    const {
+      lookupKanji,
+      lookupTermMatch,
+      summarizeKanjiEntry,
+      summarizeTermEntry,
+    } = await loadEngine();
     if (current !== epoch) return null;
 
-    const [terms, kanji] = await Promise.all([
+    const [termMatch, kanji] = await Promise.all([
       searchTerms
-        ? lookupTerms(windowed.text, {
+        ? lookupTermMatch(windowed.text, {
             matchType: settings.matchTypePrefix ? 'prefix' : 'exact',
             searchResolution: settings.scanResolution === 'word' ? 'word' : 'letter',
           })
-        : Promise.resolve([]),
+        : Promise.resolve({ entries: [], originalTextLength: 0 }),
       searchKanji ? lookupKanji(windowed.text) : Promise.resolve([]),
     ]);
     if (current !== epoch) return null;
 
+    const matchLength = matchedScanLength(
+      termMatch.originalTextLength,
+      windowed.end - windowed.offset,
+      termMatch.entries.length > 0 || kanji.length > 0,
+    );
+
     const detail: YomitanScanResultDetail = {
       text: windowed.text,
       offset: windowed.offset,
-      terms: terms
+      matchLength,
+      anchor: matchAnchorRect(
+        point.node,
+        windowed.offset,
+        matchLength,
+        x,
+        y,
+      ),
+      terms: termMatch.entries
         .map(summarizeTermEntry)
         .filter((entry): entry is TermSummary => entry !== null),
       kanji: kanji
@@ -1151,7 +1287,7 @@ export async function scanAt(
         .filter((entry): entry is KanjiSummary => entry !== null),
       // The translator's own entries, handed on untouched: the floating popup
       // draws its card from these rather than looking the word up again.
-      entries: terms,
+      entries: termMatch.entries,
       kanjiEntries: kanji,
       x,
       y,
@@ -1161,13 +1297,21 @@ export async function scanAt(
         text: detail.text,
         matchType: settings.matchTypePrefix ? 'prefix' : 'exact',
       });
+      // The previous word is no longer what is being read, so its highlight goes
+      // with the answer that put it there.
+      if (settings.selectText) clearScanSelection();
       return detail;
     }
     if (settings.selectText) {
-      selectScanWindow(point.node, windowed.offset, windowed.end);
+      selectScanWindow(
+        point.node,
+        windowed.offset,
+        windowed.offset + matchLength,
+      );
     }
     traceYomitan('scan_hit', {
       text: detail.text,
+      matchLength,
       terms: detail.terms.length,
       kanji: detail.kanji.length,
     });

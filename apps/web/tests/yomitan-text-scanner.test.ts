@@ -2,17 +2,20 @@
  * Text scanner tests — input group matching, pointer/touch/pen triggers, and scan window.
  */
 
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
+  clearScanSelection,
   getActiveButtons,
   getActiveModifiers,
   getActiveModifiersAndButtons,
   getMatchingInputGroup,
   getMatchingInputGroupFromEvent,
   isScannableCharacter,
+  matchedScanLength,
   normalizeScanInputConfig,
   readScanSettings,
   scanWindowAt,
+  selectScanWindow,
   shouldScanInput,
   type ScanInputConfig,
   type ScanSettings,
@@ -95,6 +98,11 @@ const RESTING = {
 
 beforeEach(() => {
   localStorage.clear();
+});
+
+afterEach(() => {
+  document.body.replaceChildren();
+  document.getSelection()?.removeAllRanges();
 });
 
 describe('Modifier and Button extraction (Yomitan document-util parity)', () => {
@@ -224,6 +232,69 @@ describe('shouldScanInput — legacy modifier gate compatibility', () => {
     const held = { ...RESTING, shiftKey: true, buttons: 4 };
     expect(shouldScanInput(held, SHIFT_HOVER)).toBe(false);
     expect(shouldScanInput(held, { ...SHIFT_HOVER, middleMouse: true })).toBe(true);
+  });
+});
+
+describe('matchedScanLength — how much of the window is actually the word', () => {
+  it('takes the translator’s own matched length, not the window that was read', () => {
+    /* The window is 「学習法だと思う。」; the lookup matched 「学習法」. */
+    expect(matchedScanLength(3, 9, true)).toBe(3);
+  });
+
+  it('never runs past the window it was measured in', () => {
+    expect(matchedScanLength(12, 4, true)).toBe(4);
+  });
+
+  it('lights one character for a kanji hit, which reports no length of its own', () => {
+    expect(matchedScanLength(0, 10, true)).toBe(1);
+    expect(matchedScanLength(Number.NaN, 10, true)).toBe(1);
+  });
+
+  it('lights nothing for a miss, or for an empty window', () => {
+    expect(matchedScanLength(3, 10, false)).toBe(0);
+    expect(matchedScanLength(0, 0, true)).toBe(0);
+  });
+});
+
+describe('selectScanWindow / clearScanSelection — the scanner’s own highlight', () => {
+  /** A live text node to highlight inside. */
+  function mountText(data: string): Text {
+    const node = document.createTextNode(data);
+    document.body.append(node);
+    return node;
+  }
+
+  it('selects the matched word and drops the rest of the window', () => {
+    const node = mountText('学習法だと思う。');
+    selectScanWindow(node, 0, 3);
+    expect(document.getSelection()?.toString()).toBe('学習法');
+  });
+
+  it('clamps an end offset to the node it belongs to', () => {
+    const node = mountText('猫');
+    selectScanWindow(node, 0, 99);
+    expect(document.getSelection()?.toString()).toBe('猫');
+  });
+
+  it('takes its own highlight away again', () => {
+    const node = mountText('学習法だと思う。');
+    selectScanWindow(node, 0, 3);
+    clearScanSelection();
+    expect(document.getSelection()?.toString()).toBe('');
+  });
+
+  it('leaves a selection the user made by hand alone', () => {
+    const node = mountText('学習法だと思う。');
+    selectScanWindow(node, 0, 3);
+    /* The user then drags their own selection over the line: that one is not the
+       scanner's to remove. */
+    const own = document.createRange();
+    own.selectNodeContents(node);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(own);
+
+    clearScanSelection();
+    expect(document.getSelection()?.toString()).toBe('学習法だと思う。');
   });
 });
 

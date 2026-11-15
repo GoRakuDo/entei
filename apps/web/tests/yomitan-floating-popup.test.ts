@@ -4,8 +4,11 @@
  * The placement is the one piece of the floating popup that is arithmetic rather
  * than rendering, so it is tested directly:
  *
- *  - the frame goes under the word when there is room below it;
- *  - it flips above the word when there is not;
+ *  - the frame hangs off the scanned WORD's own left edge and sits just under it
+ *    (upstream's default placement), never centred over the window the scanner
+ *    had to read to resolve the word;
+ *  - it flips above the word when there is no room below;
+ *  - the two distance knobs the user owns are what put it there;
  *  - it is always fully inside the viewport — a 400px popup at the right edge, a
  *    250px one at the bottom edge, and the degenerate case of a frame wider than
  *    the viewport itself;
@@ -18,7 +21,8 @@ import { describe, expect, it } from 'bun:test';
 import {
   nextCloseSignal,
   placePopup,
-  POPUP_ANCHOR_GAP,
+  POPUP_HORIZONTAL_OFFSET,
+  POPUP_VERTICAL_OFFSET,
   POPUP_VIEWPORT_MARGIN,
   type PopupRect,
 } from '@/modules/yomitan/floating-popup';
@@ -32,19 +36,35 @@ describe('placePopup — the frame next to the scanned word', () => {
     const placed = placePopup(CENTERED_WORD, 400, 250, VIEWPORT);
     expect(placed.side).toBe('below');
     expect(placed.top).toBe(
-      CENTERED_WORD.top + CENTERED_WORD.height + POPUP_ANCHOR_GAP,
+      CENTERED_WORD.top + CENTERED_WORD.height + POPUP_VERTICAL_OFFSET,
     );
-    /* Centred on the word, not on its left edge. */
-    expect(placed.left).toBe(
-      CENTERED_WORD.left + CENTERED_WORD.width / 2 - 200,
-    );
+    /* On the word's own left edge, not centred over it: the card starts at the
+       character the user scanned. */
+    expect(placed.left).toBe(CENTERED_WORD.left + POPUP_HORIZONTAL_OFFSET);
   });
 
-  it('flips above the word when there is no room below it', () => {
+  it('reads the word once, so a wide window does not drag the card sideways', () => {
+    /* The scanner's window is deliberately longer than the word; only the matched
+       word's box is published, and the frame must not depend on how much text the
+       scanner had to read to find it. */
+    const word: PopupRect = { top: 360, left: 640, width: 28, height: 20 };
+    expect(placePopup(word, 400, 250, VIEWPORT).left).toBe(640);
+  });
+
+  it('puts the user’s own two distance knobs between the frame and the word', () => {
+    const placed = placePopup(CENTERED_WORD, 400, 250, VIEWPORT, {
+      horizontalOffset: 14,
+      verticalOffset: 24,
+    });
+    expect(placed.left).toBe(CENTERED_WORD.left + 14);
+    expect(placed.top).toBe(CENTERED_WORD.top + CENTERED_WORD.height + 24);
+  });
+
+  it('keeps the vertical offset when it flips above the word', () => {
     const word: PopupRect = { top: 700, left: 640, width: 40, height: 20 };
     const placed = placePopup(word, 400, 250, VIEWPORT);
     expect(placed.side).toBe('above');
-    expect(placed.top).toBe(word.top - POPUP_ANCHOR_GAP - 250);
+    expect(placed.top).toBe(word.top - POPUP_VERTICAL_OFFSET - 250);
   });
 
   it('prefers below when the room below merely ties the room above', () => {

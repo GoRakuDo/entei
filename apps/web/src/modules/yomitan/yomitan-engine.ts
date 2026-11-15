@@ -560,27 +560,48 @@ export interface LookupOptions {
 }
 
 /**
- * Look up a block of Japanese text: deinflected, dictionary-merged term entries.
+ * One term lookup's answer: the entries, and how much of the query they matched.
  *
- * This is the entry point every scanner calls — a subtitle line, a settings
- * label, a modal heading. An empty result is a normal answer (most UI text is not
+ * `originalTextLength` is the translator's own number (`findTerms` returns it
+ * beside `dictionaryEntries`): the length of the source text the winning
+ * deinflection was read from, counted from the START of `text`. A scan needs it
+ * because the window it looks up is deliberately longer than the word (up to
+ * `scanning.length` characters, so an inflected or compound word still resolves),
+ * and this is the only thing that says where inside that window the word ends.
+ */
+export interface TermLookupResult {
+  /** The translator's own dictionary entries (empty when nothing matched). */
+  entries: unknown[];
+  /**
+   * Length in UTF-16 code units of the matched source text at the start of the
+   * queried text. `0` when nothing matched.
+   */
+  originalTextLength: number;
+}
+
+/**
+ * Look up a block of Japanese text: deinflected, dictionary-merged term entries,
+ * PLUS the length of the text they matched.
+ *
+ * The entry point every scanner calls — a subtitle line, a settings label, a
+ * modal heading. An empty result is a normal answer (most UI text is not
  * Japanese), so nothing here throws for "not found".
  *
- * The result is the translator's own entry shape, because that is what Yomitan's
- * card generator needs (`summarizeTermEntry` flattens it for readers that only
+ * The entries are the translator's own shape, because that is what Yomitan's
+ * card generator needs (`summarizeTermEntry` flattens them for readers that only
  * print a line of text). No consumer repeats the lookup: the scan publishes these
  * entries with its result and the popup renders them directly.
  */
-export async function lookupTerms(
+export async function lookupTermMatch(
   text: string,
   options: LookupOptions = {},
-): Promise<unknown[]> {
-  if (text.trim().length === 0) return [];
+): Promise<TermLookupResult> {
+  if (text.trim().length === 0) return { entries: [], originalTextLength: 0 };
   const profile = activeProfile(readYomitanOptions());
   const map = await readEnabledDictionaryMap();
-  if (map.size === 0) return [];
+  if (map.size === 0) return { entries: [], originalTextLength: 0 };
   const engine = await readTranslator(map);
-  const { dictionaryEntries } = await engine.findTerms(
+  const { dictionaryEntries, originalTextLength } = await engine.findTerms(
     profile.general.resultOutputMode,
     text,
     {
@@ -600,7 +621,27 @@ export async function lookupTerms(
       useAllFrequencyDictionaries: profile.parsing.useAllFrequencyDictionaries,
     } as Parameters<typeof engine.findTerms>[2],
   );
-  return dictionaryEntries.slice(0, options.maxResults ?? profile.general.maxResults);
+  return {
+    entries: dictionaryEntries.slice(
+      0,
+      options.maxResults ?? profile.general.maxResults,
+    ),
+    originalTextLength,
+  };
+}
+
+/**
+ * Look up a block of Japanese text: deinflected, dictionary-merged term entries.
+ *
+ * The entries only — for callers that show them and never need to know how much
+ * of the query they matched. A scanner that has to HIGHLIGHT the word wants
+ * `lookupTermMatch` instead.
+ */
+export async function lookupTerms(
+  text: string,
+  options: LookupOptions = {},
+): Promise<unknown[]> {
+  return (await lookupTermMatch(text, options)).entries;
 }
 
 /** Look up every kanji in `text` (one entry per character). */

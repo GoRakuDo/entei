@@ -29,6 +29,7 @@ import {
   createDictionaryDatabase,
   dictionarySignatureOf,
   invalidateYomitanEngineCaches,
+  lookupTermMatch,
   lookupTerms,
   readEnabledDictionaryMap,
   summarizeKanjiEntry,
@@ -340,6 +341,43 @@ describe('lookup pipeline — a real translator over a faked engine', () => {
     const entries = await lookupTerms('食べた');
     expect(entries.length).toBeGreaterThan(0);
     expect(summarizeTermEntry(entries[0])?.term).toBe('食べる');
+  });
+
+  it('reports how much of the query the match covers (what a highlight is sized by)', async () => {
+    installTauri((command, args) => {
+      switch (command) {
+        case 'plugin:modules|yomitan_list_dictionaries':
+          return INSTALLED;
+        case 'plugin:modules|yomitan_find_terms_bulk': {
+          const terms = (args?.terms as string[]) ?? [];
+          return terms
+            .map((term, index) =>
+              term === '食べる' ? termRow({ index, id: index + 1 }) : null,
+            )
+            .filter((row): row is Record<string, unknown> => row !== null);
+        }
+        default:
+          return [];
+      }
+    });
+
+    /* The scanner reads a WINDOW longer than the word (up to `scanning.length`
+       characters); this number is the only thing that says where the word ends. */
+    const match = await lookupTermMatch('食べた');
+    expect(match.originalTextLength).toBe(3);
+    expect(match.entries.length).toBeGreaterThan(0);
+
+    /* And the entries are the same ones the plain form answers with — a scanner
+       that does not highlight can keep calling that. */
+    expect(await lookupTerms('食べた')).toEqual(match.entries);
+  });
+
+  it('reports no match length when nothing matched', async () => {
+    installTauri(() => []);
+    expect(await lookupTermMatch('食べた')).toEqual({
+      entries: [],
+      originalTextLength: 0,
+    });
   });
 
   it('answers nothing when no dictionary is installed', async () => {
