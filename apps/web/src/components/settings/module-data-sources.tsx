@@ -42,12 +42,12 @@ import {
   ScanningInputManager,
   type ScanningInputManagerCopy,
 } from '@/components/settings/ScanningInputManager';
-import { YomitanPopupPreview } from '@/components/settings/YomitanPopupPreview';
 import {
   frequencyDictionaryNames,
   listInstalledDictionaries,
   readDictionaryStorageUsage,
 } from '@/modules/yomitan/dictionary-store';
+import { YomitanPopupPreview } from '@/modules/yomitan/popup-preview/YomitanPopupPreview';
 import type { StorageUsageSnapshot } from '@/features/settings/storage-usage';
 import {
   readJimakuPreferences,

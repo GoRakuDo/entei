@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createDefaultOptions } from '@gorakudo/yomitan-headless/settings';
-import { YomitanPopupPreview } from '@/components/settings/YomitanPopupPreview';
+import { YomitanPopupPreview } from '@/modules/yomitan/popup-preview/YomitanPopupPreview';
 import { POPUP_PREVIEW_TERM } from '@/modules/yomitan/popup-preview';
 
 /** Accessible name of the field (the row's own English chrome). */
@@ -117,11 +117,11 @@ describe('YomitanPopupPreview — term field', () => {
     /* The stage is the full-width band the card is spawned on, and the term field
        sits above it — the two are siblings, not a side-by-side split. */
     const stage = container.querySelector(
-      '.entei-module-preview-stage',
+      '.entei-yomitan-popup-preview-stage',
     ) as HTMLElement;
     expect(stage.querySelector('iframe')).not.toBeNull();
     expect(
-      container.querySelector('.entei-module-preview-input')
+      container.querySelector('.entei-yomitan-popup-preview-term-input')
         ?.parentElement,
     ).toBe(stage.parentElement);
   });

@@ -28,6 +28,9 @@
  * `×` resets the card to the example word, which is what a preview with no popup
  * to dismiss should do.
  *
+ * Its own styling travels with it (`preview.css`, imported below) instead of
+ * sitting in the shared settings stylesheet: no other feature draws this block.
+ *
  * Two change keys keep that live without being expensive (see `popup-lookup`):
  * the lookup re-runs only when the dictionary set, the lookup knobs or the entry
  * being drawn move, while an appearance edit only rebuilds the document string.
@@ -35,6 +38,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import './preview.css';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import { Input } from '@/components/player/ui/input';
 import {
@@ -263,7 +267,7 @@ export function YomitanPopupPreview({
   );
 
   return (
-    <div className="entei-module-field entei-module-preview">
+    <div className="entei-module-field entei-yomitan-popup-preview">
       {/* A row the manifest gave no text draws none: the card IS the block, so a
           caption above it would only repeat what the card already shows. */}
       {label !== undefined && (
@@ -279,7 +283,7 @@ export function YomitanPopupPreview({
           field. An empty one falls back to the example word (`resolvePreviewTerm`),
           which is what the placeholder shows. */}
       <Input
-        className="entei-module-input entei-module-preview-input"
+        className="entei-module-input entei-yomitan-popup-preview-term-input"
         type="text"
         value={term}
         lang="ja"
@@ -290,13 +294,13 @@ export function YomitanPopupPreview({
         onChange={(event) => setTerm(event.target.value)}
       />
 
-      <div className="entei-module-preview-stage">
+      <div className="entei-yomitan-popup-preview-stage">
         {/* The frame carries the user's own Position & Size numbers: the width and
             height are `general.popupWidth` / `general.popupHeight` (scaled), and
             the stylesheet clamps them to the stage, so a 2000px popup does not
             widen the settings column. */}
         {srcDoc === null ? (
-          <p className="entei-module-preview-note">{PREVIEW_COPY.loading}</p>
+          <p className="entei-yomitan-popup-preview-note">{PREVIEW_COPY.loading}</p>
         ) : (
           <iframe
             ref={iframeRef}
@@ -319,7 +323,7 @@ export function YomitanPopupPreview({
       </div>
 
       {failed && (
-        <p className="entei-module-preview-note" role="status">
+        <p className="entei-yomitan-popup-preview-note" role="status">
           {PREVIEW_COPY.unavailable}
         </p>
       )}

@@ -1,0 +1,122 @@
+/**
+ * YOMITAN POPUP PREVIEW — the Appearance section's live popup card.
+ * ---------------------------------------------------------------------------
+ * The styling of the host-owned `field` block `YomitanPopupPreview.tsx` draws,
+ * kept beside the component that draws it rather than in the shared settings
+ * stylesheet: nothing outside this feature uses these classes, so they live and
+ * move with it.
+ *
+ * A BLOCK, not a label-plus-control row: the card needs the whole width, so the
+ * row is a single column even when the manifest gives it text to draw above it.
+ * Two stacked bands, both full width — the term field (the app's standard input)
+ * and, under it, the stage the popup is drawn on. The stage's contents are the
+ * upstream popup document (see `popup-preview/`), so everything here is only the
+ * Entei-side window it is shown through — nothing inside it is styled by this file.
+ *
+ * The `entei-module-field` / `entei-module-input` classes are the shared ones
+ * (`styles/settings.css`); every override below is declared at a higher
+ * specificity than those base rules, so it wins regardless of which stylesheet
+ * the bundler emits first.
+ * ---------------------------------------------------------------------------
+ */
+
+/* The block itself: ONE column, whether or not the manifest gave the row any text.
+   It keeps `entei-module-field` (every row is drawn with it), so this is declared
+   at a higher specificity than that row's desktop two-column rule — without that,
+   a row with no text would leave the card in the control column beside an empty
+   one. */
+.entei-module-field.entei-yomitan-popup-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--entei-space-16);
+  min-height: 0;
+}
+
+/* What was looked up, editable — the same field upstream's own preview page has.
+   It IS the app's standard settings input (shadcn `Input` + `entei-module-input`),
+   at the block's full width: it is the card's search line, not a control docked to
+   a desktop control column, so the shared 15–22rem column bounds are lifted here.
+   An empty field falls back to the example word (see `resolvePreviewTerm`). */
+.entei-module-input.entei-yomitan-popup-preview-term-input {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  padding: 0 var(--entei-space-12);
+  font-size: 0.9375rem;
+}
+
+/* The stage: the room the popup is drawn in. Full width, and tall enough to hold
+   the default 400×250 card generously rather than clipping it to the frame — the
+   card is centred in it, so a small popup sits in open space instead of being
+   wedged against the field above.
+
+   NOT `overflow: hidden`: the card's own outer-theme shadow (below) is painted
+   OUTSIDE the frame's box, and clipping it here would cut the popup back down to
+   the flat rectangle the setting exists to lift. */
+.entei-yomitan-popup-preview-stage {
+  /* One cell for both states: the frame fills it, and a loading note sits centred
+     in it instead of clinging to the top edge. */
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 21.25rem; /* 340px */
+  padding: var(--entei-space-24);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  background-color: var(--entei-surface);
+}
+
+.entei-yomitan-popup-preview-stage > iframe {
+  grid-area: 1 / 1;
+  display: block;
+  /* Both come from the user's own Position & Size numbers (inline); a 2000px
+     popup is a legal setting, but this card lives in a settings column, so the
+     frame gives way to the stage rather than overflowing it. */
+  max-width: 100%;
+  max-height: 32rem;
+  border: 0;
+  /* UPSTREAM `popup-outer.css`: the shadow is the FRAME's, and the frame's outer
+     theme decides it — `iframe.yomitan-popup { box-shadow: 0 0 10em rgba(0,0,0,.5) }`,
+     `[data-outer-theme=dark]` swaps the halo for a white one, `[data-outer-theme=none]`
+     drops it. Two layers here: the app's own elevation (so the card sits OVER the
+     settings panel) and upstream's halo on top of it. OKLCH only (rule #1621). */
+  /* Dark (default): dark shadow */
+  box-shadow:
+    0 8px 24px oklch(0% 0 0deg / 0.45),
+    0 0 24px oklch(0% 0 0deg / 0.5);
+}
+
+/* Dark: dark shadow */
+.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='dark'] {
+  box-shadow:
+    0 8px 24px oklch(0% 0 0deg / 0.45),
+    0 0 24px oklch(0% 0 0deg / 0.5);
+}
+
+/* Light: bright white glow halo */
+.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='light'] {
+  box-shadow:
+    0 8px 24px oklch(0% 0 0deg / 0.45),
+    0 0 24px oklch(100% 0 0deg / 0.5);
+}
+
+/* None: the user asked for no shadow, so the card is flat. */
+.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='none'] {
+  box-shadow: none;
+}
+
+.entei-yomitan-popup-preview-note {
+  grid-area: 1 / 1;
+  margin: 0;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--entei-text-muted);
+  text-wrap: pretty;
+}
+
+.entei-yomitan-popup-preview-stage > .entei-yomitan-popup-preview-note {
+  text-align: center;
+}
