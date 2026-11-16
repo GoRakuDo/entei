@@ -88,6 +88,15 @@
   [data-radix-popper-content-wrapper] *::after {
     border-color: var(--color-border);
   }
+
+  /* App-wide Radix Dialog / Radix Select scroll-lock stability (mirrors global.css). */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  body[data-scroll-locked] {
+    padding-right: var(--removed-body-scroll-bar-size, 0px) !important;
+  }
 }
 
 /* Body styling for the player page is handled by the existing global.css tokens.

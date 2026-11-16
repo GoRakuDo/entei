@@ -18,6 +18,24 @@
  * utilities like px-3, py-2, text-sm, bg-* to be overridden by these
  * resets. Moving them into @layer base lets utilities layer win. */
 @layer base {
+  /* ===== APP-WIDE RADIX SCROLL-LOCK STABILITY =====
+   * `scrollbar-gutter: stable` on <html> reserves the 6px scrollbar track even
+   * when Radix Dialog / Radix Select applies `overflow: hidden` to <html>,
+   * preventing the viewport width and centered/fixed elements from shifting.
+   */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  /* When Radix locks scroll on <html>, `overflow: hidden` propagates to the
+   * viewport and removes the native scrollbar (6px). Compensate <body>'s inline
+   * padding-right with the exact measured scrollbar width so overall layout
+   * width remains pixel-identical whether scroll is locked or unlocked. */
+  body[data-scroll-locked] {
+    padding-right: var(--removed-body-scroll-bar-size, 0px) !important;
+  }
+
+  /* ===== RESET ===== */
   *,
   *::before,
   *::after {

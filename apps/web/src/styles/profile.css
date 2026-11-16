@@ -5,6 +5,17 @@
  * the immersion statistics tab reuses TrackerDashboard's existing read model.
  * =========================================================================== */
 
+@layer base {
+  /* App-wide Radix Dialog / Radix Select scroll-lock stability (mirrors global.css). */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  body[data-scroll-locked] {
+    padding-right: var(--removed-body-scroll-bar-size, 0px) !important;
+  }
+}
+
 .entei-profile-root {
   grid-column: 1 / -1;
   display: flex;
