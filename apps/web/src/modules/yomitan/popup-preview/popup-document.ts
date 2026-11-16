@@ -175,7 +175,7 @@ function renderThemeAttributes(
  */
 function renderPlaceholder(): string {
   const text = escapeAttribute(POPUP_PREVIEW_PLACEHOLDER);
-  return `<div class="entry active" id="no-dictionaries"><p>${text}</p></div>`;
+  return `<div class="entry entry-current" id="no-dictionaries"><p>${text}</p></div>`;
 }
 
 /**

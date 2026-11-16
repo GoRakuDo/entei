@@ -412,7 +412,7 @@ describe('yomitan popup preview — document', () => {
     expect(html).toContain('data-action="close"');
     expect(html).toContain('data-action="navigate-previous"');
     expect(html).toContain('data-action="navigate-next"');
-    expect(html).toContain('class="entry active"');
+    expect(html).toContain('class="entry entry-current"');
   });
 
   it('carries the generated card, the custom CSS and the frame reset', () => {
@@ -543,8 +543,8 @@ describe('yomitan popup preview — generator output', () => {
     const entries = [...doc.querySelectorAll('.entry')];
     expect(entries.map((node) => node.getAttribute('data-index'))).toEqual(['0', '1']);
     // Only the first entry of the card is the current one.
-    expect(entries[0]?.className).toContain('active');
-    expect(entries[1]?.className).not.toContain('active');
+    expect(entries[0]?.className).toContain('entry-current');
+    expect(entries[1]?.className).not.toContain('entry-current');
 
     // A kanji list drawn UNDER a term list continues the same sequence.
     const kanji = await renderPopupKanjiHtml(
@@ -688,7 +688,7 @@ describe('yomitan popup preview — action bar and history', () => {
       themeAttributes: theme,
       fontStyle: '',
       customCss: '',
-      entriesHtml: '<div class="entry active"></div>',
+      entriesHtml: '<div class="entry entry-current"></div>',
       ...overrides,
     });
   }

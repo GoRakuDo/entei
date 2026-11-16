@@ -207,7 +207,7 @@ export async function renderPopupEntriesHtml(
       node.dataset.index = `${startIndex + offset}`;
       const html = node.outerHTML.replace(/ lang="[^"]*"/g, '');
       if (startIndex + offset === 0) {
-        return html.replace(/^<div class="entry"/, '<div class="entry active"');
+        return html.replace(/^<div class="entry"/, '<div class="entry entry-current"');
       }
       return html;
     })
@@ -238,7 +238,7 @@ export async function renderPopupKanjiHtml(
       node.dataset.index = `${startIndex + offset}`;
       const html = node.outerHTML.replace(/ lang="[^"]*"/g, '');
       if (startIndex + offset === 0) {
-        return html.replace(/^<div class="entry"/, '<div class="entry active"');
+        return html.replace(/^<div class="entry"/, '<div class="entry entry-current"');
       }
       return html;
     })
