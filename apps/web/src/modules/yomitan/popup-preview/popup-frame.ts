@@ -16,8 +16,16 @@
  * every frame and every other tab, so "did this come from MY popup" is answered by
  * identity (`event.source` is the frame's own `contentWindow`), never by the
  * message's contents.
+ *
+ * ONE REQUEST IS ANSWERED HERE rather than by each host: `log-debug-info` is
+ * upstream's only debug menu item, and both hosts would fulfil it with the same
+ * three lines (resolve the entry, print it, trace it). `logPopupEntryDebugInfo` is
+ * those three lines, so the console format cannot drift between the floating popup
+ * and the settings preview.
  * ---------------------------------------------------------------------------
  */
+
+import { traceYomitan } from '@/modules/yomitan/yomitan-preferences';
 
 /** Every message the popup document sends, under this channel name. */
 export const POPUP_FRAME_CHANNEL = 'entei-yomitan-popup';
@@ -31,7 +39,15 @@ export type PopupFrameRequest =
   /** `>`: step the history forward. */
   | { type: 'next' }
   /** A kanji in a headword was clicked: look that character up. */
-  | { type: 'kanji'; character: string };
+  | { type: 'kanji'; character: string }
+  /**
+   * The entry's `⋮` menu → "Log debug info": print that entry's raw data.
+   *
+   * The index is the entry's own `data-index` (`popup-entries` writes it, the way
+   * upstream's `Display` does), so the host resolves the entry it actually drew.
+   * `-1` is upstream's own "not inside an entry" answer and is rejected here.
+   */
+  | { type: 'log-debug-info'; index: number };
 
 /**
  * Parse one `message` event's data, or `null` when it is not ours.
@@ -53,9 +69,38 @@ export function parsePopupFrameRequest(data: unknown): PopupFrameRequest | null 
       return typeof record.character === 'string' && record.character.trim() !== ''
         ? { type: 'kanji', character: record.character.trim() }
         : null;
+    case 'log-debug-info':
+      return typeof record.index === 'number' &&
+        Number.isInteger(record.index) &&
+        record.index >= 0
+        ? { type: 'log-debug-info', index: record.index }
+        : null;
     default:
       return null;
   }
+}
+
+/**
+ * Print one dictionary entry's raw data — upstream's "Log debug info".
+ *
+ * Upstream ends `_logDictionaryEntryData` with `log.log({dictionaryEntry})`, i.e.
+ * a plain `console.log` of the entry it resolved. This is that line, plus the
+ * entry in Entei's own 24h trace journal (which is gated on the SAME
+ * `general.debugInfo` toggle that makes the `⋮` button visible at all).
+ *
+ * Returns `false` for an index the caller cannot resolve, which is upstream's own
+ * early return for an out-of-range index — a stale message must not print
+ * `undefined` as if it were an entry.
+ */
+export function logPopupEntryDebugInfo(
+  index: number,
+  entries: readonly unknown[],
+): boolean {
+  const entry = entries[index];
+  if (entry === undefined) return false;
+  console.info(`[Yomitan] Dictionary entry data (index ${index}):`, entry);
+  traceYomitan('popup_log_debug_info', { index, entry });
+  return true;
 }
 
 /**

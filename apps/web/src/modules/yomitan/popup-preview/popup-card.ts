@@ -24,6 +24,7 @@
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import {
   buildPopupDocument,
+  extractPopupMenuTemplates,
   renderPopupEntriesHtml,
   renderPopupKanjiHtml,
   resolvePopupAppearance,
@@ -86,6 +87,9 @@ export async function renderPopupCard(input: PopupCardInput): Promise<PopupCard>
     customCss: appearance.customCss,
     popupActionBarLocation: appearance.popupActionBarLocation,
     popupActionBarVisibility: appearance.popupActionBarVisibility,
+    /* Upstream's own `⋮` menu templates: the frame instantiates them, so the
+       entry's debug menu is the extension's markup and not a lookalike. */
+    menuTemplates: extractPopupMenuTemplates(templates),
   };
   const item = currentPopupHistoryItem(history);
   // A history with no current entry is not a state `popup-history` produces; an
@@ -101,8 +105,16 @@ export async function renderPopupCard(input: PopupCardInput): Promise<PopupCard>
   const dictionariesForGenerator = [...dictionaries];
   const termsHtml = async (): Promise<string> =>
     await renderPopupEntriesHtml(templates, entries, dictionariesForGenerator);
-  const kanjiHtml = async (): Promise<string> =>
-    await renderPopupKanjiHtml(templates, kanjiEntries, dictionariesForGenerator);
+  /* A `scan` card draws the kanji entries UNDER its term entries, and upstream
+     numbers every entry in one sequence — so the kanji list starts after the
+     term list, which is what the `⋮` menu reports. */
+  const kanjiHtml = async (startIndex: number = 0): Promise<string> =>
+    await renderPopupKanjiHtml(
+      templates,
+      kanjiEntries,
+      dictionariesForGenerator,
+      startIndex,
+    );
 
   let entriesHtml: string;
   switch (item.mode) {
@@ -110,7 +122,7 @@ export async function renderPopupCard(input: PopupCardInput): Promise<PopupCard>
       entriesHtml = await kanjiHtml();
       break;
     case 'scan':
-      entriesHtml = `${await termsHtml()}${await kanjiHtml()}`;
+      entriesHtml = `${await termsHtml()}${await kanjiHtml(entries.length)}`;
       break;
     default:
       entriesHtml = await termsHtml();

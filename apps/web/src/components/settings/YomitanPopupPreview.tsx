@@ -41,6 +41,7 @@ import {
   POPUP_PREVIEW_TERM,
   createPopupHistory,
   loadPopupPreviewAssets,
+  logPopupEntryDebugInfo,
   lookupPopupEntries,
   lookupPopupKanji,
   parsePopupFrameRequest,
@@ -195,6 +196,7 @@ export function YomitanPopupPreview({
         const card = await renderPopupCard({
           history,
           entries: built?.entries ?? [],
+          kanjiEntries: item?.mode === 'kanji' ? built?.entries ?? [] : [],
           css: built?.css ?? '',
           templates: built?.templates ?? '',
           dictionaries: built?.dictionaries ?? [],
@@ -223,6 +225,12 @@ export function YomitanPopupPreview({
       if (!sourceIsPopupFrame(event.source, iframeRef.current)) return;
       const request = parsePopupFrameRequest(event.data);
       if (request === null) return;
+      /* The entry the card is DRAWN from — the lookup answer this frame was built
+         with, which is what the frame's `data-index` points into. */
+      if (request.type === 'log-debug-info') {
+        logPopupEntryDebugInfo(request.index, builtRef.current?.entries ?? []);
+        return;
+      }
       if (request.type === 'close') {
         // There is no popup to dismiss in a settings preview: the close button
         // puts the example word back on the card.

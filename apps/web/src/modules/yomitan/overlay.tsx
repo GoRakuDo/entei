@@ -49,6 +49,7 @@ import {
   createScannedPopupHistory,
   hasScannedEntries,
   loadPopupPreviewAssets,
+  logPopupEntryDebugInfo,
   pushPopupHistory,
   renderPopupCard,
   resolveScannedPopupFrame,
@@ -314,6 +315,22 @@ export function YomitanPopup() {
       if (!sourceIsPopupFrame(event.source, iframeRef.current)) return;
       const request: PopupFrameRequest | null = parsePopupFrameRequest(event.data);
       if (request === null || history === null) return;
+      /* Upstream's only debug menu item: print the entry that menu was opened
+         from. The stack's CURRENT entry is what is on screen, and a `scan` card
+         numbers its term entries first and its kanji entries under them — the same
+         order `renderPopupCard` drew them in. */
+      if (request.type === 'log-debug-info') {
+        const item = history.items[history.index];
+        const cached =
+          item === undefined
+            ? undefined
+            : entriesRef.current.get(entryKey(item.mode, item.query));
+        logPopupEntryDebugInfo(request.index, [
+          ...(cached?.entries ?? []),
+          ...(cached?.kanjiEntries ?? []),
+        ]);
+        return;
+      }
       void (async () => {
         const epoch = epochRef.current;
         let next: PopupHistoryState;

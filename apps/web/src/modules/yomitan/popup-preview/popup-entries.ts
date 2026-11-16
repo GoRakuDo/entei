@@ -183,21 +183,30 @@ async function createPopupGenerator(templates: string): Promise<{
  * `entries` is what `lookupTerms` returned — the translator's own dictionary
  * entries, already deinflected and merged. An empty array yields an empty string,
  * which is the caller's signal to draw the placeholder.
+ *
+ * `startIndex` is where this set's indices begin, because a `scan` card draws the
+ * term list and the kanji list one under the other: upstream numbers every entry
+ * in ONE sequence (`Display` writes `entry.dataset.index = i` as it appends), and
+ * the frame's `⋮` menu reports the entry it was opened from by that number.
  */
 export async function renderPopupEntriesHtml(
   templates: string,
   entries: readonly unknown[],
   dictionaries: readonly PopupDictionaryInfo[],
+  startIndex: number = 0,
 ): Promise<string> {
   if (entries.length === 0) return '';
   const generator = await createPopupGenerator(templates);
 
   return entries
-    .map((entry, index) => {
-      const html = generator
-        .createTermEntry(restoreTextGlosses(entry), [...dictionaries])
-        .outerHTML.replace(/ lang="[^"]*"/g, '');
-      if (index === 0) {
+    .map((entry, offset) => {
+      const node = generator.createTermEntry(
+        restoreTextGlosses(entry),
+        [...dictionaries],
+      );
+      node.dataset.index = `${startIndex + offset}`;
+      const html = node.outerHTML.replace(/ lang="[^"]*"/g, '');
+      if (startIndex + offset === 0) {
         return html.replace(/^<div class="entry"/, '<div class="entry active"');
       }
       return html;
@@ -218,19 +227,51 @@ export async function renderPopupKanjiHtml(
   templates: string,
   entries: readonly unknown[],
   dictionaries: readonly PopupDictionaryInfo[],
+  startIndex: number = 0,
 ): Promise<string> {
   if (entries.length === 0) return '';
   const generator = await createPopupGenerator(templates);
 
   return entries
-    .map((entry, index) => {
-      const html = generator
-        .createKanjiEntry(entry, [...dictionaries])
-        .outerHTML.replace(/ lang="[^"]*"/g, '');
-      if (index === 0) {
+    .map((entry, offset) => {
+      const node = generator.createKanjiEntry(entry, [...dictionaries]);
+      node.dataset.index = `${startIndex + offset}`;
+      const html = node.outerHTML.replace(/ lang="[^"]*"/g, '');
+      if (startIndex + offset === 0) {
         return html.replace(/^<div class="entry"/, '<div class="entry active"');
       }
       return html;
     })
     .join('');
+}
+
+/**
+ * The two `<template>` elements the entry's `⋮` menu is built from.
+ *
+ * Ids as upstream names them (`ext/templates-display.html`): the popup menu's
+ * container and its item. They are embedded in the iframe document rather than
+ * re-created there, so the menu's markup stays upstream's — the same reason the
+ * card itself is generated and not hand-drawn.
+ */
+export const POPUP_MENU_TEMPLATE_IDS = [
+  'dictionary-entry-popup-menu-template',
+  'dictionary-entry-popup-menu-item-template',
+] as const;
+
+/**
+ * Lift those two templates out of `templates-display.html`.
+ *
+ * PURE and total: an empty string comes back when the set does not carry them
+ * (an older vendored file), which is the frame's signal to leave the `⋮` button
+ * inert rather than to open an empty box.
+ */
+export function extractPopupMenuTemplates(templates: string): string {
+  const parsed = new DOMParser().parseFromString(templates, 'text/html');
+  const markup: string[] = [];
+  for (const id of POPUP_MENU_TEMPLATE_IDS) {
+    const node = parsed.getElementById(id);
+    if (node === null) return '';
+    markup.push(node.outerHTML);
+  }
+  return markup.join('\n');
 }

@@ -59,11 +59,14 @@ export {
 } from '@/modules/yomitan/popup-preview/popup-history';
 export {
   POPUP_FRAME_CHANNEL,
+  logPopupEntryDebugInfo,
   parsePopupFrameRequest,
   sourceIsPopupFrame,
   type PopupFrameRequest,
 } from '@/modules/yomitan/popup-preview/popup-frame';
 export {
+  POPUP_MENU_TEMPLATE_IDS,
+  extractPopupMenuTemplates,
   renderPopupEntriesHtml,
   renderPopupKanjiHtml,
   restoreTextGlosses,

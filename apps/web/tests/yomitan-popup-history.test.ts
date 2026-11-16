@@ -10,7 +10,7 @@
  *   entry under the cursor does not push a duplicate.
  * - `popup-frame` is the boundary the sandboxed document talks across. A
  *   `postMessage` listener sees every frame on the page, so the parser has to be
- *   strict: anything that is not one of the four requests, or a kanji request
+ *   strict: anything that is not one of the five requests, or a kanji request
  *   with no character, is rejected rather than half-trusted.
  * ---------------------------------------------------------------------------
  */
@@ -23,6 +23,7 @@ import {
   createPopupHistory,
   createScannedPopupHistory,
   currentPopupHistoryItem,
+  logPopupEntryDebugInfo,
   parsePopupFrameRequest,
   pushPopupHistory,
   stepPopupHistory,
@@ -130,7 +131,30 @@ describe('popup frame — what the sandboxed document may ask for', () => {
     ).toEqual({ type: 'kanji', character: '読' });
   });
 
-  it('rejects anything that is not one of its own four requests', () => {
+  /* The entry's own `⋮` menu → "Log debug info". The index is what the frame read
+     off the entry's `data-index`, and -1 (upstream's "not inside an entry") must
+     not become a lookup of the entry before the first one. */
+  it('accepts a debug-info request for one entry', () => {
+    expect(
+      parsePopupFrameRequest({
+        channel: POPUP_FRAME_CHANNEL,
+        type: 'log-debug-info',
+        index: 2,
+      }),
+    ).toEqual({ type: 'log-debug-info', index: 2 });
+
+    const refused: unknown[] = [
+      { channel: POPUP_FRAME_CHANNEL, type: 'log-debug-info' },
+      { channel: POPUP_FRAME_CHANNEL, type: 'log-debug-info', index: -1 },
+      { channel: POPUP_FRAME_CHANNEL, type: 'log-debug-info', index: 1.5 },
+      { channel: POPUP_FRAME_CHANNEL, type: 'log-debug-info', index: '2' },
+    ];
+    for (const data of refused) {
+      expect(parsePopupFrameRequest(data)).toBeNull();
+    }
+  });
+
+  it('rejects anything that is not one of its own five requests', () => {
     const not: unknown[] = [
       null,
       undefined,
@@ -149,6 +173,33 @@ describe('popup frame — what the sandboxed document may ask for', () => {
     ];
     for (const data of not) {
       expect(parsePopupFrameRequest(data)).toBeNull();
+    }
+  });
+});
+
+describe('popup frame — upstream’s one debug menu item', () => {
+  it('prints the entry it resolved, and refuses an index it cannot', () => {
+    /* A hand-rolled swap rather than a spy framework: all this asserts is what
+       reached the console, and the format is upstream's (a plain log of the
+       entry). */
+    const original = console.info;
+    const printed: unknown[][] = [];
+    console.info = (...args: unknown[]): void => {
+      printed.push(args);
+    };
+    try {
+      const entry = { type: 'term', headwords: [{ term: '読め' }] };
+      expect(logPopupEntryDebugInfo(1, [{}, entry])).toBe(true);
+      expect(printed.length).toBe(1);
+      expect(printed[0]?.[1]).toBe(entry);
+
+      /* A stale message (the card moved on) is upstream's own early return for an
+         out-of-range index: nothing is printed as if it were an entry. */
+      expect(logPopupEntryDebugInfo(0, [])).toBe(false);
+      expect(logPopupEntryDebugInfo(-1, [entry])).toBe(false);
+      expect(printed.length).toBe(1);
+    } finally {
+      console.info = original;
     }
   });
 });

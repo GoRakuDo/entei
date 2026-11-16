@@ -20,6 +20,7 @@ import {
   POPUP_PREVIEW_PLACEHOLDER,
   POPUP_PREVIEW_TERM,
   buildPopupDocument,
+  extractPopupMenuTemplates,
   inlinePopupIconUrls,
   popupAppearanceKey,
   popupLookupKey,
@@ -27,6 +28,7 @@ import {
   pushPopupHistory,
   renderPopupCard,
   renderPopupEntriesHtml,
+  renderPopupKanjiHtml,
   resolvePopupAppearance,
   resolvePopupFontStyle,
   resolvePopupOuterTheme,
@@ -527,6 +529,36 @@ describe('yomitan popup preview — generator output', () => {
     ].map((node) => node.querySelector('.tag-label-content')?.textContent);
     expect(searchTags).toContain(POPUP_PREVIEW_TERM);
   });
+
+  /* Upstream numbers every entry it appends (`entry.dataset.index = i`), and the
+     frame's `⋮` menu reports the entry it was opened from by that number — so the
+     markup has to carry it, or the host has nothing to resolve. */
+  it('numbers the entries the ⋮ menu reports', async () => {
+    const doc = document.createElement('div');
+    doc.innerHTML = await renderPopupEntriesHtml(
+      DISPLAY_TEMPLATES,
+      [termEntry(), termEntry()],
+      dictionaries,
+    );
+    const entries = [...doc.querySelectorAll('.entry')];
+    expect(entries.map((node) => node.getAttribute('data-index'))).toEqual(['0', '1']);
+    // Only the first entry of the card is the current one.
+    expect(entries[0]?.className).toContain('active');
+    expect(entries[1]?.className).not.toContain('active');
+
+    // A kanji list drawn UNDER a term list continues the same sequence.
+    const kanji = await renderPopupKanjiHtml(
+      DISPLAY_TEMPLATES,
+      [kanjiEntry()],
+      dictionaries,
+      1,
+    );
+    const kanjiDoc = document.createElement('div');
+    kanjiDoc.innerHTML = kanji;
+    expect(
+      [...kanjiDoc.querySelectorAll('.entry')].map((node) => node.getAttribute('data-index')),
+    ).toEqual(['1']);
+  });
 });
 
 describe('yomitan popup preview — glossary normalization', () => {
@@ -710,6 +742,36 @@ describe('yomitan popup preview — action bar and history', () => {
     // A disabled button is not a request.
     expect(html).toContain('button.disabled');
   });
+
+  /* Upstream's `⋮` menu (`Display._onMenuButtonClick` + `dom/popup-menu.js`) is
+     drawn INSIDE the document: its markup is the extension's own template, its
+     styles are the extension's own `material.css` already loaded in the frame,
+     and it is positioned against the button that opened it. Only the finished
+     action — print this entry's data — crosses to the host. */
+  it('carries upstream’s own ⋮ menu templates, and draws the menu in the frame', () => {
+    const templates = extractPopupMenuTemplates(DISPLAY_TEMPLATES);
+    expect(templates).toContain('id="dictionary-entry-popup-menu-template"');
+    expect(templates).toContain('id="dictionary-entry-popup-menu-item-template"');
+
+    const html = document_({ menuTemplates: templates });
+    // Upstream's own host node for open menus (`ext/popup.html`).
+    expect(html).toContain('<div id="popup-menus"></div>');
+    expect(html).toContain("var MENU_ITEM_ACTION = 'log-debug-info';");
+    expect(html).toContain("send({ type: 'log-debug-info', index: index })");
+    // The button it opens from, and the four ways it closes.
+    expect(html).toContain("'.action-button[data-action=menu]'");
+    expect(html).toContain('onMenuContainerClick');
+    expect(html).toContain("event.key === 'Escape'");
+    expect(html).toContain("window.addEventListener('resize', onWindowResize, false)");
+  });
+
+  /* A template set without them (an older vendored file) must leave the button
+     inert rather than open an empty box. */
+  it('extracts nothing from a template set that has no menu', () => {
+    expect(extractPopupMenuTemplates('<template id="term-entry-template"></template>')).toBe('');
+    expect(extractPopupMenuTemplates('')).toBe('');
+    expect(document_()).toContain('<div id="popup-menus"></div>');
+  });
 });
 
 describe('yomitan popup preview — inlined icons', () => {
@@ -820,5 +882,19 @@ describe('yomitan popup card — one history entry, drawn', () => {
     // action bar existed.
     expect(drawn.srcDoc).toContain('data-type="term"');
     expect(drawn.srcDoc).toContain('kanji-entry');
+  });
+
+  /* One card, one sequence: the `⋮` menu on the kanji entry under a term must
+     report the index that kanji actually has on this card, not its own 0. */
+  it('numbers a scan card’s term entry and its kanji entries in one sequence', async () => {
+    const scan = createPopupHistory({ mode: 'scan', query: POPUP_PREVIEW_TERM });
+    const drawn = await card(scan, [termEntry()], [kanjiEntry()]);
+    const parsed = new DOMParser().parseFromString(drawn.srcDoc, 'text/html');
+    const entries = [...parsed.querySelectorAll('#dictionary-entries > .entry')];
+    expect(entries.map((node) => node.getAttribute('data-index'))).toEqual(['0', '1']);
+    expect(entries.map((node) => node.getAttribute('data-type'))).toEqual([
+      'term',
+      'kanji',
+    ]);
   });
 });

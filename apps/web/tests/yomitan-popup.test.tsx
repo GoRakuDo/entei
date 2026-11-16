@@ -33,6 +33,7 @@ import {
 import { setPathValue } from '@/modules/yomitan/yomitan-preferences';
 import { loadPopupPreviewAssets } from '@/modules/yomitan/popup-preview/popup-assets';
 import { renderPopupEntriesHtml } from '@/modules/yomitan/popup-preview/popup-entries';
+import { POPUP_FRAME_CHANNEL } from '@/modules/yomitan/popup-preview/popup-frame';
 
 /* ---------------------------------------------------------------------------
  * A faked Rust engine: one dictionary, one headword.
@@ -402,6 +403,54 @@ describe('YomitanPopup — floating scan popup', () => {
        goes away. A press INSIDE the frame is the user reading or selecting. */
     fireEvent.pointerDown(document.body);
     await waitFor(() => expect(popupFrame(container)).toBeNull());
+  });
+
+  /* The entry's own `⋮` menu draws INSIDE the frame (upstream's template and
+     CSS); the one thing it cannot do is print the entry, which lives out here. This
+     is that handover: the frame reports the index, the host prints that entry. */
+  it('prints the entry its ⋮ menu points at', async () => {
+    const detail = await scanResultFor('食べた', { debugInfo: true });
+    const { container } = render(<YomitanPopup />);
+
+    publishScan(detail);
+    await waitFor(() => expect(popupFrame(container)).not.toBeNull());
+    const frame = popupFrame(container)?.querySelector('iframe');
+    const printed = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { channel: POPUP_FRAME_CHANNEL, type: 'log-debug-info', index: 0 },
+          source: frame?.contentWindow ?? null,
+        }),
+      );
+      /* Upstream logs the entry it resolved for that index — the scan's own
+         translator entry, not the rendered markup. */
+      expect(printed).toHaveBeenCalledTimes(1);
+      expect(printed.mock.calls[0]?.[1]).toEqual(detail.entries[0]);
+    } finally {
+      printed.mockRestore();
+    }
+  });
+
+  /* A message from any OTHER window is not this popup's, whatever it claims. */
+  it('ignores a debug-info request from another window', async () => {
+    const detail = await scanResultFor('食べた', { debugInfo: true });
+    const { container } = render(<YomitanPopup />);
+
+    publishScan(detail);
+    await waitFor(() => expect(popupFrame(container)).not.toBeNull());
+    const printed = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { channel: POPUP_FRAME_CHANNEL, type: 'log-debug-info', index: 0 },
+          source: window,
+        }),
+      );
+      expect(printed).not.toHaveBeenCalled();
+    } finally {
+      printed.mockRestore();
+    }
   });
 
   it('does not close on a press inside the frame', async () => {
