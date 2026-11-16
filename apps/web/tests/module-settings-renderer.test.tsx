@@ -296,8 +296,8 @@ describe('ModuleSettingsRenderer — manifest-laid-out Dictionaries section', ()
       wildcardRow?.querySelector('[data-slot="switch"]'),
     ).not.toBeNull();
     expect(wildcardRow?.querySelector('.entei-module-select')).toBeNull();
-    // ...so the frequency dictionary is the section's only combobox.
-    expect(container.querySelectorAll('.entei-module-select')).toHaveLength(1);
+    // ...so the frequency dictionary and sorting mode are the section's comboboxes.
+    expect(container.querySelectorAll('.entei-module-select')).toHaveLength(2);
 
     // The select's leading option is the host-resolved `None` (no frequency
     // dictionary chosen); no dictionary is installed in a test run, so it is
@@ -351,7 +351,7 @@ describe('ModuleSettingsRenderer — manifest-laid-out Dictionaries section', ()
     // ...so its own tree group ("Frequency Sorting") loses that field.
     openSection(/Result Display/i);
     expect(screen.queryByText('Sort frequency dictionary')).toBeNull();
-    expect(screen.queryByText('Sort order')).toBeTruthy();
+    expect(screen.queryByText('Sort order')).toBeNull();
     // Both cards now lay their rows out, and both are open.
     expect(container.querySelectorAll('.entei-module-rows')).toHaveLength(2);
   });
@@ -944,9 +944,7 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
 
   const RESULT_DISPLAY_LABELS = [
     'Result grouping mode',
-    'Average frequency',
-    'Sort order',
-    'Sticky search header',
+    'Average frequencies',
   ];
 
   function renderShipped() {

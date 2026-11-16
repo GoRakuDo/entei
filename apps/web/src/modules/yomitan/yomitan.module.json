@@ -42,6 +42,16 @@
           "label": "Frequency sorting dictionary",
           "description": "Sort results using a frequency dictionary.",
           "none": "None"
+        },
+        {
+          "layout": "field",
+          "field": "general.sortFrequencyDictionaryOrder",
+          "type": "select",
+          "label": "Frequency sorting mode",
+          "options": [
+            { "value": "descending", "label": "Occurrence-based" },
+            { "value": "ascending", "label": "Rank-based" }
+          ]
         }
       ]
     },
@@ -465,17 +475,8 @@
         {
           "layout": "field",
           "field": "general.averageFrequency",
-          "label": "Average frequency"
-        },
-        {
-          "layout": "field",
-          "field": "general.sortFrequencyDictionaryOrder",
-          "label": "Sort order"
-        },
-        {
-          "layout": "field",
-          "field": "general.stickySearchHeader",
-          "label": "Sticky search header"
+          "label": "Average frequencies",
+          "description": "Compress frequency tags into one \"Average\" frequency tag based on the harmonic mean."
         }
       ]
     }
