@@ -630,37 +630,76 @@ body[data-page='settings'] .entei-main {
    ----------------------------------------------------------------------------
    Yomitan's "Group related terms" answers TWO settings with one control: which
    dictionary leads a merged result, and which other dictionaries are asked for the
-   same term. The selection is drawn as CHIPS because their ORDER is the setting —
-   first chip primary (gold, crowned), every later one secondary — so the row takes
-   the card's full width instead of the 15-22rem control column, where a wrapped
-   chip list does not fit. Same stacked shape as the textarea row, declared under
-   the control's own name.
+   same term. The picker is the standard trailing combobox, in the same column as
+   the selects above and below it, and the selection sits in a card-wide box under
+   the row — drawn as CHIPS because their ORDER is the setting: first chip primary
+   (gold, crowned), every later one a secondary search. A wrapped chip list needs
+   the whole card; the 15-22rem control column would fold every dictionary onto its
+   own line.
    -------------------------------------------------------------------------- */
 
-/* Two classes, not one: the desktop block below re-declares
-   `.entei-module-field { align-items: center }` AFTER this rule, and at equal
-   specificity the later one would win — centring the stacked children and
-   shrinking the label block to its text. Same technique as the paired select's
-   trigger override. */
+/* Two classes, not one: the row stays the field row's grid (label left, control
+   right, chip box spanning both under it) and only widens the vertical gap above
+   that box — one class would tie with the desktop `.entei-module-field` rule and
+   lose on source order. */
 .entei-module-field.entei-related-dictionaries {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--entei-space-12);
-  width: 100%;
+  row-gap: var(--entei-space-12);
 }
 
-.entei-related-dictionaries-control {
-  display: flex;
-  flex-wrap: wrap;
+/* The trigger IS `.entei-module-select` — the class the shadcn Select triggers
+   carry — so its width floor, ceiling and 44px height come from there and the
+   column lines up. Only the inner layout is this row's own. */
+.entei-related-dictionaries-trigger {
+  display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--entei-space-8);
+  padding: var(--entei-space-8) var(--entei-space-12);
+  /* `border-input`, the border every shadcn control in the app draws. */
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-md);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.entei-related-dictionaries-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-related-dictionaries-chevron {
+  color: var(--entei-muted);
+  flex-shrink: 0;
+}
+
+/* The popup takes the trigger's width (`--radix-popover-trigger-width`, the combobox
+   content default), so the list lines up with the selects around it; the viewport
+   clamp is all a phone needs on top of Radix's own collision handling. */
+.entei-related-dictionaries-content {
+  max-width: calc(100vw - var(--entei-gutter) * 2);
+}
+
+/* The selection: the card's full width under the row, in the same surface frame as
+   the textarea rows, so it reads as this row's value block rather than a second
+   control. Nothing is drawn while it is empty. The chips are centred in the 4rem
+   frame while they take one line, and the box grows with them past it. */
+.entei-related-dictionaries-box {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
   width: 100%;
   min-width: 0;
+  min-height: 4rem;
+  padding: var(--entei-space-12);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
 }
 
 .entei-related-dictionaries-chips {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--entei-space-8);
@@ -714,8 +753,8 @@ body[data-page='settings'] .entei-main {
 }
 
 /* One tap target per chip. Smaller than `--entei-touch-min` on purpose: a chip is
-   a tag inside a control, and the dropdown trigger beside it keeps the full touch
-   height. 32px still clears the 24px WCAG 2.5.8 floor. */
+   a tag inside the row's chip box, and that box carries the frame. 32px still
+   clears the 24px WCAG 2.5.8 floor. */
 .entei-related-dictionaries-chip-remove {
   display: inline-flex;
   align-items: center;
@@ -739,71 +778,6 @@ body[data-page='settings'] .entei-main {
 .entei-related-dictionaries-chip-remove:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: -2px;
-}
-
-/* The dropdown: with nothing selected it is the row's whole control, docked to the
-   trailing edge at the same width as the inputs and selects above and below it. */
-.entei-related-dictionaries-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--entei-space-8);
-  flex: 1 1 15rem;
-  min-width: 15rem;
-  max-width: 22rem;
-  min-height: var(--entei-touch-min);
-  margin-left: auto;
-  padding: var(--entei-space-8) var(--entei-space-12);
-  background-color: var(--entei-surface);
-  border: 1px solid oklch(100% 0 0deg / 0.1);
-  border-radius: var(--entei-radius-md);
-  color: var(--entei-text-secondary);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition:
-    border-color var(--entei-duration-fast) var(--entei-ease-productive),
-    color var(--entei-duration-fast) var(--entei-ease-productive);
-}
-
-/* The chips ARE the value once there is one, so only the affordance stays: a
-   square control on the row's trailing edge, the chips keeping the leading one. */
-.entei-related-dictionaries-control:has(.entei-related-dictionaries-chip)
-  .entei-related-dictionaries-trigger {
-  flex: 0 0 auto;
-  justify-content: center;
-  min-width: var(--entei-touch-min);
-}
-
-.entei-related-dictionaries-trigger:hover {
-  border-color: oklch(100% 0 0deg / 0.1);
-  color: var(--entei-status-locked);
-}
-
-.entei-related-dictionaries-trigger:focus-visible {
-  outline: 3px solid var(--entei-focus-ring);
-  outline-offset: 2px;
-}
-
-.entei-related-dictionaries-placeholder {
-  color: var(--entei-text-muted);
-}
-
-.entei-related-dictionaries-chevron {
-  color: var(--entei-muted);
-  flex-shrink: 0;
-}
-
-.entei-related-dictionaries-trigger:hover .entei-related-dictionaries-chevron {
-  color: var(--entei-status-locked);
-}
-
-/* The popup sizes ITSELF: the trigger can be the collapsed square above, so
-   `--radix-popover-trigger-width` would make the list as narrow as the chevron. */
-.entei-related-dictionaries-content {
-  width: 20rem;
-  max-width: calc(100vw - var(--entei-gutter) * 2);
-  min-width: 0;
 }
 
 /* Keeps the names on one vertical line whether the row is ticked or not. */

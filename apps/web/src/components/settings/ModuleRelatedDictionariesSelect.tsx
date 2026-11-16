@@ -7,7 +7,8 @@
  * merged result (`general.mainDictionary`) and which other dictionaries are asked
  * for the same term (`dictionaries[].allowSecondarySearches`). The ordered
  * selection lives in `modules/yomitan/related-dictionaries`; this file is only the
- * surface — a Combobox whose trigger carries the selection as chips.
+ * surface — a Combobox in the row's trailing control column, with the selection as
+ * a chip box under the row.
  *
  * Chips, because the ORDER is the meaning: the first chip is the primary
  * dictionary (crowned, gold) and every later one is a secondary search. Each chip
@@ -20,9 +21,9 @@
  * editor decides that from the options tree it is handed, which keeps the manifest
  * free of conditional-row syntax.
  *
- * Styling travels with the settings surface (`styles/settings.css`): the row is a
- * full-width block rather than the standard label/control split, because a wrapped
- * chip list cannot live in a 15rem column.
+ * Styling travels with the settings surface (`styles/settings.css`): the picker is
+ * the standard trailing control so the column keeps one left edge, and the chips
+ * get the card's full width under it, where a wrapped list has room to breathe.
  * ---------------------------------------------------------------------------
  */
 
@@ -154,77 +155,43 @@ export function ModuleRelatedDictionariesSelect({
         )}
       </div>
 
-      <div className="entei-related-dictionaries-control">
-        {/* The selection, in merge order. A list, because the order IS the
-            setting: it is read top-down and announced as a count. */}
-        {selected.length > 0 && (
-          <ul className="entei-related-dictionaries-chips">
-            {selected.map((name, index) => (
-              <li
-                key={name}
-                className="entei-related-dictionaries-chip"
-                data-role={index === 0 ? 'primary' : 'secondary'}
-              >
-                {index === 0 && (
-                  <Crown
-                    className="entei-related-dictionaries-chip-icon"
-                    size={14}
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="entei-related-dictionaries-chip-name">
-                  {name}
-                </span>
-                <span className="entei-related-dictionaries-chip-role">
-                  {index === 0 ? RELATED_COPY.primary : RELATED_COPY.secondary}
-                </span>
-                <button
-                  type="button"
-                  className="entei-related-dictionaries-chip-remove"
-                  aria-label={RELATED_COPY.remove(name)}
-                  onClick={() => toggle(name)}
-                >
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
+      {/* The picker: the same trailing combobox as every select above and below it,
+          so the control column keeps one left edge down the page. */}
+      <div className="entei-module-field-control">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button
               type="button"
               id={rowId}
-              className="entei-related-dictionaries-trigger"
+              className="entei-module-select entei-related-dictionaries-trigger"
+              /* The styling hook the shadcn Select triggers carry: it is what gives
+                 this row the same secondary text level and the same gold hover
+                 (chevron included) as its neighbours. */
+              data-slot="select-trigger"
               role="combobox"
               aria-haspopup="listbox"
               aria-expanded={open}
               /* Only while it is open: the list does not exist otherwise, and a
                  dangling reference is worse than none. */
               aria-controls={open ? listboxId : undefined}
-              /* A row with no text of its own falls back to the trigger's
-                 content, which is the placeholder above. */
+              /* The row label names the control, so a screen reader ties the picker
+                 to the setting it edits rather than to its own placeholder. */
               aria-labelledby={label === undefined ? undefined : labelId}
               aria-describedby={
                 description !== undefined ? descriptionId : undefined
               }
             >
-              {selected.length === 0 && (
-                <span className="entei-related-dictionaries-placeholder">
-                  {RELATED_COPY.empty}
-                </span>
-              )}
+              <span>{RELATED_COPY.empty}</span>
               <ChevronsUpDown
                 className="entei-related-dictionaries-chevron"
-                size={14}
+                size={16}
                 aria-hidden="true"
               />
             </button>
           </PopoverTrigger>
           <PopoverContent
-            align="start"
-            sideOffset={8}
+            align="end"
+            sideOffset={4}
             className="entei-combobox-content entei-related-dictionaries-content"
           >
             <Command>
@@ -264,6 +231,46 @@ export function ModuleRelatedDictionariesSelect({
           </PopoverContent>
         </Popover>
       </div>
+
+      {/* The selection, card-wide under the row: a wrapped chip list needs the whole
+          width, which the trailing control column cannot give it. A list, because
+          the order IS the setting — first chip primary (crowned, gold), every later
+          one a secondary search — and nothing at all is drawn while it is empty. */}
+      {selected.length > 0 && (
+        <div className="entei-related-dictionaries-box">
+          <ul className="entei-related-dictionaries-chips">
+            {selected.map((name, index) => (
+              <li
+                key={name}
+                className="entei-related-dictionaries-chip"
+                data-role={index === 0 ? 'primary' : 'secondary'}
+              >
+                {index === 0 && (
+                  <Crown
+                    className="entei-related-dictionaries-chip-icon"
+                    size={14}
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="entei-related-dictionaries-chip-name">
+                  {name}
+                </span>
+                <span className="entei-related-dictionaries-chip-role">
+                  {index === 0 ? RELATED_COPY.primary : RELATED_COPY.secondary}
+                </span>
+                <button
+                  type="button"
+                  className="entei-related-dictionaries-chip-remove"
+                  aria-label={RELATED_COPY.remove(name)}
+                  onClick={() => toggle(name)}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
