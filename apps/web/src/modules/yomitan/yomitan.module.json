@@ -247,6 +247,105 @@
         },
         {
           "layout": "field",
+          "field": "general.glossaryLayoutMode",
+          "type": "select",
+          "label": "Compact glossaries",
+          "description": "Display term glossaries using a more compact layout.",
+          "options": [
+            { "value": "default", "label": "Default" },
+            { "value": "compact", "label": "Compact Popup" },
+            { "value": "compact-popup-anki", "label": "Compact Popup and Anki" }
+          ]
+        },
+        {
+          "layout": "field",
+          "field": "general.compactTags",
+          "label": "Compact tags",
+          "description": "Show fewer repeated tags for term glossaries."
+        },
+        {
+          "layout": "field",
+          "field": "scanning.enableSearchTags",
+          "label": "Show tags for expressions and their readings",
+          "description": "These tags can be scanned if the options for popup content scanning are enabled."
+        },
+        {
+          "layout": "field",
+          "field": "general.debugInfo",
+          "label": "Show debug information",
+          "description": "A menu option to log debugging information will be shown in the search results."
+        },
+        {
+          "layout": "field",
+          "field": "general.termDisplayMode",
+          "type": "select",
+          "label": "Term display style",
+          "description": "Change how terms and their readings are displayed.",
+          "options": [
+            { "value": "ruby", "label": "Term furigana" },
+            { "value": "ruby-and-reading", "label": "Term furigana and reading" },
+            { "value": "term-and-reading", "label": "Plain term and reading" },
+            { "value": "term-only", "label": "Plain term" }
+          ]
+        },
+        {
+          "layout": "field",
+          "field": "parsing.readingMode",
+          "type": "select",
+          "label": "Reading mode",
+          "description": "Change what type of furigana is displayed for parsed text. Japanese only.",
+          "options": [
+            { "value": "none", "label": "None" },
+            { "value": "hiragana", "label": "ひらがな" },
+            { "value": "katakana", "label": "カタカナ" },
+            { "value": "romaji", "label": "Romaji" },
+            { "value": "dictionary-reading", "label": "Dictionary reading" }
+          ]
+        },
+        {
+          "layout": "field",
+          "field": "general.frequencyDisplayMode",
+          "type": "select",
+          "label": "Frequency display style",
+          "description": "Change how frequency information is presented.",
+          "options": [
+            { "value": "tags", "label": "Tags" },
+            { "value": "tags-grouped", "label": "Tags, grouped content" },
+            { "value": "split-tags", "label": "Split tags" },
+            { "value": "split-tags-grouped", "label": "Split tags, grouped content" },
+            { "value": "inline-list", "label": "Inline list" },
+            { "value": "list", "label": "List" },
+            { "value": "list-bordered", "label": "List, bordered" }
+          ]
+        },
+        {
+          "layout": "field",
+          "field": "general.popupCurrentIndicatorMode",
+          "type": "select",
+          "label": "Selection indicator style",
+          "description": "Change how the selected definition entry is visually indicated.",
+          "options": [
+            { "value": "none", "label": "None" },
+            { "value": "asterisk", "label": "Asterisk" },
+            { "value": "triangle", "label": "Triangle" },
+            { "value": "bar-left", "label": "Vertical bar (left)" },
+            { "value": "bar-right", "label": "Vertical bar (right)" },
+            { "value": "dot-left", "label": "Small dot (left)" },
+            { "value": "dot-right", "label": "Small dot (right)" }
+          ]
+        },
+        {
+          "layout": "checkboxes",
+          "label": "Pitch accent display styles",
+          "description": "Japanese only.",
+          "checkboxes": [
+            { "label": "Downstep notation", "field": "general.showPitchAccentDownstepNotation" },
+            { "label": "Downstep position", "field": "general.showPitchAccentPositionNotation" },
+            { "label": "Graph", "field": "general.showPitchAccentGraph" }
+          ]
+        },
+        {
+          "layout": "field",
           "field": "general.customPopupCss",
           "label": "Custom popup CSS",
           "description": "CSS injected into the popup."

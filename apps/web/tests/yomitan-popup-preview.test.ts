@@ -66,6 +66,26 @@ function withGeneral(options: Options, general: Record<string, unknown>): Option
   } as Options;
 }
 
+function withScanning(
+  options: Options,
+  scanning: Record<string, unknown>,
+): Options {
+  return {
+    ...options,
+    profiles: options.profiles.map((profile, index) =>
+      index === options.profileCurrent
+        ? {
+            ...profile,
+            options: {
+              ...profile.options,
+              scanning: { ...profile.options.scanning, ...scanning },
+            },
+          }
+        : profile,
+    ),
+  } as Options;
+}
+
 function withDictionaries(options: Options, names: string[]): Options {
   return {
     ...options,
@@ -228,6 +248,70 @@ describe('yomitan popup preview — appearance', () => {
     expect(appearance.customCss).toBe('.entry { outline: none; }');
   });
 
+  /* Upstream `Display._updateDocumentOptions` mirrors the display-mode knobs onto
+     the popup's `<html>` as `data-*` attributes, and `display.css` keys its rules
+     off them (compact glossaries, term/frequency display style, selection
+     indicator, search tags, debug flag, the three pitch-accent flags). This is that
+     mapping, verified field by field. */
+  it('mirrors the display-mode options as dataset attributes', () => {
+    const options = withScanning(
+      withGeneral(createDefaultOptions(), {
+        glossaryLayoutMode: 'compact',
+        compactTags: true,
+        debugInfo: true,
+        termDisplayMode: 'term-and-reading',
+        frequencyDisplayMode: 'list',
+        popupCurrentIndicatorMode: 'bar-left',
+        showPitchAccentDownstepNotation: false,
+        showPitchAccentPositionNotation: false,
+        showPitchAccentGraph: true,
+      }),
+      { enableSearchTags: true },
+    );
+    const attrs = resolvePopupAppearance(options).themeAttributes;
+    expect(attrs['glossaryLayoutMode']).toBe('compact');
+    expect(attrs['compactTags']).toBe('true');
+    expect(attrs['enableSearchTags']).toBe('true');
+    expect(attrs['debug']).toBe('true');
+    expect(attrs['termDisplayMode']).toBe('term-and-reading');
+    expect(attrs['frequencyDisplayMode']).toBe('list');
+    expect(attrs['popupCurrentIndicatorMode']).toBe('bar-left');
+    expect(attrs['showPronunciationText']).toBe('false');
+    expect(attrs['showPronunciationDownstepPosition']).toBe('false');
+    expect(attrs['showPronunciationGraph']).toBe('true');
+    /* `parsing.readingMode` is a QueryParser setting, never a `data-*` attribute
+       upstream — so it must NOT appear here. */
+    expect(attrs['readingMode']).toBeUndefined();
+  });
+
+  it('carries upstream’s defaults when no display mode is set', () => {
+    const attrs = resolvePopupAppearance(createDefaultOptions()).themeAttributes;
+    expect(attrs['glossaryLayoutMode']).toBe('default');
+    expect(attrs['compactTags']).toBe('false');
+    expect(attrs['termDisplayMode']).toBe('ruby');
+    expect(attrs['frequencyDisplayMode']).toBe('split-tags-grouped');
+    expect(attrs['popupCurrentIndicatorMode']).toBe('triangle');
+    expect(attrs['showPronunciationText']).toBe('true');
+    expect(attrs['showPronunciationDownstepPosition']).toBe('true');
+    expect(attrs['showPronunciationGraph']).toBe('false');
+  });
+
+  /* A display-mode change redraws the frame but must NOT re-run the dictionary
+     lookup — the same split the Position & Size numbers rely on. */
+  it('redraws the frame when a display mode moves, without re-looking-up', () => {
+    const base = createDefaultOptions();
+    const restyled = withGeneral(base, { termDisplayMode: 'term-only' });
+    expect(popupAppearanceKey(restyled)).not.toBe(popupAppearanceKey(base));
+    expect(popupLookupKey(restyled)).toBe(popupLookupKey(base));
+  });
+
+  it('redraws the frame when the search-tag toggle moves, without re-looking-up', () => {
+    const base = createDefaultOptions();
+    const tagged = withScanning(base, { enableSearchTags: true });
+    expect(popupAppearanceKey(tagged)).not.toBe(popupAppearanceKey(base));
+    expect(popupLookupKey(tagged)).toBe(popupLookupKey(base));
+  });
+
   /* The SHADOW setting is the FRAME's, not the document's: upstream styles
      `iframe.yomitan-popup[data-outer-theme=…]`, and the appearance resolution is
      what turns the setting into that attribute (rule: one resolution, both
@@ -367,6 +451,30 @@ describe('yomitan popup preview — document', () => {
     });
     expect(html).toContain('data-theme="light&quot; onload=&quot;alert(1)"');
     expect(html).not.toContain('onload="alert(1)" ');
+  });
+
+  /* The dataset properties resolvePopupAppearance hands over are kebab-cased on
+     the way into the document (`dataset.glossaryLayoutMode` → `data-glossary-
+     layout-mode`), exactly as a real `element.dataset.x = …` serialises. */
+  it('writes the display-mode attributes kebab-cased onto the document element', () => {
+    const html = buildPopupDocument({
+      css: EMPTY_CSS,
+      themeAttributes: {
+        theme: 'dark',
+        outerTheme: 'none',
+        glossaryLayoutMode: 'compact',
+        termDisplayMode: 'term-and-reading',
+        showPronunciationGraph: 'true',
+      },
+      fontStyle: '',
+      customCss: '',
+      entriesHtml: '',
+    });
+    expect(html).toContain('data-glossary-layout-mode="compact"');
+    expect(html).toContain('data-term-display-mode="term-and-reading"');
+    expect(html).toContain('data-show-pronunciation-graph="true"');
+    // The dataset name never leaks as a lowercased mash (no camelCase attribute).
+    expect(html).not.toContain('glossaryLayoutMode=');
   });
 });
 

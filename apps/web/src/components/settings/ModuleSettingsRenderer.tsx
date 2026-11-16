@@ -100,6 +100,7 @@ import {
 } from '@/features/modules/module-registry';
 import { ModuleFieldRow } from '@/components/settings/ModuleFieldRow';
 import { ModuleSelectPairRow } from '@/components/settings/ModuleSelectPairRow';
+import { ModuleCheckboxGroupRow } from '@/components/settings/ModuleCheckboxGroupRow';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
 import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
 import type { ScanningInputManagerCopy } from '@/components/settings/ScanningInputManager';
@@ -520,6 +521,28 @@ function ModuleLayoutRow({
     );
   }
 
+  /* SEVERAL CHECKBOXES, ONE ROW: upstream Yomitan's grouped booleans ("Pitch accent
+     display styles" is a Downstep notation, a Downstep position and a Graph checkbox
+     on one line). Each item is a real boolean field path; the row ships its own text
+     and mini labels, and the write resolves through the options store exactly like
+     a single-field switch row. Resolved before the single-field row, which can only
+     draw one control. */
+  if (row.layout === 'checkboxes') {
+    const items = row.checkboxes;
+    if (items === undefined || items.length === 0 || row.label === undefined) {
+      return null;
+    }
+    return (
+      <ModuleCheckboxGroupRow
+        label={row.label}
+        description={row.description}
+        checkboxes={items}
+        read={(path) => readOptionPath(options, path)}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (row.layout === 'usage') {
     if (source?.usage === undefined) return null;
     const template = row.usage ?? '';
@@ -588,7 +611,10 @@ function ModuleLayoutRow({
         />
       );
     }
-    if (row.type === 'select' && row.optionsSource !== undefined) {
+    if (
+      row.type === 'select' &&
+      (row.optionsSource !== undefined || row.options !== undefined)
+    ) {
       return (
         <BoundFieldRow
           row={row}
@@ -783,15 +809,29 @@ function BoundFieldRow({
   const read = hasOptionsSource
     ? resolveModuleDataSource(row.optionsSource)?.options
     : undefined;
+  /* A `field` row may ship its OWN select choices (upstream's exact wording). Those
+     are static — no source read — and take precedence over the descriptor's list.
+     They also make the row a select from its first render, so the row must not
+     start as `undefined` and flicker through a text input. */
+  const inlineOptions = row.options;
   /* `[]` before the read resolves, not `undefined`, ONLY when an optionsSource is declared:
      a row that declares an `optionsSource` is a select from its first render, so it never
      flickers through a text input while the source is still being read.
-     A row WITHOUT optionsSource must pass undefined so number/string fields are not turned into selects. */
+     A row WITHOUT optionsSource or inline options must pass undefined so number/string fields are not turned into selects. */
   const [choices, setChoices] = useState<readonly SelectOption[] | undefined>(
-    hasOptionsSource ? [] : undefined,
+    inlineOptions !== undefined
+      ? inlineOptions
+      : hasOptionsSource
+        ? []
+        : undefined,
   );
 
   useEffect(() => {
+    /* Inline options are static: the effect has nothing to read. */
+    if (inlineOptions !== undefined) {
+      setChoices(inlineOptions);
+      return;
+    }
     if (read === undefined) return;
     let current = true;
     void read()
@@ -807,7 +847,7 @@ function BoundFieldRow({
     };
     /* Re-read whenever the tree changes: installing or deleting the item this
        list enumerates has to show up without a reload. */
-  }, [read, options]);
+  }, [read, options, inlineOptions]);
 
   return (
     <ModuleFieldRow

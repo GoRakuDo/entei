@@ -218,8 +218,12 @@ describe('ModuleSettingsRenderer — locked fields', () => {
     // Pinned-on host options have no toggle; the trace gate keeps its own.
     expect(screen.queryByText('Show advanced settings')).toBeNull();
     expect(screen.queryByText('Show debug settings')).toBeNull();
-    expect(screen.getByText('Show debug information')).toBeTruthy();
-    expect(groupLabels).toContain('Debug');
+    /* `general.debugInfo` is now claimed by the Appearance section (upstream shows
+       "Show debug information" there), so it no longer renders in General — the
+       General "Debug" group held only it plus the locked `showDebug`, so that
+       group empties out and disappears with it. */
+    expect(screen.queryByText('Show debug information')).toBeNull();
+    expect(groupLabels).not.toContain('Debug');
   });
 
   it('renders no control bound to a locked path', () => {
@@ -716,6 +720,15 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     'Font family',
     'Font size (px)',
     'Line height',
+    'Compact glossaries',
+    'Compact tags',
+    'Show tags for expressions and their readings',
+    'Show debug information',
+    'Term display style',
+    'Reading mode',
+    'Frequency display style',
+    'Selection indicator style',
+    'Pitch accent display styles',
     'Custom popup CSS',
     'Custom outer CSS',
     'Enable Wanakana (romaji → kana)',
@@ -744,14 +757,24 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     expect(section?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
     // 2 paired selects on the Theme row and 2 on Action bar appearance —
     // upstream groups each pair into ONE row, so this is two rows, four controls.
-    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(4);
+    // The five single-select rows (Compact glossaries, Term display style, Reading
+    // mode, Frequency display style, Selection indicator style) add five more.
+    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(9);
     expect(section?.querySelectorAll('.entei-module-selects')).toHaveLength(2);
     expect(
       section?.querySelectorAll('.entei-module-select-pair-item'),
     ).toHaveLength(4);
-    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(1);
+    // 1 (Enable Wanakana) + 3 (Compact tags, search tags, debug info) switches.
+    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(4);
     expect(section?.querySelectorAll('textarea')).toHaveLength(2);
     expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(1);
+    // The pitch-accent group is one row of three checkboxes.
+    expect(
+      section?.querySelectorAll('.entei-module-checkboxes'),
+    ).toHaveLength(1);
+    expect(
+      section?.querySelectorAll('.entei-module-checkbox-item'),
+    ).toHaveLength(3);
 
     /* The preview row is a host-owned block, not a bound control. Its frame is
        drawn as soon as the vendored assets have been read (they fail soft to the

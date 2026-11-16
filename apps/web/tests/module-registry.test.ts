@@ -603,6 +603,185 @@ describe('module-registry — `selects` rows (paired mini-labelled selects)', ()
   });
 });
 
+describe('module-registry — `checkboxes` rows (grouped mini-labelled booleans)', () => {
+  it('keeps every checkbox of a well-formed row', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'popup-appearance',
+          rows: [
+            {
+              layout: 'checkboxes',
+              label: 'Pitch accent display styles',
+              description: 'Japanese only.',
+              checkboxes: [
+                {
+                  label: 'Downstep notation',
+                  field: 'general.showPitchAccentDownstepNotation',
+                },
+                {
+                  label: 'Downstep position',
+                  field: 'general.showPitchAccentPositionNotation',
+                },
+                { label: 'Graph', field: 'general.showPitchAccentGraph' },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'popup-appearance',
+        rows: [
+          {
+            layout: 'checkboxes',
+            label: 'Pitch accent display styles',
+            description: 'Japanese only.',
+            checkboxes: [
+              {
+                label: 'Downstep notation',
+                field: 'general.showPitchAccentDownstepNotation',
+              },
+              {
+                label: 'Downstep position',
+                field: 'general.showPitchAccentPositionNotation',
+              },
+              { label: 'Graph', field: 'general.showPitchAccentGraph' },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('drops a checkbox with no field or no label, and a row left with none', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'items',
+          rows: [
+            /* No checkboxes at all — the row would draw an empty box. */
+            { layout: 'checkboxes', label: 'Empty' },
+            {
+              layout: 'checkboxes',
+              label: 'Pitch accent display styles',
+              checkboxes: [
+                { label: 'No field' },
+                { field: 'general.showPitchAccentGraph' },
+                { label: 'Graph', field: 'general.showPitchAccentGraph' },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'items',
+        rows: [
+          {
+            layout: 'checkboxes',
+            label: 'Pitch accent display styles',
+            checkboxes: [
+              { label: 'Graph', field: 'general.showPitchAccentGraph' },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  /* The Appearance section ships the pitch-accent group upstream draws. */
+  it('exposes the pitch-accent checkbox group on the Yomitan manifest', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const appearance = yomitan?.sectionLayouts?.find(
+      (layout) => layout.section === 'popup-appearance',
+    );
+    const pitch = appearance?.rows.find(
+      (row) => row.label === 'Pitch accent display styles',
+    );
+    expect(pitch?.layout).toBe('checkboxes');
+    expect(pitch?.checkboxes?.map((item) => item.field)).toEqual([
+      'general.showPitchAccentDownstepNotation',
+      'general.showPitchAccentPositionNotation',
+      'general.showPitchAccentGraph',
+    ]);
+    expect(pitch?.checkboxes?.map((item) => item.label)).toEqual([
+      'Downstep notation',
+      'Downstep position',
+      'Graph',
+    ]);
+  });
+});
+
+describe('module-registry — `field` rows with literal options', () => {
+  it('keeps a field row’s own choices, dropping a malformed one', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'popup-appearance',
+          rows: [
+            {
+              layout: 'field',
+              field: 'general.glossaryLayoutMode',
+              label: 'Compact glossaries',
+              options: [
+                { value: 'default', label: 'Default' },
+                { value: 'compact', label: 'Compact Popup' },
+                { value: 'compact-popup-anki', label: 'Compact Popup and Anki' },
+                { value: '', label: '' },
+                { label: 'no value' },
+              ],
+            },
+            /* No usable choice — the row keeps no `options` (descriptor fallback). */
+            {
+              layout: 'field',
+              field: 'general.termDisplayMode',
+              options: [{ value: '', label: '' }],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'popup-appearance',
+        rows: [
+          {
+            layout: 'field',
+            field: 'general.glossaryLayoutMode',
+            label: 'Compact glossaries',
+            options: [
+              { value: 'default', label: 'Default' },
+              { value: 'compact', label: 'Compact Popup' },
+              { value: 'compact-popup-anki', label: 'Compact Popup and Anki' },
+            ],
+          },
+          { layout: 'field', field: 'general.termDisplayMode' },
+        ],
+      },
+    ]);
+  });
+
+  /* The Appearance section ships the upstream-exact select wording. */
+  it('carries upstream’s exact option labels on the Yomitan manifest', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const appearance = yomitan?.sectionLayouts?.find(
+      (layout) => layout.section === 'popup-appearance',
+    );
+    const indicator = appearance?.rows.find(
+      (row) => row.field === 'general.popupCurrentIndicatorMode',
+    );
+    expect(indicator?.options?.map((option) => option.label)).toEqual([
+      'None',
+      'Asterisk',
+      'Triangle',
+      'Vertical bar (left)',
+      'Vertical bar (right)',
+      'Small dot (left)',
+      'Small dot (right)',
+    ]);
+  });
+});
+
 describe('module-registry — merged registry', () => {
   beforeEach(() => {
     localStorage.clear();

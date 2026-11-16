@@ -189,6 +189,42 @@ export function resolvePopupFontStyle(
 }
 
 /**
+ * The document-level dataset attributes upstream's `Display._updateDocumentOptions`
+ * writes from the options that are NOT the theme/font/size (see `display.js`).
+ *
+ * These are the display-mode booleans and enums Yomitan mirrors onto the popup's
+ * `<html>` element so `display.css` can key its rules off them (compact glossaries,
+ * term/frequency display style, selection indicator, search tags, debug flag, the
+ * three pitch-accent pronunciation flags). Each key is a `dataset` property
+ * (camelCase); `popup-document`'s `renderThemeAttributes` kebab-cases it on the way
+ * into the document, exactly like the DOM does for a real `element.dataset.x = …`.
+ *
+ * `parsing.readingMode` is deliberately NOT here: upstream passes it to the
+ * `QueryParser` (how parsed text is read), it is never a `data-*` attribute and no
+ * stylesheet keys off it — this host does not run the query parser in the popup, so
+ * there is nothing to mirror. Kept faithful to `_updateDocumentOptions`.
+ */
+function resolvePopupContentAttributes(
+  profile: ReturnType<typeof activeProfileOptions>,
+): Record<string, string> {
+  const { general, scanning } = profile;
+  return {
+    glossaryLayoutMode: String(general.glossaryLayoutMode),
+    compactTags: String(general.compactTags),
+    enableSearchTags: String(scanning.enableSearchTags),
+    debug: String(general.debugInfo),
+    termDisplayMode: String(general.termDisplayMode),
+    frequencyDisplayMode: String(general.frequencyDisplayMode),
+    popupCurrentIndicatorMode: String(general.popupCurrentIndicatorMode),
+    showPronunciationText: String(general.showPitchAccentDownstepNotation),
+    showPronunciationDownstepPosition: String(
+      general.showPitchAccentPositionNotation,
+    ),
+    showPronunciationGraph: String(general.showPitchAccentGraph),
+  };
+}
+
+/**
  * Everything the popup document's appearance depends on, read from the options.
  *
  * Note: upstream also appends each enabled dictionary's own `styles` to the popup
@@ -213,10 +249,13 @@ export function resolvePopupAppearance(options: Options): PopupAppearance {
     popupActionBarVisibility = 'always',
   } = profile.general;
   const scale = positiveOr(popupScalingFactor, DEFAULT_POPUP_SCALE);
-  const themeAttributes = resolvePopupThemeAttributes(
-    popupTheme,
-    popupOuterTheme,
-  );
+  /* ThemeController's own `data-theme` family, then the display-mode attributes
+     upstream writes onto the same element (`_updateDocumentOptions`). One record,
+     because both land on the popup's `<html>`. */
+  const themeAttributes: Record<string, string> = {
+    ...resolvePopupThemeAttributes(popupTheme, popupOuterTheme),
+    ...resolvePopupContentAttributes(profile),
+  };
   const rawLocation = String(popupActionBarLocation).toLowerCase();
   const validLocation = ['top', 'bottom', 'left', 'right'].includes(rawLocation)
     ? (rawLocation as 'top' | 'bottom' | 'left' | 'right')
@@ -262,6 +301,15 @@ export function popupAppearanceKey(options: Options): string {
     popupScalingFactor,
     popupActionBarLocation,
     popupActionBarVisibility,
+    glossaryLayoutMode,
+    compactTags,
+    termDisplayMode,
+    frequencyDisplayMode,
+    popupCurrentIndicatorMode,
+    debugInfo,
+    showPitchAccentDownstepNotation,
+    showPitchAccentPositionNotation,
+    showPitchAccentGraph,
   } = profile.general;
   return JSON.stringify([
     popupTheme,
@@ -275,5 +323,15 @@ export function popupAppearanceKey(options: Options): string {
     popupScalingFactor,
     popupActionBarLocation,
     popupActionBarVisibility,
+    glossaryLayoutMode,
+    compactTags,
+    termDisplayMode,
+    frequencyDisplayMode,
+    popupCurrentIndicatorMode,
+    debugInfo,
+    showPitchAccentDownstepNotation,
+    showPitchAccentPositionNotation,
+    showPitchAccentGraph,
+    profile.scanning.enableSearchTags,
   ]);
 }

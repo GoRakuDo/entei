@@ -86,7 +86,8 @@ export type EnteiModuleRowLayout =
   | 'field'
   | 'usage'
   | 'inputs'
-  | 'selects';
+  | 'selects'
+  | 'checkboxes';
 
 /**
  * One choice of a `selects` row's control.
@@ -110,6 +111,21 @@ export interface EnteiModuleSelectBinding {
   field: string;
   /** Choices of this control, in draw order. */
   options: readonly EnteiModuleSelectOption[];
+}
+
+/**
+ * One mini-labelled checkbox of a `checkboxes` row.
+ *
+ * The row groups several independent booleans under one label (Yomitan's
+ * "Pitch accent display styles": Downstep notation / Downstep position / Graph
+ * on a single line). Each item is a real boolean option path; the renderer writes
+ * through the module's options store, exactly like a single-field switch row.
+ */
+export interface EnteiModuleCheckboxBinding {
+  /** Mini label beside the checkbox (`Downstep notation`, `Graph`, …). */
+  label: string;
+  /** Dot-path of the boolean field this checkbox toggles. */
+  field: string;
 }
 
 /**
@@ -147,6 +163,16 @@ export interface EnteiModuleRowBinding {
   /** Host-owned source id supplying a `field` row's select options. */
   optionsSource?: string;
   /**
+   * Literal choices of a `field` row's select, written by the manifest itself.
+   *
+   * The descriptor's own option list is the fallback; a row that needs a specific
+   * wording the tree does not reproduce — upstream Yomitan's own settings.html
+   * labels (`Vertical bar (left)`, `Term furigana`, …) — ships its own list here.
+   * The VALUES match the descriptor's, so the written value and the field type are
+   * unchanged; only the display text differs. Ignored for a non-select control.
+   */
+  options?: readonly EnteiModuleSelectOption[];
+  /**
    * Built-in English copy table of the layout drawing this row — the strings
    * that layout owns itself (`list` / `inputs`, and a `usage` row's sentence).
    */
@@ -168,6 +194,13 @@ export interface EnteiModuleRowBinding {
    * text of their own beyond their mini labels.
    */
   selects?: readonly EnteiModuleSelectBinding[];
+  /**
+   * Checkboxes of a `checkboxes` row: two or more mini-labelled boolean toggles
+   * drawn side by side in the row's control column. The row's own `label` /
+   * `description` are the text block on the left; each item is a real boolean
+   * field path the renderer writes through the options store.
+   */
+  checkboxes?: readonly EnteiModuleCheckboxBinding[];
   /**
    * Control type of a row whose `field` has NO descriptor in the module's
    * `settingsSchema` — a HOST-DECLARED VIRTUAL FIELD.
@@ -258,6 +291,7 @@ const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = [
   'usage',
   'inputs',
   'selects',
+  'checkboxes',
 ];
 
 /**
@@ -289,6 +323,28 @@ function parseSelectBindings(
     }
     if (options.length === 0) continue;
     items.push({ label, field, options });
+  }
+  return items.length === 0 ? undefined : items;
+}
+
+/**
+ * Validate the `checkboxes` array of a `checkboxes` row.
+ *
+ * Fail-closed per ITEM: each needs a label and a field (a checkbox bound to no
+ * path toggles nothing). A row left with no usable item is dropped by the caller.
+ */
+function parseCheckboxBindings(
+  input: unknown,
+): EnteiModuleCheckboxBinding[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const items: EnteiModuleCheckboxBinding[] = [];
+  for (const entry of input) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const raw = entry as Record<string, unknown>;
+    const label = optionalId(raw.label);
+    const field = optionalId(raw.field);
+    if (label === undefined || field === undefined) continue;
+    items.push({ label, field });
   }
   return items.length === 0 ? undefined : items;
 }
@@ -354,6 +410,22 @@ export function normalizeSectionLayouts(
         rows.push(pairRow);
         continue;
       }
+      if (layout === 'checkboxes') {
+        /* A `checkboxes` row is addressable ONLY through its items: each names a
+           boolean field path, and a row with no usable item would draw an empty
+           box. */
+        const checkboxes = parseCheckboxBindings(row.checkboxes);
+        if (checkboxes === undefined) continue;
+        const checkboxRow: EnteiModuleRowBinding = { layout, checkboxes };
+        const checkboxLabel = optionalId(row.label);
+        if (checkboxLabel !== undefined) checkboxRow.label = checkboxLabel;
+        const checkboxDescription = optionalId(row.description);
+        if (checkboxDescription !== undefined) {
+          checkboxRow.description = checkboxDescription;
+        }
+        rows.push(checkboxRow);
+        continue;
+      }
       if (field === undefined && source === undefined) continue;
       if (layout !== 'field' && source === undefined) continue;
       const binding: EnteiModuleRowBinding = { layout };
@@ -364,6 +436,22 @@ export function normalizeSectionLayouts(
       }
       if (source !== undefined) binding.source = source;
       if (optionsSource !== undefined) binding.optionsSource = optionsSource;
+      /* A `field` row may ship its own select choices (upstream's exact wording).
+         Parsed with the same fail-closed-per-option rule as a `selects` control:
+         a choice without a value or a label is dropped, and an empty list is
+         treated as absent so the descriptor's own options stay the fallback. */
+      if (layout === 'field' && Array.isArray(row.options)) {
+        const options: EnteiModuleSelectOption[] = [];
+        for (const choice of row.options) {
+          if (typeof choice !== 'object' || choice === null) continue;
+          const option = choice as Record<string, unknown>;
+          const value = optionalId(option.value);
+          const optionLabel = optionalId(option.label);
+          if (value === undefined || optionLabel === undefined) continue;
+          options.push({ value, label: optionLabel });
+        }
+        if (options.length > 0) binding.options = options;
+      }
       /* The layout's own English table, then the row's literal text. Both are
          optional: a row naming neither falls back to the descriptor's English
          (or to the layout's own fallback for the copy it owns). */
