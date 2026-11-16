@@ -252,7 +252,20 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  overflow-x: hidden;
+  /* MUST be `clip`, never `hidden`.
+     `html` owns the scrollport (`overflow-y: scroll !important`, see the
+     Radix scroll-lock block at the top of this file), so <body>'s overflow is
+     no longer propagated to the viewport. Per CSS Overflow 3, `overflow-x:
+     hidden` with a `visible` other axis coerces that axis to `auto` — which
+     made <body> a scroll container that never scrolls, and every
+     `position: sticky` descendant (the /settings/ nav tree, the mobile
+     player media area, the right-panel tabs bar) then anchored to it and
+     scrolled away with the root instead of sticking. `clip` clips sideways
+     overflow just the same but does NOT create a scroll container, so the
+     computed pair stays `clip / visible` and sticky keeps the viewport as its
+     scrollport. Verified in Chrome 151 (nav top = 0 after 1000px of scroll
+     with `clip`, -1000 with `hidden`). */
+  overflow-x: clip;
 }
 
 /* Heading balance — progressive enhancement (PHASE0.md 11.300) */

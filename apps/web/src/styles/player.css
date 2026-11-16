@@ -1185,10 +1185,12 @@ html.entei-native-video .entei-player-video {
      so .entei-player-main collapses to padding:0 on mobile. The media
      surface below is made sticky to the viewport top so the player stays
      visible while the user scrolls through long subtitle / Nadeshiko
-     content. overflow-x: clip is intentionally NOT applied: mixing
-     overflow-x: clip with overflow-y: visible (default) forces the
-     browser to compute overflow-y as auto, which creates a scroll
-     container and breaks position: sticky on descendants. */
+     content. NOTHING here may become a scroll container: `overflow-x: hidden`
+     (or any non-visible/clip pair) on this box would coerce overflow-y to
+     `auto` and break the sticky surface below. `clip` would be safe (clip
+     never creates a scroll container) but is unnecessary — the negative-margin
+     breakout is gone, so there is nothing sideways to clip. See the `<body>`
+     rule in global.css for the same contract one level up. */
   .entei-player-main {
     overflow: visible;
   }
