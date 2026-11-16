@@ -290,20 +290,6 @@
         },
         {
           "layout": "field",
-          "field": "parsing.readingMode",
-          "type": "select",
-          "label": "Reading mode",
-          "description": "Change what type of furigana is displayed for parsed text. Japanese only.",
-          "options": [
-            { "value": "none", "label": "None" },
-            { "value": "hiragana", "label": "ひらがな" },
-            { "value": "katakana", "label": "カタカナ" },
-            { "value": "romaji", "label": "Romaji" },
-            { "value": "dictionary-reading", "label": "Dictionary reading" }
-          ]
-        },
-        {
-          "layout": "field",
           "field": "general.frequencyDisplayMode",
           "type": "select",
           "label": "Frequency display style",
@@ -349,17 +335,6 @@
           "field": "general.customPopupCss",
           "label": "Custom popup CSS",
           "description": "CSS injected into the popup."
-        },
-        {
-          "layout": "field",
-          "field": "general.customPopupOuterCss",
-          "label": "Custom outer CSS",
-          "description": "CSS injected into the host page around the popup."
-        },
-        {
-          "layout": "field",
-          "field": "general.enableWanakana",
-          "label": "Enable Wanakana (romaji → kana)"
         }
       ]
     },
@@ -422,6 +397,47 @@
           "field": "general.popupVerticalOffset",
           "label": "Vertical text offset (px)",
           "description": "Change the distance the popup is placed relative to vertical text."
+        }
+      ]
+    },
+    {
+      "section": "parsing",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "parsing.enableScanningParser",
+          "label": "Parse sentences using Yomitan's internal parser",
+          "description": "Sentence words are parsed using Yomitan's dictionaries."
+        },
+        {
+          "layout": "field",
+          "field": "parsing.enableMecabParser",
+          "label": "Parse sentences using MeCab",
+          "description": "Sentence words are parsed using a third-party program. Japanese only."
+        },
+        {
+          "layout": "field",
+          "field": "parsing.termSpacing",
+          "label": "Show space between parsed words"
+        },
+        {
+          "layout": "field",
+          "field": "parsing.readingMode",
+          "type": "select",
+          "label": "Reading mode",
+          "description": "Change what type of furigana is displayed for parsed text. Japanese only.",
+          "options": [
+            { "value": "none", "label": "None" },
+            { "value": "hiragana", "label": "ひらがな" },
+            { "value": "katakana", "label": "カタカナ" },
+            { "value": "romaji", "label": "Romaji" },
+            { "value": "dictionary-reading", "label": "Dictionary reading" }
+          ]
+        },
+        {
+          "layout": "field",
+          "field": "general.enableWanakana",
+          "label": "Enable Wanakana (romaji → kana)"
         }
       ]
     }

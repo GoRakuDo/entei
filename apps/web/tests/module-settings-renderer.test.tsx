@@ -725,13 +725,10 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     'Show tags for expressions and their readings',
     'Show debug information',
     'Term display style',
-    'Reading mode',
     'Frequency display style',
     'Selection indicator style',
     'Pitch accent display styles',
     'Custom popup CSS',
-    'Custom outer CSS',
-    'Enable Wanakana (romaji → kana)',
   ];
 
   function renderShipped() {
@@ -757,16 +754,17 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     expect(section?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
     // 2 paired selects on the Theme row and 2 on Action bar appearance —
     // upstream groups each pair into ONE row, so this is two rows, four controls.
-    // The five single-select rows (Compact glossaries, Term display style, Reading
-    // mode, Frequency display style, Selection indicator style) add five more.
-    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(9);
+    // The four single-select rows (Compact glossaries, Term display style,
+    // Frequency display style, Selection indicator style) add four more.
+    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(8);
     expect(section?.querySelectorAll('.entei-module-selects')).toHaveLength(2);
     expect(
       section?.querySelectorAll('.entei-module-select-pair-item'),
     ).toHaveLength(4);
-    // 1 (Enable Wanakana) + 3 (Compact tags, search tags, debug info) switches.
-    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(4);
-    expect(section?.querySelectorAll('textarea')).toHaveLength(2);
+    // 3 (Compact tags, search tags, debug info) switches: Wanakana moved to Parsing.
+    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(3);
+    // Custom popup CSS is the section's one textarea: the OUTER one is gone.
+    expect(section?.querySelectorAll('textarea')).toHaveLength(1);
     expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(1);
     // The pitch-accent group is one multi-select buttongroup of three choices.
     expect(
@@ -815,5 +813,113 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     expect(screen.queryByText('Action bar visibility')).toBeNull();
     expect(screen.queryByText('Action bar location')).toBeNull();
     expect(screen.queryByText('Action Bar')).toBeNull();
+  });
+});
+
+describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
+  /**
+   * Upstream Yomitan puts its parser switches, the furigana reading mode and the
+   * romaji input toggle in ONE settings section. The descriptor tree this host
+   * renders describes them as two sections (parsing + general), so the manifest
+   * lays the Parsing section out itself: the rows are the app's own English, and
+   * readingMode / enableWanakana are CLAIMED here instead of in Appearance, where
+   * the tree groups would otherwise leave them.
+   */
+  const PARSING_LABELS = [
+    "Parse sentences using Yomitan's internal parser",
+    'Parse sentences using MeCab',
+    'Show space between parsed words',
+    'Reading mode',
+    'Enable Wanakana (romaji → kana)',
+  ];
+
+  function renderShipped() {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    if (yomitan === undefined) throw new Error('yomitan is not registered');
+    return render(
+      <ModuleSettingsRenderer
+        module={{ ...yomitan, showSectionIcons: true }}
+        dict={en}
+      />,
+    );
+  }
+
+  /** The Parsing card's position, read from the tree rather than hard-coded. */
+  function parsingIndex(): number {
+    return yomitanSettingsTree.findIndex(
+      (section) => section.key === 'parsing',
+    );
+  }
+
+  it('draws the five declared rows once each', () => {
+    const { container } = renderShipped();
+    // The section is called Parsing; Sentence Parsing is a different card, so the
+    // accessible name has to be matched exactly.
+    openSection(/^Toggle section: Parsing$/i);
+
+    const section =
+      container.querySelectorAll('.entei-module-section')[parsingIndex()];
+    expect(section?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
+    // The declared rows replaced the group walk entirely: no group headings.
+    expect(section?.querySelectorAll('.entei-module-group')).toHaveLength(0);
+
+    for (const label of PARSING_LABELS) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+    // 3 parser switches + 1 Wanakana switch, one reading-mode combobox.
+    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(4);
+    expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(1);
+    // ...and nothing else: no stray textarea or number input in this section.
+    expect(section?.querySelectorAll('textarea')).toHaveLength(0);
+    expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(0);
+  });
+
+  it('keeps the reading mode choices in upstream order', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const parsing = yomitan?.sectionLayouts?.find(
+      (layout) => layout.section === 'parsing',
+    );
+    const reading = parsing?.rows.find((row) => row.field === 'parsing.readingMode');
+    expect(reading?.label).toBe('Reading mode');
+    expect(reading?.options?.map((option) => option.value)).toEqual([
+      'none',
+      'hiragana',
+      'katakana',
+      'romaji',
+      'dictionary-reading',
+    ]);
+  });
+
+  it('leaves Reading mode and Wanakana out of Appearance', () => {
+    const { container } = renderShipped();
+    openSection(/Appearance/i);
+    openSection(/^Toggle section: Parsing$/i);
+
+    // Both paths live in the tree's Appearance groups, so a card that did NOT
+    // claim them would draw them a second time: each is on the page exactly once,
+    // and that one copy is in the Parsing card.
+    const sections = container.querySelectorAll('.entei-module-section');
+    const appearance = sections[4]?.textContent ?? '';
+    const parsing = sections[parsingIndex()]?.textContent ?? '';
+
+    for (const label of [
+      'Reading mode',
+      'Enable Wanakana (romaji → kana)',
+    ]) {
+      expect(parsing).toContain(label);
+      expect(appearance).not.toContain(label);
+    }
+  });
+
+  it('drops Custom outer CSS entirely', () => {
+    // No row declares it any more, and Appearance is laid out by the manifest, so
+    // the tree group that would otherwise draw it never runs. The popup one stays.
+    const { container } = renderShipped();
+    openSection(/Appearance/i);
+
+    const appearance = container.querySelectorAll('.entei-module-section')[4];
+    expect(appearance?.textContent).not.toContain('Custom outer CSS');
+    expect(appearance?.textContent).toContain('Custom popup CSS');
+    expect(screen.queryByText('Custom outer CSS')).toBeNull();
   });
 });
