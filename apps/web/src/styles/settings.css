@@ -952,7 +952,7 @@ body[data-page='settings'] .entei-main {
 .entei-module-list-row-actions {
   display: flex;
   align-items: center;
-  gap: var(--entei-space-12);
+  gap: var(--entei-space-16);
   justify-self: start;
 }
 
