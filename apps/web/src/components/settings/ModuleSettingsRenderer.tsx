@@ -36,10 +36,12 @@
  *
  * A `field` row may also name a source that owns its EDITOR: some values are not
  * in the module's options tree at all (a credential lives in the module's own
- * store), so the host binds the editor and the row keeps only its text — or, for a
- * block that is not a value at all (Yomitan's popup preview), no text: the editor
- * is then the whole row. Without such a binding the row stays the standard one, so
- * a module degrades instead of losing the row.
+ * store), or one control edits several paths at once (Yomitan's merge dictionary
+ * selection), so the host binds the editor and the row keeps only its text — or, for
+ * a block that is not a value at all (Yomitan's popup preview), no text: the editor
+ * is then the whole row. Such an editor is handed the whole-tree setter too, so it
+ * can write without the row knowing which paths it owns. Without such a binding the
+ * row stays the standard one, so a module degrades instead of losing the row.
  *
  * `array` / `section-header` fields are not editable as a plain row: they are
  * structural placeholders in the tree (Anki card formats, profile management)
@@ -585,6 +587,11 @@ function ModuleLayoutRow({
           description={description}
           placeholder={field?.placeholder}
           options={options}
+          /* A host editor may WRITE as well as draw: a credential writes to its own
+             store and ignores this, while a control that edits several option paths
+             at once (Yomitan's merge dictionary selection) has nothing else to write
+             through. */
+          onChange={onOptionsChange}
         />
       );
     }

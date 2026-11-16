@@ -625,6 +625,194 @@ body[data-page='settings'] .entei-main {
   max-width: none;
 }
 
+/* ----------------------------------------------------------------------------
+   RELATED DICTIONARIES (host row of the merge grouping mode)
+   ----------------------------------------------------------------------------
+   Yomitan's "Group related terms" answers TWO settings with one control: which
+   dictionary leads a merged result, and which other dictionaries are asked for the
+   same term. The selection is drawn as CHIPS because their ORDER is the setting —
+   first chip primary (gold, crowned), every later one secondary — so the row takes
+   the card's full width instead of the 15-22rem control column, where a wrapped
+   chip list does not fit. Same stacked shape as the textarea row, declared under
+   the control's own name.
+   -------------------------------------------------------------------------- */
+
+/* Two classes, not one: the desktop block below re-declares
+   `.entei-module-field { align-items: center }` AFTER this rule, and at equal
+   specificity the later one would win — centring the stacked children and
+   shrinking the label block to its text. Same technique as the paired select's
+   trigger override. */
+.entei-module-field.entei-related-dictionaries {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--entei-space-12);
+  width: 100%;
+}
+
+.entei-related-dictionaries-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--entei-space-8);
+  width: 100%;
+  min-width: 0;
+}
+
+.entei-related-dictionaries-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--entei-space-8);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entei-related-dictionaries-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--entei-space-4);
+  padding-inline-start: var(--entei-space-8);
+  border: 1px solid oklch(100% 0 0deg / 0.08);
+  border-radius: var(--entei-radius-pill);
+  background-color: oklch(100% 0 0deg / 0.06);
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.8125rem;
+  line-height: 1;
+}
+
+/* The leading chip IS the primary dictionary: the app's gold marks it, the same
+   accent the rest of the settings surface uses for "this one is special". */
+.entei-related-dictionaries-chip[data-role='primary'] {
+  border-color: oklch(85% 0.15 85deg / 0.45);
+  /* oklch(85% 0.15 85deg) is `--entei-gold`; only its alpha is new. */
+  background-color: oklch(85% 0.15 85deg / 0.12);
+}
+
+.entei-related-dictionaries-chip-icon {
+  color: var(--entei-status-locked);
+  flex-shrink: 0;
+}
+
+.entei-related-dictionaries-chip-name {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entei-related-dictionaries-chip-role {
+  font-size: 0.75rem;
+  color: var(--entei-text-muted);
+}
+
+.entei-related-dictionaries-chip[data-role='primary'] .entei-related-dictionaries-chip-role {
+  color: var(--entei-status-locked);
+}
+
+/* One tap target per chip. Smaller than `--entei-touch-min` on purpose: a chip is
+   a tag inside a control, and the dropdown trigger beside it keeps the full touch
+   height. 32px still clears the 24px WCAG 2.5.8 floor. */
+.entei-related-dictionaries-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--entei-space-32);
+  height: var(--entei-space-32);
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--entei-radius-pill);
+  background: none;
+  color: var(--entei-text-muted);
+  cursor: pointer;
+  transition: color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+.entei-related-dictionaries-chip-remove:hover {
+  color: var(--entei-status-locked);
+}
+
+.entei-related-dictionaries-chip-remove:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The dropdown: with nothing selected it is the row's whole control, docked to the
+   trailing edge at the same width as the inputs and selects above and below it. */
+.entei-related-dictionaries-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--entei-space-8);
+  flex: 1 1 15rem;
+  min-width: 15rem;
+  max-width: 22rem;
+  min-height: var(--entei-touch-min);
+  margin-left: auto;
+  padding: var(--entei-space-8) var(--entei-space-12);
+  background-color: var(--entei-surface);
+  border: 1px solid oklch(100% 0 0deg / 0.1);
+  border-radius: var(--entei-radius-md);
+  color: var(--entei-text-secondary);
+  font-family: var(--entei-font-body);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition:
+    border-color var(--entei-duration-fast) var(--entei-ease-productive),
+    color var(--entei-duration-fast) var(--entei-ease-productive);
+}
+
+/* The chips ARE the value once there is one, so only the affordance stays: a
+   square control on the row's trailing edge, the chips keeping the leading one. */
+.entei-related-dictionaries-control:has(.entei-related-dictionaries-chip)
+  .entei-related-dictionaries-trigger {
+  flex: 0 0 auto;
+  justify-content: center;
+  min-width: var(--entei-touch-min);
+}
+
+.entei-related-dictionaries-trigger:hover {
+  border-color: oklch(100% 0 0deg / 0.1);
+  color: var(--entei-status-locked);
+}
+
+.entei-related-dictionaries-trigger:focus-visible {
+  outline: 3px solid var(--entei-focus-ring);
+  outline-offset: 2px;
+}
+
+.entei-related-dictionaries-placeholder {
+  color: var(--entei-text-muted);
+}
+
+.entei-related-dictionaries-chevron {
+  color: var(--entei-muted);
+  flex-shrink: 0;
+}
+
+.entei-related-dictionaries-trigger:hover .entei-related-dictionaries-chevron {
+  color: var(--entei-status-locked);
+}
+
+/* The popup sizes ITSELF: the trigger can be the collapsed square above, so
+   `--radix-popover-trigger-width` would make the list as narrow as the chevron. */
+.entei-related-dictionaries-content {
+  width: 20rem;
+  max-width: calc(100vw - var(--entei-gutter) * 2);
+  min-width: 0;
+}
+
+/* Keeps the names on one vertical line whether the row is ticked or not. */
+.entei-related-dictionaries-item-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 /* ==========================================================================
    MANIFEST-LAID-OUT SECTION ROWS (standard layouts: list / field / usage)
    ----------------------------------------------------------------------------

@@ -24,7 +24,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { yomitanSettingsTree } from '@gorakudo/yomitan-headless/settings';
+import {
+  createDefaultOptions,
+  yomitanSettingsTree,
+  type Options,
+} from '@gorakudo/yomitan-headless/settings';
 import { ModuleSettingsRenderer, moduleHasSettings } from '@/components/settings/ModuleSettingsRenderer';
 import {
   CORE_MODULES,
@@ -34,7 +38,9 @@ import {
 import {
   readOptionPath,
   readYomitanOptions,
+  writeYomitanOptions,
 } from '@/modules/yomitan/yomitan-preferences';
+import { createDictionaryOptionEntry } from '@/modules/yomitan/dictionary-store';
 import { readJimakuPreferences } from '@/features/player/jimaku-preferences';
 import { en } from '@/i18n/locales/en';
 import {
@@ -346,7 +352,8 @@ describe('ModuleSettingsRenderer — manifest-laid-out Dictionaries section', ()
     openSection(/Result Display/i);
     expect(screen.queryByText('Sort frequency dictionary')).toBeNull();
     expect(screen.queryByText('Sort order')).toBeTruthy();
-    expect(container.querySelectorAll('.entei-module-rows')).toHaveLength(1);
+    // Both cards now lay their rows out, and both are open.
+    expect(container.querySelectorAll('.entei-module-rows')).toHaveLength(2);
   });
 
   it('falls back to the read-only note for an unknown data source', () => {
@@ -921,5 +928,216 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     expect(appearance?.textContent).not.toContain('Custom outer CSS');
     expect(appearance?.textContent).toContain('Custom popup CSS');
     expect(screen.queryByText('Custom outer CSS')).toBeNull();
+  });
+});
+
+describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
+  /**
+   * The grouping mode and the dictionaries it merges live in ONE upstream section,
+   * so the manifest lays this section out too. Two things are asserted here: the
+   * four grouping choices carry upstream's own wording (the descriptor only says
+   * Group / Merge / Split / Term), and the dictionary picker under them is the host
+   * editor that writes TWO settings at once — the primary dictionary and every
+   * per-dictionary secondary-search flag.
+   */
+  const PICKER = 'Group related terms by dictionaries';
+
+  const RESULT_DISPLAY_LABELS = [
+    'Result grouping mode',
+    'Glossary layout',
+    'Term display mode',
+    'Frequency display mode',
+    'Compact tags',
+    'Average frequency',
+    'Show downstep notation',
+    'Show position notation',
+    'Show pitch accent graph',
+    'Sort order',
+    'Sticky search header',
+  ];
+
+  function renderShipped() {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    if (yomitan === undefined) throw new Error('yomitan is not registered');
+    return render(
+      <ModuleSettingsRenderer
+        module={{ ...yomitan, showSectionIcons: true }}
+        dict={en}
+      />,
+    );
+  }
+
+  /** The Result Display card's position, read from the tree rather than hard-coded. */
+  function resultDisplayIndex(): number {
+    return yomitanSettingsTree.findIndex(
+      (section) => section.key === 'result-display',
+    );
+  }
+
+  /**
+   * A merge-mode tree with two dictionaries installed and neither selected.
+   *
+   * Stored through the production writer, so the row reads back exactly what a
+   * real session would hold. A test run has no dictionary engine, which is why the
+   * offered choices come from the options tree itself.
+   */
+  function storeMergeOptions(): void {
+    const base = createDefaultOptions();
+    const profile = base.profiles[base.profileCurrent]!;
+    const options: Options = {
+      ...base,
+      profiles: base.profiles.map((entry, index) =>
+        index === base.profileCurrent
+          ? {
+              ...entry,
+              options: {
+                ...profile.options,
+                general: {
+                  ...profile.options.general,
+                  resultOutputMode: 'merge',
+                },
+                dictionaries: [
+                  createDictionaryOptionEntry('JMdict'),
+                  createDictionaryOptionEntry('KANJIDIC2'),
+                ],
+              },
+            }
+          : entry,
+      ),
+    };
+    writeYomitanOptions(options);
+  }
+
+  /** The stored per-dictionary flags, as the engine reads them. */
+  function storedDictionaries(): {
+    name: string;
+    allowSecondarySearches: boolean;
+  }[] {
+    return readOptionPath(
+      readYomitanOptions(),
+      'dictionaries',
+    ) as { name: string; allowSecondarySearches: boolean }[];
+  }
+
+  it('draws every declared row once, with no group walk left', () => {
+    const { container } = renderShipped();
+    openSection(/Result Display/i);
+
+    const section =
+      container.querySelectorAll('.entei-module-section')[resultDisplayIndex()];
+    expect(section?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
+    expect(section?.querySelectorAll('.entei-module-group')).toHaveLength(0);
+
+    for (const label of RESULT_DISPLAY_LABELS) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+  });
+
+  it('names the grouping choices the way upstream does', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const mode = yomitan?.sectionLayouts
+      ?.find((layout) => layout.section === 'result-display')
+      ?.rows.find((row) => row.field === 'general.resultOutputMode');
+
+    expect(mode?.label).toBe('Result grouping mode');
+    expect(mode?.description).toBe('Change how related results are grouped.');
+    expect(mode?.options).toEqual([
+      { value: 'split', label: 'No grouping' },
+      { value: 'group', label: 'Group term-reading pairs' },
+      { value: 'term', label: 'Group by term' },
+      { value: 'merge', label: 'Group related terms' },
+    ]);
+  });
+
+  it('offers the dictionary picker only for Group related terms', async () => {
+    // The default grouping (`group`) ignores both merge settings, so the row would
+    // be a control that changes nothing.
+    const grouped = renderShipped();
+    openSection(/Result Display/i);
+    expect(screen.queryByText(PICKER)).toBeNull();
+    grouped.unmount();
+
+    storeMergeOptions();
+    const merged = renderShipped();
+    openSection(/Result Display/i);
+    /* Awaited: the row reads the installed dictionary list once on mount, and that
+       answer lands a microtask after the render. */
+    await waitFor(() => expect(screen.getByText(PICKER)).toBeTruthy());
+    expect(
+      merged.container.querySelectorAll('.entei-related-dictionaries'),
+    ).toHaveLength(1);
+  });
+
+  it('writes the primary dictionary and the secondary-search flags from one control', async () => {
+    storeMergeOptions();
+    const { container } = renderShipped();
+    openSection(/Result Display/i);
+
+    // Nothing selected: the row reads like an empty select. (Awaited: the
+    // installed list lands a microtask after the render.)
+    await waitFor(() =>
+      expect(screen.getByText('Select dictionaries')).toBeTruthy(),
+    );
+    const trigger = container.querySelector(
+      '.entei-related-dictionaries-trigger',
+    );
+    expect(trigger).not.toBeNull();
+
+    // First pick IS the primary dictionary...
+    fireEvent.click(trigger as Element);
+    fireEvent.click(await screen.findByRole('option', { name: 'KANJIDIC2' }));
+    expect(readOptionPath(readYomitanOptions(), 'general.mainDictionary')).toBe(
+      'KANJIDIC2',
+    );
+    /* Awaited: every write re-reads the installed dictionary list, so the chip is
+       a microtask behind the click. */
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll('.entei-related-dictionaries-chip'),
+      ).toHaveLength(1),
+    );
+    expect(
+      container
+        .querySelectorAll('.entei-related-dictionaries-chip')[0]
+        ?.getAttribute('data-role'),
+    ).toBe('primary');
+
+    // ...every later one is a secondary search. The dropdown stays open, so a
+    // multi-selection is a few clicks rather than a click per dictionary.
+    fireEvent.click(screen.getByRole('option', { name: 'JMdict' }));
+    expect(readOptionPath(readYomitanOptions(), 'general.mainDictionary')).toBe(
+      'KANJIDIC2',
+    );
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll('.entei-related-dictionaries-chip'),
+      ).toHaveLength(2),
+    );
+    expect(
+      container
+        .querySelectorAll('.entei-related-dictionaries-chip')[1]
+        ?.getAttribute('data-role'),
+    ).toBe('secondary');
+    expect(
+      storedDictionaries().find((entry) => entry.name === 'JMdict')
+        ?.allowSecondarySearches,
+    ).toBe(true);
+    expect(
+      storedDictionaries().find((entry) => entry.name === 'KANJIDIC2')
+        ?.allowSecondarySearches,
+    ).toBe(false);
+
+    // A chip's × removes that dictionary again; the primary stays the primary.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove JMdict' }));
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll('.entei-related-dictionaries-chip'),
+      ).toHaveLength(1),
+    );
+    expect(
+      storedDictionaries().find((entry) => entry.name === 'JMdict')
+        ?.allowSecondarySearches,
+    ).toBe(false);
   });
 });

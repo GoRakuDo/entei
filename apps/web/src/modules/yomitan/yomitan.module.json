@@ -440,6 +440,79 @@
           "label": "Enable Wanakana (romaji → kana)"
         }
       ]
+    },
+    {
+      "section": "result-display",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "general.resultOutputMode",
+          "label": "Result grouping mode",
+          "description": "Change how related results are grouped.",
+          "options": [
+            { "value": "split", "label": "No grouping" },
+            { "value": "group", "label": "Group term-reading pairs" },
+            { "value": "term", "label": "Group by term" },
+            { "value": "merge", "label": "Group related terms" }
+          ]
+        },
+        {
+          "layout": "field",
+          "source": "yomitan-related-dictionaries",
+          "label": "Group related terms by dictionaries",
+          "description": "Dictionaries grouped results are drawn from. The first dictionary you select is the primary one; the others are searched for the same term."
+        },
+        {
+          "layout": "field",
+          "field": "general.glossaryLayoutMode",
+          "label": "Glossary layout"
+        },
+        {
+          "layout": "field",
+          "field": "general.termDisplayMode",
+          "label": "Term display mode"
+        },
+        {
+          "layout": "field",
+          "field": "general.frequencyDisplayMode",
+          "label": "Frequency display mode"
+        },
+        {
+          "layout": "field",
+          "field": "general.compactTags",
+          "label": "Compact tags"
+        },
+        {
+          "layout": "field",
+          "field": "general.averageFrequency",
+          "label": "Average frequency"
+        },
+        {
+          "layout": "field",
+          "field": "general.showPitchAccentDownstepNotation",
+          "label": "Show downstep notation"
+        },
+        {
+          "layout": "field",
+          "field": "general.showPitchAccentPositionNotation",
+          "label": "Show position notation"
+        },
+        {
+          "layout": "field",
+          "field": "general.showPitchAccentGraph",
+          "label": "Show pitch accent graph"
+        },
+        {
+          "layout": "field",
+          "field": "general.sortFrequencyDictionaryOrder",
+          "label": "Sort order"
+        },
+        {
+          "layout": "field",
+          "field": "general.stickySearchHeader",
+          "label": "Sticky search header"
+        }
+      ]
     }
   ]
 }

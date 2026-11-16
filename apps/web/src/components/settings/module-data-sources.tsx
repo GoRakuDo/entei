@@ -15,11 +15,14 @@
  * sorting dictionary" select, measures the module's storage, and knows nothing
  * about any of those callers.
  *
- * A `field` row may name one too. Its editor is host-owned because the value is
- * not in the row's options tree at all: a module's API key lives in that
- * module's own store (`jimaku-api-key`, `nadeshiko-api-key`), and the row's text
- * still comes from the manifest. Without such a source the same row falls back to
- * the standard masked input, so a missing binding degrades instead of vanishing.
+ * A `field` row may name one too. Its editor is host-owned because the standard
+ * row cannot draw the value: a module's API key lives in that module's own store
+ * (`jimaku-api-key`, `nadeshiko-api-key`), and a control that is more than one value
+ * (`yomitan-related-dictionaries` edits the merge dictionary AND every per-dictionary
+ * secondary-search flag) needs a surface of its own. The row's text still comes from
+ * the manifest, and a host editor may WRITE the options tree through `onChange`. Without
+ * such a source the same row falls back to the standard control, so a missing binding
+ * degrades instead of vanishing.
  *
  * An unknown id resolves to `undefined`. The renderer then degrades: a `list` or
  * `inputs` row falls back to its generic read-only note, a `field` row keeps its
@@ -33,6 +36,7 @@ import type {
   SelectOption,
 } from '@gorakudo/yomitan-headless/settings';
 import { ModuleItemManager } from '@/components/settings/ModuleItemManager';
+import { ModuleRelatedDictionariesSelect } from '@/components/settings/ModuleRelatedDictionariesSelect';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
 import {
   createSecretField,
@@ -105,7 +109,19 @@ export type ModuleInputsSource = ComponentType<ModuleInputsSourceProps>;
  * through ONE contract, because it cannot know which kind of value it is drawing.
  * A credential editor ignores the tree; Yomitan's popup preview draws from it.
  */
-export type ModuleFieldSourceProps = ModuleSecretFieldProps;
+export type ModuleFieldSourceProps = ModuleSecretFieldProps & {
+  /**
+   * Persist a next options tree.
+   *
+   * A host-owned editor is not read-only by definition: a credential writes to its
+   * own store, but a row whose control IS several option paths (Yomitan's merge
+   * dictionary selection writes the primary dictionary and every per-dictionary
+   * secondary-search flag) has nothing else to write through. Required, because the
+   * renderer always owns the tree and always has a setter to hand over — an editor
+   * that does not need it simply ignores it.
+   */
+  onChange: (next: Options) => void;
+};
 
 export type ModuleFieldSource = ComponentType<ModuleFieldSourceProps>;
 
@@ -116,10 +132,11 @@ export interface ModuleDataSource {
   /** Draws the `inputs` layout for this source (a list of input definitions). */
   inputs?: ModuleInputsSource;
   /**
-   * Draws a `field` row this source names — an editor for a value the row's
-   * options tree does not hold. Today that is one kind of value, a credential
-   * (see `ModuleSecretField`), so the editor brings its own store; the row still
-   * brings its own text.
+   * Draws a `field` row this source names — an editor the standard row cannot draw.
+   * Either the value lives outside the options tree at all (a credential, see
+   * `ModuleSecretField`, whose editor brings its own store) or the control IS several
+   * option paths at once (Yomitan's merge dictionary selection). The row still brings
+   * its own text, and the editor may write the tree through `onChange`.
    */
   field?: ModuleFieldSource;
   /** Options of a `field` row that named this source as `optionsSource`. */
@@ -254,6 +271,7 @@ const MODULE_DATA_SOURCES: Readonly<Record<string, ModuleDataSource>> = {
   'yomitan-scan-modifier-keys': { options: readScanModifierOptions },
   'yomitan-scan-inputs': { inputs: ScanningInputManager },
   'yomitan-popup-preview': { field: YomitanPopupPreview },
+  'yomitan-related-dictionaries': { field: ModuleRelatedDictionariesSelect },
   'jimaku-api-key': { field: JIMAKU_API_KEY_FIELD },
   'jimaku-auto-load': { field: JimakuAutoLoadField },
   'nadeshiko-api-key': { field: NADESHIKO_API_KEY_FIELD },

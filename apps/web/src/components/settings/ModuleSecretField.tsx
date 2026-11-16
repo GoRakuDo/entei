@@ -38,7 +38,7 @@ import {
   useId,
   useRef,
   useState,
-  type ComponentType,
+  type FunctionComponent,
 } from 'react';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
 import { Eye, EyeOff, Eraser } from 'lucide-react';
@@ -101,10 +101,19 @@ const SECRET_COPY = {
   empty: 'No key saved',
 } as const;
 
-/** Bind one credential to a ready-to-register field editor. */
+/**
+ * Bind one credential to a ready-to-register field editor.
+ *
+ * Declared as a FUNCTION component rather than a `ComponentType`: the editor is
+ * registered in the host's data-source registry, whose `field` contract also
+ * carries the whole-tree setter a host editor that writes options is handed. A
+ * credential ignores that setter, and only the narrower function type keeps this
+ * binding assignable to the wider registry contract (a class component's props are
+ * invariant, so the union would not fit).
+ */
 export function createSecretField(
   binding: ModuleSecretFieldBinding,
-): ComponentType<ModuleSecretFieldProps> {
+): FunctionComponent<ModuleSecretFieldProps> {
   return function SecretField({ label, description, placeholder }) {
     const inputId = useId();
     const descriptionId = `${inputId}-description`;
