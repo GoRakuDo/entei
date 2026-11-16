@@ -25,10 +25,11 @@
  * list (Yomitan's Dictionaries: an installed-item list plus host-only rows) is
  * declared by the manifest as a `sectionLayouts` entry — an ordered list of ROWS,
  * each naming one of the app's standard layouts (`list`, `field`, `usage`,
- * `inputs`, `selects`), the field it edits, the host-owned DATA SOURCE behind it,
- * and its own literal text (English, like the upstream UI it reproduces) — a
- * `selects` row instead carries several mini-labelled controls, each bound to its
- * own field with its own choices. This renderer
+ * `inputs`, `selects`, `numbers`), the field it edits, the host-owned DATA SOURCE
+ * behind it, and its own literal text (English, like the upstream UI it
+ * reproduces) — a grouped row (`selects`, `checkboxes`, `numbers`) instead carries
+ * several mini-labelled controls, each bound to its own field (with its own choices
+ * for a select). This renderer
  * resolves those rows against the descriptor tree and the host source registry
  * (`components/settings/module-data-sources`); it never names a module or a
  * field itself. A field laid out this way is claimed: it is not drawn a second
@@ -63,7 +64,7 @@
 
 'use client';
 
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Accessibility,
   AppWindow,
@@ -103,6 +104,7 @@ import {
 import { ModuleFieldRow } from '@/components/settings/ModuleFieldRow';
 import { ModuleSelectPairRow } from '@/components/settings/ModuleSelectPairRow';
 import { ModuleCheckboxGroupRow } from '@/components/settings/ModuleCheckboxGroupRow';
+import { ModuleNumberGroupRow } from '@/components/settings/ModuleNumberGroupRow';
 import type { ModuleListManagerCopy } from '@/components/settings/ModuleListManager';
 import { ModuleUsageMeter } from '@/components/settings/ModuleUsageMeter';
 import type { ScanningInputManagerCopy } from '@/components/settings/ScanningInputManager';
@@ -201,6 +203,11 @@ interface SchemaSettingsProps {
  */
 function SchemaSettings({ module, dict }: SchemaSettingsProps) {
   const [options, setOptions] = useState<Options>(readYomitanOptions);
+  const latest = useRef(options);
+
+  useEffect(() => {
+    latest.current = options;
+  }, [options]);
 
   useEffect(() => {
     let current = true;
@@ -239,9 +246,17 @@ function SchemaSettings({ module, dict }: SchemaSettingsProps) {
   );
 
   function update(path: string, value: unknown) {
-    const next = writeOptionPath(options, path, value);
+    /* SEVERAL WRITES IN ONE GESTURE: a grouped row (Yomitan's Auto-scale and
+       pitch-accent checkboxes) writes every path it owns inside a SINGLE handler,
+       so each write has to see the one before it. Deriving them all from the tree
+       captured by the current render would keep only the last; the ref mirrors the
+       newest tree between renders while state stays the render source. */
+    const current = latest.current;
+    const next = writeOptionPath(current, path, value);
     // Same reference = the path was not addressable; skip a pointless render.
-    if (next !== options) setOptions(next);
+    if (next === current) return;
+    latest.current = next;
+    setOptions(next);
   }
 
   return (
@@ -312,10 +327,11 @@ function claimedPaths(
   for (const layout of layouts ?? []) {
     for (const row of layout.rows) {
       if (row.field !== undefined) claimed.add(row.field);
-      /* A `selects` row edits one path per control, so every one of them is
+      /* A grouped row edits one path per control, so every one of them is
          claimed: leaving one out would draw it a second time in its tree group. */
       for (const item of row.selects ?? []) claimed.add(item.field);
       for (const item of row.checkboxes ?? []) claimed.add(item.field);
+      for (const item of row.numbers ?? []) claimed.add(item.field);
     }
   }
   return claimed;
@@ -540,6 +556,28 @@ function ModuleLayoutRow({
         label={row.label}
         description={row.description}
         checkboxes={items}
+        read={(path) => readOptionPath(options, path)}
+        onChange={onChange}
+      />
+    );
+  }
+
+  /* SEVERAL NUMBERS, ONE ROW: upstream Yomitan's paired numeric knobs (Popup
+     Position & Size's `Size` is a Width and a Height input on one line). Each item
+     is a real numeric field path, and its control takes min/max/step from that
+     field's descriptor. Resolved before the single-field row, which can only draw
+     one control. */
+  if (row.layout === 'numbers') {
+    const items = row.numbers;
+    if (items === undefined || items.length === 0 || row.label === undefined) {
+      return null;
+    }
+    return (
+      <ModuleNumberGroupRow
+        label={row.label}
+        description={row.description}
+        numbers={items}
+        fields={fields}
         read={(path) => readOptionPath(options, path)}
         onChange={onChange}
       />

@@ -80,6 +80,10 @@ export type ModuleCopyKey =
  * - `selects` — one row holding SEVERAL mini-labelled selects side by side, each
  *   bound to its own field (`ModuleSelectPairRow`). Upstream Yomitan pairs two
  *   related knobs under one label this way (Theme: Body + Shadow).
+ * - `numbers` — the same row for NUMERIC knobs: several mini-labelled number
+ *   inputs side by side, each bound to its own field (`ModuleNumberGroupRow`).
+ *   Upstream pairs its pixel/offset knobs this way (Popup Position & Size: `Size`
+ *   is a Width and a Height input on one line).
  */
 export type EnteiModuleRowLayout =
   | 'list'
@@ -87,7 +91,8 @@ export type EnteiModuleRowLayout =
   | 'usage'
   | 'inputs'
   | 'selects'
-  | 'checkboxes';
+  | 'checkboxes'
+  | 'numbers';
 
 /**
  * One choice of a `selects` row's control.
@@ -114,19 +119,38 @@ export interface EnteiModuleSelectBinding {
 }
 
 /**
+ * The mini-label + field-path pair every GROUPED row item is made of.
+ *
+ * Shared by the layouts that draw SEVERAL controls under one row label
+ * (`checkboxes`, `numbers`): each item captions one control and names the option
+ * path it edits, so the renderer wires every one of them the same way — through
+ * the module's options store, exactly like the equivalent single-field row.
+ */
+export interface EnteiModuleLabeledBinding {
+  /** Mini label beside/above the control (`Downstep notation`, `Width`, …). */
+  label: string;
+  /** Dot-path of the field this control edits. */
+  field: string;
+}
+
+/**
  * One mini-labelled checkbox of a `checkboxes` row.
  *
  * The row groups several independent booleans under one label (Yomitan's
  * "Pitch accent display styles": Downstep notation / Downstep position / Graph
- * on a single line). Each item is a real boolean option path; the renderer writes
- * through the module's options store, exactly like a single-field switch row.
+ * on a single line).
  */
-export interface EnteiModuleCheckboxBinding {
-  /** Mini label beside the checkbox (`Downstep notation`, `Graph`, …). */
-  label: string;
-  /** Dot-path of the boolean field this checkbox toggles. */
-  field: string;
-}
+export type EnteiModuleCheckboxBinding = EnteiModuleLabeledBinding;
+
+/**
+ * One mini-labelled number input of a `numbers` row.
+ *
+ * The row groups several independent numbers under one label (Yomitan's `Size`:
+ * a Width and a Height input on one line). The control takes its min/max/step
+ * from the field's own descriptor, so a value written here is the same number the
+ * single-field numeric row would write.
+ */
+export type EnteiModuleNumberBinding = EnteiModuleLabeledBinding;
 
 /**
  * Name of a built-in English copy table a platform layout draws its own strings
@@ -201,6 +225,12 @@ export interface EnteiModuleRowBinding {
    * field path the renderer writes through the options store.
    */
   checkboxes?: readonly EnteiModuleCheckboxBinding[];
+  /**
+   * Number inputs of a `numbers` row: two or more mini-labelled numeric controls
+   * drawn side by side in the row's control column. Like every grouped row the
+   * row's own `label` / `description` are the text block on the left.
+   */
+  numbers?: readonly EnteiModuleNumberBinding[];
   /**
    * Control type of a row whose `field` has NO descriptor in the module's
    * `settingsSchema` — a HOST-DECLARED VIRTUAL FIELD.
@@ -292,6 +322,7 @@ const ROW_LAYOUTS: readonly EnteiModuleRowLayout[] = [
   'inputs',
   'selects',
   'checkboxes',
+  'numbers',
 ];
 
 /**
@@ -328,16 +359,16 @@ function parseSelectBindings(
 }
 
 /**
- * Validate the `checkboxes` array of a `checkboxes` row.
+ * Validate the item array of a GROUPED row (`checkboxes`, `numbers`).
  *
- * Fail-closed per ITEM: each needs a label and a field (a checkbox bound to no
- * path toggles nothing). A row left with no usable item is dropped by the caller.
+ * Fail-closed per ITEM: each needs a label and a field (a control bound to no path
+ * edits nothing). A row left with no usable item is dropped by the caller.
  */
-function parseCheckboxBindings(
+function parseLabeledBindings(
   input: unknown,
-): EnteiModuleCheckboxBinding[] | undefined {
+): EnteiModuleLabeledBinding[] | undefined {
   if (!Array.isArray(input)) return undefined;
-  const items: EnteiModuleCheckboxBinding[] = [];
+  const items: EnteiModuleLabeledBinding[] = [];
   for (const entry of input) {
     if (typeof entry !== 'object' || entry === null) continue;
     const raw = entry as Record<string, unknown>;
@@ -414,7 +445,7 @@ export function normalizeSectionLayouts(
         /* A `checkboxes` row is addressable ONLY through its items: each names a
            boolean field path, and a row with no usable item would draw an empty
            box. */
-        const checkboxes = parseCheckboxBindings(row.checkboxes);
+        const checkboxes = parseLabeledBindings(row.checkboxes);
         if (checkboxes === undefined) continue;
         const checkboxRow: EnteiModuleRowBinding = { layout, checkboxes };
         const checkboxLabel = optionalId(row.label);
@@ -424,6 +455,21 @@ export function normalizeSectionLayouts(
           checkboxRow.description = checkboxDescription;
         }
         rows.push(checkboxRow);
+        continue;
+      }
+      if (layout === 'numbers') {
+        /* A `numbers` row is addressable the same way: each item names a numeric
+           field path, and a row with no usable item would draw an empty box. */
+        const numbers = parseLabeledBindings(row.numbers);
+        if (numbers === undefined) continue;
+        const numberRow: EnteiModuleRowBinding = { layout, numbers };
+        const numberLabel = optionalId(row.label);
+        if (numberLabel !== undefined) numberRow.label = numberLabel;
+        const numberDescription = optionalId(row.description);
+        if (numberDescription !== undefined) {
+          numberRow.description = numberDescription;
+        }
+        rows.push(numberRow);
         continue;
       }
       if (field === undefined && source === undefined) continue;

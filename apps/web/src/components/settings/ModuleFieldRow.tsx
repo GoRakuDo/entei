@@ -114,13 +114,15 @@ export function ModuleFieldRow({
     noneLabel !== undefined && current === '' ? NONE_VALUE : String(current);
   /* A host-supplied option list makes the row a select even when the descriptor
      calls the field a plain string (Yomitan's dictionary-name settings are
-     stored as strings but only ever chosen from what is installed).
-     Boolean, number, and integer rows are NEVER selects: the switch or numeric input
-     is their only control, so options cannot conjure a stray empty combobox beside them. */
+     stored as strings but only ever chosen from what is installed), or a number
+     (Yomitan's Scale is a percentage list over a numeric option).
+     A BOOLEAN row is never a select — the switch is its only control — and a
+     number/integer row becomes one ONLY when choices are supplied: without them
+     the numeric input stays, so options cannot conjure a stray empty combobox
+     beside it. */
+  const numeric = field.type === 'number' || field.type === 'integer';
   const asSelect =
     field.type !== 'boolean' &&
-    field.type !== 'number' &&
-    field.type !== 'integer' &&
     (field.type === 'select' || options !== undefined);
 
   return (
@@ -178,7 +180,7 @@ export function ModuleFieldRow({
             />
           ))}
 
-        {(field.type === 'number' || field.type === 'integer') && (
+        {!asSelect && numeric && (
           <Input
             id={inputId}
             type="number"
@@ -207,7 +209,17 @@ export function ModuleFieldRow({
                 onChange(field.default === null ? null : '');
                 return;
               }
-              onChange(next);
+              /* The written value keeps the FIELD's type, not the option's: a
+                 choice is declared as a string in the manifest, while a numeric
+                 option path stores a number. A malformed choice is dropped rather
+                 than written as `NaN`. */
+              if (!numeric) {
+                onChange(next);
+                return;
+              }
+              const parsed = Number(next);
+              if (!Number.isFinite(parsed)) return;
+              onChange(field.type === 'integer' ? Math.round(parsed) : parsed);
             }}
           >
             <SelectTrigger

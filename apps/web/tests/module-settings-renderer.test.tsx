@@ -581,14 +581,14 @@ describe('ModuleSettingsRenderer — manifest-laid-out Popup Behavior & Position
 
   const POSITION_SIZE_LABELS = [
     'Display mode',
-    'Full-width position',
+    'Popup position',
     'Scale',
-    'Width (in pixels)',
-    'Height (in pixels)',
+    'Auto-scale',
+    'Size',
     'Horizontal text positioning',
     'Vertical text positioning',
-    'Horizontal text offset (px)',
-    'Vertical text offset (px)',
+    'Horizontal text offset',
+    'Vertical text offset',
   ];
 
   it('draws only the Yomitan-aligned Popup Behavior rows and removes them from Scanning', () => {
@@ -624,14 +624,97 @@ describe('ModuleSettingsRenderer — manifest-laid-out Popup Behavior & Position
 
     const posSection = container.querySelectorAll('.entei-module-section')[6];
     expect(posSection?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
-    // 4 selects (Display mode, Full-width position, Horizontal/Vertical text positioning) + 5 number inputs
-    expect(posSection?.querySelectorAll('.entei-module-select')).toHaveLength(4);
-    expect(posSection?.querySelectorAll('input[type="number"]')).toHaveLength(5);
+    // 5 selects (Display mode, Popup position, Scale, Horizontal/Vertical text
+    // positioning) + 6 number inputs (Size's Width + Height, and an x/y pair on
+    // each of the two text offsets — upstream groups each pair into ONE row).
+    expect(posSection?.querySelectorAll('.entei-module-select')).toHaveLength(5);
+    expect(posSection?.querySelectorAll('input[type="number"]')).toHaveLength(6);
+    expect(posSection?.querySelectorAll('.entei-module-numbers')).toHaveLength(3);
+    expect(
+      posSection?.querySelectorAll('.entei-module-number-pair-item'),
+    ).toHaveLength(6);
+    // ...and Auto-scale is one two-choice buttongroup.
+    expect(posSection?.querySelectorAll('.entei-choice-group')).toHaveLength(1);
+    expect(
+      posSection?.querySelectorAll(
+        '.entei-choice-group [data-slot="toggle-group-item"]',
+      ),
+    ).toHaveLength(2);
 
     const displayTrigger = posSection?.querySelector('.entei-module-select');
     expect(displayTrigger).not.toBeNull();
     fireEvent.click(displayTrigger as Element);
     expect(await screen.findByRole('option', { name: 'Full width' })).toBeTruthy();
+  });
+
+  it('offers Scale as upstream percentage choices and writes the choice as a NUMBER', async () => {
+    renderSettings();
+    openSection(/Position & Size/i);
+
+    /* Upstream's Scale is a percentage select over a numeric option, not a free
+       numeric input: the tree stores `popupScalingFactor` as a number, so the
+       picked choice must land there as one (the popup preview scales by it). */
+    const scaleRow = screen.getByText('Scale').closest('.entei-module-field');
+    const scale = scaleRow?.querySelector('.entei-module-select');
+    expect(scale).not.toBeNull();
+    fireEvent.click(scale as Element);
+    expect(await screen.findByRole('option', { name: '25%' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '500%' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('option', { name: '125%' }));
+
+    expect(
+      readOptionPath(readYomitanOptions(), 'general.popupScalingFactor'),
+    ).toBe(1.25);
+  });
+
+  it('groups popup Size into one Width/Height row that writes numbers', () => {
+    renderSettings();
+    openSection(/Position & Size/i);
+
+    // Upstream's `Size` row: one label, two mini-labelled pixel inputs.
+    const width = screen.getByLabelText('Width');
+    const height = screen.getByLabelText('Height');
+    expect(width.getAttribute('type')).toBe('number');
+    expect(height.getAttribute('type')).toBe('number');
+    expect(width.getAttribute('min')).toBe('0');
+
+    fireEvent.change(width, { target: { value: '800' } });
+    fireEvent.change(height, { target: { value: '600' } });
+
+    expect(readOptionPath(readYomitanOptions(), 'general.popupWidth')).toBe(800);
+    expect(readOptionPath(readYomitanOptions(), 'general.popupHeight')).toBe(600);
+  });
+
+  it('writes the Auto-scale toggles and the paired text offsets', () => {
+    renderSettings();
+    openSection(/Position & Size/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom level' }));
+    expect(
+      readOptionPath(
+        readYomitanOptions(),
+        'general.popupScaleRelativeToPageZoom',
+      ),
+    ).toBe(true);
+    expect(
+      readOptionPath(
+        readYomitanOptions(),
+        'general.popupScaleRelativeToVisualViewport',
+      ),
+    ).toBe(true);
+
+    // The offsets are upstream's x/y pairs, one row each.
+    const offsetX = screen.getAllByLabelText('x')[0] as HTMLInputElement;
+    const offsetY = screen.getAllByLabelText('y')[0] as HTMLInputElement;
+    fireEvent.change(offsetX, { target: { value: '25' } });
+    fireEvent.change(offsetY, { target: { value: '-5' } });
+
+    expect(
+      readOptionPath(readYomitanOptions(), 'general.popupHorizontalOffset'),
+    ).toBe(25);
+    expect(
+      readOptionPath(readYomitanOptions(), 'general.popupVerticalOffset'),
+    ).toBe(-5);
   });
 });
 

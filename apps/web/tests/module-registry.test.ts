@@ -136,6 +136,16 @@ describe('module-registry — core manifests', () => {
           description: 'Sort results using a frequency dictionary.',
           none: 'None',
         },
+        {
+          layout: 'field',
+          field: 'general.sortFrequencyDictionaryOrder',
+          type: 'select',
+          label: 'Frequency sorting mode',
+          options: [
+            { value: 'descending', label: 'Occurrence-based' },
+            { value: 'ascending', label: 'Rank-based' },
+          ],
+        },
       ],
     });
 
@@ -710,6 +720,107 @@ describe('module-registry — `checkboxes` rows (grouped mini-labelled booleans)
       'Position',
       'Graph',
     ]);
+  });
+});
+
+describe('module-registry — `numbers` rows (paired mini-labelled number inputs)', () => {
+  it('keeps every input of a well-formed row, with its own mini label', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'position-size',
+          rows: [
+            {
+              layout: 'numbers',
+              label: 'Size',
+              description: 'Control the size of the popup, in pixels.',
+              numbers: [
+                { label: 'Width', field: 'general.popupWidth' },
+                { label: 'Height', field: 'general.popupHeight' },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'position-size',
+        rows: [
+          {
+            layout: 'numbers',
+            label: 'Size',
+            description: 'Control the size of the popup, in pixels.',
+            numbers: [
+              { label: 'Width', field: 'general.popupWidth' },
+              { label: 'Height', field: 'general.popupHeight' },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('drops an input with no field or no label, and a row left with none', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'items',
+          rows: [
+            /* No numbers at all — the row would draw an empty box. */
+            { layout: 'numbers', label: 'Empty' },
+            {
+              layout: 'numbers',
+              label: 'Size',
+              numbers: [
+                { label: 'No field' },
+                { field: 'general.popupWidth' },
+                { label: 'Width', field: 'general.popupWidth' },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'items',
+        rows: [
+          {
+            layout: 'numbers',
+            label: 'Size',
+            numbers: [{ label: 'Width', field: 'general.popupWidth' }],
+          },
+        ],
+      },
+    ]);
+  });
+
+  /* Position & Size ships upstream's paired pixel knobs and its Scale list. */
+  it('exposes the paired Size/offset rows and the Scale choices on the Yomitan manifest', () => {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    const position = yomitan?.sectionLayouts?.find(
+      (layout) => layout.section === 'position-size',
+    );
+    const size = position?.rows.find((row) => row.label === 'Size');
+    expect(size?.layout).toBe('numbers');
+    expect(size?.numbers?.map((item) => item.field)).toEqual([
+      'general.popupWidth',
+      'general.popupHeight',
+    ]);
+    expect(
+      position?.rows.filter((row) => row.layout === 'numbers'),
+    ).toHaveLength(3);
+
+    // Upstream's percentage select over a numeric option.
+    const scale = position?.rows.find(
+      (row) => row.field === 'general.popupScalingFactor',
+    );
+    const scaleOptions = scale?.options ?? [];
+    expect(scaleOptions).toHaveLength(17);
+    expect(scaleOptions[0]).toEqual({ value: '0.25', label: '25%' });
+    expect(scaleOptions[scaleOptions.length - 1]).toEqual({
+      value: '5',
+      label: '500%',
+    });
   });
 });
 

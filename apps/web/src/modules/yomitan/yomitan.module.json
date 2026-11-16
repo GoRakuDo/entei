@@ -362,51 +362,98 @@
           "layout": "field",
           "field": "general.popupFullWidthPosition",
           "type": "select",
-          "label": "Full-width position"
+          "label": "Popup position",
+          "options": [
+            { "value": "top", "label": "Top" },
+            { "value": "above-cursor", "label": "Follow Cursor" },
+            { "value": "bottom", "label": "Bottom" }
+          ]
         },
         {
           "layout": "field",
           "field": "general.popupScalingFactor",
+          "type": "select",
           "label": "Scale",
-          "description": "Control the scaling factor of the popup."
+          "description": "Control the scaling factor of the popup.",
+          "options": [
+            { "value": "0.25", "label": "25%" },
+            { "value": "0.33", "label": "33%" },
+            { "value": "0.5", "label": "50%" },
+            { "value": "0.67", "label": "67%" },
+            { "value": "0.75", "label": "75%" },
+            { "value": "0.8", "label": "80%" },
+            { "value": "0.9", "label": "90%" },
+            { "value": "1", "label": "100%" },
+            { "value": "1.1", "label": "110%" },
+            { "value": "1.25", "label": "125%" },
+            { "value": "1.5", "label": "150%" },
+            { "value": "1.75", "label": "175%" },
+            { "value": "2", "label": "200%" },
+            { "value": "2.5", "label": "250%" },
+            { "value": "3", "label": "300%" },
+            { "value": "4", "label": "400%" },
+            { "value": "5", "label": "500%" }
+          ]
         },
         {
-          "layout": "field",
-          "field": "general.popupWidth",
-          "label": "Width (in pixels)",
-          "description": "Control the width of the popup, in pixels."
+          "layout": "checkboxes",
+          "label": "Auto-scale",
+          "checkboxes": [
+            { "label": "Zoom level", "field": "general.popupScaleRelativeToPageZoom" },
+            { "label": "Viewport", "field": "general.popupScaleRelativeToVisualViewport" }
+          ]
         },
         {
-          "layout": "field",
-          "field": "general.popupHeight",
-          "label": "Height (in pixels)",
-          "description": "Control the height of the popup, in pixels."
+          "layout": "numbers",
+          "label": "Size",
+          "description": "Control the size of the popup, in pixels.",
+          "numbers": [
+            { "label": "Width", "field": "general.popupWidth" },
+            { "label": "Height", "field": "general.popupHeight" }
+          ]
         },
         {
           "layout": "field",
           "field": "general.popupHorizontalTextPosition",
           "type": "select",
           "label": "Horizontal text positioning",
-          "description": "Change where the popup is positioned relative to horizontal text."
+          "description": "Change where the popup is positioned relative to horizontal text.",
+          "options": [
+            { "value": "below", "label": "Below text" },
+            { "value": "above", "label": "Above text" }
+          ]
         },
         {
           "layout": "field",
           "field": "general.popupVerticalTextPosition",
           "type": "select",
           "label": "Vertical text positioning",
-          "description": "Change where the popup is positioned relative to vertical text."
+          "description": "Change where the popup is positioned relative to vertical text.",
+          "options": [
+            { "value": "default", "label": "Same as horizontal text" },
+            { "value": "before", "label": "Before reading direction" },
+            { "value": "after", "label": "After reading direction" },
+            { "value": "left", "label": "Left of text" },
+            { "value": "right", "label": "Right of text" }
+          ]
         },
         {
-          "layout": "field",
-          "field": "general.popupHorizontalOffset",
-          "label": "Horizontal text offset (px)",
-          "description": "Change the distance the popup is placed relative to horizontal text."
+          "layout": "numbers",
+          "label": "Horizontal text offset",
+          "description": "Change the distance the popup is placed relative to horizontal text.",
+          "numbers": [
+            { "label": "x", "field": "general.popupHorizontalOffset" },
+            { "label": "y", "field": "general.popupVerticalOffset" }
+          ]
         },
         {
-          "layout": "field",
-          "field": "general.popupVerticalOffset",
-          "label": "Vertical text offset (px)",
-          "description": "Change the distance the popup is placed relative to vertical text."
+          "layout": "numbers",
+          "label": "Vertical text offset",
+          "description": "Change the distance the popup is placed relative to vertical text.",
+          "numbers": [
+            { "label": "x", "field": "general.popupHorizontalOffset2" },
+            { "label": "y", "field": "general.popupVerticalOffset2" }
+          ]
         }
       ]
     },
