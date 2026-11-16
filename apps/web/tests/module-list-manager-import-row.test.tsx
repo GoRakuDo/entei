@@ -29,6 +29,7 @@ const COPY: ModuleListManagerCopy = {
   empty: 'Nothing installed.',
   enable: 'Enable',
   remove: 'Remove',
+  definitionsCollapsible: 'Definitions collapsible',
   importFailed: 'Import failed',
   loadFailed: 'List could not be read',
   reorder: 'Reorder',

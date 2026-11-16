@@ -254,6 +254,32 @@ export interface DictionaryOptionEntry {
   useDeinflections: boolean;
 }
 
+/**
+ * How a dictionary's definitions may be collapsed in the popup — Yomitan's own
+ * five values, in the order upstream's own select lists them
+ * (`templates-settings.html`). Kept as the single source of truth for both the
+ * row's choices and the write's validation, so the two can never drift.
+ */
+export const DEFINITIONS_COLLAPSIBLE_OPTIONS = [
+  { value: 'not-collapsible', label: 'Not collapsible' },
+  { value: 'collapsed', label: 'Collapsed' },
+  { value: 'expanded', label: 'Expanded' },
+  { value: 'force-collapsed', label: 'Force collapsed' },
+  { value: 'force-expanded', label: 'Force expanded' },
+] as const satisfies readonly {
+  value: DictionaryOptionEntry['definitionsCollapsible'];
+  label: string;
+}[];
+
+/** True for one of the five values above (untrusted select input). */
+export function isDefinitionsCollapsible(
+  value: unknown,
+): value is DictionaryOptionEntry['definitionsCollapsible'] {
+  return DEFINITIONS_COLLAPSIBLE_OPTIONS.some(
+    (option) => option.value === value,
+  );
+}
+
 /** A fresh enabled entry for `options.dictionaries[]`. */
 export function createDictionaryOptionEntry(name: string): DictionaryOptionEntry {
   return {
@@ -286,6 +312,36 @@ export function setDictionaryEnabled(
     return { ...entry, enabled };
   });
   if (!found) next.push({ ...createDictionaryOptionEntry(name), enabled });
+  return next;
+}
+
+/**
+ * Set one dictionary's `definitionsCollapsible`, leaving every other entry
+ * untouched.
+ *
+ * The same shape as `setDictionaryEnabled`, plus one guard: `value` is whatever
+ * the select handed over, so an unknown token is ignored rather than persisted
+ * (fail-closed) and a dictionary with no entry yet gets a fresh one, so
+ * collapsing a dictionary the settings write has not reached still persists.
+ */
+export function setDictionaryDefinitionsCollapsible(
+  list: readonly DictionaryOptionEntry[],
+  name: string,
+  value: unknown,
+): DictionaryOptionEntry[] {
+  if (!isDefinitionsCollapsible(value)) return [...list];
+  let found = false;
+  const next = list.map((entry) => {
+    if (entry.name !== name) return entry;
+    found = true;
+    return { ...entry, definitionsCollapsible: value };
+  });
+  if (!found) {
+    next.push({
+      ...createDictionaryOptionEntry(name),
+      definitionsCollapsible: value,
+    });
+  }
   return next;
 }
 

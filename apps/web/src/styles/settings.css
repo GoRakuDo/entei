@@ -956,6 +956,27 @@ body[data-page='settings'] .entei-main {
   justify-self: start;
 }
 
+/* A row's OWN control (Yomitan's per-dictionary "Definitions collapsible"),
+   docked immediately left of the switch. The row is already as tall as a touch
+   target, so this matches that height instead of shrinking to the switch — and
+   it stays a real 44px control rather than a desktop-only 32px one. */
+.entei-module-list-select {
+  width: 11rem;
+  max-width: 100%;
+  height: var(--entei-touch-min);
+  background-color: var(--entei-surface);
+  color: var(--entei-text-secondary);
+}
+
+@media (max-width: 767px) {
+  /* Below 768px the row is one narrow column and the name needs the room, so the
+     select gives up width rather than pushing the switch and the delete button
+     off the card. The trigger clamps its label to one line. */
+  .entei-module-list-select {
+    width: 9rem;
+  }
+}
+
 /* Quiet at rest (it deletes data, so it must not read as the primary action),
    accented on hover/focus with the gold system-highlight token — the palette
    has no dedicated destructive colour. */

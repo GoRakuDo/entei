@@ -7,6 +7,7 @@
  *
  * - the list comes from the engine (not from a browser store), newest first
  * - the enable switch writes the engine AND `options.dictionaries`
+ * - the per-row collapse select writes `options.dictionaries` and nothing else
  * - delete removes the engine row and its option entry
  * - a dictionary with no engine row is not drawn (nothing to toggle or delete)
  * - an option entry with no engine row keeps its place in the persisted order
@@ -26,6 +27,13 @@ import { readYomitanOptions } from '@/modules/yomitan/yomitan-preferences';
 interface InvokeArgs {
   command: string;
   args: Record<string, unknown> | undefined;
+}
+
+/** One `options.dictionaries[]` row as the assertions read it back. */
+interface DictionaryOptionRow {
+  name: string;
+  enabled: boolean;
+  definitionsCollapsible: string;
 }
 
 type EventHandler = (event: {
@@ -117,6 +125,7 @@ const COPY = {
   empty: 'No dictionaries installed.',
   enable: 'Enable',
   remove: 'Remove',
+  definitionsCollapsible: 'Definitions collapsible',
   importFailed: 'Import failed',
   loadFailed: 'Dictionaries could not be read',
   reorder: 'Reorder',
@@ -139,6 +148,9 @@ function renderManager(
 
 beforeEach(() => {
   localStorage.clear();
+  // Radix scrolls the selected option into view when a Select opens; this DOM
+  // implementation has no `scrollIntoView`.
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(async () => {
@@ -162,6 +174,56 @@ describe('ModuleItemManager — native engine wiring', () => {
     expect(screen.getByText('rev.jmdict-3.5.0')).toBeTruthy();
     expect(screen.queryByText(COPY.empty)).toBeNull();
     expect(calls.length).toBeGreaterThan(0);
+  });
+
+  it('writes the per-dictionary collapse select to options.dictionaries', async () => {
+    const { calls } = installTauri([summary()]);
+    const options = createDefaultOptions();
+    options.profiles[0]!.options.dictionaries = [
+      {
+        name: 'JMdict',
+        alias: '',
+        enabled: true,
+        allowSecondarySearches: false,
+        definitionsCollapsible: 'not-collapsible',
+        partsOfSpeechFilter: true,
+        useDeinflections: true,
+      },
+    ] as never;
+    const onChange = vi.fn();
+    renderManager(options, onChange);
+
+    await screen.findByText('JMdict');
+    const trigger = screen.getByRole('combobox', {
+      name: `${COPY.definitionsCollapsible}: JMdict`,
+    });
+    // Yomitan's default, shown on the row itself — not an empty select.
+    expect(trigger.textContent).toBe('Not collapsible');
+
+    fireEvent.click(trigger);
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Force collapsed' }),
+    );
+
+    expect(onChange).toHaveBeenCalled();
+    const next = onChange.mock.calls.at(-1)?.[0] as ReturnType<
+      typeof createDefaultOptions
+    >;
+    expect(
+      (next.profiles[0]?.options as { dictionaries: DictionaryOptionRow[] })
+        .dictionaries,
+    ).toEqual([
+      expect.objectContaining({
+        name: 'JMdict',
+        definitionsCollapsible: 'force-collapsed',
+      }),
+    ]);
+    /* Settings-only knob: the native engine owns dictionary DATA and its own
+       enable flag, but the popup's collapse behaviour is read from options, so
+       no extra IPC may be issued here. */
+    expect(calls.filter((call) => call.command.includes('yomitan_'))).toEqual([
+      { command: 'plugin:modules|yomitan_list_dictionaries', args: {} },
+    ]);
   });
 
   it('writes the enable switch to the engine and to options.dictionaries', async () => {

@@ -28,7 +28,8 @@
  * Layout: header row — title + description on the left, the import button on
  * the right where every other settings control sits — above the rows, which
  * take the full width. Each row: drag handle (when the source supports
- * reordering), name + metadata, enable switch, delete.
+ * reordering), name + metadata, the row's own control (when the source gives
+ * one), enable switch, delete.
  *
  * AN IMPORT IN FLIGHT is a row of its own, pinned above the list while
  * `importProgress` is given: same grid as a real row, with the percent and a
@@ -47,10 +48,17 @@
  * picked path to the source, while `onImport` (given) keeps the HTML file input
  * and hands over the `File`. With neither, no import button is drawn — a source
  * that cannot store what the picker returns must not offer it.
+ *
+ * A source may also bind ONE control of its own to every row
+ * (`renderControl`), drawn ahead of the switch: Yomitan's per-dictionary
+ * "Definitions collapsible" select is a per-ITEM setting, so it belongs on the
+ * item's row rather than in a field list of its own. It is a render function
+ * because the ROW knows when it is being deleted, and the control has to go
+ * disabled with the switch and the delete button.
  * ---------------------------------------------------------------------------
  */
 
-import { useCallback, useId, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
 import { FileArchive, GripVertical, Loader2, Trash2, type LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { SettingsButton } from '@/components/settings/SettingsButton';
@@ -68,6 +76,14 @@ export interface ModuleListManagerRow {
   meta?: string;
   /** Persisted enable state of this item. */
   enabled: boolean;
+  /**
+   * The row's own extra control, drawn AHEAD of the switch (Yomitan's
+   * per-dictionary "Definitions collapsible" select).
+   *
+   * A render function, not a node: the row knows when it is being deleted and
+   * the control has to be drawn disabled then, which the caller cannot see.
+   */
+  renderControl?: (state: { disabled: boolean }) => ReactNode;
 }
 
 /** English copy of the layout, resolved from the manifest's `copy` table. */
@@ -86,6 +102,11 @@ export interface ModuleListManagerCopy {
   empty: string;
   /** Accessible name prefix for an item's enable switch. */
   enable: string;
+  /**
+   * Accessible name prefix for a row's own leading select (Yomitan's
+   * per-dictionary "Definitions collapsible" control).
+   */
+  definitionsCollapsible: string;
   /** Accessible name prefix for an item's delete button. */
   remove: string;
   /** Toast title when an import fails. */
@@ -471,6 +492,7 @@ export function ModuleListManager({
                   )}
                 </div>
                 <div className="entei-module-list-row-actions">
+                  {row.renderControl?.({ disabled: isRemoving })}
                   {onToggle !== undefined && (
                     <Switch
                       checked={row.enabled}

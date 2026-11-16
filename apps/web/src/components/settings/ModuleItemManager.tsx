@@ -12,6 +12,7 @@
  * - Listing installed items from native storage
  * - Live progress tracking during imports
  * - Enabling/disabling individual items
+ * - Setting each item's "Definitions collapsible" (settings-only, no IPC)
  * - Deleting items with immediate UI feedback and protection
  * - Reordering items by priority
  * ---------------------------------------------------------------------------
@@ -26,17 +27,26 @@ import {
   type ModuleListManagerRow,
 } from '@/components/settings/ModuleListManager';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/player/ui/select';
+import {
   readOptionPath,
   writeOptionPath,
 } from '@/modules/yomitan/yomitan-preferences';
 import { isTauri, onYomitanImportProgress } from '@/features/player/tauri-bridge';
 import {
+  DEFINITIONS_COLLAPSIBLE_OPTIONS,
   createDictionaryOptionEntry,
   deleteDictionary,
   importDictionaryFromPath,
   listInstalledDictionaries,
   orderDictionaryOptions,
   removeDictionaryOption,
+  setDictionaryDefinitionsCollapsible,
   setDictionaryEnabled,
   toggleDictionary,
   type DictionaryOptionEntry,
@@ -61,6 +71,8 @@ interface ModuleItemRow {
   name: string;
   version: string;
   enabled: boolean;
+  /** How this dictionary's definitions collapse (persisted, never from the engine). */
+  definitionsCollapsible: DictionaryOptionEntry['definitionsCollapsible'];
 }
 
 export function ModuleItemManager({
@@ -158,6 +170,21 @@ export function ModuleItemManager({
 
   const rows = buildItemRows(installedItems, optionEntries);
 
+  /**
+   * Collapsible definitions are a SETTINGS-only knob: the option entry is the
+   * whole state (the native engine never hears about it), so this is the same
+   * `options.dictionaries` write as the toggle minus the IPC.
+   */
+  function handleDefinitionsCollapsible(row: ModuleItemRow, value: string) {
+    onChange(
+      writeOptionPath(
+        options,
+        'dictionaries',
+        setDictionaryDefinitionsCollapsible(optionEntries, row.name, value),
+      ),
+    );
+  }
+
   /** Row order IS priority: write it back as the new ordered options. */
   function handleReorder(from: number, to: number) {
     const names = rows.map((row) => row.name);
@@ -180,6 +207,29 @@ export function ModuleItemManager({
         name: row.name,
         meta: row.version === '' ? '' : `rev.${row.version}`,
         enabled: row.enabled,
+        renderControl: ({ disabled }) => (
+          <Select
+            value={row.definitionsCollapsible}
+            disabled={disabled}
+            onValueChange={(next) => handleDefinitionsCollapsible(row, next)}
+          >
+            <SelectTrigger
+              size="sm"
+              className="entei-module-list-select"
+              aria-label={`${copy.definitionsCollapsible}: ${row.name}`}
+              title={copy.definitionsCollapsible}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DEFINITIONS_COLLAPSIBLE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ),
       }))}
       copy={copy}
       title={title}
@@ -235,6 +285,9 @@ function buildItemRows(
       name: record.name,
       version: record.version,
       enabled: entry.enabled ?? record.enabled,
+      definitionsCollapsible:
+        entry.definitionsCollapsible ??
+        createDictionaryOptionEntry(record.name).definitionsCollapsible,
     });
   }
 
@@ -246,6 +299,9 @@ function buildItemRows(
       name: record.name,
       version: record.version,
       enabled: record.enabled,
+      // No option entry yet: Yomitan's own default, not an empty select.
+      definitionsCollapsible: createDictionaryOptionEntry(record.name)
+        .definitionsCollapsible,
     });
   }
 

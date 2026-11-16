@@ -719,6 +719,7 @@ const LIST_COPY_KEYS = [
   'empty',
   'enable',
   'remove',
+  'definitionsCollapsible',
   'importFailed',
   'loadFailed',
   'reorder',

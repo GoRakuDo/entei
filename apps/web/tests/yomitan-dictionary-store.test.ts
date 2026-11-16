@@ -13,16 +13,19 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import {
+  DEFINITIONS_COLLAPSIBLE_OPTIONS,
   createDictionaryOptionEntry,
   deleteDictionary,
   frequencyDictionaryNames,
   importDictionaryFromPath,
   invalidateInstalledDictionaries,
+  isDefinitionsCollapsible,
   listInstalledDictionaries,
   listInstalledDictionariesCached,
   orderDictionaryOptions,
   readDictionaryStorageUsage,
   removeDictionaryOption,
+  setDictionaryDefinitionsCollapsible,
   setDictionaryEnabled,
   toggleDictionary,
   type DictionaryOptionEntry,
@@ -213,6 +216,76 @@ describe('options.dictionaries helpers', () => {
       'Dict B',
     ]);
     expect(next[0]?.enabled).toBe(false);
+  });
+});
+
+describe('definitionsCollapsible (the per-dictionary collapse knob)', () => {
+  const list: DictionaryOptionEntry[] = [
+    { ...createDictionaryOptionEntry('Dict A'), alias: 'A' },
+    { ...createDictionaryOptionEntry('Dict B'), enabled: false },
+  ];
+
+  it('offers Yomitan\u2019s five values in upstream order', () => {
+    // Upstream's own template order (templates-settings.html), which the
+    // descriptor tree's own list does not reproduce.
+    expect(
+      DEFINITIONS_COLLAPSIBLE_OPTIONS.map((option) => option.value),
+    ).toEqual([
+      'not-collapsible',
+      'collapsed',
+      'expanded',
+      'force-collapsed',
+      'force-expanded',
+    ]);
+    expect(
+      DEFINITIONS_COLLAPSIBLE_OPTIONS.map((option) => option.label),
+    ).toEqual([
+      'Not collapsible',
+      'Collapsed',
+      'Expanded',
+      'Force collapsed',
+      'Force expanded',
+    ]);
+  });
+
+  it('writes one dictionary without touching its siblings', () => {
+    const next = setDictionaryDefinitionsCollapsible(
+      list,
+      'Dict A',
+      'force-collapsed',
+    );
+    expect(next[0]?.definitionsCollapsible).toBe('force-collapsed');
+    expect(next[1]?.definitionsCollapsible).toBe('not-collapsible');
+    // The input list is not mutated.
+    expect(list[0]?.definitionsCollapsible).toBe('not-collapsible');
+  });
+
+  it('appends an entry for a dictionary missing from the list', () => {
+    const next = setDictionaryDefinitionsCollapsible(
+      list,
+      'Dict C',
+      'expanded',
+    );
+    expect(next).toHaveLength(3);
+    expect(next[2]).toMatchObject({
+      name: 'Dict C',
+      definitionsCollapsible: 'expanded',
+    });
+  });
+
+  it('ignores a value the select cannot have produced', () => {
+    // Fail-closed: an unknown token must never reach the persisted tree, and the
+    // list must come back unchanged rather than half-written.
+    const next = setDictionaryDefinitionsCollapsible(list, 'Dict A', 'sometimes');
+    expect(next).toEqual(list);
+    expect(next[0]?.definitionsCollapsible).toBe('not-collapsible');
+  });
+
+  it('recognises exactly the five values', () => {
+    expect(isDefinitionsCollapsible('force-expanded')).toBe(true);
+    expect(isDefinitionsCollapsible('')).toBe(false);
+    expect(isDefinitionsCollapsible(undefined)).toBe(false);
+    expect(isDefinitionsCollapsible('COLLAPSED')).toBe(false);
   });
 });
 describe('frequency sorting dictionary choices', () => {

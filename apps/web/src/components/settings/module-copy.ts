@@ -30,6 +30,7 @@ export const DICTIONARIES_COPY: ModuleListManagerCopy = {
   empty: 'No dictionaries imported. Import a dictionary file (.zip) to start looking up terms.',
   enable: 'Enable dictionary',
   remove: 'Delete dictionary',
+  definitionsCollapsible: 'Definitions collapsible',
   importFailed: 'Dictionary import failed',
   loadFailed: 'Installed dictionaries could not be read',
   reorder: 'Reorder dictionary',
