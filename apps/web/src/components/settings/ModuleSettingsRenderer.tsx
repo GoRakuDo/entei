@@ -313,6 +313,7 @@ function claimedPaths(
       /* A `selects` row edits one path per control, so every one of them is
          claimed: leaving one out would draw it a second time in its tree group. */
       for (const item of row.selects ?? []) claimed.add(item.field);
+      for (const item of row.checkboxes ?? []) claimed.add(item.field);
     }
   }
   return claimed;
