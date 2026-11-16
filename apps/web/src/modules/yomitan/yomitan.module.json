@@ -339,8 +339,8 @@
           "label": "Pitch accent display styles",
           "description": "Japanese only.",
           "checkboxes": [
-            { "label": "Downstep notation", "field": "general.showPitchAccentDownstepNotation" },
-            { "label": "Downstep position", "field": "general.showPitchAccentPositionNotation" },
+            { "label": "Notation", "field": "general.showPitchAccentDownstepNotation" },
+            { "label": "Position", "field": "general.showPitchAccentPositionNotation" },
             { "label": "Graph", "field": "general.showPitchAccentGraph" }
           ]
         },

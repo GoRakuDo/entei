@@ -706,8 +706,8 @@ describe('module-registry — `checkboxes` rows (grouped mini-labelled booleans)
       'general.showPitchAccentGraph',
     ]);
     expect(pitch?.checkboxes?.map((item) => item.label)).toEqual([
-      'Downstep notation',
-      'Downstep position',
+      'Notation',
+      'Position',
       'Graph',
     ]);
   });
