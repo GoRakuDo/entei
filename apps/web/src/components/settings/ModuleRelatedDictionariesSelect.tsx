@@ -247,7 +247,7 @@ export function ModuleRelatedDictionariesSelect({
                 className="entei-module-tag"
                 data-role={index === 0 ? 'primary' : 'secondary'}
               >
-                <span className="entei-module-tag-index">{index + 1}</span>
+                <span className="entei-module-tag-index">{index + 1}.</span>
                 <span className="entei-module-tag-name">{name}</span>
                 <button
                   type="button"
@@ -255,7 +255,7 @@ export function ModuleRelatedDictionariesSelect({
                   aria-label={RELATED_COPY.remove(name)}
                   onClick={() => toggle(name)}
                 >
-                  <X size={14} aria-hidden="true" />
+                  <X size={13} aria-hidden="true" />
                 </button>
               </li>
             ))}
