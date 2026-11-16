@@ -6,13 +6,35 @@
  * =========================================================================== */
 
 @layer base {
-  /* App-wide Radix Dialog / Radix Select scroll-lock stability (mirrors global.css). */
+  /* App-wide Radix Dialog / Radix Select scroll-lock stability (mirrors global.css).
+   * <html> owns the scrollport so a body-level lock cannot remove the 6px
+   * track, and react-remove-scroll's own margin/padding compensation is zeroed
+   * (the scrollbar it assumes it removed is still there). */
   html {
     scrollbar-gutter: stable;
+    overflow-y: scroll !important;
   }
 
-  body[data-scroll-locked] {
-    padding-right: var(--removed-body-scroll-bar-size, 0px) !important;
+  /* Mirrors global.css: kill react-remove-scroll's body lock compensation
+   * (margin/padding gap) and its helper classes so nothing shifts. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+    overflow-x: clip !important;
+    overflow-y: visible !important;
+  }
+
+  html .with-scroll-bars-hidden {
+    overflow: visible !important;
+    padding-right: 0 !important;
+  }
+
+  html .right-scroll-bar-position {
+    right: 0 !important;
+  }
+
+  html .width-before-scroll-bar {
+    margin-right: 0 !important;
   }
 }
 

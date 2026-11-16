@@ -19,20 +19,57 @@
  * resets. Moving them into @layer base lets utilities layer win. */
 @layer base {
   /* ===== APP-WIDE RADIX SCROLL-LOCK STABILITY =====
-   * `scrollbar-gutter: stable` on <html> reserves the 6px scrollbar track even
-   * when Radix Dialog / Radix Select applies `overflow: hidden` to <html>,
-   * preventing the viewport width and centered/fixed elements from shifting.
+   * Radix Select / Dialog / AlertDialog mount react-remove-scroll, which puts
+   * `overflow: hidden !important` on <body> and injects its own
+   * `margin-right: <gap>px !important` + `padding-right: <gap>px !important`
+   * compensation (and the helper classes below) into <head>. Net effect was a
+   * 6px horizontal jerk of the whole layout — TopBar included — plus a
+   * vanishing scrollbar every time a Select opened.
+   *
+   * Three rules make the outcome pixel-identical in every state:
+   *
+   * 1. <html> owns the scrollport (`overflow-y: scroll`). The root now has a
+   *    non-`visible` overflow, so <body>'s overflow can no longer propagate to
+   *    the viewport and the lock cannot delete the 6px track.
+   *    `scrollbar-gutter: stable` is the belt-and-braces second line.
+   * 2. The library's body compensation is zeroed. It assumes it removed the
+   *    scrollbar; here the track is still there, so its extra margin/padding
+   *    would shrink <body> a second time and shift the page left by the gap.
+   * 3. The library's helper classes (`with-scroll-bars-hidden`,
+   *    `right-scroll-bar-position`, `width-before-scroll-bar`) are neutralised
+   *    the same way, so nothing can re-introduce the gap on a subtree.
+   *
+   * `html body[data-scroll-locked]` (0,1,2) also outranks the library's
+   * `body[data-scroll-locked]` (0,1,1), and because these declarations live in
+   * `@layer base` they win over the unlayered `!important` rules that
+   * react-style-singleton appends to <head> at runtime (verified in Chrome).
    */
   html {
     scrollbar-gutter: stable;
+    overflow-y: scroll !important;
   }
 
-  /* When Radix locks scroll on <html>, `overflow: hidden` propagates to the
-   * viewport and removes the native scrollbar (6px). Compensate <body>'s inline
-   * padding-right with the exact measured scrollbar width so overall layout
-   * width remains pixel-identical whether scroll is locked or unlocked. */
-  body[data-scroll-locked] {
-    padding-right: var(--removed-body-scroll-bar-size, 0px) !important;
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+    /* Undo the scroll lock itself. Horizontal clipping stays (that is our own
+     * guard against sideways overflow) but it must not turn <body> into a
+     * scroll container, so `clip` is used instead of `hidden`. */
+    overflow-x: clip !important;
+    overflow-y: visible !important;
+  }
+
+  html .with-scroll-bars-hidden {
+    overflow: visible !important;
+    padding-right: 0 !important;
+  }
+
+  html .right-scroll-bar-position {
+    right: 0 !important;
+  }
+
+  html .width-before-scroll-bar {
+    margin-right: 0 !important;
   }
 
   /* ===== RESET ===== */
