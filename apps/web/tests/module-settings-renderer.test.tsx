@@ -779,7 +779,7 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     /* The preview row is a host-owned block, not a bound control. Its frame is
        drawn as soon as the vendored assets have been read (they fail soft to the
        placeholder document outside the desktop app), so the frame is awaited. */
-    const preview = section?.querySelector('.entei-yomitan-popup-preview');
+    const preview = section?.querySelector('.entei-module-preview');
     expect(preview).not.toBeNull();
     /* A host-owned BLOCK: the manifest gives it no text, so the row draws none —
        a caption above the card would only repeat what the card shows. */
@@ -787,7 +787,7 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     /* The card's own term field is the row's one control (upstream's preview page
        has the same one), and it is the only text input in the section. */
     expect(
-      preview?.querySelectorAll('.entei-yomitan-popup-preview-term-input'),
+      preview?.querySelectorAll('.entei-module-preview-input'),
     ).toHaveLength(1);
     expect(preview?.querySelectorAll('input')).toHaveLength(1);
     await waitFor(() =>

@@ -117,11 +117,11 @@ describe('YomitanPopupPreview — term field', () => {
     /* The stage is the full-width band the card is spawned on, and the term field
        sits above it — the two are siblings, not a side-by-side split. */
     const stage = container.querySelector(
-      '.entei-yomitan-popup-preview-stage',
+      '.entei-module-preview-stage',
     ) as HTMLElement;
     expect(stage.querySelector('iframe')).not.toBeNull();
     expect(
-      container.querySelector('.entei-yomitan-popup-preview-term-input')
+      container.querySelector('.entei-module-preview-input')
         ?.parentElement,
     ).toBe(stage.parentElement);
   });

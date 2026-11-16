@@ -664,7 +664,7 @@ body[data-page='settings'] .entei-main {
    at a higher specificity than that row's desktop two-column rule — without that,
    a row with no text would leave the card in the control column beside an empty
    one. */
-.entei-module-field.entei-yomitan-popup-preview {
+.entei-module-field.entei-module-preview {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -677,7 +677,7 @@ body[data-page='settings'] .entei-main {
    at the block's full width: it is the card's search line, not a control docked to
    a desktop control column, so the shared 15–22rem column bounds are lifted here.
    An empty field falls back to the example word (see `resolvePreviewTerm`). */
-.entei-module-input.entei-yomitan-popup-preview-term-input {
+.entei-module-input.entei-module-preview-input {
   min-width: 0;
   max-width: none;
   width: 100%;
@@ -693,7 +693,7 @@ body[data-page='settings'] .entei-main {
    NOT `overflow: hidden`: the card's own outer-theme shadow (below) is painted
    OUTSIDE the frame's box, and clipping it here would cut the popup back down to
    the flat rectangle the setting exists to lift. */
-.entei-yomitan-popup-preview-stage {
+.entei-module-preview-stage {
   /* One cell for both states: the frame fills it, and a loading note sits centred
      in it instead of clinging to the top edge. */
   display: grid;
@@ -706,7 +706,7 @@ body[data-page='settings'] .entei-main {
   background-color: var(--entei-surface);
 }
 
-.entei-yomitan-popup-preview-stage > iframe {
+.entei-module-preview-stage > iframe {
   grid-area: 1 / 1;
   display: block;
   /* Both come from the user's own Position & Size numbers (inline); a 2000px
@@ -727,25 +727,25 @@ body[data-page='settings'] .entei-main {
 }
 
 /* Dark: dark shadow */
-.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='dark'] {
+.entei-module-preview-stage > iframe[data-outer-theme='dark'] {
   box-shadow:
     0 8px 24px oklch(0% 0 0deg / 0.45),
     0 0 24px oklch(0% 0 0deg / 0.5);
 }
 
 /* Light: bright white glow halo */
-.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='light'] {
+.entei-module-preview-stage > iframe[data-outer-theme='light'] {
   box-shadow:
     0 8px 24px oklch(0% 0 0deg / 0.45),
     0 0 24px oklch(100% 0 0deg / 0.5);
 }
 
 /* None: the user asked for no shadow, so the card is flat. */
-.entei-yomitan-popup-preview-stage > iframe[data-outer-theme='none'] {
+.entei-module-preview-stage > iframe[data-outer-theme='none'] {
   box-shadow: none;
 }
 
-.entei-yomitan-popup-preview-note {
+.entei-module-preview-note {
   grid-area: 1 / 1;
   margin: 0;
   padding: var(--entei-space-8) var(--entei-space-12);
@@ -756,7 +756,7 @@ body[data-page='settings'] .entei-main {
   text-wrap: pretty;
 }
 
-.entei-yomitan-popup-preview-stage > .entei-yomitan-popup-preview-note {
+.entei-module-preview-stage > .entei-module-preview-note {
   text-align: center;
 }
 

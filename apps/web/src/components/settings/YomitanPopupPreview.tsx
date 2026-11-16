@@ -263,7 +263,7 @@ export function YomitanPopupPreview({
   );
 
   return (
-    <div className="entei-module-field entei-yomitan-popup-preview">
+    <div className="entei-module-field entei-module-preview">
       {/* A row the manifest gave no text draws none: the card IS the block, so a
           caption above it would only repeat what the card already shows. */}
       {label !== undefined && (
@@ -279,7 +279,7 @@ export function YomitanPopupPreview({
           field. An empty one falls back to the example word (`resolvePreviewTerm`),
           which is what the placeholder shows. */}
       <Input
-        className="entei-module-input entei-yomitan-popup-preview-term-input"
+        className="entei-module-input entei-module-preview-input"
         type="text"
         value={term}
         lang="ja"
@@ -290,13 +290,13 @@ export function YomitanPopupPreview({
         onChange={(event) => setTerm(event.target.value)}
       />
 
-      <div className="entei-yomitan-popup-preview-stage">
+      <div className="entei-module-preview-stage">
         {/* The frame carries the user's own Position & Size numbers: the width and
             height are `general.popupWidth` / `general.popupHeight` (scaled), and
             the stylesheet clamps them to the stage, so a 2000px popup does not
             widen the settings column. */}
         {srcDoc === null ? (
-          <p className="entei-yomitan-popup-preview-note">{PREVIEW_COPY.loading}</p>
+          <p className="entei-module-preview-note">{PREVIEW_COPY.loading}</p>
         ) : (
           <iframe
             ref={iframeRef}
@@ -319,7 +319,7 @@ export function YomitanPopupPreview({
       </div>
 
       {failed && (
-        <p className="entei-yomitan-popup-preview-note" role="status">
+        <p className="entei-module-preview-note" role="status">
           {PREVIEW_COPY.unavailable}
         </p>
       )}
