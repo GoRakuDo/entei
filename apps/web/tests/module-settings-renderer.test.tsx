@@ -1057,7 +1057,7 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
        answer lands a microtask after the render. */
     await waitFor(() => expect(screen.getByText(PICKER)).toBeTruthy());
     expect(
-      merged.container.querySelectorAll('.entei-related-dictionaries'),
+      merged.container.querySelectorAll('.entei-module-tag-select'),
     ).toHaveLength(1);
   });
 
@@ -1072,7 +1072,7 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
       expect(screen.getByText('Select dictionaries')).toBeTruthy(),
     );
     const trigger = container.querySelector(
-      '.entei-related-dictionaries-trigger',
+      '.entei-module-tag-select .entei-module-select',
     );
     expect(trigger).not.toBeNull();
 
@@ -1086,12 +1086,12 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
        a microtask behind the click. */
     await waitFor(() =>
       expect(
-        container.querySelectorAll('.entei-related-dictionaries-chip'),
+        container.querySelectorAll('.entei-module-tag'),
       ).toHaveLength(1),
     );
     expect(
       container
-        .querySelectorAll('.entei-related-dictionaries-chip')[0]
+        .querySelectorAll('.entei-module-tag')[0]
         ?.getAttribute('data-role'),
     ).toBe('primary');
 
@@ -1103,12 +1103,12 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
     );
     await waitFor(() =>
       expect(
-        container.querySelectorAll('.entei-related-dictionaries-chip'),
+        container.querySelectorAll('.entei-module-tag'),
       ).toHaveLength(2),
     );
     expect(
       container
-        .querySelectorAll('.entei-related-dictionaries-chip')[1]
+        .querySelectorAll('.entei-module-tag')[1]
         ?.getAttribute('data-role'),
     ).toBe('secondary');
     expect(
@@ -1125,7 +1125,7 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove JMdict' }));
     await waitFor(() =>
       expect(
-        container.querySelectorAll('.entei-related-dictionaries-chip'),
+        container.querySelectorAll('.entei-module-tag'),
       ).toHaveLength(1),
     );
     expect(

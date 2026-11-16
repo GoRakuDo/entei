@@ -29,7 +29,7 @@
 
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { Options } from '@gorakudo/yomitan-headless/settings';
-import { Check, ChevronsUpDown, Crown, X } from 'lucide-react';
+import { Check, ChevronsUpDown, X } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -140,7 +140,7 @@ export function ModuleRelatedDictionariesSelect({
   if (!merge) return null;
 
   return (
-    <div className="entei-module-field entei-related-dictionaries">
+    <div className="entei-module-field entei-module-tag-select">
       <div className="entei-module-field-text">
         <span className="entei-module-field-label" id={labelId}>
           {label}
@@ -192,7 +192,7 @@ export function ModuleRelatedDictionariesSelect({
           <PopoverContent
             align="end"
             sideOffset={4}
-            className="entei-combobox-content entei-related-dictionaries-content"
+            className="entei-combobox-content entei-module-tag-select-content"
           >
             <Command>
               <CommandList
@@ -218,7 +218,7 @@ export function ModuleRelatedDictionariesSelect({
                         <Check size={14} aria-hidden="true" />
                       ) : (
                         <span
-                          className="entei-related-dictionaries-item-icon"
+                          className="entei-module-tag-select-item-icon"
                           aria-hidden="true"
                         />
                       )}
@@ -234,33 +234,22 @@ export function ModuleRelatedDictionariesSelect({
 
       {/* The selection, card-wide under the row: a wrapped chip list needs the whole
           width, which the trailing control column cannot give it. A list, because
-          the order IS the setting — first chip primary (crowned, gold), every later
+          the order IS the setting — first chip primary (index 1, gold), every later
           one a secondary search — and nothing at all is drawn while it is empty. */}
       {selected.length > 0 && (
-        <div className="entei-related-dictionaries-box">
-          <ul className="entei-related-dictionaries-chips">
+        <div className="entei-module-tag-box">
+          <ul className="entei-module-tags">
             {selected.map((name, index) => (
               <li
                 key={name}
-                className="entei-related-dictionaries-chip"
+                className="entei-module-tag"
                 data-role={index === 0 ? 'primary' : 'secondary'}
               >
-                {index === 0 && (
-                  <Crown
-                    className="entei-related-dictionaries-chip-icon"
-                    size={14}
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="entei-related-dictionaries-chip-name">
-                  {name}
-                </span>
-                <span className="entei-related-dictionaries-chip-role">
-                  {index === 0 ? RELATED_COPY.primary : RELATED_COPY.secondary}
-                </span>
+                <span className="entei-module-tag-index">{index + 1}</span>
+                <span className="entei-module-tag-name">{name}</span>
                 <button
                   type="button"
-                  className="entei-related-dictionaries-chip-remove"
+                  className="entei-module-tag-remove"
                   aria-label={RELATED_COPY.remove(name)}
                   onClick={() => toggle(name)}
                 >

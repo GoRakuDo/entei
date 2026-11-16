@@ -642,49 +642,22 @@ body[data-page='settings'] .entei-main {
    right, chip box spanning both under it) and only widens the vertical gap above
    that box — one class would tie with the desktop `.entei-module-field` rule and
    lose on source order. */
-.entei-module-field.entei-related-dictionaries {
+.entei-module-field.entei-module-tag-select {
   row-gap: var(--entei-space-12);
-}
-
-/* The trigger IS `.entei-module-select` — the class the shadcn Select triggers
-   carry — so its width floor, ceiling and 44px height come from there and the
-   column lines up. Only the inner layout is this row's own. */
-.entei-related-dictionaries-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--entei-space-8);
-  padding: var(--entei-space-8) var(--entei-space-12);
-  /* `border-input`, the border every shadcn control in the app draws. */
-  border: 1px solid oklch(100% 0 0deg / 0.08);
-  border-radius: var(--entei-radius-md);
-  font-family: var(--entei-font-body);
-  font-size: 0.875rem;
-  cursor: pointer;
-}
-
-.entei-related-dictionaries-trigger:focus-visible {
-  outline: 3px solid var(--entei-focus-ring);
-  outline-offset: 2px;
-}
-
-.entei-related-dictionaries-chevron {
-  color: var(--entei-muted);
-  flex-shrink: 0;
 }
 
 /* The popup takes the trigger's width (`--radix-popover-trigger-width`, the combobox
    content default), so the list lines up with the selects around it; the viewport
    clamp is all a phone needs on top of Radix's own collision handling. */
-.entei-related-dictionaries-content {
+.entei-module-tag-select-content {
   max-width: calc(100vw - var(--entei-gutter) * 2);
 }
 
 /* The selection: the card's full width under the row, in the same surface frame as
    the textarea rows, so it reads as this row's value block rather than a second
-   control. Nothing is drawn while it is empty. The chips are centred in the 4rem
+   control. Nothing is drawn while it is empty. The tags are centred in the 4rem
    frame while they take one line, and the box grows with them past it. */
-.entei-related-dictionaries-box {
+.entei-module-tag-box {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -697,7 +670,7 @@ body[data-page='settings'] .entei-main {
   border-radius: var(--entei-radius-md);
 }
 
-.entei-related-dictionaries-chips {
+.entei-module-tags {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
@@ -709,11 +682,11 @@ body[data-page='settings'] .entei-main {
   list-style: none;
 }
 
-.entei-related-dictionaries-chip {
+.entei-module-tag {
   display: inline-flex;
   align-items: center;
-  gap: var(--entei-space-4);
-  padding-inline-start: var(--entei-space-8);
+  gap: var(--entei-space-6);
+  padding: var(--entei-space-4) var(--entei-space-8);
   border: 1px solid oklch(100% 0 0deg / 0.08);
   border-radius: var(--entei-radius-pill);
   background-color: oklch(100% 0 0deg / 0.06);
@@ -723,44 +696,47 @@ body[data-page='settings'] .entei-main {
   line-height: 1;
 }
 
-/* The leading chip IS the primary dictionary: the app's gold marks it, the same
-   accent the rest of the settings surface uses for "this one is special". */
-.entei-related-dictionaries-chip[data-role='primary'] {
+/* The leading tag IS the primary item (index 1): the app's gold marks it. */
+.entei-module-tag[data-role='primary'] {
   border-color: oklch(85% 0.15 85deg / 0.45);
-  /* oklch(85% 0.15 85deg) is `--entei-gold`; only its alpha is new. */
   background-color: oklch(85% 0.15 85deg / 0.12);
 }
 
-.entei-related-dictionaries-chip-icon {
-  color: var(--entei-status-locked);
-  flex-shrink: 0;
+.entei-module-tag-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 var(--entei-space-4);
+  font-family: var(--entei-font-system);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: var(--entei-radius-pill);
+  background-color: oklch(100% 0 0deg / 0.08);
+  color: var(--entei-text-muted);
 }
 
-.entei-related-dictionaries-chip-name {
+.entei-module-tag[data-role='primary'] .entei-module-tag-index {
+  background-color: oklch(85% 0.15 85deg / 0.25);
+  color: var(--entei-status-locked);
+}
+
+.entei-module-tag-name {
   max-width: 14rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.entei-related-dictionaries-chip-role {
-  font-size: 0.75rem;
-  color: var(--entei-text-muted);
-}
-
-.entei-related-dictionaries-chip[data-role='primary'] .entei-related-dictionaries-chip-role {
-  color: var(--entei-status-locked);
-}
-
-/* One tap target per chip. Smaller than `--entei-touch-min` on purpose: a chip is
-   a tag inside the row's chip box, and that box carries the frame. 32px still
-   clears the 24px WCAG 2.5.8 floor. */
-.entei-related-dictionaries-chip-remove {
+/* One tap target per tag. Smaller than `--entei-touch-min` on purpose: a tag is
+   inside the row's tag box. 24px clears the WCAG floor. */
+.entei-module-tag-remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--entei-space-32);
-  height: var(--entei-space-32);
+  width: var(--entei-space-24);
+  height: var(--entei-space-24);
   flex-shrink: 0;
   padding: 0;
   border: none;
@@ -771,11 +747,11 @@ body[data-page='settings'] .entei-main {
   transition: color var(--entei-duration-fast) var(--entei-ease-productive);
 }
 
-.entei-related-dictionaries-chip-remove:hover {
+.entei-module-tag-remove:hover {
   color: var(--entei-status-locked);
 }
 
-.entei-related-dictionaries-chip-remove:focus-visible {
+.entei-module-tag-remove:focus-visible {
   outline: 3px solid var(--entei-focus-ring);
   outline-offset: -2px;
 }
