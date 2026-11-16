@@ -42,6 +42,10 @@ export const POPUP_PREVIEW_PLACEHOLDER =
  * - `html, body` is `ext/css/popup-preview.css`'s rule, verbatim.
  * - the two `background-color` values are `ext/css/popup-outer.css`'s
  *   `iframe.yomitan-popup` / `[data-theme=dark]` colours, verbatim.
+ * - the trailing `.action-button[data-action=menu]` rule is Entei's OWN override
+ *   (not upstream): the per-entry `⋮` debug menu has no place in Entei's popup,
+ *   so it is hidden in this one document — the single srcdoc both the settings
+ *   preview and the floating popup render through, so both lose the button.
  *
  * Without the reset the browser's default 8px body margin would offset the whole
  * card; without the colours the frame would be transparent, since upstream the
@@ -61,6 +65,10 @@ html {
 }
 html[data-theme=dark] {
     background-color: #1e1e1e;
+}
+/* Hide the per-entry ⋮ (kebab) menu button in the popup. */
+.action-button[data-action=menu] {
+    display: none !important;
 }
 `.trim();
 

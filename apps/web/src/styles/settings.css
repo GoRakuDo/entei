@@ -625,44 +625,6 @@ body[data-page='settings'] .entei-main {
   max-width: none;
 }
 
-/* ----------------------------------------------------------------------------
-   GROUPED CHECKBOXES (the `checkboxes` layout: one row, several mini-labelled
-   boolean toggles)
-   ----------------------------------------------------------------------------
-   Upstream Yomitan puts several independent booleans on one line — "Pitch accent
-   display styles" is a Downstep notation, a Downstep position and a Graph checkbox
-   sharing a row. Each checkbox carries its own caption beside it; the group keeps
-   them on one line wherever the row is, wrapping only when the control column runs
-   out of room (a phone, a narrow card). Generic by contract: no module name here.
-   -------------------------------------------------------------------------- */
-
-.entei-module-checkboxes {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--entei-space-8) var(--entei-space-16);
-  width: 100%;
-  min-width: 0;
-}
-
-.entei-module-checkbox-item {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--entei-space-8);
-  min-height: var(--entei-touch-min);
-  cursor: pointer;
-}
-
-.entei-module-checkbox-label {
-  font-family: var(--entei-font-body);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1.4;
-  color: var(--entei-text-secondary);
-  cursor: pointer;
-  text-wrap: pretty;
-}
-
 /* ==========================================================================
    MANIFEST-LAID-OUT SECTION ROWS (standard layouts: list / field / usage)
    ----------------------------------------------------------------------------

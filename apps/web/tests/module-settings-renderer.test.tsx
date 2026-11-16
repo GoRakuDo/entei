@@ -768,12 +768,14 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(4);
     expect(section?.querySelectorAll('textarea')).toHaveLength(2);
     expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(1);
-    // The pitch-accent group is one row of three checkboxes.
+    // The pitch-accent group is one multi-select buttongroup of three choices.
     expect(
-      section?.querySelectorAll('.entei-module-checkboxes'),
+      section?.querySelectorAll('.entei-choice-group'),
     ).toHaveLength(1);
     expect(
-      section?.querySelectorAll('.entei-module-checkbox-item'),
+      section?.querySelectorAll(
+        '.entei-choice-group [data-slot="toggle-group-item"]',
+      ),
     ).toHaveLength(3);
 
     /* The preview row is a host-owned block, not a bound control. Its frame is
