@@ -163,7 +163,7 @@ export function ModuleRelatedDictionariesSelect({
             <button
               type="button"
               id={rowId}
-              className="entei-module-select entei-related-dictionaries-trigger"
+              className="entei-module-select entei-module-tag-select-trigger"
               /* The styling hook the shadcn Select triggers carry: it is what gives
                  this row the same secondary text level and the same gold hover
                  (chevron included) as its neighbours. */
@@ -181,9 +181,11 @@ export function ModuleRelatedDictionariesSelect({
                 description !== undefined ? descriptionId : undefined
               }
             >
-              <span>{RELATED_COPY.empty}</span>
+              <span className="entei-module-tag-select-trigger-label">
+                {RELATED_COPY.empty}
+              </span>
               <ChevronsUpDown
-                className="entei-related-dictionaries-chevron"
+                className="entei-module-tag-select-chevron"
                 size={16}
                 aria-hidden="true"
               />
