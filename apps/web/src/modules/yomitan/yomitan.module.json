@@ -464,43 +464,8 @@
         },
         {
           "layout": "field",
-          "field": "general.glossaryLayoutMode",
-          "label": "Glossary layout"
-        },
-        {
-          "layout": "field",
-          "field": "general.termDisplayMode",
-          "label": "Term display mode"
-        },
-        {
-          "layout": "field",
-          "field": "general.frequencyDisplayMode",
-          "label": "Frequency display mode"
-        },
-        {
-          "layout": "field",
-          "field": "general.compactTags",
-          "label": "Compact tags"
-        },
-        {
-          "layout": "field",
           "field": "general.averageFrequency",
           "label": "Average frequency"
-        },
-        {
-          "layout": "field",
-          "field": "general.showPitchAccentDownstepNotation",
-          "label": "Show downstep notation"
-        },
-        {
-          "layout": "field",
-          "field": "general.showPitchAccentPositionNotation",
-          "label": "Show position notation"
-        },
-        {
-          "layout": "field",
-          "field": "general.showPitchAccentGraph",
-          "label": "Show pitch accent graph"
         },
         {
           "layout": "field",

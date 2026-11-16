@@ -944,14 +944,7 @@ describe('ModuleSettingsRenderer — the shipped Result Display layout', () => {
 
   const RESULT_DISPLAY_LABELS = [
     'Result grouping mode',
-    'Glossary layout',
-    'Term display mode',
-    'Frequency display mode',
-    'Compact tags',
     'Average frequency',
-    'Show downstep notation',
-    'Show position notation',
-    'Show pitch accent graph',
     'Sort order',
     'Sticky search header',
   ];
