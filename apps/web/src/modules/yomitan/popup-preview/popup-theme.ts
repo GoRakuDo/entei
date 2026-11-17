@@ -124,11 +124,12 @@ export function resolvePopupThemeAttributes(
   const controller = new ThemeController(element);
   controller.theme = popupTheme;
   controller.outerTheme = popupOuterTheme;
-  controller.siteOverride = true;
+  /* In Entei's dark shell, the site theme is dark (#0b0c14). Setting siteTheme
+     directly guarantees that `popupTheme: "site"` (Auto) resolves to dark
+     without relying on OS prefers-color-scheme (which may be light). */
+  controller.siteTheme = 'dark';
+  controller.siteOverride = false;
   const browserTheme = readBrowserTheme();
-  // `_browserTheme` is the controller's own backing field: upstream exposes only a
-  // getter for it, because the value is normally owned by its `matchMedia`
-  // listener — which `prepare()` is not called to install here.
   if (browserTheme !== null) controller._browserTheme = browserTheme;
   controller.updateTheme();
 

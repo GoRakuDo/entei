@@ -229,9 +229,9 @@ describe('yomitan popup preview — appearance', () => {
     expect(resolvePopupThemeAttributes('light', 'none')['theme']).toBe('light');
     expect(resolvePopupThemeAttributes('dark', 'dark')['theme']).toBe('dark');
     expect(resolvePopupThemeAttributes('dark', 'none')['outerTheme']).toBe('none');
-    // `siteOverride` is on for a preview, so "Site" follows the BROWSER theme,
-    // which the test preload pins to light (prefers-color-scheme: dark = false).
-    expect(resolvePopupThemeAttributes('site', 'site')['theme']).toBe('light');
+    // In Entei's dark shell, "Site" (siteOverride=false with siteTheme='dark')
+    // resolves to 'dark' regardless of OS prefers-color-scheme.
+    expect(resolvePopupThemeAttributes('site', 'site')['theme']).toBe('dark');
   });
 
   it('reads the whole appearance off the options tree', () => {
@@ -328,7 +328,7 @@ describe('yomitan popup preview — appearance', () => {
     expect(outer('light')).toBe('light');
     expect(outer('dark')).toBe('dark');
     expect(outer('none')).toBe('none');
-    expect(outer('site')).toBe('light');
+    expect(outer('site')).toBe('dark');
     expect(outer('browser')).toBe('light');
     /* Nothing usable in the field: upstream paints the light halo on the frame
        itself and only overrides it for dark / none, so light IS the fallback. */

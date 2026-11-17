@@ -941,7 +941,7 @@ export function initTextScanner(): () => void {
         'mouseDown',
         event,
       );
-      if (match !== null && (match.input.scanOnTouchPress || event.button === 1)) {
+      if (match !== null && match.input.scanOnTouchPress) {
         void runSearchAt(event.clientX, event.clientY, match, snapshot.settings);
       }
     } else if (pType === 'touch') {
