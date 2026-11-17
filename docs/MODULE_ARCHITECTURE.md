@@ -589,3 +589,17 @@ CREATE TABLE IF NOT EXISTS kv_store (
 3. `tauri-plugin-database` のバッチインポート API（`db_migrate_v1`）を呼び出し、一括トランザクションで SQLite に格納。
 4. 成功後、`kv_store` に完了フラグを記録し、以降は SQLite を単一の真実の源として稼働する。
 
+---
+
+## 12. Yomitan 辞書検索（`/search/`）と既知の指摘
+
+### 12.1 概要
+本家 Yomitan の `search.html` を Entei のプラグインとして完全再現した `/search/` ページ。
+`search-display.ts` を通じて本家 `DisplayGenerator`（`templates-display.html`、`display.css`）の出力をそのまま描画し、先頭エントリへの `entry-current` 付与とクリック時のインジケータ移動（`_onEntryClick` 相当）を完備。
+
+### 12.2 既知の指摘（Known issues / Low findings）
+- **見出し区切り文字（`data-language`）**: `resolvePopupContentAttributes` に `data-language="ja"` が未配線のため、CSS の `:root:not([data-language=ja])` により複数見出しの区切りが「、」ではなく「, 」になる既存ドリフトが存在する（別タスクにて対応推奨）。
+- **`entry-current` の a11y 支援**: スクリーンリーダー向けの `aria-current="true"` は視覚専用クラス付与と同時に追加することが望ましい。
+- **term / kanji 同時描画時の index 衝突防止**: 現状は排他描画だが、将来の同時描画時は結合後のリストに対して1回のみ採番する設計が必要。
+
+
