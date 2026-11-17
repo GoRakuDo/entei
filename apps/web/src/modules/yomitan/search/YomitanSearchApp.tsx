@@ -17,10 +17,16 @@
  * headword starts as a KANJI lookup and falls back to terms. That order is
  * `searchLookupOrder` (`search-query.ts`), with the reasoning written there.
  *
- * HISTORY IS THE BROWSER'S. Every search is a `history.pushState`, and `popstate`
- * re-runs the lookup, so Back steps through the words and characters the way it
- * does in the extension's own tab — same as upstream, which drives the browser
- * history rather than a stack of its own.
+ * THE RESULTS FOLLOW THE FIELD. Typing searches on its own after a short quiet
+ * period, and it REPLACES the current history entry rather than pushing one, so the
+ * tab holds the word being typed instead of one entry per keystroke. Enter (or the
+ * magnifier) searches at once; on the word already on screen it pushes nothing,
+ * because a second identical entry would make Back look broken.
+ *
+ * HISTORY IS THE BROWSER'S. Opening a kanji from a headword is the navigation that
+ * does push, and `popstate` re-runs the lookup, so Back returns to the word the
+ * character was opened from — the same browser history upstream drives, rather than
+ * a stack of its own.
  *
  * THE IME CONVERSION IS THE USER'S SETTING. Romaji → kana on a field with no IME
  * is upstream's `general.enableWanakana`, which the Yomitan settings tree already
@@ -92,6 +98,16 @@ const SEARCH_COPY = {
   clear: 'Clear',
 } as const;
 
+/**
+ * Quiet period before the results follow the field on their own.
+ *
+ * Long enough that a word typed at speed is looked up once rather than once per
+ * keystroke, short enough that the cards are there by the time the user looks
+ * down at them. Upstream has no such delay because upstream only ever searches on
+ * Enter; this page does both (see the live-search effect).
+ */
+const LIVE_SEARCH_DELAY_MS = 300;
+
 /** The state pushed for one search (what `popstate` reads back). */
 interface SearchHistoryState {
   enteiYomitanSearch: { mode: SearchMode; query: string };
@@ -157,6 +173,16 @@ export function YomitanSearchApp() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [entries, setEntries] = useState<SearchEntries>(EMPTY_SEARCH_ENTRIES);
+  /**
+   * An IME composition is in flight, so the field holds the romaji the IME is
+   * still converting rather than a query.
+   *
+   * State, not a ref: the live-search effect below has to RE-RUN when the
+   * composition ends, and a ref would not wake it. The synchronous guard inside
+   * onTextChange reads the event's own isComposing flag instead, so the two never
+   * disagree about the keystroke in front of them.
+   */
+  const [composing, setComposing] = useState(false);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const entriesRef = useRef<HTMLDivElement | null>(null);
@@ -165,10 +191,16 @@ export function YomitanSearchApp() {
   const dictionariesRef = useRef<readonly PopupDictionaryInfo[]>([]);
   /** Guards a slow lookup from overwriting a newer one. */
   const epochRef = useRef(0);
+  /**
+   * The normalized query the cards on screen were drawn from, or '' for none.
+   *
+   * What keeps the live search from re-running a lookup that has already
+   * happened — the field being restored from history being the case that matters,
+   * because there the text changes without the user having typed anything.
+   */
+  const lastLookupRef = useRef('');
   /** Caret to restore after the IME conversion rewrote the field. */
   const caretRef = useRef<number | null>(null);
-  /** True while an IME composition is in flight — such a field is not romaji. */
-  const composingRef = useRef(false);
 
   /* ------------------------------------------------------------------------
    * Boot: the scoped Yomitan sheets, its generator and the dictionary list.
@@ -228,6 +260,10 @@ export function YomitanSearchApp() {
   const runLookup = useCallback(async (mode: SearchMode, query: string) => {
     const epoch = epochRef.current + 1;
     epochRef.current = epoch;
+    /* Recorded BEFORE the first await, so anything that changes the field while
+       this lookup is still running (history navigation, above all) is already
+       covered when the live-search effect re-runs. */
+    lastLookupRef.current = normalizeSearchQuery(query);
     setLoading(true);
     setEntries(EMPTY_SEARCH_ENTRIES);
 
@@ -263,24 +299,85 @@ export function YomitanSearchApp() {
     const display = displayRef.current;
     if (container === null || display === null) return;
     const dictionaries = dictionariesRef.current;
-    const nodes = [
-      ...display.termNodes(entries.entries, dictionaries),
-      ...display.kanjiNodes(entries.kanjiEntries, dictionaries),
-    ];
-    container.replaceChildren(...nodes);
+    /* Built off-DOM, so a card the generator could not draw never leaves a
+       half-replaced list behind — and appended one at a time, because one lookup
+       can resolve to thousands of entries and a single spread into append() would
+       put every one of them through an argument list. */
+    const fragment = document.createDocumentFragment();
+    try {
+      for (const node of display.termNodes(entries.entries, dictionaries)) {
+        fragment.append(node);
+      }
+      for (const node of display.kanjiNodes(entries.kanjiEntries, dictionaries)) {
+        fragment.append(node);
+      }
+    } catch (error) {
+      /* MUST NOT ESCAPE. This effect runs in the commit phase: a throw here is
+         uncaught by React and unmounts the whole tree, so one entry the generator
+         choked on took the entire island with it — pressing Enter did not draw
+         zero cards, it erased the page. The search now survives without cards
+         and the console says which draw failed. */
+      console.error('[entei] Yomitan could not draw the search results', error);
+    }
+    container.replaceChildren(fragment);
   }, [entries, assetsReady]);
 
   /* ------------------------------------------------------------------------
    * Navigation: one history entry per search, Back re-runs the lookup.
    * --------------------------------------------------------------------- */
   const search = useCallback(
-    (mode: SearchMode, query: string) => {
+    (mode: SearchMode, query: string, historyMode: 'push' | 'replace' = 'push') => {
       const state: SearchHistoryState = { enteiYomitanSearch: { mode, query } };
-      window.history.pushState(state, '', window.location.href);
+      const current = (window.history.state as SearchHistoryState | null)
+        ?.enteiYomitanSearch;
+      const alreadyHere =
+        current !== undefined &&
+        asSearchMode(current.mode) === mode &&
+        normalizeSearchQuery(current.query) === query;
+      /* Enter on the query the page is ALREADY showing must not stack a second
+         history entry: Back would then appear to do nothing, which is how a
+         pressed-again search usually reads as broken. */
+      if (historyMode === 'replace' || alreadyHere) {
+        window.history.replaceState(state, '', window.location.href);
+      } else {
+        window.history.pushState(state, '', window.location.href);
+      }
       void runLookup(mode, query);
     },
     [runLookup],
   );
+
+  /* ------------------------------------------------------------------------
+   * Live search — the results follow the field; Enter only CONFIRMS the entry.
+   * --------------------------------------------------------------------- */
+  useEffect(() => {
+    /* A composition is Japanese on its way in: the field's value is still the
+       romaji the IME is holding, so a lookup here would search for "ka" while the
+       user is typing か. Composing is a dependency, so the search arms itself
+       again the moment the composition ends — no further keystroke needed. */
+    if (composing) return;
+    const query = normalizeSearchQuery(text);
+    /* An empty field is the page's intro, not a search for the empty string. */
+    if (query === '' || !assetsReady) return;
+    /* Already the query on screen — Back/Forward just landed on it, or the user
+       deleted their way back to the word that is drawn. Looking it up again would
+       cost an engine round trip to redraw the same cards. Deliberately NOT keyed
+       on the lookup mode: a kanji reached by clicking a headword is the same
+       string in the field, and re-running it as a term search there would both
+       redraw the wrong card and overwrite that history entry. */
+    if (lastLookupRef.current === query) return;
+    const timer = window.setTimeout(() => {
+      /* Re-checked: a composition can still be running after this timer was
+         armed, and its own end is what re-arms the search. */
+      if (composing) return;
+      /* 'replace', never 'push': typing is not a navigation, and one push per
+         keystroke would leave Back walking through the letters of the word. The
+         entries Back can step through are the ones actually navigated to — a
+         kanji opened from a headword. */
+      search('term', query, 'replace');
+    }, LIVE_SEARCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [text, composing, assetsReady, search]);
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent): void => {
@@ -288,10 +385,16 @@ export function YomitanSearchApp() {
       const query = normalizeSearchQuery(state?.query);
       // Stepping back past the first search: the page returns to its intro.
       epochRef.current += 1;
+      /* The field follows history, so Back shows the word it went back to rather
+         than the one the user had typed last. Set directly, not through
+         onTextChange: this is a query being RESTORED, and running it back through
+         the romaji converter would rewrite what the user actually searched for. */
+      setText(query);
       if (query === '') {
         setLoading(false);
         setSearched(false);
         setEntries(EMPTY_SEARCH_ENTRIES);
+        lastLookupRef.current = '';
         return;
       }
       void runLookup(asSearchMode(state?.mode ?? 'term'), query);
@@ -303,11 +406,15 @@ export function YomitanSearchApp() {
   /* ------------------------------------------------------------------------
    * Field handlers.
    * --------------------------------------------------------------------- */
-  const onTextChange = (value: string, caret: number): void => {
+  const onTextChange = (
+    value: string,
+    caret: number,
+    isComposing: boolean,
+  ): void => {
     /* A composition is Japanese already on its way in: rewriting it would
        convert the romaji the IME is still holding and mangle the candidate
        text, so the conversion only ever sees committed input. */
-    if (!options.ime || composingRef.current) {
+    if (!options.ime || isComposing) {
       setText(value);
       return;
     }
@@ -321,6 +428,8 @@ export function YomitanSearchApp() {
     setLoading(false);
     setSearched(false);
     setEntries(EMPTY_SEARCH_ENTRIES);
+    /* Nothing is drawn any more, so the same query typed again has to search. */
+    lastLookupRef.current = '';
     setText('');
     caretRef.current = 0;
     textareaRef.current?.focus();
@@ -347,7 +456,6 @@ export function YomitanSearchApp() {
     hasDictionaries,
     entries,
   });
-  const showIntro = !searched && outcome !== 'loading';
 
   return (
     <div
@@ -356,11 +464,13 @@ export function YomitanSearchApp() {
       ref={rootRef}
       {...options.attributes}
     >
-      {showIntro ? (
-        <div className="entei-yomitan-search-intro">
-          <h1>{SEARCH_COPY.heading}</h1>
-        </div>
-      ) : null}
+      {/* ALWAYS in the layout. Upstream collapses its intro block once a query
+          is on screen, but this page searches as the user types: a heading that
+          disappeared on the first keystroke would yank the search box up the very
+          moment the results start arriving. A full page keeps its title. */}
+      <div className="entei-yomitan-search-intro">
+        <h1>{SEARCH_COPY.heading}</h1>
+      </div>
 
       <div className="entei-yomitan-search-header">
         <div className="top-progress-bar-container" aria-hidden="true">
@@ -390,13 +500,14 @@ export function YomitanSearchApp() {
               onTextChange(
                 event.currentTarget.value,
                 event.currentTarget.selectionStart ?? 0,
+                (event.nativeEvent as InputEvent).isComposing === true,
               )
             }
             onCompositionEnd={() => {
-              composingRef.current = false;
+              setComposing(false);
             }}
             onCompositionStart={() => {
-              composingRef.current = true;
+              setComposing(true);
             }}
             onKeyDown={(event) => {
               /* Enter searches, Shift+Enter is a newline, and a keystroke that

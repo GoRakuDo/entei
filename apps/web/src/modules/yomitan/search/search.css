@@ -42,12 +42,38 @@
  * Page frame
  * ========================================================================== */
 
+/* The search page is a full-page tool, not an article, so it steps out of the
+   layout's content shell. BaseLayout caps that shell at
+   max-width: var(--entei-content-max) (72rem) and gutters it, which on a 2K
+   display left the white sheet as a 1152px column with the wallpaper showing
+   down both sides and nothing at all below the last card. Scoped through
+   body[data-page='search'] — the layout's own hook (pageId="search"), the same
+   one /settings/ uses for the same reason — so no other route is touched. The
+   page puts its own column and gutters back just below, so nothing ends up flush
+   against the window edge. */
+body[data-page='search'] .entei-main-inner {
+  max-width: none;
+  /* !important: beats the BaseLayout-scoped .entei-main-inner padding and the
+     mobile-only bottom padding in global.css, both of which would otherwise win
+     on this route (identical reasoning to settings.css). */
+  padding: 0 !important;
+  width: 100%;
+}
+
 :root .entei-yomitan-search {
-  /* Upstream: `--content-width-search: 700` with the popup's own font-size
-     divisor. Inherited by `.content-body-inner`, which is what centres and
-     measures the result column. */
-  --content-width-search: 700;
-  --content-width: calc(1em * var(--content-width-search) / var(--font-size-no-units));
+  /* Upstream measures the RESULT column only (--content-width-search: 700, the
+     popup's own width) and lets the search box run the whole window's width. On
+     this host that made the box three times wider than the cards underneath it,
+     so both are put on one axis instead: the layout's own content ceiling. It is
+     inherited by .content-body-inner (display.css: width: var(--content-width),
+     centred) and re-used for the heading and the box below. */
+  --content-width: var(--entei-content-max);
+
+  /* This page's own side gutter, now that the layout shell no longer provides
+     one. Kept separate from --search-horizontal-padding (upstream's 0.72em inset
+     INSIDE the column) so the two never have to be added up by hand at a use
+     site. */
+  --search-page-gutter: var(--entei-gutter);
 
   /* Metrics of the search box, upstream verbatim (`--textarea-*` come from
      material.css). */
@@ -62,9 +88,18 @@
      paints material.css's #f8f9fa. */
   --background-color: oklch(100% 0 0deg);
 
-  /* No width or padding of its own: the layout's content shell
-     (`.entei-main-inner`) already caps and gutters the page, and a second cap
-     here would inset the cards twice. */
+  /* Full width because the layout shell no longer caps it, and grown to
+     whatever height is left below the Top Bar: the sheet is white, and a short
+     result list must not leave the wallpaper showing under it. flex rather than
+     min-height: 100dvh — the shell above is a flex column, so growing fills
+     exactly the remaining space and never overflows it into a second scrollbar. */
+  flex: 1 0 auto;
+  width: 100%;
+  /* The vertical rhythm the layout shell used to own (32px top / 64px bottom).
+     The mobile Dock is fixed to the bottom of every route, so the small-screen
+     rule at the end of this file adds its height on top. */
+  padding-block: var(--entei-space-32) var(--entei-space-64);
+
   color: var(--text-color);
   background-color: var(--background-color);
 }
@@ -73,10 +108,26 @@
  * Header — upstream's `#intro` + `.search-header`
  * ========================================================================== */
 
+/* The heading and the search box go on the SAME axis as the cards.
+   display.css centres .content-body-inner and leaves everything above it to the
+   extension's own window chrome; without this the box would still span the whole
+   window while the results stayed in the column. box-sizing is restated because
+   the inset below is inside the measured width, and max-width is what applies on
+   a narrow window, where a fixed column would otherwise touch both edges. */
+.entei-yomitan-search .entei-yomitan-search-intro,
+.entei-yomitan-search .entei-yomitan-search-header {
+  width: var(--content-width);
+  max-width: calc(100% - var(--search-page-gutter) * 2);
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
 .entei-yomitan-search .entei-yomitan-search-intro {
   padding-inline: var(--search-horizontal-padding);
-  /* Upstream's `#intro { overflow: hidden }` collapses the heading once a search
-     is on screen; the component simply stops rendering it. */
+  /* Upstream's `#intro { overflow: hidden }` is kept, but the block is NOT
+     collapsed once a search is on screen: this page searches as the user types,
+     and a heading that vanished on the first keystroke would yank the box up the
+     moment the results start arriving. */
   overflow: hidden;
 }
 
@@ -236,6 +287,11 @@
    between the box and the first card. */
 :root .entei-yomitan-search .content-body-inner {
   padding-block: var(--entei-space-16);
+  /* display.css caps this at 100%, i.e. at no gutter at all: the column is wider
+     than a narrow window, and without this it would sit flush against both
+     edges. Same expression as the header above, so the cards and the box keep
+     sharing one axis at every width. */
+  max-width: calc(100% - var(--search-page-gutter) * 2);
 }
 
 /* A result entry is a navigation target for the kanji links inside it, and the
@@ -250,4 +306,17 @@
    carry the entry list's bottom hairline; the last one on the page should not. */
 .entei-yomitan-search .content-body-inner > .entry:last-of-type {
   border-bottom: 0;
+}
+
+/* ==========================================================================
+ * Small screens
+ * ========================================================================== */
+
+/* The mobile Dock is fixed to the bottom of EVERY route (NAVIGATION_BAR.md), and
+   this page scrolls with the document rather than inside a frame of its own, so
+   the last card needs the clearance the layout shell used to provide. */
+@media (max-width: 767px) {
+  :root .entei-yomitan-search {
+    padding-bottom: calc(var(--entei-space-64) + var(--entei-dock-height));
+  }
 }

@@ -103,6 +103,21 @@ export async function createSearchDisplay(
   generator.updateLanguage('ja');
 
   const cards = generator as unknown as GeneratorWithCards;
+  /* BOUND, and this is the whole reason this module exists next to
+     `popup-entries.ts`.
+
+     `createTermEntry` / `createKanjiEntry` are PROTOTYPE METHODS: their first
+     statement is `this._instantiate('term-entry')` (`display-generator.js`).
+     Handed to a callback detached — `(e, d) => cards.createTermEntry(e, d)` or
+     `build(cards.createTermEntry, …)` — `this` is `undefined` and every single
+     search threw `TypeError: Cannot read properties of undefined (reading
+     '_instantiate')`. The throw escaped the island's commit phase, so React
+     unmounted the tree: pressing Enter did not draw zero cards, it erased the
+     page. `popup-entries` never hit this because it keeps the generator as the
+     receiver (`generator.createTermEntry(…)`). */
+  const createTermEntry = cards.createTermEntry.bind(cards);
+  const createKanjiEntry = cards.createKanjiEntry.bind(cards);
+
   const build = (
     create: GeneratorWithCards['createTermEntry'],
     entries: readonly unknown[],
@@ -112,8 +127,8 @@ export async function createSearchDisplay(
 
   return {
     termNodes: (entries, dictionaries) =>
-      build(cards.createTermEntry, entries, dictionaries),
+      build(createTermEntry, entries, dictionaries),
     kanjiNodes: (entries, dictionaries) =>
-      build(cards.createKanjiEntry, entries, dictionaries),
+      build(createKanjiEntry, entries, dictionaries),
   };
 }
