@@ -162,6 +162,12 @@ body[data-page='search'] .entei-main-inner {
 
 .entei-yomitan-search .entei-yomitan-search-header {
   padding-inline: var(--search-horizontal-padding);
+  /* Upstream stacks this block as a column (`ext/css/display.css`: `.search-header { display:
+     flex; flex-flow: column nowrap }`): progress bar, search box, and now the
+     furigana header underneath. Restated because the vendored rule targets its own
+     `.search-header` class, which this page's element does not carry. */
+  display: flex;
+  flex-flow: column nowrap;
 }
 
 /* The progress bar's own wrapper (display.css): sticky, zero-height, so the bar
@@ -274,6 +280,46 @@ body[data-page='search'] .entei-main-inner {
   bottom: 0;
   background-color: var(--button-default-icon-color);
   --icon-size: 16px 16px;
+}
+
+/* ==========================================================================
+ * Query parser — upstream's `#query-parser-container`
+ * ========================================================================== */
+
+/* Everything visual about the header already comes from the vendored `display.css`
+   (`#query-parser-container`: its own inset, the hairline under it, and the scroll;
+   `#query-parser-content`: `margin-top`, `--query-parser-font-size` and
+   `white-space: pre-wrap`; the `data-term-spacing` gap between terms), which reaches
+   this page because `scope-css.ts` re-anchors those rules onto this element. Only
+   the geometry is restated here.
+
+   WHY THE `:root` PREFIX. The vendored sheets are injected AFTER this bundled one, so
+   an equal-specificity rule of ours would lose the tie. `:root .entei-yomitan-search
+   #query-parser-container` is one class and one id above the vendored
+   `.entei-yomitan-search #query-parser-container`. */
+:root .entei-yomitan-search #query-parser-container {
+  /* Upstream caps the header at roughly two ruby lines and scrolls the rest, so a
+     pasted paragraph cannot push the results off the screen (`display.css`:
+     `.sticky-header #query-parser-content { max-height: … }`, whose wrapper the
+     search page carries). The cap is restated on the SCROLLING box rather than on the
+     content, so the hairline stays under the visible lines and the overflow is
+     actually reachable.
+
+     `* 4` where upstream writes `* 2`: its expression is evaluated on
+     `#query-parser-content`, whose own font-size is already
+     `--query-parser-font-size` (2em), while this box still has the inherited 1em —
+     so four of this element's units are the same two lines of header text. */
+  max-height: calc(var(--query-parser-font-size) * 4);
+  /* The 6px dark bar comes from global.css — deliberately NOT upstream's `.scrollbar`
+     class, whose dark-theme rules would restore the light Windows bar. */
+  overflow-y: auto;
+}
+
+/* Every term is a lookup target, so the pointer says so — upstream's own
+   `searchOnClick`, whose keyboard equivalent is the search box the header sits
+   under (the markup stays upstream's, so the vendored stylesheet keeps applying). */
+:root .entei-yomitan-search .query-parser-term {
+  cursor: pointer;
 }
 
 /* ==========================================================================

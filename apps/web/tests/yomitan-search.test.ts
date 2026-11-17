@@ -10,6 +10,8 @@
  *   `_entrySetCurrent`), asserted on plain nodes rather than on generator output
  * - `search-query`: the lookup order, the entry bookkeeping and the five/six
  *   states the results area can be in
+ * - `query-parser`: the furigana header — the options it reads, the markup
+ *   upstream's own `display.css` styles, and how a click resolves to a lookup
  *
  * The React island and the cards the generator itself builds are deliberately NOT
  * covered here: everything worth asserting about them is either a decision (this
@@ -20,6 +22,7 @@ import { describe, expect, it } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createDefaultProfileOptions } from '@gorakudo/yomitan-headless/settings';
 import {
   scopeSelectorList,
   scopeYomitanCss,
@@ -38,6 +41,17 @@ import {
   searchEntriesForMode,
   searchLookupOrder,
 } from '@/modules/yomitan/search/search-query';
+import {
+  convertSegmentReading,
+  DEFAULT_QUERY_PARSER_SETTINGS,
+  queryParserOffsetAt,
+  queryParserQueryAt,
+  readQueryParserSettings,
+  renderQueryParser,
+  renderQueryParserPreview,
+  type QueryParserSettings,
+} from '@/modules/yomitan/search/query-parser';
+import type { TermParseLine } from '@/modules/yomitan/yomitan-engine';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const YOMITAN_CSS_DIR = path.resolve(HERE, '../public/yomitan/css');
@@ -403,5 +417,266 @@ describe('search-query — the results area', () => {
     expect(resolveSearchOutcome({ ...ready, searched: true, entries })).toBe(
       'results',
     );
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Query parser — the furigana header under the box.
+ *
+ * Upstream's `ext/js/display/query-parser.js`. What is asserted here is its
+ * contract rather than its pixels: which element carries which class, where the
+ * offsets land (a click is resolved against them), and what each `readingMode`
+ * writes into the `<rt>`.
+ * ------------------------------------------------------------------------- */
+
+/** The header's markup as a string, so a class name can be asserted verbatim. */
+function htmlOf(fragment: DocumentFragment): string {
+  const host = document.createElement('div');
+  host.append(fragment);
+  return host.innerHTML;
+}
+
+/** One parsed term: a single word, optionally with a reading over it. */
+function line(text: string, reading = ''): TermParseLine {
+  return [{ text, reading }];
+}
+
+describe('query-parser — settings', () => {
+  it('reads the four options the header depends on', () => {
+    const profile = createDefaultProfileOptions();
+    profile.parsing.termSpacing = false;
+    profile.parsing.readingMode = 'katakana';
+    profile.scanning.length = 4;
+
+    expect(readQueryParserSettings(profile)).toEqual({
+      enabled: true,
+      termSpacing: false,
+      readingMode: 'katakana',
+      scanLength: 4,
+    });
+  });
+
+  it('falls back to the shipped defaults rather than to an unusable window', () => {
+    // A window of 0 would make every parse loop forever without advancing.
+    const profile = createDefaultProfileOptions();
+    profile.scanning.length = 0;
+    expect(readQueryParserSettings(profile).scanLength).toBe(
+      DEFAULT_QUERY_PARSER_SETTINGS.scanLength,
+    );
+  });
+});
+
+describe('query-parser — the reading written over a segment', () => {
+  it('follows the reading mode', () => {
+    expect(convertSegmentReading('猫', 'ネコ', 'hiragana')).toBe('ねこ');
+    expect(convertSegmentReading('猫', 'ねこ', 'katakana')).toBe('ネコ');
+    expect(convertSegmentReading('猫', 'ねこ', 'romaji')).toBe('neko');
+    // 'none' is the switch that turns ruby off without turning parsing off.
+    expect(convertSegmentReading('猫', 'ねこ', 'none')).toBe('');
+    // Upstream's `default:` case: the reading as the dictionary wrote it.
+    expect(convertSegmentReading('猫', 'ねこ', 'dictionary-reading')).toBe('ねこ');
+  });
+
+  it('transliterates a kana headword from the term when it has no reading', () => {
+    // A kana headword is its own reading, so the translator hands back '' — and
+    // romaji mode still has to say something.
+    expect(convertSegmentReading('ねこ', '', 'romaji')).toBe('neko');
+  });
+});
+
+describe('query-parser — markup', () => {
+  const settings: QueryParserSettings = { ...DEFAULT_QUERY_PARSER_SETTINGS };
+
+  it('draws a ruby segment with upstream’s own class names', () => {
+    const html = htmlOf(renderQueryParser([line('猫', 'ねこ')], settings));
+    expect(html).toBe(
+      '<span class="query-parser-term" data-offset="0">' +
+        '<ruby class="query-parser-segment">' +
+        '<span class="query-parser-segment-text" data-offset="0">猫</span>' +
+        '<rt class="query-parser-segment-reading">ねこ</rt>' +
+        '</ruby></span>',
+    );
+  });
+
+  it('writes a segment with no reading as plain text, not as an empty ruby', () => {
+    const html = htmlOf(renderQueryParser([line('とて')], settings));
+    expect(html).toBe(
+      '<span class="query-parser-term" data-offset="0">とて</span>',
+    );
+  });
+
+  it('counts offsets across terms, so a click anywhere names a real position', () => {
+    const fragment = renderQueryParser(
+      [line('猫', 'ねこ'), [{ text: 'と', reading: '' }]],
+      settings,
+    );
+    const terms = [...fragment.querySelectorAll('.query-parser-term')];
+    expect(terms.map((term) => term.getAttribute('data-offset'))).toEqual([
+      '0',
+      '1',
+    ]);
+    // The base text only — an `<rt>` contributes its reading to `textContent`.
+    const bases = document.createElement('div');
+    bases.append(fragment.cloneNode(true));
+    for (const reading of bases.querySelectorAll('rt')) reading.remove();
+    expect(bases.textContent).toBe('猫と');
+  });
+
+  it('condenses trailing whitespace inside a term and trims only the last one', () => {
+    /* Upstream's `trimTrailingWhitespacePlusSpace`: a gap between two segments of
+       one term survives as ONE space, while the end of the whole parse loses it
+       (there is nothing after it to separate). */
+    const fragment = renderQueryParser(
+      [
+        [
+          { text: '猫  ', reading: '' },
+          { text: 'と', reading: '' },
+        ],
+        [{ text: 'ね ', reading: '' }],
+      ],
+      settings,
+    );
+    const terms = [...fragment.querySelectorAll('.query-parser-term')];
+    expect(terms[0]?.innerHTML).toBe('猫 と');
+    expect(terms[1]?.innerHTML).toBe('ね');
+  });
+
+  it('previews the raw text while the parse is still running', () => {
+    const fragment = renderQueryParserPreview('猫と　ねこ  ');
+    const term = fragment.querySelector('.query-parser-term');
+    expect(term?.getAttribute('data-offset')).toBe('0');
+    // Trailing whitespace trimmed, ruby absent, and the text untouched otherwise.
+    expect(term?.textContent).toBe('猫と　ねこ');
+    expect(fragment.querySelector('ruby')).toBeNull();
+  });
+});
+
+describe('query-parser — a click becomes a lookup', () => {
+  function header(lines: TermParseLine[]): HTMLElement {
+    const host = document.createElement('div');
+    host.id = 'query-parser-content';
+    host.append(renderQueryParser(lines, DEFAULT_QUERY_PARSER_SETTINGS));
+    return host;
+  }
+
+  it('reads the offset off the segment that was clicked', () => {
+    const host = header([line('猫', 'ねこ'), line('犬', 'いぬ')]);
+    const second = host.querySelectorAll('.query-parser-segment-text')[1];
+    expect(second).toBeDefined();
+    expect(
+      queryParserOffsetAt(host, second ?? null),
+    ).toBe(1);
+  });
+
+  it('falls back to the offset of the term that was clicked', () => {
+    const host = header([line('猫', 'ねこ'), line('犬', 'いぬ')]);
+    const secondTerm = host.querySelectorAll('.query-parser-term')[1];
+    expect(secondTerm).toBeDefined();
+    // A click on the term span itself (its plain text, or its padding).
+    expect(queryParserOffsetAt(host, secondTerm ?? null)).toBe(1);
+  });
+
+  it('refuses a click outside the header', () => {
+    const host = header([line('猫', 'ねこ')]);
+    expect(queryParserOffsetAt(host, null)).toBeNull();
+    expect(queryParserOffsetAt(host, document.createElement('button'))).toBeNull();
+    // An offset that belongs to ANOTHER container is not this header's business.
+    const stranger = document.createElement('span');
+    stranger.dataset.offset = '7';
+    host.append(stranger);
+    const outside = document.createElement('div');
+    outside.id = 'elsewhere';
+    outside.append(stranger);
+    expect(queryParserOffsetAt(document.createElement('main'), stranger)).toBeNull();
+  });
+
+  /**
+   * jsdom has no caret API, so the pointer's own resolution (`caretPointAt`, which
+   * reads `caretRangeFromPoint`) is stubbed at the range it returns — everything
+   * below it is the real path.
+   */
+  function stubCaretAt(node: Node, offset: number): () => void {
+    const doc = document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    };
+    const previous = doc.caretRangeFromPoint;
+    doc.caretRangeFromPoint = () => {
+      const range = document.createRange();
+      range.setStart(node, offset);
+      range.collapse(true);
+      return range;
+    };
+    return () => {
+      doc.caretRangeFromPoint = previous;
+    };
+  }
+
+  it('refines a click to the character the pointer is over', () => {
+    const host = header([line('猫と犬', 'ねこといぬ')]);
+    const segment = host.querySelector('.query-parser-segment-text');
+    const text = segment?.firstChild;
+    expect(text).toBeDefined();
+    const restore = stubCaretAt(text as Node, 1);
+    try {
+      // The segment starts at 0, and the caret sits on its second character.
+      expect(queryParserOffsetAt(host, segment ?? null, 10, 10)).toBe(1);
+      // Without coordinates (a keyboard-generated click) the segment's own start is
+      // the answer, which is upstream's behaviour.
+      expect(queryParserOffsetAt(host, segment ?? null)).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('counts a term’s own plain text from the term’s offset', () => {
+    /* Two segments: a ruby word, then unparsed text belonging to the TERM rather
+       than to any segment — the case a segment's offset alone cannot answer. */
+    const host = document.createElement('div');
+    host.append(
+      renderQueryParser(
+        [
+          [{ text: '猫', reading: 'ねこ' }],
+          [
+            { text: 'と', reading: '' },
+            { text: '犬', reading: 'いぬ' },
+          ],
+        ],
+        DEFAULT_QUERY_PARSER_SETTINGS,
+      ),
+    );
+    const term = host.querySelectorAll('.query-parser-term')[1];
+    const plain = term?.firstChild;
+    expect(term?.getAttribute('data-offset')).toBe('1');
+    const restore = stubCaretAt(plain as Node, 1);
+    try {
+      // The caret sits AFTER 「と」, which is where 「犬」 starts.
+      expect(queryParserOffsetAt(host, term ?? null, 10, 10)).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  it('ignores a pointer that is over a reading', () => {
+    const host = header([line('猫', 'ねこ'), line('犬', 'いぬ')]);
+    const segment = host.querySelectorAll('.query-parser-segment-text')[1];
+    const reading = host.querySelectorAll('rt')[1]?.firstChild;
+    expect(reading).toBeDefined();
+    const restore = stubCaretAt(reading as Node, 0);
+    try {
+      // A reading contributes nothing to the sentence, so the click names the word
+      // written under it rather than an offset inside the ruby text.
+      expect(queryParserOffsetAt(host, segment ?? null, 10, 10)).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('looks up the scan window that starts at the click', () => {
+    // Not just the clicked character: the window is `scanning.length` long, so an
+    // inflected stem still reaches the deinflector.
+    expect(queryParserQueryAt('食べた spaghetti', 0, 3)).toBe('食べた');
+    expect(queryParserQueryAt('食べて', 2, 10)).toBe('て');
+    // A window of none still names the clicked character, never an empty query.
+    expect(queryParserQueryAt('猫', 0, 0)).toBe('猫');
   });
 });

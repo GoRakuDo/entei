@@ -41,7 +41,7 @@ import type {
   TermGlossary,
   TermMeta,
 } from '@gorakudo/yomitan-headless';
-import { createTranslator } from '@gorakudo/yomitan-headless';
+import { createTranslator, distributeFuriganaInflected, isCodePointJapanese } from '@gorakudo/yomitan-headless';
 import type { Options, ProfileOptions } from '@gorakudo/yomitan-headless/settings';
 import {
   invalidateInstalledDictionaries,
@@ -124,6 +124,72 @@ function toTermEntry(
     id: row.id,
     sequence: row.sequence,
   };
+}
+
+/**
+ * Where one bulk term row matched, and how exactly.
+ *
+ * Port of upstream's `DictionaryDatabase._createTermGeneric`
+ * (`ext/js/dictionary/dictionary-database.js`), which knows the answer because it
+ * queries TWO indexes — `expression` and `reading` — and reads the winning index's
+ * position off the request (`data.indexIndex`). The Rust IPC behind
+ * `yomitanFindTermsBulkDirect` answers both in ONE statement
+ * (`expression = ?1 OR reading = ?1`, likewise for the prefix ranges), so the row
+ * itself has to say which side matched: the expression matching the query means
+ * the match was on the headword, and anything else can only have come from the
+ * reading.
+ *
+ * This is not bookkeeping for its own sake. The translator sorts candidate entries
+ * by `sourceTermExactMatchCount` — how many headwords matched on the TERM — and
+ * only THEN by frequency (`Translator._sortTermDictionaryEntries`). Tagging every
+ * row `'term'` therefore made a reading-only hit (「園」, read その) tie with the
+ * headword the user actually typed (「その」), and the frequency sort put 園 first.
+ *
+ * The expression is checked first for the same reason upstream de-duplicates by row
+ * id across its two indexes: a kana headword matches on both sides, and the
+ * headword is the side that matched.
+ */
+function termMatchOf(
+  row: YomitanBulkTermEntry,
+  termList: readonly string[],
+  matchType: MatchType,
+): { matchType: MatchType; matchSource: TermEntry['matchSource'] } {
+  const query = termList[row.index];
+  // No query to compare against (a row whose index is outside the request): keep
+  // the requested match type rather than inventing an exact one.
+  if (query === undefined) return { matchType, matchSource: 'term' };
+  /* WHICH SIDE matched is decided first, and on its own: the headword, then the
+     reading, in the order upstream de-duplicates its two indexes. A partial
+     (`prefix`) hit is the same two sides narrowed to whichever one STARTS with the
+     query; every other match type only matches in full.
+
+     The match type is then read off the winning side, so the two answers cannot
+     disagree: `exact` says the side named beside it is equal to the query, and
+     anything else keeps the requested match type. Deciding the exactness first was
+     what let a row come back as `exact` on its READING while its headword was the
+     side the scan had actually matched — the sort position this function exists to
+     fix. */
+  const prefix = matchType === 'prefix';
+  if (row.expression === query || (prefix && row.expression.startsWith(query))) {
+    return {
+      matchType: row.expression === query ? 'exact' : matchType,
+      matchSource: 'term',
+    };
+  }
+  const reading = row.reading;
+  if (
+    reading !== null &&
+    (reading === query || (prefix && reading.startsWith(query)))
+  ) {
+    return {
+      matchType: reading === query ? 'exact' : matchType,
+      matchSource: 'reading',
+    };
+  }
+  // Neither side matched: `suffix` cannot reach here — the engine answers nothing for
+  // it (see `find_terms_bulk`) — so this only has to preserve the requested match
+  // type for a row the statement returned on some other merit.
+  return { matchType, matchSource: 'term' };
 }
 
 /** One bulk term-metadata row → a Yomitan `TermMeta`. */
@@ -217,6 +283,10 @@ export type EnabledDictionaryMap = Map<string, EnabledDictionary>;
  */
 export function invalidateYomitanEngineCaches(): void {
   invalidateInstalledDictionaries();
+  // Parsed windows are answers from the dictionaries that were installed when they
+  // were scanned, so they expire with them.
+  parseCache.clear();
+  parseCacheOwner = '';
   translator = null;
   dictionarySignature = '';
 }
@@ -364,11 +434,12 @@ export function createDictionaryDatabase(): DictionaryDatabase {
         terms: termList,
         matchType: matchType as YomitanTermMatchType,
       });
-      // A bulk match comes from the headword itself, never from a reading-only
-      // or sequence match: those are separate queries.
-      return onlyFrom(rows, dictionaries).map((row) =>
-        toTermEntry(row, matchType, 'term'),
-      );
+      // Where each row matched decides its match type AND its match source, and
+      // through those the order the translator sorts the entries into.
+      return onlyFrom(rows, dictionaries).map((row) => {
+        const match = termMatchOf(row, termList, matchType);
+        return toTermEntry(row, match.matchType, match.matchSource);
+      });
     },
 
     /**
@@ -537,6 +608,35 @@ function textReplacementsFor(
   return replacements;
 }
 
+/**
+ * The `findTerms` options every lookup shares.
+ *
+ * The object Yomitan's own backend builds in `_getTranslatorFindTermsOptions` and
+ * then hands to `Translator.findTerms`: the translator destructures a dozen options
+ * and throws on a missing one, so a lookup that answers at all proves this
+ * plumbing. Kept in one place because there are now two call sites that must not
+ * drift apart — a normal lookup and the scanning parser (below), which differ only
+ * in the match type, the search resolution and the find MODE.
+ */
+function translatorFindTermsOptions(
+  profile: ProfileOptions,
+  map: EnabledDictionaryMap,
+): Record<string, unknown> {
+  return {
+    deinflect: true,
+    primaryReading: '',
+    mainDictionary: profile.general.mainDictionary,
+    sortFrequencyDictionary: profile.general.sortFrequencyDictionary,
+    sortFrequencyDictionaryOrder: profile.general.sortFrequencyDictionaryOrder,
+    removeNonJapaneseCharacters: !profile.scanning.alphanumeric,
+    textReplacements: textReplacementsFor(profile),
+    enabledDictionaryMap: map,
+    excludeDictionaryDefinitions: null,
+    language: profile.general.language,
+    useAllFrequencyDictionaries: profile.parsing.useAllFrequencyDictionaries,
+  };
+}
+
 /** What a lookup is asked for, beyond the text itself. */
 export interface LookupOptions {
   /**
@@ -605,20 +705,10 @@ export async function lookupTermMatch(
     profile.general.resultOutputMode,
     text,
     {
+      ...translatorFindTermsOptions(profile, map),
       matchType: options.matchType ?? 'exact',
-      deinflect: true,
-      primaryReading: '',
-      mainDictionary: profile.general.mainDictionary,
-      sortFrequencyDictionary: profile.general.sortFrequencyDictionary,
-      sortFrequencyDictionaryOrder: profile.general.sortFrequencyDictionaryOrder,
-      removeNonJapaneseCharacters: !profile.scanning.alphanumeric,
       searchResolution:
         options.searchResolution ?? profile.translation.searchResolution,
-      textReplacements: textReplacementsFor(profile),
-      enabledDictionaryMap: map,
-      excludeDictionaryDefinitions: null,
-      language: profile.general.language,
-      useAllFrequencyDictionaries: profile.parsing.useAllFrequencyDictionaries,
     } as Parameters<typeof engine.findTerms>[2],
   );
   return {
@@ -642,6 +732,227 @@ export async function lookupTerms(
   options: LookupOptions = {},
 ): Promise<unknown[]> {
   return (await lookupTermMatch(text, options)).entries;
+}
+
+/* ---------------------------------------------------------------------------
+ * Scanning parser (the furigana header on the search page)
+ * ---------------------------------------------------------------------------
+ * Yomitan's search page does not just look a query up: it PARSES the text the
+ * user typed, word by word, and draws it above the results with a reading over
+ * every segment (`ext/js/display/query-parser.js` renders what the backend's
+ * `_textParseScanning` produced). Clicking a word there is a lookup for that word.
+ *
+ * This is that backend loop. It walks the text one window at a time — up to
+ * `scanning.length` characters, so an inflected or compound word still resolves —
+ * asks the translator for the window in `simple` mode, and keeps the winning
+ * headword's term/reading split across the source text
+ * (`distributeFuriganaInflected`). A window that resolves to nothing is one more
+ * character of ungrouped text, and consecutive misses coalesce into a single run
+ * so punctuation and Latin text stay in one piece.
+ * ------------------------------------------------------------------------- */
+
+/** One piece of a parsed term: the text as written, and the reading over it. */
+export interface TermParseSegment {
+  /** Source text of this piece (`api.ParseTextSegment.text`). */
+  text: string;
+  /** Reading for this piece; empty for kana written as-is and for unparsed text. */
+  reading: string;
+}
+
+/** One parsed term — the segments it is drawn from (`api.ParseTextLine`). */
+export type TermParseLine = TermParseSegment[];
+
+/** What one dictionary window answered with. */
+interface ScannedWindow {
+  /** How much of the window the winning deinflection covered. */
+  originalTextLength: number;
+  /** The segments to draw (empty when the window resolved to nothing). */
+  segments: TermParseSegment[];
+}
+
+/**
+ * What a parsed window's answer depends on beyond the window itself.
+ *
+ * Upstream keys its own cache by the options context's index, which changes when the
+ * profile does. A profile EDIT does not swap the index, so the same guard is done here
+ * by naming the options the parse actually reads: change the main dictionary, the
+ * frequency sort or the text replacements and the header must be re-split, not served
+ * from before the change.
+ */
+function parseCacheKey(profile: ProfileOptions): string {
+  return [
+    profile.general.mainDictionary,
+    profile.general.sortFrequencyDictionary,
+    profile.general.sortFrequencyDictionaryOrder,
+    profile.scanning.alphanumeric ? 1 : 0,
+    profile.parsing.useAllFrequencyDictionaries ? 1 : 0,
+    profile.translation.searchResolution,
+    profile.translation.textReplacements.groups
+      .map((group) =>
+        group
+          .map((entry) => `${entry.ignoreCase ? 'i' : ''}${entry.pattern}`)
+          .join('|'),
+      )
+      .join(';'),
+  ].join('\u0000');
+}
+
+/** Which profile the cache above was filled against. */
+let parseCacheOwner = '';
+
+/**
+ * Parsed windows, keyed by the substring the translator answered for.
+ *
+ * Upstream's own `_textParseCache`, and worth having here for the same reason:
+ * parsing is one engine round trip PER WINDOW, and typing a sentence re-scans the
+ * windows already scanned (a prefix lookup is not what this is — every window is
+ * its own substring). Keyed by the substring alone, like upstream's per-options
+ * `index`, because the window's answer depends on the dictionary set and the
+ * profile — and a change to either clears this through
+ * [`invalidateYomitanEngineCaches`] or [`parseCacheKey`].
+ */
+const parseCache = new Map<string, ScannedWindow>();
+
+/**
+ * Ceiling on the parse cache.
+ *
+ * The page parses whatever is typed into it, so an unbounded cache is a slow leak
+ * on a page that stays open for hours. Clearing the whole map when it fills is
+ * upstream's own shape (one map per options context, dropped wholesale) and costs
+ * at most one re-parse of the sentence on screen.
+ */
+const PARSE_CACHE_LIMIT = 512;
+
+/** The first headword of the first entry that carries one. */
+function firstParseHeadword(
+  entries: readonly unknown[],
+): { term: string; reading: string } | null {
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const headwords = (entry as { headwords?: unknown }).headwords;
+    if (!Array.isArray(headwords)) continue;
+    for (const headword of headwords) {
+      if (typeof headword !== 'object' || headword === null) continue;
+      const { term, reading } = headword as { term?: unknown; reading?: unknown };
+      // The translator never leaves a reading empty (a kana headword is its own
+      // reading), so a row without both is a shape this parser cannot split.
+      if (typeof term === 'string' && typeof reading === 'string') {
+        return { term, reading };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Parse ONE window of `text`.
+ *
+ * The condition is upstream's, verbatim: a window that only matched the character
+ * it starts with is not a word (a single kanji in a kanji dictionary), so the
+ * character has to be Japanese for that to count as a parse.
+ */
+async function scanParseWindow(
+  engine: ReturnType<typeof createTranslator>,
+  substring: string,
+  character: string,
+  codePoint: number,
+  options: Record<string, unknown>,
+): Promise<ScannedWindow> {
+  const { dictionaryEntries, originalTextLength } = await engine.findTerms(
+    'simple',
+    substring,
+    options as Parameters<typeof engine.findTerms>[2],
+  );
+  const headword = firstParseHeadword(dictionaryEntries);
+  const resolves =
+    originalTextLength > 0 &&
+    headword !== null &&
+    (originalTextLength !== character.length || isCodePointJapanese(codePoint));
+  if (!resolves || headword === null) return { originalTextLength, segments: [] };
+  const source = substring.substring(0, originalTextLength);
+  const segments = distributeFuriganaInflected(
+    headword.term,
+    headword.reading,
+    source,
+  ) as TermParseSegment[];
+  return { originalTextLength, segments };
+}
+
+/**
+ * Parse a block of Japanese text into the lines the furigana header draws.
+ *
+ * Port of the backend's `_textParseScanning` (there is an equivalent in
+ * `yomitan-headless/dist/server.js`, unexported, which is why this exists).
+ *
+ * Empty input and a host with no enabled dictionaries are normal answers (an empty
+ * header), so nothing here throws for them. A failing engine call does propagate:
+ * the caller already has the unparsed preview on screen and keeps it.
+ */
+export async function parseTextScanning(
+  text: string,
+  options: { scanLength?: number } = {},
+): Promise<TermParseLine[]> {
+  if (text.length === 0) return [];
+  const profile = activeProfile(readYomitanOptions());
+  const scanLength = Math.max(
+    1,
+    Math.floor(options.scanLength ?? profile.scanning.length),
+  );
+  const map = await readEnabledDictionaryMap();
+  if (map.size === 0) return [];
+  const engine = await readTranslator(map);
+  const owner = parseCacheKey(profile);
+  if (owner !== parseCacheOwner) {
+    // Everything held was scanned against another dictionary or another profile.
+    parseCache.clear();
+    parseCacheOwner = owner;
+  }
+  const findOptions = {
+    ...translatorFindTermsOptions(profile, map),
+    matchType: 'exact',
+    searchResolution: profile.translation.searchResolution,
+  };
+
+  const lines: TermParseLine[] = [];
+  /** The run of characters no window could parse, coalesced into one segment. */
+  let ungrouped: TermParseSegment | null = null;
+  let index = 0;
+  while (index < text.length) {
+    const codePoint = text.codePointAt(index) ?? 0;
+    const character = String.fromCodePoint(codePoint);
+    const substring = text.substring(index, index + scanLength);
+
+    let window = parseCache.get(substring);
+    if (window === undefined) {
+      window = await scanParseWindow(
+        engine,
+        substring,
+        character,
+        codePoint,
+        findOptions,
+      );
+      if (parseCache.size >= PARSE_CACHE_LIMIT) parseCache.clear();
+      parseCache.set(substring, window);
+    }
+
+    if (window.segments.length > 0) {
+      ungrouped = null;
+      lines.push(window.segments);
+      // Upstream advances by the matched source length, not by the segments: that
+      // is the number the translator reported, and the two are only equal by
+      // coincidence of `distributeFuriganaInflected`'s reconstruction.
+      index += Math.max(window.originalTextLength, character.length);
+      continue;
+    }
+    if (ungrouped === null) {
+      ungrouped = { text: character, reading: '' };
+      lines.push([ungrouped]);
+    } else {
+      ungrouped.text += character;
+    }
+    index += character.length;
+  }
+  return lines;
 }
 
 /** Look up every kanji in `text` (one entry per character). */

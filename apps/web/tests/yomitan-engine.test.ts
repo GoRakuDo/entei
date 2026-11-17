@@ -31,6 +31,7 @@ import {
   invalidateYomitanEngineCaches,
   lookupTermMatch,
   lookupTerms,
+  parseTextScanning,
   readEnabledDictionaryMap,
   summarizeKanjiEntry,
   summarizeTermEntry,
@@ -195,6 +196,77 @@ describe('dictionary database — term rows', () => {
     expect(await database.findKanjiBulk([], new Set())).toEqual([]);
     expect(await database.findTagMetaBulk([])).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+
+  /* Upstream queries its `expression` and `reading` indexes separately and reads the
+     winning index off the request (`dictionary-database.js` `_createTermGeneric`);
+     the Rust IPC answers both in one statement, so the ROW decides. It matters: the
+     translator sorts by how many headwords matched on the TERM before it compares
+     frequency at all. */
+  it('marks a reading-only hit as a reading match, so the typed headword wins', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_find_terms_bulk'
+        ? [
+            // 「園」, read その — matched on the READING, and the higher score.
+            termRow({ index: 0, id: 1, expression: '園', reading: 'その', score: 900 }),
+            // The headword the user actually typed.
+            termRow({ index: 0, id: 2, expression: 'その', reading: 'その', score: 10 }),
+          ]
+        : [],
+    );
+    const entries = await createDictionaryDatabase().findTermsBulk(
+      ['その'],
+      new Set(['JMdict']),
+      'exact',
+    );
+    expect(entries.map((entry) => entry.term)).toEqual(['園', 'その']);
+    expect(entries.map((entry) => entry.matchSource)).toEqual([
+      'reading',
+      'term',
+    ]);
+    // And a full match on either side is an exact match, as upstream re-tags it.
+    expect(entries.map((entry) => entry.matchType)).toEqual(['exact', 'exact']);
+  });
+
+  it('keeps a prefix hit partial and names the side that starts with the query', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_find_terms_bulk'
+        ? [
+            // A real prefix hit on the EXPRESSION: nothing about it is exact.
+            termRow({ index: 0, id: 1, expression: 'こいぬ', reading: 'いぬ' }),
+            // The same hit on the READING.
+            termRow({ index: 0, id: 2, expression: '苔', reading: 'こけ' }),
+          ]
+        : [],
+    );
+    const entries = await createDictionaryDatabase().findTermsBulk(
+      ['こ'],
+      new Set(['JMdict']),
+      'prefix',
+    );
+    expect(entries.map((entry) => entry.matchType)).toEqual(['prefix', 'prefix']);
+    expect(entries.map((entry) => entry.matchSource)).toEqual(['term', 'reading']);
+  });
+
+  /* The side is decided first and the match type is read off it, so the two answers
+     can never disagree: a row reported as a `prefix` match is one whose named side
+     only STARTS with the query. */
+  it('names the term as the winning side even when the reading matches in full', async () => {
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_find_terms_bulk'
+        ? [
+            // 「こいぬ」, read こ: the headword is the side that starts with the query.
+            termRow({ index: 0, id: 1, expression: 'こいぬ', reading: 'こ' }),
+          ]
+        : [],
+    );
+    const entries = await createDictionaryDatabase().findTermsBulk(
+      ['こ'],
+      new Set(['JMdict']),
+      'prefix',
+    );
+    expect(entries.map((entry) => entry.matchSource)).toEqual(['term']);
+    expect(entries.map((entry) => entry.matchType)).toEqual(['prefix']);
   });
 });
 
@@ -385,6 +457,75 @@ describe('lookup pipeline — a real translator over a faked engine', () => {
       command === 'plugin:modules|yomitan_list_dictionaries' ? [] : [],
     );
     expect(await lookupTerms('食べた')).toEqual([]);
+  });
+});
+
+describe('scanning parser — the furigana header behind /search/', () => {
+  /** A host whose one dictionary holds exactly the headwords listed. */
+  function installDictionary(headwords: readonly [string, string][]): void {
+    installTauri((command, args) => {
+      switch (command) {
+        case 'plugin:modules|yomitan_list_dictionaries':
+          return INSTALLED;
+        case 'plugin:modules|yomitan_find_terms_bulk': {
+          const terms = (args?.terms as string[]) ?? [];
+          return terms.flatMap((term, index) => {
+            const hit = headwords.find(([expression]) => expression === term);
+            if (hit === undefined) return [];
+            return [termRow({ index, id: index + 1, expression: hit[0], reading: hit[1] })];
+          });
+        }
+        default:
+          return [];
+      }
+    });
+  }
+
+  it('splits a matched word into its furigana segments', async () => {
+    installDictionary([['猫', 'ねこ']]);
+
+    expect(await parseTextScanning('猫')).toEqual([
+      [{ text: '猫', reading: 'ねこ' }],
+    ]);
+  });
+
+  it('spans an inflected word from its dictionary form', async () => {
+    installDictionary([['食べる', 'たべる']]);
+
+    /* The dictionary holds 食べる; the text says 食べた. The stem's kanji keeps the
+       reading and the inflected ending stays kana as written — but either way the
+       segments must add back up to exactly what was typed. */
+    const lines = await parseTextScanning('食べた');
+    expect(lines).toHaveLength(1);
+    const segments = lines[0] ?? [];
+    expect(segments.map((segment) => `${segment.text}|${segment.reading}`)).toEqual([
+      '食|た',
+      'べた|',
+    ]);
+    expect(segments.map((segment) => segment.text).join('')).toBe('食べた');
+  });
+
+  it('walks the text one window at a time and coalesces the misses', async () => {
+    installDictionary([['猫', 'ねこ']]);
+
+    /* One character per window (what `scanning.length: 1` asks for): the leading
+       run nobody could parse stays ONE segment, and the word after it is its own
+       line. */
+    const lines = await parseTextScanning('とて猫', { scanLength: 1 });
+    expect(lines).toEqual([
+      [{ text: 'とて', reading: '' }],
+      [{ text: '猫', reading: 'ねこ' }],
+    ]);
+  });
+
+  it('answers nothing to an empty text or a host with no dictionary', async () => {
+    installDictionary([['猫', 'ねこ']]);
+    expect(await parseTextScanning('')).toEqual([]);
+
+    installTauri((command) =>
+      command === 'plugin:modules|yomitan_list_dictionaries' ? [] : [],
+    );
+    expect(await parseTextScanning('猫')).toEqual([]);
   });
 });
 

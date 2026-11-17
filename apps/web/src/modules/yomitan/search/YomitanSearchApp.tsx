@@ -36,6 +36,13 @@
  * The lookups themselves are Entei's (`yomitan-engine`, over the Rust dictionary
  * database). Outside the desktop app there is no engine, which reads as "no
  * dictionaries installed" and lands on upstream's own `#no-dictionaries` block.
+ *
+ * THE TEXT IS ALSO PARSED, NOT ONLY LOOKED UP. Under the box sits upstream's own
+ * `#query-parser-container`: the same text again, segmented word by word with a
+ * reading over each segment, so a sentence reads as Japanese rather than as a wall
+ * of kanji. Clicking a word there looks THAT word up and leaves the box alone —
+ * the sentence stays where the user typed it (see `search/query-parser.ts`, and
+ * `yomitan-engine.parseTextScanning` for the parser itself).
  * ---------------------------------------------------------------------------
  */
 
@@ -60,8 +67,21 @@ import {
   activeProfileOptions,
   readYomitanOptions,
 } from '@/modules/yomitan/yomitan-preferences';
-import { lookupKanji, lookupTerms } from '@/modules/yomitan/yomitan-engine';
+import {
+  lookupKanji,
+  lookupTerms,
+  parseTextScanning,
+} from '@/modules/yomitan/yomitan-engine';
 import { loadSearchAssets } from '@/modules/yomitan/search/search-assets';
+import {
+  DEFAULT_QUERY_PARSER_SETTINGS,
+  queryParserOffsetAt,
+  queryParserQueryAt,
+  readQueryParserSettings,
+  renderQueryParser,
+  renderQueryParserPreview,
+  type QueryParserSettings,
+} from '@/modules/yomitan/search/query-parser';
 import {
   createSearchDisplay,
   setCurrentEntry,
@@ -110,6 +130,16 @@ const SEARCH_COPY = {
  */
 const LIVE_SEARCH_DELAY_MS = 300;
 
+/**
+ * Quiet period before the furigana header re-parses the sentence.
+ *
+ * The live search's own window (`LIVE_SEARCH_DELAY_MS`), on purpose: parsing is one
+ * dictionary round trip per window of the text, so parsing on every keystroke ran a
+ * pass over the whole sentence for a header that is about to be replaced — and tying
+ * it to the same delay makes the header and the cards settle on the same keystroke.
+ */
+const QUERY_PARSER_DELAY_MS = LIVE_SEARCH_DELAY_MS;
+
 /** The state pushed for one search (what `popstate` reads back). */
 interface SearchHistoryState {
   enteiYomitanSearch: { mode: SearchMode; query: string };
@@ -127,6 +157,8 @@ interface SearchOptions {
   fontStyle: string;
   /** `general.enableWanakana` — convert typed romaji to kana. */
   ime: boolean;
+  /** The furigana header's switches (`parsing.*` and the scan window). */
+  queryParser: QueryParserSettings;
 }
 
 /** Upstream's own default for `general.enableWanakana` (`settings/defaults.ts`). */
@@ -143,13 +175,20 @@ function readSearchOptions(): SearchOptions {
   try {
     const options = readYomitanOptions();
     const appearance = resolvePopupAppearance(options);
+    const profile = activeProfileOptions(options);
     return {
       attributes: appearance.themeAttributes,
       fontStyle: appearance.fontStyle,
-      ime: activeProfileOptions(options).general.enableWanakana,
+      ime: profile.general.enableWanakana,
+      queryParser: readQueryParserSettings(profile),
     };
   } catch {
-    return { attributes: {}, fontStyle: '', ime: IME_DEFAULT };
+    return {
+      attributes: {},
+      fontStyle: '',
+      ime: IME_DEFAULT,
+      queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
+    };
   }
 }
 
@@ -173,6 +212,7 @@ export function YomitanSearchApp() {
     attributes: {},
     fontStyle: '',
     ime: IME_DEFAULT,
+    queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
   });
   const [assetsReady, setAssetsReady] = useState(false);
   const [hasDictionaries, setHasDictionaries] = useState(false);
@@ -193,6 +233,8 @@ export function YomitanSearchApp() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const entriesRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  /** Upstream's `#query-parser-content` — the header the parse is drawn into. */
+  const parserRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<SearchDisplay | null>(null);
   const dictionariesRef = useRef<readonly PopupDictionaryInfo[]>([]);
   /** Guards a slow lookup from overwriting a newer one. */
@@ -327,6 +369,52 @@ export function YomitanSearchApp() {
     }
     container.replaceChildren(fragment);
   }, [entries, assetsReady]);
+
+  /* ------------------------------------------------------------------------
+   * The furigana header — upstream's `#query-parser-container`.
+   * ----------------------------------------------------------------------- */
+  useEffect(() => {
+    const container = parserRef.current;
+    if (container === null) return;
+    const settings = options.queryParser;
+    /* Upstream's own dataset switches, read by the vendored `display.css`:
+       `data-term-spacing` is what puts a gap between parsed terms, and
+       `data-parsed` says whether the ruby on screen is real or a preview. */
+    container.dataset.termSpacing = `${settings.termSpacing}`;
+    container.dataset.parsed = 'false';
+    /* The unparsed text goes in FIRST, the way upstream's `_setPreview` does: the
+       header then always shows the sentence, so a slow parse (or one that fails)
+       costs the ruby rather than the whole header. */
+    container.replaceChildren(renderQueryParserPreview(text));
+    /* Deliberately NOT gated on `composing`: the header is the sentence as it is
+       typed, and holding the preview back for the whole composition only made the
+       ruby appear (and the header jump) at the moment the composition ENDED. The
+       parse is debounced instead, so an in-flight composition costs no extra work. */
+    if (!assetsReady) return;
+    if (!settings.enabled) return;
+    if (normalizeSearchQuery(text) === '') return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void parseTextScanning(text, { scanLength: settings.scanLength })
+        .then((lines) => {
+          if (cancelled) return;
+          container.replaceChildren(renderQueryParser(lines, settings));
+          container.dataset.parsed = 'true';
+        })
+        .catch((error: unknown) => {
+          /* MUST NOT ESCAPE — same reasoning as the card drawing below: this runs
+             in the commit phase, where a throw unmounts the whole island. The preview
+             already on screen is the fallback. */
+          if (cancelled) return;
+          console.error('[entei] Yomitan could not parse the search text', error);
+        });
+    }, QUERY_PARSER_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [text, options, assetsReady]);
 
   /* ------------------------------------------------------------------------
    * Navigation: one history entry per search, Back re-runs the lookup.
@@ -473,6 +561,39 @@ export function YomitanSearchApp() {
     search('kanji', character);
   };
 
+  /**
+   * A click in the furigana header: look the clicked WORD up.
+   *
+   * Upstream's own link between the two (its `TextScanner` is created over
+   * `#query-parser-content` with `searchOnClick: true`, and `Display._onQueryParserSearch`
+   * searches `textSource.text()`). The window is `scanning.length` characters from the
+   * clicked segment, so an inflected stem still resolves through the deinflector.
+   *
+   * The BOX is deliberately left untouched: the header is the sentence the user typed,
+   * and rewriting the field to the clicked word would take the sentence away — which
+   * is what this page's own contract says (see the module header). This is a
+   * navigation, so it PUSHES a history entry: Back returns to the sentence.
+   *
+   * The pointer's own coordinates go with the click (`clientX` / `clientY`), so the
+   * offset is the CHARACTER under the pointer and not merely the segment's start —
+   * clicking the middle of a ruby word looks THAT character up.
+   */
+  const onQueryParserClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    const offset = queryParserOffsetAt(
+      event.currentTarget,
+      target instanceof Element ? target : null,
+      event.clientX,
+      event.clientY,
+    );
+    if (offset === null) return;
+    const query = normalizeSearchQuery(
+      queryParserQueryAt(text, offset, options.queryParser.scanLength),
+    );
+    if (query === '') return;
+    search('term', query);
+  };
+
   const outcome: SearchOutcome = resolveSearchOutcome({
     loading,
     assetsReady,
@@ -570,6 +691,23 @@ export function YomitanSearchApp() {
             />
           </button>
         </form>
+
+        {/* Upstream's own query-parser block (`ext/search.html`): the text of the
+            box again, segmented with furigana, where a click looks that word up.
+            No `scrollbar` class — the vendored dark `.scrollbar` rules would bring
+            back the chunky light bar this app replaces globally with its own 6px
+            one. */}
+        <div
+          hidden={composing || text.length === 0}
+          id="query-parser-container"
+        >
+          <div
+            id="query-parser-content"
+            lang="ja"
+            ref={parserRef}
+            onClick={onQueryParserClick}
+          />
+        </div>
       </div>
 
       <div className="content-outer">
