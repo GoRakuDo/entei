@@ -259,8 +259,10 @@ describe('yomitan popup preview — appearance', () => {
   it('mirrors the display-mode options as dataset attributes', () => {
     const options = withScanning(
       withGeneral(createDefaultOptions(), {
+        resultOutputMode: 'merge',
         glossaryLayoutMode: 'compact',
         compactTags: true,
+        averageFrequency: true,
         debugInfo: true,
         termDisplayMode: 'term-and-reading',
         frequencyDisplayMode: 'list',
@@ -272,8 +274,10 @@ describe('yomitan popup preview — appearance', () => {
       { enableSearchTags: true },
     );
     const attrs = resolvePopupAppearance(options).themeAttributes;
+    expect(attrs['resultOutputMode']).toBe('merge');
     expect(attrs['glossaryLayoutMode']).toBe('compact');
     expect(attrs['compactTags']).toBe('true');
+    expect(attrs['averageFrequency']).toBe('true');
     expect(attrs['enableSearchTags']).toBe('true');
     expect(attrs['debug']).toBe('true');
     expect(attrs['termDisplayMode']).toBe('term-and-reading');
@@ -289,8 +293,13 @@ describe('yomitan popup preview — appearance', () => {
 
   it('carries upstream’s defaults when no display mode is set', () => {
     const attrs = resolvePopupAppearance(createDefaultOptions()).themeAttributes;
+    /* `group` is upstream's own starting point (`createDefaultGeneralOptions`),
+       not `split`: the default decides which of `display.css`'s
+       `data-result-output-mode` rules apply. */
+    expect(attrs['resultOutputMode']).toBe('group');
     expect(attrs['glossaryLayoutMode']).toBe('default');
     expect(attrs['compactTags']).toBe('false');
+    expect(attrs['averageFrequency']).toBe('false');
     expect(attrs['termDisplayMode']).toBe('ruby');
     expect(attrs['frequencyDisplayMode']).toBe('split-tags-grouped');
     expect(attrs['popupCurrentIndicatorMode']).toBe('triangle');
@@ -313,6 +322,22 @@ describe('yomitan popup preview — appearance', () => {
     const tagged = withScanning(base, { enableSearchTags: true });
     expect(popupAppearanceKey(tagged)).not.toBe(popupAppearanceKey(base));
     expect(popupLookupKey(tagged)).toBe(popupLookupKey(base));
+  });
+
+  /* The two knobs that were missing from the attributes: they belong on the
+     APPEARANCE key, or the frame would keep the old `data-*` value until some other
+     display mode happened to move. `resultOutputMode` is on the LOOKUP key too —
+     `popupLookupKey` already lists it, because group / merge / split change the shape
+     of the entries the translator returns, not just how they are styled. */
+  it('redraws the frame when the result output mode or the frequency average moves', () => {
+    const base = createDefaultOptions();
+    const merged = withGeneral(base, { resultOutputMode: 'merge' });
+    const averaged = withGeneral(base, { averageFrequency: true });
+    expect(popupAppearanceKey(merged)).not.toBe(popupAppearanceKey(base));
+    expect(popupLookupKey(merged)).not.toBe(popupLookupKey(base));
+    // A frequency-display choice is styling only: the entries are the same.
+    expect(popupAppearanceKey(averaged)).not.toBe(popupAppearanceKey(base));
+    expect(popupLookupKey(averaged)).toBe(popupLookupKey(base));
   });
 
   /* The SHADOW setting is the FRAME's, not the document's: upstream styles

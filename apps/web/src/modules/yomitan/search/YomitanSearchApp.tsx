@@ -64,6 +64,7 @@ import { lookupKanji, lookupTerms } from '@/modules/yomitan/yomitan-engine';
 import { loadSearchAssets } from '@/modules/yomitan/search/search-assets';
 import {
   createSearchDisplay,
+  setCurrentEntry,
   type SearchDisplay,
 } from '@/modules/yomitan/search/search-display';
 import {
@@ -440,10 +441,28 @@ export function YomitanSearchApp() {
     textareaRef.current?.focus();
   };
 
-  /** A kanji inside a headword opens that character (upstream's kanji link). */
+  /**
+   * A click in the results: the selection indicator follows it, and a kanji inside a
+   * headword opens that character.
+   *
+   * Moving the indicator is upstream's own `Display._onEntryClick` →
+   * `_entrySetCurrent` (it reads `dataset.index` off the clicked entry). It is done
+   * here rather than in state because the cards are the generator's own DOM, appended
+   * imperatively under this one delegated handler. Both of upstream's listeners also
+   * fire for a kanji link — the link's own and then the entry's — so there the
+   * indicator moves AND the character is looked up.
+   */
   const onEntriesClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    const container = event.currentTarget;
+    const entry = target.closest('.entry[data-index]');
+    /* Only a card THIS page appended: upstream's `#no-results` style placeholders
+       are `.entry` too, but they sit outside this container, and a nested `.entry`
+       inside a card is not a result. */
+    if (entry !== null && entry.parentElement === container) {
+      setCurrentEntry(container, entry);
+    }
     const link = target.closest('.headword-kanji-link');
     if (link === null) return;
     const character = kanjiLinkCharacter(link);

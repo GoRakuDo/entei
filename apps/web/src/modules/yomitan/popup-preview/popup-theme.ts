@@ -194,24 +194,33 @@ export function resolvePopupFontStyle(
  * writes from the options that are NOT the theme/font/size (see `display.js`).
  *
  * These are the display-mode booleans and enums Yomitan mirrors onto the popup's
- * `<html>` element so `display.css` can key its rules off them (compact glossaries,
- * term/frequency display style, selection indicator, search tags, debug flag, the
- * three pitch-accent pronunciation flags). Each key is a `dataset` property
- * (camelCase); `popup-document`'s `renderThemeAttributes` kebab-cases it on the way
- * into the document, exactly like the DOM does for a real `element.dataset.x = …`.
+ * `<html>` element so `display.css` can key its rules off them (result output mode,
+ * compact glossaries, term/frequency display style, average frequency, selection
+ * indicator, search tags, debug flag, the three pitch-accent pronunciation flags).
+ * Each key is a `dataset` property (camelCase); `popup-document`'s `renderThemeAttributes`
+ * kebab-cases it on the way into the document, exactly like the DOM does for a real
+ * `element.dataset.x = …`.
  *
  * `parsing.readingMode` is deliberately NOT here: upstream passes it to the
  * `QueryParser` (how parsed text is read), it is never a `data-*` attribute and no
  * stylesheet keys off it — this host does not run the query parser in the popup, so
  * there is nothing to mirror. Kept faithful to `_updateDocumentOptions`.
+ *
+ * The `??` fallbacks are upstream's own defaults (`createDefaultGeneralOptions`), not
+ * inventions: they only fire for a stored profile that predates a field, because
+ * `normalizeOptions` passes `profile.options` through as it stands rather than merging
+ * it field by field. `resultOutputMode` is one of the four enum values
+ * (`group` / `merge` / `split` / `term`), and `group` is what upstream starts on.
  */
 function resolvePopupContentAttributes(
   profile: ReturnType<typeof activeProfileOptions>,
 ): Record<string, string> {
   const { general, scanning } = profile;
   return {
+    resultOutputMode: String(general.resultOutputMode ?? 'group'),
     glossaryLayoutMode: String(general.glossaryLayoutMode),
     compactTags: String(general.compactTags),
+    averageFrequency: String(general.averageFrequency ?? false),
     enableSearchTags: String(scanning.enableSearchTags),
     debug: String(general.debugInfo),
     termDisplayMode: String(general.termDisplayMode),
@@ -302,8 +311,10 @@ export function popupAppearanceKey(options: Options): string {
     popupScalingFactor,
     popupActionBarLocation,
     popupActionBarVisibility,
+    resultOutputMode,
     glossaryLayoutMode,
     compactTags,
+    averageFrequency,
     termDisplayMode,
     frequencyDisplayMode,
     popupCurrentIndicatorMode,
@@ -324,8 +335,10 @@ export function popupAppearanceKey(options: Options): string {
     popupScalingFactor,
     popupActionBarLocation,
     popupActionBarVisibility,
+    resultOutputMode,
     glossaryLayoutMode,
     compactTags,
+    averageFrequency,
     termDisplayMode,
     frequencyDisplayMode,
     popupCurrentIndicatorMode,

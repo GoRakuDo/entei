@@ -9,12 +9,23 @@
  * inflection chains and frequencies, and applies the glossary layout.
  *
  * WHY NOT `popup-entries.ts`, which already does this. That module serializes the
- * cards into an iframe `srcdoc` and marks the first one `entry-current` — the
- * popup's own "this is the card the ⋮ menu acts on" marker, which upstream's
- * `search.html` does not have. A search page drawing through it would show the
- * popup's selection indicator on the first result of every search. So this module
- * is the same three lines of setup returning NODES instead of HTML, with no
- * marker and no menu.
+ * cards into an iframe `srcdoc` for the Appearance preview, which is not what a
+ * page needs: this module is the same three lines of setup returning NODES instead
+ * of HTML, with no frame and no ⋮ menu (`#popup-menus` — the one thing upstream's
+ * `search.html` really does lack).
+ *
+ * THE SELECTION INDICATOR BELONGS HERE. Upstream marks the current entry ON THE
+ * ENTRY ITSELF: `Display._setContentTermsOrKanji` writes `entry.dataset.index` on
+ * every card it draws, and the focused one carries `entry-current`
+ * (`_entrySetCurrent`) — which is what `display.css` keys the bar / dot / triangle
+ * indicator off (`.entry.entry-current .entry-current-indicator`). Upstream's SEARCH
+ * page runs exactly that code: `SearchDisplayController._search` always focuses the
+ * first result (`state.focusEntry = 0`), so its result list shows the indicator on
+ * the first card, and a click moves it (`Display._onEntryClick` reads
+ * `dataset.index` off the clicked entry). Both halves live here — `markSearchEntries`
+ * when the cards are built, `setCurrentEntry` when one is clicked. Without them the
+ * page drew cards with NO indicator at all, whatever `popupCurrentIndicatorMode`
+ * said.
  *
  * The two upstream workarounds are the same ones `popup-entries` documents, and
  * both are forced by the host:
@@ -54,7 +65,13 @@ const CONTENT_MANAGER_HOST = {
 
 /** What the search page draws its cards with. */
 export interface SearchDisplay {
-  /** One `DisplayGenerator` card per term entry, in dictionary order. */
+  /**
+   * One `DisplayGenerator` card per term entry, in dictionary order.
+   *
+   * Every node comes back with upstream's own bookkeeping applied (see
+   * `markSearchEntries`): `data-index` for the click handler, and `entry-current`
+   * on the first card.
+   */
   termNodes: (
     entries: readonly unknown[],
     dictionaries: readonly PopupDictionaryInfo[],
@@ -64,6 +81,46 @@ export interface SearchDisplay {
     entries: readonly unknown[],
     dictionaries: readonly PopupDictionaryInfo[],
   ) => HTMLElement[];
+}
+
+/**
+ * The entry bookkeeping upstream does while it appends a result list.
+ *
+ * Two things, both of them upstream's: the INDEX attribute
+ * (`Display._setContentTermsOrKanji` sets `entry.dataset.index` on every entry and
+ * `_onEntryClick` reads it back off the clicked one) and the marker on the focused
+ * entry (`_entrySetCurrent` puts `entry-current` there). `focusIndex` is upstream's
+ * `focusEntry`, which the search page always passes as 0
+ * (`SearchDisplayController._search`).
+ *
+ * Mutates and returns the same nodes: they are the generator's own DOM, already
+ * built, and a drawn card is never worth copying.
+ */
+export function markSearchEntries(
+  nodes: readonly HTMLElement[],
+  focusIndex: number = 0,
+): HTMLElement[] {
+  nodes.forEach((node, index) => {
+    node.dataset.index = `${index}`;
+    node.classList.toggle('entry-current', index === focusIndex);
+  });
+  return [...nodes];
+}
+
+/**
+ * Move the selection indicator onto `entry` (upstream `Display._entrySetCurrent`).
+ *
+ * Called from the page's own click handler: the cards are the generator's DOM under
+ * a React-delegated `onClick`, so the marker moves here rather than in state. Only
+ * the entry handed over gains `entry-current`, and only the entry that held it
+ * loses it — which is what keeps exactly one entry current.
+ */
+export function setCurrentEntry(container: Element, entry: Element): void {
+  const previous = container.querySelector(':scope > .entry-current');
+  if (previous !== null && previous !== entry) {
+    previous.classList.remove('entry-current');
+  }
+  entry.classList.add('entry-current');
 }
 
 type GeneratorWithCards = {
@@ -123,7 +180,12 @@ export async function createSearchDisplay(
     entries: readonly unknown[],
     dictionaries: readonly PopupDictionaryInfo[],
   ): HTMLElement[] =>
-    entries.map((entry) => create(restoreTextGlosses(entry), [...dictionaries]));
+    /* Numbered from 0 in both cases, which is safe because a search resolves to
+       EITHER term entries or kanji entries and never both
+       (`searchEntriesForMode`): index 0 is the first card on screen either way. */
+    markSearchEntries(
+      entries.map((entry) => create(restoreTextGlosses(entry), [...dictionaries])),
+    );
 
   return {
     termNodes: (entries, dictionaries) =>

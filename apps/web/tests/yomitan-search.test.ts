@@ -5,12 +5,15 @@
  * - `scopeYomitanCss`: Yomitan's own stylesheets re-anchored at one element
  *   (theme rules, window-level rules, `@keyframes`, declaration values)
  * - the REAL vendored sheets: after scoping, no rule can escape the column
+ * - `search-display`: the bookkeeping the cards carry — `data-index` on every entry
+ *   and `entry-current` on the focused one (upstream `Display._setContent` /
+ *   `_entrySetCurrent`), asserted on plain nodes rather than on generator output
  * - `search-query`: the lookup order, the entry bookkeeping and the five/six
  *   states the results area can be in
  *
- * The React island and the DOM the generator builds are deliberately NOT covered
- * here: everything worth asserting about them is either a decision (this file) or
- * a rendered pixel (verified in the browser).
+ * The React island and the cards the generator itself builds are deliberately NOT
+ * covered here: everything worth asserting about them is either a decision (this
+ * file) or a rendered pixel (verified in the browser).
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -22,6 +25,10 @@ import {
   scopeYomitanCss,
   YOMITAN_SEARCH_SCOPE,
 } from '@/modules/yomitan/search/scope-css';
+import {
+  markSearchEntries,
+  setCurrentEntry,
+} from '@/modules/yomitan/search/search-display';
 import {
   asSearchMode,
   countSearchEntries,
@@ -249,6 +256,71 @@ describe('scopeYomitanCss — the real vendored sheets', () => {
     // The rewrite happens at load time; a hand-patched sheet would drift.
     expect(vendoredCss('display.css')).toMatch(/^:root \{/m);
     expect(vendoredCss('material.css')).toMatch(/^body \{/m);
+  });
+});
+
+describe('search-display — the selection indicator', () => {
+  /** One stand-in for a card the generator drew. */
+  function card(): HTMLElement {
+    const node = document.createElement('div');
+    node.className = 'entry';
+    return node;
+  }
+
+  it('numbers every card and marks the first one current', () => {
+    const cards = [card(), card(), card()];
+    const marked = markSearchEntries(cards);
+    // The generator's own nodes, not copies: a drawn card is never rebuilt.
+    expect(marked.length).toBe(3);
+    expect(marked[0]).toBe(cards[0]);
+    expect(cards.map((node) => node.dataset.index)).toEqual(['0', '1', '2']);
+    /* Upstream's search page always focuses the first result
+       (`SearchDisplayController._search` → `state.focusEntry = 0`), and
+       `display.css` keys the indicator off `.entry.entry-current`. */
+    expect(
+      cards.map((node) => node.classList.contains('entry-current')),
+    ).toEqual([true, false, false]);
+  });
+
+  it('marks the entry upstream would focus, not blindly the first', () => {
+    const cards = [card(), card(), card()];
+    markSearchEntries(cards, 1);
+    expect(
+      cards.map((node) => node.classList.contains('entry-current')),
+    ).toEqual([false, true, false]);
+  });
+
+  it('moves the marker onto the clicked card and off the previous one', () => {
+    const first = card();
+    const second = card();
+    const container = document.createElement('div');
+    container.append(first, second);
+    markSearchEntries([first, second]);
+
+    setCurrentEntry(container, second);
+
+    expect(first.classList.contains('entry-current')).toBe(false);
+    expect(second.classList.contains('entry-current')).toBe(true);
+    expect(second.dataset.index).toBe('1');
+  });
+
+  it('only ever moves the marker between the result list’s own cards', () => {
+    // An `.entry` nested INSIDE a card is part of that card, not a result: `:scope >`
+    // is what keeps a click deep in a glossary from stealing the marker.
+    const nested = card();
+    nested.classList.add('entry-current');
+    const first = card();
+    const second = card();
+    second.append(nested);
+    const container = document.createElement('div');
+    container.append(first, second);
+    markSearchEntries([first, second]);
+
+    setCurrentEntry(container, first);
+
+    expect(nested.classList.contains('entry-current')).toBe(true);
+    expect(second.classList.contains('entry-current')).toBe(false);
+    expect(first.classList.contains('entry-current')).toBe(true);
   });
 });
 
