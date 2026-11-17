@@ -42,15 +42,37 @@
  * Page frame
  * ========================================================================== */
 
+/* ==========================================================================
+ * Page frame
+ * ========================================================================== */
+
+/* Floating TopBar pill (desktop only). Anchored `position: fixed` so it is a
+   floating overlay that reserves no vertical space — identical to /settings/.
+   Pointer events stay scoped to the pill itself. */
+@media (min-width: 768px) {
+  body[data-page='search'] .entei-desktop-pill-zone {
+    position: fixed;
+    top: var(--entei-space-16);
+    left: 0;
+    right: 0;
+    z-index: var(--entei-z-topbar);
+    justify-content: center;
+    padding: 0 0 var(--entei-space-4);
+    pointer-events: none;
+  }
+
+  body[data-page='search'] .entei-desktop-pill-zone .entei-desktop-pill {
+    pointer-events: auto;
+  }
+}
+
 /* The search page is a full-page tool, not an article, so it steps out of the
    layout's content shell. BaseLayout caps that shell at
    max-width: var(--entei-content-max) (72rem) and gutters it, which on a 2K
-   display left the white sheet as a 1152px column with the wallpaper showing
+   display left the sheet as a 1152px column with the wallpaper showing
    down both sides and nothing at all below the last card. Scoped through
    body[data-page='search'] — the layout's own hook (pageId="search"), the same
-   one /settings/ uses for the same reason — so no other route is touched. The
-   page puts its own column and gutters back just below, so nothing ends up flush
-   against the window edge. */
+   one /settings/ uses for the same reason — so no other route is touched. */
 body[data-page='search'] .entei-main-inner {
   max-width: none;
   /* !important: beats the BaseLayout-scoped .entei-main-inner padding and the
@@ -84,21 +106,23 @@ body[data-page='search'] .entei-main-inner {
   --search-horizontal-padding: 0.72em;
   --search-button-width: 2.5em;
 
-  /* Upstream's search page paints white in the light theme where the popup
-     paints material.css's #f8f9fa. */
-  --background-color: oklch(100% 0 0deg);
+  /* Default dark background — matching Entei's dark shell. */
+  --background-color: var(--entei-black-950);
+  --text-color: var(--entei-text-secondary);
+  --input-background-color: var(--entei-surface);
+  --input-outline-color: var(--entei-focus-ring);
+  --medium-border-color: oklch(100% 0 0deg / 0.12);
+  --separator-color1: oklch(100% 0 0deg / 0.12);
 
   /* Full width because the layout shell no longer caps it, and grown to
-     whatever height is left below the Top Bar: the sheet is white, and a short
-     result list must not leave the wallpaper showing under it. flex rather than
-     min-height: 100dvh — the shell above is a flex column, so growing fills
-     exactly the remaining space and never overflows it into a second scrollbar. */
+     whatever height is left. flex rather than min-height: 100dvh — the shell
+     above is a flex column, so growing fills exactly the remaining space and
+     never overflows it into a second scrollbar. Top padding clears the floating
+     TopBar pill so the heading surfaces cleanly below it. */
   flex: 1 0 auto;
   width: 100%;
-  /* The vertical rhythm the layout shell used to own (32px top / 64px bottom).
-     The mobile Dock is fixed to the bottom of every route, so the small-screen
-     rule at the end of this file adds its height on top. */
-  padding-block: var(--entei-space-32) var(--entei-space-64);
+  padding-block-start: calc(var(--entei-topbar-height) + var(--entei-space-24));
+  padding-block-end: var(--entei-space-64);
 
   color: var(--text-color);
   background-color: var(--background-color);
