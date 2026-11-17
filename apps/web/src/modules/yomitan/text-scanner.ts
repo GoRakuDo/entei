@@ -800,7 +800,6 @@ let lastKey = '';
 let lastAt = 0;
 let debounce: ReturnType<typeof setTimeout> | null = null;
 let epoch = 0;
-let lastPointer: { x: number; y: number } | null = null;
 let stillFrame = 0;
 
 /** Touch / Pen state tracking across pointer events (faithful to Yomitan). */
@@ -961,7 +960,6 @@ export function initTextScanner(): () => void {
 
     if (pType === 'mouse') {
       scanTimerClear();
-      lastPointer = { x: event.clientX, y: event.clientY };
       const match = getMatchingInputGroupFromEvent(
         snapshot.settings.inputs,
         'mouse',
@@ -1062,17 +1060,6 @@ export function initTextScanner(): () => void {
     }
   };
 
-  const onViewportChange = (): void => {
-    if (stillFrame !== 0) return;
-    const snapshot = readScanSnapshot();
-    if (!snapshot.moduleEnabled || !snapshot.settings.scanWithoutMousemove) return;
-    stillFrame = requestAnimationFrame(() => {
-      stillFrame = 0;
-      if (lastPointer === null) return;
-      void scanAt(lastPointer.x, lastPointer.y);
-    });
-  };
-
   document.addEventListener('pointerover', onPointerOver, { passive: true, capture: true });
   document.addEventListener('pointerdown', onPointerDown, { passive: true, capture: true });
   document.addEventListener('pointermove', onPointerMove, { passive: true, capture: true });
@@ -1080,11 +1067,6 @@ export function initTextScanner(): () => void {
   document.addEventListener('pointercancel', onPointerCancel, { passive: true, capture: true });
   document.addEventListener('pointerout', onPointerOut, { passive: true, capture: true });
   document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
-  window.addEventListener('scroll', onViewportChange, {
-    passive: true,
-    capture: true,
-  });
-  window.addEventListener('resize', onViewportChange, { passive: true });
 
   return () => {
     document.removeEventListener('pointerover', onPointerOver, { capture: true });
@@ -1094,8 +1076,6 @@ export function initTextScanner(): () => void {
     document.removeEventListener('pointercancel', onPointerCancel, { capture: true });
     document.removeEventListener('pointerout', onPointerOut, { capture: true });
     document.removeEventListener('touchmove', onTouchMove, { capture: true });
-    window.removeEventListener('scroll', onViewportChange, { capture: true });
-    window.removeEventListener('resize', onViewportChange);
     if (debounce !== null) clearTimeout(debounce);
     debounce = null;
     scanTimerClear();

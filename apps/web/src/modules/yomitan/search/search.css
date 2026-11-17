@@ -106,14 +106,6 @@ body[data-page='search'] .entei-main-inner {
   --search-horizontal-padding: 0.72em;
   --search-button-width: 2.5em;
 
-  /* Default dark background — matching Entei's dark shell. */
-  --background-color: var(--entei-black-950);
-  --text-color: var(--entei-text-secondary);
-  --input-background-color: var(--entei-surface);
-  --input-outline-color: var(--entei-focus-ring);
-  --medium-border-color: oklch(100% 0 0deg / 0.12);
-  --separator-color1: oklch(100% 0 0deg / 0.12);
-
   /* Full width because the layout shell no longer caps it, and grown to
      whatever height is left. flex rather than min-height: 100dvh — the shell
      above is a flex column, so growing fills exactly the remaining space and
