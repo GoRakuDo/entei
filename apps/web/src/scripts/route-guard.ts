@@ -29,6 +29,7 @@ export const VALID_APP_ROUTES: readonly string[] = [
   '/profile',
   '/settings',
   '/modules',
+  '/search', // Yomitan module tool (its manifest declares /search/)
   '/thanks-to',
   '/tracker', // noindex redirect to /profile/ — still a real served page
 ];

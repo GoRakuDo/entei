@@ -1,0 +1,253 @@
+/**
+ * Yomitan Search page — `/search/`, the Yomitan module's own tool page.
+ * ---------------------------------------------------------------------------
+ * WHAT THIS FILE IS. Upstream ships a dictionary search page (`ext/search.html`
+ * + `ext/css/search.css`) whose results are drawn by the extension's own display
+ * code. This is that page's CHROME — the header, the search box and its two
+ * buttons — restated for Entei:
+ *
+ * - the ELEMENTS and class names are upstream's, so the box behaves the way the
+ *   extension's does (`#search-textbox`, `.search-textbox-container`,
+ *   `.clear-button`, `.search-button`, `.icon[data-icon=…]` for the glyphs,
+ *   `.top-progress-bar-container` + `.progress-bar-indeterminant` for the
+ *   loading bar);
+ * - the RULES are restated rather than copied, because upstream's `search.css`
+ *   also styles the extension's whole WINDOW (`body { overflow: hidden}`, a
+ *   full-viewport `.content-outer` / `.content-scroll` flex column, the settings
+ *   modal, the action-popup width). This page lives in Entei's document flow and
+ *   scrolls with the app, so the geometry is the page's and only the metrics are
+ *   upstream's;
+ * - EVERY COLOUR IS A `var()` REFERENCE, never a literal (project rule #1621).
+ *   They are Yomitan's own variables (`--input-background-color`, `--text-color`,
+ *   `--button-default-icon-color`, `--medium-border-color`), so the search box
+ *   follows the SAME `general.popupTheme` as the entry cards below it. An Entei
+ *   token here instead would make the box light while the cards are dark the
+ *   moment the user picks a theme.
+ *
+ * WHY THE `:root` PREFIX. Yomitan's own sheets are injected at runtime
+ * (`search-assets.ts`) and appended AFTER this bundled sheet, so a rule of equal
+ * specificity loses the tie. Every rule here that re-states something the vendored
+ * sheets also set is therefore written `:root .entei-yomitan-search …` — one extra
+ * class, which wins regardless of injection order. (The sheets reach this element
+ * at all because `scope-css.ts` re-anchored their `:root` rules onto it.)
+ *
+ * The RESULT cards are not styled here at all: their markup comes from Yomitan's
+ * `DisplayGenerator` and their CSS is Yomitan's own unmodified stylesheets.
+ * Anything hand-written about them would drift from upstream on the next Yomitan
+ * bump.
+ * ---------------------------------------------------------------------------
+ */
+
+/* ==========================================================================
+ * Page frame
+ * ========================================================================== */
+
+:root .entei-yomitan-search {
+  /* Upstream: `--content-width-search: 700` with the popup's own font-size
+     divisor. Inherited by `.content-body-inner`, which is what centres and
+     measures the result column. */
+  --content-width-search: 700;
+  --content-width: calc(1em * var(--content-width-search) / var(--font-size-no-units));
+
+  /* Metrics of the search box, upstream verbatim (`--textarea-*` come from
+     material.css). */
+  --search-textbox-height: calc(var(--textarea-line-height) + var(--textarea-padding) * 2);
+  --search-textbox-min-height: calc(var(--textarea-line-height) + var(--textarea-padding) * 2);
+  --search-textbox-max-height: calc(var(--textarea-line-height) * 5 + var(--textarea-padding) * 2);
+
+  --search-horizontal-padding: 0.72em;
+  --search-button-width: 2.5em;
+
+  /* Upstream's search page paints white in the light theme where the popup
+     paints material.css's #f8f9fa. */
+  --background-color: oklch(100% 0 0deg);
+
+  /* No width or padding of its own: the layout's content shell
+     (`.entei-main-inner`) already caps and gutters the page, and a second cap
+     here would inset the cards twice. */
+  color: var(--text-color);
+  background-color: var(--background-color);
+}
+
+/* ==========================================================================
+ * Header — upstream's `#intro` + `.search-header`
+ * ========================================================================== */
+
+.entei-yomitan-search .entei-yomitan-search-intro {
+  padding-inline: var(--search-horizontal-padding);
+  /* Upstream's `#intro { overflow: hidden }` collapses the heading once a search
+     is on screen; the component simply stops rendering it. */
+  overflow: hidden;
+}
+
+.entei-yomitan-search .entei-yomitan-search-intro > h1 {
+  margin: 0;
+  padding: 0.25em 0 0;
+  font-size: 2em;
+  line-height: 1.5em;
+  font-weight: normal;
+  box-sizing: border-box;
+  /* display.css draws this same hairline under its own h2 (`--light-border-color`
+     at the h2 size); the search page's heading is one step larger, so only the
+     size differs. */
+  border-bottom: calc(1em / (var(--font-size-no-units) * 2)) solid var(--medium-border-color);
+}
+
+.entei-yomitan-search .entei-yomitan-search-header {
+  padding-inline: var(--search-horizontal-padding);
+}
+
+/* The progress bar's own wrapper (display.css): sticky, zero-height, so the bar
+   overlays the top edge of the results instead of pushing them down. */
+.entei-yomitan-search .top-progress-bar-container {
+  position: sticky;
+  top: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ==========================================================================
+ * Search bar — upstream `.search-textbox-container`
+ * ========================================================================== */
+
+.entei-yomitan-search .search-textbox-container {
+  display: flex;
+  flex-flow: row nowrap;
+  width: 100%;
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.entei-yomitan-search #search-textbox {
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--search-textbox-height);
+  min-height: var(--search-textbox-min-height);
+  max-height: var(--search-textbox-max-height);
+  padding: var(--textarea-padding);
+  resize: none;
+  white-space: pre-wrap;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  line-height: var(--textarea-line-height);
+  /* Inherits the page's font rather than a hard-coded stack: `general.fontFamily`
+     is written on this page's root element, and a search box that ignored the
+     user's own font choice while the results obey it would be the one visible
+     inconsistency on the page. */
+  font-family: inherit;
+  font-size: var(--font-size);
+  color: var(--text-color);
+  background-color: var(--input-background-color);
+}
+
+/* Not `icon-button`: material.css's `button.icon-button` sets its own 36px box,
+   and restating it here would be a specificity fight for no gain. The glyph
+   masks still come from material.css's `.icon[data-icon=…]`. */
+.entei-yomitan-search .search-button,
+.entei-yomitan-search .clear-button {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--search-button-width);
+  height: var(--search-textbox-height);
+  min-height: var(--search-textbox-min-height);
+  max-height: var(--search-textbox-max-height);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-color: var(--input-background-color);
+  transition: background-color var(--animation-duration) ease-in-out;
+}
+
+.entei-yomitan-search .search-button:hover,
+.entei-yomitan-search .search-button:focus,
+.entei-yomitan-search .clear-button:hover,
+.entei-yomitan-search .clear-button:focus {
+  background-color: var(--input-background-color-dark);
+}
+
+.entei-yomitan-search .search-button:active,
+.entei-yomitan-search .search-button:active:focus,
+.entei-yomitan-search .clear-button:active,
+.entei-yomitan-search .clear-button:active:focus {
+  background-color: var(--input-background-color-darker);
+}
+
+/* Keyboard focus has to be VISIBLE, not just a shade of the same grey: the two
+   buttons sit flush against the box, and a background tint alone is below the
+   3:1 non-text contrast WCAG asks for against `--input-background-color`. */
+.entei-yomitan-search .search-button:focus-visible,
+.entei-yomitan-search .clear-button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+/* The textarea itself is a text field, so its focus ring is the box it sits in
+   (the same rule `input[type=password]:focus` applies upstream). */
+.entei-yomitan-search #search-textbox:focus {
+  box-shadow: 0 0 0 calc(2em / var(--font-size-no-units)) var(--input-outline-color);
+}
+
+.entei-yomitan-search .search-button > .icon,
+.entei-yomitan-search .clear-button > .icon {
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--button-default-icon-color);
+  --icon-size: 16px 16px;
+}
+
+/* ==========================================================================
+ * Results — the column display.css measures
+ * ========================================================================== */
+
+/* display.css makes this chain a fixed-height flex column that scrolls inside
+   itself (that is how the extension's window is built). This page scrolls with
+   the document like every other Entei page, so the chain is put back into normal
+   flow — two classes, which beat the vendored rules regardless of order. */
+:root .entei-yomitan-search .content-outer {
+  display: block;
+  width: auto;
+  height: auto;
+  overflow: visible;
+}
+
+:root .entei-yomitan-search .content-scroll {
+  position: static;
+  display: block;
+  overflow: visible;
+}
+
+/* `.content-body-inner` is display.css's own rule (`width: var(--content-width)`,
+   centred). Only its vertical padding is restated: upstream leaves it at 0 because
+   the extension's window has its own header spacing, while this page needs the gap
+   between the box and the first card. */
+:root .entei-yomitan-search .content-body-inner {
+  padding-block: var(--entei-space-16);
+}
+
+/* A result entry is a navigation target for the kanji links inside it, and the
+   pointer is the only affordance `.headword-kanji-link` gets from display.css
+   beyond a dashed underline. */
+.entei-yomitan-search #dictionary-entries .headword-kanji-link:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+/* Upstream's `#no-dictionaries` / `#no-results` blocks are `.entry` blocks, which
+   carry the entry list's bottom hairline; the last one on the page should not. */
+.entei-yomitan-search .content-body-inner > .entry:last-of-type {
+  border-bottom: 0;
+}

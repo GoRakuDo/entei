@@ -258,6 +258,33 @@ export interface EnteiModuleSectionLayout {
   rows: readonly EnteiModuleRowBinding[];
 }
 
+/**
+ * A page a module owns, drawn as a card on the platform's tool surfaces.
+ *
+ * MODULE_ARCHITECTURE.md's Immersion Tools shelf used to be a fixed list of three
+ * entries written into the drawer. A module that ships a PAGE of its own declares
+ * it here instead, and every tool surface draws a card for it — the same way
+ * `EnteiModuleOverlays` discovers a module's overlay: nothing on the surface side
+ * names a module, so a community module appears on the shelf with no host edit.
+ *
+ * `href` is a SAME-ORIGIN ABSOLUTE PATH and is validated as one (see
+ * `normalizeModuleTool`): a manifest is data — an imported `*.module.json` is
+ * user input — so a card's destination is checked here rather than trusted at the
+ * anchor, where a `javascript:` URL would be a script execution.
+ */
+export interface EnteiModuleTool {
+  /** Card title (`Yomitan Search`). */
+  title: string;
+  /** One-line card description. */
+  description: string;
+  /** Internal app route the card navigates to (`/search/`). */
+  href: string;
+  /** Module icon asset drawn on the card (`/icons/modules/yomitan.png`). */
+  iconPath?: string;
+  /** Lucide icon name, for a module that ships no asset of its own. */
+  icon?: string;
+}
+
 /** One `*.module.json` document (the platform manifest spec). */
 export interface EnteiModuleManifest {
   /** Stable identifier — also the `entei.modules.v1` state key. */
@@ -309,6 +336,12 @@ export interface EnteiModuleManifest {
    * renders straight from it — no page-side knowledge of the module at all.
    */
   settingsSchema?: readonly SettingSectionDescriptor[];
+  /**
+   * A page this module owns. The tool surfaces draw a card for it; absent means
+   * the module has no page of its own (a source module answers from the player,
+   * it does not live on a route).
+   */
+  tool?: EnteiModuleTool;
 }
 
 /** Current `*.module.json` spec version. */
@@ -521,6 +554,43 @@ export function normalizeSectionLayouts(
   return layouts;
 }
 
+/**
+ * Validate a manifest's `tool` declaration.
+ *
+ * Fail-closed and total: a declaration without a title, a description and a
+ * same-origin `href` is DROPPED rather than half applied, so a tool surface can
+ * trust that every card it draws navigates somewhere the app actually serves. An
+ * `iconPath` has to be a same-origin path too (the same reason as `href`, plus a
+ * card that 404s its own icon); an unknown Lucide name simply resolves to the
+ * fallback glyph at draw time, so it is kept as written.
+ */
+export function normalizeModuleTool(input: unknown): EnteiModuleTool | undefined {
+  if (typeof input !== 'object' || input === null) return undefined;
+  const raw = input as Record<string, unknown>;
+  const title = optionalId(raw.title);
+  const description = optionalId(raw.description);
+  const href = optionalId(raw.href);
+  if (title === undefined || description === undefined || href === undefined) {
+    return undefined;
+  }
+  /* Same-origin absolute path only: `//host` is protocol-relative (another
+     origin) and anything with a scheme is not an app route at all. */
+  if (!isSameOriginPath(href)) return undefined;
+  const tool: EnteiModuleTool = { title, description, href };
+  const iconPath = optionalId(raw.iconPath);
+  if (iconPath !== undefined && isSameOriginPath(iconPath)) {
+    tool.iconPath = iconPath;
+  }
+  const icon = optionalId(raw.icon);
+  if (icon !== undefined) tool.icon = icon;
+  return tool;
+}
+
+/** True for an absolute same-origin path (`/search/`, never `//host`). */
+function isSameOriginPath(value: string): boolean {
+  return value.startsWith('/') && !value.startsWith('//');
+}
+
 /** localStorage key holding imported `*.module.json` documents. */
 export const MODULE_IMPORTS_KEY = 'entei.modules.imported.v1';
 
@@ -625,20 +695,24 @@ function loadCoreManifests(): readonly EnteiModuleManifest[] {
   }
 
   return manifests
-    .map((manifest) => ({
-      ...manifest,
-      manifestVersion: manifest.manifestVersion ?? MODULE_MANIFEST_VERSION,
-      // The manifest owns these: a JSON document may legitimately mark a
-      // module off by default, and overriding it here would hide that.
-      builtIn: manifest.builtIn ?? true,
-      defaultEnabled: manifest.defaultEnabled ?? true,
-      icon: manifest.icon ?? 'Blocks',
-      showSectionIcons: manifest.showSectionIcons ?? false,
-      sectionLayouts: normalizeSectionLayouts(manifest.sectionLayouts),
-      ...(manifest.id === 'yomitan'
-        ? { settingsSchema: YOMITAN_SETTINGS_SCHEMA }
-        : {}),
-    }))
+    .map((manifest) => {
+      const tool = normalizeModuleTool(manifest.tool);
+      return {
+        ...manifest,
+        manifestVersion: manifest.manifestVersion ?? MODULE_MANIFEST_VERSION,
+        // The manifest owns these: a JSON document may legitimately mark a
+        // module off by default, and overriding it here would hide that.
+        builtIn: manifest.builtIn ?? true,
+        defaultEnabled: manifest.defaultEnabled ?? true,
+        icon: manifest.icon ?? 'Blocks',
+        showSectionIcons: manifest.showSectionIcons ?? false,
+        sectionLayouts: normalizeSectionLayouts(manifest.sectionLayouts),
+        ...(manifest.id === 'yomitan'
+          ? { settingsSchema: YOMITAN_SETTINGS_SCHEMA }
+          : {}),
+        ...(tool === undefined ? {} : { tool }),
+      };
+    })
     .sort((a, b) => {
       const indexA = CORE_ORDER.indexOf(a.id);
       const indexB = CORE_ORDER.indexOf(b.id);
@@ -691,6 +765,7 @@ export function parseModuleManifest(
   }
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   if (name === '') return { ok: false, reason: 'name is required' };
+  const tool = normalizeModuleTool(raw.tool);
 
   return {
     ok: true,
@@ -712,6 +787,7 @@ export function parseModuleManifest(
       description:
         typeof raw.description === 'string' ? raw.description.trim() : '',
       sectionLayouts: normalizeSectionLayouts(raw.sectionLayouts),
+      ...(tool === undefined ? {} : { tool }),
     },
   };
 }
@@ -746,6 +822,36 @@ export function readImportedModules(): EnteiModuleManifest[] {
  */
 export function getRegisteredModules(): EnteiModuleManifest[] {
   return [...CORE_MODULES, ...readImportedModules()];
+}
+
+/** One tool card a module exposes, tagged with the module that owns it. */
+export interface EnteiModuleToolEntry extends EnteiModuleTool {
+  /** Owning module's id — a card list key that cannot collide across modules. */
+  moduleId: EnteiModuleId;
+}
+
+/**
+ * Every tool the ENABLED modules expose, in registry order.
+ *
+ * The one call a tool surface makes. The registry decides what EXISTS,
+ * `enabled` (from `modules-store`) decides what is switched ON, and the surface
+ * itself names no module — so the drawer needs no edit when a module gains a page.
+ *
+ * A module the user turned off contributes no card. Its page stays reachable by
+ * URL (the route guard is not a permission check); the shelf simply stops
+ * advertising it, which is what an off switch means for a module's own surface.
+ */
+export function listModuleTools(
+  enabled: Readonly<Record<string, boolean>>,
+): EnteiModuleToolEntry[] {
+  const tools: EnteiModuleToolEntry[] = [];
+  for (const module of getRegisteredModules()) {
+    if (enabled[module.id] === false) continue;
+    const tool = module.tool;
+    if (tool === undefined) continue;
+    tools.push({ moduleId: module.id, ...tool });
+  }
+  return tools;
 }
 
 /** True when a manifest carries its own renderable settings tree. */

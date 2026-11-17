@@ -34,6 +34,13 @@ pairs with.
 | `js/templates/anki-template-renderer-content-manager.js`, `js/data/anki-note-data-creator.js` | required by the structured-content generator |
 | `js/core/**`, `js/data/*-util*.js` | utilities the above import |
 
+Three files under `js/language/` are outside the popup card's own import closure
+and are copied for the dictionary SEARCH page (`../search/`):
+`ja/japanese-wanakana.js` and `ja/japanese-kana-romaji-dicts.js` (upstream's
+romaji → kana IME conversion, the `general.enableWanakana` knob) plus
+`ime-utilities.js` (the composing-input guard that conversion needs, including
+the Android "fake composing" case).
+
 ## Two consequences for the host
 
 1. **`allowJs` is on** in `apps/web/tsconfig.json`. These are `.js` files with

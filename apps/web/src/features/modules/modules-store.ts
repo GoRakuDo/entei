@@ -23,6 +23,8 @@ export type {
   EnteiModuleCategory,
   EnteiModuleId,
   EnteiModuleManifest,
+  EnteiModuleTool,
+  EnteiModuleToolEntry,
   ModuleCopyKey,
 } from '@/features/modules/module-registry';
 export {
@@ -31,6 +33,8 @@ export {
   MODULE_MANIFEST_VERSION,
   getRegisteredModules,
   hasSettingsSchema,
+  listModuleTools,
+  normalizeModuleTool,
   parseModuleManifest,
   readImportedModules,
 } from '@/features/modules/module-registry';

@@ -3,9 +3,15 @@
   "id": "yomitan",
   "nameKey": "yomitanName",
   "descriptionKey": "yomitanDescription",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "GoRakuDo",
   "iconPath": "/icons/modules/yomitan.png",
+  "tool": {
+    "title": "Yomitan Search",
+    "description": "Lookup terms, kanji, and sentences in dictionaries",
+    "href": "/search/",
+    "iconPath": "/icons/modules/yomitan.png"
+  },
   "category": "dictionary",
   "builtIn": true,
   "defaultEnabled": true,

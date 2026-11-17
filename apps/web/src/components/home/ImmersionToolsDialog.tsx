@@ -8,6 +8,17 @@
  *   - 音声プレイヤー      → /audio-player/
  *   - モジュール管理      → /settings/?group=module
  *
+ * THE LIST IS NOT CLOSED. A module that ships a PAGE of its own declares a `tool`
+ * in its manifest, and the drawer appends a card for every enabled one — so
+ * Yomitan's `Yomitan Search` (`/search/`) is on the shelf without this file naming
+ * Yomitan. `listModuleTools` is that call; the three cards above stay the
+ * platform's own destinations, which no module can declare.
+ *
+ * Module cards are read AFTER mount, not during render: this island is SSR'd
+ * (`client:load`) and the enabled state lives in localStorage, which the server
+ * cannot see — reading it during render would hydrate a different card list than
+ * the server printed. The drawer is closed while that settles, so nothing flickers.
+ *
  * Geometry (MODULE_ARCHITECTURE.md §4.1):
  *   - Desktop (≥768px): side sheet sliding in from the LEFT.
  *   - Mobile (<768px): bottom sheet sliding up from the BOTTOM.
@@ -33,11 +44,22 @@
 import { useEffect, useState } from 'react';
 import {
   Blocks,
+  BookOpen,
+  BrainCircuit,
   Clapperboard,
+  Download,
   Headphones,
   Layers,
+  Magnet,
+  MessageSquareText,
+  Search,
   type LucideIcon,
 } from 'lucide-react';
+import {
+  listModuleTools,
+  readModuleState,
+  type EnteiModuleToolEntry,
+} from '@/features/modules/modules-store';
 import {
   Dialog,
   DialogContent,
@@ -68,7 +90,7 @@ export interface ImmersionToolsDialogProps {
  *  The settings page (/settings/) is NOT a tool surface: it owns its own
  *  nav entry (Pengaturan), so the Immersion Tools trigger must stay resting
  *  there. Only the player routes are marked active. */
-const TOOL_ROUTES = ['/player', '/audio-player'] as const;
+const TOOL_ROUTES = ['/player', '/audio-player', '/search'] as const;
 
 function isToolRoute(path: string | undefined): boolean {
   if (!path) return false;
@@ -80,13 +102,48 @@ function isToolRoute(path: string | undefined): boolean {
 
 interface ToolsCard {
   href: string;
-  Icon: LucideIcon;
   title: string;
   description: string;
+  /** Glyph of a card the PLATFORM owns. */
+  Icon?: LucideIcon;
+  /** Icon asset of a card a MODULE declared (`tool.iconPath`). */
+  iconPath?: string;
 }
 
-function buildCards(dict: Dictionary['toolsDrawer']): ToolsCard[] {
-  return [
+/** Lucide glyphs a manifest may name, resolved through the bundle. */
+const TOOL_ICONS: Readonly<Record<string, LucideIcon>> = {
+  Blocks,
+  BookOpen,
+  BrainCircuit,
+  Download,
+  Magnet,
+  MessageSquareText,
+  Search,
+};
+
+/**
+ * The glyph of a module card: its manifest's Lucide name, or the shared fallback.
+ *
+ * An unknown name is not an error — a manifest is data, and a typo must degrade to
+ * the generic module glyph rather than to a blank 20px box.
+ */
+function resolveToolIcon(name: string | undefined): LucideIcon {
+  if (name === undefined) return Blocks;
+  return TOOL_ICONS[name] ?? Blocks;
+}
+
+/**
+ * The drawer's cards: the platform's own three, then every enabled module tool.
+ *
+ * A module whose `href` collides with a card already on the list is SKIPPED: the
+ * card list is keyed by href, and two cards navigating to the same route would be
+ * a duplicate React key and a duplicate row.
+ */
+function buildCards(
+  dict: Dictionary['toolsDrawer'],
+  tools: readonly EnteiModuleToolEntry[],
+): ToolsCard[] {
+  const cards: ToolsCard[] = [
     {
       href: '/player/',
       Icon: Clapperboard,
@@ -106,6 +163,19 @@ function buildCards(dict: Dictionary['toolsDrawer']): ToolsCard[] {
       description: dict.modulesDescription,
     },
   ];
+  const seen = new Set(cards.map((card) => card.href));
+  for (const tool of tools) {
+    if (seen.has(tool.href)) continue;
+    seen.add(tool.href);
+    cards.push({
+      href: tool.href,
+      title: tool.title,
+      description: tool.description,
+      Icon: resolveToolIcon(tool.icon),
+      ...(tool.iconPath === undefined ? {} : { iconPath: tool.iconPath }),
+    });
+  }
+  return cards;
 }
 
 export function ImmersionToolsDialog({
@@ -116,6 +186,17 @@ export function ImmersionToolsDialog({
 }: ImmersionToolsDialogProps) {
   const [open, setOpen] = useState(false);
   const [copy, setCopy] = useState({ trigger: label, dict });
+  const [tools, setTools] = useState<EnteiModuleToolEntry[]>([]);
+
+  /* Module-declared tool cards. Re-read on a cross-tab toggle (the browser fires
+     `storage` when another tab flips a module switch), the same way the player's
+     islands keep their module gates fresh. */
+  useEffect(() => {
+    const sync = (): void => setTools(listModuleTools(readModuleState()));
+    sync();
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -132,7 +213,7 @@ export function ImmersionToolsDialog({
   }, []);
 
   const active = isToolRoute(currentPath);
-  const cards = buildCards(copy.dict);
+  const cards = buildCards(copy.dict, tools);
 
   const triggerClass =
     variant === 'pill'
@@ -175,7 +256,7 @@ export function ImmersionToolsDialog({
           </DialogDescription>
         </DialogHeader>
         <ul className="entei-tools-drawer-list">
-          {cards.map(({ href, Icon, title, description }) => (
+          {cards.map(({ href, Icon, iconPath, title, description }) => (
             <li key={href} className="entei-tools-drawer-item">
               <a
                 className="entei-tools-card"
@@ -184,7 +265,19 @@ export function ImmersionToolsDialog({
                 onClick={() => setOpen(false)}
               >
                 <span className="entei-tools-card-icon" aria-hidden="true">
-                  <Icon size={20} />
+                  {/* A module ships its own asset (Yomitan's logo); everything
+                      else draws its manifest's Lucide glyph. */}
+                  {iconPath !== undefined ? (
+                    <img
+                      className="entei-tools-card-icon-img"
+                      src={iconPath}
+                      alt=""
+                      width={20}
+                      height={20}
+                    />
+                  ) : Icon !== undefined ? (
+                    <Icon size={20} />
+                  ) : null}
                 </span>
                 <span className="entei-tools-card-text">
                   <span className="entei-tools-card-title">{title}</span>

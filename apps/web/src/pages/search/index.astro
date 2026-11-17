@@ -1,0 +1,29 @@
+---
+/**
+ * Yomitan Search — `/search/`, the Yomitan module's own tool page.
+ *
+ * The module declares this route in its manifest (`yomitan.module.json`'s
+ * `tool.href`), the Immersion Tools drawer draws a card for it, and this page is
+ * the destination: a dictionary search box over Entei's own dictionary database,
+ * drawn with Yomitan's own generator and stylesheets.
+ *
+ * `noindex` (like /player/ and /profile/): the page is a local tool over a local
+ * dictionary install, so there is nothing for a crawler to index. The layout's
+ * chrome (Top Bar, drawer trigger) stays, which is what makes it a page of the
+ * platform rather than the extension's standalone tab.
+ */
+import BaseLayout from '@layouts/BaseLayout.astro';
+import { YomitanSearchApp } from '@/modules/yomitan/search/YomitanSearchApp';
+---
+
+<BaseLayout
+  locale="id"
+  path="/search/"
+  title="Yomitan Search"
+  description="Lookup terms, kanji, and sentences in your installed dictionaries."
+  noindex={true}
+  showChrome={true}
+  pageId="search"
+>
+  <YomitanSearchApp client:only="react" />
+</BaseLayout>

@@ -232,6 +232,14 @@
   border-radius: var(--entei-radius-md);
 }
 
+/* A module card draws the module's OWN icon asset instead of a Lucide
+   glyph, in the same 20px box so a module card and a platform card line up. */
+.entei-tools-card-icon-img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
 .entei-tools-card-text {
   display: flex;
   flex-direction: column;
