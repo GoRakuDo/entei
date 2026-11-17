@@ -115,6 +115,15 @@ function entryKey(mode: string, query: string): string {
 }
 
 /**
+ * Fallback for `scanning.hideDelay` when the tree carries no usable number.
+ *
+ * Upstream's own default (`settings.js`), repeated here rather than imported so a
+ * hand-edited tree that cleared the knob still gets a delay instead of `0` — which
+ * would close the card in the same tick it opened.
+ */
+const DEFAULT_HIDE_DELAY_MS = 2000;
+
+/**
  * One history entry's resolved answer.
  *
  * Both halves, because a `scan` entry is drawn from both: the scanner runs the term
@@ -215,6 +224,24 @@ export function YomitanPopup() {
    */
   const anchorRef = useRef<PopupRect>({ top: 0, left: 0, width: 0, height: 0 });
   const offsetsRef = useRef<PopupPlacementOptions>({});
+  /** Auto-hide timer for miss events (Yomitan spec: delayed close on no-results). */
+  const autoHideTimerRef = useRef<number | null>(null);
+  /**
+   * The one-shot `pointerleave` armed on the frame while the pointer rests on it.
+   *
+   * Held so that the next scan — or an unmount — drops a listener whose card is
+   * no longer the one on screen.
+   */
+  const frameLeaveRef = useRef<((event: PointerEvent) => void) | null>(null);
+
+  /** Disarm a pending "the pointer left the card" close (a new scan replaces it). */
+  const clearFrameLeave = useCallback(() => {
+    const frame = frameRef.current;
+    const onLeave = frameLeaveRef.current;
+    frameLeaveRef.current = null;
+    if (frame === null || onLeave === null) return;
+    frame.removeEventListener('pointerleave', onLeave);
+  }, []);
 
   /* ---------------------------------------------------------------------
    * Draw: one history entry, from the entries resolved for it.
@@ -261,12 +288,52 @@ export function YomitanPopup() {
   useEffect(() => {
     const onScanResult = (event: Event): void => {
       const detail = (event as CustomEvent<YomitanScanResultDetail>).detail;
+      // Clear any pending auto-hide timer from a previous miss.
+      clearFrameLeave();
+      if (autoHideTimerRef.current !== null) {
+        window.clearTimeout(autoHideTimerRef.current);
+        autoHideTimerRef.current = null;
+      }
       if (detail === undefined || !hasScannedEntries(detail)) {
-        // A miss (or an empty hit): the previous card belongs to another word.
+        // Miss (or empty hit): Yomitan spec — if autoHideResults is on, close
+        // after hideDelay; otherwise close immediately.
         epochRef.current += 1;
-        setHistory(null);
-        setOpen(null);
-        setPlacement(null);
+        const missOptions = readYomitanOptions();
+        if (readOptionPath(missOptions, 'scanning.autoHideResults') === true) {
+          const hideDelay = readOptionPath(missOptions, 'scanning.hideDelay');
+          const delayMs = typeof hideDelay === 'number' && Number.isFinite(hideDelay)
+            ? Math.max(0, hideDelay)
+            : DEFAULT_HIDE_DELAY_MS;
+          autoHideTimerRef.current = window.setTimeout(() => {
+            autoHideTimerRef.current = null;
+            const frame = frameRef.current;
+            /* The reader is ON the card: closing under them would pull the words
+               away mid-read, so the card stays for as long as the pointer is in
+               it. A bare `return` left it up with nothing left to close it
+               (unbounded-open), hence the one-shot leave listener — leaving the
+               card is the close signal the timer could not be. */
+            if (frame?.matches(':hover') === true) {
+              clearFrameLeave();
+              const onLeave = (): void => {
+                if (frameLeaveRef.current !== onLeave) return;
+                frameLeaveRef.current = null;
+                setHistory(null);
+                setOpen(null);
+                setPlacement(null);
+              };
+              frameLeaveRef.current = onLeave;
+              frame.addEventListener('pointerleave', onLeave);
+              return;
+            }
+            setHistory(null);
+            setOpen(null);
+            setPlacement(null);
+          }, delayMs);
+        } else {
+          setHistory(null);
+          setOpen(null);
+          setPlacement(null);
+        }
         return;
       }
       const epoch = ++epochRef.current;
@@ -303,9 +370,14 @@ export function YomitanPopup() {
     };
 
     window.addEventListener(YOMITAN_SCAN_RESULT_EVENT, onScanResult);
-    return () =>
+    return () => {
       window.removeEventListener(YOMITAN_SCAN_RESULT_EVENT, onScanResult);
-  }, [draw]);
+      clearFrameLeave();
+      if (autoHideTimerRef.current !== null) {
+        window.clearTimeout(autoHideTimerRef.current);
+      }
+    };
+  }, [draw, clearFrameLeave]);
 
   /* ---------------------------------------------------------------------
    * History: a clicked kanji, and the action bar's `<` / `>`.

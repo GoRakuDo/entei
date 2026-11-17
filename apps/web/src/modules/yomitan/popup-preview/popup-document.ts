@@ -147,23 +147,40 @@ function escapeAttribute(value: string): string {
 }
 
 /**
- * `{ theme: 'dark', outerTheme: 'none' }` → ` data-theme="dark" data-outer-theme="none"`.
+ * The dataset names `resolvePopupAppearance` hands over, as `data-` ATTRIBUTES.
+ *
+ * `{ theme: 'dark', outerTheme: 'none' }` →
+ * `{ 'data-theme': 'dark', 'data-outer-theme': 'none' }`.
  *
  * The keys are `dataset` names, which is how `ThemeController` writes them and how
- * `resolvePopupThemeAttributes` hands them back. Two conversions happen here, at
- * the one place that serializes them: the `data-` prefix the DOM strips on the way
- * in, and the kebab case it expects on the way out — `dataset.outerTheme` IS
- * `data-outer-theme`, and an HTML parser would lowercase `data-outerTheme` into an
- * attribute no selector can match. Attribute order follows insertion order.
+ * `resolvePopupThemeAttributes` hands them back. Two conversions happen where they
+ * are CONSUMED: the `data-` prefix the DOM strips on the way in, and the kebab case
+ * it expects on the way out — `dataset.outerTheme` IS `data-outer-theme`, and an
+ * HTML parser would lowercase `data-outerTheme` into an attribute no selector can
+ * match. Attribute order follows insertion order.
+ *
+ * Two hosts draw these cards, and they need the same two conversions in different
+ * shapes: the iframe document serializes them into markup (`renderThemeAttributes`
+ * below), while `/search/` writes them on a real element in the host document
+ * (`YomitanSearchApp`), where React would emit `theme="dark"` for a spread of the
+ * raw record. Both read from here.
  */
+export function toDataAttributes(
+  attributes: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const data: Record<string, string> = {};
+  for (const [name, value] of Object.entries(attributes)) {
+    data[`data-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`] = value;
+  }
+  return data;
+}
+
+/** `{ theme: 'dark' }` → ` data-theme="dark"` — [`toDataAttributes`], serialized. */
 function renderThemeAttributes(
   attributes: Readonly<Record<string, string>>,
 ): string {
-  return Object.entries(attributes)
-    .map(([name, value]) => {
-      const attribute = `data-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
-      return ` ${escapeAttribute(attribute)}="${escapeAttribute(value)}"`;
-    })
+  return Object.entries(toDataAttributes(attributes))
+    .map(([name, value]) => ` ${escapeAttribute(name)}="${escapeAttribute(value)}"`)
     .join('');
 }
 

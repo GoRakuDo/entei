@@ -10,13 +10,19 @@ import {
   getActiveModifiersAndButtons,
   getMatchingInputGroup,
   getMatchingInputGroupFromEvent,
+  isScanPageEnabled,
   isScannableCharacter,
+  isWheelScrolling,
   matchedScanLength,
   normalizeScanInputConfig,
+  noteWheelScroll,
   readScanSettings,
+  scanAt,
   scanWindowAt,
   selectScanWindow,
   shouldScanInput,
+  YOMITAN_SCAN_RESULT_EVENT,
+  type YomitanScanResultDetail,
   type ScanInputConfig,
   type ScanSettings,
 } from '@/modules/yomitan/text-scanner';
@@ -86,6 +92,7 @@ const SHIFT_HOVER: ScanSettings = {
   selectText: false,
   layoutAwareScan: false,
   deepContentScan: false,
+  enableOnSearchPage: true,
 };
 
 const RESTING = {
@@ -346,6 +353,8 @@ describe('readScanSettings — persisted scanning values and inputs', () => {
     expect(settings.inputs[0]?.types.mouse).toBe(true);
     expect(settings.inputs[0]?.searchTerms).toBe(true);
     expect(settings.inputs[0]?.searchKanji).toBe(true);
+    // Upstream defaults this on, so an absent value must not silently disable it.
+    expect(settings.enableOnSearchPage).toBe(true);
   });
 
   it('falls back to the host’s own two cards when the tree carries none', () => {
@@ -417,7 +426,7 @@ describe('readScanSettings — persisted scanning values and inputs', () => {
       include: string;
       exclude: string;
     }[];
-    expect(inputsOn[0]?.include).toBe('shift mouse1');
+    expect(inputsOn[0]?.include).toBe('shift mouse2');
     expect(inputsOn[0]?.exclude).toBe('mouse0');
     expect(inputsOn).toHaveLength(2);
 
@@ -429,6 +438,53 @@ describe('readScanSettings — persisted scanning values and inputs', () => {
     }[];
     expect(inputsOff[0]?.include).toBe('shift');
     expect(inputsOff[0]?.exclude).toBe('mouse0');
+  });
+});
+
+describe('isScanPageEnabled — scanning.enableOnSearchPage per page', () => {
+  it('scans every page except the search page when the knob is on', () => {
+    expect(isScanPageEnabled(SHIFT_HOVER, 'home')).toBe(true);
+    expect(isScanPageEnabled(SHIFT_HOVER, undefined)).toBe(true);
+    expect(isScanPageEnabled(SHIFT_HOVER, 'search')).toBe(true);
+  });
+
+  it('skips only the search page when the knob is off', () => {
+    const off: ScanSettings = { ...SHIFT_HOVER, enableOnSearchPage: false };
+    expect(isScanPageEnabled(off, 'search')).toBe(false);
+    // The rest of the app is untouched by a search-page-only switch.
+    expect(isScanPageEnabled(off, 'player')).toBe(true);
+    expect(isScanPageEnabled(off, undefined)).toBe(true);
+  });
+
+  it('reads the knob off the persisted tree', () => {
+    const off = writeOptionPath(
+      createDefaultOptions(),
+      'scanning.enableOnSearchPage',
+      false,
+    );
+    expect(readScanSettings(off).enableOnSearchPage).toBe(false);
+    expect(isScanPageEnabled(readScanSettings(off), 'search')).toBe(false);
+    expect(isScanPageEnabled(readScanSettings(createDefaultOptions()), 'search')).toBe(
+      true,
+    );
+  });
+});
+
+describe('wheel guard — a scroll is not a pointer move', () => {
+  it('treats the pointer as scrolling during the gesture and its tail', () => {
+    expect(isWheelScrolling()).toBe(false);
+    noteWheelScroll();
+    expect(isWheelScrolling()).toBe(true);
+    // The tail is bounded, so a scan works again once the scrolling stops —
+    // asserted against an explicit clock rather than by waiting it out.
+    expect(isWheelScrolling(Date.now() + 60_000)).toBe(false);
+  });
+
+  it('re-arms on every wheel event, so a long gesture stays guarded', () => {
+    noteWheelScroll();
+    const duringFirst = Date.now();
+    noteWheelScroll();
+    expect(isWheelScrolling(duringFirst + 100)).toBe(true);
   });
 });
 
@@ -488,5 +544,55 @@ describe('readScanSettings — the behaviour knobs', () => {
     const base = createDefaultOptions();
     const deep = writeOptionPath(base, 'scanning.deepDomScan', true);
     expect(readScanSettings(deep).deepContentScan).toBe(true);
+  });
+});
+
+describe('scanAt — the published scan result covers a miss too', () => {
+  /** A document whose only text is `text`, with the caret at its start. */
+  function installTextUnderPointer(text: string): void {
+    const node = document.createTextNode(text);
+    document.body.replaceChildren(node);
+    document.caretRangeFromPoint = () => {
+      const range = document.createRange();
+      range.setStart(node, 0);
+      range.collapse(true);
+      return range;
+    };
+  }
+
+  /** The engine a browser really has: no dictionaries, so a scan misses. */
+  function installEmptyEngine(): void {
+    (globalThis as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+      invoke: async () => [],
+    };
+  }
+
+  it('announces a miss, which is what drives the popup auto-hide', async () => {
+    installEmptyEngine();
+    installTextUnderPointer('無縁');
+    const published: YomitanScanResultDetail[] = [];
+    const onScanResult = (event: Event): void => {
+      published.push((event as CustomEvent<YomitanScanResultDetail>).detail);
+    };
+    window.addEventListener(YOMITAN_SCAN_RESULT_EVENT, onScanResult);
+    let detail: YomitanScanResultDetail | null = null;
+    try {
+      detail = await scanAt(2, 2, { ...SHIFT_HOVER, layoutAwareScan: false });
+    } finally {
+      window.removeEventListener(YOMITAN_SCAN_RESULT_EVENT, onScanResult);
+      delete (globalThis as unknown as Record<string, unknown>)
+        .__TAURI_INTERNALS__;
+      (document as unknown as Record<string, unknown>).caretRangeFromPoint =
+        undefined;
+    }
+
+    expect(detail).not.toBeNull();
+    /* A miss: nothing matched, so nothing to light up or to draw. */
+    expect(detail?.matchLength).toBe(0);
+    expect(detail?.terms).toEqual([]);
+    /* …and it is still published: this event is the only thing that tells the
+       floating popup the word it was showing is no longer being read. */
+    expect(published).toHaveLength(1);
+    expect(published[0]?.text).toBe('無縁');
   });
 });

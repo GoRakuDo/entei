@@ -54,6 +54,7 @@ import {
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
 } from '@/modules/yomitan/popup-preview/popup-entries';
+import { toDataAttributes } from '@/modules/yomitan/popup-preview/popup-document';
 import { resolvePopupAppearance } from '@/modules/yomitan/popup-preview/popup-theme';
 import {
   activeProfileOptions,
@@ -115,7 +116,11 @@ interface SearchHistoryState {
 
 /** What the page reads from the persisted Yomitan options before searching. */
 interface SearchOptions {
-  /** Yomitan's theme / display-mode attributes, for the scoped element. */
+  /**
+   * Yomitan's theme / display-mode values under their `dataset` NAMES (`theme`,
+   * `outerTheme`, …) — the shape `ThemeController` writes, which
+   * `toDataAttributes` turns into the attributes the scoped stylesheets match.
+   */
   attributes: Readonly<Record<string, string>>;
   /** Inline font styles for the scoped element (`general.fontFamily` & co). */
   fontStyle: string;
@@ -457,12 +462,20 @@ export function YomitanSearchApp() {
     entries,
   });
 
+  /* The dataset names `resolvePopupAppearance` returns become real `data-`
+     attributes here. Spread as-is they would reach React as unknown props and be
+     lowercased by `setAttribute` into `theme="dark"` / `outertheme="dark"` —
+     attributes no selector matches: every vendored rule is anchored on
+     `:root[data-theme=dark]`, which `scope-css` re-anchored onto THIS element, so
+     the whole page drew light whatever the user's theme was. */
+  const themeAttributes = toDataAttributes(options.attributes);
+
   return (
     <div
       className="entei-yomitan-search"
       data-page-type="search"
       ref={rootRef}
-      {...options.attributes}
+      {...themeAttributes}
     >
       {/* ALWAYS in the layout. Upstream collapses its intro block once a query
           is on screen, but this page searches as the user types: a heading that

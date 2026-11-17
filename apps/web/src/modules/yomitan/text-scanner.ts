@@ -19,7 +19,11 @@
  * - LOCATE: `caretRangeFromPoint` turns the pointer position into a text node +
  *   offset, and up to `scanning.length` characters are taken from there.
  * - LOOK UP: `modules/yomitan/yomitan-engine` (loaded lazily on first scan).
- * - ANNOUNCE: one `yomitan:scan-result` CustomEvent on `window`, plus a trace
+ * - ANNOUNCE: one `yomitan:scan-result` CustomEvent on `window` per scan that
+ *   got as far as a lookup — a HIT *and* a MISS alike, because the floating
+ *   popup's delayed close (`scanning.autoHideResults` / `scanning.hideDelay`)
+ *   hangs off this event: a miss that stayed silent left the previous word's
+ *   card on screen until something else closed it. Plus a trace
  *   line, and the MATCHED WORD — not the whole window that was read — selected
  *   when `scanning.selectText` is on. The window has to be longer than the word
  *   for an inflected or compound word to resolve at all, so the translator's own
@@ -116,6 +120,14 @@ export interface ScanSettings {
   scanResolution: 'character' | 'word';
   /** Re-scan while the pointer rests and the text under it changes. */
   scanWithoutMousemove: boolean;
+  /**
+   * Allow scanning the dictionary search page's own content
+   * (`scanning.enableOnSearchPage`).
+   *
+   * Off means `/search/` is not scanned at all: the page is already drawing the
+   * cards, so a second popup over them is the extension's own duplicate.
+   */
+  enableOnSearchPage: boolean;
   /** Highlight the scanned text (Yomitan's "Select text when scanning"). */
   selectText: boolean;
   /** Skip text that is covered by something else at that point. */
@@ -450,10 +462,32 @@ export function readScanSettings(
     matchTypePrefix: read('scanning.matchTypePrefix') === true,
     scanResolution: resolution === 'word' ? 'word' : 'character',
     scanWithoutMousemove: read('scanning.scanWithoutMousemove') === true,
+    // Upstream's own default for this one is `true` (settings.js), so anything
+    // other than an explicit `false` leaves scanning on.
+    enableOnSearchPage: read('scanning.enableOnSearchPage') !== false,
     selectText: read('scanning.selectText') === true,
     layoutAwareScan: read('scanning.layoutAwareScan') !== false,
     deepContentScan: read('scanning.deepDomScan') === true,
   };
+}
+
+/**
+ * Is scanning allowed on THIS page? (`scanning.enableOnSearchPage`)
+ *
+ * Upstream's own switch, over its own search page: the page already draws the
+ * definition cards, so a second popup over them is a duplicate. Entei's search
+ * page is the same page inside the app, recognised by the layout's `data-page`
+ * marker (`BaseLayout`'s `pageId`) rather than by URL, because the route is
+ * localised and the marker is not.
+ *
+ * PURE over `(settings, page)` so the rule is testable without a document; the
+ * default reads the live `<body>`.
+ */
+export function isScanPageEnabled(
+  settings: ScanSettings,
+  page: string | undefined = globalThis.document?.body?.dataset.page,
+): boolean {
+  return page === 'search' ? settings.enableOnSearchPage : true;
 }
 
 /**
@@ -813,6 +847,43 @@ let scanTimerResolve: ((val: boolean) => void) | null = null;
 let scanTimerTimeout: ReturnType<typeof setTimeout> | null = null;
 let pendingLookup = false;
 
+/**
+ * How long after the last `wheel` event the pointer still counts as scrolling.
+ *
+ * A wheel gesture lasts as long as the platform keeps sending events, and the
+ * pointer sits STILL over the text the whole time: without this, holding the scan
+ * modifier (upstream's default mouse card is `shift` + move) while scrolling
+ * re-scans every line the page pushes under the cursor, and the popup chases the
+ * content down the page instead of staying on the word the user was reading. The
+ * tail covers momentum scrolling — which keeps sending `wheel` after the fingers
+ * stop — plus the `pointermove` a scroll container emits while it settles.
+ */
+const WHEEL_SCROLL_GUARD_MS = 250;
+
+/** `Date.now()` until which the pointer counts as scrolling (0 = not scrolling). */
+let wheelScrollUntil = 0;
+
+/** Is the pointer inside a wheel gesture (or its quiet tail) right now? */
+export function isWheelScrolling(now: number = Date.now()): boolean {
+  return now < wheelScrollUntil;
+}
+
+/**
+ * Start the scroll guard: drop the pending scan AND any lookup in flight.
+ *
+ * Both halves are needed. `scanTimerClear` cancels the debounce a hover scan is
+ * still waiting on, and the `epoch` bump makes a scan that already reached the
+ * dictionary engine discard its answer (`scanAt` re-checks the epoch after every
+ * await), so a card cannot open halfway through the scroll it was started in.
+ */
+export function noteWheelScroll(): void {
+  wheelScrollUntil = Date.now() + WHEEL_SCROLL_GUARD_MS;
+  lastKey = '';
+  lastAt = 0;
+  epoch += 1;
+  scanTimerClear();
+}
+
 function scanTimerClear(): void {
   if (scanTimerResolve !== null) {
     const resolve = scanTimerResolve;
@@ -954,6 +1025,9 @@ export function initTextScanner(): () => void {
 
   const onPointerMove = (event: PointerEvent): void => {
     if (!event.isPrimary) return;
+    /* A wheel gesture moves the PAGE, not the pointer: every line it pushes under
+       a resting cursor would otherwise be a scan (see `WHEEL_SCROLL_GUARD_MS`). */
+    if (isWheelScrolling()) return;
     const pType = getPointerEventType(event);
     const snapshot = readScanSnapshot();
     if (!snapshot.moduleEnabled) return;
@@ -1060,6 +1134,14 @@ export function initTextScanner(): () => void {
     }
   };
 
+  /* A wheel notch is a scroll, not a scan. Registered PASSIVE in the capture
+     phase: the page must scroll exactly as it would without the scanner (and the
+     popup's own frame scrolls on wheel too), while the scanner still has to see
+     the gesture before the pointer events it drags along. */
+  const onWheel = (): void => {
+    noteWheelScroll();
+  };
+
   document.addEventListener('pointerover', onPointerOver, { passive: true, capture: true });
   document.addEventListener('pointerdown', onPointerDown, { passive: true, capture: true });
   document.addEventListener('pointermove', onPointerMove, { passive: true, capture: true });
@@ -1067,6 +1149,7 @@ export function initTextScanner(): () => void {
   document.addEventListener('pointercancel', onPointerCancel, { passive: true, capture: true });
   document.addEventListener('pointerout', onPointerOut, { passive: true, capture: true });
   document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+  document.addEventListener('wheel', onWheel, { passive: true, capture: true });
 
   return () => {
     document.removeEventListener('pointerover', onPointerOver, { capture: true });
@@ -1076,11 +1159,15 @@ export function initTextScanner(): () => void {
     document.removeEventListener('pointercancel', onPointerCancel, { capture: true });
     document.removeEventListener('pointerout', onPointerOut, { capture: true });
     document.removeEventListener('touchmove', onTouchMove, { capture: true });
+    document.removeEventListener('wheel', onWheel, { capture: true });
     if (debounce !== null) clearTimeout(debounce);
     debounce = null;
     scanTimerClear();
     if (stillFrame !== 0) cancelAnimationFrame(stillFrame);
     stillFrame = 0;
+    wheelScrollUntil = 0;
+    lastKey = '';
+    lastAt = 0;
   };
 }
 
@@ -1180,6 +1267,21 @@ async function handlePenEvent(
 }
 
 /**
+ * Announce one scan result on `window` (hit and miss alike).
+ *
+ * The one place the event is built, so a consumer never has to care which of the
+ * two branches produced it: the popup's `autoHideResults` close is driven by the
+ * MISS, which is exactly why a miss has to be published too.
+ */
+function publishScanResult(detail: YomitanScanResultDetail): void {
+  window.dispatchEvent(
+    new CustomEvent<YomitanScanResultDetail>(YOMITAN_SCAN_RESULT_EVENT, {
+      detail,
+    }),
+  );
+}
+
+/**
  * Look up whatever Japanese text sits under `(x, y)` and announce it.
  */
 export async function scanAt(
@@ -1190,7 +1292,7 @@ export async function scanAt(
 ): Promise<YomitanScanResultDetail | null> {
   const snap = readScanSnapshot();
   if (!snap.moduleEnabled) return null;
-
+  if (!isScanPageEnabled(settings)) return null;
   let searchTerms = true;
   let searchKanji = true;
 
@@ -1292,6 +1394,8 @@ export async function scanAt(
       // The previous word is no longer what is being read, so its highlight goes
       // with the answer that put it there.
       if (settings.selectText) clearScanSelection();
+      // Announced like a hit: this is what carries the popup's delayed close.
+      publishScanResult(detail);
       return detail;
     }
     if (settings.selectText) {
@@ -1316,11 +1420,7 @@ export async function scanAt(
       terms: detail.terms.length,
       kanji: detail.kanji.length,
     });
-    window.dispatchEvent(
-      new CustomEvent<YomitanScanResultDetail>(YOMITAN_SCAN_RESULT_EVENT, {
-        detail,
-      }),
-    );
+    publishScanResult(detail);
     return detail;
   } catch (error) {
     traceYomitan('scan_failed', { text: windowed.text, error });

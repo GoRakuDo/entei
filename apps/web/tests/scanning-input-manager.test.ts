@@ -70,10 +70,12 @@ describe('recording a key or button', () => {
     expect(keyboardInputToken(key('F5'))).toBeNull();
   });
 
-  it('records mouse buttons 0–5 only', () => {
+  it('records mouse buttons in the bitmask index the scanner matches', () => {
     const button = (value: number) => ({ button: value }) as MouseEvent;
     expect(mouseInputToken(button(0))).toBe('mouse0');
-    expect(mouseInputToken(button(1))).toBe('mouse1');
+    // DOM press order → `buttons` bitmask: middle (1) is bit 2, right (2) is bit 1.
+    expect(mouseInputToken(button(1))).toBe('mouse2');
+    expect(mouseInputToken(button(2))).toBe('mouse1');
     expect(mouseInputToken(button(5))).toBe('mouse5');
     expect(mouseInputToken(button(6))).toBeNull();
     expect(mouseInputToken(button(-1))).toBeNull();

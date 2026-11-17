@@ -36,6 +36,7 @@ import {
   resolvePreviewTerm,
   restoreTextGlosses,
   stepPopupHistory,
+  toDataAttributes,
   toPopupDictionaryInfo,
   type PopupDictionaryInfo,
 } from '@/modules/yomitan/popup-preview';
@@ -477,6 +478,29 @@ describe('yomitan popup preview — document', () => {
     expect(html).toContain('data-show-pronunciation-graph="true"');
     // The dataset name never leaks as a lowercased mash (no camelCase attribute).
     expect(html).not.toContain('glossaryLayoutMode=');
+  });
+
+  /* The same two conversions the document performs, as an attribute MAP: the host
+     that draws these cards on a real element (`/search/`) hands them to React, which
+     would lowercase an unknown prop into `themeglossary…`-style noise instead. */
+  it('converts dataset names to kebab-cased data attributes', () => {
+    expect(
+      toDataAttributes({
+        theme: 'dark',
+        outerTheme: 'none',
+        glossaryLayoutMode: 'compact',
+      }),
+    ).toEqual({
+      'data-theme': 'dark',
+      'data-outer-theme': 'none',
+      'data-glossary-layout-mode': 'compact',
+    });
+    // Order follows insertion order, so the serialized document is unchanged.
+    expect(Object.keys(toDataAttributes({ theme: 'dark', outerTheme: 'none' }))).toEqual([
+      'data-theme',
+      'data-outer-theme',
+    ]);
+    expect(toDataAttributes({})).toEqual({});
   });
 });
 

@@ -29,6 +29,7 @@ export {
   POPUP_PREVIEW_PLACEHOLDER,
   POPUP_PREVIEW_TERM,
   buildPopupDocument,
+  toDataAttributes,
 } from '@/modules/yomitan/popup-preview/popup-document';
 export { loadPopupPreviewAssets } from '@/modules/yomitan/popup-preview/popup-assets';
 export { inlinePopupIconUrls } from '@/modules/yomitan/popup-preview/popup-assets';

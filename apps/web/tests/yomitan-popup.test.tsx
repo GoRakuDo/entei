@@ -146,7 +146,10 @@ function installEngine(): void {
  * lookup answers nothing — which is exactly what a fresh install looks like, so
  * this is the setup a real hit needs.
  */
-function persistDictionaryConfig(general: Record<string, unknown> = {}): void {
+function persistDictionaryConfig(
+  general: Record<string, unknown> = {},
+  scanning: Record<string, unknown> = {},
+): void {
   const base = createDefaultOptions();
   const options = {
     ...base,
@@ -156,14 +159,20 @@ function persistDictionaryConfig(general: Record<string, unknown> = {}): void {
         { name: JMDICT.title, enabled: true },
         { name: KANJIDIC.title, enabled: true },
       ]) as typeof profile.options;
-      /* The same tree carries the appearance knobs, so a test can persist the
-         user's Shadow setting the way the settings page does. */
+      /* The same tree carries the appearance knobs and the scanning ones, so a
+         test can persist the user's Shadow setting or their auto-hide choice the
+         way the settings page does. */
+      const withGeneral = Object.entries(general).reduce(
+        (tree, [key, value]) =>
+          setPathValue(tree, `general.${key}`, value) as typeof tree,
+        withDictionaries,
+      );
       return {
         ...profile,
-        options: Object.entries(general).reduce(
+        options: Object.entries(scanning).reduce(
           (tree, [key, value]) =>
-            setPathValue(tree, `general.${key}`, value) as typeof tree,
-          withDictionaries,
+            setPathValue(tree, `scanning.${key}`, value) as typeof tree,
+          withGeneral,
         ),
       };
     }),
@@ -237,7 +246,23 @@ function publishScan(
 }
 
 /**
- * Run the scanner's own lookup for one text, exactly as `scanAt` does.
+ * Publish a scan that found nothing, the way `scanAt` does for a miss.
+ *
+ * The scanner announces a miss on the SAME event as a hit (there is no second
+ * channel), so this is what the popup's auto-hide hangs off.
+ */
+function publishScanMiss(): void {
+  publishScan({
+    text: '無縁',
+    matchLength: 0,
+    entries: [],
+    kanjiEntries: [],
+    terms: [],
+    kanji: [],
+  });
+}
+
+/**
  *
  * The popup is fed a REAL scan result rather than a hand-built one: the point of
  * the contract is that the scanner's published payload — the translator's own
@@ -361,11 +386,15 @@ describe('YomitanPopup — floating scan popup', () => {
     /* Upstream's `popup-outer.css` puts the shadow on the extension's own
        `<iframe>` and keys it off `data-outer-theme`, so the frame ELEMENT carries
        the resolved setting — the document inside it is the popup's content. */
-    const light = await scanResultFor('食べた');
+    /* `general.popupOuterTheme` defaults to `site`, and in Entei the site theme IS
+       dark (`resolvePopupThemeAttributes` pins `siteTheme = 'dark'`, commit
+       ed0db14), so an untouched tree resolves to a DARK halo rather than the
+       light one the extension paints on a light page. */
+    const site = await scanResultFor('食べた');
     const { container } = render(<YomitanPopup />);
-    publishScan(light);
+    publishScan(site);
     await waitFor(() => expect(popupFrame(container)).not.toBeNull());
-    expect(popupFrame(container)?.dataset.outerTheme).toBe('light');
+    expect(popupFrame(container)?.dataset.outerTheme).toBe('dark');
     cleanup();
 
     /* `none` is the setting the user can actually see: no shadow at all. */
@@ -374,6 +403,65 @@ describe('YomitanPopup — floating scan popup', () => {
     publishScan(flat);
     await waitFor(() => expect(popupFrame(second.container)).not.toBeNull());
     expect(popupFrame(second.container)?.dataset.outerTheme).toBe('none');
+  });
+
+  it('holds an open card for hideDelay after a miss (autoHideResults on)', async () => {
+    const detail = await scanResultFor('食べた');
+    persistDictionaryConfig({}, { autoHideResults: true, hideDelay: 400 });
+    const { container } = render(<YomitanPopup />);
+
+    publishScan(detail);
+    await waitFor(() => expect(popupFrame(container)).not.toBeNull());
+
+    /* The miss arrives on the same event, and it is the only thing that knows the
+       word on screen is no longer the one being read. */
+    publishScanMiss();
+    /* Upstream's behaviour: the card stays up while the delay runs, so a reader
+       who is still looking at it is not cut off. */
+    expect(popupFrame(container)).not.toBeNull();
+
+    await waitFor(() => expect(popupFrame(container)).toBeNull(), {
+      timeout: 2000,
+    });
+  });
+
+  it('keeps a card the pointer is resting on, and closes it on leave', async () => {
+    const detail = await scanResultFor('食べた');
+    persistDictionaryConfig({}, { autoHideResults: true, hideDelay: 0 });
+    const { container } = render(<YomitanPopup />);
+
+    publishScan(detail);
+    await waitFor(() => expect(popupFrame(container)).not.toBeNull());
+
+    const frame = popupFrame(container) as HTMLElement;
+    /* jsdom has no pointer, so the element says what the timer asks it: the
+       reader has moved onto the card and is reading it. */
+    const matches = vi.spyOn(frame, 'matches').mockReturnValue(true);
+
+    publishScanMiss();
+    /* The delay runs out while the card is being read: it stays. */
+    await new Promise((r) => setTimeout(r, 40));
+    expect(popupFrame(container)).not.toBeNull();
+
+    /* … and leaving the card is what closes it. Without this the hover guard
+       left the card on screen forever, with nothing left to close it. */
+    fireEvent.pointerLeave(frame);
+    matches.mockRestore();
+
+    await waitFor(() => expect(popupFrame(container)).toBeNull());
+  });
+
+  it('closes an open card at once for a miss when autoHideResults is off', async () => {
+    const detail = await scanResultFor('食べた');
+    persistDictionaryConfig({}, { autoHideResults: false });
+    const { container } = render(<YomitanPopup />);
+
+    publishScan(detail);
+    await waitFor(() => expect(popupFrame(container)).not.toBeNull());
+
+    publishScanMiss();
+
+    await waitFor(() => expect(popupFrame(container)).toBeNull());
   });
 
   it('stays closed for a scan that found nothing', async () => {

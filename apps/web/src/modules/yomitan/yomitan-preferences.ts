@@ -97,7 +97,7 @@ export function isLockedOptionPath(path: string): boolean {
  * shape says, so a hand-edited `inputs` array still reads back correctly.
  *
  * Only the MODIFIER is a settings row (the Scanning section's simple one). The
- * middle-button path stays as the scanner's own read of `mouse1` in that same
+ * middle-button path stays as the scanner's own read of `mouse2` in that same
  * `include` — the advanced scan-input cards are what writes it now, alongside
  * every other token, so the knob keeps working without a switch of its own.
  * ------------------------------------------------------------------------- */
@@ -205,7 +205,30 @@ const MODIFIER_TOKENS: Record<Exclude<ScanModifierKey, 'none'>, string> = {
 const ALL_MODIFIER_NAMES = new Set(['shift', 'ctrl', 'control', 'alt', 'meta', 'os']);
 
 /** Tokens in an `include`/`exclude` list that name a mouse button. */
-const MOUSE_TOKENS: readonly string[] = ['mouse0', 'mouse1', 'mouse2'];
+const MOUSE_TOKENS: readonly string[] = ['mouse0', 'mouse1', 'mouse2', 'mouse3', 'mouse4', 'mouse5'];
+
+/**
+ * The token the `scanning.middleMouse` knob stands for.
+ *
+ * NOT an arbitrary choice: a mouse token names a bit of the `buttons` bitmask the
+ * scanner matches against, not a DOM `MouseEvent.button` — upstream's own
+ * `getActiveButtonsInternal` maps bit `i` to `mouse${i}`, so the middle button
+ * (bit 2, value 4) is `mouse2` and the RIGHT one is `mouse1`. Writing `mouse1`
+ * here therefore made the "middle mouse" row demand the right button: the knob
+ * and the scanner disagreed about the same physical button, so the toggle never
+ * did what its label said.
+ */
+const MIDDLE_MOUSE_TOKEN = 'mouse2';
+
+/**
+ * The token a build BEFORE the bit-index fix wrote for the same button.
+ *
+ * Kept only so a persisted tree from that build can be rewritten once (see
+ * [`migrateLegacyScanInputTokens`]): the scanner matches an `include` against the
+ * `buttons` BITMASK, so a card that asks for `mouse1` fires on the RIGHT button —
+ * the knob and the card disagreeing about the same physical button.
+ */
+const LEGACY_MIDDLE_MOUSE_TOKEN = 'mouse1';
 
 /** The persisted `scanning.inputs` array (empty when the tree has none). */
 function scanInputsOf(options: Options): Record<string, unknown>[] {
@@ -259,12 +282,14 @@ function getOrCreateModifierInputIndex(
       return i;
     }
   }
-  // 2. Look for any mouse card whose include only has modifiers (plus mouse1 from middleMouse)
+  // 2. Look for any mouse card whose include only has modifiers (plus the middle-mouse token)
   for (let i = 0; i < inputs.length; i++) {
     const entry = inputs[i];
     if (entry === undefined) continue;
     const include = tokensOf(entry, 'include');
-    const nonMods = include.filter((t) => !ALL_MODIFIER_NAMES.has(t) && t !== 'mouse1');
+    const nonMods = include.filter(
+      (t) => !ALL_MODIFIER_NAMES.has(t) && t !== MIDDLE_MOUSE_TOKEN,
+    );
     if (nonMods.length === 0 && modifierOf(include) !== 'none') {
       return i;
     }
@@ -306,7 +331,7 @@ function readVirtualScanPath(options: Options, path: string): unknown {
     const modifier = modifierOf(include);
     return modifier === 'none' && include.length > 0 ? 'shift' : modifier;
   }
-  return include.includes('mouse1');
+  return include.includes(MIDDLE_MOUSE_TOKEN);
 }
 
 /**
@@ -338,15 +363,15 @@ function writeVirtualScanPath(
   const nextMiddleMouse =
     path === SCAN_MIDDLE_MOUSE_PATH
       ? value === true
-      : include.includes('mouse1');
+      : include.includes(MIDDLE_MOUSE_TOKEN);
 
   const nonModifierTokens = include.filter(
-    (t) => !ALL_MODIFIER_NAMES.has(t) && t !== 'mouse1',
+    (t) => !ALL_MODIFIER_NAMES.has(t) && t !== MIDDLE_MOUSE_TOKEN,
   );
   const nextInclude = [
     ...(nextModifier === 'none' ? [] : [MODIFIER_TOKENS[nextModifier]]),
     ...nonModifierTokens,
-    ...(nextMiddleMouse ? ['mouse1'] : []),
+    ...(nextMiddleMouse ? [MIDDLE_MOUSE_TOKEN] : []),
   ]
     .filter((token, index, arr) => arr.indexOf(token) === index)
     .join(' ');
@@ -396,8 +421,20 @@ export function traceYomitan(event: string, data?: TraceData): void {
 /** localStorage key (versioned) — also the SQLite key suffix. */
 export const YOMITAN_OPTIONS_KEY = 'entei.yomitan.options.v1';
 
-/** Persisted schema version. */
-export const YOMITAN_OPTIONS_SCHEMA_VERSION = 1;
+/**
+ * Persisted schema version.
+ *
+ * `2` is the payload that carries the corrected middle-mouse token: anything
+ * below it was written while `scanning.middleMouse` still wrote the pre-fix one,
+ * so its input cards are rewritten on the way out (see
+ * [`migrateLegacyScanInputTokens`]).
+ */
+export const YOMITAN_OPTIONS_SCHEMA_VERSION = 2;
+
+/**
+ * The first payload version that already carries the corrected mouse token.
+ */
+const SCAN_MOUSE_TOKEN_FIX_VERSION = 2;
 
 /** Debounce window for autosave (one write per burst of edits). */
 const SAVE_DEBOUNCE_MS = 400;
@@ -438,6 +475,96 @@ function hasScanInputCards(options: unknown): boolean {
   const inputs = getPathValue(options, SCAN_INPUTS_PATH);
   if (!Array.isArray(inputs)) return false;
   return inputs.some((input) => isPlainObject(input));
+}
+
+/**
+ * Rewrite the legacy middle-mouse token in one `include` / `exclude` string.
+ *
+ * Returns the value UNCHANGED (same reference) when it carries no legacy token,
+ * so a caller can tell a rewritten card from an untouched one. The original
+ * spacing survives: only the token itself is substituted.
+ */
+function migrateMouseTokenString(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  if (!value.includes(LEGACY_MIDDLE_MOUSE_TOKEN)) return value;
+  const tokens = value.split(/\s+/);
+  if (!tokens.includes(LEGACY_MIDDLE_MOUSE_TOKEN)) return value;
+  return tokens
+    .map((token) =>
+      token === LEGACY_MIDDLE_MOUSE_TOKEN ? MIDDLE_MOUSE_TOKEN : token,
+    )
+    .join(' ');
+}
+
+/**
+ * Rewrite the legacy middle-mouse token across every `scanning.inputs` card.
+ *
+ * One-shot compatibility for trees persisted before the bit-index fix, where the
+ * `scanning.middleMouse` knob wrote `mouse1` for the wheel button while the
+ * scanner read the same physical button as `mouse2` (see `MIDDLE_MOUSE_TOKEN`).
+ * Such a card does not merely show the wrong knob state: it asks the matcher for
+ * the RIGHT button, so the middle-click scan trigger fires on the wrong click.
+ * Rewriting the token is what makes the card mean what its label said.
+ *
+ * Only the mouse tokens the HOST's own writer ever emitted are ambiguous, and a
+ * user who deliberately recorded `mouse1` (right button) on a pre-fix build will
+ * have that one card rebind once — re-recording it writes the right token from
+ * then on. Everything else in the tree, including token spacing, is left alone,
+ * and the same options reference is returned when there is nothing to do.
+ */
+export function migrateLegacyScanInputTokens(options: Options): Options {
+  let changed = false;
+  const profiles = options.profiles.map((profile) => {
+    const inputs = getPathValue(profile.options, SCAN_INPUTS_PATH);
+    if (!Array.isArray(inputs)) return profile;
+    let cardChanged = false;
+    const nextInputs = inputs.map((input) => {
+      if (!isPlainObject(input)) return input;
+      const include = migrateMouseTokenString(input.include);
+      const exclude = migrateMouseTokenString(input.exclude);
+      if (include === input.include && exclude === input.exclude) return input;
+      cardChanged = true;
+      return { ...input, include, exclude };
+    });
+    if (!cardChanged) return profile;
+    changed = true;
+    return {
+      ...profile,
+      options: setPathValue(
+        profile.options,
+        SCAN_INPUTS_PATH,
+        nextInputs,
+      ) as ProfileOptions,
+    };
+  });
+  if (!changed) return options;
+  traceYomitan('settings_scan_mouse_token_migrated', {
+    version: YOMITAN_OPTIONS_SCHEMA_VERSION,
+  });
+  return { ...options, profiles } as Options;
+}
+
+/**
+ * Apply the mouse-token migration to a payload written before the fix.
+ *
+ * Gated on the PERSISTED payload's own version, not on the tree: the same tokens
+ * written by a current build are the user's deliberate choice (the recorder writes
+ * `mouse1` for the right button on purpose), so only a pre-fix payload is
+ * rewritten. A payload with no readable version is treated as pre-fix —
+ * fail-safe, because a card left on the legacy token never scans on the middle
+ * button at all.
+ */
+function migrateLegacyPayload(
+  options: Options,
+  payloadVersion: unknown,
+): Options {
+  if (
+    typeof payloadVersion === 'number' &&
+    payloadVersion >= SCAN_MOUSE_TOKEN_FIX_VERSION
+  ) {
+    return options;
+  }
+  return migrateLegacyScanInputTokens(options);
 }
 
 /**
@@ -546,7 +673,10 @@ function readPersistedOptions(): Options {
       // Tolerate a bare Options object (older/hand-edited payloads).
       return normalizeOptions(parsed);
     }
-    return normalizeOptions(parsed.options);
+    return migrateLegacyPayload(
+      normalizeOptions(parsed.options),
+      parsed.version,
+    );
   } catch (error) {
     // storage unavailable or corrupted
     traceYomitan('settings_read_failed', { error });
@@ -584,7 +714,10 @@ export async function hydrateYomitanOptions(): Promise<Options> {
       traceYomitan('settings_hydrated', fromCache);
       return cached;
     }
-    const options = normalizeOptions(parsed.options);
+    const options = migrateLegacyPayload(
+      normalizeOptions(parsed.options),
+      parsed.version,
+    );
     // The DB is the durable source of truth: its gate wins over the cache's.
     syncDebugInfoCache(options);
     writeCache(options);

@@ -217,12 +217,36 @@ export function keyboardInputToken(event: KeyboardEvent): string | null {
   return null;
 }
 
-/** The token a recorded mouse event stands for (buttons 0–5). */
+/**
+ * DOM `MouseEvent.button` → the index the scanner's `buttons` BITMASK uses.
+ *
+ * The DOM numbers a mouse event's `button` in PRESS order (0 left, 1 middle /
+ * wheel, 2 right). The scanner does not: it reads the `buttons` bitmask the
+ * pointer events carry, where bit 0 is the left button, bit 1 the RIGHT one and
+ * bit 2 the middle one (`getActiveButtons` → `mouse0` / `mouse1` / `mouse2`).
+ * The middle and right indices are therefore swapped between the two, and the
+ * three extra buttons (back / forward / side) agree in both.
+ */
+const MOUSE_BUTTON_BIT_INDEX: Readonly<Record<number, number>> = {
+  0: 0, // primary (left)   → bit 0 → mouse0
+  1: 2, // auxiliary (wheel) → bit 2 → mouse2
+  2: 1, // secondary (right) → bit 1 → mouse1
+};
+
+/**
+ * The token a recorded mouse event stands for.
+ *
+ * Converting the index is what makes a recorded card and a live scan agree:
+ * recording the middle button used to write `mouse1` while scanning derived
+ * `mouse2` from the same physical button, so an include/exclude token built here
+ * could never match — the card silently never fired (or never stayed silent).
+ */
 export function mouseInputToken(event: MouseEvent): string | null {
   if (!Number.isInteger(event.button) || event.button < 0 || event.button > 5) {
     return null;
   }
-  return `mouse${event.button}`;
+  const bitIndex = MOUSE_BUTTON_BIT_INDEX[event.button] ?? event.button;
+  return `mouse${bitIndex}`;
 }
 
 /** Is this record a scan-input object at all? */

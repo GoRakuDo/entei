@@ -10,6 +10,8 @@
  *   advanced+debug toggles) ignore any foreign stored value and refuse writes
  * - the two scan-input cards this host ships with are seeded whenever a profile
  *   carries none, and a stored list that has cards is left alone
+ * - a payload stored before the middle-mouse token fix has that token rewritten
+ *   on read, while a current payload's token is left as the user set it
  * - integer fields round (no fractional values reach the store)
  * - the module → trace pipeline is gated on `general.debugInfo`
  */
@@ -185,6 +187,77 @@ describe('yomitan-preferences — the two shipped scan-input cards', () => {
     expect(first[0]).not.toBe(second[0]);
     expect(first[0]?.types).not.toBe(second[0]?.types);
     expect(first[0]?.options).not.toBe(second[0]?.options);
+  });
+});
+
+describe('yomitan-preferences — legacy middle-mouse token', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  const base = createDefaultProfileOptions();
+
+  /** The active profile's cards, read the way the settings editor reads them. */
+  function cards(): ScanningInput[] {
+    return readScanInputs(readYomitanOptions());
+  }
+
+  /** Store one profile carrying exactly these `inputs` under `version`. */
+  function storeInputs(
+    inputs: unknown,
+    version: unknown = YOMITAN_OPTIONS_SCHEMA_VERSION,
+  ): void {
+    localStorage.setItem(
+      YOMITAN_OPTIONS_KEY,
+      JSON.stringify({
+        version,
+        options: {
+          ...createDefaultOptions(),
+          profiles: [
+            {
+              name: 'Default',
+              conditionGroups: [],
+              options: { ...base, scanning: { ...base.scanning, inputs } },
+            },
+          ],
+        },
+      }),
+    );
+  }
+
+  /** A desktop card as a build BEFORE the bit fix persisted it. */
+  const legacyCard = {
+    include: 'shift mouse1',
+    exclude: 'mouse0',
+    types: { mouse: true, touch: false, pen: false },
+    options: base.scanning.inputs[0]!.options,
+  };
+
+  it('rewrites the pre-fix token in a payload stored before the fix', () => {
+    storeInputs([legacyCard], 1);
+
+    const inputs = cards();
+    /* `mouse1` is the RIGHT button to the scanner's bitmask matcher, so a card
+       left on it scans on the wrong click. */
+    expect(inputs[0]?.include).toBe('shift mouse2');
+    /* Nothing else about the card moves. */
+    expect(inputs[0]?.exclude).toBe('mouse0');
+    expect(inputs).toHaveLength(1);
+    /* …and the middle-mouse row now reports the state the user left it in. */
+    expect(readOptionPath(readYomitanOptions(), 'scanning.middleMouse')).toBe(
+      true,
+    );
+  });
+
+  it('keeps the same token in a payload written by a current build', () => {
+    /* The recorder writes `mouse1` for the right button ON PURPOSE, so a current
+       payload's token is the user's choice, not a leftover. */
+    storeInputs([legacyCard]);
+
+    expect(cards()[0]?.include).toBe('shift mouse1');
+    expect(readOptionPath(readYomitanOptions(), 'scanning.middleMouse')).toBe(
+      false,
+    );
   });
 });
 
