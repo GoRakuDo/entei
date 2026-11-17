@@ -157,12 +157,24 @@ interface SearchOptions {
   fontStyle: string;
   /** `general.enableWanakana` — convert typed romaji to kana. */
   ime: boolean;
+  /**
+   * `general.stickySearchHeader` — pin the box to the top while the cards scroll.
+   *
+   * Upstream means this literally (its search window scrolls its own result
+   * column under a fixed header); here it is the same intent on a page that
+   * scrolls with the document — see the `[data-sticky-search-header]` rule in
+   * `search.css`.
+   */
+  stickyHeader: boolean;
   /** The furigana header's switches (`parsing.*` and the scan window). */
   queryParser: QueryParserSettings;
 }
 
 /** Upstream's own default for `general.enableWanakana` (`settings/defaults.ts`). */
 const IME_DEFAULT = true;
+
+/** Upstream's own default for `general.stickySearchHeader` (off). */
+const STICKY_HEADER_DEFAULT = false;
 
 /**
  * Read the page's appearance and IME setting from the persisted options.
@@ -180,6 +192,7 @@ function readSearchOptions(): SearchOptions {
       attributes: appearance.themeAttributes,
       fontStyle: appearance.fontStyle,
       ime: profile.general.enableWanakana,
+      stickyHeader: profile.general.stickySearchHeader,
       queryParser: readQueryParserSettings(profile),
     };
   } catch {
@@ -187,6 +200,7 @@ function readSearchOptions(): SearchOptions {
       attributes: {},
       fontStyle: '',
       ime: IME_DEFAULT,
+      stickyHeader: STICKY_HEADER_DEFAULT,
       queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
     };
   }
@@ -212,6 +226,7 @@ export function YomitanSearchApp() {
     attributes: {},
     fontStyle: '',
     ime: IME_DEFAULT,
+    stickyHeader: STICKY_HEADER_DEFAULT,
     queryParser: DEFAULT_QUERY_PARSER_SETTINGS,
   });
   const [assetsReady, setAssetsReady] = useState(false);
@@ -625,7 +640,13 @@ export function YomitanSearchApp() {
         <h1>{SEARCH_COPY.heading}</h1>
       </div>
 
-      <div className="entei-yomitan-search-header">
+      <div
+        className="entei-yomitan-search-header"
+        /* `general.stickySearchHeader`, read once with the rest of the options:
+           the attribute is what the sheet keys the pinned header on, so the page
+           adds no second source of truth for it. */
+        data-sticky-search-header={options.stickyHeader ? 'true' : 'false'}
+      >
         <div className="top-progress-bar-container" aria-hidden="true">
           <div
             className="progress-bar-indeterminant"

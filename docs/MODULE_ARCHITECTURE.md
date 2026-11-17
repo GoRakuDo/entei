@@ -601,5 +601,10 @@ CREATE TABLE IF NOT EXISTS kv_store (
 - **見出し区切り文字（`data-language`）**: `resolvePopupContentAttributes` に `data-language="ja"` が未配線のため、CSS の `:root:not([data-language=ja])` により複数見出しの区切りが「、」ではなく「, 」になる既存ドリフトが存在する（別タスクにて対応推奨）。
 - **`entry-current` の a11y 支援**: スクリーンリーダー向けの `aria-current="true"` は視覚専用クラス付与と同時に追加することが望ましい。
 - **term / kanji 同時描画時の index 衝突防止**: 現状は排他描画だが、将来の同時描画時は結合後のリストに対して1回のみ採番する設計が必要。
+- **QueryParser 言語属性のプロファイル追従**: `#query-parser-content` の `lang="ja"` は現在固定。多言語辞書拡張時は `profile.general.language` と動的同期することが望ましい。
+- **QueryParser 単語クリック時の履歴対称性**: 単語クリック時は検索ボックスの全文を保持したままカードを切り替える仕様。ブラウザBack時の `full` 復元との挙動整合に留意する。
+- **Search Window セクションの再編**: ブラウザ拡張用の不要な8項目を非表示化し、`general.stickySearchHeader` / `general.enableWanakana` / `clipboard.enableSearchPageMonitor` を集約。見出し説明文はマニフェストから上書き対応。
+- **Sticky search header のオフセット設計**: デスクトップでは TopBar ピルの高さ、モバイルではモバイルバーとセーフエリアを考慮した sticky `top` オフセットを適用。
+
 
 

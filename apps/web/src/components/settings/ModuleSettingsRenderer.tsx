@@ -35,6 +35,12 @@
  * field itself. A field laid out this way is claimed: it is not drawn a second
  * time in its tree group.
  *
+ * The layout entry may also RE-TEXT the section it takes over (`label` /
+ * `description`): upstream's headings describe the extension's own window, so a
+ * host that fills a section with rows about its own page would otherwise head them
+ * with a sentence about chrome it does not have. Both are optional and the tree's
+ * wording is the fallback, so a layout cannot blank a heading by omission.
+ *
  * A `field` row may also name a source that owns its EDITOR: some values are not
  * in the module's options tree at all (a credential lives in the module's own
  * store), or one control edits several paths at once (Yomitan's merge dictionary
@@ -372,6 +378,12 @@ function ModuleSection({
   const layout = sectionLayouts?.find(
     (candidate) => candidate.section === section.key,
   );
+  /* A section the manifest lays out may also RE-TEXT it: upstream's heading
+     describes the extension's own surface, which is not what host-declared rows are
+     about (see `EnteiModuleSectionLayout`). An override, never a second source of
+     copy: a layout that declares neither keeps the tree's own wording. */
+  const heading = layout?.label ?? section.label;
+  const headingDescription = layout?.description ?? section.description;
 
   return (
     <section className="entei-settings-section-card entei-module-section">
@@ -381,9 +393,9 @@ function ModuleSection({
           className="entei-module-section-toggle"
           aria-expanded={expanded}
           aria-controls={panelId}
-          aria-label={`${labels.toggleSection}: ${section.label}`}
+          aria-label={`${labels.toggleSection}: ${heading}`}
           aria-describedby={
-            section.description !== undefined ? descriptionId : undefined
+            headingDescription !== undefined ? descriptionId : undefined
           }
           onClick={onToggle}
         >
@@ -395,16 +407,16 @@ function ModuleSection({
                   aria-hidden="true"
                 />
               )}
-              <span className="entei-module-section-label">{section.label}</span>
+              <span className="entei-module-section-label">{heading}</span>
             </span>
-            {section.description !== undefined && (
+            {headingDescription !== undefined && (
               /* A span, not a <p>: <button> only accepts phrasing content, and
                  the class carries the block layout. */
               <span
                 className="entei-module-section-description"
                 id={descriptionId}
               >
-                {section.description}
+                {headingDescription}
               </span>
             )}
           </span>

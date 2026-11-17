@@ -464,6 +464,30 @@
       ]
     },
     {
+      "section": "search-window",
+      "description": "Search page behavior and settings.",
+      "rows": [
+        {
+          "layout": "field",
+          "field": "general.stickySearchHeader",
+          "label": "Sticky search header",
+          "description": "Keep the search input header fixed at the top of the search window."
+        },
+        {
+          "layout": "field",
+          "field": "general.enableWanakana",
+          "label": "Automatic kana conversion",
+          "description": "Convert typed romaji to kana (Wanakana)."
+        },
+        {
+          "layout": "field",
+          "field": "clipboard.enableSearchPageMonitor",
+          "label": "Clipboard monitor",
+          "description": "The query on the search page will be automatically updated with text in the clipboard."
+        }
+      ]
+    },
+    {
       "section": "parsing",
       "rows": [
         {
@@ -496,11 +520,6 @@
             { "value": "romaji", "label": "Romaji" },
             { "value": "dictionary-reading", "label": "Dictionary reading" }
           ]
-        },
-        {
-          "layout": "field",
-          "field": "general.enableWanakana",
-          "label": "Enable Wanakana (romaji → kana)"
         }
       ]
     },

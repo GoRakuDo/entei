@@ -170,6 +170,39 @@ body[data-page='search'] .entei-main-inner {
   flex-flow: column nowrap;
 }
 
+/* The pinned header — `general.stickySearchHeader`, which `YomitanSearchApp` writes
+   onto this element as a data attribute, so the option stays the one source of
+   truth for it.
+
+   Upstream means this inside its own window, where `.content-scroll` is the scroller
+   and the header simply never moves; this page scrolls with the DOCUMENT, so the
+   same intent is `position: sticky` here — box and furigana header stay within reach
+   while the cards go by.
+
+   TWO OFFSETS, because the two chrome forms differ: the desktop TopBar is a
+   `position: fixed` pill (the pill-zone rule at the top of this file) whose box ends
+   at 1rem of top inset + 44px pill + 0.25rem of its own padding + the zone's
+   0.25rem, while the mobile one is a sticky bar of `--entei-topbar-height` under the
+   notch inset. The header stops below whichever is present instead of sliding
+   beneath it.
+
+   OPAQUE on purpose: the cards scroll behind this block, and `--background-color` is
+   the surface they are themselves drawn on, so the pinned header reads as the page
+   rather than as text over text. `z-index` stays at the layout's content level, below
+   `--entei-z-topbar`, so the pill is never covered. */
+.entei-yomitan-search .entei-yomitan-search-header[data-sticky-search-header='true'] {
+  position: sticky;
+  top: calc(var(--entei-topbar-height) + var(--entei-safe-top));
+  z-index: var(--entei-z-content);
+  background-color: var(--background-color);
+}
+
+@media (min-width: 768px) {
+  .entei-yomitan-search .entei-yomitan-search-header[data-sticky-search-header='true'] {
+    top: calc(var(--entei-topbar-height) + var(--entei-space-8));
+  }
+}
+
 /* The progress bar's own wrapper (display.css): sticky, zero-height, so the bar
    overlays the top edge of the results instead of pushing them down. */
 .entei-yomitan-search .top-progress-bar-container {

@@ -250,10 +250,22 @@ export interface EnteiModuleRowBinding {
 /**
  * Manifest-declared layout of one settings section: its rows, in draw order,
  * replacing the generic group walk for that section.
+ *
+ * The entry may also RE-TEXT the section it lays out (`label` / `description`).
+ * Upstream's section headings describe the extension's own surface, and a host
+ * that claims a section for entirely different rows would otherwise head them with
+ * a sentence about a window it does not have — Yomitan's "Standalone search window
+ * dimensions and state." over three search-page switches. Both are optional: a
+ * layout that declares neither keeps the descriptor tree's own wording, so this is
+ * an override and never a second source of copy.
  */
 export interface EnteiModuleSectionLayout {
   /** `key` of the section in the module's `settingsSchema`. */
   section: string;
+  /** Heading text, replacing the descriptor's own (absent = keep the tree's). */
+  label?: string;
+  /** Heading description, replacing the descriptor's own (absent = keep it). */
+  description?: string;
   /** Rows to draw, top to bottom. */
   rows: readonly EnteiModuleRowBinding[];
 }
@@ -549,7 +561,18 @@ export function normalizeSectionLayouts(
       rows.push(binding);
     }
     if (rows.length === 0) continue;
-    layouts.push({ section, rows });
+    const sectionLayout: EnteiModuleSectionLayout = { section, rows };
+    /* The section's own re-text, when the manifest declares one. Parsed with the
+       same rule as every other manifest string: an empty or non-string value is
+       ABSENT rather than blank, so a typo falls back to the tree's wording instead
+       of printing an empty heading. */
+    const sectionLabel = optionalId(raw.label);
+    if (sectionLabel !== undefined) sectionLayout.label = sectionLabel;
+    const sectionDescription = optionalId(raw.description);
+    if (sectionDescription !== undefined) {
+      sectionLayout.description = sectionDescription;
+    }
+    layouts.push(sectionLayout);
   }
   return layouts;
 }

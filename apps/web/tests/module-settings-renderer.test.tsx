@@ -202,6 +202,109 @@ describe('ModuleSettingsRenderer — sections', () => {
   });
 });
 
+describe('ModuleSettingsRenderer — a section heading the manifest re-texts', () => {
+  /**
+   * A layout entry may re-text the section it takes over. Upstream's headings
+   * describe the EXTENSION's surface, so a host that fills a section with rows about
+   * its own page needs a heading that says so — without giving up the tree as the
+   * fallback (a layout that says nothing must leave the wording exactly as it was).
+   */
+  const CLIPBOARD_INDEX = yomitanSettingsTree.findIndex(
+    (section) => section.key === 'clipboard',
+  );
+
+  function clipboardCard(container: HTMLElement): HTMLElement {
+    const card = container.querySelectorAll('.entei-module-section')[
+      CLIPBOARD_INDEX
+    ];
+    if (card === undefined) throw new Error('no clipboard section card');
+    return card as HTMLElement;
+  }
+
+  it('replaces both the label and the description', () => {
+    const { container } = renderSettings(false, [
+      {
+        section: 'clipboard',
+        label: 'Monitoring',
+        description: 'Watch the clipboard for new queries.',
+        rows: [
+          {
+            layout: 'field',
+            field: 'clipboard.enableSearchPageMonitor',
+            label: 'Clipboard monitor',
+          },
+        ],
+      },
+    ]);
+    openSection(/^Toggle section: Monitoring$/i);
+
+    const card = clipboardCard(container);
+    expect(card.querySelector('.entei-module-section-label')?.textContent).toBe(
+      'Monitoring',
+    );
+    expect(
+      card.querySelector('.entei-module-section-description')?.textContent,
+    ).toBe('Watch the clipboard for new queries.');
+    // The tree's own wording is gone, not merely outranked.
+    expect(card.textContent).not.toContain('Clipboard monitoring');
+    expect(card.textContent).not.toContain('Enable search page monitor');
+  });
+
+  it('keeps the accessible name and description in step with the copy', () => {
+    const { container } = renderSettings(false, [
+      {
+        section: 'clipboard',
+        label: 'Monitoring',
+        description: 'Watch the clipboard for new queries.',
+        rows: [
+          {
+            layout: 'field',
+            field: 'clipboard.enableSearchPageMonitor',
+            label: 'Clipboard monitor',
+          },
+        ],
+      },
+    ]);
+
+    /* The heading is the toggle's accessible NAME and its description is the
+       referenced node: a card renamed in one place only would be announced under
+       its old name. */
+    const card = clipboardCard(container);
+    const toggle = card.querySelector('.entei-module-section-toggle');
+    const description = card.querySelector(
+      '.entei-module-section-description',
+    );
+    expect(toggle?.getAttribute('aria-label')).toBe('Toggle section: Monitoring');
+    expect(toggle?.getAttribute('aria-describedby')).toBe(
+      description?.getAttribute('id'),
+    );
+  });
+
+  it('leaves the heading alone when the layout re-texts nothing', () => {
+    const { container } = renderSettings(false, [
+      {
+        section: 'clipboard',
+        rows: [
+          {
+            layout: 'field',
+            field: 'clipboard.enableSearchPageMonitor',
+            label: 'Clipboard monitor',
+          },
+        ],
+      },
+    ]);
+    openSection(/^Toggle section: Clipboard$/i);
+
+    const card = clipboardCard(container);
+    expect(card.querySelector('.entei-module-section-label')?.textContent).toBe(
+      'Clipboard',
+    );
+    expect(
+      card.querySelector('.entei-module-section-description')?.textContent,
+    ).toBe('Clipboard monitoring for auto-search.');
+  });
+});
+
 describe('ModuleSettingsRenderer — locked fields', () => {
   it('never renders the host-locked general fields', () => {
     renderSettings();
@@ -851,7 +954,8 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
     expect(
       section?.querySelectorAll('.entei-module-select-pair-item'),
     ).toHaveLength(4);
-    // 3 (Compact tags, search tags, debug info) switches: Wanakana moved to Parsing.
+    // 3 (Compact tags, search tags, debug info) switches: Wanakana is laid out in
+    // the Search Window card.
     expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(3);
     // Custom popup CSS is the section's one textarea: the OUTER one is gone.
     expect(section?.querySelectorAll('textarea')).toHaveLength(1);
@@ -908,19 +1012,19 @@ describe('ModuleSettingsRenderer — the shipped Appearance layout', () => {
 
 describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
   /**
-   * Upstream Yomitan puts its parser switches, the furigana reading mode and the
-   * romaji input toggle in ONE settings section. The descriptor tree this host
-   * renders describes them as two sections (parsing + general), so the manifest
-   * lays the Parsing section out itself: the rows are the app's own English, and
-   * readingMode / enableWanakana are CLAIMED here instead of in Appearance, where
-   * the tree groups would otherwise leave them.
+   * Upstream Yomitan puts its parser switches and the furigana reading mode in ONE
+   * settings section. The descriptor tree this host renders describes them as two
+   * sections (parsing + general), so the manifest lays the Parsing section out
+   * itself: the rows are the app's own English, and readingMode is CLAIMED here
+   * instead of in Appearance, where the tree groups would otherwise leave it. The
+   * romaji → kana switch is NOT here any more: it belongs to the input the user
+   * types into, so the manifest moved it to the Search Window card (see below).
    */
   const PARSING_LABELS = [
     "Parse sentences using Yomitan's internal parser",
     'Parse sentences using MeCab',
     'Show space between parsed words',
     'Reading mode',
-    'Enable Wanakana (romaji → kana)',
   ];
 
   function renderShipped() {
@@ -941,7 +1045,7 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     );
   }
 
-  it('draws the five declared rows once each', () => {
+  it('draws the four declared rows once each', () => {
     const { container } = renderShipped();
     // The section is called Parsing; Sentence Parsing is a different card, so the
     // accessible name has to be matched exactly.
@@ -956,8 +1060,8 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     for (const label of PARSING_LABELS) {
       expect(screen.getAllByText(label)).toHaveLength(1);
     }
-    // 3 parser switches + 1 Wanakana switch, one reading-mode combobox.
-    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(4);
+    // 3 parser switches, one reading-mode combobox.
+    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(3);
     expect(section?.querySelectorAll('.entei-module-select')).toHaveLength(1);
     // ...and nothing else: no stray textarea or number input in this section.
     expect(section?.querySelectorAll('textarea')).toHaveLength(0);
@@ -980,25 +1084,29 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     ]);
   });
 
-  it('leaves Reading mode and Wanakana out of Appearance', () => {
+  it('leaves Reading mode out of Appearance', () => {
     const { container } = renderShipped();
     openSection(/Appearance/i);
     openSection(/^Toggle section: Parsing$/i);
 
-    // Both paths live in the tree's Appearance groups, so a card that did NOT
-    // claim them would draw them a second time: each is on the page exactly once,
-    // and that one copy is in the Parsing card.
+    // The path lives in the tree's Appearance groups, so a card that did NOT claim
+    // it would draw it a second time: it is on the page exactly once, and that one
+    // copy is in the Parsing card.
     const sections = container.querySelectorAll('.entei-module-section');
     const appearance = sections[4]?.textContent ?? '';
     const parsing = sections[parsingIndex()]?.textContent ?? '';
 
-    for (const label of [
-      'Reading mode',
-      'Enable Wanakana (romaji → kana)',
-    ]) {
-      expect(parsing).toContain(label);
-      expect(appearance).not.toContain(label);
-    }
+    expect(parsing).toContain('Reading mode');
+    expect(appearance).not.toContain('Reading mode');
+  });
+
+  it('no longer carries the romaji → kana switch', () => {
+    const { container } = renderShipped();
+    openSection(/^Toggle section: Parsing$/i);
+
+    const parsing =
+      container.querySelectorAll('.entei-module-section')[parsingIndex()];
+    expect(parsing?.textContent).not.toContain('Automatic kana conversion');
   });
 
   it('drops Custom outer CSS entirely', () => {
@@ -1011,6 +1119,145 @@ describe('ModuleSettingsRenderer — the shipped Parsing layout', () => {
     expect(appearance?.textContent).not.toContain('Custom outer CSS');
     expect(appearance?.textContent).toContain('Custom popup CSS');
     expect(screen.queryByText('Custom outer CSS')).toBeNull();
+  });
+});
+
+describe('ModuleSettingsRenderer — the shipped Search Window layout', () => {
+  /**
+   * Upstream's Search Window section is the EXTENSION's own chrome: the standalone
+   * window's Width / Height / Left / Top and its window type and state
+   * (`popupWindow.*`), none of which exists in a page of this app. The manifest
+   * therefore lays the section out itself and shows only the three switches that
+   * DO mean something here — the pinned search header, the romaji → kana
+   * conversion of the search field, and the clipboard monitor.
+   */
+  const SEARCH_WINDOW_LABELS = [
+    'Sticky search header',
+    'Automatic kana conversion',
+    'Clipboard monitor',
+  ];
+
+  /** The extension-only rows that must not survive the layout. */
+  const EXTENSION_ONLY_LABELS = [
+    'Width (px)',
+    'Height (px)',
+    'Left (px)',
+    'Top (px)',
+    'Window type',
+    'Window state',
+  ];
+
+  function renderShipped() {
+    const yomitan = CORE_MODULES.find((module) => module.id === 'yomitan');
+    if (yomitan === undefined) throw new Error('yomitan is not registered');
+    return render(
+      <ModuleSettingsRenderer
+        module={{ ...yomitan, showSectionIcons: true }}
+        dict={en}
+      />,
+    );
+  }
+
+  /** The Search Window card's position, read from the tree rather than hard-coded. */
+  function searchWindowIndex(): number {
+    return yomitanSettingsTree.findIndex(
+      (section) => section.key === 'search-window',
+    );
+  }
+
+  function searchWindow(container: HTMLElement): Element | undefined {
+    return container.querySelectorAll('.entei-module-section')[
+      searchWindowIndex()
+    ];
+  }
+
+  it('draws the three declared rows once each, with no group walk left', () => {
+    const { container } = renderShipped();
+    openSection(/^Toggle section: Search Window$/i);
+
+    const section = searchWindow(container);
+    expect(section?.querySelectorAll('.entei-module-rows')).toHaveLength(1);
+    expect(section?.querySelectorAll('.entei-module-group')).toHaveLength(0);
+
+    for (const label of SEARCH_WINDOW_LABELS) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+    // Three switches and nothing else: no dimension inputs in this section.
+    expect(section?.querySelectorAll('.entei-module-field--switch')).toHaveLength(
+      3,
+    );
+    expect(section?.querySelectorAll('textarea')).toHaveLength(0);
+    expect(section?.querySelectorAll('input[type="number"]')).toHaveLength(0);
+    /* The section is re-texted by the same layout: upstream heads it with the
+       standalone window's geometry, which is exactly what this card does NOT show. */
+    expect(
+      section?.querySelector('.entei-module-section-description')?.textContent,
+    ).toBe('Search page behavior and settings.');
+    expect(screen.queryByText(/Standalone search window dimensions/)).toBeNull();
+  });
+
+  it('hides the standalone window geometry everywhere on the page', () => {
+    const { container } = renderShipped();
+    openSection(/^Toggle section: Search Window$/i);
+
+    for (const label of EXTENSION_ONLY_LABELS) {
+      expect(screen.queryByText(label)).toBeNull();
+    }
+    /* The rows are gone, so the section is the only thing left: the declared rows
+       replaced the group walk that would otherwise draw `popupWindow.*`. */
+    expect(searchWindow(container)?.textContent).not.toContain('popupWindow');
+  });
+
+  it('declares the three rows in the manifest order', () => {
+    const rows = (
+      CORE_MODULES.find((module) => module.id === 'yomitan')
+        ?.sectionLayouts?.find((layout) => layout.section === 'search-window')?.rows ?? []
+    ).map((row) => row.field);
+
+    expect(rows).toEqual([
+      'general.stickySearchHeader',
+      'general.enableWanakana',
+      'clipboard.enableSearchPageMonitor',
+    ]);
+  });
+
+  it('carries the three labels and descriptions upstream does not', () => {
+    const layout = CORE_MODULES.find((module) => module.id === 'yomitan')
+      ?.sectionLayouts?.find((entry) => entry.section === 'search-window');
+
+    expect(layout?.rows.map((row) => row.label)).toEqual([
+      'Sticky search header',
+      'Automatic kana conversion',
+      'Clipboard monitor',
+    ]);
+    expect(layout?.rows.map((row) => row.description)).toEqual([
+      'Keep the search input header fixed at the top of the search window.',
+      'Convert typed romaji to kana (Wanakana).',
+      'The query on the search page will be automatically updated with text in the clipboard.',
+    ]);
+  });
+
+  it('claims the romaji → kana switch, so Parsing and Clipboard lose their copies', () => {
+    const { container } = renderShipped();
+    openSection(/^Toggle section: Parsing$/i);
+    openSection(/^Toggle section: Clipboard$/i);
+    openSection(/^Toggle section: Search Window$/i);
+
+    // The path lives in the tree's Parsing and Search Header groups, and the
+    // clipboard monitor in Clipboard: a card that did NOT claim them would draw
+    // them a second time, so each is on the page exactly once.
+    expect(screen.getAllByText('Automatic kana conversion')).toHaveLength(1);
+    expect(screen.getAllByText('Clipboard monitor')).toHaveLength(1);
+    expect(
+      screen.queryByText('Enable Wanakana (romaji → kana)'),
+    ).toBeNull();
+    expect(screen.queryByText('Enable search page monitor')).toBeNull();
+
+    const sections = container.querySelectorAll('.entei-module-section');
+    const searchWindow =
+      sections[searchWindowIndex()]?.textContent ?? '';
+    expect(searchWindow).toContain('Automatic kana conversion');
+    expect(searchWindow).toContain('Clipboard monitor');
   });
 });
 

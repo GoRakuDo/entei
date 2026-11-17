@@ -429,6 +429,38 @@ describe('module-registry — sectionLayouts normalisation', () => {
     ).toEqual([]);
   });
 
+  it('keeps only the section re-text a layout actually declares', () => {
+    expect(
+      normalizeSectionLayouts([
+        {
+          section: 'search-window',
+          label: '  Monitoring  ',
+          description: '  Watch the clipboard.  ',
+          rows: [{ layout: 'field', field: 'clipboard.enabled' }],
+        },
+        {
+          section: 'parsing',
+          // Blank and non-string: ABSENT, so the descriptor's own wording stays
+          // instead of an empty heading reaching the page.
+          label: '   ',
+          description: 42,
+          rows: [{ layout: 'field', field: 'parsing.readingMode' }],
+        },
+      ]),
+    ).toEqual([
+      {
+        section: 'search-window',
+        label: 'Monitoring',
+        description: 'Watch the clipboard.',
+        rows: [{ layout: 'field', field: 'clipboard.enabled' }],
+      },
+      {
+        section: 'parsing',
+        rows: [{ layout: 'field', field: 'parsing.readingMode' }],
+      },
+    ]);
+  });
+
   it('trims ids and keeps only the copy/text fields a row carries', () => {
     expect(
       normalizeSectionLayouts([
